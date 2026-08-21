@@ -1,0 +1,26 @@
+# Vantage on Render.
+#
+# The disk is what makes the data survive a deploy. Render mounts it before the
+# process starts, so VANTAGE_DB can point straight at it.
+
+services:
+  - type: web
+    name: vantage
+    runtime: docker
+    dockerfilePath: ./Dockerfile
+    plan: starter
+    healthCheckPath: /api/health
+    envVars:
+      - key: NODE_ENV
+        value: production
+      # One trusted proxy hop (Render's edge). See finding 18 / server/index.js.
+      - key: TRUST_PROXY
+        value: "1"
+      - key: PORT
+        value: 8080
+      - key: VANTAGE_DB
+        value: /data/vantage.db
+    disk:
+      name: vantage-data
+      mountPath: /data
+      sizeGB: 1

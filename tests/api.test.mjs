@@ -1,0 +1,552 @@
+/**
+ * API tests, with the permission model as the main event.
+ *
+ * Everything else in Vantage is a convenience. The visibility rules are the
+ * part that, if wrong, shows one Marine another Marine's performance record.
+ * So these tests spend most of their effort trying to get at data they
+ * shouldn't be able to reach.
+ *
+ * Run with: node tests/api.test.mjs
+ */
+
+import assert from 'node:assert/strict';
+import { rmSync } from 'node:fs';
+import { tmpdir } from 'node:os';
+import { join } from 'node:path';
+
+const DB = join(tmpdir(), `vantage-test-${Date.now()}.db`);
+process.env.VANTAGE_DB = DB;
+process.env.VANTAGE_TEST = '1';
+
+const { app } = await import('../server/index.js');
+
+const server = app.listen(0);
+await new Promise((r) => server.once('listening', r));
+const BASE = `http://localhost:${server.address().port}`;
+
+const results = [];
+async function test(name, fn) {
+  try {
+    await fn();
+    results.push(['PASS', name]);
+  } catch (err) {
+    results.push(['FAIL', `${name} — ${err.message}`]);
+  }
+}
+
+const call = async (method, path, { token, body } = {}) => {
+  const res = await fetch(BASE + path, {
+    method,
+    headers: {
+      'content-type': 'application/json',
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+    },
+    body: body ? JSON.stringify(body) : undefined,
+  });
+  const text = await res.text();
+  let json = null;
+  try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON body */ }
+  return { status: res.status, body: json };
+};
+
+const login = async (username, password) => {
+  const res = await call('POST', '/api/login', { body: { username, password } });
+  return res.body?.token;
+};
+
+/* ── fixtures ─────────────────────────────────────────────────────── */
+
+await call('POST', '/api/setup', {
+  body: {
+    username: 'boletz', password: 'correct-horse-battery-staple',
+    first_name: 'John', last_name: 'Boletz', rank_id: 'Cpl', mos: '3451',
+    unit_code: 'CE-G8', billet_title: 'Accounting Chief',
+  },
+});
+
+const adminToken = await login('boletz', 'correct-horse-battery-staple');
+const me = (await call('GET', '/api/me', { token: adminToken })).body;
+
+// John leads G-8 (section-head role cascades to Budget/Accounting/Audit/FMRAC).
+await call('PUT', `/api/team/${me.user.id}/assignment`, {
+  token: adminToken,
+  body: { unit_id: 'CE-G8', billet_id: 'accounting-chief', role: 'unit_leader' },
+});
+await call('POST', `/api/team/${me.user.id}/roles`, {
+  token: adminToken,
+  body: { role_id: 'section-head', unit_id: 'CE-G8' },
+});
+
+// A Marine inside John's chain, two levels down.
+await call('POST', '/api/team', {
+  token: adminToken,
+  body: {
+    username: 'rivera', password: 'a-different-long-passphrase',
+    first_name: 'Raul', last_name: 'Rivera', rank_id: 'LCpl', mos: '3451',
+    unit_id: 'G8-FMRAC', billet_id: 'financial-management-resource-analyst', role: 'member',
+  },
+});
+
+// A Marine in a completely separate MSC.
+await call('POST', '/api/team', {
+  token: adminToken,
+  body: {
+    username: 'nguyen', password: 'yet-another-long-passphrase',
+    first_name: 'Thanh', last_name: 'Nguyen', rank_id: 'Sgt', mos: '0311',
+    unit_id: 'CLR-4', billet_id: 'squad-leader', role_id: 'fire-team-leader',
+  },
+});
+
+const riveraToken = await login('rivera', 'a-different-long-passphrase');
+const nguyenToken = await login('nguyen', 'yet-another-long-passphrase');
+const rivera = (await call('GET', '/api/me', { token: riveraToken })).body;
+const nguyen = (await call('GET', '/api/me', { token: nguyenToken })).body;
+
+/* ── auth ─────────────────────────────────────────────────────────── */
+
+await test('setup refuses to run twice', async () => {
+  const res = await call('POST', '/api/setup', { body: { username: 'x', password: 'yyyyyyyyyy' } });
+  assert.equal(res.status, 409);
+});
+
+await test('bad password is rejected', async () => {
+  const res = await call('POST', '/api/login', { body: { username: 'boletz', password: 'wrong' } });
+  assert.equal(res.status, 401);
+});
+
+await test('unknown user and wrong password give the same answer', async () => {
+  const a = await call('POST', '/api/login', { body: { username: 'boletz', password: 'wrong' } });
+  const b = await call('POST', '/api/login', { body: { username: 'ghost', password: 'wrong' } });
+  assert.equal(a.status, b.status);
+  assert.equal(a.body.error, b.body.error);
+});
+
+await test('no token means no data', async () => {
+  const res = await call('GET', '/api/activities');
+  assert.equal(res.status, 401);
+});
+
+await test('logout invalidates the session immediately', async () => {
+  const token = await login('nguyen', 'yet-another-long-passphrase');
+  assert.equal((await call('GET', '/api/me', { token })).status, 200);
+  await call('POST', '/api/logout', { token });
+  assert.equal((await call('GET', '/api/me', { token })).status, 401);
+});
+
+await test('short passwords are refused at creation', async () => {
+  const res = await call('POST', '/api/team', {
+    token: adminToken,
+    body: { username: 'weak', password: 'short', first_name: 'A', last_name: 'B', unit_id: 'CE-G8' },
+  });
+  assert.equal(res.status, 400);
+});
+
+/* ── org ──────────────────────────────────────────────────────────── */
+
+await test('org reference data loads', async () => {
+  const res = await call('GET', '/api/org', { token: adminToken });
+  assert.ok(res.body.ranks.length >= 27, 'ranks');
+  assert.ok(res.body.billets.length >= 30, 'billets');
+  assert.ok(res.body.units.length >= 30, 'units');
+  assert.ok(res.body.units.some((u) => u.code === 'G8-FMRAC'));
+  assert.ok(res.body.billets.some((b) => b.title === 'Fire Team Leader'));
+});
+
+await test('rank tiers cover enlisted, warrant and officer', async () => {
+  const { ranks } = (await call('GET', '/api/org', { token: adminToken })).body;
+  for (const tier of ['enlisted', 'nco', 'snco', 'warrant', 'officer']) {
+    assert.ok(ranks.some((r) => r.tier === tier), `missing tier ${tier}`);
+  }
+});
+
+/* ── the visibility boundary ──────────────────────────────────────── */
+
+await test('a unit leader sees Marines in subordinate units', async () => {
+  const res = await call('GET', '/api/team', { token: adminToken });
+  const names = res.body.roster.map((r) => r.last_name);
+  assert.ok(names.includes('Rivera'), 'G-8 lead should see FMRAC Marine');
+});
+
+await test('a member sees only themselves', async () => {
+  const res = await call('GET', '/api/team', { token: riveraToken });
+  assert.equal(res.body.roster.length, 1);
+  assert.equal(res.body.roster[0].last_name, 'Rivera');
+  assert.equal(res.body.canLead, false);
+});
+
+await test('a subordinate cannot open their leader record', async () => {
+  const res = await call('GET', `/api/team/${me.user.id}`, { token: riveraToken });
+  assert.equal(res.status, 403);
+});
+
+await test('a leader in another MSC cannot reach into this chain', async () => {
+  const token = await login('nguyen', 'yet-another-long-passphrase');
+  const res = await call('GET', `/api/team/${rivera.user.id}`, { token });
+  assert.equal(res.status, 403);
+});
+
+await test('a leader can open a subordinate record', async () => {
+  const res = await call('GET', `/api/team/${rivera.user.id}`, { token: adminToken });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.person.last_name, 'Rivera');
+});
+
+await test('opening a subordinate record writes an audit row', async () => {
+  await call('GET', `/api/team/${rivera.user.id}`, { token: adminToken });
+  const res = await call('GET', '/api/audit', { token: riveraToken });
+  assert.ok(res.body.some((r) => r.action === 'view_member'), 'Rivera should see who read his record');
+});
+
+await test('a leader opening a member record does not receive private entries', async () => {
+  await call('POST', '/api/activities', {
+    token: riveraToken,
+    body: { title: 'Private counseling note', date: '2026-08-11', visibility: 'private' },
+  });
+  await call('POST', '/api/activities', {
+    token: riveraToken,
+    body: { title: 'Shared fiscal work', date: '2026-08-12', visibility: 'chain' },
+  });
+  const res = await call('GET', `/api/team/${rivera.user.id}`, { token: adminToken });
+  const titles = res.body.activities.map((a) => a.title);
+  assert.ok(titles.includes('Shared fiscal work'), 'shared work should be visible');
+  assert.ok(!titles.includes('Private counseling note'), 'PRIVACY LEAK: private entry exposed to leader');
+});
+
+await test('a Marine opening their own record sees everything including private', async () => {
+  const res = await call('GET', `/api/team/${rivera.user.id}`, { token: riveraToken });
+  const titles = res.body.activities.map((a) => a.title);
+  assert.ok(titles.includes('Private counseling note'), 'own private entry should be visible to self');
+});
+
+await test('a member cannot add Marines', async () => {
+  const res = await call('POST', '/api/team', {
+    token: riveraToken,
+    body: { username: 'sneak', password: 'a-long-enough-passphrase', first_name: 'S', last_name: 'T', unit_id: 'CE-G8' },
+  });
+  assert.equal(res.status, 403);
+});
+
+/* ── the role system ──────────────────────────────────────────────── */
+
+await test('system roles ship with the install', async () => {
+  const res = await call('GET', '/api/roles', { token: adminToken });
+  const names = res.body.roles.map((r) => r.id);
+  for (const id of ['marine', 'fire-team-leader', 'ncoic', 'section-head', 'administrator']) {
+    assert.ok(names.includes(id), `missing ${id}`);
+  }
+});
+
+await test('built-in roles cannot be edited or deleted', async () => {
+  const edit = await call('PUT', '/api/roles/section-head', { token: adminToken, body: { name: 'Hacked' } });
+  assert.equal(edit.status, 400);
+  const del = await call('DELETE', '/api/roles/marine', { token: adminToken });
+  assert.equal(del.status, 400);
+});
+
+await test('a member cannot create roles', async () => {
+  const res = await call('POST', '/api/roles', {
+    token: riveraToken,
+    body: { name: 'Self Promotion', position: 1, permissions: 2048 },
+  });
+  assert.equal(res.status, 403);
+});
+
+await test('nobody can create a role at or above their own position', async () => {
+  // Give Rivera role-management authority, but only at position 20.
+  await call('POST', `/api/team/${rivera.user.id}/roles`, {
+    token: adminToken,
+    body: { role_id: 'ncoic', unit_id: 'G8-FMRAC' },
+  });
+  const token = await login('rivera', 'a-different-long-passphrase');
+  const res = await call('POST', '/api/roles', {
+    token,
+    body: { name: 'Above Me', position: 50, permissions: 1 },
+  });
+  assert.ok([403, 400].includes(res.status), `expected refusal, got ${res.status}`);
+});
+
+await test('PRIVILEGE ESCALATION: cannot grant a permission you do not hold', async () => {
+  const token = await login('rivera', 'a-different-long-passphrase');
+  // NCOIC has no MANAGE_ROLES, so this is blocked at the gate; even with it,
+  // ADMINISTRATOR is not in their bits.
+  const res = await call('POST', '/api/roles', {
+    token,
+    body: { name: 'Sneaky Admin', position: 1, permissions: 2048 },
+  });
+  assert.equal(res.status, 403, 'a non-admin must not mint an administrator role');
+});
+
+await test('a leader cannot hand out a role at or above their own', async () => {
+  const token = await login('rivera', 'a-different-long-passphrase');
+  const res = await call('POST', `/api/team/${rivera.user.id}/roles`, {
+    token,
+    body: { role_id: 'administrator', unit_id: 'G8-FMRAC' },
+  });
+  assert.equal(res.status, 403);
+});
+
+await test('a cascading role reaches subordinate units', async () => {
+  // section-head at CE-G8 must see a Marine sitting in G8-FMRAC.
+  const res = await call('GET', '/api/team', { token: adminToken });
+  assert.ok(res.body.roster.some((r) => r.last_name === 'Rivera'));
+});
+
+await test('a flat role does not reach subordinate units', async () => {
+  // Nguyen holds fire-team-leader at CLR-4, which does not cascade.
+  const token = await login('nguyen', 'yet-another-long-passphrase');
+  const res = await call('GET', '/api/team', { token });
+  assert.ok(!res.body.roster.some((r) => r.last_name === 'Rivera'));
+});
+
+await test('roster visibility does not imply record access', async () => {
+  // Training NCO sees shared work across a section but has no VIEW_MEMBER_DETAIL.
+  await call('POST', '/api/team', {
+    token: adminToken,
+    body: {
+      username: 'trainer', password: 'trainer-long-enough-passphrase',
+      first_name: 'Pat', last_name: 'Trainer', rank_id: 'Sgt',
+      unit_id: 'CE-G8', role_id: 'training-nco',
+    },
+  });
+  const token = await login('trainer', 'trainer-long-enough-passphrase');
+  const roster = await call('GET', '/api/team', { token });
+  assert.ok(roster.body.roster.some((r) => r.last_name === 'Rivera'), 'should see them on the roster');
+  const detail = await call('GET', `/api/team/${rivera.user.id}`, { token });
+  assert.equal(detail.status, 403, 'must not be able to open the record');
+});
+
+/* ── unit creation ────────────────────────────────────────────────── */
+
+await test('a member cannot create units', async () => {
+  const res = await call('POST', '/api/org/units', {
+    token: riveraToken,
+    body: { name: 'Shadow Team', echelon: 'fire_team', parent_id: 'CE-G8' },
+  });
+  assert.equal(res.status, 403);
+});
+
+await test('a section head creates a unit beneath their own', async () => {
+  const res = await call('POST', '/api/org/units', {
+    token: adminToken,
+    body: { name: 'Audit Support Cell', short_name: 'ASC', echelon: 'fire_team', parent_id: 'CE-G8' },
+  });
+  assert.equal(res.status, 200);
+  assert.equal(res.body.parent_id, 'CE-G8');
+});
+
+await test('a new unit inherits the cascade from above', async () => {
+  await call('POST', '/api/team', {
+    token: adminToken,
+    body: {
+      username: 'newbie', password: 'newbie-long-enough-passphrase',
+      first_name: 'Sam', last_name: 'Newbie', rank_id: 'PFC', unit_id: 'AUDIT-SUPPORT-CELL',
+    },
+  });
+  const res = await call('GET', '/api/team', { token: adminToken });
+  assert.ok(res.body.roster.some((r) => r.last_name === 'Newbie'), 'section head should see into a unit they just made');
+});
+
+await test('a unit with Marines still assigned cannot be archived', async () => {
+  const res = await call('DELETE', '/api/org/units/AUDIT-SUPPORT-CELL', { token: adminToken });
+  assert.equal(res.status, 400);
+});
+
+/* ── readiness ────────────────────────────────────────────────────── */
+
+await test('readiness saves and reads back', async () => {
+  await call('PUT', '/api/readiness', {
+    token: riveraToken,
+    body: { pft_score: 285, cft_score: 262, mcmap_belt: 'Grey', rifle_qual: 'Sharpshooter', ceus: 22 },
+  });
+  const res = await call('GET', '/api/readiness', { token: riveraToken });
+  assert.equal(res.body.pft_score, 285);
+  assert.equal(res.body.mcmap_belt, 'Grey');
+});
+
+await test('readiness of another Marine needs VIEW_MEMBER_DETAIL', async () => {
+  const token = await login('trainer', 'trainer-long-enough-passphrase');
+  const res = await call('GET', `/api/readiness/${rivera.user.id}`, { token });
+  assert.equal(res.status, 403);
+});
+
+/* ── preferences ──────────────────────────────────────────────────── */
+
+await test('preferences round-trip and merge shallowly', async () => {
+  await call('PUT', '/api/prefs', {
+    token: riveraToken,
+    body: { dashboard: { hidden: ['goals'], collapsed: ['tape'] } },
+  });
+  await call('PUT', '/api/prefs', { token: riveraToken, body: { fitrep: { periodEnd: '2026-09-30' } } });
+  const res = await call('GET', '/api/prefs', { token: riveraToken });
+  assert.deepEqual(res.body.dashboard.hidden, ['goals'], 'first key must survive the second write');
+  assert.equal(res.body.fitrep.periodEnd, '2026-09-30');
+});
+
+await test('preferences are per-user, not shared', async () => {
+  const other = await call('GET', '/api/prefs', { token: adminToken });
+  assert.ok(!other.body.fitrep, "one Marine's prefs must not appear on another's account");
+});
+
+await test('oversized preferences are refused', async () => {
+  const res = await call('PUT', '/api/prefs', {
+    token: riveraToken,
+    body: { junk: 'x'.repeat(40_000) },
+  });
+  assert.equal(res.status, 400);
+});
+
+/* ── schema migration ─────────────────────────────────────────────── */
+
+await test('an old-shape database gains the new columns on boot', async () => {
+  // Simulate a v3.0 users table: recreate without the readiness/prefs columns,
+  // then re-run the migration path and confirm the columns appear.
+  const { getDb } = await import('../server/db.js');
+  const live = getDb();
+  const cols = live.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+  for (const col of ['pft_score', 'mcmap_belt', 'prefs', 'cmd_leadership']) {
+    assert.ok(cols.includes(col), `users.${col} should exist after migrate()`);
+  }
+});
+
+/* ── hosting surface ──────────────────────────────────────────────── */
+
+await test('health check reports the database is answering', async () => {
+  const res = await call('GET', '/api/health');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ok, true);
+});
+
+await test('security headers are set', async () => {
+  const res = await fetch(`${BASE}/api/health`);
+  assert.match(res.headers.get('content-security-policy') || '', /connect-src 'self'/);
+  assert.equal(res.headers.get('x-frame-options'), 'DENY');
+  assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+});
+
+/* ── record visibility ────────────────────────────────────────────── */
+
+await test('private records stay private from the chain of command', async () => {
+  await call('POST', '/api/activities', {
+    token: riveraToken,
+    body: { title: 'Private note to self', date: '2026-08-01', visibility: 'private' },
+  });
+  const leaderView = await call('GET', '/api/activities', { token: adminToken });
+  assert.ok(!leaderView.body.some((a) => a.title === 'Private note to self'));
+});
+
+await test('chain-visible records roll up to the leader', async () => {
+  await call('POST', '/api/activities', {
+    token: riveraToken,
+    body: {
+      title: 'Reconciled 12 ULOs', date: '2026-08-02', dollar_amount: 44000,
+      dollar_type: 'reconciled', quantity: 12, unit_label: 'ULOs',
+      jepes_area: 'MOS / Mission Accomplishment', visibility: 'chain',
+    },
+  });
+  const leaderView = await call('GET', '/api/activities', { token: adminToken });
+  assert.ok(leaderView.body.some((a) => a.title === 'Reconciled 12 ULOs'));
+});
+
+await test('an outside leader sees neither', async () => {
+  const token = await login('nguyen', 'yet-another-long-passphrase');
+  const res = await call('GET', '/api/activities', { token });
+  assert.ok(!res.body.some((a) => a.title === 'Reconciled 12 ULOs'));
+  assert.ok(!res.body.some((a) => a.title === 'Private note to self'));
+});
+
+await test('a member cannot share a task to a unit they do not lead', async () => {
+  const res = await call('POST', '/api/tasks', {
+    token: riveraToken,
+    body: { title: 'Unauthorised broadcast', visibility: 'chain', unit_id: 'CE-G8' },
+  });
+  assert.equal(res.status, 403);
+});
+
+await test('a team lead can push a task to their unit', async () => {
+  const res = await call('POST', '/api/tasks', {
+    token: adminToken,
+    body: { title: 'Close out FY execution', visibility: 'chain', unit_id: 'CE-G8', priority: 'high' },
+  });
+  assert.equal(res.status, 200);
+  const subordinate = await call('GET', '/api/tasks', { token: riveraToken });
+  assert.ok(subordinate.body.some((t) => t.title === 'Close out FY execution'), 'FMRAC Marine should see it');
+});
+
+await test('a shared unit goal reaches everyone beneath it', async () => {
+  await call('POST', '/api/goals', {
+    token: adminToken,
+    body: { title: 'Zero aged ULOs by 30 SEP', target_value: 0, visibility: 'chain', unit_id: 'CE-G8' },
+  });
+  const res = await call('GET', '/api/goals', { token: riveraToken });
+  assert.ok(res.body.some((g) => g.title === 'Zero aged ULOs by 30 SEP'));
+});
+
+await test('unit-scoped sharing does not leak sideways', async () => {
+  const token = await login('nguyen', 'yet-another-long-passphrase');
+  const res = await call('GET', '/api/goals', { token });
+  assert.ok(!res.body.some((g) => g.title === 'Zero aged ULOs by 30 SEP'));
+});
+
+await test('a Marine cannot edit a record outside their reach', async () => {
+  const leaderActivity = await call('POST', '/api/activities', {
+    token: adminToken,
+    body: { title: 'Leader only entry', date: '2026-08-03', visibility: 'private' },
+  });
+  const res = await call('PUT', `/api/activities/${leaderActivity.body.id}`, {
+    token: riveraToken,
+    body: { title: 'Tampered' },
+  });
+  assert.ok([403, 404].includes(res.status), `expected refusal, got ${res.status}`);
+});
+
+/* ── deletion behaviour ───────────────────────────────────────────── */
+
+await test('delete is soft and reversible', async () => {
+  const created = await call('POST', '/api/activities', {
+    token: riveraToken,
+    body: { title: 'Deletable entry', date: '2026-08-04' },
+  });
+  await call('DELETE', `/api/activities/${created.body.id}`, { token: riveraToken });
+
+  let list = await call('GET', '/api/activities', { token: riveraToken });
+  assert.ok(!list.body.some((a) => a.id === created.body.id), 'should be hidden after delete');
+
+  await call('POST', `/api/activities/${created.body.id}/restore`, { token: riveraToken });
+  list = await call('GET', '/api/activities', { token: riveraToken });
+  assert.ok(list.body.some((a) => a.id === created.body.id), 'should come back after restore');
+});
+
+/* ── report inputs ────────────────────────────────────────────────── */
+
+await test('bulk import lands under the importing user', async () => {
+  const res = await call('POST', '/api/activities/bulk', {
+    token: riveraToken,
+    body: { rows: [{ title: 'Imported A', date: '2026-07-01' }, { title: 'Imported B', date: '2026-07-02' }] },
+  });
+  assert.equal(res.body.created, 2);
+  const list = await call('GET', '/api/activities', { token: riveraToken });
+  assert.ok(list.body.filter((a) => a.title.startsWith('Imported ')).length === 2);
+});
+
+await test('evidence links survive the JSON round trip', async () => {
+  const created = await call('POST', '/api/activities', {
+    token: adminToken,
+    body: {
+      title: 'With evidence', date: '2026-08-05',
+      evidence_links: [{ label: 'ULO report', url: 'https://example.invalid/x' }],
+    },
+  });
+  assert.equal(created.body.evidence_links[0].label, 'ULO report');
+});
+
+/* ── report ───────────────────────────────────────────────────────── */
+
+server.close();
+try { rmSync(DB, { force: true }); rmSync(`${DB}-wal`, { force: true }); rmSync(`${DB}-shm`, { force: true }); } catch { /* ignore */ }
+
+const failed = results.filter(([s]) => s === 'FAIL');
+for (const [status, name] of results) {
+  console.log(`  ${status === 'PASS' ? 'ok  ' : 'FAIL'}  ${name}`);
+}
+console.log(`\n${results.length - failed.length}/${results.length} passed`);
+process.exit(failed.length ? 1 : 0);

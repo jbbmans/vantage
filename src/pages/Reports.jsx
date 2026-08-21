@@ -1,0 +1,410 @@
+import React, { useMemo, useState } from 'react';
+import { Copy, Download, Printer, FileText, Inbox, Users, ArrowUp, ArrowDown, Minus } from 'lucide-react';
+import {
+  useActivities, useProjects, useRecognitions, useTrainings, useGoals, useTasks,
+  useIdentity, useCanLead, unitPath,
+} from '@/store/useStore';
+import {
+  aggregateMetrics, activitiesInRange, rangeForPeriod, fiscalYearRange, fiscalQuarterRange,
+  formatDollars, formatDollarsExact, formatNumber, formatDTG,
+} from '@/lib/metrics';
+import { DOLLAR_TYPES, DOLLAR_SUM_RULE } from '@/lib/constants';
+import { buildPackage, packageToText } from '@/lib/bullets';
+import { composeNarrative } from '@/lib/narrative';
+import { narrativeConfig, trackMeta, areasFor } from '@/lib/evaluation';
+import { comparePeriods, comparisonToText } from '@/lib/delta';
+import { useEvalTrack } from '@/store/useStore';
+import { exportWorkbook } from '@/lib/sheets';
+import { copyToClipboard, downloadText } from '@/lib/utils';
+import { useToast } from '@/components/ui/toast';
+import { Panel, PageHeader, EmptyState, Button, Segmented, Badge, Tooltip, Select } from '@/components/ui/primitives';
+import { cn } from '@/lib/utils';
+
+const PERIODS = [
+  { value: 'fiscalQuarter', label: 'FQ' },
+  { value: 'fiscalYear', label: 'FY' },
+  { value: 'month', label: 'MO' },
+  { value: 'year', label: 'CY' },
+];
+
+const viewsFor = (track) => [
+  { value: 'narrative', label: trackMeta(track).inputName },
+  { value: 'bullets', label: 'Bullets' },
+  { value: 'delta', label: 'Change report' },
+];
+
+/** Directional glyph, coloured by whether the movement is good news. */
+function Move({ m, invert = false, format = (v) => formatNumber(Math.round(v)) }) {
+  const Icon = m.direction === 'up' ? ArrowUp : m.direction === 'down' ? ArrowDown : Minus;
+  const good = m.direction === 'flat' ? null : (m.direction === 'up') !== invert;
+  return (
+    <span className={cn('fig inline-flex items-center gap-1 text-xs',
+      good === null ? 'text-text-3' : good ? 'text-ledger' : 'text-redline')}>
+      <Icon className="h-3 w-3" />
+      {m.diff > 0 ? '+' : ''}{format(m.diff)}
+      {m.pct != null && <span className="text-text-3">({m.pct > 0 ? '+' : ''}{m.pct}%)</span>}
+    </span>
+  );
+}
+
+function DeltaRow({ label, m, format = (v) => formatNumber(Math.round(v)), invert }) {
+  return (
+    <div className="flex items-baseline gap-3 border-b border-rule py-1.5 last:border-0">
+      <span className="min-w-0 flex-1 truncate text-base text-text-2">{label}</span>
+      <span className="fig w-28 shrink-0 text-right text-md text-text">{format(m.current)}</span>
+      <span className="fig w-28 shrink-0 text-right text-xs text-text-3">{format(m.prior)}</span>
+      <span className="w-32 shrink-0 text-right"><Move m={m} format={format} invert={invert} /></span>
+    </div>
+  );
+}
+
+export default function Reports() {
+  const activities = useActivities();
+  const projects = useProjects();
+  const recognitions = useRecognitions();
+  const trainings = useTrainings();
+  const goals = useGoals();
+  const tasks = useTasks();
+  const identity = useIdentity();
+  const canLead = useCanLead();
+  const track = useEvalTrack();
+  const toast = useToast();
+
+  const [period, setPeriod] = useState('fiscalYear');
+  const [view, setView] = useState('narrative');
+  const [style, setStyle] = useState('jepes');
+  const [scope, setScope] = useState('me');
+  const [limit, setLimit] = useState(8);
+
+  const me = identity?.user?.id;
+
+  // A leader can report on themselves or on everything their billet reaches.
+  const pool = useMemo(
+    () => (scope === 'me' ? activities.filter((a) => a.user_id === me) : activities),
+    [activities, scope, me]
+  );
+
+  const range = useMemo(() => rangeForPeriod(period), [period]);
+  const scoped = useMemo(() => activitiesInRange(pool, range), [pool, range]);
+  const metrics = useMemo(() => aggregateMetrics(scoped), [scoped]);
+
+  const periodLabel = useMemo(() => {
+    if (period === 'fiscalYear') return fiscalYearRange().label;
+    if (period === 'fiscalQuarter') return fiscalQuarterRange().label;
+    return `${formatDTG(range.start)} — ${formatDTG(range.end)}`;
+  }, [period, range]);
+
+  const narrative = useMemo(() => {
+    const cfg = narrativeConfig(track);
+    return composeNarrative(scoped, { ...cfg, periodLabel });
+  }, [scoped, periodLabel, track]);
+
+  const pkg = useMemo(
+    () => buildPackage(scoped, { periodLabel, style, limitPerArea: limit, areas: areasFor(track) }),
+    [scoped, periodLabel, style, limit, track]
+  );
+
+  const cmp = useMemo(
+    () => comparePeriods(pool, { ...range, label: periodLabel }, { recognitions, trainings, goals, areas: areasFor(track) }),
+    [pool, range, periodLabel, recognitions, trainings, goals, track]
+  );
+
+  const subjectLine = scope === 'me'
+    ? `${identity?.user?.rank?.abbr || ''} ${identity?.user?.last_name || ''}`.trim()
+    : unitPath(identity?.assignments?.[0]?.unit_id).map((u) => u.short_name || u.name).slice(-1)[0] || 'Chain of command';
+
+  const copyCurrent = async () => {
+    const text = view === 'narrative'
+      ? narrative.text
+      : view === 'bullets'
+        ? packageToText(pkg, `Performance summary — ${periodLabel}`)
+        : comparisonToText(cmp, `${subjectLine} — ${periodLabel}`);
+    const ok = await copyToClipboard(text);
+    ok ? toast.success('Copied to clipboard.') : toast.error('Could not reach the clipboard.');
+  };
+
+  const downloadCurrent = () => {
+    const slug = periodLabel.replace(/\s+/g, '-').toLowerCase();
+    const text = view === 'narrative'
+      ? narrative.text
+      : view === 'bullets'
+        ? packageToText(pkg, `Performance summary — ${periodLabel}`)
+        : comparisonToText(cmp, `${subjectLine} — ${periodLabel}`);
+    downloadText(`vantage-${view}-${slug}.txt`, text, 'text/plain');
+    toast.success('Downloaded.');
+  };
+
+  if (!activities.length) {
+    return (
+      <div className="mx-auto max-w-3xl">
+        <Panel title="Reports">
+          <EmptyState
+            icon={Inbox}
+            title="Nothing to report on yet"
+            description="Reports are built from the activity log. Log a few entries and the package writes itself."
+          />
+        </Panel>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-[1300px] space-y-3">
+      <div className="no-print">
+        <PageHeader title="Reports" subtitle={`${subjectLine} · ${periodLabel}`}>
+          <Segmented value={period} onChange={setPeriod} options={PERIODS} />
+          {canLead && (
+            <Segmented
+              value={scope}
+              onChange={setScope}
+              options={[{ value: 'me', label: 'Me' }, { value: 'chain', label: 'My chain' }]}
+            />
+          )}
+          <Button variant="default" size="sm" onClick={() => window.print()}>
+            <Printer className="h-3.5 w-3.5" />
+            Print
+          </Button>
+        </PageHeader>
+
+        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+          <Segmented value={view} onChange={setView} options={viewsFor(track)} />
+          <div className="flex items-center gap-1.5">
+            {view === 'bullets' && (
+              <>
+                <Segmented
+                  size="sm"
+                  value={style}
+                  onChange={setStyle}
+                  options={[
+                    { value: 'jepes', label: 'JEPES' },
+                    { value: 'fitrep', label: 'FITREP' },
+                    { value: 'resume', label: 'Résumé' },
+                  ]}
+                />
+                <Select
+                  value={String(limit)}
+                  onValueChange={(v) => setLimit(Number(v))}
+                  options={[
+                    { value: '5', label: 'Top 5 per area' },
+                    { value: '8', label: 'Top 8 per area' },
+                    { value: '20', label: 'Top 20 per area' },
+                    { value: '0', label: 'Everything' },
+                  ]}
+                />
+              </>
+            )}
+            <Button variant="ghost" size="sm" onClick={copyCurrent}><Copy className="h-3 w-3" />Copy</Button>
+            <Button variant="ghost" size="sm" onClick={downloadCurrent}><FileText className="h-3 w-3" />.txt</Button>
+            <Button
+              variant="ghost"
+              size="sm"
+              onClick={async () => {
+                try {
+                  await exportWorkbook(
+                    { activities: scoped, projects, tasks, goals, recognitions, trainings, contacts: [] },
+                    `vantage-${periodLabel.replace(/\s+/g, '-').toLowerCase()}.xlsx`
+                  );
+                  toast.success('Workbook exported.');
+                } catch (err) { toast.error(err.message || 'Export failed.'); }
+              }}
+            >
+              <Download className="h-3 w-3" />Workbook
+            </Button>
+          </div>
+        </div>
+      </div>
+
+      {/* Print-only masthead. On screen the header above already says all this. */}
+      <div className="print-only mb-4 border-b-2 border-black pb-2">
+        <h1 className="text-xl font-semibold">Performance Report — {periodLabel}</h1>
+        <p className="mt-0.5 text-sm">
+          {subjectLine}
+          {identity?.assignments?.[0]?.billet_title ? ` · ${identity.assignments[0].billet_title}` : ''}
+        </p>
+        <p className="mt-0.5 text-xs">
+          Current window {formatDTG(range.start)} — {formatDTG(range.end)} · compared against {cmp.label.prior}
+          {' · '}generated {formatDTG(new Date())}
+        </p>
+      </div>
+
+      {/* ── headline strip ── */}
+      <div className="panel flex flex-wrap items-center gap-x-6 gap-y-2 rounded px-4 py-3">
+        <div>
+          <p className="eyebrow">Entries</p>
+          <p className="fig mt-0.5 text-xl text-text">{formatNumber(scoped.length)}</p>
+          <Move m={cmp.headline.activities} />
+        </div>
+        <div>
+          <p className="eyebrow">Units processed</p>
+          <p className="fig mt-0.5 text-xl text-text">{formatNumber(metrics.totalQuantity)}</p>
+          <Move m={cmp.headline.quantity} />
+        </div>
+        <div>
+          <p className="eyebrow">Dollar impact</p>
+          <p className="fig mt-0.5 text-xl text-ledger">{formatDollarsExact(metrics.totalDollars)}</p>
+          <Move m={cmp.headline.dollars} format={formatDollars} />
+        </div>
+        {metrics.reviewedDollars > 0 && (
+          <div>
+            <p className="eyebrow">Reviewed (excluded)</p>
+            <p className="fig mt-0.5 text-xl text-text-3">{formatDollarsExact(metrics.reviewedDollars)}</p>
+          </div>
+        )}
+        <div className="ml-auto max-w-sm no-print">
+          <p className="text-2xs leading-relaxed text-text-3">{DOLLAR_SUM_RULE}</p>
+        </div>
+      </div>
+
+      {/* ── JEPES narrative ── */}
+      {(view === 'narrative' || typeof window !== 'undefined') && (
+        <Panel
+          className={view === 'narrative' ? '' : 'no-print hidden'}
+          title={`${trackMeta(track).name} accomplishment narrative`}
+          subtitle={`Everything logged this period, ready to hand over · ${narrative.length}/${narrative.limit} characters`}
+          action={
+            <Badge tone={narrative.fits ? 'ledger' : 'redline'}>
+              {narrative.fits ? 'fits' : 'over limit'}
+            </Badge>
+          }
+        >
+          {narrative.text ? (
+            <>
+              <p className="text-base leading-relaxed text-text">{narrative.text}</p>
+              <div className="mt-3 h-1 overflow-hidden rounded-sm bg-rule/60 no-print">
+                <div
+                  className={cn('h-full transition-[width]', narrative.length > narrative.limit * 0.92 ? 'bg-signal' : 'bg-ledger/70')}
+                  style={{ width: `${Math.min(100, (narrative.length / narrative.limit) * 100)}%` }}
+                />
+              </div>
+              <div className="mt-2 flex flex-wrap items-center gap-x-4 gap-y-1 border-t border-rule pt-2.5">
+                {narrative.areas.map((a) => (
+                  <span key={a.label} className="fig text-2xs text-text-3">
+                    {a.label} <span className="text-text-2">{a.count} entries</span>
+                    {a.available > a.included && (
+                      <span className="text-signal"> · {a.available - a.included} not shown</span>
+                    )}
+                  </span>
+                ))}
+              </div>
+              {narrative.omitted > 0 && (
+                <p className="mt-2 text-xs leading-relaxed text-text-3 no-print">
+                  {narrative.omitted} supporting {narrative.omitted === 1 ? 'entry' : 'entries'} would not fit inside
+                  {narrative.limit} characters. The strongest material was kept — entries carrying a dollar figure
+                  and a stated outcome rank first.
+                </p>
+              )}
+            </>
+          ) : (
+            <EmptyState icon={Inbox} title="Nothing in this window" description="Widen the period to pull in more entries." />
+          )}
+        </Panel>
+      )}
+
+      {/* ── bullets ── */}
+      {view === 'bullets' && (
+        <Panel
+          title="Bullet package"
+          subtitle={`Composed from ${scoped.length} entries · ${periodLabel}`}
+          bodyClassName="p-0"
+        >
+          <div className="divide-y divide-rule">
+            {pkg.filter((g) => g.count > 0).map((group) => (
+              <div key={group.area} className="px-4 py-3">
+                <div className="mb-2 flex items-baseline justify-between gap-2">
+                  <h3 className="font-mono text-xs uppercase tracking-[0.14em] text-signal">{group.area}</h3>
+                  <span className="fig text-2xs text-text-3">{group.count} entries</span>
+                </div>
+                {group.rollup && (
+                  <p className="mb-3 border-l-2 border-signal/40 pl-3 text-base leading-relaxed text-text">{group.rollup}</p>
+                )}
+                <ul className="space-y-1.5">
+                  {group.bullets.map((b) => (
+                    <li key={b.id} className="flex items-start gap-2.5 text-sm leading-relaxed text-text-2">
+                      <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-text-3" />
+                      <span className="flex-1">{b.text}</span>
+                      <span className="no-print flex shrink-0 items-center gap-0.5 pt-1">
+                        {[0, 1, 2, 3].map((i) => (
+                          <span key={i} className={cn('h-1 w-1.5 rounded-sm', i < b.strength ? 'bg-signal/70' : 'bg-rule')} />
+                        ))}
+                      </span>
+                    </li>
+                  ))}
+                </ul>
+                {group.withheld > 0 && (
+                  <p className="mt-2 text-xs text-signal">
+                    {group.withheld} further {group.withheld === 1 ? 'entry' : 'entries'} not shown at this limit.
+                  </p>
+                )}
+              </div>
+            ))}
+          </div>
+        </Panel>
+      )}
+
+      {/* ── change report ── */}
+      {view === 'delta' && (
+        <>
+          <Panel title="What changed" subtitle={`${cmp.label.current} against ${cmp.label.prior}`}>
+            <div className="mb-1 flex items-baseline gap-3 border-b border-rule-strong pb-1.5">
+              <span className="eyebrow flex-1">Measure</span>
+              <span className="eyebrow w-28 text-right">This period</span>
+              <span className="eyebrow w-28 text-right">Last period</span>
+              <span className="eyebrow w-32 text-right">Change</span>
+            </div>
+            <DeltaRow label="Entries logged" m={cmp.headline.activities} />
+            <DeltaRow label="Units processed" m={cmp.headline.quantity} />
+            <DeltaRow label="Dollar impact" m={cmp.headline.dollars} format={formatDollars} />
+            <DeltaRow label="Entries with a stated outcome" m={cmp.headline.withOutcome} />
+            <DeltaRow label="Recognition received" m={cmp.extras.recognitions} />
+            <DeltaRow label="Training hours" m={cmp.extras.trainingHours} />
+          </Panel>
+
+          {cmp.byDollarType.length > 0 && (
+            <Panel title="Dollars by type" subtitle="Where the money actually moved">
+              {cmp.byDollarType.map((d) => (
+                <DeltaRow
+                  key={d.key}
+                  label={`${d.label}${d.summable ? '' : ' — excluded from totals'}`}
+                  m={d}
+                  format={formatDollars}
+                />
+              ))}
+            </Panel>
+          )}
+
+          <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
+            <Panel title={trackMeta(track).balanceLabel} subtitle={track === 'fitrep' ? 'Your RS marks every section' : 'A board reads all three areas'}>
+              {cmp.byJepes.map((j) => (
+                <DeltaRow key={j.area} label={j.area.replace(' / Mission Accomplishment', '').replace('MOS ', '')} m={j} />
+              ))}
+            </Panel>
+
+            <Panel title="Work counted" subtitle="Units of work, then and now">
+              {cmp.byUnit.length === 0
+                ? <EmptyState title="No quantities recorded" />
+                : cmp.byUnit.slice(0, 8).map((u) => <DeltaRow key={u.unit} label={u.unit} m={u} />)}
+            </Panel>
+          </div>
+
+          {cmp.notes.length > 0 && (
+            <Panel title="Read this before the package goes up">
+              <ul className="space-y-1.5">
+                {cmp.notes.map((n, i) => (
+                  <li key={i} className="flex items-start gap-2 text-base leading-relaxed text-text-2">
+                    <span className="mt-1.5 h-1 w-1 shrink-0 rounded-full bg-signal" />
+                    <span>{n}</span>
+                  </li>
+                ))}
+              </ul>
+            </Panel>
+          )}
+        </>
+      )}
+
+      <p className="print-only mt-4 border-t border-black pt-2 text-xs">
+        Generated by Vantage · Built by John Bernard Boletz · Figures trace to logged records; Reviewed dollars are
+        excluded from headline totals.
+      </p>
+    </div>
+  );
+}

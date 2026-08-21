@@ -1,0 +1,10 @@
+{
+  "name": "Vantage",
+  "short_name": "Vantage",
+  "description": "Local-first performance record system",
+  "start_url": "/",
+  "display": "standalone",
+  "background_color": "#06090E",
+  "theme_color": "#06090E",
+  "icons": [{ "src": "/mark.svg", "sizes": "any", "type": "image/svg+xml" }]
+}

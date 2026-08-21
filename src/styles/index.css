@@ -1,0 +1,252 @@
+/* Vantage — design tokens and base layer.
+   Fonts are self-hosted. The app makes zero network requests at runtime. */
+
+@font-face {
+  font-family: 'Inter Tight';
+  src: url('/fonts/inter-tight-latin.woff2') format('woff2');
+  font-weight: 400 700;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('/fonts/plex-mono-400.woff2') format('woff2');
+  font-weight: 400;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('/fonts/plex-mono-500.woff2') format('woff2');
+  font-weight: 500;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('/fonts/plex-mono-600.woff2') format('woff2');
+  font-weight: 600;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'IBM Plex Mono';
+  src: url('/fonts/plex-mono-700.woff2') format('woff2');
+  font-weight: 700;
+  font-display: swap;
+}
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root,
+  [data-theme='dark'] {
+    --ink: 6 9 14;
+    --panel: 13 18 26;
+    --panel-2: 19 26 36;
+    --rule: 28 38 52;
+    --rule-strong: 45 60 80;
+    --text: 230 237 246;
+    --text-2: 138 152 172;
+    --text-3: 124 134 150;  /* finding 42: 4.75:1 on panel-2 */
+    --signal: 77 163 255;
+    --signal-ink: 3 9 18;
+    --ledger: 61 214 140;
+    --redline: 255 92 92;
+    --info: 167 139 250;
+    --shadow: 0 0 0 1px rgb(0 0 0 / 0.4), 0 8px 28px -12px rgb(0 0 0 / 0.8);
+  }
+
+  [data-theme='light'] {
+    --ink: 247 249 251;
+    --panel: 255 255 255;
+    --panel-2: 241 245 249;
+    --rule: 221 227 235;
+    --rule-strong: 190 200 213;
+    --text: 11 17 27;
+    --text-2: 84 96 114;
+    --text-3: 92 106 128;  /* finding 42: ≥4.5:1 on white and panel-2 */
+    --signal: 13 92 199;
+    --signal-ink: 255 255 255;
+    --ledger: 12 140 82;
+    --redline: 199 38 44;
+    --info: 109 74 214;
+    --shadow: 0 0 0 1px rgb(15 23 42 / 0.06), 0 8px 24px -14px rgb(15 23 42 / 0.3);
+  }
+
+  * {
+    border-color: rgb(var(--rule));
+  }
+
+  html {
+    -webkit-text-size-adjust: 100%;
+  }
+
+  body {
+    @apply bg-ink text-text font-ui text-base antialiased;
+    font-feature-settings: 'cv05' 1, 'ss03' 1;
+    text-rendering: optimizeLegibility;
+  }
+
+  /* Every figure in this app is monospaced and tabular. Columns of numbers
+     that don't align are columns of numbers nobody trusts. */
+  .fig {
+    @apply font-mono tabular-nums;
+    font-variant-numeric: tabular-nums slashed-zero;
+    letter-spacing: -0.01em;
+  }
+
+  /* Section eyebrows — the labelling system throughout. */
+  .eyebrow {
+    @apply font-mono text-2xs uppercase text-text-3;
+    letter-spacing: 0.14em;
+  }
+
+  :focus-visible {
+    @apply outline-none ring-2 ring-signal ring-offset-2;
+    --tw-ring-offset-color: rgb(var(--ink));
+  }
+
+  ::selection {
+    background: rgb(var(--signal) / 0.28);
+  }
+
+  ::-webkit-scrollbar {
+    width: 10px;
+    height: 10px;
+  }
+  ::-webkit-scrollbar-track {
+    background: transparent;
+  }
+  ::-webkit-scrollbar-thumb {
+    background: rgb(var(--rule-strong));
+    border: 3px solid rgb(var(--ink));
+    border-radius: 6px;
+  }
+  ::-webkit-scrollbar-thumb:hover {
+    background: rgb(var(--text-3));
+  }
+
+  input[type='date']::-webkit-calendar-picker-indicator {
+    filter: invert(0.6);
+    cursor: pointer;
+  }
+  [data-theme='light'] input[type='date']::-webkit-calendar-picker-indicator {
+    filter: none;
+  }
+}
+
+@layer components {
+  /* Panels are defined by a hairline, not a shadow or a big radius.
+     Structure comes from rules, the way a printed ledger does it. */
+  .panel {
+    @apply border border-rule bg-panel;
+  }
+
+  .row {
+    @apply border-b border-rule transition-colors duration-100 last:border-b-0;
+  }
+  .row:hover {
+    background: rgb(var(--panel-2));
+  }
+
+  .field {
+    @apply w-full rounded border border-rule bg-panel-2 px-2.5 py-1.5 text-base text-text
+           placeholder:text-text-3 transition-colors;
+  }
+  .field:focus {
+    @apply border-signal outline-none ring-0;
+  }
+
+  .chip {
+    @apply inline-flex items-center gap-1 rounded border border-rule px-1.5 py-0.5
+           font-mono text-2xs uppercase text-text-2;
+    letter-spacing: 0.08em;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Board packages get printed. Make that look like a document, not a screenshot. */
+.print-only {
+  display: none;
+}
+
+@media print {
+  :root {
+    --ink: 255 255 255;
+    --panel: 255 255 255;
+    --panel-2: 255 255 255;
+    --rule: 190 190 190;
+    --rule-strong: 120 120 120;
+    --text: 0 0 0;
+    --text-2: 45 45 45;
+    --text-3: 95 95 95;
+    --signal: 90 60 0;
+    --ledger: 0 90 40;
+    --redline: 150 0 0;
+  }
+
+  .no-print { display: none !important; }
+  .print-only { display: block !important; }
+  .print-full { width: 100% !important; max-width: none !important; }
+
+  body {
+    background: #fff;
+    /* Screen type is 13px because it's a dense ledger. On paper that's a squint. */
+    font-size: 11pt;
+  }
+
+  /* The app chrome is navigation, not content. Strip it and reclaim the page. */
+  aside,
+  header.sticky,
+  footer {
+    display: none !important;
+  }
+
+  main {
+    padding: 0 !important;
+  }
+
+  /* Panels become ruled sections rather than floating cards. */
+  .panel {
+    border: 0 !important;
+    border-top: 1px solid #999 !important;
+    border-radius: 0 !important;
+    box-shadow: none !important;
+    background: #fff !important;
+    break-inside: avoid;
+    page-break-inside: avoid;
+    margin-top: 10pt;
+  }
+
+  /* Never split a bullet or a comparison row across a page boundary. */
+  li,
+  tr {
+    break-inside: avoid;
+    page-break-inside: avoid;
+  }
+
+  h1, h2, h3 {
+    break-after: avoid;
+    page-break-after: avoid;
+  }
+
+  /* A printed report is read without hover, so show link targets for evidence. */
+  a[href^="http"]::after {
+    content: " (" attr(href) ")";
+    font-size: 8pt;
+    color: #666;
+  }
+
+  @page {
+    margin: 16mm 14mm;
+  }
+}

@@ -1,0 +1,350 @@
+import React, { useEffect, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { UserPlus, Users, Shield, ChevronRight, Search } from 'lucide-react';
+import * as apiClient from '@/lib/api';
+import { useIdentity, useOrg, unitOptions, unitPath, displayName } from '@/store/useStore';
+import { useToast } from '@/components/ui/toast';
+import { Dialog } from '@/components/ui/Dialog';
+import {
+  Panel, PageHeader, EmptyState, Button, Input, Select, Field, Badge, Tooltip,
+} from '@/components/ui/primitives';
+import { cn } from '@/lib/utils';
+import { errorText } from '@/lib/api';
+
+/**
+ * The roster.
+ *
+ * What shows up here is decided entirely by the server — this page renders
+ * whatever /api/team returns and never filters for permission itself. A
+ * client-side permission check is a suggestion, not a control.
+ */
+export default function Team() {
+  const identity = useIdentity();
+  const org = useOrg();
+  const toast = useToast();
+
+  const [state, setState] = useState({ roster: [], canLead: false, scopeUnitIds: [] });
+  const [loading, setLoading] = useState(true);
+  const [query, setQuery] = useState('');
+  const [adding, setAdding] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [memberErrors, setMemberErrors] = useState({});
+
+  const load = async () => {
+    setLoading(true);
+    try {
+      setState(await apiClient.team());
+    } catch (err) {
+      toast.error(errorText(err));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => { load(); }, []);
+
+  const units = useMemo(() => unitOptions(org.units), [org.units]);
+  const scopedUnits = useMemo(
+    () => (identity?.user?.is_admin ? units : units.filter((u) => state.scopeUnitIds.includes(u.id))),
+    [units, state.scopeUnitIds, identity]
+  );
+
+  const filtered = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return state.roster;
+    return state.roster.filter((p) =>
+      [p.last_name, p.first_name, p.rank_abbr, p.billet_title, p.unit_name, p.unit_short, p.mos]
+        .some((f) => String(f || '').toLowerCase().includes(q))
+    );
+  }, [state.roster, query]);
+
+  // Group by unit so a section head sees their branches, not one flat list.
+  const grouped = useMemo(() => {
+    const map = new Map();
+    for (const p of filtered) {
+      const key = p.unit_id || '__none';
+      if (!map.has(key)) map.set(key, { unit: p.unit_name || 'Unassigned', short: p.unit_short, people: [] });
+      map.get(key).people.push(p);
+    }
+    return [...map.entries()].sort((a, b) => a[1].unit.localeCompare(b[1].unit));
+  }, [filtered]);
+
+  if (!state.canLead && state.roster.length <= 1) {
+    return (
+      <div className="mx-auto max-w-2xl">
+        <Panel title="Team">
+          <EmptyState
+            icon={Users}
+            title="You don't hold a billet with a team"
+            description="Team management appears once you're assigned as a fire team leader, section NCOIC, or above. Your own record is on the Command Center."
+          />
+        </Panel>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mx-auto max-w-[1200px] space-y-3">
+      <PageHeader
+        title="Team"
+        subtitle={`${state.roster.length} ${state.roster.length === 1 ? 'Marine' : 'Marines'} in your chain`}
+      >
+        <div className="relative">
+          <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-text-3" />
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            placeholder="Name, billet, unit…"
+            className="w-52 pl-7"
+          />
+        </div>
+        {state.canLead && (
+          <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
+            <UserPlus className="h-3.5 w-3.5" />
+            Add Marine
+          </Button>
+        )}
+      </PageHeader>
+
+      {loading ? (
+        <Panel><p className="py-4 text-sm text-text-3">Loading roster…</p></Panel>
+      ) : (
+        grouped.map(([unitId, group]) => (
+          <Panel
+            key={unitId}
+            title={group.unit}
+            subtitle={unitPath(unitId).slice(0, -1).map((u) => u.short_name || u.name).join(' › ') || undefined}
+            action={<Badge tone="neutral">{group.people.length}</Badge>}
+            bodyClassName="p-0"
+          >
+            {group.people.map((p) => (
+              <div key={p.id} className="row flex items-center gap-3 px-3 py-2">
+                <Link to={`/team/${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
+                  <span className="fig w-14 shrink-0 text-xs text-signal">{p.rank_abbr || '—'}</span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block truncate text-base text-text">
+                      {p.last_name}, {p.first_name} {p.middle_initial || ''}
+                    </span>
+                    <span className="block truncate text-2xs text-text-3">
+                      {[p.billet_title, p.mos && `MOS ${p.mos}`].filter(Boolean).join(' · ') || 'No billet assigned'}
+                    </span>
+                  </span>
+                </Link>
+
+                {(p.roles || []).filter((r) => r.id !== 'marine').slice(0, 2).map((r) => (
+                  <span
+                    key={`${r.id}-${r.unit_id}`}
+                    className="hidden shrink-0 items-center gap-1 rounded-sm border border-rule px-1.5 py-0.5 text-2xs text-text-2 sm:flex"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full" style={{ backgroundColor: r.color || '#8D98A8' }} />
+                    {r.name}
+                  </span>
+                ))}
+                {p.is_admin ? <Badge tone="neutral" className="hidden shrink-0 md:inline-flex">admin</Badge> : null}
+
+                {state.canLead && (
+                  <Button variant="ghost" size="sm" onClick={() => setEditing(p)}>
+                    Reassign
+                  </Button>
+                )}
+                <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-3" />
+              </div>
+            ))}
+          </Panel>
+        ))
+      )}
+
+      {adding && (
+        <MemberDialog
+          title="Add a Marine"
+          units={scopedUnits}
+          billets={org.billets}
+          ranks={org.ranks}
+          roles={org.roles || []}
+          fieldErrors={memberErrors}
+          onCancel={() => { setAdding(false); setMemberErrors({}); try { sessionStorage.removeItem('vantage.draft.member'); } catch { /* fine */ } }}
+          onSave={async (draft) => {
+            try {
+              await apiClient.addMember(draft);
+              toast.success(`${draft.last_name} added.`);
+              setAdding(false);
+              setMemberErrors({});
+              try { sessionStorage.removeItem('vantage.draft.member'); } catch { /* fine */ }
+              load();
+            } catch (err) {
+              setMemberErrors(err.fieldErrors || {});
+              toast.error(errorText(err));
+            }
+          }}
+        />
+      )}
+
+      {editing && (
+        <MemberDialog
+          title={`Reassign ${displayName(editing)}`}
+          units={scopedUnits}
+          billets={org.billets}
+          ranks={org.ranks}
+          roles={org.roles || []}
+          initial={{ unit_id: editing.unit_id, role_id: '' }}
+          assignmentOnly
+          fieldErrors={memberErrors}
+          onCancel={() => { setEditing(null); setMemberErrors({}); }}
+          onSave={async (draft) => {
+            try {
+              await apiClient.reassign(editing.id, draft);
+              if (draft.role_id) {
+                await apiClient.grantRole(editing.id, { role_id: draft.role_id, unit_id: draft.unit_id });
+              }
+              toast.success('Assignment updated.');
+              setEditing(null);
+              setMemberErrors({});
+              load();
+            } catch (err) {
+              setMemberErrors(err.fieldErrors || {});
+              toast.error(errorText(err));
+            }
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Shared create/reassign form. Billet choice pre-selects the role it implies. */
+function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, assignmentOnly, fieldErrors = {}, onCancel, onSave }) {
+  const [draft, setDraft] = useState({
+    username: '', password: '', first_name: '', last_name: '', middle_initial: '',
+    rank_id: '', mos: '', email: '', eas: '',
+    unit_id: units[0]?.id || '', billet_id: '', role_id: '', ...initial,
+  });
+  // Finding 35: a half-filled member form survives a dropped connection or an
+  // accidental Escape. Mirrors to sessionStorage while creating; an explicit
+  // Cancel or a successful save clears it (the parent owns the clearing).
+  const MEMBER_DRAFT = 'vantage.draft.member';
+  const [restored, setRestored] = useState(false);
+  useEffect(() => {
+    if (assignmentOnly || initial.id) return;
+    try {
+      const stored = JSON.parse(sessionStorage.getItem(MEMBER_DRAFT) || 'null');
+      if (stored && (stored.first_name || stored.last_name || stored.username)) {
+        setDraft((d) => ({ ...d, ...stored }));
+        setRestored(true);
+      }
+    } catch { /* corrupt or blocked */ }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  const set = (k) => (v) => setDraft((d) => {
+    const next = { ...d, [k]: v?.target ? v.target.value : v };
+    if (!assignmentOnly) {
+      try { sessionStorage.setItem(MEMBER_DRAFT, JSON.stringify({ ...next, password: '' })); } catch { /* fine */ }
+    }
+    return next;
+  });
+
+  // Finding 9, Option A: a billet is an organizational position only. Picking
+  // one pre-fills the role suggestion below, and that grant — never the billet
+  // — is what carries permissions. The server writes no role on assignments.
+  const BILLET_ROLE = { team_lead: 'fire-team-leader', unit_leader: 'ncoic', member: '' };
+  const pickBillet = (billetId) => {
+    const billet = billets.find((b) => b.id === billetId);
+    setDraft((d) => ({ ...d, billet_id: billetId, role_id: BILLET_ROLE[billet?.default_role] ?? d.role_id }));
+  };
+
+  const byCategory = billets.reduce((acc, b) => {
+    (acc[b.category] ||= []).push(b);
+    return acc;
+  }, {});
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(v) => !v && onCancel()}
+      title={title}
+      size="md"
+      footer={
+        <>
+          <Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>
+          <Button variant="primary" size="sm" onClick={() => onSave(draft)}>Save</Button>
+        </>
+      }
+    >
+      <div className="space-y-3">
+        {restored && (
+          <p className="rounded border border-signal/40 bg-signal/[0.08] px-2.5 py-1.5 text-2xs leading-relaxed text-text-2">
+            Unsaved draft restored — it was never sent to the server. Cancel discards it.
+          </p>
+        )}
+        {!assignmentOnly && (
+          <>
+            <div className="grid grid-cols-2 gap-3">
+              <Field error={fieldErrors.first_name} label="First name"><Input value={draft.first_name} onChange={set('first_name')} autoFocus /></Field>
+              <Field error={fieldErrors.last_name} label="Last name"><Input value={draft.last_name} onChange={set('last_name')} /></Field>
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <Field error={fieldErrors.rank_id} label="Rank">
+                <Select
+                  value={draft.rank_id}
+                  onValueChange={set('rank_id')}
+                  placeholder="Select"
+                  options={ranks.map((r) => ({ value: r.id, label: `${r.abbr} · ${r.grade}` }))}
+                />
+              </Field>
+              <Field error={fieldErrors.mos} label="MOS"><Input value={draft.mos} onChange={set('mos')} placeholder="3451" /></Field>
+              <Field error={fieldErrors.eas} label="EAS"><Input type="date" value={draft.eas} onChange={set('eas')} /></Field>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <Field error={fieldErrors.username} label="Username"><Input value={draft.username} onChange={set('username')} autoComplete="off" /></Field>
+              <Field error={fieldErrors.password} label="Temporary password" hint="10 characters minimum">
+                <Input type="password" value={draft.password} onChange={set('password')} autoComplete="new-password" />
+              </Field>
+            </div>
+          </>
+        )}
+
+        <Field error={fieldErrors.unit_id} label="Unit">
+          <Select
+            value={draft.unit_id}
+            onValueChange={set('unit_id')}
+            options={units.map((u) => ({
+              value: u.id,
+              label: `${'\u00A0\u00A0'.repeat(u.depth)}${u.short_name || u.name}`,
+            }))}
+          />
+        </Field>
+
+        <Field label="Billet">
+          <Select
+            value={draft.billet_id}
+            onValueChange={pickBillet}
+            placeholder="No billet"
+            options={[
+              { value: '', label: 'No billet' },
+              ...Object.entries(byCategory).flatMap(([cat, items]) =>
+                items.map((b) => ({ value: b.id, label: `${cat} — ${b.title}` }))
+              ),
+            ]}
+          />
+        </Field>
+
+        <Field
+          label="Role"
+          hint="Everyone gets Marine automatically; picking a billet only pre-fills this suggestion. The role grant here is the sole thing that carries permissions — the billet itself grants nothing."
+        >
+          <Select
+            value={draft.role_id || ''}
+            onValueChange={set('role_id')}
+            placeholder="Marine only"
+            options={[
+              { value: '', label: 'Marine only' },
+              ...roles
+                .filter((r) => r.id !== 'marine')
+                .map((r) => ({ value: r.id, label: `${r.name}${r.inherits_down ? ' — cascades down' : ''}` })),
+            ]}
+          />
+        </Field>
+      </div>
+    </Dialog>
+  );
+}

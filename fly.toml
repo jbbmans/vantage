@@ -1,0 +1,45 @@
+# Vantage on Fly.io.
+#
+#   fly launch --no-deploy
+#   fly volumes create vantage_data --size 1
+#   fly deploy
+#
+# The volume is not optional. SQLite on an ephemeral filesystem means every
+# deploy silently wipes the section's records.
+
+app = "vantage"
+primary_region = "dfw"
+
+[build]
+  dockerfile = "Dockerfile"
+
+[env]
+  NODE_ENV = "production"
+  # One trusted proxy hop (Fly's edge). See finding 18 / server/index.js.
+  TRUST_PROXY = "1"
+  PORT = "8080"
+  VANTAGE_DB = "/data/vantage.db"
+
+[[mounts]]
+  source = "vantage_data"
+  destination = "/data"
+
+[http_service]
+  internal_port = 8080
+  force_https = true
+  auto_stop_machines = "suspend"
+  auto_start_machines = true
+  # Keep one machine up: a cold start on a scrypt login is a slow first impression.
+  min_machines_running = 1
+
+  [http_service.concurrency]
+    type = "requests"
+    soft_limit = 200
+    hard_limit = 250
+
+[[http_service.checks]]
+  grace_period = "10s"
+  interval = "30s"
+  method = "GET"
+  path = "/api/health"
+  timeout = "5s"
