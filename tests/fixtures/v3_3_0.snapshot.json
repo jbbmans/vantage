@@ -1,0 +1,129 @@
+{
+  "version": "3.3.0",
+  "users": {
+    "boletz": {
+      "id": "b5064717-742f-4b92-bc57-ab8202044f0a",
+      "permissions": {
+        "14TH-MAR": 4095,
+        "23D-MAR": 4095,
+        "24TH-MAR": 4095,
+        "25TH-MAR": 4095,
+        "4MARDIV-HQ": 4095,
+        "4MAW-HQ": 4095,
+        "4MLG-HQ": 4095,
+        "4TH-DENTAL": 4095,
+        "4TH-MARDIV": 4095,
+        "4TH-MAW": 4095,
+        "4TH-MEDICAL": 4095,
+        "4TH-MLG": 4095,
+        "4TH-TANK": 4095,
+        "CE-G1": 4095,
+        "CE-G3": 4095,
+        "CE-G4": 4095,
+        "CE-G6": 4095,
+        "CE-G8": 4095,
+        "CLR-4": 4095,
+        "CLR-45": 4095,
+        "FHG": 4095,
+        "FHG-ANGLICO": 4095,
+        "FHG-HQ": 4095,
+        "FHG-INTEL": 4095,
+        "FHG-MIU": 4095,
+        "G8-ACCT": 4095,
+        "G8-AUDIT": 4095,
+        "G8-BUDGET": 4095,
+        "G8-FMRAC": 4095,
+        "MACG-48": 4095,
+        "MAG-41": 4095,
+        "MAG-49": 4095,
+        "MARFORRES": 4095,
+        "MARFORRES-CE": 4095
+      }
+    },
+    "hayes": {
+      "id": "b8920d4f-7281-444d-b195-05f458ed36c9",
+      "permissions": {
+        "CE-G8": 2047,
+        "G8-ACCT": 2047,
+        "G8-AUDIT": 2047,
+        "G8-BUDGET": 2047,
+        "G8-FMRAC": 2047
+      }
+    },
+    "nguyen": {
+      "id": "ff0c9ac7-76af-4ddf-afe9-de12dd271f14",
+      "permissions": {
+        "CE-G8": 767,
+        "G8-ACCT": 767,
+        "G8-AUDIT": 767,
+        "G8-BUDGET": 767,
+        "G8-FMRAC": 767
+      }
+    },
+    "ohara": {
+      "id": "dadd5574-b9c9-4c4f-9e83-46f388d4eac6",
+      "permissions": {
+        "G8-FMRAC": 55
+      }
+    },
+    "rivera": {
+      "id": "c41e5f8c-109c-4729-9670-ef0af4976d63",
+      "permissions": {
+        "G8-FMRAC": 1
+      }
+    },
+    "kramer": {
+      "id": "92806006-887b-48d0-972d-1b59d7cb773d",
+      "permissions": {
+        "G8-BUDGET": 19
+      }
+    },
+    "delgado": {
+      "id": "29311ad1-dd03-4e2e-a60a-02bbb278037b",
+      "permissions": {
+        "G8-BUDGET": 3
+      }
+    },
+    "zed": {
+      "id": "fc38f4b2-772d-4b6b-9575-d4d761bedda4",
+      "permissions": {
+        "CLR-4": 1
+      }
+    },
+    "clrlead": {
+      "id": "83c34317-8c63-424f-9062-0778ad13955f",
+      "permissions": {
+        "CLR-4": 2047
+      }
+    }
+  },
+  "counts": {
+    "units": 34,
+    "users": 9,
+    "roles": 8,
+    "member_roles": 16,
+    "assignments": 9,
+    "activities": 12,
+    "recognitions": 4,
+    "trainings": 4,
+    "projects": 4,
+    "goals": 4,
+    "tasks": 4,
+    "audit_log": 54
+  },
+  "visibility": {
+    "activities": {
+      "chain": 4,
+      "private": 4,
+      "unit": 4
+    },
+    "recognitions": {
+      "chain": 4
+    },
+    "trainings": {
+      "chain": 4
+    }
+  },
+  "globalRoles": 6,
+  "schemaVersion": 5
+}
