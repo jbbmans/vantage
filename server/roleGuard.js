@@ -8,57 +8,58 @@
  * administrator role and hand it to themselves. This file is the one place the
  * question is answered, and all three routes ask it.
  *
- * The model it enforces:
+ * v3.4 keeps `validateRoleDefinition`'s shape and narrows it (Regression Debt,
+ * v3.3 finding 1). Everything cross-unit is gone, because under tenancy there
+ * is no cross-unit case left to judge:
  *
- *   roles.unit_id = NULL  →  organization-wide role definition. Only a true
- *                            administrator may create, edit or delete one.
- *   roles.unit_id = X     →  the definition belongs to X. It may only be
- *                            granted inside X's subtree, and only managed by
- *                            someone whose MANAGE_ROLES authority covers X.
+ *   roles.unit_id is NOT NULL, so there is no org-wide definition branch.
+ *   inherits_down is gone, so there is no cascade to bound.
+ *   A role may only ever be granted inside the unit it belongs to, so
+ *   "reach" is always exactly one unit.
  *
- * And for every path — create, edit, grant — a non-administrator can only put
- * a permission into someone's hands if they hold that permission themselves in
- * the units the role will reach. Delegation is a subset operation, always.
+ * What survives is the part that was actually load-bearing: delegation is a
+ * subset operation. A non-owner can only put a permission into someone's hands
+ * if they hold that permission themselves, in that unit, and can only act on
+ * roles below their own position on that unit's own scale.
  */
 
 import { PERMISSIONS, ALL_PERMISSIONS, has } from './roles.js';
-import { permissionMap, permissionsIn, unitsWith, subtreeIds, canAnywhere } from './permissions.js';
+import { permissionsIn, positionIn, isUnitOwner, isMember, unitsWith } from './permissions.js';
 
 const ok = () => ({ ok: true });
 const deny = (code, message) => ({ ok: false, code, message });
 
-/** True administrator: holds the ADMINISTRATOR bit somewhere (or legacy is_admin). */
-export function isTrueAdmin(db, user) {
-  if (user.is_admin) return true;
-  return canAnywhere(db, user, PERMISSIONS.ADMINISTRATOR);
-}
-
 /**
- * Units in which this actor may exercise role management. The grant that
- * carries MANAGE_ROLES cascades with inherits_down the same way every other
- * permission does, so this is simply "where do you hold the bit".
+ * Units in which this actor may exercise role management.
+ *
+ * v3.3 had `isTrueAdmin` here — "holds the ADMINISTRATOR bit somewhere, or
+ * legacy is_admin" — and it short-circuited every check below it. That is the
+ * cross-tenant superuser of finding 4 and it is deleted. Full authority inside
+ * a unit is now `isUnitOwner`, which names the unit, and instance-level
+ * authority is the Instance Operator, which holds no permission bits at all.
  */
 export function roleManagementUnits(db, user) {
   return unitsWith(db, user, PERMISSIONS.MANAGE_ROLES);
 }
 
-/** Every unit a role definition reaches: its scope unit plus, if it cascades, the subtree. */
+/**
+ * Every unit a role definition reaches. Always exactly one: itself.
+ *
+ * Kept as a named function rather than inlined so that the day someone
+ * reintroduces a cascade, they have to change a function whose entire body is
+ * a comment explaining why it does not cascade.
+ */
 export function roleReach(db, def) {
-  if (!def.unit_id) return null; // org-wide
-  return def.inherits_down ? subtreeIds(db, [def.unit_id]) : [def.unit_id];
+  return def.unit_id ? [def.unit_id] : [];
 }
 
 /**
- * Permission bits the actor may delegate across a set of units: the
- * intersection of what they hold in each. Holding EXPORT_DATA in G-8 does not
- * let you put EXPORT_DATA into a role that reaches a unit where you don't.
+ * Permission bits the actor may delegate in a unit: exactly what they hold
+ * there. ADMINISTRATOR is never delegatable by a non-owner, even if a stray
+ * grant gave them the bit — minting full authority is an owner's act.
  */
-function delegatableAcross(db, user, unitIds) {
-  let bits = ALL_PERMISSIONS;
-  for (const unitId of unitIds) bits &= permissionsIn(db, user, unitId);
-  // ADMINISTRATOR is never delegatable by a non-admin, even if a stray grant
-  // gave them the bit in one unit — creating admins is an admin act.
-  return bits & ~PERMISSIONS.ADMINISTRATOR;
+function delegatableIn(db, user, unitId) {
+  return permissionsIn(db, user, unitId) & ~PERMISSIONS.ADMINISTRATOR;
 }
 
 /**
@@ -69,7 +70,7 @@ function delegatableAcross(db, user, unitIds) {
  * on the whole definition it produces. Returns { ok } or { ok, code, message }.
  */
 export function validateRoleDefinition(db, actor, def, { existing = null } = {}) {
-  /* Shape first — these apply to administrators too. */
+  /* Shape first — these apply to unit owners too. */
   if (!def.name || typeof def.name !== 'string' || !def.name.trim()) return deny('invalid', 'A role needs a name.');
   if (def.name.length > 80) return deny('invalid', 'Role names are limited to 80 characters.');
   if (def.description && String(def.description).length > 500) return deny('invalid', 'Description is limited to 500 characters.');
@@ -79,58 +80,44 @@ export function validateRoleDefinition(db, actor, def, { existing = null } = {})
     return deny('invalid', 'The permission set contains bits Vantage does not define.');
   }
   const pos = Number(def.position);
-  if (!Number.isInteger(pos) || pos < 0 || pos > 99) {
-    return deny('invalid', 'Position must be a whole number from 0 to 99.');
+  if (!Number.isInteger(pos) || pos < 0 || pos > 100) {
+    return deny('invalid', 'Position must be a whole number from 0 to 100.');
   }
-  if (def.unit_id) {
-    const unit = db.prepare('SELECT id FROM units WHERE id = ? AND active = 1').get(def.unit_id);
-    if (!unit) return deny('invalid', 'The role scope points at a unit that does not exist.');
+
+  // A role with no unit is the thing v3.4 does not have (finding 1).
+  if (!def.unit_id) return deny('invalid', 'A role belongs to exactly one unit.');
+  const unit = db.prepare('SELECT id FROM units WHERE id = ? AND active = 1').get(def.unit_id);
+  if (!unit) return deny('invalid', 'The role scope points at a unit that does not exist.');
+
+  // A role cannot be moved between units. Two units' role sets are unrelated,
+  // so "move" is meaningless — it would silently re-scope every live grant.
+  if (existing && existing.unit_id !== def.unit_id) {
+    return deny('scope', 'A role belongs to the unit it was made in. Create one in the other unit instead.');
   }
-  if (existing?.is_system) return deny('system_role', 'Built-in roles cannot be edited. Copy one into a new role instead.');
 
-  const admin = isTrueAdmin(db, actor);
-  if (admin) return ok();
+  /* The Unit Owner has full authority over their own unit's role set —
+   * including roles marked is_system, which under v3.4 means only "this row
+   * came from a template" and confers no edit protection (finding 1). */
+  if (isUnitOwner(db, actor.id, def.unit_id)) return ok();
 
-  /* Everything below is the non-administrator path. */
   const manageUnits = roleManagementUnits(db, actor);
-  if (!manageUnits.length) return deny('forbidden', 'You cannot manage roles.');
+  if (!manageUnits.includes(def.unit_id)) {
+    return deny('scope', 'You cannot manage roles in that unit.');
+  }
 
-  const { topPosition } = permissionMap(db, actor);
-  if (pos >= topPosition) return deny('position', 'You cannot place a role at or above your own position.');
-  if (existing && existing.position >= topPosition) {
+  const top = positionIn(db, actor, def.unit_id);
+  if (pos >= top) return deny('position', 'You cannot place a role at or above your own position in this unit.');
+  if (existing && existing.position >= top) {
     return deny('position', 'That role is at or above your own.');
   }
 
-  if (has(bits, PERMISSIONS.ADMINISTRATOR) || (bits & PERMISSIONS.ADMINISTRATOR)) {
-    return deny('escalation', 'Only an administrator can put the Administrator permission into a role.');
+  if (bits & PERMISSIONS.ADMINISTRATOR) {
+    return deny('escalation', 'Only the unit owner can put the Administrator permission into a role.');
   }
 
-  /* Scope. Org-wide definitions are an administrator's to make: a definition
-   * with no unit can be granted anywhere, which is exactly the reach a
-   * section-level leader does not have. */
-  if (!def.unit_id) return deny('scope', 'Choose a unit scope for this role. Organization-wide roles are created by administrators.');
-  if (!manageUnits.includes(def.unit_id)) {
-    return deny('scope', 'That unit is outside your role-management authority.');
-  }
-  if (existing?.unit_id && !manageUnits.includes(existing.unit_id)) {
-    return deny('scope', 'That role belongs to a unit outside your authority.');
-  }
-  if (existing && !existing.unit_id) {
-    return deny('scope', 'That is an organization-wide role; only an administrator can change it.');
-  }
-
-  /* Cascade cannot expand past the actor's own authorized subtree. */
-  const reach = roleReach(db, def);
-  for (const unitId of reach) {
-    if (!manageUnits.includes(unitId)) {
-      return deny('scope', 'This role would cascade into units outside your authority. Narrow the scope or remove inheritance.');
-    }
-  }
-
-  /* Delegation is a subset operation across every unit the role reaches. */
-  const delegatable = delegatableAcross(db, actor, reach);
+  const delegatable = delegatableIn(db, actor, def.unit_id);
   if (bits & ~delegatable) {
-    return deny('escalation', 'The role contains a permission you do not hold in its full scope, so you cannot delegate it.');
+    return deny('escalation', 'The role contains a permission you do not hold in this unit, so you cannot delegate it.');
   }
 
   return ok();
@@ -140,7 +127,7 @@ export function validateRoleDefinition(db, actor, def, { existing = null } = {})
  * validateRoleGrant(db, actor, role, targetUnitId, targetUser)
  *
  * The grant path re-checks delegation on purpose: a pre-existing role that is
- * broader than the granter (made by an administrator, say) must not become a
+ * broader than the granter (made by the owner, say) must not become a
  * privilege ladder just because it already exists.
  */
 export function validateRoleGrant(db, actor, role, targetUnitId, targetUser = null) {
@@ -150,42 +137,50 @@ export function validateRoleGrant(db, actor, role, targetUnitId, targetUser = nu
   if (!unit) return deny('invalid', 'No such unit.');
   if (targetUser && !targetUser.active) return deny('invalid', 'That account is deactivated. Reactivate it before granting roles.');
 
-  /* Definition scope binds everyone, administrators included — a role built
-   * for one section granted into another is a bookkeeping error even with
-   * full authority. Org-wide roles (unit_id NULL) may go anywhere. */
-  if (role.unit_id) {
-    const within = subtreeIds(db, [role.unit_id]);
-    if (!within.includes(targetUnitId)) {
-      return deny('scope', `That role is scoped to ${role.unit_id} and can only be granted inside it.`);
-    }
+  /* A role belongs to one unit and may only be granted there. In v3.3 this was
+   * a subtree test with an org-wide escape hatch; both are gone. */
+  if (role.unit_id !== targetUnitId) {
+    return deny('scope', 'That role belongs to another unit and can only be granted there.');
   }
 
-  if (isTrueAdmin(db, actor)) return ok();
+  /* Membership is stated, not inferred (finding 8). Granting a role to
+   * somebody who is not in the unit would create authority with no
+   * corresponding membership row, and permissionMap — which joins through
+   * unit_members — would silently ignore it. Failing loudly here is better
+   * than a grant that appears to work and does nothing. */
+  if (targetUser && !isMember(db, targetUser.id, targetUnitId)) {
+    return deny('not_member', 'That Marine is not a member of this unit. Add them to the unit first.');
+  }
+
+  if (isUnitOwner(db, actor.id, targetUnitId)) return ok();
 
   if (!has(permissionsIn(db, actor, targetUnitId), PERMISSIONS.MANAGE_ROLES)) {
     return deny('forbidden', 'You cannot manage roles in that unit.');
   }
-  const { topPosition } = permissionMap(db, actor);
-  if (role.position >= topPosition) return deny('position', 'That role is at or above your own.');
+  const top = positionIn(db, actor, targetUnitId);
+  if (role.position >= top) return deny('position', 'That role is at or above your own.');
   if (role.permissions & PERMISSIONS.ADMINISTRATOR) {
-    return deny('escalation', 'Only an administrator can grant an administrator role.');
+    return deny('escalation', 'Only the unit owner can grant an administrator role.');
   }
 
-  const reach = role.inherits_down ? subtreeIds(db, [targetUnitId]) : [targetUnitId];
-  const delegatable = delegatableAcross(db, actor, reach);
+  const delegatable = delegatableIn(db, actor, targetUnitId);
   if (role.permissions & ~delegatable) {
-    return deny('escalation', 'That role carries a permission you do not hold across its reach, so you cannot grant it.');
+    return deny('escalation', 'That role carries a permission you do not hold in this unit, so you cannot grant it.');
   }
   return ok();
 }
 
-/** Edit/delete authorization for an existing role — findings 6 and 7. */
+/**
+ * Edit/delete authorization for an existing role.
+ *
+ * v3.3 refused outright on `role.is_system`, because a system role was a
+ * shared global object and editing it changed it for everyone. Under v3.4
+ * every role is unit-local, so `is_system` is only provenance and the owning
+ * unit may do as it likes with its own copy (finding 1).
+ */
 export function canManageRoleDefinition(db, actor, role) {
-  if (!role || role.is_system) return false;
-  if (isTrueAdmin(db, actor)) return true;
-  if (!role.unit_id) return false; // org-wide: admin only
-  const manageUnits = roleManagementUnits(db, actor);
-  if (!manageUnits.includes(role.unit_id)) return false;
-  const { topPosition } = permissionMap(db, actor);
-  return role.position < topPosition;
+  if (!role || !role.unit_id) return false;
+  if (isUnitOwner(db, actor.id, role.unit_id)) return true;
+  if (!roleManagementUnits(db, actor).includes(role.unit_id)) return false;
+  return role.position < positionIn(db, actor, role.unit_id);
 }

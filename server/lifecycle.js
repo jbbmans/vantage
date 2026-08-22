@@ -25,8 +25,8 @@
 
 import { audit, grantRole, newId, now } from './db.js';
 import { PERMISSIONS } from './roles.js';
-import { can, permissionMap, subtreeIds } from './permissions.js';
-import { isTrueAdmin, validateRoleGrant } from './roleGuard.js';
+import { can, permissionMap, positionIn, isUnitOwner, memberUnitIds } from './permissions.js';
+import { validateRoleGrant } from './roleGuard.js';
 import { invalidateUserSessions, listSessions, hashPassword } from './auth.js';
 
 const ok = (extra = {}) => ({ ok: true, ...extra });
@@ -44,17 +44,23 @@ export function primaryAssignment(db, userId) {
  */
 export function canAdministerMember(db, actor, target) {
   if (!target) return deny(404, 'No such Marine.', 'not_found');
-  if (isTrueAdmin(db, actor)) return ok();
-  const assignment = primaryAssignment(db, target.id);
-  if (!assignment || !can(db, actor, PERMISSIONS.MANAGE_MEMBERS, assignment.unit_id)) {
-    return deny(403, 'That Marine is outside your personnel authority.');
+
+  /* v3.4: authority over a person is authority IN A UNIT THEY ARE IN. v3.3
+   * short-circuited on isTrueAdmin — "holds ADMINISTRATOR anywhere" — which is
+   * the cross-tenant superuser finding 4 deletes: it let Unit A's
+   * administrator switch off Unit B's Marine. Position is compared on that
+   * unit's own scale, because role positions are per-unit now (finding 1) and
+   * comparing a position-60 role in one unit against a position-60 role in
+   * another is comparing two unrelated numbers. */
+  const shared = memberUnitIds(db, target.id)
+    .filter((unitId) => can(db, actor, PERMISSIONS.MANAGE_MEMBERS, unitId));
+  if (!shared.length) return deny(403, 'That Marine is outside your personnel authority.');
+
+  for (const unitId of shared) {
+    if (isUnitOwner(db, actor.id, unitId)) return ok();
+    if (positionIn(db, target, unitId) < positionIn(db, actor, unitId)) return ok();
   }
-  const actorTop = permissionMap(db, actor).topPosition;
-  const targetTop = permissionMap(db, target).topPosition;
-  if (targetTop >= actorTop) {
-    return deny(403, 'You cannot administer a Marine whose role is at or above your own.');
-  }
-  return ok();
+  return deny(403, 'You cannot administer a Marine whose role is at or above your own.');
 }
 
 /** Active administrators other than `exceptUserId` — the lock-out guard. */
@@ -70,8 +76,17 @@ export function otherActiveAdmins(db, exceptUserId) {
     .get(exceptUserId, PERMISSIONS.ADMINISTRATOR).n;
 }
 
+/**
+ * Units this user owns outright. Under v3.4 this — not an ADMINISTRATOR bit —
+ * is what makes an account load-bearing, so it is what the lock-out guards
+ * below are written against (finding 11).
+ */
+const ownedUnits = (db, user) =>
+  db.prepare('SELECT id, name FROM units WHERE owner_user_id = ? AND active = 1').all(user.id);
+
 const holdsAdmin = (db, user) =>
   Boolean(user.is_admin) ||
+  ownedUnits(db, user).length > 0 ||
   Boolean(
     db
       .prepare(
@@ -101,7 +116,11 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
     return deny(400, 'No such billet.', 'invalid');
   }
 
-  const admin = isTrueAdmin(db, actor);
+  const oldUnitPeek = primaryAssignment(db, targetId)?.unit_id || null;
+  // v3.4: "admin" is no longer a global standing. The only actor who skips the
+  // source-authority and position checks is the Owner of the unit the Marine is
+  // being moved out of — authority over that unit, named.
+  const admin = Boolean(oldUnitPeek && isUnitOwner(db, actor.id, oldUnitPeek));
   const existing = primaryAssignment(db, targetId);
   const oldUnit = existing?.unit_id || null;
   const moved = oldUnit !== unit_id;
@@ -118,15 +137,16 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
     }
     /* Never move an equal or higher — that's how a peer removes a rival. */
     if (targetId !== actor.id) {
-      const actorTop = permissionMap(db, actor).topPosition;
-      const targetTop = permissionMap(db, target).topPosition;
-      if (targetTop >= actorTop) {
+      const compareUnit = oldUnit || unit_id;
+      if (positionIn(db, target, compareUnit) >= positionIn(db, actor, compareUnit)) {
         return deny(403, 'You cannot reassign a Marine whose role is at or above your own.');
       }
     }
   }
 
-  const defaultRoleId = db.prepare('SELECT id FROM roles WHERE is_default = 1 LIMIT 1').get()?.id || null;
+  // The default role is the destination unit's own (finding 1): there is no
+  // global default role any more, because there are no global roles.
+  const defaultRoleId = db.prepare('SELECT id FROM roles WHERE is_default = 1 AND unit_id = ? LIMIT 1').get(unit_id)?.id || null;
   const revokedRoles = [];
   const retainedRoles = [];
   const retain = new Set((Array.isArray(retainList) ? retainList : []).map(String));
@@ -197,6 +217,18 @@ export function deactivateMember(db, actor, targetId) {
   if (!gate.ok) return gate;
   if (targetId === actor.id) return deny(400, 'You cannot deactivate your own account.', 'invalid');
   if (!target.active) return ok({ already: true, sessionsRevoked: 0 });
+  /* Orphan protection (finding 11). Deactivating a Unit Owner leaves records
+   * nobody can reach, and unlike a role grant an owner cannot be re-created by
+   * anyone still inside the unit. Ownership must be handed over first. */
+  const owns = ownedUnits(db, target);
+  if (owns.length) {
+    return deny(
+      400,
+      `That Marine owns ${owns.length === 1 ? owns[0].name : `${owns.length} units`}. `
+      + 'Transfer ownership before deactivating the account.',
+      'last_owner'
+    );
+  }
   if (holdsAdmin(db, target) && otherActiveAdmins(db, targetId) === 0) {
     return deny(400, 'That is the last active administrator. Create another administrator first.', 'last_admin');
   }
@@ -281,19 +313,22 @@ export function accessReview(db, actor, targetId) {
         WHERE a.user_id = ? AND (a.end_date IS NULL OR a.end_date > date('now'))`
     )
     .all(targetId);
-  const assignedSubtree = new Set(subtreeIds(db, assignments.map((a) => a.unit_id)));
+  // Orphan detection is membership-based now. A grant in a unit the Marine is
+  // not a member of confers nothing (permissionMap joins through unit_members),
+  // so surfacing it is the whole point.
+  const memberUnits = new Set(memberUnitIds(db, targetId));
 
   const roles = db
     .prepare(
       `SELECT mr.id AS grant_id, mr.unit_id, mr.created_at AS granted_at, mr.granted_by,
-              r.id, r.name, r.color, r.position, r.permissions, r.inherits_down
+              r.id, r.name, r.color, r.position, r.permissions
          FROM member_roles mr JOIN roles r ON r.id = mr.role_id
         WHERE mr.user_id = ? ORDER BY r.position DESC`
     )
     .all(targetId)
-    .map((r) => ({ ...r, orphaned: !assignedSubtree.has(r.unit_id) }));
+    .map((r) => ({ ...r, orphaned: !memberUnits.has(r.unit_id) }));
 
-  const { map, global, topPosition } = permissionMap(db, target);
+  const { map, topPosition } = permissionMap(db, target);
   const sessions = listSessions(db, targetId);
   const lastLogin = db
     .prepare("SELECT at FROM audit_log WHERE actor_id = ? AND action = 'login' ORDER BY at DESC LIMIT 1")
@@ -301,7 +336,7 @@ export function accessReview(db, actor, targetId) {
 
   const findings = [];
   for (const r of roles.filter((x) => x.orphaned)) {
-    findings.push(`Role "${r.name}" is granted in ${r.unit_id}, where this Marine holds no assignment.`);
+    findings.push(`Role "${r.name}" is granted in ${r.unit_id}, where this Marine is not a member. It confers nothing.`);
   }
   if (!target.active && roles.length) {
     findings.push('Account is deactivated but still holds role grants. Revoke them if the departure is permanent.');
@@ -321,7 +356,6 @@ export function accessReview(db, actor, targetId) {
     assignments,
     roles,
     permissionsByUnit: Object.fromEntries(map),
-    globalPermissions: global,
     topPosition,
     sessions,
     lastLogin,
