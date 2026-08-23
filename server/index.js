@@ -20,23 +20,32 @@ import { dirname, join } from 'node:path';
 import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
 import { createHash } from 'node:crypto';
 
-import { getDb, bootstrapAdmin, audit, newId, now, grantRole, revokeRole } from './db.js';
+import {
+  getDb, bootstrapAdmin, audit, newId, now, grantRole, revokeRole,
+  claimUnit, copyTemplateInto, ownerRoleId, addMember, removeMember,
+} from './db.js';
 import { VERSION } from './version.js';
-import { PERMISSIONS, PERMISSION_LIST, SYSTEM_ROLES } from './roles.js';
+import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATES, templateSummaries, DEFAULT_TEMPLATE_ID } from './roles.js';
 import {
   verifyPassword, hashPassword, createSession, destroySession, pruneSessions,
   requireAuth, requireAdmin, burnVerification, invalidateUserSessions,
   listSessions, revokeSessionByPrefix,
 } from './auth.js';
 import {
-  resolveScope, visibleUserIds, visibilityClause, canEdit, canShareTo, ancestorChain, subtreeIds,
-  can, canAnywhere, unitsWith, permissionsIn, permissionMap, canManageRole, VISIBILITIES,
+  resolveScope, visibleUserIds, visibilityClause, canEdit, canShareTo,
+  can, unitsWith, permissionsIn, permissionMap, positionIn, canManageRole,
+  isUnitOwner, isMember, memberUnitIds, VISIBILITIES, DEFAULT_VISIBILITY,
 } from './permissions.js';
+// org.js is DISPLAY ONLY. It is imported here for breadcrumbs and the unit
+// picker and must never appear in an authorization decision — see org.js and
+// tests/static.test.mjs, which fails the build if it drifts into one.
+import { ancestorChain, LEVELS } from './org.js';
+import { isInstanceOperator, isBootstrapOperator, operatorGate } from './instance.js';
 import { checkLoginAllowed, recordLoginFailure, recordLoginSuccess, pruneCounters } from './security.js';
 import {
   RECORD_SCHEMAS, READINESS_SCHEMA, USER_SCHEMA, validate, fieldErrorMessage, BULK_LIMITS,
 } from './validate.js';
-import { validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, isTrueAdmin } from './roleGuard.js';
+import { validateRoleDefinition, validateRoleGrant, canManageRoleDefinition } from './roleGuard.js';
 import { tmpdir } from 'node:os';
 import {
   transferMember, deactivateMember, reactivateMember, resetMemberPassword, forceLogout,
@@ -170,7 +179,7 @@ const TABLES = {
     fields: ['date', 'title', 'category', 'jepes_area', 'quantity', 'unit_label', 'dollar_amount', 'dollar_type',
       'result', 'organization', 'system', 'project_id', 'status', 'notes', 'evidence_links', 'visibility', 'unit_id'],
     json: ['evidence_links'],
-    defaultVisibility: 'chain',
+    defaultVisibility: DEFAULT_VISIBILITY,
     shareFlag: PERMISSIONS.CREATE_SHARED_WORK,
   },
   projects: {
@@ -196,13 +205,13 @@ const TABLES = {
   recognitions: {
     fields: ['date', 'title', 'type', 'from_whom', 'organization', 'notes', 'visibility', 'unit_id'],
     json: [],
-    defaultVisibility: 'chain',
+    defaultVisibility: DEFAULT_VISIBILITY,
     shareFlag: PERMISSIONS.CREATE_SHARED_WORK,
   },
   trainings: {
     fields: ['date', 'title', 'type', 'hours', 'provider', 'status', 'notes', 'visibility', 'unit_id'],
     json: [],
-    defaultVisibility: 'chain',
+    defaultVisibility: DEFAULT_VISIBILITY,
     shareFlag: PERMISSIONS.CREATE_SHARED_WORK,
   },
 };
@@ -227,13 +236,12 @@ const hydrate = (row, spec) => {
 function unitAllowedForRecord(user, unitId, shareFlag) {
   if (!unitId) return true;
   if (!db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(unitId)) return false;
-  const { unitIds } = resolveScope(db, user);
-  if (unitIds.includes(unitId)) return true;
-  return (
-    can(db, user, shareFlag, unitId)
-    || can(db, user, PERMISSIONS.MANAGE_RECORDS, unitId)
-    || isTrueAdmin(db, user)
-  );
+  if (isMember(db, user.id, unitId)) return true;
+  // v3.3 ended this chain with `|| isTrueAdmin(db, user)`, which let anyone
+  // holding ADMINISTRATOR in any unit pin records into any other unit in the
+  // database. Under tenancy the only remaining answers are membership or a
+  // grant IN THAT UNIT.
+  return can(db, user, shareFlag, unitId) || can(db, user, PERMISSIONS.MANAGE_RECORDS, unitId);
 }
 
 /**
@@ -247,16 +255,10 @@ function assigneeError(user, assigneeId, unitId) {
   if (!target) return 'No such Marine.';
   if (!target.active) return 'That account is deactivated.';
   if (!visibleUserIds(db, user).includes(assigneeId)) return 'That Marine is outside your scope.';
-  if (unitId) {
-    const within = subtreeIds(db, [unitId]);
-    const placeholders = within.map(() => '?').join(',');
-    const assigned = db
-      .prepare(
-        `SELECT 1 FROM assignments WHERE user_id = ? AND unit_id IN (${placeholders})
-          AND (end_date IS NULL OR end_date > date('now')) LIMIT 1`
-      )
-      .get(assigneeId, ...within);
-    if (!assigned) return 'That Marine is not assigned in that unit.';
+  // v3.3 accepted an assignee anywhere in the unit's SUBTREE, which is the
+  // tree leaking into a write path. Membership in the unit itself, or nothing.
+  if (unitId && !isMember(db, assigneeId, unitId)) {
+    return 'That Marine is not a member of that unit.';
   }
   return null;
 }
@@ -356,11 +358,16 @@ app.get('/api/me', auth, (req, res) => {
     canLead: scope.canLead,
     scopeUnitIds: scope.scopeUnitIds,
     unitIds: scope.unitIds,
+    memberships: scope.memberships,
+    ownedUnitIds: scope.ownedUnitIds,
     permissions: scope.permissions,
-    globalPermissions: scope.globalPermissions,
+    positions: scope.positions,
     topPosition: scope.topPosition,
+    isOperator: isInstanceOperator(req.user) || isBootstrapOperator(db, req.user),
     manageableUnits: unitsWith(db, req.user, PERMISSIONS.MANAGE_UNITS),
-    chain: scope.assignments.length ? ancestorChain(db, scope.assignments[0].unit_id) : [],
+    // Breadcrumb only. `chain` here is the org-chart path drawn for the user's
+    // own unit; it grants nothing and is computed from the display module.
+    chain: scope.unitIds.length ? ancestorChain(db, scope.unitIds[0]) : [],
   });
 });
 
@@ -420,26 +427,49 @@ app.get('/api/org', auth, (req, res) => {
   });
 });
 
+/** Role templates offered by the creation wizard (finding 5, finding 21). */
+app.get('/api/org/templates', auth, (req, res) => {
+  res.json({ templates: templateSummaries(), default: DEFAULT_TEMPLATE_ID, levels: LEVELS });
+});
+
 /**
- * Create a unit. Requires MANAGE_UNITS on the parent, so a section head can
- * stand up their own fire teams without anyone becoming an administrator.
+ * Create a unit (finding 5).
+ *
+ * v3.3 required a parent the actor already held MANAGE_UNITS on, and refused
+ * outright when parent_id was absent — so there was no path to a top-level
+ * unit, and a SNCOIC at a command that had never used Vantage had no way in at
+ * all. They would first have to be granted authority inside somebody else's
+ * tree, which is exactly the dependency sovereignty exists to remove.
+ *
+ * Now: parent_id is optional and purely descriptive. Creating a SUB-unit of a
+ * unit you manage still requires MANAGE_UNITS there — not because the tree
+ * conveys authority, but because naming your unit as someone's parent is a
+ * claim about their org chart. Creating a top-level unit requires no existing
+ * standing at all in Phase 1; Phase 2 gates it on a unit-creation invite
+ * (finding 7), which is the piece that keeps creation from being unlimited.
+ *
+ * The creator becomes the Unit Owner, is enrolled as a member, receives the
+ * copied Owner role, and gets a unit-local copy of the chosen template.
  */
 app.post('/api/org/units', auth, (req, res) => {
-  const { code, name, short_name, echelon, location, parent_id } = req.body || {};
+  const { code, name, short_name, echelon, location, parent_id, level, template_id } = req.body || {};
   const fieldErrors = {};
   if (!name || typeof name !== 'string' || !name.trim()) fieldErrors.name = 'Required.';
   else if (name.length > 120) fieldErrors.name = 'Too long (limit 120 characters).';
-  if (!echelon || typeof echelon !== 'string') fieldErrors.echelon = 'Required.';
-  else if (echelon.length > 40) fieldErrors.echelon = 'Too long (limit 40 characters).';
   if (short_name && (typeof short_name !== 'string' || short_name.length > 40)) fieldErrors.short_name = 'Too long (limit 40 characters).';
   if (location && (typeof location !== 'string' || location.length > 120)) fieldErrors.location = 'Too long (limit 120 characters).';
+  if (echelon && (typeof echelon !== 'string' || echelon.length > 40)) fieldErrors.echelon = 'Too long (limit 40 characters).';
+  if (level && !LEVELS.includes(level)) fieldErrors.level = `Choose one of ${LEVELS.join(', ')}.`;
+  if (template_id && !ROLE_TEMPLATES.some((t) => t.id === template_id)) fieldErrors.template_id = 'No such role template.';
   if (Object.keys(fieldErrors).length) return failValidation(res, fieldErrors);
-  if (!parent_id) return fail(res, 400, 'Choose a parent unit.');
-  if (!db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(parent_id)) {
-    return fail(res, 400, 'No such parent unit.');
-  }
-  if (!can(db, req.user, PERMISSIONS.MANAGE_UNITS, parent_id)) {
-    return fail(res, 403, 'You cannot create units under that parent.');
+
+  if (parent_id) {
+    if (!db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(parent_id)) {
+      return fail(res, 400, 'No such parent unit.');
+    }
+    if (!can(db, req.user, PERMISSIONS.MANAGE_UNITS, parent_id)) {
+      return fail(res, 403, 'You cannot create units under that parent.');
+    }
   }
 
   // Codes are stable keys; generate one when the user doesn't supply it.
@@ -448,9 +478,10 @@ app.post('/api/org/units', auth, (req, res) => {
 
   try {
     db.prepare(
-      `INSERT INTO units (id, code, name, short_name, echelon, location, parent_id, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, id, name, short_name || null, echelon, location || null, parent_id, now());
+      `INSERT INTO units (id, code, name, short_name, echelon, location, parent_id, level, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(id, id, name, short_name || null, echelon || 'section', location || null, parent_id || null, level || 'L4', now());
+    claimUnit(id, req.user.id, template_id || DEFAULT_TEMPLATE_ID);
     audit({ actor_id: req.user.id, action: 'create_unit', entity: 'unit', entity_id: id, unit_id: id, detail: name });
     res.json(db.prepare('SELECT * FROM units WHERE id = ?').get(id));
   } catch (err) {
@@ -481,11 +512,52 @@ app.delete('/api/org/units/:unitId', auth, needs(PERMISSIONS.MANAGE_UNITS, (r) =
   res.json({ ok: true });
 });
 
-/* ── roles ────────────────────────────────────────────────────────── */
+/**
+ * Claim an unowned unit (Instance Operator).
+ *
+ * A unit row with no owner and no roles is unreachable: nobody can grant
+ * anything in it, so nobody can ever get in. That happens in exactly two
+ * situations — a unit that arrived from an imported org chart, and a unit
+ * whose Owner is gone (finding 11's recovery case). Both are instance-level
+ * problems, so this is an instance-level act, and it is loud: the audit row
+ * lands in the unit's own log where the new Owner will see it.
+ *
+ * It refuses a unit that already has an owner. Reassigning a live unit is a
+ * different operation with a different consent story, and conflating them
+ * would make this a quiet takeover primitive.
+ */
+app.post('/api/org/units/:unitId/claim', auth, operatorGate(db), (req, res) => {
+  const { owner_user_id, template_id } = req.body || {};
+  const unit = db.prepare('SELECT * FROM units WHERE id = ? AND active = 1').get(req.params.unitId);
+  if (!unit) return fail(res, 404, 'No such unit.');
+  if (unit.owner_user_id) return fail(res, 409, 'That unit already has an owner.', { code: 'already_owned' });
+  if (template_id && !ROLE_TEMPLATES.some((t) => t.id === template_id)) {
+    return failValidation(res, { template_id: 'No such role template.' });
+  }
+  const ownerId = owner_user_id || req.user.id;
+  if (!db.prepare('SELECT 1 FROM users WHERE id = ? AND active = 1').get(ownerId)) {
+    return failValidation(res, { owner_user_id: 'No such active account.' });
+  }
+  claimUnit(unit.id, ownerId, template_id || DEFAULT_TEMPLATE_ID);
+  audit({
+    actor_id: req.user.id, action: 'claim_unit', entity: 'unit', entity_id: unit.id,
+    subject_id: ownerId, unit_id: unit.id, detail: `operator assigned owner (${template_id || DEFAULT_TEMPLATE_ID} template)`,
+  });
+  res.json(db.prepare('SELECT * FROM units WHERE id = ?').get(unit.id));
+});
 
+/* ── roles ────────────────────────────────────────────────────────── */
+/**
+ * A user sees the role sets of the units they belong to, and no others.
+ * v3.3 returned every role in the database, which under tenancy would show one
+ * shop's role names — and permission layout — to every other shop.
+ */
 app.get('/api/roles', auth, (req, res) => {
-  const roles = db.prepare('SELECT * FROM roles ORDER BY position DESC, name').all();
-  const { topPosition } = permissionMap(db, req.user);
+  const mine = memberUnitIds(db, req.user.id);
+  const roles = mine.length
+    ? db.prepare(`SELECT * FROM roles WHERE unit_id IN (${mine.map(() => '?').join(',')}) ORDER BY position DESC, name`).all(...mine)
+    : [];
+  const { topPosition, positions } = permissionMap(db, req.user);
   res.json({
     roles: roles.map((r) => ({
       ...r,
@@ -493,6 +565,8 @@ app.get('/api/roles', auth, (req, res) => {
       editable: canManageRoleDefinition(db, req.user, r),
     })),
     topPosition,
+    positions: Object.fromEntries(positions),
+    templates: templateSummaries(),
     catalogue: PERMISSION_LIST.map((p) => ({ ...p, bit: PERMISSIONS[p.key] })),
   });
 });
@@ -505,7 +579,7 @@ const roleDenyStatus = (code) => (['invalid', 'system_role'].includes(code) ? 40
  * path to the same outcome.
  */
 app.post('/api/roles', auth, (req, res) => {
-  const { name, description, color, position, permissions, inherits_down, unit_id } = req.body || {};
+  const { name, description, color, position, permissions, unit_id } = req.body || {};
   if (color && (typeof color !== 'string' || color.length > 20)) return failValidation(res, { color: 'Not a color.' });
 
   const def = {
@@ -513,7 +587,6 @@ app.post('/api/roles', auth, (req, res) => {
     description,
     position: position === undefined ? 0 : Number(position),
     permissions: Number(permissions) || 0,
-    inherits_down: inherits_down ? 1 : 0,
     unit_id: unit_id || null,
   };
   const verdict = validateRoleDefinition(db, req.user, def);
@@ -521,9 +594,9 @@ app.post('/api/roles', auth, (req, res) => {
 
   const id = `${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${newId().slice(0, 6)}`;
   db.prepare(
-    `INSERT INTO roles (id, unit_id, name, description, color, position, permissions, inherits_down, is_default, is_system, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`
-  ).run(id, def.unit_id, name, description || null, color || '#8D98A8', def.position, def.permissions, def.inherits_down, now());
+    `INSERT INTO roles (id, unit_id, name, description, color, position, permissions, is_default, is_system, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, 0, 0, ?)`
+  ).run(id, def.unit_id, name, description || null, color || '#8D98A8', def.position, def.permissions, now());
   audit({ actor_id: req.user.id, action: 'create_role', entity: 'role', entity_id: id, unit_id: def.unit_id, detail: name });
   res.json(db.prepare('SELECT * FROM roles WHERE id = ?').get(id));
 });
@@ -537,9 +610,12 @@ app.post('/api/roles', auth, (req, res) => {
 app.put('/api/roles/:roleId', auth, (req, res) => {
   const role = db.prepare('SELECT * FROM roles WHERE id = ?').get(req.params.roleId);
   if (!role) return fail(res, 404, 'No such role.');
-  if (role.is_system) return fail(res, 400, 'Built-in roles cannot be edited. Copy it into a new role instead.');
+  // v3.3 refused outright on is_system, because a system role was a shared
+  // global object and editing it changed it for every unit. Under v3.4 every
+  // role is a unit-local copy, so is_system is provenance only and the owning
+  // unit may edit its own copy freely (finding 1).
 
-  const { name, description, color, position, permissions, inherits_down, unit_id } = req.body || {};
+  const { name, description, color, position, permissions, unit_id } = req.body || {};
   if (color && (typeof color !== 'string' || color.length > 20)) return failValidation(res, { color: 'Not a color.' });
 
   const def = {
@@ -547,20 +623,17 @@ app.put('/api/roles/:roleId', auth, (req, res) => {
     description: description ?? role.description,
     position: position === undefined ? role.position : Number(position),
     permissions: permissions === undefined ? role.permissions : Number(permissions),
-    inherits_down: inherits_down === undefined ? role.inherits_down : (inherits_down ? 1 : 0),
-    // Rescoping a role is an edit like any other; the validator checks the
-    // actor's authority over BOTH the old and the new scope.
+    // A role cannot be moved between units — two units' role sets are
+    // unrelated, so a "move" would silently re-scope every live grant. The
+    // validator rejects a mismatch rather than accepting it quietly.
     unit_id: unit_id === undefined ? role.unit_id : (unit_id || null),
   };
   const verdict = validateRoleDefinition(db, req.user, def, { existing: role });
   if (!verdict.ok) return fail(res, roleDenyStatus(verdict.code), verdict.message, { code: verdict.code });
 
   db.prepare(
-    'UPDATE roles SET name = ?, description = ?, color = ?, position = ?, permissions = ?, inherits_down = ?, unit_id = ? WHERE id = ?'
-  ).run(
-    def.name, def.description, color ?? role.color, def.position, def.permissions, def.inherits_down, def.unit_id,
-    req.params.roleId
-  );
+    'UPDATE roles SET name = ?, description = ?, color = ?, position = ?, permissions = ? WHERE id = ?'
+  ).run(def.name, def.description, color ?? role.color, def.position, def.permissions, req.params.roleId);
   audit({ actor_id: req.user.id, action: 'edit_role', entity: 'role', entity_id: req.params.roleId, unit_id: def.unit_id });
   res.json(db.prepare('SELECT * FROM roles WHERE id = ?').get(req.params.roleId));
 });
@@ -568,13 +641,17 @@ app.put('/api/roles/:roleId', auth, (req, res) => {
 app.delete('/api/roles/:roleId', auth, (req, res) => {
   const role = db.prepare('SELECT * FROM roles WHERE id = ?').get(req.params.roleId);
   if (!role) return fail(res, 404, 'No such role.');
-  if (role.is_system) return fail(res, 400, 'Built-in roles cannot be deleted.');
-  // Finding 7: deleting needs authority over the role's SCOPE, not just a
-  // lower position number. Org-wide definitions are an administrator's.
+  // Deleting needs authority over the role's own unit. There is no org-wide
+  // case left, and is_system no longer protects a unit's own copy (finding 1).
   if (!canManageRoleDefinition(db, req.user, role)) {
-    return fail(res, 403, role.unit_id
-      ? 'That role belongs to a unit outside your authority.'
-      : 'That is an organization-wide role; only an administrator can delete it.');
+    return fail(res, 403, 'That role belongs to a unit outside your authority.');
+  }
+  // Refusing to delete the unit's last owner-capable role keeps the unit from
+  // being locked by a role edit. The Unit Owner's authority does not depend on
+  // a role, so this is belt-and-braces, but a unit with no administering role
+  // is still a unit nobody but the owner can run.
+  if (role.unit_id && isUnitOwner(db, req.user.id, role.unit_id) === false && (role.permissions & PERMISSIONS.ADMINISTRATOR)) {
+    return fail(res, 403, 'Only the unit owner can delete an administrator role.');
   }
   db.prepare('DELETE FROM member_roles WHERE role_id = ?').run(req.params.roleId);
   db.prepare('DELETE FROM roles WHERE id = ?').run(req.params.roleId);
@@ -608,7 +685,7 @@ app.delete('/api/team/:id/roles/:roleId', auth, (req, res) => {
   const role = db.prepare('SELECT * FROM roles WHERE id = ?').get(req.params.roleId);
   if (!role) return fail(res, 404, 'No such role.');
   if (!unit_id) return fail(res, 400, 'A unit is required.');
-  if (!isTrueAdmin(db, req.user)) {
+  if (!isUnitOwner(db, req.user.id, unit_id)) {
     if (!can(db, req.user, PERMISSIONS.MANAGE_ROLES, unit_id)) return fail(res, 403, 'You cannot manage roles there.');
     if (!canManageRole(db, req.user, role)) return fail(res, 403, 'That role is at or above your own.');
   }
@@ -778,6 +855,10 @@ app.post('/api/team', auth, (req, res) => {
   let extraRole = null;
   if (role_id) {
     extraRole = db.prepare('SELECT * FROM roles WHERE id = ?').get(role_id);
+    // targetUser is omitted deliberately: the account does not exist yet, so
+    // the membership precondition validateRoleGrant enforces cannot be met
+    // here. The transaction below writes the membership row before granting,
+    // which is the same ordering guarantee by construction.
     const verdict = validateRoleGrant(db, req.user, extraRole, unit_id);
     if (!verdict.ok) return fail(res, roleDenyStatus(verdict.code), verdict.message, { code: verdict.code });
   }
@@ -799,8 +880,14 @@ app.post('/api/team', auth, (req, res) => {
          VALUES (?, ?, ?, ?, '', 1, ?, ?)`
       ).run(newId(), id, unit_id, billet_id || null, now().slice(0, 10), now());
 
-      // Everyone starts with the default role; anything more is granted explicitly.
-      const defaultRole = db.prepare('SELECT id FROM roles WHERE is_default = 1 LIMIT 1').get();
+      // Membership is stated, not inferred (finding 8). This row is what makes
+      // the grants below mean anything: permissionMap joins through
+      // unit_members, so a grant written without one confers nothing.
+      addMember(id, unit_id, { kind: 'member', invitedBy: req.user.id });
+
+      // Everyone starts with the unit's OWN default role. There is no global
+      // default role any more, because there are no global roles (finding 1).
+      const defaultRole = db.prepare('SELECT id FROM roles WHERE is_default = 1 AND unit_id = ? LIMIT 1').get(unit_id);
       if (defaultRole) grantRole(id, defaultRole.id, unit_id, req.user.id);
       if (extraRole) grantRole(id, extraRole.id, unit_id, req.user.id);
     })();
@@ -860,8 +947,7 @@ const metaSet = (key, value) => db.prepare(
 ).run(key, String(value));
 
 /** Size, schema version and last-backup time — the admin Database panel. */
-app.get('/api/admin/db', auth, (req, res) => {
-  if (!isTrueAdmin(db, req.user)) return fail(res, 403, 'Administrator only.');
+app.get('/api/admin/db', auth, operatorGate(db), (req, res) => {
   let sizeBytes = null;
   try { sizeBytes = statSync(db.name).size; } catch { /* in-memory or moved */ }
   res.json({
@@ -877,8 +963,10 @@ app.get('/api/admin/db', auth, (req, res) => {
  * API copies safely while writers continue, so this never requires downtime.
  * The download itself is the audit-worthy event, and it is audited.
  */
-app.get('/api/admin/backup', auth, async (req, res) => {
-  if (!isTrueAdmin(db, req.user)) return fail(res, 403, 'Administrator only.');
+/* Backups are an Instance Operator act (finding 4), not an administrator one:
+ * a backup crosses every unit boundary at once, so it belongs to whoever runs
+ * the container rather than to whoever holds a role inside one shop. */
+app.get('/api/admin/backup', auth, operatorGate(db), async (req, res) => {
   const stamp = new Date().toISOString().replace(/[-:]/g, '').slice(0, 13);
   const dest = join(tmpdir(), `vantage-backup-${stamp}-${newId().slice(0, 6)}.db`);
   try {
@@ -1045,15 +1133,20 @@ app.get('/api/export', auth, (req, res) => {
     return fail(res, 403, 'You cannot export that unit.');
   }
 
-  const units = subtreeIds(db, [unitId]);
-  const uph = units.map(() => '?').join(',');
+  /* One unit. v3.3 exported the whole SUBTREE, so EXPORT_DATA at a parent
+   * pulled every subordinate shop's roster into one workbook without any of
+   * them acting — the exact automatic cross-unit flow Decision 3 removes.
+   * Sending data upward is a share package (finding 13), not an export. */
+  const units = [unitId];
+  const uph = '?';
   const members = db
     .prepare(
       `SELECT DISTINCT u.id, u.username, u.first_name, u.last_name, u.mos, u.eas, u.active,
-              r.abbr AS rank_abbr, a.unit_id
-         FROM users u JOIN assignments a ON a.user_id = u.id
+              r.abbr AS rank_abbr, um.unit_id
+         FROM users u JOIN unit_members um ON um.user_id = u.id
          LEFT JOIN ranks r ON r.id = u.rank_id
-        WHERE a.unit_id IN (${uph}) AND (a.end_date IS NULL OR a.end_date > date('now'))`
+        WHERE um.unit_id IN (${uph}) AND u.active = 1
+          AND (um.expires_at IS NULL OR um.expires_at > datetime('now'))`
     )
     .all(...units);
   const memberIds = members.map((m) => m.id);
@@ -1097,15 +1190,27 @@ for (const [table, spec] of Object.entries(TABLES)) {
     const errors = validate(RECORD_SCHEMAS[table], body);
     if (errors) return failValidation(res, errors.fieldErrors);
 
-    const visibility = body.visibility || spec.defaultVisibility;
     const scope = resolveScope(db, req.user);
-    const unitId = body.unit_id || scope.assignments.find((a) => a.is_primary)?.unit_id || scope.unitIds[0] || null;
+
+    /* A Marine with no unit at all still gets to keep a log. Personal scope is
+     * the answer (finding 6), so it is the default when there is nowhere else
+     * for a record to live rather than an error. */
+    const fallbackUnit = scope.assignments.find((a) => a.is_primary)?.unit_id || scope.unitIds[0] || null;
+    const visibility = body.visibility || (fallbackUnit ? spec.defaultVisibility : 'personal');
+
+    /* Personal scope is DEFINED as unit_id IS NULL. Letting a unit ride along
+     * would leave a row that claims to belong to nobody while still carrying a
+     * unit — which the visibility clause would then have to reason about. The
+     * tier sets the column; it is not merely correlated with it. */
+    const unitId = visibility === 'personal'
+      ? null
+      : (body.unit_id || fallbackUnit);
 
     if (!VISIBILITIES.includes(visibility)) return fail(res, 400, 'Unknown visibility.');
     if (visibility !== 'private' && !canShareTo(db, req.user, visibility, unitId, spec.shareFlag)) {
       return fail(res, 403, 'You cannot share to that unit.');
     }
-    if (body.unit_id && !unitAllowedForRecord(req.user, body.unit_id, spec.shareFlag)) {
+    if (visibility !== 'personal' && body.unit_id && !unitAllowedForRecord(req.user, body.unit_id, spec.shareFlag)) {
       return fail(res, 403, 'You are not assigned to that unit and hold no permission there.', {
         code: 'forbidden', fieldErrors: { unit_id: 'Not your unit.' },
       });
@@ -1155,7 +1260,12 @@ for (const [table, spec] of Object.entries(TABLES)) {
     const vals = [now()];
     for (const f of spec.fields) {
       if (body[f] === undefined) continue;
-      if (f === 'visibility' && body[f] !== 'private') {
+      if (f === 'visibility' && body[f] === 'personal') {
+        // Moving a record into personal scope detaches it from its unit, in
+        // the same statement, so the row can never be personal-but-in-a-unit.
+        sets.push('unit_id = ?');
+        vals.push(null);
+      } else if (f === 'visibility' && body[f] !== 'private') {
         if (!canShareTo(db, req.user, body[f], finalUnit, spec.shareFlag)) return fail(res, 403, 'You cannot share to that unit.');
       }
       sets.push(`${f} = ?`);
@@ -1264,6 +1374,9 @@ app.post('/api/activities/bulk', auth, (req, res) => {
 
   const scope = resolveScope(db, req.user);
   const unitId = scope.assignments.find((a) => a.is_primary)?.unit_id || scope.unitIds[0] || null;
+  // With no unit, an imported row has nowhere to live but personal scope
+  // (finding 6) — it must not default to a unit visibility with a null unit.
+  const importVisibility = unitId ? DEFAULT_VISIBILITY : 'personal';
   const spec = TABLES.activities;
   const created = [];
   const duplicates = [];
@@ -1273,7 +1386,7 @@ app.post('/api/activities/bulk', auth, (req, res) => {
       const body = rows[i];
       const id = newId();
       const cols = ['id', 'user_id', 'unit_id', 'visibility', 'fingerprint', 'created_at', 'updated_at'];
-      const vals = [id, req.user.id, unitId, body.visibility || 'chain', activityFingerprint(req.user.id, body), now(), now()];
+      const vals = [id, req.user.id, unitId, body.visibility || importVisibility, activityFingerprint(req.user.id, body), now(), now()];
       for (const f of spec.fields) {
         if (['unit_id', 'visibility'].includes(f) || body[f] === undefined) continue;
         cols.push(f);

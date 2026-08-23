@@ -23,7 +23,7 @@
  *   - Nothing here deletes a user. History stays attached to the account.
  */
 
-import { audit, grantRole, newId, now } from './db.js';
+import { audit, grantRole, newId, now, addMember } from './db.js';
 import { PERMISSIONS } from './roles.js';
 import { can, permissionMap, positionIn, isUnitOwner, memberUnitIds } from './permissions.js';
 import { validateRoleGrant } from './roleGuard.js';
@@ -164,6 +164,14 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
       ).run(newId(), targetId, unit_id, billet_id || null, now().slice(0, 10), now());
     }
 
+    // Membership is stated (finding 8), so a transfer has to move the
+    // membership row as well as the assignment. Writing it BEFORE the grants
+    // below matters: permissionMap joins through unit_members, so the baseline
+    // grant into the destination would confer nothing without it.
+    if (moved) {
+      addMember(targetId, unit_id, { kind: 'member', invitedBy: actor.id });
+    }
+
     if (moved && oldUnit) {
       const oldGrants = db
         .prepare(
@@ -182,8 +190,17 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
         db.prepare('DELETE FROM member_roles WHERE id = ?').run(grant.grant_id);
         if (grant.id !== defaultRoleId) revokedRoles.push(grant.name);
       }
-      // Baseline membership follows the Marine to the new unit.
+      // Baseline role follows the Marine to the new unit.
       if (defaultRoleId) grantRole(targetId, defaultRoleId, unit_id, actor.id);
+
+      /* Leaving the old unit means leaving it. If nothing was retained the
+       * membership row goes too, so the Marine stops appearing on the old
+       * unit's roster and stops being a valid assignee there. A retained
+       * grant is an explicit decision to keep them attached, so membership
+       * survives alongside it. */
+      if (!retainedRoles.length) {
+        db.prepare('DELETE FROM unit_members WHERE user_id = ? AND unit_id = ?').run(targetId, oldUnit);
+      }
     }
   });
   run();

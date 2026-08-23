@@ -12,7 +12,7 @@ import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import {
   Panel, Button, Input, NumberInput, Textarea, Select, Field, Badge, Dot, EmptyState,
 } from '@/components/ui/primitives';
-import VisibilityPicker from '@/components/VisibilityPicker';
+import VisibilityPicker, { DEFAULT_VISIBILITY } from '@/components/VisibilityPicker';
 import { areaOptions, mapAreaToTrack, trackMeta } from '@/lib/evaluation';
 import { useEvalTrack } from '@/store/useStore';
 import { cn } from '@/lib/utils';
@@ -313,7 +313,7 @@ export default function ActivityDetail() {
             <Textarea rows={3} value={draft.notes || ''} onChange={setEvent('notes')} />
           </Field>
 
-          <VisibilityPicker value={draft.visibility || 'chain'} onChange={set('visibility')} unitId={draft.unit_id} />
+          <VisibilityPicker value={draft.visibility || DEFAULT_VISIBILITY} onChange={set('visibility')} unitId={draft.unit_id} />
         </div>
       </Panel>
 

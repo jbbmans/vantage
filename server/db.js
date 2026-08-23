@@ -675,18 +675,54 @@ const MIGRATIONS = [
         for (const unitId of mine) report.owners += setOwner.run(a.id, unitId).changes;
         report.dropped_global_admin.push({ username: a.username, kept_units: mine.length, lost_units: totalUnits - mine.length });
       }
-      // Any unit still without an owner takes its highest-position grant holder.
+      /* Any unit still without an owner. Leaving it ownerless means nobody can
+       * ever grant anything in it, so it is unreachable forever — but promoting
+       * an arbitrary member would hand someone authority the migration
+       * invented. The rule: promote only a person who was ALREADY
+       * administering the unit, meaning they held MANAGE_ROLES and
+       * MANAGE_MEMBERS there under v3.3. They gain exactly one bit,
+       * ADMINISTRATOR, in a unit they already ran.
+       *
+       * A unit with no such person is deliberately left ownerless for the
+       * Instance Operator to claim (finding 11). That is a recorded gap
+       * someone acts on, not a silent promotion. */
+      const RUNS_UNIT = PERMISSIONS.MANAGE_ROLES | PERMISSIONS.MANAGE_MEMBERS;
+      report.promoted_owners = [];
+      report.left_ownerless = [];
       for (const u of db.prepare('SELECT id FROM units WHERE active = 1 AND owner_user_id IS NULL').all()) {
-        const top = db
+        const candidates = db
           .prepare(
-            `SELECT mr.user_id FROM member_roles mr
+            `SELECT mr.user_id, us.username, r.position, r.permissions
+               FROM member_roles mr
                JOIN roles r ON r.id = mr.role_id
                JOIN users us ON us.id = mr.user_id
               WHERE mr.unit_id = ? AND us.active = 1
-              ORDER BY r.position DESC LIMIT 1`
+              ORDER BY r.position DESC`
           )
-          .get(u.id);
-        if (top) report.owners += setOwner.run(top.user_id, u.id).changes;
+          .all(u.id);
+
+        const byUser = new Map();
+        for (const c of candidates) {
+          const prev = byUser.get(c.user_id) || { username: c.username, bits: 0, position: 0 };
+          byUser.set(c.user_id, {
+            username: c.username,
+            bits: prev.bits | c.permissions,
+            position: Math.max(prev.position, c.position),
+          });
+        }
+        const eligible = [...byUser.entries()]
+          .filter(([, v]) => (v.bits & RUNS_UNIT) === RUNS_UNIT)
+          .sort((a, b) => b[1].position - a[1].position)[0];
+
+        if (!eligible) {
+          if (byUser.size) report.left_ownerless.push(u.id);
+          continue;
+        }
+        const [userId, info] = eligible;
+        report.owners += setOwner.run(userId, u.id).changes;
+        report.promoted_owners.push({
+          username: info.username, unit_id: u.id, before_bits: info.bits, gained: 'ADMINISTRATOR',
+        });
       }
 
       db.prepare(
