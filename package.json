@@ -1,7 +1,7 @@
 {
   "name": "vantage",
   "private": true,
-  "version": "3.3.0",
+  "version": "3.4.0-phase1",
   "type": "module",
   "description": "Server-hosted performance record system for a Marine Corps section. Role-based access, rank-aware evaluation tracks (JEPES and FITREP), and a built-in SOP.",
   "author": "John Bernard Boletz",

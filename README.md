@@ -1,18 +1,26 @@
-# Vantage v3.3.0
+# Vantage v3.4.0-phase1
 
-> **V3.3 — the Security, Integrity, and Reliability Release.** Every finding
-> in the v3.3 roadmap (1–52) is closed. Every permission decision is
-> server-authoritative and pinned by a 51-row matrix; every personnel access
-> change is audited; every important input is validated server-side with the
-> refusal named under the exact field; every evaluation claim is sourced or
-> labeled a Vantage heuristic; every destructive operation is reversible; and
-> a transfer immediately produces the correct access state — proven through
-> the real UI, not just the API. The Definition-of-Done below records what
-> was verified, by which suite, and the short list that needs your
-> deployment to verify. Every authorization finding from the v3.3 roadmap's Phase 1 is
-> closed and pinned by an adversarial test suite. What remains open is listed
-> honestly below — read it, and read "Before real names go in it," before any
-> real records land on this build.
+> **V3.4 Phase 1 — Tenancy.** A unit is now a sovereign boundary. Its roles,
+> its members, its records, its audit log; nothing crosses without an explicit,
+> audited act by someone inside it. Two units in the same database are
+> strangers.
+>
+> No authorization decision reads the org chart — enforced by a static test
+> that fails the build, not by discipline. `roles.unit_id` is `NOT NULL`, so
+> there is no global role definition. An `ADMINISTRATOR` grant in one unit
+> confers nothing in any other. `chain` visibility is gone from schema, API and
+> UI. Personal scope is unreadable by every other principal including the
+> Instance Operator. Migrations 006–007 are verified against a captured v3.3.0
+> database with a permission oracle taken before any v3.4 code existed.
+>
+> **Read "Upgrading to v3.4" before running this against a v3.3 database.** The
+> migration is one-way, it reduces visibility on purpose, and it deliberately
+> declines to carry one v3.3 permission forward.
+>
+> Phases 2–5 (invites, ownership transfer, fork-on-transfer, empty seed,
+> classification modes, share packages, per-unit audit) are not in this build.
+> v3.3's ledger and its open items are still below, and **"Before real names go
+> in it" still applies** — Phase 3's Minimal mode is what changes that answer.
 
 ## How to hand this build back to a working session
 
@@ -239,7 +247,149 @@ Wired, enforced at the API, and each pinned by `tests/security.test.mjs`:
   are the process items answered by this README's ledger and the
   Definition-of-Done checklist below.
 
-## Behavior changes to know about when upgrading
+## Upgrading to v3.4 — read this before you run it
+
+v3.4 changes what Vantage *is*. v3.3 made one command's instance defensible;
+v3.4 makes a unit a sovereign boundary, the way a Discord guild is. Two units
+in the same database are strangers. That is an architectural break, not an
+increment, and the migration is one-way.
+
+**Take a backup first.** `GET /api/admin/backup`, or copy the `.db` file with
+the server stopped. Migrations 006 and 007 rewrite the roles table and every
+record's visibility; there is no down-migration.
+
+### The three things that change under you
+
+**1. Hierarchy stops conveying authority.**
+
+`parent_id` and the L1–L4 levels still describe the org chart, and Vantage
+still draws it. They no longer grant anything. A battalion sees nothing from a
+company unless the company sent it. Concretely: a role granted at a parent unit
+used to cascade over every unit beneath it, and that expansion is gone.
+
+Migration 006 does not simply drop those grants — it **materialises** them.
+Every permission a cascading role was computing at read time becomes an
+explicit grant row in each unit it reached, so nobody loses access on upgrade.
+What you gain is that those grants are now visible and revocable one unit at a
+time, instead of implied by a tree.
+
+**2. `chain` visibility is deleted, and this hides things.**
+
+`chain` meant "the unit and everyone above and below it," and it was the
+**default** on activities, recognitions and trainings. A Marine logging work
+with the default setting was publishing it up and down the org chart without
+ever deciding to.
+
+Migration 007 rewrites every `chain` row to `unit`. This is a visibility
+*reduction*: it cannot leak, it can only hide something that used to be visible
+to somebody outside the owning unit. **Tell your users before you upgrade.** A
+leader two levels up who could see a Marine's logged work on Monday will not
+see it on Tuesday, and that is correct — but it will look like data loss if
+nobody warned them. Nothing is deleted; the records are in their own unit.
+
+To send work upward, someone inside the owning unit generates a share package
+(Phase 4). That is a deliberate act with a name, a timestamp and an audit row.
+
+**3. There is no cross-tenant administrator any more.**
+
+In v3.3, an `ADMINISTRATOR` grant in one unit conferred every permission in
+every unit in the database, and legacy `users.is_admin` did the same. Any unit
+handing out its own Administrator role handed out read access to every other
+shop's personnel records. That is deleted.
+
+It is replaced by two things that are *not* permission bits:
+
+| | Unit Owner | Instance Operator |
+|---|---|---|
+| Scope | One unit, completely | The container |
+| Stored as | `units.owner_user_id` | `VANTAGE_OPERATOR` env var |
+| Can | Everything inside that unit | Mint invites, recover a lost owner, back up, read the instance audit |
+| Cannot | Reach any other unit | Read unit records silently, or read personal scope at all |
+| Revoked by | Ownership transfer only — no role edit can remove it | Restarting the process with a different value |
+
+**This is the one place migration 006 deliberately does not preserve a
+permission.** Carrying the fan-out forward would mean writing an administrator
+grant into every unit, which is precisely the leak. Instead your administrator
+becomes Unit Owner of every unit they were actually a member of, keeps every
+unit-scoped permission they held, and loses reach into units they were never
+in. What was dropped is counted in `meta.migration_006_report` and written to
+the instance audit — check it after upgrading:
+
+```sh
+sqlite3 vantage.db "SELECT value FROM meta WHERE key='migration_006_report';"
+```
+
+If you genuinely need instance-wide reach, name those accounts in
+`VANTAGE_OPERATOR` (comma- or space-separated usernames) and restart:
+
+```sh
+VANTAGE_OPERATOR=boletz,tsimmons node server/index.js
+```
+
+An operator is designated by environment variable rather than a database row on
+purpose: a row can be written by anything that can write to that table, while
+an environment variable can only be changed by whoever can restart the process
+— which is the correct authority for "who runs this box." No SQL injection,
+role edit or invite redemption can mint one.
+
+### After the migration
+
+Some units may come out **ownerless**. Migration 006 will only promote someone
+who was already administering a unit — held both `MANAGE_ROLES` and
+`MANAGE_MEMBERS` there — because promoting anyone else would hand out authority
+the migration invented. Units with no such person are left ownerless on purpose
+and listed in `left_ownerless` in the report. An Instance Operator claims each
+one:
+
+```
+POST /api/org/units/:unitId/claim
+{ "owner_user_id": "<user id>", "template_id": "section" }
+```
+
+This refuses a unit that already has an owner. Reassigning a live unit is a
+different operation with a different consent story, and merging the two would
+make this a quiet takeover primitive.
+
+### Roles are now per-unit copies
+
+`roles.unit_id` is `NOT NULL`. There is no such thing as an org-wide role
+definition, so two SNCOICs at two commands can finally have a "Training NCO"
+that means different things — under v3.3 editing one edited both.
+
+Migration 006 forks every global role: for each unit holding a grant against
+it, a unit-local copy is created and the grants are repointed. No role with
+live grants is ever deleted. Expect your role list to get longer and your role
+ids to change shape (`G8-FMRAC:sncoic` rather than `section-head`); anything
+scripted against a role id needs updating.
+
+`is_system` now means only "this row came from a template." It confers no edit
+protection — the owning unit may rename, re-colour, re-permission or delete any
+of its own roles. New units ship **three** roles plus an Owner (Marine, NCO,
+SNCOIC) rather than six; the full twelve-bit editor is unchanged and one click
+away, but a SNCOIC should never have to open it.
+
+### Two new scopes worth knowing
+
+**Personal** — `unit_id IS NULL`, readable by its author and nobody else,
+ever, including the Unit Owner and the Instance Operator. It is where a Marine
+keeps their own running log before, between or outside any unit, and it is
+excluded from exports and share packages by predicate rather than by
+convention. A Marine with no unit at all can still record everything.
+
+**Guest** — ordinary membership with `kind = 'guest'` and a required expiry,
+carrying a normal unit-local role. Built as membership rather than a parallel
+authorization path so that every existing permission check already covers it
+and no second code path can drift. Guests are bounded by the sharing
+permissions that members and owners are exempt from, because a guest is in the
+unit by invitation with a narrow role.
+
+### What still works exactly as before
+
+Everything inside one unit. If you run a single shop, the only differences you
+will notice are the visibility reduction, the shorter default role set, and
+that your administrator is now called an Owner.
+
+## Behavior changes to know about when upgrading (v3.3)
 
 - Non-admin role managers must now scope new roles to a unit they manage.
   **Pre-existing org-wide custom roles need an administrator** to either
@@ -392,9 +542,16 @@ proxied.
 ## Roles and permissions
 
 Roles are rows, permissions are bits, and a Marine can hold several — the union
-of them is what they can do. A role is granted **in a unit**, and `cascades`
-decides whether it reaches the units beneath it. That one flag is the entire
-difference between a fire team leader and a section head.
+of them is what they can do. A role is granted **in a unit**, and it applies
+**in that unit and nowhere else**. There is no cascade: reaching into another
+unit requires a grant in that unit. (v3.3 had an `inherits_down` flag that
+expanded a grant across a subtree; v3.4 removed it, because a battalion should
+not acquire a company's records by sitting above it on an org chart.)
+
+Every role belongs to exactly one unit. Units get their roles by **copying a
+template** at creation, and the copies diverge immediately and permanently — so
+two commands can each have a "Training NCO" that means what they need it to
+mean.
 
 **Access comes from your role, not your rank.** A Sergeant running a fire team
 outranks a Corporal in another section but has no business in that section's
@@ -410,31 +567,53 @@ records, and the model says so.
 | `CREATE_SHARED_GOALS` | Set goals the unit tracks against |
 | `MANAGE_MEMBERS` | Add Marines and move them between units |
 | `MANAGE_ROLES` | Create roles and hand them out |
-| `MANAGE_UNITS` | Create and restructure units beneath this one |
+| `MANAGE_UNITS` | Rename this unit and create sub-units under it |
 | `VIEW_AUDIT` | Read the unit's access log |
-| `EXPORT_DATA` | Pull the unit's records out as a workbook |
-| `ADMINISTRATOR` | Everything, everywhere |
+| `EXPORT_DATA` | Pull this unit's records out as a workbook |
+| `ADMINISTRATOR` | Everything — **inside this unit only** |
 
-Ships with **Marine**, **Fire Team Leader**, **Training NCO**, **NCOIC**,
-**Section Head** and **Administrator**. Make your own for anything else — a
-Training NCO who should see PME across a section but open nobody's record is
-two checkboxes, not a schema change.
+A new unit ships with **Marine**, **NCO**, **SNCOIC** and an **Owner**. A
+section is eight to twenty Marines with one SNCOIC and two or three NCOs; six
+roles and a twelve-bit editor is a correct piece of engineering aimed at a
+problem most units do not have on day one. The full editor is unchanged and one
+click away, and other templates ("Section with Training NCO", "Company", "Just
+me for now") are selectable at creation. A Training NCO who should see PME
+across a section but open nobody's record is still two checkboxes.
 
 Two rules keep this from being decorative, and both are enforced server-side:
 
 - You cannot create, edit, delete or grant a role **at or above your own
-  position**.
-- You cannot grant a **permission you do not hold**.
+  position in that unit**. Position is a per-unit scale — position 30 in one
+  shop has no relationship to position 30 in another.
+- You cannot grant a **permission you do not hold in that unit**.
 
 Without the first, anyone who can manage roles promotes themselves to
 administrator. Both have tests that try it.
 
 ### Units
 
-Anyone with `MANAGE_UNITS` on a parent can create beneath it, so a section head
-stands up their own fire teams without an administrator in the loop. Units are
-archived rather than deleted, and archiving refuses while Marines or sub-units
-are still attached.
+**Anyone can stand up a top-level unit.** That is the point of v3.4: a SNCOIC
+at a command that has never run Vantage creates their shop, picks a role
+template, and is its Owner — no dependency on anyone else's tree. (v3.3 refused
+outright without a parent, so there was no way in at all.)
+
+Creating a **sub-unit** still needs `MANAGE_UNITS` in the named parent — not
+because the tree conveys authority, but because naming a unit as your parent is
+a claim about *their* org chart.
+
+Units are archived rather than deleted, and archiving refuses while Marines or
+sub-units are still attached.
+
+### Membership
+
+Membership is **stated**, not inferred. `unit_members` answers "is this person
+in this unit"; `assignments` keeps billet, dates and history and no longer
+answers membership questions. That separation is what makes a Marine in two
+units, a member holding no billet, and an ended assignment that should still
+read as history all expressible — none of which v3.3 could say.
+
+A grant without a membership row confers nothing, and the API refuses it rather
+than accepting it quietly.
 
 Each record carries a visibility:
 
@@ -529,7 +708,7 @@ using the tool inside a week.
 ## Tests
 
 ```bash
-npm test              # logic + API + scenario + security
+npm test              # static + logic + API + scenario + security + matrix + tenancy + migration
 npm run test:browser  # build, then drive the real UI in Chromium
 ```
 
@@ -547,10 +726,39 @@ npm run test:browser  # build, then drive the real UI in Chromium
 - `tests/browser-track.test.mjs` — a real Sergeant and a real Corporal, proving
   the rank fork through the interface rather than through a unit test
 
-At this commit: logic 82/82, api 49/49, scenario 16/16, security 49/49,
-matrix 51/51, browser 57/57, browser-ui 13/13, browser-track 14/14,
-a11y 12/12 pages, mobile 24/24 — ten suites, ~370 assertions, all wired
-into `npm test` / `npm run test:browser`.
+Three suites are new in v3.4 and each exists for a reason the others cannot
+cover:
+
+- `tests/static.test.mjs` — **grep with a grudge.** Every other suite here is
+  behavioural, which is the right way to test a decision and the wrong way to
+  hold a boundary: a behavioural test proves the unit tree is not read *today*,
+  by the paths it happens to exercise. It cannot stop a subtree walk appearing
+  in a route written six months from now, because that route arrives with its
+  own passing test. So this one reads source and fails the build if `parent_id`,
+  `subtreeIds`, `ancestorIds` or `ancestorChain` turns up in an authorization
+  module. It strips comments and string literals first, so the suite can survive
+  its own documentation.
+- `tests/tenancy.test.mjs` — for every endpoint, tries to reach Unit B's data
+  while holding **every** permission in Unit A, with Unit B sitting under Unit A
+  on the org chart so that every v3.3 instinct would let it through.
+- `tests/migration.test.mjs` — runs migrations 006–007 against a **captured
+  v3.3.0 database**, not a synthetic one, and replays a permission oracle taken
+  from v3.3.0's own code before any v3.4 code existed. See
+  `tests/fixtures/README.md`.
+
+At this commit: static 46/46, logic 82/82, api 51/51, scenario 17/17,
+security 49/49, matrix 55/55, tenancy 36/36, migration 24/24, browser 58/58,
+browser-ui 13/13, browser-track 14/14, a11y 12/12 pages, mobile 24/24 —
+thirteen suites, ~430 assertions, all wired into `npm test` /
+`npm run test:browser`.
+
+The matrix suite carries **13 rows whose expectation was deliberately
+reversed** by v3.4. Each keeps its v3.3 assertion inline as `was:` with the
+finding that changed it, per the roadmap's instruction not to delete a security
+test to make it pass. A bare "deny" tells a reader what the system does; "deny
+— was allow under finding 2" tells them it used to do the opposite and somebody
+decided otherwise. If a future change flips one back, the diff shows a v3.3
+expectation being restored, which is the moment to stop.
 
 ## V3.3 Definition of Done — status
 
