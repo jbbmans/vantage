@@ -9,7 +9,9 @@ for (const f of [DB, DB + '-wal', DB + '-shm']) {
 }
 
 const srv = spawn('node', ['server/index.js'], {
-  env: { ...process.env, VANTAGE_DB: DB, PORT: String(PORT) },
+  // The bootstrap account is the Instance Operator so the fixtures below can
+  // claim the seeded units they exercise (v3.4 finding 4).
+  env: { ...process.env, VANTAGE_DB: DB, PORT: String(PORT), VANTAGE_OPERATOR: 'boletz' },
   stdio: ['ignore','pipe','pipe'],
 });
 srv.stdout.on('data', d => process.stdout.write('[srv] '+d));
@@ -58,6 +60,28 @@ await page.waitForTimeout(1250);
 check('signed in to the shell', await page.locator('text=VANTAGE').first().isVisible());
 check('rail shows rank and name', (await page.textContent('body')).includes('Boletz'));
 
+/* Claim the seeded units the later fixtures act in.
+ *
+ * Setup claims only the unit the first account lands in (v3.4 finding 5), so
+ * every other unit in the shipped tree is an unowned row with no roles — a
+ * SNCOIC cannot add a Marine to a shop they do not hold. That is the model
+ * working, not a bug, and Phase 3 removes the shipped tree entirely so these
+ * rows will not exist. Until then the browser fixtures claim what they use. */
+const claimed = await page.evaluate(async () => {
+  const out = {};
+  const me = await (await fetch('/api/me', { headers: { 'x-vantage-client': '1' } })).json();
+  for (const unitId of ['G8-FMRAC', 'G8-BUDGET']) {
+    const res = await fetch(`/api/org/units/${unitId}/claim`, {
+      method: 'POST',
+      headers: { 'content-type': 'application/json', 'x-vantage-client': '1' },
+      body: JSON.stringify({ owner_user_id: me.user.id, template_id: 'section' }),
+    });
+    out[unitId] = res.status;
+  }
+  return out;
+});
+check('fixture units claimed', Object.values(claimed).every((s) => s === 200), JSON.stringify(claimed));
+
 // 2. log an activity through the real UI
 await page.keyboard.press('n');
 await page.waitForTimeout(300);
@@ -66,7 +90,7 @@ await ta.fill('Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday');
 await page.waitForTimeout(350);
 const body = await page.textContent('body');
 check('parser inferred the dollar figure', body.includes('1,118.38'), '');
-check('visibility control present', body.includes('chain of command') || body.includes('Visible to'));
+check('visibility control present', body.includes('Visible to') || body.includes('Everyone in my unit'));
 await page.getByRole('button', { name: /save activity/i }).click();
 await page.waitForTimeout(900);
 
@@ -144,7 +168,12 @@ check('MOS qualification pointer is present', t.includes('MOS Qualification'));
 await page.goto(BASE + '/roles', { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(450);
 t = await page.textContent('body');
-check('system roles listed', ['Marine','Fire Team Leader','NCOIC','Section Head','Administrator'].every(x=>t.includes(x)));
+// was: ['Marine','Fire Team Leader','NCOIC','Section Head','Administrator'] —
+// the six org-wide rows every install shipped. Finding 1 replaced them with a
+// template COPIED into each unit, and finding 21 cut the default set to three
+// roles plus an Owner, so a SNCOIC can be productive without opening the
+// permission editor.
+check('the unit\'s own role set is listed', ['Marine','NCO','SNCOIC','Owner'].every(x=>t.includes(x)));
 check('hierarchy rule explained', t.includes('at or above your own'));
 await page.getByRole('button', { name: /new role/i }).click();
 await page.waitForTimeout(300);
@@ -253,7 +282,9 @@ const escFixture = await page.evaluate(async () => {
   const hdrs = { 'content-type': 'application/json', 'x-vantage-client': '1' };
   const mgr = await (await fetch('/api/roles', {
     method: 'POST', headers: hdrs,
-    body: JSON.stringify({ name: 'UI Manager', unit_id: 'CE-G8', position: 25, inherits_down: 1, permissions: 767 }),
+    // was: inherits_down: 1. Nothing cascades (finding 2); the manager is
+    // granted in each unit they act in.
+    body: JSON.stringify({ name: 'UI Manager', unit_id: 'CE-G8', position: 25, permissions: 767 }),
   })).json();
   const clerk = await (await fetch('/api/roles', {
     method: 'POST', headers: hdrs,
@@ -314,9 +345,10 @@ const moveFixture = await page.evaluate(async () => {
       rank_id: 'LCpl', mos: '3451', unit_id: 'G8-FMRAC',
     }),
   })).json();
+  // Roles are unit-local copies (finding 1); there is no global role id.
   await fetch(`/api/team/${res.id}/roles`, {
     method: 'POST', headers: hdrs,
-    body: JSON.stringify({ role_id: 'fire-team-leader', unit_id: 'G8-FMRAC' }),
+    body: JSON.stringify({ role_id: 'G8-FMRAC:nco', unit_id: 'G8-FMRAC' }),
   });
   const before = await (await fetch(`/api/team/${res.id}`, { headers: { 'x-vantage-client': '1' } })).json();
   res.preGrants = (before.roles || []).filter((r) => r.unit_id === 'G8-FMRAC').length;
