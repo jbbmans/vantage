@@ -17,6 +17,9 @@ import { join } from 'node:path';
 const DB = join(tmpdir(), `vantage-test-${Date.now()}.db`);
 process.env.VANTAGE_DB = DB;
 process.env.VANTAGE_TEST = '1';
+// The bootstrap account is the Instance Operator for this suite, so it can
+// claim the seeded tree units the fixtures below need (finding 4).
+process.env.VANTAGE_OPERATOR = 'boletz';
 
 const { app } = await import('../server/index.js');
 
@@ -67,34 +70,43 @@ await call('POST', '/api/setup', {
 const adminToken = await login('boletz', 'correct-horse-battery-staple');
 const me = (await call('GET', '/api/me', { token: adminToken })).body;
 
-// John leads G-8 (section-head role cascades to Budget/Accounting/Audit/FMRAC).
-await call('PUT', `/api/team/${me.user.id}/assignment`, {
-  token: adminToken,
-  body: { unit_id: 'CE-G8', billet_id: 'accounting-chief', role: 'unit_leader' },
-});
-await call('POST', `/api/team/${me.user.id}/roles`, {
-  token: adminToken,
-  body: { role_id: 'section-head', unit_id: 'CE-G8' },
+/*
+ * v3.4 fixture. In v3.3 John held the org-wide `section-head` role at CE-G8 and
+ * it cascaded down to Budget, Accounting, Audit and FMRAC. Neither half of that
+ * sentence survives: roles are per-unit copies (finding 1) and nothing
+ * cascades (finding 2).
+ *
+ * So the world is built as it would really be built — John owns CE-G8 and
+ * G8-FMRAC because he claimed both, and CLR-4 belongs to somebody else. The
+ * suite's "leader sees subordinate" tests become "leader sees the unit they
+ * actually hold", which is the same assertion with the tree taken out.
+ */
+await call('POST', '/api/org/units/G8-FMRAC/claim', {
+  token: adminToken, body: { owner_user_id: me.user.id, template_id: 'section' },
 });
 
-// A Marine inside John's chain, two levels down.
+// A Marine inside a unit John actually holds.
 await call('POST', '/api/team', {
   token: adminToken,
   body: {
     username: 'rivera', password: 'a-different-long-passphrase',
     first_name: 'Raul', last_name: 'Rivera', rank_id: 'LCpl', mos: '3451',
-    unit_id: 'G8-FMRAC', billet_id: 'financial-management-resource-analyst', role: 'member',
+    unit_id: 'G8-FMRAC', billet_id: 'financial-management-resource-analyst',
   },
 });
 
-// A Marine in a completely separate MSC.
+// A Marine in a completely separate command, with its own owner.
 await call('POST', '/api/team', {
   token: adminToken,
   body: {
     username: 'nguyen', password: 'yet-another-long-passphrase',
     first_name: 'Thanh', last_name: 'Nguyen', rank_id: 'Sgt', mos: '0311',
-    unit_id: 'CLR-4', billet_id: 'squad-leader', role_id: 'fire-team-leader',
+    unit_id: 'CE-G8',
   },
+});
+const nguyenId = (await call('GET', '/api/team', { token: adminToken })).body.roster.find((r) => r.username === 'nguyen').id;
+await call('POST', '/api/org/units/CLR-4/claim', {
+  token: adminToken, body: { owner_user_id: nguyenId, template_id: 'section' },
 });
 
 const riveraToken = await login('rivera', 'a-different-long-passphrase');
@@ -204,7 +216,7 @@ await test('a leader opening a member record does not receive private entries', 
   });
   await call('POST', '/api/activities', {
     token: riveraToken,
-    body: { title: 'Shared fiscal work', date: '2026-08-12', visibility: 'chain' },
+    body: { title: 'Shared fiscal work', date: '2026-08-12', visibility: 'unit', unit_id: 'G8-FMRAC' },
   });
   const res = await call('GET', `/api/team/${rivera.user.id}`, { token: adminToken });
   const titles = res.body.activities.map((a) => a.title);
@@ -228,25 +240,47 @@ await test('a member cannot add Marines', async () => {
 
 /* ── the role system ──────────────────────────────────────────────── */
 
-await test('system roles ship with the install', async () => {
+// was: 'system roles ship with the install' — asserted six org-wide role rows
+// existed on a fresh database. Finding 1 deleted global roles entirely.
+await test('no install ships a global role; a claimed unit gets its own copies', async () => {
   const res = await call('GET', '/api/roles', { token: adminToken });
-  const names = res.body.roles.map((r) => r.id);
-  for (const id of ['marine', 'fire-team-leader', 'ncoic', 'section-head', 'administrator']) {
-    assert.ok(names.includes(id), `missing ${id}`);
+  const roles = res.body.roles;
+  assert.ok(roles.length > 0, 'the owner should see their own units\' roles');
+  assert.ok(roles.every((r) => r.unit_id), 'every role must belong to a unit');
+
+  // Two claimed units, two independent copies of the same template.
+  for (const unit of ['CE-G8', 'G8-FMRAC']) {
+    assert.ok(roles.some((r) => r.unit_id === unit && r.template_key === 'sncoic'), `${unit} has no SNCOIC copy`);
   }
+  const ceg8 = roles.find((r) => r.unit_id === 'CE-G8' && r.template_key === 'marine');
+  const fmrac = roles.find((r) => r.unit_id === 'G8-FMRAC' && r.template_key === 'marine');
+  assert.notEqual(ceg8.id, fmrac.id, 'two units must not share a role row');
 });
 
-await test('built-in roles cannot be edited or deleted', async () => {
-  const edit = await call('PUT', '/api/roles/section-head', { token: adminToken, body: { name: 'Hacked' } });
-  assert.equal(edit.status, 400);
-  const del = await call('DELETE', '/api/roles/marine', { token: adminToken });
-  assert.equal(del.status, 400);
+// was: 'built-in roles cannot be edited or deleted' (expect 400) — reversed by
+// finding 1. is_system now records only that a row came from a template; the
+// owning unit may do as it likes with its own copy.
+await test('a unit may edit and delete its own template-derived roles', async () => {
+  const edit = await call('PUT', '/api/roles/CE-G8:sncoic', { token: adminToken, body: { name: 'Section Chief' } });
+  assert.equal(edit.status, 200, `expected the owner to rename their own role, got ${edit.status}`);
+  assert.equal(edit.body.name, 'Section Chief');
+
+  const del = await call('DELETE', '/api/roles/CE-G8:nco', { token: adminToken });
+  assert.equal(del.status, 200, `expected the owner to delete their own role, got ${del.status}`);
+});
+
+await test('editing one unit\'s role leaves the other unit\'s copy untouched', async () => {
+  // The load-bearing consequence of finding 1: two SNCOICs at two commands can
+  // have a role of the same name that means different things.
+  const before = (await call('GET', '/api/roles', { token: adminToken })).body.roles
+    .find((r) => r.unit_id === 'G8-FMRAC' && r.template_key === 'sncoic');
+  assert.equal(before.name, 'SNCOIC', 'the FMRAC copy should be unchanged by the CE-G8 rename above');
 });
 
 await test('a member cannot create roles', async () => {
   const res = await call('POST', '/api/roles', {
     token: riveraToken,
-    body: { name: 'Self Promotion', position: 1, permissions: 2048 },
+    body: { name: 'Self Promotion', position: 1, permissions: 2048, unit_id: 'G8-FMRAC' },
   });
   assert.equal(res.status, 403);
 });
@@ -255,12 +289,12 @@ await test('nobody can create a role at or above their own position', async () =
   // Give Rivera role-management authority, but only at position 20.
   await call('POST', `/api/team/${rivera.user.id}/roles`, {
     token: adminToken,
-    body: { role_id: 'ncoic', unit_id: 'G8-FMRAC' },
+    body: { role_id: 'G8-FMRAC:sncoic', unit_id: 'G8-FMRAC' },
   });
   const token = await login('rivera', 'a-different-long-passphrase');
   const res = await call('POST', '/api/roles', {
     token,
-    body: { name: 'Above Me', position: 50, permissions: 1 },
+    body: { name: 'Above Me', position: 95, permissions: 1, unit_id: 'G8-FMRAC' },
   });
   assert.ok([403, 400].includes(res.status), `expected refusal, got ${res.status}`);
 });
@@ -271,41 +305,50 @@ await test('PRIVILEGE ESCALATION: cannot grant a permission you do not hold', as
   // ADMINISTRATOR is not in their bits.
   const res = await call('POST', '/api/roles', {
     token,
-    body: { name: 'Sneaky Admin', position: 1, permissions: 2048 },
+    body: { name: 'Sneaky Admin', position: 1, permissions: 2048, unit_id: 'G8-FMRAC' },
   });
-  assert.equal(res.status, 403, 'a non-admin must not mint an administrator role');
+  assert.equal(res.status, 403, 'a non-owner must not mint an administrator role');
 });
 
 await test('a leader cannot hand out a role at or above their own', async () => {
   const token = await login('rivera', 'a-different-long-passphrase');
   const res = await call('POST', `/api/team/${rivera.user.id}/roles`, {
     token,
-    body: { role_id: 'administrator', unit_id: 'G8-FMRAC' },
+    body: { role_id: 'G8-FMRAC:owner', unit_id: 'G8-FMRAC' },
   });
   assert.equal(res.status, 403);
 });
 
-await test('a cascading role reaches subordinate units', async () => {
-  // section-head at CE-G8 must see a Marine sitting in G8-FMRAC.
+// was: 'a cascading role reaches subordinate units' — inherits_down is deleted
+// (finding 2). John still sees Rivera, but because he holds G8-FMRAC directly,
+// not because CE-G8 sits above it.
+await test('a role reaches the unit it was granted in', async () => {
   const res = await call('GET', '/api/team', { token: adminToken });
-  assert.ok(res.body.roster.some((r) => r.last_name === 'Rivera'));
+  assert.ok(res.body.roster.some((r) => r.last_name === 'Rivera'), 'owner of G8-FMRAC should see its Marine');
 });
 
-await test('a flat role does not reach subordinate units', async () => {
-  // Nguyen holds fire-team-leader at CLR-4, which does not cascade.
+// was: 'a flat role does not reach subordinate units' — every role is flat now,
+// so the assertion is simply that another command's owner sees nothing here.
+await test('a role reaches nowhere else, whatever the org chart says', async () => {
   const token = await login('nguyen', 'yet-another-long-passphrase');
   const res = await call('GET', '/api/team', { token });
-  assert.ok(!res.body.roster.some((r) => r.last_name === 'Rivera'));
+  assert.ok(!res.body.roster.some((r) => r.last_name === 'Rivera'), 'CLR-4 owner must not see a G-8 Marine');
 });
 
 await test('roster visibility does not imply record access', async () => {
-  // Training NCO sees shared work across a section but has no VIEW_MEMBER_DETAIL.
+  // A role that sees shared work across the section but holds no
+  // VIEW_MEMBER_DETAIL. The section template's NCO carries that bit, so the
+  // narrower role is created explicitly rather than borrowed.
+  const viewer = await call('POST', '/api/roles', {
+    token: adminToken,
+    body: { name: 'Training NCO', unit_id: 'G8-FMRAC', position: 15, permissions: 1 | 2 | 16 },
+  });
   await call('POST', '/api/team', {
     token: adminToken,
     body: {
       username: 'trainer', password: 'trainer-long-enough-passphrase',
       first_name: 'Pat', last_name: 'Trainer', rank_id: 'Sgt',
-      unit_id: 'CE-G8', role_id: 'training-nco',
+      unit_id: 'G8-FMRAC', role_id: viewer.body.id,
     },
   });
   const token = await login('trainer', 'trainer-long-enough-passphrase');
@@ -434,13 +477,16 @@ await test('private records stay private from the chain of command', async () =>
   assert.ok(!leaderView.body.some((a) => a.title === 'Private note to self'));
 });
 
-await test('chain-visible records roll up to the leader', async () => {
+// was: 'chain-visible records roll up to the leader' — chain is deleted
+// (finding 3). A record is visible inside its own unit; it reaches the leader
+// because the leader holds THAT unit, not because they sit above it.
+await test('unit-visible records are readable by the unit that holds them', async () => {
   await call('POST', '/api/activities', {
     token: riveraToken,
     body: {
       title: 'Reconciled 12 ULOs', date: '2026-08-02', dollar_amount: 44000,
       dollar_type: 'reconciled', quantity: 12, unit_label: 'ULOs',
-      jepes_area: 'MOS / Mission Accomplishment', visibility: 'chain',
+      jepes_area: 'MOS / Mission Accomplishment', visibility: 'unit', unit_id: 'G8-FMRAC',
     },
   });
   const leaderView = await call('GET', '/api/activities', { token: adminToken });
@@ -454,28 +500,47 @@ await test('an outside leader sees neither', async () => {
   assert.ok(!res.body.some((a) => a.title === 'Private note to self'));
 });
 
-await test('a member cannot share a task to a unit they do not lead', async () => {
+await test('a member cannot share a task to a unit they are not in', async () => {
   const res = await call('POST', '/api/tasks', {
     token: riveraToken,
-    body: { title: 'Unauthorised broadcast', visibility: 'chain', unit_id: 'CE-G8' },
+    body: { title: 'Unauthorised broadcast', visibility: 'unit', unit_id: 'CE-G8' },
   });
   assert.equal(res.status, 403);
 });
 
-await test('a team lead can push a task to their unit', async () => {
+// was: 'a team lead can push a task to their unit' with unit_id CE-G8, relying
+// on the task reaching G8-FMRAC through the subtree. Finding 2 removed the
+// subtree, so a task posted to CE-G8 reaches CE-G8. To reach the Marine, post
+// to the unit the Marine is in — which the leader holds directly.
+await test('a leader can push a task to a unit they hold', async () => {
   const res = await call('POST', '/api/tasks', {
     token: adminToken,
-    body: { title: 'Close out FY execution', visibility: 'chain', unit_id: 'CE-G8', priority: 'high' },
+    body: { title: 'Close out FY execution', visibility: 'unit', unit_id: 'G8-FMRAC', priority: 'high' },
   });
   assert.equal(res.status, 200);
   const subordinate = await call('GET', '/api/tasks', { token: riveraToken });
   assert.ok(subordinate.body.some((t) => t.title === 'Close out FY execution'), 'FMRAC Marine should see it');
 });
 
-await test('a shared unit goal reaches everyone beneath it', async () => {
+await test('a task posted to the parent unit does NOT reach the child unit', async () => {
+  // The other half of finding 2, stated positively so the removal is pinned
+  // rather than merely absent from the suite.
+  const res = await call('POST', '/api/tasks', {
+    token: adminToken,
+    body: { title: 'Parent-only tasking', visibility: 'unit', unit_id: 'CE-G8' },
+  });
+  assert.equal(res.status, 200);
+  const subordinate = await call('GET', '/api/tasks', { token: riveraToken });
+  assert.ok(
+    !subordinate.body.some((t) => t.title === 'Parent-only tasking'),
+    'a CE-G8 task must not reach a G8-FMRAC Marine — that is the cascade v3.4 removed'
+  );
+});
+
+await test('a shared unit goal reaches that unit', async () => {
   await call('POST', '/api/goals', {
     token: adminToken,
-    body: { title: 'Zero aged ULOs by 30 SEP', target_value: 0, visibility: 'chain', unit_id: 'CE-G8' },
+    body: { title: 'Zero aged ULOs by 30 SEP', target_value: 0, visibility: 'unit', unit_id: 'G8-FMRAC' },
   });
   const res = await call('GET', '/api/goals', { token: riveraToken });
   assert.ok(res.body.some((g) => g.title === 'Zero aged ULOs by 30 SEP'));

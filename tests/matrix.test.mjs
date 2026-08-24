@@ -1,10 +1,33 @@
 /**
- * Permission matrix (v3.3 finding 39).
+ * Permission matrix (v3.3 finding 39, rewritten for v3.4).
  *
  * One table, read like the roadmap wrote it: role × unit relationship ×
  * action → allow/deny. The other suites attack specific mechanisms; this one
- * pins the whole grid, so a future permission change that widens or narrows
- * anyone's reach fails loudly with the exact row that moved.
+ * pins the whole grid, so a permission change that widens or narrows anyone's
+ * reach fails loudly with the exact row that moved.
+ *
+ * ── What changed, and why the old rows are still here ──────────────
+ *
+ * v3.3's matrix encoded the model v3.4 removes. Rows like
+ * "Section Head / own subtree / manage / allow" and "admin / anywhere / allow"
+ * were correct then and are leaks now.
+ *
+ * The Regression Debt section is explicit that a security test must not be
+ * deleted to make it pass, so every row whose expectation flipped carries its
+ * v3.3 assertion inline as `was:` with the finding that changed it. That is
+ * deliberate: a bare "deny" tells a future reader what the system does, while
+ * "deny — was allow under finding 2" tells them it USED to do the opposite and
+ * somebody decided otherwise. If a later change flips one back, the diff shows
+ * a v3.3 expectation being restored, which is exactly the moment to stop.
+ *
+ * The two flips, in one sentence each:
+ *
+ *   Finding 2 — hierarchy conveys nothing. Every "own subtree → allow" row
+ *   becomes deny. A section head reaches their own unit and no other.
+ *
+ *   Finding 4 — there is no cross-tenant superuser. Every "anywhere → allow"
+ *   row becomes deny. The account that bootstrapped the install owns the unit
+ *   it was created in, and is a stranger everywhere else.
  *
  * Run with: node tests/matrix.test.mjs
  */
@@ -17,9 +40,9 @@ import { join } from 'node:path';
 const DB = join(tmpdir(), `vantage-matrix-${Date.now()}.db`);
 process.env.VANTAGE_DB = DB;
 process.env.VANTAGE_TEST = '1';
+process.env.VANTAGE_OPERATOR = 'boletz';
 
 const { app } = await import('../server/index.js');
-const { PERMISSIONS: P } = await import('../server/roles.js');
 
 const server = app.listen(0);
 await new Promise((r) => server.once('listening', r));
@@ -38,160 +61,231 @@ const call = async (method, path, { token, body } = {}) => {
 };
 const login = async (u, p) => (await call('POST', '/api/login', { body: { username: u, password: p } })).body?.token;
 const PW = (u) => `${u}-long-enough-passphrase`;
+const must = (res, what) => {
+  assert.ok(res.status >= 200 && res.status < 300, `${what}: ${res.status} ${JSON.stringify(res.body)}`);
+  return res.body;
+};
 
 /* ── world ────────────────────────────────────────────────────────── */
+/*
+ * Four sovereign units. The org chart still says CE-G8 sits above G8-FMRAC and
+ * G8-BUDGET, and that CLR-4 is elsewhere entirely — the fixture keeps that
+ * shape precisely so the matrix can prove it buys nobody anything.
+ *
+ * Each unit has its own Owner and its own copied role set. Roles are addressed
+ * as `${unitId}:${templateKey}`, which is what copyTemplateInto writes, and is
+ * itself a useful assertion: if role ids were still global these would collide.
+ */
 
-await call('POST', '/api/setup', {
+must(await call('POST', '/api/setup', {
   body: { username: 'boletz', password: 'correct-horse-battery-staple', first_name: 'J', last_name: 'B', rank_id: 'Cpl', unit_code: 'CE-G8' },
-});
+}), 'setup');
 const adminTok = await login('boletz', 'correct-horse-battery-staple');
 
-const mk = (username, unit_id, role_id = null, rank_id = 'LCpl') =>
-  call('POST', '/api/team', {
-    token: adminTok,
+/** Create an account inside a unit the actor can manage. */
+const mk = async (token, username, unit_id, role_id = null, rank_id = 'LCpl') =>
+  must(await call('POST', '/api/team', {
+    token,
     body: { username, password: PW(username), first_name: 'M', last_name: username, rank_id, mos: '3451', unit_id, role_id },
-  });
+  }), `create ${username}`);
 
-for (const args of [
-  ['hayes', 'CE-G8', 'section-head', 'GySgt'],
-  ['nguyen', 'G8-FMRAC', 'ncoic', 'Sgt'],
-  ['ohara', 'G8-FMRAC', 'fire-team-leader', 'Cpl'],
-  ['rivera', 'G8-FMRAC'],
-  ['kramer', 'G8-BUDGET'],
-  ['zed', 'CLR-4'],
-  ['clrlead', 'CLR-4', 'section-head', 'GySgt'],
-]) {
-  const res = await mk(...args);
-  assert.equal(res.status, 200, `fixture ${args[0]}: ${res.status} ${JSON.stringify(res.body)}`);
-}
+/** Operator claims a seeded unit for a named owner, giving it its own roles. */
+const claim = async (unitId, ownerUsername, ownerId) => {
+  must(await call('POST', `/api/org/units/${unitId}/claim`, {
+    token: adminTok, body: { owner_user_id: ownerId, template_id: 'section' },
+  }), `claim ${unitId} for ${ownerUsername}`);
+};
 
-const roster = (await call('GET', '/api/team', { token: adminTok })).body.roster;
-const id = (u) => roster.find((r) => r.username === u).id;
+// CE-G8: boletz owns it (bootstrap claimed it). hayes is its SNCOIC.
+await mk(adminTok, 'hayes', 'CE-G8', 'CE-G8:sncoic', 'GySgt');
 
-// An org-wide, low, harmless role for the grant rows.
-const wide = (await call('POST', '/api/roles', {
-  token: adminTok, body: { name: 'Wide Viewer', position: 1, permissions: P.VIEW_UNIT },
-})).body;
+// The three other shops get their own owners.
+const nguyenId = (await mk(adminTok, 'nguyen', 'CE-G8', null, 'Sgt')).id;
+const budgetBossId = (await mk(adminTok, 'budgetboss', 'CE-G8', null, 'SSgt')).id;
+const clrLeadId = (await mk(adminTok, 'clrlead', 'CE-G8', null, 'GySgt')).id;
+
+await claim('G8-FMRAC', 'nguyen', nguyenId);
+await claim('G8-BUDGET', 'budgetboss', budgetBossId);
+await claim('CLR-4', 'clrlead', clrLeadId);
+
+const tokNguyen = await login('nguyen', PW('nguyen'));
+const tokBudget = await login('budgetboss', PW('budgetboss'));
+const tokClr = await login('clrlead', PW('clrlead'));
+
+// Members inside each shop, enrolled by that shop's own owner.
+await mk(tokNguyen, 'ohara', 'G8-FMRAC', 'G8-FMRAC:nco', 'Cpl');
+await mk(tokNguyen, 'rivera', 'G8-FMRAC');
+/* A member who is never an actor. The manageMember probe forces a sign-out,
+ * so aiming an ALLOW row at someone whose token later rows depend on makes the
+ * matrix order-sensitive — a later row fails with 401 and looks like a
+ * permission result when it is really a fixture artifact. Probes get their own
+ * target. */
+await mk(tokNguyen, 'probe', 'G8-FMRAC');
+await mk(tokBudget, 'kramer', 'G8-BUDGET');
+await mk(tokClr, 'zed', 'CLR-4');
+
+const rosters = await Promise.all(
+  [adminTok, tokNguyen, tokBudget, tokClr].map(async (t) => (await call('GET', '/api/team', { token: t })).body.roster || [])
+);
+const everyone = new Map();
+for (const roster of rosters) for (const r of roster) everyone.set(r.username, r.id);
+const id = (u) => {
+  const found = everyone.get(u);
+  assert.ok(found, `fixture missing ${u}`);
+  return found;
+};
 
 const tok = {
-  admin: adminTok,
-  sectionHead: await login('hayes', PW('hayes')),
-  ncoic: await login('nguyen', PW('nguyen')),
-  ftl: await login('ohara', PW('ohara')),
-  marine: await login('rivera', PW('rivera')),
-  clrLead: await login('clrlead', PW('clrlead')),
+  admin: adminTok,          // bootstrap account + Instance Operator, Owner of CE-G8
+  sectionHead: await login('hayes', PW('hayes')),  // SNCOIC in CE-G8 only
+  ncoic: tokNguyen,         // Owner of G8-FMRAC
+  ftl: await login('ohara', PW('ohara')),          // NCO in G8-FMRAC
+  marine: await login('rivera', PW('rivera')),     // Marine in G8-FMRAC
+  clrLead: tokClr,          // Owner of CLR-4
 };
+
+const ownerTokenFor = { 'G8-FMRAC': tokNguyen, 'G8-BUDGET': tokBudget, 'CLR-4': tokClr, 'CE-G8': adminTok };
 
 /* ── actions ──────────────────────────────────────────────────────── */
 
 let seq = 0;
 const ACTIONS = {
   readMember: (t, target) => call('GET', `/api/team/${id(target)}`, { token: t }),
+
+  // was: visibility 'chain' — deleted in finding 3, so the shared tier is 'unit'
   createShared: (t, unit) => call('POST', '/api/activities', {
-    token: t, body: { title: `Matrix ${seq += 1}`, date: '2026-08-10', visibility: 'chain', unit_id: unit },
+    token: t, body: { title: `Matrix ${seq += 1}`, date: '2026-08-10', visibility: 'unit', unit_id: unit },
   }),
+
   manageMember: (t, target) => call('POST', `/api/team/${id(target)}/logout`, { token: t }),
+
+  /* Grants a role that BELONGS TO the target unit. In v3.3 this used one
+   * org-wide "Wide Viewer" role for every row, which is no longer expressible
+   * — roles.unit_id is NOT NULL (finding 1). */
   grantRole: async (t, [target, unit]) => {
-    const res = await call('POST', `/api/team/${id(target)}/roles`, { token: t, body: { role_id: wide.id, unit_id: unit } });
-    if (res.status === 200) await call('DELETE', `/api/team/${id(target)}/roles/${wide.id}?unit_id=${unit}`, { token: adminTok });
+    const roleId = `${unit}:nco`;
+    const res = await call('POST', `/api/team/${id(target)}/roles`, { token: t, body: { role_id: roleId, unit_id: unit } });
+    if (res.status >= 200 && res.status < 300) {
+      await call('DELETE', `/api/team/${id(target)}/roles/${roleId}?unit_id=${unit}`, { token: ownerTokenFor[unit] });
+    }
     return res;
   },
+
   unitAudit: (t, unit) => call('GET', `/api/audit/unit?unit_id=${unit}`, { token: t }),
   exportUnit: (t, unit) => call('GET', `/api/export?unit_id=${unit}`, { token: t }),
-  createUnit: (t, parent) => call('POST', '/api/org/units', {
-    token: t, body: { name: `Matrix Cell ${seq += 1}`, short_name: `MX${seq}`, echelon: 'fire_team', parent_id: parent },
+
+  createSubUnit: (t, parent) => call('POST', '/api/org/units', {
+    token: t, body: { name: `Matrix Cell ${seq += 1}`, code: `MX${seq}`, echelon: 'fire_team', parent_id: parent },
+  }),
+
+  /* New in v3.4 (finding 5). v3.3 had no such row because the route refused
+   * outright when parent_id was absent. */
+  createTopLevelUnit: (t) => call('POST', '/api/org/units', {
+    token: t, body: { name: `Sovereign Shop ${seq += 1}`, code: `SOV${seq}`, level: 'L4' },
   }),
 };
 
 /* ── the matrix ───────────────────────────────────────────────────── */
-// [actor, action, argument, relationship, expected]
+// [actor, action, argument, relationship, expected, was]
 
 const ROWS = [
-  // read member detail
+  /* read member detail */
   ['marine', 'readMember', 'rivera', 'self', 'allow'],
-  ['marine', 'readMember', 'kramer', 'sibling unit', 'deny'],
+  ['marine', 'readMember', 'kramer', 'other unit', 'deny'],
   ['marine', 'readMember', 'ohara', 'own unit, no permission', 'deny'],
-  ['ftl', 'readMember', 'rivera', 'own team', 'allow'],
-  ['ftl', 'readMember', 'kramer', 'sibling unit', 'deny'],
-  ['ftl', 'readMember', 'hayes', 'upward', 'deny'],
+  ['ftl', 'readMember', 'rivera', 'own unit', 'allow'],
+  ['ftl', 'readMember', 'kramer', 'other unit', 'deny'],
+  ['ftl', 'readMember', 'hayes', 'parent unit', 'deny'],
   ['ncoic', 'readMember', 'rivera', 'own unit', 'allow'],
-  ['ncoic', 'readMember', 'kramer', 'sibling unit', 'deny'],
-  ['sectionHead', 'readMember', 'kramer', 'own subtree', 'allow'],
-  ['sectionHead', 'readMember', 'zed', 'outside subtree', 'deny'],
-  ['clrLead', 'readMember', 'rivera', 'outside subtree', 'deny'],
-  ['admin', 'readMember', 'zed', 'anywhere', 'allow'],
+  ['ncoic', 'readMember', 'kramer', 'other unit', 'deny'],
+  ['sectionHead', 'readMember', 'kramer', 'child unit', 'deny', 'allow (own subtree) — finding 2'],
+  ['sectionHead', 'readMember', 'zed', 'unrelated unit', 'deny'],
+  ['clrLead', 'readMember', 'rivera', 'unrelated unit', 'deny'],
+  ['admin', 'readMember', 'zed', 'unrelated unit', 'deny', 'allow (anywhere) — finding 4'],
 
-  // create a shared (chain) record in a unit
+  /* create a unit-visible record */
   ['marine', 'createShared', 'G8-FMRAC', 'own unit', 'allow'],
-  ['marine', 'createShared', 'G8-BUDGET', 'sibling unit', 'deny'],
+  ['marine', 'createShared', 'G8-BUDGET', 'other unit', 'deny'],
   ['ftl', 'createShared', 'G8-FMRAC', 'own unit', 'allow'],
-  ['ftl', 'createShared', 'G8-BUDGET', 'sibling unit', 'deny'],
+  ['ftl', 'createShared', 'G8-BUDGET', 'other unit', 'deny'],
   ['ncoic', 'createShared', 'G8-FMRAC', 'own unit', 'allow'],
-  ['ncoic', 'createShared', 'G8-BUDGET', 'sibling unit', 'deny'],
-  ['sectionHead', 'createShared', 'G8-BUDGET', 'own subtree', 'allow'],
-  ['sectionHead', 'createShared', 'CLR-4', 'outside subtree', 'deny'],
-  ['admin', 'createShared', 'CLR-4', 'anywhere', 'allow'],
+  ['ncoic', 'createShared', 'G8-BUDGET', 'other unit', 'deny'],
+  ['sectionHead', 'createShared', 'G8-BUDGET', 'child unit', 'deny', 'allow (own subtree) — finding 2'],
+  ['sectionHead', 'createShared', 'CLR-4', 'unrelated unit', 'deny'],
+  ['admin', 'createShared', 'CLR-4', 'unrelated unit', 'deny', 'allow (anywhere) — finding 4'],
 
-  // manage a member (non-destructive probe: force sign-out)
+  /* manage a member (non-destructive probe: force sign-out) */
   ['marine', 'manageMember', 'kramer', 'no permission', 'deny'],
-  ['ftl', 'manageMember', 'rivera', 'own team, no MANAGE_MEMBERS', 'deny'],
-  ['ncoic', 'manageMember', 'rivera', 'own unit', 'allow'],
-  ['ncoic', 'manageMember', 'kramer', 'sibling unit', 'deny'],
-  ['sectionHead', 'manageMember', 'kramer', 'own subtree', 'allow'],
-  ['clrLead', 'manageMember', 'rivera', 'outside subtree', 'deny'],
-  ['admin', 'manageMember', 'zed', 'anywhere', 'allow'],
+  ['ftl', 'manageMember', 'rivera', 'own unit, no MANAGE_MEMBERS', 'deny'],
+  ['ncoic', 'manageMember', 'probe', 'own unit', 'allow'],
+  ['ncoic', 'manageMember', 'kramer', 'other unit', 'deny'],
+  ['sectionHead', 'manageMember', 'kramer', 'child unit', 'deny', 'allow (own subtree) — finding 2'],
+  ['clrLead', 'manageMember', 'rivera', 'unrelated unit', 'deny'],
+  ['admin', 'manageMember', 'zed', 'unrelated unit', 'deny', 'allow (anywhere) — finding 4'],
 
-  // grant a role
+  /* grant a role */
   ['marine', 'grantRole', ['kramer', 'G8-BUDGET'], 'no permission', 'deny'],
-  ['ncoic', 'grantRole', ['rivera', 'G8-FMRAC'], 'no MANAGE_ROLES', 'deny'],
-  ['sectionHead', 'grantRole', ['rivera', 'G8-FMRAC'], 'own subtree', 'allow'],
-  ['sectionHead', 'grantRole', ['zed', 'CLR-4'], 'outside subtree', 'deny'],
-  ['clrLead', 'grantRole', ['zed', 'CLR-4'], 'own subtree', 'allow'],
-  ['clrLead', 'grantRole', ['rivera', 'G8-FMRAC'], 'outside subtree', 'deny'],
-  ['admin', 'grantRole', ['zed', 'CLR-4'], 'anywhere', 'allow'],
+  ['ftl', 'grantRole', ['rivera', 'G8-FMRAC'], 'own unit, no MANAGE_ROLES', 'deny'],
+  ['ncoic', 'grantRole', ['rivera', 'G8-FMRAC'], 'own unit, is owner', 'allow'],
+  ['sectionHead', 'grantRole', ['rivera', 'G8-FMRAC'], 'child unit', 'deny', 'allow (own subtree) — finding 2'],
+  ['sectionHead', 'grantRole', ['zed', 'CLR-4'], 'unrelated unit', 'deny'],
+  ['clrLead', 'grantRole', ['zed', 'CLR-4'], 'own unit, is owner', 'allow'],
+  ['clrLead', 'grantRole', ['rivera', 'G8-FMRAC'], 'unrelated unit', 'deny'],
+  ['admin', 'grantRole', ['zed', 'CLR-4'], 'unrelated unit', 'deny', 'allow (anywhere) — finding 4'],
 
-  // unit audit log
+  /* unit audit log */
   ['marine', 'unitAudit', 'G8-FMRAC', 'no VIEW_AUDIT', 'deny'],
   ['ncoic', 'unitAudit', 'G8-FMRAC', 'own unit', 'allow'],
-  ['ncoic', 'unitAudit', 'G8-BUDGET', 'sibling unit', 'deny'],
-  ['sectionHead', 'unitAudit', 'G8-BUDGET', 'own subtree', 'allow'],
-  ['sectionHead', 'unitAudit', 'CLR-4', 'outside subtree', 'deny'],
-  ['admin', 'unitAudit', 'CLR-4', 'anywhere', 'allow'],
+  ['ncoic', 'unitAudit', 'G8-BUDGET', 'other unit', 'deny'],
+  ['sectionHead', 'unitAudit', 'G8-BUDGET', 'child unit', 'deny', 'allow (own subtree) — finding 2'],
+  ['sectionHead', 'unitAudit', 'CE-G8', 'own unit', 'allow'],
+  ['admin', 'unitAudit', 'CLR-4', 'unrelated unit', 'deny', 'allow (anywhere) — finding 4'],
 
-  // server-side export
+  /* server-side export */
   ['marine', 'exportUnit', 'G8-FMRAC', 'no EXPORT_DATA', 'deny'],
-  ['ncoic', 'exportUnit', 'G8-FMRAC', 'no EXPORT_DATA', 'deny'],
-  ['sectionHead', 'exportUnit', 'CE-G8', 'own subtree', 'allow'],
-  ['sectionHead', 'exportUnit', 'CLR-4', 'outside subtree', 'deny'],
-  ['admin', 'exportUnit', 'CLR-4', 'anywhere', 'allow'],
+  ['ftl', 'exportUnit', 'G8-FMRAC', 'no EXPORT_DATA', 'deny'],
+  ['sectionHead', 'exportUnit', 'CE-G8', 'own unit', 'allow'],
+  ['sectionHead', 'exportUnit', 'G8-BUDGET', 'child unit', 'deny', 'allow (own subtree) — finding 2'],
+  ['admin', 'exportUnit', 'CLR-4', 'unrelated unit', 'deny', 'allow (anywhere) — finding 4'],
 
-  // unit creation
-  ['marine', 'createUnit', 'G8-FMRAC', 'no MANAGE_UNITS', 'deny'],
-  ['ncoic', 'createUnit', 'G8-FMRAC', 'no MANAGE_UNITS', 'deny'],
-  ['sectionHead', 'createUnit', 'CE-G8', 'own subtree', 'allow'],
-  ['sectionHead', 'createUnit', 'CLR-4', 'outside subtree', 'deny'],
-  ['admin', 'createUnit', 'CLR-4', 'anywhere', 'allow'],
+  /* sub-unit creation — still gated on MANAGE_UNITS in the named parent,
+     because claiming to sit under someone is a statement about THEIR chart */
+  ['marine', 'createSubUnit', 'G8-FMRAC', 'no MANAGE_UNITS', 'deny'],
+  ['ftl', 'createSubUnit', 'G8-FMRAC', 'no MANAGE_UNITS', 'deny'],
+  ['sectionHead', 'createSubUnit', 'CE-G8', 'own unit', 'allow'],
+  ['sectionHead', 'createSubUnit', 'CLR-4', 'unrelated unit', 'deny'],
+  ['admin', 'createSubUnit', 'CLR-4', 'unrelated unit', 'deny', 'allow (anywhere) — finding 4'],
+
+  /* top-level unit creation — the row v3.3 could not express (finding 5) */
+  ['marine', 'createTopLevelUnit', null, 'no roles anywhere', 'allow'],
+  ['ftl', 'createTopLevelUnit', null, 'NCO elsewhere', 'allow'],
+  ['clrLead', 'createTopLevelUnit', null, 'owner elsewhere', 'allow'],
 ];
 
 /* ── run ──────────────────────────────────────────────────────────── */
 
 let pass = 0;
 const failures = [];
-for (const [actor, action, arg, relation, expected] of ROWS) {
+let rewritten = 0;
+
+for (const [actor, action, arg, relation, expected, was] of ROWS) {
   const res = await ACTIONS[action](tok[actor], arg);
   const allowed = res.status >= 200 && res.status < 300;
   const ok = expected === 'allow' ? allowed : !allowed;
-  const label = `${actor.padEnd(11)} ${action.padEnd(13)} ${String(Array.isArray(arg) ? arg.join('@') : arg).padEnd(18)} ${relation.padEnd(28)} → expect ${expected}`;
+  if (was) rewritten += 1;
+
+  const label = `${actor.padEnd(11)} ${action.padEnd(18)} ${String(Array.isArray(arg) ? arg.join('@') : (arg ?? '—')).padEnd(14)} ${relation.padEnd(30)} → ${expected}${was ? `   [was ${was}]` : ''}`;
   if (ok) { pass += 1; console.log(`  ok    ${label}`); }
   else {
-    failures.push(label);
+    failures.push(`${label} (got ${res.status}${res.body?.error ? `: ${res.body.error}` : ''})`);
     console.log(`  FAIL  ${label} (got ${res.status}${res.body?.error ? `: ${res.body.error}` : ''})`);
   }
 }
 
 server.close();
-try { rmSync(DB, { force: true }); rmSync(`${DB}-wal`, { force: true }); rmSync(`${DB}-shm`, { force: true }); } catch { /* ignore */ }
+for (const s of ['', '-wal', '-shm']) rmSync(DB + s, { force: true });
 
 console.log(`\n${pass}/${ROWS.length} matrix rows hold`);
+console.log(`${rewritten} rows carry a v3.3 expectation that was deliberately reversed.`);
 assert.equal(failures.length, 0, `matrix rows failed:\n${failures.join('\n')}`);
 process.exit(0);

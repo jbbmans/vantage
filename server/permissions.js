@@ -288,8 +288,8 @@ export const DEFAULT_VISIBILITY = 'unit';
  * SQL fragment restricting a table to what this user may read.
  *
  *   A  It's mine. Any visibility, including personal and private.
- *   B  It belongs to someone whose unit I can view records in, they didn't
- *      mark it private, and it is not personal scope.
+ *   B  It belongs to someone whose records I may view, AND it lives in one of
+ *      the units that gave me that authority, AND they didn't mark it private.
  *   C  It was posted to a unit I am a member of.
  *
  * v3.3's branches C and D — the two `visibility = 'chain'` clauses resolving
@@ -299,20 +299,29 @@ export const DEFAULT_VISIBILITY = 'unit';
  * A and B are kept separate deliberately: collapsing them leaked every private
  * record a subordinate had ever written. Personal scope is excluded from B and
  * C by predicate, not by convention, so no future branch can re-admit it.
+ *
+ * The unit predicate in B is load-bearing and was missing from the first draft
+ * of this rewrite. Keying B on the AUTHOR alone means that once you may read
+ * someone's records anywhere, you may read them EVERYWHERE — so a Marine with
+ * VIEW_RECORDS in their own section could read their SNCOIC's records posted
+ * in a different unit entirely, purely because the two shared one membership.
+ * Authority to read a person is granted by a unit and is bounded by it; a
+ * record's home unit decides who may see it, not its author's address book.
  */
 export function visibilityClause(db, user, { table = 't' } = {}) {
-  const { unitIds } = resolveScope(db, user);
+  const { unitIds, scopeUnitIds } = resolveScope(db, user);
   const subordinates = visibleUserIds(db, user).filter((id) => id !== user.id);
 
   const parts = [`${table}.user_id = ?`];
   const params = [user.id];
 
-  if (subordinates.length) {
+  if (subordinates.length && scopeUnitIds.length) {
     parts.push(
       `(${table}.user_id IN (${subordinates.map(() => '?').join(',')})`
-      + ` AND ${table}.visibility NOT IN ('private','personal') AND ${table}.unit_id IS NOT NULL)`
+      + ` AND ${table}.unit_id IN (${scopeUnitIds.map(() => '?').join(',')})`
+      + ` AND ${table}.visibility NOT IN ('private','personal'))`
     );
-    params.push(...subordinates);
+    params.push(...subordinates, ...scopeUnitIds);
   }
   if (unitIds.length) {
     parts.push(`(${table}.visibility = 'unit' AND ${table}.unit_id IN (${unitIds.map(() => '?').join(',')}))`);

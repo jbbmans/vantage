@@ -346,6 +346,53 @@ await test('a non-operator cannot reach instance routes', async () => {
   denied(await call('GET', '/api/admin/db', { token: alphaToken }), 'db panel by a unit owner');
 });
 
+/* ── author-scoped reads must still respect the record's unit ─────── */
+
+/*
+ * This section exists because the first draft of visibilityClause got it
+ * wrong, and the matrix suite caught it.
+ *
+ * Branch B answers "may I read this person's records". It keyed on the AUTHOR
+ * alone, so once you could read someone anywhere you could read them
+ * EVERYWHERE — a Marine holding VIEW_RECORDS in their own section could read
+ * their SNCOIC's records posted in a different unit entirely, purely because
+ * the two shared one membership. No permission was checked in the second unit
+ * and no membership existed there.
+ *
+ * Authority to read a person is granted by a unit and is bounded by it.
+ */
+
+await test("a member cannot read their leader's records from another unit", async () => {
+  // Bravo's owner is also a member of CE-G8 from the bootstrap fixture; give a
+  // Bravo Marine VIEW_RECORDS inside Bravo, then check they cannot follow that
+  // author out of the unit.
+  must(await call('POST', `/api/team/${bravoMarineId}/roles`, {
+    token: bravoToken, body: { role_id: `${bravo.id}:nco`, unit_id: bravo.id },
+  }), 'grant NCO in Bravo');
+  const marineTok = await login('bravomarine', PW('bravomarine'));
+
+  const elsewhere = must(await call('POST', '/api/tasks', {
+    token: bravoToken, body: { title: 'CE-G8 only tasking', visibility: 'unit', unit_id: 'CE-G8' },
+  }), 'task in CE-G8');
+
+  const res = await call('GET', '/api/tasks', { token: marineTok });
+  assert.equal(res.status, 200);
+  const ids = res.body.map((t) => t.id);
+  assert.ok(
+    !ids.includes(elsewhere.id),
+    'TENANCY LEAK — a readable author carried their records out of the unit that authorised the read'
+  );
+});
+
+await test('the same member still reads their own unit normally', async () => {
+  const marineTok = await login('bravomarine', PW('bravomarine'));
+  const inUnit = must(await call('POST', '/api/tasks', {
+    token: bravoToken, body: { title: 'Bravo tasking', visibility: 'unit', unit_id: bravo.id },
+  }), 'task in Bravo');
+  const res = await call('GET', '/api/tasks', { token: marineTok });
+  assert.ok(res.body.map((t) => t.id).includes(inUnit.id), 'a unit task must reach its own unit');
+});
+
 /* ── the positive control ─────────────────────────────────────────── */
 
 await test('Bravo can still do all of this inside Bravo', async () => {
