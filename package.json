@@ -13,7 +13,7 @@
     "build": "vite build",
     "start": "node server/index.js",
     "lint": "eslint . --quiet",
-    "test": "node tests/logic.test.mjs && node tests/api.test.mjs && node tests/scenario.test.mjs && node tests/security.test.mjs && node tests/matrix.test.mjs",
+    "test": "node tests/static.test.mjs && node tests/logic.test.mjs && node tests/api.test.mjs && node tests/scenario.test.mjs && node tests/security.test.mjs && node tests/matrix.test.mjs && node tests/tenancy.test.mjs && npx vitest run tests/migration.test.mjs",
     "test:logic": "node tests/logic.test.mjs",
     "test:api": "node tests/api.test.mjs",
     "test:scenario": "node tests/scenario.test.mjs",
@@ -21,7 +21,11 @@
     "test:all": "npm test && npm run test:browser",
     "test:security": "node tests/security.test.mjs",
     "recover": "node scripts/recover-admin.mjs",
-    "test:a11y": "node tests/browser-a11y.test.mjs"
+    "test:a11y": "node tests/browser-a11y.test.mjs",
+    "test:static": "node tests/static.test.mjs",
+    "test:tenancy": "node tests/tenancy.test.mjs",
+    "test:migration": "npx vitest run tests/migration.test.mjs",
+    "test:matrix": "node tests/matrix.test.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",

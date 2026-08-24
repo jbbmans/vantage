@@ -546,6 +546,95 @@ app.post('/api/org/units/:unitId/claim', auth, operatorGate(db), (req, res) => {
   res.json(db.prepare('SELECT * FROM units WHERE id = ?').get(unit.id));
 });
 
+/**
+ * Add an existing account to a unit (findings 8 and 9).
+ *
+ * v3.3 had no such operation: membership was inferred from `assignments`, so
+ * the only way into a unit was to be created there or reassigned there, and a
+ * Marine could not belong to two units at once. Under stated membership the
+ * two are separable — `assignments` keeps billet and history, `unit_members`
+ * answers who is in the unit — which is what makes a guest expressible at all.
+ *
+ * A guest is ordinary membership with `kind = 'guest'` and an expiry, given a
+ * normal unit-local role. Deliberately NOT a parallel authorization path: every
+ * existing permission check already covers them, so there is no second code
+ * path to drift out of step with the first.
+ */
+app.post('/api/org/units/:unitId/members', auth, (req, res) => {
+  const { user_id, kind = 'member', role_id, expires_at } = req.body || {};
+  const unitId = req.params.unitId;
+  const unit = db.prepare('SELECT * FROM units WHERE id = ? AND active = 1').get(unitId);
+  if (!unit) return fail(res, 404, 'No such unit.');
+  if (!['member', 'guest'].includes(kind)) {
+    return failValidation(res, { kind: 'Membership is member or guest. Ownership transfers separately.' });
+  }
+  if (kind === 'guest' && !expires_at) {
+    // A guest membership without an expiry is a permanent one with a
+    // misleading label, so the expiry is required rather than defaulted.
+    return failValidation(res, { expires_at: 'A guest membership needs an expiry date.' });
+  }
+  const target = db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(user_id);
+  if (!target) return failValidation(res, { user_id: 'No such active account.' });
+
+  if (!isUnitOwner(db, req.user.id, unitId) && !can(db, req.user, PERMISSIONS.MANAGE_MEMBERS, unitId)) {
+    return fail(res, 403, 'You cannot add members to that unit.');
+  }
+
+  // Judge the optional starting role before writing anything, so a refused
+  // grant refuses the whole request rather than leaving a member with no role.
+  let role = null;
+  if (role_id) {
+    role = db.prepare('SELECT * FROM roles WHERE id = ?').get(role_id);
+    if (!role) return failValidation(res, { role_id: 'No such role.' });
+    if (role.unit_id !== unitId) {
+      return fail(res, 403, 'That role belongs to another unit.', { code: 'scope' });
+    }
+  }
+
+  db.transaction(() => {
+    addMember(user_id, unitId, { kind, invitedBy: req.user.id, expiresAt: expires_at || null });
+    if (role) {
+      const verdict = validateRoleGrant(db, req.user, role, unitId, target);
+      if (!verdict.ok) throw Object.assign(new Error(verdict.message), { verdict });
+      grantRole(user_id, role.id, unitId, req.user.id);
+    }
+  })();
+
+  audit({
+    actor_id: req.user.id, action: 'add_member', entity: 'unit', entity_id: unitId,
+    subject_id: user_id, unit_id: unitId,
+    detail: `${kind}${expires_at ? ` until ${expires_at}` : ''}${role ? ` as ${role.name}` : ''}`,
+  });
+  res.json({ ok: true, unit_id: unitId, user_id, kind, expires_at: expires_at || null });
+});
+
+/**
+ * Remove someone from a unit (finding 10).
+ *
+ * This is "remove from unit", not "deactivate account" — three verbs v3.3
+ * treated as one. It drops membership and every role grant in THIS unit and
+ * touches nothing anywhere else, because Unit A has no business ending a
+ * Marine's account for Unit B.
+ */
+app.delete('/api/org/units/:unitId/members/:userId', auth, (req, res) => {
+  const { unitId, userId } = req.params;
+  if (!db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(unitId)) return fail(res, 404, 'No such unit.');
+  if (!isUnitOwner(db, req.user.id, unitId) && !can(db, req.user, PERMISSIONS.MANAGE_MEMBERS, unitId)) {
+    return fail(res, 403, 'You cannot remove members from that unit.');
+  }
+  // Orphan protection (finding 11): an Owner cannot walk out of their own unit
+  // and leave records nobody can reach. Ownership transfers first.
+  if (isUnitOwner(db, userId, unitId)) {
+    return fail(res, 400, 'That Marine owns this unit. Transfer ownership before removing them.', { code: 'last_owner' });
+  }
+  removeMember(userId, unitId);
+  audit({
+    actor_id: req.user.id, action: 'remove_member', entity: 'unit', entity_id: unitId,
+    subject_id: userId, unit_id: unitId,
+  });
+  res.json({ ok: true });
+});
+
 /* ── roles ────────────────────────────────────────────────────────── */
 /**
  * A user sees the role sets of the units they belong to, and no others.
@@ -1153,16 +1242,32 @@ app.get('/api/export', auth, (req, res) => {
 
   const out = { unit: { id: unit.id, name: unit.name }, generated_at: now(), members };
   for (const [table, spec] of Object.entries(TABLES)) {
-    if (!memberIds.length) { out[table] = []; continue; }
-    const mph = memberIds.map(() => '?').join(',');
+    /*
+     * Export what BELONGS TO THIS UNIT. Two things changed here, and both were
+     * live leaks under the v3.4 model:
+     *
+     *   v3.3 selected `user_id IN (members) OR unit_id IN (units)`, so a
+     *   member's records from ANY other unit were swept into this unit's
+     *   workbook purely because they appear on its roster — the same
+     *   author-scoping mistake that was in visibilityClause. Exporting G8-FMRAC
+     *   should never emit a CE-G8 record.
+     *
+     *   The `visibility <> 'private'` filter did not exclude PERSONAL scope,
+     *   which has unit_id IS NULL and so was never the unit's to hold. Finding
+     *   6 says personal records are readable by their owner and nobody else,
+     *   ever; an export is a read, and this one was writing them to a file.
+     *
+     * A record's home unit decides who may export it.
+     */
     out[table] = db
       .prepare(
         `SELECT * FROM ${table}
-          WHERE deleted_at IS NULL AND visibility <> 'private'
-            AND (user_id IN (${mph}) OR unit_id IN (${uph}))
+          WHERE deleted_at IS NULL
+            AND visibility NOT IN ('private', 'personal')
+            AND unit_id IN (${uph})
           ORDER BY created_at DESC`
       )
-      .all(...memberIds, ...units)
+      .all(...units)
       .map((r) => hydrate(r, spec));
   }
 

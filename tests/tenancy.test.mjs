@@ -393,6 +393,31 @@ await test('the same member still reads their own unit normally', async () => {
   assert.ok(res.body.map((t) => t.id).includes(inUnit.id), 'a unit task must reach its own unit');
 });
 
+await test('an export contains no other unit\'s records', async () => {
+  // v3.3 selected `user_id IN (members) OR unit_id IN (units)`, so a member's
+  // records from anywhere were swept in purely because they appear on this
+  // unit's roster. Exporting Bravo must never emit a CE-G8 row.
+  const res = await call('GET', `/api/export?unit_id=${bravo.id}`, { token: bravoToken });
+  assert.equal(res.status, 200, `export failed: ${res.status}`);
+  for (const table of ['activities', 'tasks', 'goals', 'projects', 'recognitions', 'trainings']) {
+    for (const row of res.body[table] || []) {
+      assert.equal(row.unit_id, bravo.id, `export of ${table} leaked a row from ${row.unit_id}`);
+    }
+  }
+});
+
+await test('an export contains no personal-scope record', async () => {
+  // Personal scope is readable by its owner and nobody else, ever (finding 6).
+  // An export is a read, and v3.3's filter excluded 'private' but not
+  // 'personal' — so a Marine's own log was written into their unit's workbook.
+  const res = await call('GET', `/api/export?unit_id=${bravo.id}`, { token: bravoToken });
+  const all = ['activities', 'tasks', 'goals', 'projects', 'recognitions', 'trainings']
+    .flatMap((t) => res.body[t] || []);
+  assert.ok(!all.some((r) => r.id === bravoPersonal.id), 'a personal record was exported');
+  assert.ok(!all.some((r) => r.visibility === 'personal'), 'personal scope must never leave');
+  assert.ok(!all.some((r) => r.visibility === 'private'), 'private records must never leave');
+});
+
 /* ── the positive control ─────────────────────────────────────────── */
 
 await test('Bravo can still do all of this inside Bravo', async () => {

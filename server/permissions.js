@@ -66,6 +66,18 @@ export function memberUnitIds(db, userId) {
   return membershipsOf(db, userId).map((m) => m.unit_id);
 }
 
+/** Membership kind — owner, member or guest — or null if not a live member. */
+export function membershipKind(db, userId, unitId) {
+  if (!unitId) return null;
+  const row = db
+    .prepare(
+      `SELECT um.kind FROM unit_members um JOIN units u ON u.id = um.unit_id
+        WHERE um.user_id = ? AND um.unit_id = ? AND u.active = 1 AND ${LIVE_MEMBERSHIP} LIMIT 1`
+    )
+    .get(userId, unitId);
+  return row ? row.kind : null;
+}
+
 export function isMember(db, userId, unitId) {
   if (!unitId) return false;
   return Boolean(
@@ -357,7 +369,21 @@ export function canShareTo(db, user, visibility, unitId, flag = PERMISSIONS.CREA
   if (visibility === 'personal') return !unitId;
   if (visibility === 'private') return true;
   if (!unitId) return false;
-  if (isMember(db, user.id, unitId)) return true;
+
+  /* A guest is a member, and that is deliberate — finding 9 builds guests as
+   * ordinary membership so every existing permission check already covers
+   * them and no parallel authorization path can drift. But a guest is in the
+   * unit by invitation with a NARROW role, and letting them broadcast to it as
+   * freely as the people who actually work there would empty that word out.
+   * So guests are bounded by the share flag; members and owners are not.
+   *
+   * This also keeps v3.3's rule intact for everyone it applied to: your own
+   * unit is free, anywhere else needs the permission. Under v3.3 a grant could
+   * exist without membership, so "another unit you hold a permission in" was
+   * expressible; finding 8 made membership a precondition for a grant to mean
+   * anything, and guest is the shape that case takes now. */
+  const kind = membershipKind(db, user.id, unitId);
+  if (kind === 'owner' || kind === 'member') return true;
   return can(db, user, flag, unitId);
 }
 
