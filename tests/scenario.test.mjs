@@ -16,6 +16,10 @@ import { join } from 'node:path';
 const DB = join(tmpdir(), `vantage-scenario-${Date.now()}.db`);
 process.env.VANTAGE_DB = DB;
 process.env.VANTAGE_TEST = '1';
+// The section head is the Instance Operator here so the scenario can claim the
+// seeded units it needs. In a real install those units would not exist at all
+// and the SNCOIC would create them (finding 5, finding 16).
+process.env.VANTAGE_OPERATOR = 'boletz';
 
 const { app } = await import('../server/index.js');
 const { composeNarrative } = await import('../src/lib/narrative.js');
@@ -56,22 +60,28 @@ await call('POST', '/api/setup', {
 const chief = await login('boletz', 'a-long-enough-passphrase-here');
 const chiefMe = (await call('GET', '/api/me', { token: chief })).body;
 
-// Section head over all of G-8.
-await call('PUT', `/api/team/${chiefMe.user.id}/assignment`, {
-  token: chief,
-  body: { unit_id: 'CE-G8', billet_id: 'accounting-chief', role: 'unit_leader' },
-});
-await call('POST', `/api/team/${chiefMe.user.id}/roles`, {
-  token: chief,
-  body: { role_id: 'section-head', unit_id: 'CE-G8' },
-});
+/*
+ * v3.4: the chief runs the shops he actually holds.
+ *
+ * v3.3 gave him the org-wide `section-head` role at CE-G8 and let it cascade
+ * over Budget, Accounting, Audit and FMRAC. Nothing cascades now (finding 2),
+ * so he claims the two units this scenario uses and owns both. That is what a
+ * SNCOIC running a section across two shops would actually do — and it is
+ * visibly more work, which is the honest cost of sovereignty.
+ */
+for (const unitId of ['G8-FMRAC', 'G8-BUDGET']) {
+  const res = await call('POST', `/api/org/units/${unitId}/claim`, {
+    token: chief, body: { owner_user_id: chiefMe.user.id, template_id: 'section' },
+  });
+  assert.equal(res.status, 200, `claim ${unitId}: ${res.status} ${JSON.stringify(res.body)}`);
+}
 
 // A fire team leader running FMRAC, and two analysts under him.
 const people = [
-  ['ohara', 'Sean', 'OHara', 'Sgt', 'G8-FMRAC', 'fire-team-leader', 'fire-team-leader'],
+  ['ohara', 'Sean', 'OHara', 'Sgt', 'G8-FMRAC', 'fire-team-leader', 'G8-FMRAC:nco'],
   ['delgado', 'Ana', 'Delgado', 'LCpl', 'G8-FMRAC', 'financial-management-resource-analyst', null],
   ['whitfield', 'Marcus', 'Whitfield', 'PFC', 'G8-FMRAC', 'financial-management-resource-analyst', null],
-  ['kramer', 'Dale', 'Kramer', 'Sgt', 'G8-BUDGET', 'budget-chief', 'fire-team-leader'],
+  ['kramer', 'Dale', 'Kramer', 'Sgt', 'G8-BUDGET', 'budget-chief', 'G8-BUDGET:nco'],
 ];
 for (const [username, first, last, rank, unit, billet, roleId] of people) {
   await call('POST', '/api/team', {
@@ -104,14 +114,14 @@ for (const [date, title, quantity, unit, dollar_amount, dollar_type, system, jep
   await call('POST', '/api/activities', {
     token: analyst,
     body: { date, title, quantity, unit_label: unit, dollar_amount, dollar_type, system, jepes_area, result,
-      category: 'Fiscal & Financial', visibility: 'chain' },
+      category: 'Fiscal & Financial', visibility: 'unit', unit_id: 'G8-FMRAC' },
   });
 }
 // Prior quarter, so the change report has something to compare against.
 await call('POST', '/api/activities', {
   token: analyst,
   body: { date: '2026-05-02', title: 'Reconciled obligations', quantity: 8, unit_label: 'ULOs',
-    dollar_amount: 400, dollar_type: 'reconciled', jepes_area: 'MOS / Mission Accomplishment', visibility: 'chain' },
+    dollar_amount: 400, dollar_type: 'reconciled', jepes_area: 'MOS / Mission Accomplishment', visibility: 'unit', unit_id: 'G8-FMRAC' },
 });
 // Something the Marine keeps to themselves.
 await call('POST', '/api/activities', {
@@ -124,12 +134,17 @@ await call('POST', '/api/activities', {
 await test('a fire team leader sees their team but not the whole section', async () => {
   const res = await call('GET', '/api/team', { token: teamLead });
   const names = res.body.roster.map((r) => r.last_name).sort();
-  assert.deepEqual(names, ['Delgado', 'OHara', 'Whitfield']);
+  // Boletz appears because he is a member of G8-FMRAC — he claimed and owns it.
+  // In v3.3 he was visible through the cascade from CE-G8 instead; the roster
+  // is the same, the reason is not.
+  assert.deepEqual(names, ['Boletz', 'Delgado', 'OHara', 'Whitfield']);
 });
 
 await test('a peer team lead in another branch sees only their own', async () => {
   const res = await call('GET', '/api/team', { token: budgetLead });
-  assert.deepEqual(res.body.roster.map((r) => r.last_name), ['Kramer']);
+  const names = res.body.roster.map((r) => r.last_name).sort();
+  assert.deepEqual(names, ['Boletz', 'Kramer']);
+  assert.ok(!names.includes('Delgado'), 'a Budget lead must not see an FMRAC analyst');
 });
 
 await test('the section head sees every branch', async () => {
@@ -165,22 +180,47 @@ await test('a Marine in a different branch sees none of it', async () => {
   assert.equal(res.body.length, 0);
 });
 
-await test('a section head tasks the whole section and it reaches the bottom', async () => {
-  await call('POST', '/api/tasks', {
-    token: chief,
-    body: { title: 'Submit FY26 Q4 JEPES inputs', visibility: 'chain', unit_id: 'CE-G8',
-      priority: 'high', due_date: '2026-09-15' },
-  });
+/*
+ * was: 'a section head tasks the whole section and it reaches the bottom' — one
+ * task posted at CE-G8 reached FMRAC and Budget through the cascade. Finding 2
+ * removed the cascade, so a section head running two shops posts to two shops.
+ *
+ * That is a real ergonomic cost and the scenario states it plainly rather than
+ * hiding it: the tasking loop still works, it just requires the leader to name
+ * each unit they are tasking. Nobody receives an order by accident of the org
+ * chart.
+ */
+await test('a section head tasks each shop they hold, and it reaches the bottom', async () => {
+  for (const unitId of ['G8-FMRAC', 'G8-BUDGET']) {
+    const res = await call('POST', '/api/tasks', {
+      token: chief,
+      body: { title: 'Submit FY26 Q4 JEPES inputs', visibility: 'unit', unit_id: unitId,
+        priority: 'high', due_date: '2026-09-15' },
+    });
+    assert.equal(res.status, 200, `tasking ${unitId}: ${res.status}`);
+  }
   for (const [who, token] of [['team lead', teamLead], ['analyst', analyst], ['budget lead', budgetLead]]) {
     const res = await call('GET', '/api/tasks', { token });
     assert.ok(res.body.some((t) => t.title.includes('JEPES inputs')), `${who} did not receive the tasking`);
   }
 });
 
+await test('a task posted to one shop does not appear in the other', async () => {
+  await call('POST', '/api/tasks', {
+    token: chief,
+    body: { title: 'FMRAC-only reconciliation sweep', visibility: 'unit', unit_id: 'G8-FMRAC' },
+  });
+  const budget = await call('GET', '/api/tasks', { token: budgetLead });
+  assert.ok(
+    !budget.body.some((t) => t.title.includes('reconciliation sweep')),
+    'a task aimed at one shop reached another'
+  );
+});
+
 await test('a fire team goal reaches the team and stops there', async () => {
   await call('POST', '/api/goals', {
     token: teamLead,
-    body: { title: 'Zero aged ULOs by 30 SEP', target_value: 0, visibility: 'chain', unit_id: 'G8-FMRAC' },
+    body: { title: 'Zero aged ULOs by 30 SEP', target_value: 0, visibility: 'unit', unit_id: 'G8-FMRAC' },
   });
   const inTeam = await call('GET', '/api/goals', { token: analyst });
   assert.ok(inTeam.body.some((g) => g.title.includes('Zero aged ULOs')));
@@ -259,11 +299,14 @@ await test('a section head can stand up a fire team and staff it', async () => {
   });
   assert.equal(unit.status, 200);
 
+  // The new unit arrives with its OWN copy of the role template (finding 1),
+  // so the role id is unit-local. There is no global 'fire-team-leader' to
+  // reach for any more.
   await call('POST', '/api/team', {
     token: chief,
     body: {
       username: 'reyes', password: 'reyes-long-enough-passphrase', first_name: 'Luis', last_name: 'Reyes',
-      rank_id: 'Cpl', unit_id: unit.body.id, role_id: 'fire-team-leader',
+      rank_id: 'Cpl', unit_id: unit.body.id, role_id: `${unit.body.id}:nco`,
     },
   });
 
@@ -271,9 +314,11 @@ await test('a section head can stand up a fire team and staff it', async () => {
   assert.ok(roster.body.roster.some((r) => r.last_name === 'Reyes'));
 
   // And the new fire team leader sees their own unit, nothing above it.
+  // Boletz is on that roster because standing a unit up makes you its Owner
+  // and its first member — not because CE-G8 sits above it.
   const token = await login('reyes', 'reyes-long-enough-passphrase');
   const theirs = await call('GET', '/api/team', { token });
-  assert.deepEqual(theirs.body.roster.map((r) => r.last_name), ['Reyes']);
+  assert.deepEqual(theirs.body.roster.map((r) => r.last_name).sort(), ['Boletz', 'Reyes']);
   const upward = await call('GET', `/api/team/${chiefMe.user.id}`, { token });
   assert.equal(upward.status, 403, 'must not be able to read upward');
 });

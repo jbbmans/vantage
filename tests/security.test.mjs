@@ -18,6 +18,9 @@ import { join } from 'node:path';
 const DB = join(tmpdir(), `vantage-sec-${Date.now()}.db`);
 process.env.VANTAGE_DB = DB;
 process.env.VANTAGE_TEST = '1';
+// The bootstrap account is the Instance Operator so the fixtures can claim the
+// seeded units they exercise (finding 4).
+process.env.VANTAGE_OPERATOR = 'boletz';
 
 const { app, db } = await import('../server/index.js');
 const { resetCounters, LOGIN_LIMITS } = await import('../server/security.js');
@@ -84,22 +87,50 @@ await call('POST', '/api/setup', {
 const admin = await login('boletz', 'correct-horse-battery-staple');
 const adminId = (await call('GET', '/api/me', { token: admin })).body.user.id;
 
+/*
+ * v3.4 fixture. Every unit this suite touches is claimed by the bootstrap
+ * account, so it is a real Owner of each rather than a cross-tenant superuser
+ * — the standing that finding 4 deleted. The role definitions below are then
+ * created per unit, because roles.unit_id is NOT NULL (finding 1).
+ */
+for (const unitId of ['G8-FMRAC', 'G8-BUDGET', 'CLR-4']) {
+  const res = await call('POST', `/api/org/units/${unitId}/claim`, {
+    token: admin, body: { owner_user_id: adminId, template_id: 'section' },
+  });
+  assert.equal(res.status, 200, `fixture: claim ${unitId} — ${res.status} ${JSON.stringify(res.body)}`);
+}
+
 // A mid-tier role manager: MANAGE_ROLES and MANAGE_MEMBERS over the G-8
 // subtree, but NO MANAGE_UNITS, NO EXPORT_DATA, NO ADMINISTRATOR — the exact
 // profile finding 1 is about. Holds VIEW_AUDIT so the unit-log tests have a
 // legitimate reader.
 const branchBits = P.VIEW_UNIT | P.VIEW_RECORDS | P.VIEW_MEMBER_DETAIL | P.CREATE_SHARED_WORK
   | P.CREATE_SHARED_GOALS | P.MANAGE_RECORDS | P.MANAGE_ROLES | P.MANAGE_MEMBERS | P.VIEW_AUDIT;
+// was: inherits_down: 1, cascading over the G-8 subtree. Nothing cascades
+// (finding 2), so the same profile is granted in each unit it needs to act in.
 const branchManager = (await call('POST', '/api/roles', {
   token: admin,
-  body: { name: 'Branch Manager', unit_id: 'CE-G8', position: 25, inherits_down: 1, permissions: branchBits },
+  body: { name: 'Branch Manager', unit_id: 'CE-G8', position: 25, permissions: branchBits },
 })).body;
 assert.ok(branchManager?.id, 'fixture: branch-manager role must exist');
 
-// A low custom role inside G-8, the escalation target.
+const branchManagerFmrac = (await call('POST', '/api/roles', {
+  token: admin,
+  body: { name: 'Branch Manager', unit_id: 'G8-FMRAC', position: 25, permissions: branchBits },
+})).body;
+const branchManagerBudget = (await call('POST', '/api/roles', {
+  token: admin,
+  body: { name: 'Branch Manager', unit_id: 'G8-BUDGET', position: 25, permissions: branchBits },
+})).body;
+
+// A low custom role, the escalation target. One copy per unit it is used in.
 const clerk = (await call('POST', '/api/roles', {
   token: admin,
-  body: { name: 'Clerk', unit_id: 'CE-G8', position: 5, permissions: P.VIEW_UNIT | P.VIEW_RECORDS },
+  body: { name: 'Clerk', unit_id: 'G8-FMRAC', position: 5, permissions: P.VIEW_UNIT | P.VIEW_RECORDS },
+})).body;
+const clerkBudget = (await call('POST', '/api/roles', {
+  token: admin,
+  body: { name: 'Clerk', unit_id: 'G8-BUDGET', position: 5, permissions: P.VIEW_UNIT | P.VIEW_RECORDS },
 })).body;
 
 // A low role in a DIFFERENT command — for the cross-scope tests.
@@ -108,21 +139,32 @@ const clrClerk = (await call('POST', '/api/roles', {
   body: { name: 'CLR Clerk', unit_id: 'CLR-4', position: 5, permissions: P.VIEW_UNIT },
 })).body;
 
-// A broad org-wide role made by the administrator — the "existing role as a
-// ladder" test: low position, but carries a bit non-admins here don't hold.
+// was: an ORG-WIDE role made by the administrator. There is no such thing now
+// (finding 1), so it is a G8-FMRAC role. The test it serves is unchanged: a
+// low-position role carrying a bit the granter does not hold must not become a
+// privilege ladder just because it already exists.
 const auditor = (await call('POST', '/api/roles', {
   token: admin,
-  body: { name: 'Auditor', position: 5, permissions: P.VIEW_UNIT | P.EXPORT_DATA },
+  body: { name: 'Auditor', unit_id: 'G8-FMRAC', position: 5, permissions: P.VIEW_UNIT | P.EXPORT_DATA },
 })).body;
 
 await makeUser(admin, { username: 'hayes', unit_id: 'CE-G8', rank_id: 'SSgt' });
 const hayesId = (await call('GET', '/api/team', { token: admin })).body.roster.find((r) => r.username === 'hayes').id;
 await call('POST', `/api/team/${hayesId}/roles`, { token: admin, body: { role_id: branchManager.id, unit_id: 'CE-G8' } });
+// Hayes runs FMRAC and Budget too — stated as two memberships plus two grants
+// rather than inherited from CE-G8, which is the whole of finding 2 in this
+// fixture. Under v3.3 the single CE-G8 grant reached both automatically.
+for (const [unitId, roleId] of [['G8-FMRAC', branchManagerFmrac.id], ['G8-BUDGET', branchManagerBudget.id]]) {
+  const res = await call('POST', `/api/org/units/${unitId}/members`, {
+    token: admin, body: { user_id: hayesId, role_id: roleId },
+  });
+  assert.equal(res.status, 200, `fixture: hayes into ${unitId} — ${res.status} ${JSON.stringify(res.body)}`);
+}
 const hayes = await login('hayes', PW('hayes'));
 
 await makeUser(admin, { username: 'rivera', unit_id: 'G8-FMRAC' });
 await makeUser(admin, { username: 'ohara', unit_id: 'G8-FMRAC', rank_id: 'Sgt' });
-await makeUser(admin, { username: 'nguyen', unit_id: 'CLR-4', role_id: 'ncoic', rank_id: 'Sgt' });
+await makeUser(admin, { username: 'nguyen', unit_id: 'CLR-4', role_id: 'CLR-4:nco', rank_id: 'Sgt' });
 const roster = (await call('GET', '/api/team', { token: admin })).body.roster;
 const idOf = (u) => roster.find((r) => r.username === u)?.id;
 const riveraId = idOf('rivera');
@@ -171,12 +213,20 @@ await test('a role cannot be moved to or above the editor position', async () =>
   assert.equal(res.status, 403);
 });
 
-await test('SCOPE: non-admin cannot create an organization-wide role', async () => {
-  const res = await call('POST', '/api/roles', {
-    token: hayes, body: { name: 'Everywhere', position: 1, permissions: P.VIEW_UNIT },
-  });
-  assert.equal(res.status, 403);
-  assert.equal(res.body.code, 'scope');
+// was: 'non-admin cannot create an organization-wide role' (403 / code 'scope')
+// — under finding 1 NOBODY can, administrator included, because the concept is
+// gone. A role with no unit is now a malformed request rather than a forbidden
+// one, so the refusal moves from 403 to 400.
+await test('SCOPE: nobody can create a role without a unit, administrator included', async () => {
+  for (const [who, token] of [['branch manager', hayes], ['administrator', admin]]) {
+    const res = await call('POST', '/api/roles', {
+      token, body: { name: 'Everywhere', position: 1, permissions: P.VIEW_UNIT },
+    });
+    assert.equal(res.status, 400, `${who} should get a validation refusal, got ${res.status}`);
+    assert.equal(res.body.code, 'invalid');
+  }
+  const globals = db.prepare('SELECT COUNT(*) AS n FROM roles WHERE unit_id IS NULL').get().n;
+  assert.equal(globals, 0, 'a global role row reached the database');
 });
 
 await test('SCOPE: non-admin cannot create a role scoped to a foreign command', async () => {
@@ -227,8 +277,10 @@ await test('GRANT: an existing broad role is not a ladder — granting re-checks
 });
 
 await test('GRANT: a role at or above your own stays out of reach', async () => {
+  // was: role_id 'section-head', an org-wide row. Now the unit's own SNCOIC
+  // copy at position 60, above the branch manager's 25.
   const res = await call('POST', `/api/team/${riveraId}/roles`, {
-    token: hayes, body: { role_id: 'section-head', unit_id: 'G8-FMRAC' },
+    token: hayes, body: { role_id: 'G8-FMRAC:sncoic', unit_id: 'G8-FMRAC' },
   });
   assert.equal(res.status, 403);
 });
@@ -270,7 +322,8 @@ await test('TRANSFER: authority over the destination alone cannot pull a Marine 
 await test('TRANSFER: a leader cannot reassign a Marine whose role is at or above their own', async () => {
   await makeUser(admin, { username: 'kim', unit_id: 'G8-BUDGET', rank_id: 'GySgt' });
   const kimId = (await call('GET', '/api/team', { token: admin })).body.roster.find((r) => r.username === 'kim').id;
-  await call('POST', `/api/team/${kimId}/roles`, { token: admin, body: { role_id: 'section-head', unit_id: 'G8-BUDGET' } });
+  // The unit's own SNCOIC copy at position 60, above hayes's branch manager 25.
+  await call('POST', `/api/team/${kimId}/roles`, { token: admin, body: { role_id: 'G8-BUDGET:sncoic', unit_id: 'G8-BUDGET' } });
   const res = await call('PUT', `/api/team/${kimId}/assignment`, {
     token: hayes, body: { unit_id: 'G8-FMRAC' },
   });
@@ -296,7 +349,12 @@ await test('TRANSFER: old-unit roles are revoked and sessions end (finding 2)', 
 
   const record = await call('GET', `/api/team/${diazId}`, { token: admin });
   assert.ok(!record.body.roles.some((r) => r.unit_id === 'G8-FMRAC'), 'no grant may remain in the old unit');
-  assert.ok(record.body.roles.some((r) => r.id === 'marine' && r.unit_id === 'G8-BUDGET'), 'baseline role follows to the new unit');
+  // The baseline role is the DESTINATION unit's own copy (finding 1); there is
+  // no global 'marine' row to follow anybody anywhere.
+  assert.ok(
+    record.body.roles.some((r) => r.id === 'G8-BUDGET:marine' && r.unit_id === 'G8-BUDGET'),
+    `baseline role follows to the new unit: ${JSON.stringify(record.body.roles.map((r) => r.id))}`
+  );
 });
 
 await test('TRANSFER: an explicitly retained collateral role survives', async () => {
@@ -324,13 +382,27 @@ await test('TRANSFER: "retain" cannot keep alive a role the actor could not gran
   assert.ok(!moved.body.retainedRoles.includes('Auditor'));
 });
 
-await test('access review flags a role granted where the Marine holds no assignment', async () => {
-  await call('POST', `/api/team/${riveraId}/roles`, { token: hayes, body: { role_id: clerk.id, unit_id: 'G8-BUDGET' } });
+// was: 'flags a role granted where the Marine holds no assignment' — orphan
+// detection was assignment-and-subtree based. Under finding 8 it is
+// membership based, which is stricter: a grant in a unit the Marine is not a
+// member of confers literally nothing, because permissionMap joins through
+// unit_members. Surfacing it is the whole point.
+await test('access review flags a role granted where the Marine is not a member', async () => {
+  // Grant directly, bypassing the members route, to manufacture exactly the
+  // drift the review exists to catch (a restored backup, a botched migration).
+  db.prepare(
+    `INSERT INTO member_roles (id, user_id, role_id, unit_id, granted_by, created_at)
+     VALUES (?, ?, ?, ?, ?, datetime('now'))`
+  ).run(`orphan-${Date.now()}`, riveraId, clerkBudget.id, 'G8-BUDGET', adminId);
+
   const res = await call('GET', `/api/team/${riveraId}/access`, { token: hayes });
   assert.equal(res.status, 200);
-  assert.ok(res.body.roles.some((r) => r.unit_id === 'G8-BUDGET' && r.orphaned));
-  assert.ok(res.body.findings.some((f) => f.includes('no assignment')));
-  await call('DELETE', `/api/team/${riveraId}/roles/${clerk.id}?unit_id=G8-BUDGET`, { token: hayes });
+  assert.ok(
+    res.body.roles.some((r) => r.unit_id === 'G8-BUDGET' && r.orphaned),
+    'a grant with no membership behind it must be flagged'
+  );
+  assert.ok(res.body.findings.some((f) => f.includes('not a member')));
+  db.prepare('DELETE FROM member_roles WHERE user_id = ? AND unit_id = ?').run(riveraId, 'G8-BUDGET');
 });
 
 /* ══ 3. Account lifecycle (finding 4) ══════════════════════════════ */
@@ -363,9 +435,35 @@ await test('a Marine cannot deactivate their leader, and nobody deactivates them
 await test('the last active administrator cannot be deactivated', async () => {
   // Reachable only through data drift (e.g. a restored backup), so exercised
   // at the module level: an actor with admin power against the sole admin.
-  const result = deactivateMember(db, { ...{}, id: 'synthetic-actor', is_admin: 1 }, adminId);
-  assert.equal(result.ok, false);
-  assert.equal(result.code, 'last_admin');
+  // was: code 'last_admin'. Under finding 11 the load-bearing standing is
+  // OWNERSHIP, not an ADMINISTRATOR bit — an owner cannot be re-created by
+  // anyone still inside the unit, so that guard fires first and by name.
+  /*
+   * was: a synthetic actor with is_admin against the sole administrator,
+   * expecting 'last_admin'. Two things changed.
+   *
+   * The actor must now hold real authority over the target — v3.3's
+   * isTrueAdmin short-circuit is deleted (finding 4), so a synthetic actor
+   * with no memberships is forbidden and never reaches the guard under test.
+   *
+   * And the load-bearing standing is OWNERSHIP, not an ADMINISTRATOR bit
+   * (finding 11): an owner cannot be re-created by anyone still inside the
+   * unit, so removing one leaves records nobody can reach.
+   *
+   * Still exercised at module level, and still reachable only through data
+   * drift — a restored backup, a botched migration — which is why the
+   * ownership row is written directly.
+   */
+  await makeUser(admin, { username: 'orphanrisk', unit_id: 'G8-BUDGET' });
+  const orphanId = (await call('GET', '/api/team', { token: admin })).body.roster
+    .find((r) => r.username === 'orphanrisk').id;
+  db.prepare("INSERT INTO units (id, code, name, echelon, level, active, created_at) VALUES ('ORPHAN-CELL','ORPHAN-CELL','Orphan Cell','fire_team','L4',1,datetime('now'))").run();
+  db.prepare("UPDATE units SET owner_user_id = ? WHERE id = 'ORPHAN-CELL'").run(orphanId);
+
+  const hayesUser = db.prepare('SELECT * FROM users WHERE id = ?').get(hayesId);
+  const result = deactivateMember(db, hayesUser, orphanId);
+  assert.equal(result.ok, false, 'deactivating a Unit Owner must be refused');
+  assert.equal(result.code, 'last_owner', `unexpected code ${result.code}`);
 });
 
 await test('admin password reset invalidates every session and the old password', async () => {
@@ -460,32 +558,42 @@ await test('malformed credentials are 401, not 500', async () => {
 
 await test('CREATE_SHARED_WORK alone cannot post goals to a foreign unit', async () => {
   const workOnly = (await call('POST', '/api/roles', {
-    token: admin, body: { name: 'Work Only', position: 2, permissions: P.VIEW_UNIT | P.CREATE_SHARED_WORK },
+    token: admin, body: { name: 'Work Only', unit_id: 'G8-BUDGET', position: 2, permissions: P.VIEW_UNIT | P.CREATE_SHARED_WORK },
   })).body;
-  await call('POST', `/api/team/${riveraId}/roles`, { token: admin, body: { role_id: workOnly.id, unit_id: 'G8-BUDGET' } });
+  // Membership first (finding 8): a grant without one confers nothing, so the
+  // test would otherwise pass for the wrong reason.
+  // A GUEST, not a member. Under finding 8 a grant needs a membership row to
+  // mean anything, so "holds a permission in a unit that is not their own" is
+  // exactly what a guest is now (finding 9) — and a guest is bounded by the
+  // share flags rather than exempt from them.
+  await call('POST', '/api/org/units/G8-BUDGET/members', {
+    token: admin, body: { user_id: riveraId, role_id: workOnly.id, kind: 'guest', expires_at: '2027-12-31' },
+  });
 
   const goal = await call('POST', '/api/goals', {
-    token: rivera, body: { title: 'Smuggled goal', visibility: 'chain', unit_id: 'G8-BUDGET' },
+    token: rivera, body: { title: 'Smuggled goal', visibility: 'unit', unit_id: 'G8-BUDGET' },
   });
   assert.equal(goal.status, 403, 'goals need CREATE_SHARED_GOALS');
   const task = await call('POST', '/api/tasks', {
-    token: rivera, body: { title: 'Legitimate tasking', visibility: 'chain', unit_id: 'G8-BUDGET' },
+    token: rivera, body: { title: 'Legitimate tasking', visibility: 'unit', unit_id: 'G8-BUDGET' },
   });
   assert.equal(task.status, 200, 'work permission still posts work');
 });
 
 await test('CREATE_SHARED_GOALS alone cannot post tasks to a foreign unit', async () => {
   const goalsOnly = (await call('POST', '/api/roles', {
-    token: admin, body: { name: 'Goals Only', position: 2, permissions: P.VIEW_UNIT | P.CREATE_SHARED_GOALS },
+    token: admin, body: { name: 'Goals Only', unit_id: 'G8-BUDGET', position: 2, permissions: P.VIEW_UNIT | P.CREATE_SHARED_GOALS },
   })).body;
-  await call('POST', `/api/team/${oharaId}/roles`, { token: admin, body: { role_id: goalsOnly.id, unit_id: 'G8-BUDGET' } });
+  await call('POST', '/api/org/units/G8-BUDGET/members', {
+    token: admin, body: { user_id: oharaId, role_id: goalsOnly.id, kind: 'guest', expires_at: '2027-12-31' },
+  });
 
   const task = await call('POST', '/api/tasks', {
-    token: ohara, body: { title: 'Smuggled tasking', visibility: 'chain', unit_id: 'G8-BUDGET' },
+    token: ohara, body: { title: 'Smuggled tasking', visibility: 'unit', unit_id: 'G8-BUDGET' },
   });
   assert.equal(task.status, 403);
   const goal = await call('POST', '/api/goals', {
-    token: ohara, body: { title: 'Legitimate goal', visibility: 'chain', unit_id: 'G8-BUDGET' },
+    token: ohara, body: { title: 'Legitimate goal', visibility: 'unit', unit_id: 'G8-BUDGET' },
   });
   assert.equal(goal.status, 200);
 });
@@ -555,13 +663,16 @@ await test('tasking a Marine outside your scope is refused', async () => {
 });
 
 await test('tasking into a unit the assignee does not serve in is refused', async () => {
+  // Rivera was added to G8-BUDGET by an earlier test, so the "wrong shop" here
+  // is CLR-4 — a command they have never been a member of. The assertion is
+  // membership-based now (finding 8) rather than subtree-assignment-based.
   const res = await call('POST', '/api/tasks', {
-    token: hayes, body: { title: 'Wrong shop', visibility: 'chain', unit_id: 'G8-BUDGET', assignee_id: riveraId },
+    token: admin, body: { title: 'Wrong shop', visibility: 'unit', unit_id: 'CLR-4', assignee_id: riveraId },
   });
-  assert.equal(res.status, 400);
-  assert.ok(res.body.fieldErrors.assignee_id);
+  assert.equal(res.status, 400, `expected a validation refusal, got ${res.status}`);
+  assert.ok(res.body.fieldErrors.assignee_id, `expected an assignee_id field error: ${JSON.stringify(res.body)}`);
   const ok = await call('POST', '/api/tasks', {
-    token: hayes, body: { title: 'Right shop', visibility: 'chain', unit_id: 'G8-FMRAC', assignee_id: riveraId },
+    token: hayes, body: { title: 'Right shop', visibility: 'unit', unit_id: 'G8-FMRAC', assignee_id: riveraId },
   });
   assert.equal(ok.status, 200);
 });
@@ -675,9 +786,16 @@ await test('EXPORT_DATA is enforced server-side and private records never leave 
   assert.equal((await call('GET', '/api/export?unit_id=G8-FMRAC', { token: rivera })).status, 403);
   assert.equal((await call('GET', '/api/export?unit_id=G8-FMRAC', { token: hayes })).status, 403, 'hayes holds no EXPORT_DATA');
 
-  const res = await call('GET', '/api/export?unit_id=CE-G8', { token: admin });
+  // was: export of CE-G8 swept the whole subtree, so a record living in
+  // G8-FMRAC appeared in a CE-G8 workbook. Export covers ONE unit now
+  // (finding 2), so the export names the unit the records are actually in.
+  const res = await call('GET', '/api/export?unit_id=G8-FMRAC', { token: admin });
   assert.equal(res.status, 200);
-  assert.ok(res.body.activities.some((a) => a.title === 'Contested entry' || a.title === 'Right shop' || a.title.startsWith('Reconciled')), 'shared records export');
+  assert.ok(res.body.activities.length > 0, 'shared records export');
+  assert.ok(
+    res.body.activities.every((a) => a.unit_id === 'G8-FMRAC' || !a.unit_id),
+    'an export must not contain another unit\'s records'
+  );
   assert.ok(!res.body.activities.some((a) => a.title === 'Private counseling note'), 'private records must not export');
 });
 
