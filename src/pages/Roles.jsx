@@ -27,7 +27,7 @@ export default function Roles() {
   const identity = useIdentity();
   const toast = useToast();
 
-  const [state, setState] = useState({ roles: [], catalogue: [], topPosition: 0 });
+  const [state, setState] = useState({ roles: [], catalogue: [], topPosition: 0, positions: {} });
   const [loading, setLoading] = useState(true);
   const [editing, setEditing] = useState(null);
   const [roleErrors, setRoleErrors] = useState({});
@@ -92,13 +92,8 @@ export default function Roles() {
                     <span className="flex items-center gap-1.5">
                       <span className="truncate text-base text-text">{role.name}</span>
                       {role.is_system ? (
-                        <Tooltip content="Built in. Copy it into a new role to change anything.">
-                          <Lock className="h-2.5 w-2.5 shrink-0 text-text-3" />
-                        </Tooltip>
-                      ) : null}
-                      {role.inherits_down ? (
-                        <Tooltip content="Applies to the unit and every unit beneath it.">
-                          <Badge tone="neutral" className="shrink-0">cascades</Badge>
+                        <Tooltip content="Started from a template. It is your unit's copy — rename, re-permission or delete it freely.">
+                          <Badge tone="neutral" className="shrink-0">from template</Badge>
                         </Tooltip>
                       ) : null}
                     </span>
@@ -112,7 +107,7 @@ export default function Roles() {
                     {role.permissions & 2048 ? 'all' : perms.length}
                   </Badge>
 
-                  {role.manageable && !role.is_system && (
+                  {role.manageable && (
                     <>
                       <Button variant="ghost" size="sm" onClick={() => setEditing(role)}>Edit</Button>
                       <Button variant="ghost" size="icon-sm" onClick={() => setDeleting(role)} aria-label="Delete role">
@@ -157,6 +152,7 @@ export default function Roles() {
           role={editing}
           groups={grouped}
           topPosition={state.topPosition}
+          positions={state.positions}
           units={unitOptions(org.units)}
           identity={identity}
           fieldErrors={roleErrors}
@@ -198,10 +194,15 @@ export default function Roles() {
   );
 }
 
-function RoleDialog({ role, groups, topPosition, units, identity, fieldErrors = {}, onCancel, onSave }) {
+const unitLabel = (unitId, units = []) => {
+  const u = units.find((x) => x.id === unitId);
+  return u ? (u.short_name || u.name || u.id) : (unitId || 'this unit');
+};
+
+function RoleDialog({ role, groups, topPosition, positions = {}, units, identity, fieldErrors = {}, onCancel, onSave }) {
   const [draft, setDraft] = useState({
     name: '', description: '', color: SWATCHES[0], position: 1,
-    permissions: 1, inherits_down: 0, unit_id: null, ...role,
+    permissions: 1, unit_id: null, ...role,
   });
   // Finding 35: an in-progress role definition survives an accidental close.
   const ROLE_DRAFT = 'vantage.draft.role';
@@ -222,9 +223,18 @@ function RoleDialog({ role, groups, topPosition, units, identity, fieldErrors = 
 
   const toggle = (bit) => set('permissions', draft.permissions & bit ? draft.permissions & ~bit : draft.permissions | bit);
 
-  // You cannot hand out what you do not hold; the server refuses it too, so
-  // showing an ungrantable box would just produce a confusing error.
-  const held = identity?.globalPermissions || 0;
+  /* Role position is a per-unit scale (finding 1). Comparing the draft against
+   * a single global "your position" would judge it on a number from a
+   * different unit's ladder entirely. */
+  const unitTop = positions[draft.unit_id] ?? topPosition;
+
+  /* You cannot hand out what you do not hold; the server refuses it too, so
+   * showing an ungrantable box would just produce a confusing error.
+   *
+   * v3.3 read `globalPermissions` here, which under tenancy would offer a
+   * SNCOIC every checkbox in a unit they merely visit. Bits are read from the
+   * unit this role belongs to (finding 4). */
+  const held = identity?.permissions?.[draft.unit_id] || 0;
   const isAdmin = Boolean(held & 2048);
 
   return (
@@ -248,11 +258,15 @@ function RoleDialog({ role, groups, topPosition, units, identity, fieldErrors = 
           <Field error={fieldErrors.name} label="Name">
             <Input value={draft.name} onChange={(e) => set('name', e.target.value)} placeholder="Accounting Chief" autoFocus />
           </Field>
-          <Field error={fieldErrors.position} label="Position" hint={`Must be below yours (${topPosition}).`}>
+          <Field
+            error={fieldErrors.position}
+            label="Position"
+            hint={`Must be below yours in this unit (${unitTop}). Positions are per-unit — position 30 here has nothing to do with position 30 in another shop.`}
+          >
             <Input
               type="number"
               min={0}
-              max={Math.max(0, topPosition - 1)}
+              max={Math.max(0, unitTop - 1)}
               value={draft.position}
               onChange={(e) => set('position', Number(e.target.value))}
             />
@@ -281,15 +295,13 @@ function RoleDialog({ role, groups, topPosition, units, identity, fieldErrors = 
           </div>
         </Field>
 
-        <Field label="Scope" hint="Cascading roles reach every unit beneath the one they're granted in.">
-          <Select
-            value={draft.inherits_down ? 'down' : 'flat'}
-            onValueChange={(v) => set('inherits_down', v === 'down' ? 1 : 0)}
-            options={[
-              { value: 'flat', label: 'That unit only — like a fire team leader' },
-              { value: 'down', label: 'That unit and everything beneath it — like a section head' },
-            ]}
-          />
+        {/* v3.4: there is no scope selector, because a role has exactly one
+            scope — the unit it belongs to. The cascading option was removed in
+            finding 2 along with inherits_down: a role granted at a parent
+            conferred authority over every unit beneath it, automatically and
+            invisibly to those units. */}
+        <Field label="Applies in" hint="A role works in its own unit and nowhere else. To give someone authority in another unit, grant them a role there.">
+          <Input value={unitLabel(draft.unit_id, units)} readOnly disabled />
         </Field>
 
         <div className="border-t border-rule pt-3">

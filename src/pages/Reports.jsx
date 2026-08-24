@@ -157,7 +157,7 @@ export default function Reports() {
             <Segmented
               value={scope}
               onChange={setScope}
-              options={[{ value: 'me', label: 'Me' }, { value: 'chain', label: 'My chain' }]}
+              options={[{ value: 'me', label: 'Me' }, { value: 'unit', label: 'My unit' }]}
             />
           )}
           <Button variant="default" size="sm" onClick={() => window.print()}>

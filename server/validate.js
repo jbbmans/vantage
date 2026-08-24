@@ -34,7 +34,11 @@ export const ENUMS = {
   recognitionTypes: ['award', 'loa', 'certificate', 'commendation', 'feedback', 'email', 'other'],
   trainingTypes: ['pme', 'course', 'qualification', 'certification', 'education', 'skill', 'training'],
   trainingStatus: ['completed', 'in_progress', 'scheduled'],
-  visibilities: ['private', 'unit', 'chain'],
+  // 'chain' is deleted (finding 3): it meant "the unit and everyone under it",
+  // which is automatic cross-unit sharing, and it was the default on the three
+  // most-used record types. 'personal' is finding 6 — a record that belongs to
+  // a person rather than a unit.
+  visibilities: ['personal', 'private', 'unit'],
   degrees: ['associate', 'bachelor'],
   pme: ['distance', 'resident'],
   mcmapBelts: ['Tan', 'Grey', 'Green', 'Brown', 'Black 1st', 'Black 2nd', 'Black 3rd'],

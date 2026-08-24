@@ -15,7 +15,7 @@ import { trackForGrade } from '@/lib/evaluation';
 
 const cache = new Map();
 const listeners = new Set();
-let identity = null;   // { user, assignments, canLead, scopeUnitIds, unitIds, chain }
+let identity = null;   // { user, assignments, memberships, canLead, scopeUnitIds, unitIds, ownedUnitIds, permissions, positions, isOperator }
 let prefsState = {};
 let prefsTimer = null;
 let orgData = { ranks: [], billets: [], units: [] };
@@ -170,10 +170,16 @@ export const PERMISSIONS = {
   ADMINISTRATOR: 1 << 11,
 };
 
+/**
+ * Bits held in one unit, and only in that unit.
+ *
+ * v3.3 OR'd in `globalPermissions` here, mirroring the server's cross-tenant
+ * fan-out. Both are gone (finding 4): the client must not show a control the
+ * server will refuse, and it must not imply reach the user does not have.
+ */
 const bitsIn = (unitId) => {
-  if (!identity) return 0;
-  const global = identity.globalPermissions || 0;
-  return (identity.permissions?.[unitId] || 0) | global;
+  if (!identity || !unitId) return 0;
+  return identity.permissions?.[unitId] || 0;
 };
 
 const hasBit = (bits, flag) => Boolean(bits & PERMISSIONS.ADMINISTRATOR) || Boolean(bits & flag);
@@ -181,18 +187,25 @@ const hasBit = (bits, flag) => Boolean(bits & PERMISSIONS.ADMINISTRATOR) || Bool
 /** Does the current user hold `flag` in this unit? */
 export const can = (flag, unitId) => hasBit(bitsIn(unitId), flag);
 
-/** Does the current user hold `flag` in any unit at all? */
-export function canAnywhere(flag) {
+/**
+ * Does the current user hold `flag` in any unit at all?
+ *
+ * Retained on the CLIENT only, and only for nav: deciding whether to render a
+ * menu item is not an authorization decision, and the server re-answers the
+ * real question per unit on every request. The server-side canAnywhere was
+ * deleted (finding 8), which is the one that mattered.
+ */
+export function canAnywhereForNav(flag) {
   if (!identity) return false;
-  if (hasBit(identity.globalPermissions || 0, flag)) return true;
   return Object.values(identity.permissions || {}).some((bits) => hasBit(bits, flag));
 }
+export const canAnywhere = canAnywhereForNav;
 
 /** Units where the current user holds `flag`. */
 export function unitsWith(flag) {
   if (!identity) return [];
-  const global = identity.globalPermissions || 0;
-  if (hasBit(global, flag)) return orgData.units.map((u) => u.id);
+  // No global short-circuit: holding a bit somewhere never means holding it
+  // everywhere, so the answer is exactly the units that granted it.
   return Object.entries(identity.permissions || {})
     .filter(([, bits]) => hasBit(bits, flag))
     .map(([unitId]) => unitId);

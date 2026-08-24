@@ -28,13 +28,17 @@ export const PERMISSIONS = {
   MANAGE_MEMBERS: 1 << 6,
   /** Create roles and hand them out. */
   MANAGE_ROLES: 1 << 7,
-  /** Create and rename units beneath this one. */
+  /** Rename and restructure this unit. Creating a NEW unit needs an invite. */
   MANAGE_UNITS: 1 << 8,
   /** Read the access log for this unit. */
   VIEW_AUDIT: 1 << 9,
   /** Pull the unit's data out as a workbook. */
   EXPORT_DATA: 1 << 10,
-  /** Everything, everywhere. Kept separate so it can be audited on its own. */
+  /**
+   * Everything, inside the unit the grant was made in. v3.3 fanned this out
+   * across every unit in the database (finding 4); v3.4 does not. Kept as a
+   * separate bit so it can be audited on its own.
+   */
   ADMINISTRATOR: 1 << 11,
 };
 
@@ -102,13 +106,13 @@ export const PERMISSION_LIST = [
   {
     key: 'MANAGE_UNITS',
     label: 'Manage units',
-    hint: 'Create, rename and restructure units beneath this one.',
+    hint: 'Rename this unit and manage its sub-units. Does not grant reach into them.',
     group: 'Administration',
   },
   {
     key: 'ADMINISTRATOR',
     label: 'Administrator',
-    hint: 'Every permission, in every unit. Grant this to almost nobody.',
+    hint: 'Every permission inside this unit. Confers nothing in any other unit.',
     group: 'Administration',
     dangerous: true,
   },
@@ -126,84 +130,182 @@ export const fromKeys = (keys = []) =>
   keys.reduce((bits, key) => bits | (PERMISSIONS[key] || 0), 0);
 
 /**
- * Roles every install starts with.
+ * Role TEMPLATES (finding 1).
  *
- * `position` is the hierarchy: you cannot create, edit, delete or hand out a
- * role at or above your own highest position. Without that rule, anyone who
- * can manage roles can make themselves an administrator, and the permission
- * system is decorative.
+ * v3.3 seeded six roles with `unit_id = NULL`, which the schema comment
+ * described as "applies org-wide". So on a fresh install every role in the
+ * database was a single global object shared by every unit, and two SNCOICs at
+ * two commands could not have a "Training NCO" that meant different things —
+ * editing one edited both. That was the single largest obstacle to tenancy.
  *
- * `inherits_down` is the difference between a fire team leader and a section
- * head. The fire team leader's role applies to their unit alone; the section
- * head's applies to every unit beneath theirs too.
+ * These are no longer rows. They are a template set. At unit creation the
+ * chosen template is COPIED into the new unit as ordinary, editable, unit-local
+ * rows, which diverge immediately and permanently. `is_system` survives on the
+ * copies only as "this row came from a template" and confers no edit
+ * protection: the owning unit may rename, re-colour, re-permission or delete
+ * any of its own roles.
+ *
+ * `inherits_down` is gone from the model entirely (finding 2). A role grants
+ * inside the unit it was granted in, full stop.
+ *
+ * `position` is the hierarchy, and it is now PER UNIT: you cannot create, edit,
+ * delete or hand out a role at or above your own highest position in that
+ * unit's own scale. Position 30 in Unit A has no relationship to position 30 in
+ * Unit B.
+ *
+ * `owner: true` marks the role the unit's creator receives. It is a
+ * convenience, not the source of their authority — that is
+ * `units.owner_user_id`, which no role edit can revoke.
  */
-export const SYSTEM_ROLES = [
+
+const OWNER_BITS = PERMISSIONS.ADMINISTRATOR;
+
+const SNCOIC_BITS = fromKeys([
+  'VIEW_UNIT', 'VIEW_RECORDS', 'VIEW_MEMBER_DETAIL', 'CREATE_SHARED_WORK', 'CREATE_SHARED_GOALS',
+  'MANAGE_RECORDS', 'MANAGE_MEMBERS', 'MANAGE_ROLES', 'MANAGE_UNITS', 'VIEW_AUDIT', 'EXPORT_DATA',
+]);
+
+const NCO_BITS = fromKeys([
+  'VIEW_UNIT', 'VIEW_RECORDS', 'VIEW_MEMBER_DETAIL', 'CREATE_SHARED_WORK', 'CREATE_SHARED_GOALS',
+]);
+
+const MARINE_BITS = fromKeys(['VIEW_UNIT']);
+
+/**
+ * The default template ships THREE roles (finding 21).
+ *
+ * A section is eight to twenty Marines with one SNCOIC and two or three NCOs.
+ * Six roles and a twelve-bit permission editor is a correct piece of
+ * engineering aimed at a problem most units do not have on day one. The full
+ * editor is still there, one click away, unchanged — but a SNCOIC must be able
+ * to be productive without ever opening it.
+ */
+export const ROLE_TEMPLATES = [
   {
-    id: 'marine',
-    name: 'Marine',
-    color: '#8D98A8',
-    position: 0,
-    is_default: 1,
-    inherits_down: 0,
-    permissions: fromKeys(['VIEW_UNIT']),
-    description: 'Everyone gets this. Sees their own record and anything shared to their unit.',
+    id: 'section',
+    name: 'Section',
+    summary: 'Three roles: Marine, NCO, SNCOIC. The right starting point for a shop of 8–20.',
+    recommended: true,
+    roles: [
+      {
+        key: 'marine', name: 'Marine', color: '#8D98A8', position: 0, is_default: 1,
+        permissions: MARINE_BITS,
+        description: 'Everyone gets this. Sees their own record and anything shared to the unit.',
+      },
+      {
+        key: 'nco', name: 'NCO', color: '#3DD68C', position: 20, is_default: 0,
+        permissions: NCO_BITS,
+        description: 'Sees and tasks the section. Cannot change who is in it or what a role means.',
+      },
+      {
+        key: 'sncoic', name: 'SNCOIC', color: '#4C9DFF', position: 60, is_default: 0,
+        permissions: SNCOIC_BITS,
+        description: 'Runs the shop: members, roles, records, audit and export.',
+      },
+      {
+        key: 'owner', name: 'Owner', color: '#FB7185', position: 100, is_default: 0, owner: true,
+        permissions: OWNER_BITS,
+        description: 'Every permission inside this unit. Held by whoever stood the unit up.',
+      },
+    ],
   },
   {
-    id: 'fire-team-leader',
-    name: 'Fire Team Leader',
-    color: '#3DD68C',
-    position: 10,
-    is_default: 0,
-    inherits_down: 0,
-    permissions: fromKeys([
-      'VIEW_UNIT', 'VIEW_RECORDS', 'VIEW_MEMBER_DETAIL', 'CREATE_SHARED_WORK', 'CREATE_SHARED_GOALS',
-    ]),
-    description: 'Sees and tasks their own team. Does not reach into units beneath it.',
+    id: 'section-training',
+    name: 'Section with Training NCO',
+    summary: 'Adds a Training NCO who tracks PME and quals without opening individual records.',
+    roles: [
+      {
+        key: 'marine', name: 'Marine', color: '#8D98A8', position: 0, is_default: 1,
+        permissions: MARINE_BITS,
+        description: 'Everyone gets this. Sees their own record and anything shared to the unit.',
+      },
+      {
+        key: 'training-nco', name: 'Training NCO', color: '#A78BFA', position: 15, is_default: 0,
+        permissions: fromKeys(['VIEW_UNIT', 'VIEW_RECORDS', 'CREATE_SHARED_WORK']),
+        description: 'Sees shared work without opening individual records. For tracking PME and quals.',
+      },
+      {
+        key: 'nco', name: 'NCO', color: '#3DD68C', position: 20, is_default: 0,
+        permissions: NCO_BITS,
+        description: 'Sees and tasks the section.',
+      },
+      {
+        key: 'sncoic', name: 'SNCOIC', color: '#4C9DFF', position: 60, is_default: 0,
+        permissions: SNCOIC_BITS,
+        description: 'Runs the shop: members, roles, records, audit and export.',
+      },
+      {
+        key: 'owner', name: 'Owner', color: '#FB7185', position: 100, is_default: 0, owner: true,
+        permissions: OWNER_BITS,
+        description: 'Every permission inside this unit.',
+      },
+    ],
   },
   {
-    id: 'ncoic',
-    name: 'NCOIC',
-    color: '#F0A93B',
-    position: 20,
-    is_default: 0,
-    inherits_down: 1,
-    permissions: fromKeys([
-      'VIEW_UNIT', 'VIEW_RECORDS', 'VIEW_MEMBER_DETAIL', 'CREATE_SHARED_WORK', 'CREATE_SHARED_GOALS',
-      'MANAGE_RECORDS', 'MANAGE_MEMBERS', 'VIEW_AUDIT',
-    ]),
-    description: 'Runs a section. Reaches every unit beneath it.',
+    id: 'company',
+    name: 'Company',
+    summary: 'Fire team leaders, platoon sergeants, a company gunny and a first sergeant.',
+    roles: [
+      {
+        key: 'marine', name: 'Marine', color: '#8D98A8', position: 0, is_default: 1,
+        permissions: MARINE_BITS,
+        description: 'Everyone gets this.',
+      },
+      {
+        key: 'fire-team-leader', name: 'Fire Team Leader', color: '#3DD68C', position: 10, is_default: 0,
+        permissions: NCO_BITS,
+        description: 'Sees and tasks their own team.',
+      },
+      {
+        key: 'platoon-sergeant', name: 'Platoon Sergeant', color: '#F0A93B', position: 30, is_default: 0,
+        permissions: NCO_BITS | fromKeys(['MANAGE_RECORDS', 'MANAGE_MEMBERS', 'VIEW_AUDIT']),
+        description: 'Corrects records and manages who is in the unit.',
+      },
+      {
+        key: 'company-gunny', name: 'Company Gunnery Sergeant', color: '#4C9DFF', position: 60, is_default: 0,
+        permissions: SNCOIC_BITS,
+        description: 'Full authority over members, roles, records, audit and export.',
+      },
+      {
+        key: 'owner', name: 'First Sergeant', color: '#FB7185', position: 100, is_default: 0, owner: true,
+        permissions: OWNER_BITS,
+        description: 'Every permission inside this unit.',
+      },
+    ],
   },
   {
-    id: 'section-head',
-    name: 'Section Head',
-    color: '#4C9DFF',
-    position: 30,
-    is_default: 0,
-    inherits_down: 1,
-    permissions: fromKeys([
-      'VIEW_UNIT', 'VIEW_RECORDS', 'VIEW_MEMBER_DETAIL', 'CREATE_SHARED_WORK', 'CREATE_SHARED_GOALS',
-      'MANAGE_RECORDS', 'MANAGE_MEMBERS', 'MANAGE_ROLES', 'MANAGE_UNITS', 'VIEW_AUDIT', 'EXPORT_DATA',
-    ]),
-    description: 'Full authority over a section and everything under it, including its structure.',
-  },
-  {
-    id: 'training-nco',
-    name: 'Training NCO',
-    color: '#A78BFA',
-    position: 15,
-    is_default: 0,
-    inherits_down: 1,
-    permissions: fromKeys(['VIEW_UNIT', 'VIEW_RECORDS', 'CREATE_SHARED_WORK']),
-    description: 'Sees shared work across the section without opening individual records. For tracking PME and quals.',
-  },
-  {
-    id: 'administrator',
-    name: 'Administrator',
-    color: '#FB7185',
-    position: 100,
-    is_default: 0,
-    inherits_down: 1,
-    permissions: PERMISSIONS.ADMINISTRATOR,
-    description: 'Everything, everywhere. Grant to almost nobody.',
+    id: 'solo',
+    name: 'Just me for now',
+    summary: 'One role. Stand the unit up, log evidence, add people later.',
+    roles: [
+      {
+        key: 'marine', name: 'Marine', color: '#8D98A8', position: 0, is_default: 1,
+        permissions: MARINE_BITS,
+        description: 'Everyone gets this.',
+      },
+      {
+        key: 'owner', name: 'Owner', color: '#FB7185', position: 100, is_default: 0, owner: true,
+        permissions: OWNER_BITS,
+        description: 'Every permission inside this unit.',
+      },
+    ],
   },
 ];
+
+export const DEFAULT_TEMPLATE_ID = 'section';
+
+export const templateById = (id) =>
+  ROLE_TEMPLATES.find((t) => t.id === id) || ROLE_TEMPLATES.find((t) => t.id === DEFAULT_TEMPLATE_ID);
+
+/** Public shape for the creation wizard — no bit maths on the wire. */
+export const templateSummaries = () =>
+  ROLE_TEMPLATES.map((t) => ({
+    id: t.id,
+    name: t.name,
+    summary: t.summary,
+    recommended: Boolean(t.recommended),
+    roles: t.roles.map((r) => ({
+      name: r.name, position: r.position, color: r.color,
+      permissions: listPermissions(r.permissions),
+    })),
+  }));

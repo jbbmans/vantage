@@ -59,7 +59,7 @@ await ta.fill('Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday');
 await page.waitForTimeout(350);
 const body = await page.textContent('body');
 check('parser inferred the dollar figure', body.includes('1,118.38'), '');
-check('visibility control present', body.includes('chain of command') || body.includes('Visible to'));
+check('visibility control present', body.includes('Visible to') || body.includes('Everyone in my unit'));
 await page.getByRole('button', { name: /save activity/i }).click();
 await page.waitForTimeout(900);
 
@@ -112,7 +112,7 @@ await page.locator('textarea').first().fill('Reconciled 12 ULOs totaling $4,200 
 await page.waitForTimeout(450);
 t = await page.textContent('body');
 check('entry form speaks the track language', t.includes('JEPES area'));
-check('entry form offers the JEPES areas', t.includes('Visible to') || t.includes('chain of command'));
+check('entry form offers the JEPES areas', t.includes('Visible to') || t.includes('Everyone in my unit'));
 await page.keyboard.press('Escape');
 await page.waitForTimeout(250);
 

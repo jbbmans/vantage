@@ -16,7 +16,7 @@ for (const f of [DB, DB + '-wal', DB + '-shm']) {
 }
 
 const srv = spawn('node', ['server/index.js'], {
-  env: { ...process.env, VANTAGE_DB: DB, PORT: String(PORT) },
+  env: { ...process.env, VANTAGE_DB: DB, PORT: String(PORT), VANTAGE_OPERATOR: 'boletz' },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 srv.stderr.on('data', (d) => process.stdout.write('[srv-err] ' + d));
@@ -49,7 +49,7 @@ await api('POST', '/api/setup', {
 const cplToken = (await api('POST', '/api/login', { username: 'cpl', password: 'a-long-enough-passphrase' })).token;
 await api('POST', '/api/team', {
   username: 'sgt', password: 'sergeant-long-enough-pass', first_name: 'Dale', last_name: 'Kramer',
-  rank_id: 'Sgt', mos: '3451', unit_id: 'CE-G8', billet_id: 'budget-chief', role_id: 'fire-team-leader',
+  rank_id: 'Sgt', mos: '3451', unit_id: 'CE-G8', billet_id: 'budget-chief', role_id: 'CE-G8:nco',
 }, cplToken);
 const sgtToken = (await api('POST', '/api/login', { username: 'sgt', password: 'sergeant-long-enough-pass' })).token;
 for (const [title, area] of [
@@ -58,7 +58,7 @@ for (const [title, area] of [
 ]) {
   await api('POST', '/api/activities', {
     title, date: '2026-08-01', jepes_area: area, quantity: 2, unit_label: 'Marines',
-    result: 'completed ahead of schedule', visibility: 'chain',
+    result: 'completed ahead of schedule', visibility: 'unit',
   }, sgtToken);
 }
 

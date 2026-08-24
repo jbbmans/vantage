@@ -10,7 +10,7 @@ import { errorText } from '@/lib/api';
 import { CATEGORIES, CATEGORY_COLORS, JEPES_AREAS, DOLLAR_TYPES, UNIT_SUGGESTIONS } from '@/lib/constants';
 import { formatDollarsExact } from '@/lib/metrics';
 import { strength, weaknesses, composeBullet } from '@/lib/bullets';
-import VisibilityPicker from '@/components/VisibilityPicker';
+import VisibilityPicker, { DEFAULT_VISIBILITY } from '@/components/VisibilityPicker';
 import { areaOptions, mapAreaToTrack, trackMeta } from '@/lib/evaluation';
 import { useEvalTrack } from '@/store/useStore';
 import { cn } from '@/lib/utils';
@@ -69,7 +69,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
       result: '',
       notes: '',
       status: 'completed',
-      visibility: 'chain',
+      visibility: DEFAULT_VISIBILITY,
       ...overrides,
     };
   }, [parsed, overrides]);
