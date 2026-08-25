@@ -1,4 +1,4 @@
-# VANTAGE 3.5.0-rc.1 Release Review
+# VANTAGE 3.5.0-rc.2 Release Review
 
 ## Outcome
 

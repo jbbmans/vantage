@@ -44,12 +44,12 @@ const api = async (method, path, body, token) => {
 // A Corporal section head and a Sergeant under them.
 await api('POST', '/api/setup', {
   username: 'cpl', password: 'a-long-enough-passphrase', first_name: 'John', last_name: 'Boletz',
-  rank_id: 'Cpl', mos: '3451', unit_code: 'CE-G8', billet_title: 'Accounting Chief',
+  rank_id: 'Cpl', mos: '3451', unit_code: 'MFR', billet_title: 'Accounting Chief',
 });
 const cplToken = (await api('POST', '/api/login', { username: 'cpl', password: 'a-long-enough-passphrase' })).token;
 await api('POST', '/api/team', {
   username: 'sgt', password: 'sergeant-long-enough-pass', first_name: 'Dale', last_name: 'Kramer',
-  rank_id: 'Sgt', mos: '3451', unit_id: 'CE-G8', billet_id: 'budget-chief', role_id: 'CE-G8:nco',
+  rank_id: 'Sgt', mos: '3451', unit_id: 'MFR', billet_id: 'budget-chief', role_id: 'MFR:nco',
 }, cplToken);
 const sgtToken = (await api('POST', '/api/login', { username: 'sgt', password: 'sergeant-long-enough-pass' })).token;
 for (const [title, area] of [

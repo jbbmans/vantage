@@ -361,7 +361,7 @@ function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, 
   // Finding 9, Option A: a billet is an organizational position only. Picking
   // one pre-fills the role suggestion below, and that grant — never the billet
   // — is what carries permissions. The server writes no role on assignments.
-  const BILLET_ROLE = { team_lead: 'fire-team-leader', unit_leader: 'ncoic', member: '' };
+  const BILLET_ROLE = { team_lead: 'fire-team-leader', unit_leader: 'unit-leader', member: '' };
   const pickBillet = (billetId) => {
     const billet = billets.find((b) => b.id === billetId);
     setDraft((d) => ({ ...d, billet_id: billetId, role_id: BILLET_ROLE[billet?.default_role] ?? d.role_id }));

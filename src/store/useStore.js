@@ -328,7 +328,7 @@ export function unitById(id) {
   return orgData.units.find((u) => u.id === id) || null;
 }
 
-/** "MARFORRES › Command Element › G-8" for a unit id. */
+/** "MARFORRES › Command Element › G-8" for a configured unit id. */
 export function unitPath(id) {
   const chain = [];
   let current = id;

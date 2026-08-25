@@ -97,7 +97,7 @@ const SOP = [
     id: 'units',
     title: '9. Units',
     body: [
-      `The org tree ships with MARFORRES down to the G-8 branches, and grows from there in the app. Anyone holding Manage units on a parent creates beneath it — a section head stands up a new fire team without an administrator in the loop.`,
+      `A fresh installation starts with only Marine Forces Reserve (MFR). Unit Leaders build the real structure from there; anyone holding Manage units on a parent can create beneath it without an instance operator in the loop.`,
       `Units archive rather than delete, and archiving refuses while Marines or sub-units are still attached. Records keep pointing at archived units, so history stays whole.`,
     ],
   },

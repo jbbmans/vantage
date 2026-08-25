@@ -998,7 +998,7 @@ export const newId = () => randomUUID();
  *   System reference — ranks, system roles. Code-authoritative. The Marine
  *   Corps decides what a Corporal is, not an administrator; these upsert.
  *
- *   Command-configured — units and billets. Vantage ships a starting tree,
+ *   Command-configured — units and billets. Vantage ships one starting unit,
  *   but the moment an administrator renames a unit or retitles a billet,
  *   that edit is the truth. v3.2 re-upserted names and echelons on every
  *   boot, silently fighting the administrator; now units and billets are
@@ -1010,7 +1010,7 @@ export const newId = () => randomUUID();
  * change to the shipped tree is an explicit, versioned event rather than a
  * side effect of booting.
  */
-const SEED_VERSION = 1;
+const SEED_VERSION = 2;
 
 function seedReference() {
   const insertRank = db.prepare(
@@ -1037,17 +1037,30 @@ function seedReference() {
     }
   })();
 
-  const rows = flattenUnits();
-  const insertUnit = db.prepare(
-    `INSERT INTO units (id, code, name, short_name, echelon, location, parent_id, created_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-     ON CONFLICT(code) DO NOTHING`
-  );
-  db.transaction(() => {
-    for (const u of rows) {
-      insertUnit.run(u.code, u.code, u.name, u.short_name || null, u.echelon, u.location || null, u.parent_code, now());
-    }
-  })();
+  // Organization structure is installed only into an empty database. An
+  // upgrade must never add, rename, or resurrect a unit in a command-managed
+  // org chart; the explicit factory-reset path is what creates the new MFR
+  // baseline when that destructive action is authorized.
+  const unitCount = db.prepare('SELECT COUNT(*) AS count FROM units').get().count;
+  if (unitCount === 0) {
+    const rows = flattenUnits();
+    const insertUnit = db.prepare(
+      `INSERT INTO units (id, code, name, short_name, echelon, location, parent_id, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?)`
+    );
+    db.transaction(() => {
+      for (const u of rows) {
+        insertUnit.run(u.code, u.code, u.name, u.short_name || null, u.echelon, u.location || null, u.parent_code, now());
+      }
+    })();
+  }
+
+  // The one shipped unit is ready to enroll people immediately. These are
+  // unit-local role rows (not global roles), and claimUnit remains idempotent
+  // when the first Unit Leader completes setup.
+  if (db.prepare("SELECT 1 FROM units WHERE id = 'MFR'").get()) {
+    copyTemplateInto('MFR', DEFAULT_TEMPLATE_ID);
+  }
 
   db.prepare(
     "INSERT INTO meta (key, value) VALUES ('seed_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
@@ -1071,7 +1084,7 @@ export function bootstrapAdmin({ username, password, first_name, last_name, rank
        VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
     ).run(id, normalizeUsername(username), hashPassword(password), last_name, first_name, rank_id || null, mos || null, now(), now());
 
-    const unit = db.prepare('SELECT id FROM units WHERE code = ? AND active = 1').get(unit_code || 'CE-G8');
+    const unit = db.prepare('SELECT id FROM units WHERE code = ? AND active = 1').get(unit_code || 'MFR');
     if (!unit) throw new Error('No such active setup unit.');
     const billet = billet_title ? db.prepare('SELECT id FROM billets WHERE title = ? AND active = 1').get(billet_title) : null;
     db.prepare(

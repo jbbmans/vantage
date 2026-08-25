@@ -23,6 +23,8 @@ process.env.VANTAGE_TEST = '1';
 process.env.VANTAGE_OPERATOR = 'boletz';
 
 const { app, db } = await import('../server/index.js');
+const { seedTestUnits } = await import('./helpers/seed-test-units.mjs');
+seedTestUnits(db);
 const { resetCounters, LOGIN_LIMITS } = await import('../server/security.js');
 const { PERMISSIONS } = await import('../server/roles.js');
 const { deactivateMember } = await import('../server/lifecycle.js');
@@ -88,7 +90,7 @@ await call('POST', '/api/setup', {
   body: {
     username: 'boletz', password: 'cobalt-orbit-velvet-anchor-927',
     first_name: 'John', last_name: 'Boletz', rank_id: 'Cpl', mos: '3451',
-    unit_code: 'CE-G8', billet_title: 'Accounting Chief',
+    unit_code: 'MFR', billet_title: 'Accounting Chief',
   },
 });
 const admin = await login('boletz', 'cobalt-orbit-velvet-anchor-927');
@@ -102,7 +104,7 @@ const adminId = (await call('GET', '/api/me', { token: admin })).body.user.id;
  */
 for (const unitId of ['G8-FMRAC', 'G8-BUDGET', 'CLR-4']) {
   const res = await call('POST', `/api/org/units/${unitId}/claim`, {
-    token: admin, body: { owner_user_id: adminId, template_id: 'section' },
+    token: admin, body: { owner_user_id: adminId, template_id: 'default' },
   });
   assert.equal(res.status, 200, `fixture: claim ${unitId} — ${res.status} ${JSON.stringify(res.body)}`);
 }
@@ -117,7 +119,7 @@ const branchBits = P.VIEW_UNIT | P.VIEW_RECORDS | P.VIEW_MEMBER_DETAIL | P.CREAT
 // (finding 2), so the same profile is granted in each unit it needs to act in.
 const branchManager = (await call('POST', '/api/roles', {
   token: admin,
-  body: { name: 'Branch Manager', unit_id: 'CE-G8', position: 25, permissions: branchBits },
+  body: { name: 'Branch Manager', unit_id: 'MFR', position: 25, permissions: branchBits },
 })).body;
 assert.ok(branchManager?.id, 'fixture: branch-manager role must exist');
 
@@ -155,12 +157,12 @@ const auditor = (await call('POST', '/api/roles', {
   body: { name: 'Auditor', unit_id: 'G8-FMRAC', position: 5, permissions: P.VIEW_UNIT | P.EXPORT_DATA },
 })).body;
 
-await makeUser(admin, { username: 'hayes', unit_id: 'CE-G8', rank_id: 'SSgt' });
+await makeUser(admin, { username: 'hayes', unit_id: 'MFR', rank_id: 'SSgt' });
 const hayesId = fixtureId((await call('GET', '/api/team', { token: admin })).body.roster, 'hayes');
-await call('POST', `/api/team/${hayesId}/roles`, { token: admin, body: { role_id: branchManager.id, unit_id: 'CE-G8' } });
+await call('POST', `/api/team/${hayesId}/roles`, { token: admin, body: { role_id: branchManager.id, unit_id: 'MFR' } });
 // Hayes runs FMRAC and Budget too — stated as two memberships plus two grants
-// rather than inherited from CE-G8, which is the whole of finding 2 in this
-// fixture. Under v3.3 the single CE-G8 grant reached both automatically.
+// rather than inherited from MFR, which is the whole of finding 2 in this
+// fixture. Under v3.3 the single MFR grant reached both automatically.
 for (const [unitId, roleId] of [['G8-FMRAC', branchManagerFmrac.id], ['G8-BUDGET', branchManagerBudget.id]]) {
   const res = await call('POST', `/api/org/units/${unitId}/members`, {
     token: admin, body: { user_id: hayesId, role_id: roleId },
@@ -255,7 +257,7 @@ await test('SCOPE: nor deleting one', async () => {
 
 await test('a role manager CAN delete a role inside their own scope', async () => {
   const doomed = (await call('POST', '/api/roles', {
-    token: hayes, body: { name: 'Doomed', unit_id: 'CE-G8', position: 1, permissions: P.VIEW_UNIT },
+    token: hayes, body: { name: 'Doomed', unit_id: 'MFR', position: 1, permissions: P.VIEW_UNIT },
   })).body;
   assert.ok(doomed.id, 'creation inside own scope should work');
   const res = await call('DELETE', `/api/roles/${doomed.id}`, { token: hayes });
@@ -820,8 +822,8 @@ await test('EXPORT_DATA is enforced server-side and private records never leave 
   assert.equal((await call('GET', '/api/export?unit_id=G8-FMRAC', { token: rivera })).status, 403);
   assert.equal((await call('GET', '/api/export?unit_id=G8-FMRAC', { token: hayes })).status, 403, 'hayes holds no EXPORT_DATA');
 
-  // was: export of CE-G8 swept the whole subtree, so a record living in
-  // G8-FMRAC appeared in a CE-G8 workbook. Export covers ONE unit now
+  // was: export of MFR swept the whole subtree, so a record living in
+  // G8-FMRAC appeared in a MFR workbook. Export covers ONE unit now
   // (finding 2), so the export names the unit the records are actually in.
   const res = await call('GET', '/api/export?unit_id=G8-FMRAC', { token: admin });
   assert.equal(res.status, 200);

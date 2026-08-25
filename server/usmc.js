@@ -1,7 +1,7 @@
 /**
  * Vantage — Marine Corps reference data.
  *
- * Ranks, billets, and the MARFORRES org tree live here as seed data rather than
+ * Ranks, billets, and the initial MARFORRES unit live here as seed data rather than
  * as an enum in the code, because every one of them is a row a unit will want
  * to edit. A command that can't add its own billet titles stops getting used in
  * about a week.
@@ -112,102 +112,18 @@ export const ECHELONS = [
 ];
 
 /**
- * MARFORRES down to the level a user actually sits at.
+ * The single unit that exists on a fresh installation.
  *
- * `code` is the stable key — units get renamed and reflagged constantly, and
- * anything referencing a unit by name will break the first time that happens.
- * The G-8 section under the Command Element is expanded further because that's
- * where this build is being used from; every other MSC is stubbed at the level
- * where a unit admin would take over and fill in their own structure.
+ * `code` is the stable key. No subordinate organization is assumed or shipped:
+ * the Unit Leader builds the structure that actually exists at their command.
  */
 export const UNIT_TREE = {
-  code: 'MARFORRES',
+  code: 'MFR',
   name: 'Marine Forces Reserve',
   short_name: 'MARFORRES',
   echelon: 'command',
   location: 'New Orleans, LA',
-  children: [
-    {
-      code: 'MARFORRES-CE',
-      name: 'Marine Forces Reserve Command Element',
-      short_name: 'Command Element',
-      echelon: 'msc',
-      location: 'NAS JRB New Orleans, Belle Chasse, LA',
-      children: [
-        { code: 'CE-G1', name: 'G-1 Manpower', short_name: 'G-1', echelon: 'section' },
-        { code: 'CE-G3', name: 'G-3 Operations and Training', short_name: 'G-3', echelon: 'section' },
-        { code: 'CE-G4', name: 'G-4 Logistics', short_name: 'G-4', echelon: 'section' },
-        { code: 'CE-G6', name: 'G-6 Communications', short_name: 'G-6', echelon: 'section' },
-        {
-          code: 'CE-G8',
-          name: 'G-8 Comptroller',
-          short_name: 'G-8',
-          echelon: 'section',
-          children: [
-            { code: 'G8-BUDGET', name: 'Budget Branch', short_name: 'Budget', echelon: 'section' },
-            { code: 'G8-ACCT', name: 'Accounting Branch', short_name: 'Accounting', echelon: 'section' },
-            { code: 'G8-AUDIT', name: 'Audit Readiness Branch', short_name: 'Audit Readiness', echelon: 'section' },
-            { code: 'G8-FMRAC', name: 'Fiscal Management Resource Analysis Cell', short_name: 'FMRAC', echelon: 'fire_team' },
-          ],
-        },
-      ],
-    },
-    {
-      code: 'FHG',
-      name: 'Force Headquarters Group',
-      short_name: 'FHG',
-      echelon: 'msc',
-      location: 'New Orleans, LA',
-      children: [
-        { code: 'FHG-HQ', name: 'Headquarters Company', short_name: 'HQ Co', echelon: 'company' },
-        { code: 'FHG-ANGLICO', name: 'Air Naval Gunfire Liaison Companies', short_name: 'ANGLICO', echelon: 'battalion' },
-        { code: 'FHG-INTEL', name: 'Intelligence Support Battalion', short_name: 'Intel Spt Bn', echelon: 'battalion' },
-        { code: 'FHG-MIU', name: 'Marine Innovation Unit', short_name: 'MIU', echelon: 'battalion' },
-      ],
-    },
-    {
-      code: '4TH-MARDIV',
-      name: '4th Marine Division',
-      short_name: '4th MarDiv',
-      echelon: 'msc',
-      location: 'New Orleans, LA',
-      children: [
-        { code: '4MARDIV-HQ', name: 'Headquarters Battalion', short_name: 'HQ Bn', echelon: 'battalion' },
-        { code: '23D-MAR', name: '23d Marine Regiment', short_name: '23d Marines', echelon: 'regiment' },
-        { code: '24TH-MAR', name: '24th Marine Regiment', short_name: '24th Marines', echelon: 'regiment' },
-        { code: '25TH-MAR', name: '25th Marine Regiment', short_name: '25th Marines', echelon: 'regiment' },
-        { code: '14TH-MAR', name: '14th Marine Regiment', short_name: '14th Marines', echelon: 'regiment' },
-        { code: '4TH-TANK', name: '4th Reconnaissance Battalion', short_name: '4th Recon Bn', echelon: 'battalion' },
-      ],
-    },
-    {
-      code: '4TH-MAW',
-      name: '4th Marine Aircraft Wing',
-      short_name: '4th MAW',
-      echelon: 'msc',
-      location: 'New Orleans, LA',
-      children: [
-        { code: '4MAW-HQ', name: 'Marine Wing Headquarters Squadron 4', short_name: 'MWHS-4', echelon: 'battalion' },
-        { code: 'MAG-41', name: 'Marine Aircraft Group 41', short_name: 'MAG-41', echelon: 'regiment' },
-        { code: 'MAG-49', name: 'Marine Aircraft Group 49', short_name: 'MAG-49', echelon: 'regiment' },
-        { code: 'MACG-48', name: 'Marine Air Control Group 48', short_name: 'MACG-48', echelon: 'regiment' },
-      ],
-    },
-    {
-      code: '4TH-MLG',
-      name: '4th Marine Logistics Group',
-      short_name: '4th MLG',
-      echelon: 'msc',
-      location: 'New Orleans, LA',
-      children: [
-        { code: '4MLG-HQ', name: 'Headquarters and Service Battalion', short_name: 'H&S Bn', echelon: 'battalion' },
-        { code: 'CLR-4', name: 'Combat Logistics Regiment 4', short_name: 'CLR-4', echelon: 'regiment' },
-        { code: 'CLR-45', name: 'Combat Logistics Regiment 45', short_name: 'CLR-45', echelon: 'regiment' },
-        { code: '4TH-DENTAL', name: '4th Dental Battalion', short_name: '4th Dental Bn', echelon: 'battalion' },
-        { code: '4TH-MEDICAL', name: '4th Medical Battalion', short_name: '4th Medical Bn', echelon: 'battalion' },
-      ],
-    },
-  ],
+  children: [],
 };
 
 /** Flatten the tree into insertable rows with parent codes attached. */

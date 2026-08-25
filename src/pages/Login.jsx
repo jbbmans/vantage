@@ -23,7 +23,7 @@ export default function Login() {
   });
   const [setupForm, setSetupForm] = useState({
     first_name: '', last_name: '', rank_id: 'Cpl', mos: '', email: '',
-    unit_code: 'CE-G8', billet_title: 'Financial Management Resource Analyst', setup_token: '',
+    unit_code: 'MFR', billet_title: 'Financial Management Resource Analyst', setup_token: '',
   });
 
   useEffect(() => {
@@ -181,7 +181,7 @@ export default function Login() {
             || (mode === 'setup' && setupTokenRequired && !setupForm.setup_token)}
         >
           {busy ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : mode === 'register' ? <UserPlus className="h-3.5 w-3.5" /> : <KeyRound className="h-3.5 w-3.5" />}
-          {mode === 'setup' ? 'Create owner and sign in' : mode === 'register' ? 'Create personal account' : 'Sign in'}
+          {mode === 'setup' ? 'Create Unit Leader and sign in' : mode === 'register' ? 'Create personal account' : 'Sign in'}
         </Button>
 
         {mode === 'login' && capabilities.cacPivEnabled && (

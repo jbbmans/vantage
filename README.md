@@ -1,4 +1,4 @@
-# VANTAGE 3.5.0-rc.1
+# VANTAGE 3.5.0-rc.2
 
 VANTAGE is a self-hosted performance, productivity, and operational-record workspace designed for Marine Corps sections. It turns short activity entries into a searchable ledger, a command-level operational picture, project and task views, career narratives, and exportable reports without sending records to an external AI or analytics provider.
 
@@ -26,6 +26,11 @@ VANTAGE is a multi-user system with exact-unit tenancy:
 - Unit records are shared with current members of that exact unit; hierarchy does not widen access.
 - The Instance Operator is an infrastructure-recovery identity, not a global content-reader role.
 - Protected reads, exports, backups, role changes, and lifecycle actions are audited.
+
+A fresh database contains one active unit—Marine Forces Reserve (`MFR`, displayed as
+`MARFORRES`)—and six editable, unit-local roles: Marine, NCO, Fire Team Leader,
+SNCO, SNCOIC, and Unit Leader. No subordinate org chart or live personnel data
+ships with the application.
 
 See [SECURITY-REVIEW.md](SECURITY-REVIEW.md) for the security model, residual risks, and production gates.
 
@@ -81,7 +86,7 @@ Production first-run setup requires `VANTAGE_SETUP_TOKEN`. After creating the in
 ### Docker
 
 ```bash
-docker build -t vantage:3.5.0-rc.1 .
+docker build -t vantage:3.5.0-rc.2 .
 docker run --read-only --tmpfs /tmp \
   -p 8080:8080 \
   -v vantage-data:/data \
@@ -89,7 +94,7 @@ docker run --read-only --tmpfs /tmp \
   -e VANTAGE_DB=/data/vantage.db \
   -e VANTAGE_SETUP_TOKEN='<random-secret>' \
   -e VANTAGE_OPERATOR='<bootstrap-username>' \
-  vantage:3.5.0-rc.1
+  vantage:3.5.0-rc.2
 ```
 
 Use TLS at the trusted edge, an encrypted persistent volume, centralized platform logs with restricted access, and off-host encrypted backups. Never deploy SQLite on an ephemeral filesystem.
@@ -140,6 +145,54 @@ VANTAGE_RECOVERY=1 npm run recover -- <canonical-username>
 ```
 
 The command prints a one-time password, revokes existing sessions, forces password replacement, and writes an audit event.
+
+### Authorized factory reset and initial provisioning
+
+Factory reset is shell-only and deliberately requires two independent signals of
+intent. It validates that the target is a Vantage SQLite database, creates a
+mode-`0600` backup beside the live database, runs SQLite integrity verification,
+deletes all application rows in one transaction, rebuilds normal reference data,
+and then verifies exactly zero users, one `MFR` unit, and the six default roles.
+Before reading or changing the database it creates a database-adjacent maintenance
+lock; while that lock exists, every API endpoint except `/api/health` returns 503.
+
+```bash
+VANTAGE_FACTORY_RESET=1 npm run reset:factory -- \
+  --confirm "WIPE ALL LIVE DATA"
+```
+
+The verified backup is retained under `<database-directory>/backups/`. Never
+leave `VANTAGE_FACTORY_RESET` configured on a service; set it for only this
+command. A failure leaves maintenance active and preserves the private input for
+inspection; do not manually reopen the service until the database is verified.
+
+For a controlled initial roster, place the data in a temporary JSON file on the
+deployment host, protect it with `chmod 600`, and run:
+
+```bash
+VANTAGE_PROVISION=1 npm run provision:accounts -- \
+  --input /tmp/vantage-provision.json --delete-input
+```
+
+The provisioning command runs only against a freshly reset database. It creates
+the supplied unit hierarchy, unit-local default role copies, billets, accounts,
+memberships, assignments, and explicit Unit Leaders in one transaction. Every
+local password is hashed with scrypt, every account must change its temporary
+password at first sign-in, and passwords are never printed. After successful
+verification, the command deletes the private input and releases maintenance.
+Real names, emails, or temporary passwords must never be committed to either a
+public or private source repository. Restart the service before sign-in.
+
+To use the normal first-run owner flow instead of batch provisioning, release
+maintenance only after the reset has produced the verified empty baseline:
+
+```bash
+VANTAGE_MAINTENANCE=1 npm run maintenance:off -- \
+  --confirm "OPEN VANTAGE"
+```
+
+This command refuses to reopen any database that contains users, a different
+unit structure, role drift, integrity errors, or foreign-key violations.
 
 ## Verification
 

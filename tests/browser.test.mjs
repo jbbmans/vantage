@@ -60,27 +60,24 @@ await page.waitForTimeout(1250);
 check('signed in to the shell', await page.locator('text=VANTAGE').first().isVisible());
 check('rail shows rank and name', (await page.textContent('body')).includes('Boletz'));
 
-/* Claim the seeded units the later fixtures act in.
- *
- * Setup claims only the unit the first account lands in (v3.4 finding 5), so
- * every other unit in the shipped tree is an unowned row with no roles — a
- * SNCOIC cannot add a Marine to a shop they do not hold. That is the model
- * working, not a bug, and Phase 3 removes the shipped tree entirely so these
- * rows will not exist. Until then the browser fixtures claim what they use. */
-const claimed = await page.evaluate(async () => {
+/* Production starts with only MFR. Build the two browser-test units through
+ * the same endpoint a Unit Leader uses in the real interface. */
+const createdUnits = await page.evaluate(async () => {
   const out = {};
-  const me = await (await fetch('/api/me', { headers: { 'x-vantage-client': '1' } })).json();
-  for (const unitId of ['G8-FMRAC', 'G8-BUDGET']) {
-    const res = await fetch(`/api/org/units/${unitId}/claim`, {
+  for (const unit of [
+    { code: 'G8-FMRAC', name: 'Fiscal Management Resource Analysis Cell', short_name: 'FMRAC', echelon: 'fire_team' },
+    { code: 'G8-BUDGET', name: 'Budget Branch', short_name: 'Budget', echelon: 'section' },
+  ]) {
+    const res = await fetch('/api/org/units', {
       method: 'POST',
       headers: { 'content-type': 'application/json', 'x-vantage-client': '1' },
-      body: JSON.stringify({ owner_user_id: me.user.id, template_id: 'section' }),
+      body: JSON.stringify({ ...unit, parent_id: 'MFR', template_id: 'default' }),
     });
-    out[unitId] = res.status;
+    out[unit.code] = res.status;
   }
   return out;
 });
-check('fixture units claimed', Object.values(claimed).every((s) => s === 200), JSON.stringify(claimed));
+check('fixture units created', Object.values(createdUnits).every((s) => s === 201), JSON.stringify(createdUnits));
 
 // 2. log an activity through the real UI
 await page.keyboard.press('n');
@@ -284,17 +281,17 @@ const escFixture = await page.evaluate(async () => {
     method: 'POST', headers: hdrs,
     // was: inherits_down: 1. Nothing cascades (finding 2); the manager is
     // granted in each unit they act in.
-    body: JSON.stringify({ name: 'UI Manager', unit_id: 'CE-G8', position: 25, permissions: 767 }),
+    body: JSON.stringify({ name: 'UI Manager', unit_id: 'MFR', position: 25, permissions: 767 }),
   })).json();
   const clerk = await (await fetch('/api/roles', {
     method: 'POST', headers: hdrs,
-    body: JSON.stringify({ name: 'UI Clerk', unit_id: 'CE-G8', position: 5, permissions: 1 }),
+    body: JSON.stringify({ name: 'UI Clerk', unit_id: 'MFR', position: 5, permissions: 1 }),
   })).json();
   const hayes = await (await fetch('/api/team', {
     method: 'POST', headers: hdrs,
     body: JSON.stringify({
       username: 'uihayes', password: 'uihayes-long-enough-passphrase', first_name: 'U', last_name: 'Hayes',
-      rank_id: 'GySgt', mos: '3451', unit_id: 'CE-G8', role_id: mgr.id,
+      rank_id: 'GySgt', mos: '3451', unit_id: 'MFR', role_id: mgr.id,
     }),
   })).json();
   return { mgrId: mgr.id, clerkId: clerk.id, hayesId: hayes.id };

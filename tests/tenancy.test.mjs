@@ -94,7 +94,7 @@ const denied = (res, what) => {
 /* ── build two sovereign units, one nested under the other ────────── */
 
 must(await call('POST', '/api/setup', {
-  body: { username: 'operator', password: 'operator-long-enough-passphrase', first_name: 'Ops', last_name: 'Operator', unit_code: 'CE-G8' },
+  body: { username: 'operator', password: 'operator-long-enough-passphrase', first_name: 'Ops', last_name: 'Operator', unit_code: 'MFR' },
 }), 'setup');
 const opToken = await login('operator', 'operator-long-enough-passphrase');
 
@@ -103,13 +103,13 @@ const opToken = await login('operator', 'operator-long-enough-passphrase');
  * each other, which is the whole of Decision 1. */
 const alphaBossId = must(await call('POST', '/api/team', {
   token: opToken,
-  body: { username: 'alphaboss', password: PW('alphaboss'), first_name: 'A', last_name: 'Boss', unit_id: 'CE-G8' },
+  body: { username: 'alphaboss', password: PW('alphaboss'), first_name: 'A', last_name: 'Boss', unit_id: 'MFR' },
 }), 'create alpha boss').id;
 const alphaToken = await login('alphaboss', PW('alphaboss'));
 
 const bravoBossId = must(await call('POST', '/api/team', {
   token: opToken,
-  body: { username: 'bravoboss', password: PW('bravoboss'), first_name: 'B', last_name: 'Boss', unit_id: 'CE-G8' },
+  body: { username: 'bravoboss', password: PW('bravoboss'), first_name: 'B', last_name: 'Boss', unit_id: 'MFR' },
 }), 'create bravo owner account').id;
 const bravoToken = await login('bravoboss', PW('bravoboss'));
 
@@ -117,12 +117,12 @@ const bravoToken = await login('bravoboss', PW('bravoboss'));
 // two unit shells, places Bravo under Alpha while it still owns Alpha, then
 // explicitly transfers each sovereign unit to its real owner.
 const alpha = must(await call('POST', '/api/org/units', {
-  token: opToken, body: { name: 'Alpha Section', code: 'ALPHA', level: 'L4', template_id: 'section' },
+  token: opToken, body: { name: 'Alpha Section', code: 'ALPHA', level: 'L4', template_id: 'default' },
 }), 'create alpha');
 
 const bravo = must(await call('POST', '/api/org/units', {
   token: opToken,
-  body: { name: 'Bravo Section', code: 'BRAVO', level: 'L4', parent_id: alpha.id, template_id: 'section' },
+  body: { name: 'Bravo Section', code: 'BRAVO', level: 'L4', parent_id: alpha.id, template_id: 'default' },
 }), 'create bravo');
 
 for (const [unit, ownerId] of [[alpha, alphaBossId], [bravo, bravoBossId]]) {
@@ -383,7 +383,7 @@ await test('a non-operator cannot reach instance routes', async () => {
  */
 
 await test("a member cannot read their leader's records from another unit", async () => {
-  // Bravo's owner is also a member of CE-G8 from the bootstrap fixture; give a
+  // Bravo's owner is also a member of MFR from the bootstrap fixture; give a
   // Bravo Marine VIEW_RECORDS inside Bravo, then check they cannot follow that
   // author out of the unit.
   must(await call('POST', `/api/team/${bravoMarineId}/roles`, {
@@ -392,8 +392,8 @@ await test("a member cannot read their leader's records from another unit", asyn
   const marineTok = await login('bravomarine', PW('bravomarine'));
 
   const elsewhere = must(await call('POST', '/api/tasks', {
-    token: bravoToken, body: { title: 'CE-G8 only tasking', visibility: 'unit', unit_id: 'CE-G8' },
-  }), 'task in CE-G8');
+    token: bravoToken, body: { title: 'MFR only tasking', visibility: 'unit', unit_id: 'MFR' },
+  }), 'task in MFR');
 
   const res = await call('GET', '/api/tasks', { token: marineTok });
   assert.equal(res.status, 200);
@@ -416,7 +416,7 @@ await test('the same member still reads their own unit normally', async () => {
 await test('an export contains no other unit\'s records', async () => {
   // v3.3 selected `user_id IN (members) OR unit_id IN (units)`, so a member's
   // records from anywhere were swept in purely because they appear on this
-  // unit's roster. Exporting Bravo must never emit a CE-G8 row.
+  // unit's roster. Exporting Bravo must never emit a MFR row.
   const res = await call('GET', `/api/export?unit_id=${bravo.id}`, { token: bravoToken });
   assert.equal(res.status, 200, `export failed: ${res.status}`);
   for (const table of ['activities', 'tasks', 'goals', 'projects', 'recognitions', 'trainings']) {

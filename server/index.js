@@ -60,6 +60,7 @@ import { EXPERIENCE_EVENTS, recordExperience } from './experience.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const db = getDb();
+const maintenancePath = `${db.name}.maintenance`;
 pruneSessions(db);
 
 const app = express();
@@ -90,6 +91,23 @@ function inlineScriptHashes() {
 const SCRIPT_SRC = ["'self'", ...inlineScriptHashes()].join(' ');
 
 app.disable('x-powered-by');
+
+// A deployment-shell reset places this lock before touching SQLite and keeps
+// it through batch provisioning. Existing processes observe it on every API
+// request, so no new authenticated or public mutation can race the reset.
+function maintenanceGuard(lockPath) {
+  return (req, res, next) => {
+    if (req.path.startsWith('/api') && req.path !== '/api/health' && existsSync(lockPath)) {
+      res.setHeader('Cache-Control', 'no-store');
+      return res.status(503).json({
+        error: 'Vantage is in scheduled maintenance. Try again after the deployment is reopened.',
+        code: 'maintenance',
+      });
+    }
+    next();
+  };
+}
+app.use(maintenanceGuard(maintenancePath));
 
 /**
  * Proxy trust is security-sensitive (finding 18): whatever Express trusts here
@@ -375,7 +393,7 @@ app.post('/api/setup', (req, res) => {
   }
   const setupBody = { ...(req.body || {}), username: normalizeUsername(req.body?.username) };
   const setupErrors = validate(USER_SCHEMA, setupBody)?.fieldErrors || {};
-  const setupUnitCode = setupBody.unit_code || 'CE-G8';
+  const setupUnitCode = setupBody.unit_code || 'MFR';
   if (!db.prepare('SELECT 1 FROM units WHERE code = ? AND active = 1').get(setupUnitCode)) {
     setupErrors.unit_code = 'No such active unit code.';
   }
@@ -743,7 +761,7 @@ app.get('/api/org/templates', auth, (req, res) => {
  * Instance Operator action until an approved invitation workflow exists.
  *
  * The creator becomes the Unit Owner, is enrolled as a member, receives the
- * copied Owner role, and gets a unit-local copy of the chosen template.
+ * copied Unit Leader role, and gets a unit-local copy of the chosen template.
  */
 app.post('/api/org/units', auth, (req, res) => {
   const { code, name, short_name, echelon, location, parent_id, level, template_id } = req.body || {};
@@ -2291,4 +2309,4 @@ if (process.env.VANTAGE_TEST !== '1') {
   process.on('SIGINT', shutdown('SIGINT'));
 }
 
-export { app, db };
+export { app, db, maintenanceGuard };

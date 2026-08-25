@@ -42,7 +42,9 @@ process.env.VANTAGE_DB = DB;
 process.env.VANTAGE_TEST = '1';
 process.env.VANTAGE_OPERATOR = 'boletz';
 
-const { app } = await import('../server/index.js');
+const { app, db } = await import('../server/index.js');
+const { seedTestUnits } = await import('./helpers/seed-test-units.mjs');
+seedTestUnits(db);
 
 const server = app.listen(0);
 await new Promise((r) => server.once('listening', r));
@@ -68,7 +70,7 @@ const must = (res, what) => {
 
 /* ── world ────────────────────────────────────────────────────────── */
 /*
- * Four sovereign units. The org chart still says CE-G8 sits above G8-FMRAC and
+ * Four sovereign units. The org chart still says MFR sits above G8-FMRAC and
  * G8-BUDGET, and that CLR-4 is elsewhere entirely — the fixture keeps that
  * shape precisely so the matrix can prove it buys nobody anything.
  *
@@ -78,7 +80,7 @@ const must = (res, what) => {
  */
 
 must(await call('POST', '/api/setup', {
-  body: { username: 'boletz', password: 'cobalt-orbit-velvet-anchor-927', first_name: 'J', last_name: 'B', rank_id: 'Cpl', unit_code: 'CE-G8' },
+  body: { username: 'boletz', password: 'cobalt-orbit-velvet-anchor-927', first_name: 'J', last_name: 'B', rank_id: 'Cpl', unit_code: 'MFR' },
 }), 'setup');
 const adminTok = await login('boletz', 'cobalt-orbit-velvet-anchor-927');
 
@@ -115,17 +117,17 @@ const mk = async (token, username, unit_id, role_id = null, rank_id = 'LCpl') =>
 /** Operator claims a seeded unit for a named owner, giving it its own roles. */
 const claim = async (unitId, ownerUsername, ownerId) => {
   must(await call('POST', `/api/org/units/${unitId}/claim`, {
-    token: adminTok, body: { owner_user_id: ownerId, template_id: 'section' },
+    token: adminTok, body: { owner_user_id: ownerId, template_id: 'default' },
   }), `claim ${unitId} for ${ownerUsername}`);
 };
 
-// CE-G8: boletz owns it (bootstrap claimed it). hayes is its SNCOIC.
-await mk(adminTok, 'hayes', 'CE-G8', 'CE-G8:sncoic', 'GySgt');
+// MFR: boletz owns it (bootstrap claimed it). hayes is its SNCOIC.
+await mk(adminTok, 'hayes', 'MFR', 'MFR:sncoic', 'GySgt');
 
 // The three other shops get their own owners.
-const nguyenId = (await mk(adminTok, 'nguyen', 'CE-G8', null, 'Sgt')).id;
-const budgetBossId = (await mk(adminTok, 'budgetboss', 'CE-G8', null, 'SSgt')).id;
-const clrLeadId = (await mk(adminTok, 'clrlead', 'CE-G8', null, 'GySgt')).id;
+const nguyenId = (await mk(adminTok, 'nguyen', 'MFR', null, 'Sgt')).id;
+const budgetBossId = (await mk(adminTok, 'budgetboss', 'MFR', null, 'SSgt')).id;
+const clrLeadId = (await mk(adminTok, 'clrlead', 'MFR', null, 'GySgt')).id;
 
 await claim('G8-FMRAC', 'nguyen', nguyenId);
 await claim('G8-BUDGET', 'budgetboss', budgetBossId);
@@ -136,7 +138,7 @@ const tokBudget = await login('budgetboss', PW('budgetboss'));
 const tokClr = await login('clrlead', PW('clrlead'));
 
 // Members inside each shop, enrolled by that shop's own owner.
-await mk(tokNguyen, 'ohara', 'G8-FMRAC', 'G8-FMRAC:nco', 'Cpl');
+await mk(tokNguyen, 'ohara', 'G8-FMRAC', 'G8-FMRAC:fire-team-leader', 'Cpl');
 await mk(tokNguyen, 'rivera', 'G8-FMRAC');
 /* A member who is never an actor. The manageMember probe forces a sign-out,
  * so aiming an ALLOW row at someone whose token later rows depend on makes the
@@ -154,15 +156,15 @@ const id = (u) => {
 };
 
 const tok = {
-  admin: adminTok,          // bootstrap account + Instance Operator, Owner of CE-G8
-  sectionHead: await login('hayes', PW('hayes')),  // SNCOIC in CE-G8 only
+  admin: adminTok,          // bootstrap account + Instance Operator, Owner of MFR
+  sectionHead: await login('hayes', PW('hayes')),  // SNCOIC in MFR only
   ncoic: tokNguyen,         // Owner of G8-FMRAC
   ftl: await login('ohara', PW('ohara')),          // NCO in G8-FMRAC
   marine: await login('rivera', PW('rivera')),     // Marine in G8-FMRAC
   clrLead: tokClr,          // Owner of CLR-4
 };
 
-const ownerTokenFor = { 'G8-FMRAC': tokNguyen, 'G8-BUDGET': tokBudget, 'CLR-4': tokClr, 'CE-G8': adminTok };
+const ownerTokenFor = { 'G8-FMRAC': tokNguyen, 'G8-BUDGET': tokBudget, 'CLR-4': tokClr, 'MFR': adminTok };
 
 /* ── actions ──────────────────────────────────────────────────────── */
 
@@ -257,13 +259,13 @@ const ROWS = [
   ['ncoic', 'unitAudit', 'G8-FMRAC', 'own unit', 'allow'],
   ['ncoic', 'unitAudit', 'G8-BUDGET', 'other unit', 'deny'],
   ['sectionHead', 'unitAudit', 'G8-BUDGET', 'child unit', 'deny', 'allow (own subtree) — finding 2'],
-  ['sectionHead', 'unitAudit', 'CE-G8', 'own unit', 'allow'],
+  ['sectionHead', 'unitAudit', 'MFR', 'own unit', 'allow'],
   ['admin', 'unitAudit', 'CLR-4', 'unrelated unit', 'deny', 'allow (anywhere) — finding 4'],
 
   /* server-side export */
   ['marine', 'exportUnit', 'G8-FMRAC', 'no EXPORT_DATA', 'deny'],
   ['ftl', 'exportUnit', 'G8-FMRAC', 'no EXPORT_DATA', 'deny'],
-  ['sectionHead', 'exportUnit', 'CE-G8', 'own unit', 'allow'],
+  ['sectionHead', 'exportUnit', 'MFR', 'own unit', 'allow'],
   ['sectionHead', 'exportUnit', 'G8-BUDGET', 'child unit', 'deny', 'allow (own subtree) — finding 2'],
   ['admin', 'exportUnit', 'CLR-4', 'unrelated unit', 'deny', 'allow (anywhere) — finding 4'],
 
@@ -271,7 +273,7 @@ const ROWS = [
      because claiming to sit under someone is a statement about THEIR chart */
   ['marine', 'createSubUnit', 'G8-FMRAC', 'no MANAGE_UNITS', 'deny'],
   ['ftl', 'createSubUnit', 'G8-FMRAC', 'no MANAGE_UNITS', 'deny'],
-  ['sectionHead', 'createSubUnit', 'CE-G8', 'own unit', 'allow'],
+  ['sectionHead', 'createSubUnit', 'MFR', 'own unit', 'allow'],
   ['sectionHead', 'createSubUnit', 'CLR-4', 'unrelated unit', 'deny'],
   ['admin', 'createSubUnit', 'CLR-4', 'unrelated unit', 'deny', 'allow (anywhere) — finding 4'],
 

@@ -166,25 +166,26 @@ const SNCOIC_BITS = fromKeys([
 ]);
 
 const NCO_BITS = fromKeys([
-  'VIEW_UNIT', 'VIEW_RECORDS', 'VIEW_MEMBER_DETAIL', 'CREATE_SHARED_WORK', 'CREATE_SHARED_GOALS',
+  'VIEW_UNIT', 'VIEW_RECORDS', 'CREATE_SHARED_WORK', 'CREATE_SHARED_GOALS',
+]);
+
+const FIRE_TEAM_LEADER_BITS = NCO_BITS | fromKeys(['VIEW_MEMBER_DETAIL']);
+
+const SNCO_BITS = FIRE_TEAM_LEADER_BITS | fromKeys([
+  'MANAGE_RECORDS', 'VIEW_AUDIT',
 ]);
 
 const MARINE_BITS = fromKeys(['VIEW_UNIT']);
 
 /**
- * The default template ships THREE roles (finding 21).
- *
- * A section is eight to twenty Marines with one SNCOIC and two or three NCOs.
- * Six roles and a twelve-bit permission editor is a correct piece of
- * engineering aimed at a problem most units do not have on day one. The full
- * editor is still there, one click away, unchanged — but a SNCOIC must be able
- * to be productive without ever opening it.
+ * The one default template ships the six approved Vantage roles. They form a
+ * deliberate capability ladder while remaining editable, unit-local copies.
  */
 export const ROLE_TEMPLATES = [
   {
-    id: 'section',
-    name: 'Section',
-    summary: 'Three roles: Marine, NCO, SNCOIC. The right starting point for a shop of 8–20.',
+    id: 'default',
+    name: 'Vantage default',
+    summary: 'Marine, NCO, Fire Team Leader, SNCO, SNCOIC and Unit Leader.',
     recommended: true,
     roles: [
       {
@@ -195,104 +196,33 @@ export const ROLE_TEMPLATES = [
       {
         key: 'nco', name: 'NCO', color: '#3DD68C', position: 20, is_default: 0,
         permissions: NCO_BITS,
-        description: 'Sees and tasks the section. Cannot change who is in it or what a role means.',
+        description: 'Sees shared work and can post unit tasks and goals. Cannot open a Marine’s full record.',
+      },
+      {
+        key: 'fire-team-leader', name: 'Fire Team Leader', color: '#20A4A8', position: 30, is_default: 0,
+        permissions: FIRE_TEAM_LEADER_BITS,
+        description: 'Adds full member-record visibility to the NCO tasking capabilities. Every record open is audited.',
+      },
+      {
+        key: 'snco', name: 'SNCO', color: '#F0A93B', position: 40, is_default: 0,
+        permissions: SNCO_BITS,
+        description: 'Can correct shared records and review the unit access log, but cannot administer people, roles or units.',
       },
       {
         key: 'sncoic', name: 'SNCOIC', color: '#4C9DFF', position: 60, is_default: 0,
         permissions: SNCOIC_BITS,
-        description: 'Runs the shop: members, roles, records, audit and export.',
+        description: 'Runs unit administration: members, roles, records, sub-units, audit and export.',
       },
       {
-        key: 'owner', name: 'Owner', color: '#FB7185', position: 100, is_default: 0, owner: true,
+        key: 'unit-leader', name: 'Unit Leader', color: '#6D7CF6', position: 100, is_default: 0, owner: true,
         permissions: OWNER_BITS,
-        description: 'Every permission inside this unit. Held by whoever stood the unit up.',
-      },
-    ],
-  },
-  {
-    id: 'section-training',
-    name: 'Section with Training NCO',
-    summary: 'Adds a Training NCO who tracks PME and quals without opening individual records.',
-    roles: [
-      {
-        key: 'marine', name: 'Marine', color: '#8D98A8', position: 0, is_default: 1,
-        permissions: MARINE_BITS,
-        description: 'Everyone gets this. Sees their own record and the unit roster; shared records require an explicit reader role.',
-      },
-      {
-        key: 'training-nco', name: 'Training NCO', color: '#A78BFA', position: 15, is_default: 0,
-        permissions: fromKeys(['VIEW_UNIT', 'VIEW_RECORDS', 'CREATE_SHARED_WORK']),
-        description: 'Sees shared work without opening individual records. For tracking PME and quals.',
-      },
-      {
-        key: 'nco', name: 'NCO', color: '#3DD68C', position: 20, is_default: 0,
-        permissions: NCO_BITS,
-        description: 'Sees and tasks the section.',
-      },
-      {
-        key: 'sncoic', name: 'SNCOIC', color: '#4C9DFF', position: 60, is_default: 0,
-        permissions: SNCOIC_BITS,
-        description: 'Runs the shop: members, roles, records, audit and export.',
-      },
-      {
-        key: 'owner', name: 'Owner', color: '#FB7185', position: 100, is_default: 0, owner: true,
-        permissions: OWNER_BITS,
-        description: 'Every permission inside this unit.',
-      },
-    ],
-  },
-  {
-    id: 'company',
-    name: 'Company',
-    summary: 'Fire team leaders, platoon sergeants, a company gunny and a first sergeant.',
-    roles: [
-      {
-        key: 'marine', name: 'Marine', color: '#8D98A8', position: 0, is_default: 1,
-        permissions: MARINE_BITS,
-        description: 'Everyone gets this.',
-      },
-      {
-        key: 'fire-team-leader', name: 'Fire Team Leader', color: '#3DD68C', position: 10, is_default: 0,
-        permissions: NCO_BITS,
-        description: 'Sees and tasks their own team.',
-      },
-      {
-        key: 'platoon-sergeant', name: 'Platoon Sergeant', color: '#F0A93B', position: 30, is_default: 0,
-        permissions: NCO_BITS | fromKeys(['MANAGE_RECORDS', 'MANAGE_MEMBERS', 'VIEW_AUDIT']),
-        description: 'Corrects records and manages who is in the unit.',
-      },
-      {
-        key: 'company-gunny', name: 'Company Gunnery Sergeant', color: '#4C9DFF', position: 60, is_default: 0,
-        permissions: SNCOIC_BITS,
-        description: 'Full authority over members, roles, records, audit and export.',
-      },
-      {
-        key: 'owner', name: 'First Sergeant', color: '#FB7185', position: 100, is_default: 0, owner: true,
-        permissions: OWNER_BITS,
-        description: 'Every permission inside this unit.',
-      },
-    ],
-  },
-  {
-    id: 'solo',
-    name: 'Just me for now',
-    summary: 'One role. Stand the unit up, log evidence, add people later.',
-    roles: [
-      {
-        key: 'marine', name: 'Marine', color: '#8D98A8', position: 0, is_default: 1,
-        permissions: MARINE_BITS,
-        description: 'Everyone gets this.',
-      },
-      {
-        key: 'owner', name: 'Owner', color: '#FB7185', position: 100, is_default: 0, owner: true,
-        permissions: OWNER_BITS,
-        description: 'Every permission inside this unit.',
+        description: 'Every permission inside this unit. The unit’s accountable owner receives this role.',
       },
     ],
   },
 ];
 
-export const DEFAULT_TEMPLATE_ID = 'section';
+export const DEFAULT_TEMPLATE_ID = 'default';
 
 export const templateById = (id) =>
   ROLE_TEMPLATES.find((t) => t.id === id) || ROLE_TEMPLATES.find((t) => t.id === DEFAULT_TEMPLATE_ID);

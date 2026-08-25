@@ -31,6 +31,7 @@ RUN apt-get update \
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server ./server
+COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/config ./config
 COPY --from=build /app/package.json ./
 

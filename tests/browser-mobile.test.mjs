@@ -24,7 +24,7 @@ const BASE = `http://localhost:${PORT}`;
 await fetch(`${BASE}/api/setup`, {
   method: 'POST',
   headers: { 'content-type': 'application/json' },
-  body: JSON.stringify({ username: 'boletz', password: 'a-long-enough-passphrase', first_name: 'John', last_name: 'Boletz', rank_id: 'Cpl', unit_code: 'CE-G8' }),
+  body: JSON.stringify({ username: 'boletz', password: 'a-long-enough-passphrase', first_name: 'John', last_name: 'Boletz', rank_id: 'Cpl', unit_code: 'MFR' }),
 });
 
 const problems = [];
