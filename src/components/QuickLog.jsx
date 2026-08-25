@@ -6,14 +6,15 @@ import { Button, Field, Input, NumberInput, Select, Textarea, Badge, Dot } from 
 import { useToast } from '@/components/ui/toast';
 import { parseQuickLog, primaryQuantity } from '@/lib/quickLogParser';
 import { createRecord } from '@/store/useStore';
-import { errorText } from '@/lib/api';
+import { errorText, trackExperience } from '@/lib/api';
 import { CATEGORIES, CATEGORY_COLORS, JEPES_AREAS, DOLLAR_TYPES, UNIT_SUGGESTIONS } from '@/lib/constants';
 import { formatDollarsExact } from '@/lib/metrics';
 import { strength, weaknesses, composeBullet } from '@/lib/bullets';
 import VisibilityPicker, { DEFAULT_VISIBILITY } from '@/components/VisibilityPicker';
 import { areaOptions, mapAreaToTrack, trackMeta } from '@/lib/evaluation';
-import { useEvalTrack } from '@/store/useStore';
+import { useEvalTrack, useIdentity } from '@/store/useStore';
 import { cn } from '@/lib/utils';
+import { draftKey } from '@/lib/drafts';
 
 const EXAMPLES = [
   'Reconciled 30 ULOs totaling $1,118.38 in DAI for G-8',
@@ -23,6 +24,7 @@ const EXAMPLES = [
 
 export default function QuickLog({ open, onOpenChange, initialText = '' }) {
   const track = useEvalTrack();
+  const identity = useIdentity();
   const toast = useToast();
   const [text, setText] = useState(initialText);
   const [expanded, setExpanded] = useState(false);
@@ -31,7 +33,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
 
   // Finding 35: what's typed here mirrors into sessionStorage until it saves,
   // so a dropped connection or a stray Escape doesn't eat the entry.
-  const DRAFT_KEY = 'vantage.quicklog.draft';
+  const DRAFT_KEY = draftKey(identity?.user?.id, 'quicklog');
   useEffect(() => {
     if (open) {
       let stored = '';
@@ -40,7 +42,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
       setOverrides({});
       setExpanded(false);
     }
-  }, [open, initialText]);
+  }, [open, initialText, DRAFT_KEY]);
 
   useEffect(() => {
     if (!open) return;
@@ -48,7 +50,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
       if (text.trim()) sessionStorage.setItem(DRAFT_KEY, text);
       else sessionStorage.removeItem(DRAFT_KEY);
     } catch { /* the in-memory text still stands */ }
-  }, [text, open]);
+  }, [text, open, DRAFT_KEY]);
 
   const parsed = useMemo(() => (text.trim() ? parseQuickLog(text) : null), [text]);
 
@@ -93,6 +95,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
             : null,
       });
       toast.success('Activity logged.');
+      trackExperience('quick_log_saved');
       try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* fine */ }
       onOpenChange(false);
     } catch (err) {
@@ -119,6 +122,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
       title="Log activity"
       description="Write it the way you'd say it. Vantage pulls out the numbers."
       size="lg"
+      variant="drawer"
       footer={
         <>
           <span className="fig mr-auto text-2xs text-text-3">⌘↵ to save</span>

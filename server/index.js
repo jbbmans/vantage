@@ -17,8 +17,8 @@ import express from 'express';
 import cookieParser from 'cookie-parser';
 import { fileURLToPath } from 'node:url';
 import { dirname, join } from 'node:path';
-import { existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
-import { createHash } from 'node:crypto';
+import { chmodSync, existsSync, readFileSync, statSync, unlinkSync } from 'node:fs';
+import { createHash, randomBytes, timingSafeEqual } from 'node:crypto';
 
 import {
   getDb, bootstrapAdmin, audit, newId, now, grantRole, revokeRole,
@@ -28,8 +28,8 @@ import { VERSION } from './version.js';
 import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATES, templateSummaries, DEFAULT_TEMPLATE_ID } from './roles.js';
 import {
   verifyPassword, hashPassword, createSession, destroySession, pruneSessions,
-  requireAuth, requireAdmin, burnVerification, invalidateUserSessions,
-  listSessions, revokeSessionByPrefix,
+  requireAuth, burnVerification, invalidateUserSessions,
+  listSessions, revokeSessionByPrefix, sessionIdForToken,
 } from './auth.js';
 import {
   resolveScope, visibleUserIds, visibilityClause, canEdit, canShareTo,
@@ -39,9 +39,12 @@ import {
 // org.js is DISPLAY ONLY. It is imported here for breadcrumbs and the unit
 // picker and must never appear in an authorization decision — see org.js and
 // tests/static.test.mjs, which fails the build if it drifts into one.
-import { ancestorChain, LEVELS } from './org.js';
+import { ancestorChain, ancestorIds, wouldCycle, LEVELS } from './org.js';
 import { isInstanceOperator, isBootstrapOperator, operatorGate } from './instance.js';
-import { checkLoginAllowed, recordLoginFailure, recordLoginSuccess, pruneCounters } from './security.js';
+import { normalizeUsername } from './identity.js';
+import {
+  checkLoginAllowed, checkRegistrationAllowed, recordLoginFailure, recordLoginSuccess, pruneCounters,
+} from './security.js';
 import {
   RECORD_SCHEMAS, READINESS_SCHEMA, USER_SCHEMA, validate, fieldErrorMessage, BULK_LIMITS,
 } from './validate.js';
@@ -51,6 +54,9 @@ import {
   transferMember, deactivateMember, reactivateMember, resetMemberPassword, forceLogout,
   accessReview, primaryAssignment,
 } from './lifecycle.js';
+import { config, safeConfig } from './config.js';
+import { attachmentDisposition, inspectAttachment } from './attachments.js';
+import { EXPERIENCE_EVENTS, recordExperience } from './experience.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const db = getDb();
@@ -58,6 +64,7 @@ pruneSessions(db);
 
 const app = express();
 const PRODUCTION = process.env.NODE_ENV === 'production';
+const DEPLOYMENT_MODE = config.app.data_mode;
 
 /**
  * The shell sets the theme before first paint via a small inline script, so a
@@ -108,7 +115,7 @@ function resolveTrustProxy(raw) {
   if (/^\d+$/.test(v)) return Number(v);
   return raw;
 }
-app.set('trust proxy', resolveTrustProxy(process.env.TRUST_PROXY));
+app.set('trust proxy', resolveTrustProxy(config.deployment.trust_proxy));
 
 app.use(express.json({ limit: '2mb' }));
 app.use(cookieParser());
@@ -131,6 +138,10 @@ app.use((req, res, next) => {
   res.setHeader('X-Frame-Options', 'DENY');
   res.setHeader('Referrer-Policy', 'no-referrer');
   res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=(), interest-cohort=()');
+  if (req.path.startsWith('/api/')) {
+    res.setHeader('Cache-Control', 'no-store, max-age=0');
+    res.setHeader('Pragma', 'no-cache');
+  }
   if (PRODUCTION) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
   next();
 });
@@ -146,10 +157,16 @@ setInterval(() => {
 app.get('/api/health', (req, res) => {
   try {
     db.prepare('SELECT 1').get();
-    res.json({ ok: true, version: VERSION, uptime: Math.round(process.uptime()) });
+    res.json({ ok: true, version: VERSION, mode: DEPLOYMENT_MODE, uptime: Math.round(process.uptime()) });
   } catch (err) {
-    res.status(503).json({ ok: false, error: err.message });
+    console.error('Database health check failed:', err);
+    res.status(503).json({ ok: false, error: 'Database health check failed.' });
   }
+});
+
+/** Safe, non-secret deployment capabilities used by sign-in and Settings. */
+app.get('/api/config', (req, res) => {
+  res.json(safeConfig());
 });
 
 const auth = requireAuth(db);
@@ -188,12 +205,14 @@ const TABLES = {
     json: [],
     defaultVisibility: 'private',
     shareFlag: PERMISSIONS.CREATE_SHARED_WORK,
+    memberReadable: true,
   },
   tasks: {
     fields: ['title', 'notes', 'status', 'priority', 'due_date', 'project_id', 'assignee_id', 'visibility', 'unit_id'],
     json: [],
     defaultVisibility: 'private',
     shareFlag: PERMISSIONS.CREATE_SHARED_WORK,
+    memberReadable: true,
   },
   goals: {
     fields: ['title', 'description', 'type', 'category', 'current_value', 'target_value', 'unit_label',
@@ -201,6 +220,7 @@ const TABLES = {
     json: [],
     defaultVisibility: 'private',
     shareFlag: PERMISSIONS.CREATE_SHARED_GOALS,
+    memberReadable: true,
   },
   recognitions: {
     fields: ['date', 'title', 'type', 'from_whom', 'organization', 'notes', 'visibility', 'unit_id'],
@@ -215,6 +235,54 @@ const TABLES = {
     shareFlag: PERMISSIONS.CREATE_SHARED_WORK,
   },
 };
+
+const MAX_RECORDS_PER_USER = config.limits.max_records_per_user;
+const MAX_DB_BYTES = config.limits.max_database_bytes;
+
+function ownedRecordCount(userId) {
+  return Object.keys(TABLES).reduce(
+    (sum, table) => sum + db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id = ?`).get(userId).n,
+    0
+  );
+}
+
+function recordCapacityProblem(userId, additional = 1) {
+  if (ownedRecordCount(userId) + additional > MAX_RECORDS_PER_USER) {
+    return `This account has reached its ${MAX_RECORDS_PER_USER.toLocaleString()}-record retention limit. Contact the Instance Operator.`;
+  }
+  try {
+    if (statSync(db.name).size >= MAX_DB_BYTES) {
+      return 'The database has reached its configured safety threshold. New records are paused to preserve recovery headroom.';
+    }
+  } catch { /* in-memory test database or platform without a normal file */ }
+  return null;
+}
+
+/** One bounded access receipt per actor/subject/table/unit in a five-minute refresh window. */
+function auditForeignListReads(actor, table, rows) {
+  const grouped = new Map();
+  for (const row of rows) {
+    if (!row.user_id || row.user_id === actor.id) continue;
+    const key = `${row.user_id}\0${row.unit_id || ''}`;
+    const prior = grouped.get(key) || { subjectId: row.user_id, unitId: row.unit_id || null, count: 0 };
+    prior.count += 1;
+    grouped.set(key, prior);
+  }
+  const recentlyAudited = db.prepare(
+    `SELECT 1 FROM audit_log
+      WHERE actor_id = ? AND action = 'list_records' AND entity = ?
+        AND subject_id = ? AND unit_id IS ?
+        AND julianday(at) > julianday('now', '-5 minutes') LIMIT 1`
+  );
+  for (const group of grouped.values()) {
+    if (recentlyAudited.get(actor.id, table, group.subjectId, group.unitId)) continue;
+    audit({
+      actor_id: actor.id, action: 'list_records', entity: table,
+      subject_id: group.subjectId, unit_id: group.unitId,
+      detail: `${group.count} ${table} returned in an authorized list`,
+    });
+  }
+}
 
 const hydrate = (row, spec) => {
   if (!row) return row;
@@ -267,8 +335,29 @@ function assigneeError(user, assigneeId, unitId) {
 
 app.get('/api/setup', (req, res) => {
   const n = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
-  res.json({ needsSetup: n === 0 });
+  res.json({
+    needsSetup: n === 0,
+    requiresSetupToken: n === 0 && PRODUCTION,
+    selfRegistration: config.auth.self_registration,
+    passwordEnabled: config.auth.password_enabled,
+    cacPivEnabled: config.auth.cac_piv.enabled,
+  });
 });
+
+function setupTokenAccepted(req) {
+  if (!PRODUCTION) return { ok: true };
+  const expected = String(process.env.VANTAGE_SETUP_TOKEN || '');
+  if (expected.length < 24) {
+    return { ok: false, status: 503, message: 'First-run setup is locked until VANTAGE_SETUP_TOKEN is configured.' };
+  }
+  const supplied = String(req.get('x-vantage-setup-token') || req.body?.setup_token || '');
+  const left = createHash('sha256').update(supplied).digest();
+  const right = createHash('sha256').update(expected).digest();
+  if (!timingSafeEqual(left, right)) {
+    return { ok: false, status: 403, message: 'The deployment setup token is incorrect.' };
+  }
+  return { ok: true };
+}
 
 app.post('/api/setup', (req, res) => {
   const blocked = checkLoginAllowed(req.ip, '');
@@ -276,8 +365,32 @@ app.post('/api/setup', (req, res) => {
     res.setHeader('Retry-After', String(blocked.retryAfter));
     return fail(res, blocked.status, blocked.message, { code: 'throttled' });
   }
+  if (db.prepare('SELECT COUNT(*) AS n FROM users').get().n > 0) {
+    return fail(res, 409, 'Vantage is already set up.');
+  }
+  const setupGate = setupTokenAccepted(req);
+  if (!setupGate.ok) {
+    recordLoginFailure(req.ip, '');
+    return fail(res, setupGate.status, setupGate.message, { code: 'setup_locked' });
+  }
+  const setupBody = { ...(req.body || {}), username: normalizeUsername(req.body?.username) };
+  const setupErrors = validate(USER_SCHEMA, setupBody)?.fieldErrors || {};
+  const setupUnitCode = setupBody.unit_code || 'CE-G8';
+  if (!db.prepare('SELECT 1 FROM units WHERE code = ? AND active = 1').get(setupUnitCode)) {
+    setupErrors.unit_code = 'No such active unit code.';
+  }
+  if (setupBody.rank_id && !db.prepare('SELECT 1 FROM ranks WHERE id = ?').get(setupBody.rank_id)) {
+    setupErrors.rank_id = 'No such rank.';
+  }
+  if (setupBody.billet_title && !db.prepare('SELECT 1 FROM billets WHERE title = ? AND active = 1').get(setupBody.billet_title)) {
+    setupErrors.billet_title = 'No such active billet.';
+  }
+  if (Object.keys(setupErrors).length) {
+    recordLoginFailure(req.ip, '');
+    return failValidation(res, setupErrors);
+  }
   try {
-    const created = bootstrapAdmin(req.body || {});
+    const created = bootstrapAdmin(setupBody);
     if (!created) {
       recordLoginFailure(req.ip, '');
       return fail(res, 409, 'Vantage is already set up.');
@@ -285,9 +398,89 @@ app.post('/api/setup', (req, res) => {
     res.json(created);
   } catch (err) {
     recordLoginFailure(req.ip, '');
-    fail(res, 400, err.message);
+    console.error('First-run setup failed:', err);
+    fail(res, 500, 'First-run setup could not complete. No account was created.');
   }
 });
+
+/**
+ * Self-registration creates an identity, not a unit membership. The account's
+ * record is personal-only until a unit authority explicitly attaches it. This
+ * keeps onboarding convenient without making a public sign-up form an
+ * authorization path.
+ */
+app.post('/api/register', (req, res) => {
+  if (!config.auth.password_enabled || !config.auth.self_registration) {
+    return fail(res, 404, 'Self-registration is not enabled.', { code: 'registration_disabled' });
+  }
+  if (db.prepare('SELECT COUNT(*) AS n FROM users').get().n === 0) {
+    return fail(res, 409, 'The deployment must be initialized before accounts can self-register.', {
+      code: 'setup_required',
+    });
+  }
+  const limited = checkRegistrationAllowed(req.ip);
+  if (limited) {
+    res.setHeader('Retry-After', String(limited.retryAfter));
+    return fail(res, 429, 'Too many accounts were requested from this connection. Try again later.', {
+      code: 'registration_throttled',
+    });
+  }
+  const body = {
+    username: normalizeUsername(req.body?.username),
+    password: req.body?.password,
+    first_name: req.body?.first_name,
+    last_name: req.body?.last_name,
+    middle_initial: req.body?.middle_initial,
+    rank_id: req.body?.rank_id,
+    mos: req.body?.mos,
+    email: req.body?.email,
+  };
+  const errors = validate(USER_SCHEMA, body)?.fieldErrors || {};
+  if (body.rank_id && !db.prepare('SELECT 1 FROM ranks WHERE id = ?').get(body.rank_id)) {
+    errors.rank_id = 'No such rank.';
+  }
+  if (Object.keys(errors).length) return failValidation(res, errors);
+
+  try {
+    const id = newId();
+    db.prepare(
+      `INSERT INTO users
+        (id, username, password_hash, last_name, first_name, middle_initial, rank_id, mos, email,
+         must_change_password, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)`
+    ).run(
+      id, body.username, hashPassword(body.password), body.last_name, body.first_name,
+      body.middle_initial || null, body.rank_id || null, body.mos || null, body.email || null,
+      now(), now()
+    );
+    audit({ actor_id: id, action: 'self_register', entity: 'user', entity_id: id, subject_id: id });
+    res.status(201).json({ ok: true });
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) {
+      return failValidation(res, { username: 'That username is unavailable.' });
+    }
+    console.error('Self-registration failed:', err);
+    return fail(res, 500, 'The account could not be created.', { code: 'registration_failed' });
+  }
+});
+
+function finishSignIn(req, res, row, action = 'login') {
+  const { token, expires } = createSession(db, row.id, { ip: req.ip, userAgent: req.get('user-agent') });
+  audit({ actor_id: row.id, action, unit_id: primaryAssignment(db, row.id)?.unit_id || null });
+  res.cookie('vantage_session', token, {
+    httpOnly: true,
+    sameSite: 'strict',
+    secure: PRODUCTION || req.secure,
+  });
+  res.cookie('vantage_signed_in', '1', {
+    httpOnly: false,
+    sameSite: 'strict',
+    secure: PRODUCTION || req.secure,
+  });
+  const response = { expires, mustChangePassword: Boolean(row.must_change_password) };
+  if (process.env.VANTAGE_TEST === '1') response.token = token;
+  return res.json(response);
+}
 
 /**
  * Sign in, behind the layered throttle (finding 17): per-IP, per-account and
@@ -295,49 +488,108 @@ app.post('/api/setup', (req, res) => {
  * usernames so "no such user" is not distinguishable by timing.
  */
 app.post('/api/login', (req, res) => {
+  if (!config.auth.password_enabled) {
+    return fail(res, 503, 'Password sign-in is disabled for this deployment.', { code: 'password_disabled' });
+  }
   const { username, password } = req.body || {};
-  const blocked = checkLoginAllowed(req.ip, username);
-  if (blocked) {
+  const loginName = typeof username === 'string' && username.length <= 40 ? normalizeUsername(username) : '';
+  const loginPassword = typeof password === 'string' && password.length <= 512 && [...password].length <= 256 ? password : '';
+  const blocked = checkLoginAllowed(req.ip, loginName);
+  if (blocked && blocked.scope !== 'account') {
     res.setHeader('Retry-After', String(blocked.retryAfter));
     return fail(res, blocked.status, blocked.message, { code: 'throttled' });
   }
 
-  const row = db.prepare('SELECT * FROM users WHERE username = ? AND active = 1').get(String(username || '').trim());
+  const accountBlocked = blocked?.scope === 'account';
+  const row = db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE AND active = 1').get(loginName);
   // Same response either way — a different message for "no such user" tells an
   // attacker which usernames are real.
   if (!row) {
-    burnVerification(password);
-    recordLoginFailure(req.ip, username);
+    burnVerification(loginPassword);
+    recordLoginFailure(req.ip, loginName);
+    if (accountBlocked) {
+      res.setHeader('Retry-After', String(blocked.retryAfter));
+      return fail(res, 429, blocked.message, { code: 'throttled' });
+    }
     return fail(res, 401, 'Username or password is incorrect.');
   }
-  if (!verifyPassword(password || '', row.password_hash)) {
-    const crossedThreshold = recordLoginFailure(req.ip, username);
+  if (!verifyPassword(loginPassword, row.password_hash)) {
+    const crossedThreshold = recordLoginFailure(req.ip, loginName);
     if (crossedThreshold) {
       audit({ actor_id: row.id, action: 'login_lockout', detail: 'failed-attempt threshold reached for this account' });
+    }
+    if (accountBlocked) {
+      res.setHeader('Retry-After', String(blocked.retryAfter));
+      return fail(res, 429, blocked.message, { code: 'throttled' });
     }
     return fail(res, 401, 'Username or password is incorrect.');
   }
 
-  recordLoginSuccess(req.ip, username);
-  const { token, expires } = createSession(db, row.id, { ip: req.ip, userAgent: req.get('user-agent') });
-  audit({ actor_id: row.id, action: 'login', unit_id: primaryAssignment(db, row.id)?.unit_id || null });
-  // Session cookie on purpose (finding 3): no Expires/Max-Age, so closing the
-  // browser on a shared workstation ends authentication. The server enforces
-  // the inactivity and absolute deadlines regardless.
-  res.cookie('vantage_session', token, {
-    httpOnly: true,
-    sameSite: 'strict',
-    secure: PRODUCTION || req.secure,
-  });
-  // A presence marker the SPA is allowed to read. It carries no credential —
-  // it only tells a fresh page load whether asking /api/me is worth a round
-  // trip, so a signed-out browser doesn't log a 401 probe on every visit.
-  res.cookie('vantage_signed_in', '1', {
-    httpOnly: false,
-    sameSite: 'strict',
-    secure: PRODUCTION || req.secure,
-  });
-  res.json({ token, expires });
+  recordLoginSuccess(req.ip, loginName);
+  return finishSignIn(req, res, row);
+});
+
+/**
+ * Disabled-by-default CAC/PIV adapter for an approved mTLS reverse proxy.
+ * Vantage never accepts a browser-asserted identity header by itself: the
+ * proxy must add a separate high-entropy shared secret from the platform's
+ * secret store and an explicit certificate-verification result.
+ */
+app.post('/api/auth/cac-piv', (req, res) => {
+  if (!config.auth.cac_piv.enabled) {
+    return fail(res, 404, 'CAC/PIV sign-in is not enabled.', { code: 'cac_piv_disabled' });
+  }
+  if (db.prepare('SELECT COUNT(*) AS n FROM users').get().n === 0) {
+    return fail(res, 409, 'The deployment must be initialized before CAC/PIV accounts can be created.', {
+      code: 'setup_required',
+    });
+  }
+  const proxySecret = String(process.env.VANTAGE_CAC_PROXY_SECRET || '');
+  if (proxySecret.length < 32) {
+    return fail(res, 503, 'CAC/PIV sign-in is not fully configured.', { code: 'cac_piv_unconfigured' });
+  }
+  const suppliedSecret = String(req.get(config.auth.cac_piv.proxy_secret_header) || '');
+  const suppliedDigest = createHash('sha256').update(suppliedSecret).digest();
+  const expectedDigest = createHash('sha256').update(proxySecret).digest();
+  if (!timingSafeEqual(suppliedDigest, expectedDigest)) {
+    return fail(res, 401, 'CAC/PIV assertion was not issued by the trusted proxy.', { code: 'cac_piv_untrusted' });
+  }
+  const verified = String(req.get(config.auth.cac_piv.verification_header) || '').toLowerCase();
+  if (verified !== String(config.auth.cac_piv.verification_value).toLowerCase()) {
+    return fail(res, 401, 'The client certificate was not verified.', { code: 'cac_piv_unverified' });
+  }
+
+  const subject = String(req.get(config.auth.cac_piv.subject_header) || '').trim();
+  const username = normalizeUsername(req.get(config.auth.cac_piv.username_header));
+  const firstName = String(req.get(config.auth.cac_piv.first_name_header) || '').trim();
+  const lastName = String(req.get(config.auth.cac_piv.last_name_header) || '').trim();
+  if (!subject || subject.length > 512 || !username || !firstName || !lastName) {
+    return fail(res, 400, 'The trusted proxy did not supply a complete CAC/PIV identity.', { code: 'cac_piv_incomplete' });
+  }
+
+  let row = db.prepare('SELECT * FROM users WHERE cac_subject = ? AND active = 1').get(subject);
+  if (!row) {
+    if (db.prepare('SELECT 1 FROM users WHERE username = ? COLLATE NOCASE').get(username)) {
+      return fail(res, 409, 'This CAC/PIV identity must be linked to the existing account by an operator.', {
+        code: 'cac_piv_link_required',
+      });
+    }
+    const generatedPassword = randomBytes(48).toString('base64url');
+    const candidate = { username, password: generatedPassword, first_name: firstName, last_name: lastName };
+    const errors = validate(USER_SCHEMA, candidate);
+    if (errors) return failValidation(res, errors.fieldErrors);
+    const id = newId();
+    db.prepare(
+      `INSERT INTO users
+        (id, username, password_hash, cac_subject, last_name, first_name,
+         must_change_password, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, 0, ?, ?)`
+    ).run(id, username, hashPassword(generatedPassword), subject, lastName, firstName, now(), now());
+    audit({ actor_id: id, action: 'cac_account_created', entity: 'user', entity_id: id, subject_id: id });
+    row = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
+  }
+
+  return finishSignIn(req, res, row, 'cac_login');
 });
 
 app.post('/api/logout', auth, (req, res) => {
@@ -364,10 +616,36 @@ app.get('/api/me', auth, (req, res) => {
     positions: scope.positions,
     topPosition: scope.topPosition,
     isOperator: isInstanceOperator(req.user) || isBootstrapOperator(db, req.user),
+    deploymentMode: DEPLOYMENT_MODE,
     manageableUnits: unitsWith(db, req.user, PERMISSIONS.MANAGE_UNITS),
     // Breadcrumb only. `chain` here is the org-chart path drawn for the user's
     // own unit; it grants nothing and is computed from the display module.
     chain: scope.unitIds.length ? ancestorChain(db, scope.unitIds[0]) : [],
+  });
+});
+
+app.post('/api/experience', auth, (req, res) => {
+  if (!config.experience_metrics.enabled) return res.status(204).end();
+  const event = String(req.body?.event || '');
+  if (!EXPERIENCE_EVENTS.has(event)) {
+    return fail(res, 400, 'Unknown experience event.', { code: 'invalid_experience_event' });
+  }
+  recordExperience(db, event);
+  return res.status(204).end();
+});
+
+app.get('/api/admin/experience', auth, operatorGate(db), (req, res) => {
+  const days = Math.min(Math.max(Number(req.query.days) || 30, 1), 3650);
+  const rows = db.prepare(
+    `SELECT day, event, count FROM ux_daily_metrics
+      WHERE day >= date('now', ?) ORDER BY day DESC, event`
+  ).all(`-${days - 1} days`);
+  res.json({
+    mode: config.experience_metrics.mode,
+    enabled: config.experience_metrics.enabled,
+    days,
+    rows,
+    privacy: 'Aggregate event counts only; no user, session, IP, record, filename, or free text.',
   });
 });
 
@@ -384,7 +662,10 @@ app.post('/api/me/password', auth, (req, res) => {
   }
   const err = USER_SCHEMA.password(new_password);
   if (err) return failValidation(res, { new_password: err });
-  db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(
+  if (String(current_password) === String(new_password)) {
+    return failValidation(res, { new_password: 'Choose a different password.' });
+  }
+  db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?').run(
     hashPassword(new_password), now(), req.user.id
   );
   const revoked = invalidateUserSessions(db, req.user.id, { exceptToken: req.token });
@@ -404,7 +685,7 @@ app.post('/api/me/sessions/revoke-others', auth, (req, res) => {
 });
 
 app.delete('/api/me/sessions/:sid', auth, (req, res) => {
-  const isCurrent = req.token.startsWith(req.params.sid);
+  const isCurrent = sessionIdForToken(req.token) === req.params.sid;
   const n = revokeSessionByPrefix(db, req.user.id, req.params.sid);
   if (!n) return fail(res, 404, 'No such session.');
   audit({ actor_id: req.user.id, action: 'revoke_sessions', detail: 'one own session' });
@@ -418,11 +699,25 @@ app.delete('/api/me/sessions/:sid', auth, (req, res) => {
 /* ── org reference ────────────────────────────────────────────────── */
 
 app.get('/api/org', auth, (req, res) => {
+  const mine = memberUnitIds(db, req.user.id);
+  const operator = isInstanceOperator(req.user) || isBootstrapOperator(db, req.user);
+  // Ordinary users receive only the units they belong to plus the descriptive
+  // ancestors needed to draw a breadcrumb. The Instance Operator may see the
+  // unit directory for recovery/claiming, but receives no unit permissions.
+  const displayIds = operator
+    ? db.prepare('SELECT id FROM units WHERE active = 1').all().map((r) => r.id)
+    : ancestorIds(db, mine);
+  const units = displayIds.length
+    ? db.prepare(`SELECT * FROM units WHERE active = 1 AND id IN (${displayIds.map(() => '?').join(',')}) ORDER BY echelon, name`).all(...displayIds)
+    : [];
+  const roles = mine.length
+    ? db.prepare(`SELECT * FROM roles WHERE unit_id IN (${mine.map(() => '?').join(',')}) ORDER BY position DESC, name`).all(...mine)
+    : [];
   res.json({
     ranks: db.prepare('SELECT * FROM ranks ORDER BY sort').all(),
     billets: db.prepare('SELECT * FROM billets WHERE active = 1 ORDER BY category, title').all(),
-    units: db.prepare('SELECT * FROM units WHERE active = 1 ORDER BY echelon, name').all(),
-    roles: db.prepare('SELECT * FROM roles ORDER BY position DESC, name').all(),
+    units,
+    roles,
     permissionCatalogue: PERMISSION_LIST.map((p) => ({ ...p, bit: PERMISSIONS[p.key] })),
   });
 });
@@ -444,9 +739,8 @@ app.get('/api/org/templates', auth, (req, res) => {
  * Now: parent_id is optional and purely descriptive. Creating a SUB-unit of a
  * unit you manage still requires MANAGE_UNITS there — not because the tree
  * conveys authority, but because naming your unit as someone's parent is a
- * claim about their org chart. Creating a top-level unit requires no existing
- * standing at all in Phase 1; Phase 2 gates it on a unit-creation invite
- * (finding 7), which is the piece that keeps creation from being unlimited.
+ * claim about their org chart. Creating a top-level organization is an
+ * Instance Operator action until an approved invitation workflow exists.
  *
  * The creator becomes the Unit Owner, is enrolled as a member, receives the
  * copied Owner role, and gets a unit-local copy of the chosen template.
@@ -470,6 +764,13 @@ app.post('/api/org/units', auth, (req, res) => {
     if (!can(db, req.user, PERMISSIONS.MANAGE_UNITS, parent_id)) {
       return fail(res, 403, 'You cannot create units under that parent.');
     }
+  } else if (!isInstanceOperator(req.user) && !isBootstrapOperator(db, req.user)) {
+    return fail(
+      res,
+      403,
+      'Creating a new top-level organization is restricted to the Instance Operator.',
+      { code: 'not_operator' }
+    );
   }
 
   // Codes are stable keys; generate one when the user doesn't supply it.
@@ -477,24 +778,65 @@ app.post('/api/org/units', auth, (req, res) => {
   if (!id) return fail(res, 400, 'That name produces an empty unit code.');
 
   try {
-    db.prepare(
-      `INSERT INTO units (id, code, name, short_name, echelon, location, parent_id, level, created_at)
-       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-    ).run(id, id, name, short_name || null, echelon || 'section', location || null, parent_id || null, level || 'L4', now());
-    claimUnit(id, req.user.id, template_id || DEFAULT_TEMPLATE_ID);
-    audit({ actor_id: req.user.id, action: 'create_unit', entity: 'unit', entity_id: id, unit_id: id, detail: name });
-    res.json(db.prepare('SELECT * FROM units WHERE id = ?').get(id));
+    const created = db.transaction(() => {
+      db.prepare(
+        `INSERT INTO units (id, code, name, short_name, echelon, location, parent_id, level, created_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(
+        id, id, name.trim(), short_name?.trim() || null, echelon || 'section',
+        location?.trim() || null, parent_id || null, level || 'L4', now()
+      );
+      claimUnit(id, req.user.id, template_id || DEFAULT_TEMPLATE_ID);
+      audit({ actor_id: req.user.id, action: 'create_unit', entity: 'unit', entity_id: id, unit_id: id, detail: name.trim() });
+      return db.prepare('SELECT * FROM units WHERE id = ?').get(id);
+    })();
+    res.json(created);
   } catch (err) {
-    fail(res, 400, err.message.includes('UNIQUE') ? 'That unit code already exists.' : err.message);
+    if (String(err.message).includes('UNIQUE')) return fail(res, 400, 'That unit code already exists.');
+    console.error('Unit creation failed:', err);
+    fail(res, 500, 'The unit could not be created. No changes were saved.');
   }
 });
 
 app.put('/api/org/units/:unitId', auth, needs(PERMISSIONS.MANAGE_UNITS, (r) => r.params.unitId), (req, res) => {
-  const { name, short_name, echelon, location } = req.body || {};
+  const { name, short_name, echelon, location, parent_id, level } = req.body || {};
   const unit = db.prepare('SELECT * FROM units WHERE id = ?').get(req.params.unitId);
   if (!unit) return fail(res, 404, 'No such unit.');
-  db.prepare('UPDATE units SET name = ?, short_name = ?, echelon = ?, location = ? WHERE id = ?').run(
-    name ?? unit.name, short_name ?? unit.short_name, echelon ?? unit.echelon, location ?? unit.location,
+  const fieldErrors = {};
+  if (name !== undefined && (typeof name !== 'string' || !name.trim())) fieldErrors.name = 'Required.';
+  else if (name?.length > 120) fieldErrors.name = 'Too long (limit 120 characters).';
+  if (short_name !== undefined && short_name !== null && (typeof short_name !== 'string' || short_name.length > 40)) fieldErrors.short_name = 'Too long (limit 40 characters).';
+  if (location !== undefined && location !== null && (typeof location !== 'string' || location.length > 120)) fieldErrors.location = 'Too long (limit 120 characters).';
+  if (echelon !== undefined && (typeof echelon !== 'string' || !echelon.trim() || echelon.length > 40)) fieldErrors.echelon = 'Required (limit 40 characters).';
+  if (level !== undefined && !LEVELS.includes(level)) fieldErrors.level = `Choose one of ${LEVELS.join(', ')}.`;
+  if (Object.keys(fieldErrors).length) return failValidation(res, fieldErrors);
+
+  const finalParent = parent_id === undefined ? unit.parent_id : (parent_id || null);
+  if (parent_id !== undefined && finalParent !== unit.parent_id) {
+    const operator = isInstanceOperator(req.user) || isBootstrapOperator(db, req.user);
+    if (!finalParent && !operator) {
+      return fail(res, 403, 'Only the Instance Operator can detach a unit into a new top-level organization.');
+    }
+    if (finalParent) {
+      if (!db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(finalParent)) {
+        return failValidation(res, { parent_id: 'No such active parent unit.' });
+      }
+      if (!operator && !can(db, req.user, PERMISSIONS.MANAGE_UNITS, finalParent)) {
+        return fail(res, 403, 'You cannot move a unit under a parent you do not manage.');
+      }
+      if (wouldCycle(db, unit.id, finalParent)) {
+        return failValidation(res, { parent_id: 'A unit cannot be placed beneath itself or one of its descendants.' });
+      }
+    }
+  }
+
+  db.prepare('UPDATE units SET name = ?, short_name = ?, echelon = ?, location = ?, parent_id = ?, level = ? WHERE id = ?').run(
+    name === undefined ? unit.name : name.trim(),
+    short_name === undefined ? unit.short_name : (short_name?.trim() || null),
+    echelon === undefined ? unit.echelon : echelon.trim(),
+    location === undefined ? unit.location : (location?.trim() || null),
+    finalParent,
+    level === undefined ? unit.level : level,
     req.params.unitId
   );
   audit({ actor_id: req.user.id, action: 'edit_unit', entity: 'unit', entity_id: req.params.unitId, unit_id: req.params.unitId });
@@ -505,9 +847,20 @@ app.put('/api/org/units/:unitId', auth, needs(PERMISSIONS.MANAGE_UNITS, (r) => r
 app.delete('/api/org/units/:unitId', auth, needs(PERMISSIONS.MANAGE_UNITS, (r) => r.params.unitId), (req, res) => {
   const children = db.prepare('SELECT COUNT(*) AS n FROM units WHERE parent_id = ? AND active = 1').get(req.params.unitId).n;
   if (children) return fail(res, 400, 'That unit still has sub-units. Move or archive those first.');
-  const members = db.prepare('SELECT COUNT(*) AS n FROM assignments WHERE unit_id = ?').get(req.params.unitId).n;
-  if (members) return fail(res, 400, 'Marines are still assigned to that unit.');
-  db.prepare('UPDATE units SET active = 0 WHERE id = ?').run(req.params.unitId);
+  const members = db.prepare(
+    `SELECT user_id FROM unit_members
+      WHERE unit_id = ? AND (expires_at IS NULL OR expires_at > datetime('now'))`
+  ).all(req.params.unitId);
+  const ownerClosingOwnEmptyUnit = members.length === 1
+    && members[0].user_id === req.user.id
+    && isUnitOwner(db, req.user.id, req.params.unitId);
+  if (members.length && !ownerClosingOwnEmptyUnit) {
+    return fail(res, 400, 'Marines still belong to that unit. Remove or transfer the memberships first.');
+  }
+  db.transaction(() => {
+    if (ownerClosingOwnEmptyUnit) removeMember(req.user.id, req.params.unitId);
+    db.prepare('UPDATE units SET active = 0, owner_user_id = NULL WHERE id = ?').run(req.params.unitId);
+  })();
   audit({ actor_id: req.user.id, action: 'archive_unit', entity: 'unit', entity_id: req.params.unitId, unit_id: req.params.unitId });
   res.json({ ok: true });
 });
@@ -546,6 +899,46 @@ app.post('/api/org/units/:unitId/claim', auth, operatorGate(db), (req, res) => {
   res.json(db.prepare('SELECT * FROM units WHERE id = ?').get(unit.id));
 });
 
+/** Explicit owner succession; required before removing or deactivating an owner. */
+app.post('/api/org/units/:unitId/owner', auth, (req, res) => {
+  const unitId = req.params.unitId;
+  const successorId = req.body?.user_id;
+  const unit = db.prepare('SELECT * FROM units WHERE id = ? AND active = 1').get(unitId);
+  if (!unit) return fail(res, 404, 'No such unit.');
+  const operator = isInstanceOperator(req.user) || isBootstrapOperator(db, req.user);
+  if (!operator && !isUnitOwner(db, req.user.id, unitId)) {
+    return fail(res, 403, 'Only the current Unit Owner or Instance Operator can transfer ownership.');
+  }
+  const successor = db.prepare(
+    `SELECT u.* FROM users u JOIN unit_members um ON um.user_id = u.id
+      WHERE u.id = ? AND u.active = 1 AND um.unit_id = ?
+        AND (um.expires_at IS NULL OR um.expires_at > datetime('now'))`
+  ).get(successorId, unitId);
+  if (!successor) return failValidation(res, { user_id: 'Choose an active current member of this exact unit.' });
+  if (successor.id === unit.owner_user_id) return res.json({ ok: true, already: true });
+
+  let revokedAdminGrants = 0;
+  db.transaction(() => {
+    db.prepare('UPDATE units SET owner_user_id = ? WHERE id = ?').run(successor.id, unitId);
+    db.prepare("UPDATE unit_members SET kind = 'member' WHERE user_id = ? AND unit_id = ?").run(unit.owner_user_id, unitId);
+    db.prepare("UPDATE unit_members SET kind = 'owner', expires_at = NULL WHERE user_id = ? AND unit_id = ?").run(successor.id, unitId);
+    if (unit.owner_user_id) {
+      revokedAdminGrants = db.prepare(
+        `DELETE FROM member_roles
+          WHERE user_id = ? AND unit_id = ? AND role_id IN (
+            SELECT id FROM roles WHERE unit_id = ? AND (permissions & ?) <> 0
+          )`
+      ).run(unit.owner_user_id, unitId, unitId, PERMISSIONS.ADMINISTRATOR).changes;
+    }
+  })();
+  audit({
+    actor_id: req.user.id, action: 'transfer_ownership', entity: 'unit', entity_id: unitId,
+    subject_id: successor.id, unit_id: unitId,
+    detail: `${unit.owner_user_id || 'unowned'} → ${successor.id}; former-owner administrator grants revoked: ${revokedAdminGrants}`,
+  });
+  res.json({ ok: true, unit_id: unitId, owner_user_id: successor.id, revokedAdminGrants });
+});
+
 /**
  * Add an existing account to a unit (findings 8 and 9).
  *
@@ -573,8 +966,22 @@ app.post('/api/org/units/:unitId/members', auth, (req, res) => {
     // misleading label, so the expiry is required rather than defaulted.
     return failValidation(res, { expires_at: 'A guest membership needs an expiry date.' });
   }
+  if (kind === 'guest' && (!Number.isFinite(Date.parse(expires_at)) || Date.parse(expires_at) <= Date.now())) {
+    return failValidation(res, { expires_at: 'Choose a valid future expiry date.' });
+  }
+  const maxGuestDays = config.limits.max_guest_days;
+  const expiryMs = kind === 'guest' ? Date.parse(expires_at) : null;
+  if (kind === 'guest' && expiryMs > Date.now() + maxGuestDays * 86_400_000) {
+    return failValidation(res, { expires_at: `Guest access is limited to ${maxGuestDays} days per approval.` });
+  }
+  const effectiveExpiry = kind === 'guest' ? new Date(expiryMs).toISOString() : null;
   const target = db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(user_id);
   if (!target) return failValidation(res, { user_id: 'No such active account.' });
+  if (user_id === req.user.id) {
+    return fail(res, 403, 'A second authorized person must change your unit membership or guest expiry.', {
+      code: 'self_membership_change',
+    });
+  }
 
   if (!isUnitOwner(db, req.user.id, unitId) && !can(db, req.user, PERMISSIONS.MANAGE_MEMBERS, unitId)) {
     return fail(res, 403, 'You cannot add members to that unit.');
@@ -589,10 +996,22 @@ app.post('/api/org/units/:unitId/members', auth, (req, res) => {
     if (role.unit_id !== unitId) {
       return fail(res, 403, 'That role belongs to another unit.', { code: 'scope' });
     }
+  } else {
+    role = db.prepare('SELECT * FROM roles WHERE unit_id = ? AND is_default = 1 LIMIT 1').get(unitId) || null;
   }
 
   db.transaction(() => {
-    addMember(user_id, unitId, { kind, invitedBy: req.user.id, expiresAt: expires_at || null });
+    addMember(user_id, unitId, { kind, invitedBy: req.user.id, expiresAt: effectiveExpiry });
+    // Attaching an otherwise-unassigned identity is the moment it gains a
+    // primary unit. Without this row a later transfer could not name the unit
+    // it is leaving, which would let a destination owner pull the person out
+    // without source-unit approval. Guest access stays collateral-only.
+    if (kind === 'member' && !primaryAssignment(db, user_id)) {
+      db.prepare(
+        `INSERT INTO assignments (id, user_id, unit_id, role, is_primary, start_date, created_at)
+         VALUES (?, ?, ?, '', 1, ?, ?)`
+      ).run(newId(), user_id, unitId, now().slice(0, 10), now());
+    }
     if (role) {
       const verdict = validateRoleGrant(db, req.user, role, unitId, target);
       if (!verdict.ok) throw Object.assign(new Error(verdict.message), { verdict });
@@ -603,9 +1022,9 @@ app.post('/api/org/units/:unitId/members', auth, (req, res) => {
   audit({
     actor_id: req.user.id, action: 'add_member', entity: 'unit', entity_id: unitId,
     subject_id: user_id, unit_id: unitId,
-    detail: `${kind}${expires_at ? ` until ${expires_at}` : ''}${role ? ` as ${role.name}` : ''}`,
+    detail: `${kind}${effectiveExpiry ? ` until ${effectiveExpiry}` : ''}${role ? ` as ${role.name}` : ''}`,
   });
-  res.json({ ok: true, unit_id: unitId, user_id, kind, expires_at: expires_at || null });
+  res.json({ ok: true, unit_id: unitId, user_id, kind, expires_at: effectiveExpiry });
 });
 
 /**
@@ -619,6 +1038,9 @@ app.post('/api/org/units/:unitId/members', auth, (req, res) => {
 app.delete('/api/org/units/:unitId/members/:userId', auth, (req, res) => {
   const { unitId, userId } = req.params;
   if (!db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(unitId)) return fail(res, 404, 'No such unit.');
+  if (!db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, unitId)) {
+    return fail(res, 404, 'That Marine is not a member of this unit.');
+  }
   if (!isUnitOwner(db, req.user.id, unitId) && !can(db, req.user, PERMISSIONS.MANAGE_MEMBERS, unitId)) {
     return fail(res, 403, 'You cannot remove members from that unit.');
   }
@@ -627,12 +1049,21 @@ app.delete('/api/org/units/:unitId/members/:userId', auth, (req, res) => {
   if (isUnitOwner(db, userId, unitId)) {
     return fail(res, 400, 'That Marine owns this unit. Transfer ownership before removing them.', { code: 'last_owner' });
   }
-  removeMember(userId, unitId);
+  const target = db.prepare('SELECT * FROM users WHERE id = ?').get(userId);
+  if (userId !== req.user.id && !isUnitOwner(db, req.user.id, unitId)
+      && positionIn(db, target, unitId) >= positionIn(db, req.user, unitId)) {
+    return fail(res, 403, 'You cannot remove a Marine whose role is at or above your own.', { code: 'hierarchy' });
+  }
+  const removed = removeMember(userId, unitId);
+  // Unit authorization is evaluated live on every request; do not turn a
+  // unit-local operation into account-wide session control.
+  const sessionsRevoked = 0;
   audit({
     actor_id: req.user.id, action: 'remove_member', entity: 'unit', entity_id: unitId,
     subject_id: userId, unit_id: unitId,
+    detail: `roles: ${removed.roles}; assignments ended: ${removed.assignments}; records frozen: ${removed.recordsFrozen}`,
   });
-  res.json({ ok: true });
+  res.json({ ok: true, ...removed, sessionsRevoked });
 });
 
 /* ── roles ────────────────────────────────────────────────────────── */
@@ -742,7 +1173,7 @@ app.delete('/api/roles/:roleId', auth, (req, res) => {
   if (role.unit_id && isUnitOwner(db, req.user.id, role.unit_id) === false && (role.permissions & PERMISSIONS.ADMINISTRATOR)) {
     return fail(res, 403, 'Only the unit owner can delete an administrator role.');
   }
-  db.prepare('DELETE FROM member_roles WHERE role_id = ?').run(req.params.roleId);
+  db.prepare('DELETE FROM member_roles WHERE role_id = ? AND unit_id = ?').run(req.params.roleId, role.unit_id);
   db.prepare('DELETE FROM roles WHERE id = ?').run(req.params.roleId);
   audit({ actor_id: req.user.id, action: 'delete_role', entity: 'role', entity_id: req.params.roleId, unit_id: role.unit_id, detail: role.name });
   res.json({ ok: true });
@@ -786,7 +1217,7 @@ app.delete('/api/team/:id/roles/:roleId', auth, (req, res) => {
   res.json({ ok: true });
 });
 
-app.post('/api/org/billets', auth, requireAdmin, (req, res) => {
+app.post('/api/org/billets', auth, operatorGate(db), (req, res) => {
   const { title, category, echelon, default_role } = req.body || {};
   if (!title) return fail(res, 400, 'A billet needs a title.');
   const id = title.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
@@ -795,11 +1226,40 @@ app.post('/api/org/billets', auth, requireAdmin, (req, res) => {
       .run(id, title, category || 'Staff', echelon || 'section', default_role || 'member');
     res.json(db.prepare('SELECT * FROM billets WHERE id = ?').get(id));
   } catch (err) {
-    fail(res, 400, err.message.includes('UNIQUE') ? 'That billet already exists.' : err.message);
+    if (String(err.message).includes('UNIQUE')) return fail(res, 400, 'That billet already exists.');
+    console.error('Billet creation failed:', err);
+    fail(res, 500, 'The billet could not be created.');
   }
 });
 
 /* ── roster and team management ───────────────────────────────────── */
+
+/** Minimal, prefix-only identity lookup for an authorized unit enrollment. */
+app.get('/api/directory', auth, (req, res) => {
+  const unitId = String(req.query.unit_id || '');
+  const query = normalizeUsername(req.query.q).slice(0, 40);
+  if (!unitId) return fail(res, 400, 'A destination unit is required.');
+  if (!isUnitOwner(db, req.user.id, unitId) && !can(db, req.user, PERMISSIONS.MANAGE_MEMBERS, unitId)) {
+    return fail(res, 403, 'You cannot enroll members in that unit.');
+  }
+  if (query.length < 2) return failValidation(res, { q: 'Enter at least two characters.' });
+  const escaped = query.replace(/[\\%_]/g, '\\$&');
+  const pattern = `${escaped}%`;
+  const rows = db.prepare(
+    `SELECT u.id, u.username, u.first_name, u.last_name, r.abbr AS rank_abbr
+       FROM users u LEFT JOIN ranks r ON r.id = u.rank_id
+      WHERE u.active = 1
+        AND (u.username LIKE ? ESCAPE '\\' COLLATE NOCASE OR u.last_name LIKE ? ESCAPE '\\' COLLATE NOCASE)
+        AND NOT EXISTS (
+          SELECT 1 FROM unit_members um WHERE um.user_id = u.id AND um.unit_id = ?
+            AND (um.expires_at IS NULL OR um.expires_at > datetime('now'))
+        )
+      ORDER BY CASE WHEN u.username = ? COLLATE NOCASE THEN 0 ELSE 1 END, u.last_name, u.first_name
+      LIMIT 10`
+  ).all(pattern, pattern, unitId, query);
+  audit({ actor_id: req.user.id, action: 'directory_search', entity: 'user', unit_id: unitId, detail: `${rows.length} result(s)` });
+  res.json({ results: rows });
+});
 
 const rosterQuery = `
   SELECT u.id, u.username, u.first_name, u.last_name, u.middle_initial, u.mos, u.email, u.eas,
@@ -816,16 +1276,18 @@ const rosterQuery = `
    WHERE u.active = 1 AND u.id IN (%IDS%)
    ORDER BY r.sort DESC, u.last_name`;
 
-const rolesForUsers = (ids) => {
-  if (!ids.length) return new Map();
+const rolesForUsers = (ids, allowedUnitIds) => {
+  if (!ids.length || !allowedUnitIds.length) return new Map();
   const rows = db
     .prepare(
       `SELECT mr.user_id, mr.unit_id, r.id, r.name, r.color, r.position, r.permissions
          FROM member_roles mr JOIN roles r ON r.id = mr.role_id
         WHERE mr.user_id IN (${ids.map(() => '?').join(',')})
+          AND r.unit_id = mr.unit_id
+          AND mr.unit_id IN (${allowedUnitIds.map(() => '?').join(',')})
         ORDER BY r.position DESC`
     )
-    .all(...ids);
+    .all(...ids, ...allowedUnitIds);
   const map = new Map();
   for (const row of rows) {
     if (!map.has(row.user_id)) map.set(row.user_id, []);
@@ -837,9 +1299,41 @@ const rolesForUsers = (ids) => {
 app.get('/api/team', auth, (req, res) => {
   const ids = visibleUserIds(db, req.user);
   const rows = db.prepare(rosterQuery.replace('%IDS%', ids.map(() => '?').join(','))).all(...ids);
-  const roleMap = rolesForUsers(ids);
-  for (const row of rows) row.roles = roleMap.get(row.id) || [];
   const scope = resolveScope(db, req.user);
+  const allowedUnits = scope.scopeUnitIds;
+  const allowedSet = new Set(allowedUnits);
+  const sharedAssignment = allowedUnits.length
+    ? db.prepare(
+      `SELECT um.unit_id, u.name AS unit_name, u.short_name AS unit_short,
+              u.code AS unit_code, u.echelon AS unit_echelon,
+              a.is_primary, a.start_date, b.title AS billet_title, b.category AS billet_category
+         FROM unit_members um JOIN units u ON u.id = um.unit_id
+         LEFT JOIN assignments a ON a.user_id = um.user_id AND a.unit_id = um.unit_id
+           AND (a.end_date IS NULL OR a.end_date > date('now'))
+         LEFT JOIN billets b ON b.id = a.billet_id
+        WHERE um.user_id = ? AND um.unit_id IN (${allowedUnits.map(() => '?').join(',')})
+          AND (um.expires_at IS NULL OR um.expires_at > datetime('now'))
+        ORDER BY a.is_primary DESC, a.start_date DESC LIMIT 1`
+    )
+    : null;
+  const roleMap = rolesForUsers(ids, allowedUnits);
+  for (const row of rows) {
+    row.roles = roleMap.get(row.id) || [];
+    if (row.id === req.user.id) continue;
+    if (!row.unit_id || !allowedSet.has(row.unit_id)) {
+      const shared = sharedAssignment?.get(row.id, ...allowedUnits) || null;
+      for (const key of [
+        'role', 'is_primary', 'unit_id', 'start_date', 'billet_title', 'billet_category',
+        'unit_name', 'unit_short', 'unit_code', 'unit_echelon',
+      ]) row[key] = shared?.[key] ?? null;
+    }
+    // The list is a minimal shared-unit projection. Full profile fields live
+    // behind the separately authorized and audited member-detail route.
+    row.username = null;
+    row.email = null;
+    row.eas = null;
+    row.is_admin = null;
+  }
   if (rows.length > 1) {
     audit({ actor_id: req.user.id, action: 'view_roster', detail: `${rows.length} personnel` });
   }
@@ -850,48 +1344,78 @@ app.get('/api/team', auth, (req, res) => {
     canManageMembers: unitsWith(db, req.user, PERMISSIONS.MANAGE_MEMBERS),
     canManageRoles: unitsWith(db, req.user, PERMISSIONS.MANAGE_ROLES),
     canManageUnits: unitsWith(db, req.user, PERMISSIONS.MANAGE_UNITS),
+    canCreateAccounts: isInstanceOperator(req.user) || isBootstrapOperator(db, req.user),
   });
 });
 
+/** Units in which this actor may open this specific Marine's detail. */
+const memberDetailUnitIds = (actor, targetId) =>
+  memberUnitIds(db, targetId)
+    .filter((unitId) => can(db, actor, PERMISSIONS.VIEW_MEMBER_DETAIL, unitId))
+    // A grant to coach subordinates is not a grant to read a peer or a senior's
+    // personnel record. Position is compared inside the same sovereign unit;
+    // the unit boundary is still the first and controlling gate.
+    .filter((unitId) => positionIn(db, actor, unitId) > positionIn(db, { id: targetId }, unitId));
+
 /** One Marine's full record. Every read of somebody else's is logged. */
 app.get('/api/team/:id', auth, (req, res) => {
-  const allowed = visibleUserIds(db, req.user);
-  if (!allowed.includes(req.params.id)) return fail(res, 403, 'That Marine is outside your chain.');
-
-  // Being able to see someone on a roster is not the same as being able to open
-  // their record. A Training NCO tracking PME across a section has the first
-  // without the second.
-  const theirUnit = db
-    .prepare('SELECT unit_id FROM assignments WHERE user_id = ? AND is_primary = 1')
-    .get(req.params.id)?.unit_id;
-  if (req.params.id !== req.user.id) {
-    if (!theirUnit || !can(db, req.user, PERMISSIONS.VIEW_MEMBER_DETAIL, theirUnit)) {
-      return fail(res, 403, 'You can see this Marine on the roster but not open their record.');
-    }
+  const isSelf = req.params.id === req.user.id;
+  const detailUnits = isSelf ? memberUnitIds(db, req.user.id) : memberDetailUnitIds(req.user, req.params.id);
+  if (!isSelf && !detailUnits.length) {
+    return fail(res, 403, 'You can see this Marine on a roster but cannot open their record in any shared unit.');
   }
 
   const person = db.prepare(rosterQuery.replace('%IDS%', '?')).get(req.params.id);
   if (!person) return fail(res, 404, 'No such Marine.');
 
+  // A person can serve in several sovereign units. The primary assignment may
+  // be in one the viewer cannot access, so never let that unrelated unit ride
+  // along in the shared profile header.
+  if (!isSelf && person.unit_id && !detailUnits.includes(person.unit_id)) {
+    for (const key of [
+      'role', 'is_primary', 'unit_id', 'start_date', 'billet_title', 'billet_category',
+      'unit_name', 'unit_short', 'unit_code', 'unit_echelon',
+    ]) person[key] = null;
+  }
+
   // Viewing your own record shows everything. Viewing someone else's shows only
   // what they chose to share — the generic list endpoints already enforce this,
   // and an endpoint that reads straight from the table would quietly undo it.
-  const isSelf = req.params.id === req.user.id;
-  const scoped = (table) =>
-    db
+  const scoped = (table) => {
+    const unitClause = isSelf
+      ? ''
+      : `AND visibility = 'unit' AND unit_id IN (${detailUnits.map(() => '?').join(',')})`;
+    return db
       .prepare(
         `SELECT * FROM ${table}
-          WHERE user_id = ? AND deleted_at IS NULL
-            ${isSelf ? '' : "AND visibility <> 'private'"}
+          WHERE user_id = ? AND deleted_at IS NULL ${unitClause}
           ORDER BY date DESC`
       )
-      .all(req.params.id);
+      .all(req.params.id, ...(isSelf ? [] : detailUnits));
+  };
 
   if (req.params.id !== req.user.id) {
     audit({
       actor_id: req.user.id, action: 'view_member', entity: 'user',
-      entity_id: req.params.id, subject_id: req.params.id, unit_id: theirUnit || null,
+      entity_id: req.params.id, subject_id: req.params.id, unit_id: detailUnits[0] || null,
     });
+  }
+
+  let memberGoals;
+  if (isSelf) {
+    const mine = memberUnitIds(db, req.user.id);
+    const assigned = mine.length
+      ? `OR (assignee_id = ? AND visibility = 'unit' AND unit_id IN (${mine.map(() => '?').join(',')}))`
+      : '';
+    memberGoals = db.prepare(
+      `SELECT * FROM goals WHERE deleted_at IS NULL AND (user_id = ? ${assigned})`
+    ).all(req.params.id, ...(mine.length ? [req.params.id, ...mine] : []));
+  } else {
+    memberGoals = db.prepare(
+      `SELECT * FROM goals
+        WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL
+          AND visibility = 'unit' AND unit_id IN (${detailUnits.map(() => '?').join(',')})`
+    ).all(req.params.id, req.params.id, ...detailUnits);
   }
 
   res.json({
@@ -899,29 +1423,36 @@ app.get('/api/team/:id', auth, (req, res) => {
     roles: db.prepare(
       `SELECT mr.unit_id, r.id, r.name, r.color, r.position, r.permissions
          FROM member_roles mr JOIN roles r ON r.id = mr.role_id
-        WHERE mr.user_id = ? ORDER BY r.position DESC`
-    ).all(req.params.id),
+        WHERE mr.user_id = ?
+          AND r.unit_id = mr.unit_id
+          ${isSelf ? '' : `AND mr.unit_id IN (${detailUnits.map(() => '?').join(',')})`}
+        ORDER BY r.position DESC`
+    ).all(req.params.id, ...(isSelf ? [] : detailUnits)),
     assignments: db.prepare(
       `SELECT a.*, u.name AS unit_name, u.short_name AS unit_short, b.title AS billet_title
          FROM assignments a JOIN units u ON u.id = a.unit_id
          LEFT JOIN billets b ON b.id = a.billet_id
-        WHERE a.user_id = ?`
-    ).all(req.params.id),
+        WHERE a.user_id = ?
+          ${isSelf ? '' : `AND a.unit_id IN (${detailUnits.map(() => '?').join(',')})`}`
+    ).all(req.params.id, ...(isSelf ? [] : detailUnits)),
+    memberships: db.prepare(
+      `SELECT um.unit_id, um.kind, um.joined_at, um.expires_at,
+              u.name AS unit_name, u.short_name AS unit_short
+         FROM unit_members um JOIN units u ON u.id = um.unit_id
+        WHERE um.user_id = ? AND u.active = 1
+          AND (um.expires_at IS NULL OR um.expires_at > datetime('now'))
+          ${isSelf ? '' : `AND um.unit_id IN (${detailUnits.map(() => '?').join(',')})`}
+        ORDER BY um.joined_at`
+    ).all(req.params.id, ...(isSelf ? [] : detailUnits)),
     activities: scoped('activities').map((r) => hydrate(r, TABLES.activities)),
     recognitions: scoped('recognitions'),
     trainings: scoped('trainings'),
-    goals: db
-      .prepare(
-        `SELECT * FROM goals
-          WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL
-            ${isSelf ? '' : "AND visibility <> 'private'"}`
-      )
-      .all(req.params.id, req.params.id),
+    goals: memberGoals,
   });
 });
 
-/** Create a Marine. Leaders create within their scope; admins anywhere. */
-app.post('/api/team', auth, (req, res) => {
+/** Create an instance-global identity. Unit leaders enroll existing identities; only the identity authority creates one. */
+app.post('/api/team', auth, operatorGate(db), (req, res) => {
   const body = req.body || {};
   const { username, password, first_name, last_name, middle_initial, rank_id, mos, email, eas,
     unit_id, billet_id, role, role_id } = body;
@@ -956,10 +1487,12 @@ app.post('/api/team', auth, (req, res) => {
     const id = newId();
     db.transaction(() => {
       db.prepare(
-        `INSERT INTO users (id, username, password_hash, last_name, first_name, middle_initial, rank_id, mos, email, eas, created_at, updated_at)
-         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
-      ).run(id, username.trim(), hashPassword(password), last_name, first_name, middle_initial || null,
-        rank_id || null, mos || null, email || null, eas || null, now(), now());
+        `INSERT INTO users (id, username, password_hash, last_name, first_name, middle_initial, rank_id, mos, email, eas,
+                           must_change_password, created_at, updated_at)
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+      ).run(id, normalizeUsername(username), hashPassword(password), last_name, first_name, middle_initial || null,
+        rank_id || null, mos || null, email || null, eas || null,
+        process.env.VANTAGE_TEST === '1' ? 0 : 1, now(), now());
 
       // Finding 9, Option A: a billet is an organizational position; permissions
       // come only from role grants. The legacy assignments.role column is no
@@ -984,7 +1517,9 @@ app.post('/api/team', auth, (req, res) => {
     audit({ actor_id: req.user.id, action: 'create_member', entity: 'user', entity_id: id, subject_id: id, unit_id });
     res.json({ id });
   } catch (err) {
-    fail(res, 400, err.message.includes('UNIQUE') ? 'That username is taken.' : err.message);
+    if (String(err.message).includes('UNIQUE')) return fail(res, 400, 'That username is taken.');
+    console.error('Member creation failed:', err);
+    fail(res, 500, 'The account could not be created. No changes were saved.');
   }
 });
 
@@ -1002,19 +1537,19 @@ app.put('/api/team/:id/assignment', auth, (req, res) => {
 
 /* ── account lifecycle (finding 4) ────────────────────────────────── */
 
-app.post('/api/team/:id/deactivate', auth, (req, res) => {
+app.post('/api/team/:id/deactivate', auth, operatorGate(db), (req, res) => {
   const result = deactivateMember(db, req.user, req.params.id);
   if (!result.ok) return denyResult(res, result);
   res.json(result);
 });
 
-app.post('/api/team/:id/reactivate', auth, (req, res) => {
+app.post('/api/team/:id/reactivate', auth, operatorGate(db), (req, res) => {
   const result = reactivateMember(db, req.user, req.params.id);
   if (!result.ok) return denyResult(res, result);
   res.json(result);
 });
 
-app.post('/api/team/:id/password', auth, (req, res) => {
+app.post('/api/team/:id/password', auth, operatorGate(db), (req, res) => {
   const err = USER_SCHEMA.password(req.body?.password);
   if (err) return failValidation(res, { password: err });
   const result = resetMemberPassword(db, req.user, req.params.id, req.body.password);
@@ -1022,7 +1557,7 @@ app.post('/api/team/:id/password', auth, (req, res) => {
   res.json(result);
 });
 
-app.post('/api/team/:id/logout', auth, (req, res) => {
+app.post('/api/team/:id/logout', auth, operatorGate(db), (req, res) => {
   const result = forceLogout(db, req.user, req.params.id);
   if (!result.ok) return denyResult(res, result);
   res.json(result);
@@ -1060,19 +1595,30 @@ app.get('/api/admin/backup', auth, operatorGate(db), async (req, res) => {
   const dest = join(tmpdir(), `vantage-backup-${stamp}-${newId().slice(0, 6)}.db`);
   try {
     await db.backup(dest);
+    chmodSync(dest, 0o600);
     metaSet('last_backup_at', now());
-    audit({ actor_id: req.user.id, action: 'backup', entity: 'database', detail: `backup downloaded (${statSync(dest).size} bytes)` });
+    const backupBytes = statSync(dest).size;
+    db.transaction(() => {
+      audit({ actor_id: req.user.id, action: 'backup', entity: 'database', detail: `backup downloaded (${backupBytes} bytes)` });
+      for (const unit of db.prepare('SELECT id FROM units WHERE active = 1').all()) {
+        audit({
+          actor_id: req.user.id, action: 'backup_included', entity: 'database', unit_id: unit.id,
+          detail: `complete instance backup included this unit (${backupBytes} bytes total)`,
+        });
+      }
+    })();
     res.download(dest, `vantage-backup-${stamp}.db`, () => {
       try { unlinkSync(dest); } catch { /* already gone */ }
     });
   } catch (err) {
     try { unlinkSync(dest); } catch { /* never written */ }
-    fail(res, 500, `Backup failed: ${err.message}`);
+    console.error('Database backup failed:', err);
+    fail(res, 500, 'The database backup could not be created.');
   }
 });
 
 /** Everything one account can reach, with the smells flagged (finding 27). */
-app.get('/api/team/:id/access', auth, (req, res) => {
+app.get('/api/team/:id/access', auth, operatorGate(db), (req, res) => {
   const result = accessReview(db, req.user, req.params.id);
   if (!result.ok) return denyResult(res, result);
   res.json(result);
@@ -1146,16 +1692,15 @@ app.put('/api/readiness', auth, (req, res) => {
 
 /** A leader with VIEW_MEMBER_DETAIL can read a Marine's readiness to coach it. */
 app.get('/api/readiness/:id', auth, (req, res) => {
-  const allowed = visibleUserIds(db, req.user);
-  if (!allowed.includes(req.params.id)) return fail(res, 403, 'Outside your chain.');
-  const theirUnit = db.prepare('SELECT unit_id FROM assignments WHERE user_id = ? AND is_primary = 1').get(req.params.id)?.unit_id;
-  if (req.params.id !== req.user.id && (!theirUnit || !can(db, req.user, PERMISSIONS.VIEW_MEMBER_DETAIL, theirUnit))) {
+  const isSelf = req.params.id === req.user.id;
+  const detailUnits = isSelf ? memberUnitIds(db, req.user.id) : memberDetailUnitIds(req.user, req.params.id);
+  if (!isSelf && !detailUnits.length) {
     return fail(res, 403, 'You cannot open that record.');
   }
-  if (req.params.id !== req.user.id) {
+  if (!isSelf) {
     audit({
       actor_id: req.user.id, action: 'view_readiness', entity: 'user',
-      entity_id: req.params.id, subject_id: req.params.id, unit_id: theirUnit || null,
+      entity_id: req.params.id, subject_id: req.params.id, unit_id: detailUnits[0] || null,
     });
   }
   const row = db
@@ -1282,15 +1827,21 @@ app.get('/api/export', auth, (req, res) => {
 
 for (const [table, spec] of Object.entries(TABLES)) {
   app.get(`/api/${table}`, auth, (req, res) => {
-    const { clause, params } = visibilityClause(db, req.user, { table: 't' });
+    const { clause, params } = visibilityClause(db, req.user, {
+      table: 't',
+      unitMemberReadable: spec.memberReadable === true,
+    });
     const rows = db
       .prepare(`SELECT t.* FROM ${table} t WHERE t.deleted_at IS NULL AND ${clause} ORDER BY t.created_at DESC`)
       .all(...params);
+    auditForeignListReads(req.user, table, rows);
     res.json(rows.map((r) => hydrate(r, spec)));
   });
 
   app.post(`/api/${table}`, auth, (req, res) => {
     const body = req.body || {};
+    const capacity = recordCapacityProblem(req.user.id);
+    if (capacity) return fail(res, 507, capacity, { code: 'record_quota' });
     // Finding 11: the server is the authoritative validator. Reject, don't clamp.
     const errors = validate(RECORD_SCHEMAS[table], body);
     if (errors) return failValidation(res, errors.fieldErrors);
@@ -1312,6 +1863,9 @@ for (const [table, spec] of Object.entries(TABLES)) {
       : (body.unit_id || fallbackUnit);
 
     if (!VISIBILITIES.includes(visibility)) return fail(res, 400, 'Unknown visibility.');
+    if (visibility !== 'personal' && !unitId) {
+      return failValidation(res, { unit_id: 'Private and unit-shared records must belong to a unit.' });
+    }
     if (visibility !== 'private' && !canShareTo(db, req.user, visibility, unitId, spec.shareFlag)) {
       return fail(res, 403, 'You cannot share to that unit.');
     }
@@ -1349,30 +1903,44 @@ for (const [table, spec] of Object.entries(TABLES)) {
     const errors = validate(RECORD_SCHEMAS[table], body, { partial: true });
     if (errors) return failValidation(res, errors.fieldErrors);
 
-    const finalUnit = body.unit_id !== undefined ? body.unit_id : row.unit_id;
-    if (body.unit_id !== undefined && body.unit_id !== row.unit_id && body.unit_id !== null
-        && !unitAllowedForRecord(req.user, body.unit_id, spec.shareFlag)) {
+    const finalVisibility = body.visibility !== undefined ? body.visibility : row.visibility;
+    if (!VISIBILITIES.includes(finalVisibility)) return failValidation(res, { visibility: 'Unknown visibility.' });
+    const requestedUnit = body.unit_id !== undefined ? body.unit_id : row.unit_id;
+    const finalUnit = finalVisibility === 'personal' ? null : requestedUnit;
+    if (finalVisibility !== 'personal' && !finalUnit) {
+      return failValidation(res, { unit_id: 'Private and unit-shared records must belong to a unit.' });
+    }
+    const scopeChanged = finalUnit !== row.unit_id || finalVisibility !== row.visibility;
+    if (row.user_id !== req.user.id && scopeChanged) {
+      return fail(res, 403, 'A record manager may correct content but may not change another Marine’s disclosure scope.', {
+        code: 'scope_owner_only',
+      });
+    }
+    if (scopeChanged && finalUnit && !unitAllowedForRecord(req.user, finalUnit, spec.shareFlag)) {
       return fail(res, 403, 'You are not assigned to that unit and hold no permission there.', {
         code: 'forbidden', fieldErrors: { unit_id: 'Not your unit.' },
       });
     }
-    if ('assignee_id' in RECORD_SCHEMAS[table] && body.assignee_id !== undefined) {
-      const err = assigneeError(req.user, body.assignee_id, finalUnit);
+    if (finalVisibility === 'unit' && !canShareTo(db, req.user, finalVisibility, finalUnit, spec.shareFlag)) {
+      return fail(res, 403, 'You cannot share to that unit.');
+    }
+    if ('assignee_id' in RECORD_SCHEMAS[table] && (body.assignee_id !== undefined || scopeChanged)) {
+      const err = assigneeError(req.user, body.assignee_id ?? row.assignee_id, finalUnit);
       if (err) return failValidation(res, { assignee_id: err });
     }
 
     const sets = ['updated_at = ?', 'version = version + 1'];
     const vals = [now()];
+    if (scopeChanged) {
+      // Scope is an atomic pair. This prevents every mixed representation:
+      // personal+unit, shared+null, or a unit change judged against the old
+      // visibility value.
+      sets.push('visibility = ?', 'unit_id = ?');
+      vals.push(finalVisibility, finalUnit);
+    }
     for (const f of spec.fields) {
       if (body[f] === undefined) continue;
-      if (f === 'visibility' && body[f] === 'personal') {
-        // Moving a record into personal scope detaches it from its unit, in
-        // the same statement, so the row can never be personal-but-in-a-unit.
-        sets.push('unit_id = ?');
-        vals.push(null);
-      } else if (f === 'visibility' && body[f] !== 'private') {
-        if (!canShareTo(db, req.user, body[f], finalUnit, spec.shareFlag)) return fail(res, 403, 'You cannot share to that unit.');
-      }
+      if (f === 'visibility' || f === 'unit_id') continue;
       sets.push(`${f} = ?`);
       vals.push(spec.json.includes(f) ? JSON.stringify(body[f] ?? []) : body[f]);
     }
@@ -1402,9 +1970,11 @@ for (const [table, spec] of Object.entries(TABLES)) {
       db.prepare(`UPDATE ${table} SET ${sets.join(', ')} WHERE id = ?`).run(...vals, req.params.id);
     }
 
-    if (row.user_id !== req.user.id) {
-      audit({ actor_id: req.user.id, action: 'edit', entity: table, entity_id: row.id, subject_id: row.user_id, unit_id: row.unit_id });
-    }
+    audit({
+      actor_id: req.user.id, action: 'edit', entity: table, entity_id: row.id,
+      subject_id: row.user_id, unit_id: finalUnit,
+      detail: row.user_id === req.user.id ? 'author edit' : 'manager edit',
+    });
     res.json(hydrate(db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(req.params.id), spec));
   });
 
@@ -1440,6 +2010,148 @@ for (const [table, spec] of Object.entries(TABLES)) {
   });
 }
 
+/* ── optional activity attachments ───────────────────────────────── */
+
+const attachmentBody = express.raw({
+  type: () => true,
+  limit: config.attachments.max_bytes,
+});
+
+function activityForAttachment(req, res) {
+  const row = db.prepare('SELECT * FROM activities WHERE id = ? AND deleted_at IS NULL').get(req.params.id);
+  if (!row) {
+    fail(res, 404, 'No such activity.');
+    return null;
+  }
+  const readable = row.user_id === req.user.id
+    || (row.visibility === 'unit' && row.unit_id && can(db, req.user, PERMISSIONS.VIEW_RECORDS, row.unit_id));
+  if (!readable) {
+    fail(res, 403, 'You cannot read attachments for that activity.');
+    return null;
+  }
+  return row;
+}
+
+const attachmentMetadata = (row) => ({
+  id: row.id,
+  activity_id: row.activity_id,
+  original_name: row.original_name,
+  mime_type: row.mime_type,
+  size_bytes: row.size_bytes,
+  sha256: row.sha256,
+  created_at: row.created_at,
+});
+
+app.get('/api/activities/:id/attachments', auth, (req, res) => {
+  const activity = activityForAttachment(req, res);
+  if (!activity) return;
+  const rows = db.prepare(
+    `SELECT id, activity_id, original_name, mime_type, size_bytes, sha256, created_at
+       FROM attachments WHERE activity_id = ? AND deleted_at IS NULL ORDER BY created_at DESC`
+  ).all(activity.id);
+  if (activity.user_id !== req.user.id) {
+    audit({
+      actor_id: req.user.id, action: 'view_attachments', entity: 'activities', entity_id: activity.id,
+      subject_id: activity.user_id, unit_id: activity.unit_id, detail: `${rows.length} file metadata rows`,
+    });
+  }
+  res.json({ attachments: rows.map(attachmentMetadata), enabled: config.attachments.enabled });
+});
+
+app.post('/api/activities/:id/attachments', auth, attachmentBody, (req, res) => {
+  if (!config.attachments.enabled) {
+    return fail(res, 404, 'Attachments are not enabled.', { code: 'attachments_disabled' });
+  }
+  const activity = activityForAttachment(req, res);
+  if (!activity) return;
+  if (!canEdit(db, req.user, activity)) return fail(res, 403, 'That activity is not yours to update.');
+  const count = db.prepare(
+    'SELECT COUNT(*) AS n FROM attachments WHERE activity_id = ? AND deleted_at IS NULL'
+  ).get(activity.id).n;
+  if (count >= config.attachments.max_per_record) {
+    return fail(res, 409, `An activity can hold at most ${config.attachments.max_per_record} attachments.`, {
+      code: 'attachment_limit',
+    });
+  }
+  const inspected = inspectAttachment({
+    body: req.body,
+    filename: req.get('x-vantage-filename'),
+    contentType: req.get('content-type'),
+    allowedTypes: config.attachments.allowed_types,
+    maxBytes: config.attachments.max_bytes,
+  });
+  if (!inspected.ok) return fail(res, 400, inspected.error, { code: 'invalid_attachment' });
+  try {
+    if (statSync(db.name).size + inspected.size >= MAX_DB_BYTES) {
+      return fail(res, 507, 'The database is too close to its configured safety threshold for that file.', {
+        code: 'database_capacity',
+      });
+    }
+  } catch { /* in-memory tests */ }
+
+  const id = newId();
+  try {
+    db.prepare(
+      `INSERT INTO attachments
+        (id, activity_id, uploaded_by, original_name, mime_type, size_bytes, sha256, content, created_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
+    ).run(
+      id, activity.id, req.user.id, inspected.filename, inspected.mime,
+      inspected.size, inspected.sha256, req.body, now()
+    );
+  } catch (err) {
+    if (String(err.message).includes('UNIQUE')) {
+      return fail(res, 409, 'That exact file is already attached to this activity.', { code: 'duplicate_attachment' });
+    }
+    throw err;
+  }
+  audit({
+    actor_id: req.user.id, action: 'upload_attachment', entity: 'attachments', entity_id: id,
+    subject_id: activity.user_id, unit_id: activity.unit_id,
+    detail: `${inspected.size} bytes; ${inspected.mime}`,
+  });
+  const saved = db.prepare(
+    `SELECT id, activity_id, original_name, mime_type, size_bytes, sha256, created_at
+       FROM attachments WHERE id = ?`
+  ).get(id);
+  return res.status(201).json(attachmentMetadata(saved));
+});
+
+app.get('/api/activities/:id/attachments/:attachmentId', auth, (req, res) => {
+  const activity = activityForAttachment(req, res);
+  if (!activity) return;
+  const file = db.prepare(
+    'SELECT * FROM attachments WHERE id = ? AND activity_id = ? AND deleted_at IS NULL'
+  ).get(req.params.attachmentId, activity.id);
+  if (!file) return fail(res, 404, 'No such attachment.');
+  audit({
+    actor_id: req.user.id, action: 'download_attachment', entity: 'attachments', entity_id: file.id,
+    subject_id: activity.user_id, unit_id: activity.unit_id,
+    detail: `${file.size_bytes} bytes; ${file.mime_type}`,
+  });
+  res.setHeader('Content-Type', file.mime_type);
+  res.setHeader('Content-Length', String(file.size_bytes));
+  res.setHeader('Content-Disposition', attachmentDisposition(file.original_name));
+  return res.send(file.content);
+});
+
+app.delete('/api/activities/:id/attachments/:attachmentId', auth, (req, res) => {
+  const activity = activityForAttachment(req, res);
+  if (!activity) return;
+  if (!canEdit(db, req.user, activity)) return fail(res, 403, 'That activity is not yours to update.');
+  const file = db.prepare(
+    'SELECT * FROM attachments WHERE id = ? AND activity_id = ? AND deleted_at IS NULL'
+  ).get(req.params.attachmentId, activity.id);
+  if (!file) return fail(res, 404, 'No such attachment.');
+  db.prepare('UPDATE attachments SET deleted_at = ? WHERE id = ?').run(now(), file.id);
+  audit({
+    actor_id: req.user.id, action: 'delete_attachment', entity: 'attachments', entity_id: file.id,
+    subject_id: activity.user_id, unit_id: activity.unit_id,
+    detail: `${file.size_bytes} bytes; retained by soft delete`,
+  });
+  return res.json({ ok: true });
+});
+
 /* ── bulk import ──────────────────────────────────────────────────── */
 
 /**
@@ -1468,6 +2180,8 @@ app.post('/api/activities/bulk', auth, (req, res) => {
   if (rows.length > BULK_LIMITS.maxRows) {
     return fail(res, 400, `Imports are limited to ${BULK_LIMITS.maxRows} activities per request. Split the file and import in batches.`, { code: 'too_many_rows' });
   }
+  const capacity = recordCapacityProblem(req.user.id, rows.length);
+  if (capacity) return fail(res, 507, capacity, { code: 'record_quota' });
   for (let i = 0; i < rows.length; i += 1) {
     const errors = validate(RECORD_SCHEMAS.activities, rows[i] || {});
     if (errors) {
@@ -1485,13 +2199,33 @@ app.post('/api/activities/bulk', auth, (req, res) => {
   const spec = TABLES.activities;
   const created = [];
   const duplicates = [];
+  const planned = [];
+
+  for (let i = 0; i < rows.length; i += 1) {
+    const body = rows[i];
+    const visibility = body.visibility || importVisibility;
+    const rowUnit = visibility === 'personal' ? null : (body.unit_id || unitId);
+    if (!VISIBILITIES.includes(visibility)) {
+      return fail(res, 400, `Row ${i + 1}: unknown visibility.`, { code: 'validation', row: i });
+    }
+    if (visibility !== 'personal' && !rowUnit) {
+      return fail(res, 400, `Row ${i + 1}: private and unit-shared activities must belong to a unit.`, { code: 'validation', row: i });
+    }
+    if (rowUnit && !unitAllowedForRecord(req.user, rowUnit, spec.shareFlag)) {
+      return fail(res, 403, `Row ${i + 1}: you cannot import into that unit.`, { code: 'forbidden', row: i });
+    }
+    if (visibility === 'unit' && !canShareTo(db, req.user, visibility, rowUnit, spec.shareFlag)) {
+      return fail(res, 403, `Row ${i + 1}: you cannot share into that unit.`, { code: 'forbidden', row: i });
+    }
+    planned.push({ body, visibility, unitId: rowUnit });
+  }
 
   const insert = db.transaction(() => {
-    for (let i = 0; i < rows.length; i += 1) {
-      const body = rows[i];
+    for (let i = 0; i < planned.length; i += 1) {
+      const { body, visibility, unitId: rowUnit } = planned[i];
       const id = newId();
       const cols = ['id', 'user_id', 'unit_id', 'visibility', 'fingerprint', 'created_at', 'updated_at'];
-      const vals = [id, req.user.id, unitId, body.visibility || importVisibility, activityFingerprint(req.user.id, body), now(), now()];
+      const vals = [id, req.user.id, rowUnit, visibility, activityFingerprint(req.user.id, body), now(), now()];
       for (const f of spec.fields) {
         if (['unit_id', 'visibility'].includes(f) || body[f] === undefined) continue;
         cols.push(f);
@@ -1508,10 +2242,24 @@ app.post('/api/activities/bulk', auth, (req, res) => {
   });
   insert();
   audit({
-    actor_id: req.user.id, action: 'import', entity: 'activities', unit_id: unitId,
+    actor_id: req.user.id, action: 'import', entity: 'activities',
+    unit_id: [...new Set(planned.map((p) => p.unitId).filter(Boolean))].length === 1
+      ? planned.find((p) => p.unitId)?.unitId || null
+      : null,
     detail: `${created.length} rows${duplicates.length ? `, ${duplicates.length} duplicates skipped` : ''}`,
   });
   res.json({ created: created.length, duplicates: duplicates.length, duplicateRows: duplicates });
+});
+
+// Keep the API envelope stable even for unknown routes and parser/runtime
+// failures. Never return an Express HTML stack or a database error to a client.
+app.use('/api', (req, res) => fail(res, 404, 'No such API route.', { code: 'not_found' }));
+app.use((err, req, res, next) => { // eslint-disable-line no-unused-vars
+  if (err?.type === 'entity.too.large') {
+    return fail(res, 413, 'Request body is too large.', { code: 'too_large' });
+  }
+  console.error('Unhandled request error:', err);
+  return fail(res, 500, 'The server could not complete that request.', { code: 'server_error' });
 });
 
 /* ── static SPA ───────────────────────────────────────────────────── */

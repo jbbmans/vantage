@@ -1,5 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Download, Upload, Trash2, ShieldCheck, FileSpreadsheet, Eye, Server, AlertTriangle } from 'lucide-react';
+import {
+  AlertTriangle, BarChart3, Download, Eye, FileSpreadsheet, Server, ShieldCheck, SlidersHorizontal,
+} from 'lucide-react';
 import * as apiClient from '@/lib/api';
 import { useIdentity, useOrg, createMany, refreshAll, unitPath, useActivities } from '@/store/useStore';
 import { parseSpreadsheet, guessMapping, applyMapping, IMPORT_FIELDS, exportWorkbook } from '@/lib/sheets';
@@ -7,7 +9,7 @@ import { screenImport } from '@/lib/duplicates';
 import { formatDTG } from '@/lib/metrics';
 import { useToast } from '@/components/ui/toast';
 import { Dialog } from '@/components/ui/Dialog';
-import { Panel, PageHeader, Button, Select, Badge, EmptyState, Input, Field } from '@/components/ui/primitives';
+import { Panel, Button, Select, Badge, EmptyState, Input, Field } from '@/components/ui/primitives';
 import {
   useProjects, useTasks, useGoals, useRecognitions, useTrainings,
 } from '@/store/useStore';
@@ -28,6 +30,8 @@ export default function Settings() {
   const [serverVersion, setServerVersion] = useState('');
   const [sessions, setSessions] = useState([]);
   const [dbInfo, setDbInfo] = useState(null);
+  const [deploymentConfig, setDeploymentConfig] = useState(null);
+  const [experience, setExperience] = useState(null);
   const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
   const [pwBusy, setPwBusy] = useState(false);
   const sheetInput = useRef(null);
@@ -35,6 +39,7 @@ export default function Settings() {
   useEffect(() => {
     let live = true;
     apiClient.health().then((h) => { if (live && h?.version) setServerVersion(h.version); }).catch(() => {});
+    apiClient.configuration().then((c) => { if (live) setDeploymentConfig(c); }).catch(() => {});
     return () => { live = false; };
   }, []);
 
@@ -43,7 +48,13 @@ export default function Settings() {
   }, []);
 
   useEffect(() => {
-    if (identity?.user?.is_admin) apiClient.adminDb().then(setDbInfo).catch(() => setDbInfo(null));
+    if (identity?.isOperator) {
+      apiClient.adminDb().then(setDbInfo).catch(() => setDbInfo(null));
+      apiClient.adminExperience().then(setExperience).catch(() => setExperience(null));
+    } else {
+      setDbInfo(null);
+      setExperience(null);
+    }
   }, [identity]);
 
   const loadSessions = () =>
@@ -113,6 +124,7 @@ export default function Settings() {
     }
 
     await createMany('activities', fresh);
+    apiClient.trackExperience('import_completed');
     setImportState(null);
     toast.success(
       [
@@ -126,10 +138,33 @@ export default function Settings() {
   const assignment = identity?.assignments?.[0];
 
   return (
-    <div className="mx-auto max-w-3xl space-y-3">
-      <PageHeader title="Settings" subtitle="Your account, your unit, and how records move" />
+    <div className="page-canvas settings-page">
+      <div className="border-b border-rule pb-5">
+        <p className="eyebrow">Account and deployment controls</p>
+        <h2 className="mt-2 text-3xl font-medium tracking-tight text-text sm:text-4xl">Settings console</h2>
+        <p className="mt-1.5 max-w-2xl text-base text-text-3">Identity, sessions, data movement, recovery, and deployment boundaries in one auditable place.</p>
+      </div>
 
-      <Panel title="Account">
+      <div className="grid gap-7 pt-6 lg:grid-cols-[210px_minmax(0,1fr)]">
+        <aside className="lg:sticky lg:top-24 lg:self-start" aria-label="Settings sections">
+          <p className="eyebrow mb-3">Sections</p>
+          <nav className="space-y-1 border-l border-rule pl-3 text-sm">
+            {[
+              ['account', 'Account'],
+              ['security', 'Password'],
+              ['sessions', 'Sessions'],
+              ['database', 'Database'],
+              ['configuration', 'Configuration'],
+              ['experience', 'Experience metrics'],
+              ['access-log', 'Access log'],
+              ['data', 'Import & export'],
+              ['storage', 'Data location'],
+            ].map(([id, label]) => <a key={id} href={`#${id}`} className="block rounded-sm px-2 py-1.5 text-text-3 hover:bg-panel-2 hover:text-text">{label}</a>)}
+          </nav>
+        </aside>
+        <div className="min-w-0 space-y-4">
+
+      <Panel id="account" title="Account">
         <div className="grid grid-cols-2 gap-4 sm:grid-cols-3">
           <div>
             <p className="eyebrow">Name</p>
@@ -154,21 +189,21 @@ export default function Settings() {
         </div>
         <p className="mt-3 flex items-start gap-2 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">
           <ShieldCheck className="mt-0.5 h-3 w-3 shrink-0 text-ledger" />
-          Your access level is set by your assignment, not your rank. To change it, your section lead reassigns you on
-          the Team page.
+          Access comes from active exact-unit membership and role grants, not rank or the org-chart breadcrumb.
+          Authorized unit leaders manage those grants and memberships on the Team and Roles pages.
         </p>
       </Panel>
 
       {/* Findings 16 and 28: the shared-workstation controls, on the page a
           Marine actually visits. The server enforces all of it; this is the
           visibility. */}
-      <Panel title="Change your password" subtitle="Changing it signs out every other session">
+      <Panel id="security" title="Change your password" subtitle="Changing it signs out every other session">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <Field label="Current password">
             <Input type="password" autoComplete="current-password" value={pw.current}
               onChange={(e) => setPw({ ...pw, current: e.target.value })} />
           </Field>
-          <Field label="New password" hint="At least 10 characters">
+          <Field label="New password" hint="At least 15 characters">
             <Input type="password" autoComplete="new-password" value={pw.next}
               onChange={(e) => setPw({ ...pw, next: e.target.value })} />
           </Field>
@@ -178,13 +213,14 @@ export default function Settings() {
           </Field>
         </div>
         <div className="mt-2.5 flex justify-end">
-          <Button size="sm" disabled={pwBusy || !pw.current || pw.next.length < 10 || !pw.confirm} onClick={changePassword}>
+          <Button size="sm" disabled={pwBusy || !pw.current || pw.next.length < 15 || !pw.confirm} onClick={changePassword}>
             Change password
           </Button>
         </div>
       </Panel>
 
       <Panel
+        id="sessions"
         title="Active sessions"
         subtitle="Every device currently signed in as you"
         bodyClassName="p-0"
@@ -213,6 +249,7 @@ export default function Settings() {
           of a shell command. Admin-only; the download itself is audited. */}
       {dbInfo && (
         <Panel
+          id="database"
           title="Database"
           subtitle="The SQLite file is the whole system — records, roles, sessions, audit"
           action={
@@ -249,14 +286,68 @@ export default function Settings() {
         </Panel>
       )}
 
+      {deploymentConfig && (
+        <Panel
+          id="configuration"
+          title="Deployment configuration"
+          subtitle="One reviewed YAML file, with environment overrides for secrets and host paths"
+        >
+          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+            {[
+              ['Palette', deploymentConfig.ui?.palette],
+              ['Data mode', deploymentConfig.app?.data_mode],
+              ['Authentication', deploymentConfig.auth?.provider],
+              ['Self-registration', deploymentConfig.auth?.self_registration ? 'Enabled' : 'Disabled'],
+              ['CAC/PIV adapter', deploymentConfig.auth?.cac_piv?.enabled ? 'Enabled' : 'Coded · disabled'],
+              ['Attachments', deploymentConfig.attachments?.enabled ? 'Enabled' : 'Disabled'],
+              ['Retention purge', deploymentConfig.retention?.purge_days === 0 ? 'Never automatic' : `${deploymentConfig.retention?.purge_days} days`],
+              ['UX metrics', deploymentConfig.experience_metrics?.enabled ? 'First-party aggregate' : 'Disabled'],
+            ].map(([label, value]) => (
+              <div key={label} className="border-l-2 border-signal/30 pl-3">
+                <p className="eyebrow">{label}</p>
+                <p className="mt-1 text-sm font-medium capitalize text-text">{value || '—'}</p>
+              </div>
+            ))}
+          </div>
+          <p className="mt-4 flex items-start gap-2 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">
+            <SlidersHorizontal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" />
+            <span>
+              Edit <span className="fig text-text-2">{deploymentConfig.config_file || 'config/app.yaml'}</span> and restart the service.
+              The loader rejects unknown keys, invalid ranges, unsafe retention changes, and unsupported YAML at startup.
+              Keep setup and CAC proxy secrets in the hosting secret manager, never in YAML.
+            </span>
+          </p>
+        </Panel>
+      )}
+
+      {experience && (
+        <Panel id="experience" title="Experience metrics" subtitle="Last 30 days · aggregate event counts only">
+          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
+            {Object.entries(experience.rows.reduce((totals, row) => ({
+              ...totals,
+              [row.event]: (totals[row.event] || 0) + row.count,
+            }), {})).sort((a, b) => b[1] - a[1]).map(([event, count]) => (
+              <div key={event} className="flex items-center gap-3 rounded-lg bg-panel-2 px-3 py-2.5">
+                <BarChart3 className="h-4 w-4 text-signal" />
+                <span className="min-w-0 flex-1 truncate text-sm capitalize text-text-2">{event.replaceAll('_', ' ')}</span>
+                <span className="fig text-base font-semibold text-text">{count}</span>
+              </div>
+            ))}
+            {experience.rows.length === 0 && <p className="text-sm text-text-3">No aggregate usage events recorded yet.</p>}
+          </div>
+          <p className="mt-3 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">{experience.privacy}</p>
+        </Panel>
+      )}
+
       {/* A Marine can always see who has been reading their record. */}
       <Panel
+        id="access-log"
         title="Who has viewed your record"
-        subtitle="Every read by someone in your chain is logged"
+        subtitle="Protected reads by authorized members of a unit you share are logged"
         bodyClassName="p-0"
       >
         {audit.length === 0 ? (
-          <EmptyState icon={Eye} title="Nobody has opened your record" description="Only Marines in your chain of command can, and it would show here." />
+          <EmptyState icon={Eye} title="Nobody has opened your record" description="Only authorized members of a unit you share can, and each open would show here." />
         ) : (
           audit.slice(0, 12).map((row) => (
             <div key={row.id} className="row flex items-center gap-2.5 px-3 py-1.5">
@@ -270,7 +361,7 @@ export default function Settings() {
         )}
       </Panel>
 
-      <Panel title="Import and export">
+      <Panel id="data" title="Import and export">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
           <Button
             variant="default"
@@ -279,25 +370,33 @@ export default function Settings() {
             onClick={async () => {
               try {
                 await exportWorkbook(
-                  { activities, projects, tasks, goals, recognitions, trainings, contacts: [] },
-                  `vantage-${new Date().toISOString().slice(0, 10)}.xlsx`
+                  {
+                    activities: activities.filter((r) => r.user_id === identity?.user?.id),
+                    projects: projects.filter((r) => r.user_id === identity?.user?.id),
+                    tasks: tasks.filter((r) => r.user_id === identity?.user?.id),
+                    goals: goals.filter((r) => r.user_id === identity?.user?.id),
+                    recognitions: recognitions.filter((r) => r.user_id === identity?.user?.id),
+                    trainings: trainings.filter((r) => r.user_id === identity?.user?.id),
+                    contacts: [],
+                  },
+                  `vantage-${new Date().toISOString().slice(0, 10)}.csv`
                 );
-                toast.success('Workbook exported.');
+                toast.success('CSV exported.');
               } catch (err) { toast.error(err.message); }
             }}
           >
             <Download className="h-4 w-4 text-text-3" />
             <span className="text-left">
-              <span className="block text-base text-text">Export a workbook</span>
-              <span className="block text-2xs text-text-3">Everything you can see, as XLSX</span>
+              <span className="block text-base text-text">Export my records</span>
+              <span className="block text-2xs text-text-3">Your own records only; unit exports require EXPORT_DATA</span>
             </span>
           </Button>
 
           <Button variant="default" size="lg" className="justify-start" onClick={() => sheetInput.current?.click()}>
             <FileSpreadsheet className="h-4 w-4 text-text-3" />
             <span className="text-left">
-              <span className="block text-base text-text">Import a spreadsheet</span>
-              <span className="block text-2xs text-text-3">CSV or XLSX — duplicates are detected and skipped</span>
+              <span className="block text-base text-text">Import CSV or TSV</span>
+              <span className="block text-2xs text-text-3">CSV or TSV — duplicates are detected and skipped</span>
             </span>
           </Button>
         </div>
@@ -305,18 +404,21 @@ export default function Settings() {
         <input
           ref={sheetInput}
           type="file"
-          accept=".csv,.xlsx,.xls,.tsv"
+          accept=".csv,.tsv"
           className="hidden"
           onChange={(e) => e.target.files?.[0] && openSheet(e.target.files[0])}
         />
       </Panel>
 
-      <Panel title="Where your data lives">
+      <Panel id="storage" title="Where your data lives">
         <p className="flex items-start gap-2 text-sm leading-relaxed text-text-2">
           <Server className="mt-0.5 h-4 w-4 shrink-0 text-text-3" />
           <span>
-            Records are stored on the server this page was served from — no third-party service, no analytics, no
-            vendor backend. Your chain of command sees what you share; nothing else leaves the server.
+            Records and optional attachments are stored in the database attached to the server that served this page.
+            Vantage sends no analytics to third parties. When enabled, its first-party experience metrics store only
+            daily aggregate event counts without user, session, IP, record, filename, or free-text fields. The hosting
+            provider and authorized infrastructure operators can still control the server and may provide platform logs.
+            Exports and backups leave it when an authorized user downloads them.
           </span>
         </p>
         <p className="mt-3 flex items-start gap-2 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">
@@ -331,8 +433,10 @@ export default function Settings() {
         <br />
         DESIGNED AND BUILT BY JOHN BERNARD BOLETZ
         <br />
-        NO SUBSCRIPTIONS · NO TELEMETRY · NO THIRD-PARTY SERVICES
+        NO THIRD-PARTY ANALYTICS OR ADVERTISING TELEMETRY
       </p>
+        </div>
+      </div>
 
       {importState && (
         <Dialog

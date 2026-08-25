@@ -119,7 +119,8 @@ export function permissionMap(db, user) {
          JOIN roles r ON r.id = mr.role_id
          JOIN units u ON u.id = mr.unit_id
          JOIN unit_members um ON um.user_id = mr.user_id AND um.unit_id = mr.unit_id
-        WHERE mr.user_id = ? AND u.active = 1 AND ${LIVE_MEMBERSHIP}`
+        WHERE mr.user_id = ? AND r.unit_id = mr.unit_id
+          AND u.active = 1 AND ${LIVE_MEMBERSHIP}`
     )
     .all(user.id);
 
@@ -213,7 +214,8 @@ export function resolveScope(db, user) {
          JOIN roles r ON r.id = mr.role_id
          JOIN units u ON u.id = mr.unit_id
          JOIN unit_members um ON um.user_id = mr.user_id AND um.unit_id = mr.unit_id
-        WHERE mr.user_id = ? AND u.active = 1 AND ${LIVE_MEMBERSHIP}
+        WHERE mr.user_id = ? AND r.unit_id = mr.unit_id
+          AND u.active = 1 AND ${LIVE_MEMBERSHIP}
         ORDER BY r.position DESC`
     )
     .all(user.id);
@@ -291,7 +293,7 @@ export const VISIBILITIES = ['personal', 'private', 'unit'];
 export const VISIBILITY_LABELS = {
   personal: 'Only me — kept outside any unit',
   private: 'Only me',
-  unit: 'Everyone in the unit',
+  unit: 'Authorized readers in the unit',
 };
 
 export const DEFAULT_VISIBILITY = 'unit';
@@ -302,7 +304,7 @@ export const DEFAULT_VISIBILITY = 'unit';
  *   A  It's mine. Any visibility, including personal and private.
  *   B  It belongs to someone whose records I may view, AND it lives in one of
  *      the units that gave me that authority, AND they didn't mark it private.
- *   C  It was posted to a unit I am a member of.
+ *   C  It was posted to a unit where I hold VIEW_RECORDS.
  *
  * v3.3's branches C and D — the two `visibility = 'chain'` clauses resolving
  * through ancestorUnitIds and scopeUnitIds — are removed. That is the whole of
@@ -320,8 +322,8 @@ export const DEFAULT_VISIBILITY = 'unit';
  * Authority to read a person is granted by a unit and is bounded by it; a
  * record's home unit decides who may see it, not its author's address book.
  */
-export function visibilityClause(db, user, { table = 't' } = {}) {
-  const { unitIds, scopeUnitIds } = resolveScope(db, user);
+export function visibilityClause(db, user, { table = 't', unitMemberReadable = false } = {}) {
+  const { scopeUnitIds } = resolveScope(db, user);
   const subordinates = visibleUserIds(db, user).filter((id) => id !== user.id);
 
   const parts = [`${table}.user_id = ?`];
@@ -335,9 +337,24 @@ export function visibilityClause(db, user, { table = 't' } = {}) {
     );
     params.push(...subordinates, ...scopeUnitIds);
   }
-  if (unitIds.length) {
-    parts.push(`(${table}.visibility = 'unit' AND ${table}.unit_id IN (${unitIds.map(() => '?').join(',')}))`);
-    params.push(...unitIds);
+  if (scopeUnitIds.length) {
+    parts.push(`(${table}.visibility = 'unit' AND ${table}.unit_id IN (${scopeUnitIds.map(() => '?').join(',')}))`);
+    params.push(...scopeUnitIds);
+  }
+
+  /* Tasks, projects and goals are operational coordination objects, not
+   * personnel evidence. When a leader explicitly posts one to a unit, every
+   * current member of that unit must be able to receive it even if their role
+   * intentionally lacks VIEW_RECORDS. This branch is opt-in per table so it
+   * can never widen activities, training, recognition or readiness data. */
+  if (unitMemberReadable) {
+    const membershipUnits = memberUnitIds(db, user.id);
+    if (membershipUnits.length) {
+      parts.push(
+        `(${table}.visibility = 'unit' AND ${table}.unit_id IN (${membershipUnits.map(() => '?').join(',')}))`
+      );
+      params.push(...membershipUnits);
+    }
   }
 
   return { clause: `(${parts.join(' OR ')})`, params };
@@ -349,7 +366,10 @@ export function canEdit(db, user, row) {
   // A frozen row is the originating unit's record of what happened (finding 12).
   // Nobody edits it, including its author.
   if (row.frozen_at) return false;
-  if (row.user_id === user.id) return true;
+  if (row.user_id === user.id) {
+    if (row.visibility === 'personal' || row.visibility === 'private') return true;
+    return Boolean(row.unit_id && isMember(db, user.id, row.unit_id));
+  }
   // Personal and private records are the author's alone — no permission bit,
   // no ownership, and no operator status opens them.
   if (row.visibility === 'private' || row.visibility === 'personal') return false;

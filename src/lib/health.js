@@ -2,7 +2,7 @@
  * Vantage — record health and the daily action list (v3.3 findings 45, 46).
  *
  * Two questions, answered from the Marine's own records with no server round
- * trip: "what should I do today?" and "how usable is this record as evidence?"
+ * trip: "what should I do today?" and "how usable is this activity record?"
  * Everything here is Vantage coaching over the person's data — counts and
  * pointers, never a judgement of the Marine — and every item carries a route
  * so the dashboard can send you straight to the fix.
@@ -57,13 +57,6 @@ export function recordHealth({ activities = [], goals = [], profile = null, trac
   const undated = activities.filter((a) => missing(a.date));
   push('dates', undated.length, 'missing a date',
     'Undated work sorts to the wrong reporting period, or to none.',
-    '/activities');
-
-  const bigNoEvidence = activities.filter(
-    (a) => Number(a.dollar_amount) >= 10000 && !(Array.isArray(a.evidence_links) && a.evidence_links.length)
-  );
-  push('evidence', bigNoEvidence.length, 'large dollar claims without evidence links',
-    'A five-figure claim with nothing attached is the first thing a reviewer questions. (Vantage heuristic: $10k+.)',
     '/activities');
 
   const dupes = findDuplicates(activities);

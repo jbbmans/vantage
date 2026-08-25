@@ -42,7 +42,7 @@ export default function Units() {
   const manageable = unitsWith(PERMISSIONS.MANAGE_UNITS);
   const memberCounts = useMemo(() => new Map(), []);
 
-  if (!manageable.length) {
+  if (!manageable.length && !identity?.isOperator) {
     return (
       <div className="mx-auto max-w-2xl">
         <Panel title="Units">
@@ -62,7 +62,7 @@ export default function Units() {
         <Button
           variant="primary"
           size="sm"
-          onClick={() => setCreating({ parent_id: manageable[0], echelon: 'fire_team' })}
+          onClick={() => setCreating({ parent_id: manageable[0] || '', echelon: 'fire_team' })}
         >
           <Plus className="h-3.5 w-3.5" />
           New unit
@@ -118,6 +118,7 @@ export default function Units() {
           unit={creating || editing}
           isNew={Boolean(creating)}
           units={tree.filter((u) => can(PERMISSIONS.MANAGE_UNITS, u.id))}
+          allowTopLevel={Boolean(identity?.isOperator)}
           onCancel={() => { setCreating(null); setEditing(null); }}
           onSave={async (draft) => {
             try {
@@ -136,7 +137,7 @@ export default function Units() {
         open={Boolean(archiving)}
         onOpenChange={(v) => !v && setArchiving(null)}
         title={`Archive "${archiving?.name}"?`}
-        body="The unit stops appearing in pickers and rosters. Records that point at it keep pointing at it, so nothing is lost. Units with sub-units or Marines still assigned cannot be archived."
+        body="The unit stops appearing in pickers and rosters. Records that point at it keep pointing at it, so nothing is lost. Units with sub-units or live memberships cannot be archived."
         confirmLabel="Archive unit"
         onConfirm={async () => {
           try {
@@ -150,7 +151,7 @@ export default function Units() {
   );
 }
 
-function UnitDialog({ unit, isNew, units, onCancel, onSave }) {
+function UnitDialog({ unit, isNew, units, allowTopLevel = false, onCancel, onSave }) {
   const [draft, setDraft] = useState({ name: '', short_name: '', code: '', location: '', ...unit });
   const set = (k) => (v) => setDraft((d) => ({ ...d, [k]: v?.target ? v.target.value : v }));
 
@@ -187,10 +188,13 @@ function UnitDialog({ unit, isNew, units, onCancel, onSave }) {
               <Select
                 value={draft.parent_id || ''}
                 onValueChange={set('parent_id')}
-                options={units.map((u) => ({
-                  value: u.id,
-                  label: `${'\u00A0\u00A0'.repeat(u.depth || 0)}${u.short_name || u.name}`,
-                }))}
+                options={[
+                  ...(allowTopLevel ? [{ value: '', label: 'Top-level organization (Instance Operator)' }] : []),
+                  ...units.map((u) => ({
+                    value: u.id,
+                    label: `${'\u00A0\u00A0'.repeat(u.depth || 0)}${u.short_name || u.name}`,
+                  })),
+                ]}
               />
             </Field>
             <Field label="Unit code" hint="Optional — a stable key. Generated from the name if left blank.">

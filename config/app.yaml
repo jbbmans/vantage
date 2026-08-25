@@ -1,0 +1,70 @@
+# VANTAGE operator configuration
+#
+# Two-space indentation is required. Secrets do not belong here: keep
+# VANTAGE_SETUP_TOKEN and VANTAGE_CAC_PROXY_SECRET in the hosting platform's
+# secret manager. Environment variables documented in README.md may override
+# deployment-specific values without changing this file.
+
+app:
+  name: VANTAGE
+  data_mode: evaluation
+  region: us
+
+deployment:
+  # Render/Fly normally use one trusted proxy hop in production. Use false
+  # when Node is directly exposed. render.yaml overrides this to 1.
+  trust_proxy: false
+
+ui:
+  palette: ocean-light
+  default_theme: light
+
+auth:
+  provider: password
+  password_enabled: true
+  # New accounts are personal-only until an authorized unit leader attaches
+  # the identity to an exact unit.
+  self_registration: true
+  cac_piv:
+    # The reverse-proxy adapter is implemented but intentionally off until the
+    # MCEN identity architecture and trusted headers are approved.
+    enabled: false
+    subject_header: x-vantage-cac-subject
+    username_header: x-vantage-cac-username
+    first_name_header: x-vantage-cac-first-name
+    last_name_header: x-vantage-cac-last-name
+    verification_header: x-vantage-cac-verified
+    verification_value: verified
+    proxy_secret_header: x-vantage-proxy-secret
+
+sessions:
+  idle_minutes: 60
+  absolute_hours: 12
+  max_active: 8
+
+limits:
+  mutations_per_15_minutes: 240
+  registrations_per_15_minutes: 20
+  max_records_per_user: 10000
+  max_database_bytes: 786432000
+  max_guest_days: 30
+
+storage:
+  database_path: vantage.db
+
+attachments:
+  enabled: true
+  max_bytes: 10485760
+  max_per_record: 10
+  allowed_types: [application/pdf, image/jpeg, image/png, text/plain, text/csv]
+
+retention:
+  soft_delete: true
+  # Zero means no automatic purge. This is validated at startup.
+  purge_days: 0
+
+experience_metrics:
+  # First-party aggregate counts only: no third-party analytics, page content,
+  # record identifiers, filenames, IP addresses, or free text.
+  enabled: true
+  mode: first_party_aggregate

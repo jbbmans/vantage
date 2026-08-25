@@ -32,7 +32,7 @@ export const PERMISSIONS = {
   MANAGE_UNITS: 1 << 8,
   /** Read the access log for this unit. */
   VIEW_AUDIT: 1 << 9,
-  /** Pull the unit's data out as a workbook. */
+  /** Pull the unit's data out as a bounded CSV export. */
   EXPORT_DATA: 1 << 10,
   /**
    * Everything, inside the unit the grant was made in. v3.3 fanned this out
@@ -88,7 +88,7 @@ export const PERMISSION_LIST = [
   {
     key: 'EXPORT_DATA',
     label: 'Export unit data',
-    hint: 'Download the unit\u2019s records as a workbook.',
+    hint: 'Download the unit\u2019s records as a CSV export.',
     group: 'Work',
   },
   {
@@ -190,7 +190,7 @@ export const ROLE_TEMPLATES = [
       {
         key: 'marine', name: 'Marine', color: '#8D98A8', position: 0, is_default: 1,
         permissions: MARINE_BITS,
-        description: 'Everyone gets this. Sees their own record and anything shared to the unit.',
+        description: 'Everyone gets this. Sees their own record and the unit roster; shared records require an explicit reader role.',
       },
       {
         key: 'nco', name: 'NCO', color: '#3DD68C', position: 20, is_default: 0,
@@ -217,7 +217,7 @@ export const ROLE_TEMPLATES = [
       {
         key: 'marine', name: 'Marine', color: '#8D98A8', position: 0, is_default: 1,
         permissions: MARINE_BITS,
-        description: 'Everyone gets this. Sees their own record and anything shared to the unit.',
+        description: 'Everyone gets this. Sees their own record and the unit roster; shared records require an explicit reader role.',
       },
       {
         key: 'training-nco', name: 'Training NCO', color: '#A78BFA', position: 15, is_default: 0,

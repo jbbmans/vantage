@@ -78,16 +78,39 @@ const must = (res, what) => {
  */
 
 must(await call('POST', '/api/setup', {
-  body: { username: 'boletz', password: 'correct-horse-battery-staple', first_name: 'J', last_name: 'B', rank_id: 'Cpl', unit_code: 'CE-G8' },
+  body: { username: 'boletz', password: 'cobalt-orbit-velvet-anchor-927', first_name: 'J', last_name: 'B', rank_id: 'Cpl', unit_code: 'CE-G8' },
 }), 'setup');
-const adminTok = await login('boletz', 'correct-horse-battery-staple');
+const adminTok = await login('boletz', 'cobalt-orbit-velvet-anchor-927');
 
-/** Create an account inside a unit the actor can manage. */
-const mk = async (token, username, unit_id, role_id = null, rank_id = 'LCpl') =>
-  must(await call('POST', '/api/team', {
-    token,
-    body: { username, password: PW(username), first_name: 'M', last_name: username, rank_id, mos: '3451', unit_id, role_id },
-  }), `create ${username}`);
+const createdIds = new Map();
+
+/**
+ * Create an identity, then attach it. Only the Instance Operator may create a
+ * global account on somebody else's behalf; unit owners enroll an identity
+ * that registered itself, which is the production onboarding flow.
+ */
+const mk = async (token, username, unit_id, role_id = null, rank_id = 'LCpl') => {
+  let result;
+  if (token === adminTok) {
+    result = must(await call('POST', '/api/team', {
+      token,
+      body: { username, password: PW(username), first_name: 'M', last_name: username, rank_id, mos: '3451', unit_id, role_id },
+    }), `create ${username}`);
+  } else {
+    must(await call('POST', '/api/register', {
+      body: { username, password: PW(username), first_name: 'M', last_name: username, rank_id, mos: '3451' },
+    }), `register ${username}`);
+    const found = must(await call('GET', `/api/directory?unit_id=${encodeURIComponent(unit_id)}&q=${encodeURIComponent(username)}`, { token }), `find ${username}`)
+      .results.find((row) => row.username === username);
+    assert.ok(found, `directory missing ${username}`);
+    must(await call('POST', `/api/org/units/${unit_id}/members`, {
+      token, body: { user_id: found.id, role_id },
+    }), `attach ${username}`);
+    result = { id: found.id };
+  }
+  createdIds.set(username, result.id);
+  return result;
+};
 
 /** Operator claims a seeded unit for a named owner, giving it its own roles. */
 const claim = async (unitId, ownerUsername, ownerId) => {
@@ -124,13 +147,8 @@ await mk(tokNguyen, 'probe', 'G8-FMRAC');
 await mk(tokBudget, 'kramer', 'G8-BUDGET');
 await mk(tokClr, 'zed', 'CLR-4');
 
-const rosters = await Promise.all(
-  [adminTok, tokNguyen, tokBudget, tokClr].map(async (t) => (await call('GET', '/api/team', { token: t })).body.roster || [])
-);
-const everyone = new Map();
-for (const roster of rosters) for (const r of roster) everyone.set(r.username, r.id);
 const id = (u) => {
-  const found = everyone.get(u);
+  const found = createdIds.get(u);
   assert.ok(found, `fixture missing ${u}`);
   return found;
 };
@@ -214,14 +232,15 @@ const ROWS = [
   ['sectionHead', 'createShared', 'CLR-4', 'unrelated unit', 'deny'],
   ['admin', 'createShared', 'CLR-4', 'unrelated unit', 'deny', 'allow (anywhere) — finding 4'],
 
-  /* manage a member (non-destructive probe: force sign-out) */
+  /* account-wide session control. Membership managers deliberately do NOT get
+     this: the same account may belong to several sovereign units. */
   ['marine', 'manageMember', 'kramer', 'no permission', 'deny'],
   ['ftl', 'manageMember', 'rivera', 'own unit, no MANAGE_MEMBERS', 'deny'],
-  ['ncoic', 'manageMember', 'probe', 'own unit', 'allow'],
+  ['ncoic', 'manageMember', 'probe', 'own unit manager, not operator', 'deny', 'allow — global-account finding'],
   ['ncoic', 'manageMember', 'kramer', 'other unit', 'deny'],
   ['sectionHead', 'manageMember', 'kramer', 'child unit', 'deny', 'allow (own subtree) — finding 2'],
   ['clrLead', 'manageMember', 'rivera', 'unrelated unit', 'deny'],
-  ['admin', 'manageMember', 'zed', 'unrelated unit', 'deny', 'allow (anywhere) — finding 4'],
+  ['admin', 'manageMember', 'zed', 'Instance Operator recovery action', 'allow'],
 
   /* grant a role */
   ['marine', 'grantRole', ['kramer', 'G8-BUDGET'], 'no permission', 'deny'],
@@ -256,10 +275,11 @@ const ROWS = [
   ['sectionHead', 'createSubUnit', 'CLR-4', 'unrelated unit', 'deny'],
   ['admin', 'createSubUnit', 'CLR-4', 'unrelated unit', 'deny', 'allow (anywhere) — finding 4'],
 
-  /* top-level unit creation — the row v3.3 could not express (finding 5) */
-  ['marine', 'createTopLevelUnit', null, 'no roles anywhere', 'allow'],
-  ['ftl', 'createTopLevelUnit', null, 'NCO elsewhere', 'allow'],
-  ['clrLead', 'createTopLevelUnit', null, 'owner elsewhere', 'allow'],
+  /* top-level organizations are instance inventory, not self-service tenants */
+  ['marine', 'createTopLevelUnit', null, 'no roles anywhere', 'deny', 'allow — unrestricted creation finding'],
+  ['ftl', 'createTopLevelUnit', null, 'NCO elsewhere', 'deny', 'allow — unrestricted creation finding'],
+  ['clrLead', 'createTopLevelUnit', null, 'owner elsewhere', 'deny', 'allow — unrestricted creation finding'],
+  ['admin', 'createTopLevelUnit', null, 'Instance Operator', 'allow'],
 ];
 
 /* ── run ──────────────────────────────────────────────────────────── */

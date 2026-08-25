@@ -52,6 +52,22 @@ const call = async (method, path, { token, body } = {}) => {
   return { status: res.status, body: json };
 };
 
+const callRaw = async (method, path, { token, body, filename, contentType } = {}) => {
+  const res = await fetch(BASE + path, {
+    method,
+    headers: {
+      ...(token ? { authorization: `Bearer ${token}` } : {}),
+      ...(filename ? { 'x-vantage-filename': encodeURIComponent(filename) } : {}),
+      ...(contentType ? { 'content-type': contentType } : {}),
+    },
+    body,
+  });
+  const bytes = Buffer.from(await res.arrayBuffer());
+  let json = null;
+  try { json = bytes.length ? JSON.parse(bytes.toString('utf8')) : null; } catch { /* binary body */ }
+  return { status: res.status, body: json, bytes, headers: res.headers };
+};
+
 const login = async (username, password) => {
   const res = await call('POST', '/api/login', { body: { username, password } });
   return res.body?.token;
@@ -61,13 +77,13 @@ const login = async (username, password) => {
 
 await call('POST', '/api/setup', {
   body: {
-    username: 'boletz', password: 'correct-horse-battery-staple',
+    username: 'boletz', password: 'cobalt-orbit-velvet-anchor-927',
     first_name: 'John', last_name: 'Boletz', rank_id: 'Cpl', mos: '3451',
     unit_code: 'CE-G8', billet_title: 'Accounting Chief',
   },
 });
 
-const adminToken = await login('boletz', 'correct-horse-battery-staple');
+const adminToken = await login('boletz', 'cobalt-orbit-velvet-anchor-927');
 const me = (await call('GET', '/api/me', { token: adminToken })).body;
 
 /*
@@ -104,7 +120,11 @@ await call('POST', '/api/team', {
     unit_id: 'CE-G8',
   },
 });
-const nguyenId = (await call('GET', '/api/team', { token: adminToken })).body.roster.find((r) => r.username === 'nguyen').id;
+// Shared-unit roster projections deliberately redact usernames. Resolve the
+// just-created fixture by its visible personnel fields instead of depending on
+// a credential identifier the API is designed not to disclose.
+const nguyenId = (await call('GET', '/api/team', { token: adminToken })).body.roster
+  .find((r) => r.last_name === 'Nguyen' && r.first_name === 'Thanh').id;
 await call('POST', '/api/org/units/CLR-4/claim', {
   token: adminToken, body: { owner_user_id: nguyenId, template_id: 'section' },
 });
@@ -136,6 +156,50 @@ await test('unknown user and wrong password give the same answer', async () => {
 await test('no token means no data', async () => {
   const res = await call('GET', '/api/activities');
   assert.equal(res.status, 401);
+});
+
+await test('self-registration creates an unattached personal-only identity', async () => {
+  const created = await call('POST', '/api/register', {
+    body: {
+      username: 'selfservice', password: 'a-personal-long-passphrase',
+      first_name: 'Avery', last_name: 'Stone', rank_id: 'PFC', mos: '0111',
+    },
+  });
+  assert.equal(created.status, 201);
+  const token = await login('selfservice', 'a-personal-long-passphrase');
+  const mine = await call('GET', '/api/me', { token });
+  assert.deepEqual(mine.body.unitIds, []);
+  const orgView = await call('GET', '/api/org', { token });
+  assert.deepEqual(orgView.body.units, []);
+  const activity = await call('POST', '/api/activities', {
+    token, body: { title: 'Personal onboarding note', date: '2026-08-01' },
+  });
+  assert.equal(activity.body.visibility, 'personal');
+  assert.equal(activity.body.unit_id, null);
+});
+
+await test('public configuration exposes capabilities but no deployment secrets', async () => {
+  const res = await call('GET', '/api/config');
+  assert.equal(res.status, 200);
+  assert.equal(res.body.ui.palette, 'ocean-light');
+  assert.equal(res.body.auth.self_registration, true);
+  assert.equal(JSON.stringify(res.body).includes('VANTAGE_SETUP_TOKEN'), false);
+  assert.equal(JSON.stringify(res.body).includes('VANTAGE_CAC_PROXY_SECRET'), false);
+});
+
+await test('experience metrics retain aggregate allow-listed counts only', async () => {
+  assert.equal((await call('POST', '/api/experience', {
+    token: adminToken, body: { event: 'quick_log_saved' },
+  })).status, 204);
+  assert.equal((await call('POST', '/api/experience', {
+    token: adminToken, body: { event: 'record_text:secret' },
+  })).status, 400);
+  const summary = await call('GET', '/api/admin/experience?days=30', { token: adminToken });
+  assert.equal(summary.status, 200);
+  assert.ok(summary.body.rows.some((row) => row.event === 'quick_log_saved' && row.count >= 1));
+  const serialized = JSON.stringify(summary.body.rows);
+  assert.equal(serialized.includes(adminToken), false);
+  assert.equal(serialized.includes('actor_id'), false);
 });
 
 await test('logout invalidates the session immediately', async () => {
@@ -593,7 +657,7 @@ await test('bulk import lands under the importing user', async () => {
   assert.ok(list.body.filter((a) => a.title.startsWith('Imported ')).length === 2);
 });
 
-await test('evidence links survive the JSON round trip', async () => {
+await test('optional supporting links survive the JSON round trip', async () => {
   const created = await call('POST', '/api/activities', {
     token: adminToken,
     body: {
@@ -602,6 +666,37 @@ await test('evidence links survive the JSON round trip', async () => {
     },
   });
   assert.equal(created.body.evidence_links[0].label, 'ULO report');
+});
+
+await test('optional attachments are sniffed, authorized, downloadable, and soft-deleted', async () => {
+  const activity = await call('POST', '/api/activities', {
+    token: riveraToken,
+    body: { title: 'Attachment boundary', date: '2026-08-12', visibility: 'unit', unit_id: 'G8-FMRAC' },
+  });
+  const pdf = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n');
+  const upload = await callRaw('POST', `/api/activities/${activity.body.id}/attachments`, {
+    token: riveraToken, body: pdf, filename: 'ULO support.pdf', contentType: 'application/pdf',
+  });
+  assert.equal(upload.status, 201);
+  assert.equal(upload.body.original_name, 'ULO support.pdf');
+
+  const managerList = await call('GET', `/api/activities/${activity.body.id}/attachments`, { token: adminToken });
+  assert.equal(managerList.body.attachments.length, 1);
+  const download = await callRaw(
+    'GET', `/api/activities/${activity.body.id}/attachments/${upload.body.id}`, { token: adminToken }
+  );
+  assert.equal(download.status, 200);
+  assert.deepEqual(download.bytes, pdf);
+  assert.match(download.headers.get('content-disposition'), /^attachment;/);
+
+  const outsider = await call('GET', `/api/activities/${activity.body.id}/attachments`, { token: nguyenToken });
+  assert.equal(outsider.status, 403);
+  const removed = await call(
+    'DELETE', `/api/activities/${activity.body.id}/attachments/${upload.body.id}`, { token: riveraToken }
+  );
+  assert.equal(removed.status, 200);
+  const after = await call('GET', `/api/activities/${activity.body.id}/attachments`, { token: riveraToken });
+  assert.equal(after.body.attachments.length, 0);
 });
 
 /* ── report ───────────────────────────────────────────────────────── */

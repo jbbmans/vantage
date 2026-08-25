@@ -13,8 +13,9 @@
  *
  *   - Moving a Marine needs authority over BOTH ends: MANAGE_MEMBERS in the
  *     unit they're leaving and in the unit they're joining.
- *   - A non-administrator can never move, deactivate, or reset the password of
- *     someone whose highest role position is at or above their own.
+ *   - Unit leaders may move/remove membership inside units they manage. Global
+ *     account state, credentials and sessions belong only to the Instance
+ *     Operator because one account may span several sovereign units.
  *   - A transfer revokes every role granted in the old unit unless the actor
  *     explicitly retains it — and retaining a role is itself a grant, so it
  *     passes the same delegation check a grant would.
@@ -23,11 +24,12 @@
  *   - Nothing here deletes a user. History stays attached to the account.
  */
 
-import { audit, grantRole, newId, now, addMember } from './db.js';
+import { audit, grantRole, newId, now, addMember, freezeMemberUnitRecords } from './db.js';
 import { PERMISSIONS } from './roles.js';
 import { can, permissionMap, positionIn, isUnitOwner, memberUnitIds } from './permissions.js';
 import { validateRoleGrant } from './roleGuard.js';
 import { invalidateUserSessions, listSessions, hashPassword } from './auth.js';
+import { isInstanceOperator, isBootstrapOperator } from './instance.js';
 
 const ok = (extra = {}) => ({ ok: true, ...extra });
 const deny = (status, message, code = 'forbidden') => ({ ok: false, status, message, code });
@@ -37,30 +39,19 @@ export function primaryAssignment(db, userId) {
 }
 
 /**
- * May `actor` administer `target`'s account (deactivate, reset password, force
- * logout, review access)? Administrators always; otherwise MANAGE_MEMBERS in
- * the target's primary unit AND a strictly higher role position — a fire team
- * leader does not get to switch off a peer fire team leader.
+ * Account credentials and activation state are global to the Vantage
+ * instance, even when the person belongs to several sovereign units. A unit
+ * leader therefore manages only that unit's membership; only the explicitly
+ * configured Instance Operator may alter the underlying account.
  */
-export function canAdministerMember(db, actor, target) {
+export function canAdministerAccount(db, actor, target) {
   if (!target) return deny(404, 'No such Marine.', 'not_found');
-
-  /* v3.4: authority over a person is authority IN A UNIT THEY ARE IN. v3.3
-   * short-circuited on isTrueAdmin — "holds ADMINISTRATOR anywhere" — which is
-   * the cross-tenant superuser finding 4 deletes: it let Unit A's
-   * administrator switch off Unit B's Marine. Position is compared on that
-   * unit's own scale, because role positions are per-unit now (finding 1) and
-   * comparing a position-60 role in one unit against a position-60 role in
-   * another is comparing two unrelated numbers. */
-  const shared = memberUnitIds(db, target.id)
-    .filter((unitId) => can(db, actor, PERMISSIONS.MANAGE_MEMBERS, unitId));
-  if (!shared.length) return deny(403, 'That Marine is outside your personnel authority.');
-
-  for (const unitId of shared) {
-    if (isUnitOwner(db, actor.id, unitId)) return ok();
-    if (positionIn(db, target, unitId) < positionIn(db, actor, unitId)) return ok();
-  }
-  return deny(403, 'You cannot administer a Marine whose role is at or above your own.');
+  if (isInstanceOperator(actor) || isBootstrapOperator(db, actor)) return ok();
+  return deny(
+    403,
+    'Account-wide recovery is restricted to the Instance Operator. Manage this Marine’s unit membership instead.',
+    'not_operator'
+  );
 }
 
 /** Active administrators other than `exceptUserId` — the lock-out guard. */
@@ -149,6 +140,7 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
   const defaultRoleId = db.prepare('SELECT id FROM roles WHERE is_default = 1 AND unit_id = ? LIMIT 1').get(unit_id)?.id || null;
   const revokedRoles = [];
   const retainedRoles = [];
+  let recordsFrozen = 0;
   const retain = new Set((Array.isArray(retainList) ? retainList : []).map(String));
 
   const run = db.transaction(() => {
@@ -199,22 +191,16 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
        * grant is an explicit decision to keep them attached, so membership
        * survives alongside it. */
       if (!retainedRoles.length) {
+        recordsFrozen = freezeMemberUnitRecords(targetId, oldUnit);
         db.prepare('DELETE FROM unit_members WHERE user_id = ? AND unit_id = ?').run(targetId, oldUnit);
       }
     }
   });
   run();
 
-  /* A transfer changes what this account can see. Anything it is currently
-   * signed into is a session issued under the old scope, so it ends — except
-   * the actor's own session when they reassign themselves, or the request
-   * that just succeeded would sign itself out. */
-  let sessionsRevoked = 0;
-  if (moved) {
-    sessionsRevoked = invalidateUserSessions(db, targetId, {
-      exceptToken: targetId === actor.id ? currentToken : null,
-    });
-  }
+  /* Permissions are recomputed from live memberships on every request. A
+   * unit-local transition must not gain account-wide session authority. */
+  const sessionsRevoked = 0;
 
   audit({
     actor_id: actor.id, action: 'reassign', entity: 'user', entity_id: targetId,
@@ -224,13 +210,13 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
       + (retainedRoles.length ? `; retained: ${retainedRoles.join(', ')}` : ''),
   });
 
-  return ok({ moved, from: oldUnit, to: unit_id, revokedRoles, retainedRoles, sessionsRevoked });
+  return ok({ moved, from: oldUnit, to: unit_id, revokedRoles, retainedRoles, recordsFrozen, sessionsRevoked });
 }
 
 /** Deactivate an account (finding 4). Sessions die now; history stays. */
 export function deactivateMember(db, actor, targetId) {
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(targetId);
-  const gate = canAdministerMember(db, actor, target);
+  const gate = canAdministerAccount(db, actor, target);
   if (!gate.ok) return gate;
   if (targetId === actor.id) return deny(400, 'You cannot deactivate your own account.', 'invalid');
   if (!target.active) return ok({ already: true, sessionsRevoked: 0 });
@@ -266,9 +252,7 @@ export function deactivateMember(db, actor, targetId) {
 export function reactivateMember(db, actor, targetId) {
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(targetId);
   if (!target) return deny(404, 'No such Marine.', 'not_found');
-  // canAdministerMember reads the target's roles, which an inactive account
-  // still has — same bar to switch it back on as to switch it off.
-  const gate = canAdministerMember(db, actor, target);
+  const gate = canAdministerAccount(db, actor, target);
   if (!gate.ok) return gate;
   if (target.active) return ok({ already: true });
   db.prepare('UPDATE users SET active = 1, updated_at = ? WHERE id = ?').run(now(), targetId);
@@ -283,9 +267,12 @@ export function reactivateMember(db, actor, targetId) {
 /** Administrative password reset. Every session the account holds ends. */
 export function resetMemberPassword(db, actor, targetId, newPassword) {
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(targetId);
-  const gate = canAdministerMember(db, actor, target);
+  const gate = canAdministerAccount(db, actor, target);
   if (!gate.ok) return gate;
-  db.prepare('UPDATE users SET password_hash = ?, updated_at = ? WHERE id = ?').run(
+  if (targetId === actor.id) {
+    return deny(400, 'Use Change password for your own account.', 'invalid');
+  }
+  db.prepare('UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = ? WHERE id = ?').run(
     hashPassword(newPassword), now(), targetId
   );
   const sessionsRevoked = invalidateUserSessions(db, targetId);
@@ -300,7 +287,7 @@ export function resetMemberPassword(db, actor, targetId, newPassword) {
 /** Cut every session an account holds, without touching anything else. */
 export function forceLogout(db, actor, targetId) {
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(targetId);
-  const gate = canAdministerMember(db, actor, target);
+  const gate = canAdministerAccount(db, actor, target);
   if (!gate.ok) return gate;
   const sessionsRevoked = invalidateUserSessions(db, targetId);
   audit({
@@ -319,7 +306,7 @@ export function forceLogout(db, actor, targetId) {
  */
 export function accessReview(db, actor, targetId) {
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(targetId);
-  const gate = canAdministerMember(db, actor, target);
+  const gate = canAdministerAccount(db, actor, target);
   if (!gate.ok) return gate;
 
   const assignments = db
@@ -359,6 +346,8 @@ export function accessReview(db, actor, targetId) {
     findings.push('Account is deactivated but still holds role grants. Revoke them if the departure is permanent.');
   }
   if (holdsAdmin(db, target)) findings.push('This account has administrator access.');
+  const isOperator = isInstanceOperator(target) || isBootstrapOperator(db, target);
+  if (isOperator) findings.push('This account is an Instance Operator configured outside the database.');
 
   audit({
     actor_id: actor.id, action: 'access_review', entity: 'user', entity_id: targetId,
@@ -368,7 +357,8 @@ export function accessReview(db, actor, targetId) {
   return ok({
     user: {
       id: target.id, username: target.username, first_name: target.first_name,
-      last_name: target.last_name, active: Boolean(target.active), is_admin: Boolean(target.is_admin),
+      last_name: target.last_name, active: Boolean(target.active),
+      is_admin: Boolean(target.is_admin), is_operator: isOperator,
     },
     assignments,
     roles,

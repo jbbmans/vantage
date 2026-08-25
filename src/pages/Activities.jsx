@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Link, useSearchParams } from 'react-router-dom';
-import { Search, SlidersHorizontal, Download, X, ArrowUpDown, Inbox } from 'lucide-react';
-import { useActivities, useProjects } from '@/store/useStore';
+import { Search, SlidersHorizontal, Download, Upload, X, Inbox, CheckCircle2, CircleAlert } from 'lucide-react';
+import { useActivities, useProjects, useIdentity } from '@/store/useStore';
 import {
   aggregateMetrics, rangeForPeriod, activitiesInRange, formatDollars, formatDollarsExact,
   formatNumber, formatDTG,
@@ -11,7 +11,7 @@ import { strength } from '@/lib/bullets';
 import { exportWorkbook } from '@/lib/sheets';
 import { useToast } from '@/components/ui/toast';
 import {
-  Panel, PageHeader, EmptyState, Button, Input, Select, Badge, Dot, Segmented, Tooltip,
+  Panel, EmptyState, Button, Input, Select, Badge, Dot, Segmented, Tooltip,
 } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
 import { unitFor } from '@/lib/bullets';
@@ -36,6 +36,7 @@ const SORTS = [
 export default function Activities() {
   const activities = useActivities();
   const projects = useProjects();
+  const identity = useIdentity();
   const toast = useToast();
   const [params, setParams] = useSearchParams();
 
@@ -48,6 +49,7 @@ export default function Activities() {
   const [showFilters, setShowFilters] = useState(false);
 
   const dayFilter = params.get('date');
+  const qualityFilter = params.get('quality');
 
   const filtered = useMemo(() => {
     let rows = activities;
@@ -68,6 +70,8 @@ export default function Activities() {
     if (category) rows = rows.filter((a) => a.category === category);
     if (jepes) rows = rows.filter((a) => (a.jepes_area || 'Unassigned') === jepes);
     if (dollarType) rows = rows.filter((a) => a.dollar_type === dollarType && a.dollar_amount);
+    if (qualityFilter === 'complete') rows = rows.filter((a) => strength(a) >= 2);
+    if (qualityFilter === 'needs-detail') rows = rows.filter((a) => strength(a) < 2);
 
     const sorted = [...rows];
     switch (sort) {
@@ -90,10 +94,10 @@ export default function Activities() {
         sorted.sort((a, b) => (b.date || '').localeCompare(a.date || ''));
     }
     return sorted;
-  }, [activities, query, period, category, jepes, dollarType, sort, dayFilter]);
+  }, [activities, query, period, category, jepes, dollarType, sort, dayFilter, qualityFilter]);
 
   const metrics = useMemo(() => aggregateMetrics(filtered), [filtered]);
-  const activeFilters = [category, jepes, dollarType, query, dayFilter].filter(Boolean).length;
+  const activeFilters = [category, jepes, dollarType, query, dayFilter, qualityFilter].filter(Boolean).length;
 
   const clearAll = () => {
     setQuery('');
@@ -106,21 +110,33 @@ export default function Activities() {
 
   const doExport = async () => {
     try {
-      await exportWorkbook({ activities: filtered, projects }, `vantage-activities-${new Date().toISOString().slice(0, 10)}.xlsx`);
-      toast.success(`Exported ${filtered.length} activities.`);
+      const mine = filtered.filter((row) => row.user_id === identity?.user?.id);
+      const myProjects = projects.filter((row) => row.user_id === identity?.user?.id);
+      await exportWorkbook({ activities: mine, projects: myProjects }, `vantage-activities-${new Date().toISOString().slice(0, 10)}.csv`);
+      toast.success(`Exported ${mine.length} of your activities.`);
     } catch (err) {
       toast.error(err.message || 'Export failed.');
     }
   };
 
   return (
-    <div className="mx-auto max-w-[1500px]">
-      <PageHeader title="Activity log" subtitle="Every action, with the figures attached">
+    <div className="page-canvas records-page">
+      <div className="mb-6 flex flex-wrap items-end justify-between gap-4 border-b border-rule pb-5">
+        <div>
+          <p className="eyebrow">Searchable operational ledger</p>
+          <h2 className="mt-2 text-3xl font-medium tracking-tight text-text sm:text-4xl">Records</h2>
+          <p className="mt-1.5 max-w-2xl text-base text-text-3">Every activity, transaction, quantity, and outcome—structured for retrieval instead of buried in a spreadsheet.</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <Button variant="default" size="sm" asChild>
+            <Link to="/settings#data"><Upload className="h-3.5 w-3.5" />Import CSV</Link>
+          </Button>
         <Button variant="default" size="sm" onClick={doExport} disabled={!filtered.length}>
           <Download className="h-3.5 w-3.5" />
           Export
         </Button>
-      </PageHeader>
+        </div>
+      </div>
 
       {/* filter bar */}
       <div className="mb-3 space-y-2">
@@ -161,6 +177,15 @@ export default function Activities() {
           </div>
         )}
 
+        {qualityFilter && (
+          <div className="flex items-center gap-2">
+            <Badge tone="signal">{qualityFilter === 'complete' ? 'Complete records' : 'Needs detail'}</Badge>
+            <button onClick={() => { const next = new URLSearchParams(params); next.delete('quality'); setParams(next); }} className="text-xs text-text-3 hover:text-text">
+              clear quality filter
+            </button>
+          </div>
+        )}
+
         {showFilters && (
           <div className="panel grid grid-cols-1 gap-2 rounded p-2 sm:grid-cols-3">
             <Select
@@ -186,7 +211,7 @@ export default function Activities() {
       </div>
 
       {/* running totals for the current filter */}
-      <div className="panel mb-3 flex flex-wrap items-center gap-x-5 gap-y-1 rounded px-3 py-2">
+      <div className="mb-4 flex flex-wrap items-center gap-x-7 gap-y-2 border-y border-rule px-1 py-3">
         <span className="fig text-xs text-text-2">
           <span className="text-text">{formatNumber(filtered.length)}</span> entries
         </span>
@@ -226,7 +251,7 @@ export default function Activities() {
               <span className="eyebrow w-32 shrink-0">Category</span>
               <span className="eyebrow w-28 shrink-0 text-right">Quantity</span>
               <span className="eyebrow w-28 shrink-0 text-right">Dollars</span>
-              <span className="eyebrow w-12 shrink-0 text-right">Str</span>
+              <span className="eyebrow w-28 shrink-0 text-right">Status</span>
             </div>
 
             {filtered.map((a) => (
@@ -264,10 +289,9 @@ export default function Activities() {
                   {a.dollar_amount ? formatDollars(a.dollar_amount) : '—'}
                 </span>
 
-                <span className="flex w-12 shrink-0 items-center justify-end gap-0.5">
-                  {[0, 1, 2, 3].map((i) => (
-                    <span key={i} className={cn('h-1 w-1.5 rounded-sm', i < strength(a) ? 'bg-signal/70' : 'bg-rule')} />
-                  ))}
+                <span className={cn('flex w-28 shrink-0 items-center justify-end gap-1.5 text-xs', strength(a) >= 2 ? 'text-ledger' : 'text-attention')}>
+                  {strength(a) >= 2 ? <CheckCircle2 className="h-3.5 w-3.5" /> : <CircleAlert className="h-3.5 w-3.5" />}
+                  {strength(a) >= 2 ? 'Complete' : 'Needs detail'}
                 </span>
               </Link>
             ))}

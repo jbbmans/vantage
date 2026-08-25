@@ -43,9 +43,9 @@ const must = (res, what) => {
 /* ── an install with real shape ───────────────────────────────────── */
 
 must(await call('POST', '/api/setup', {
-  body: { username: 'boletz', password: 'correct-horse-battery-staple', first_name: 'John', last_name: 'Boletz', rank_id: 'SSgt', unit_code: 'CE-G8' },
+  body: { username: 'boletz', password: 'cobalt-orbit-velvet-anchor-927', first_name: 'John', last_name: 'Boletz', rank_id: 'SSgt', unit_code: 'CE-G8' },
 }), 'setup');
-const admin = await login('boletz', 'correct-horse-battery-staple');
+const admin = await login('boletz', 'cobalt-orbit-velvet-anchor-927');
 
 // Two commands sharing one database — the exact situation v3.4 exists to fix.
 const people = [

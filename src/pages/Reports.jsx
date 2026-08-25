@@ -3,7 +3,9 @@ import { Copy, Download, Printer, FileText, Inbox, Users, ArrowUp, ArrowDown, Mi
 import {
   useActivities, useProjects, useRecognitions, useTrainings, useGoals, useTasks,
   useIdentity, useCanLead, unitPath,
+  can, PERMISSIONS,
 } from '@/store/useStore';
+import * as apiClient from '@/lib/api';
 import {
   aggregateMetrics, activitiesInRange, rangeForPeriod, fiscalYearRange, fiscalQuarterRange,
   formatDollars, formatDollarsExact, formatNumber, formatDTG,
@@ -17,7 +19,7 @@ import { useEvalTrack } from '@/store/useStore';
 import { exportWorkbook } from '@/lib/sheets';
 import { copyToClipboard, downloadText } from '@/lib/utils';
 import { useToast } from '@/components/ui/toast';
-import { Panel, PageHeader, EmptyState, Button, Segmented, Badge, Tooltip, Select } from '@/components/ui/primitives';
+import { Panel, EmptyState, Button, Segmented, Badge, Tooltip, Select } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
 
 const PERIODS = [
@@ -77,16 +79,36 @@ export default function Reports() {
   const [limit, setLimit] = useState(8);
 
   const me = identity?.user?.id;
+  const reportUnitId = identity?.assignments?.find((a) => a.is_primary)?.unit_id
+    || identity?.scopeUnitIds?.[0]
+    || null;
+  const canExportUnit = Boolean(reportUnitId && can(PERMISSIONS.EXPORT_DATA, reportUnitId));
+  const unitScope = scope === 'unit' && canExportUnit;
 
-  // A leader can report on themselves or on everything their billet reaches.
+  // Personal reporting is self-only. Unit packages are one exact unit and are
+  // offered only when the server-backed EXPORT_DATA permission is present.
   const pool = useMemo(
-    () => (scope === 'me' ? activities.filter((a) => a.user_id === me) : activities),
-    [activities, scope, me]
+    () => (unitScope
+      ? activities.filter((a) => a.unit_id === reportUnitId)
+      : activities.filter((a) => a.user_id === me)),
+    [activities, unitScope, reportUnitId, me]
   );
 
   const range = useMemo(() => rangeForPeriod(period), [period]);
   const scoped = useMemo(() => activitiesInRange(pool, range), [pool, range]);
   const metrics = useMemo(() => aggregateMetrics(scoped), [scoped]);
+  const scopedRecognitions = useMemo(
+    () => recognitions.filter((r) => (unitScope ? r.unit_id === reportUnitId : r.user_id === me)),
+    [recognitions, unitScope, reportUnitId, me]
+  );
+  const scopedTrainings = useMemo(
+    () => trainings.filter((r) => (unitScope ? r.unit_id === reportUnitId : r.user_id === me)),
+    [trainings, unitScope, reportUnitId, me]
+  );
+  const scopedGoals = useMemo(
+    () => goals.filter((r) => (unitScope ? r.unit_id === reportUnitId : r.user_id === me)),
+    [goals, unitScope, reportUnitId, me]
+  );
 
   const periodLabel = useMemo(() => {
     if (period === 'fiscalYear') return fiscalYearRange().label;
@@ -105,13 +127,15 @@ export default function Reports() {
   );
 
   const cmp = useMemo(
-    () => comparePeriods(pool, { ...range, label: periodLabel }, { recognitions, trainings, goals, areas: areasFor(track) }),
-    [pool, range, periodLabel, recognitions, trainings, goals, track]
+    () => comparePeriods(pool, { ...range, label: periodLabel }, {
+      recognitions: scopedRecognitions, trainings: scopedTrainings, goals: scopedGoals, areas: areasFor(track),
+    }),
+    [pool, range, periodLabel, scopedRecognitions, scopedTrainings, scopedGoals, track]
   );
 
-  const subjectLine = scope === 'me'
+  const subjectLine = !unitScope
     ? `${identity?.user?.rank?.abbr || ''} ${identity?.user?.last_name || ''}`.trim()
-    : unitPath(identity?.assignments?.[0]?.unit_id).map((u) => u.short_name || u.name).slice(-1)[0] || 'Chain of command';
+    : unitPath(identity?.assignments?.[0]?.unit_id).map((u) => u.short_name || u.name).slice(-1)[0] || 'Authorized unit';
 
   const copyCurrent = async () => {
     const text = view === 'narrative'
@@ -149,11 +173,17 @@ export default function Reports() {
   }
 
   return (
-    <div className="mx-auto max-w-[1300px] space-y-3">
+    <div className="page-canvas reports-page space-y-4">
       <div className="no-print">
-        <PageHeader title="Reports" subtitle={`${subjectLine} · ${periodLabel}`}>
+        <div className="flex flex-wrap items-end justify-between gap-5 border-b border-rule pb-5">
+          <div>
+            <p className="eyebrow">Analysis and package builder</p>
+            <h2 className="mt-2 text-3xl font-medium tracking-tight text-text sm:text-4xl">Report studio</h2>
+            <p className="mt-1.5 text-base text-text-3">{subjectLine} · {periodLabel}</p>
+          </div>
+          <div className="flex flex-wrap items-center gap-2">
           <Segmented value={period} onChange={setPeriod} options={PERIODS} />
-          {canLead && (
+          {canLead && canExportUnit && (
             <Segmented
               value={scope}
               onChange={setScope}
@@ -164,9 +194,10 @@ export default function Reports() {
             <Printer className="h-3.5 w-3.5" />
             Print
           </Button>
-        </PageHeader>
+          </div>
+        </div>
 
-        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+        <div className="flex flex-wrap items-center justify-between gap-2 border-b border-rule py-3">
           <Segmented value={view} onChange={setView} options={viewsFor(track)} />
           <div className="flex items-center gap-1.5">
             {view === 'bullets' && (
@@ -200,15 +231,22 @@ export default function Reports() {
               size="sm"
               onClick={async () => {
                 try {
-                  await exportWorkbook(
-                    { activities: scoped, projects, tasks, goals, recognitions, trainings, contacts: [] },
-                    `vantage-${periodLabel.replace(/\s+/g, '-').toLowerCase()}.xlsx`
-                  );
-                  toast.success('Workbook exported.');
+                  const data = unitScope
+                    ? await apiClient.exportUnit(reportUnitId)
+                    : {
+                      activities: scoped,
+                      projects: projects.filter((r) => r.user_id === me),
+                      tasks: tasks.filter((r) => r.user_id === me),
+                      goals: goals.filter((r) => r.user_id === me),
+                      recognitions: recognitions.filter((r) => r.user_id === me),
+                      trainings: trainings.filter((r) => r.user_id === me),
+                    };
+                  await exportWorkbook({ ...data, contacts: [] }, `vantage-${periodLabel.replace(/\s+/g, '-').toLowerCase()}.csv`);
+                  toast.success('CSV exported.');
                 } catch (err) { toast.error(err.message || 'Export failed.'); }
               }}
             >
-              <Download className="h-3 w-3" />Workbook
+              <Download className="h-3 w-3" />CSV
             </Button>
           </div>
         </div>
@@ -228,7 +266,7 @@ export default function Reports() {
       </div>
 
       {/* ── headline strip ── */}
-      <div className="panel flex flex-wrap items-center gap-x-6 gap-y-2 rounded px-4 py-3">
+      <div className="flex flex-wrap items-center gap-x-8 gap-y-3 border-y border-rule px-1 py-4">
         <div>
           <p className="eyebrow">Entries</p>
           <p className="fig mt-0.5 text-xl text-text">{formatNumber(scoped.length)}</p>

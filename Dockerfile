@@ -21,7 +21,8 @@ FROM node:22-bookworm-slim AS runtime
 WORKDIR /app
 ENV NODE_ENV=production \
     PORT=8080 \
-    VANTAGE_DB=/data/vantage.db
+    VANTAGE_DB=/data/vantage.db \
+    VANTAGE_DATA_MODE=evaluation
 
 RUN apt-get update \
  && apt-get install -y --no-install-recommends ca-certificates \
@@ -30,7 +31,7 @@ RUN apt-get update \
 COPY --from=build /app/node_modules ./node_modules
 COPY --from=build /app/dist ./dist
 COPY --from=build /app/server ./server
-COPY --from=build /app/src/lib ./src/lib
+COPY --from=build /app/config ./config
 COPY --from=build /app/package.json ./
 
 # The database lives on a mounted volume. Without one, every deploy starts empty.

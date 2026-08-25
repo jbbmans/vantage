@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { parseISO, isBefore, startOfDay } from 'date-fns';
 import { Plus, Trash2, CheckCheck, Clock3, Layers, Circle, CircleDot, CircleCheck, PauseCircle } from 'lucide-react';
+import { Link } from 'react-router-dom';
 import { useProjects, useTasks, createRecord, updateRecord, deleteRecord, restoreDeleted, useCanLead, useOrg, useIdentity, unitOptions, refreshAll } from '@/store/useStore';
 import VisibilityPicker, { UnitTargetPicker } from '@/components/VisibilityPicker';
 import { WORK_STATUS, PRIORITIES } from '@/lib/constants';
@@ -8,7 +9,7 @@ import { formatDTG } from '@/lib/metrics';
 import { useToast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import {
-  Panel, PageHeader, EmptyState, Button, Input, Textarea, Select, Field, Badge, Segmented, Tooltip,
+  Panel, EmptyState, Button, Input, Textarea, Select, Field, Badge, Segmented, Tooltip,
 } from '@/components/ui/primitives';
 import RecordDialog from '@/components/RecordDialog';
 import { cn } from '@/lib/utils';
@@ -31,9 +32,44 @@ const PRIORITY_TONE = {
 
 const NEXT_STATUS = { planned: 'active', active: 'completed', waiting: 'active', completed: 'planned' };
 
+const BOARD_COLUMNS = [
+  { status: 'planned', title: 'Planned', description: 'Ready to start' },
+  { status: 'active', title: 'In progress', description: 'Moving now' },
+  { status: 'waiting', title: 'Waiting', description: 'Blocked or pending' },
+  { status: 'completed', title: 'Complete', description: 'Closed work' },
+];
+
 /** A task is late only if it has a due date in the past and isn't finished. */
 const isLate = (t) =>
   Boolean(t.due_date) && t.status !== 'completed' && isBefore(parseISO(t.due_date), startOfDay(new Date()));
+
+function TaskCard({ task, project, onCycle, onEdit, onDelete }) {
+  const Icon = STATUS_ICON[task.status] || Circle;
+  return (
+    <article className="group rounded-md border border-rule bg-panel p-3 transition-colors hover:border-rule-strong">
+      <div className="flex items-start gap-2.5">
+        <Tooltip content={`Mark ${NEXT_STATUS[task.status]}`}>
+          <button type="button" onClick={() => onCycle(task)} className={cn('mt-0.5 shrink-0 transition-colors', STATUS_TONE[task.status])} aria-label={`Advance ${task.title}`}>
+            <Icon className="h-4 w-4" />
+          </button>
+        </Tooltip>
+        <button type="button" onClick={() => onEdit(task)} className="min-w-0 flex-1 text-left">
+          <span className={cn('block text-sm font-medium leading-snug', task.status === 'completed' ? 'text-text-3 line-through' : 'text-text')}>
+            {task.title}
+          </span>
+          {(project || task.notes) && <span className="mt-1 block line-clamp-2 text-xs leading-relaxed text-text-3">{[project?.name, task.notes].filter(Boolean).join(' · ')}</span>}
+        </button>
+        <button type="button" onClick={() => onDelete(task)} className="shrink-0 rounded-sm p-1 text-text-3 opacity-0 transition group-hover:opacity-100 hover:bg-redline/10 hover:text-redline focus-visible:opacity-100" aria-label={`Delete ${task.title}`}>
+          <Trash2 className="h-3.5 w-3.5" />
+        </button>
+      </div>
+      <div className="mt-3 flex items-center justify-between gap-2 border-t border-rule pt-2">
+        <span className="flex items-center gap-1.5 text-xs capitalize text-text-3"><span className={cn('h-2 w-2 rounded-full', PRIORITY_TONE[task.priority])} />{task.priority || 'medium'}</span>
+        {task.due_date && <span className={cn('fig text-xs', isLate(task) ? 'text-redline' : 'text-text-3')}><Clock3 className="mr-1 inline h-3 w-3" />{formatDTG(task.due_date)}</span>}
+      </div>
+    </article>
+  );
+}
 
 export default function Work() {
   const projects = useProjects();
@@ -111,23 +147,45 @@ export default function Work() {
     projects: projects.filter((p) => p.status === 'active').length,
   };
 
+  const boardColumns = filter === 'done'
+    ? BOARD_COLUMNS.filter((column) => column.status === 'completed')
+    : filter === 'all'
+      ? BOARD_COLUMNS
+      : BOARD_COLUMNS.filter((column) => column.status !== 'completed');
+
   return (
-    <div className="mx-auto max-w-[1200px]">
-      <PageHeader title="Work" subtitle={`${counts.open} open · ${counts.overdue} overdue · ${counts.projects} active projects`}>
+    <div className="page-canvas work-page">
+      <div className="flex flex-wrap items-end justify-between gap-5 border-b border-rule pb-5">
+        <div>
+          <p className="eyebrow">Mission planner</p>
+          <h2 className="mt-2 text-3xl font-medium tracking-tight text-text sm:text-4xl">Work board</h2>
+          <div className="mt-3 flex flex-wrap gap-x-6 gap-y-1 text-sm text-text-3">
+            <span><strong className="fig mr-1 text-text">{counts.open}</strong> open</span>
+            <span><strong className={cn('fig mr-1', counts.overdue ? 'text-redline' : 'text-text')}>{counts.overdue}</strong> overdue</span>
+            <span><strong className="fig mr-1 text-text">{counts.projects}</strong> active projects</span>
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
         <Segmented
           value={tab}
           onChange={setTab}
           options={[{ value: 'tasks', label: 'Tasks' }, { value: 'projects', label: 'Projects' }]}
         />
+        <Button variant="default" size="sm" asChild><Link to="/goals">Goals</Link></Button>
         <Button variant="primary" size="sm" onClick={() => (tab === 'tasks' ? setTaskDialog({}) : setProjectDialog({}))}>
           <Plus className="h-3.5 w-3.5" />
           New {tab === 'tasks' ? 'task' : 'project'}
         </Button>
-      </PageHeader>
+        </div>
+      </div>
 
       {tab === 'tasks' ? (
-        <>
-          <div className="mb-2">
+        <section className="mt-5" aria-label="Task board">
+          <div className="mb-4 flex items-center justify-between gap-3">
+            <div>
+              <h3 className="text-lg font-semibold text-text">Task flow</h3>
+              <p className="mt-0.5 text-sm text-text-3">Advance work with the status control on each task.</p>
+            </div>
             <Segmented
               value={filter}
               onChange={setFilter}
@@ -138,62 +196,48 @@ export default function Work() {
               ]}
             />
           </div>
-          <Panel bodyClassName="p-0">
-            {visibleTasks.length === 0 ? (
+          {visibleTasks.length === 0 ? (
+            <Panel>
               <EmptyState
                 icon={CheckCheck}
                 title={filter === 'open' ? 'Queue is clear' : 'Nothing here'}
                 description={filter === 'open' ? 'No open tasks right now.' : 'Switch the filter to see more.'}
                 action={<Button size="sm" onClick={() => setTaskDialog({})}>Add a task</Button>}
               />
-            ) : (
-              visibleTasks.map((t) => {
-                const Icon = STATUS_ICON[t.status] || Circle;
-                const project = projects.find((p) => p.id === t.project_id);
+            </Panel>
+          ) : (
+            <div className={cn('grid grid-cols-1 gap-3 md:grid-cols-2', boardColumns.length >= 3 && 'xl:grid-cols-3', boardColumns.length === 4 && '2xl:grid-cols-4')}>
+              {boardColumns.map((column) => {
+                const columnTasks = visibleTasks.filter((task) => task.status === column.status);
                 return (
-                  <div key={t.id} className="row flex items-center gap-2.5 px-3 py-2">
-                    <Tooltip content={`Mark ${NEXT_STATUS[t.status]}`}>
-                      <button onClick={() => cycle(t)} className={cn('shrink-0 transition-colors', STATUS_TONE[t.status])}>
-                        <Icon className="h-4 w-4" />
-                      </button>
-                    </Tooltip>
-                    <span className={cn('h-3 w-0.5 shrink-0 rounded-sm', PRIORITY_TONE[t.priority])} />
-                    <button
-                      onClick={() => setTaskDialog(t)}
-                      className="min-w-0 flex-1 text-left"
-                    >
-                      <span className={cn('block truncate text-base', t.status === 'completed' ? 'text-text-3 line-through' : 'text-text')}>
-                        {t.title}
-                      </span>
-                      {(project || t.notes) && (
-                        <span className="block truncate text-2xs text-text-3">
-                          {[project?.name, t.notes].filter(Boolean).join(' · ')}
-                        </span>
-                      )}
-                    </button>
-                    <Badge tone="neutral" className="hidden sm:inline-flex">{t.status}</Badge>
-                    {t.due_date && (
-                      <span className={cn('fig shrink-0 text-2xs', isLate(t) ? 'text-redline' : 'text-text-3')}>
-                        <Clock3 className="mr-0.5 inline h-2.5 w-2.5" />
-                        {formatDTG(t.due_date)}
-                      </span>
-                    )}
-                    <button
-                      onClick={() => setConfirming({ store: 'tasks', id: t.id, label: t.title })}
-                      className="shrink-0 text-text-3 hover:text-redline"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
+                  <section key={column.status} className="min-h-[260px] rounded-md border border-rule bg-panel-2/35 p-3" aria-labelledby={`column-${column.status}`}>
+                    <header className="mb-3 flex items-start justify-between border-b border-rule pb-3">
+                      <div><h4 id={`column-${column.status}`} className="text-sm font-semibold text-text">{column.title}</h4><p className="mt-0.5 text-xs text-text-3">{column.description}</p></div>
+                      <span className="fig rounded-full bg-panel px-2 py-0.5 text-xs text-text-3">{columnTasks.length}</span>
+                    </header>
+                    <div className="space-y-2.5">
+                      {columnTasks.map((task) => (
+                        <TaskCard
+                          key={task.id}
+                          task={task}
+                          project={projects.find((project) => project.id === task.project_id)}
+                          onCycle={cycle}
+                          onEdit={setTaskDialog}
+                          onDelete={(row) => setConfirming({ store: 'tasks', id: row.id, label: row.title })}
+                        />
+                      ))}
+                      {columnTasks.length === 0 && <p className="px-1 py-8 text-center text-xs text-text-3">No tasks here</p>}
+                    </div>
+                  </section>
                 );
-              })
-            )}
-          </Panel>
-        </>
+              })}
+            </div>
+          )}
+        </section>
       ) : (
-        <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+        <section className="mt-5 space-y-3" aria-label="Projects">
           {projects.length === 0 ? (
-            <Panel className="md:col-span-2">
+            <Panel>
               <EmptyState
                 icon={Layers}
                 title="No projects yet"
@@ -207,40 +251,30 @@ export default function Work() {
               const done = linked.filter((t) => t.status === 'completed').length;
               const pct = linked.length ? Math.round((done / linked.length) * 100) : p.progress || 0;
               return (
-                <Panel
-                  key={p.id}
-                  title={p.name}
-                  subtitle={[p.organization, p.status].filter(Boolean).join(' · ')}
-                  action={
-                    <>
-                      <Button variant="ghost" size="sm" onClick={() => setProjectDialog(p)}>Edit</Button>
+                <article key={p.id} className="grid gap-4 border-b border-rule py-5 first:pt-0 lg:grid-cols-[minmax(0,1fr)_280px_auto] lg:items-center">
+                  <div className="min-w-0">
+                    <div className="flex items-center gap-2"><h3 className="truncate text-lg font-semibold text-text">{p.name}</h3><Badge tone="neutral">{p.status}</Badge></div>
+                    {p.description && <p className="mt-1 max-w-3xl text-sm leading-relaxed text-text-3">{p.description}</p>}
+                    <p className="mt-2 text-xs text-text-3">{[p.organization, p.target_date ? `Target ${formatDTG(p.target_date)}` : null].filter(Boolean).join(' · ') || 'No target date'}</p>
+                  </div>
+                  <div>
+                    <div className="flex items-baseline justify-between text-xs"><span className="text-text-3">{linked.length ? `${done}/${linked.length} tasks complete` : 'No linked tasks'}</span><span className="fig text-text">{pct}%</span></div>
+                    <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-panel-2"><div className="h-full rounded-full bg-signal transition-[width] duration-500" style={{ width: `${pct}%` }} /></div>
+                  </div>
+                  <div className="flex items-center gap-1 lg:justify-end">
+                    <Button variant="ghost" size="sm" onClick={() => setProjectDialog(p)}>Edit</Button>
                       <button
                         onClick={() => setConfirming({ store: 'projects', id: p.id, label: p.name })}
                         className="text-text-3 hover:text-redline"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
-                    </>
-                  }
-                >
-                  {p.description && <p className="mb-3 text-sm leading-relaxed text-text-2">{p.description}</p>}
-                  <div className="flex items-baseline justify-between text-xs">
-                    <span className="text-text-3">
-                      {linked.length ? `${done}/${linked.length} tasks complete` : 'No linked tasks'}
-                    </span>
-                    <span className="fig text-text">{pct}%</span>
                   </div>
-                  <div className="mt-1.5 h-1 overflow-hidden rounded-sm bg-rule/60">
-                    <div className="h-full bg-signal/70 transition-[width] duration-500" style={{ width: `${pct}%` }} />
-                  </div>
-                  {p.target_date && (
-                    <p className="fig mt-2 text-2xs text-text-3">Target {formatDTG(p.target_date)}</p>
-                  )}
-                </Panel>
+                </article>
               );
             })
           )}
-        </div>
+        </section>
       )}
 
       <ConflictDialog

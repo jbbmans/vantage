@@ -354,19 +354,19 @@ export function strength(a = {}) {
 /**
  * What this record is missing before it makes a defensible bullet.
  *
- * Ordered by how much each gap actually costs the bullet. Evidence is last
- * on purpose: it's the only gap that's about your filing rather than about
- * the sentence, and leading with it on every record trains you to ignore
- * the whole list.
+ * Ordered by how much each gap actually costs the bullet. Optional supporting
+ * material is deliberately excluded by default: a complete activity record
+ * stands on its own, and users should never need to build a second filing
+ * system just to satisfy the quality coach.
  */
 export function weaknesses(a = {}, opts = {}) {
-  const { includeEvidence = true } = opts;
+  const { includeEvidence = false } = opts;
   const gaps = [];
   if (!a.result) gaps.push('no stated outcome — so what?');
   if (!a.quantity) gaps.push('no quantity — how many?');
   if (!a.dollar_amount && a.category === 'Fiscal & Financial') gaps.push('no dollar figure');
   if (!a.jepes_area || a.jepes_area === 'Unassigned') gaps.push('not mapped to a JEPES area');
-  if (includeEvidence && !a.evidence_links?.length) gaps.push('no evidence linked');
+  if (includeEvidence && !a.evidence_links?.length) gaps.push('no supporting material linked');
   return gaps;
 }
 

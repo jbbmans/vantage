@@ -156,11 +156,14 @@ test('previous range is the same length and does not overlap', () => {
 /* ── streaks ──────────────────────────────────────────────────────── */
 
 test('streak counts back from today', () => {
-  const iso = (d) => d.toISOString().slice(0, 10);
-  const day = (n) => { const d = new Date(); d.setDate(d.getDate() - n); return iso(d); };
+  // A fixed local-noon reference keeps this calendar test independent of the
+  // host timezone and UTC midnight rollover.
+  const ref = new Date(2026, 7, 19, 12);
+  const iso = (d) => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
+  const day = (n) => { const d = new Date(ref); d.setDate(d.getDate() - n); return iso(d); };
   const list = [{ date: day(0) }, { date: day(1) }, { date: day(2) }, { date: day(5) }];
-  assert.equal(M.currentStreak(list), 3);
-  assert.equal(M.daysSinceLastActivity(list), 0);
+  assert.equal(M.currentStreak(list, ref), 3);
+  assert.equal(M.daysSinceLastActivity(list, ref), 0);
 });
 
 test('streak of zero when nothing recent', () => {
@@ -394,7 +397,7 @@ test('the FITREP countdown appears only on the fitrep track inside 45 days', () 
     .some((a) => a.key === 'fitrep-period'));
 });
 
-test('record health counts what would not hold up, and only that', () => {
+test('record health scores the activity itself and never requires an attachment', () => {
   const activities = [
     { id: '1', title: 'Reconciled ULOs', date: '2026-08-01', jepes_area: 'Leadership', result: 'closed 30' },
     { id: '2', title: 'Big claim', date: '2026-08-02', jepes_area: 'Leadership', result: 'x', dollar_amount: 50000 },
@@ -404,7 +407,7 @@ test('record health counts what would not hold up, and only that', () => {
   const by = Object.fromEntries(issues.map((i) => [i.key, i.count]));
   assert.equal(by.outcomes, 1);
   assert.equal(by.untagged, 1);
-  assert.equal(by.evidence, 1, 'the $50k entry has no evidence link');
+  assert.equal(by.evidence, undefined, 'supporting material is optional even for a large-dollar entry');
   assert.equal(by.duplicates, undefined, 'nothing here duplicates');
   for (const i of issues) assert.ok(i.to && i.detail, `${i.key} must carry a route and an explanation`);
 });
@@ -799,4 +802,3 @@ for (const [status, name] of results) {
 }
 console.log(`\n${results.length - failed.length}/${results.length} passed`);
 process.exit(failed.length ? 1 : 0);
-

@@ -1,8 +1,11 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate, useParams, Link } from 'react-router-dom';
-import { ArrowLeft, Trash2, Save, Copy, Plus, X, ExternalLink } from 'lucide-react';
-import { useActivities, useProjects, updateRecord, deleteRecord, restoreDeleted, refreshAll } from '@/store/useStore';
-import { errorText } from '@/lib/api';
+import { ArrowLeft, Trash2, Save, Copy, Plus, X, ExternalLink, Paperclip, Download, Upload } from 'lucide-react';
+import { useActivities, useProjects, useIdentity, updateRecord, deleteRecord, restoreDeleted, refreshAll } from '@/store/useStore';
+import {
+  activityAttachments, activityAttachmentUrl, deleteActivityAttachment, errorText, uploadActivityAttachment,
+  trackExperience,
+} from '@/lib/api';
 import { CATEGORIES, CATEGORY_COLORS, JEPES_AREAS, DOLLAR_TYPES, DOLLAR_TYPE_DEFINITIONS, UNIT_SUGGESTIONS, ACTIVITY_STATUS } from '@/lib/constants';
 import { composeBullet, strength, weaknesses } from '@/lib/bullets';
 import { formatDollarsExact, formatDTG } from '@/lib/metrics';
@@ -16,6 +19,7 @@ import VisibilityPicker, { DEFAULT_VISIBILITY } from '@/components/VisibilityPic
 import { areaOptions, mapAreaToTrack, trackMeta } from '@/lib/evaluation';
 import { useEvalTrack } from '@/store/useStore';
 import { cn } from '@/lib/utils';
+import { draftKey as userDraftKey } from '@/lib/drafts';
 
 export default function ActivityDetail() {
   const track = useEvalTrack();
@@ -24,13 +28,14 @@ export default function ActivityDetail() {
   const toast = useToast();
   const activities = useActivities();
   const projects = useProjects();
+  const identity = useIdentity();
 
   const original = useMemo(() => activities.find((a) => a.id === id), [activities, id]);
   const [draft, setDraft] = useState(null);
   // Finding 35: a failed save must not cost the work. Edits mirror into
-  // localStorage keyed by record id + the version they were made against; a
+  // sessionStorage keyed by account, record id and source version; a
   // fresh mount offers the draft back only when the server copy hasn't moved.
-  const draftKey = `vantage.draft.activity.${id}`;
+  const draftKey = userDraftKey(identity?.user?.id, 'activity', id);
   const [restoredDraft, setRestoredDraft] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
@@ -41,19 +46,35 @@ export default function ActivityDetail() {
   // Finding 34: server refusals name their fields; those names land under the
   // exact inputs. Typing in a field clears its own error, nothing else.
   const [fieldErrors, setFieldErrors] = useState({});
+  const [attachments, setAttachments] = useState([]);
+  const [attachmentsEnabled, setAttachmentsEnabled] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const fileInput = useRef(null);
+
+  const loadAttachments = async () => {
+    try {
+      const result = await activityAttachments(id);
+      setAttachments(result.attachments || []);
+      setAttachmentsEnabled(Boolean(result.enabled));
+    } catch {
+      setAttachments([]);
+    }
+  };
+
+  useEffect(() => { loadAttachments(); }, [id]); // eslint-disable-line react-hooks/exhaustive-deps
 
   useEffect(() => {
     if (!original) return;
     const clean = { ...original, evidence_links: original.evidence_links || [], people: original.people || [] };
     let stored = null;
-    try { stored = JSON.parse(localStorage.getItem(draftKey) || 'null'); } catch { /* corrupt */ }
+    try { stored = JSON.parse(sessionStorage.getItem(draftKey) || 'null'); } catch { /* corrupt */ }
     if (stored && stored.version === original.version
         && JSON.stringify(stored.draft) !== JSON.stringify(clean)) {
       setDraft({ ...clean, ...stored.draft });
       setRestoredDraft(true);
     } else {
       if (stored && stored.version !== original.version) {
-        try { localStorage.removeItem(draftKey); } catch { /* fine */ }
+        try { sessionStorage.removeItem(draftKey); } catch { /* fine */ }
       }
       setDraft(clean);
     }
@@ -65,8 +86,8 @@ export default function ActivityDetail() {
     if (!draft || !original) return;
     const clean = { ...original, evidence_links: original.evidence_links || [], people: original.people || [] };
     try {
-      if (JSON.stringify(draft) === JSON.stringify(clean)) localStorage.removeItem(draftKey);
-      else localStorage.setItem(draftKey, JSON.stringify({ version: original.version, draft }));
+      if (JSON.stringify(draft) === JSON.stringify(clean)) sessionStorage.removeItem(draftKey);
+      else sessionStorage.setItem(draftKey, JSON.stringify({ version: original.version, draft }));
     } catch { /* storage full or blocked — the in-memory draft still stands */ }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
@@ -90,7 +111,7 @@ export default function ActivityDetail() {
   if (!draft) return null;
 
   const discardDraft = () => {
-    try { localStorage.removeItem(draftKey); } catch { /* fine */ }
+    try { sessionStorage.removeItem(draftKey); } catch { /* fine */ }
     setDraft({ ...original, evidence_links: original.evidence_links || [], people: original.people || [] });
     setRestoredDraft(false);
   };
@@ -123,7 +144,7 @@ export default function ActivityDetail() {
       setConflict(null);
       setFieldErrors({});
       setRestoredDraft(false);
-      try { localStorage.removeItem(draftKey); } catch { /* fine */ }
+      try { sessionStorage.removeItem(draftKey); } catch { /* fine */ }
       toast.success('Entry saved.');
     } catch (err) {
       if (err.status === 409 && err.code === 'stale' && err.current) {
@@ -139,7 +160,7 @@ export default function ActivityDetail() {
 
   const loadNewest = async () => {
     setConflict(null);
-    try { localStorage.removeItem(draftKey); } catch { /* fine */ }
+    try { sessionStorage.removeItem(draftKey); } catch { /* fine */ }
     await refreshAll();
     toast.success('Loaded the newest copy. Your unsaved edits were set aside.');
   };
@@ -170,6 +191,34 @@ export default function ActivityDetail() {
   const updateLink = (i, patch) =>
     set('evidence_links')(draft.evidence_links.map((l, idx) => (idx === i ? { ...l, ...patch } : l)));
   const removeLink = (i) => set('evidence_links')(draft.evidence_links.filter((_, idx) => idx !== i));
+
+  const uploadFile = async (file) => {
+    if (!file) return;
+    setUploading(true);
+    try {
+      await uploadActivityAttachment(id, file);
+      await loadAttachments();
+      trackExperience('attachment_uploaded');
+      toast.success('Supporting file attached.');
+    } catch (err) {
+      toast.error(errorText(err));
+    } finally {
+      setUploading(false);
+      if (fileInput.current) fileInput.current.value = '';
+    }
+  };
+
+  const removeAttachment = async (attachmentId) => {
+    try {
+      await deleteActivityAttachment(id, attachmentId);
+      await loadAttachments();
+      toast.success('Attachment removed from the active record.');
+    } catch (err) { toast.error(errorText(err)); }
+  };
+
+  const formatBytes = (bytes) => bytes >= 1048576
+    ? `${(bytes / 1048576).toFixed(1)} MB`
+    : `${Math.max(1, Math.round(bytes / 1024))} KB`;
 
   const s = strength(draft);
   const gaps = weaknesses(draft);
@@ -318,20 +367,16 @@ export default function ActivityDetail() {
       </Panel>
 
       <Panel
-        title="Evidence"
-        subtitle="Links to the artifact that proves this happened"
+        title="Supporting material"
+        subtitle="Optional references or files — never required to log useful work"
         action={
           <Button variant="ghost" size="sm" onClick={addLink}>
             <Plus className="h-3 w-3" />
-            Add link
+            Add reference
           </Button>
         }
       >
-        {!draft.evidence_links?.length ? (
-          <p className="py-2 text-xs text-text-3">
-            No evidence attached. A bullet with a source behind it is the one that survives scrutiny.
-          </p>
-        ) : (
+        {draft.evidence_links?.length > 0 && (
           <div className="space-y-2">
             {draft.evidence_links.map((link, i) => (
               <div key={i} className="flex items-center gap-2">
@@ -355,6 +400,52 @@ export default function ActivityDetail() {
                 <button onClick={() => removeLink(i)} className="text-text-3 hover:text-redline">
                   <X className="h-3.5 w-3.5" />
                 </button>
+              </div>
+            ))}
+          </div>
+        )}
+
+        <div className={cn('flex flex-wrap items-center gap-2', draft.evidence_links?.length ? 'mt-4 border-t border-rule pt-4' : '')}>
+          {attachmentsEnabled && (
+            <>
+              <input
+                ref={fileInput}
+                type="file"
+                accept=".pdf,.png,.jpg,.jpeg,.txt,.csv"
+                className="hidden"
+                onChange={(event) => uploadFile(event.target.files?.[0])}
+              />
+              <Button size="sm" onClick={() => fileInput.current?.click()} disabled={uploading}>
+                <Upload className="h-3.5 w-3.5" /> {uploading ? 'Attaching…' : 'Attach file'}
+              </Button>
+            </>
+          )}
+          <p className="text-xs leading-relaxed text-text-3">
+            {attachmentsEnabled
+              ? 'PDF, PNG, JPEG, TXT, or CSV · 10 MB maximum · stored inside the encrypted-at-rest deployment database when the host provides disk encryption.'
+              : 'File attachments are disabled by the deployment operator.'}
+          </p>
+        </div>
+
+        {attachments.length > 0 && (
+          <div className="mt-3 divide-y divide-rule overflow-hidden rounded-lg border border-rule">
+            {attachments.map((file) => (
+              <div key={file.id} className="flex items-center gap-3 bg-panel px-3 py-2.5">
+                <span className="grid h-8 w-8 shrink-0 place-items-center rounded-md bg-panel-2 text-signal">
+                  <Paperclip className="h-4 w-4" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="truncate text-sm font-medium text-text">{file.original_name}</p>
+                  <p className="fig text-2xs text-text-3">{formatBytes(file.size_bytes)} · {file.mime_type}</p>
+                </div>
+                <Button variant="ghost" size="sm" asChild>
+                  <a href={activityAttachmentUrl(id, file.id)} download>
+                    <Download className="h-3.5 w-3.5" /> <span className="sr-only">Download {file.original_name}</span>
+                  </a>
+                </Button>
+                <Button variant="ghost" size="sm" onClick={() => removeAttachment(file.id)}>
+                  <Trash2 className="h-3.5 w-3.5" /> <span className="sr-only">Remove {file.original_name}</span>
+                </Button>
               </div>
             ))}
           </div>

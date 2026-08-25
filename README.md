@@ -1,827 +1,172 @@
-# Vantage v3.4.0-phase1
+# VANTAGE 3.5.0-rc.1
 
-> **V3.4 Phase 1 — Tenancy.** A unit is now a sovereign boundary. Its roles,
-> its members, its records, its audit log; nothing crosses without an explicit,
-> audited act by someone inside it. Two units in the same database are
-> strangers.
->
-> No authorization decision reads the org chart — enforced by a static test
-> that fails the build, not by discipline. `roles.unit_id` is `NOT NULL`, so
-> there is no global role definition. An `ADMINISTRATOR` grant in one unit
-> confers nothing in any other. `chain` visibility is gone from schema, API and
-> UI. Personal scope is unreadable by every other principal including the
-> Instance Operator. Migrations 006–007 are verified against a captured v3.3.0
-> database with a permission oracle taken before any v3.4 code existed.
->
-> **Read "Upgrading to v3.4" before running this against a v3.3 database.** The
-> migration is one-way, it reduces visibility on purpose, and it deliberately
-> declines to carry one v3.3 permission forward.
->
-> Phases 2–5 (invites, ownership transfer, fork-on-transfer, empty seed,
-> classification modes, share packages, per-unit audit) are not in this build.
-> v3.3's ledger and its open items are still below, and **"Before real names go
-> in it" still applies** — Phase 3's Minimal mode is what changes that answer.
+VANTAGE is a self-hosted performance, productivity, and operational-record workspace designed for Marine Corps sections. It turns short activity entries into a searchable ledger, a command-level operational picture, project and task views, career narratives, and exportable reports without sending records to an external AI or analytics provider.
 
-## How to hand this build back to a working session
+This is a release candidate for controlled evaluation. It is not an official Marine Corps system, is not approved for MCEN, and has not received an Authority to Operate. Keep `app.data_mode: evaluation` until the hosting environment and intended data types are formally authorized.
 
-Upload two things together: this zip **and the v3.3 roadmap document** (the
-52-finding review). The ledger below records what is done against those
-numbers; the roadmap holds the full text of what remains. With both in hand, a
-session can resume at the exact finding where this one stopped — nothing lives
-only in a chat transcript.
+## Product experience
 
-## v3.3 ledger — closed in this build
+- **Command:** data-first dashboard with impact, throughput, completeness, open actions, trend charts, attention items, and latest activity.
+- **Records:** searchable activity and transaction ledger with date ranges, quality filters, CSV/TSV import, CSV export, and optional supporting files.
+- **Quick Capture:** a fixed Log activity action accepts plain language, then exposes the parsed date, amount, transaction type, quantity, units, category, organization, system, visibility, outcome, and notes before save.
+- **Work:** task-flow board and project portfolio with priorities, deadlines, status, progress, and goals.
+- **Career:** development, recognition, readiness, and narrative tools organized as a distinct career workspace.
+- **Reports:** fiscal and evaluation-period reporting built only from stored records; VANTAGE composes and aggregates but does not invent claims.
+- **Team and Roles:** exact-unit membership, scoped role grants, enrollment of existing accounts, guest expiry, and auditable personnel administration.
+- **Settings:** account, password, sessions, backup, YAML configuration, aggregate experience metrics, access history, import/export, and data-location controls.
 
-Wired, enforced at the API, and each pinned by `tests/security.test.mjs`:
+## Data and access model
 
-- **1 — role-editing privilege escalation.** Role create/edit/grant/delete all
-  route through `server/roleGuard.js`. Edits are validated on the **merged**
-  result, so a permission bit can't ride in through a partial update. An
-  editor can only place bits they themselves hold in the unit at stake, only
-  below their own position, and `ADMINISTRATOR` never delegates.
-- **2 — transfers revoke old-unit access.** `server/lifecycle.js
-  transferMember`: old-unit role grants are revoked in the same transaction
-  that moves the assignment, sessions are invalidated when scope changes, and
-  the default role follows to the new unit. `retain_role_ids` exists for
-  legitimate collateral duties — and each retention re-runs the full grant
-  check, so "retain" cannot keep alive a role the actor couldn't grant.
-- **3 — sessions, end to end.** Server side landed in 3.2.1 (true session
-  cookie, 60-min idle / 12-hr absolute). This build finishes the client half:
-  the browser stores **no token at all** — the HttpOnly cookie is the
-  credential, every request carries the `x-vantage-client` CSRF header, and a
-  non-sensitive presence cookie lets a signed-out page skip the boot probe.
-- **4 — account deactivation.** Deactivate / reactivate endpoints; a
-  deactivated account cannot sign in, its live sessions die immediately, and
-  it leaves the roster. A last-active-administrator guard refuses the
-  deactivation that would lock everyone out.
-- **5 — resource-specific sharing.** Goals require `CREATE_SHARED_GOALS`,
-  work records require `CREATE_SHARED_WORK`; holding one no longer implies
-  the other.
-- **6 / 7 — role scope.** Custom roles carry a unit scope; non-administrators
-  must scope roles inside their own authority, org-wide definitions are
-  admin-only, and a lower position no longer permits editing or deleting a
-  foreign command's role.
-- **8 — assignment authority.** Moving a Marine requires `MANAGE_MEMBERS`
-  over **both** source and destination, and a Marine holding a role at or
-  above the actor's own position cannot be moved by them.
-- **10 — unit-scoped audit.** `GET /api/audit/unit?unit_id=` for
-  `VIEW_AUDIT` holders, scoped to their reach.
-- **11 / 21 — input validation.** Every write validates against
-  `server/validate.js` schemas; failures return `{ error, fieldErrors }`.
-  Readiness scores are **rejected** out of range, never clamped. Includes a
-  calendar fix found while testing: `Date.parse` silently rolls 2026-02-31
-  into March, so dates now round-trip their components. v3.2.4 corrects the
-  rifle framing: the ARQ has **no 0–350 total** — it classifies by destroys
-  plus drills (Expert 43–50, Sharpshooter 31–42, Marksman 15–30, per MCO
-  3574.2M); the 0–350 field is now labeled as the entry-level tables it is.
-- **12 / 13 — bulk import.** 500-row ceiling, every row validated before any
-  insert, and a server-side `sha256(user | date | title | quantity | dollars)`
-  fingerprint makes re-imports land each row exactly once — the response
-  reports `{ created, duplicates, duplicateRows }`. Manual single entries set
-  no fingerprint by design; duplicate protection is an import-path concern.
-- **14 — assignees.** A task/goal assignee must be visible to the author,
-  active, and actually serve in the record's unit.
-- **15 — project deletion unlinks.** Tasks and activities lose their
-  `project_id` in the same transaction, audited with counts — the client's
-  claim is now true.
-- **16 — password change.** `POST /api/me/password` (verifies the current
-  password, keeps this session, revokes the rest) and an admin reset that
-  revokes everything. Settings now carries the change-password form; the
-  admin reset lives on the member page.
-- **17 — login throttling.** `server/security.js` wired at `/api/login` and
-  `/api/setup`: 15 failures per account, 10 per IP, 300 global per 15-minute
-  window → 429 with `Retry-After`; account lockouts are audited; unknown-user
-  and wrong-password paths take the same time.
-- **18 — TRUST_PROXY.** Explicit resolver (defaults: 1 in production, off in
-  dev; accepts false/counts/subnets). `fly.toml` and `render.yaml` now pin
-  `TRUST_PROXY = "1"` so throttling counts real client IPs, not the edge.
-- **24 — audit coverage.** Login, logout, lockout, password changes, session
-  revocations, transfers (old→new, roles revoked/retained), deactivations,
-  role create/edit/delete/grant/revoke, exports, access reviews, and
-  `unit_id` on record create/edit/delete/restore.
-- **25 — export moved server-side.** `GET /api/export?unit_id=` enforces
-  `EXPORT_DATA`, exports the subtree, and **never** includes private records.
-- **29 / 30 / 33** — versioned migrations, insert-only seeding, single
-  version source (landed in 3.2.1, unchanged).
-- **36 — optimistic concurrency.** Every record carries `version`; a stale
-  edit gets `409 { code: "stale", current }` with the winning copy instead of
-  silently overwriting it.
-- **38 — record/unit consistency.** A record can only be pinned to a unit its
-  author serves in or holds the relevant share permission for.
-- **19 / 20 — the JEPES estimator is gone; a preparation dashboard replaced
-  it.** The peer-percentile point tables live in MCO 1616.1's Appendix B and
-  on MOL — they are not publicly reproducible, so per the roadmap's own rule
-  Vantage took Option B: **no composite score is displayed, by design.** The
-  page shows the public four-pillar framework as input status (entered /
-  missing / Vantage's coaching read), a standing **MOS Qualification** pointer
-  at the MOL/MCTIMS table (MARADMIN 046/24) with an explicit "Vantage will
-  not estimate these," and the old invented "+37 pts" gains are gone from
-  every recommendation.
-- **22 / 47 / 49 — claims labeled, evidence never presented as evaluation.**
-  Every recommendation on both tracks now carries a kind chip — *Official
-  reference*, *From your log*, or *Coaching heuristic*. The FITREP "PME
-  hard-cap" and "PFT table stakes" claims, which MCO 1610.7B does not
-  support, were rewritten as labeled coaching. Attribute coverage speaks in
-  "possible supporting evidence" / "no obvious evidence found," never
-  "covered."
-- **23 / 48 / 50 — one citation source.** `src/lib/evalRefs.js` holds every
-  order, MARADMIN, date, and official marines.mil URL, with a
-  verified-on date. FITREP surfaces cite **MCO 1610.7B (5 Jun 2023)**; JEPES
-  cites MCO 1616.1 plus MARADMINs 025/21, 367/21, 272/22, 046/24; the
-  Readiness pages render a References panel linking only official sources
-  (including the 2026 PFT changes, MARADMINs 613/25 and 066/26, as notes).
-- **9 — billet/role ambiguity retired (Option A).** A billet is an
-  organizational position; permissions come only from role grants. The legacy
-  `assignments.role` label is no longer written (migration 005 blanks the old
-  values — decorative metadata, not records), and the Team dialog now says in
-  so many words that picking a billet only pre-fills the role suggestion.
-- **26 — one visibility definition everywhere.** The server always meant
-  *unit = everyone assigned to that exact unit*; the picker and the SOP said
-  "peers as well as your leaders." The copy now matches the code: unit is the
-  exact unit, chain is what travels up and down the tree.
-- **31 — backups in the product.** Settings → Database (admin-only): size,
-  schema version, last backup, and a one-click consistent snapshot taken
-  while the server keeps running (`better-sqlite3` backup API). Every
-  download is audited. The restore procedure is documented below.
-- **32 — administrator recovery, documented and auditable.** `VANTAGE_RECOVERY=1
-  npm run recover -- <username>` on the deployment shell resets the account
-  to a printed one-time password, revokes every session it held, and writes
-  an `admin_recovery` audit row. No backdoor: it requires shell access and an
-  explicit per-invocation flag, and it cannot run silently.
-- **35 — failed saves stop costing work.** The activity editor mirrors
-  unsaved edits into local storage keyed to the record and the version they
-  were made against; a fresh visit offers the draft back (with a discard)
-  only when the server copy hasn't moved. The quick-log dialog keeps its text
-  through a failed save or an accidental close, and says so.
-- **39 — the permission matrix is a suite.** `tests/matrix.test.mjs`: 51
-  rows of role × unit relationship × action (read, share, manage, grant,
-  audit, export, unit creation), each asserted allow or deny, run by
-  `npm test`. A future change that widens or narrows anyone's reach fails
-  with the exact row that moved.
-- **44 — failure states that tell the truth.** A refresh that fails
-  mid-session keeps the last loaded records on screen and raises a banner
-  with Retry instead of silently rendering an empty account; the store no
-  longer overwrites loaded data with `[]` on error. The full-screen
-  can't-reach-server gate now applies only before sign-in.
-- **42 — accessibility is a gate, not an aspiration.** `tests/browser-a11y.test.mjs`
-  runs axe-core over the login screen and all eleven signed-in routes and
-  **fails the build on any serious or critical violation** — it runs in
-  `npm run test:browser`. Getting it green took three real fixes: `Field` now
-  associates every label with its control (which also names Radix select
-  triggers), bare `Select`s fall back to their placeholder as an accessible
-  name, and the `text-3` token was brightened to ≥4.5:1 on every surface in
-  both themes. Remaining manual pass (full keyboard walk, screen-reader
-  audit) is listed in the DoD below.
-- **43 — mobile is a gate too.** `tests/browser-mobile.test.mjs` proves every
-  route fits a 375px phone and a 768px tablet with no page-level horizontal
-  overflow, and that the phone drawer opens and navigates. It caught a real
-  one: the References citations couldn't wrap and dragged the readiness page
-  53px sideways.
-- **45 — the dashboard answers "what should I do today?"** A Today block
-  leads the Command Center: overdue tasks, goals inside two weeks of period
-  end, recent entries missing outcomes, incomplete readiness fields, and the
-  FITREP countdown on the fitrep track — each row a link to the fix, and an
-  empty list says so plainly.
-- **46 — record health.** A dashboard section reporting how usable the log is
-  as evidence: missing outcomes, untagged and undated entries, five-figure
-  dollar claims without an evidence link (labeled a Vantage heuristic),
-  duplicate candidates, stale goals, and empty readiness fields — counts and
-  routes, never a judgement of the Marine. `src/lib/health.js`, unit-tested.
-- **34 — errors land under their fields.** Every server refusal that names a
-  field now renders inline under that exact input — activity editor, both
-  readiness tracks, the member dialog, the role dialog, goals, tasks and
-  projects — with `aria-invalid` and `aria-describedby`, so screen readers
-  hear the refusal too. Typing in a field clears its own error and nothing
-  else; the toast still summarizes.
-- **35 — no form loses work, full stop.** Draft mirroring now also covers
-  member creation and new-role definitions (sessionStorage, restored with a
-  visible note; explicit Cancel discards, a successful save clears). With
-  the activity editor's version-keyed local drafts and the quick-log's
-  session draft, every form the roadmap listed survives a failed save.
-- **36 — reload-or-overwrite everywhere.** The full conflict dialog (shared
-  `ConflictDialog`) now fronts goals, tasks and projects as well as the
-  activity editor: see the winning copy and its version, load it into the
-  form, or knowingly overwrite it.
-- **41 — the security-sensitive flows run through the real UI.** The browser
-  suite drives: a scoped role-manager attempting escalation (the ungrantable
-  permission renders disabled; the position push is refused; the API
-  confirms the role unchanged), and a transfer via the Team page (the
-  assignment moves and the old-unit role grant is proven revoked) — plus the
-  stale-edit conflict and the deactivate → reactivate cycle from v3.2.6.
-- **40 — the security suite.** `tests/security.test.mjs`: 49 tests that
-  attack the server on purpose — escalation, transfer leakage, session
-  survival, CSRF, garbage inputs, duplicate imports, stale writes, audit and
-  export scoping, throttling. `npm test` runs it.
+VANTAGE is a multi-user system with exact-unit tenancy:
 
-- **27 / 28 — access review, session & account management, now with
-  screens.** Settings shows every session the signed-in Marine holds (device,
-  IP, last used, "This device"), with per-session sign-out and a
-  sign-out-others action. A Marine's page gains an **Account and access**
-  panel for anyone the server lets administer them — roles held (orphaned
-  grants flagged), live sessions, last sign-in, the review's findings, and
-  the actions: force sign-out, reset password, deactivate (confirmed, with
-  consequences stated). A deactivated Marine, invisible everywhere else on
-  purpose, still resolves at their old URL as a management card with
-  Reactivate. Authority is decided server-side: the panel appears because
-  `GET /api/team/:id/access` answered, not because the client guessed.
-- **34 — user-grade errors.** `ApiError` now carries the server's `code`,
-  `fieldErrors`, and (on 409) the winning copy; refusal toasts across the
-  record, roster, roles, units, and readiness pages render the field-level
-  messages, so "Could not save" became "dollar_amount must be a non-negative
-  number."
-- **36 (client) — the stale-edit choice.** When a save comes back
-  `409 stale`, the activity editor opens a conflict dialog: load the newest
-  copy, or knowingly overwrite it. Nothing is lost silently in either
-  direction.
+- A self-registered account starts unattached and personal-only.
+- Unit information becomes visible only after an authorized leader attaches the identity to a unit.
+- Personal records are readable only by their owner.
+- Private records retain unit context but remain owner-only.
+- Unit records are shared with current members of that exact unit; hierarchy does not widen access.
+- The Instance Operator is an infrastructure-recovery identity, not a global content-reader role.
+- Protected reads, exports, backups, role changes, and lifecycle actions are audited.
 
-## v3.3 ledger — partial
+See [SECURITY-REVIEW.md](SECURITY-REVIEW.md) for the security model, residual risks, and production gates.
 
-- **Manual QA remainder only.** The axe gate covers what automation can
-  see; a full keyboard walk and a screen-reader session are still a human's
-  job, as is visual QA at 320/430/1024/1440px (375 and 768 are gated
-  automatically). Folded into the pre-deploy checklist in the DoD below.
+## Architecture
 
-## v3.3 ledger — open
+- React 18, Vite, Tailwind CSS, Radix UI, Lucide icons, and Recharts
+- Node.js 22 and Express
+- SQLite through `better-sqlite3`, with WAL mode and versioned migrations
+- One same-origin process in production: Express serves both the API and the built SPA
+- Docker, Render, and Fly.io deployment definitions
+- No third-party analytics, advertising telemetry, or external generative AI
 
-- Nothing. Findings 1–50 are closed or explicitly scoped above; 51 and 52
-  are the process items answered by this README's ledger and the
-  Definition-of-Done checklist below.
+PostgreSQL is the target datastore for an official multi-instance or horizontally scaled deployment. SQLite remains appropriate for the current single-process evaluation architecture when the database is stored on a persistent encrypted volume and backed up.
 
-## Upgrading to v3.4 — read this before you run it
+## Configuration
 
-v3.4 changes what Vantage *is*. v3.3 made one command's instance defensible;
-v3.4 makes a unit a sovereign boundary, the way a Discord guild is. Two units
-in the same database are strangers. That is an architectural break, not an
-increment, and the migration is one-way.
+Non-secret operator settings live in [`config/app.yaml`](config/app.yaml). The loader accepts a deliberately small YAML subset and rejects unknown keys, unsafe ranges, unsupported syntax, and nonzero automatic-purge settings at startup.
 
-**Take a backup first.** `GET /api/admin/backup`, or copy the `.db` file with
-the server stopped. Migrations 006 and 007 rewrite the roles table and every
-record's visibility; there is no down-migration.
+Editable settings include application mode and region, proxy trust, palette, local registration, disabled-by-default CAC/PIV settings, session bounds, capacity limits, attachment policy, retention, and first-party aggregate experience metrics.
 
-### The three things that change under you
+Secrets do not belong in YAML. Keep these in the hosting provider's secret manager:
 
-**1. Hierarchy stops conveying authority.**
+- `VANTAGE_SETUP_TOKEN` — random first-run secret, at least 24 characters
+- `VANTAGE_OPERATOR_ID` — preferred immutable operator account UUID
+- `VANTAGE_OPERATOR` — temporary canonical-username fallback
+- `VANTAGE_CAC_PROXY_SECRET` — high-entropy secret shared only with the approved mTLS identity proxy
 
-`parent_id` and the L1–L4 levels still describe the org chart, and Vantage
-still draws it. They no longer grant anything. A battalion sees nothing from a
-company unless the company sent it. Concretely: a role granted at a parent unit
-used to cascade over every unit beneath it, and that expansion is gone.
+Host-specific environment variables such as `PORT`, `NODE_ENV`, `TRUST_PROXY`, `VANTAGE_DB`, and `VANTAGE_DATA_MODE` remain available. Copy `.env.example` for local development.
 
-Migration 006 does not simply drop those grants — it **materialises** them.
-Every permission a cascading role was computing at read time becomes an
-explicit grant row in each unit it reached, so nobody loses access on upgrade.
-What you gain is that those grants are now visible and revocable one unit at a
-time, instead of implied by a tree.
+## Local development
 
-**2. `chain` visibility is deleted, and this hides things.**
-
-`chain` meant "the unit and everyone above and below it," and it was the
-**default** on activities, recognitions and trainings. A Marine logging work
-with the default setting was publishing it up and down the org chart without
-ever deciding to.
-
-Migration 007 rewrites every `chain` row to `unit`. This is a visibility
-*reduction*: it cannot leak, it can only hide something that used to be visible
-to somebody outside the owning unit. **Tell your users before you upgrade.** A
-leader two levels up who could see a Marine's logged work on Monday will not
-see it on Tuesday, and that is correct — but it will look like data loss if
-nobody warned them. Nothing is deleted; the records are in their own unit.
-
-To send work upward, someone inside the owning unit generates a share package
-(Phase 4). That is a deliberate act with a name, a timestamp and an audit row.
-
-**3. There is no cross-tenant administrator any more.**
-
-In v3.3, an `ADMINISTRATOR` grant in one unit conferred every permission in
-every unit in the database, and legacy `users.is_admin` did the same. Any unit
-handing out its own Administrator role handed out read access to every other
-shop's personnel records. That is deleted.
-
-It is replaced by two things that are *not* permission bits:
-
-| | Unit Owner | Instance Operator |
-|---|---|---|
-| Scope | One unit, completely | The container |
-| Stored as | `units.owner_user_id` | `VANTAGE_OPERATOR` env var |
-| Can | Everything inside that unit | Mint invites, recover a lost owner, back up, read the instance audit |
-| Cannot | Reach any other unit | Read unit records silently, or read personal scope at all |
-| Revoked by | Ownership transfer only — no role edit can remove it | Restarting the process with a different value |
-
-**This is the one place migration 006 deliberately does not preserve a
-permission.** Carrying the fan-out forward would mean writing an administrator
-grant into every unit, which is precisely the leak. Instead your administrator
-becomes Unit Owner of every unit they were actually a member of, keeps every
-unit-scoped permission they held, and loses reach into units they were never
-in. What was dropped is counted in `meta.migration_006_report` and written to
-the instance audit — check it after upgrading:
-
-```sh
-sqlite3 vantage.db "SELECT value FROM meta WHERE key='migration_006_report';"
-```
-
-If you genuinely need instance-wide reach, name those accounts in
-`VANTAGE_OPERATOR` (comma- or space-separated usernames) and restart:
-
-```sh
-VANTAGE_OPERATOR=boletz,tsimmons node server/index.js
-```
-
-An operator is designated by environment variable rather than a database row on
-purpose: a row can be written by anything that can write to that table, while
-an environment variable can only be changed by whoever can restart the process
-— which is the correct authority for "who runs this box." No SQL injection,
-role edit or invite redemption can mint one.
-
-### After the migration
-
-Some units may come out **ownerless**. Migration 006 will only promote someone
-who was already administering a unit — held both `MANAGE_ROLES` and
-`MANAGE_MEMBERS` there — because promoting anyone else would hand out authority
-the migration invented. Units with no such person are left ownerless on purpose
-and listed in `left_ownerless` in the report. An Instance Operator claims each
-one:
-
-```
-POST /api/org/units/:unitId/claim
-{ "owner_user_id": "<user id>", "template_id": "section" }
-```
-
-This refuses a unit that already has an owner. Reassigning a live unit is a
-different operation with a different consent story, and merging the two would
-make this a quiet takeover primitive.
-
-### Roles are now per-unit copies
-
-`roles.unit_id` is `NOT NULL`. There is no such thing as an org-wide role
-definition, so two SNCOICs at two commands can finally have a "Training NCO"
-that means different things — under v3.3 editing one edited both.
-
-Migration 006 forks every global role: for each unit holding a grant against
-it, a unit-local copy is created and the grants are repointed. No role with
-live grants is ever deleted. Expect your role list to get longer and your role
-ids to change shape (`G8-FMRAC:sncoic` rather than `section-head`); anything
-scripted against a role id needs updating.
-
-`is_system` now means only "this row came from a template." It confers no edit
-protection — the owning unit may rename, re-colour, re-permission or delete any
-of its own roles. New units ship **three** roles plus an Owner (Marine, NCO,
-SNCOIC) rather than six; the full twelve-bit editor is unchanged and one click
-away, but a SNCOIC should never have to open it.
-
-### Two new scopes worth knowing
-
-**Personal** — `unit_id IS NULL`, readable by its author and nobody else,
-ever, including the Unit Owner and the Instance Operator. It is where a Marine
-keeps their own running log before, between or outside any unit, and it is
-excluded from exports and share packages by predicate rather than by
-convention. A Marine with no unit at all can still record everything.
-
-**Guest** — ordinary membership with `kind = 'guest'` and a required expiry,
-carrying a normal unit-local role. Built as membership rather than a parallel
-authorization path so that every existing permission check already covers it
-and no second code path can drift. Guests are bounded by the sharing
-permissions that members and owners are exempt from, because a guest is in the
-unit by invitation with a narrow role.
-
-### What still works exactly as before
-
-Everything inside one unit. If you run a single shop, the only differences you
-will notice are the visibility reduction, the shorter default role set, and
-that your administrator is now called an Owner.
-
-## Behavior changes to know about when upgrading (v3.3)
-
-- Non-admin role managers must now scope new roles to a unit they manage.
-  **Pre-existing org-wide custom roles need an administrator** to either
-  rescope them or manage them going forward.
-- Transfers revoke old-unit roles by default; keeping one is an explicit,
-  re-validated `retain_role_ids` choice.
-- Fifteen wrong passwords lock an account for the 15-minute window; the
-  lockout lands in the audit log.
-- Stale edits return `409` instead of last-writer-wins.
-- Deactivated accounts disappear from the roster and every API surface.
-- The JEPES page no longer shows an estimated composite score — that removal
-  is the feature, not a regression. The official number is on MOL.
-- Recommendation objects no longer carry a `gain` point value; they carry a
-  `kind` ('data' | 'heuristic' | 'official') instead.
-- `assignments.role` is retired: new writes store `''`, migration 005 blanks
-  historical values, and billets' `default_role` only pre-fills the role
-  suggestion in the Team dialog. Permissions come from role grants, full stop.
-- A failed mid-session refresh keeps the last loaded data on screen behind a
-  Retry banner rather than rendering everything empty.
-- The `text-3` color token brightened in both themes to clear WCAG AA; muted
-  metadata reads slightly lighter than before, deliberately.
-- `Field` now wires labels to controls (`aria-labelledby`); custom inputs
-  passing their own `aria-label` keep it. It also renders inline errors with
-  `aria-invalid`/`aria-describedby` when a save is refused.
-- Fresh-install bootstrap no longer writes the retired assignment role label
-  (matches migration 005 everywhere).
-
-## Backups, restore, and administrator recovery
-
-**Backup.** Settings → Database (administrators only) downloads a consistent
-snapshot of the live SQLite file; no downtime, and every download is written
-to the audit log. Treat the file like the personnel data it is.
-
-**Restore.** Stop the server. Replace the database file at the path shown in
-Settings → Database (the `VANTAGE_DB` location) with the backup. Start the
-server — migrations bring an older snapshot forward automatically. Never
-restore a snapshot taken by a *newer* Vantage onto older code.
-
-**Lost administrator.** On the deployment shell:
+Requirements: Node.js 22 and npm 10 or pnpm 10.
 
 ```bash
-VANTAGE_RECOVERY=1 npm run recover -- <username>
+npm ci
+cp .env.example .env
+npm run dev
 ```
 
-It prints a one-time password exactly once, revokes every session the account
-held, reactivates the account if needed, and writes an `admin_recovery` audit
-row. It refuses to run without the flag, refuses to guess between multiple
-administrators, and there is no in-app equivalent — recovery requires the
-same shell access that could read the database anyway, which is the point.
+The development command starts the API and Vite together. The frontend proxies `/api` to the API process. Do not use production data in a development database.
 
----
-## Rank decides the tool
-
-Private through Corporal are on **JEPES** (MCO 1616.1). Sergeant and above —
-SNCOs, warrants, officers — are on **fitness reports** (MCO 1610.7 series).
-Vantage reads rank and switches: the area tags on every entry, the Readiness
-page, and the narrative on Reports.
-
-The two are different games, so the tool plays them differently. JEPES is a
-composite you grind — four pillars, monthly recalculation, a cutting score,
-and three quarters of it in your own hands. A FITREP is a document somebody
-else writes: fourteen attributes marked by a Reporting Senior against every
-Marine they have ever reported on. There is no score to grind, only the
-quality of the evidence in front of the RS when the pen comes out.
-
-So a Corporal gets a points-per-effort advisor. A Sergeant gets attribute
-coverage across sections D–H, a reporting-period countdown, and a printable
-input package. A leader viewing a Marine sees *that Marine's* track — a
-Corporal team lead opening a Sergeant's record gets FITREP framing, because
-that is what the Sergeant needs.
-
-Tags carry across the boundary. A year of entries tagged with JEPES areas does
-not turn into "Unassigned" the day you pin on Sergeant.
-
-## The SOP is in the app
-
-`/help` carries the full operating procedure — sixteen sections covering
-logging, visibility, both evaluation tracks, roles, units, reports, data
-handling and security posture, with a search box. It ships inside the tool so
-it cannot drift from the version you are running.
-
-## What changed from v2
-
-v2 was a single-user tool that kept everything in one browser's IndexedDB.
-v3 is a self-hosted, multi-user system with ranks, billets, units, and a real
-chain-of-command visibility model.
-
-| | v2 | v3.2 |
-|---|---|---|
-| Storage | IndexedDB, one browser | SQLite, hosted |
-| Users | one | a whole section |
-| Org model | none | ranks, billets, editable unit tree |
-| Access | none | stackable roles, permission bits |
-| Sharing | none | private / unit / chain |
-| Evaluation | JEPES only | JEPES and FITREP, by rank |
-| Reports | bullets | narrative, bullets, change report |
-| Dashboard | fixed | collapsible, hideable, saved per user |
-| Docs | README | searchable in-app SOP |
-
----
-
-## Deploying it
-
-One container, one process, one SQLite file on a mounted volume.
-
-**Fly.io**
+To build and run the production shape locally:
 
 ```bash
-fly launch --no-deploy
-fly volumes create vantage_data --size 1
-fly deploy
+npm run build
+NODE_ENV=production VANTAGE_DB=/absolute/path/vantage.db npm start
 ```
 
-**Render** — point it at `render.yaml`; the disk block is already there.
+Production first-run setup requires `VANTAGE_SETUP_TOKEN`. After creating the initial owner, set `VANTAGE_OPERATOR_ID` to the account UUID shown by `/api/me` and remove the username fallback when practical.
 
-**Anything that runs Docker**
+## Deployment
+
+### Docker
 
 ```bash
-docker build -t vantage .
-docker run -p 8080:8080 -v vantage_data:/data vantage
+docker build -t vantage:3.5.0-rc.1 .
+docker run --read-only --tmpfs /tmp \
+  -p 8080:8080 \
+  -v vantage-data:/data \
+  -e NODE_ENV=production \
+  -e VANTAGE_DB=/data/vantage.db \
+  -e VANTAGE_SETUP_TOKEN='<random-secret>' \
+  -e VANTAGE_OPERATOR='<bootstrap-username>' \
+  vantage:3.5.0-rc.1
 ```
 
-The first visit offers a one-time setup screen that creates the initial
-administrator. Once a user exists, that route is closed permanently.
+Use TLS at the trusted edge, an encrypted persistent volume, centralized platform logs with restricted access, and off-host encrypted backups. Never deploy SQLite on an ephemeral filesystem.
 
-**The volume is not optional.** SQLite on an ephemeral filesystem means every
-deploy silently wipes the section's records. If you take one thing from this
-file, take that.
+### Render
 
-| Variable | Default | Meaning |
-|---|---|---|
-| `PORT` | `8787` | HTTP port. Platforms usually inject their own. |
-| `VANTAGE_DB` | `vantage.db` | SQLite path. Point at the volume in production. |
-| `NODE_ENV` | `development` | `production` turns on secure cookies and HSTS. |
-| `TRUST_PROXY` | `true` | Set `false` only when there is no proxy in front. |
+`render.yaml` provisions one web service and a persistent `/data` disk in evaluation mode. Set the operator binding in the Render dashboard. Confirm the chosen service region is in the United States and matches the approved hosting decision.
 
-Back up by copying the file, or `fly ssh console -C "sqlite3 /data/vantage.db .dump"`.
+### Fly.io
 
-**What production mode turns on:** secure `HttpOnly` `SameSite=Strict` cookies,
-HSTS, a strict CSP with the inline theme script allow-listed by hash rather than
-`unsafe-inline`, `X-Frame-Options: DENY`, login throttling at ten attempts per
-IP per fifteen minutes, a `/api/health` probe that checks the database actually
-answers, and graceful SIGTERM shutdown so a deploy doesn't leave a hot WAL.
+`fly.toml` targets `dfw`, forces HTTPS, keeps one machine available, and mounts `vantage_data` at `/data`. Create the volume and secrets before the first deploy.
 
-For local work, `npm run dev` runs the API and Vite together with `/api`
-proxied.
+Do not run more than one application replica against the same SQLite database. Migrate to PostgreSQL before horizontal scaling.
 
----
+## CAC/PIV target
 
-## Roles and permissions
+The CAC/PIV endpoint is implemented but disabled. It accepts identity only from an approved certificate-verifying reverse proxy that verifies the certificate, strips browser-supplied identity headers, injects trusted identity headers and a proxy secret, and forwards over a protected hop.
 
-Roles are rows, permissions are bits, and a Marine can hold several — the union
-of them is what they can do. A role is granted **in a unit**, and it applies
-**in that unit and nowhere else**. There is no cascade: reaching into another
-unit requires a grant in that unit. (v3.3 had an `inherits_down` flag that
-expanded a grant across a subtree; v3.4 removed it, because a battalion should
-not acquire a company's records by sitting above it on an org chart.)
+Existing password identities require an explicit operator-controlled link before the same username can sign in through CAC/PIV. Enabling the adapter is a deployment and authorization project, not a YAML-only switch.
 
-Every role belongs to exactly one unit. Units get their roles by **copying a
-template** at creation, and the copies diverge immediately and permanently — so
-two commands can each have a "Training NCO" that means what they need it to
-mean.
+## Attachments
 
-**Access comes from your role, not your rank.** A Sergeant running a fire team
-outranks a Corporal in another section but has no business in that section's
-records, and the model says so.
+Attachments are optional supporting material, never a completeness requirement. The server enforces record authorization, byte-based file inspection, size and count limits, forced download disposition, audited access, and soft deletion. PDF, PNG, JPEG, TXT, and CSV are allowed by default. Files are stored in SQLite so database backups remain complete.
 
-| Permission | What it allows |
-|---|---|
-| `VIEW_UNIT` | See the unit and its roster |
-| `VIEW_RECORDS` | See shared work. Never covers anything marked private |
-| `VIEW_MEMBER_DETAIL` | Open a Marine's record and pull their JEPES input |
-| `MANAGE_RECORDS` | Correct someone's entry before a package goes up |
-| `CREATE_SHARED_WORK` | Push tasks and projects to the unit |
-| `CREATE_SHARED_GOALS` | Set goals the unit tracks against |
-| `MANAGE_MEMBERS` | Add Marines and move them between units |
-| `MANAGE_ROLES` | Create roles and hand them out |
-| `MANAGE_UNITS` | Rename this unit and create sub-units under it |
-| `VIEW_AUDIT` | Read the unit's access log |
-| `EXPORT_DATA` | Pull this unit's records out as a workbook |
-| `ADMINISTRATOR` | Everything — **inside this unit only** |
+The evaluation defaults permit 10 files per activity and 10 MB per file. Reassess capacity, malware-scanning, and content-disarm requirements before broader use.
 
-A new unit ships with **Marine**, **NCO**, **SNCOIC** and an **Owner**. A
-section is eight to twenty Marines with one SNCOIC and two or three NCOs; six
-roles and a twelve-bit editor is a correct piece of engineering aimed at a
-problem most units do not have on day one. The full editor is unchanged and one
-click away, and other templates ("Section with Training NCO", "Company", "Just
-me for now") are selectable at creation. A Training NCO who should see PME
-across a section but open nobody's record is still two checkboxes.
+## Experience metrics
 
-Two rules keep this from being decorative, and both are enforced server-side:
+VANTAGE stores only allow-listed daily aggregate event counts. It does not store user IDs, session IDs, IP addresses, route parameters, record IDs, filenames, file content, or free text in the metrics table. There is no third-party analytics SDK. Platform access logs remain part of the hosting boundary and must be configured separately.
 
-- You cannot create, edit, delete or grant a role **at or above your own
-  position in that unit**. Position is a per-unit scale — position 30 in one
-  shop has no relationship to position 30 in another.
-- You cannot grant a **permission you do not hold in that unit**.
+## Backup and recovery
 
-Without the first, anyone who can manage roles promotes themselves to
-administrator. Both have tests that try it.
+The Instance Operator can download a consistent SQLite snapshot from Settings. Every backup is audited. Store backups encrypted, off-host, access-controlled, and tested through restoration drills.
 
-### Units
+Restore procedure:
 
-**Anyone can stand up a top-level unit.** That is the point of v3.4: a SNCOIC
-at a command that has never run Vantage creates their shop, picks a role
-template, and is its Owner — no dependency on anyone else's tree. (v3.3 refused
-outright without a parent, so there was no way in at all.)
+1. stop the application process;
+2. make a protected copy of the current database and any `-wal`/`-shm` companions;
+3. verify the selected backup hash and ownership;
+4. replace the mounted database file;
+5. start one application instance; and
+6. verify `/api/health`, schema version, sign-in, recent records, attachments, and the audit log.
 
-Creating a **sub-unit** still needs `MANAGE_UNITS` in the named parent — not
-because the tree conveys authority, but because naming a unit as your parent is
-a claim about *their* org chart.
-
-Units are archived rather than deleted, and archiving refuses while Marines or
-sub-units are still attached.
-
-### Membership
-
-Membership is **stated**, not inferred. `unit_members` answers "is this person
-in this unit"; `assignments` keeps billet, dates and history and no longer
-answers membership questions. That separation is what makes a Marine in two
-units, a member holding no billet, and an ended assignment that should still
-read as history all expressible — none of which v3.3 could say.
-
-A grant without a membership row confers nothing, and the API refuses it rather
-than accepting it quietly.
-
-Each record carries a visibility:
-
-| Visibility | Who sees it |
-|---|---|
-| `private` | Only the owner. Not the team lead, not the section head |
-| `unit` | Peers in that unit, plus leaders above |
-| `chain` | That unit and everything beneath it |
-
-A Marine's own work defaults to `chain`, which is how logged work rolls up into
-a JEPES input without anyone chasing it. A leader posting a task at section
-level with `chain` visibility pushes it down to every fire team.
-
-**Every read of someone else's record writes an audit row.** A Marine can see
-who has opened their record, on their own Settings page. That's deliberate: a
-system that lets leaders read personnel data without a trace is one that
-shouldn't hold personnel data.
-
-Deletes are soft. A performance record that vanishes without trace is the
-failure mode that gets a system thrown out of a shop.
-
----
-
-## JEPES advisor
-
-JEPES scores four pillars at 250 points each. **Three of the four are entirely
-in the Marine's own hands** — rifle and MCMAP, PFT and CFT, MarineNet and
-off-duty education — and only Command Input needs somebody else.
-
-Marines routinely grind the one they don't control while leaving fifty free
-points in a belt they never advanced. The Readiness page ranks every available
-lever by points against effort and says which one to spend the next three
-months on.
-
-It estimates, and it says so. The official conversion is percentile-based
-against your peer group in your grade and MOS, the tables differ between Lance
-Corporal and Corporal, and HQMC republishes them. Your worksheet on MOL is
-authoritative. Anything not entered reads as **unknown**, never as zero — "your
-Warfighting is terrible" is a bad thing to tell someone whose rifle score simply
-hasn't been typed in yet.
-
-## Reports
-
-**JEPES accomplishment narrative** — everything logged in the period, written as
-professional prose, hard-capped at 1000 characters. It composes to a budget:
-headline figures for each scored area first, then supporting detail round-robin
-so one busy area can't starve the other two. What didn't fit is reported rather
-than silently dropped.
-
-**Bullet package** — three genuinely different styles. JEPES names the org and
-system; FITREP strips filler the report header already carries; Résumé expands
-acronyms on first use, because nobody outside the Marine Corps knows what a ULO
-is. Truncation is always disclosed.
-
-**Change report** — the current period against the equivalent window before it.
-Fiscal quarters compare against fiscal quarters. Every figure carries its prior
-value and the movement between them.
-
-## The dashboard
-
-Every section collapses to its title bar or hides entirely. The Display menu
-lists them all; the chevron on each section collapses in place. Layout saves to
-your account, so it follows you between the duty computer and your phone.
-
-Collapsed and hidden are deliberately different: collapsed keeps the title bar
-as a reminder the data exists, hidden takes it off the page until Display
-brings it back. A clerk who never touches goals should not scroll past a goals
-panel every morning.
-
-Print any of them. The print stylesheet strips the app chrome, adds a masthead
-with the reporting window, and keeps bullets and comparison rows from splitting
-across pages.
-
----
-
-## Org data
-
-Ranks (E-1 through O-10, including warrant officers), billets, and the
-MARFORRES tree ship as seed data and are re-applied on every boot, so a schema
-change never loses them.
-
-The tree covers MARFORRES down to Command Element → G-8 → FMRAC, with FHG,
-4th MarDiv, 4th MAW and 4th MLG stubbed at the level where a unit administrator
-takes over. Billets carry a `default_role`, so assigning someone as Fire Team
-Leader gives them a fire team without anyone reasoning about permissions.
-
-Both are database rows. A command that can't add its own billet titles stops
-using the tool inside a week.
-
----
-
-## Tests
+Lost-operator recovery requires shell access and an explicit flag:
 
 ```bash
-npm test              # static + logic + API + scenario + security + matrix + tenancy + migration
-npm run test:browser  # build, then drive the real UI in Chromium
+VANTAGE_RECOVERY=1 npm run recover -- <canonical-username>
 ```
 
-- `tests/logic.test.mjs` — fiscal math, bullet composition, narrative ceiling,
-  duplicate detection, JEPES estimation, track resolution and tag migration
-- `tests/api.test.mjs` — auth, the permission boundary, privilege escalation,
-  preferences, schema migration
-- `tests/scenario.test.mjs` — a whole section, end to end
-- `tests/security.test.mjs` — 49 deliberate attacks: role escalation through
-  every route, transfer leakage, sessions outliving deactivation, CSRF,
-  hand-built garbage requests, duplicate imports, stale overwrites, audit and
-  export scoping, login throttling
-- `tests/browser.test.mjs` — every route, failing on any console error
-- `tests/browser-ui.test.mjs` — dashboard collapse and persistence, the SOP
-- `tests/browser-track.test.mjs` — a real Sergeant and a real Corporal, proving
-  the rank fork through the interface rather than through a unit test
+The command prints a one-time password, revokes existing sessions, forces password replacement, and writes an audit event.
 
-Three suites are new in v3.4 and each exists for a reason the others cannot
-cover:
+## Verification
 
-- `tests/static.test.mjs` — **grep with a grudge.** Every other suite here is
-  behavioural, which is the right way to test a decision and the wrong way to
-  hold a boundary: a behavioural test proves the unit tree is not read *today*,
-  by the paths it happens to exercise. It cannot stop a subtree walk appearing
-  in a route written six months from now, because that route arrives with its
-  own passing test. So this one reads source and fails the build if `parent_id`,
-  `subtreeIds`, `ancestorIds` or `ancestorChain` turns up in an authorization
-  module. It strips comments and string literals first, so the suite can survive
-  its own documentation.
-- `tests/tenancy.test.mjs` — for every endpoint, tries to reach Unit B's data
-  while holding **every** permission in Unit A, with Unit B sitting under Unit A
-  on the org chart so that every v3.3 instinct would let it through.
-- `tests/migration.test.mjs` — runs migrations 006–007 against a **captured
-  v3.3.0 database**, not a synthetic one, and replays a permission oracle taken
-  from v3.3.0's own code before any v3.4 code existed. See
-  `tests/fixtures/README.md`.
+```bash
+npm run lint
+npm test
+npm run build
+```
 
-At this commit: static 46/46, logic 82/82, api 51/51, scenario 17/17,
-security 49/49, matrix 55/55, tenancy 36/36, migration 24/24, browser 58/58,
-browser-ui 13/13, browser-track 14/14, a11y 12/12 pages, mobile 24/24 —
-thirteen suites, ~430 assertions, all wired into `npm test` /
-`npm run test:browser`.
+The automated suite covers configuration validation, attachment inspection, static authorization invariants, CSV hardening, domain logic, API behavior, multi-role scenarios, escalation attempts, the permission matrix, exact-unit tenancy, and migration of a captured v3.3 fixture.
 
-The matrix suite carries **13 rows whose expectation was deliberately
-reversed** by v3.4. Each keeps its v3.3 assertion inline as `was:` with the
-finding that changed it, per the roadmap's instruction not to delete a security
-test to make it pass. A bare "deny" tells a reader what the system does; "deny
-— was allow under finding 2" tells them it used to do the opposite and somebody
-decided otherwise. If a future change flips one back, the diff shows a v3.3
-expectation being restored, which is the moment to stop.
+Browser suites are also provided with `npm run test:browser`. They exercise signed-in routes, security-sensitive flows, accessibility, mobile overflow, and navigation. Complete a human keyboard and screen-reader pass before broad release.
 
-## V3.3 Definition of Done — status
+## Production gates
 
-Verified in this build, by the suite named:
+The code can be deployed for controlled evaluation, but “deployable” is not the same as “authorized.” Before real operational use:
 
-- **Security** — escalation/IDOR/cross-unit/private-record leaks (security +
-  matrix suites); server-side role enforcement, edit-escalation,
-  transfer revocation, deactivation session-cut, session-cookie behavior,
-  password-change invalidation, audit coverage (security suite).
-- **Data** — validation, bulk limits, duplicate protection, concurrency
-  (security suite); backup + restore procedure (this README, Settings →
-  Database, proven recovery flow); migration versioning (001–005); project
-  unlinking (security suite).
-- **Organization** — assignment authority, role scope, billet/role clarity
-  (migration 005), deactivation, transfer (security + matrix suites).
-- **Evaluation** — reviewed against MCO 1616.1 / MCO 1610.7B / MCO 6100.13A /
-  MCO 3574.2M (verified 2026-08-20, `src/lib/evalRefs.js`); MOS quals
-  addressed without invented values; raw scores validated; heuristics
-  labeled; no evidence presented as evaluation.
-- **UX** — loading/error/retry states; inline field errors on every major
-  form; draft protection on every form the roadmap listed (activities,
-  quick log, member creation, role definitions); conflict dialogs on every
-  record editor; mobile gate; a11y gate; permission explanations; access
-  review.
-- **Testing** — `npm test` (5 suites) and `npm run test:browser` (5 suites)
-  pass; production `vite build` passes.
+1. obtain sponsoring-authority and data-owner decisions;
+2. complete privacy, records-management, legal, OPSEC, and cybersecurity review;
+3. document the system boundary, data flows, administrators, and incident response;
+4. select an approved US-region environment and verify encryption, logging, backup, vulnerability-management, and support controls;
+5. complete CAC/PIV integration and identity-linking procedures;
+6. define retention and legal-hold policy despite the current no-automatic-purge setting;
+7. add malware scanning or content-disarm controls if attachment risk requires them;
+8. migrate to PostgreSQL before horizontal scaling or an official shared-service architecture; and
+9. complete MCEN integration and the applicable RMF/ATO process.
 
-Not verifiable in this environment, honestly — the pre-deploy checklist:
-the **Docker image build** and a **production smoke test against a deployed
-instance** (deploy configs ship ready, `TRUST_PROXY=1`; check `/api/health`
-reports 3.3.0), plus the manual accessibility pass (keyboard walk, screen
-reader) and visual QA at 320px/430px/1024px/1440px. Everything else in the
-roadmap's Definition of Done is enforced by the suites above.
+## License and ownership
 
-The permission tests spend most of their effort trying to break in rather than
-confirming things work. What they caught during this build:
-
-- a leader seeing subordinates' **private** records through the list endpoint
-- the same leak again through the member-detail endpoint
-- a role able to grant a permission its holder didn't have
-- Mental Agility scoring an empty profile as zero rather than unknown
-- the app's own CSP blocking the app's own inline script
-- dashboard layout lost when the page was reloaded inside the save debounce
-- an old-shape database missing columns the new code queried, which would have
-  broken the first deploy over an existing install
-- `Date.parse` accepting 2026-02-31 by silently rolling it into March
-- the transfer route dropping `retain_role_ids` on the floor (key-name
-  mismatch), so "keep this collateral duty" quietly kept nothing
-- unit-consistency refusals answering 400 where the older suite rightly
-  expected an authorization 403
-
-All have regression tests.
-
----
-
-## Before real names go in it
-
-Hosting this publicly puts other Marines' PII and performance data on a
-commercial provider's infrastructure. That is outside any authorised system
-boundary, and it needs your ISSM before real records go in — not because the
-software is wrong, but because that decision isn't the developer's to make.
-
-Built to make the answer *can* be yes: no third-party services, no telemetry,
-one container and one file you control, role-gated access, an audit row on
-every read of someone else's record, and soft deletes so nothing vanishes
-without trace. Use it with your own data and test names freely.
+No license is granted by this README. Confirm intellectual-property, government-work, branding, and distribution requirements before publication or official adoption.

@@ -8,12 +8,12 @@
  *
  * Three properties matter, and each is a deliberate constraint:
  *
- *   Designated by environment, not by a database row. `VANTAGE_OPERATOR` holds
- *   usernames. A row in a table can be written by anything that can write to
- *   that table; an environment variable can only be changed by whoever can
- *   restart the process, which is the correct authority for "who runs this
- *   box". It also means no SQL injection, role edit or invite redemption can
- *   ever mint one.
+ *   Designated by environment, not by a role. `VANTAGE_OPERATOR_ID` holds
+ *   immutable account UUIDs and takes precedence; `VANTAGE_OPERATOR` is a
+ *   canonical-username compatibility fallback. The environment can be changed
+ *   only by whoever can restart the process, which is the correct authority
+ *   for "who runs this box". Account creation is operator-gated and usernames
+ *   are unique under the same comparison used here.
  *
  *   Cannot silently read unit records. The operator has to be able to recover
  *   a lost Unit Owner and take backups, which means they can reach the disk.
@@ -32,34 +32,50 @@
  * at all — not loudly, not at all. See tests/tenancy.test.mjs.
  */
 
-const parseList = (raw) =>
+import { normalizeUsername } from './identity.js';
+
+const parseNames = (raw) =>
   String(raw || '')
     .split(/[,\s]+/)
-    .map((s) => s.trim().toLowerCase())
+    .map(normalizeUsername)
+    .filter(Boolean);
+
+const parseIds = (raw) =>
+  String(raw || '')
+    .split(/[,\s]+/)
+    .map((s) => s.trim())
     .filter(Boolean);
 
 /** Usernames designated as Instance Operators. Empty is a valid answer. */
 export function operatorUsernames() {
-  return parseList(process.env.VANTAGE_OPERATOR);
+  return parseNames(process.env.VANTAGE_OPERATOR);
+}
+
+/** Preferred binding: immutable account UUIDs, not mutable login names. */
+export function operatorUserIds() {
+  return parseIds(process.env.VANTAGE_OPERATOR_ID);
 }
 
 export function isInstanceOperator(user) {
-  if (!user || !user.username) return false;
+  if (!user) return false;
+  const ids = operatorUserIds();
+  if (ids.length) return Boolean(user.id && ids.includes(String(user.id)));
+  if (!user.username) return false;
   const names = operatorUsernames();
   if (!names.length) return false;
-  return names.includes(String(user.username).toLowerCase());
+  return names.includes(normalizeUsername(user.username));
 }
 
 /**
  * Bootstrap allowance. `users.is_admin` is retired to instance-operator
  * bootstrap only (finding 4): on a brand-new install, before anyone has had a
- * chance to set VANTAGE_OPERATOR, the first account created by /api/setup can
- * still mint the first unit-creation invite. The moment VANTAGE_OPERATOR names
- * anybody, the legacy flag stops meaning anything.
+ * chance to set an operator binding, the first account created by /api/setup
+ * can still perform recovery. The moment either operator variable is set, the
+ * legacy flag stops meaning anything.
  */
 export function isBootstrapOperator(db, user) {
   if (!user) return false;
-  if (operatorUsernames().length) return isInstanceOperator(user);
+  if (operatorUserIds().length || operatorUsernames().length) return isInstanceOperator(user);
   if (!user.is_admin) return false;
   const others = db.prepare('SELECT COUNT(*) AS n FROM users WHERE is_admin = 1 AND id <> ?').get(user.id).n;
   return others === 0;
@@ -68,7 +84,7 @@ export function isBootstrapOperator(db, user) {
 export const operatorGate = (db) => (req, res, next) => {
   if (isInstanceOperator(req.user) || isBootstrapOperator(db, req.user)) return next();
   return res.status(403).json({
-    error: 'That is an instance operator action. Operators are named in VANTAGE_OPERATOR.',
+    error: 'That is an instance operator action. Operators are bound by deployment configuration.',
     code: 'not_operator',
   });
 };

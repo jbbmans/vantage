@@ -75,16 +75,23 @@ const makeUser = (token, { username, unit_id, role_id = null, rank_id = 'LCpl' }
     },
   });
 
+// Shared rosters intentionally omit usernames. Test fixtures use a unique
+// first name derived from the username, so resolve identities through fields
+// the roster is actually allowed to disclose.
+const fixtureFirstName = (username) => username[0].toUpperCase() + username.slice(1);
+const fixtureId = (rosterRows, username) =>
+  rosterRows.find((row) => row.first_name === fixtureFirstName(username) && row.last_name === 'Test')?.id;
+
 /* ── fixtures ─────────────────────────────────────────────────────── */
 
 await call('POST', '/api/setup', {
   body: {
-    username: 'boletz', password: 'correct-horse-battery-staple',
+    username: 'boletz', password: 'cobalt-orbit-velvet-anchor-927',
     first_name: 'John', last_name: 'Boletz', rank_id: 'Cpl', mos: '3451',
     unit_code: 'CE-G8', billet_title: 'Accounting Chief',
   },
 });
-const admin = await login('boletz', 'correct-horse-battery-staple');
+const admin = await login('boletz', 'cobalt-orbit-velvet-anchor-927');
 const adminId = (await call('GET', '/api/me', { token: admin })).body.user.id;
 
 /*
@@ -149,7 +156,7 @@ const auditor = (await call('POST', '/api/roles', {
 })).body;
 
 await makeUser(admin, { username: 'hayes', unit_id: 'CE-G8', rank_id: 'SSgt' });
-const hayesId = (await call('GET', '/api/team', { token: admin })).body.roster.find((r) => r.username === 'hayes').id;
+const hayesId = fixtureId((await call('GET', '/api/team', { token: admin })).body.roster, 'hayes');
 await call('POST', `/api/team/${hayesId}/roles`, { token: admin, body: { role_id: branchManager.id, unit_id: 'CE-G8' } });
 // Hayes runs FMRAC and Budget too — stated as two memberships plus two grants
 // rather than inherited from CE-G8, which is the whole of finding 2 in this
@@ -166,7 +173,7 @@ await makeUser(admin, { username: 'rivera', unit_id: 'G8-FMRAC' });
 await makeUser(admin, { username: 'ohara', unit_id: 'G8-FMRAC', rank_id: 'Sgt' });
 await makeUser(admin, { username: 'nguyen', unit_id: 'CLR-4', role_id: 'CLR-4:nco', rank_id: 'Sgt' });
 const roster = (await call('GET', '/api/team', { token: admin })).body.roster;
-const idOf = (u) => roster.find((r) => r.username === u)?.id;
+const idOf = (u) => fixtureId(roster, u);
 const riveraId = idOf('rivera');
 const oharaId = idOf('ohara');
 const nguyenId = idOf('nguyen');
@@ -321,7 +328,7 @@ await test('TRANSFER: authority over the destination alone cannot pull a Marine 
 
 await test('TRANSFER: a leader cannot reassign a Marine whose role is at or above their own', async () => {
   await makeUser(admin, { username: 'kim', unit_id: 'G8-BUDGET', rank_id: 'GySgt' });
-  const kimId = (await call('GET', '/api/team', { token: admin })).body.roster.find((r) => r.username === 'kim').id;
+  const kimId = fixtureId((await call('GET', '/api/team', { token: admin })).body.roster, 'kim');
   // The unit's own SNCOIC copy at position 60, above hayes's branch manager 25.
   await call('POST', `/api/team/${kimId}/roles`, { token: admin, body: { role_id: 'G8-BUDGET:sncoic', unit_id: 'G8-BUDGET' } });
   const res = await call('PUT', `/api/team/${kimId}/assignment`, {
@@ -330,9 +337,9 @@ await test('TRANSFER: a leader cannot reassign a Marine whose role is at or abov
   assert.equal(res.status, 403);
 });
 
-await test('TRANSFER: old-unit roles are revoked and sessions end (finding 2)', async () => {
+await test('TRANSFER: old-unit roles are revoked and live sessions recompute scope (finding 2)', async () => {
   await makeUser(admin, { username: 'diaz', unit_id: 'G8-FMRAC' });
-  const diazId = (await call('GET', '/api/team', { token: admin })).body.roster.find((r) => r.username === 'diaz').id;
+  const diazId = fixtureId((await call('GET', '/api/team', { token: admin })).body.roster, 'diaz');
   await call('POST', `/api/team/${diazId}/roles`, { token: admin, body: { role_id: clerk.id, unit_id: 'G8-FMRAC' } });
   const diazToken = await login('diaz', PW('diaz'));
   assert.ok(diazToken, 'diaz should sign in');
@@ -342,10 +349,12 @@ await test('TRANSFER: old-unit roles are revoked and sessions end (finding 2)', 
   });
   assert.equal(moved.status, 200);
   assert.ok(moved.body.revokedRoles.includes('Clerk'), `revoked: ${JSON.stringify(moved.body.revokedRoles)}`);
-  assert.ok(moved.body.sessionsRevoked >= 1, 'the open session must die with the transfer');
+  assert.equal(moved.body.sessionsRevoked, 0, 'a unit-local transfer does not need account-wide session authority');
 
-  const stale = await call('GET', '/api/me', { token: diazToken });
-  assert.equal(stale.status, 401, 'session issued under the old unit must be gone');
+  const refreshed = await call('GET', '/api/me', { token: diazToken });
+  assert.equal(refreshed.status, 200, 'the session remains usable');
+  assert.ok(refreshed.body.unitIds.includes('G8-BUDGET'), 'the same session sees the new scope immediately');
+  assert.ok(!refreshed.body.unitIds.includes('G8-FMRAC'), 'the old scope is gone immediately');
 
   const record = await call('GET', `/api/team/${diazId}`, { token: admin });
   assert.ok(!record.body.roles.some((r) => r.unit_id === 'G8-FMRAC'), 'no grant may remain in the old unit');
@@ -359,7 +368,7 @@ await test('TRANSFER: old-unit roles are revoked and sessions end (finding 2)', 
 
 await test('TRANSFER: an explicitly retained collateral role survives', async () => {
   await makeUser(admin, { username: 'park', unit_id: 'G8-FMRAC' });
-  const parkId = (await call('GET', '/api/team', { token: admin })).body.roster.find((r) => r.username === 'park').id;
+  const parkId = fixtureId((await call('GET', '/api/team', { token: admin })).body.roster, 'park');
   await call('POST', `/api/team/${parkId}/roles`, { token: admin, body: { role_id: clerk.id, unit_id: 'G8-FMRAC' } });
   const moved = await call('PUT', `/api/team/${parkId}/assignment`, {
     token: hayes, body: { unit_id: 'G8-BUDGET', retain_role_ids: [clerk.id] },
@@ -372,7 +381,7 @@ await test('TRANSFER: an explicitly retained collateral role survives', async ()
 
 await test('TRANSFER: "retain" cannot keep alive a role the actor could not grant', async () => {
   await makeUser(admin, { username: 'lee', unit_id: 'G8-FMRAC' });
-  const leeId = (await call('GET', '/api/team', { token: admin })).body.roster.find((r) => r.username === 'lee').id;
+  const leeId = fixtureId((await call('GET', '/api/team', { token: admin })).body.roster, 'lee');
   await call('POST', `/api/team/${leeId}/roles`, { token: admin, body: { role_id: auditor.id, unit_id: 'G8-FMRAC' } });
   const moved = await call('PUT', `/api/team/${leeId}/assignment`, {
     token: hayes, body: { unit_id: 'G8-BUDGET', retain_role_ids: [auditor.id] },
@@ -395,7 +404,7 @@ await test('access review flags a role granted where the Marine is not a member'
      VALUES (?, ?, ?, ?, ?, datetime('now'))`
   ).run(`orphan-${Date.now()}`, riveraId, clerkBudget.id, 'G8-BUDGET', adminId);
 
-  const res = await call('GET', `/api/team/${riveraId}/access`, { token: hayes });
+  const res = await call('GET', `/api/team/${riveraId}/access`, { token: admin });
   assert.equal(res.status, 200);
   assert.ok(
     res.body.roles.some((r) => r.unit_id === 'G8-BUDGET' && r.orphaned),
@@ -409,20 +418,20 @@ await test('access review flags a role granted where the Marine is not a member'
 
 await test('DEACTIVATION: kills live sessions, blocks sign-in, hides from the roster', async () => {
   await makeUser(admin, { username: 'sneak', unit_id: 'G8-FMRAC' });
-  const sneakId = (await call('GET', '/api/team', { token: admin })).body.roster.find((r) => r.username === 'sneak').id;
+  const sneakId = fixtureId((await call('GET', '/api/team', { token: admin })).body.roster, 'sneak');
   const sneakToken = await login('sneak', PW('sneak'));
   assert.ok(sneakToken);
 
-  const off = await call('POST', `/api/team/${sneakId}/deactivate`, { token: hayes });
+  const off = await call('POST', `/api/team/${sneakId}/deactivate`, { token: admin });
   assert.equal(off.status, 200);
   assert.ok(off.body.sessionsRevoked >= 1);
 
   assert.equal((await call('GET', '/api/me', { token: sneakToken })).status, 401, 'live session must die');
   assert.equal(await login('sneak', PW('sneak')), undefined, 'sign-in must fail while deactivated');
   const rosterNow = (await call('GET', '/api/team', { token: admin })).body.roster;
-  assert.ok(!rosterNow.some((r) => r.username === 'sneak'), 'deactivated accounts leave the roster');
+  assert.ok(!rosterNow.some((r) => r.first_name === fixtureFirstName('sneak')), 'deactivated accounts leave the roster');
 
-  const on = await call('POST', `/api/team/${sneakId}/reactivate`, { token: hayes });
+  const on = await call('POST', `/api/team/${sneakId}/reactivate`, { token: admin });
   assert.equal(on.status, 200);
   assert.ok(await login('sneak', PW('sneak')), 'reactivation restores sign-in');
 });
@@ -455,29 +464,46 @@ await test('the last active administrator cannot be deactivated', async () => {
    * ownership row is written directly.
    */
   await makeUser(admin, { username: 'orphanrisk', unit_id: 'G8-BUDGET' });
-  const orphanId = (await call('GET', '/api/team', { token: admin })).body.roster
-    .find((r) => r.username === 'orphanrisk').id;
+  const orphanId = fixtureId((await call('GET', '/api/team', { token: admin })).body.roster, 'orphanrisk');
   db.prepare("INSERT INTO units (id, code, name, echelon, level, active, created_at) VALUES ('ORPHAN-CELL','ORPHAN-CELL','Orphan Cell','fire_team','L4',1,datetime('now'))").run();
   db.prepare("UPDATE units SET owner_user_id = ? WHERE id = 'ORPHAN-CELL'").run(orphanId);
 
-  const hayesUser = db.prepare('SELECT * FROM users WHERE id = ?').get(hayesId);
-  const result = deactivateMember(db, hayesUser, orphanId);
+  const operatorUser = db.prepare('SELECT * FROM users WHERE id = ?').get(adminId);
+  const result = deactivateMember(db, operatorUser, orphanId);
   assert.equal(result.ok, false, 'deactivating a Unit Owner must be refused');
   assert.equal(result.code, 'last_owner', `unexpected code ${result.code}`);
 });
 
-await test('admin password reset invalidates every session and the old password', async () => {
+await test('a unit manager cannot reset a global account password', async () => {
+  const live = await login('rivera', PW('rivera'));
+  const denied = await call('POST', `/api/team/${riveraId}/password`, {
+    token: hayes, body: { password: 'manager-must-not-own-this-account' },
+  });
+  assert.equal(denied.status, 403);
+  assert.equal(denied.body.code, 'not_operator');
+  assert.equal((await call('GET', '/api/me', { token: live })).status, 200, 'the refused reset must not revoke sessions');
+});
+
+await test('operator password reset invalidates sessions and requires replacement of the temporary password', async () => {
   const s1 = await login('rivera', PW('rivera'));
   const res = await call('POST', `/api/team/${riveraId}/password`, {
-    token: hayes, body: { password: 'a-brand-new-passphrase' },
+    token: admin, body: { password: 'a-brand-new-passphrase' },
   });
   assert.equal(res.status, 200);
   assert.equal((await call('GET', '/api/me', { token: s1 })).status, 401);
   assert.equal(await login('rivera', PW('rivera')), undefined, 'old password must fail');
   const fresh = await login('rivera', 'a-brand-new-passphrase');
   assert.ok(fresh);
+  const blocked = await call('GET', '/api/activities', { token: fresh });
+  assert.equal(blocked.status, 403);
+  assert.equal(blocked.body.code, 'password_change_required');
+  const changed = await call('POST', '/api/me/password', {
+    token: fresh,
+    body: { current_password: 'a-brand-new-passphrase', new_password: PW('rivera') },
+  });
+  assert.equal(changed.status, 200);
   // put it back for the rest of the suite
-  await call('POST', `/api/team/${riveraId}/password`, { token: hayes, body: { password: PW('rivera') } });
+  assert.ok(await login('rivera', PW('rivera')));
 });
 
 await test('self-service password change keeps this session and cuts the others', async () => {
@@ -500,7 +526,7 @@ await test('self-service password change keeps this session and cuts the others'
 await test('force logout ends every session the account holds', async () => {
   const a = await login('rivera', PW('rivera'));
   const b = await login('rivera', PW('rivera'));
-  const res = await call('POST', `/api/team/${riveraId}/logout`, { token: hayes });
+  const res = await call('POST', `/api/team/${riveraId}/logout`, { token: admin });
   assert.equal(res.status, 200);
   assert.equal((await call('GET', '/api/me', { token: a })).status, 401);
   assert.equal((await call('GET', '/api/me', { token: b })).status, 401);
@@ -517,7 +543,7 @@ await test('the auth cookie is a session cookie: HttpOnly, SameSite=Strict, no E
   const res = await fetch(`${BASE}/api/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username: 'boletz', password: 'correct-horse-battery-staple' }),
+    body: JSON.stringify({ username: 'boletz', password: 'cobalt-orbit-velvet-anchor-927' }),
   });
   const cookie = res.headers.get('set-cookie') || '';
   assert.ok(/vantage_session=/.test(cookie), 'cookie must be set');
@@ -530,7 +556,7 @@ await test('cookie-authenticated writes require the client header (CSRF backstop
   const res = await fetch(`${BASE}/api/login`, {
     method: 'POST',
     headers: { 'content-type': 'application/json' },
-    body: JSON.stringify({ username: 'boletz', password: 'correct-horse-battery-staple' }),
+    body: JSON.stringify({ username: 'boletz', password: 'cobalt-orbit-velvet-anchor-927' }),
   });
   const token = (res.headers.get('set-cookie') || '').match(/vantage_session=([^;]+)/)?.[1];
   assert.ok(token);
@@ -567,7 +593,11 @@ await test('CREATE_SHARED_WORK alone cannot post goals to a foreign unit', async
   // exactly what a guest is now (finding 9) — and a guest is bounded by the
   // share flags rather than exempt from them.
   await call('POST', '/api/org/units/G8-BUDGET/members', {
-    token: admin, body: { user_id: riveraId, role_id: workOnly.id, kind: 'guest', expires_at: '2027-12-31' },
+    token: admin,
+    body: {
+      user_id: riveraId, role_id: workOnly.id, kind: 'guest',
+      expires_at: new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10),
+    },
   });
 
   const goal = await call('POST', '/api/goals', {
@@ -585,7 +615,11 @@ await test('CREATE_SHARED_GOALS alone cannot post tasks to a foreign unit', asyn
     token: admin, body: { name: 'Goals Only', unit_id: 'G8-BUDGET', position: 2, permissions: P.VIEW_UNIT | P.CREATE_SHARED_GOALS },
   })).body;
   await call('POST', '/api/org/units/G8-BUDGET/members', {
-    token: admin, body: { user_id: oharaId, role_id: goalsOnly.id, kind: 'guest', expires_at: '2027-12-31' },
+    token: admin,
+    body: {
+      user_id: oharaId, role_id: goalsOnly.id, kind: 'guest',
+      expires_at: new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10),
+    },
   });
 
   const task = await call('POST', '/api/tasks', {
@@ -808,7 +842,7 @@ await test('repeated failures against one account lock the account, and success 
     last = await call('POST', '/api/login', { body: { username: 'rivera', password: 'wrong-password-here' } });
     if (last.status === 429) break;
     // keep the per-IP counter from tripping first: it resets on interleaved success
-    await call('POST', '/api/login', { body: { username: 'boletz', password: 'correct-horse-battery-staple' } });
+    await call('POST', '/api/login', { body: { username: 'boletz', password: 'cobalt-orbit-velvet-anchor-927' } });
   }
   assert.equal(last.status, 429, 'the account threshold must trip');
   assert.ok(last.headers.get('retry-after'), 'Retry-After must be set');

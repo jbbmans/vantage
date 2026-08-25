@@ -1,18 +1,20 @@
 /**
- * Vantage — spreadsheet bridge.
+ * Vantage — safe delimited-file bridge.
  *
- * Export exists because a board package, a monitor, and a civilian résumé all
- * eventually want a table. Import exists because a record that can't absorb
- * the tracker you already keep isn't worth switching to.
- *
- * xlsx is loaded on demand so the ~400KB parser never lands in the initial bundle.
+ * Spreadsheet import is deliberately CSV/TSV only. The former XLSX parser had
+ * unresolved prototype-pollution and denial-of-service advisories; accepting a
+ * richer binary format was not worth putting personnel data in the same
+ * process as an unpatched parser. Excel, Numbers and LibreOffice all open and
+ * save these formats.
  */
 
 import { formatDate } from './metrics.js';
+import { downloadText } from './utils.js';
+import {
+  MAX_IMPORT_COLUMNS, MAX_IMPORT_ROWS, parseDelimited, rowsToCsv,
+} from './delimited.js';
 
-async function xlsx() {
-  return import('xlsx');
-}
+const MAX_FILE_BYTES = 2 * 1024 * 1024;
 
 const val = (v) => {
   if (v == null) return '';
@@ -51,54 +53,54 @@ export function activityRows(list = [], projects = []) {
 const simpleRows = (list, columns) =>
   list.map((r) => Object.fromEntries(columns.map(([k, label]) => [label, val(r[k])])));
 
-/** Auto-size columns to their widest cell so the file opens readable. */
-function fit(rows) {
-  if (!rows.length) return [];
-  return Object.keys(rows[0]).map((key) => ({
-    wch: Math.min(52, Math.max(key.length + 2, ...rows.map((r) => String(r[key] ?? '').length + 2))),
-  }));
-}
-
-export async function exportWorkbook({ activities = [], projects = [], tasks = [], goals = [], recognitions = [], trainings = [], contacts = [] }, filename) {
-  const XLSX = await xlsx();
-  const wb = XLSX.utils.book_new();
-
-  const sheets = [
-    ['Activities', activityRows(activities, projects)],
-    ['Projects', simpleRows(projects, [['name', 'Name'], ['status', 'Status'], ['priority', 'Priority'], ['start_date', 'Start'], ['target_date', 'Target'], ['organization', 'Organization'], ['progress', 'Progress %'], ['description', 'Description']])],
-    ['Tasks', simpleRows(tasks, [['title', 'Title'], ['status', 'Status'], ['priority', 'Priority'], ['due_date', 'Due'], ['notes', 'Notes']])],
-    ['Goals', simpleRows(goals, [['title', 'Title'], ['type', 'Type'], ['category', 'Category'], ['current_value', 'Current'], ['target_value', 'Target'], ['unit', 'Unit'], ['status', 'Status'], ['period_start', 'Start'], ['period_end', 'End']])],
-    ['Recognition', simpleRows(recognitions, [['date', 'Date'], ['title', 'Title'], ['type', 'Type'], ['from', 'From'], ['organization', 'Organization'], ['notes', 'Notes']])],
+/**
+ * Export every selected record type into one interoperable CSV. "Record Type"
+ * preserves the sheet separation the former workbook provided without a
+ * vulnerable binary parser or a new third-party dependency.
+ */
+export async function exportWorkbook({
+  activities = [], projects = [], tasks = [], goals = [], recognitions = [], trainings = [], contacts = [],
+}, filename) {
+  const groups = [
+    ['Activity', activityRows(activities, projects)],
+    ['Project', simpleRows(projects, [['name', 'Name'], ['status', 'Status'], ['priority', 'Priority'], ['start_date', 'Start'], ['target_date', 'Target'], ['organization', 'Organization'], ['progress', 'Progress %'], ['description', 'Description']])],
+    ['Task', simpleRows(tasks, [['title', 'Title'], ['status', 'Status'], ['priority', 'Priority'], ['due_date', 'Due'], ['notes', 'Notes']])],
+    ['Goal', simpleRows(goals, [['title', 'Title'], ['type', 'Type'], ['category', 'Category'], ['current_value', 'Current'], ['target_value', 'Target'], ['unit', 'Unit'], ['status', 'Status'], ['period_start', 'Start'], ['period_end', 'End']])],
+    ['Recognition', simpleRows(recognitions, [['date', 'Date'], ['title', 'Title'], ['type', 'Type'], ['from_whom', 'From'], ['organization', 'Organization'], ['notes', 'Notes']])],
     ['Development', simpleRows(trainings, [['date', 'Date'], ['title', 'Title'], ['type', 'Type'], ['hours', 'Hours'], ['provider', 'Provider'], ['status', 'Status'], ['notes', 'Notes']])],
-    ['Contacts', simpleRows(contacts, [['name', 'Name'], ['role', 'Role'], ['organization', 'Organization'], ['email', 'Email'], ['phone', 'Phone'], ['notes', 'Notes']])],
+    ['Contact', simpleRows(contacts, [['name', 'Name'], ['role', 'Role'], ['organization', 'Organization'], ['email', 'Email'], ['phone', 'Phone'], ['notes', 'Notes']])],
   ];
-
-  for (const [name, rows] of sheets) {
-    if (!rows.length) continue;
-    const ws = XLSX.utils.json_to_sheet(rows);
-    ws['!cols'] = fit(rows);
-    ws['!freeze'] = { xSplit: 0, ySplit: 1 };
-    XLSX.utils.book_append_sheet(wb, ws, name);
-  }
-
-  if (!wb.SheetNames.length) {
-    const ws = XLSX.utils.json_to_sheet([{ Note: 'No records yet.' }]);
-    XLSX.utils.book_append_sheet(wb, ws, 'Vantage');
-  }
-
-  XLSX.writeFile(wb, filename || `vantage-${formatDate(new Date(), 'yyyy-MM-dd')}.xlsx`);
+  const rows = groups.flatMap(([type, entries]) => entries.map((row) => ({ 'Record Type': type, ...row })));
+  if (!rows.length) rows.push({ 'Record Type': 'Vantage', Note: 'No records yet.' });
+  const safeName = String(filename || `vantage-${formatDate(new Date(), 'yyyy-MM-dd')}.csv`)
+    .replace(/\.(xlsx|xls)$/i, '.csv');
+  downloadText(safeName, `\uFEFF${rowsToCsv(rows)}`, 'text/csv;charset=utf-8');
+  return { filename: safeName, rows: rows.length };
 }
 
-/** Parse the first sheet of a CSV/XLSX into { columns, rows }. */
+/** Parse a CSV/TSV into { columns, rows }. */
 export async function parseSpreadsheet(file) {
-  const XLSX = await xlsx();
-  const buf = await file.arrayBuffer();
-  const wb = XLSX.read(buf, { type: 'array', cellDates: true });
-  const ws = wb.Sheets[wb.SheetNames[0]];
-  if (!ws) throw new Error('That workbook has no sheets.');
-  const rows = XLSX.utils.sheet_to_json(ws, { defval: '', raw: false });
-  const columns = rows.length ? Object.keys(rows[0]) : [];
-  return { columns, rows, sheetName: wb.SheetNames[0] };
+  const name = String(file?.name || '');
+  if (!/\.(csv|tsv)$/i.test(name)) {
+    throw new Error('For security, Vantage imports CSV or TSV only. In Excel, use Save As → CSV UTF-8.');
+  }
+  if (file.size > MAX_FILE_BYTES) throw new Error('That file is larger than the 2 MB import limit.');
+  const text = (await file.text()).replace(/^\uFEFF/, '');
+  if (text.includes('\0')) throw new Error('That file contains binary data and is not a valid CSV/TSV file.');
+  const delimiter = /\.tsv$/i.test(name) ? '\t' : ',';
+  const matrix = parseDelimited(text, delimiter)
+    .filter((cells) => cells.some((v) => String(v).trim() !== ''));
+  if (!matrix.length) return { columns: [], rows: [], sheetName: name };
+  const columns = matrix.shift().map((v) => String(v).trim());
+  if (columns.length > MAX_IMPORT_COLUMNS) {
+    throw new Error(`Imports are limited to ${MAX_IMPORT_COLUMNS} columns.`);
+  }
+  if (columns.some((c) => !c)) throw new Error('Every imported column needs a header.');
+  if (new Set(columns.map((c) => c.toLowerCase())).size !== columns.length) {
+    throw new Error('Column headers must be unique.');
+  }
+  const rows = matrix.map((cells) => Object.fromEntries(columns.map((column, i) => [column, cells[i] ?? ''])));
+  return { columns, rows, sheetName: name };
 }
 
 /** Fields an imported row can be mapped onto. */

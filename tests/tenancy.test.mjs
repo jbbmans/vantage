@@ -107,27 +107,52 @@ const alphaBossId = must(await call('POST', '/api/team', {
 }), 'create alpha boss').id;
 const alphaToken = await login('alphaboss', PW('alphaboss'));
 
-must(await call('POST', '/api/team', {
+const bravoBossId = must(await call('POST', '/api/team', {
   token: opToken,
   body: { username: 'bravoboss', password: PW('bravoboss'), first_name: 'B', last_name: 'Boss', unit_id: 'CE-G8' },
-}), 'create bravo owner account');
+}), 'create bravo owner account').id;
 const bravoToken = await login('bravoboss', PW('bravoboss'));
 
+// Top-level creation is an infrastructure action. The operator creates the
+// two unit shells, places Bravo under Alpha while it still owns Alpha, then
+// explicitly transfers each sovereign unit to its real owner.
 const alpha = must(await call('POST', '/api/org/units', {
-  token: alphaToken, body: { name: 'Alpha Section', code: 'ALPHA', level: 'L4', template_id: 'section' },
+  token: opToken, body: { name: 'Alpha Section', code: 'ALPHA', level: 'L4', template_id: 'section' },
 }), 'create alpha');
 
 const bravo = must(await call('POST', '/api/org/units', {
-  token: bravoToken, body: { name: 'Bravo Section', code: 'BRAVO', level: 'L4', template_id: 'section' },
+  token: opToken,
+  body: { name: 'Bravo Section', code: 'BRAVO', level: 'L4', parent_id: alpha.id, template_id: 'section' },
 }), 'create bravo');
 
-// A Marine in each unit, enrolled by that unit's own owner.
-const alphaMarineId = must(await call('POST', '/api/team', {
-  token: alphaToken, body: { username: 'alphamarine', password: PW('alphamarine'), first_name: 'A', last_name: 'Marine', unit_id: alpha.id },
-}), 'alpha marine').id;
-const bravoMarineId = must(await call('POST', '/api/team', {
-  token: bravoToken, body: { username: 'bravomarine', password: PW('bravomarine'), first_name: 'B', last_name: 'Marine', unit_id: bravo.id },
-}), 'bravo marine').id;
+for (const [unit, ownerId] of [[alpha, alphaBossId], [bravo, bravoBossId]]) {
+  must(await call('POST', `/api/org/units/${unit.id}/members`, {
+    token: opToken, body: { user_id: ownerId },
+  }), `enroll owner in ${unit.id}`);
+  must(await call('POST', `/api/org/units/${unit.id}/owner`, {
+    token: opToken, body: { user_id: ownerId },
+  }), `transfer ${unit.id}`);
+}
+
+// A Marine in each unit self-registers, then that unit's owner attaches the
+// identity. Registration alone exposes no unit directory.
+const registerAndEnroll = async (ownerToken, unit, username, firstName) => {
+  must(await call('POST', '/api/register', {
+    body: { username, password: PW(username), first_name: firstName, last_name: 'Marine' },
+  }), `register ${username}`);
+  const directory = must(await call(
+    'GET', `/api/directory?unit_id=${encodeURIComponent(unit.id)}&q=${encodeURIComponent(username)}`,
+    { token: ownerToken }
+  ), `find ${username}`);
+  const identity = directory.results.find((row) => row.username === username);
+  assert.ok(identity, `directory missing ${username}`);
+  must(await call('POST', `/api/org/units/${unit.id}/members`, {
+    token: ownerToken, body: { user_id: identity.id },
+  }), `enroll ${username}`);
+  return identity.id;
+};
+const alphaMarineId = await registerAndEnroll(alphaToken, alpha, 'alphamarine', 'A');
+const bravoMarineId = await registerAndEnroll(bravoToken, bravo, 'bravomarine', 'B');
 const bravoMarineToken = await login('bravomarine', PW('bravomarine'));
 
 const bravoActivity = must(await call('POST', '/api/activities', {
@@ -154,13 +179,8 @@ await test('setup: Alpha owner holds every permission in Alpha', async () => {
 });
 
 await test('setup: Bravo really is a child of Alpha on the org chart', async () => {
-  // Reparent Bravo under Alpha so the hierarchy genuinely says Alpha is above.
-  const res = await call('PUT', `/api/org/units/${bravo.id}`, { token: opToken, body: { parent_id: alpha.id } });
-  // Whether or not the route allows it, assert the display relationship exists
-  // for the rest of the suite to be meaningful.
-  if (res.status >= 200 && res.status < 300) {
-    assert.equal(res.body.parent_id, alpha.id);
-  }
+  const orgView = must(await call('GET', '/api/org', { token: opToken }), 'operator org view');
+  assert.equal(orgView.units.find((unit) => unit.id === bravo.id)?.parent_id, alpha.id);
 });
 
 await test('Alpha owner holds ZERO permissions in Bravo', async () => {
@@ -208,8 +228,8 @@ await test('a personal record carries no unit', async () => {
 
 await test("Bravo's roster is invisible to Alpha's owner", async () => {
   const roster = must(await call('GET', '/api/team', { token: alphaToken }), 'roster').roster || [];
-  const usernames = roster.map((r) => r.username);
-  assert.ok(!usernames.includes('bravomarine'), `Alpha owner sees Bravo's roster: ${usernames.join(', ')}`);
+  const ids = roster.map((r) => r.id);
+  assert.ok(!ids.includes(bravoMarineId), `Alpha owner sees Bravo's roster member ${bravoMarineId}`);
 });
 
 await test("Bravo's role set is invisible to Alpha's owner", async () => {

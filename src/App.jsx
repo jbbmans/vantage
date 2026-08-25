@@ -10,13 +10,14 @@ import Career from '@/pages/Career';
 import Team from '@/pages/Team';
 import MemberDetail from '@/pages/MemberDetail';
 import Login from '@/pages/Login';
+import PasswordChangeRequired from '@/pages/PasswordChangeRequired';
 import Readiness from '@/pages/Readiness';
 import { ToastProvider } from '@/components/ui/toast';
 import { TooltipProvider, Panel, EmptyState, Button } from '@/components/ui/primitives';
 import { hydrate, useIdentity, useReady, useLoadError } from '@/store/useStore';
 
-// Reports pulls in the charting library and Settings pulls in the spreadsheet
-// parser. Neither belongs in the first paint, so both load on navigation.
+// Reports pulls in the charting library and Settings is an infrequent route.
+// Neither belongs in the first paint, so both load on navigation.
 const Reports = lazy(() => import('@/pages/Reports'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const Roles = lazy(() => import('@/pages/Roles'));
@@ -60,8 +61,8 @@ function ServerGate({ children }) {
         <h1 className="text-lg font-semibold text-text">Can't reach the server</h1>
         <p className="mt-2 text-sm leading-relaxed text-text-2">{error.message}</p>
         <p className="mt-3 text-xs leading-relaxed text-text-3">
-          Vantage keeps records on your command's server so your chain of command can see shared work. Without a
-          connection there's nothing to read.
+          Vantage keeps records on your command's server so authorized members of the selected unit can see shared
+          work. Without a connection there's nothing to read.
         </p>
         <Button size="sm" className="mt-4" onClick={() => window.location.reload()}>Try again</Button>
       </div>
@@ -92,8 +93,10 @@ export default function App() {
         <ServerGate>
           {!identity ? (
             <Login />
+          ) : identity.user?.must_change_password ? (
+            <PasswordChangeRequired />
           ) : (
-            <BrowserRouter>
+            <BrowserRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
               <Routes>
                 <Route element={<AppShell />}>
                   <Route index element={<CommandCenter />} />

@@ -29,20 +29,57 @@ const subscribe = (listener) => {
   return () => listeners.delete(listener);
 };
 
+function clearUserState() {
+  identity = null;
+  prefsState = {};
+  pendingPrefs = {};
+  orgData = { ranks: [], billets: [], units: [] };
+  cache.clear();
+  loadError = null;
+}
+
 /* ── identity ─────────────────────────────────────────────────────── */
 
 export async function signIn(username, password) {
-  await api.login(username, password);
-  await hydrate();
-  return identity;
+  clearUserState();
+  ready = false;
+  emit();
+  try {
+    await api.login(username, password);
+    await hydrate();
+    return identity;
+  } catch (err) {
+    ready = true;
+    emit();
+    throw err;
+  }
+}
+
+export async function signInWithCac() {
+  clearUserState();
+  ready = false;
+  emit();
+  try {
+    await api.cacPivLogin();
+    await hydrate();
+    return identity;
+  } catch (err) {
+    ready = true;
+    emit();
+    throw err;
+  }
 }
 
 export async function signOut() {
-  await api.logout();
-  identity = null;
-  cache.clear();
-  ready = false;
+  try {
+    await api.logout();
+  } catch {
+    return false;
+  }
+  clearUserState();
+  ready = true;
   emit();
+  return true;
 }
 
 /** Load everything the shell needs. Safe to call repeatedly. */
@@ -52,19 +89,21 @@ export async function hydrate() {
   // goes false after the server has actually said 401, which is what stops a
   // signed-out shell from asking again in a loop.
   if (!api.hasSession()) {
-    identity = null;
+    clearUserState();
     ready = true;
     emit();
     return null;
   }
   try {
-    identity = await api.me();
+    loadError = null;
+    const nextIdentity = await api.me();
+    if (identity?.user?.id && identity.user.id !== nextIdentity?.user?.id) clearUserState();
+    identity = nextIdentity;
     orgData = await api.org();
     prefsState = await api.prefs().catch(() => ({}));
     await Promise.all(api.STORES.map((name) => reloadStore(name)));
-    loadError = null;
   } catch (err) {
-    if (err.status === 401) identity = null;
+    if (err.status === 401) clearUserState();
     else loadError = err;
   } finally {
     ready = true;

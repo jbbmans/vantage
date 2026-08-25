@@ -13,7 +13,7 @@ import {
  */
 export const NAV = [
   { to: '/', label: 'Command', icon: Gauge, end: true, key: 'g d' },
-  { to: '/activities', label: 'Log', icon: ListChecks, key: 'g a' },
+  { to: '/activities', label: 'Records', icon: ListChecks, key: 'g a' },
   { to: '/readiness', label: 'Readiness', icon: Activity, key: 'g j' },
   { to: '/team', label: 'Team', icon: Users, key: 'g t', requiresLead: true },
   { to: '/work', label: 'Work', icon: Briefcase, key: 'g w' },

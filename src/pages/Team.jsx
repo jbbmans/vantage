@@ -2,14 +2,15 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { UserPlus, Users, Shield, ChevronRight, Search } from 'lucide-react';
 import * as apiClient from '@/lib/api';
-import { useIdentity, useOrg, unitOptions, unitPath, displayName } from '@/store/useStore';
+import { useOrg, useIdentity, unitOptions, unitPath, displayName } from '@/store/useStore';
 import { useToast } from '@/components/ui/toast';
 import { Dialog } from '@/components/ui/Dialog';
 import {
-  Panel, PageHeader, EmptyState, Button, Input, Select, Field, Badge, Tooltip,
+  Panel, EmptyState, Button, Input, Select, Field, Badge, Tooltip,
 } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
 import { errorText } from '@/lib/api';
+import { draftKey } from '@/lib/drafts';
 
 /**
  * The roster.
@@ -19,14 +20,15 @@ import { errorText } from '@/lib/api';
  * client-side permission check is a suggestion, not a control.
  */
 export default function Team() {
-  const identity = useIdentity();
   const org = useOrg();
+  const identity = useIdentity();
   const toast = useToast();
 
   const [state, setState] = useState({ roster: [], canLead: false, scopeUnitIds: [] });
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false);
+  const [enrolling, setEnrolling] = useState(false);
   const [editing, setEditing] = useState(null);
   const [memberErrors, setMemberErrors] = useState({});
 
@@ -45,9 +47,11 @@ export default function Team() {
 
   const units = useMemo(() => unitOptions(org.units), [org.units]);
   const scopedUnits = useMemo(
-    () => (identity?.user?.is_admin ? units : units.filter((u) => state.scopeUnitIds.includes(u.id))),
-    [units, state.scopeUnitIds, identity]
+    () => units.filter((u) => (state.canManageMembers || []).includes(u.id)),
+    [units, state.canManageMembers]
   );
+  const canManageAny = (state.canManageMembers || []).length > 0;
+  const memberDraftKey = draftKey(identity?.user?.id, 'member');
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -84,11 +88,14 @@ export default function Team() {
   }
 
   return (
-    <div className="mx-auto max-w-[1200px] space-y-3">
-      <PageHeader
-        title="Team"
-        subtitle={`${state.roster.length} ${state.roster.length === 1 ? 'Marine' : 'Marines'} in your chain`}
-      >
+    <div className="page-canvas team-page">
+      <div className="flex flex-wrap items-end justify-between gap-5 border-b border-rule pb-5">
+        <div>
+          <p className="eyebrow">Authorized people directory</p>
+          <h2 className="mt-2 text-3xl font-medium tracking-tight text-text sm:text-4xl">People &amp; access</h2>
+          <p className="mt-1.5 text-base text-text-3">{state.roster.length} {state.roster.length === 1 ? 'person' : 'people'} across {grouped.length} visible {grouped.length === 1 ? 'unit' : 'units'}.</p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
         <div className="relative">
           <Search className="pointer-events-none absolute left-2 top-1/2 h-3 w-3 -translate-y-1/2 text-text-3" />
           <Input
@@ -98,27 +105,34 @@ export default function Team() {
             className="w-52 pl-7"
           />
         </div>
-        {state.canLead && (
+        {canManageAny && state.canCreateAccounts && (
           <Button variant="primary" size="sm" onClick={() => setAdding(true)}>
             <UserPlus className="h-3.5 w-3.5" />
             Add Marine
           </Button>
         )}
-      </PageHeader>
+        {canManageAny && (
+          <Button variant={state.canCreateAccounts ? 'default' : 'primary'} size="sm" onClick={() => setEnrolling(true)}>
+            <Users className="h-3.5 w-3.5" />
+            Enroll existing
+          </Button>
+        )}
+        </div>
+      </div>
 
       {loading ? (
-        <Panel><p className="py-4 text-sm text-text-3">Loading roster…</p></Panel>
+        <p className="py-12 text-center text-sm text-text-3">Loading roster…</p>
       ) : (
-        grouped.map(([unitId, group]) => (
-          <Panel
-            key={unitId}
-            title={group.unit}
-            subtitle={unitPath(unitId).slice(0, -1).map((u) => u.short_name || u.name).join(' › ') || undefined}
-            action={<Badge tone="neutral">{group.people.length}</Badge>}
-            bodyClassName="p-0"
-          >
-            {group.people.map((p) => (
-              <div key={p.id} className="row flex items-center gap-3 px-3 py-2">
+        <div>
+          {grouped.map(([unitId, group]) => (
+            <section key={unitId} className="grid gap-4 border-b border-rule py-6 lg:grid-cols-[230px_minmax(0,1fr)]">
+              <div>
+                <div className="flex items-center gap-2"><h3 className="text-lg font-semibold text-text">{group.unit}</h3><Badge tone="neutral">{group.people.length}</Badge></div>
+                <p className="mt-1 text-xs leading-relaxed text-text-3">{unitPath(unitId).slice(0, -1).map((unit) => unit.short_name || unit.name).join(' › ') || 'Independent unit'}</p>
+              </div>
+              <div className="rounded-md border border-rule bg-panel">
+                {group.people.map((p) => (
+                  <div key={p.id} className="row flex items-center gap-3 px-3 py-3">
                 <Link to={`/team/${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
                   <span className="fig w-14 shrink-0 text-xs text-signal">{p.rank_abbr || '—'}</span>
                   <span className="min-w-0 flex-1">
@@ -140,18 +154,18 @@ export default function Team() {
                     {r.name}
                   </span>
                 ))}
-                {p.is_admin ? <Badge tone="neutral" className="hidden shrink-0 md:inline-flex">admin</Badge> : null}
-
-                {state.canLead && (
+                {(state.canManageMembers || []).includes(p.unit_id) && (
                   <Button variant="ghost" size="sm" onClick={() => setEditing(p)}>
                     Reassign
                   </Button>
                 )}
                 <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-3" />
+                  </div>
+                ))}
               </div>
-            ))}
-          </Panel>
-        ))
+            </section>
+          ))}
+        </div>
       )}
 
       {adding && (
@@ -161,21 +175,30 @@ export default function Team() {
           billets={org.billets}
           ranks={org.ranks}
           roles={org.roles || []}
+          draftStorageKey={memberDraftKey}
           fieldErrors={memberErrors}
-          onCancel={() => { setAdding(false); setMemberErrors({}); try { sessionStorage.removeItem('vantage.draft.member'); } catch { /* fine */ } }}
+          onCancel={() => { setAdding(false); setMemberErrors({}); try { sessionStorage.removeItem(memberDraftKey); } catch { /* fine */ } }}
           onSave={async (draft) => {
             try {
               await apiClient.addMember(draft);
               toast.success(`${draft.last_name} added.`);
               setAdding(false);
               setMemberErrors({});
-              try { sessionStorage.removeItem('vantage.draft.member'); } catch { /* fine */ }
+              try { sessionStorage.removeItem(memberDraftKey); } catch { /* fine */ }
               load();
             } catch (err) {
               setMemberErrors(err.fieldErrors || {});
               toast.error(errorText(err));
             }
           }}
+        />
+      )}
+
+      {enrolling && (
+        <EnrollExistingDialog
+          units={scopedUnits}
+          onCancel={() => setEnrolling(false)}
+          onDone={() => { setEnrolling(false); load(); }}
         />
       )}
 
@@ -211,8 +234,100 @@ export default function Team() {
   );
 }
 
+function EnrollExistingDialog({ units, onCancel, onDone }) {
+  const toast = useToast();
+  const [unitId, setUnitId] = useState(units[0]?.id || '');
+  const [query, setQuery] = useState('');
+  const [results, setResults] = useState([]);
+  const [kind, setKind] = useState('member');
+  const [expiry, setExpiry] = useState(() => new Date(Date.now() + 7 * 86_400_000).toISOString().slice(0, 10));
+  const [busy, setBusy] = useState(false);
+
+  const search = async () => {
+    if (query.trim().length < 2 || !unitId) return;
+    setBusy(true);
+    try {
+      const data = await apiClient.searchDirectory(unitId, query.trim());
+      setResults(data.results || []);
+    } catch (err) { toast.error(errorText(err)); }
+    finally { setBusy(false); }
+  };
+
+  const enroll = async (person) => {
+    setBusy(true);
+    try {
+      await apiClient.enrollExistingMember(unitId, {
+        user_id: person.id,
+        kind,
+        expires_at: kind === 'guest' ? `${expiry}T23:59:59.000Z` : null,
+      });
+      toast.success(`${person.rank_abbr || ''} ${person.last_name} enrolled.`.trim());
+      onDone();
+    } catch (err) { toast.error(errorText(err)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <Dialog
+      open
+      onOpenChange={(open) => !open && onCancel()}
+      title="Enroll an existing account"
+      description="Search is prefix-only and audited. Account creation remains an Instance Operator action."
+      footer={<Button variant="ghost" size="sm" onClick={onCancel}>Cancel</Button>}
+    >
+      <div className="space-y-3">
+        <Field label="Destination unit">
+          <Select
+            value={unitId}
+            onValueChange={(value) => { setUnitId(value); setResults([]); }}
+            options={units.map((u) => ({ value: u.id, label: `${'  '.repeat(u.depth || 0)}${u.short_name || u.name}` }))}
+          />
+        </Field>
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+          <Field label="Membership">
+            <Select
+              value={kind}
+              onValueChange={setKind}
+              options={[{ value: 'member', label: 'Member' }, { value: 'guest', label: 'Temporary guest' }]}
+            />
+          </Field>
+          {kind === 'guest' && (
+            <Field label="Guest expiry" hint="Maximum 30 days by default">
+              <Input type="date" value={expiry} onChange={(e) => setExpiry(e.target.value)} />
+            </Field>
+          )}
+        </div>
+        <div className="flex gap-2">
+          <Input
+            value={query}
+            onChange={(e) => setQuery(e.target.value)}
+            onKeyDown={(e) => { if (e.key === 'Enter') search(); }}
+            placeholder="Username or last-name prefix"
+            autoComplete="off"
+          />
+          <Button size="sm" onClick={search} disabled={busy || query.trim().length < 2}>Search</Button>
+        </div>
+        <div className="divide-y divide-rule rounded border border-rule">
+          {results.map((person) => (
+            <div key={person.id} className="flex items-center gap-3 px-3 py-2">
+              <div className="min-w-0 flex-1">
+                <p className="truncate text-sm text-text">{person.rank_abbr || '—'} {person.last_name}, {person.first_name}</p>
+                <p className="fig truncate text-2xs text-text-3">{person.username}</p>
+              </div>
+              <Button variant="ghost" size="sm" disabled={busy} onClick={() => enroll(person)}>Enroll</Button>
+            </div>
+          ))}
+          {!busy && query.trim().length >= 2 && results.length === 0 && (
+            <p className="px-3 py-3 text-sm text-text-3">No eligible account found. The Instance Operator may need to create it first.</p>
+          )}
+        </div>
+      </div>
+    </Dialog>
+  );
+}
+
 /** Shared create/reassign form. Billet choice pre-selects the role it implies. */
-function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, assignmentOnly, fieldErrors = {}, onCancel, onSave }) {
+function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, assignmentOnly, draftStorageKey, fieldErrors = {}, onCancel, onSave }) {
   const [draft, setDraft] = useState({
     username: '', password: '', first_name: '', last_name: '', middle_initial: '',
     rank_id: '', mos: '', email: '', eas: '',
@@ -221,7 +336,7 @@ function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, 
   // Finding 35: a half-filled member form survives a dropped connection or an
   // accidental Escape. Mirrors to sessionStorage while creating; an explicit
   // Cancel or a successful save clears it (the parent owns the clearing).
-  const MEMBER_DRAFT = 'vantage.draft.member';
+  const MEMBER_DRAFT = draftStorageKey || draftKey('unknown', 'member');
   const [restored, setRestored] = useState(false);
   useEffect(() => {
     if (assignmentOnly || initial.id) return;
@@ -296,7 +411,7 @@ function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, 
             </div>
             <div className="grid grid-cols-2 gap-3">
               <Field error={fieldErrors.username} label="Username"><Input value={draft.username} onChange={set('username')} autoComplete="off" /></Field>
-              <Field error={fieldErrors.password} label="Temporary password" hint="10 characters minimum">
+              <Field error={fieldErrors.password} label="Temporary password" hint="15 characters minimum">
                 <Input type="password" value={draft.password} onChange={set('password')} autoComplete="new-password" />
               </Field>
             </div>
@@ -340,7 +455,7 @@ function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, 
               { value: '', label: 'Marine only' },
               ...roles
                 .filter((r) => r.id !== 'marine')
-                .map((r) => ({ value: r.id, label: `${r.name}${r.inherits_down ? ' — cascades down' : ''}` })),
+                .map((r) => ({ value: r.id, label: r.name })),
             ]}
           />
         </Field>

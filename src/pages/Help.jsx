@@ -29,7 +29,7 @@ const SOP = [
     body: [
       `Sign in with the account your section lead created. Set your rank, MOS and readiness figures under Readiness — the advisor can only coach what it can see.`,
       `Log your first entry: press N anywhere, or the Log activity button. Write it the way you'd say it: "Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday." The parser pulls the date, quantity, dollar figure and system out of the sentence; check what it inferred, tag the evaluation area, and save.`,
-      `Then stop. That's the whole daily habit — thirty seconds when something happens, not a Sunday-night reconstruction. The streak counter on the Command Center exists because the habit is the product.`,
+      `Then stop. That's the whole daily habit — thirty seconds when something happens, not a Sunday-night reconstruction. Vantage tracks coverage and record quality without streaks, leaderboards, or gamified scoring.`,
     ],
   },
   {
@@ -39,18 +39,18 @@ const SOP = [
       `A defensible entry has four things: a date, a quantity, a dollar figure where one exists, and a stated outcome. The strength pips next to every entry score exactly those four. "Worked on ULOs" is a diary line; "Corrected 30 ULOs valued at $1,118.38 in DAI; cleared the section's aged backlog" is evidence.`,
       `The outcome field is the one Marines skip and the one that matters most. An entry without a result is a task you did, not an accomplishment — and it's the first thing cut from a package. Ask yourself "so what?" and write the answer down while you still know it.`,
       `Dollar figures carry a type: reconciled, obligated, recovered, reviewed, impact. Reviewed dollars are tracked but excluded from headline totals, because "I reviewed $40M" and "I moved $40M" are different claims and a board can tell. The Needs strengthening panel on the Command Center queues entries that won't hold up yet — fix them the week you log them, not the week the package is due.`,
-      `Evidence links attach the artifact — the report, the email, the tracker — so a claim is one click from its proof.`,
+      `Supporting material is optional. Attach a file or reference link when it will genuinely help later, but Vantage never treats an attachment as a requirement for a complete activity record.`,
     ],
   },
   {
     id: 'visibility',
     title: '4. Visibility: who sees what',
     body: [
-      `Every record carries one of three visibilities, and the server enforces them on every read — the interface never decides access, it only reflects it.`,
-      `PRIVATE — only you. Not your team lead, not the section head, not an administrator. Private means private; there is no override, and the tests try.`,
-      `MY CHAIN OF COMMAND — the default for logged work. Anyone holding a records-viewing role over your unit sees it. This is how your work rolls up into an evaluation input without you doing anything.`,
-      `EVERYONE IN MY UNIT — everyone assigned to that exact unit, and no one else. A leader above the unit does not see a unit-visibility record through rank; chain is the visibility that travels up and down the command tree. For shared context inside the unit, not upward reporting.`,
-      `Leaders posting downward is the same field in reverse: a task or goal posted to a unit with chain visibility reaches that unit and everything beneath it. Posting to a unit you don't belong to requires a role that grants it.`,
+      `Every record carries one of three stored visibilities, and the server enforces them on every read — the interface never decides access, it only reflects it. The org chart is descriptive and never expands access.`,
+      `PERSONAL — only you. Not your team lead, not the Unit Owner, and not the Instance Operator through the application. Personal means personal; it has no unit attached and is excluded from unit exports.`,
+      `PRIVATE — only you, but filed under a specific unit so it retains organizational context. It is still excluded from unit-shared reads and exports.`,
+      `UNIT — shared only with current members of the exact unit attached to the record. A parent command, sibling unit, rank, billet, or role in some other unit grants nothing. Opening the author's full member page is a separate permission.`,
+      `Leaders post tasks and goals to one exact unit. Sending information to a higher headquarters or another command requires an explicit, audited share-package workflow; hierarchy alone never publishes it.`,
       `Every time someone opens a record that isn't theirs, an audit row is written — who, what, when. You can see every read of your own record under Settings. A system that lets leaders read personnel data without a trace shouldn't hold personnel data.`,
     ],
   },
@@ -58,8 +58,8 @@ const SOP = [
     id: 'tracks',
     title: '5. Evaluation tracks: JEPES vs FITREP',
     body: [
-      `Rank decides your evaluation system, and Vantage follows it. Private through Corporal are on JEPES (MCO 1616.1); the official score is computed on MOL — Vantage organizes the evidence behind it. Sergeants and above — SNCOs, warrants, officers — are on fitness reports (MCO 1610.7B). The tool reads your rank and shows you the right one: area tags, the Readiness page, and the narrative on Reports all switch.`,
-      `The distinction matters because the games are different. JEPES is a composite you grind: four pillars, monthly recalculation, a cutting score to beat, and three quarters of it entirely in your own hands. A FITREP is a document somebody else writes: fourteen attributes marked by your Reporting Senior against every Marine they've ever reported on. There's no score to grind — only the quality of the evidence in front of the RS when the pen comes out.`,
+      `Rank decides your evaluation system, and Vantage follows it. Private through Corporal are on JEPES (MCO 1616.1); the official score is computed on MOL — Vantage organizes the activity record behind it. Sergeants and above — SNCOs, warrants, officers — are on fitness reports (MCO 1610.7B). The tool reads your rank and shows you the right one: area tags, the Readiness page, and the narrative on Reports all switch.`,
+      `The distinction matters because the systems are different. JEPES is a composite with four pillars, monthly recalculation, and a cutting score. A FITREP is a document somebody else writes: fourteen attributes marked by your Reporting Senior against every Marine they've ever reported on. Vantage keeps the record organized without turning either process into a game.`,
       `A leader viewing a Marine's record sees that Marine's track, not their own. A Corporal team lead looking at a Sergeant sees FITREP framing, because that's what the Sergeant needs.`,
     ],
   },
@@ -78,7 +78,7 @@ const SOP = [
     title: '7. FITREPs (Sgt and above)',
     body: [
       `Your Reporting Senior marks fourteen attributes across five sections — D Mission Accomplishment, E Individual Character, F Leadership, G Intellect and Wisdom, H Evaluation Responsibilities — and a Reviewing Officer reviews. The mark that matters is relative: where you land against every Marine that RS has ever written on.`,
-      `Your leverage is the input. An RS drafting from memory writes a regressed-to-the-middle report; an RS drafting from your quantified package writes the year that actually happened. The Readiness page tracks your reporting period, maps your logged entries against all fourteen attributes, and flags the ones with no obvious evidence — mentoring and welfare checks are the classic work Marines do and never write down.`,
+      `Your leverage is the input. An RS drafting from memory writes a regressed-to-the-middle report; an RS drafting from your quantified package writes the year that actually happened. The Readiness page tracks your reporting period, maps logged entries against all fourteen attributes, and highlights areas with too few examples — mentoring and welfare checks are classic work Marines do and never write down.`,
       `Reports builds the FITREP input itself: your period's record grouped by section, strongest material first. Print it, book fifteen minutes with your RS before drafting starts, and hand it over. That meeting is the highest-leverage thing on this page.`,
       `PME for grade sits in Section G as its own attribute and gates promotion regardless of how good the year was. Fitness scores ride on the report's front page even though they're not point-scored the JEPES way.`,
     ],
@@ -87,8 +87,8 @@ const SOP = [
     id: 'roles',
     title: '8. Roles and permissions',
     body: [
-      `Access comes from roles, not rank. A role is a named bundle of permissions, granted in a unit, and a Marine can hold several — they get the union. The CASCADES flag on a role decides whether it reaches the units beneath where it's granted: that one switch is the entire difference between a fire team leader and a section head.`,
-      `Ships with Marine (everyone, automatically), Fire Team Leader, Training NCO, NCOIC, Section Head, and Administrator. Build your own on the Roles page for anything else — a role that sees PME across the section but opens nobody's record is two checkboxes.`,
+      `Access comes from roles, not rank or billet. A role is a named bundle of permissions granted in one unit, and a Marine can hold several — they get the union inside that unit only. Roles never cascade through the org tree.`,
+      `Each unit starts from a small role template and can build its own roles on the Roles page. An Administrator role means every permission inside that exact unit; it is not an instance-wide account.`,
       `Two rules keep the system honest, both enforced server-side: you cannot create, edit, delete or grant a role at or above your own position, and you cannot grant a permission you don't hold. Without them, anyone who manages roles promotes themselves to administrator.`,
       `Seeing someone on a roster and opening their record are separate permissions on purpose. Every open of someone else's record is logged, and they can see the log.`,
     ],
@@ -105,9 +105,9 @@ const SOP = [
     id: 'team',
     title: '10. Team management',
     body: [
-      `The Team page shows every Marine your roles reach, grouped by unit. Opening a Marine shows their record at the depth your permissions allow: entries they've shared, their evaluation input ready to paste, what needs strengthening before the package is due, and their recognition and training history.`,
+      `The Team page shows Marines in units where your roles grant roster visibility, grouped by unit. Opening a Marine additionally requires Open member records in a unit you both belong to, and shows only records shared to that exact unit.`,
       `Add Marines from the Team page (needs Manage members in the target unit). Everyone starts with the Marine role; grant more from the same dialog or the Roles page. Reassigning moves unit and billet; billets are labels for the org chart, roles are what actually grant access.`,
-      `Leaders can post tasks and goals to a unit — with chain visibility they reach every Marine beneath it. That's the tasking loop: section head posts "Submit Q4 inputs by 15 Sep," every fire team sees it, and each Marine's log already holds the material.`,
+      `A unit leader may add, reassign, or remove membership only in units they manage. Password resets, activation, and account-wide session control belong to the Instance Operator because one account may serve in multiple units.`,
     ],
   },
   {
@@ -118,7 +118,7 @@ const SOP = [
       `EVALUATION INPUT — a JEPES input (hard 1000-character ceiling) or FITREP input depending on your track. Composes to a budget: headline figures per area first, then supporting detail round-robin so one busy area can't starve the rest. Anything that didn't fit is counted, never silently dropped.`,
       `BULLETS — one bullet per entry plus a rolled-up bullet per area, in three genuinely different styles. JEPES names the org and system for a board reading a hundred packages. FITREP compresses, dropping what the report header already carries. Résumé writes for a civilian reader: acronyms expanded on first use, outcomes promoted into the sentence.`,
       `CHANGE REPORT — this period against the equivalent one before it, fiscal quarter against fiscal quarter. Every figure carries its prior value and the movement, because 1,247 ULOs is either excellent or a collapse depending on last quarter.`,
-      `Print any view. The stylesheet strips the app chrome, adds a masthead with the reporting window, and keeps rows from splitting across pages. Leaders can switch scope from Me to My chain to report on everything their roles reach.`,
+      `Print any view. The stylesheet strips the app chrome, adds a masthead with the reporting window, and keeps rows from splitting across pages. Unit reporting includes only records the viewer is authorized to read in the selected exact unit.`,
     ],
   },
   {
@@ -134,8 +134,8 @@ const SOP = [
     id: 'data',
     title: '13. Data: import, export, deletion',
     body: [
-      `IMPORT — Settings takes CSV or XLSX, lets you map columns, and screens every row against what's already stored. Importing the same tracker twice does not double your fiscal year: exact collisions (same date, same money, same essential words) are skipped and counted.`,
-      `EXPORT — a full workbook of everything you can see, from Settings or Reports. Unit-wide export needs the Export data permission.`,
+      `IMPORT — Settings takes CSV or TSV, lets you map columns, and screens every row against what's already stored. Importing the same tracker twice does not double your fiscal year: exact collisions (same date, same money, same essential words) are skipped and counted.`,
+      `EXPORT — one labeled CSV of everything you can see, from Settings or Reports. Unit-wide export needs the Export data permission. Cells that could execute as spreadsheet formulas are neutralized.`,
       `DELETION — soft, always. A deleted record leaves the rollups immediately but is retained server-side, and every delete has an Undo in the moment. A performance record that vanishes without trace is the failure mode that gets a system thrown out of a shop; ask an administrator if something must be removed for real.`,
     ],
   },
@@ -143,7 +143,7 @@ const SOP = [
     id: 'security',
     title: '14. Security posture',
     body: [
-      `One process, one SQLite file, no third-party services in the data path, no telemetry. Sessions are opaque server-side tokens — revocable the moment a Marine transfers — with scrypt-hashed passwords and a ten-attempt-per-quarter-hour throttle on sign-in. Production turns on strict transport security, a content-security policy that stops the app talking to any other origin, and secure same-site cookies.`,
+      `One process, one SQLite file, and no application telemetry. The hosting provider remains part of the infrastructure trust boundary. Sessions are opaque, revocable server-side tokens whose one-way digests — not live credentials — are stored in SQLite. Local passwords require at least 15 characters and use scrypt, with a ten-attempt-per-quarter-hour throttle on sign-in. Production turns on strict transport security, a content-security policy that stops the app talking to any other origin, and secure same-site cookies.`,
       `Private records are private from everyone including administrators. Reads of anyone else's record are audited, and the subject can see the audit. These aren't settings; they're how the server is built, and the test suite spends most of its effort trying to break them.`,
       `Before real Marines' records go into a publicly hosted instance, involve your ISSM. Personnel and performance data on commercial infrastructure is a command decision, not a developer one. The tool is built so the answer can be yes; it doesn't make the answer yes.`,
     ],
@@ -165,7 +165,7 @@ const SOP = [
       `"Who's been reading my record?" Settings → Who has viewed your record. Every open by anyone else is there.`,
       `"The advisor's number doesn't match MOL." It won't exactly — it estimates so you can rank your own levers. MOL is authoritative and the page says so.`,
       `"I imported twice." You didn't double anything — duplicates are screened on the way in and the import told you how many it skipped. Already-doubled history shows up under review with the inflated dollar figure per cluster.`,
-      `"I deleted the wrong thing." Undo on the toast in the moment; afterwards, it's soft-deleted server-side — an administrator can restore it.`,
+      `"I deleted the wrong thing." Undo on the toast in the moment; afterwards, it stays soft-deleted server-side. A Unit Owner or role holding Manage records in that exact unit can restore a shared record.`,
     ],
   },
 ];

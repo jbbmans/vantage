@@ -7,6 +7,7 @@ import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { Panel, PageHeader, EmptyState, Button, Input, Field, Select, Badge, Textarea, Tooltip } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
 import { errorText } from '@/lib/api';
+import { draftKey } from '@/lib/drafts';
 
 const SWATCHES = ['#8D98A8', '#3DD68C', '#F0A93B', '#4C9DFF', '#A78BFA', '#FB7185', '#22D3EE', '#FACC15'];
 
@@ -49,6 +50,7 @@ export default function Roles() {
   }, [state.catalogue]);
 
   const canCreate = state.topPosition > 0;
+  const roleDraftKey = draftKey(identity?.user?.id, 'role');
 
   return (
     <div className="mx-auto max-w-4xl space-y-3">
@@ -156,7 +158,8 @@ export default function Roles() {
           units={unitOptions(org.units)}
           identity={identity}
           fieldErrors={roleErrors}
-          onCancel={() => { setEditing(null); setRoleErrors({}); try { sessionStorage.removeItem('vantage.draft.role'); } catch { /* fine */ } }}
+          draftStorageKey={roleDraftKey}
+          onCancel={() => { setEditing(null); setRoleErrors({}); try { sessionStorage.removeItem(roleDraftKey); } catch { /* fine */ } }}
           onSave={async (draft) => {
             try {
               if (draft.isNew) await apiClient.createRole(draft);
@@ -164,7 +167,7 @@ export default function Roles() {
               toast.success(draft.isNew ? 'Role created.' : 'Role updated.');
               setEditing(null);
               setRoleErrors({});
-              try { sessionStorage.removeItem('vantage.draft.role'); } catch { /* fine */ }
+              try { sessionStorage.removeItem(roleDraftKey); } catch { /* fine */ }
               await load();
               await hydrate();
             } catch (err) {
@@ -199,13 +202,13 @@ const unitLabel = (unitId, units = []) => {
   return u ? (u.short_name || u.name || u.id) : (unitId || 'this unit');
 };
 
-function RoleDialog({ role, groups, topPosition, positions = {}, units, identity, fieldErrors = {}, onCancel, onSave }) {
+function RoleDialog({ role, groups, topPosition, positions = {}, units, identity, draftStorageKey, fieldErrors = {}, onCancel, onSave }) {
   const [draft, setDraft] = useState({
     name: '', description: '', color: SWATCHES[0], position: 1,
     permissions: 1, unit_id: null, ...role,
   });
   // Finding 35: an in-progress role definition survives an accidental close.
-  const ROLE_DRAFT = 'vantage.draft.role';
+  const ROLE_DRAFT = draftStorageKey || draftKey('unknown', 'role');
   useEffect(() => {
     if (!role?.isNew) return;
     try {

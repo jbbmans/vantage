@@ -7,6 +7,7 @@ services:
   - type: web
     name: vantage
     runtime: docker
+    region: ohio
     dockerfilePath: ./Dockerfile
     plan: starter
     healthCheckPath: /api/health
@@ -20,6 +21,18 @@ services:
         value: 8080
       - key: VANTAGE_DB
         value: /data/vantage.db
+      - key: VANTAGE_DATA_MODE
+        value: evaluation
+      - key: VANTAGE_SETUP_TOKEN
+        generateValue: true
+      # Set this to the bootstrap username in the Render dashboard. It is not a
+      # global role; it names the infrastructure recovery operator explicitly.
+      - key: VANTAGE_OPERATOR
+        sync: false
+      # Preferred after first setup: copy the bootstrap account UUID from
+      # /api/me, set it here, and remove the username fallback.
+      - key: VANTAGE_OPERATOR_ID
+        sync: false
     disk:
       name: vantage-data
       mountPath: /data

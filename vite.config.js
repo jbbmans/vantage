@@ -11,7 +11,10 @@ export default defineConfig({
     alias: { '@': fileURLToPath(new URL('./src', import.meta.url)) },
   },
   server: {
-    proxy: { '/api': { target: 'http://localhost:8787', changeOrigin: true } },
+    allowedHosts: ['terminal.local'],
+    proxy: {
+      '/api': { target: 'http://localhost:8787', changeOrigin: true },
+    },
   },
   build: {
     outDir: 'dist',
@@ -20,7 +23,6 @@ export default defineConfig({
       output: {
         manualChunks: {
           charts: ['recharts'],
-          sheets: ['xlsx'],
         },
       },
     },

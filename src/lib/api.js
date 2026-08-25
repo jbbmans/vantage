@@ -11,14 +11,13 @@
  * the token: the server's cookie — a true session cookie — is the credential,
  * so closing the browser on a shared duty computer ends the sign-in, and the
  * server's inactivity/absolute deadlines bound it even when the browser stays
- * open. The token returned by /api/login is kept in memory only, for the life
- * of this page, purely so in-flight code paths keep working.
+ * open. Production login never returns the credential to JavaScript.
  *
  * Every request carries the `x-vantage-client` header: cookie-authenticated
  * writes are refused without it (CSRF defense in depth on the server).
  */
 
-let token = null;
+import { clearSensitiveDrafts } from './drafts';
 
 /**
  * unknown → this page hasn't asked the server yet (a cookie may exist);
@@ -37,17 +36,13 @@ let sessionState = (() => {
   catch { return 'unknown'; }
 })();
 
-export function getToken() {
-  return token;
+function markSignedOut() {
+  sessionState = 'none';
+  clearSensitiveDrafts();
+  try { document.cookie = 'vantage_signed_in=; Max-Age=0; path=/'; } catch { /* non-browser */ }
 }
 
-export function setToken(value) {
-  token = value;
-  if (!value) {
-    sessionState = 'none';
-    try { document.cookie = 'vantage_signed_in=; Max-Age=0; path=/'; } catch { /* non-browser */ }
-  }
-}
+if (sessionState === 'none') clearSensitiveDrafts();
 
 /** False only after the server has actually said 401 (or after sign-out). */
 export function hasSession() {
@@ -82,7 +77,6 @@ async function request(method, path, body) {
       headers: {
         'content-type': 'application/json',
         'x-vantage-client': '1',
-        ...(token ? { authorization: `Bearer ${token}` } : {}),
       },
       body: body === undefined ? undefined : JSON.stringify(body),
     });
@@ -91,11 +85,14 @@ async function request(method, path, body) {
   }
 
   if (res.status === 401) {
-    setToken(null);
+    markSignedOut();
     window.dispatchEvent(new CustomEvent('vantage:signed-out'));
     throw new ApiError('Your session has expired. Sign in again.', 401);
   }
-  sessionState = 'active';
+  // Health/setup/config and registration are intentionally public. A 200 from
+  // one of them must not make the client believe it owns an authenticated
+  // session merely because the server answered.
+  if (!new Set(['/setup', '/health', '/config', '/register']).has(path)) sessionState = 'active';
 
   const text = await res.text();
   let payload = null;
@@ -117,17 +114,27 @@ export const api = {
 
 export const needsSetup = () => api.get('/setup');
 export const health = () => api.get('/health');
+export const configuration = () => api.get('/config');
 export const runSetup = (payload) => api.post('/setup', payload);
+export const registerAccount = (payload) => api.post('/register', payload);
+export const cacPivLogin = () => api.post('/auth/cac-piv');
 
 export async function login(username, password) {
   const res = await api.post('/login', { username, password });
-  setToken(res.token);
+  sessionState = 'active';
   return res;
 }
 
 export async function logout() {
-  try { await api.post('/logout'); } catch { /* already gone */ }
-  setToken(null);
+  try {
+    await api.post('/logout');
+  } catch (err) {
+    // A confirmed 401 means there is no live server session. Network and 5xx
+    // failures are not proof of logout because JavaScript cannot clear the
+    // HttpOnly credential.
+    if (err?.status !== 401) throw err;
+  }
+  markSignedOut();
 }
 
 export const me = () => api.get('/me');
@@ -136,11 +143,17 @@ export const org = () => api.get('/org');
 /* ── team ─────────────────────────────────────────────────────────── */
 
 export const team = () => api.get('/team');
+export const searchDirectory = (unitId, query) =>
+  api.get(`/directory?unit_id=${encodeURIComponent(unitId)}&q=${encodeURIComponent(query)}`);
+export const enrollExistingMember = (unitId, payload) =>
+  api.post(`/org/units/${encodeURIComponent(unitId)}/members`, payload);
 export const member = async (id) => {
   const data = await api.get(`/team/${id}`);
   return { ...data, activities: (data.activities || []).map(toClient) };
 };
 export const addMember = (payload) => api.post('/team', payload);
+export const removeUnitMember = (unitId, userId) =>
+  api.del(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}`);
 export const reassign = (id, payload) => api.put(`/team/${id}/assignment`, payload);
 export const myAudit = () => api.get('/audit');
 export const unitAudit = (unitId) => api.get(`/audit/unit?unit_id=${encodeURIComponent(unitId)}`);
@@ -159,6 +172,10 @@ export const resetMemberPassword = (id, password) => api.post(`/team/${id}/passw
 export const forceLogoutMember = (id) => api.post(`/team/${id}/logout`);
 export const accessReview = (id) => api.get(`/team/${id}/access`);
 export const adminDb = () => api.get('/admin/db');
+export const adminExperience = (days = 30) => api.get(`/admin/experience?days=${encodeURIComponent(days)}`);
+
+/** Fire-and-forget aggregate signal. The server accepts only a fixed event list. */
+export const trackExperience = (event) => api.post('/experience', { event }).catch(() => null);
 
 /* ── roles ────────────────────────────────────────────────────────── */
 
@@ -175,6 +192,7 @@ export const revokeRole = (userId, roleId, unitId) =>
 export const createUnit = (payload) => api.post('/org/units', payload);
 export const updateUnit = (id, payload) => api.put(`/org/units/${id}`, payload);
 export const archiveUnit = (id) => api.del(`/org/units/${id}`);
+export const transferUnitOwnership = (id, userId) => api.post(`/org/units/${id}/owner`, { user_id: userId });
 
 /* ── readiness ────────────────────────────────────────────────────── */
 
@@ -212,3 +230,43 @@ export const update = async (store, id, patch) => toClient(await api.put(`/${sto
 export const remove = (store, id) => api.del(`/${store}/${id}`);
 export const restore = async (store, id) => toClient(await api.post(`/${store}/${id}/restore`));
 export const bulkCreate = (store, rows) => api.post(`/${store}/bulk`, { rows: rows.map(toServer) });
+
+/* ── optional supporting files ───────────────────────────────────── */
+
+export const activityAttachments = (activityId) =>
+  api.get(`/activities/${encodeURIComponent(activityId)}/attachments`);
+
+export async function uploadActivityAttachment(activityId, file) {
+  let res;
+  try {
+    res = await fetch(`/api/activities/${encodeURIComponent(activityId)}/attachments`, {
+      method: 'POST',
+      credentials: 'same-origin',
+      headers: {
+        'content-type': file.type || 'application/octet-stream',
+        'x-vantage-client': '1',
+        'x-vantage-filename': encodeURIComponent(file.name),
+      },
+      body: file,
+    });
+  } catch {
+    throw new ApiError('Cannot reach the Vantage server.', 0);
+  }
+  if (res.status === 401) {
+    markSignedOut();
+    window.dispatchEvent(new CustomEvent('vantage:signed-out'));
+    throw new ApiError('Your session has expired. Sign in again.', 401);
+  }
+  sessionState = 'active';
+  const text = await res.text();
+  let payload = null;
+  try { payload = text ? JSON.parse(text) : null; } catch { /* handled below */ }
+  if (!res.ok) throw new ApiError(payload?.error || `Upload failed (${res.status}).`, res.status, payload || {});
+  return payload;
+}
+
+export const deleteActivityAttachment = (activityId, attachmentId) =>
+  api.del(`/activities/${encodeURIComponent(activityId)}/attachments/${encodeURIComponent(attachmentId)}`);
+
+export const activityAttachmentUrl = (activityId, attachmentId) =>
+  `/api/activities/${encodeURIComponent(activityId)}/attachments/${encodeURIComponent(attachmentId)}`;

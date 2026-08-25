@@ -13,12 +13,13 @@
  * same Definition of Done forbids. See tests/fixtures/README.md.
  */
 
-import { describe, it, expect, beforeAll, afterAll } from 'vitest';
+import { describe, it, before as beforeAll, after as afterAll } from 'node:test';
 import { copyFileSync, rmSync, mkdtempSync } from 'node:fs';
 import { readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
+import { expect } from './support/expect.mjs';
 
 const HERE = dirname(fileURLToPath(import.meta.url));
 const FIXTURE = join(HERE, 'fixtures', 'v3_3_0.db');
@@ -62,8 +63,8 @@ describe('the fixture is a real v3.3.0 database', () => {
 });
 
 describe('migration 006 — tenancy', () => {
-  it('reaches schema version 7', () => {
-    expect(Number(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value)).toBe(7);
+  it('reaches the current schema version 12', () => {
+    expect(Number(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value)).toBe(12);
   });
 
   it('leaves no global role definitions', () => {
@@ -121,6 +122,36 @@ describe('migration 006 — tenancy', () => {
     for (const table of ['activities', 'recognitions', 'trainings', 'projects', 'goals', 'tasks', 'users', 'units']) {
       expect(db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get().n).toBe(ORACLE.counts[table]);
     }
+  });
+});
+
+describe('migration 009 — canonical identity and role/unit integrity', () => {
+  it('repairs every cross-unit role reference', () => {
+    const mismatches = db.prepare(
+      `SELECT COUNT(*) AS n FROM member_roles mr JOIN roles r ON r.id = mr.role_id
+        WHERE mr.unit_id <> r.unit_id`
+    ).get().n;
+    expect(mismatches).toBe(0);
+    expect(db.prepare("SELECT value FROM meta WHERE key = 'migration_009_report'").get()).toBeTruthy();
+  });
+
+  it('rejects case-variant usernames at the database boundary', () => {
+    const source = db.prepare('SELECT * FROM users LIMIT 1').get();
+    expect(() => db.prepare(
+      `INSERT INTO users (id, username, password_hash, last_name, first_name, created_at, updated_at)
+       VALUES ('case-collision-test', ?, ?, 'Test', 'Case', ?, ?)`
+    ).run(source.username.toUpperCase(), source.password_hash, new Date().toISOString(), new Date().toISOString())).toThrow();
+  });
+
+  it('rejects a grant whose role belongs to another unit', () => {
+    const role = db.prepare('SELECT * FROM roles LIMIT 1').get();
+    const other = db.prepare('SELECT id FROM units WHERE id <> ? LIMIT 1').get(role.unit_id);
+    const user = db.prepare('SELECT id FROM users LIMIT 1').get();
+    if (!other) return;
+    expect(() => db.prepare(
+      `INSERT INTO member_roles (id, user_id, role_id, unit_id, created_at)
+       VALUES ('mismatch-test', ?, ?, ?, ?)`
+    ).run(user.id, role.id, other.id, new Date().toISOString())).toThrow(/role and grant unit mismatch/);
   });
 });
 
@@ -275,5 +306,18 @@ describe('migration 007 — chain visibility retired', () => {
       .prepare("SELECT COUNT(*) AS n FROM activities WHERE visibility NOT IN ('personal','private','unit')")
       .get().n;
     expect(broadened).toBe(0);
+  });
+});
+
+describe('migration 008 — session and recovery hardening', () => {
+  it('adds the forced temporary-password-change flag', () => {
+    const cols = db.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
+    expect(cols).toContain('must_change_password');
+  });
+
+  it('stores any surviving session identifiers only as SHA-256 digests', () => {
+    const tokens = db.prepare('SELECT token FROM sessions').all().map((r) => r.token);
+    expect(tokens.every((token) => /^[a-f0-9]{64}$/.test(token))).toBe(true);
+    expect(db.prepare("SELECT value FROM meta WHERE key = 'migration_008_report'").get()).toBeTruthy();
   });
 });

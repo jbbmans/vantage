@@ -7,18 +7,19 @@ export const DialogRoot = DialogPrimitive.Root;
 export const DialogTrigger = DialogPrimitive.Trigger;
 export const DialogClose = DialogPrimitive.Close;
 
-export function Dialog({ open, onOpenChange, title, description, children, footer, size = 'md', className }) {
+export function Dialog({ open, onOpenChange, title, description, children, footer, size = 'md', variant = 'modal', className }) {
   const widths = { sm: 'max-w-md', md: 'max-w-2xl', lg: 'max-w-4xl', xl: 'max-w-6xl' };
+  const isDrawer = variant === 'drawer';
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-black/70 backdrop-blur-[2px] data-[state=open]:animate-scale-in" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[#102a36]/45 backdrop-blur-[2px] data-[state=open]:animate-scale-in" />
         <DialogPrimitive.Content
           className={cn(
-            'fixed left-1/2 top-1/2 z-50 flex max-h-[88vh] w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2',
-            'flex-col overflow-hidden rounded border border-rule-strong bg-panel shadow-[var(--shadow)]',
-            'data-[state=open]:animate-scale-in',
-            widths[size],
+            'fixed z-50 flex flex-col overflow-hidden border border-rule-strong bg-panel shadow-[var(--shadow)]',
+            isDrawer
+              ? 'inset-y-0 right-0 h-screen w-full max-w-[560px] border-y-0 border-r-0 sm:w-[min(46vw,560px)]'
+              : cn('left-1/2 top-1/2 max-h-[88vh] w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded data-[state=open]:animate-scale-in', widths[size]),
             className
           )}
         >

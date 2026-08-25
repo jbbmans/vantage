@@ -13,10 +13,12 @@
  */
 
 import Database from 'better-sqlite3';
-import { randomUUID } from 'node:crypto';
+import { createHash, randomUUID } from 'node:crypto';
 import { RANKS, BILLETS, flattenUnits } from './usmc.js';
 import { ROLE_TEMPLATES, DEFAULT_TEMPLATE_ID, templateById, PERMISSIONS } from './roles.js';
-import { hashPassword } from './auth.js';
+import { hashPassword, sessionDigest } from './auth.js';
+import { normalizeUsername } from './identity.js';
+import { config, resolveStoragePath } from './config.js';
 
 const SCHEMA = `
 PRAGMA journal_mode = WAL;
@@ -68,8 +70,9 @@ CREATE INDEX IF NOT EXISTS idx_units_parent ON units(parent_id);
 
 CREATE TABLE IF NOT EXISTS users (
   id             TEXT PRIMARY KEY,
-  username       TEXT NOT NULL UNIQUE,
+  username       TEXT NOT NULL COLLATE NOCASE UNIQUE,
   password_hash  TEXT NOT NULL,
+  cac_subject    TEXT,
   last_name      TEXT NOT NULL,
   first_name     TEXT NOT NULL,
   middle_initial TEXT,
@@ -78,6 +81,7 @@ CREATE TABLE IF NOT EXISTS users (
   email          TEXT,
   is_admin       INTEGER NOT NULL DEFAULT 0,
   active         INTEGER NOT NULL DEFAULT 1,
+  must_change_password INTEGER NOT NULL DEFAULT 0,
   eas            TEXT,
   -- Readiness, for the JEPES advisor. All optional; the advisor reports what
   -- it cannot see rather than guessing.
@@ -341,6 +345,34 @@ CREATE INDEX IF NOT EXISTS idx_audit_subject ON audit_log(subject_id);
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
 -- idx_audit_unit is created by migration 004 (same legacy-ordering reason).
 
+-- Optional supporting files stay in SQLite so an authorized database backup is
+-- a complete recovery artifact. Downloads are always attachment disposition;
+-- the browser never renders these bytes inline in the Vantage origin.
+CREATE TABLE IF NOT EXISTS attachments (
+  id            TEXT PRIMARY KEY,
+  activity_id   TEXT NOT NULL REFERENCES activities(id),
+  uploaded_by   TEXT NOT NULL REFERENCES users(id),
+  original_name TEXT NOT NULL,
+  mime_type     TEXT NOT NULL,
+  size_bytes    INTEGER NOT NULL,
+  sha256        TEXT NOT NULL,
+  content       BLOB NOT NULL,
+  created_at    TEXT NOT NULL,
+  deleted_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_attachments_activity ON attachments(activity_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_live_digest
+  ON attachments(activity_id, sha256) WHERE deleted_at IS NULL;
+
+-- Aggregate experience counts only. There is deliberately no user, session,
+-- route parameter, IP, text, filename, or record foreign key in this table.
+CREATE TABLE IF NOT EXISTS ux_daily_metrics (
+  day   TEXT NOT NULL,
+  event TEXT NOT NULL,
+  count INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, event)
+);
+
 -- Sessions carry both deadlines: expires_at rolls with activity (inactivity
 -- timeout), absolute_expires_at never moves. Either one passing ends it.
 CREATE TABLE IF NOT EXISTS sessions (
@@ -364,7 +396,7 @@ CREATE TABLE IF NOT EXISTS meta (
 
 let db;
 
-export function getDb(file = process.env.VANTAGE_DB || 'vantage.db') {
+export function getDb(file = resolveStoragePath(config.storage.database_path)) {
   if (db) return db;
   db = new Database(file);
   db.exec(SCHEMA);
@@ -764,6 +796,155 @@ const MIGRATIONS = [
       ).run(JSON.stringify(report));
     },
   },
+  {
+    id: 8,
+    name: '008_session_digests_and_temporary_passwords',
+    run() {
+      addColumn('users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
+
+      // Existing browser cookies contain the raw token. Replacing each stored
+      // value with its digest keeps those sessions working: the next request
+      // hashes the cookie before lookup. Already-digested rows make this
+      // migration idempotent if an interrupted deployment re-enters it.
+      const rows = db.prepare('SELECT token FROM sessions').all();
+      let digested = 0;
+      for (const row of rows) {
+        if (/^[a-f0-9]{64}$/.test(row.token)) continue;
+        db.prepare('UPDATE sessions SET token = ? WHERE token = ?')
+          .run(sessionDigest(row.token), row.token);
+        digested += 1;
+      }
+      db.prepare(
+        "INSERT INTO meta (key, value) VALUES ('migration_008_report', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+      ).run(JSON.stringify({ sessions_digested: digested }));
+    },
+  },
+  {
+    id: 9,
+    name: '009_canonical_usernames_and_role_unit_integrity',
+    run() {
+      /* Authentication and operator authorization must use one equivalence
+       * relation. Refuse to guess which legacy identity wins a collision. */
+      const collisions = db.prepare(
+        `SELECT lower(username) AS canonical, COUNT(*) AS n,
+                group_concat(username, ', ') AS spellings
+           FROM users GROUP BY lower(username) HAVING COUNT(*) > 1`
+      ).all();
+      if (collisions.length) {
+        throw new Error(
+          'Case-colliding usernames must be resolved before this upgrade: '
+          + collisions.map((r) => r.spellings).join('; ')
+        );
+      }
+      db.prepare('UPDATE users SET username = lower(trim(username))').run();
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase ON users(username COLLATE NOCASE)');
+
+      /* Migration 006 materialised inherited grants before forking only global
+       * roles. A unit-scoped cascading role could therefore remain referenced
+       * from another unit. Fork every mismatched definition into the grant's
+       * exact unit before enforcing the invariant at the database boundary. */
+      const mismatches = db.prepare(
+        `SELECT DISTINCT mr.role_id, mr.unit_id
+           FROM member_roles mr JOIN roles r ON r.id = mr.role_id
+          WHERE r.unit_id <> mr.unit_id`
+      ).all();
+      let rolesForked = 0;
+      let grantsRepointed = 0;
+      for (const mismatch of mismatches) {
+        const source = db.prepare('SELECT * FROM roles WHERE id = ?').get(mismatch.role_id);
+        if (!source || !db.prepare('SELECT 1 FROM units WHERE id = ?').get(mismatch.unit_id)) continue;
+        const suffix = createHash('sha256')
+          .update(`${mismatch.unit_id}\0${source.id}`, 'utf8')
+          .digest('hex')
+          .slice(0, 20);
+        const copyId = `m9-${suffix}`;
+        const inserted = db.prepare(
+          `INSERT INTO roles
+             (id, unit_id, template_key, name, description, color, position, permissions,
+              is_default, is_system, created_at)
+           VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+           ON CONFLICT(id) DO NOTHING`
+        ).run(
+          copyId, mismatch.unit_id, source.template_key || source.id,
+          source.name, source.description, source.color, source.position, source.permissions,
+          source.is_default, source.is_system, source.created_at || now()
+        );
+        rolesForked += inserted.changes;
+        grantsRepointed += db.prepare(
+          'UPDATE member_roles SET role_id = ? WHERE role_id = ? AND unit_id = ?'
+        ).run(copyId, mismatch.role_id, mismatch.unit_id).changes;
+      }
+
+      db.exec(`
+        CREATE INDEX IF NOT EXISTS idx_member_roles_role_unit ON member_roles(role_id, unit_id);
+        CREATE TRIGGER IF NOT EXISTS member_roles_unit_match_insert
+        BEFORE INSERT ON member_roles
+        FOR EACH ROW WHEN NOT EXISTS (
+          SELECT 1 FROM roles r WHERE r.id = NEW.role_id AND r.unit_id = NEW.unit_id
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'role and grant unit mismatch');
+        END;
+        CREATE TRIGGER IF NOT EXISTS member_roles_unit_match_update
+        BEFORE UPDATE OF role_id, unit_id ON member_roles
+        FOR EACH ROW WHEN NOT EXISTS (
+          SELECT 1 FROM roles r WHERE r.id = NEW.role_id AND r.unit_id = NEW.unit_id
+        )
+        BEGIN
+          SELECT RAISE(ABORT, 'role and grant unit mismatch');
+        END;
+      `);
+
+      db.prepare(
+        "INSERT INTO meta (key, value) VALUES ('migration_009_report', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+      ).run(JSON.stringify({ roles_forked: rolesForked, grants_repointed: grantsRepointed }));
+    },
+  },
+  {
+    id: 10,
+    name: '010_cac_piv_identity_binding',
+    run() {
+      addColumn('users', 'cac_subject', 'TEXT');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_cac_subject ON users(cac_subject) WHERE cac_subject IS NOT NULL');
+    },
+  },
+  {
+    id: 11,
+    name: '011_optional_activity_attachments',
+    run() {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS attachments (
+          id            TEXT PRIMARY KEY,
+          activity_id   TEXT NOT NULL REFERENCES activities(id),
+          uploaded_by   TEXT NOT NULL REFERENCES users(id),
+          original_name TEXT NOT NULL,
+          mime_type     TEXT NOT NULL,
+          size_bytes    INTEGER NOT NULL,
+          sha256        TEXT NOT NULL,
+          content       BLOB NOT NULL,
+          created_at    TEXT NOT NULL,
+          deleted_at    TEXT
+        );
+        CREATE INDEX IF NOT EXISTS idx_attachments_activity ON attachments(activity_id);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_live_digest
+          ON attachments(activity_id, sha256) WHERE deleted_at IS NULL;
+      `);
+    },
+  },
+  {
+    id: 12,
+    name: '012_first_party_experience_aggregates',
+    run() {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS ux_daily_metrics (
+          day   TEXT NOT NULL,
+          event TEXT NOT NULL,
+          count INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (day, event)
+        );
+      `);
+    },
+  },
 ];
 
 function migrate() {
@@ -880,25 +1061,26 @@ const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g
  * Returns null when users already exist — this never resets an existing install.
  */
 export function bootstrapAdmin({ username, password, first_name, last_name, rank_id, mos, unit_code, billet_title, template_id }) {
-  const count = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
-  if (count > 0) return null;
+  return db.transaction(() => {
+    const count = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
+    if (count > 0) return null;
 
-  const id = newId();
-  db.prepare(
-    `INSERT INTO users (id, username, password_hash, last_name, first_name, rank_id, mos, is_admin, created_at, updated_at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
-  ).run(id, username, hashPassword(password), last_name, first_name, rank_id || null, mos || null, now(), now());
+    const id = newId();
+    db.prepare(
+      `INSERT INTO users (id, username, password_hash, last_name, first_name, rank_id, mos, is_admin, created_at, updated_at)
+       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
+    ).run(id, normalizeUsername(username), hashPassword(password), last_name, first_name, rank_id || null, mos || null, now(), now());
 
-  const unit = db.prepare('SELECT id FROM units WHERE code = ?').get(unit_code || 'CE-G8');
-  const billet = billet_title ? db.prepare('SELECT id FROM billets WHERE title = ?').get(billet_title) : null;
-  if (unit) {
+    const unit = db.prepare('SELECT id FROM units WHERE code = ? AND active = 1').get(unit_code || 'CE-G8');
+    if (!unit) throw new Error('No such active setup unit.');
+    const billet = billet_title ? db.prepare('SELECT id FROM billets WHERE title = ? AND active = 1').get(billet_title) : null;
     db.prepare(
       `INSERT INTO assignments (id, user_id, unit_id, billet_id, role, is_primary, start_date, created_at)
        VALUES (?, ?, ?, ?, '', 1, ?, ?)`
     ).run(newId(), id, unit.id, billet?.id || null, now().slice(0, 10), now());
     claimUnit(unit.id, id, template_id || DEFAULT_TEMPLATE_ID);
-  }
-  return { id, username };
+    return { id, username };
+  })();
 }
 
 /**
@@ -946,14 +1128,71 @@ export function addMember(userId, unitId, { kind = 'member', invitedBy = null, e
     `INSERT INTO unit_members (id, user_id, unit_id, kind, joined_at, expires_at, invited_by)
      VALUES (?, ?, ?, ?, ?, ?, ?)
      ON CONFLICT(user_id, unit_id) DO UPDATE SET
-       kind = CASE WHEN excluded.kind = 'owner' THEN 'owner' ELSE unit_members.kind END,
-       expires_at = excluded.expires_at`
-  ).run(newId(), userId, unitId, kind, now(), expiresAt, invitedBy);
+       kind = CASE
+         WHEN unit_members.kind = 'owner' OR excluded.kind = 'owner' THEN 'owner'
+         WHEN excluded.kind = 'member' THEN 'member'
+         ELSE unit_members.kind
+       END,
+       expires_at = CASE
+         WHEN unit_members.kind = 'owner' OR excluded.kind IN ('owner', 'member') THEN NULL
+         ELSE excluded.expires_at
+       END,
+       invited_by = COALESCE(excluded.invited_by, unit_members.invited_by)`
+  ).run(newId(), userId, unitId, kind, now(), kind === 'guest' ? expiresAt : null, invitedBy);
 }
 
 export function removeMember(userId, unitId) {
-  db.prepare('DELETE FROM member_roles WHERE user_id = ? AND unit_id = ?').run(userId, unitId);
-  db.prepare('DELETE FROM unit_members WHERE user_id = ? AND unit_id = ?').run(userId, unitId);
+  return db.transaction(() => {
+    const frozenAt = now();
+    let recordsFrozen = 0;
+    for (const table of ['activities', 'projects', 'tasks', 'goals', 'recognitions', 'trainings']) {
+      recordsFrozen += db.prepare(
+        `UPDATE ${table}
+            SET frozen_at = ?, frozen_reason = 'membership removed from originating unit',
+                updated_at = ?, version = version + 1
+          WHERE user_id = ? AND unit_id = ? AND visibility = 'unit'
+            AND deleted_at IS NULL AND frozen_at IS NULL`
+      ).run(frozenAt, frozenAt, userId, unitId).changes;
+    }
+    const roles = db.prepare('DELETE FROM member_roles WHERE user_id = ? AND unit_id = ?').run(userId, unitId).changes;
+    const membership = db.prepare('DELETE FROM unit_members WHERE user_id = ? AND unit_id = ?').run(userId, unitId).changes;
+    const assignments = db.prepare(
+      `UPDATE assignments
+          SET end_date = COALESCE(end_date, date('now')), is_primary = 0
+        WHERE user_id = ? AND unit_id = ? AND (end_date IS NULL OR end_date > date('now'))`
+    ).run(userId, unitId).changes;
+
+    // If the removed unit held the primary billet, promote another live
+    // assignment only where a live membership backs it. Historical rows never
+    // become current merely because the old primary ended.
+    const hasPrimary = db.prepare('SELECT 1 FROM assignments WHERE user_id = ? AND is_primary = 1').get(userId);
+    if (!hasPrimary) {
+      const next = db.prepare(
+        `SELECT a.id FROM assignments a
+           JOIN unit_members um ON um.user_id = a.user_id AND um.unit_id = a.unit_id
+          WHERE a.user_id = ? AND (a.end_date IS NULL OR a.end_date > date('now'))
+            AND (um.expires_at IS NULL OR um.expires_at > datetime('now'))
+          ORDER BY a.start_date DESC, a.created_at DESC LIMIT 1`
+      ).get(userId);
+      if (next) db.prepare('UPDATE assignments SET is_primary = 1 WHERE id = ?').run(next.id);
+    }
+    return { roles, membership, assignments, recordsFrozen };
+  })();
+}
+
+/** Freeze the originating unit's shared snapshot before a transfer severs membership. */
+export function freezeMemberUnitRecords(userId, unitId, reason = 'membership transferred from originating unit') {
+  const frozenAt = now();
+  let recordsFrozen = 0;
+  for (const table of ['activities', 'projects', 'tasks', 'goals', 'recognitions', 'trainings']) {
+    recordsFrozen += db.prepare(
+      `UPDATE ${table}
+          SET frozen_at = ?, frozen_reason = ?, updated_at = ?, version = version + 1
+        WHERE user_id = ? AND unit_id = ? AND visibility = 'unit'
+          AND deleted_at IS NULL AND frozen_at IS NULL`
+    ).run(frozenAt, reason, frozenAt, userId, unitId).changes;
+  }
+  return recordsFrozen;
 }
 
 /**
@@ -966,11 +1205,13 @@ export function removeMember(userId, unitId) {
  * time.
  */
 export function claimUnit(unitId, ownerUserId, templateId = DEFAULT_TEMPLATE_ID) {
-  copyTemplateInto(unitId, templateId);
-  addMember(ownerUserId, unitId, { kind: 'owner' });
-  db.prepare('UPDATE units SET owner_user_id = ? WHERE id = ?').run(ownerUserId, unitId);
-  grantRole(ownerUserId, ownerRoleId(unitId, templateId), unitId, ownerUserId);
-  return db.prepare('SELECT * FROM units WHERE id = ?').get(unitId);
+  return db.transaction(() => {
+    copyTemplateInto(unitId, templateId);
+    addMember(ownerUserId, unitId, { kind: 'owner' });
+    db.prepare('UPDATE units SET owner_user_id = ? WHERE id = ?').run(ownerUserId, unitId);
+    grantRole(ownerUserId, ownerRoleId(unitId, templateId), unitId, ownerUserId);
+    return db.prepare('SELECT * FROM units WHERE id = ?').get(unitId);
+  })();
 }
 
 /** Give a Marine a role inside a unit. Idempotent. */

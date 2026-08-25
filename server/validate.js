@@ -1,3 +1,5 @@
+import { passwordProblem } from './passwordPolicy.js';
+
 /**
  * Vantage — server-side validation.
  *
@@ -243,11 +245,7 @@ export const USER_SCHEMA = {
     return null;
   },
   password: (v) => {
-    if (absent(v)) return 'Required.';
-    if (typeof v !== 'string') return 'Must be text.';
-    if (v.length < 10) return 'At least 10 characters.';
-    if (v.length > 256) return 'At most 256 characters.';
-    return null;
+    return passwordProblem(v);
   },
   first_name: str(80, { required: true }),
   last_name: str(80, { required: true }),

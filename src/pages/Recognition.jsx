@@ -8,7 +8,7 @@ import { ConfirmDialog } from '@/components/ui/Dialog';
 import RecordDialog from '@/components/RecordDialog';
 import { Figure, FigureRow } from '@/components/Figure';
 import {
-  Panel, PageHeader, EmptyState, Button, Input, Textarea, Select, Field, Badge,
+  Panel, EmptyState, Button, Input, Textarea, Select, Field, Badge,
 } from '@/components/ui/primitives';
 
 const TYPE_TONE = { award: 'signal', loa: 'ledger', certificate: 'info', commendation: 'signal' };
@@ -39,13 +39,14 @@ export default function Recognition() {
   };
 
   return (
-    <div className="mx-auto max-w-[1000px] space-y-3">
-      <PageHeader title="Recognition" subtitle="Awards, letters, and the words other people put in writing">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div><h3 className="text-xl font-semibold text-text">Recognition</h3><p className="mt-1 text-sm text-text-3">Awards, letters, certificates, and written feedback.</p></div>
         <Button variant="primary" size="sm" onClick={() => setDialog({})}>
           <Plus className="h-3.5 w-3.5" />
           Add recognition
         </Button>
-      </PageHeader>
+      </div>
 
       <FigureRow>
         <Figure label="Total" raw={recognitions.length} formatFn={(n) => formatNumber(Math.round(n))} sub="all records" />

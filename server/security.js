@@ -18,12 +18,17 @@
  * deliberately looser than per-IP for the same reason.
  */
 
+import { config } from './config.js';
+
 const WINDOW_MS = 15 * 60 * 1000;
 const IP_MAX = 10;          // failures per IP per window
 const USER_MAX = 15;        // failures per username per window (looser: see above)
 const GLOBAL_MAX = 300;     // failures across the whole install per window
 const counters = { ip: new Map(), user: new Map() };
+const mutationCounters = new Map();
+const registrationCounters = new Map();
 let globalCount = { count: 0, start: Date.now() };
+const MUTATION_MAX = config.limits.mutations_per_15_minutes;
 
 function bump(map, key, nowMs) {
   const entry = map.get(key) || { count: 0, start: nowMs };
@@ -68,6 +73,32 @@ export function checkLoginAllowed(ip, username) {
   return null;
 }
 
+/** Bound cumulative authenticated writes, including repeated bulk requests. */
+export function checkMutationAllowed(userId) {
+  const nowMs = Date.now();
+  const key = String(userId || '');
+  const count = peek(mutationCounters, key, nowMs);
+  if (count >= MUTATION_MAX) {
+    const entry = mutationCounters.get(key);
+    return { status: 429, retryAfter: retryAfter(entry, nowMs) };
+  }
+  bump(mutationCounters, key, nowMs);
+  return null;
+}
+
+/** Bound unauthenticated account creation by connection, without retaining IPs beyond the window. */
+export function checkRegistrationAllowed(ip) {
+  const nowMs = Date.now();
+  const key = String(ip || 'unknown');
+  const count = peek(registrationCounters, key, nowMs);
+  if (count >= config.limits.registrations_per_15_minutes) {
+    const entry = registrationCounters.get(key);
+    return { status: 429, retryAfter: retryAfter(entry, nowMs) };
+  }
+  bump(registrationCounters, key, nowMs);
+  return null;
+}
+
 /** Record a failed attempt. Returns true the first time the account crosses its threshold (for audit). */
 export function recordLoginFailure(ip, username) {
   const nowMs = Date.now();
@@ -88,7 +119,7 @@ export function recordLoginSuccess(ip, username) {
 /** Housekeeping for a long-lived process. */
 export function pruneCounters() {
   const cutoff = Date.now() - WINDOW_MS;
-  for (const map of [counters.ip, counters.user]) {
+  for (const map of [counters.ip, counters.user, mutationCounters, registrationCounters]) {
     for (const [key, entry] of map) if (entry.start < cutoff) map.delete(key);
   }
 }
@@ -97,7 +128,9 @@ export function pruneCounters() {
 export function resetCounters() {
   counters.ip.clear();
   counters.user.clear();
+  mutationCounters.clear();
+  registrationCounters.clear();
   globalCount = { count: 0, start: Date.now() };
 }
 
-export const LOGIN_LIMITS = { WINDOW_MS, IP_MAX, USER_MAX, GLOBAL_MAX };
+export const LOGIN_LIMITS = { WINDOW_MS, IP_MAX, USER_MAX, GLOBAL_MAX, MUTATION_MAX };

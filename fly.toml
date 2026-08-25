@@ -19,6 +19,12 @@ primary_region = "dfw"
   TRUST_PROXY = "1"
   PORT = "8080"
   VANTAGE_DB = "/data/vantage.db"
+  VANTAGE_DATA_MODE = "evaluation"
+
+# Before the first deploy, keep these out of this file:
+#   fly secrets set VANTAGE_SETUP_TOKEN=<long-random-value> VANTAGE_OPERATOR=<canonical-username>
+# After setup, prefer the immutable UUID and remove the username fallback:
+#   fly secrets set VANTAGE_OPERATOR_ID=<account-uuid>
 
 [[mounts]]
   source = "vantage_data"

@@ -8,7 +8,7 @@ import { ConfirmDialog } from '@/components/ui/Dialog';
 import RecordDialog from '@/components/RecordDialog';
 import { Figure, FigureRow } from '@/components/Figure';
 import {
-  Panel, PageHeader, EmptyState, Button, Input, NumberInput, Textarea, Select, Field, Badge, Segmented,
+  Panel, EmptyState, Button, Input, NumberInput, Textarea, Select, Field, Badge, Segmented,
 } from '@/components/ui/primitives';
 
 const STATUS_TONE = { completed: 'ledger', in_progress: 'signal', scheduled: 'info' };
@@ -45,13 +45,14 @@ export default function Development() {
   };
 
   return (
-    <div className="mx-auto max-w-[1200px] space-y-3">
-      <PageHeader title="Development" subtitle="PME, courses, qualifications, and the hours behind them">
+    <div className="space-y-4">
+      <div className="flex flex-wrap items-end justify-between gap-3">
+        <div><h3 className="text-xl font-semibold text-text">Training &amp; PME</h3><p className="mt-1 text-sm text-text-3">Courses, qualifications, credentials, and the hours behind them.</p></div>
         <Button variant="primary" size="sm" onClick={() => setDialog({})}>
           <Plus className="h-3.5 w-3.5" />
           Add record
         </Button>
-      </PageHeader>
+      </div>
 
       <FigureRow>
         <Figure label="Total hours" raw={totals.hours} formatFn={(n) => formatNumber(Math.round(n))} sub="instruction logged" />
