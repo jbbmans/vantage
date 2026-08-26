@@ -54,7 +54,7 @@ const inputs = page.locator('input');
 // first/last name fields
 await page.locator('input').nth(2).fill('John');
 await page.locator('input').nth(3).fill('Boletz');
-await page.getByRole('button', { name: /create account/i }).click();
+await page.getByRole('button', { name: /create unit leader and sign in/i }).click();
 await page.waitForTimeout(1250);
 
 check('signed in to the shell', await page.locator('text=VANTAGE').first().isVisible());
