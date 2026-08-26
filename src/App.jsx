@@ -12,6 +12,7 @@ import MemberDetail from '@/pages/MemberDetail';
 import Login from '@/pages/Login';
 import PasswordChangeRequired from '@/pages/PasswordChangeRequired';
 import Readiness from '@/pages/Readiness';
+import { Loader2 } from 'lucide-react';
 import { ToastProvider } from '@/components/ui/toast';
 import { TooltipProvider, Panel, EmptyState, Button } from '@/components/ui/primitives';
 import { hydrate, useIdentity, useReady, useLoadError } from '@/store/useStore';
@@ -83,7 +84,14 @@ export default function App() {
   }, []);
 
   if (!ready) {
-    return <div className="flex min-h-screen items-center justify-center bg-ink" />;
+    return (
+      <div className="flex min-h-screen items-center justify-center bg-ink p-4" role="status" aria-live="polite">
+        <div className="flex items-center gap-3 text-text-2">
+          <Loader2 className="h-5 w-5 animate-spin text-signal" aria-hidden />
+          <span className="text-sm">Loading Vantage…</span>
+        </div>
+      </div>
+    );
   }
 
   return (

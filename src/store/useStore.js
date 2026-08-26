@@ -99,9 +99,13 @@ export async function hydrate() {
     const nextIdentity = await api.me();
     if (identity?.user?.id && identity.user.id !== nextIdentity?.user?.id) clearUserState();
     identity = nextIdentity;
-    orgData = await api.org();
-    prefsState = await api.prefs().catch(() => ({}));
-    await Promise.all(api.STORES.map((name) => reloadStore(name)));
+    const [nextOrg, nextPrefs] = await Promise.all([
+      api.org(),
+      api.prefs().catch(() => ({})),
+      Promise.all(api.STORES.map((name) => reloadStore(name))),
+    ]);
+    orgData = nextOrg;
+    prefsState = nextPrefs;
   } catch (err) {
     if (err.status === 401) clearUserState();
     else loadError = err;
@@ -326,6 +330,20 @@ export const reload = hydrate;
 
 export function unitById(id) {
   return orgData.units.find((u) => u.id === id) || null;
+}
+
+/** Prefer the signed-in Marine's primary assignment within an allowed set. */
+export function preferredUnitId(candidateIds = []) {
+  const allowed = new Set(candidateIds.filter(Boolean));
+  const inScope = (id) => id && (!allowed.size || allowed.has(id));
+  const primary = identity?.assignments?.find((assignment) => assignment.is_primary && inScope(assignment.unit_id));
+  if (primary) return primary.unit_id;
+  const owned = (identity?.ownedUnitIds || []).find(inScope);
+  if (owned) return owned;
+  const assignment = (identity?.assignments || []).find((item) => inScope(item.unit_id));
+  if (assignment) return assignment.unit_id;
+  const membership = (identity?.memberships || []).find((item) => inScope(item.unit_id));
+  return membership?.unit_id || candidateIds.find(Boolean) || '';
 }
 
 /** "MARFORRES › Command Element › G-8" for a configured unit id. */

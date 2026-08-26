@@ -8,6 +8,7 @@ import { useToast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import RecordDialog from '@/components/RecordDialog';
 import ConflictDialog from '@/components/ConflictDialog';
+import VisibilityPicker, { UnitTargetPicker } from '@/components/VisibilityPicker';
 import {
   Panel, PageHeader, EmptyState, Button, Input, NumberInput, Textarea, Select, Field, Badge, Segmented,
 } from '@/components/ui/primitives';
@@ -118,7 +119,7 @@ export default function Goals() {
                 <>
                   <Badge tone={STATUS_TONE[g.status]}>{g.status}</Badge>
                   <Button variant="ghost" size="sm" onClick={() => setDialog(g)}>Edit</Button>
-                  <button onClick={() => setConfirming(g)} className="text-text-3 hover:text-redline">
+                  <button type="button" aria-label={`Delete ${g.title}`} onClick={() => setConfirming(g)} className="text-text-3 hover:text-redline">
                     <Trash2 className="h-3.5 w-3.5" />
                   </button>
                 </>
@@ -223,6 +224,15 @@ export default function Goals() {
                 <Field error={goalErrors.current_value} label="Current value">
                   <NumberInput value={draft.current_value ?? ''} onChange={(e) => set('current_value', e.target.value)} />
                 </Field>
+              )}
+              <VisibilityPicker
+                value={draft.visibility || 'private'}
+                onChange={(value) => set('visibility', value)}
+                unitId={draft.unit_id}
+                label="Who sees this goal"
+              />
+              {draft.visibility === 'unit' && (
+                <UnitTargetPicker value={draft.unit_id} onChange={(value) => set('unit_id', value || null)} />
               )}
             </>
           )}

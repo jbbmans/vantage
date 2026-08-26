@@ -393,11 +393,11 @@ export default function ActivityDetail() {
                   className="min-w-0 flex-1"
                 />
                 {link.url?.startsWith('http') && (
-                  <a href={link.url} target="_blank" rel="noreferrer" className="text-text-3 hover:text-signal">
+                  <a href={link.url} target="_blank" rel="noreferrer" aria-label={`Open ${link.label || 'reference'}`} className="text-text-3 hover:text-signal">
                     <ExternalLink className="h-3.5 w-3.5" />
                   </a>
                 )}
-                <button onClick={() => removeLink(i)} className="text-text-3 hover:text-redline">
+                <button type="button" aria-label={`Remove ${link.label || `reference ${i + 1}`}`} onClick={() => removeLink(i)} className="text-text-3 hover:text-redline">
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>

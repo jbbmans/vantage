@@ -1,6 +1,6 @@
 import React from 'react';
 import { Lock, Users, NotebookPen } from 'lucide-react';
-import { useIdentity, unitById } from '@/store/useStore';
+import { useIdentity, unitById, preferredUnitId } from '@/store/useStore';
 import { Field, Select } from '@/components/ui/primitives';
 
 /**
@@ -49,7 +49,7 @@ export default function VisibilityPicker({ value = DEFAULT_VISIBILITY, onChange,
     || VISIBILITY_OPTIONS.find((o) => o.value === DEFAULT_VISIBILITY);
 
   const memberships = identity?.memberships || [];
-  const target = unitId || memberships[0]?.unit_id;
+  const target = unitId || preferredUnitId(memberships.map((membership) => membership.unit_id));
   const unit = unitById(target);
 
   /* Someone with no unit at all — a Marine between commands, or one who has
@@ -93,17 +93,15 @@ export function UnitTargetPicker({ value, onChange, label = 'Assign to unit', un
   const options = units.length
     ? units
     : memberships.map((m) => unitById(m.unit_id) || { id: m.unit_id, name: m.unit_name, short_name: m.unit_short });
+  const fallback = preferredUnitId(options.map((unit) => unit.id));
 
   return (
     <Field label={label} hint="Everyone in this unit will see it. Nobody outside it will.">
       <Select
-        value={value || ''}
+        value={value || fallback || ''}
         onValueChange={onChange}
-        placeholder="My own unit"
-        options={[
-          { value: '', label: 'My own unit' },
-          ...options.map((u) => ({ value: u.id, label: u.short_name || u.name || u.id })),
-        ]}
+        placeholder="Select a unit"
+        options={options.map((u) => ({ value: u.id, label: u.short_name || u.name || u.id }))}
       />
     </Field>
   );

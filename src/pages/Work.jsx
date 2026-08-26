@@ -1,6 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { parseISO, isBefore, startOfDay } from 'date-fns';
-import { Plus, Trash2, CheckCheck, Clock3, Layers, Circle, CircleDot, CircleCheck, PauseCircle } from 'lucide-react';
+import { Plus, Trash2, CheckCheck, Clock3, Layers, Circle, CircleDot, CircleCheck, PauseCircle, GripVertical } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useProjects, useTasks, createRecord, updateRecord, deleteRecord, restoreDeleted, useCanLead, useOrg, useIdentity, unitOptions, refreshAll } from '@/store/useStore';
 import VisibilityPicker, { UnitTargetPicker } from '@/components/VisibilityPicker';
@@ -43,11 +43,23 @@ const BOARD_COLUMNS = [
 const isLate = (t) =>
   Boolean(t.due_date) && t.status !== 'completed' && isBefore(parseISO(t.due_date), startOfDay(new Date()));
 
-function TaskCard({ task, project, onCycle, onEdit, onDelete }) {
+function TaskCard({ task, project, onCycle, onEdit, onDelete, onDragStart, onDragEnd }) {
   const Icon = STATUS_ICON[task.status] || Circle;
   return (
-    <article className="group rounded-md border border-rule bg-panel p-3 transition-colors hover:border-rule-strong">
+    <article className="group animate-fade-up rounded-md border border-rule bg-panel p-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-rule-strong hover:shadow-[0_10px_24px_-20px_rgb(0_0_0/0.65)]">
       <div className="flex items-start gap-2.5">
+        <Tooltip content="Drag to another status">
+          <button
+            type="button"
+            draggable
+            onDragStart={(event) => onDragStart(event, task)}
+            onDragEnd={onDragEnd}
+            className="mt-0.5 hidden cursor-grab text-text-3 hover:text-text active:cursor-grabbing sm:block"
+            aria-label={`Drag ${task.title} to another status`}
+          >
+            <GripVertical className="h-4 w-4" />
+          </button>
+        </Tooltip>
         <Tooltip content={`Mark ${NEXT_STATUS[task.status]}`}>
           <button type="button" onClick={() => onCycle(task)} className={cn('mt-0.5 shrink-0 transition-colors', STATUS_TONE[task.status])} aria-label={`Advance ${task.title}`}>
             <Icon className="h-4 w-4" />
@@ -88,6 +100,8 @@ export default function Work() {
   const [projectDialog, setProjectDialog] = useState(null);
   const [confirming, setConfirming] = useState(null);
   const [filter, setFilter] = useState('open');
+  const [draggingTaskId, setDraggingTaskId] = useState(null);
+  const [dropTarget, setDropTarget] = useState(null);
 
   const visibleTasks = useMemo(() => {
     const rows = filter === 'open' ? tasks.filter((t) => t.status !== 'completed') : filter === 'done' ? tasks.filter((t) => t.status === 'completed') : tasks;
@@ -102,6 +116,17 @@ export default function Work() {
 
   const cycle = async (task) => {
     await updateRecord('tasks', task.id, { status: NEXT_STATUS[task.status] || 'active' });
+  };
+
+  const dropTask = async (status) => {
+    const task = tasks.find((item) => item.id === draggingTaskId);
+    setDropTarget(null);
+    setDraggingTaskId(null);
+    if (!task || task.status === status) return;
+    try {
+      await updateRecord('tasks', task.id, { status });
+      toast.success(`Moved to ${BOARD_COLUMNS.find((column) => column.status === status)?.title || status}.`);
+    } catch (err) { toast.error(errorText(err)); }
   };
 
   const [conflict, setConflict] = useState(null);
@@ -210,7 +235,17 @@ export default function Work() {
               {boardColumns.map((column) => {
                 const columnTasks = visibleTasks.filter((task) => task.status === column.status);
                 return (
-                  <section key={column.status} className="min-h-[260px] rounded-md border border-rule bg-panel-2/35 p-3" aria-labelledby={`column-${column.status}`}>
+                  <section
+                    key={column.status}
+                    className={cn(
+                      'min-h-[260px] rounded-md border border-rule bg-panel-2/35 p-3 transition-colors duration-150',
+                      dropTarget === column.status && 'border-signal bg-signal/[0.07]'
+                    )}
+                    aria-labelledby={`column-${column.status}`}
+                    onDragOver={(event) => { event.preventDefault(); setDropTarget(column.status); }}
+                    onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget)) setDropTarget(null); }}
+                    onDrop={(event) => { event.preventDefault(); dropTask(column.status); }}
+                  >
                     <header className="mb-3 flex items-start justify-between border-b border-rule pb-3">
                       <div><h4 id={`column-${column.status}`} className="text-sm font-semibold text-text">{column.title}</h4><p className="mt-0.5 text-xs text-text-3">{column.description}</p></div>
                       <span className="fig rounded-full bg-panel px-2 py-0.5 text-xs text-text-3">{columnTasks.length}</span>
@@ -224,6 +259,12 @@ export default function Work() {
                           onCycle={cycle}
                           onEdit={setTaskDialog}
                           onDelete={(row) => setConfirming({ store: 'tasks', id: row.id, label: row.title })}
+                          onDragStart={(event, row) => {
+                            event.dataTransfer.effectAllowed = 'move';
+                            event.dataTransfer.setData('text/plain', row.id);
+                            setDraggingTaskId(row.id);
+                          }}
+                          onDragEnd={() => { setDraggingTaskId(null); setDropTarget(null); }}
                         />
                       ))}
                       {columnTasks.length === 0 && <p className="px-1 py-8 text-center text-xs text-text-3">No tasks here</p>}
@@ -264,6 +305,8 @@ export default function Work() {
                   <div className="flex items-center gap-1 lg:justify-end">
                     <Button variant="ghost" size="sm" onClick={() => setProjectDialog(p)}>Edit</Button>
                       <button
+                        type="button"
+                        aria-label={`Delete ${p.name}`}
                         onClick={() => setConfirming({ store: 'projects', id: p.id, label: p.name })}
                         className="text-text-3 hover:text-redline"
                       >
@@ -340,11 +383,11 @@ export default function Work() {
                 unitId={draft.unit_id}
                 label="Who sees this task"
               />
-              {canLead && draft.visibility && draft.visibility !== 'private' && (
+              {draft.visibility === 'unit' && (
                 <UnitTargetPicker
                   value={draft.unit_id}
                   onChange={(v) => set('unit_id', v || null)}
-                  units={leadableUnits}
+                  units={canLead ? leadableUnits : []}
                 />
               )}
             </>
@@ -389,6 +432,13 @@ export default function Work() {
                 unitId={draft.unit_id}
                 label="Who sees this project"
               />
+              {draft.visibility === 'unit' && (
+                <UnitTargetPicker
+                  value={draft.unit_id}
+                  onChange={(v) => set('unit_id', v || null)}
+                  units={canLead ? leadableUnits : []}
+                />
+              )}
             </>
           )}
         />

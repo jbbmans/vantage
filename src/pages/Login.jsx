@@ -141,7 +141,7 @@ export default function Login() {
           <Field label="Username">
             <Input name="username" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus autoComplete="username" />
           </Field>
-          <Field label="Password" hint={mode === 'setup' ? '15 characters minimum — use a unique passphrase' : undefined}>
+          <Field label="Password" hint={mode === 'setup' || mode === 'register' ? '15 characters minimum — use a unique passphrase' : undefined}>
             <Input
               type="password"
               name="password"
@@ -188,7 +188,7 @@ export default function Login() {
           )}
         </div>
 
-        {error && <p className="mt-3 text-xs leading-relaxed text-redline">{error}</p>}
+        {error && <p className="mt-3 text-xs leading-relaxed text-redline" role="alert">{error}</p>}
 
         <Button
           type="submit"
@@ -196,6 +196,7 @@ export default function Login() {
           size="md"
           className="mt-4 w-full justify-center"
           disabled={busy || mode === 'checking'
+            || !username.trim() || !password
             || ((mode === 'setup' || mode === 'register') && (!setupForm.first_name || !setupForm.last_name))
             || (mode === 'setup' && setupTokenRequired && !setupForm.setup_token)}
         >

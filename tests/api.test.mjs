@@ -600,6 +600,28 @@ await test('unit-visible records are readable by the unit that holds them', asyn
   assert.ok(leaderView.body.some((a) => a.title === 'Reconciled 12 ULOs'));
 });
 
+await test('recognition source and goal measurement unit round-trip without being dropped', async () => {
+  const recognition = await call('POST', '/api/recognitions', {
+    token: riveraToken,
+    body: {
+      title: 'Letter of appreciation', date: '2026-08-03', type: 'loa',
+      from_whom: 'Commanding Officer', visibility: 'private', unit_id: 'G8-FMRAC',
+    },
+  });
+  assert.equal(recognition.status, 200);
+  assert.equal(recognition.body.from_whom, 'Commanding Officer');
+
+  const goal = await call('POST', '/api/goals', {
+    token: riveraToken,
+    body: {
+      title: 'Close aged ULOs', target_value: 30, unit_label: 'ULOs',
+      type: 'performance', status: 'active', visibility: 'private', unit_id: 'G8-FMRAC',
+    },
+  });
+  assert.equal(goal.status, 200);
+  assert.equal(goal.body.unit_label, 'ULOs');
+});
+
 await test('an outside leader sees neither', async () => {
   const token = await login('nguyen', 'yet-another-long-passphrase');
   const res = await call('GET', '/api/activities', { token });

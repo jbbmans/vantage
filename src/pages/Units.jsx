@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { Building2, Plus, Pencil, Archive, ChevronRight } from 'lucide-react';
 import * as apiClient from '@/lib/api';
-import { useOrg, useIdentity, can, unitsWith, hydrate, PERMISSIONS } from '@/store/useStore';
+import { useOrg, useIdentity, can, unitsWith, preferredUnitId, hydrate, PERMISSIONS } from '@/store/useStore';
 import { useToast } from '@/components/ui/toast';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { Panel, PageHeader, EmptyState, Button, Input, Field, Select, Badge } from '@/components/ui/primitives';
@@ -39,6 +39,7 @@ export default function Units() {
   }, [org.units]);
 
   const manageable = unitsWith(PERMISSIONS.MANAGE_UNITS);
+  const preferredManageable = preferredUnitId(manageable);
   if (!manageable.length && !identity?.isOperator) {
     return (
       <div className="mx-auto max-w-2xl">
@@ -59,7 +60,7 @@ export default function Units() {
         <Button
           variant="primary"
           size="sm"
-          onClick={() => setCreating({ parent_id: manageable[0] || '', echelon: 'fire_team' })}
+          onClick={() => setCreating({ parent_id: preferredManageable || '', echelon: 'fire_team' })}
         >
           <Plus className="h-3.5 w-3.5" />
           New unit
