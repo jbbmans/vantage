@@ -12,7 +12,7 @@ import { formatDollarsExact } from '@/lib/metrics';
 import { strength, weaknesses, composeBullet } from '@/lib/bullets';
 import VisibilityPicker, { DEFAULT_VISIBILITY } from '@/components/VisibilityPicker';
 import { areaOptions, mapAreaToTrack, trackMeta } from '@/lib/evaluation';
-import { useEvalTrack, useIdentity } from '@/store/useStore';
+import { useEvalTrack, useIdentity, usePrefs } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { draftKey } from '@/lib/drafts';
 
@@ -25,6 +25,7 @@ const EXAMPLES = [
 export default function QuickLog({ open, onOpenChange, initialText = '' }) {
   const track = useEvalTrack();
   const identity = useIdentity();
+  const prefs = usePrefs();
   const toast = useToast();
   const [text, setText] = useState(initialText);
   const [expanded, setExpanded] = useState(false);
@@ -40,9 +41,9 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
       try { stored = sessionStorage.getItem(DRAFT_KEY) || ''; } catch { /* blocked */ }
       setText(initialText || stored);
       setOverrides({});
-      setExpanded(false);
+      setExpanded(Boolean(prefs.interface?.quickLogExpanded));
     }
-  }, [open, initialText, DRAFT_KEY]);
+  }, [open, initialText, DRAFT_KEY, prefs.interface?.quickLogExpanded]);
 
   useEffect(() => {
     if (!open) return;
@@ -173,7 +174,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
 
             {/* the fields it produced, all editable */}
             <div className="panel rounded p-3">
-              <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
+              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="Date">
                   <Input type="date" value={record.date} onChange={setEvent('date')} />
                 </Field>
@@ -204,21 +205,21 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
                     placeholder="—"
                   />
                 </Field>
-                <Field label="Category" className="col-span-2">
+                <Field label="Category">
                   <Select
                     value={record.category}
                     onValueChange={set('category')}
                     options={CATEGORIES.map((c) => ({ value: c, label: c }))}
                   />
                 </Field>
-                <Field label={trackMeta(track).areaLabel} className="col-span-2">
+                <Field label={trackMeta(track).areaLabel}>
                   <Select
                     value={mapAreaToTrack(record.jepes_area, track)}
                     onValueChange={set('jepes_area')}
                     options={areaOptions(track)}
                   />
                 </Field>
-                <Field label="Dollar type" className="col-span-2">
+                <Field label="Dollar type">
                   <Select
                     value={record.dollar_type}
                     onValueChange={set('dollar_type')}
@@ -231,7 +232,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
                 <Field label="System">
                   <Input value={record.system} onChange={setEvent('system')} placeholder="DAI" />
                 </Field>
-                <div className="col-span-2 sm:col-span-4">
+                <div className="sm:col-span-2">
                   <VisibilityPicker value={record.visibility} onChange={set('visibility')} />
                 </div>
               </div>

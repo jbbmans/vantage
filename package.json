@@ -1,9 +1,9 @@
 {
   "name": "vantage",
   "private": true,
-  "version": "3.5.0-rc.2",
+  "version": "3.6.0",
   "type": "module",
-  "description": "Server-hosted performance record system for a Marine Corps section. Role-based access, rank-aware evaluation tracks (JEPES and FITREP), and a built-in SOP.",
+  "description": "Command-ready performance, productivity, career, and operational-record workspace for Marine Corps teams.",
   "author": "John Bernard Boletz",
   "license": "UNLICENSED",
   "scripts": {
@@ -13,7 +13,7 @@
     "build": "vite build",
     "start": "node server/index.js",
     "lint": "eslint . --quiet",
-    "test": "node tests/config.test.mjs && node tests/attachments.test.mjs && node tests/factory-reset.test.mjs && node tests/provision-accounts.test.mjs && node tests/maintenance.test.mjs && node tests/static.test.mjs && node tests/hardening-static.test.mjs && node tests/delimited.test.mjs && node tests/logic.test.mjs && node tests/api.test.mjs && node tests/scenario.test.mjs && node tests/security.test.mjs && node tests/matrix.test.mjs && node tests/tenancy.test.mjs && node --test tests/migration.test.mjs",
+    "test": "node tests/config.test.mjs && node tests/attachments.test.mjs && node tests/factory-reset.test.mjs && node tests/provision-accounts.test.mjs && node tests/maintenance.test.mjs && node tests/static.test.mjs && node tests/hardening-static.test.mjs && node tests/delimited.test.mjs && node tests/logic.test.mjs && node tests/api.test.mjs && node tests/scenario.test.mjs && node tests/security.test.mjs && node tests/matrix.test.mjs && node tests/tenancy.test.mjs && node tests/load-50.test.mjs && node --test tests/migration.test.mjs",
     "test:logic": "node tests/logic.test.mjs",
     "test:api": "node tests/api.test.mjs",
     "test:scenario": "node tests/scenario.test.mjs",
@@ -29,7 +29,8 @@
     "test:hardening": "node tests/hardening-static.test.mjs && node tests/delimited.test.mjs",
     "test:tenancy": "node tests/tenancy.test.mjs",
     "test:migration": "node --test tests/migration.test.mjs",
-    "test:matrix": "node tests/matrix.test.mjs"
+    "test:matrix": "node tests/matrix.test.mjs",
+    "test:load50": "node tests/load-50.test.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",

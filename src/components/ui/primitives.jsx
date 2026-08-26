@@ -212,7 +212,7 @@ export function Tooltip({ content, children, side = 'top', className }) {
 /** A titled panel. The eyebrow + hairline is the app's section grammar. */
 export function Panel({ title, subtitle, action, children, className, bodyClassName, id }) {
   return (
-    <section id={id} className={cn('panel rounded', className)}>
+    <section id={id} className={cn('panel scroll-mt-24 rounded', className)}>
       {(title || action) && (
         <header className="flex items-center justify-between gap-3 border-b border-rule px-3 py-2">
           <div className="min-w-0">
@@ -314,4 +314,3 @@ export function Segmented({ value, onChange, options = [], className, size = 'md
     </div>
   );
 }
-

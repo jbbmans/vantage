@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Shield, Plus, Trash2, Lock, ChevronDown, ChevronRight, Info } from 'lucide-react';
 import * as apiClient from '@/lib/api';
-import { useOrg, useIdentity, unitOptions, unitPath, hydrate } from '@/store/useStore';
+import { useOrg, useIdentity, unitOptions, hydrate } from '@/store/useStore';
 import { useToast } from '@/components/ui/toast';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { Panel, PageHeader, EmptyState, Button, Input, Field, Select, Badge, Textarea, Tooltip } from '@/components/ui/primitives';
@@ -34,6 +34,7 @@ export default function Roles() {
   const [roleErrors, setRoleErrors] = useState({});
   const [deleting, setDeleting] = useState(null);
   const [expanded, setExpanded] = useState(null);
+  const [selectedUnit, setSelectedUnit] = useState('');
 
   const load = async () => {
     setLoading(true);
@@ -43,23 +44,40 @@ export default function Roles() {
   };
   useEffect(() => { load(); }, []);
 
+  const roleUnitOptions = useMemo(() => {
+    const unitIds = [...new Set(state.roles.map((role) => role.unit_id).filter(Boolean))];
+    return unitIds.map((unitId) => ({ value: unitId, label: unitLabel(unitId, org.units) }));
+  }, [state.roles, org.units]);
+
+  useEffect(() => {
+    if (!roleUnitOptions.length) return;
+    if (roleUnitOptions.some((option) => option.value === selectedUnit)) return;
+    const primary = identity?.assignments?.find((assignment) => assignment.is_primary)?.unit_id;
+    setSelectedUnit(roleUnitOptions.some((option) => option.value === primary) ? primary : roleUnitOptions[0].value);
+  }, [roleUnitOptions, selectedUnit, identity]);
+
   const grouped = useMemo(() => {
     const map = {};
     for (const p of state.catalogue) (map[p.group] ||= []).push(p);
     return map;
   }, [state.catalogue]);
 
-  const canCreate = state.topPosition > 0;
+  const visibleRoles = state.roles.filter((role) => role.unit_id === selectedUnit);
+  const selectedPosition = state.positions?.[selectedUnit] || 0;
+  const canCreate = selectedPosition > 0;
   const roleDraftKey = draftKey(identity?.user?.id, 'role');
 
   return (
-    <div className="mx-auto max-w-4xl space-y-3">
+    <div className="mx-auto max-w-5xl space-y-3">
       <PageHeader
         title="Roles"
-        subtitle="Permissions are per-role and stack. A Marine can hold several."
+        subtitle="One exact unit at a time. Permissions stack only inside the unit where they are granted."
       >
+        {roleUnitOptions.length > 0 && (
+          <Select value={selectedUnit} onValueChange={(value) => { setSelectedUnit(value); setExpanded(null); }} options={roleUnitOptions} className="w-48" aria-label="Role unit" />
+        )}
         {canCreate && (
-          <Button variant="primary" size="sm" onClick={() => setEditing({ isNew: true, permissions: 1, position: 1, color: SWATCHES[0] })}>
+          <Button variant="primary" size="sm" onClick={() => setEditing({ isNew: true, permissions: 1, position: 1, color: SWATCHES[0], unit_id: selectedUnit })}>
             <Plus className="h-3.5 w-3.5" />
             New role
           </Button>
@@ -70,7 +88,9 @@ export default function Roles() {
         {loading ? (
           <p className="px-3 py-4 text-sm text-text-3">Loading roles…</p>
         ) : (
-          state.roles.map((role) => {
+          visibleRoles.length === 0 ? (
+            <EmptyState icon={Shield} title="No roles in this unit" description="Choose another unit or create the first unit-specific role." />
+          ) : visibleRoles.map((role) => {
             const perms = state.catalogue.filter((p) => role.permissions & p.bit);
             const isOpen = expanded === role.id;
             return (
@@ -145,8 +165,7 @@ export default function Roles() {
 
       <p className="flex items-start gap-2 px-1 text-xs leading-relaxed text-text-3">
         <Info className="mt-0.5 h-3 w-3 shrink-0" />
-        Position is the hierarchy. You cannot create, edit or hand out a role at or above your own — otherwise anyone
-        who can manage roles could make themselves an administrator. Yours is {state.topPosition}.
+        Position is the hierarchy inside {unitLabel(selectedUnit, org.units)}. You cannot create, edit, or hand out a role at or above your own. Your position here is {selectedPosition || 'not assigned'}.
       </p>
 
       {editing && (

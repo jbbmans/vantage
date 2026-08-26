@@ -1,10 +1,10 @@
-# VANTAGE 3.5.0-rc.2 Security Review
+# VANTAGE 3.6.0 Security Review
 
 ## Executive result
 
 VANTAGE is suitable for controlled evaluation with synthetic or specifically authorized data when deployed as documented on a protected US-region host. It is not ready to be represented as an official MCEN system and has not received an ATO.
 
-The release candidate materially improves the original application: exact-unit authorization is server-enforced, personal and private scopes fail closed, self-registration does not create unit access, sessions are revocable and cookie-only, high-risk lifecycle actions are operator-bound, imports and attachments are bounded, security events are audited, and production dependencies currently report zero known advisories through `npm audit --omit=dev`.
+The VANTAGE 3.6 code boundary enforces exact-unit authorization, fail-closed personal and private scopes, unattached self-registration, revocable cookie-only sessions, operator-bound lifecycle actions, bounded imports and attachments, audited security events, and allow-listed operator configuration.
 
 ## Review scope and evidence
 
@@ -12,7 +12,7 @@ The release candidate materially improves the original application: exact-unit a
 - SQLite schema, migrations, constraints, backup, attachments, and retention behavior
 - React client authentication state, sensitive drafts, imports/exports, settings, and visibility controls
 - Docker, Render, Fly.io, environment, and YAML configuration
-- 399 automated checks across configuration, parsing, logic, API, scenario, escalation, tenancy, permission matrix, and migration suites
+- 406 automated checks across configuration, parsing, logic, API, scenario, escalation, tenancy, permission matrix, isolated 50-account workload, and migration suites
 - Production dependency audit after upgrading React Router and Recharts
 - Authenticated cloud-browser review of Command, Quick Capture, Records, Work, and Settings
 
@@ -111,4 +111,4 @@ The Codex Security deep-scan coordinator was not available in this session, so t
 
 ## Security acceptance statement
 
-Within the code boundary, the release candidate has strong least-privilege and tenant-isolation controls and no known production dependency advisory at the time of this review. It should be deployed only in evaluation mode until the high-priority operational and authorization items above are closed.
+Within the code boundary, VANTAGE 3.6 has strong least-privilege and tenant-isolation controls. It should be deployed in evaluation mode until the high-priority operational and authorization items above are closed.

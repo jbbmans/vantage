@@ -6,7 +6,6 @@ import { useToast } from '@/components/ui/toast';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { Panel, PageHeader, EmptyState, Button, Input, Field, Select, Badge } from '@/components/ui/primitives';
 import { ECHELON_OPTIONS } from '@/lib/constants';
-import { cn } from '@/lib/utils';
 import { errorText } from '@/lib/api';
 
 /**
@@ -40,8 +39,6 @@ export default function Units() {
   }, [org.units]);
 
   const manageable = unitsWith(PERMISSIONS.MANAGE_UNITS);
-  const memberCounts = useMemo(() => new Map(), []);
-
   if (!manageable.length && !identity?.isOperator) {
     return (
       <div className="mx-auto max-w-2xl">
@@ -57,7 +54,7 @@ export default function Units() {
   }
 
   return (
-    <div className="mx-auto max-w-3xl space-y-3">
+    <div className="mx-auto max-w-5xl space-y-3">
       <PageHeader title="Units" subtitle={`${org.units.length} units in the tree`}>
         <Button
           variant="primary"

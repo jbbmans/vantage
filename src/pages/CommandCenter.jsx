@@ -149,7 +149,7 @@ export default function CommandCenter() {
   const track = useEvalTrack();
   const navigate = useNavigate();
   const layout = useDashboardLayout();
-  const [period, setPeriod] = useState('fiscalQuarter');
+  const [period, setPeriod] = useState(() => prefs.interface?.dashboardPeriod || 'fiscalQuarter');
   const [chartMode, setChartMode] = useState('impact');
   const [profile, setProfile] = useState(null);
 
@@ -220,7 +220,7 @@ export default function CommandCenter() {
         <div className="pl-4 sm:pl-7"><Metric value={formatNumber(scoped.length)} label="transactions" to="/activities" /></div>
         <div className="pl-4 sm:pl-7"><Metric accent value={`${completenessRate}%`} label="records complete" to="/activities?quality=complete" /></div>
         <div className="pl-4 sm:pl-7"><Metric value={`${workHours.toFixed(1)}h`} label="work logged" to="/work" /></div>
-        <div className="pl-4 sm:pl-7"><Metric value={formatNumber(openActionCount)} label="open actions" to="/work" /></div>
+        <div className="pl-4 sm:pl-7"><Metric value={formatNumber(openActionCount)} label="next actions" to={actionsToday[0]?.to || '/readiness'} /></div>
       </section>
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_245px]">
@@ -247,6 +247,15 @@ export default function CommandCenter() {
             </div>
           </div>
 
+          {activities.length === 0 ? (
+            <EmptyState
+              icon={Inbox}
+              className="mt-5 min-h-[310px]"
+              title="Your operational picture starts with one record"
+              description="Log a completed action and Vantage will build the trend, quality, and impact views from the source data."
+              action={<Button size="sm" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log'))}>Log first activity</Button>}
+            />
+          ) : (
           <div className="mt-5 h-[310px] w-full" aria-label={`${chartLabel} over the last twelve weeks`}>
             <ResponsiveContainer width="100%" height="100%">
               <ComposedChart data={series} margin={{ top: 16, right: 8, left: 4, bottom: 0 }}>
@@ -269,6 +278,7 @@ export default function CommandCenter() {
               </ComposedChart>
             </ResponsiveContainer>
           </div>
+          )}
         </section>
 
         <aside className="border-b border-rule py-6 xl:pl-8" aria-labelledby="attention-heading">

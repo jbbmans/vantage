@@ -265,6 +265,54 @@ export const configPath = resolveConfigPath();
 const supplied = existsSync(configPath) ? parseConfigYaml(readFileSync(configPath, 'utf8')) : {};
 export const config = Object.freeze(validateConfig(withEnvironment(mergeKnown(DEFAULT_CONFIG, supplied))));
 
+/**
+ * Settings an Instance Operator may change without editing YAML or opening the
+ * database.  The allow-list is intentionally narrow: proxy trust, auth proxy
+ * headers, storage paths, retention guarantees, and session cryptography stay
+ * deployment-owned.  These values are read dynamically by their call sites,
+ * so an approved change takes effect as soon as it is saved.
+ */
+const EDITABLE_CONFIG = Object.freeze({
+  ui: ['default_theme'],
+  auth: ['self_registration'],
+  limits: ['max_guest_days'],
+  attachments: ['enabled', 'max_bytes', 'max_per_record'],
+  experience_metrics: ['enabled'],
+});
+
+export function editableConfig() {
+  return Object.fromEntries(
+    Object.entries(EDITABLE_CONFIG).map(([section, keys]) => [
+      section,
+      Object.fromEntries(keys.map((key) => [key, config[section][key]])),
+    ])
+  );
+}
+
+export function applyEditableConfig(patch) {
+  if (!patch || typeof patch !== 'object' || Array.isArray(patch)) {
+    throw new Error('Configuration changes must be an object.');
+  }
+  const next = structuredClone(config);
+  for (const [section, values] of Object.entries(patch)) {
+    if (!Object.prototype.hasOwnProperty.call(EDITABLE_CONFIG, section)) {
+      throw new Error(`Configuration section ${section} cannot be changed in the app.`);
+    }
+    if (!values || typeof values !== 'object' || Array.isArray(values)) {
+      throw new Error(`Configuration section ${section} must be an object.`);
+    }
+    for (const [key, value] of Object.entries(values)) {
+      if (!EDITABLE_CONFIG[section].includes(key)) {
+        throw new Error(`Configuration setting ${section}.${key} cannot be changed in the app.`);
+      }
+      next[section][key] = value;
+    }
+  }
+  validateConfig(next);
+  for (const section of Object.keys(EDITABLE_CONFIG)) Object.assign(config[section], next[section]);
+  return editableConfig();
+}
+
 export function resolveStoragePath(path) {
   return isAbsolute(path) ? path : resolve(PROJECT_ROOT, path);
 }
@@ -284,6 +332,7 @@ export function safeConfig() {
     attachments: config.attachments,
     retention: config.retention,
     experience_metrics: config.experience_metrics,
+    editable: editableConfig(),
     config_file: process.env.VANTAGE_CONFIG || 'config/app.yaml',
   };
 }

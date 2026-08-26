@@ -54,12 +54,18 @@ import {
   transferMember, deactivateMember, reactivateMember, resetMemberPassword, forceLogout,
   accessReview, primaryAssignment,
 } from './lifecycle.js';
-import { config, safeConfig } from './config.js';
+import { applyEditableConfig, config, editableConfig, safeConfig } from './config.js';
 import { attachmentDisposition, inspectAttachment } from './attachments.js';
 import { EXPERIENCE_EVENTS, recordExperience } from './experience.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const db = getDb();
+try {
+  const savedRuntimeConfig = db.prepare("SELECT value FROM meta WHERE key = 'runtime_config'").get()?.value;
+  if (savedRuntimeConfig) applyEditableConfig(JSON.parse(savedRuntimeConfig));
+} catch (err) {
+  console.error('Ignoring invalid saved runtime configuration:', err.message);
+}
 const maintenancePath = `${db.name}.maintenance`;
 pruneSessions(db);
 
@@ -192,6 +198,32 @@ const fail = (res, code, msg, extra = {}) => res.status(code).json({ error: msg,
 const failValidation = (res, fieldErrors) =>
   fail(res, 400, fieldErrorMessage(fieldErrors), { code: 'validation', fieldErrors });
 const denyResult = (res, r) => fail(res, r.status || 403, r.message, { code: r.code });
+
+/**
+ * Operator-managed runtime configuration. Only the allow-listed, non-secret
+ * settings accepted by applyEditableConfig can reach this row. Keeping the
+ * write behind the operator gate makes Settings the control surface without
+ * turning the database into a second, undocumented configuration language.
+ */
+app.put('/api/admin/config', auth, operatorGate(db), (req, res) => {
+  try {
+    const saved = applyEditableConfig(req.body || {});
+    db.prepare(
+      "INSERT INTO meta (key, value) VALUES ('runtime_config', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+    ).run(JSON.stringify(saved));
+    audit({
+      actor_id: req.user.id,
+      action: 'edit_configuration',
+      entity: 'instance',
+      detail: Object.entries(req.body || {}).flatMap(([section, values]) =>
+        Object.keys(values || {}).map((key) => `${section}.${key}`)
+      ).join(', '),
+    });
+    res.json({ ...safeConfig(), editable: editableConfig() });
+  } catch (err) {
+    fail(res, 400, err.message || 'That configuration change is not valid.');
+  }
+});
 
 /** Guard a route on a permission held in a specific unit. */
 const needs = (flag, unitFrom = (req) => req.body?.unit_id || req.params?.unitId) => (req, res, next) => {
@@ -359,6 +391,7 @@ app.get('/api/setup', (req, res) => {
     selfRegistration: config.auth.self_registration,
     passwordEnabled: config.auth.password_enabled,
     cacPivEnabled: config.auth.cac_piv.enabled,
+    defaultTheme: config.ui.default_theme,
   });
 });
 

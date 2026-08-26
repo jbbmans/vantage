@@ -22,10 +22,10 @@ const EFFORT_TONE = {
 };
 
 const EFFORT_LABEL = {
-  trivial: 'minutes',
-  low: 'cheap',
-  medium: 'real work',
-  high: 'a campaign',
+  trivial: 'quick win',
+  low: 'low lift',
+  medium: 'focused work',
+  high: 'long-term effort',
 };
 
 /** Chip that tells a Marine whether a line is policy, their own data, or Vantage's opinion (finding 22). */
