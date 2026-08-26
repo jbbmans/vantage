@@ -57,7 +57,7 @@ const GUIDE = [
     id: 'team', title: '8. Team, units, and roles', body: [
       `Team is the roster and personnel workspace for authorized leaders. Add or enroll members, manage assignments, review access, and open a Marine's record only inside the exact unit where the role grants that action.`,
       `Units describe the organization. Parent-child relationships provide a readable hierarchy but never cascade access. Unit ownership is explicit and survives ordinary role changes.`,
-      `Roles are edited one unit at a time. Permissions stack across the roles a Marine holds in that unit, while position rules prevent a role manager from creating or granting authority at or above their own.`,
+      `Open Edit team beside a unit to create, edit, delete, or reorder its roles. Permissions stack across the roles a Marine holds in that unit, while position rules prevent a role manager from creating or granting authority at or above their own.`,
     ],
   },
   {

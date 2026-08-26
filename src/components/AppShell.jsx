@@ -48,7 +48,6 @@ const PAGE_TITLES = [
   ['/career', 'Career'],
   ['/reports', 'Reports'],
   ['/units', 'Units'],
-  ['/roles', 'Roles'],
   ['/help', 'Help'],
   ['/settings', 'Settings'],
 ];
@@ -155,7 +154,7 @@ function RailLink({ item, mobile = false }) {
       className={({ isActive }) => {
         const active = isActive || (!mobile && item.activeOn?.some((path) => location.pathname.startsWith(path)));
         return cn(
-          'group relative flex transition-colors',
+          'group relative flex transition-[color,background-color,transform] duration-150 active:scale-[0.98]',
           mobile
             ? 'items-center gap-3 rounded-md px-3 py-2.5 text-base'
             : 'h-[72px] flex-col items-center justify-center gap-1.5 px-2 text-xs',
@@ -344,8 +343,8 @@ export default function AppShell() {
 
       {drawer && (
         <div className="no-print fixed inset-0 z-50 lg:hidden">
-          <button type="button" className="absolute inset-0 bg-[#102a36]/50 backdrop-blur-sm" onClick={() => setDrawer(false)} aria-label="Close menu overlay" />
-          <aside className="absolute inset-y-0 left-0 w-[min(88vw,320px)] border-r border-rule shadow-[var(--shadow)]">
+          <button type="button" className="absolute inset-0 bg-[#102a36]/50 backdrop-blur-sm animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu overlay" />
+          <aside className="absolute inset-y-0 left-0 w-[min(88vw,320px)] border-r border-rule shadow-[var(--shadow)] animate-slide-in-left">
             {mobileRail}
           </aside>
         </div>
@@ -417,7 +416,9 @@ export default function AppShell() {
             </div>
           )}
           <RefreshFailedBanner />
-          <Outlet />
+          <div key={location.pathname} className="animate-page-enter">
+            <Outlet />
+          </div>
         </main>
 
         <footer className="no-print border-t border-rule px-5 py-2.5 text-2xs text-text-3 lg:px-10">

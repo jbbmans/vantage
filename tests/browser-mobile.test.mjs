@@ -37,7 +37,7 @@ const check = (n, ok, d = '') => {
 
 const browser = await chromium.launch();
 
-const ROUTES = ['/', '/activities', '/work', '/goals', '/readiness', '/reports', '/team', '/roles', '/units', '/settings', '/help'];
+const ROUTES = ['/', '/activities', '/work', '/goals', '/readiness', '/reports', '/team', '/units', '/settings', '/help'];
 
 for (const width of [375, 768]) {
   const context = await browser.newContext({ viewport: { width, height: 780 } });

@@ -148,7 +148,7 @@ export default function CommandCenter() {
   const prefs = usePrefs();
   const track = useEvalTrack();
   const navigate = useNavigate();
-  const layout = useDashboardLayout();
+  const layout = useDashboardLayout(SUPPORT_SECTIONS.map((section) => section.id));
   const [period, setPeriod] = useState(() => prefs.interface?.dashboardPeriod || 'fiscalQuarter');
   const [chartMode, setChartMode] = useState('impact');
   const [profile, setProfile] = useState(null);
@@ -337,7 +337,7 @@ export default function CommandCenter() {
         <div className="mb-3 flex items-center justify-between">
           <div>
             <h3 id="support-heading" className="text-lg font-semibold text-text">Supporting views</h3>
-            <p className="mt-1 text-sm text-text-3">Secondary detail stays below the operational picture.</p>
+            <p className="mt-1 text-sm text-text-3">Secondary detail stays below the operational picture. Drag any section handle to reorder it.</p>
           </div>
           <Badge tone="neutral">customizable</Badge>
         </div>

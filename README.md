@@ -39,7 +39,7 @@ The Command center follows an at-a-glance hierarchy: essential measures and the 
 - Select This week, Last 12 weeks, Fiscal year, or All time.
 - Switch the primary chart between Impact, Transactions, Hours, and Records.
 - Open any metric or attention item to reach its supporting view.
-- Collapse or hide Today, Fiscal tape, Record quality, and Goals from Display.
+- Drag Today, Fiscal tape, Record quality, and Goals into the order that fits the mission, then collapse or hide them from Display.
 - Keep a personalized Command layout across devices through account preferences.
 - Start an empty workspace through a direct Log first activity action instead of an uninformative zero chart.
 
@@ -53,7 +53,7 @@ VANTAGE treats every unit as its own authorization boundary.
 - Private records retain exact-unit context while remaining owner-only.
 - Unit records are shared only with members holding the necessary permission in that exact unit.
 - Org-chart parent and child relationships provide breadcrumbs and structure; they never cascade access.
-- Roles are copied into each unit and can be configured independently.
+- Roles are copied into each unit and configured from that team's Edit team workspace, including drag-and-drop hierarchy ordering and keyboard controls.
 - The Instance Operator manages infrastructure recovery and approved instance settings without becoming a universal application-record reader.
 - Protected cross-person reads, exports, backups, role changes, lifecycle actions, and configuration changes are audited.
 
@@ -68,7 +68,7 @@ Every signed-in account can configure these options in Settings:
 - default Command reporting period;
 - default Report period and opening format;
 - focused or expanded Quick Log fields;
-- visible and collapsed Command sections;
+- ordered, visible, and collapsed Command sections;
 - password and active sessions; and
 - FITREP reporting preferences where applicable.
 

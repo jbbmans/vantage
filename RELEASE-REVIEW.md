@@ -12,7 +12,7 @@ VANTAGE 3.6 is the command-ready controlled-evaluation release of the performanc
 | Daily capture | Always-available Quick Log with editable date, quantity, units, dollars, transaction type, context, visibility, outcome, and notes |
 | Records and reporting | Searchable source ledger, duplicate-aware import, safe export, evaluation narrative, bullet package, change report, and print workflows |
 | Work and career | Tasks, projects, measurable goals, Training & PME, Recognition, Readiness, and rank-aware preparation |
-| Team administration | Exact-unit roster, assignments, guest access, roles, permissions, unit ownership, account lifecycle, and access review |
+| Team administration | Exact-unit roster, assignments, guest access, in-context role editing and ordering, permissions, unit ownership, account lifecycle, and access review |
 | Configuration | Per-account theme, density, periods, report format, Quick Log defaults, dashboard layout, and allow-listed operator runtime controls |
 | Security boundary | Revocable sessions, exact-unit authorization, owner-only personal scope, audited protected reads, validation, throttling, and deployment-owned secrets |
 | Deployment | Same-origin Node/Express application, SQLite persistence, Docker, Render, Fly.io, health checks, backup, restore, reset, and roster provisioning |

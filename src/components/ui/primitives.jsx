@@ -32,7 +32,8 @@ export const Button = forwardRef(function Button(
     <Comp
       ref={ref}
       className={cn(
-        'inline-flex shrink-0 items-center rounded border transition-colors duration-100',
+        'inline-flex shrink-0 items-center rounded border transition-[color,background-color,border-color,transform,box-shadow] duration-150',
+        'hover:-translate-y-px active:translate-y-0 active:scale-[0.98]',
         'disabled:pointer-events-none disabled:opacity-40',
         VARIANTS[variant],
         SIZES[size],

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Shield, Plus, Trash2, Lock, ChevronDown, ChevronRight, Info } from 'lucide-react';
+import { Shield, Plus, Trash2, ChevronDown, ChevronRight, Info, GripVertical, ArrowUp, ArrowDown } from 'lucide-react';
 import * as apiClient from '@/lib/api';
 import { useOrg, useIdentity, unitOptions, hydrate } from '@/store/useStore';
 import { useToast } from '@/components/ui/toast';
@@ -23,7 +23,7 @@ const SWATCHES = ['#8D98A8', '#3DD68C', '#F0A93B', '#4C9DFF', '#A78BFA', '#FB718
  * you cannot touch a role at or above your own, and you cannot grant a
  * permission you do not hold.
  */
-export default function Roles() {
+export default function Roles({ embeddedUnit = null }) {
   const org = useOrg();
   const identity = useIdentity();
   const toast = useToast();
@@ -34,7 +34,9 @@ export default function Roles() {
   const [roleErrors, setRoleErrors] = useState({});
   const [deleting, setDeleting] = useState(null);
   const [expanded, setExpanded] = useState(null);
-  const [selectedUnit, setSelectedUnit] = useState('');
+  const [selectedUnit, setSelectedUnit] = useState(embeddedUnit || '');
+  const [dragging, setDragging] = useState(null);
+  const [reordering, setReordering] = useState(false);
 
   const load = async () => {
     setLoading(true);
@@ -50,11 +52,15 @@ export default function Roles() {
   }, [state.roles, org.units]);
 
   useEffect(() => {
+    if (embeddedUnit) {
+      setSelectedUnit(embeddedUnit);
+      return;
+    }
     if (!roleUnitOptions.length) return;
     if (roleUnitOptions.some((option) => option.value === selectedUnit)) return;
     const primary = identity?.assignments?.find((assignment) => assignment.is_primary)?.unit_id;
     setSelectedUnit(roleUnitOptions.some((option) => option.value === primary) ? primary : roleUnitOptions[0].value);
-  }, [roleUnitOptions, selectedUnit, identity]);
+  }, [roleUnitOptions, selectedUnit, identity, embeddedUnit]);
 
   const grouped = useMemo(() => {
     const map = {};
@@ -67,22 +73,87 @@ export default function Roles() {
   const canCreate = selectedPosition > 0;
   const roleDraftKey = draftKey(identity?.user?.id, 'role');
 
+  const moveRole = async (sourceId, targetId) => {
+    if (reordering || !sourceId || sourceId === targetId) return;
+    const editable = visibleRoles.filter((role) => role.editable);
+    const from = editable.findIndex((role) => role.id === sourceId);
+    const to = editable.findIndex((role) => role.id === targetId);
+    if (from < 0 || to < 0) return;
+
+    const reordered = [...editable];
+    const [moved] = reordered.splice(from, 1);
+    reordered.splice(to, 0, moved);
+    const availablePositions = editable.map((role) => role.position).sort((a, b) => b - a);
+    const withPositions = reordered.map((role, index) => ({ ...role, position: availablePositions[index] }));
+    const queue = [...withPositions];
+    const nextVisible = visibleRoles.map((role) => role.editable ? queue.shift() : role);
+
+    setReordering(true);
+    setState((current) => ({
+      ...current,
+      roles: [
+        ...current.roles.filter((role) => role.unit_id !== selectedUnit),
+        ...nextVisible,
+      ],
+    }));
+
+    try {
+      for (const role of withPositions) {
+        const original = editable.find((item) => item.id === role.id);
+        if (original?.position !== role.position) await apiClient.updateRole(role.id, { position: role.position });
+      }
+      toast.success('Role order updated.');
+      await load();
+      await hydrate();
+    } catch (err) {
+      toast.error(errorText(err));
+      await load();
+    } finally {
+      setDragging(null);
+      setReordering(false);
+    }
+  };
+
+  const nudgeRole = (roleId, direction) => {
+    const editable = visibleRoles.filter((role) => role.editable);
+    const index = editable.findIndex((role) => role.id === roleId);
+    const target = editable[index + direction];
+    if (target) moveRole(roleId, target.id);
+  };
+
   return (
-    <div className="mx-auto max-w-5xl space-y-3">
-      <PageHeader
-        title="Roles"
-        subtitle="One exact unit at a time. Permissions stack only inside the unit where they are granted."
-      >
-        {roleUnitOptions.length > 0 && (
-          <Select value={selectedUnit} onValueChange={(value) => { setSelectedUnit(value); setExpanded(null); }} options={roleUnitOptions} className="w-48" aria-label="Role unit" />
-        )}
-        {canCreate && (
-          <Button variant="primary" size="sm" onClick={() => setEditing({ isNew: true, permissions: 1, position: 1, color: SWATCHES[0], unit_id: selectedUnit })}>
-            <Plus className="h-3.5 w-3.5" />
-            New role
-          </Button>
-        )}
-      </PageHeader>
+    <div className={cn(embeddedUnit ? 'space-y-3' : 'mx-auto max-w-5xl space-y-3')}>
+      {!embeddedUnit && (
+        <PageHeader
+          title="Roles"
+          subtitle="One exact unit at a time. Permissions stack only inside the unit where they are granted."
+        >
+          {roleUnitOptions.length > 0 && (
+            <Select value={selectedUnit} onValueChange={(value) => { setSelectedUnit(value); setExpanded(null); }} options={roleUnitOptions} className="w-48" aria-label="Role unit" />
+          )}
+          {canCreate && (
+            <Button variant="primary" size="sm" onClick={() => setEditing({ isNew: true, permissions: 1, position: 1, color: SWATCHES[0], unit_id: selectedUnit })}>
+              <Plus className="h-3.5 w-3.5" />
+              New role
+            </Button>
+          )}
+        </PageHeader>
+      )}
+
+      {embeddedUnit && (
+        <div className="flex flex-wrap items-start justify-between gap-3 rounded-md border border-rule bg-panel-2/45 px-3 py-2.5 animate-fade-up">
+          <div>
+            <p className="eyebrow">Team access ladder</p>
+            <p className="mt-1 text-sm text-text-2">Drag editable roles to change their hierarchy, or use the arrow controls.</p>
+          </div>
+          {canCreate && (
+            <Button variant="primary" size="sm" onClick={() => setEditing({ isNew: true, permissions: 1, position: 1, color: SWATCHES[0], unit_id: selectedUnit })}>
+              <Plus className="h-3.5 w-3.5" />
+              New role
+            </Button>
+          )}
+        </div>
+      )}
 
       <Panel bodyClassName="p-0">
         {loading ? (
@@ -90,12 +161,42 @@ export default function Roles() {
         ) : (
           visibleRoles.length === 0 ? (
             <EmptyState icon={Shield} title="No roles in this unit" description="Choose another unit or create the first unit-specific role." />
-          ) : visibleRoles.map((role) => {
+          ) : visibleRoles.map((role, roleIndex) => {
             const perms = state.catalogue.filter((p) => role.permissions & p.bit);
             const isOpen = expanded === role.id;
+            const editableRoles = visibleRoles.filter((item) => item.editable);
+            const editableIndex = editableRoles.findIndex((item) => item.id === role.id);
             return (
-              <div key={role.id} className="border-b border-rule last:border-0">
+              <div
+                key={role.id}
+                className={cn(
+                  'border-b border-rule transition-[opacity,background-color,transform] duration-200 last:border-0 animate-fade-up',
+                  dragging === role.id && 'scale-[0.99] bg-signal/[0.08] opacity-55',
+                  dragging && dragging !== role.id && role.editable && 'hover:bg-signal/[0.05]'
+                )}
+                style={{ animationDelay: `${Math.min(roleIndex * 35, 210)}ms` }}
+                onDragOver={(event) => { if (dragging && role.editable) event.preventDefault(); }}
+                onDrop={(event) => { event.preventDefault(); moveRole(dragging, role.id); }}
+              >
                 <div className="flex items-center gap-2.5 px-3 py-2">
+                  {role.editable ? (
+                    <button
+                      type="button"
+                      draggable={!reordering}
+                      disabled={reordering}
+                      onDragStart={(event) => {
+                        setDragging(role.id);
+                        event.dataTransfer.effectAllowed = 'move';
+                        event.dataTransfer.setData('text/plain', role.id);
+                      }}
+                      onDragEnd={() => setDragging(null)}
+                      className="cursor-grab rounded p-1 text-text-3 transition hover:bg-panel-2 hover:text-text active:cursor-grabbing active:scale-95"
+                      aria-label={`Drag ${role.name} to reorder`}
+                      title="Drag to reorder"
+                    >
+                      <GripVertical className="h-3.5 w-3.5" />
+                    </button>
+                  ) : <span className="w-5" aria-hidden />}
                   <button
                     onClick={() => setExpanded(isOpen ? null : role.id)}
                     className="text-text-3 hover:text-text"
@@ -129,8 +230,16 @@ export default function Roles() {
                     {role.permissions & 2048 ? 'all' : perms.length}
                   </Badge>
 
-                  {role.manageable && (
+                  {role.editable && (
                     <>
+                      <div className="hidden items-center sm:flex">
+                        <Button variant="ghost" size="icon-sm" onClick={() => nudgeRole(role.id, -1)} disabled={reordering || editableIndex <= 0} aria-label={`Move ${role.name} up`}>
+                          <ArrowUp className="h-3.5 w-3.5" />
+                        </Button>
+                        <Button variant="ghost" size="icon-sm" onClick={() => nudgeRole(role.id, 1)} disabled={reordering || editableIndex < 0 || editableIndex >= editableRoles.length - 1} aria-label={`Move ${role.name} down`}>
+                          <ArrowDown className="h-3.5 w-3.5" />
+                        </Button>
+                      </div>
                       <Button variant="ghost" size="sm" onClick={() => setEditing(role)}>Edit</Button>
                       <Button variant="ghost" size="icon-sm" onClick={() => setDeleting(role)} aria-label="Delete role">
                         <Trash2 className="h-3.5 w-3.5" />
@@ -140,7 +249,7 @@ export default function Roles() {
                 </div>
 
                 {isOpen && (
-                  <div className="border-t border-rule bg-panel-2/40 px-10 py-2.5">
+                  <div className="border-t border-rule bg-panel-2/40 px-10 py-2.5 animate-fade-up">
                     {role.permissions & 2048 ? (
                       <p className="text-xs text-redline">Every permission, in every unit.</p>
                     ) : perms.length === 0 ? (

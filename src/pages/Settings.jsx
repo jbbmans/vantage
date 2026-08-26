@@ -224,7 +224,7 @@ export default function Settings() {
         <p className="mt-3 flex items-start gap-2 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">
           <ShieldCheck className="mt-0.5 h-3 w-3 shrink-0 text-ledger" />
           Access comes from active exact-unit membership and role grants, not rank or the org-chart breadcrumb.
-          Authorized unit leaders manage those grants and memberships on the Team and Roles pages.
+          Authorized unit leaders manage grants, memberships, and role definitions directly from each team on the Team page.
         </p>
       </Panel>
 
