@@ -3,7 +3,6 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Activity, ArrowRight, Award, BookOpen, FileBarChart, Target } from 'lucide-react';
 import Development from '@/pages/Development';
 import Recognition from '@/pages/Recognition';
-import { Segmented } from '@/components/ui/primitives';
 import { useGoals, useRecognitions, useTrainings } from '@/store/useStore';
 import { formatNumber } from '@/lib/metrics';
 
@@ -35,7 +34,6 @@ export default function Career() {
           <h2 className="mt-2 text-3xl font-medium tracking-tight text-text sm:text-4xl">Career story</h2>
           <p className="mt-1.5 max-w-2xl text-base text-text-3">A chronological view of training, qualifications, recognition, readiness, goals, and package-ready accomplishments.</p>
         </div>
-        <Segmented value={tab} onChange={(value) => setParams({ tab: value }, { replace: true })} options={[{ value: 'development', label: 'Training & PME' }, { value: 'recognition', label: 'Recognition' }]} label="Career section" />
       </div>
 
       <section className="grid grid-cols-2 divide-x divide-rule border-b border-rule sm:grid-cols-4" aria-label="Career totals">

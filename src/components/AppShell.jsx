@@ -30,6 +30,8 @@ import {
   useCanLead,
   useIdentity,
   useLoadError,
+  usePrefs,
+  setPref,
 } from '@/store/useStore';
 import packageJson from '../../package.json';
 import { useToast } from '@/components/ui/toast';
@@ -46,7 +48,6 @@ const PAGE_TITLES = [
   ['/career', 'Career'],
   ['/reports', 'Reports'],
   ['/units', 'Units'],
-  ['/roles', 'Roles'],
   ['/help', 'Help'],
   ['/settings', 'Settings'],
 ];
@@ -65,25 +66,49 @@ function readableDate() {
   }).format(new Date());
 }
 
-function useTheme() {
-  const [theme, setTheme] = useState(() => {
+function resolvedTheme(mode) {
+  if (mode !== 'system') return mode === 'dark' ? 'dark' : 'light';
+  return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+}
+
+function useTheme(preferredTheme) {
+  const [mode, setMode] = useState(() => {
     try {
-      return localStorage.getItem('vantage.theme') || 'light';
+      return preferredTheme || localStorage.getItem('vantage.theme') || 'light';
     } catch {
-      return 'light';
+      return preferredTheme || 'light';
     }
   });
+  const [theme, setResolved] = useState(() => resolvedTheme(mode));
 
   useEffect(() => {
-    document.documentElement.setAttribute('data-theme', theme);
+    if (preferredTheme) setMode(preferredTheme);
+  }, [preferredTheme]);
+
+  useEffect(() => {
+    const apply = () => {
+      const next = resolvedTheme(mode);
+      setResolved(next);
+      document.documentElement.setAttribute('data-theme', next);
+    };
+    apply();
     try {
-      localStorage.setItem('vantage.theme', theme);
+      localStorage.setItem('vantage.theme', mode);
     } catch {
       // Private browsing can deny local storage; the in-memory choice still works.
     }
-  }, [theme]);
+    const media = window.matchMedia?.('(prefers-color-scheme: dark)');
+    if (mode === 'system') media?.addEventListener?.('change', apply);
+    return () => media?.removeEventListener?.('change', apply);
+  }, [mode]);
 
-  return [theme, () => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))];
+  useEffect(() => {
+    const update = (event) => setMode(event.detail || 'light');
+    window.addEventListener('vantage:theme', update);
+    return () => window.removeEventListener('vantage:theme', update);
+  }, []);
+
+  return [theme, setMode];
 }
 
 function useOnline() {
@@ -121,29 +146,33 @@ function RefreshFailedBanner() {
 }
 
 function RailLink({ item, mobile = false }) {
+  const location = useLocation();
   return (
     <NavLink
       to={item.to}
       end={item.end}
-      className={({ isActive }) =>
-        cn(
-          'group relative flex transition-colors',
+      className={({ isActive }) => {
+        const active = isActive || (!mobile && item.activeOn?.some((path) => location.pathname.startsWith(path)));
+        return cn(
+          'group relative flex transition-[color,background-color,transform] duration-150 active:scale-[0.98]',
           mobile
             ? 'items-center gap-3 rounded-md px-3 py-2.5 text-base'
             : 'h-[72px] flex-col items-center justify-center gap-1.5 px-2 text-xs',
-          isActive
+          active
             ? mobile
               ? 'bg-panel-2 text-signal'
               : 'bg-[#dceaf5] text-[#1767b5]'
             : mobile
               ? 'text-text-2 hover:bg-panel-2 hover:text-text'
               : 'text-white/70 hover:bg-white/[0.07] hover:text-white'
-        )
-      }
+        );
+      }}
     >
-      {({ isActive }) => (
-        <>
-          {isActive && (
+      {({ isActive }) => {
+        const active = isActive || (!mobile && item.activeOn?.some((path) => location.pathname.startsWith(path)));
+        return (
+          <>
+          {active && (
             <span
               aria-hidden
               className={cn(
@@ -152,10 +181,11 @@ function RailLink({ item, mobile = false }) {
               )}
             />
           )}
-          <item.icon className={cn(mobile ? 'h-4 w-4' : 'h-[22px] w-[22px]', isActive && 'text-signal')} />
+          <item.icon className={cn(mobile ? 'h-4 w-4' : 'h-[22px] w-[22px]', active && 'text-signal')} />
           <span className={cn(!mobile && 'max-w-full truncate')}>{item.label}</span>
-        </>
-      )}
+          </>
+        );
+      }}
     </NavLink>
   );
 }
@@ -167,14 +197,22 @@ export default function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const online = useOnline();
-  const [theme, toggleTheme] = useTheme();
+  const prefs = usePrefs();
+  const [theme, setThemeMode] = useTheme(prefs.interface?.theme);
   const [drawer, setDrawer] = useState(false);
   const [quickLog, setQuickLog] = useState(false);
   const [quickLogSeed, setQuickLogSeed] = useState('');
   const [palette, setPalette] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
 
-  useEffect(() => setDrawer(false), [location.pathname]);
+  useEffect(() => {
+    setDrawer(false);
+    if (!location.hash) window.scrollTo({ top: 0, left: 0, behavior: 'auto' });
+  }, [location.pathname, location.hash]);
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-density', prefs.interface?.density || 'comfortable');
+  }, [prefs.interface?.density]);
 
   useEffect(() => {
     const event = location.pathname === '/' ? 'page_command'
@@ -193,6 +231,18 @@ export default function AppShell() {
     setQuickLog(true);
     trackExperience('quick_log_opened');
   }, []);
+
+  useEffect(() => {
+    const handleOpenQuickLog = (event) => openQuickLog(event.detail || '');
+    window.addEventListener('vantage:open-quick-log', handleOpenQuickLog);
+    return () => window.removeEventListener('vantage:open-quick-log', handleOpenQuickLog);
+  }, [openQuickLog]);
+
+  const toggleTheme = () => {
+    const next = theme === 'dark' ? 'light' : 'dark';
+    setThemeMode(next);
+    setPref('interface', { ...(prefs.interface || {}), theme: next });
+  };
 
   const visibleNav = useMemo(
     () =>
@@ -293,8 +343,8 @@ export default function AppShell() {
 
       {drawer && (
         <div className="no-print fixed inset-0 z-50 lg:hidden">
-          <button type="button" className="absolute inset-0 bg-[#102a36]/50 backdrop-blur-sm" onClick={() => setDrawer(false)} aria-label="Close menu overlay" />
-          <aside className="absolute inset-y-0 left-0 w-[min(88vw,320px)] border-r border-rule shadow-[var(--shadow)]">
+          <button type="button" className="absolute inset-0 bg-[#102a36]/50 backdrop-blur-sm animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu overlay" />
+          <aside className="absolute inset-y-0 left-0 w-[min(88vw,320px)] border-r border-rule shadow-[var(--shadow)] animate-slide-in-left">
             {mobileRail}
           </aside>
         </div>
@@ -366,7 +416,9 @@ export default function AppShell() {
             </div>
           )}
           <RefreshFailedBanner />
-          <Outlet />
+          <div key={location.pathname} className="animate-page-enter">
+            <Outlet />
+          </div>
         </main>
 
         <footer className="no-print border-t border-rule px-5 py-2.5 text-2xs text-text-3 lg:px-10">

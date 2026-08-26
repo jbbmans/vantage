@@ -103,7 +103,7 @@ export default function Goals() {
           <EmptyState
             icon={Target}
             title={goals.length ? 'Nothing in this view' : 'No goals set'}
-            description="Set a target with a number attached. Vague goals produce vague bullets."
+            description="Set a measurable target and let matching work update progress automatically."
             action={<Button size="sm" onClick={() => setDialog({})}>Set a goal</Button>}
           />
         </Panel>

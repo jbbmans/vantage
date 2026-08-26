@@ -261,7 +261,7 @@ export default function MemberDetail() {
         <div className="space-y-3">
           <Panel title="Needs strengthening" subtitle="Coach these before the package is due" bodyClassName="p-0">
             {gapped.length === 0 ? (
-              <EmptyState title="Every entry is defensible" />
+              <EmptyState title="No activity in this period" description="Adjust the reporting window or add an authorized record." />
             ) : (
               gapped.slice(0, 6).map((a) => (
                 <div key={a.id} className="row px-3 py-2">

@@ -64,7 +64,7 @@ await page.waitForTimeout(1500);
 for (const [path, label] of [
   ['/', 'command center'], ['/activities', 'activities'], ['/work', 'work'],
   ['/goals', 'goals'], ['/readiness', 'readiness'], ['/reports', 'reports'],
-  ['/team', 'team'], ['/roles', 'roles'], ['/units', 'units'],
+  ['/team', 'team'], ['/units', 'units'],
   ['/settings', 'settings'], ['/help', 'help'],
 ]) {
   await page.goto(BASE + path, { waitUntil: 'domcontentloaded' });

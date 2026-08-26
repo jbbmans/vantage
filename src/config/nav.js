@@ -1,6 +1,6 @@
 import {
   Gauge, ListChecks, Briefcase, Target, GraduationCap, FileBarChart,
-  Settings2, Users, Shield, Building2, Activity, LifeBuoy,
+  Settings2, Users, Building2, Activity, LifeBuoy,
 } from 'lucide-react';
 
 /**
@@ -16,12 +16,11 @@ export const NAV = [
   { to: '/activities', label: 'Records', icon: ListChecks, key: 'g a' },
   { to: '/readiness', label: 'Readiness', icon: Activity, key: 'g j' },
   { to: '/team', label: 'Team', icon: Users, key: 'g t', requiresLead: true },
-  { to: '/work', label: 'Work', icon: Briefcase, key: 'g w' },
+  { to: '/work', label: 'Work', icon: Briefcase, key: 'g w', activeOn: ['/goals'] },
   { to: '/goals', label: 'Goals', icon: Target, key: 'g g' },
-  { to: '/career', label: 'Career', icon: GraduationCap, key: 'g v' },
+  { to: '/career', label: 'Career', icon: GraduationCap, key: 'g v', activeOn: ['/readiness'] },
   { to: '/reports', label: 'Reports', icon: FileBarChart, key: 'g p' },
   { to: '/units', label: 'Units', icon: Building2, key: 'g u', requires: 'MANAGE_UNITS' },
-  { to: '/roles', label: 'Roles', icon: Shield, key: 'g o', requires: 'MANAGE_ROLES' },
   { to: '/help', label: 'Help', icon: LifeBuoy, key: 'g h' },
   { to: '/settings', label: 'Settings', icon: Settings2, key: 'g s' },
 ];

@@ -97,7 +97,7 @@ for (const [path, expect] of [
   ['/goals', 'Goals'], ['/development', 'Development'],
   ['/recognition', 'Recognition'], ['/reports', 'Reports'],
   ['/settings', 'Settings'], ['/team', 'Team'],
-  ['/readiness', 'Readiness'], ['/roles', 'Roles'], ['/units', 'Units'],
+  ['/readiness', 'Readiness'], ['/units', 'Units'],
   ['/career', 'Career'], ['/help', 'Help'],
 ]) {
   await page.goto(BASE + path, { waitUntil: 'domcontentloaded' });
@@ -161,9 +161,11 @@ check('no invented composite is displayed', !/\/\s*1000/.test(t) && t.includes('
 check('advice is labeled as policy, data, or coaching', t.includes('Coaching heuristic') && t.includes('Official reference'));
 check('MOS qualification pointer is present', t.includes('MOS Qualification'));
 
-// 5c. Roles: the permission model is visible and hierarchy is explained
-await page.goto(BASE + '/roles', { waitUntil: 'domcontentloaded' });
+// 5c. Team editing owns the role permission model and hierarchy.
+await page.goto(BASE + '/team', { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(450);
+await page.getByRole('button', { name: /edit team/i }).first().click();
+await page.waitForTimeout(350);
 t = await page.textContent('body');
 // was: ['Marine','Fire Team Leader','NCOIC','Section Head','Administrator'] —
 // the six org-wide rows every install shipped. Finding 1 replaced them with a
@@ -306,8 +308,10 @@ await page2.locator('input').first().fill('uihayes');
 await page2.locator('input[type="password"]').fill('uihayes-long-enough-passphrase');
 await page2.keyboard.press('Enter');
 await page2.waitForTimeout(1400);
-await page2.goto(BASE + '/roles', { waitUntil: 'domcontentloaded' });
+await page2.goto(BASE + '/team', { waitUntil: 'domcontentloaded' });
 await page2.waitForTimeout(900);
+await page2.getByRole('button', { name: /edit team/i }).first().click();
+await page2.waitForTimeout(350);
 await page2.locator('div,li,tr').filter({ hasText: 'UI Clerk' }).last()
   .getByRole('button', { name: 'Edit' }).click();
 await page2.waitForTimeout(500);

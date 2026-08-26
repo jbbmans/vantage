@@ -1,9 +1,12 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, BarChart3, Download, Eye, FileSpreadsheet, Server, ShieldCheck, SlidersHorizontal,
+  AlertTriangle, BarChart3, Download, Eye, FileSpreadsheet, MonitorCog, Server, ShieldCheck, SlidersHorizontal,
 } from 'lucide-react';
 import * as apiClient from '@/lib/api';
-import { useIdentity, useOrg, createMany, refreshAll, unitPath, useActivities } from '@/store/useStore';
+import {
+  useIdentity, createMany, unitPath, useActivities,
+  usePrefs, setPref, flushPrefs,
+} from '@/store/useStore';
 import { parseSpreadsheet, guessMapping, applyMapping, IMPORT_FIELDS, exportWorkbook } from '@/lib/sheets';
 import { screenImport } from '@/lib/duplicates';
 import { formatDTG } from '@/lib/metrics';
@@ -17,13 +20,13 @@ import {
 export default function Settings() {
   const toast = useToast();
   const identity = useIdentity();
-  const org = useOrg();
   const activities = useActivities();
   const projects = useProjects();
   const tasks = useTasks();
   const goals = useGoals();
   const recognitions = useRecognitions();
   const trainings = useTrainings();
+  const prefs = usePrefs();
 
   const [importState, setImportState] = useState(null);
   const [audit, setAudit] = useState([]);
@@ -31,6 +34,8 @@ export default function Settings() {
   const [sessions, setSessions] = useState([]);
   const [dbInfo, setDbInfo] = useState(null);
   const [deploymentConfig, setDeploymentConfig] = useState(null);
+  const [configDraft, setConfigDraft] = useState(null);
+  const [configBusy, setConfigBusy] = useState(false);
   const [experience, setExperience] = useState(null);
   const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
   const [pwBusy, setPwBusy] = useState(false);
@@ -39,7 +44,11 @@ export default function Settings() {
   useEffect(() => {
     let live = true;
     apiClient.health().then((h) => { if (live && h?.version) setServerVersion(h.version); }).catch(() => {});
-    apiClient.configuration().then((c) => { if (live) setDeploymentConfig(c); }).catch(() => {});
+    apiClient.configuration().then((c) => {
+      if (!live) return;
+      setDeploymentConfig(c);
+      setConfigDraft(c.editable || null);
+    }).catch(() => {});
     return () => { live = false; };
   }, []);
 
@@ -136,6 +145,30 @@ export default function Settings() {
   };
 
   const assignment = identity?.assignments?.[0];
+  const interfacePrefs = prefs.interface || {};
+  const saveInterface = (key, value) => {
+    const next = { ...interfacePrefs, [key]: value };
+    setPref('interface', next);
+    if (key === 'theme') window.dispatchEvent(new CustomEvent('vantage:theme', { detail: value }));
+    if (key === 'density') document.documentElement.setAttribute('data-density', value);
+    flushPrefs();
+  };
+
+  const setConfigValue = (section, key, value) => setConfigDraft((current) => ({
+    ...current,
+    [section]: { ...current?.[section], [key]: value },
+  }));
+
+  const saveConfiguration = async () => {
+    setConfigBusy(true);
+    try {
+      const saved = await apiClient.updateConfiguration(configDraft);
+      setDeploymentConfig(saved);
+      setConfigDraft(saved.editable || null);
+      toast.success('Deployment settings saved and applied.');
+    } catch (err) { toast.error(apiClient.errorText(err)); }
+    finally { setConfigBusy(false); }
+  };
 
   return (
     <div className="page-canvas settings-page">
@@ -151,6 +184,7 @@ export default function Settings() {
           <nav className="space-y-1 border-l border-rule pl-3 text-sm">
             {[
               ['account', 'Account'],
+              ['interface', 'Interface'],
               ['security', 'Password'],
               ['sessions', 'Sessions'],
               ['database', 'Database'],
@@ -181,7 +215,7 @@ export default function Settings() {
             <p className="mt-0.5 text-base text-text">{assignment?.billet_title || 'None assigned'}</p>
           </div>
           <div className="col-span-2 sm:col-span-3">
-            <p className="eyebrow">Chain</p>
+            <p className="eyebrow">Assigned unit</p>
             <p className="mt-0.5 text-base text-text-2">
               {unitPath(assignment?.unit_id).map((u) => u.short_name || u.name).join(' › ') || '—'}
             </p>
@@ -190,7 +224,86 @@ export default function Settings() {
         <p className="mt-3 flex items-start gap-2 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">
           <ShieldCheck className="mt-0.5 h-3 w-3 shrink-0 text-ledger" />
           Access comes from active exact-unit membership and role grants, not rank or the org-chart breadcrumb.
-          Authorized unit leaders manage those grants and memberships on the Team and Roles pages.
+          Authorized unit leaders manage grants, memberships, and role definitions directly from each team on the Team page.
+        </p>
+      </Panel>
+
+      <Panel
+        id="interface"
+        title="Interface preferences"
+        subtitle="Saved to your account and applied on every device"
+        action={<MonitorCog className="h-4 w-4 text-signal" />}
+      >
+        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+          <Field label="Theme">
+            <Select
+              value={interfacePrefs.theme || 'light'}
+              onValueChange={(value) => saveInterface('theme', value)}
+              options={[
+                { value: 'light', label: 'Light' },
+                { value: 'dark', label: 'Dark' },
+                { value: 'system', label: 'Match device' },
+              ]}
+            />
+          </Field>
+          <Field label="Information density">
+            <Select
+              value={interfacePrefs.density || 'comfortable'}
+              onValueChange={(value) => saveInterface('density', value)}
+              options={[
+                { value: 'comfortable', label: 'Comfortable' },
+                { value: 'compact', label: 'Compact' },
+              ]}
+            />
+          </Field>
+          <Field label="Command period">
+            <Select
+              value={interfacePrefs.dashboardPeriod || 'fiscalQuarter'}
+              onValueChange={(value) => saveInterface('dashboardPeriod', value)}
+              options={[
+                { value: 'week', label: 'This week' },
+                { value: 'fiscalQuarter', label: 'Last 12 weeks' },
+                { value: 'fiscalYear', label: 'Fiscal year' },
+                { value: 'all', label: 'All time' },
+              ]}
+            />
+          </Field>
+          <Field label="Report period">
+            <Select
+              value={interfacePrefs.reportPeriod || 'fiscalYear'}
+              onValueChange={(value) => saveInterface('reportPeriod', value)}
+              options={[
+                { value: 'fiscalQuarter', label: 'Fiscal quarter' },
+                { value: 'fiscalYear', label: 'Fiscal year' },
+                { value: 'month', label: 'Month' },
+                { value: 'year', label: 'Calendar year' },
+              ]}
+            />
+          </Field>
+          <Field label="Report opens to">
+            <Select
+              value={interfacePrefs.reportView || 'narrative'}
+              onValueChange={(value) => saveInterface('reportView', value)}
+              options={[
+                { value: 'narrative', label: 'Evaluation input' },
+                { value: 'bullets', label: 'Bullet package' },
+                { value: 'delta', label: 'Change report' },
+              ]}
+            />
+          </Field>
+          <Field label="Quick Log fields">
+            <Select
+              value={interfacePrefs.quickLogExpanded ? 'expanded' : 'focused'}
+              onValueChange={(value) => saveInterface('quickLogExpanded', value === 'expanded')}
+              options={[
+                { value: 'focused', label: 'Focused' },
+                { value: 'expanded', label: 'Show outcome & notes' },
+              ]}
+            />
+          </Field>
+        </div>
+        <p className="mt-4 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">
+          Dashboard section visibility and collapsed panels remain configurable from the Command page's Display menu.
         </p>
       </Panel>
 
@@ -290,7 +403,7 @@ export default function Settings() {
         <Panel
           id="configuration"
           title="Deployment configuration"
-          subtitle="One reviewed YAML file, with environment overrides for secrets and host paths"
+          subtitle={identity?.isOperator ? 'Safe runtime controls for this Vantage instance' : 'Deployment capabilities and boundaries'}
         >
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
             {[
@@ -309,14 +422,45 @@ export default function Settings() {
               </div>
             ))}
           </div>
-          <p className="mt-4 flex items-start gap-2 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">
-            <SlidersHorizontal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" />
-            <span>
-              Edit <span className="fig text-text-2">{deploymentConfig.config_file || 'config/app.yaml'}</span> and restart the service.
-              The loader rejects unknown keys, invalid ranges, unsafe retention changes, and unsupported YAML at startup.
-              Keep setup and CAC proxy secrets in the hosting secret manager, never in YAML.
-            </span>
-          </p>
+          {identity?.isOperator && configDraft ? (
+            <div className="mt-4 border-t border-rule pt-4">
+              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
+                <Field label="New account registration">
+                  <Select value={configDraft.auth?.self_registration ? 'enabled' : 'disabled'} onValueChange={(value) => setConfigValue('auth', 'self_registration', value === 'enabled')} options={[{ value: 'enabled', label: 'Enabled' }, { value: 'disabled', label: 'Disabled' }]} />
+                </Field>
+                <Field label="Attachments">
+                  <Select value={configDraft.attachments?.enabled ? 'enabled' : 'disabled'} onValueChange={(value) => setConfigValue('attachments', 'enabled', value === 'enabled')} options={[{ value: 'enabled', label: 'Enabled' }, { value: 'disabled', label: 'Disabled' }]} />
+                </Field>
+                <Field label="Default theme">
+                  <Select value={configDraft.ui?.default_theme || 'light'} onValueChange={(value) => setConfigValue('ui', 'default_theme', value)} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} />
+                </Field>
+                <Field label="Attachment limit" hint="MB per file">
+                  <Input type="number" min="1" max="50" value={Math.round((configDraft.attachments?.max_bytes || 10485760) / 1048576)} onChange={(event) => setConfigValue('attachments', 'max_bytes', Number(event.target.value) * 1048576)} />
+                </Field>
+                <Field label="Files per record">
+                  <Input type="number" min="1" max="50" value={configDraft.attachments?.max_per_record || 10} onChange={(event) => setConfigValue('attachments', 'max_per_record', Number(event.target.value))} />
+                </Field>
+                <Field label="Guest access maximum" hint="days">
+                  <Input type="number" min="1" max="365" value={configDraft.limits?.max_guest_days || 30} onChange={(event) => setConfigValue('limits', 'max_guest_days', Number(event.target.value))} />
+                </Field>
+                <Field label="Aggregate UX metrics">
+                  <Select value={configDraft.experience_metrics?.enabled ? 'enabled' : 'disabled'} onValueChange={(value) => setConfigValue('experience_metrics', 'enabled', value === 'enabled')} options={[{ value: 'enabled', label: 'Enabled' }, { value: 'disabled', label: 'Disabled' }]} />
+                </Field>
+              </div>
+              <div className="mt-4 flex items-start gap-3 border-t border-rule pt-3">
+                <SlidersHorizontal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" />
+                <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-3">
+                  Security-sensitive proxy headers, storage paths, session policy, retention guarantees, and secrets remain deployment-managed in <span className="fig text-text-2">{deploymentConfig.config_file || 'config/app.yaml'}</span> or the hosting secret manager.
+                </p>
+                <Button variant="primary" size="sm" onClick={saveConfiguration} disabled={configBusy}>{configBusy ? 'Saving…' : 'Save configuration'}</Button>
+              </div>
+            </div>
+          ) : (
+            <p className="mt-4 flex items-start gap-2 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">
+              <SlidersHorizontal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" />
+              Instance Operators can update approved non-secret controls here. Security-sensitive values stay in the reviewed deployment configuration.
+            </p>
+          )}
         </Panel>
       )}
 

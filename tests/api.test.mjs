@@ -189,6 +189,47 @@ await test('public configuration exposes capabilities but no deployment secrets'
   assert.equal(JSON.stringify(res.body).includes('VANTAGE_CAC_PROXY_SECRET'), false);
 });
 
+await test('only the Instance Operator can apply allow-listed runtime configuration', async () => {
+  const refused = await call('PUT', '/api/admin/config', {
+    token: riveraToken,
+    body: { ui: { default_theme: 'dark' } },
+  });
+  assert.equal(refused.status, 403);
+
+  const saved = await call('PUT', '/api/admin/config', {
+    token: adminToken,
+    body: {
+      ui: { default_theme: 'dark' },
+      limits: { max_guest_days: 45 },
+      attachments: { enabled: true, max_bytes: 5 * 1024 * 1024, max_per_record: 8 },
+      auth: { self_registration: true },
+      experience_metrics: { enabled: true },
+    },
+  });
+  assert.equal(saved.status, 200, saved.body?.error);
+  assert.equal(saved.body.ui.default_theme, 'dark');
+  assert.equal(saved.body.limits.max_guest_days, 45);
+  assert.equal(saved.body.attachments.max_per_record, 8);
+
+  const unknown = await call('PUT', '/api/admin/config', {
+    token: adminToken,
+    body: { storage: { database_path: '/tmp/not-allowed.db' } },
+  });
+  assert.equal(unknown.status, 400);
+
+  const restored = await call('PUT', '/api/admin/config', {
+    token: adminToken,
+    body: {
+      ui: { default_theme: 'light' },
+      limits: { max_guest_days: 30 },
+      attachments: { enabled: true, max_bytes: 10 * 1024 * 1024, max_per_record: 10 },
+      auth: { self_registration: true },
+      experience_metrics: { enabled: true },
+    },
+  });
+  assert.equal(restored.status, 200);
+});
+
 await test('experience metrics retain aggregate allow-listed counts only', async () => {
   assert.equal((await call('POST', '/api/experience', {
     token: adminToken, body: { event: 'quick_log_saved' },

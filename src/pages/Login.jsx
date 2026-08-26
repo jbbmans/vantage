@@ -29,6 +29,13 @@ export default function Login() {
   useEffect(() => {
     needsSetup()
       .then((r) => {
+        try {
+          if (!localStorage.getItem('vantage.theme')) {
+            const defaultTheme = r.defaultTheme === 'dark' ? 'dark' : 'light';
+            localStorage.setItem('vantage.theme', defaultTheme);
+            document.documentElement.setAttribute('data-theme', defaultTheme);
+          }
+        } catch { /* the CSS default remains available */ }
         setSetupTokenRequired(Boolean(r.requiresSetupToken));
         setCapabilities({
           selfRegistration: Boolean(r.selfRegistration),
@@ -42,15 +49,26 @@ export default function Login() {
 
   const submit = async (e) => {
     e?.preventDefault();
+    // Read credentials from the submitted form instead of trusting React state
+    // alone. Password managers and secure browser handoffs can populate native
+    // inputs without emitting the same sequence of events as a keyboard; the
+    // submitted values are still present in FormData and must remain usable.
+    const form = e?.currentTarget ? new FormData(e.currentTarget) : null;
+    const submittedUsername = String(form?.get('username') || username).trim();
+    const submittedPassword = String(form?.get('password') || password);
     setError('');
+    if (!submittedUsername || !submittedPassword) {
+      setError('Enter both your username and password.');
+      return;
+    }
     setBusy(true);
     try {
       if (mode === 'setup') {
-        await runSetup({ username, password, ...setupForm });
+        await runSetup({ username: submittedUsername, password: submittedPassword, ...setupForm });
       } else if (mode === 'register') {
-        await registerAccount({ username, password, ...setupForm });
+        await registerAccount({ username: submittedUsername, password: submittedPassword, ...setupForm });
       }
-      await signIn(username, password);
+      await signIn(submittedUsername, submittedPassword);
     } catch (err) {
       setError(err.message);
     } finally {
@@ -121,11 +139,12 @@ export default function Login() {
 
         <div className="mt-4 space-y-3">
           <Field label="Username">
-            <Input value={username} onChange={(e) => setUsername(e.target.value)} autoFocus autoComplete="username" />
+            <Input name="username" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus autoComplete="username" />
           </Field>
           <Field label="Password" hint={mode === 'setup' ? '15 characters minimum — use a unique passphrase' : undefined}>
             <Input
               type="password"
+              name="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
@@ -176,7 +195,7 @@ export default function Login() {
           variant="primary"
           size="md"
           className="mt-4 w-full justify-center"
-          disabled={busy || mode === 'checking' || !username || !password
+          disabled={busy || mode === 'checking'
             || ((mode === 'setup' || mode === 'register') && (!setupForm.first_name || !setupForm.last_name))
             || (mode === 'setup' && setupTokenRequired && !setupForm.setup_token)}
         >

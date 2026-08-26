@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { UserPlus, Users, Shield, ChevronRight, Search } from 'lucide-react';
 import * as apiClient from '@/lib/api';
-import { useOrg, useIdentity, unitOptions, unitPath, displayName } from '@/store/useStore';
+import { useOrg, useIdentity, unitOptions, unitPath, displayName, can, PERMISSIONS } from '@/store/useStore';
 import { useToast } from '@/components/ui/toast';
 import { Dialog } from '@/components/ui/Dialog';
 import {
@@ -11,6 +11,7 @@ import {
 import { cn } from '@/lib/utils';
 import { errorText } from '@/lib/api';
 import { draftKey } from '@/lib/drafts';
+import Roles from '@/pages/Roles';
 
 /**
  * The roster.
@@ -24,18 +25,23 @@ export default function Team() {
   const identity = useIdentity();
   const toast = useToast();
 
-  const [state, setState] = useState({ roster: [], canLead: false, scopeUnitIds: [] });
+  const [state, setState] = useState({ roster: [], canLead: false, scopeUnitIds: [], availableRoles: [] });
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [adding, setAdding] = useState(false);
   const [enrolling, setEnrolling] = useState(false);
   const [editing, setEditing] = useState(null);
+  const [editingTeam, setEditingTeam] = useState(null);
   const [memberErrors, setMemberErrors] = useState({});
 
   const load = async () => {
     setLoading(true);
     try {
-      setState(await apiClient.team());
+      const [teamState, roleState] = await Promise.all([
+        apiClient.team(),
+        apiClient.roles().catch(() => ({ roles: [] })),
+      ]);
+      setState({ ...teamState, availableRoles: roleState.roles || [] });
     } catch (err) {
       toast.error(errorText(err));
     } finally {
@@ -124,15 +130,29 @@ export default function Team() {
         <p className="py-12 text-center text-sm text-text-3">Loading roster…</p>
       ) : (
         <div>
-          {grouped.map(([unitId, group]) => (
-            <section key={unitId} className="grid gap-4 border-b border-rule py-6 lg:grid-cols-[230px_minmax(0,1fr)]">
+          {grouped.map(([unitId, group], groupIndex) => (
+            <section
+              key={unitId}
+              className="grid gap-4 border-b border-rule py-6 lg:grid-cols-[230px_minmax(0,1fr)] animate-fade-up"
+              style={{ animationDelay: `${Math.min(groupIndex * 55, 220)}ms` }}
+            >
               <div>
                 <div className="flex items-center gap-2"><h3 className="text-lg font-semibold text-text">{group.unit}</h3><Badge tone="neutral">{group.people.length}</Badge></div>
                 <p className="mt-1 text-xs leading-relaxed text-text-3">{unitPath(unitId).slice(0, -1).map((unit) => unit.short_name || unit.name).join(' › ') || 'Independent unit'}</p>
+                {unitId !== '__none' && can(PERMISSIONS.MANAGE_ROLES, unitId) && (
+                  <Button variant="ghost" size="sm" className="mt-3" onClick={() => setEditingTeam({ id: unitId, name: group.unit })}>
+                    <Shield className="h-3.5 w-3.5" />
+                    Edit team
+                  </Button>
+                )}
               </div>
               <div className="rounded-md border border-rule bg-panel">
-                {group.people.map((p) => (
-                  <div key={p.id} className="row flex items-center gap-3 px-3 py-3">
+                {group.people.map((p, personIndex) => (
+                  <div
+                    key={p.id}
+                    className="row flex items-center gap-3 px-3 py-3 animate-fade-up"
+                    style={{ animationDelay: `${Math.min((groupIndex * 2 + personIndex) * 28, 280)}ms` }}
+                  >
                 <Link to={`/team/${p.id}`} className="flex min-w-0 flex-1 items-center gap-3">
                   <span className="fig w-14 shrink-0 text-xs text-signal">{p.rank_abbr || '—'}</span>
                   <span className="min-w-0 flex-1">
@@ -174,7 +194,7 @@ export default function Team() {
           units={scopedUnits}
           billets={org.billets}
           ranks={org.ranks}
-          roles={org.roles || []}
+          roles={state.availableRoles}
           draftStorageKey={memberDraftKey}
           fieldErrors={memberErrors}
           onCancel={() => { setAdding(false); setMemberErrors({}); try { sessionStorage.removeItem(memberDraftKey); } catch { /* fine */ } }}
@@ -208,7 +228,7 @@ export default function Team() {
           units={scopedUnits}
           billets={org.billets}
           ranks={org.ranks}
-          roles={org.roles || []}
+          roles={state.availableRoles}
           initial={{ unit_id: editing.unit_id, role_id: '' }}
           assignmentOnly
           fieldErrors={memberErrors}
@@ -229,6 +249,19 @@ export default function Team() {
             }
           }}
         />
+      )}
+
+      {editingTeam && (
+        <Dialog
+          open
+          onOpenChange={(open) => !open && setEditingTeam(null)}
+          title={`Edit ${editingTeam.name}`}
+          description="Roles, permissions, and hierarchy belong to this team. Changes apply only inside this exact unit."
+          size="xl"
+          footer={<Button variant="primary" size="sm" onClick={() => setEditingTeam(null)}>Done</Button>}
+        >
+          <Roles embeddedUnit={editingTeam.id} />
+        </Dialog>
       )}
     </div>
   );
@@ -364,7 +397,13 @@ function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, 
   const BILLET_ROLE = { team_lead: 'fire-team-leader', unit_leader: 'unit-leader', member: '' };
   const pickBillet = (billetId) => {
     const billet = billets.find((b) => b.id === billetId);
-    setDraft((d) => ({ ...d, billet_id: billetId, role_id: BILLET_ROLE[billet?.default_role] ?? d.role_id }));
+    const suggestedTemplate = BILLET_ROLE[billet?.default_role];
+    setDraft((d) => {
+      const suggestedRole = suggestedTemplate
+        ? roles.find((role) => role.unit_id === d.unit_id && (role.template_key === suggestedTemplate || role.id === suggestedTemplate))
+        : null;
+      return { ...d, billet_id: billetId, role_id: suggestedRole?.id || '' };
+    });
   };
 
   const byCategory = billets.reduce((acc, b) => {
@@ -421,7 +460,7 @@ function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, 
         <Field error={fieldErrors.unit_id} label="Unit">
           <Select
             value={draft.unit_id}
-            onValueChange={set('unit_id')}
+            onValueChange={(value) => setDraft((current) => ({ ...current, unit_id: value, role_id: '' }))}
             options={units.map((u) => ({
               value: u.id,
               label: `${'\u00A0\u00A0'.repeat(u.depth)}${u.short_name || u.name}`,
@@ -454,7 +493,7 @@ function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, 
             options={[
               { value: '', label: 'Marine only' },
               ...roles
-                .filter((r) => r.id !== 'marine')
+                .filter((r) => r.unit_id === draft.unit_id && r.template_key !== 'marine' && r.id !== 'marine')
                 .map((r) => ({ value: r.id, label: r.name })),
             ]}
           />

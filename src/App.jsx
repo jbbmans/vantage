@@ -20,7 +20,6 @@ import { hydrate, useIdentity, useReady, useLoadError } from '@/store/useStore';
 // Neither belongs in the first paint, so both load on navigation.
 const Reports = lazy(() => import('@/pages/Reports'));
 const Settings = lazy(() => import('@/pages/Settings'));
-const Roles = lazy(() => import('@/pages/Roles'));
 const Units = lazy(() => import('@/pages/Units'));
 const Help = lazy(() => import('@/pages/Help'));
 
@@ -104,7 +103,8 @@ export default function App() {
                   <Route path="activities/:id" element={<ActivityDetail />} />
                   <Route path="readiness" element={<Readiness />} />
                   <Route path="team" element={<Team />} />
-                  <Route path="roles" element={<Suspense fallback={<RouteFallback />}><Roles /></Suspense>} />
+                  {/* Role management now lives with its team; old bookmarks land there. */}
+                  <Route path="roles" element={<Navigate to="/team" replace />} />
                   <Route path="units" element={<Suspense fallback={<RouteFallback />}><Units /></Suspense>} />
                   <Route path="team/:id" element={<MemberDetail />} />
                   <Route path="work" element={<Work />} />

@@ -1,8 +1,8 @@
 import React, { useMemo, useState } from 'react';
-import { Copy, Download, Printer, FileText, Inbox, Users, ArrowUp, ArrowDown, Minus } from 'lucide-react';
+import { Copy, Download, Printer, FileText, Inbox, Users, ArrowUp, ArrowDown, Minus, ListChecks, TrendingUp } from 'lucide-react';
 import {
   useActivities, useProjects, useRecognitions, useTrainings, useGoals, useTasks,
-  useIdentity, useCanLead, unitPath,
+  useIdentity, useCanLead, usePrefs, unitPath,
   can, PERMISSIONS,
 } from '@/store/useStore';
 import * as apiClient from '@/lib/api';
@@ -71,9 +71,10 @@ export default function Reports() {
   const canLead = useCanLead();
   const track = useEvalTrack();
   const toast = useToast();
+  const prefs = usePrefs();
 
-  const [period, setPeriod] = useState('fiscalYear');
-  const [view, setView] = useState('narrative');
+  const [period, setPeriod] = useState(() => prefs.interface?.reportPeriod || 'fiscalYear');
+  const [view, setView] = useState(() => prefs.interface?.reportView || 'narrative');
   const [style, setStyle] = useState('jepes');
   const [scope, setScope] = useState('me');
   const [limit, setLimit] = useState(8);
@@ -158,15 +159,41 @@ export default function Reports() {
     toast.success('Downloaded.');
   };
 
-  if (!activities.length) {
+  const hasUnitReportSource = canExportUnit && activities.some((activity) => activity.unit_id === reportUnitId);
+  if (!pool.length && !hasUnitReportSource) {
     return (
-      <div className="mx-auto max-w-3xl">
-        <Panel title="Reports">
-          <EmptyState
-            icon={Inbox}
-            title="Nothing to report on yet"
-            description="Reports are built from the activity log. Log a few entries and the package writes itself."
-          />
+      <div className="page-canvas reports-page">
+        <div className="flex flex-wrap items-end justify-between gap-5 border-b border-rule pb-5">
+          <div>
+            <p className="eyebrow">Analysis and package builder</p>
+            <h2 className="mt-2 text-3xl font-medium tracking-tight text-text sm:text-4xl">Report studio</h2>
+            <p className="mt-1.5 max-w-2xl text-base text-text-3">Turn source records into a structured evaluation input, a bullet package, or a period-over-period brief.</p>
+          </div>
+          <Button variant="primary" size="md" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log'))}>
+            Log first activity
+          </Button>
+        </div>
+
+        <section className="grid gap-3 py-6 md:grid-cols-3" aria-label="Available report formats">
+          {[
+            [FileText, trackMeta(track).inputName, 'A concise, character-aware narrative organized around your evaluation track.'],
+            [ListChecks, 'Bullet package', 'Strongest accomplishments grouped by area and ready to copy, print, or refine.'],
+            [TrendingUp, 'Change report', 'Current period against the prior equivalent window, with exact movement and context.'],
+          ].map(([FormatIcon, title, description]) => (
+            <div key={title} className="panel rounded p-5">
+              <span className="flex h-10 w-10 items-center justify-center rounded border border-rule bg-panel-2 text-signal">{React.createElement(FormatIcon, { className: 'h-5 w-5' })}</span>
+              <h3 className="mt-4 text-lg font-semibold text-text">{title}</h3>
+              <p className="mt-2 text-sm leading-relaxed text-text-3">{description}</p>
+            </div>
+          ))}
+        </section>
+
+        <Panel title="How reports stay defensible" bodyClassName="p-5">
+          <div className="grid gap-4 text-sm leading-relaxed text-text-2 sm:grid-cols-3">
+            <p><strong className="block text-text">One source of truth</strong>Your selected activity window drives every format.</p>
+            <p><strong className="block text-text">Exact-unit boundaries</strong>Unit output appears only when your role grants export in that unit.</p>
+            <p><strong className="block text-text">No invented scores</strong>Vantage organizes evidence and leaves official evaluation decisions to authoritative systems.</p>
+          </div>
         </Panel>
       </div>
     );

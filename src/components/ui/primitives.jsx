@@ -32,7 +32,8 @@ export const Button = forwardRef(function Button(
     <Comp
       ref={ref}
       className={cn(
-        'inline-flex shrink-0 items-center rounded border transition-colors duration-100',
+        'inline-flex shrink-0 items-center rounded border transition-[color,background-color,border-color,transform,box-shadow] duration-150',
+        'hover:-translate-y-px active:translate-y-0 active:scale-[0.98]',
         'disabled:pointer-events-none disabled:opacity-40',
         VARIANTS[variant],
         SIZES[size],
@@ -212,7 +213,7 @@ export function Tooltip({ content, children, side = 'top', className }) {
 /** A titled panel. The eyebrow + hairline is the app's section grammar. */
 export function Panel({ title, subtitle, action, children, className, bodyClassName, id }) {
   return (
-    <section id={id} className={cn('panel rounded', className)}>
+    <section id={id} className={cn('panel scroll-mt-24 rounded', className)}>
       {(title || action) && (
         <header className="flex items-center justify-between gap-3 border-b border-rule px-3 py-2">
           <div className="min-w-0">
@@ -314,4 +315,3 @@ export function Segmented({ value, onChange, options = [], className, size = 'md
     </div>
   );
 }
-

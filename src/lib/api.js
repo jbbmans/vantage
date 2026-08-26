@@ -115,6 +115,7 @@ export const api = {
 export const needsSetup = () => api.get('/setup');
 export const health = () => api.get('/health');
 export const configuration = () => api.get('/config');
+export const updateConfiguration = (patch) => api.put('/admin/config', patch);
 export const runSetup = (payload) => api.post('/setup', payload);
 export const registerAccount = (payload) => api.post('/register', payload);
 export const cacPivLogin = () => api.post('/auth/cac-piv');

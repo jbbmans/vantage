@@ -18,7 +18,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
           className={cn(
             'fixed z-50 flex flex-col overflow-hidden border border-rule-strong bg-panel shadow-[var(--shadow)]',
             isDrawer
-              ? 'inset-y-0 right-0 h-screen w-full max-w-[560px] border-y-0 border-r-0 sm:w-[min(46vw,560px)]'
+              ? 'inset-y-0 right-0 h-screen w-full max-w-[560px] border-y-0 border-r-0 sm:w-[min(46vw,560px)] data-[state=open]:animate-slide-in-right'
               : cn('left-1/2 top-1/2 max-h-[88vh] w-[calc(100vw-2rem)] -translate-x-1/2 -translate-y-1/2 rounded data-[state=open]:animate-scale-in', widths[size]),
             className
           )}
