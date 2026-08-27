@@ -39,10 +39,16 @@ const check = (n, ok, d='') => {
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 // Refusals the flows deliberately provoke (stale 409, a deactivated member's
-// 403, an expired 401) are the UX under test, not breakage — everything else
+// 404, a scoped 403, an expired 401) are the UX under test, not breakage — everything else
 // in the console still fails the run.
+const allowed404Paths = new Set();
+page.on('response', (response) => {
+  if (response.status() !== 404) return;
+  const path = new URL(response.url()).pathname;
+  if (!allowed404Paths.has(path)) problems.push(`unexpected 404: ${path}`);
+});
 page.on('console', m => {
-  if (m.type()==='error' && !/status of (401|403|409)/.test(m.text())) {
+  if (m.type()==='error' && !/status of (401|403|404|409)/.test(m.text())) {
     problems.push('console: '+m.text().slice(0,160));
   }
 });
@@ -267,6 +273,9 @@ const uiMember = await page.evaluate(async () => {
   return res.json();
 });
 check('UI member fixture created', Boolean(uiMember.id));
+// Once deactivated, the ordinary member-detail route intentionally disappears;
+// the page switches to the operator-only access-review card instead.
+allowed404Paths.add(`/api/team/${uiMember.id}`);
 await page.goto(`${BASE}/team/${uiMember.id}`, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(1100);
 t = await page.textContent('body');
