@@ -99,12 +99,19 @@ export async function hydrate() {
     const nextIdentity = await api.me();
     if (identity?.user?.id && identity.user.id !== nextIdentity?.user?.id) clearUserState();
     identity = nextIdentity;
-    const [nextOrg, nextPrefs] = await Promise.all([
-      api.org(),
+    const [orgResult, nextPrefs] = await Promise.all([
+      // Preserve the organization error until every record request has
+      // settled. Promise.all would otherwise publish `ready` as soon as this
+      // request failed while late record loads were still mutating the cache.
+      api.org().then(
+        (value) => ({ value, error: null }),
+        (error) => ({ value: null, error })
+      ),
       api.prefs().catch(() => ({})),
       Promise.all(api.STORES.map((name) => reloadStore(name))),
     ]);
-    orgData = nextOrg;
+    if (orgResult.error) throw orgResult.error;
+    orgData = orgResult.value;
     prefsState = nextPrefs;
   } catch (err) {
     if (err.status === 401) clearUserState();

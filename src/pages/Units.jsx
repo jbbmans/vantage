@@ -39,7 +39,10 @@ export default function Units() {
   }, [org.units]);
 
   const manageable = unitsWith(PERMISSIONS.MANAGE_UNITS);
-  const preferredManageable = preferredUnitId(manageable);
+  // An operator with no unit-management grant creates a top-level unit. An
+  // empty candidate list must stay empty rather than falling back to their
+  // unrelated primary assignment and submitting it as an unauthorized parent.
+  const preferredManageable = manageable.length ? preferredUnitId(manageable) : '';
   if (!manageable.length && !identity?.isOperator) {
     return (
       <div className="mx-auto max-w-2xl">

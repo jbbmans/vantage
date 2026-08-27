@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect } from 'react';
 import { Lock, Users, NotebookPen } from 'lucide-react';
 import { useIdentity, unitById, preferredUnitId } from '@/store/useStore';
 import { Field, Select } from '@/components/ui/primitives';
@@ -45,12 +45,19 @@ export const DEFAULT_VISIBILITY = 'unit';
 
 export default function VisibilityPicker({ value = DEFAULT_VISIBILITY, onChange, unitId, label = 'Visible to' }) {
   const identity = useIdentity();
-  const selected = VISIBILITY_OPTIONS.find((o) => o.value === value)
-    || VISIBILITY_OPTIONS.find((o) => o.value === DEFAULT_VISIBILITY);
-
   const memberships = identity?.memberships || [];
+  const effectiveValue = memberships.length ? value : 'personal';
+  const selected = VISIBILITY_OPTIONS.find((o) => o.value === effectiveValue)
+    || VISIBILITY_OPTIONS.find((o) => o.value === DEFAULT_VISIBILITY);
   const target = unitId || preferredUnitId(memberships.map((membership) => membership.unit_id));
   const unit = unitById(target);
+
+  // An unattached account has no unit in which a private/unit record can
+  // honestly live. Keep the parent draft aligned with the only option shown,
+  // so the label, submitted payload, and server scope cannot disagree.
+  useEffect(() => {
+    if (!memberships.length && value !== 'personal') onChange?.('personal');
+  }, [memberships.length, value, onChange]);
 
   /* Someone with no unit at all — a Marine between commands, or one who has
    * only ever kept their own log — can still record everything. Personal
@@ -60,14 +67,14 @@ export default function VisibilityPicker({ value = DEFAULT_VISIBILITY, onChange,
     ? VISIBILITY_OPTIONS
     : VISIBILITY_OPTIONS.filter((o) => o.value === 'personal');
 
-  const hint = value === 'personal' || value === 'private' || !unit
+  const hint = effectiveValue === 'personal' || effectiveValue === 'private' || !unit
     ? selected.hint
     : `${selected.hint} Scoped to ${unit.short_name || unit.name}.`;
 
   return (
     <Field label={label} hint={hint}>
       <Select
-        value={value}
+        value={effectiveValue}
         onValueChange={onChange}
         options={options.map((o) => ({ value: o.value, label: o.label }))}
       />
@@ -88,12 +95,19 @@ export default function VisibilityPicker({ value = DEFAULT_VISIBILITY, onChange,
 export function UnitTargetPicker({ value, onChange, label = 'Assign to unit', units = [] }) {
   const identity = useIdentity();
   const memberships = identity?.memberships || [];
-  if (memberships.length < 1) return null;
-
   const options = units.length
     ? units
     : memberships.map((m) => unitById(m.unit_id) || { id: m.unit_id, name: m.unit_name, short_name: m.unit_short });
-  const fallback = preferredUnitId(options.map((unit) => unit.id));
+  const fallback = memberships.length ? preferredUnitId(options.map((unit) => unit.id)) : '';
+
+  // The Select may display its fallback before the user touches it. Persist
+  // that same value into the parent draft so submission cannot silently fall
+  // back to a different unit on the server.
+  useEffect(() => {
+    if (!value && fallback) onChange?.(fallback);
+  }, [value, fallback, onChange]);
+
+  if (memberships.length < 1) return null;
 
   return (
     <Field label={label} hint="Everyone in this unit will see it. Nobody outside it will.">

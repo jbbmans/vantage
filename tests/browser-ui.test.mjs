@@ -45,11 +45,13 @@ const inputs = page.locator('input');
 // first/last name fields
 await page.locator('input').nth(2).fill('John');
 await page.locator('input').nth(3).fill('Boletz');
-await page.getByRole('button', { name: /create account/i }).click();
-await page.waitForTimeout(1250);
+await page.getByRole('button', { name: /create unit leader and sign in/i }).click();
+await page.getByRole('button', { name: 'Open account menu' }).waitFor({ timeout: 6000 });
 
 check('signed in to the shell', await page.locator('text=VANTAGE').first().isVisible());
-check('rail shows rank and name', (await page.textContent('body')).includes('Boletz'));
+await page.getByRole('button', { name: 'Open account menu' }).click();
+check('account menu shows the signed-in name', (await page.textContent('body')).includes('John Boletz'));
+await page.keyboard.press('Escape');
 
 // 2. log an activity through the real UI
 await page.keyboard.press('n');

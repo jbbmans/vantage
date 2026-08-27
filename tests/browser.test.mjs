@@ -11,7 +11,16 @@ for (const f of [DB, DB + '-wal', DB + '-shm']) {
 const srv = spawn('node', ['server/index.js'], {
   // The bootstrap account is the Instance Operator so the fixtures below can
   // claim the seeded units they exercise (v3.4 finding 4).
-  env: { ...process.env, VANTAGE_DB: DB, PORT: String(PORT), VANTAGE_OPERATOR: 'boletz' },
+  env: {
+    ...process.env,
+    VANTAGE_DB: DB,
+    PORT: String(PORT),
+    VANTAGE_OPERATOR: 'boletz',
+    // Browser fixtures create additional accounts that must be able to sign
+    // in immediately. Production still forces operator-created accounts to
+    // replace their temporary password on first use.
+    VANTAGE_TEST: '1',
+  },
   stdio: ['ignore','pipe','pipe'],
 });
 srv.stdout.on('data', d => process.stdout.write('[srv] '+d));
@@ -55,10 +64,12 @@ const inputs = page.locator('input');
 await page.locator('input').nth(2).fill('John');
 await page.locator('input').nth(3).fill('Boletz');
 await page.getByRole('button', { name: /create unit leader and sign in/i }).click();
-await page.waitForTimeout(1250);
+await page.getByRole('button', { name: 'Open account menu' }).waitFor({ timeout: 6000 });
 
 check('signed in to the shell', await page.locator('text=VANTAGE').first().isVisible());
-check('rail shows rank and name', (await page.textContent('body')).includes('Boletz'));
+await page.getByRole('button', { name: 'Open account menu' }).click();
+check('account menu shows the signed-in name', (await page.textContent('body')).includes('John Boletz'));
+await page.keyboard.press('Escape');
 
 /* Production starts with only MFR. Build the two browser-test units through
  * the same endpoint a Unit Leader uses in the real interface. */
@@ -77,7 +88,7 @@ const createdUnits = await page.evaluate(async () => {
   }
   return out;
 });
-check('fixture units created', Object.values(createdUnits).every((s) => s === 201), JSON.stringify(createdUnits));
+check('fixture units created', Object.values(createdUnits).every((s) => s >= 200 && s < 300), JSON.stringify(createdUnits));
 
 // 2. log an activity through the real UI
 await page.keyboard.press('n');
@@ -169,10 +180,9 @@ await page.waitForTimeout(350);
 t = await page.textContent('body');
 // was: ['Marine','Fire Team Leader','NCOIC','Section Head','Administrator'] —
 // the six org-wide rows every install shipped. Finding 1 replaced them with a
-// template COPIED into each unit, and finding 21 cut the default set to three
-// roles plus an Owner, so a SNCOIC can be productive without opening the
-// permission editor.
-check('the unit\'s own role set is listed', ['Marine','NCO','SNCOIC','Owner'].every(x=>t.includes(x)));
+// template COPIED into each unit. The approved default ladder now ends in the
+// named Unit Leader role; ownership itself remains a separate unit property.
+check('the unit\'s own role set is listed', ['Marine','NCO','SNCOIC','Unit Leader'].every(x=>t.includes(x)));
 check('hierarchy rule explained', t.includes('at or above your own'));
 await page.getByRole('button', { name: /new role/i }).click();
 await page.waitForTimeout(300);

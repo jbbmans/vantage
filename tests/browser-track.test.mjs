@@ -16,7 +16,15 @@ for (const f of [DB, DB + '-wal', DB + '-shm']) {
 }
 
 const srv = spawn('node', ['server/index.js'], {
-  env: { ...process.env, VANTAGE_DB: DB, PORT: String(PORT), VANTAGE_OPERATOR: 'boletz' },
+  env: {
+    ...process.env,
+    VANTAGE_DB: DB,
+    PORT: String(PORT),
+    VANTAGE_OPERATOR: 'boletz',
+    // Enables the explicit bearer-token test harness and lets synthetic
+    // accounts exercise their track without a first-login password reset.
+    VANTAGE_TEST: '1',
+  },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 srv.stderr.on('data', (d) => process.stdout.write('[srv-err] ' + d));
