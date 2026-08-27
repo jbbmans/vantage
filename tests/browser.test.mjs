@@ -8,7 +8,7 @@ for (const f of [DB, DB + '-wal', DB + '-shm']) {
   try { rmSync(f, { force: true }); } catch { /* not there yet */ }
 }
 
-const srv = spawn('node', ['server/index.js'], {
+const srv = spawn('node', ['tests/browser-server.mjs'], {
   // The bootstrap account is the Instance Operator so the fixtures below can
   // claim the seeded units they exercise (v3.4 finding 4).
   env: {
