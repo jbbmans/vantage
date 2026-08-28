@@ -70,11 +70,11 @@ input[type='date'] { min-width: 0; }
     --text: 20 33 43;
     --text-2: 56 81 96;
     --text-3: 75 104 120;
-    --signal: 39 118 210;
+    --signal: 27 101 184;
     --signal-ink: 255 255 255;
-    --ledger: 71 137 151;
+    --ledger: 40 106 121;
     --redline: 178 57 68;
-    --info: 75 117 153;
+    --info: 55 94 132;
     --attention: 71 103 121;
     --shadow: 0 18px 44px -28px rgb(16 42 54 / 0.42);
   }

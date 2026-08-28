@@ -102,7 +102,7 @@ export default function Login() {
           <div className="space-y-3 border-t border-white/12 pt-6 text-sm text-white/68">
             <p className="flex items-center gap-2"><LockKeyhole className="h-4 w-4 text-[#7bc4ed]" /> Exact-unit access boundaries</p>
             <p className="flex items-center gap-2"><BadgeCheck className="h-4 w-4 text-[#7bc4ed]" /> Audited protected record reads</p>
-            <p className="text-xs leading-5 text-white/45">Controlled evaluation system. Verify authorization before entering real personnel information.</p>
+            <p className="text-xs leading-5 text-white/55">Controlled evaluation system. Verify authorization before entering real personnel information.</p>
           </div>
         </section>
 
