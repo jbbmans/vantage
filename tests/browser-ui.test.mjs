@@ -53,6 +53,26 @@ await page.getByRole('button', { name: 'Open account menu' }).click();
 check('account menu shows the signed-in name', (await page.textContent('body')).includes('John Boletz'));
 await page.keyboard.press('Escape');
 
+// Password managers and secure handoffs may set native input values without
+// firing React change events. The submit control must stay available so the
+// form's FormData fallback can read and authenticate those credentials.
+const autofillContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+const autofillPage = await autofillContext.newPage();
+await autofillPage.goto(BASE, { waitUntil: 'domcontentloaded' });
+await autofillPage.locator('input[autocomplete="username"]').waitFor({ timeout: 6000 });
+await autofillPage.locator('input[autocomplete="username"]').evaluate((input) => {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'boletz');
+});
+await autofillPage.locator('input[autocomplete="current-password"]').evaluate((input) => {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'a-long-enough-passphrase');
+});
+const autofillSubmit = autofillPage.locator('button[type="submit"]');
+check('password-manager-filled sign-in remains enabled', await autofillSubmit.isEnabled());
+await autofillSubmit.click();
+await autofillPage.getByRole('button', { name: 'Open account menu' }).waitFor({ timeout: 6000 });
+check('native autofill credentials authenticate', true);
+await autofillContext.close();
+
 // 2. log an activity through the real UI
 await page.keyboard.press('n');
 await page.waitForTimeout(300);

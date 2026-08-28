@@ -196,7 +196,6 @@ export default function Login() {
           size="md"
           className="mt-4 w-full justify-center"
           disabled={busy || mode === 'checking'
-            || !username.trim() || !password
             || ((mode === 'setup' || mode === 'register') && (!setupForm.first_name || !setupForm.last_name))
             || (mode === 'setup' && setupTokenRequired && !setupForm.setup_token)}
         >
