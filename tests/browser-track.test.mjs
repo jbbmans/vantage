@@ -67,7 +67,7 @@ await api('POST', '/api/team', {
 const sgtToken = (await api('POST', '/api/login', { username: 'sgt', password: 'sergeant-long-enough-pass' })).token;
 for (const [title, area] of [
   ['Mentored two analysts through certification', 'Leadership'],
-  ['Closed the fiscal year across the section', 'Mission Accomplishment'],
+  ['Closed the fiscal year across the section', 'MOS / Mission Accomplishment'],
 ]) {
   await api('POST', '/api/activities', {
     title, date: '2026-08-01', jepes_area: area, quantity: 2, unit_label: 'Marines',
