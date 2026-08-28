@@ -69,7 +69,7 @@ await page.waitForTimeout(900);
 // private must expose and populate that target instead of submitting null and
 // letting the server reject the save.
 await page.goto(BASE + '/career?tab=recognition', { waitUntil: 'networkidle' });
-await page.getByRole('button', { name: /add recognition/i }).click();
+await page.getByRole('button', { name: 'Add recognition', exact: true }).first().click();
 const recognitionVisibility = page.getByLabel('Who sees this recognition');
 await recognitionVisibility.click();
 await page.getByRole('option', { name: 'Just me — my own log' }).click();
