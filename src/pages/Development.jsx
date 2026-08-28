@@ -145,8 +145,12 @@ export default function Development() {
                 unitId={draft.unit_id}
                 label="Who sees this development record"
               />
-              {(draft.visibility || DEFAULT_VISIBILITY) === 'unit' && (
-                <UnitTargetPicker value={draft.unit_id} onChange={(value) => set('unit_id', value || null)} />
+              {(draft.visibility || DEFAULT_VISIBILITY) !== 'personal' && (
+                <UnitTargetPicker
+                  value={draft.unit_id}
+                  onChange={(value) => set('unit_id', value || null)}
+                  visibility={draft.visibility || DEFAULT_VISIBILITY}
+                />
               )}
             </>
           )}

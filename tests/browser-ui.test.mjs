@@ -65,6 +65,21 @@ check('visibility control present', body.includes('Visible to') || body.includes
 await page.getByRole('button', { name: /save activity/i }).click();
 await page.waitForTimeout(900);
 
+// A private record still belongs to one unit. Moving from personal scope to
+// private must expose and populate that target instead of submitting null and
+// letting the server reject the save.
+await page.goto(BASE + '/career?tab=recognition', { waitUntil: 'networkidle' });
+await page.getByRole('button', { name: /add recognition/i }).click();
+const recognitionVisibility = page.getByLabel('Who sees this recognition');
+await recognitionVisibility.click();
+await page.getByRole('option', { name: 'Just me — my own log' }).click();
+await recognitionVisibility.click();
+await page.getByRole('option', { name: 'Only me', exact: true }).click();
+const privateUnit = page.getByLabel('File under unit');
+await privateUnit.waitFor({ timeout: 3000 });
+check('private scope keeps an explicit unit target', Boolean((await privateUnit.textContent()).trim()));
+await page.getByRole('button', { name: 'Cancel', exact: true }).click();
+
 
 let t;
 // 5e. dashboard: Display menu hides a section, collapse persists across reload
@@ -81,11 +96,11 @@ let dash = await page.textContent('body');
 check('hidden section leaves the page', !/GOALS/.test(dash) || dash.indexOf('Display') > -1);
 
 // collapse the tape, reload, confirm it stays collapsed (server-side prefs)
-await page.getByRole('button', { name: 'Fiscal tape', exact: true }).click();
+await page.getByRole('button', { name: /^Fiscal tape/ }).click();
 await page.waitForTimeout(450);
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(600);
-const tapeBtn = page.getByRole('button', { name: 'Fiscal tape', exact: true });
+const tapeBtn = page.getByRole('button', { name: /^Fiscal tape/ });
 check('collapsed state survives a reload', (await tapeBtn.getAttribute('aria-expanded')) === 'false');
 
 // bring goals back

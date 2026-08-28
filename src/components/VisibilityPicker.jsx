@@ -92,13 +92,18 @@ export default function VisibilityPicker({ value = DEFAULT_VISIBILITY, onChange,
  * units the actor is actually a member of, which is also the set the server
  * will accept.
  */
-export function UnitTargetPicker({ value, onChange, label = 'Assign to unit', units = [] }) {
+export function UnitTargetPicker({ value, onChange, visibility = 'unit', label, units }) {
   const identity = useIdentity();
   const memberships = identity?.memberships || [];
-  const options = units.length
+  const options = Array.isArray(units)
     ? units
     : memberships.map((m) => unitById(m.unit_id) || { id: m.unit_id, name: m.unit_name, short_name: m.unit_short });
   const fallback = memberships.length ? preferredUnitId(options.map((unit) => unit.id)) : '';
+  const privateRecord = visibility === 'private';
+  const fieldLabel = label || (privateRecord ? 'File under unit' : 'Assign to unit');
+  const hint = privateRecord
+    ? 'Only you can read this record. The unit keeps its command context.'
+    : 'Everyone in this unit will see it. Nobody outside it will.';
 
   // The Select may display its fallback before the user touches it. Persist
   // that same value into the parent draft so submission cannot silently fall
@@ -110,7 +115,7 @@ export function UnitTargetPicker({ value, onChange, label = 'Assign to unit', un
   if (memberships.length < 1) return null;
 
   return (
-    <Field label={label} hint="Everyone in this unit will see it. Nobody outside it will.">
+    <Field label={fieldLabel} hint={hint}>
       <Select
         value={value || fallback || ''}
         onValueChange={onChange}

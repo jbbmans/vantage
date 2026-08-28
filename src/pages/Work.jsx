@@ -383,11 +383,12 @@ export default function Work() {
                 unitId={draft.unit_id}
                 label="Who sees this task"
               />
-              {draft.visibility === 'unit' && (
+              {(draft.visibility || 'private') !== 'personal' && (
                 <UnitTargetPicker
                   value={draft.unit_id}
                   onChange={(v) => set('unit_id', v || null)}
-                  units={canLead ? leadableUnits : []}
+                  visibility={draft.visibility || 'private'}
+                  units={canLead ? leadableUnits : undefined}
                 />
               )}
             </>
@@ -432,11 +433,12 @@ export default function Work() {
                 unitId={draft.unit_id}
                 label="Who sees this project"
               />
-              {draft.visibility === 'unit' && (
+              {(draft.visibility || 'private') !== 'personal' && (
                 <UnitTargetPicker
                   value={draft.unit_id}
                   onChange={(v) => set('unit_id', v || null)}
-                  units={canLead ? leadableUnits : []}
+                  visibility={draft.visibility || 'private'}
+                  units={canLead ? leadableUnits : undefined}
                 />
               )}
             </>

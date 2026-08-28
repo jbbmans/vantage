@@ -231,8 +231,12 @@ export default function Goals() {
                 unitId={draft.unit_id}
                 label="Who sees this goal"
               />
-              {draft.visibility === 'unit' && (
-                <UnitTargetPicker value={draft.unit_id} onChange={(value) => set('unit_id', value || null)} />
+              {(draft.visibility || 'private') !== 'personal' && (
+                <UnitTargetPicker
+                  value={draft.unit_id}
+                  onChange={(value) => set('unit_id', value || null)}
+                  visibility={draft.visibility || 'private'}
+                />
               )}
             </>
           )}
