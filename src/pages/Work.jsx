@@ -2,7 +2,7 @@ import React, { useMemo, useState } from 'react';
 import { parseISO, isBefore, startOfDay } from 'date-fns';
 import { Plus, Trash2, CheckCheck, Clock3, Layers, Circle, CircleDot, CircleCheck, PauseCircle, GripVertical } from 'lucide-react';
 import { Link } from 'react-router-dom';
-import { useProjects, useTasks, createRecord, updateRecord, deleteRecord, restoreDeleted, useCanLead, useOrg, useIdentity, unitOptions, refreshAll } from '@/store/useStore';
+import { useProjects, useTasks, createRecord, updateRecord, deleteRecord, restoreDeleted, refreshAll } from '@/store/useStore';
 import VisibilityPicker, { UnitTargetPicker } from '@/components/VisibilityPicker';
 import { WORK_STATUS, PRIORITIES } from '@/lib/constants';
 import { formatDTG } from '@/lib/metrics';
@@ -87,14 +87,6 @@ export default function Work() {
   const projects = useProjects();
   const tasks = useTasks();
   const toast = useToast();
-  const canLead = useCanLead();
-  const org = useOrg();
-  const identity = useIdentity();
-  // Only offer units this Marine's billet actually reaches.
-  const leadableUnits = useMemo(
-    () => unitOptions(org.units).filter((u) => (identity?.scopeUnitIds || []).includes(u.id)),
-    [org.units, identity]
-  );
   const [tab, setTab] = useState('tasks');
   const [taskDialog, setTaskDialog] = useState(null);
   const [projectDialog, setProjectDialog] = useState(null);
@@ -388,7 +380,6 @@ export default function Work() {
                   value={draft.unit_id}
                   onChange={(v) => set('unit_id', v || null)}
                   visibility={draft.visibility || 'private'}
-                  units={canLead ? leadableUnits : undefined}
                 />
               )}
             </>
@@ -438,7 +429,6 @@ export default function Work() {
                   value={draft.unit_id}
                   onChange={(v) => set('unit_id', v || null)}
                   visibility={draft.visibility || 'private'}
-                  units={canLead ? leadableUnits : undefined}
                 />
               )}
             </>

@@ -96,6 +96,69 @@ const createdUnits = await page.evaluate(async () => {
 });
 check('fixture units created', Object.values(createdUnits).every((s) => s >= 200 && s < 300), JSON.stringify(createdUnits));
 
+// A Marine can be an ordinary member of a primary unit while holding record
+// permissions in a different unit. Private work may be filed under any active
+// membership, and the untouched default must remain the primary assignment —
+// permission scope in the secondary unit must not silently replace it.
+const privateProjectFixture = await page.evaluate(async () => {
+  const headers = { 'content-type': 'application/json', 'x-vantage-client': '1' };
+  const request = async (path, options = {}) => {
+    const response = await fetch(path, { headers, ...options });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(`${options.method || 'GET'} ${path}: ${payload.error || response.status}`);
+    return payload;
+  };
+  const rolePayload = await request('/api/roles');
+  const secondaryReader = rolePayload.roles.find((role) => role.unit_id === 'G8-BUDGET' && role.name === 'NCO');
+  if (!secondaryReader) throw new Error('Budget NCO role was not created');
+  const user = await request('/api/team', {
+    method: 'POST',
+    body: JSON.stringify({
+      username: 'scopepicker', password: 'scope-picker-long-passphrase', first_name: 'Scope', last_name: 'Picker',
+      rank_id: 'LCpl', mos: '3451', unit_id: 'G8-FMRAC',
+    }),
+  });
+  await request('/api/org/units/G8-BUDGET/members', {
+    method: 'POST',
+    body: JSON.stringify({ user_id: user.id, kind: 'member', role_id: secondaryReader.id }),
+  });
+  return user;
+});
+check('multi-unit private-project fixture prepared', Boolean(privateProjectFixture.id));
+
+const privateProjectContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+const privateProjectPage = await privateProjectContext.newPage();
+privateProjectPage.on('pageerror', (error) => problems.push(`private project pageerror: ${error.message.slice(0, 200)}`));
+await privateProjectPage.goto(BASE, { waitUntil: 'domcontentloaded' });
+await privateProjectPage.locator('input[autocomplete="username"]').fill('scopepicker');
+await privateProjectPage.locator('input[autocomplete="current-password"]').fill('scope-picker-long-passphrase');
+await privateProjectPage.locator('button[type="submit"]').click();
+await privateProjectPage.getByRole('button', { name: 'Open account menu' }).waitFor({ timeout: 6000 });
+await privateProjectPage.goto(`${BASE}/work`, { waitUntil: 'networkidle' });
+await privateProjectPage.getByRole('tab', { name: 'Projects', exact: true }).click();
+await privateProjectPage.getByRole('button', { name: 'New project', exact: true }).click();
+await privateProjectPage.getByLabel('Name').fill('Primary-unit private project');
+const privateProjectUnit = privateProjectPage.getByLabel('File under unit');
+await privateProjectUnit.waitFor({ timeout: 3000 });
+check('private project defaults to the primary membership', (await privateProjectUnit.textContent()).trim() === 'FMRAC');
+await privateProjectUnit.click();
+check('private project picker includes the ordinary primary membership', await privateProjectPage.getByRole('option', { name: 'FMRAC', exact: true }).isVisible());
+check('private project picker includes the permitted secondary membership', await privateProjectPage.getByRole('option', { name: 'Budget', exact: true }).isVisible());
+await privateProjectPage.getByRole('option', { name: 'FMRAC', exact: true }).click();
+await privateProjectPage.getByRole('button', { name: 'Save', exact: true }).click();
+await privateProjectPage.getByRole('dialog').waitFor({ state: 'hidden', timeout: 6000 });
+const savedPrivateProject = await privateProjectPage.evaluate(async () => {
+  const response = await fetch('/api/projects', { headers: { 'x-vantage-client': '1' } });
+  const rows = await response.json();
+  return rows.find((row) => row.name === 'Primary-unit private project');
+});
+check(
+  'private project persists under the primary membership',
+  savedPrivateProject?.unit_id === 'G8-FMRAC' && savedPrivateProject?.visibility === 'private',
+  JSON.stringify(savedPrivateProject)
+);
+await privateProjectContext.close();
+
 // 2. log an activity through the real UI
 await page.keyboard.press('n');
 await page.waitForTimeout(300);
