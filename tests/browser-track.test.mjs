@@ -15,8 +15,19 @@ for (const f of [DB, DB + '-wal', DB + '-shm']) {
   try { rmSync(f, { force: true }); } catch { /* not there yet */ }
 }
 
-const srv = spawn('node', ['server/index.js'], {
-  env: { ...process.env, VANTAGE_DB: DB, PORT: String(PORT), VANTAGE_OPERATOR: 'boletz' },
+const srv = spawn('node', ['tests/browser-server.mjs'], {
+  env: {
+    ...process.env,
+    VANTAGE_DB: DB,
+    PORT: String(PORT),
+    // Account creation is intentionally reserved for the deployment-bound
+    // Instance Operator. This fixture's Corporal provisions the Sergeant, so
+    // bind that exact setup username instead of an account that never exists.
+    VANTAGE_OPERATOR: 'cpl',
+    // Enables the explicit bearer-token test harness and lets synthetic
+    // accounts exercise their track without a first-login password reset.
+    VANTAGE_TEST: '1',
+  },
   stdio: ['ignore', 'pipe', 'pipe'],
 });
 srv.stderr.on('data', (d) => process.stdout.write('[srv-err] ' + d));
@@ -38,7 +49,9 @@ const api = async (method, path, body, token) => {
     body: body ? JSON.stringify(body) : undefined,
   });
   const text = await res.text();
-  return text ? JSON.parse(text) : null;
+  const payload = text ? JSON.parse(text) : null;
+  if (!res.ok) throw new Error(`${method} ${path} failed (${res.status}): ${payload?.error || text || 'no response body'}`);
+  return payload;
 };
 
 // A Corporal section head and a Sergeant under them.
@@ -54,7 +67,7 @@ await api('POST', '/api/team', {
 const sgtToken = (await api('POST', '/api/login', { username: 'sgt', password: 'sergeant-long-enough-pass' })).token;
 for (const [title, area] of [
   ['Mentored two analysts through certification', 'Leadership'],
-  ['Closed the fiscal year across the section', 'Mission Accomplishment'],
+  ['Closed the fiscal year across the section', 'MOS / Mission Accomplishment'],
 ]) {
   await api('POST', '/api/activities', {
     title, date: '2026-08-01', jepes_area: area, quantity: 2, unit_label: 'Marines',

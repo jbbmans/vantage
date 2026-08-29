@@ -45,11 +45,33 @@ const inputs = page.locator('input');
 // first/last name fields
 await page.locator('input').nth(2).fill('John');
 await page.locator('input').nth(3).fill('Boletz');
-await page.getByRole('button', { name: /create account/i }).click();
-await page.waitForTimeout(1250);
+await page.getByRole('button', { name: /create unit leader and sign in/i }).click();
+await page.getByRole('button', { name: 'Open account menu' }).waitFor({ timeout: 6000 });
 
 check('signed in to the shell', await page.locator('text=VANTAGE').first().isVisible());
-check('rail shows rank and name', (await page.textContent('body')).includes('Boletz'));
+await page.getByRole('button', { name: 'Open account menu' }).click();
+check('account menu shows the signed-in name', (await page.textContent('body')).includes('John Boletz'));
+await page.keyboard.press('Escape');
+
+// Password managers and secure handoffs may set native input values without
+// firing React change events. The submit control must stay available so the
+// form's FormData fallback can read and authenticate those credentials.
+const autofillContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+const autofillPage = await autofillContext.newPage();
+await autofillPage.goto(BASE, { waitUntil: 'domcontentloaded' });
+await autofillPage.locator('input[autocomplete="username"]').waitFor({ timeout: 6000 });
+await autofillPage.locator('input[autocomplete="username"]').evaluate((input) => {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'boletz');
+});
+await autofillPage.locator('input[autocomplete="current-password"]').evaluate((input) => {
+  Object.getOwnPropertyDescriptor(HTMLInputElement.prototype, 'value').set.call(input, 'a-long-enough-passphrase');
+});
+const autofillSubmit = autofillPage.locator('button[type="submit"]');
+check('password-manager-filled sign-in remains enabled', await autofillSubmit.isEnabled());
+await autofillSubmit.click();
+await autofillPage.getByRole('button', { name: 'Open account menu' }).waitFor({ timeout: 6000 });
+check('native autofill credentials authenticate', true);
+await autofillContext.close();
 
 // 2. log an activity through the real UI
 await page.keyboard.press('n');
@@ -62,6 +84,21 @@ check('parser inferred the dollar figure', body.includes('1,118.38'), '');
 check('visibility control present', body.includes('Visible to') || body.includes('Everyone in my unit'));
 await page.getByRole('button', { name: /save activity/i }).click();
 await page.waitForTimeout(900);
+
+// A private record still belongs to one unit. Moving from personal scope to
+// private must expose and populate that target instead of submitting null and
+// letting the server reject the save.
+await page.goto(BASE + '/career?tab=recognition', { waitUntil: 'networkidle' });
+await page.getByRole('button', { name: 'Add recognition', exact: true }).first().click();
+const recognitionVisibility = page.getByLabel('Who sees this recognition');
+await recognitionVisibility.click();
+await page.getByRole('option', { name: 'Just me — my own log' }).click();
+await recognitionVisibility.click();
+await page.getByRole('option', { name: 'Only me', exact: true }).click();
+const privateUnit = page.getByLabel('File under unit');
+await privateUnit.waitFor({ timeout: 3000 });
+check('private scope keeps an explicit unit target', Boolean((await privateUnit.textContent()).trim()));
+await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
 
 let t;
@@ -79,11 +116,11 @@ let dash = await page.textContent('body');
 check('hidden section leaves the page', !/GOALS/.test(dash) || dash.indexOf('Display') > -1);
 
 // collapse the tape, reload, confirm it stays collapsed (server-side prefs)
-await page.getByRole('button', { name: 'Fiscal tape', exact: true }).click();
+await page.getByRole('button', { name: /^Fiscal tape/ }).click();
 await page.waitForTimeout(450);
 await page.reload({ waitUntil: 'networkidle' });
 await page.waitForTimeout(600);
-const tapeBtn = page.getByRole('button', { name: 'Fiscal tape', exact: true });
+const tapeBtn = page.getByRole('button', { name: /^Fiscal tape/ });
 check('collapsed state survives a reload', (await tapeBtn.getAttribute('aria-expanded')) === 'false');
 
 // bring goals back

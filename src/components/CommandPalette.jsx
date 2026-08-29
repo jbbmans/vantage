@@ -78,7 +78,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog }) {
       ...tasks.filter((t) => match(t.title)).slice(0, 4).map((t) => ({ id: `t:${t.id}`, label: t.title, meta: `Task · ${t.status}`, run: () => navigate('/work') })),
       ...projects.filter((p) => match(p.name)).slice(0, 4).map((p) => ({ id: `p:${p.id}`, label: p.name, meta: `Project · ${p.status}`, run: () => navigate('/work') })),
       ...goals.filter((g) => match(g.title)).slice(0, 3).map((g) => ({ id: `g:${g.id}`, label: g.title, meta: `Goal · ${g.status}`, run: () => navigate('/goals') })),
-      ...recognitions.filter((r) => match(r.title) || match(r.from)).slice(0, 3).map((r) => ({ id: `r:${r.id}`, label: r.title, meta: `Recognition · ${formatDTG(r.date)}`, run: () => navigate('/recognition') })),
+      ...recognitions.filter((r) => match(r.title) || match(r.from_whom)).slice(0, 3).map((r) => ({ id: `r:${r.id}`, label: r.title, meta: `Recognition · ${formatDTG(r.date)}`, run: () => navigate('/recognition') })),
       ...trainings.filter((t) => match(t.title) || match(t.provider)).slice(0, 3).map((t) => ({ id: `d:${t.id}`, label: t.title, meta: `Development · ${t.hours || 0}h`, run: () => navigate('/development') })),
     ];
     if (other.length) groups.push({ heading: 'Records', items: other });

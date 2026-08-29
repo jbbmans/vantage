@@ -43,6 +43,7 @@ input[type='date'] { min-width: 0; }
   :root,
   [data-theme='dark'] {
     --ink: 13 25 34;
+    --nav: 9 32 44;
     --panel: 17 42 54;
     --panel-2: 28 57 70;
     --rule: 52 79 92;
@@ -61,6 +62,7 @@ input[type='date'] { min-width: 0; }
 
   [data-theme='light'] {
     --ink: 243 246 248;
+    --nav: 9 32 44;
     --panel: 249 251 252;
     --panel-2: 231 239 244;
     --rule: 202 216 223;
@@ -68,11 +70,11 @@ input[type='date'] { min-width: 0; }
     --text: 20 33 43;
     --text-2: 56 81 96;
     --text-3: 75 104 120;
-    --signal: 39 118 210;
+    --signal: 27 101 184;
     --signal-ink: 255 255 255;
-    --ledger: 71 137 151;
+    --ledger: 40 106 121;
     --redline: 178 57 68;
-    --info: 75 117 153;
+    --info: 55 94 132;
     --attention: 71 103 121;
     --shadow: 0 18px 44px -28px rgb(16 42 54 / 0.42);
   }

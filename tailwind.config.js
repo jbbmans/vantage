@@ -8,6 +8,7 @@ export default {
     extend: {
       colors: {
         ink: ch('--ink'),
+        nav: ch('--nav'),
         panel: ch('--panel'),
         'panel-2': ch('--panel-2'),
         rule: ch('--rule'),

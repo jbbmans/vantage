@@ -17,11 +17,11 @@ import { cn } from '@/lib/utils';
 import { unitFor } from '@/lib/bullets';
 
 const PERIODS = [
-  { value: 'all', label: 'ALL' },
-  { value: 'week', label: 'WK' },
-  { value: 'month', label: 'MO' },
-  { value: 'fiscalQuarter', label: 'FQ' },
-  { value: 'fiscalYear', label: 'FY' },
+  { value: 'all', label: 'ALL', ariaLabel: 'All time' },
+  { value: 'week', label: 'WK', ariaLabel: 'Week' },
+  { value: 'month', label: 'MO', ariaLabel: 'Month' },
+  { value: 'fiscalQuarter', label: 'FQ', ariaLabel: 'Fiscal quarter' },
+  { value: 'fiscalYear', label: 'FY', ariaLabel: 'Fiscal year' },
 ];
 
 const SORTS = [

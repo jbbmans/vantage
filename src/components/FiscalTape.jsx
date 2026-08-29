@@ -155,7 +155,7 @@ export default function FiscalTape({ activities = [], asOf = new Date(), onSelec
               )}
               style={{ left: `${pct(q.index)}%` }}
             >
-              {q.label} <span className="opacity-50">{q.month}</span>
+              {q.label} <span className="text-text-3">{q.month}</span>
             </span>
           );
         })}

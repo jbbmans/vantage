@@ -6,6 +6,7 @@ import { formatNumber, formatDTG } from '@/lib/metrics';
 import { useToast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import RecordDialog from '@/components/RecordDialog';
+import VisibilityPicker, { DEFAULT_VISIBILITY, UnitTargetPicker } from '@/components/VisibilityPicker';
 import { Figure, FigureRow } from '@/components/Figure';
 import {
   Panel, EmptyState, Button, Input, NumberInput, Textarea, Select, Field, Badge, Segmented,
@@ -86,7 +87,7 @@ export default function Development() {
           visible.map((t) => (
             <div key={t.id} className="row flex items-center gap-3 px-3 py-2">
               <span className="fig w-16 shrink-0 text-2xs text-text-3">{formatDTG(t.date)}</span>
-              <button onClick={() => setDialog(t)} className="min-w-0 flex-1 text-left">
+              <button type="button" onClick={() => setDialog(t)} className="min-w-0 flex-1 text-left">
                 <span className="block truncate text-base text-text">{t.title}</span>
                 <span className="block truncate text-2xs text-text-3">
                   {[t.provider, t.type, t.notes].filter(Boolean).join(' · ')}
@@ -99,7 +100,7 @@ export default function Development() {
                 </span>
               ) : null}
               <Badge tone={STATUS_TONE[t.status] || 'neutral'}>{String(t.status || '').replace('_', ' ')}</Badge>
-              <button onClick={() => setConfirming(t)} className="shrink-0 text-text-3 hover:text-redline">
+              <button type="button" aria-label={`Delete ${t.title}`} onClick={() => setConfirming(t)} className="shrink-0 text-text-3 hover:text-redline">
                 <Trash2 className="h-3.5 w-3.5" />
               </button>
             </div>
@@ -138,6 +139,19 @@ export default function Development() {
               <Field label="Notes">
                 <Textarea rows={2} value={draft.notes || ''} onChange={(e) => set('notes', e.target.value)} />
               </Field>
+              <VisibilityPicker
+                value={draft.visibility || DEFAULT_VISIBILITY}
+                onChange={(value) => set('visibility', value)}
+                unitId={draft.unit_id}
+                label="Who sees this development record"
+              />
+              {(draft.visibility || DEFAULT_VISIBILITY) !== 'personal' && (
+                <UnitTargetPicker
+                  value={draft.unit_id}
+                  onChange={(value) => set('unit_id', value || null)}
+                  visibility={draft.visibility || DEFAULT_VISIBILITY}
+                />
+              )}
             </>
           )}
         />

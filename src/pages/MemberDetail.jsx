@@ -15,9 +15,9 @@ import { Figure, FigureRow } from '@/components/Figure';
 import { cn } from '@/lib/utils';
 
 const PERIODS = [
-  { value: 'fiscalQuarter', label: 'FQ' },
-  { value: 'fiscalYear', label: 'FY' },
-  { value: 'all', label: 'ALL' },
+  { value: 'fiscalQuarter', label: 'FQ', ariaLabel: 'Fiscal quarter' },
+  { value: 'fiscalYear', label: 'FY', ariaLabel: 'Fiscal year' },
+  { value: 'all', label: 'ALL', ariaLabel: 'All time' },
 ];
 
 /**

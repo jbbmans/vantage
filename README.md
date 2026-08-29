@@ -9,7 +9,7 @@ VANTAGE is deliberately self-contained. Records stay on the deployment's server,
 - **Command center:** a chart-first operational picture with recorded impact, transaction volume, completeness, work hours, next actions, attention items, recent activity, record health, goals, and a clickable fiscal tape.
 - **Quick Log:** an always-available capture drawer that understands plain-language work entries and exposes the inferred date, quantity, units, dollar amount, transaction type, organization, system, evaluation area, visibility, outcome, and notes before save.
 - **Records:** a searchable activity ledger with fiscal and calendar periods, quality filters, exact values, duplicate screening, import, export, soft deletion, restoration, and optional supporting files.
-- **Work:** task and project workspaces with priorities, ownership, deadlines, status, progress, visibility, and exact-unit sharing.
+- **Work:** task and project workspaces with priorities, ownership, deadlines, status, progress, drag-and-drop task movement, visibility, and exact-unit sharing.
 - **Goals:** measurable targets with manual progress or automatic counting from matching activity categories.
 - **Career:** a distinct progression workspace for Training & PME, Recognition, Readiness, Goals, and package preparation.
 - **Readiness:** rank-aware JEPES and FITREP preparation views that separate official references, personal data, and coaching guidance without inventing an official score.
@@ -260,13 +260,14 @@ npm run test:browser
 
 The automated suite covers strict configuration parsing, runtime-configuration authorization, attachment inspection, password/session behavior, CSV hardening, domain logic, API contracts, stale edits, lifecycle recovery, permission matrices, escalation attempts, exact-unit tenancy, migrations, desktop routes, keyboard behavior, mobile layouts, console errors, and accessibility.
 
-The standard server suite includes an isolated 50-account workload:
+The standard server suite includes both a 50-account isolation load and a balanced 100-persona first-session simulation:
 
 ```bash
 npm run test:load50
+npm run test:persona100
 ```
 
-It creates fifty synthetic identities in a temporary database, signs every account in, performs 250 core writes and 250 authenticated reads, and verifies that personal records do not cross account boundaries. No deployed VANTAGE data is touched.
+The 50-account load performs 250 core writes and 250 authenticated reads. The 100-persona simulation balances quick-capture, planning, career, privacy, and reporting journeys; performs 600 writes and 700 authenticated reads; checks every supported record family; and verifies that recognition sources, goal measurement units, preferences, and personal records round-trip without crossing identity boundaries. Both use temporary databases. No deployed VANTAGE data is touched.
 
 ## Deployment governance
 

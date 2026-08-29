@@ -34,9 +34,9 @@ const GUIDE = [
   },
   {
     id: 'work', title: '5. Work and goals', body: [
-      `Work holds tasks and projects. Due dates, ownership, status, and exact-unit visibility keep execution separate from the accomplishment record while still making overdue work visible on Command.`,
-      `Goals attach a measurable target to a period. Choose a category to count matching activities automatically, or track progress manually when the target is not record-based.`,
-      `Career brings Training & PME and Recognition into one progression story. The index links directly to Readiness, Goals, and the Package Builder without repeating the same controls in multiple places.`,
+      `Work holds tasks and projects. Due dates, ownership, status, and exact-unit visibility keep execution separate from the accomplishment record while still making overdue work visible on Command. Drag a task into another status column, or use its status control and edit form when working from a keyboard or touch screen.`,
+      `Goals attach a measurable target to a period. Choose a category to count matching activities automatically, or track progress manually when the target is not record-based. The visibility control makes private, personal, and exact-unit goals explicit before save.`,
+      `Career brings Training & PME and Recognition into one progression story. Training and recognition forms show exactly who can read the record, and the index links directly to Readiness, Goals, and the Package Builder without repeating the same controls in multiple places.`,
     ],
   },
   {

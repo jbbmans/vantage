@@ -247,7 +247,7 @@ export function PageHeader({ title, subtitle, children }) {
   return (
     <div className="mb-4 flex flex-wrap items-end justify-between gap-3">
       <div>
-        <h1 className="text-xl font-semibold tracking-tight text-text">{title}</h1>
+        <h2 className="text-xl font-semibold tracking-tight text-text">{title}</h2>
         {subtitle && <p className="mt-0.5 text-sm text-text-3">{subtitle}</p>}
       </div>
       {children && <div className="flex flex-wrap items-center gap-1.5">{children}</div>}
@@ -289,7 +289,7 @@ export function Segmented({ value, onChange, options = [], className, size = 'md
       aria-label={label}
     >
       {options.map((opt, i) => {
-        const { value: v, label: text } = typeof opt === 'string' ? { value: opt, label: opt } : opt;
+        const { value: v, label: text, ariaLabel } = typeof opt === 'string' ? { value: opt, label: opt } : opt;
         const active = v === value;
         return (
           <button
@@ -298,6 +298,7 @@ export function Segmented({ value, onChange, options = [], className, size = 'md
             type="button"
             role="tab"
             aria-selected={active}
+            aria-label={ariaLabel || text}
             tabIndex={active ? 0 : -1}
             onClick={() => onChange(v)}
             onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}

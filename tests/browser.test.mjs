@@ -8,10 +8,19 @@ for (const f of [DB, DB + '-wal', DB + '-shm']) {
   try { rmSync(f, { force: true }); } catch { /* not there yet */ }
 }
 
-const srv = spawn('node', ['server/index.js'], {
+const srv = spawn('node', ['tests/browser-server.mjs'], {
   // The bootstrap account is the Instance Operator so the fixtures below can
   // claim the seeded units they exercise (v3.4 finding 4).
-  env: { ...process.env, VANTAGE_DB: DB, PORT: String(PORT), VANTAGE_OPERATOR: 'boletz' },
+  env: {
+    ...process.env,
+    VANTAGE_DB: DB,
+    PORT: String(PORT),
+    VANTAGE_OPERATOR: 'boletz',
+    // Browser fixtures create additional accounts that must be able to sign
+    // in immediately. Production still forces operator-created accounts to
+    // replace their temporary password on first use.
+    VANTAGE_TEST: '1',
+  },
   stdio: ['ignore','pipe','pipe'],
 });
 srv.stdout.on('data', d => process.stdout.write('[srv] '+d));
@@ -30,10 +39,16 @@ const check = (n, ok, d='') => {
 const browser = await chromium.launch();
 const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 // Refusals the flows deliberately provoke (stale 409, a deactivated member's
-// 403, an expired 401) are the UX under test, not breakage — everything else
+// 404, a scoped 403, an expired 401) are the UX under test, not breakage — everything else
 // in the console still fails the run.
+const allowed404Paths = new Set();
+page.on('response', (response) => {
+  if (response.status() !== 404) return;
+  const path = new URL(response.url()).pathname;
+  if (!allowed404Paths.has(path)) problems.push(`unexpected 404: ${path}`);
+});
 page.on('console', m => {
-  if (m.type()==='error' && !/status of (401|403|409)/.test(m.text())) {
+  if (m.type()==='error' && !/status of (401|403|404|409)/.test(m.text())) {
     problems.push('console: '+m.text().slice(0,160));
   }
 });
@@ -54,11 +69,13 @@ const inputs = page.locator('input');
 // first/last name fields
 await page.locator('input').nth(2).fill('John');
 await page.locator('input').nth(3).fill('Boletz');
-await page.getByRole('button', { name: /create account/i }).click();
-await page.waitForTimeout(1250);
+await page.getByRole('button', { name: /create unit leader and sign in/i }).click();
+await page.getByRole('button', { name: 'Open account menu' }).waitFor({ timeout: 6000 });
 
 check('signed in to the shell', await page.locator('text=VANTAGE').first().isVisible());
-check('rail shows rank and name', (await page.textContent('body')).includes('Boletz'));
+await page.getByRole('button', { name: 'Open account menu' }).click();
+check('account menu shows the signed-in name', (await page.textContent('body')).includes('John Boletz'));
+await page.keyboard.press('Escape');
 
 /* Production starts with only MFR. Build the two browser-test units through
  * the same endpoint a Unit Leader uses in the real interface. */
@@ -77,7 +94,70 @@ const createdUnits = await page.evaluate(async () => {
   }
   return out;
 });
-check('fixture units created', Object.values(createdUnits).every((s) => s === 201), JSON.stringify(createdUnits));
+check('fixture units created', Object.values(createdUnits).every((s) => s >= 200 && s < 300), JSON.stringify(createdUnits));
+
+// A Marine can be an ordinary member of a primary unit while holding record
+// permissions in a different unit. Private work may be filed under any active
+// membership, and the untouched default must remain the primary assignment —
+// permission scope in the secondary unit must not silently replace it.
+const privateProjectFixture = await page.evaluate(async () => {
+  const headers = { 'content-type': 'application/json', 'x-vantage-client': '1' };
+  const request = async (path, options = {}) => {
+    const response = await fetch(path, { headers, ...options });
+    const payload = await response.json();
+    if (!response.ok) throw new Error(`${options.method || 'GET'} ${path}: ${payload.error || response.status}`);
+    return payload;
+  };
+  const rolePayload = await request('/api/roles');
+  const secondaryReader = rolePayload.roles.find((role) => role.unit_id === 'G8-BUDGET' && role.name === 'NCO');
+  if (!secondaryReader) throw new Error('Budget NCO role was not created');
+  const user = await request('/api/team', {
+    method: 'POST',
+    body: JSON.stringify({
+      username: 'scopepicker', password: 'scope-picker-long-passphrase', first_name: 'Scope', last_name: 'Picker',
+      rank_id: 'LCpl', mos: '3451', unit_id: 'G8-FMRAC',
+    }),
+  });
+  await request('/api/org/units/G8-BUDGET/members', {
+    method: 'POST',
+    body: JSON.stringify({ user_id: user.id, kind: 'member', role_id: secondaryReader.id }),
+  });
+  return user;
+});
+check('multi-unit private-project fixture prepared', Boolean(privateProjectFixture.id));
+
+const privateProjectContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
+const privateProjectPage = await privateProjectContext.newPage();
+privateProjectPage.on('pageerror', (error) => problems.push(`private project pageerror: ${error.message.slice(0, 200)}`));
+await privateProjectPage.goto(BASE, { waitUntil: 'domcontentloaded' });
+await privateProjectPage.locator('input[autocomplete="username"]').fill('scopepicker');
+await privateProjectPage.locator('input[autocomplete="current-password"]').fill('scope-picker-long-passphrase');
+await privateProjectPage.locator('button[type="submit"]').click();
+await privateProjectPage.getByRole('button', { name: 'Open account menu' }).waitFor({ timeout: 6000 });
+await privateProjectPage.goto(`${BASE}/work`, { waitUntil: 'networkidle' });
+await privateProjectPage.getByRole('tab', { name: 'Projects', exact: true }).click();
+await privateProjectPage.getByRole('button', { name: 'New project', exact: true }).click();
+await privateProjectPage.getByLabel('Name').fill('Primary-unit private project');
+const privateProjectUnit = privateProjectPage.getByLabel('File under unit');
+await privateProjectUnit.waitFor({ timeout: 3000 });
+check('private project defaults to the primary membership', (await privateProjectUnit.textContent()).trim() === 'FMRAC');
+await privateProjectUnit.click();
+check('private project picker includes the ordinary primary membership', await privateProjectPage.getByRole('option', { name: 'FMRAC', exact: true }).isVisible());
+check('private project picker includes the permitted secondary membership', await privateProjectPage.getByRole('option', { name: 'Budget', exact: true }).isVisible());
+await privateProjectPage.getByRole('option', { name: 'FMRAC', exact: true }).click();
+await privateProjectPage.getByRole('button', { name: 'Save', exact: true }).click();
+await privateProjectPage.getByRole('dialog').waitFor({ state: 'hidden', timeout: 6000 });
+const savedPrivateProject = await privateProjectPage.evaluate(async () => {
+  const response = await fetch('/api/projects', { headers: { 'x-vantage-client': '1' } });
+  const rows = await response.json();
+  return rows.find((row) => row.name === 'Primary-unit private project');
+});
+check(
+  'private project persists under the primary membership',
+  savedPrivateProject?.unit_id === 'G8-FMRAC' && savedPrivateProject?.visibility === 'private',
+  JSON.stringify(savedPrivateProject)
+);
+await privateProjectContext.close();
 
 // 2. log an activity through the real UI
 await page.keyboard.press('n');
@@ -169,10 +249,9 @@ await page.waitForTimeout(350);
 t = await page.textContent('body');
 // was: ['Marine','Fire Team Leader','NCOIC','Section Head','Administrator'] —
 // the six org-wide rows every install shipped. Finding 1 replaced them with a
-// template COPIED into each unit, and finding 21 cut the default set to three
-// roles plus an Owner, so a SNCOIC can be productive without opening the
-// permission editor.
-check('the unit\'s own role set is listed', ['Marine','NCO','SNCOIC','Owner'].every(x=>t.includes(x)));
+// template COPIED into each unit. The approved default ladder now ends in the
+// named Unit Leader role; ownership itself remains a separate unit property.
+check('the unit\'s own role set is listed', ['Marine','NCO','SNCOIC','Unit Leader'].every(x=>t.includes(x)));
 check('hierarchy rule explained', t.includes('at or above your own'));
 await page.getByRole('button', { name: /new role/i }).click();
 await page.waitForTimeout(300);
@@ -257,6 +336,9 @@ const uiMember = await page.evaluate(async () => {
   return res.json();
 });
 check('UI member fixture created', Boolean(uiMember.id));
+// Once deactivated, the ordinary member-detail route intentionally disappears;
+// the page switches to the operator-only access-review card instead.
+allowed404Paths.add(`/api/team/${uiMember.id}`);
 await page.goto(`${BASE}/team/${uiMember.id}`, { waitUntil: 'domcontentloaded' });
 await page.waitForTimeout(1100);
 t = await page.textContent('body');

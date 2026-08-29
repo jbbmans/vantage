@@ -6,6 +6,7 @@ import { formatDTG, formatNumber } from '@/lib/metrics';
 import { useToast } from '@/components/ui/toast';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import RecordDialog from '@/components/RecordDialog';
+import VisibilityPicker, { DEFAULT_VISIBILITY, UnitTargetPicker } from '@/components/VisibilityPicker';
 import { Figure, FigureRow } from '@/components/Figure';
 import {
   Panel, EmptyState, Button, Input, Textarea, Select, Field, Badge,
@@ -78,13 +79,13 @@ export default function Recognition() {
                     <div className="min-w-0">
                       <h3 className="text-md font-medium text-text">{r.title}</h3>
                       <p className="mt-0.5 text-xs text-text-3">
-                        {[r.from, r.organization].filter(Boolean).join(' · ') || 'Source not recorded'}
+                        {[r.from_whom, r.organization].filter(Boolean).join(' · ') || 'Source not recorded'}
                       </p>
                     </div>
                     <div className="flex shrink-0 items-center gap-1.5">
                       <Badge tone={TYPE_TONE[r.type] || 'neutral'}>{r.type}</Badge>
                       <Button variant="ghost" size="sm" onClick={() => setDialog(r)}>Edit</Button>
-                      <button onClick={() => setConfirming(r)} className="text-text-3 hover:text-redline">
+                      <button type="button" aria-label={`Delete ${r.title}`} onClick={() => setConfirming(r)} className="text-text-3 hover:text-redline">
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>
                     </div>
@@ -121,7 +122,7 @@ export default function Recognition() {
                   <Select value={draft.type || 'award'} onValueChange={(v) => set('type', v)} options={RECOGNITION_TYPES} />
                 </Field>
                 <Field label="From">
-                  <Input value={draft.from || ''} onChange={(e) => set('from', e.target.value)} placeholder="Name or billet" />
+                  <Input value={draft.from_whom || ''} onChange={(e) => set('from_whom', e.target.value)} placeholder="Name or billet" />
                 </Field>
                 <Field label="Organization">
                   <Input value={draft.organization || ''} onChange={(e) => set('organization', e.target.value)} />
@@ -130,6 +131,19 @@ export default function Recognition() {
               <Field label="Notes" hint="paste the citation or the exact wording while you have it">
                 <Textarea rows={4} value={draft.notes || ''} onChange={(e) => set('notes', e.target.value)} />
               </Field>
+              <VisibilityPicker
+                value={draft.visibility || DEFAULT_VISIBILITY}
+                onChange={(value) => set('visibility', value)}
+                unitId={draft.unit_id}
+                label="Who sees this recognition"
+              />
+              {(draft.visibility || DEFAULT_VISIBILITY) !== 'personal' && (
+                <UnitTargetPicker
+                  value={draft.unit_id}
+                  onChange={(value) => set('unit_id', value || null)}
+                  visibility={draft.visibility || DEFAULT_VISIBILITY}
+                />
+              )}
             </>
           )}
         />

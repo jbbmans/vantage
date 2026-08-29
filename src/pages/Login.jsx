@@ -102,7 +102,7 @@ export default function Login() {
           <div className="space-y-3 border-t border-white/12 pt-6 text-sm text-white/68">
             <p className="flex items-center gap-2"><LockKeyhole className="h-4 w-4 text-[#7bc4ed]" /> Exact-unit access boundaries</p>
             <p className="flex items-center gap-2"><BadgeCheck className="h-4 w-4 text-[#7bc4ed]" /> Audited protected record reads</p>
-            <p className="text-xs leading-5 text-white/45">Controlled evaluation system. Verify authorization before entering real personnel information.</p>
+            <p className="text-xs leading-5 text-white/55">Controlled evaluation system. Verify authorization before entering real personnel information.</p>
           </div>
         </section>
 
@@ -141,7 +141,7 @@ export default function Login() {
           <Field label="Username">
             <Input name="username" value={username} onChange={(e) => setUsername(e.target.value)} autoFocus autoComplete="username" />
           </Field>
-          <Field label="Password" hint={mode === 'setup' ? '15 characters minimum — use a unique passphrase' : undefined}>
+          <Field label="Password" hint={mode === 'setup' || mode === 'register' ? '15 characters minimum — use a unique passphrase' : undefined}>
             <Input
               type="password"
               name="password"
@@ -188,7 +188,7 @@ export default function Login() {
           )}
         </div>
 
-        {error && <p className="mt-3 text-xs leading-relaxed text-redline">{error}</p>}
+        {error && <p className="mt-3 text-xs leading-relaxed text-redline" role="alert">{error}</p>}
 
         <Button
           type="submit"

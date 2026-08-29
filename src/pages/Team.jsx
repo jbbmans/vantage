@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { UserPlus, Users, Shield, ChevronRight, Search } from 'lucide-react';
 import * as apiClient from '@/lib/api';
-import { useOrg, useIdentity, unitOptions, unitPath, displayName, can, PERMISSIONS } from '@/store/useStore';
+import { useOrg, useIdentity, unitOptions, unitPath, displayName, can, preferredUnitId, PERMISSIONS } from '@/store/useStore';
 import { useToast } from '@/components/ui/toast';
 import { Dialog } from '@/components/ui/Dialog';
 import {
@@ -57,6 +57,7 @@ export default function Team() {
     [units, state.canManageMembers]
   );
   const canManageAny = (state.canManageMembers || []).length > 0;
+  const preferredManagedUnit = preferredUnitId(scopedUnits.map((unit) => unit.id));
   const memberDraftKey = draftKey(identity?.user?.id, 'member');
 
   const filtered = useMemo(() => {
@@ -195,6 +196,7 @@ export default function Team() {
           billets={org.billets}
           ranks={org.ranks}
           roles={state.availableRoles}
+          initialUnitId={preferredManagedUnit}
           draftStorageKey={memberDraftKey}
           fieldErrors={memberErrors}
           onCancel={() => { setAdding(false); setMemberErrors({}); try { sessionStorage.removeItem(memberDraftKey); } catch { /* fine */ } }}
@@ -217,6 +219,7 @@ export default function Team() {
       {enrolling && (
         <EnrollExistingDialog
           units={scopedUnits}
+          initialUnitId={preferredManagedUnit}
           onCancel={() => setEnrolling(false)}
           onDone={() => { setEnrolling(false); load(); }}
         />
@@ -267,9 +270,9 @@ export default function Team() {
   );
 }
 
-function EnrollExistingDialog({ units, onCancel, onDone }) {
+function EnrollExistingDialog({ units, initialUnitId, onCancel, onDone }) {
   const toast = useToast();
-  const [unitId, setUnitId] = useState(units[0]?.id || '');
+  const [unitId, setUnitId] = useState(initialUnitId || units[0]?.id || '');
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [kind, setKind] = useState('member');
@@ -360,11 +363,11 @@ function EnrollExistingDialog({ units, onCancel, onDone }) {
 }
 
 /** Shared create/reassign form. Billet choice pre-selects the role it implies. */
-function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, assignmentOnly, draftStorageKey, fieldErrors = {}, onCancel, onSave }) {
+function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, initialUnitId, assignmentOnly, draftStorageKey, fieldErrors = {}, onCancel, onSave }) {
   const [draft, setDraft] = useState({
     username: '', password: '', first_name: '', last_name: '', middle_initial: '',
     rank_id: '', mos: '', email: '', eas: '',
-    unit_id: units[0]?.id || '', billet_id: '', role_id: '', ...initial,
+    unit_id: initialUnitId || units[0]?.id || '', billet_id: '', role_id: '', ...initial,
   });
   // Finding 35: a half-filled member form survives a dropped connection or an
   // accidental Escape. Mirrors to sessionStorage while creating; an explicit

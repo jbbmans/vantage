@@ -23,10 +23,10 @@ import { Panel, EmptyState, Button, Segmented, Badge, Tooltip, Select } from '@/
 import { cn } from '@/lib/utils';
 
 const PERIODS = [
-  { value: 'fiscalQuarter', label: 'FQ' },
-  { value: 'fiscalYear', label: 'FY' },
-  { value: 'month', label: 'MO' },
-  { value: 'year', label: 'CY' },
+  { value: 'fiscalQuarter', label: 'FQ', ariaLabel: 'Fiscal quarter' },
+  { value: 'fiscalYear', label: 'FY', ariaLabel: 'Fiscal year' },
+  { value: 'month', label: 'MO', ariaLabel: 'Month' },
+  { value: 'year', label: 'CY', ariaLabel: 'Calendar year' },
 ];
 
 const viewsFor = (track) => [
