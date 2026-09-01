@@ -11,7 +11,7 @@ permissions:
 jobs:
   capture:
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-node@v4
@@ -21,7 +21,14 @@ jobs:
       - run: npm ci
       - run: npx playwright install --with-deps chromium
       - run: npm run build
-      - run: node tests/audit-capture.mjs
+      - name: Capture core-flow WCAG evidence
+        run: node tests/audit-capture.mjs
+      - name: Scan every routed view with axe
+        continue-on-error: true
+        run: node tests/browser-a11y.test.mjs
+      - name: Check 375px and 768px reflow
+        continue-on-error: true
+        run: node tests/browser-mobile.test.mjs
       - uses: actions/upload-artifact@v4
         if: always()
         with:
