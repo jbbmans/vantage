@@ -295,12 +295,12 @@ export default function Reports() {
           <Move m={cmp.headline.activities} />
         </div>
         <div>
-          <p className="eyebrow">Units processed</p>
+          <p className="eyebrow">Action amount</p>
           <p className="fig mt-0.5 text-xl text-text">{formatNumber(metrics.totalQuantity)}</p>
           <Move m={cmp.headline.quantity} />
         </div>
         <div>
-          <p className="eyebrow">Dollar impact</p>
+          <p className="eyebrow">Headline transaction value</p>
           <p className="fig mt-0.5 text-xl text-ledger">{formatDollarsExact(metrics.totalDollars)}</p>
           <Move m={cmp.headline.dollars} format={formatDollars} />
         </div>
@@ -312,6 +312,17 @@ export default function Reports() {
         )}
         <div className="ml-auto max-w-sm no-print">
           <p className="text-2xs leading-relaxed text-text-3">{DOLLAR_SUM_RULE}</p>
+        </div>
+      </div>
+
+      <div className="mt-4">
+        <div className="grid grid-cols-2 gap-2 sm:grid-cols-5" aria-label="Report transaction value by dollar type">
+          {DOLLAR_TYPES.map((type) => (
+            <div key={type.key} className="rounded border border-rule px-3 py-2">
+              <p className="eyebrow">{type.label}</p>
+              <p className="fig mt-1 text-sm text-text">{formatDollarsExact(metrics.dollarsByType[type.key] || 0)}</p>
+            </div>
+          ))}
         </div>
       </div>
 

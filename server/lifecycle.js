@@ -140,7 +140,9 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
   });
   run();
 
-  const sessionsRevoked = 0;
+  // Reassignment changes the exact-unit authority carried by every existing
+  // session. Revoke rather than silently retaining a pre-change bearer.
+  const sessionsRevoked = moved || billetChanged ? invalidateUserSessions(db, targetId) : 0;
 
   if (moved || billetChanged) {
     audit({
@@ -148,7 +150,8 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
       subject_id: targetId, unit_id,
       detail: `${oldUnit || 'unassigned'} → ${unit_id}`
         + (revokedRoles.length ? `; revoked: ${revokedRoles.join(', ')}` : '')
-        + (retainedRoles.length ? `; retained: ${retainedRoles.join(', ')}` : ''),
+        + (retainedRoles.length ? `; retained: ${retainedRoles.join(', ')}` : '')
+        + `; sessions revoked: ${sessionsRevoked}`,
     });
   }
 

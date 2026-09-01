@@ -22,9 +22,10 @@ export default {
         redline: ch('--redline'),
         info: ch('--info'),
         attention: ch('--attention'),
+        focus: ch('--focus'),
       },
       fontFamily: {
-        ui: ['Inter', 'Aptos', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
+        ui: ['Aptos', 'Inter', 'ui-sans-serif', 'system-ui', '-apple-system', 'Segoe UI', 'sans-serif'],
         mono: ['IBM Plex Mono', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       fontSize: {
@@ -40,6 +41,11 @@ export default {
         '4xl': ['54px', { lineHeight: '56px', letterSpacing: '-0.045em' }],
       },
       borderRadius: { DEFAULT: '8px', sm: '6px', md: '10px', lg: '14px' },
+      boxShadow: {
+        token: 'var(--shadow)',
+        'token-lg': 'var(--shadow-lg)',
+        'token-xs': 'var(--shadow-xs)',
+      },
       spacing: { rail: '98px', tape: '46px' },
       keyframes: {
         'fade-up': { from: { opacity: 0, translate: '0 3px' }, to: { opacity: 1, translate: '0 0' } },

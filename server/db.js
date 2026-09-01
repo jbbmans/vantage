@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { RANKS, BILLETS, flattenUnits } from './usmc.js';
 import { ROLE_TEMPLATES, DEFAULT_TEMPLATE_ID, templateById, PERMISSIONS } from './roles.js';
 import { hashPassword, sessionDigest } from './auth.js';
@@ -900,6 +900,26 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    id: 14,
+    name: '014_tamper_evident_audit_chain',
+    run() {
+      addColumn('audit_log', 'prev_hash', 'TEXT');
+      addColumn('audit_log', 'entry_hash', 'TEXT');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_entry_hash ON audit_log(entry_hash) WHERE entry_hash IS NOT NULL');
+      let previous = '';
+      const rows = db.prepare(
+        'SELECT rowid, id, actor_id, action, entity, entity_id, subject_id, unit_id, detail, at FROM audit_log ORDER BY rowid'
+      ).all();
+      const update = db.prepare('UPDATE audit_log SET prev_hash = ?, entry_hash = ? WHERE rowid = ?');
+      for (const row of rows) {
+        const hash = auditEntryHash(row, previous);
+        update.run(previous || null, hash, row.rowid);
+        previous = hash;
+      }
+      setAuditAnchor(previous, rows.length);
+    },
+  },
 ];
 
 function migrate() {
@@ -937,6 +957,65 @@ export const schemaVersion = () =>
 
 const now = () => new Date().toISOString();
 export const newId = () => randomUUID();
+
+function auditIntegrityKey() {
+  const key = String(process.env.VANTAGE_AUDIT_HMAC_KEY || '');
+  if (Buffer.byteLength(key, 'utf8') >= 32) return key;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('VANTAGE_AUDIT_HMAC_KEY must be at least 32 bytes in production.');
+  }
+  // Development/test only: production must supply an environment-held key.
+  return 'vantage-development-audit-key-not-for-production';
+}
+
+function auditEntryHash(row, previous) {
+  const canonical = JSON.stringify([
+    previous || '', row.id, row.actor_id, row.action, row.entity || null,
+    row.entity_id || null, row.subject_id || null, row.unit_id || null,
+    row.detail || null, row.at,
+  ]);
+  return createHmac('sha256', auditIntegrityKey()).update(canonical, 'utf8').digest('hex');
+}
+
+function setAuditAnchor(hash, count) {
+  const payload = JSON.stringify([hash || '', count]);
+  const mac = createHmac('sha256', auditIntegrityKey()).update(`audit-anchor:${payload}`, 'utf8').digest('hex');
+  db.prepare(
+    "INSERT INTO meta (key, value) VALUES ('audit_log_anchor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  ).run(JSON.stringify({ hash: hash || '', count, mac }));
+}
+
+export function verifyAuditChain(database = db) {
+  const rows = database.prepare(
+    'SELECT rowid, id, actor_id, action, entity, entity_id, subject_id, unit_id, detail, at, prev_hash, entry_hash FROM audit_log ORDER BY rowid'
+  ).all();
+  let previous = '';
+  for (const row of rows) {
+    const expected = auditEntryHash(row, previous);
+    const supplied = Buffer.from(String(row.entry_hash || ''), 'utf8');
+    const calculated = Buffer.from(expected, 'utf8');
+    if (row.prev_hash !== (previous || null) || !row.entry_hash
+      || supplied.length !== calculated.length || !timingSafeEqual(supplied, calculated)) {
+      return { ok: false, count: rows.length, reason: `audit entry ${row.id} does not match the chain` };
+    }
+    previous = row.entry_hash;
+  }
+  const anchor = database.prepare("SELECT value FROM meta WHERE key = 'audit_log_anchor'").get()?.value;
+  try {
+    const parsed = JSON.parse(anchor || '{}');
+    const payload = JSON.stringify([parsed.hash || '', parsed.count]);
+    const expectedMac = createHmac('sha256', auditIntegrityKey()).update(`audit-anchor:${payload}`, 'utf8').digest('hex');
+    const suppliedMac = Buffer.from(String(parsed.mac || ''), 'utf8');
+    const calculatedMac = Buffer.from(expectedMac, 'utf8');
+    if (parsed.hash !== previous || parsed.count !== rows.length
+      || suppliedMac.length !== calculatedMac.length || !timingSafeEqual(suppliedMac, calculatedMac)) {
+      return { ok: false, count: rows.length, reason: 'audit anchor does not match the chain' };
+    }
+  } catch {
+    return { ok: false, count: rows.length, reason: 'audit anchor is invalid' };
+  }
+  return { ok: true, count: rows.length };
+}
 
 const SEED_VERSION = 2;
 
@@ -1124,10 +1203,20 @@ export function revokeRole(userId, roleId, unitId) {
 }
 
 export function audit({ actor_id, action, entity, entity_id, subject_id, unit_id, detail }) {
+  const entry = {
+    id: newId(), actor_id, action, entity: entity || null, entity_id: entity_id || null,
+    subject_id: subject_id || null, unit_id: unit_id || null, detail: detail || null, at: now(),
+  };
+  const previous = db.prepare('SELECT entry_hash FROM audit_log ORDER BY rowid DESC LIMIT 1').get()?.entry_hash || '';
+  const entryHash = auditEntryHash(entry, previous);
   db.prepare(
-    `INSERT INTO audit_log (id, actor_id, action, entity, entity_id, subject_id, unit_id, detail, at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(newId(), actor_id, action, entity || null, entity_id || null, subject_id || null, unit_id || null, detail || null, now());
+    `INSERT INTO audit_log (id, actor_id, action, entity, entity_id, subject_id, unit_id, detail, at, prev_hash, entry_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    entry.id, entry.actor_id, entry.action, entry.entity, entry.entity_id, entry.subject_id,
+    entry.unit_id, entry.detail, entry.at, previous || null, entryHash
+  );
+  setAuditAnchor(entryHash, db.prepare('SELECT COUNT(*) AS n FROM audit_log').get().n);
 }
 
 export function notifyUser(userId, { kind, title, message = null, actionUrl = null, dedupeKey = null }) {

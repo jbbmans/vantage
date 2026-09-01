@@ -158,7 +158,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog }) {
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[#071820]/70 backdrop-blur-md data-[state=open]:animate-fade-in" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-nav/75 backdrop-blur-md data-[state=open]:animate-fade-in" />
         <DialogPrimitive.Content
           onKeyDown={onKeyDown}
           className="fixed left-1/2 top-[max(4rem,10vh)] z-50 w-[calc(100vw-1.25rem)] max-w-2xl -translate-x-1/2 overflow-hidden rounded-xl border border-rule-strong bg-panel/95 shadow-[var(--shadow-lg)] backdrop-blur-xl data-[state=open]:animate-command-in"

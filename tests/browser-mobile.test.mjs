@@ -52,6 +52,13 @@ for (const width of [375, 768]) {
   if (width === 375) {
     await page.goto(BASE + '/', { waitUntil: 'domcontentloaded' });
     await page.waitForTimeout(650);
+    const quickLogAction = page.getByRole('button', { name: 'Log activity' });
+    check('375px Log activity action stays visible in the header', await quickLogAction.isVisible());
+    await quickLogAction.click();
+    check('375px Log activity action opens Quick Log', await page.getByRole('dialog').isVisible());
+    check('375px Quick Log keeps a persistent field label', await page.getByLabel('Describe the completed activity').isVisible());
+    await page.keyboard.press('Escape');
+
     const opened = await page.getByRole('button', { name: 'Open menu' }).click()
       .then(() => true).catch((e) => { problems.push('menu click: ' + e.message.slice(0, 80)); return false; });
     await page.waitForTimeout(450);

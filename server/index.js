@@ -40,6 +40,7 @@ import { applyEditableConfig, config, editableConfig, safeConfig } from './confi
 import { attachmentDisposition, inspectAttachment } from './attachments.js';
 import { EXPERIENCE_EVENTS, recordExperience } from './experience.js';
 import { maradminSyncState, syncMaradmins } from './maradmins.js';
+import { isTrustedProxyAddress, singleHeader } from './proxyTrust.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const db = getDb();
@@ -54,6 +55,9 @@ pruneSessions(db);
 
 const app = express();
 const PRODUCTION = process.env.NODE_ENV === 'production';
+if (PRODUCTION && process.env.VANTAGE_TEST === '1') {
+  throw new Error('VANTAGE_TEST must never be enabled in production.');
+}
 const DEPLOYMENT_MODE = config.app.data_mode;
 const BUILD_ID = String(process.env.RENDER_GIT_COMMIT || process.env.VANTAGE_BUILD_ID || VERSION).slice(0, 64);
 
@@ -147,6 +151,11 @@ const fail = (res, code, msg, extra = {}) => res.status(code).json({ error: msg,
 const failValidation = (res, fieldErrors) =>
   fail(res, 400, fieldErrorMessage(fieldErrors), { code: 'validation', fieldErrors });
 const denyResult = (res, r) => fail(res, r.status || 403, r.message, { code: r.code });
+const revokePrivilegeSessions = (userIds) => {
+  let revoked = 0;
+  for (const userId of new Set(userIds.filter(Boolean))) revoked += invalidateUserSessions(db, userId);
+  return revoked;
+};
 
 const adminHost = (() => {
   try { return config.deployment.admin_url ? new URL(config.deployment.admin_url).hostname.toLowerCase() : ''; }
@@ -501,6 +510,15 @@ app.post('/api/auth/cac-piv', (req, res) => {
   if (!config.auth.cac_piv.enabled) {
     return fail(res, 404, 'CAC/PIV sign-in is not enabled.', { code: 'cac_piv_disabled' });
   }
+  const blocked = checkLoginAllowed(req.ip, '');
+  if (blocked) {
+    res.setHeader('Retry-After', String(blocked.retryAfter));
+    return fail(res, blocked.status, blocked.message, { code: 'throttled' });
+  }
+  const rejectAssertion = (status, message, code) => {
+    recordLoginFailure(req.ip, '');
+    return fail(res, status, message, { code });
+  };
   if (db.prepare('SELECT COUNT(*) AS n FROM users').get().n === 0) {
     return fail(res, 409, 'The deployment must be initialized before CAC/PIV accounts can be created.', {
       code: 'setup_required',
@@ -510,23 +528,30 @@ app.post('/api/auth/cac-piv', (req, res) => {
   if (proxySecret.length < 32) {
     return fail(res, 503, 'CAC/PIV sign-in is not fully configured.', { code: 'cac_piv_unconfigured' });
   }
-  const suppliedSecret = String(req.get(config.auth.cac_piv.proxy_secret_header) || '');
+  if (!isTrustedProxyAddress(req.socket?.remoteAddress, config.auth.cac_piv.trusted_proxy_ips)) {
+    return rejectAssertion(401, 'CAC/PIV assertion was not issued by the trusted proxy.', 'cac_piv_untrusted');
+  }
+  const suppliedSecret = singleHeader(req, config.auth.cac_piv.proxy_secret_header);
+  if (suppliedSecret === null) {
+    return rejectAssertion(401, 'CAC/PIV assertion was not issued by the trusted proxy.', 'cac_piv_untrusted');
+  }
   const suppliedDigest = createHash('sha256').update(suppliedSecret).digest();
   const expectedDigest = createHash('sha256').update(proxySecret).digest();
   if (!timingSafeEqual(suppliedDigest, expectedDigest)) {
-    return fail(res, 401, 'CAC/PIV assertion was not issued by the trusted proxy.', { code: 'cac_piv_untrusted' });
+    return rejectAssertion(401, 'CAC/PIV assertion was not issued by the trusted proxy.', 'cac_piv_untrusted');
   }
-  const verified = String(req.get(config.auth.cac_piv.verification_header) || '').toLowerCase();
+  const verifiedHeader = singleHeader(req, config.auth.cac_piv.verification_header);
+  const verified = String(verifiedHeader || '').toLowerCase();
   if (verified !== String(config.auth.cac_piv.verification_value).toLowerCase()) {
-    return fail(res, 401, 'The client certificate was not verified.', { code: 'cac_piv_unverified' });
+    return rejectAssertion(401, 'The client certificate was not verified.', 'cac_piv_unverified');
   }
 
-  const subject = String(req.get(config.auth.cac_piv.subject_header) || '').trim();
-  const username = normalizeUsername(req.get(config.auth.cac_piv.username_header));
-  const firstName = String(req.get(config.auth.cac_piv.first_name_header) || '').trim();
-  const lastName = String(req.get(config.auth.cac_piv.last_name_header) || '').trim();
+  const subject = String(singleHeader(req, config.auth.cac_piv.subject_header) || '').trim();
+  const username = normalizeUsername(singleHeader(req, config.auth.cac_piv.username_header));
+  const firstName = String(singleHeader(req, config.auth.cac_piv.first_name_header) || '').trim();
+  const lastName = String(singleHeader(req, config.auth.cac_piv.last_name_header) || '').trim();
   if (!subject || subject.length > 512 || !username || !firstName || !lastName) {
-    return fail(res, 400, 'The trusted proxy did not supply a complete CAC/PIV identity.', { code: 'cac_piv_incomplete' });
+    return rejectAssertion(400, 'The trusted proxy did not supply a complete CAC/PIV identity.', 'cac_piv_incomplete');
   }
 
   let row = db.prepare('SELECT * FROM users WHERE cac_subject = ? AND active = 1').get(subject);
@@ -551,6 +576,7 @@ app.post('/api/auth/cac-piv', (req, res) => {
     row = db.prepare('SELECT * FROM users WHERE id = ?').get(id);
   }
 
+  recordLoginSuccess(req.ip, '');
   return finishSignIn(req, res, row, 'cac_login');
 });
 
@@ -590,6 +616,9 @@ const isOperator = (user) => isInstanceOperator(user) || isBootstrapOperator(db,
 function rankAuthority(actor, target) {
   if (!target) return { ok: false, status: 404, message: 'No such Marine.' };
   if (actor.id === target.id) {
+    if (isOperator(actor)) {
+      return { ok: true, unitId: primaryAssignment(db, target.id)?.unit_id || null };
+    }
     return { ok: false, status: 400, message: 'Request your own rank update instead of editing it directly.' };
   }
   if (isOperator(actor)) return { ok: true, unitId: primaryAssignment(db, target.id)?.unit_id || null };
@@ -993,9 +1022,10 @@ app.post('/api/org/units', auth, (req, res) => {
 
   const id = (code || name).toUpperCase().replace(/[^A-Z0-9]+/g, '-').replace(/^-|-$/g, '').slice(0, 40);
   if (!id) return fail(res, 400, 'That name produces an empty unit code.');
+  const creatorIsOperator = isInstanceOperator(req.user) || isBootstrapOperator(db, req.user);
 
   try {
-    const created = db.transaction(() => {
+    const result = db.transaction(() => {
       db.prepare(
         `INSERT INTO units (id, code, name, short_name, echelon, location, parent_id, level, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
@@ -1004,10 +1034,11 @@ app.post('/api/org/units', auth, (req, res) => {
         location?.trim() || null, parent_id || null, level || 'L4', now()
       );
       claimUnit(id, req.user.id, template_id || DEFAULT_TEMPLATE_ID);
+      const sessionsRevoked = creatorIsOperator ? 0 : revokePrivilegeSessions([req.user.id]);
       audit({ actor_id: req.user.id, action: 'create_unit', entity: 'unit', entity_id: id, unit_id: id, detail: name.trim() });
-      return db.prepare('SELECT * FROM units WHERE id = ?').get(id);
+      return { unit: db.prepare('SELECT * FROM units WHERE id = ?').get(id), sessionsRevoked };
     })();
-    res.json(created);
+    res.json({ ...result.unit, sessionsRevoked: result.sessionsRevoked });
   } catch (err) {
     if (String(err.message).includes('UNIQUE')) return fail(res, 400, 'That unit code already exists.');
     console.error('Unit creation failed:', err);
@@ -1094,11 +1125,14 @@ app.post('/api/org/units/:unitId/claim', auth, operatorGate(db), (req, res) => {
     return failValidation(res, { owner_user_id: 'No such active account.' });
   }
   claimUnit(unit.id, ownerId, template_id || DEFAULT_TEMPLATE_ID);
+  // An Instance Operator already has authority to claim a unit for themselves;
+  // a remotely assigned owner must receive a fresh session before using it.
+  const sessionsRevoked = ownerId === req.user.id ? 0 : revokePrivilegeSessions([ownerId]);
   audit({
     actor_id: req.user.id, action: 'claim_unit', entity: 'unit', entity_id: unit.id,
     subject_id: ownerId, unit_id: unit.id, detail: `operator assigned owner (${template_id || DEFAULT_TEMPLATE_ID} template)`,
   });
-  res.json(db.prepare('SELECT * FROM units WHERE id = ?').get(unit.id));
+  res.json({ ...db.prepare('SELECT * FROM units WHERE id = ?').get(unit.id), sessionsRevoked });
 });
 
 app.post('/api/org/units/:unitId/owner', auth, (req, res) => {
@@ -1119,6 +1153,7 @@ app.post('/api/org/units/:unitId/owner', auth, (req, res) => {
   if (successor.id === unit.owner_user_id) return res.json({ ok: true, already: true });
 
   let revokedAdminGrants = 0;
+  let sessionsRevoked = 0;
   db.transaction(() => {
     db.prepare('UPDATE units SET owner_user_id = ? WHERE id = ?').run(successor.id, unitId);
     db.prepare("UPDATE unit_members SET kind = 'member' WHERE user_id = ? AND unit_id = ?").run(unit.owner_user_id, unitId);
@@ -1131,13 +1166,19 @@ app.post('/api/org/units/:unitId/owner', auth, (req, res) => {
           )`
       ).run(unit.owner_user_id, unitId, unitId, PERMISSIONS.ADMINISTRATOR).changes;
     }
+    // A current Instance Operator retains instance-wide authority after handing
+    // off one unit; other former owners and every successor must reauthenticate.
+    sessionsRevoked = revokePrivilegeSessions([
+      successor.id,
+      ...(operator && unit.owner_user_id === req.user.id ? [] : [unit.owner_user_id]),
+    ]);
   })();
   audit({
     actor_id: req.user.id, action: 'transfer_ownership', entity: 'unit', entity_id: unitId,
     subject_id: successor.id, unit_id: unitId,
-    detail: `${unit.owner_user_id || 'unowned'} → ${successor.id}; former-owner administrator grants revoked: ${revokedAdminGrants}`,
+    detail: `${unit.owner_user_id || 'unowned'} → ${successor.id}; former-owner administrator grants revoked: ${revokedAdminGrants}; sessions revoked: ${sessionsRevoked}`,
   });
-  res.json({ ok: true, unit_id: unitId, owner_user_id: successor.id, revokedAdminGrants });
+  res.json({ ok: true, unit_id: unitId, owner_user_id: successor.id, revokedAdminGrants, sessionsRevoked });
 });
 
 app.post('/api/org/units/:unitId/members', auth, (req, res) => {
@@ -1184,6 +1225,7 @@ app.post('/api/org/units/:unitId/members', auth, (req, res) => {
     role = db.prepare('SELECT * FROM roles WHERE unit_id = ? AND is_default = 1 LIMIT 1').get(unitId) || null;
   }
 
+  let sessionsRevoked = 0;
   db.transaction(() => {
     addMember(user_id, unitId, { kind, invitedBy: req.user.id, expiresAt: effectiveExpiry });
 
@@ -1198,14 +1240,15 @@ app.post('/api/org/units/:unitId/members', auth, (req, res) => {
       if (!verdict.ok) throw Object.assign(new Error(verdict.message), { verdict });
       grantRole(user_id, role.id, unitId, req.user.id);
     }
+    sessionsRevoked = revokePrivilegeSessions([user_id]);
   })();
 
   audit({
     actor_id: req.user.id, action: 'add_member', entity: 'unit', entity_id: unitId,
     subject_id: user_id, unit_id: unitId,
-    detail: `${kind}${effectiveExpiry ? ` until ${effectiveExpiry}` : ''}${role ? ` as ${role.name}` : ''}`,
+    detail: `${kind}${effectiveExpiry ? ` until ${effectiveExpiry}` : ''}${role ? ` as ${role.name}` : ''}; sessions revoked: ${sessionsRevoked}`,
   });
-  res.json({ ok: true, unit_id: unitId, user_id, kind, expires_at: effectiveExpiry });
+  res.json({ ok: true, unit_id: unitId, user_id, kind, expires_at: effectiveExpiry, sessionsRevoked });
 });
 
 app.delete('/api/org/units/:unitId/members/:userId', auth, (req, res) => {
@@ -1228,11 +1271,11 @@ app.delete('/api/org/units/:unitId/members/:userId', auth, (req, res) => {
   }
   const removed = removeMember(userId, unitId);
 
-  const sessionsRevoked = 0;
+  const sessionsRevoked = revokePrivilegeSessions([userId]);
   audit({
     actor_id: req.user.id, action: 'remove_member', entity: 'unit', entity_id: unitId,
     subject_id: userId, unit_id: unitId,
-    detail: `roles: ${removed.roles}; assignments ended: ${removed.assignments}; records frozen: ${removed.recordsFrozen}`,
+    detail: `roles: ${removed.roles}; assignments ended: ${removed.assignments}; records frozen: ${removed.recordsFrozen}; sessions revoked: ${sessionsRevoked}`,
   });
   res.json({ ok: true, ...removed, sessionsRevoked });
 });
@@ -1299,11 +1342,16 @@ app.put('/api/roles/:roleId', auth, (req, res) => {
   const verdict = validateRoleDefinition(db, req.user, def, { existing: role });
   if (!verdict.ok) return fail(res, roleDenyStatus(verdict.code), verdict.message, { code: verdict.code });
 
-  db.prepare(
-    'UPDATE roles SET name = ?, description = ?, color = ?, position = ?, permissions = ? WHERE id = ?'
-  ).run(def.name, def.description, color ?? role.color, def.position, def.permissions, req.params.roleId);
-  audit({ actor_id: req.user.id, action: 'edit_role', entity: 'role', entity_id: req.params.roleId, unit_id: def.unit_id });
-  res.json(db.prepare('SELECT * FROM roles WHERE id = ?').get(req.params.roleId));
+  let sessionsRevoked = 0;
+  db.transaction(() => {
+    db.prepare(
+      'UPDATE roles SET name = ?, description = ?, color = ?, position = ?, permissions = ? WHERE id = ?'
+    ).run(def.name, def.description, color ?? role.color, def.position, def.permissions, req.params.roleId);
+    const holders = db.prepare('SELECT DISTINCT user_id FROM member_roles WHERE role_id = ?').all(req.params.roleId);
+    sessionsRevoked = revokePrivilegeSessions(holders.map((holder) => holder.user_id));
+  })();
+  audit({ actor_id: req.user.id, action: 'edit_role', entity: 'role', entity_id: req.params.roleId, unit_id: def.unit_id, detail: `sessions revoked: ${sessionsRevoked}` });
+  res.json({ ...db.prepare('SELECT * FROM roles WHERE id = ?').get(req.params.roleId), sessionsRevoked });
 });
 
 app.delete('/api/roles/:roleId', auth, (req, res) => {
@@ -1317,10 +1365,15 @@ app.delete('/api/roles/:roleId', auth, (req, res) => {
   if (role.unit_id && isUnitOwner(db, req.user.id, role.unit_id) === false && (role.permissions & PERMISSIONS.ADMINISTRATOR)) {
     return fail(res, 403, 'Only the unit owner can delete an administrator role.');
   }
-  db.prepare('DELETE FROM member_roles WHERE role_id = ? AND unit_id = ?').run(req.params.roleId, role.unit_id);
-  db.prepare('DELETE FROM roles WHERE id = ?').run(req.params.roleId);
-  audit({ actor_id: req.user.id, action: 'delete_role', entity: 'role', entity_id: req.params.roleId, unit_id: role.unit_id, detail: role.name });
-  res.json({ ok: true });
+  let sessionsRevoked = 0;
+  db.transaction(() => {
+    const holders = db.prepare('SELECT DISTINCT user_id FROM member_roles WHERE role_id = ? AND unit_id = ?').all(req.params.roleId, role.unit_id);
+    db.prepare('DELETE FROM member_roles WHERE role_id = ? AND unit_id = ?').run(req.params.roleId, role.unit_id);
+    db.prepare('DELETE FROM roles WHERE id = ?').run(req.params.roleId);
+    sessionsRevoked = revokePrivilegeSessions(holders.map((holder) => holder.user_id));
+  })();
+  audit({ actor_id: req.user.id, action: 'delete_role', entity: 'role', entity_id: req.params.roleId, unit_id: role.unit_id, detail: `${role.name}; sessions revoked: ${sessionsRevoked}` });
+  res.json({ ok: true, sessionsRevoked });
 });
 
 app.post('/api/team/:id/roles', auth, (req, res) => {
@@ -1333,11 +1386,12 @@ app.post('/api/team/:id/roles', auth, (req, res) => {
   if (!verdict.ok) return fail(res, roleDenyStatus(verdict.code), verdict.message, { code: verdict.code });
 
   grantRole(req.params.id, role_id, unit_id, req.user.id);
+  const sessionsRevoked = revokePrivilegeSessions([req.params.id]);
   audit({
     actor_id: req.user.id, action: 'grant_role', entity: 'role', entity_id: role_id,
-    subject_id: req.params.id, unit_id, detail: `${role.name} @ ${unit_id}`,
+    subject_id: req.params.id, unit_id, detail: `${role.name} @ ${unit_id}; sessions revoked: ${sessionsRevoked}`,
   });
-  res.json({ ok: true });
+  res.json({ ok: true, sessionsRevoked });
 });
 
 app.delete('/api/team/:id/roles/:roleId', auth, (req, res) => {
@@ -1345,16 +1399,21 @@ app.delete('/api/team/:id/roles/:roleId', auth, (req, res) => {
   const role = db.prepare('SELECT * FROM roles WHERE id = ?').get(req.params.roleId);
   if (!role) return fail(res, 404, 'No such role.');
   if (!unit_id) return fail(res, 400, 'A unit is required.');
+  if (role.unit_id !== unit_id) return fail(res, 403, 'That role belongs to another unit.', { code: 'scope' });
   if (!isUnitOwner(db, req.user.id, unit_id)) {
     if (!can(db, req.user, PERMISSIONS.MANAGE_ROLES, unit_id)) return fail(res, 403, 'You cannot manage roles there.');
     if (!canManageRole(db, req.user, role)) return fail(res, 403, 'That role is at or above your own.');
   }
+  if (!db.prepare('SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = ? AND unit_id = ?').get(req.params.id, req.params.roleId, unit_id)) {
+    return fail(res, 404, 'That Marine does not hold that role in this unit.');
+  }
   revokeRole(req.params.id, req.params.roleId, unit_id);
+  const sessionsRevoked = revokePrivilegeSessions([req.params.id]);
   audit({
     actor_id: req.user.id, action: 'revoke_role', entity: 'role', entity_id: req.params.roleId,
     subject_id: req.params.id, unit_id,
   });
-  res.json({ ok: true });
+  res.json({ ok: true, sessionsRevoked });
 });
 
 app.post('/api/org/billets', auth, operatorGate(db), (req, res) => {
@@ -1364,6 +1423,7 @@ app.post('/api/org/billets', auth, operatorGate(db), (req, res) => {
   try {
     db.prepare('INSERT INTO billets (id, title, category, echelon, default_role) VALUES (?, ?, ?, ?, ?)')
       .run(id, title, category || 'Staff', echelon || 'section', default_role || 'member');
+    audit({ actor_id: req.user.id, action: 'create_billet', entity: 'billet', entity_id: id, detail: title });
     res.json(db.prepare('SELECT * FROM billets WHERE id = ?').get(id));
   } catch (err) {
     if (String(err.message).includes('UNIQUE')) return fail(res, 400, 'That billet already exists.');
@@ -1675,13 +1735,16 @@ app.put('/api/team/:id/manage', auth, (req, res) => {
     const result = db.transaction(() => {
       const assignment = transferMember(db, req.user, target.id, req.body || {}, { currentToken: req.token });
       if (!assignment.ok) return { denied: assignment };
+      let roleSessionsRevoked = 0;
       if (role) {
         const verdict = validateRoleGrant(db, req.user, role, unitId, target);
         if (!verdict.ok) throw Object.assign(new Error(verdict.message), { verdict });
         grantRole(target.id, role.id, unitId, req.user.id);
+        roleSessionsRevoked = revokePrivilegeSessions([target.id]);
+        assignment.sessionsRevoked += roleSessionsRevoked;
         audit({
           actor_id: req.user.id, action: 'grant_role', entity: 'role', entity_id: role.id,
-          subject_id: target.id, unit_id: unitId, detail: `${role.name} @ ${unitId}`,
+          subject_id: target.id, unit_id: unitId, detail: `${role.name} @ ${unitId}; sessions revoked: ${roleSessionsRevoked}`,
         });
       }
       const changed = applyMemberProfile(req.user, target, plan.changes);
@@ -1691,7 +1754,7 @@ app.put('/api/team/:id/manage', auth, (req, res) => {
           subject_id: target.id, unit_id: unitId, detail: changed.join(', '),
         });
       }
-      return { assignment, changed };
+      return { assignment, changed, sessionsRevoked: assignment.sessionsRevoked };
     })();
     if (result.denied) return denyResult(res, result.denied);
     res.json({ ok: true, ...result });

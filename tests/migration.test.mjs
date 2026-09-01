@@ -48,8 +48,8 @@ describe('the fixture is a real v3.3.0 database', () => {
 });
 
 describe('migration 006 — tenancy', () => {
-  it('reaches the current schema version 13', () => {
-    expect(Number(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value)).toBe(13);
+  it('reaches the current schema version 14', () => {
+    expect(Number(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value)).toBe(14);
   });
 
   it('leaves no global role definitions', () => {

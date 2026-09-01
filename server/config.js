@@ -1,4 +1,5 @@
 import { existsSync, readFileSync } from 'node:fs';
+import { isIP } from 'node:net';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -36,6 +37,9 @@ export const DEFAULT_CONFIG = Object.freeze({
       verification_header: 'x-vantage-cac-verified',
       verification_value: 'verified',
       proxy_secret_header: 'x-vantage-proxy-secret',
+      // Identity assertion headers are accepted only from these direct peers.
+      // Keep the proxy secret itself in VANTAGE_CAC_PROXY_SECRET, never here.
+      trusted_proxy_ips: [],
     },
   },
   sessions: {
@@ -175,7 +179,26 @@ function numberIn(name, value, min, max) {
   }
 }
 
-function validateConfig(value) {
+function validateHeaderName(name, value) {
+  if (typeof value !== 'string' || !/^[a-z0-9][a-z0-9-]{0,62}$/.test(value)) {
+    throw new Error(`${name} must be a lowercase HTTP header name.`);
+  }
+  if (['authorization', 'cookie', 'host', 'set-cookie'].includes(value) || value.startsWith('x-forwarded-')) {
+    throw new Error(`${name} cannot use a routing, credential, or forwarding header.`);
+  }
+}
+
+function validIpOrCidr(value) {
+  const [address, rawPrefix] = String(value || '').split('/');
+  const family = isIP(address);
+  if (!family) return false;
+  if (rawPrefix === undefined) return true;
+  if (!/^\d+$/.test(rawPrefix)) return false;
+  const prefix = Number(rawPrefix);
+  return prefix >= 0 && prefix <= (family === 4 ? 32 : 128);
+}
+
+export function validateConfig(value) {
   if (!['evaluation', 'operational'].includes(value.app.data_mode)) {
     throw new Error('app.data_mode must be evaluation or operational.');
   }
@@ -187,6 +210,34 @@ function validateConfig(value) {
   }
   if (value.auth.provider === 'cac_piv' && !value.auth.cac_piv.enabled) {
     throw new Error('auth.provider cannot be cac_piv while auth.cac_piv.enabled is false.');
+  }
+  const trustProxy = value.deployment.trust_proxy;
+  if (!([true, false].includes(trustProxy)
+    || (Number.isInteger(trustProxy) && trustProxy >= 0 && trustProxy <= 10)
+    || (typeof trustProxy === 'string' && /^(?:true|false|yes|no|on|off|none|\d+|loopback|linklocal|uniquelocal)$/i.test(trustProxy)))) {
+    throw new Error('deployment.trust_proxy must be false, a bounded hop count, or an Express private-network preset.');
+  }
+  const cac = value.auth.cac_piv;
+  for (const [name, header] of Object.entries({
+    'auth.cac_piv.subject_header': cac.subject_header,
+    'auth.cac_piv.username_header': cac.username_header,
+    'auth.cac_piv.first_name_header': cac.first_name_header,
+    'auth.cac_piv.last_name_header': cac.last_name_header,
+    'auth.cac_piv.verification_header': cac.verification_header,
+    'auth.cac_piv.proxy_secret_header': cac.proxy_secret_header,
+  })) validateHeaderName(name, header);
+  if (new Set([
+    cac.subject_header, cac.username_header, cac.first_name_header, cac.last_name_header,
+    cac.verification_header, cac.proxy_secret_header,
+  ]).size !== 6) throw new Error('CAC/PIV header names must be distinct.');
+  if (typeof cac.verification_value !== 'string' || !cac.verification_value || cac.verification_value.length > 64) {
+    throw new Error('auth.cac_piv.verification_value must be a short non-empty string.');
+  }
+  if (!Array.isArray(cac.trusted_proxy_ips) || cac.trusted_proxy_ips.some((ip) => typeof ip !== 'string' || !validIpOrCidr(ip))) {
+    throw new Error('auth.cac_piv.trusted_proxy_ips must be an inline array of IP addresses or CIDRs.');
+  }
+  if (cac.enabled && cac.trusted_proxy_ips.length === 0) {
+    throw new Error('CAC/PIV requires auth.cac_piv.trusted_proxy_ips; direct application ingress is not trusted.');
   }
   for (const [name, text, max] of [
     ['app.display_name', value.app.display_name, 40],
@@ -259,6 +310,10 @@ function withEnvironment(config) {
   if (process.env.VANTAGE_ADMIN_URL) next.deployment.admin_url = String(process.env.VANTAGE_ADMIN_URL).replace(/\/$/, '');
   next.auth.self_registration = envBoolean('VANTAGE_SELF_REGISTRATION', next.auth.self_registration);
   next.auth.cac_piv.enabled = envBoolean('VANTAGE_CAC_ENABLED', next.auth.cac_piv.enabled);
+  if (process.env.VANTAGE_CAC_TRUSTED_PROXY_IPS !== undefined) {
+    next.auth.cac_piv.trusted_proxy_ips = String(process.env.VANTAGE_CAC_TRUSTED_PROXY_IPS)
+      .split(',').map((value) => value.trim()).filter(Boolean);
+  }
   if (process.env.VANTAGE_AUTH_PROVIDER) next.auth.provider = String(process.env.VANTAGE_AUTH_PROVIDER).toLowerCase();
   next.sessions.idle_minutes = envNumber('VANTAGE_IDLE_MINUTES', next.sessions.idle_minutes);
   next.sessions.absolute_hours = envNumber('VANTAGE_SESSION_HOURS', next.sessions.absolute_hours);

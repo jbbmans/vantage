@@ -290,19 +290,19 @@ export default function ActivityDetail() {
           </div>
 
           <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
-            <Field error={fieldErrors.quantity} label="Quantity">
+            <Field error={fieldErrors.quantity} label="Action amount" hint="how many items or actions you completed">
               <NumberInput value={draft.quantity ?? ''} onChange={setEvent('quantity')} placeholder="—" />
             </Field>
-            <Field label="Unit">
+            <Field label="Action unit">
               <Input list="units" value={draft.unit || ''} onChange={setEvent('unit')} placeholder="ULOs" />
               <datalist id="units">
                 {UNIT_SUGGESTIONS.map((u) => <option key={u} value={u} />)}
               </datalist>
             </Field>
-            <Field error={fieldErrors.dollar_amount} label="Dollar amount">
+            <Field error={fieldErrors.dollar_amount} label="Transaction value" hint="financial value tied to this action">
               <NumberInput value={draft.dollar_amount ?? ''} onChange={setEvent('dollar_amount')} placeholder="—" />
             </Field>
-            <Field error={fieldErrors.dollar_type} label="Dollar type">
+            <Field error={fieldErrors.dollar_type} label="Dollar type" hint="how Vantage classifies the transaction value">
               <Select
                 value={draft.dollar_type || 'impact'}
                 onValueChange={set('dollar_type')}

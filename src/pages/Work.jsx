@@ -45,7 +45,7 @@ const isLate = (t) =>
 function TaskCard({ task, project, onCycle, onEdit, onDelete, onDragStart, onDragEnd }) {
   const Icon = STATUS_ICON[task.status] || Circle;
   return (
-    <article className="group animate-fade-up rounded-md border border-rule bg-panel p-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-rule-strong hover:shadow-[0_10px_24px_-20px_rgb(0_0_0/0.65)]">
+    <article className="group animate-fade-up rounded-md border border-rule bg-panel p-3 transition-all duration-150 hover:-translate-y-0.5 hover:border-rule-strong hover:shadow-token">
       <div className="flex items-start gap-2.5">
         <Tooltip content="Drag to another status">
           <button

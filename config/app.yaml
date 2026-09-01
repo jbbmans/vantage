@@ -30,6 +30,9 @@ auth:
     verification_header: x-vantage-cac-verified
     verification_value: verified
     proxy_secret_header: x-vantage-proxy-secret
+    # Required when CAC/PIV is enabled. The proxy must strip client-supplied
+    # assertion headers and inject its own after mTLS verification.
+    trusted_proxy_ips: []
 
 sessions:
   idle_minutes: 60
