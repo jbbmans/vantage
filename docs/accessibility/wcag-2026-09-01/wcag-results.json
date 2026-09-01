@@ -1,0 +1,143 @@
+{
+  "generatedAt": "2026-09-01T18:07:22.329Z",
+  "standard": "WCAG 2.2 AA automated subset",
+  "evidence": [
+    {
+      "step": 1,
+      "name": "setup",
+      "url": "http://127.0.0.1:8877/",
+      "screenshot": "audit-evidence/01-setup.png",
+      "violations": []
+    },
+    {
+      "step": 2,
+      "name": "command-center",
+      "url": "http://127.0.0.1:8877/",
+      "screenshot": "audit-evidence/02-command-center.png",
+      "violations": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.13/color-contrast?application=playwright",
+          "nodes": [
+            {
+              "target": [
+                "a[aria-current=\"page\"] > .max-w-full.truncate"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.7 (foreground color: #1468b7, background color: #0a273a, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": 3,
+      "name": "quick-log",
+      "url": "http://127.0.0.1:8877/",
+      "screenshot": "audit-evidence/03-quick-log.png",
+      "violations": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.13/color-contrast?application=playwright",
+          "nodes": [
+            {
+              "target": [
+                "a[aria-current=\"page\"] > .max-w-full.truncate"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.7 (foreground color: #1468b7, background color: #0a273a, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": 4,
+      "name": "report-studio",
+      "url": "http://127.0.0.1:8877/reports",
+      "screenshot": "audit-evidence/04-report-studio.png",
+      "violations": [
+        {
+          "id": "color-contrast",
+          "impact": "serious",
+          "help": "Elements must meet minimum color contrast ratio thresholds",
+          "helpUrl": "https://dequeuniversity.com/rules/axe/4.13/color-contrast?application=playwright",
+          "nodes": [
+            {
+              "target": [
+                ".bg-signal\\/10 > .max-w-full.truncate"
+              ],
+              "failureSummary": "Fix any of the following:\n  Element has insufficient color contrast of 2.7 (foreground color: #1468b7, background color: #0a273a, font size: 9.0pt (12px), font weight: normal). Expected contrast ratio of 4.5:1"
+            }
+          ]
+        }
+      ]
+    },
+    {
+      "step": 5,
+      "name": "command-center-mobile",
+      "url": "http://127.0.0.1:8877/",
+      "screenshot": "audit-evidence/05-command-center-mobile.png",
+      "violations": []
+    },
+    {
+      "step": 6,
+      "name": "owner-console-mobile",
+      "url": "http://127.0.0.1:8877/operator",
+      "screenshot": "audit-evidence/06-owner-console-mobile.png",
+      "violations": []
+    }
+  ],
+  "focusOrder": [
+    {
+      "tag": "BUTTON",
+      "text": "Open menu"
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Search or jump"
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Notifications"
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Open account menu"
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Dashboard period"
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Filters"
+    },
+    {
+      "tag": "BUTTON",
+      "text": "Display"
+    },
+    {
+      "tag": "A",
+      "text": "$0headline dollar impact"
+    },
+    {
+      "tag": "A",
+      "text": "0activity records"
+    },
+    {
+      "tag": "A",
+      "text": "0%records complete"
+    },
+    {
+      "tag": "A",
+      "text": "0.0hwork logged"
+    },
+    {
+      "tag": "A",
+      "text": "9next actions"
+    }
+  ]
+}
