@@ -8,7 +8,7 @@ const DB = '/tmp/vantage-wcag-audit.db';
 const OUT = 'audit-evidence';
 mkdirSync(OUT, { recursive: true });
 for (const f of [DB, DB + '-wal', DB + '-shm']) { try { rmSync(f, { force: true }); } catch {} }
-const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT: String(PORT), VANTAGE_DB: DB, VANTAGE_TEST: '1', VANTAGE_OPERATOR: 'audit.owner', VANTAGE_MARADMIN_ENABLED: 'false' }, stdio: 'inherit' });
+const srv = spawn('node', ['server/index.js'], { env: { ...process.env, PORT: String(PORT), VANTAGE_DB: DB, VANTAGE_OPERATOR: 'audit.owner', VANTAGE_MARADMIN_ENABLED: 'false' }, stdio: 'inherit' });
 await new Promise(r => setTimeout(r, 2200));
 const base = `http://127.0.0.1:${PORT}`;
 const browser = await chromium.launch();
