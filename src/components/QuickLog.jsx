@@ -5,7 +5,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Input, NumberInput, Select, Textarea, Badge, Dot } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { parseQuickLog, primaryQuantity } from '@/lib/quickLogParser';
-import { createRecord, preferredUnitId } from '@/store/useStore';
+import { createRecord } from '@/store/useStore';
 import { errorText, trackExperience } from '@/lib/api';
 import { CATEGORIES, CATEGORY_COLORS, JEPES_AREAS, DOLLAR_TYPES, UNIT_SUGGESTIONS } from '@/lib/constants';
 import { formatDollarsExact } from '@/lib/metrics';
@@ -15,7 +15,6 @@ import { areaOptions, mapAreaToTrack, trackMeta } from '@/lib/evaluation';
 import { useEvalTrack, useIdentity, usePrefs } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { draftKey } from '@/lib/drafts';
-import { queueQuickLog } from '@/lib/offlineQueue';
 
 const EXAMPLES = [
   'Reconciled 30 ULOs totaling $1,118.38 in DAI for G-8',
@@ -71,8 +70,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
       result: '',
       notes: '',
       status: 'completed',
-      visibility: identity?.memberships?.length ? DEFAULT_VISIBILITY : 'personal',
-      unit_id: preferredUnitId(identity?.memberships?.map((membership) => membership.unit_id)),
+      visibility: DEFAULT_VISIBILITY,
       ...overrides,
     };
   }, [parsed, overrides]);
@@ -87,21 +85,13 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
     }
     setSaving(true);
     try {
-      const payload = {
+      await createRecord('activities', {
         ...record,
         quantity: record.quantity != null && record.quantity !== '' ? Number(record.quantity) : null,
-        dollar_amount: record.dollar_amount != null && record.dollar_amount !== ''
-          ? Number(String(record.dollar_amount).replace(/[$,]/g, '')) : null,
-      };
-      if (globalThis.navigator?.onLine === false) {
-        await queueQuickLog(identity?.user?.id, payload);
-        toast.success('Activity saved offline. It will sync after you reconnect.');
-        try { sessionStorage.removeItem(DRAFT_KEY); } catch {}
-        onOpenChange(false);
-        return;
-      }
-      await createRecord('activities', {
-        ...payload,
+        dollar_amount:
+          record.dollar_amount != null && record.dollar_amount !== ''
+            ? Number(String(record.dollar_amount).replace(/[$,]/g, ''))
+            : null,
       });
       toast.success('Activity logged.');
       trackExperience('quick_log_saved');
