@@ -47,6 +47,8 @@ for (let i=0;i<12;i+=1) {
   focus.push(await page.evaluate(() => ({ tag: document.activeElement?.tagName, text: (document.activeElement?.getAttribute('aria-label') || document.activeElement?.textContent || '').trim().slice(0,80) })));
   await page.keyboard.press('Tab');
 }
+await page.goto(base + '/operator', { waitUntil: 'networkidle' });
+await capture(6, 'owner-console-mobile');
 writeFileSync(`${OUT}/wcag-results.json`, JSON.stringify({ generatedAt:new Date().toISOString(), standard:'WCAG 2.2 AA automated subset', evidence, focusOrder:focus }, null, 2));
 await browser.close();
 srv.kill();
