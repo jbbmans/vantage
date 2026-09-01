@@ -136,7 +136,7 @@ export default function OperatorConsole() {
           <div className="skeleton h-52 rounded-xl" />
         </div>
       ) : (
-        <div className="mt-5 grid min-w-0 gap-4 xl:grid-cols-2">
+        <div className="mt-5 grid min-w-0 gap-4 [&>*]:min-w-0 xl:grid-cols-2">
           <Panel title="Site identity" subtitle="Visible instance labels and announcement">
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Product label">
