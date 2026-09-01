@@ -20,8 +20,8 @@ const val = (v) => {
 
 const ACTIVITY_COLUMNS = [
   ['date', 'Date'], ['title', 'Title'], ['category', 'Category'], ['jepes_area', 'JEPES Area'],
-  ['quantity', 'Quantity'], ['unit', 'Unit'],
-  ['dollar_amount', 'Dollar Amount'], ['dollar_type', 'Dollar Type'],
+  ['quantity', 'Action Amount'], ['unit', 'Action Unit'],
+  ['dollar_amount', 'Transaction Value'], ['dollar_type', 'Dollar Type'],
   ['result', 'Result'], ['organization', 'Organization'], ['system', 'System'],
   ['project', 'Project'], ['people', 'People'], ['status', 'Status'],
   ['impact_tags', 'Tags'], ['evidence_links', 'Evidence'], ['notes', 'Notes'],
@@ -92,10 +92,10 @@ export const IMPORT_FIELDS = [
   { key: 'date', label: 'Date', required: true },
   { key: 'category', label: 'Category' },
   { key: 'jepes_area', label: 'JEPES Area' },
-  { key: 'quantity', label: 'Quantity' },
-  { key: 'unit', label: 'Unit' },
-  { key: 'dollar_amount', label: 'Dollar Amount' },
-  { key: 'dollar_type', label: 'Dollar Type' },
+  { key: 'quantity', label: 'Action Amount', aliases: ['Quantity', 'Action Quantity'] },
+  { key: 'unit', label: 'Action Unit', aliases: ['Unit'] },
+  { key: 'dollar_amount', label: 'Transaction Value', aliases: ['Dollar Amount', 'Transaction Amount'] },
+  { key: 'dollar_type', label: 'Dollar Type', aliases: ['Transaction Dollar Type'] },
   { key: 'result', label: 'Result' },
   { key: 'organization', label: 'Organization' },
   { key: 'system', label: 'System' },
@@ -106,9 +106,9 @@ export function guessMapping(columns = []) {
   const map = {};
   const norm = (s) => String(s).toLowerCase().replace(/[^a-z]/g, '');
   for (const field of IMPORT_FIELDS) {
-    const target = norm(field.label);
-    const hit = columns.find((c) => norm(c) === target)
-      || columns.find((c) => norm(c).includes(target) || target.includes(norm(c)));
+    const targets = [field.label, ...(field.aliases || [])].map(norm);
+    const hit = columns.find((c) => targets.includes(norm(c)))
+      || columns.find((c) => targets.some((target) => norm(c).includes(target) || target.includes(norm(c))));
     if (hit) map[field.key] = hit;
   }
   return map;

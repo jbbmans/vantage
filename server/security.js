@@ -83,8 +83,10 @@ export function recordLoginFailure(ip, username) {
   return entry.count === USER_MAX;
 }
 
-export function recordLoginSuccess(ip, username) {
-  counters.ip.delete(ip);
+export function recordLoginSuccess(_ip, username) {
+  // Keep connection-level failures until their window expires. Clearing them on
+  // any successful account login lets a bot reset an IP's budget by interleaving
+  // a known-good credential with password guesses.
   counters.user.delete(String(username || '').trim().toLowerCase());
 }
 

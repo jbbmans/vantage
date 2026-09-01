@@ -175,14 +175,14 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
                 <Field label="Date">
                   <Input type="date" value={record.date} onChange={setEvent('date')} />
                 </Field>
-                <Field label="Quantity">
+                <Field label="Action amount" hint="how many items or actions you completed">
                   <NumberInput
                     value={record.quantity ?? ''}
                     onChange={setEvent('quantity')}
                     placeholder="—"
                   />
                 </Field>
-                <Field label="Unit">
+                <Field label="Action unit">
                   <Input
                     list="unit-suggestions"
                     value={record.unit ?? ''}
@@ -195,7 +195,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
                     ))}
                   </datalist>
                 </Field>
-                <Field label="Dollars">
+                <Field label="Transaction value" hint="the dollar value tied to the action — separate from action amount">
                   <NumberInput
                     value={record.dollar_amount ?? ''}
                     onChange={setEvent('dollar_amount')}
@@ -216,7 +216,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
                     options={areaOptions(track)}
                   />
                 </Field>
-                <Field label="Dollar type">
+                <Field label="Dollar type" hint="what happened to the transaction value">
                   <Select
                     value={record.dollar_type}
                     onValueChange={set('dollar_type')}
@@ -284,7 +284,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
               )}
               {record.dollar_amount ? (
                 <p className="fig mt-2 text-2xs text-text-3">
-                  Recorded to the cent as {formatDollarsExact(Number(String(record.dollar_amount).replace(/[$,]/g, '')) || 0)}
+                  Transaction value recorded to the cent as {formatDollarsExact(Number(String(record.dollar_amount).replace(/[$,]/g, '')) || 0)}
                 </p>
               ) : null}
             </div>

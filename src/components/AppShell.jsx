@@ -77,9 +77,9 @@ function resolvedTheme(mode) {
 function useTheme(preferredTheme) {
   const [mode, setMode] = useState(() => {
     try {
-      return preferredTheme || localStorage.getItem('vantage.theme') || 'light';
+      return preferredTheme || localStorage.getItem('vantage.theme') || 'system';
     } catch {
-      return preferredTheme || 'light';
+      return preferredTheme || 'system';
     }
   });
   const [theme, setResolved] = useState(() => resolvedTheme(mode));
@@ -106,7 +106,7 @@ function useTheme(preferredTheme) {
   }, [mode]);
 
   useEffect(() => {
-    const update = (event) => setMode(event.detail || 'light');
+    const update = (event) => setMode(event.detail || 'system');
     window.addEventListener('vantage:theme', update);
     return () => window.removeEventListener('vantage:theme', update);
   }, []);
@@ -164,7 +164,7 @@ function RailLink({ item, mobile = false }) {
           active
             ? mobile
               ? 'bg-panel-2 text-signal'
-              : 'bg-[#dceaf5] text-[#1767b5]'
+              : 'bg-signal/10 text-signal'
             : mobile
               ? 'text-text-2 hover:bg-panel-2 hover:text-text'
               : 'text-white/70 hover:bg-white/[0.07] hover:text-white'
@@ -355,7 +355,7 @@ export default function AppShell() {
 
   return (
     <div className="flex min-h-screen bg-ink">
-      <aside className="no-print sticky top-0 hidden h-screen w-rail shrink-0 flex-col bg-[#102a36] lg:flex">
+      <aside className="no-print sticky top-0 hidden h-screen w-rail shrink-0 flex-col bg-nav lg:flex">
         <div className="flex h-[98px] items-center justify-center border-b border-white/10">
           <img src="/mark.svg" alt="Vantage" className="h-11 w-11 rounded-lg shadow-sm" />
         </div>
@@ -374,7 +374,7 @@ export default function AppShell() {
 
       {drawer && (
         <div className="no-print fixed inset-0 z-50 lg:hidden">
-          <button type="button" className="absolute inset-0 bg-[#102a36]/50 backdrop-blur-sm animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu overlay" />
+          <button type="button" className="absolute inset-0 bg-nav/60 backdrop-blur-sm animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu overlay" />
           <aside className="absolute inset-y-0 left-0 w-[min(88vw,320px)] border-r border-rule shadow-[var(--shadow-lg)] animate-slide-in-left">
             {mobileRail}
           </aside>
@@ -382,7 +382,7 @@ export default function AppShell() {
       )}
 
       <div className="flex min-w-0 flex-1 flex-col">
-        <header className="no-print sticky top-0 z-30 flex h-[68px] items-center border-b border-rule bg-panel/95 px-4 backdrop-blur-md lg:px-8">
+        <header className="no-print sticky top-0 z-30 flex h-[68px] items-center border-b border-rule bg-panel/95 px-4 shadow-token-xs backdrop-blur-md lg:px-8">
           <button type="button" className="mr-3 rounded-md p-2 text-text-2 hover:bg-panel-2 lg:hidden" onClick={() => setDrawer(true)} aria-label="Open menu">
             <Menu className="h-5 w-5" />
           </button>
@@ -466,7 +466,7 @@ export default function AppShell() {
       <button
         type="button"
         onClick={() => openQuickLog('')}
-        className="no-print fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-30 inline-flex h-12 items-center gap-2 rounded-full border border-[#0b2230] bg-[#102a36] px-4 text-sm font-medium text-white shadow-[0_18px_38px_-18px_rgba(16,42,54,0.8)] transition hover:-translate-y-0.5 hover:bg-[#173c4c] focus-visible:ring-offset-ink sm:bottom-7 sm:right-7 sm:rounded-md"
+        className="no-print fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-30 inline-flex h-12 items-center gap-2 rounded-full border border-nav bg-nav px-4 text-sm font-medium text-white shadow-token-lg transition hover:-translate-y-0.5 hover:bg-nav/90 focus-visible:ring-offset-ink sm:bottom-7 sm:right-7 sm:rounded-md"
       >
         <Plus className="h-4 w-4" />
         Log activity

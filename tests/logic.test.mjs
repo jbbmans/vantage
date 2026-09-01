@@ -203,6 +203,23 @@ test('rollup sums summable dollars and separates reviewed', () => {
   assert.ok(text.includes('reviewed'), text);
 });
 
+test('action amount and transaction value aggregate independently by dollar type', () => {
+  const metrics = M.aggregateMetrics([
+    { quantity: 30, unit: 'ULOs', dollar_amount: 1118.38, dollar_type: 'reconciled' },
+    { quantity: 5, unit: 'UMTs', dollar_amount: 4000000, dollar_type: 'reviewed' },
+    { quantity: 2, unit: 'MIPRs', dollar_amount: 90000, dollar_type: 'obligated' },
+  ]);
+
+  assert.equal(metrics.totalQuantity, 37);
+  assert.equal(metrics.totalDollars, 91118.38);
+  assert.equal(metrics.reviewedDollars, 4000000);
+  assert.deepEqual(metrics.dollarsByType, {
+    reconciled: 1118.38,
+    reviewed: 4000000,
+    obligated: 90000,
+  });
+});
+
 test('package groups into the three scored JEPES areas', () => {
   const pkg = B.buildPackage(sample, { periodLabel: 'FY26' });
   const areas = pkg.map((g) => g.area);

@@ -15,6 +15,7 @@ import {
 } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
 import { unitFor } from '@/lib/bullets';
+import DollarTypeBreakdown from '@/components/DollarTypeBreakdown';
 
 const PERIODS = [
   { value: 'all', label: 'ALL', ariaLabel: 'All time' },
@@ -27,8 +28,8 @@ const PERIODS = [
 const SORTS = [
   { value: 'date-desc', label: 'Newest first' },
   { value: 'date-asc', label: 'Oldest first' },
-  { value: 'dollar-desc', label: 'Largest dollars' },
-  { value: 'quantity-desc', label: 'Largest quantity' },
+  { value: 'dollar-desc', label: 'Largest transaction value' },
+  { value: 'quantity-desc', label: 'Largest action amount' },
   { value: 'strength-asc', label: 'Weakest entries' },
   { value: 'strength-desc', label: 'Strongest entries' },
 ];
@@ -44,12 +45,19 @@ export default function Activities() {
   const [period, setPeriod] = useState('all');
   const [category, setCategory] = useState('');
   const [jepes, setJepes] = useState('');
-  const [dollarType, setDollarType] = useState('');
   const [sort, setSort] = useState('date-desc');
   const [showFilters, setShowFilters] = useState(false);
 
   const dayFilter = params.get('date');
   const qualityFilter = params.get('quality');
+  const dollarType = params.get('dollarType') || '';
+
+  const setDollarType = (value) => {
+    const next = new URLSearchParams(params);
+    if (value) next.set('dollarType', value);
+    else next.delete('dollarType');
+    setParams(next);
+  };
 
   const filtered = useMemo(() => {
     let rows = activities;
@@ -103,7 +111,6 @@ export default function Activities() {
     setQuery('');
     setCategory('');
     setJepes('');
-    setDollarType('');
     setPeriod('all');
     setParams({});
   };
@@ -214,11 +221,11 @@ export default function Activities() {
           <span className="text-text">{formatNumber(filtered.length)}</span> entries
         </span>
         <span className="fig text-xs text-text-2">
-          <span className="text-text">{formatNumber(metrics.totalQuantity)}</span> units
+          <span className="text-text">{formatNumber(metrics.totalQuantity)}</span> action amount
         </span>
         <Tooltip content={DOLLAR_SUM_RULE}>
           <span className="fig cursor-help text-xs text-text-2">
-            <span className="text-ledger">{formatDollarsExact(metrics.totalDollars)}</span> impact
+            <span className="text-ledger">{formatDollarsExact(metrics.totalDollars)}</span> headline transaction value
           </span>
         </Tooltip>
         {metrics.reviewedDollars > 0 && (
@@ -231,6 +238,8 @@ export default function Activities() {
           </button>
         )}
       </div>
+
+      <DollarTypeBreakdown amounts={metrics.dollarsByType} className="mb-4" />
 
       <Panel bodyClassName="p-0">
         {filtered.length === 0 ? (
@@ -247,8 +256,8 @@ export default function Activities() {
               <span className="eyebrow w-16 shrink-0">Date</span>
               <span className="eyebrow min-w-0 flex-1">Entry</span>
               <span className="eyebrow w-32 shrink-0">Category</span>
-              <span className="eyebrow w-28 shrink-0 text-right">Quantity</span>
-              <span className="eyebrow w-28 shrink-0 text-right">Dollars</span>
+              <span className="eyebrow w-28 shrink-0 text-right">Action amount</span>
+              <span className="eyebrow w-28 shrink-0 text-right">Transaction value</span>
               <span className="eyebrow w-28 shrink-0 text-right">Status</span>
             </div>
 
@@ -284,7 +293,9 @@ export default function Activities() {
                     a.dollar_amount ? (a.dollar_type === 'reviewed' ? 'text-text-3' : 'text-ledger') : 'text-text-3'
                   )}
                 >
-                  {a.dollar_amount ? formatDollars(a.dollar_amount) : '—'}
+                  {a.dollar_amount ? (
+                    <><span className="block">{formatDollars(a.dollar_amount)}</span><span className="block text-2xs text-text-3">{DOLLAR_TYPES.find((type) => type.key === a.dollar_type)?.label || 'Impact'}</span></>
+                  ) : '—'}
                 </span>
 
                 <span className={cn('flex w-28 shrink-0 items-center justify-end gap-1.5 text-xs', strength(a) >= 2 ? 'text-ledger' : 'text-attention')}>

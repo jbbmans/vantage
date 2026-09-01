@@ -13,7 +13,7 @@
     "build": "vite build",
     "start": "node server/index.js",
     "lint": "eslint . --quiet",
-    "test": "node tests/config.test.mjs && node tests/attachments.test.mjs && node tests/factory-reset.test.mjs && node tests/provision-accounts.test.mjs && node tests/maintenance.test.mjs && node tests/static.test.mjs && node tests/hardening-static.test.mjs && node tests/delimited.test.mjs && node tests/logic.test.mjs && node tests/maradmins.test.mjs && node tests/api.test.mjs && node tests/scenario.test.mjs && node tests/security.test.mjs && node tests/matrix.test.mjs && node tests/tenancy.test.mjs && node tests/load-50.test.mjs && node tests/persona-100.test.mjs && node --test tests/migration.test.mjs",
+    "test": "node tests/config.test.mjs && node tests/attachments.test.mjs && node tests/proxy-trust.test.mjs && node tests/audit-integrity.test.mjs && node tests/cac-security.test.mjs && node tests/factory-reset.test.mjs && node tests/provision-accounts.test.mjs && node tests/maintenance.test.mjs && node tests/static.test.mjs && node tests/hardening-static.test.mjs && node tests/delimited.test.mjs && node tests/logic.test.mjs && node tests/maradmins.test.mjs && node tests/api.test.mjs && node tests/scenario.test.mjs && node tests/security.test.mjs && node tests/matrix.test.mjs && node tests/tenancy.test.mjs && node tests/load-50.test.mjs && node tests/persona-100.test.mjs && node --test tests/migration.test.mjs",
     "test:logic": "node tests/logic.test.mjs",
     "test:api": "node tests/api.test.mjs",
     "test:scenario": "node tests/scenario.test.mjs",

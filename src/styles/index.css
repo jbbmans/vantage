@@ -1,4 +1,14 @@
-/* Vantage interface foundation. */
+/*
+ * VANTAGE DESIGN TOKENS
+ * Palette: cool slate surfaces; navy navigation; signal blue for action;
+ * ledger teal for healthy/complete states; redline for destructive states.
+ * Type: 4px rhythm, 11/12/13/14/15/18/24/30/40/54px scale; local IBM Plex
+ * Mono is reserved for identifiers and tabular figures. UI text uses the
+ * system stack so no runtime font data leaves the device.
+ * Surfaces: ink (canvas), panel (raised), panel-2 (recessed), rule (hairline).
+ * Motion: 150–240ms ease-out transitions; reduced-motion users get none.
+ * Density: comfortable is the default; compact only tightens shared surfaces.
+ */
 
 @font-face {
   font-family: 'IBM Plex Mono';
@@ -8,7 +18,7 @@
 }
 
 [data-density='compact'] .panel > header { padding-block: 0.375rem; }
-[data-density='compact'] .panel > div { padding-block: 0.5rem; }
+[data-density='compact'] .panel > .panel-body { padding-block: 0.5rem; }
 [data-density='compact'] .row { min-height: 2rem; }
 [data-density='compact'] .page-canvas { row-gap: 0.75rem; }
 
@@ -39,44 +49,51 @@ input[type='date'] { min-width: 0; }
 @layer base {
   :root,
   [data-theme='dark'] {
-    --ink: 13 25 34;
-    --nav: 9 32 44;
-    --panel: 17 42 54;
-    --panel-2: 28 57 70;
-    --rule: 52 79 92;
-    --rule-strong: 82 111 124;
-    --text: 241 246 249;
-    --text-2: 187 205 215;
-    --text-3: 158 183 196;
-    --signal: 88 164 230;
-    --signal-ink: 6 24 35;
-    --ledger: 104 170 184;
-    --redline: 239 111 120;
-    --info: 133 162 192;
-    --attention: 148 180 196;
-    --shadow: 0 18px 50px -28px rgb(0 0 0 / 0.75);
-    --shadow-lg: 0 30px 80px -28px rgb(0 0 0 / 0.82), 0 10px 28px -18px rgb(0 0 0 / 0.5);
+    --ink: 9 20 28;
+    --nav: 7 26 37;
+    --panel: 14 35 47;
+    --panel-2: 24 52 65;
+    --rule: 48 77 92;
+    --rule-strong: 86 116 130;
+    --text: 238 245 249;
+    --text-2: 190 211 221;
+    --text-3: 157 184 198;
+    --signal: 91 170 232;
+    --signal-ink: 5 23 34;
+    --ledger: 106 183 166;
+    --redline: 243 119 127;
+    --info: 143 174 207;
+    --attention: 220 177 96;
+    --focus: 127 198 255;
+    --shadow-xs: 0 1px 2px rgb(0 0 0 / 0.32);
+    --shadow: 0 18px 50px -28px rgb(0 0 0 / 0.78), 0 3px 10px -8px rgb(0 0 0 / 0.4);
+    --shadow-lg: 0 30px 80px -28px rgb(0 0 0 / 0.84), 0 10px 28px -18px rgb(0 0 0 / 0.55);
   }
 
   [data-theme='light'] {
-    --ink: 243 246 248;
+    --ink: 246 248 250;
     --nav: 9 32 44;
-    --panel: 249 251 252;
-    --panel-2: 231 239 244;
-    --rule: 202 216 223;
-    --rule-strong: 161 185 196;
-    --text: 20 33 43;
-    --text-2: 56 81 96;
-    --text-3: 75 104 120;
-    --signal: 27 101 184;
+    --panel: 255 255 255;
+    --panel-2: 235 241 245;
+    --rule: 207 220 227;
+    --rule-strong: 157 181 193;
+    --text: 14 29 39;
+    --text-2: 50 73 87;
+    --text-3: 79 105 120;
+    --signal: 20 104 183;
     --signal-ink: 255 255 255;
-    --ledger: 40 106 121;
-    --redline: 178 57 68;
-    --info: 55 94 132;
-    --attention: 71 103 121;
-    --shadow: 0 18px 44px -28px rgb(16 42 54 / 0.42);
+    --ledger: 28 111 111;
+    --redline: 183 51 64;
+    --info: 46 92 132;
+    --attention: 128 91 32;
+    --focus: 12 86 160;
+    --shadow-xs: 0 1px 2px rgb(16 42 54 / 0.12);
+    --shadow: 0 18px 44px -28px rgb(16 42 54 / 0.42), 0 3px 10px -8px rgb(16 42 54 / 0.18);
     --shadow-lg: 0 30px 80px -30px rgb(16 42 54 / 0.48), 0 10px 28px -20px rgb(16 42 54 / 0.35);
   }
+
+  [data-theme='dark'] { color-scheme: dark; }
+  [data-theme='light'] { color-scheme: light; }
 
   * {
     border-color: rgb(var(--rule));
@@ -91,6 +108,11 @@ input[type='date'] { min-width: 0; }
     @apply bg-ink text-text font-ui text-base antialiased;
     font-feature-settings: 'cv05' 1, 'ss03' 1, 'tnum' 1;
     text-rendering: optimizeLegibility;
+    min-width: 320px;
+  }
+
+  h1, h2, h3, h4 {
+    text-wrap: balance;
   }
 
   .fig {
@@ -107,6 +129,7 @@ input[type='date'] { min-width: 0; }
   :focus-visible {
     @apply outline-none ring-2 ring-signal ring-offset-2;
     --tw-ring-offset-color: rgb(var(--ink));
+    box-shadow: 0 0 0 1px rgb(var(--focus) / 0.28), var(--tw-ring-offset-shadow), var(--tw-ring-shadow);
   }
 
   ::selection {
@@ -141,8 +164,11 @@ input[type='date'] { min-width: 0; }
 @layer components {
   .panel {
     @apply rounded-md border border-rule/90 bg-panel;
-    box-shadow: 0 1px 0 rgb(255 255 255 / 0.035), 0 12px 36px -34px rgb(0 0 0 / 0.55);
+    box-shadow: var(--shadow-xs), 0 12px 36px -34px rgb(0 0 0 / 0.55);
+    transition: border-color 150ms ease-out, box-shadow 150ms ease-out;
   }
+
+  .panel:hover { border-color: rgb(var(--rule-strong) / 0.72); }
 
   .row {
     @apply border-b border-rule transition-colors duration-100 last:border-b-0;
@@ -154,9 +180,17 @@ input[type='date'] { min-width: 0; }
   .field {
     @apply w-full rounded border border-rule bg-panel px-3 py-2 text-base text-text
            placeholder:text-text-3 transition-colors;
+    box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.04);
   }
   .field:focus {
-    @apply border-signal outline-none ring-0;
+    @apply border-signal outline-none;
+    box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.04);
+  }
+
+  .field:focus-visible {
+    outline: 2px solid rgb(var(--focus));
+    outline-offset: 2px;
+    box-shadow: 0 0 0 3px rgb(var(--signal) / 0.18), inset 0 1px 1px rgb(0 0 0 / 0.04);
   }
 
   .chip {
@@ -167,6 +201,23 @@ input[type='date'] { min-width: 0; }
 
   .page-canvas {
     @apply mx-auto w-full max-w-[1480px];
+  }
+
+  .surface-inset {
+    @apply rounded border border-rule bg-panel-2/45;
+  }
+
+  .metric-value {
+    @apply fig text-2xl font-semibold tracking-tight text-text;
+  }
+
+  .interactive {
+    @apply transition-[color,background-color,border-color,box-shadow,transform] duration-150;
+  }
+
+  .focus-surface:focus-visible {
+    @apply outline-none ring-2 ring-signal ring-offset-2;
+    --tw-ring-offset-color: rgb(var(--panel));
   }
 
   .section-rule {
@@ -265,7 +316,14 @@ input[type='date'] { min-width: 0; }
   }
 }
 
+/* Preserve compact desktop density while keeping touch controls comfortable. */
+@media (pointer: coarse) {
+  .tap-target,
+  .field { min-height: 2.5rem; }
+}
+
 @media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
   *,
   *::before,
   *::after {

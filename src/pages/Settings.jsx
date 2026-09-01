@@ -36,6 +36,8 @@ export default function Settings() {
   const [sessions, setSessions] = useState([]);
   const [rankRequests, setRankRequests] = useState({ mine: [], review: [] });
   const [rankDialog, setRankDialog] = useState(false);
+  const [operatorRankDialog, setOperatorRankDialog] = useState(false);
+  const [operatorRankId, setOperatorRankId] = useState('');
   const [rankDraft, setRankDraft] = useState({ rank_id: '', reason: '' });
   const [rankReview, setRankReview] = useState(null);
   const [rankBusy, setRankBusy] = useState(false);
@@ -93,6 +95,23 @@ export default function Settings() {
       loadSessions();
     } catch (err) { toast.error(apiClient.errorText(err)); }
     finally { setPwBusy(false); }
+  };
+
+  const saveOperatorRank = async () => {
+    if (!operatorRankId) return;
+    setRankBusy(true);
+    try {
+      await apiClient.updateMemberProfile(identity.user.id, { rank_id: operatorRankId });
+      await hydrate();
+      await loadRankRequests();
+      setOperatorRankDialog(false);
+      setOperatorRankId('');
+      toast.success('Your rank was updated and audited.');
+    } catch (err) {
+      toast.error(apiClient.errorText(err));
+    } finally {
+      setRankBusy(false);
+    }
   };
 
   const shortAgent = (ua = '') => {
@@ -245,17 +264,31 @@ export default function Settings() {
         title="Rank updates"
         subtitle="Request a correction or review updates for Marines you manage"
         action={(
-          <Button
-            size="sm"
-            onClick={() => {
-              setRankDraft({ rank_id: '', reason: '' });
-              setRankDialog(true);
-            }}
-            disabled={rankRequests.mine.some((request) => request.status === 'pending')}
-          >
-            <GraduationCap className="h-3.5 w-3.5" />
-            Request update
-          </Button>
+          <div className="flex flex-wrap gap-2">
+            {identity?.isOperator && (
+              <Button
+                variant="default"
+                size="sm"
+                onClick={() => {
+                  setOperatorRankId(identity?.user?.rank_id || '');
+                  setOperatorRankDialog(true);
+                }}
+              >
+                Edit my rank
+              </Button>
+            )}
+            <Button
+              size="sm"
+              onClick={() => {
+                setRankDraft({ rank_id: '', reason: '' });
+                setRankDialog(true);
+              }}
+              disabled={rankRequests.mine.some((request) => request.status === 'pending')}
+            >
+              <GraduationCap className="h-3.5 w-3.5" />
+              Request update
+            </Button>
+          </div>
         )}
       >
         <div className="grid gap-5 xl:grid-cols-2">
@@ -341,7 +374,7 @@ export default function Settings() {
         <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
           <Field label="Theme">
             <Select
-              value={interfacePrefs.theme || 'light'}
+              value={interfacePrefs.theme || 'system'}
               onValueChange={(value) => saveInterface('theme', value)}
               options={[
                 { value: 'light', label: 'Light' },
@@ -556,6 +589,30 @@ export default function Settings() {
       </p>
         </div>
       </div>
+
+      <Dialog
+        open={operatorRankDialog}
+        onOpenChange={setOperatorRankDialog}
+        title="Edit your rank"
+        description="Instance Operator override. This change is written to the audit log."
+        size="sm"
+        footer={(
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setOperatorRankDialog(false)}>Cancel</Button>
+            <Button variant="primary" size="sm" disabled={rankBusy || !operatorRankId} onClick={saveOperatorRank}>
+              {rankBusy ? 'Saving…' : 'Save rank'}
+            </Button>
+          </>
+        )}
+      >
+        <Field label="Rank">
+          <Select
+            value={operatorRankId}
+            onValueChange={setOperatorRankId}
+            options={(org.ranks || []).map((rank) => ({ value: rank.id, label: `${rank.abbr} — ${rank.name}` }))}
+          />
+        </Field>
+      </Dialog>
 
       <Dialog
         open={rankDialog}
