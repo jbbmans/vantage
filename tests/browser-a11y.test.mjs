@@ -58,6 +58,19 @@ for (const [path, label] of [
   await scan(label);
 }
 
+await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+await page.waitForTimeout(700);
+await page.keyboard.press('n');
+await page.getByRole('dialog').waitFor();
+const quickLogInput = page.getByLabel('Describe the completed activity');
+if (!await quickLogInput.isVisible().catch(() => false)) {
+  problems.push('quick log: primary activity field has no persistent visible label');
+  console.log('  FAIL  quick log — primary activity field has no persistent visible label');
+} else {
+  console.log('  ok    quick log — primary activity field has a persistent visible label');
+}
+await scan('quick log');
+
 await browser.close();
 srv.kill();
 for (const f of [DB, DB + '-wal', DB + '-shm']) { try { rmSync(f, { force: true }); } catch {  } }

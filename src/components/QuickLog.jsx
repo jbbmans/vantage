@@ -5,7 +5,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Input, NumberInput, Select, Textarea, Badge, Dot } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { parseQuickLog, primaryQuantity } from '@/lib/quickLogParser';
-import { createRecord } from '@/store/useStore';
+import { createRecord, preferredUnitId } from '@/store/useStore';
 import { errorText, trackExperience } from '@/lib/api';
 import { CATEGORIES, CATEGORY_COLORS, JEPES_AREAS, DOLLAR_TYPES, UNIT_SUGGESTIONS } from '@/lib/constants';
 import { formatDollarsExact } from '@/lib/metrics';
@@ -15,6 +15,7 @@ import { areaOptions, mapAreaToTrack, trackMeta } from '@/lib/evaluation';
 import { useEvalTrack, useIdentity, usePrefs } from '@/store/useStore';
 import { cn } from '@/lib/utils';
 import { draftKey } from '@/lib/drafts';
+import { queueQuickLog } from '@/lib/offlineQueue';
 
 const EXAMPLES = [
   'Reconciled 30 ULOs totaling $1,118.38 in DAI for G-8',
@@ -70,7 +71,8 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
       result: '',
       notes: '',
       status: 'completed',
-      visibility: DEFAULT_VISIBILITY,
+      visibility: identity?.memberships?.length ? DEFAULT_VISIBILITY : 'personal',
+      unit_id: preferredUnitId(identity?.memberships?.map((membership) => membership.unit_id)),
       ...overrides,
     };
   }, [parsed, overrides]);
@@ -85,13 +87,21 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
     }
     setSaving(true);
     try {
-      await createRecord('activities', {
+      const payload = {
         ...record,
         quantity: record.quantity != null && record.quantity !== '' ? Number(record.quantity) : null,
-        dollar_amount:
-          record.dollar_amount != null && record.dollar_amount !== ''
-            ? Number(String(record.dollar_amount).replace(/[$,]/g, ''))
-            : null,
+        dollar_amount: record.dollar_amount != null && record.dollar_amount !== ''
+          ? Number(String(record.dollar_amount).replace(/[$,]/g, '')) : null,
+      };
+      if (globalThis.navigator?.onLine === false) {
+        await queueQuickLog(identity?.user?.id, payload);
+        toast.success('Activity saved offline. It will sync after you reconnect.');
+        try { sessionStorage.removeItem(DRAFT_KEY); } catch {}
+        onOpenChange(false);
+        return;
+      }
+      await createRecord('activities', {
+        ...payload,
       });
       toast.success('Activity logged.');
       trackExperience('quick_log_saved');
@@ -135,14 +145,16 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
       }
     >
       <div onKeyDown={onKeyDown} className="space-y-3">
-        <Textarea
-          autoFocus
-          rows={2}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday"
-          className="text-md"
-        />
+        <Field label="Describe the completed activity" hint="include the result, quantity, and value when applicable">
+          <Textarea
+            autoFocus
+            rows={2}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday"
+            className="text-md"
+          />
+        </Field>
 
         {!text.trim() && (
           <div className="flex flex-wrap gap-1.5">

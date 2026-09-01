@@ -164,7 +164,7 @@ function RailLink({ item, mobile = false }) {
           active
             ? mobile
               ? 'bg-panel-2 text-signal'
-              : 'bg-signal/10 text-signal'
+              : 'bg-signal/10 text-white'
             : mobile
               ? 'text-text-2 hover:bg-panel-2 hover:text-text'
               : 'text-white/70 hover:bg-white/[0.07] hover:text-white'
@@ -394,6 +394,16 @@ export default function AppShell() {
               <span className="hidden md:inline">Search or jump</span>
               <kbd className="hidden rounded border border-rule px-1.5 py-0.5 text-2xs lg:inline">⌘K</kbd>
             </button>
+            <Button
+              variant="primary"
+              size="sm"
+              onClick={() => openQuickLog('')}
+              aria-label="Log activity"
+              className="h-9 px-2 xl:px-3"
+            >
+              <Plus className="h-4 w-4" />
+              <span className="hidden xl:inline">Log activity</span>
+            </Button>
             <NotificationCenter online={online} onNavigate={navigate} />
             <Popover.Root>
               <Popover.Trigger asChild>
@@ -462,15 +472,6 @@ export default function AppShell() {
           VANTAGE v{packageJson.version} · Records remain on this deployment's server
         </footer>
       </div>
-
-      <button
-        type="button"
-        onClick={() => openQuickLog('')}
-        className="no-print fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 z-30 inline-flex h-12 items-center gap-2 rounded-full border border-nav bg-nav px-4 text-sm font-medium text-white shadow-token-lg transition hover:-translate-y-0.5 hover:bg-nav/90 focus-visible:ring-offset-ink sm:bottom-7 sm:right-7 sm:rounded-md"
-      >
-        <Plus className="h-4 w-4" />
-        Log activity
-      </button>
 
       <QuickLog open={quickLog} onOpenChange={setQuickLog} initialText={quickLogSeed} />
       <CommandPalette open={palette} onOpenChange={setPalette} onQuickLog={openQuickLog} />

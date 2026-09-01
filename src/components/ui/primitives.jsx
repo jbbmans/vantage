@@ -57,7 +57,7 @@ export const Textarea = forwardRef(function Textarea({ className, rows = 3, ...p
 
 export function Label({ className, children, hint, ...props }) {
   return (
-    <label className={cn('mb-1 flex items-baseline gap-2', className)} {...props}>
+    <label className={cn('mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5', className)} {...props}>
       <span className="eyebrow">{children}</span>
       {hint && <span className="text-2xs text-text-3">{hint}</span>}
     </label>
@@ -82,7 +82,7 @@ export function Field({ label, hint, error, children, className }) {
     if (Object.keys(extra).length) control = React.cloneElement(children, extra);
   }
   return (
-    <div className={className}>
+    <div className={cn('min-w-0', className)}>
       <Label id={labelId} hint={hint}>{label}</Label>
       {control}
       {error && <p id={errorId} className="mt-1 text-2xs leading-snug text-redline">{error}</p>}
@@ -193,7 +193,7 @@ export function Tooltip({ content, children, side = 'top', className }) {
 
 export function Panel({ title, subtitle, action, children, className, bodyClassName, id }) {
   return (
-    <section id={id} className={cn('panel scroll-mt-24', className)}>
+    <section id={id} className={cn('panel min-w-0 scroll-mt-24', className)}>
       {(title || action) && (
         <header className="flex items-center justify-between gap-3 border-b border-rule px-3 py-2">
           <div className="min-w-0">
