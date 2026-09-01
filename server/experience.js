@@ -1,4 +1,3 @@
-/** Privacy-preserving, first-party product signals. No user or record keys. */
 export const EXPERIENCE_EVENTS = new Set([
   'page_command',
   'page_records',

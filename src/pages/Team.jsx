@@ -13,13 +13,6 @@ import { errorText } from '@/lib/api';
 import { draftKey } from '@/lib/drafts';
 import Roles from '@/pages/Roles';
 
-/**
- * The roster.
- *
- * What shows up here is decided entirely by the server — this page renders
- * whatever /api/team returns and never filters for permission itself. A
- * client-side permission check is a suggestion, not a control.
- */
 export default function Team() {
   const org = useOrg();
   const identity = useIdentity();
@@ -69,7 +62,6 @@ export default function Team() {
     );
   }, [state.roster, query]);
 
-  // Group by unit so a section head sees their branches, not one flat list.
   const grouped = useMemo(() => {
     const map = new Map();
     for (const p of filtered) {
@@ -175,9 +167,9 @@ export default function Team() {
                     {r.name}
                   </span>
                 ))}
-                {(state.canManageMembers || []).includes(p.unit_id) && (
+                {p.id !== identity?.user?.id && (state.canManageMembers || []).includes(p.unit_id) && (
                   <Button variant="ghost" size="sm" onClick={() => setEditing(p)}>
-                    Reassign
+                    Manage
                   </Button>
                 )}
                 <ChevronRight className="h-3.5 w-3.5 shrink-0 text-text-3" />
@@ -199,14 +191,14 @@ export default function Team() {
           initialUnitId={preferredManagedUnit}
           draftStorageKey={memberDraftKey}
           fieldErrors={memberErrors}
-          onCancel={() => { setAdding(false); setMemberErrors({}); try { sessionStorage.removeItem(memberDraftKey); } catch { /* fine */ } }}
+          onCancel={() => { setAdding(false); setMemberErrors({}); try { sessionStorage.removeItem(memberDraftKey); } catch {} }}
           onSave={async (draft) => {
             try {
               await apiClient.addMember(draft);
               toast.success(`${draft.last_name} added.`);
               setAdding(false);
               setMemberErrors({});
-              try { sessionStorage.removeItem(memberDraftKey); } catch { /* fine */ }
+              try { sessionStorage.removeItem(memberDraftKey); } catch {}
               load();
             } catch (err) {
               setMemberErrors(err.fieldErrors || {});
@@ -227,22 +219,27 @@ export default function Team() {
 
       {editing && (
         <MemberDialog
-          title={`Reassign ${displayName(editing)}`}
+          title={`Manage ${displayName(editing)}`}
           units={scopedUnits}
           billets={org.billets}
           ranks={org.ranks}
           roles={state.availableRoles}
-          initial={{ unit_id: editing.unit_id, role_id: '' }}
+          initial={{
+            unit_id: editing.unit_id,
+            billet_id: editing.billet_id || '',
+            role_id: '',
+            rank_id: editing.rank_id || '',
+            mos: editing.mos || '',
+            email: editing.email || '',
+            eas: editing.eas || '',
+          }}
           assignmentOnly
           fieldErrors={memberErrors}
           onCancel={() => { setEditing(null); setMemberErrors({}); }}
           onSave={async (draft) => {
             try {
-              await apiClient.reassign(editing.id, draft);
-              if (draft.role_id) {
-                await apiClient.grantRole(editing.id, { role_id: draft.role_id, unit_id: draft.unit_id });
-              }
-              toast.success('Assignment updated.');
+              await apiClient.manageMember(editing.id, draft);
+              toast.success('Profile and assignment updated.');
               setEditing(null);
               setMemberErrors({});
               load();
@@ -362,16 +359,12 @@ function EnrollExistingDialog({ units, initialUnitId, onCancel, onDone }) {
   );
 }
 
-/** Shared create/reassign form. Billet choice pre-selects the role it implies. */
 function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, initialUnitId, assignmentOnly, draftStorageKey, fieldErrors = {}, onCancel, onSave }) {
   const [draft, setDraft] = useState({
     username: '', password: '', first_name: '', last_name: '', middle_initial: '',
     rank_id: '', mos: '', email: '', eas: '',
     unit_id: initialUnitId || units[0]?.id || '', billet_id: '', role_id: '', ...initial,
   });
-  // Finding 35: a half-filled member form survives a dropped connection or an
-  // accidental Escape. Mirrors to sessionStorage while creating; an explicit
-  // Cancel or a successful save clears it (the parent owns the clearing).
   const MEMBER_DRAFT = draftStorageKey || draftKey('unknown', 'member');
   const [restored, setRestored] = useState(false);
   useEffect(() => {
@@ -382,21 +375,18 @@ function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, 
         setDraft((d) => ({ ...d, ...stored }));
         setRestored(true);
       }
-    } catch { /* corrupt or blocked */ }
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const set = (k) => (v) => setDraft((d) => {
     const next = { ...d, [k]: v?.target ? v.target.value : v };
     if (!assignmentOnly) {
-      try { sessionStorage.setItem(MEMBER_DRAFT, JSON.stringify({ ...next, password: '' })); } catch { /* fine */ }
+      try { sessionStorage.setItem(MEMBER_DRAFT, JSON.stringify({ ...next, password: '' })); } catch {}
     }
     return next;
   });
 
-  // Finding 9, Option A: a billet is an organizational position only. Picking
-  // one pre-fills the role suggestion below, and that grant — never the billet
-  // — is what carries permissions. The server writes no role on assignments.
   const BILLET_ROLE = { team_lead: 'fire-team-leader', unit_leader: 'unit-leader', member: '' };
   const pickBillet = (billetId) => {
     const billet = billets.find((b) => b.id === billetId);
@@ -434,30 +424,36 @@ function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, 
           </p>
         )}
         {!assignmentOnly && (
-          <>
-            <div className="grid grid-cols-2 gap-3">
-              <Field error={fieldErrors.first_name} label="First name"><Input value={draft.first_name} onChange={set('first_name')} autoFocus /></Field>
-              <Field error={fieldErrors.last_name} label="Last name"><Input value={draft.last_name} onChange={set('last_name')} /></Field>
-            </div>
-            <div className="grid grid-cols-3 gap-3">
-              <Field error={fieldErrors.rank_id} label="Rank">
-                <Select
-                  value={draft.rank_id}
-                  onValueChange={set('rank_id')}
-                  placeholder="Select"
-                  options={ranks.map((r) => ({ value: r.id, label: `${r.abbr} · ${r.grade}` }))}
-                />
-              </Field>
-              <Field error={fieldErrors.mos} label="MOS"><Input value={draft.mos} onChange={set('mos')} placeholder="3451" /></Field>
-              <Field error={fieldErrors.eas} label="EAS"><Input type="date" value={draft.eas} onChange={set('eas')} /></Field>
-            </div>
-            <div className="grid grid-cols-2 gap-3">
-              <Field error={fieldErrors.username} label="Username"><Input value={draft.username} onChange={set('username')} autoComplete="off" /></Field>
-              <Field error={fieldErrors.password} label="Temporary password" hint="15 characters minimum">
-                <Input type="password" value={draft.password} onChange={set('password')} autoComplete="new-password" />
-              </Field>
-            </div>
-          </>
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field error={fieldErrors.first_name} label="First name"><Input value={draft.first_name} onChange={set('first_name')} autoFocus /></Field>
+            <Field error={fieldErrors.last_name} label="Last name"><Input value={draft.last_name} onChange={set('last_name')} /></Field>
+          </div>
+        )}
+
+        <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
+          <Field error={fieldErrors.rank_id} label="Rank">
+            <Select
+              value={draft.rank_id}
+              onValueChange={set('rank_id')}
+              placeholder="Select"
+              options={ranks.map((r) => ({ value: r.id, label: `${r.abbr} · ${r.grade}` }))}
+            />
+          </Field>
+          <Field error={fieldErrors.mos} label="MOS"><Input value={draft.mos} onChange={set('mos')} placeholder="3451" /></Field>
+          <Field error={fieldErrors.eas} label="EAS"><Input type="date" value={draft.eas || ''} onChange={set('eas')} /></Field>
+        </div>
+
+        <Field error={fieldErrors.email} label="Email" hint="optional">
+          <Input type="email" value={draft.email || ''} onChange={set('email')} autoComplete="email" />
+        </Field>
+
+        {!assignmentOnly && (
+          <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+            <Field error={fieldErrors.username} label="Username"><Input value={draft.username} onChange={set('username')} autoComplete="off" /></Field>
+            <Field error={fieldErrors.password} label="Temporary password" hint="15 characters minimum">
+              <Input type="password" value={draft.password} onChange={set('password')} autoComplete="new-password" />
+            </Field>
+          </div>
         )}
 
         <Field error={fieldErrors.unit_id} label="Unit">
@@ -487,7 +483,7 @@ function MemberDialog({ title, units, billets, ranks, roles = [], initial = {}, 
 
         <Field
           label="Role"
-          hint="Everyone gets Marine automatically; picking a billet only pre-fills this suggestion. The role grant here is the sole thing that carries permissions — the billet itself grants nothing."
+          hint="Billet selection suggests a role; only the role grant carries permissions."
         >
           <Select
             value={draft.role_id || ''}

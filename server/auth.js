@@ -1,28 +1,3 @@
-/**
- * Vantage — authentication.
- *
- * scrypt for password hashing, random opaque session tokens held server-side.
- * Deliberately not JWT: a stateless token can't be revoked, and "this Marine
- * transferred, cut their access now" is a routine request in this setting.
- * A row in `sessions` can be deleted. A signed JWT in someone's pocket cannot.
- *
- * v3.3 session lifecycle, built for the shared duty computer:
- *
- *   - The cookie is a SESSION cookie. No Expires, no Max-Age. Close the
- *     browser and the credential is gone from the machine. v3.2 set a 12-day
- *     cookie, which meant the next Marine at the workstation inherited the
- *     last one's login — directly against the tool's own stated model.
- *   - The server enforces an INACTIVITY timeout (default 60 minutes) and an
- *     ABSOLUTE lifetime (default 12 hours), because a browser left open on a
- *     duty desk defeats a session cookie all by itself.
- *   - Sessions record when they were last used, from where, and with what
- *     browser, so a Marine can look at their own session list and the Instance
- *     Operator can perform account-wide recovery.
- *
- * Bearer tokens exist only in the isolated API test harness, which models
- * several users in one process. Deployed requests authenticate by cookie only.
- */
-
 import { createHash, randomBytes, scryptSync, timingSafeEqual, randomUUID } from 'node:crypto';
 import { passwordProblem } from './passwordPolicy.js';
 import { checkMutationAllowed } from './security.js';
@@ -60,25 +35,15 @@ export function verifyPassword(password, stored) {
   }
 }
 
-/**
- * A real hash of a random password, verified against on unknown usernames so
- * "no such user" and "wrong password" take the same time (finding 17).
- */
 const DUMMY_HASH = hashPassword(randomBytes(24).toString('base64url'));
 export function burnVerification(password) {
   verifyPassword(password || '', DUMMY_HASH);
 }
 
-/**
- * Store only a one-way digest of a session credential. A database snapshot is
- * necessarily sensitive, but it must not also be a bag of immediately usable
- * login tokens. The browser keeps the random token; SQLite keeps this digest.
- */
 export function sessionDigest(token) {
   return createHash('sha256').update(String(token || ''), 'utf8').digest('hex');
 }
 
-/** Stable, non-secret identifier used by the session-management UI. */
 export function sessionIdForToken(token) {
   return sessionDigest(token).slice(0, 8);
 }
@@ -117,7 +82,6 @@ export function destroySession(db, token) {
   db.prepare('DELETE FROM sessions WHERE token = ?').run(sessionDigest(token));
 }
 
-/** Cut every session a user holds — transfer, deactivation, password change. */
 export function invalidateUserSessions(db, userId, { exceptToken = null } = {}) {
   if (exceptToken) {
     return db.prepare('DELETE FROM sessions WHERE user_id = ? AND token <> ?')
@@ -126,16 +90,11 @@ export function invalidateUserSessions(db, userId, { exceptToken = null } = {}) 
   return db.prepare('DELETE FROM sessions WHERE user_id = ?').run(userId).changes;
 }
 
-/** Drop expired rows so the table doesn't become a list of every login ever. */
 export function pruneSessions(db) {
   const nowIso = new Date().toISOString();
   db.prepare('DELETE FROM sessions WHERE expires_at < ? OR absolute_expires_at < ?').run(nowIso, nowIso);
 }
 
-/**
- * Sessions for one user, tokens masked. What a Marine sees under "your
- * sessions" and what the Instance Operator sees during an access review.
- */
 export function listSessions(db, userId, currentToken = null) {
   const currentDigest = currentToken ? sessionDigest(currentToken) : null;
   return db
@@ -181,8 +140,7 @@ export function sessionUser(db, token) {
     destroySession(db, token);
     return null;
   }
-  // Roll the inactivity deadline, at most once a minute so a busy page doesn't
-  // turn every request into a write. The absolute deadline never moves.
+
   if (nowMs - new Date(row.last_used_at || row.expires_at).getTime() > 60_000) {
     db.prepare('UPDATE sessions SET last_used_at = ?, expires_at = ? WHERE token = ?').run(
       new Date(nowMs).toISOString(),
@@ -198,15 +156,6 @@ export function sessionUser(db, token) {
   return row;
 }
 
-/**
- * Express middleware: attaches req.user or 401s.
- *
- * Cookie-authenticated state changes additionally require the client header
- * the SPA always sends. SameSite=Strict already keeps the cookie off
- * cross-site requests; the header is defense in depth so a future SameSite
- * regression or an odd browser doesn't silently reopen CSRF. Test-harness
- * bearer requests are exempt because they are never enabled in deployment.
- */
 export function requireAuth(db) {
   return (req, res, next) => {
     const header = req.get('authorization') || '';

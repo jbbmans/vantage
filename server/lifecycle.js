@@ -1,29 +1,3 @@
-/**
- * Vantage — personnel access lifecycle.
- *
- * The dangerous moments in a permission system are not the day-to-day reads;
- * they are the transitions. A Marine transfers and their old roles linger
- * (finding 2). A leader with authority over one unit pulls somebody out of a
- * unit they don't control (finding 8). An account should be shut off and
- * there's no button, so it just… stays on (finding 4). This module owns those
- * transitions so every route asks the same questions and every answer lands in
- * the audit log.
- *
- * The rule set:
- *
- *   - Moving a Marine needs authority over BOTH ends: MANAGE_MEMBERS in the
- *     unit they're leaving and in the unit they're joining.
- *   - Unit leaders may move/remove membership inside units they manage. Global
- *     account state, credentials and sessions belong only to the Instance
- *     Operator because one account may span several sovereign units.
- *   - A transfer revokes every role granted in the old unit unless the actor
- *     explicitly retains it — and retaining a role is itself a grant, so it
- *     passes the same delegation check a grant would.
- *   - Deactivation cuts every session immediately and refuses to orphan the
- *     install by removing the last administrator.
- *   - Nothing here deletes a user. History stays attached to the account.
- */
-
 import { audit, grantRole, newId, now, addMember, freezeMemberUnitRecords } from './db.js';
 import { PERMISSIONS } from './roles.js';
 import { can, permissionMap, positionIn, isUnitOwner, memberUnitIds } from './permissions.js';
@@ -38,12 +12,6 @@ export function primaryAssignment(db, userId) {
   return db.prepare('SELECT * FROM assignments WHERE user_id = ? AND is_primary = 1').get(userId) || null;
 }
 
-/**
- * Account credentials and activation state are global to the Vantage
- * instance, even when the person belongs to several sovereign units. A unit
- * leader therefore manages only that unit's membership; only the explicitly
- * configured Instance Operator may alter the underlying account.
- */
 export function canAdministerAccount(db, actor, target) {
   if (!target) return deny(404, 'No such Marine.', 'not_found');
   if (isInstanceOperator(actor) || isBootstrapOperator(db, actor)) return ok();
@@ -54,7 +22,6 @@ export function canAdministerAccount(db, actor, target) {
   );
 }
 
-/** Active administrators other than `exceptUserId` — the lock-out guard. */
 export function otherActiveAdmins(db, exceptUserId) {
   return db
     .prepare(
@@ -67,11 +34,6 @@ export function otherActiveAdmins(db, exceptUserId) {
     .get(exceptUserId, PERMISSIONS.ADMINISTRATOR).n;
 }
 
-/**
- * Units this user owns outright. Under v3.4 this — not an ADMINISTRATOR bit —
- * is what makes an account load-bearing, so it is what the lock-out guards
- * below are written against (finding 11).
- */
 const ownedUnits = (db, user) =>
   db.prepare('SELECT id, name FROM units WHERE owner_user_id = ? AND active = 1').all(user.id);
 
@@ -87,14 +49,6 @@ const holdsAdmin = (db, user) =>
       .get(user.id, PERMISSIONS.ADMINISTRATOR)
   );
 
-/**
- * Change a Marine's primary assignment (finding 2 + 8).
- *
- * Returns { ok, moved, revokedRoles, retainedRoles, sessionsRevoked } or a deny.
- * `retainRoleIds` keeps named role grants alive in the OLD unit — each one is
- * re-judged as if the actor were granting it fresh, so "retain" can never keep
- * alive something the actor couldn't have handed out.
- */
 export function transferMember(db, actor, targetId, { unit_id, billet_id, role, retain_role_ids, retainRoleIds }, { currentToken = null } = {}) {
   const retainList = retain_role_ids ?? retainRoleIds ?? [];
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(targetId);
@@ -108,25 +62,23 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
   }
 
   const oldUnitPeek = primaryAssignment(db, targetId)?.unit_id || null;
-  // v3.4: "admin" is no longer a global standing. The only actor who skips the
-  // source-authority and position checks is the Owner of the unit the Marine is
-  // being moved out of — authority over that unit, named.
+
   const admin = Boolean(oldUnitPeek && isUnitOwner(db, actor.id, oldUnitPeek));
   const existing = primaryAssignment(db, targetId);
   const oldUnit = existing?.unit_id || null;
   const moved = oldUnit !== unit_id;
+  const nextBilletId = billet_id || null;
+  const billetChanged = (existing?.billet_id || null) !== nextBilletId;
 
-  /* Authority over the destination — everyone needs this. */
   if (!can(db, actor, PERMISSIONS.MANAGE_MEMBERS, unit_id)) {
     return deny(403, 'You cannot move Marines into that unit.');
   }
   if (!admin) {
-    /* Authority over the source — you cannot pull someone out of a unit you
-     * don't control just because you control where they'd land. */
+
     if (moved && oldUnit && !can(db, actor, PERMISSIONS.MANAGE_MEMBERS, oldUnit)) {
       return deny(403, "You cannot move a Marine out of a unit you don't manage.");
     }
-    /* Never move an equal or higher — that's how a peer removes a rival. */
+
     if (targetId !== actor.id) {
       const compareUnit = oldUnit || unit_id;
       if (positionIn(db, target, compareUnit) >= positionIn(db, actor, compareUnit)) {
@@ -135,8 +87,6 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
     }
   }
 
-  // The default role is the destination unit's own (finding 1): there is no
-  // global default role any more, because there are no global roles.
   const defaultRoleId = db.prepare('SELECT id FROM roles WHERE is_default = 1 AND unit_id = ? LIMIT 1').get(unit_id)?.id || null;
   const revokedRoles = [];
   const retainedRoles = [];
@@ -145,10 +95,11 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
 
   const run = db.transaction(() => {
     if (existing) {
-      // Finding 9, Option A: the assignment carries no role — permissions are grants.
-      db.prepare("UPDATE assignments SET unit_id = ?, billet_id = ?, role = '' WHERE id = ?").run(
-        unit_id, billet_id || null, existing.id
-      );
+      if (moved || billetChanged) {
+        db.prepare("UPDATE assignments SET unit_id = ?, billet_id = ?, role = '' WHERE id = ?").run(
+          unit_id, nextBilletId, existing.id
+        );
+      }
     } else {
       db.prepare(
         `INSERT INTO assignments (id, user_id, unit_id, billet_id, role, is_primary, start_date, created_at)
@@ -156,10 +107,6 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
       ).run(newId(), targetId, unit_id, billet_id || null, now().slice(0, 10), now());
     }
 
-    // Membership is stated (finding 8), so a transfer has to move the
-    // membership row as well as the assignment. Writing it BEFORE the grants
-    // below matters: permissionMap joins through unit_members, so the baseline
-    // grant into the destination would confer nothing without it.
     if (moved) {
       addMember(targetId, unit_id, { kind: 'member', invitedBy: actor.id });
     }
@@ -182,14 +129,9 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
         db.prepare('DELETE FROM member_roles WHERE id = ?').run(grant.grant_id);
         if (grant.id !== defaultRoleId) revokedRoles.push(grant.name);
       }
-      // Baseline role follows the Marine to the new unit.
+
       if (defaultRoleId) grantRole(targetId, defaultRoleId, unit_id, actor.id);
 
-      /* Leaving the old unit means leaving it. If nothing was retained the
-       * membership row goes too, so the Marine stops appearing on the old
-       * unit's roster and stops being a valid assignee there. A retained
-       * grant is an explicit decision to keep them attached, so membership
-       * survives alongside it. */
       if (!retainedRoles.length) {
         recordsFrozen = freezeMemberUnitRecords(targetId, oldUnit);
         db.prepare('DELETE FROM unit_members WHERE user_id = ? AND unit_id = ?').run(targetId, oldUnit);
@@ -198,31 +140,28 @@ export function transferMember(db, actor, targetId, { unit_id, billet_id, role, 
   });
   run();
 
-  /* Permissions are recomputed from live memberships on every request. A
-   * unit-local transition must not gain account-wide session authority. */
   const sessionsRevoked = 0;
 
-  audit({
-    actor_id: actor.id, action: 'reassign', entity: 'user', entity_id: targetId,
-    subject_id: targetId, unit_id,
-    detail: `${oldUnit || 'unassigned'} → ${unit_id}`
-      + (revokedRoles.length ? `; revoked: ${revokedRoles.join(', ')}` : '')
-      + (retainedRoles.length ? `; retained: ${retainedRoles.join(', ')}` : ''),
-  });
+  if (moved || billetChanged) {
+    audit({
+      actor_id: actor.id, action: 'reassign', entity: 'user', entity_id: targetId,
+      subject_id: targetId, unit_id,
+      detail: `${oldUnit || 'unassigned'} → ${unit_id}`
+        + (revokedRoles.length ? `; revoked: ${revokedRoles.join(', ')}` : '')
+        + (retainedRoles.length ? `; retained: ${retainedRoles.join(', ')}` : ''),
+    });
+  }
 
-  return ok({ moved, from: oldUnit, to: unit_id, revokedRoles, retainedRoles, recordsFrozen, sessionsRevoked });
+  return ok({ moved, billetChanged, from: oldUnit, to: unit_id, revokedRoles, retainedRoles, recordsFrozen, sessionsRevoked });
 }
 
-/** Deactivate an account (finding 4). Sessions die now; history stays. */
 export function deactivateMember(db, actor, targetId) {
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(targetId);
   const gate = canAdministerAccount(db, actor, target);
   if (!gate.ok) return gate;
   if (targetId === actor.id) return deny(400, 'You cannot deactivate your own account.', 'invalid');
   if (!target.active) return ok({ already: true, sessionsRevoked: 0 });
-  /* Orphan protection (finding 11). Deactivating a Unit Owner leaves records
-   * nobody can reach, and unlike a role grant an owner cannot be re-created by
-   * anyone still inside the unit. Ownership must be handed over first. */
+
   const owns = ownedUnits(db, target);
   if (owns.length) {
     return deny(
@@ -264,7 +203,6 @@ export function reactivateMember(db, actor, targetId) {
   return ok();
 }
 
-/** Administrative password reset. Every session the account holds ends. */
 export function resetMemberPassword(db, actor, targetId, newPassword) {
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(targetId);
   const gate = canAdministerAccount(db, actor, target);
@@ -284,7 +222,6 @@ export function resetMemberPassword(db, actor, targetId, newPassword) {
   return ok({ sessionsRevoked });
 }
 
-/** Cut every session an account holds, without touching anything else. */
 export function forceLogout(db, actor, targetId) {
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(targetId);
   const gate = canAdministerAccount(db, actor, target);
@@ -298,12 +235,6 @@ export function forceLogout(db, actor, targetId) {
   return ok({ sessionsRevoked });
 }
 
-/**
- * Access review (finding 27, and finding 2's "show me what survives a
- * transfer"): everything one account can currently reach, with the smells
- * flagged — roles in units the Marine is no longer assigned anywhere near,
- * an inactive account still holding roles, administrator access.
- */
 export function accessReview(db, actor, targetId) {
   const target = db.prepare('SELECT * FROM users WHERE id = ?').get(targetId);
   const gate = canAdministerAccount(db, actor, target);
@@ -317,9 +248,7 @@ export function accessReview(db, actor, targetId) {
         WHERE a.user_id = ? AND (a.end_date IS NULL OR a.end_date > date('now'))`
     )
     .all(targetId);
-  // Orphan detection is membership-based now. A grant in a unit the Marine is
-  // not a member of confers nothing (permissionMap joins through unit_members),
-  // so surfacing it is the whole point.
+
   const memberUnits = new Set(memberUnitIds(db, targetId));
 
   const roles = db

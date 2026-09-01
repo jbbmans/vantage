@@ -1,11 +1,6 @@
 import React from 'react';
 import { AlertOctagon, RotateCcw } from 'lucide-react';
 
-/**
- * Without this, any render error white-screens the whole app. Records are safe
- * on the server either way, so the job here is to say so plainly and give a way
- * back in — not to bury the user in an apology.
- */
 export default class ErrorBoundary extends React.Component {
   constructor(props) {
     super(props);
@@ -17,7 +12,7 @@ export default class ErrorBoundary extends React.Component {
   }
 
   componentDidCatch(error, info) {
-    // Local only. Nothing is reported anywhere.
+
     console.error('Vantage crashed:', error, info?.componentStack);
   }
 
@@ -47,7 +42,6 @@ export default class ErrorBoundary extends React.Component {
               Reload Vantage
             </button>
           </div>
-
 
           <details className="mt-4 border-t border-rule pt-3">
             <summary className="cursor-pointer text-xs text-text-3 hover:text-text-2">Technical detail</summary>

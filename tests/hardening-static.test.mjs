@@ -1,4 +1,3 @@
-/** Security-hardening invariants that run without third-party packages. */
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';

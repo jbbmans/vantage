@@ -1,12 +1,3 @@
-/**
- * Deterministic 100-persona new-user simulation.
- *
- * This is not a claim that bots have human opinions. It runs one hundred
- * isolated first-session journeys against the real Express API, varies the
- * task mix and preferences by persona, verifies every record round-trip, and
- * reports the usability questions each cohort is designed to surface. The
- * database and server are temporary; production is never touched.
- */
 import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -33,7 +24,7 @@ async function call(method, path, { token, body } = {}) {
   });
   const text = await response.text();
   let payload = null;
-  try { payload = text ? JSON.parse(text) : null; } catch { /* non-JSON */ }
+  try { payload = text ? JSON.parse(text) : null; } catch {  }
   return { status: response.status, body: payload, ms: performance.now() - started };
 }
 
@@ -150,6 +141,6 @@ try {
 } finally {
   await new Promise((resolve) => server.close(resolve));
   for (const file of [DB, `${DB}-wal`, `${DB}-shm`]) {
-    try { rmSync(file, { force: true }); } catch { /* already absent */ }
+    try { rmSync(file, { force: true }); } catch {  }
   }
 }

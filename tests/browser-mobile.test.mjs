@@ -1,23 +1,12 @@
-/**
- * Mobile and tablet layout checks (v3.3 finding 43).
- *
- * At 375px (phone) and 768px (tablet), every route must fit the viewport —
- * no page-level horizontal overflow (wide tables must scroll inside their own
- * containers, not drag the whole page sideways) — and the phone drawer nav
- * must actually open and navigate.
- *
- * Run with: node tests/browser-mobile.test.mjs   (after npm run build)
- */
-
 import { chromium } from 'playwright';
 import { spawn } from 'node:child_process';
 import { rmSync } from 'node:fs';
 
 const PORT = 8700 + (process.pid % 90);
 const DB = `/tmp/mobile-${process.pid}.db`;
-for (const f of [DB, DB + '-wal', DB + '-shm']) { try { rmSync(f, { force: true }); } catch { /* fresh */ } }
+for (const f of [DB, DB + '-wal', DB + '-shm']) { try { rmSync(f, { force: true }); } catch {  } }
 
-const srv = spawn('node', ['server/index.js'], { env: { ...process.env, VANTAGE_DB: DB, PORT: String(PORT) }, stdio: ['ignore', 'pipe', 'pipe'] });
+const srv = spawn('node', ['server/index.js'], { env: { ...process.env, VANTAGE_DB: DB, PORT: String(PORT), VANTAGE_MARADMIN_ENABLED: 'false' }, stdio: ['ignore', 'pipe', 'pipe'] });
 await new Promise((r) => setTimeout(r, 2000));
 const BASE = `http://localhost:${PORT}`;
 
@@ -37,7 +26,7 @@ const check = (n, ok, d = '') => {
 
 const browser = await chromium.launch();
 
-const ROUTES = ['/', '/activities', '/work', '/goals', '/readiness', '/reports', '/team', '/units', '/settings', '/help'];
+const ROUTES = ['/', '/activities', '/work', '/goals', '/career', '/readiness', '/maradmins', '/reports', '/team', '/units', '/settings', '/operator', '/help'];
 
 for (const width of [375, 768]) {
   const context = await browser.newContext({ viewport: { width, height: 780 } });
@@ -74,6 +63,29 @@ for (const width of [375, 768]) {
       await page.waitForTimeout(800);
       check('375px drawer navigates', page.url().includes('/readiness'));
     }
+
+    await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+    await page.waitForTimeout(650);
+    await page.getByRole('button', { name: /^Notifications/ }).click();
+    check('375px notification center opens', await page.getByText('Notifications', { exact: true }).isVisible());
+    const notificationOverflow = await page.evaluate(() => Math.max(
+      document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      document.body.scrollWidth - document.documentElement.clientWidth
+    ));
+    check('375px notification center fits', notificationOverflow <= 1, `overflows by ${notificationOverflow}px`);
+    await page.keyboard.press('Escape');
+
+    await page.keyboard.press('Control+k');
+    check('375px command menu opens', await page.getByText('Quick actions', { exact: true }).isVisible());
+    await page.getByRole('button', { name: /Request a rank update/ }).click();
+    await page.waitForTimeout(700);
+    check('quick command opens rank settings', page.url().includes('/settings#rank'));
+
+    await page.getByRole('button', { name: /Request update/ }).click();
+    const rankDialog = page.getByRole('dialog');
+    const dialogBox = await rankDialog.boundingBox();
+    check('375px rank request dialog fits', Boolean(dialogBox && dialogBox.x >= 0 && dialogBox.width <= 375 && dialogBox.height <= 780));
+    await page.keyboard.press('Escape');
   }
 
   await context.close();
@@ -81,7 +93,7 @@ for (const width of [375, 768]) {
 
 await browser.close();
 srv.kill();
-for (const f of [DB, DB + '-wal', DB + '-shm']) { try { rmSync(f, { force: true }); } catch { /* gone */ } }
+for (const f of [DB, DB + '-wal', DB + '-shm']) { try { rmSync(f, { force: true }); } catch {  } }
 
 console.log(`\n${checks.filter(Boolean).length}/${checks.length} checks passed`);
 if (problems.length) {

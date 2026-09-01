@@ -1,13 +1,3 @@
-/**
- * Capture a REAL v3.3.0 database, produced by the v3.3.0 code, for use as the
- * migration fixture in v3.4. Nothing here is synthetic: the rows are written by
- * v3.3.0's own routes, so the fixture has exactly the shape a real install has.
- *
- * Alongside the .db it writes a permission snapshot — every (user, unit) pair's
- * effective bits under v3.3.0 semantics — which the v3.4 migration test replays
- * to prove migration 006 preserved every effective permission.
- */
-
 import { rmSync, writeFileSync, copyFileSync } from 'node:fs';
 import { join } from 'node:path';
 
@@ -30,7 +20,7 @@ const call = async (method, path, { token, body } = {}) => {
   });
   const text = await res.text();
   let json = null;
-  try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON */ }
+  try { json = text ? JSON.parse(text) : null; } catch {  }
   return { status: res.status, body: json };
 };
 const login = async (u, p) => (await call('POST', '/api/login', { body: { username: u, password: p } })).body?.token;
@@ -40,14 +30,11 @@ const must = (res, what) => {
   return res.body;
 };
 
-/* ── an install with real shape ───────────────────────────────────── */
-
 must(await call('POST', '/api/setup', {
   body: { username: 'boletz', password: 'cobalt-orbit-velvet-anchor-927', first_name: 'John', last_name: 'Boletz', rank_id: 'SSgt', unit_code: 'CE-G8' },
 }), 'setup');
 const admin = await login('boletz', 'cobalt-orbit-velvet-anchor-927');
 
-// Two commands sharing one database — the exact situation v3.4 exists to fix.
 const people = [
   ['hayes', 'CE-G8', 'section-head', 'GySgt'],
   ['nguyen', 'G8-FMRAC', 'ncoic', 'Sgt'],
@@ -65,13 +52,11 @@ for (const [username, unit_id, role_id, rank_id] of people) {
   }), `create ${username}`);
 }
 
-// A custom unit-scoped role with inherits_down — v3.3's cascading grant.
 const branchRole = must(await call('POST', '/api/roles', {
   token: admin,
   body: { name: 'Branch Manager', unit_id: 'CE-G8', position: 25, inherits_down: 1, permissions: 767 },
 }), 'branch role');
 
-// A second custom role, unit-scoped and flat.
 const flatRole = must(await call('POST', '/api/roles', {
   token: admin,
   body: { name: 'Budget Clerk', unit_id: 'G8-BUDGET', position: 5, inherits_down: 0, permissions: 3 },
@@ -87,7 +72,6 @@ must(await call('POST', `/api/team/${id('delgado')}/roles`, {
   token: admin, body: { role_id: flatRole.id, unit_id: 'G8-BUDGET' },
 }), 'grant flat');
 
-// Records at every visibility, including the chain default migration 007 rewrites.
 const tokens = {};
 for (const [username] of people) tokens[username] = await login(username, PW(username));
 
@@ -106,8 +90,6 @@ for (const who of ['rivera', 'ohara', 'kramer', 'zed']) {
 }
 
 server.close();
-
-/* ── snapshot effective permissions under v3.3.0 semantics ────────── */
 
 const { getDb } = await import('./server/db.js');
 const { permissionsIn } = await import('./server/permissions.js');

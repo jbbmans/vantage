@@ -2,36 +2,40 @@ import React, { Suspense, lazy, useEffect } from 'react';
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import AppShell from '@/components/AppShell';
 import CommandCenter from '@/pages/CommandCenter';
-import Activities from '@/pages/Activities';
-import ActivityDetail from '@/pages/ActivityDetail';
-import Work from '@/pages/Work';
-import Goals from '@/pages/Goals';
-import Career from '@/pages/Career';
-import Team from '@/pages/Team';
-import MemberDetail from '@/pages/MemberDetail';
 import Login from '@/pages/Login';
 import PasswordChangeRequired from '@/pages/PasswordChangeRequired';
-import Readiness from '@/pages/Readiness';
-import { Loader2 } from 'lucide-react';
 import { ToastProvider } from '@/components/ui/toast';
 import { TooltipProvider, Panel, EmptyState, Button } from '@/components/ui/primitives';
 import { hydrate, useIdentity, useReady, useLoadError } from '@/store/useStore';
+import AppLoader from '@/components/AppLoader';
 
-// Reports pulls in the charting library and Settings is an infrequent route.
-// Neither belongs in the first paint, so both load on navigation.
 const Reports = lazy(() => import('@/pages/Reports'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const Units = lazy(() => import('@/pages/Units'));
 const Help = lazy(() => import('@/pages/Help'));
+const Maradmins = lazy(() => import('@/pages/Maradmins'));
+const OperatorConsole = lazy(() => import('@/pages/OperatorConsole'));
+const Activities = lazy(() => import('@/pages/Activities'));
+const ActivityDetail = lazy(() => import('@/pages/ActivityDetail'));
+const Work = lazy(() => import('@/pages/Work'));
+const Goals = lazy(() => import('@/pages/Goals'));
+const Career = lazy(() => import('@/pages/Career'));
+const Team = lazy(() => import('@/pages/Team'));
+const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
+const Readiness = lazy(() => import('@/pages/Readiness'));
 
 function RouteFallback() {
   return (
     <div className="mx-auto max-w-3xl space-y-3">
-      <div className="h-8 w-48 animate-pulse rounded bg-panel-2" />
-      <div className="panel h-40 rounded" />
-      <div className="panel h-64 rounded" />
+      <div className="skeleton h-8 w-48 rounded" />
+      <div className="skeleton h-40 rounded" />
+      <div className="skeleton h-64 rounded" />
     </div>
   );
+}
+
+function Deferred({ children }) {
+  return <Suspense fallback={<RouteFallback />}>{children}</Suspense>;
 }
 
 function NotFound() {
@@ -48,12 +52,9 @@ function NotFound() {
   );
 }
 
-/** Server unreachable is a different problem from being signed out. */
 function ServerGate({ children }) {
   const error = useLoadError();
   const identity = useIdentity();
-  // Signed in with data on screen? A failed refresh is a banner inside the
-  // shell (finding 44), not a full-screen takeover that hides the records.
   if (!error || identity) return children;
   return (
     <div className="flex min-h-screen items-center justify-center bg-ink p-4">
@@ -76,22 +77,13 @@ export default function App() {
 
   useEffect(() => {
     hydrate();
-    // A 401 anywhere in the app drops us back to the sign-in screen rather than
-    // leaving a half-loaded shell showing stale records.
     const onSignedOut = () => hydrate();
     window.addEventListener('vantage:signed-out', onSignedOut);
     return () => window.removeEventListener('vantage:signed-out', onSignedOut);
   }, []);
 
   if (!ready) {
-    return (
-      <div className="flex min-h-screen items-center justify-center bg-ink p-4" role="status" aria-live="polite">
-        <div className="flex items-center gap-3 text-text-2">
-          <Loader2 className="h-5 w-5 animate-spin text-signal" aria-hidden />
-          <span className="text-sm">Loading Vantage…</span>
-        </div>
-      </div>
-    );
+    return <AppLoader />;
   }
 
   return (
@@ -107,23 +99,23 @@ export default function App() {
               <Routes>
                 <Route element={<AppShell />}>
                   <Route index element={<CommandCenter />} />
-                  <Route path="activities" element={<Activities />} />
-                  <Route path="activities/:id" element={<ActivityDetail />} />
-                  <Route path="readiness" element={<Readiness />} />
-                  <Route path="team" element={<Team />} />
-                  {/* Role management now lives with its team; old bookmarks land there. */}
+                  <Route path="activities" element={<Deferred><Activities /></Deferred>} />
+                  <Route path="activities/:id" element={<Deferred><ActivityDetail /></Deferred>} />
+                  <Route path="readiness" element={<Deferred><Readiness /></Deferred>} />
+                  <Route path="team" element={<Deferred><Team /></Deferred>} />
                   <Route path="roles" element={<Navigate to="/team" replace />} />
-                  <Route path="units" element={<Suspense fallback={<RouteFallback />}><Units /></Suspense>} />
-                  <Route path="team/:id" element={<MemberDetail />} />
-                  <Route path="work" element={<Work />} />
-                  <Route path="goals" element={<Goals />} />
-                  <Route path="career" element={<Career />} />
-                  {/* Old bookmarks keep working. */}
+                  <Route path="units" element={<Deferred><Units /></Deferred>} />
+                  <Route path="team/:id" element={<Deferred><MemberDetail /></Deferred>} />
+                  <Route path="work" element={<Deferred><Work /></Deferred>} />
+                  <Route path="goals" element={<Deferred><Goals /></Deferred>} />
+                  <Route path="career" element={<Deferred><Career /></Deferred>} />
+                  <Route path="maradmins" element={<Deferred><Maradmins /></Deferred>} />
                   <Route path="development" element={<Navigate to="/career?tab=development" replace />} />
                   <Route path="recognition" element={<Navigate to="/career?tab=recognition" replace />} />
-                  <Route path="help" element={<Suspense fallback={<RouteFallback />}><Help /></Suspense>} />
-                  <Route path="reports" element={<Suspense fallback={<RouteFallback />}><Reports /></Suspense>} />
-                  <Route path="settings" element={<Suspense fallback={<RouteFallback />}><Settings /></Suspense>} />
+                  <Route path="help" element={<Deferred><Help /></Deferred>} />
+                  <Route path="reports" element={<Deferred><Reports /></Deferred>} />
+                  <Route path="settings" element={<Deferred><Settings /></Deferred>} />
+                  <Route path="operator" element={<Deferred><OperatorConsole /></Deferred>} />
                   <Route path="*" element={<NotFound />} />
                 </Route>
               </Routes>

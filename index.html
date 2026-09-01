@@ -6,7 +6,6 @@
     <meta name="color-scheme" content="dark light" />
     <meta name="theme-color" content="#06090E" />
     <meta name="description" content="Performance record system for a Marine Corps section." />
-    <meta name="author" content="John Bernard Boletz" />
     <meta name="robots" content="noindex, nofollow" />
     <link rel="icon" type="image/svg+xml" href="/mark.svg" />
     <link rel="manifest" href="/manifest.webmanifest" />
@@ -14,7 +13,6 @@
     <link rel="preload" href="/fonts/plex-mono-500.woff2" as="font" type="font/woff2" crossorigin />
     <title>Vantage</title>
     <script>
-      // Set the theme before first paint so there's no flash.
       try {
         var t = localStorage.getItem('vantage.theme') || 'light';
         var resolved = t === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : t;

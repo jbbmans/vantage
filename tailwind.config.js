@@ -42,16 +42,20 @@ export default {
       borderRadius: { DEFAULT: '8px', sm: '6px', md: '10px', lg: '14px' },
       spacing: { rail: '98px', tape: '46px' },
       keyframes: {
-        // These animate the independent `translate` and `scale` properties rather
-        // than `transform`. Radix positions dialogs, popovers, and tooltips with
-        // `transform`, so animating that property would clobber their placement
-        // once the animation settles.
         'fade-up': { from: { opacity: 0, translate: '0 3px' }, to: { opacity: 1, translate: '0 0' } },
         'scale-in': { from: { opacity: 0, scale: '0.985' }, to: { opacity: 1, scale: '1' } },
         'page-enter': { from: { opacity: 0, translate: '0 7px' }, to: { opacity: 1, translate: '0 0' } },
         'slide-in-left': { from: { opacity: 0, translate: '-18px 0' }, to: { opacity: 1, translate: '0 0' } },
         'slide-in-right': { from: { opacity: 0, translate: '18px 0' }, to: { opacity: 1, translate: '0 0' } },
         'fade-in': { from: { opacity: 0 }, to: { opacity: 1 } },
+        'command-in': { from: { opacity: 0, translate: '0 -10px', scale: '.975' }, to: { opacity: 1, translate: '0 0', scale: '1' } },
+        'notification-in': { from: { opacity: 0, translate: '0 -8px', scale: '.98' }, to: { opacity: 1, translate: '0 0', scale: '1' } },
+        'bell-ring': {
+          '0%, 55%, 100%': { rotate: '0deg' },
+          '65%': { rotate: '13deg' },
+          '75%': { rotate: '-10deg' },
+          '85%': { rotate: '6deg' },
+        },
         blink: { '0%,49%': { opacity: 1 }, '50%,100%': { opacity: 0.25 } },
       },
       animation: {
@@ -61,6 +65,9 @@ export default {
         'slide-in-left': 'slide-in-left .2s cubic-bezier(.22,.8,.32,1) both',
         'slide-in-right': 'slide-in-right .2s cubic-bezier(.22,.8,.32,1) both',
         'fade-in': 'fade-in .16s ease-out both',
+        'command-in': 'command-in .22s cubic-bezier(.16,1,.3,1) both',
+        'notification-in': 'notification-in .2s cubic-bezier(.16,1,.3,1) both',
+        'bell-ring': 'bell-ring 2.8s ease-in-out infinite',
         blink: 'blink 1.6s steps(1) infinite',
       },
     },

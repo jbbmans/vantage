@@ -39,7 +39,6 @@ const BOARD_COLUMNS = [
   { status: 'completed', title: 'Complete', description: 'Closed work' },
 ];
 
-/** A task is late only if it has a due date in the past and isn't finished. */
 const isLate = (t) =>
   Boolean(t.due_date) && t.status !== 'completed' && isBefore(parseISO(t.due_date), startOfDay(new Date()));
 
@@ -130,7 +129,7 @@ export default function Work() {
       setWorkErrors({});
       closeDialog();
     } catch (err) {
-      // Finding 36: reload-or-overwrite, same choice every record gets.
+
       if (err.status === 409 && err.code === 'stale' && err.current) {
         setConflict({ noun, table, draft, current: err.current });
       } else {

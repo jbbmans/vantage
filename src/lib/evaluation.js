@@ -1,34 +1,5 @@
-/**
- * Vantage — evaluation tracks.
- *
- * A Corporal and a Sergeant are not evaluated by the same system, and a tool
- * that shows a Sergeant a JEPES advisor is a tool that doesn't know what a
- * Sergeant is.
- *
- *   Private through Corporal   JEPES (MCO 1616.1). Four objective-heavy
- *                              pillars, a monthly cutting score, promotion by
- *                              composite. Three quarters of it is in the
- *                              Marine's own hands.
- *
- *   Sergeant and above,        Fitness reports (MCO 1610.7B). A
- *   warrants and officers      Reporting Senior marks fourteen attributes
- *                              across five sections, a Reviewing Officer
- *                              reviews, and the mark that matters is relative
- *                              to everyone else that RS has ever reported on.
- *                              The Marine's leverage is the quality of the
- *                              input they hand their RS.
- *
- * Everything rank-dependent routes through this module: which areas an entry
- * can be tagged with, what the narrative generator produces, what the
- * readiness page coaches, and what the words on the screen are. The database
- * column stays `jepes_area` for compatibility; what it holds is the track's
- * area label.
- */
-
 import { JEPES_CORE } from './constants.js';
 import { EVAL_REFERENCES } from './evalRefs.js';
-
-/* ── track resolution ─────────────────────────────────────────────── */
 
 export const TRACKS = {
   jepes: {
@@ -48,8 +19,7 @@ export const TRACKS = {
     inputName: 'FITREP input',
     system: 'Performance Evaluation System (fitness reports)',
     order: EVAL_REFERENCES.fitrep.citation,
-    // FITREP inputs are a working document for the RS, not a fixed-length
-    // field, but an input past two thousand characters stops being read.
+
     narrativeLimit: 2000,
     balanceLabel: 'Attribute coverage',
     areaLabel: 'FITREP section',
@@ -57,30 +27,17 @@ export const TRACKS = {
   },
 };
 
-/**
- * E-1 through E-4 are on JEPES. Everyone else — SNCOs, warrants, officers —
- * is on fitness reports. An unknown grade gets JEPES, because the junior
- * enlisted case is the common one and the safe default.
- */
 export function trackForGrade(grade) {
   if (!grade) return 'jepes';
   const match = /^E-(\d+)$/.exec(String(grade).trim());
   if (match) return Number(match[1]) <= 4 ? 'jepes' : 'fitrep';
-  return 'fitrep'; // W-* and O-* are all fitness-report ranks.
+  return 'fitrep';
 }
 
 export const trackMeta = (track) => TRACKS[track] || TRACKS.jepes;
 export const trackForPerson = (person = {}) =>
   trackForGrade(person.rank_grade || person.rank?.grade || person.grade);
 
-/* ── areas ────────────────────────────────────────────────────────── */
-
-/**
- * FITREP sections D through H, with the fourteen attributes each one carries.
- * Entries are tagged at the section level — fourteen buckets is too fine a
- * sieve for day-to-day logging — and the attributes are what the coverage
- * check reads against.
- */
 export const FITREP_SECTIONS = [
   {
     key: 'Mission Accomplishment',
@@ -117,7 +74,6 @@ export const FITREP_SECTIONS = [
 
 const FITREP_AREA_KEYS = FITREP_SECTIONS.map((s) => s.key);
 
-/** The tag options an entry offers, per track. */
 export function areasFor(track) {
   return track === 'fitrep' ? FITREP_AREA_KEYS : JEPES_CORE;
 }
@@ -135,10 +91,6 @@ export function areaOptions(track) {
   ];
 }
 
-/**
- * Narrative configuration per track: which areas, what headline label each
- * gets, and where anything untagged should land rather than be dropped.
- */
 export function narrativeConfig(track) {
   if (track === 'fitrep') {
     return {
@@ -166,10 +118,6 @@ export function narrativeConfig(track) {
   };
 }
 
-/**
- * Carry a tag across tracks. A Corporal's year of entries tagged with JEPES
- * areas must not become "Unassigned" the day they pin on Sergeant.
- */
 const JEPES_TO_FITREP = {
   'Individual Character': 'Individual Character',
   'MOS / Mission Accomplishment': 'Mission Accomplishment',
@@ -191,14 +139,6 @@ export function mapAreaToTrack(area, track) {
   return mapped || 'Unassigned';
 }
 
-/* ── FITREP coverage ──────────────────────────────────────────────── */
-
-/**
- * Soft keyword hints from an entry's text to the attribute it most plausibly
- * evidences. Deliberately conservative: a hint is "likely evidence", never a
- * claim, and an attribute with zero hits is reported as "nothing obviously
- * covering this" rather than "you have failed at this".
- */
 const ATTRIBUTE_HINTS = {
   Performance: ['completed', 'processed', 'executed', 'delivered', 'produced', 'closed'],
   Proficiency: ['certified', 'qualified', 'expert', 'reconciled', 'audit', 'system', 'technical'],
@@ -216,11 +156,6 @@ const ATTRIBUTE_HINTS = {
   Evaluations: ['jepes', 'fitrep', 'evaluation', 'counseling', 'marked', 'proficiency and conduct'],
 };
 
-/**
- * Which of the fourteen attributes the logged record plausibly supports.
- * Section tags count as firm coverage for their section; keyword hints add
- * attribute-level texture on top.
- */
 export function fitrepCoverage(activities = []) {
   return FITREP_SECTIONS.map((section) => {
     const tagged = activities.filter((a) => mapAreaToTrack(a.jepes_area, 'fitrep') === section.key);
@@ -241,15 +176,8 @@ export function fitrepCoverage(activities = []) {
   });
 }
 
-/* ── FITREP recommendations ───────────────────────────────────────── */
-
 const rec = (o) => ({ effort: 'medium', category: 'FITREP', kind: 'heuristic', ...o });
 
-/**
- * What a Sergeant should actually do. There is no cutting score to grind here:
- * the mark is relative to the RS profile, the RS writes it, and the Marine's
- * leverage is the evidence they put in front of that RS before it's drafted.
- */
 export function recommendFitrep(profile = {}, activityStats = {}, opts = {}) {
   const out = [];
   const { total = 0, withOutcome = 0 } = activityStats;
@@ -271,8 +199,7 @@ export function recommendFitrep(profile = {}, activityStats = {}, opts = {}) {
 
   const empty = coverage.filter((s) => s.tagged === 0);
   for (const section of empty) {
-    // Coverage hands back enriched attribute objects; the raw section carries
-    // strings. Take the name either way, so this reads correctly from both.
+
     const names = section.attributes.map((a) => a.attribute || a);
     out.push(rec({
       id: `section-${section.section}`,
@@ -363,7 +290,6 @@ export function recommendFitrep(profile = {}, activityStats = {}, opts = {}) {
   return out.sort((a, b) => b.priority - a.priority);
 }
 
-/** Days until a date, or null. */
 export function daysUntil(dateStr, now = new Date()) {
   if (!dateStr) return null;
   const d = new Date(dateStr);

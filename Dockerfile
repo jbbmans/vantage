@@ -1,8 +1,4 @@
-# Vantage v3 — single image, API and SPA together.
-#
-# Multi-stage so the runtime image carries no build toolchain and no dev
-# dependencies. better-sqlite3 is a native module, so the builder installs the
-# full toolchain and the runtime gets the compiled result.
+# Multi-stage production image.
 
 FROM node:22-bookworm-slim AS build
 WORKDIR /app
@@ -35,7 +31,7 @@ COPY --from=build /app/scripts ./scripts
 COPY --from=build /app/config ./config
 COPY --from=build /app/package.json ./
 
-# The database lives on a mounted volume. Without one, every deploy starts empty.
+# Persist SQLite on mounted storage.
 RUN mkdir -p /data && chown -R node:node /data /app
 VOLUME ["/data"]
 

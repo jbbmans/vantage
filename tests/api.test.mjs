@@ -1,14 +1,3 @@
-/**
- * API tests, with the permission model as the main event.
- *
- * Everything else in Vantage is a convenience. The visibility rules are the
- * part that, if wrong, shows one Marine another Marine's performance record.
- * So these tests spend most of their effort trying to get at data they
- * shouldn't be able to reach.
- *
- * Run with: node tests/api.test.mjs
- */
-
 import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -17,8 +6,7 @@ import { join } from 'node:path';
 const DB = join(tmpdir(), `vantage-test-${Date.now()}.db`);
 process.env.VANTAGE_DB = DB;
 process.env.VANTAGE_TEST = '1';
-// The bootstrap account is the Instance Operator for this suite, so it can
-// claim the seeded tree units the fixtures below need (finding 4).
+
 process.env.VANTAGE_OPERATOR = 'boletz';
 
 const { app, db } = await import('../server/index.js');
@@ -50,7 +38,7 @@ const call = async (method, path, { token, body } = {}) => {
   });
   const text = await res.text();
   let json = null;
-  try { json = text ? JSON.parse(text) : null; } catch { /* non-JSON body */ }
+  try { json = text ? JSON.parse(text) : null; } catch {  }
   return { status: res.status, body: json };
 };
 
@@ -66,7 +54,7 @@ const callRaw = async (method, path, { token, body, filename, contentType } = {}
   });
   const bytes = Buffer.from(await res.arrayBuffer());
   let json = null;
-  try { json = bytes.length ? JSON.parse(bytes.toString('utf8')) : null; } catch { /* binary body */ }
+  try { json = bytes.length ? JSON.parse(bytes.toString('utf8')) : null; } catch {  }
   return { status: res.status, body: json, bytes, headers: res.headers };
 };
 
@@ -74,8 +62,6 @@ const login = async (username, password) => {
   const res = await call('POST', '/api/login', { body: { username, password } });
   return res.body?.token;
 };
-
-/* ── fixtures ─────────────────────────────────────────────────────── */
 
 await call('POST', '/api/setup', {
   body: {
@@ -88,22 +74,10 @@ await call('POST', '/api/setup', {
 const adminToken = await login('boletz', 'cobalt-orbit-velvet-anchor-927');
 const me = (await call('GET', '/api/me', { token: adminToken })).body;
 
-/*
- * v3.4 fixture. In v3.3 John held the org-wide `section-head` role at MFR and
- * it cascaded down to Budget, Accounting, Audit and FMRAC. Neither half of that
- * sentence survives: roles are per-unit copies (finding 1) and nothing
- * cascades (finding 2).
- *
- * So the world is built as it would really be built — John owns MFR and
- * G8-FMRAC because he claimed both, and CLR-4 belongs to somebody else. The
- * suite's "leader sees subordinate" tests become "leader sees the unit they
- * actually hold", which is the same assertion with the tree taken out.
- */
 await call('POST', '/api/org/units/G8-FMRAC/claim', {
   token: adminToken, body: { owner_user_id: me.user.id, template_id: 'default' },
 });
 
-// A Marine inside a unit John actually holds.
 await call('POST', '/api/team', {
   token: adminToken,
   body: {
@@ -113,7 +87,6 @@ await call('POST', '/api/team', {
   },
 });
 
-// A Marine in a completely separate command, with its own owner.
 await call('POST', '/api/team', {
   token: adminToken,
   body: {
@@ -122,9 +95,7 @@ await call('POST', '/api/team', {
     unit_id: 'MFR',
   },
 });
-// Shared-unit roster projections deliberately redact usernames. Resolve the
-// just-created fixture by its visible personnel fields instead of depending on
-// a credential identifier the API is designed not to disclose.
+
 const nguyenId = (await call('GET', '/api/team', { token: adminToken })).body.roster
   .find((r) => r.last_name === 'Nguyen' && r.first_name === 'Thanh').id;
 await call('POST', '/api/org/units/CLR-4/claim', {
@@ -135,8 +106,6 @@ const riveraToken = await login('rivera', 'a-different-long-passphrase');
 const nguyenToken = await login('nguyen', 'yet-another-long-passphrase');
 const rivera = (await call('GET', '/api/me', { token: riveraToken })).body;
 const nguyen = (await call('GET', '/api/me', { token: nguyenToken })).body;
-
-/* ── auth ─────────────────────────────────────────────────────────── */
 
 await test('setup refuses to run twice', async () => {
   const res = await call('POST', '/api/setup', { body: { username: 'x', password: 'yyyyyyyyyy' } });
@@ -187,6 +156,97 @@ await test('public configuration exposes capabilities but no deployment secrets'
   assert.equal(res.body.auth.self_registration, true);
   assert.equal(JSON.stringify(res.body).includes('VANTAGE_SETUP_TOKEN'), false);
   assert.equal(JSON.stringify(res.body).includes('VANTAGE_CAC_PROXY_SECRET'), false);
+});
+
+await test('rank requests notify an authorized reviewer and update the requester after approval', async () => {
+  const requested = await call('POST', '/api/rank-requests', {
+    token: riveraToken,
+    body: { rank_id: 'Cpl', reason: 'Promotion effective this month.' },
+  });
+  assert.equal(requested.status, 200, requested.body?.error);
+
+  const reviewQueue = await call('GET', '/api/rank-requests', { token: adminToken });
+  assert.ok(reviewQueue.body.review.some((row) => row.id === requested.body.id));
+
+  const reviewerNotifications = await call('GET', '/api/notifications', { token: adminToken });
+  assert.ok(reviewerNotifications.body.rows.some((row) => row.kind === 'rank_request'));
+
+  const approved = await call('PUT', `/api/rank-requests/${requested.body.id}`, {
+    token: adminToken,
+    body: { status: 'approved', note: 'Verified.' },
+  });
+  assert.equal(approved.status, 200, approved.body?.error);
+
+  const updatedIdentity = await call('GET', '/api/me', { token: riveraToken });
+  assert.equal(updatedIdentity.body.user.rank.abbr, 'Cpl');
+
+  const requesterNotifications = await call('GET', '/api/notifications', { token: riveraToken });
+  const decisionNotice = requesterNotifications.body.rows.find((row) => row.title === 'Rank request approved');
+  assert.ok(decisionNotice);
+  assert.match(decisionNotice.message, /Cpl/);
+  assert.ok(requesterNotifications.body.unread >= 1);
+
+  const marked = await call('PUT', `/api/notifications/${decisionNotice.id}/read`, { token: riveraToken });
+  assert.equal(marked.status, 200);
+  const readBack = await call('GET', '/api/notifications', { token: riveraToken });
+  assert.ok(readBack.body.rows.find((row) => row.id === decisionNotice.id)?.read_at);
+});
+
+await test('authorized leaders can edit member profile fields directly', async () => {
+  const changed = await call('PUT', `/api/team/${rivera.user.id}/profile`, {
+    token: adminToken,
+    body: { rank_id: 'Cpl', mos: '3451', email: 'raul.rivera@example.mil', eas: '2029-09-30' },
+  });
+  assert.equal(changed.status, 200, changed.body?.error);
+  const detail = await call('GET', `/api/team/${rivera.user.id}`, { token: adminToken });
+  assert.equal(detail.body.person.email, 'raul.rivera@example.mil');
+  assert.equal(detail.body.person.eas, '2029-09-30');
+});
+
+await test('combined member management is atomic when assignment validation fails', async () => {
+  const assignmentCount = () => db.prepare(
+    'SELECT COUNT(*) AS count FROM assignments WHERE user_id = ? AND is_primary = 1'
+  ).get(rivera.user.id).count;
+  const assignmentRows = () => db.prepare('SELECT * FROM assignments WHERE user_id = ?').all(rivera.user.id);
+  assert.equal(assignmentCount(), 1, JSON.stringify(assignmentRows()));
+  const refused = await call('PUT', `/api/team/${rivera.user.id}/manage`, {
+    token: adminToken,
+    body: {
+      rank_id: 'Cpl', mos: '3451', email: 'should-not-save@example.mil', eas: '2029-09-30',
+      unit_id: 'NO-SUCH-UNIT', billet_id: 'financial-management-resource-analyst', role_id: '',
+    },
+  });
+  assert.equal(refused.status, 400);
+  assert.equal(assignmentCount(), 1, JSON.stringify(assignmentRows()));
+  const unchanged = await call('GET', `/api/team/${rivera.user.id}`, { token: adminToken });
+  assert.equal(unchanged.body.person.email, 'raul.rivera@example.mil');
+
+  const managed = await call('PUT', `/api/team/${rivera.user.id}/manage`, {
+    token: adminToken,
+    body: {
+      rank_id: 'Cpl', mos: '3451', email: 'raul.rivera+managed@example.mil', eas: '2029-09-30',
+      unit_id: 'G8-FMRAC', billet_id: 'financial-management-resource-analyst', role_id: '',
+    },
+  });
+  assert.equal(managed.status, 200, managed.body?.error);
+  assert.equal(assignmentCount(), 1, JSON.stringify(assignmentRows()));
+  assert.ok(managed.body.changed.includes('email'));
+  const changed = await call('GET', `/api/team/${rivera.user.id}`, { token: adminToken });
+  assert.equal(changed.body.person.email, 'raul.rivera+managed@example.mil');
+});
+
+await test('Marines cannot bypass the rank request workflow or edit another unit', async () => {
+  const selfEdit = await call('PUT', `/api/team/${rivera.user.id}/profile`, {
+    token: riveraToken,
+    body: { rank_id: 'Sgt' },
+  });
+  assert.equal(selfEdit.status, 400);
+
+  const crossUnit = await call('PUT', `/api/team/${rivera.user.id}/profile`, {
+    token: nguyenToken,
+    body: { rank_id: 'Sgt' },
+  });
+  assert.equal(crossUnit.status, 403);
 });
 
 await test('only the Instance Operator can apply allow-listed runtime configuration', async () => {
@@ -260,8 +320,6 @@ await test('short passwords are refused at creation', async () => {
   assert.equal(res.status, 400);
 });
 
-/* ── org ──────────────────────────────────────────────────────────── */
-
 await test('org reference data loads', async () => {
   const res = await call('GET', '/api/org', { token: adminToken });
   assert.ok(res.body.ranks.length >= 27, 'ranks');
@@ -278,8 +336,6 @@ await test('rank tiers cover enlisted, warrant and officer', async () => {
   }
 });
 
-/* ── the visibility boundary ──────────────────────────────────────── */
-
 await test('a unit leader sees Marines in subordinate units', async () => {
   const res = await call('GET', '/api/team', { token: adminToken });
   const names = res.body.roster.map((r) => r.last_name);
@@ -288,7 +344,7 @@ await test('a unit leader sees Marines in subordinate units', async () => {
 
 await test('a member sees only themselves', async () => {
   const res = await call('GET', '/api/team', { token: riveraToken });
-  assert.equal(res.body.roster.length, 1);
+  assert.equal(res.body.roster.length, 1, JSON.stringify(res.body.roster));
   assert.equal(res.body.roster[0].last_name, 'Rivera');
   assert.equal(res.body.canLead, false);
 });
@@ -345,17 +401,13 @@ await test('a member cannot add Marines', async () => {
   assert.equal(res.status, 403);
 });
 
-/* ── the role system ──────────────────────────────────────────────── */
-
-// was: 'system roles ship with the install' — asserted six org-wide role rows
-// existed on a fresh database. Finding 1 deleted global roles entirely.
 await test('no install ships a global role; a claimed unit gets its own copies', async () => {
   const res = await call('GET', '/api/roles', { token: adminToken });
   const roles = res.body.roles;
   assert.ok(roles.length > 0, 'the owner should see their own units\' roles');
   assert.ok(roles.every((r) => r.unit_id), 'every role must belong to a unit');
 
-  // Two claimed units, two independent copies of the same template.
+
   for (const unit of ['MFR', 'G8-FMRAC']) {
     assert.ok(roles.some((r) => r.unit_id === unit && r.template_key === 'sncoic'), `${unit} has no SNCOIC copy`);
   }
@@ -364,9 +416,6 @@ await test('no install ships a global role; a claimed unit gets its own copies',
   assert.notEqual(ceg8.id, fmrac.id, 'two units must not share a role row');
 });
 
-// was: 'built-in roles cannot be edited or deleted' (expect 400) — reversed by
-// finding 1. is_system now records only that a row came from a template; the
-// owning unit may do as it likes with its own copy.
 await test('a unit may edit and delete its own template-derived roles', async () => {
   const edit = await call('PUT', '/api/roles/MFR:sncoic', { token: adminToken, body: { name: 'Section Chief' } });
   assert.equal(edit.status, 200, `expected the owner to rename their own role, got ${edit.status}`);
@@ -377,8 +426,8 @@ await test('a unit may edit and delete its own template-derived roles', async ()
 });
 
 await test('editing one unit\'s role leaves the other unit\'s copy untouched', async () => {
-  // The load-bearing consequence of finding 1: two SNCOICs at two commands can
-  // have a role of the same name that means different things.
+
+
   const before = (await call('GET', '/api/roles', { token: adminToken })).body.roles
     .find((r) => r.unit_id === 'G8-FMRAC' && r.template_key === 'sncoic');
   assert.equal(before.name, 'SNCOIC', 'the FMRAC copy should be unchanged by the MFR rename above');
@@ -393,7 +442,7 @@ await test('a member cannot create roles', async () => {
 });
 
 await test('nobody can create a role at or above their own position', async () => {
-  // Give Rivera role-management authority, but only at position 20.
+
   await call('POST', `/api/team/${rivera.user.id}/roles`, {
     token: adminToken,
     body: { role_id: 'G8-FMRAC:sncoic', unit_id: 'G8-FMRAC' },
@@ -408,8 +457,8 @@ await test('nobody can create a role at or above their own position', async () =
 
 await test('PRIVILEGE ESCALATION: cannot grant a permission you do not hold', async () => {
   const token = await login('rivera', 'a-different-long-passphrase');
-  // NCOIC has no MANAGE_ROLES, so this is blocked at the gate; even with it,
-  // ADMINISTRATOR is not in their bits.
+
+
   const res = await call('POST', '/api/roles', {
     token,
     body: { name: 'Sneaky Admin', position: 1, permissions: 2048, unit_id: 'G8-FMRAC' },
@@ -426,16 +475,11 @@ await test('a leader cannot hand out a role at or above their own', async () => 
   assert.equal(res.status, 403);
 });
 
-// was: 'a cascading role reaches subordinate units' — inherits_down is deleted
-// (finding 2). John still sees Rivera, but because he holds G8-FMRAC directly,
-// not because MFR sits above it.
 await test('a role reaches the unit it was granted in', async () => {
   const res = await call('GET', '/api/team', { token: adminToken });
   assert.ok(res.body.roster.some((r) => r.last_name === 'Rivera'), 'owner of G8-FMRAC should see its Marine');
 });
 
-// was: 'a flat role does not reach subordinate units' — every role is flat now,
-// so the assertion is simply that another command's owner sees nothing here.
 await test('a role reaches nowhere else, whatever the org chart says', async () => {
   const token = await login('nguyen', 'yet-another-long-passphrase');
   const res = await call('GET', '/api/team', { token });
@@ -443,9 +487,9 @@ await test('a role reaches nowhere else, whatever the org chart says', async () 
 });
 
 await test('roster visibility does not imply record access', async () => {
-  // A role that sees shared work across the section but holds no
-  // VIEW_MEMBER_DETAIL. This also pins the permission boundary independently
-  // of any editable default role.
+
+
+
   const viewer = await call('POST', '/api/roles', {
     token: adminToken,
     body: { name: 'Training NCO', unit_id: 'G8-FMRAC', position: 15, permissions: 1 | 2 | 16 },
@@ -464,8 +508,6 @@ await test('roster visibility does not imply record access', async () => {
   const detail = await call('GET', `/api/team/${rivera.user.id}`, { token });
   assert.equal(detail.status, 403, 'must not be able to open the record');
 });
-
-/* ── unit creation ────────────────────────────────────────────────── */
 
 await test('a member cannot create units', async () => {
   const res = await call('POST', '/api/org/units', {
@@ -501,8 +543,6 @@ await test('a unit with Marines still assigned cannot be archived', async () => 
   assert.equal(res.status, 400);
 });
 
-/* ── readiness ────────────────────────────────────────────────────── */
-
 await test('readiness saves and reads back', async () => {
   await call('PUT', '/api/readiness', {
     token: riveraToken,
@@ -518,8 +558,6 @@ await test('readiness of another Marine needs VIEW_MEMBER_DETAIL', async () => {
   const res = await call('GET', `/api/readiness/${rivera.user.id}`, { token });
   assert.equal(res.status, 403);
 });
-
-/* ── preferences ──────────────────────────────────────────────────── */
 
 await test('preferences round-trip and merge shallowly', async () => {
   await call('PUT', '/api/prefs', {
@@ -545,11 +583,9 @@ await test('oversized preferences are refused', async () => {
   assert.equal(res.status, 400);
 });
 
-/* ── schema migration ─────────────────────────────────────────────── */
-
 await test('an old-shape database gains the new columns on boot', async () => {
-  // Simulate a v3.0 users table: recreate without the readiness/prefs columns,
-  // then re-run the migration path and confirm the columns appear.
+
+
   const { getDb } = await import('../server/db.js');
   const live = getDb();
   const cols = live.prepare('PRAGMA table_info(users)').all().map((c) => c.name);
@@ -558,12 +594,12 @@ await test('an old-shape database gains the new columns on boot', async () => {
   }
 });
 
-/* ── hosting surface ──────────────────────────────────────────────── */
-
 await test('health check reports the database is answering', async () => {
   const res = await call('GET', '/api/health');
   assert.equal(res.status, 200);
   assert.equal(res.body.ok, true);
+  assert.equal(res.body.version, '3.7.0');
+  assert.ok(res.body.build);
 });
 
 await test('security headers are set', async () => {
@@ -571,9 +607,9 @@ await test('security headers are set', async () => {
   assert.match(res.headers.get('content-security-policy') || '', /connect-src 'self'/);
   assert.equal(res.headers.get('x-frame-options'), 'DENY');
   assert.equal(res.headers.get('x-content-type-options'), 'nosniff');
+  assert.ok(res.headers.get('x-vantage-build'));
+  assert.equal(res.headers.get('x-vantage-product'), 'Vantage');
 });
-
-/* ── record visibility ────────────────────────────────────────────── */
 
 await test('private records stay private from the chain of command', async () => {
   await call('POST', '/api/activities', {
@@ -584,9 +620,6 @@ await test('private records stay private from the chain of command', async () =>
   assert.ok(!leaderView.body.some((a) => a.title === 'Private note to self'));
 });
 
-// was: 'chain-visible records roll up to the leader' — chain is deleted
-// (finding 3). A record is visible inside its own unit; it reaches the leader
-// because the leader holds THAT unit, not because they sit above it.
 await test('unit-visible records are readable by the unit that holds them', async () => {
   await call('POST', '/api/activities', {
     token: riveraToken,
@@ -637,10 +670,6 @@ await test('a member cannot share a task to a unit they are not in', async () =>
   assert.equal(res.status, 403);
 });
 
-// was: 'a team lead can push a task to their unit' with unit_id MFR, relying
-// on the task reaching G8-FMRAC through the subtree. Finding 2 removed the
-// subtree, so a task posted to MFR reaches MFR. To reach the Marine, post
-// to the unit the Marine is in — which the leader holds directly.
 await test('a leader can push a task to a unit they hold', async () => {
   const res = await call('POST', '/api/tasks', {
     token: adminToken,
@@ -652,8 +681,8 @@ await test('a leader can push a task to a unit they hold', async () => {
 });
 
 await test('a task posted to the parent unit does NOT reach the child unit', async () => {
-  // The other half of finding 2, stated positively so the removal is pinned
-  // rather than merely absent from the suite.
+
+
   const res = await call('POST', '/api/tasks', {
     token: adminToken,
     body: { title: 'Parent-only tasking', visibility: 'unit', unit_id: 'MFR' },
@@ -693,8 +722,6 @@ await test('a Marine cannot edit a record outside their reach', async () => {
   assert.ok([403, 404].includes(res.status), `expected refusal, got ${res.status}`);
 });
 
-/* ── deletion behaviour ───────────────────────────────────────────── */
-
 await test('delete is soft and reversible', async () => {
   const created = await call('POST', '/api/activities', {
     token: riveraToken,
@@ -709,8 +736,6 @@ await test('delete is soft and reversible', async () => {
   list = await call('GET', '/api/activities', { token: riveraToken });
   assert.ok(list.body.some((a) => a.id === created.body.id), 'should come back after restore');
 });
-
-/* ── report inputs ────────────────────────────────────────────────── */
 
 await test('bulk import lands under the importing user', async () => {
   const res = await call('POST', '/api/activities/bulk', {
@@ -764,10 +789,8 @@ await test('optional attachments are sniffed, authorized, downloadable, and soft
   assert.equal(after.body.attachments.length, 0);
 });
 
-/* ── report ───────────────────────────────────────────────────────── */
-
 server.close();
-try { rmSync(DB, { force: true }); rmSync(`${DB}-wal`, { force: true }); rmSync(`${DB}-shm`, { force: true }); } catch { /* ignore */ }
+try { rmSync(DB, { force: true }); rmSync(`${DB}-wal`, { force: true }); rmSync(`${DB}-shm`, { force: true }); } catch {  }
 
 const failed = results.filter(([s]) => s === 'FAIL');
 for (const [status, name] of results) {

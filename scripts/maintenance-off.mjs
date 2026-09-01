@@ -1,14 +1,3 @@
-/**
- * Release a completed factory reset for ordinary first-run setup.
- *
- * This command does not alter application data. It removes the deployment
- * maintenance lock only after proving that the database is the verified,
- * empty MFR baseline produced by factory-reset.mjs.
- *
- *   VANTAGE_MAINTENANCE=1 npm run maintenance:off -- \
- *     --confirm "OPEN VANTAGE"
- */
-
 import Database from 'better-sqlite3';
 import { existsSync, lstatSync, realpathSync, unlinkSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';

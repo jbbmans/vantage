@@ -11,18 +11,6 @@ import { draftKey } from '@/lib/drafts';
 
 const SWATCHES = ['#8D98A8', '#3DD68C', '#F0A93B', '#4C9DFF', '#A78BFA', '#FB7185', '#22D3EE', '#FACC15'];
 
-/**
- * Roles.
- *
- * Permissions are bits and roles are rows, so a command can describe itself
- * instead of bending to fit three hard-coded levels. A Training NCO who should
- * see everyone's PME but nobody's fiscal work is two checkboxes here rather
- * than a schema change.
- *
- * Two rules make this safe, and both are enforced server-side as well:
- * you cannot touch a role at or above your own, and you cannot grant a
- * permission you do not hold.
- */
 export default function Roles({ embeddedUnit = null }) {
   const org = useOrg();
   const identity = useIdentity();
@@ -287,7 +275,7 @@ export default function Roles({ embeddedUnit = null }) {
           identity={identity}
           fieldErrors={roleErrors}
           draftStorageKey={roleDraftKey}
-          onCancel={() => { setEditing(null); setRoleErrors({}); try { sessionStorage.removeItem(roleDraftKey); } catch { /* fine */ } }}
+          onCancel={() => { setEditing(null); setRoleErrors({}); try { sessionStorage.removeItem(roleDraftKey); } catch {} }}
           onSave={async (draft) => {
             try {
               if (draft.isNew) await apiClient.createRole(draft);
@@ -295,7 +283,7 @@ export default function Roles({ embeddedUnit = null }) {
               toast.success(draft.isNew ? 'Role created.' : 'Role updated.');
               setEditing(null);
               setRoleErrors({});
-              try { sessionStorage.removeItem(roleDraftKey); } catch { /* fine */ }
+              try { sessionStorage.removeItem(roleDraftKey); } catch {}
               await load();
               await hydrate();
             } catch (err) {
@@ -335,36 +323,27 @@ function RoleDialog({ role, groups, topPosition, positions = {}, units, identity
     name: '', description: '', color: SWATCHES[0], position: 1,
     permissions: 1, unit_id: null, ...role,
   });
-  // Finding 35: an in-progress role definition survives an accidental close.
+
   const ROLE_DRAFT = draftStorageKey || draftKey('unknown', 'role');
   useEffect(() => {
     if (!role?.isNew) return;
     try {
       const stored = JSON.parse(sessionStorage.getItem(ROLE_DRAFT) || 'null');
       if (stored && stored.name) setDraft((d) => ({ ...d, ...stored }));
-    } catch { /* fine */ }
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   const set = (k, v) => setDraft((d) => {
     const next = { ...d, [k]: v };
-    if (role?.isNew) { try { sessionStorage.setItem(ROLE_DRAFT, JSON.stringify(next)); } catch { /* fine */ } }
+    if (role?.isNew) { try { sessionStorage.setItem(ROLE_DRAFT, JSON.stringify(next)); } catch {} }
     return next;
   });
 
   const toggle = (bit) => set('permissions', draft.permissions & bit ? draft.permissions & ~bit : draft.permissions | bit);
 
-  /* Role position is a per-unit scale (finding 1). Comparing the draft against
-   * a single global "your position" would judge it on a number from a
-   * different unit's ladder entirely. */
   const unitTop = positions[draft.unit_id] ?? topPosition;
 
-  /* You cannot hand out what you do not hold; the server refuses it too, so
-   * showing an ungrantable box would just produce a confusing error.
-   *
-   * v3.3 read `globalPermissions` here, which under tenancy would offer a
-   * SNCOIC every checkbox in a unit they merely visit. Bits are read from the
-   * unit this role belongs to (finding 4). */
   const held = identity?.permissions?.[draft.unit_id] || 0;
   const isAdmin = Boolean(held & 2048);
 
@@ -426,11 +405,6 @@ function RoleDialog({ role, groups, topPosition, positions = {}, units, identity
           </div>
         </Field>
 
-        {/* v3.4: there is no scope selector, because a role has exactly one
-            scope — the unit it belongs to. The cascading option was removed in
-            finding 2 along with inherits_down: a role granted at a parent
-            conferred authority over every unit beneath it, automatically and
-            invisibly to those units. */}
         <Field label="Applies in" hint="A role works in its own unit and nowhere else. To give someone authority in another unit, grant them a role there.">
           <Input value={unitLabel(draft.unit_id, units)} readOnly disabled />
         </Field>

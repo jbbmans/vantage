@@ -1,9 +1,3 @@
-/**
- * Logic checks for the modules that carry real risk: fiscal calendar math,
- * aggregation, bullet composition, quick-log parsing, and the vault crypto.
- * Run with: node tests/logic.test.mjs
- */
-
 import assert from 'node:assert/strict';
 import { webcrypto } from 'node:crypto';
 
@@ -38,11 +32,9 @@ const H = await import('../src/lib/health.js');
 const E = await import('../src/lib/evaluation.js');
 const N2 = await import('../src/lib/narrative.js');
 
-/* ── fiscal calendar ──────────────────────────────────────────────── */
-
 test('FY starts 1 October', () => {
-  assert.equal(M.fiscalYearOf(new Date(2025, 8, 30)), 2025); // 30 Sep 2025 → FY25
-  assert.equal(M.fiscalYearOf(new Date(2025, 9, 1)), 2026);  // 01 Oct 2025 → FY26
+  assert.equal(M.fiscalYearOf(new Date(2025, 8, 30)), 2025);
+  assert.equal(M.fiscalYearOf(new Date(2025, 9, 1)), 2026);
 });
 
 test('FY range spans Oct 1 to Sep 30', () => {
@@ -57,17 +49,17 @@ test('FY range spans Oct 1 to Sep 30', () => {
 });
 
 test('fiscal quarters map Oct-Dec to Q1', () => {
-  assert.equal(M.fiscalQuarterOf(new Date(2025, 9, 5)), 1);   // Oct
-  assert.equal(M.fiscalQuarterOf(new Date(2026, 0, 5)), 2);   // Jan
-  assert.equal(M.fiscalQuarterOf(new Date(2026, 3, 5)), 3);   // Apr
-  assert.equal(M.fiscalQuarterOf(new Date(2026, 6, 5)), 4);   // Jul
+  assert.equal(M.fiscalQuarterOf(new Date(2025, 9, 5)), 1);
+  assert.equal(M.fiscalQuarterOf(new Date(2026, 0, 5)), 2);
+  assert.equal(M.fiscalQuarterOf(new Date(2026, 3, 5)), 3);
+  assert.equal(M.fiscalQuarterOf(new Date(2026, 6, 5)), 4);
 });
 
 test('fiscal quarter range covers exactly three months', () => {
-  const r = M.fiscalQuarterRange(new Date(2026, 7, 19)); // Aug 2026 → FY26 Q4
+  const r = M.fiscalQuarterRange(new Date(2026, 7, 19));
   assert.equal(r.label, 'FY26 Q4');
-  assert.equal(r.start.getMonth(), 6); // July
-  assert.equal(r.end.getMonth(), 8);   // September
+  assert.equal(r.start.getMonth(), 6);
+  assert.equal(r.end.getMonth(), 8);
   assert.equal(r.end.getDate(), 30);
 });
 
@@ -76,8 +68,6 @@ test('FY progress stays within bounds', () => {
   assert.ok(p.fraction > 0 && p.fraction <= 1);
   assert.ok(p.total === 365 || p.total === 366);
 });
-
-/* ── aggregation & the dollar rule ────────────────────────────────── */
 
 const sample = [
   { date: '2026-08-01', category: 'Fiscal & Financial', jepes_area: 'MOS / Mission Accomplishment', quantity: 30, unit: 'ULOs', dollar_amount: 1118.38, dollar_type: 'reconciled' },
@@ -115,8 +105,6 @@ test('empty input aggregates to zeroes, not NaN', () => {
   assert.deepEqual(m.byUnit, []);
 });
 
-/* ── formatting ───────────────────────────────────────────────────── */
-
 test('dollar abbreviation thresholds', () => {
   assert.equal(M.formatDollars(0), '$0');
   assert.equal(M.formatDollars(940), '$940');
@@ -136,8 +124,6 @@ test('bad dates degrade to a dash, not Invalid Date', () => {
   assert.equal(M.toDate('not-a-date'), null);
 });
 
-/* ── delta & ranges ───────────────────────────────────────────────── */
-
 test('delta handles a zero baseline without dividing by zero', () => {
   assert.equal(M.delta(5, 0), null);
   assert.equal(M.delta(0, 0), 0);
@@ -153,11 +139,9 @@ test('previous range is the same length and does not overlap', () => {
   assert.ok(Math.abs(span(p) - span(r)) < 1000 * 60 * 60 * 24);
 });
 
-/* ── streaks ──────────────────────────────────────────────────────── */
-
 test('streak counts back from today', () => {
-  // A fixed local-noon reference keeps this calendar test independent of the
-  // host timezone and UTC midnight rollover.
+
+
   const ref = new Date(2026, 7, 19, 12);
   const iso = (d) => [d.getFullYear(), String(d.getMonth() + 1).padStart(2, '0'), String(d.getDate()).padStart(2, '0')].join('-');
   const day = (n) => { const d = new Date(ref); d.setDate(d.getDate() - n); return iso(d); };
@@ -170,8 +154,6 @@ test('streak of zero when nothing recent', () => {
   assert.equal(M.currentStreak([{ date: '2020-01-01' }]), 0);
   assert.equal(M.currentStreak([]), 0);
 });
-
-/* ── bullet composition ───────────────────────────────────────────── */
 
 test('bullet folds quantity, dollars, system and result into one line', () => {
   const text = B.composeBullet({
@@ -303,8 +285,6 @@ test('"Reconciled" does not match the leadership pattern', () => {
   assert.equal(C.suggestJepesArea('Mentored junior analysts', 'Leadership'), 'Leadership');
 });
 
-/* ── quick-log parsing ────────────────────────────────────────────── */
-
 test('parses the canonical fiscal entry', () => {
   const p = Q.parseQuickLog('Reconciled 30 ULOs totaling $1,118.38 in DAI for G-8');
   assert.equal(p.dollar_amount, 1118.38);
@@ -365,8 +345,6 @@ test('category inference hits the obvious cases', () => {
   assert.equal(C.suggestCategory('completed a MarineNet course'), 'Training & PME');
   assert.equal(C.suggestCategory('xyzzy'), 'Other');
 });
-
-/* ── record health and the daily action list (findings 45, 46) ───── */
 
 const NOW = new Date('2026-08-20T12:00:00Z');
 
@@ -435,11 +413,6 @@ test('readiness gaps are named per track', () => {
   assert.match(r.detail, /CFT/);
 });
 
-/* ── report ───────────────────────────────────────────────────────── */
-
-
-/* ── JEPES narrative ──────────────────────────────────────────────── */
-
 const NARRATIVE_SET = [
   { date: '2026-07-05', title: 'Reconciled aged obligations', jepes_area: 'MOS / Mission Accomplishment',
     quantity: 30, unit_label: 'ULOs', dollar_amount: 1118.38, dollar_type: 'reconciled', system: 'DAI',
@@ -501,8 +474,6 @@ test('an empty period produces nothing rather than a stub sentence', () => {
   assert.equal(n.fits, true);
 });
 
-/* ── duplicate detection ──────────────────────────────────────────── */
-
 test('same day, same money, same words is a duplicate', () => {
   const a = { date: '2026-07-05', title: 'Reconciled 30 ULOs', dollar_amount: 1118.38, quantity: 30 };
   const b = { date: '2026-07-05', title: 'ULOs reconciled 30', dollar_amount: 1118.38, quantity: 30 };
@@ -548,8 +519,6 @@ test('an already-doubled log is detectable after the fact', () => {
   assert.equal(dupes[0].inflatedBy, 1000);
 });
 
-/* ── bullet styles are actually distinct ──────────────────────────── */
-
 const STYLE_RECORD = {
   title: 'Reconciled aged obligations', quantity: 30, unit_label: 'ULOs', unit: 'ULOs',
   dollar_amount: 1118.38, dollar_type: 'reconciled', system: 'DAI', organization: 'G-8',
@@ -593,9 +562,6 @@ test('an unlimited package withholds nothing', () => {
   const pkg = B.buildPackage(many, { limitPerArea: 0 });
   assert.equal(pkg.find((g) => g.area === 'Leadership').withheld, 0);
 });
-
-
-/* ── JEPES preparation dashboard (v3.3 finding 19: no invented points) ── */
 
 const PROFILE = {
   rank_grade: 'E-4', pft_score: 268, cft_score: 245, mcmap_belt: 'Grey',
@@ -718,8 +684,6 @@ test('the biggest lever is the pillar with the most gaps, and a topped profile h
   });
   assert.equal(none, null);
 });
-
-/* ── evaluation tracks ────────────────────────────────────────────── */
 
 test('E-1 through E-4 are JEPES; Sgt and above are FITREP', () => {
   for (const g of ['E-1', 'E-2', 'E-3', 'E-4']) assert.equal(E.trackForGrade(g), 'jepes', g);

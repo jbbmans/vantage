@@ -5,11 +5,11 @@ import { rmSync } from 'node:fs';
 const PORT = 8900 + (process.pid % 90);
 const DB = `/tmp/smoke-${process.pid}.db`;
 for (const f of [DB, DB + '-wal', DB + '-shm']) {
-  try { rmSync(f, { force: true }); } catch { /* not there yet */ }
+  try { rmSync(f, { force: true }); } catch {  }
 }
 
 const srv = spawn('node', ['server/index.js'], {
-  env: { ...process.env, VANTAGE_DB: DB, PORT: String(PORT) },
+  env: { ...process.env, VANTAGE_DB: DB, PORT: String(PORT), VANTAGE_MARADMIN_ENABLED: 'false' },
   stdio: ['ignore','pipe','pipe'],
 });
 srv.stdout.on('data', d => process.stdout.write('[srv] '+d));
@@ -30,8 +30,6 @@ const page = await browser.newPage({ viewport: { width: 1440, height: 900 } });
 page.on('console', m => { if (m.type()==='error') problems.push('console: '+m.text().slice(0,160)); });
 page.on('pageerror', e => problems.push('pageerror: '+e.message.slice(0,200)));
 
-// 1. first-run setup screen. domcontentloaded fires before React has painted,
-// so give the shell a bounded window to reach first render rather than racing it.
 await page.goto(BASE, { waitUntil: 'domcontentloaded' });
 const setupVisible = await page.getByText('Set up this command')
   .waitFor({ timeout: 6000 }).then(() => true).catch(() => false);
@@ -42,7 +40,7 @@ await page.getByLabel(/username/i).fill('boletz').catch(async () => {
 });
 await page.locator('input[type="password"]').fill('a-long-enough-passphrase');
 const inputs = page.locator('input');
-// first/last name fields
+
 await page.locator('input').nth(2).fill('John');
 await page.locator('input').nth(3).fill('Boletz');
 await page.getByRole('button', { name: /create unit leader and sign in/i }).click();
@@ -53,9 +51,6 @@ await page.getByRole('button', { name: 'Open account menu' }).click();
 check('account menu shows the signed-in name', (await page.textContent('body')).includes('John Boletz'));
 await page.keyboard.press('Escape');
 
-// Password managers and secure handoffs may set native input values without
-// firing React change events. The submit control must stay available so the
-// form's FormData fallback can read and authenticate those credentials.
 const autofillContext = await browser.newContext({ viewport: { width: 1280, height: 800 } });
 const autofillPage = await autofillContext.newPage();
 await autofillPage.goto(BASE, { waitUntil: 'domcontentloaded' });
@@ -73,7 +68,6 @@ await autofillPage.getByRole('button', { name: 'Open account menu' }).waitFor({ 
 check('native autofill credentials authenticate', true);
 await autofillContext.close();
 
-// 2. log an activity through the real UI
 await page.keyboard.press('n');
 await page.waitForTimeout(300);
 const ta = page.locator('textarea').first();
@@ -85,9 +79,6 @@ check('visibility control present', body.includes('Visible to') || body.includes
 await page.getByRole('button', { name: /save activity/i }).click();
 await page.waitForTimeout(900);
 
-// A private record still belongs to one unit. Moving from personal scope to
-// private must expose and populate that target instead of submitting null and
-// letting the server reject the save.
 await page.goto(BASE + '/career?tab=recognition', { waitUntil: 'networkidle' });
 await page.getByRole('button', { name: 'Add recognition', exact: true }).first().click();
 const recognitionVisibility = page.getByLabel('Who sees this recognition');
@@ -100,9 +91,8 @@ await privateUnit.waitFor({ timeout: 3000 });
 check('private scope keeps an explicit unit target', Boolean((await privateUnit.textContent()).trim()));
 await page.getByRole('button', { name: 'Cancel', exact: true }).click();
 
-
 let t;
-// 5e. dashboard: Display menu hides a section, collapse persists across reload
+
 await page.goto(BASE + '/', { waitUntil: 'networkidle' });
 await page.waitForTimeout(450);
 check('dashboard sections have chrome', (await page.textContent('body')).includes('FISCAL TAPE') || (await page.textContent('body')).includes('Fiscal tape'));
@@ -115,7 +105,6 @@ await page.keyboard.press('Escape');
 let dash = await page.textContent('body');
 check('hidden section leaves the page', !/GOALS/.test(dash) || dash.indexOf('Display') > -1);
 
-// collapse the tape, reload, confirm it stays collapsed (server-side prefs)
 await page.getByRole('button', { name: /^Fiscal tape/ }).click();
 await page.waitForTimeout(450);
 await page.reload({ waitUntil: 'networkidle' });
@@ -123,13 +112,11 @@ await page.waitForTimeout(600);
 const tapeBtn = page.getByRole('button', { name: /^Fiscal tape/ });
 check('collapsed state survives a reload', (await tapeBtn.getAttribute('aria-expanded')) === 'false');
 
-// bring goals back
 await page.getByRole('button', { name: /display/i }).click();
 await page.waitForTimeout(250);
 await page.getByRole('menu').getByText('Show everything').click();
 await page.waitForTimeout(350);
 
-// 5f. help / SOP: renders, searches, and knows the reader's track
 await page.goto(BASE + '/help', { waitUntil: 'networkidle' });
 await page.waitForTimeout(400);
 t = await page.textContent('body');
@@ -140,11 +127,10 @@ await page.waitForTimeout(300);
 t = await page.textContent('body');
 check('SOP search filters sections', t.includes('JEPES (Pvt–Cpl)') && !t.includes('First day'));
 
-// 5g. entry form uses track vocabulary (admin is a Cpl → JEPES area label)
 await page.goto(BASE + '/', { waitUntil: 'networkidle' });
 await page.keyboard.press('n');
 await page.waitForTimeout(350);
-// The field grid only renders once the parser has something to work on.
+
 await page.locator('textarea').first().fill('Reconciled 12 ULOs totaling $4,200 in DAI today');
 await page.waitForTimeout(450);
 t = await page.textContent('body');
@@ -153,10 +139,9 @@ check('entry form offers the JEPES areas', t.includes('Visible to') || t.include
 await page.keyboard.press('Escape');
 await page.waitForTimeout(250);
 
-
 await browser.close();
 srv.kill();
-try { for (const f of [DB, DB+'-wal', DB+'-shm']) rmSync(f, { force: true }); } catch { /* fine */ }
+try { for (const f of [DB, DB+'-wal', DB+'-shm']) rmSync(f, { force: true }); } catch {  }
 
 const fails = checks.filter(c => !c[0]).length;
 console.log(`\n${checks.length - fails}/${checks.length} checks passed`);

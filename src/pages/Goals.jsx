@@ -26,11 +26,6 @@ export default function Goals() {
   const [confirming, setConfirming] = useState(null);
   const [filter, setFilter] = useState('active');
 
-  /**
-   * A goal with a category auto-counts matching activities inside its period,
-   * so progress reflects what you logged rather than what you remembered to
-   * type into a second field.
-   */
   const withProgress = useMemo(
     () =>
       goals.map((g) => {
@@ -70,8 +65,7 @@ export default function Goals() {
       setDialog(null);
       setGoalErrors({});
     } catch (err) {
-      // Finding 36: a stale write is a real choice — reload the winner into
-      // the form, or knowingly overwrite it. The dialog keeps your copy.
+
       if (err.status === 409 && err.code === 'stale' && err.current) {
         setConflict({ current: err.current, payload: { ...payload, id: draft.id } });
       } else {

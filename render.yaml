@@ -1,8 +1,3 @@
-# Vantage on Render.
-#
-# The disk is what makes the data survive a deploy. Render mounts it before the
-# process starts, so VANTAGE_DB can point straight at it.
-
 services:
   - type: web
     name: vantage
@@ -10,11 +5,17 @@ services:
     region: ohio
     dockerfilePath: ./Dockerfile
     plan: starter
+    numInstances: 1
     healthCheckPath: /api/health
+    autoDeployTrigger: commit
+    maxShutdownDelaySeconds: 30
+    domains:
+      - vantageusmc.com
+      - admin.vantageusmc.com
+    renderSubdomainPolicy: disabled
     envVars:
       - key: NODE_ENV
         value: production
-      # One trusted proxy hop (Render's edge). See finding 18 / server/index.js.
       - key: TRUST_PROXY
         value: "1"
       - key: PORT
@@ -23,14 +24,14 @@ services:
         value: /data/vantage.db
       - key: VANTAGE_DATA_MODE
         value: evaluation
+      - key: VANTAGE_PUBLIC_URL
+        value: https://vantageusmc.com
+      - key: VANTAGE_ADMIN_URL
+        value: https://admin.vantageusmc.com
       - key: VANTAGE_SETUP_TOKEN
         generateValue: true
-      # Set this to the bootstrap username in the Render dashboard. It is not a
-      # global role; it names the infrastructure recovery operator explicitly.
       - key: VANTAGE_OPERATOR
         sync: false
-      # Preferred after first setup: copy the bootstrap account UUID from
-      # /api/me, set it here, and remove the username fallback.
       - key: VANTAGE_OPERATOR_ID
         sync: false
     disk:

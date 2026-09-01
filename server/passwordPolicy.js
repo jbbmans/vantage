@@ -1,4 +1,3 @@
-/** Local-password policy. CAC/PIV deployments should disable this authenticator. */
 export const MIN_PASSWORD_LENGTH = 15;
 export const MAX_PASSWORD_LENGTH = 256;
 

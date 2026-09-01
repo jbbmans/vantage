@@ -1,21 +1,9 @@
-/**
- * Vantage — fiscal math and aggregation.
- * Rebuilt from call sites; the original module was not recoverable from the archive.
- *
- * Two rules govern this file:
- *   1. One activity is one event. Counting rolls up events, never quantities.
- *   2. Reviewed dollars never enter a headline total. See DOLLAR_SUM_RULE.
- */
-
 import {
   startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth,
   startOfYear, endOfYear, subDays, parseISO, isValid, format, differenceInCalendarDays,
 } from 'date-fns';
 import { SUMMABLE_DOLLAR_TYPES, FISCAL_YEAR_START_MONTH } from './constants.js';
 
-/* ── date helpers ─────────────────────────────────────────────────── */
-
-/** Parse a stored date string safely. Returns null rather than an Invalid Date. */
 export function toDate(value) {
   if (!value) return null;
   const d = value instanceof Date ? value : parseISO(String(value));
@@ -24,9 +12,6 @@ export function toDate(value) {
 
 export const dayKey = (d) => format(d, 'yyyy-MM-dd');
 
-/* ── fiscal calendar ──────────────────────────────────────────────── */
-
-/** The federal FY containing `ref`. FY26 runs 01 Oct 2025 → 30 Sep 2026. */
 export function fiscalYearOf(ref = new Date()) {
   return ref.getMonth() >= FISCAL_YEAR_START_MONTH ? ref.getFullYear() + 1 : ref.getFullYear();
 }
@@ -41,7 +26,6 @@ export function fiscalYearRange(ref = new Date()) {
   };
 }
 
-/** Fiscal quarter 1–4, where Q1 is Oct–Dec. */
 export function fiscalQuarterOf(ref = new Date()) {
   return Math.floor(((ref.getMonth() - FISCAL_YEAR_START_MONTH + 12) % 12) / 3) + 1;
 }
@@ -56,15 +40,12 @@ export function fiscalQuarterRange(ref = new Date()) {
   return { start, end, label: `FY${String(fy).slice(-2)} Q${q}`, fy, quarter: q };
 }
 
-/** How far into the fiscal year we are, as a 0–1 fraction. Drives the tape. */
 export function fiscalYearProgress(ref = new Date()) {
   const { start, end } = fiscalYearRange(ref);
   const total = differenceInCalendarDays(end, start) + 1;
   const elapsed = differenceInCalendarDays(ref, start) + 1;
   return { elapsed, total, fraction: Math.min(1, Math.max(0, elapsed / total)) };
 }
-
-/* ── generic periods ──────────────────────────────────────────────── */
 
 export const PERIODS = [
   { key: 'week', label: 'Week' },
@@ -95,7 +76,6 @@ export function periodRange(key, ref = new Date()) {
   }
 }
 
-/** Resolves both plain and fiscal period keys. */
 export function rangeForPeriod(key, ref = new Date()) {
   if (key === 'fiscalYear') return fiscalYearRange(ref);
   if (key === 'fiscalQuarter') return fiscalQuarterRange(ref);
@@ -113,12 +93,6 @@ export function activitiesInRange(list = [], range) {
   return list.filter((a) => inPeriod(a.date, range));
 }
 
-/* ── aggregation ──────────────────────────────────────────────────── */
-
-/**
- * Roll a set of activities into the figures the app displays.
- * `totalDollars` deliberately excludes Reviewed — see DOLLAR_SUM_RULE.
- */
 export function aggregateMetrics(list = []) {
   const byCategory = {};
   const byJepes = {};
@@ -169,7 +143,6 @@ export function aggregateMetrics(list = []) {
   };
 }
 
-/** { 'yyyy-MM-dd': count } across the trailing `days` window. */
 export function activityHeatmap(list = [], days = 126, ref = new Date()) {
   const cutoff = startOfDay(subDays(ref, days - 1));
   const map = {};
@@ -182,7 +155,6 @@ export function activityHeatmap(list = [], days = 126, ref = new Date()) {
   return map;
 }
 
-/** { 'yyyy-MM-dd': count } across an explicit range. Used by the fiscal tape. */
 export function dailyCounts(list = [], range) {
   const map = {};
   for (const a of list) {
@@ -211,7 +183,6 @@ export function daysSinceLastActivity(list = [], ref = new Date()) {
   return latest ? Math.max(0, differenceInCalendarDays(startOfDay(ref), startOfDay(latest))) : null;
 }
 
-/** Consecutive days ending today (or yesterday) with at least one activity. */
 export function currentStreak(list = [], ref = new Date()) {
   const days = new Set(list.map((a) => toDate(a.date)).filter(Boolean).map(dayKey));
   if (!days.size) return 0;
@@ -228,7 +199,6 @@ export function currentStreak(list = [], ref = new Date()) {
   return streak;
 }
 
-/** Daily counts over the trailing window, oldest first. Feeds sparklines. */
 export function trendSeries(list = [], days = 30, ref = new Date()) {
   const counts = {};
   for (const a of list) {
@@ -244,20 +214,16 @@ export function trendSeries(list = [], days = 30, ref = new Date()) {
   return out;
 }
 
-/** Percent change, guarding the divide-by-zero case honestly. */
 export function delta(current, previous) {
   if (previous === 0) return current > 0 ? null : 0;
   return Math.round(((current - previous) / Math.abs(previous)) * 100);
 }
 
-/** The equivalent-length window immediately before `range`. */
 export function previousRange(range) {
   const span = range.end.getTime() - range.start.getTime();
   const end = new Date(range.start.getTime() - 1);
   return { start: new Date(end.getTime() - span), end };
 }
-
-/* ── formatting ───────────────────────────────────────────────────── */
 
 const nf = new Intl.NumberFormat('en-US');
 const usdExact = new Intl.NumberFormat('en-US', {
@@ -269,7 +235,6 @@ export function formatNumber(n) {
   return nf.format(Math.round(n * 100) / 100);
 }
 
-/** Abbreviated money for headline figures: $1.24M, $18.6K, $940. */
 export function formatDollars(n) {
   if (!n) return '$0';
   const abs = Math.abs(n);
@@ -280,7 +245,6 @@ export function formatDollars(n) {
   return `${sign}$${nf.format(Math.round(abs))}`;
 }
 
-/** Full precision, for anywhere a figure has to be defensible to the cent. */
 export function formatDollarsExact(n) {
   if (n == null) return '$0.00';
   return usdExact.format(n);
@@ -299,7 +263,6 @@ export function formatDate(value, pattern = 'dd MMM yy') {
   return d ? format(d, pattern) : '—';
 }
 
-/** Military-style date group: 18 AUG 26. */
 export function formatDTG(value) {
   const d = toDate(value);
   return d ? format(d, 'dd MMM yy').toUpperCase() : '—';

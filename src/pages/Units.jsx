@@ -8,14 +8,6 @@ import { Panel, PageHeader, EmptyState, Button, Input, Field, Select, Badge } fr
 import { ECHELON_OPTIONS } from '@/lib/constants';
 import { errorText } from '@/lib/api';
 
-/**
- * The org tree.
- *
- * Units are rows, and anyone holding MANAGE_UNITS on a parent can create
- * beneath it. That's the point: a section head stands up their own fire teams
- * without an administrator in the loop, and without waiting on a code change
- * to add a branch that already exists in real life.
- */
 export default function Units() {
   const org = useOrg();
   const identity = useIdentity();
@@ -39,9 +31,7 @@ export default function Units() {
   }, [org.units]);
 
   const manageable = unitsWith(PERMISSIONS.MANAGE_UNITS);
-  // An operator with no unit-management grant creates a top-level unit. An
-  // empty candidate list must stay empty rather than falling back to their
-  // unrelated primary assignment and submitting it as an unauthorized parent.
+
   const preferredManageable = manageable.length ? preferredUnitId(manageable) : '';
   if (!manageable.length && !identity?.isOperator) {
     return (

@@ -1,15 +1,3 @@
-/**
- * Destructive, deployment-level Vantage factory reset.
- *
- * This command is intentionally unavailable from the web application. It
- * requires shell access, a one-invocation environment gate, and the exact
- * confirmation phrase. A verified SQLite backup is completed before a single
- * live row is removed.
- *
- *   VANTAGE_FACTORY_RESET=1 npm run reset:factory -- \
- *     --confirm "WIPE ALL LIVE DATA"
- */
-
 import Database from 'better-sqlite3';
 import { createHash } from 'node:crypto';
 import {
@@ -123,15 +111,13 @@ try {
   live.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?)").run(schemaVersion);
   live.exec('COMMIT');
 } catch (error) {
-  try { live.exec('ROLLBACK'); } catch { /* transaction was not active */ }
+  try { live.exec('ROLLBACK'); } catch {}
   live.close();
   console.error(`Factory reset failed; verified backup remains at ${backupPath}`);
   throw error;
 }
 live.close();
 
-// Re-run the normal schema/migration/seed path instead of maintaining a
-// second copy of production seed logic in this script.
 const { getDb } = await import('../server/db.js');
 const rebuilt = getDb(databasePath);
 const units = rebuilt.prepare(

@@ -7,11 +7,10 @@ export function draftKey(userId, kind, recordId = '') {
   return `${PREFIX}${segment(userId)}.${segment(kind)}${recordId ? `.${segment(recordId)}` : ''}`;
 }
 
-/** Remove unsaved sensitive material whenever the authenticated identity ends. */
 export function clearSensitiveDrafts() {
   const stores = [];
-  try { if (globalThis.sessionStorage) stores.push(globalThis.sessionStorage); } catch { /* blocked */ }
-  try { if (globalThis.localStorage) stores.push(globalThis.localStorage); } catch { /* blocked */ }
+  try { if (globalThis.sessionStorage) stores.push(globalThis.sessionStorage); } catch {}
+  try { if (globalThis.localStorage) stores.push(globalThis.localStorage); } catch {}
   for (const storage of stores) {
     if (!storage) continue;
     try {
@@ -20,6 +19,6 @@ export function clearSensitiveDrafts() {
       for (const key of keys) {
         if (key && (key.startsWith(PREFIX) || LEGACY_KEYS.includes(key))) storage.removeItem(key);
       }
-    } catch { /* storage may be blocked by browser policy */ }
+    } catch {}
   }
 }

@@ -9,7 +9,7 @@ const SIGNATURES = {
 
 export function cleanFilename(value) {
   let decoded = String(value || '');
-  try { decoded = decodeURIComponent(decoded); } catch { /* use the literal header */ }
+  try { decoded = decodeURIComponent(decoded); } catch {}
   const clean = basename(decoded)
     .replace(/\p{Cc}/gu, '')
     .replace(/[\\/:*?"<>|]/g, '-')

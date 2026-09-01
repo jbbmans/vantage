@@ -2,14 +2,6 @@ import React from 'react';
 import { Dialog } from '@/components/ui/Dialog';
 import { NAV } from '@/config/nav';
 
-/**
- * Every shortcut the app listens for, in one place.
- *
- * The whole shell is built around not touching the mouse, and until now the
- * only way to learn that was to hover a nav item and notice a faint keycap.
- * A keyboard-first tool that hides its keyboard map is just a slow tool.
- */
-
 const Keys = ({ combo }) => (
   <span className="flex shrink-0 items-center gap-1">
     {combo.split(' ').map((k, i) => (

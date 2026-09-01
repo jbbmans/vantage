@@ -4,7 +4,6 @@ import { Button } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { errorText } from '@/lib/api';
 
-/** Shared create/edit dialog. `fields` renders the form against a local draft. */
 export default function RecordDialog({ title, initial, fields, onSave, onCancel, size = 'md' }) {
   const [draft, setDraft] = useState(initial || {});
   const [saving, setSaving] = useState(false);

@@ -1,11 +1,4 @@
-# Vantage on Fly.io.
-#
-#   fly launch --no-deploy
-#   fly volumes create vantage_data --size 1
-#   fly deploy
-#
-# The volume is not optional. SQLite on an ephemeral filesystem means every
-# deploy silently wipes the section's records.
+# Fly.io deployment with persistent SQLite storage.
 
 app = "vantage"
 primary_region = "dfw"
@@ -15,16 +8,10 @@ primary_region = "dfw"
 
 [env]
   NODE_ENV = "production"
-  # One trusted proxy hop (Fly's edge). See finding 18 / server/index.js.
   TRUST_PROXY = "1"
   PORT = "8080"
   VANTAGE_DB = "/data/vantage.db"
   VANTAGE_DATA_MODE = "evaluation"
-
-# Before the first deploy, keep these out of this file:
-#   fly secrets set VANTAGE_SETUP_TOKEN=<long-random-value> VANTAGE_OPERATOR=<canonical-username>
-# After setup, prefer the immutable UUID and remove the username fallback:
-#   fly secrets set VANTAGE_OPERATOR_ID=<account-uuid>
 
 [[mounts]]
   source = "vantage_data"
@@ -35,7 +22,6 @@ primary_region = "dfw"
   force_https = true
   auto_stop_machines = "suspend"
   auto_start_machines = true
-  # Keep one machine up: a cold start on a scrypt login is a slow first impression.
   min_machines_running = 1
 
   [http_service.concurrency]

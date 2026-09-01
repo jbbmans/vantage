@@ -1,11 +1,3 @@
-/**
- * Isolated 50-account workload.
- *
- * This never touches a deployed Vantage instance. It starts the real Express
- * app on an ephemeral port with a temporary SQLite database, creates fifty
- * independent identities, signs every one in, exercises the core write/read
- * journey, and verifies that personal records never cross account boundaries.
- */
 import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { join } from 'node:path';
@@ -34,7 +26,7 @@ async function call(method, path, { token, body } = {}) {
   });
   const text = await response.text();
   let payload = null;
-  try { payload = text ? JSON.parse(text) : null; } catch { /* non-JSON response */ }
+  try { payload = text ? JSON.parse(text) : null; } catch {  }
   return { status: response.status, body: payload, ms: performance.now() - started };
 }
 
@@ -125,6 +117,6 @@ try {
 } finally {
   await new Promise((resolve) => server.close(resolve));
   for (const file of [DB, `${DB}-wal`, `${DB}-shm`]) {
-    try { rmSync(file, { force: true }); } catch { /* already absent */ }
+    try { rmSync(file, { force: true }); } catch {  }
   }
 }

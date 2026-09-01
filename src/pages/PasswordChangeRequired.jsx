@@ -4,7 +4,6 @@ import * as apiClient from '@/lib/api';
 import { hydrate } from '@/store/useStore';
 import { Button, Field, Input } from '@/components/ui/primitives';
 
-/** The server blocks every other authenticated route until this succeeds. */
 export default function PasswordChangeRequired() {
   const [current, setCurrent] = useState('');
   const [next, setNext] = useState('');

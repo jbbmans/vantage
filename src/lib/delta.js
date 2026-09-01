@@ -1,21 +1,6 @@
-/**
- * Vantage — period comparison.
- *
- * "What changed" is the only question a reviewer actually asks. A single
- * period's totals tell them nothing without the one before it: 1,247 ULOs is
- * either excellent or a collapse depending on whether last quarter was 400 or
- * 3,000.
- *
- * So every figure this produces carries its prior-period counterpart and the
- * movement between them. Comparisons are always against the equivalent window
- * immediately before — FQ against the previous FQ, not against a calendar
- * quarter, because a fiscal shop lives on the fiscal calendar.
- */
-
 import { aggregateMetrics, activitiesInRange, previousRange, delta, formatDTG } from './metrics.js';
 import { DOLLAR_TYPES, JEPES_CORE, CATEGORIES } from './constants.js';
 
-/** Movement descriptor. `pct` is null when there's no prior base to divide by. */
 function movement(current, prior) {
   const diff = current - prior;
   const pct = delta(current, prior);
@@ -30,13 +15,6 @@ function movement(current, prior) {
   };
 }
 
-/**
- * Build the full comparison.
- *
- * @param {object[]} activities every activity in scope (unfiltered)
- * @param {{start: Date, end: Date, label?: string}} range the current window
- * @param {{ recognitions?: object[], trainings?: object[], goals?: object[], tasks?: object[] }} extras
- */
 export function comparePeriods(activities = [], range, extras = {}) {
   const areas = extras.areas || JEPES_CORE;
   const prior = previousRange(range);
@@ -47,7 +25,6 @@ export function comparePeriods(activities = [], range, extras = {}) {
   const a = aggregateMetrics(now);
   const b = aggregateMetrics(before);
 
-  /* headline figures */
   const headline = {
     activities: movement(a.totalActivities, b.totalActivities),
     dollars: movement(a.totalDollars, b.totalDollars),
@@ -59,7 +36,6 @@ export function comparePeriods(activities = [], range, extras = {}) {
     ),
   };
 
-  /* dollars by type — where the money actually moved */
   const byDollarType = DOLLAR_TYPES.map((d) => ({
     key: d.key,
     label: d.label,
@@ -67,14 +43,12 @@ export function comparePeriods(activities = [], range, extras = {}) {
     ...movement(a.dollarsByType[d.key] || 0, b.dollarsByType[d.key] || 0),
   })).filter((row) => row.current || row.prior);
 
-  /* JEPES balance — the thing a board reads across */
   const byJepes = areas.map((area) => ({
     area,
     ...movement(a.byJepes[area]?.count || 0, b.byJepes[area]?.count || 0),
     dollars: movement(a.byJepes[area]?.dollars || 0, b.byJepes[area]?.dollars || 0),
   }));
 
-  /* categories, biggest movers first */
   const byCategory = CATEGORIES.map((cat) => ({
     category: cat,
     ...movement(a.byCategory[cat]?.count || 0, b.byCategory[cat]?.count || 0),
@@ -82,7 +56,6 @@ export function comparePeriods(activities = [], range, extras = {}) {
     .filter((row) => row.current || row.prior)
     .sort((x, y) => Math.abs(y.diff) - Math.abs(x.diff));
 
-  /* units of work: what you counted, then and now */
   const unitKeys = new Set([...a.byUnit.map((u) => u.unit), ...b.byUnit.map((u) => u.unit)]);
   const byUnit = [...unitKeys]
     .map((unit) => {
@@ -92,7 +65,6 @@ export function comparePeriods(activities = [], range, extras = {}) {
     })
     .sort((x, y) => y.current - x.current);
 
-  /* qualitative changes worth calling out in prose */
   const notes = [];
   const emptyAreas = byJepes.filter((j) => j.current === 0);
   if (emptyAreas.length) {
@@ -158,12 +130,10 @@ const countIn = (list = [], range) => (list || []).filter((r) => inRange(r.date,
 const sumIn = (list = [], range, field) =>
   (list || []).filter((r) => inRange(r.date, range)).reduce((n, r) => n + (Number(r[field]) || 0), 0);
 
-/** Arrow glyph for a movement, used in both screen and print. */
 export function arrow(direction) {
   return direction === 'up' ? '▲' : direction === 'down' ? '▼' : '—';
 }
 
-/** Plain-text rendering of the comparison, for copy-paste into an email. */
 export function comparisonToText(cmp, header = '') {
   const lines = [];
   if (header) lines.push(header.toUpperCase(), '='.repeat(header.length), '');

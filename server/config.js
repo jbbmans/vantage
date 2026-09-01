@@ -1,17 +1,3 @@
-/**
- * Vantage application configuration.
- *
- * Non-secret settings live in config/app.yaml so an operator can review the
- * deployment in one place. Environment variables override the handful of
- * values that hosting platforms normally inject. Secrets (setup token and the
- * CAC/PIV proxy shared secret) intentionally never belong in source-controlled
- * YAML.
- *
- * The parser implements the small, deliberately boring YAML subset this file
- * needs: two-space mappings, scalars and inline scalar arrays. Unsupported YAML
- * fails closed at boot instead of being interpreted differently than intended.
- */
-
 import { existsSync, readFileSync } from 'node:fs';
 import { dirname, isAbsolute, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,15 +8,20 @@ const PROJECT_ROOT = resolve(SERVER_DIR, '..');
 export const DEFAULT_CONFIG = Object.freeze({
   app: {
     name: 'VANTAGE',
+    display_name: 'VANTAGE',
+    organization_name: 'Marine Corps',
     data_mode: 'evaluation',
     region: 'us',
   },
   deployment: {
     trust_proxy: false,
+    public_url: '',
+    admin_url: '',
   },
   ui: {
     palette: 'ocean-light',
     default_theme: 'light',
+    announcement: '',
   },
   auth: {
     provider: 'password',
@@ -81,6 +72,10 @@ export const DEFAULT_CONFIG = Object.freeze({
   experience_metrics: {
     enabled: true,
     mode: 'first_party_aggregate',
+  },
+  maradmins: {
+    enabled: true,
+    refresh_minutes: 30,
   },
 });
 
@@ -193,6 +188,22 @@ function validateConfig(value) {
   if (value.auth.provider === 'cac_piv' && !value.auth.cac_piv.enabled) {
     throw new Error('auth.provider cannot be cac_piv while auth.cac_piv.enabled is false.');
   }
+  for (const [name, text, max] of [
+    ['app.display_name', value.app.display_name, 40],
+    ['app.organization_name', value.app.organization_name, 120],
+    ['ui.announcement', value.ui.announcement, 240],
+  ]) {
+    if (typeof text !== 'string' || text.length > max) throw new Error(`${name} must be text no longer than ${max} characters.`);
+  }
+  for (const [name, url] of [
+    ['deployment.public_url', value.deployment.public_url],
+    ['deployment.admin_url', value.deployment.admin_url],
+  ]) {
+    if (typeof url !== 'string') throw new Error(`${name} must be text.`);
+    if (url && !/^https:\/\/[a-z0-9.-]+(?::\d+)?$/i.test(url)) {
+      throw new Error(`${name} must be an HTTPS origin without a path.`);
+    }
+  }
   for (const [name, flag] of [
     ['auth.password_enabled', value.auth.password_enabled],
     ['auth.self_registration', value.auth.self_registration],
@@ -200,6 +211,7 @@ function validateConfig(value) {
     ['attachments.enabled', value.attachments.enabled],
     ['retention.soft_delete', value.retention.soft_delete],
     ['experience_metrics.enabled', value.experience_metrics.enabled],
+    ['maradmins.enabled', value.maradmins.enabled],
   ]) {
     if (typeof flag !== 'boolean') throw new Error(`${name} must be true or false.`);
   }
@@ -213,6 +225,7 @@ function validateConfig(value) {
   numberIn('limits.max_guest_days', value.limits.max_guest_days, 1, 365);
   numberIn('attachments.max_bytes', value.attachments.max_bytes, 1024, 52428800);
   numberIn('attachments.max_per_record', value.attachments.max_per_record, 1, 50);
+  numberIn('maradmins.refresh_minutes', value.maradmins.refresh_minutes, 5, 1440);
   if (!Array.isArray(value.attachments.allowed_types) || !value.attachments.allowed_types.length) {
     throw new Error('attachments.allowed_types must be a non-empty inline array.');
   }
@@ -242,6 +255,8 @@ function withEnvironment(config) {
   if (process.env.VANTAGE_DATA_MODE) next.app.data_mode = String(process.env.VANTAGE_DATA_MODE).toLowerCase();
   if (process.env.TRUST_PROXY !== undefined) next.deployment.trust_proxy = process.env.TRUST_PROXY;
   if (process.env.VANTAGE_DB) next.storage.database_path = process.env.VANTAGE_DB;
+  if (process.env.VANTAGE_PUBLIC_URL) next.deployment.public_url = String(process.env.VANTAGE_PUBLIC_URL).replace(/\/$/, '');
+  if (process.env.VANTAGE_ADMIN_URL) next.deployment.admin_url = String(process.env.VANTAGE_ADMIN_URL).replace(/\/$/, '');
   next.auth.self_registration = envBoolean('VANTAGE_SELF_REGISTRATION', next.auth.self_registration);
   next.auth.cac_piv.enabled = envBoolean('VANTAGE_CAC_ENABLED', next.auth.cac_piv.enabled);
   if (process.env.VANTAGE_AUTH_PROVIDER) next.auth.provider = String(process.env.VANTAGE_AUTH_PROVIDER).toLowerCase();
@@ -253,6 +268,8 @@ function withEnvironment(config) {
   next.limits.max_records_per_user = envNumber('VANTAGE_MAX_RECORDS_PER_USER', next.limits.max_records_per_user);
   next.limits.max_database_bytes = envNumber('VANTAGE_MAX_DB_BYTES', next.limits.max_database_bytes);
   next.limits.max_guest_days = envNumber('VANTAGE_MAX_GUEST_DAYS', next.limits.max_guest_days);
+  next.maradmins.enabled = envBoolean('VANTAGE_MARADMIN_ENABLED', next.maradmins.enabled);
+  next.maradmins.refresh_minutes = envNumber('VANTAGE_MARADMIN_REFRESH_MINUTES', next.maradmins.refresh_minutes);
   return next;
 }
 
@@ -265,19 +282,14 @@ export const configPath = resolveConfigPath();
 const supplied = existsSync(configPath) ? parseConfigYaml(readFileSync(configPath, 'utf8')) : {};
 export const config = Object.freeze(validateConfig(withEnvironment(mergeKnown(DEFAULT_CONFIG, supplied))));
 
-/**
- * Settings an Instance Operator may change without editing YAML or opening the
- * database.  The allow-list is intentionally narrow: proxy trust, auth proxy
- * headers, storage paths, retention guarantees, and session cryptography stay
- * deployment-owned.  These values are read dynamically by their call sites,
- * so an approved change takes effect as soon as it is saved.
- */
 const EDITABLE_CONFIG = Object.freeze({
-  ui: ['default_theme'],
+  app: ['display_name', 'organization_name'],
+  ui: ['default_theme', 'announcement'],
   auth: ['self_registration'],
   limits: ['max_guest_days'],
   attachments: ['enabled', 'max_bytes', 'max_per_record'],
   experience_metrics: ['enabled'],
+  maradmins: ['enabled', 'refresh_minutes'],
 });
 
 export function editableConfig() {
@@ -320,6 +332,10 @@ export function resolveStoragePath(path) {
 export function safeConfig() {
   return {
     app: config.app,
+    deployment: {
+      public_url: config.deployment.public_url,
+      admin_url: config.deployment.admin_url,
+    },
     ui: config.ui,
     auth: {
       provider: config.auth.provider,
@@ -332,6 +348,7 @@ export function safeConfig() {
     attachments: config.attachments,
     retention: config.retention,
     experience_metrics: config.experience_metrics,
+    maradmins: config.maradmins,
     editable: editableConfig(),
     config_file: process.env.VANTAGE_CONFIG || 'config/app.yaml',
   };

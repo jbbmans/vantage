@@ -1,14 +1,6 @@
-/**
- * Dependency-free CSV/TSV primitives.
- *
- * Kept separate from the browser download/import UI so the security-sensitive
- * parser and formula neutralization can run in a plain Node test process.
- */
-
 export const MAX_IMPORT_ROWS = 500;
 export const MAX_IMPORT_COLUMNS = 100;
 
-/** Prevent spreadsheet formula execution, including after leading whitespace. */
 export function safeCell(value) {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   const text = String(value ?? '');
@@ -30,7 +22,6 @@ export function rowsToCsv(rows) {
   ].join('\r\n');
 }
 
-/** RFC-4180-style parser with explicit row bounds and strict quote handling. */
 export function parseDelimited(text, delimiter, { maxRows = MAX_IMPORT_ROWS } = {}) {
   if (delimiter !== ',' && delimiter !== '\t') throw new Error('Unsupported delimiter.');
   const matrix = [];

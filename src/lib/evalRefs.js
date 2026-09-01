@@ -1,15 +1,3 @@
-/**
- * Vantage — evaluation references (v3.3 findings 23, 48, 50).
- *
- * One place for every policy citation the evaluation pages make, so a new MCO
- * or MARADMIN is a one-line change here rather than a hunt through components.
- * Verified against marines.mil on the date below; when that date gets stale,
- * re-verify before trusting the citations.
- *
- * Rule of the file: only official marines.mil / official-command URLs. Never
- * link a third-party calculator or aggregator from the product.
- */
-
 export const EVAL_VERIFIED = '2026-08-20';
 
 export const EVAL_REFERENCES = {
@@ -24,9 +12,7 @@ export const EVAL_REFERENCES = {
       { id: 'MARADMIN 272/22', note: 'JEPES retention score', url: 'https://www.marines.mil/News/Messages/MARADMINS/' },
       { id: 'MARADMIN 046/24', note: 'MOS Qualifications expanded to all MOSs; reported via MCTIMS', url: 'https://www.marines.mil/News/Messages/Messages-Display/Article/3662965/' },
     ],
-    // The four-pillar / 1,000-point framework is public in the order. The
-    // per-element point tables (Appendix B) and the annual peer-percentile
-    // distributions are not — MOL is the only authoritative score.
+
     authoritative: 'Your JEPES score on Marine Online (MOL) is the only official number.',
   },
   fitrep: {
@@ -59,10 +45,6 @@ export const EVAL_REFERENCES = {
   mcpel: { label: 'Marine Corps publications library', url: 'https://www.marines.mil/News/Publications/MCPEL/' },
 };
 
-/**
- * Every recommendation Vantage shows carries one of these kinds, so a Marine
- * can always tell a policy pointer from Vantage's opinion (finding 22).
- */
 export const REC_KINDS = {
   data: { label: 'From your log', tone: 'neutral' },
   heuristic: { label: 'Coaching heuristic', tone: 'signal' },

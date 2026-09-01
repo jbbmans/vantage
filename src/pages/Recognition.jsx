@@ -67,7 +67,7 @@ export default function Recognition() {
         </Panel>
       ) : (
         <div className="relative">
-          {/* a single hairline running the length of the record */}
+
           <div className="absolute bottom-2 left-[70px] top-2 w-px bg-rule" aria-hidden />
           <div className="space-y-2">
             {sorted.map((r) => (

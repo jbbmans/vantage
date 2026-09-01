@@ -49,7 +49,7 @@ export function ToastProvider({ children }) {
   return (
     <ToastContext.Provider value={api}>
       {children}
-      {/* aria-live so a confirmation isn't only visible to sighted users */}
+
       <div
         role="region"
         aria-live="polite"
@@ -65,7 +65,7 @@ export function ToastProvider({ children }) {
                 'pointer-events-auto flex items-start gap-2 rounded border bg-panel px-3 py-2 shadow-[var(--shadow)] animate-fade-up',
                 TONES[t.tone]
               )}
-              // Reading a toast shouldn't be a race against its own timer.
+
               onMouseEnter={() => {
                 const timer = timers.current.get(t.id);
                 if (timer) clearTimeout(timer);

@@ -1,113 +1,31 @@
-# VANTAGE 3.6
+# Vantage 3.7
 
-VANTAGE is a command-ready performance, productivity, career, and operational-record workspace built for Marine Corps teams. It gives every Marine a fast way to capture work as it happens, gives leaders an exact-unit view of authorized activity, and turns source records into useful dashboards, goals, evaluation inputs, bullet packages, and change reports.
+Vantage is a self-hosted performance, work, readiness, and career-record system for Marine Corps teams. It combines individual capture with exact-unit permissions, auditable administration, reporting, notifications, and official MARADMIN tracking.
 
-VANTAGE is deliberately self-contained. Records stay on the deployment's server, reports are composed from stored facts, and no external generative AI, advertising network, or third-party analytics SDK receives application data.
+## Capabilities
 
-## The VANTAGE experience
-
-- **Command center:** a chart-first operational picture with recorded impact, transaction volume, completeness, work hours, next actions, attention items, recent activity, record health, goals, and a clickable fiscal tape.
-- **Quick Log:** an always-available capture drawer that understands plain-language work entries and exposes the inferred date, quantity, units, dollar amount, transaction type, organization, system, evaluation area, visibility, outcome, and notes before save.
-- **Records:** a searchable activity ledger with fiscal and calendar periods, quality filters, exact values, duplicate screening, import, export, soft deletion, restoration, and optional supporting files.
-- **Work:** task and project workspaces with priorities, ownership, deadlines, status, progress, drag-and-drop task movement, visibility, and exact-unit sharing.
-- **Goals:** measurable targets with manual progress or automatic counting from matching activity categories.
-- **Career:** a distinct progression workspace for Training & PME, Recognition, Readiness, Goals, and package preparation.
-- **Readiness:** rank-aware JEPES and FITREP preparation views that separate official references, personal data, and coaching guidance without inventing an official score.
-- **Report studio:** evaluation narratives, bullet packages, and period-over-period change reports with personal or authorized exact-unit scope, copy, download, print, and workbook export.
-- **Team:** roster, assignment, membership, guest access, account lifecycle, session recovery, and access-review tools for authorized leaders.
-- **Units and roles:** a readable organization tree plus editable unit-local roles, position hierarchy, additive permissions, and explicit unit ownership.
-- **Settings console:** personal interface preferences, password and session management, access history, import/export, backup, aggregate experience metrics, and operator-managed runtime configuration.
-- **Field guide:** a searchable in-app VANTAGE 3.6 operating guide that follows the signed-in Marine's JEPES or FITREP track.
-- **Keyboard workflow:** `N` for Quick Log, `/` or `Cmd/Ctrl-K` for search and jump, `?` for shortcuts, and two-key `G` navigation.
-
-## Designed for daily use
-
-VANTAGE turns performance documentation into a short habit instead of an end-of-period reconstruction.
-
-1. Press `N` when meaningful work happens.
-2. Describe the action naturally: `Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday.`
-3. Confirm the facts VANTAGE extracted and add the outcome.
-4. Save once; Command, Goals, Career, Readiness, and Reports update from the same source.
-5. Open Report studio when an evaluation, counseling session, award package, or command brief is due.
-
-Quick Log and full record forms preserve in-progress work in the current browser session. Stale-edit protection shows the newest saved copy before an intentional overwrite, and server refresh failures leave the last loaded view in place with a visible retry action.
-
-## Command center
-
-The Command center follows an at-a-glance hierarchy: essential measures and the primary trend appear first, attention and recent activity follow, and customizable supporting views stay below the operational picture.
-
-- Select This week, Last 12 weeks, Fiscal year, or All time.
-- Switch the primary chart between Impact, Transactions, Hours, and Records.
-- Open any metric or attention item to reach its supporting view.
-- Drag Today, Fiscal tape, Record quality, and Goals into the order that fits the mission, then collapse or hide them from Display.
-- Keep a personalized Command layout across devices through account preferences.
-- Start an empty workspace through a direct Log first activity action instead of an uninformative zero chart.
-
-## Exact-unit access model
-
-VANTAGE treats every unit as its own authorization boundary.
-
-- A self-registered account begins unattached and personal-only.
-- Unit data appears only after an authorized leader creates an active membership in that exact unit.
-- Personal records are owner-only and do not require a unit.
-- Private records retain exact-unit context while remaining owner-only.
-- Unit records are shared only with members holding the necessary permission in that exact unit.
-- Org-chart parent and child relationships provide breadcrumbs and structure; they never cascade access.
-- Roles are copied into each unit and configured from that team's Edit team workspace, including drag-and-drop hierarchy ordering and keyboard controls.
-- The Instance Operator manages infrastructure recovery and approved instance settings without becoming a universal application-record reader.
-- Protected cross-person reads, exports, backups, role changes, lifecycle actions, and configuration changes are audited.
-
-A fresh database starts with Marine Forces Reserve (`MFR`, displayed as `MARFORRES`) and six editable unit-local roles: Marine, NCO, Fire Team Leader, SNCO, SNCOIC, and Unit Leader. It contains no subordinate organization, live personnel roster, or performance data.
-
-## Personal and operator configuration
-
-Every signed-in account can configure these options in Settings:
-
-- light, dark, or device-matched theme;
-- comfortable or compact information density;
-- default Command reporting period;
-- default Report period and opening format;
-- focused or expanded Quick Log fields;
-- ordered, visible, and collapsed Command sections;
-- password and active sessions; and
-- FITREP reporting preferences where applicable.
-
-Instance Operators can apply these validated controls directly in the application:
-
-- self-registration;
-- attachment availability;
-- per-file attachment size;
-- files per activity;
-- maximum guest-membership duration;
-- default theme for the instance; and
-- first-party aggregate experience metrics.
-
-Security-sensitive controls stay deployment-managed: proxy trust, CAC/PIV identity headers, database paths, session policy, retention guarantees, and secrets. This keeps routine operation inside VANTAGE while preserving a reviewed boundary around infrastructure security.
+- Quick Log and structured performance records
+- Work, goals, training, recognition, readiness, and reports
+- Exact-unit memberships, roles, ownership, and audit trails
+- Leader-managed profiles plus self-service rank update requests
+- First-party notifications and a searchable command menu
+- Cached MARADMIN ingestion from the official Marines.mil RSS feed
+- Restricted owner console for safe, non-secret instance configuration
+- Responsive light/dark interface with no advertising or third-party analytics
 
 ## Architecture
 
-- React 18, Vite, Tailwind CSS, Radix UI, Lucide icons, and Recharts
-- Node.js 22 and Express 5
-- SQLite through `better-sqlite3`, WAL mode, foreign keys, and versioned migrations
-- One same-origin production process serving both the API and built application
-- Opaque revocable sessions stored as one-way digests
-- `scrypt` password hashing and a minimum 15-character local-password policy
-- SameSite HttpOnly session cookies, CSRF defense-in-depth, CSP, HSTS in production, and layered throttling
-- Docker, Render, and Fly.io deployment definitions
-- First-party allow-listed aggregate experience metrics
-- No external runtime fonts, AI service, advertising telemetry, or analytics SDK
+- React 18, Vite, Tailwind CSS, Radix UI, and Recharts
+- Node.js 22, Express 5, and SQLite with versioned migrations
+- One production process serving the API and compiled application
+- HttpOnly revocable sessions, `scrypt` password hashing, CSP, HSTS, CSRF checks, and audited protected actions
+- Docker and Render deployment with a persistent disk
 
-SQLite provides a strong single-instance deployment shape. PostgreSQL is the planned datastore for horizontal scaling or a shared enterprise service.
+SQLite requires one application instance per database. Use a persistent, encrypted volume and tested off-host backups.
 
-## Quick start
+## Development
 
-### Requirements
-
-- Node.js 22
-- npm 10 or a compatible package manager
-- a persistent writable path for the production database
-
-### Development
+Requirements: Node.js 22 and npm 10 or newer.
 
 ```bash
 npm ci
@@ -115,139 +33,53 @@ cp .env.example .env
 npm run dev
 ```
 
-The development command starts Express and Vite together. The web process proxies `/api` to the local API. Use synthetic data in development.
-
-### Production-shaped local run
-
-```bash
-npm ci
-npm run build
-NODE_ENV=production \
-VANTAGE_DB=/absolute/path/vantage.db \
-VANTAGE_SETUP_TOKEN='<random-secret-at-least-24-characters>' \
-VANTAGE_OPERATOR='<bootstrap-username>' \
-npm start
-```
-
-Open the application, complete first-run setup, and bind the Instance Operator. `VANTAGE_OPERATOR_ID` is the preferred durable binding once the account UUID is known; `VANTAGE_OPERATOR` remains the canonical-username bootstrap option.
+The local Vite server proxies `/api` to Express. Development is intended for synthetic or specifically authorized test information.
 
 ## Configuration
 
-[`config/app.yaml`](config/app.yaml) contains the reviewed non-secret deployment configuration. The loader accepts a deliberately small YAML subset and rejects unknown settings, duplicate keys, unsafe ranges, unsupported syntax, and automatic personnel-record purging.
-
-Common environment overrides include:
+Reviewed non-secret defaults live in [`config/app.yaml`](config/app.yaml). Production secrets belong in the hosting provider’s secret manager.
 
 | Variable | Purpose |
 | --- | --- |
-| `PORT` | HTTP listen port |
-| `NODE_ENV` | Development or production behavior |
 | `VANTAGE_DB` | Absolute persistent SQLite path |
+| `VANTAGE_SETUP_TOKEN` | Protected first-run setup secret |
+| `VANTAGE_OPERATOR_ID` | Durable owner-console account UUID |
+| `VANTAGE_OPERATOR` | Bootstrap operator username |
+| `VANTAGE_PUBLIC_URL` | Public application origin |
+| `VANTAGE_ADMIN_URL` | Restricted owner-console origin |
 | `VANTAGE_DATA_MODE` | `evaluation` or `operational` |
 | `TRUST_PROXY` | Trusted reverse-proxy hop configuration |
-| `VANTAGE_SETUP_TOKEN` | Protected first-run setup secret |
-| `VANTAGE_OPERATOR_ID` | Immutable Instance Operator account UUID |
-| `VANTAGE_OPERATOR` | Bootstrap operator username |
-| `VANTAGE_SELF_REGISTRATION` | Registration availability |
-| `VANTAGE_CAC_ENABLED` | CAC/PIV adapter availability |
-| `VANTAGE_AUTH_PROVIDER` | `password` or `cac_piv` |
+| `VANTAGE_MARADMIN_ENABLED` | Enable official-feed ingestion |
+| `VANTAGE_MARADMIN_REFRESH_MINUTES` | Feed cache interval |
 
-Secrets belong in the hosting platform's secret manager, never in YAML or source control. CAC/PIV deployments also require a high-entropy `VANTAGE_CAC_PROXY_SECRET` shared only with the approved identity proxy.
+CAC/PIV support remains disabled until an approved certificate-verifying proxy is configured. See `.env.example` and `config/app.yaml` for the full supported surface.
 
-## Deployment
+## Render deployment
 
-### Docker
+[`render.yaml`](render.yaml) defines a single Docker web service, one persistent `/data` disk, health checks, and these production origins:
 
-```bash
-docker build -t vantage:3.6.0 .
-docker run --read-only --tmpfs /tmp \
-  -p 8080:8080 \
-  -v vantage-data:/data \
-  -e NODE_ENV=production \
-  -e VANTAGE_DB=/data/vantage.db \
-  -e VANTAGE_SETUP_TOKEN='<random-secret>' \
-  -e VANTAGE_OPERATOR='<bootstrap-username>' \
-  vantage:3.6.0
-```
+- `https://vantageusmc.com`
+- `https://admin.vantageusmc.com/operator`
 
-Terminate TLS at a trusted edge, use an encrypted persistent volume, restrict platform logs, and maintain encrypted off-host backups. Run one application replica per SQLite database.
+After applying the Blueprint:
 
-### Render
+1. Confirm the service region, plan, and `/data` disk before first-run setup.
+2. Set `VANTAGE_OPERATOR`, then replace it with the account UUID in `VANTAGE_OPERATOR_ID` after setup.
+3. Point the apex domain to the Render hostname using the DNS provider’s ANAME/ALIAS record.
+4. Point `admin` to the same Render hostname using a CNAME record.
+5. Remove conflicting AAAA records and verify both domains in Render.
+6. Keep the deployment in `evaluation` mode until the required operational approvals are complete.
 
-`render.yaml` defines one web service, a persistent `/data` disk, explicit proxy trust, and evaluation mode. Configure the operator binding and secrets in the Render dashboard, then confirm the selected US region and disk mount before first-run setup.
+Owner-console APIs are host-gated in production, so they only answer on the configured admin hostname.
 
-### Fly.io
+## Backup and recovery
 
-`fly.toml` targets `dfw`, forces HTTPS, mounts `vantage_data` at `/data`, and keeps a single machine available. Create the volume and secrets before deployment.
-
-## CAC/PIV integration
-
-The CAC/PIV sign-in path is built into VANTAGE and remains disabled until an approved certificate-verifying reverse proxy is in place. The proxy must:
-
-1. verify the client certificate;
-2. strip identity headers supplied by the browser;
-3. inject the verified subject and identity fields;
-4. include the shared proxy-verification secret; and
-5. forward to VANTAGE over a protected hop.
-
-Existing password identities require an explicit, operator-controlled link before the same username signs in through CAC/PIV. Password authentication can remain available during an approved transition or be disabled through deployment configuration.
-
-## Attachments
-
-Attachments provide optional supporting context without becoming a completeness requirement. The server enforces record authorization, byte-based inspection, configured type/size/count limits, forced download disposition, audited access, and recoverable deletion.
-
-PDF, PNG, JPEG, TXT, and CSV are enabled by default. Files are stored with the application data so a consistent database backup includes the complete record.
-
-## Import and export
-
-Settings accepts CSV and TSV files, proposes a column map, validates required fields, and screens exact duplicates before creating records. Importing the same source twice does not duplicate the selected fiscal period.
-
-Workbook and text exports include only records the current identity is authorized to read. Spreadsheet-formula prefixes are neutralized, and unit-wide exports require the exact-unit Export data permission.
-
-## Backup, restore, and recovery
-
-The Instance Operator can download a consistent SQLite snapshot from Settings while VANTAGE remains online. Every download is audited.
-
-Restore procedure:
-
-1. stop the application process;
-2. preserve the current database and any `-wal` or `-shm` companions;
-3. verify the selected backup hash and ownership;
-4. replace the mounted database file;
-5. start exactly one application instance; and
-6. verify `/api/health`, sign-in, schema version, recent records, attachments, and audit history.
+The owner console downloads a consistent, audited SQLite snapshot. To restore, stop the service, preserve the current database and WAL companions, replace the mounted database with a verified snapshot, then restart one instance and validate `/api/health`.
 
 Lost-operator recovery requires shell access and explicit intent:
 
 ```bash
 VANTAGE_RECOVERY=1 npm run recover -- <canonical-username>
-```
-
-The command creates a one-time password, revokes existing sessions, requires password replacement, and writes an audit event.
-
-## Controlled reset and roster provisioning
-
-Factory reset is a shell-only maintenance workflow protected by an environment flag and exact confirmation phrase. It validates the target database, creates a mode-`0600` backup, verifies integrity, resets application rows in one transaction, restores reference data, and confirms the empty baseline.
-
-```bash
-VANTAGE_FACTORY_RESET=1 npm run reset:factory -- \
-  --confirm "WIPE ALL LIVE DATA"
-```
-
-For an approved initial roster, place the provisioning JSON in a protected temporary file and run:
-
-```bash
-chmod 600 /tmp/vantage-provision.json
-VANTAGE_PROVISION=1 npm run provision:accounts -- \
-  --input /tmp/vantage-provision.json --delete-input
-```
-
-The provisioner creates the unit hierarchy, unit-local roles, billets, identities, memberships, assignments, and explicit Unit Leaders in one transaction. Temporary passwords are hashed with `scrypt`, accounts must replace them at first sign-in, and passwords are never printed.
-
-To reopen a verified empty baseline for the normal first-run flow:
-
-```bash
-VANTAGE_MAINTENANCE=1 npm run maintenance:off -- \
-  --confirm "OPEN VANTAGE"
 ```
 
 ## Verification
@@ -258,21 +90,8 @@ npm test
 npm run test:browser
 ```
 
-The automated suite covers strict configuration parsing, runtime-configuration authorization, attachment inspection, password/session behavior, CSV hardening, domain logic, API contracts, stale edits, lifecycle recovery, permission matrices, escalation attempts, exact-unit tenancy, migrations, desktop routes, keyboard behavior, mobile layouts, console errors, and accessibility.
+The suite covers configuration, migrations, permissions, tenancy, lifecycle recovery, attachments, imports, API behavior, mobile layouts, accessibility, and multi-persona isolation.
 
-The standard server suite includes both a 50-account isolation load and a balanced 100-persona first-session simulation:
+## Rights and provenance
 
-```bash
-npm run test:load50
-npm run test:persona100
-```
-
-The 50-account load performs 250 core writes and 250 authenticated reads. The 100-persona simulation balances quick-capture, planning, career, privacy, and reporting journeys; performs 600 writes and 700 authenticated reads; checks every supported record family; and verifies that recognition sources, goal measurement units, preferences, and personal records round-trip without crossing identity boundaries. Both use temporary databases. No deployed VANTAGE data is touched.
-
-## Deployment governance
-
-VANTAGE exposes an explicit `evaluation` mode for controlled testing with synthetic or specifically authorized information and an `operational` mode for an approved environment. A production program can pair the application with command sponsorship, data-owner approval, privacy and records-management decisions, an approved US-region host, encrypted backups, incident response, vulnerability management, CAC/PIV, MCEN integration, and the applicable RMF/ATO process.
-
-## Ownership
-
-VANTAGE was designed and built by John Bernard Boletz. No license is granted by this repository; confirm intellectual-property, government-work, branding, and distribution requirements before official publication or adoption.
+Vantage is proprietary and distributed without a license grant. See [`NOTICE`](NOTICE) and [`PROVENANCE.json`](PROVENANCE.json) for the canonical rights and source record.

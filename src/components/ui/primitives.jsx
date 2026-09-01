@@ -5,8 +5,6 @@ import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/* ── Button ───────────────────────────────────────────────────────── */
-
 const VARIANTS = {
   primary: 'bg-signal text-signal-ink hover:bg-signal/90 border-signal font-medium',
   default: 'bg-panel-2 text-text border-rule hover:border-rule-strong hover:bg-panel-2/70',
@@ -44,8 +42,6 @@ export const Button = forwardRef(function Button(
   );
 });
 
-/* ── Text inputs ──────────────────────────────────────────────────── */
-
 export const Input = forwardRef(function Input({ className, ...props }, ref) {
   return <input ref={ref} className={cn('field h-8', className)} {...props} />;
 });
@@ -67,12 +63,6 @@ export function Label({ className, children, hint, ...props }) {
   );
 }
 
-/**
- * Field owns the label ↔ control association (finding 42). The label carries a
- * generated id and the single child control is cloned with aria-labelledby —
- * which names <input>s and Radix trigger <button>s alike — unless the child
- * already brought its own accessible name.
- */
 export function Field({ label, hint, error, children, className }) {
   const uid = React.useId();
   const labelId = `${uid}-label`;
@@ -84,8 +74,7 @@ export function Field({ label, hint, error, children, className }) {
       extra['aria-labelledby'] = labelId;
     }
     if (error) {
-      // Finding 34: the refusal lands under the input it names, and screen
-      // readers hear it through aria-describedby, not just sighted users.
+
       extra['aria-invalid'] = true;
       extra['aria-describedby'] = [children.props['aria-describedby'], errorId].filter(Boolean).join(' ');
     }
@@ -99,8 +88,6 @@ export function Field({ label, hint, error, children, className }) {
     </div>
   );
 }
-
-/* ── Select ───────────────────────────────────────────────────────── */
 
 export function Select({ value, onValueChange, options = [], placeholder = 'Select…', className, disabled, ...rest }) {
   return (
@@ -148,8 +135,6 @@ export function Select({ value, onValueChange, options = [], placeholder = 'Sele
   );
 }
 
-/* ── Badge / chip ─────────────────────────────────────────────────── */
-
 const BADGE_TONES = {
   neutral: 'border-rule text-text-2',
   signal: 'border-signal/40 bg-signal/10 text-signal',
@@ -166,7 +151,6 @@ export function Badge({ tone = 'neutral', className, children, ...props }) {
   );
 }
 
-/** A small square colour swatch — used for categories everywhere. */
 export function Dot({ color, className }) {
   return (
     <span
@@ -176,8 +160,6 @@ export function Dot({ color, className }) {
     />
   );
 }
-
-/* ── Tooltip ──────────────────────────────────────────────────────── */
 
 export function TooltipProvider({ children }) {
   return (
@@ -208,9 +190,6 @@ export function Tooltip({ content, children, side = 'top', className }) {
   );
 }
 
-/* ── Structure ────────────────────────────────────────────────────── */
-
-/** A titled panel. The eyebrow + hairline is the app's section grammar. */
 export function Panel({ title, subtitle, action, children, className, bodyClassName, id }) {
   return (
     <section id={id} className={cn('panel scroll-mt-24 rounded', className)}>
@@ -255,18 +234,8 @@ export function PageHeader({ title, subtitle, children }) {
   );
 }
 
-/** Segmented control. Used for every period switcher in the app. */
 export function Segmented({ value, onChange, options = [], className, size = 'md', label }) {
-  /**
-   * A tablist is expected to be arrow-navigable, and roving focus is the
-   * difference between "has ARIA roles" and "actually usable from the
-   * keyboard". Only the selected tab sits in the tab order; arrows move
-   * between them, Home and End jump to the ends.
-   *
-   * The movement is relative to the *focused* tab rather than the selected one.
-   * Those are usually the same, but they diverge the moment someone tabs in and
-   * starts arrowing, and getting it wrong makes the control skip.
-   */
+
   const refs = React.useRef([]);
   const values = options.map((o) => (typeof o === 'string' ? o : o.value));
 

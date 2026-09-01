@@ -1,17 +1,3 @@
-/**
- * Vantage — Marine Corps reference data.
- *
- * Ranks, billets, and the initial MARFORRES unit live here as seed data rather than
- * as an enum in the code, because every one of them is a row a unit will want
- * to edit. A command that can't add its own billet titles stops getting used in
- * about a week.
- */
-
-/**
- * grade   pay grade, the thing that actually sorts
- * abbr    what goes on a roster line
- * tier    enlisted | snco | warrant | officer — drives default permissions
- */
 export const RANKS = [
   { grade: 'E-1', abbr: 'Pvt', name: 'Private', tier: 'enlisted', sort: 1 },
   { grade: 'E-2', abbr: 'PFC', name: 'Private First Class', tier: 'enlisted', sort: 2 },
@@ -44,14 +30,8 @@ export const RANKS = [
   { grade: 'O-10', abbr: 'Gen', name: 'General', tier: 'officer', sort: 39 },
 ];
 
-/**
- * Billets. `default_role` is the permission this billet implies when someone is
- * assigned to it — a Fire Team Leader gets their team, a Section Head gets the
- * whole section and everything under it. It's a default, not a lock: the role
- * on the assignment is what's actually enforced, and it can be overridden.
- */
 export const BILLETS = [
-  // Tactical leadership
+
   { title: 'Fire Team Leader', category: 'Tactical', default_role: 'team_lead', echelon: 'fire_team' },
   { title: 'Squad Leader', category: 'Tactical', default_role: 'team_lead', echelon: 'squad' },
   { title: 'Platoon Sergeant', category: 'Tactical', default_role: 'unit_leader', echelon: 'platoon' },
@@ -65,7 +45,6 @@ export const BILLETS = [
   { title: 'Staff Non-Commissioned Officer in Charge', category: 'Command', default_role: 'unit_leader', echelon: 'section' },
   { title: 'Non-Commissioned Officer in Charge', category: 'Command', default_role: 'team_lead', echelon: 'section' },
 
-  // Comptroller / financial management — the G-8 side
   { title: 'Comptroller', category: 'Comptroller', default_role: 'unit_leader', echelon: 'section' },
   { title: 'Deputy Comptroller', category: 'Comptroller', default_role: 'unit_leader', echelon: 'section' },
   { title: 'Budget Officer', category: 'Comptroller', default_role: 'unit_leader', echelon: 'section' },
@@ -78,7 +57,6 @@ export const BILLETS = [
   { title: 'Disbursing Chief', category: 'Comptroller', default_role: 'team_lead', echelon: 'section' },
   { title: 'Disbursing Clerk', category: 'Comptroller', default_role: 'member', echelon: 'section' },
 
-  // Staff sections
   { title: 'Operations Chief', category: 'Staff', default_role: 'team_lead', echelon: 'section' },
   { title: 'Training Chief', category: 'Staff', default_role: 'team_lead', echelon: 'section' },
   { title: 'Administrative Chief', category: 'Staff', default_role: 'team_lead', echelon: 'section' },
@@ -89,7 +67,6 @@ export const BILLETS = [
   { title: 'Career Planner', category: 'Staff', default_role: 'member', echelon: 'section' },
   { title: 'Command Language Program Manager', category: 'Staff', default_role: 'member', echelon: 'section' },
 
-  // Individual contributor / collateral
   { title: 'Clerk', category: 'Staff', default_role: 'member', echelon: 'section' },
   { title: 'Analyst', category: 'Staff', default_role: 'member', echelon: 'section' },
   { title: 'Rifleman', category: 'Tactical', default_role: 'member', echelon: 'fire_team' },
@@ -98,7 +75,6 @@ export const BILLETS = [
   { title: 'Student', category: 'Training', default_role: 'member', echelon: 'section' },
 ];
 
-/** Echelons, largest to smallest. Used for indent depth and roster grouping. */
 export const ECHELONS = [
   { key: 'command', label: 'Command', depth: 0 },
   { key: 'msc', label: 'Major Subordinate Command', depth: 1 },
@@ -111,12 +87,6 @@ export const ECHELONS = [
   { key: 'fire_team', label: 'Fire Team', depth: 7 },
 ];
 
-/**
- * The single unit that exists on a fresh installation.
- *
- * `code` is the stable key. No subordinate organization is assumed or shipped:
- * the Unit Leader builds the structure that actually exists at their command.
- */
 export const UNIT_TREE = {
   code: 'MFR',
   name: 'Marine Forces Reserve',
@@ -126,7 +96,6 @@ export const UNIT_TREE = {
   children: [],
 };
 
-/** Flatten the tree into insertable rows with parent codes attached. */
 export function flattenUnits(node = UNIT_TREE, parent = null, out = []) {
   const { children = [], ...unit } = node;
   out.push({ ...unit, parent_code: parent });

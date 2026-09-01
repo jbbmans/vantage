@@ -1,15 +1,3 @@
-/**
- * Automated accessibility scan (v3.3 finding 42).
- *
- * axe-core over every signed-in route plus the login screen, failing on any
- * violation axe rates serious or critical: missing accessible names, broken
- * label associations, ARIA misuse, keyboard traps it can detect statically.
- * This is the floor, not the ceiling — contrast and full keyboard walks are
- * called out in the README as the remaining manual pass.
- *
- * Run with: node tests/browser-a11y.test.mjs   (after npm run build)
- */
-
 import { chromium } from 'playwright';
 import AxeBuilder from '@axe-core/playwright';
 import { spawn } from 'node:child_process';
@@ -17,9 +5,9 @@ import { rmSync } from 'node:fs';
 
 const PORT = 8800 + (process.pid % 90);
 const DB = `/tmp/a11y-${process.pid}.db`;
-for (const f of [DB, DB + '-wal', DB + '-shm']) { try { rmSync(f, { force: true }); } catch { /* fresh */ } }
+for (const f of [DB, DB + '-wal', DB + '-shm']) { try { rmSync(f, { force: true }); } catch {  } }
 
-const srv = spawn('node', ['server/index.js'], { env: { ...process.env, VANTAGE_DB: DB, PORT: String(PORT) }, stdio: ['ignore', 'pipe', 'pipe'] });
+const srv = spawn('node', ['server/index.js'], { env: { ...process.env, VANTAGE_DB: DB, PORT: String(PORT), VANTAGE_MARADMIN_ENABLED: 'false' }, stdio: ['ignore', 'pipe', 'pipe'] });
 await new Promise((r) => setTimeout(r, 2000));
 const BASE = `http://localhost:${PORT}`;
 
@@ -50,12 +38,10 @@ const scan = async (label) => {
   }
 };
 
-// login screen first
 await page.goto(BASE, { waitUntil: 'domcontentloaded' });
 await page.getByText(/Set up this command|Sign in/).waitFor({ timeout: 6000 }).catch(() => {});
 await scan('login/setup');
 
-// sign in
 await page.locator('input').first().fill('boletz');
 await page.locator('input[type="password"]').fill('a-long-enough-passphrase');
 await page.keyboard.press('Enter');
@@ -63,9 +49,9 @@ await page.waitForTimeout(1500);
 
 for (const [path, label] of [
   ['/', 'command center'], ['/activities', 'activities'], ['/work', 'work'],
-  ['/goals', 'goals'], ['/readiness', 'readiness'], ['/reports', 'reports'],
+  ['/goals', 'goals'], ['/career', 'career'], ['/readiness', 'readiness'], ['/maradmins', 'MARADMINs'], ['/reports', 'reports'],
   ['/team', 'team'], ['/units', 'units'],
-  ['/settings', 'settings'], ['/help', 'help'],
+  ['/settings', 'settings'], ['/operator', 'owner console'], ['/help', 'help'],
 ]) {
   await page.goto(BASE + path, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(700);
@@ -74,7 +60,7 @@ for (const [path, label] of [
 
 await browser.close();
 srv.kill();
-for (const f of [DB, DB + '-wal', DB + '-shm']) { try { rmSync(f, { force: true }); } catch { /* gone */ } }
+for (const f of [DB, DB + '-wal', DB + '-shm']) { try { rmSync(f, { force: true }); } catch {  } }
 
 console.log(`\n${checks - new Set(problems.map((p) => p.split(':')[0])).size}/${checks} pages clean`);
 if (problems.length) {

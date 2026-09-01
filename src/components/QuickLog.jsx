@@ -32,13 +32,11 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
   const [saving, setSaving] = useState(false);
   const [overrides, setOverrides] = useState({});
 
-  // Finding 35: what's typed here mirrors into sessionStorage until it saves,
-  // so a dropped connection or a stray Escape doesn't eat the entry.
   const DRAFT_KEY = draftKey(identity?.user?.id, 'quicklog');
   useEffect(() => {
     if (open) {
       let stored = '';
-      try { stored = sessionStorage.getItem(DRAFT_KEY) || ''; } catch { /* blocked */ }
+      try { stored = sessionStorage.getItem(DRAFT_KEY) || ''; } catch {}
       setText(initialText || stored);
       setOverrides({});
       setExpanded(Boolean(prefs.interface?.quickLogExpanded));
@@ -50,7 +48,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
     try {
       if (text.trim()) sessionStorage.setItem(DRAFT_KEY, text);
       else sessionStorage.removeItem(DRAFT_KEY);
-    } catch { /* the in-memory text still stands */ }
+    } catch {}
   }, [text, open, DRAFT_KEY]);
 
   const parsed = useMemo(() => (text.trim() ? parseQuickLog(text) : null), [text]);
@@ -97,7 +95,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
       });
       toast.success('Activity logged.');
       trackExperience('quick_log_saved');
-      try { sessionStorage.removeItem(DRAFT_KEY); } catch { /* fine */ }
+      try { sessionStorage.removeItem(DRAFT_KEY); } catch {}
       onOpenChange(false);
     } catch (err) {
       toast.error(`${errorText(err) || 'Could not save that entry.'} Your text is kept right here.`);
@@ -162,7 +160,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
 
         {parsed && (
           <>
-            {/* what the parser found */}
+
             <div className="flex flex-wrap items-center gap-1.5">
               <Sparkles className="h-3 w-3 text-signal" />
               {parsed.inferred.map((chip) => (
@@ -172,7 +170,6 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
               ))}
             </div>
 
-            {/* the fields it produced, all editable */}
             <div className="panel rounded p-3">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="Date">
@@ -261,7 +258,6 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
               )}
             </div>
 
-            {/* live bullet preview — the whole point of logging */}
             <div className="panel rounded p-3">
               <div className="mb-1.5 flex items-center justify-between">
                 <span className="eyebrow">Bullet preview</span>

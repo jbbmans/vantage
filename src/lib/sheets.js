@@ -1,13 +1,3 @@
-/**
- * Vantage — safe delimited-file bridge.
- *
- * Spreadsheet import is deliberately CSV/TSV only. The former XLSX parser had
- * unresolved prototype-pollution and denial-of-service advisories; accepting a
- * richer binary format was not worth putting personnel data in the same
- * process as an unpatched parser. Excel, Numbers and LibreOffice all open and
- * save these formats.
- */
-
 import { formatDate } from './metrics.js';
 import { downloadText } from './utils.js';
 import {
@@ -53,11 +43,6 @@ export function activityRows(list = [], projects = []) {
 const simpleRows = (list, columns) =>
   list.map((r) => Object.fromEntries(columns.map(([k, label]) => [label, val(r[k])])));
 
-/**
- * Export every selected record type into one interoperable CSV. "Record Type"
- * preserves the sheet separation the former workbook provided without a
- * vulnerable binary parser or a new third-party dependency.
- */
 export async function exportWorkbook({
   activities = [], projects = [], tasks = [], goals = [], recognitions = [], trainings = [], contacts = [],
 }, filename) {
@@ -78,7 +63,6 @@ export async function exportWorkbook({
   return { filename: safeName, rows: rows.length };
 }
 
-/** Parse a CSV/TSV into { columns, rows }. */
 export async function parseSpreadsheet(file) {
   const name = String(file?.name || '');
   if (!/\.(csv|tsv)$/i.test(name)) {
@@ -103,7 +87,6 @@ export async function parseSpreadsheet(file) {
   return { columns, rows, sheetName: name };
 }
 
-/** Fields an imported row can be mapped onto. */
 export const IMPORT_FIELDS = [
   { key: 'title', label: 'Title', required: true },
   { key: 'date', label: 'Date', required: true },
@@ -119,7 +102,6 @@ export const IMPORT_FIELDS = [
   { key: 'notes', label: 'Notes' },
 ];
 
-/** Guess a column→field mapping from header names. Saves most of the clicking. */
 export function guessMapping(columns = []) {
   const map = {};
   const norm = (s) => String(s).toLowerCase().replace(/[^a-z]/g, '');
@@ -145,7 +127,6 @@ const toISODate = (v) => {
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 };
 
-/** Apply a mapping to raw rows. Returns records plus per-row problems. */
 export function applyMapping(rows = [], mapping = {}) {
   const records = [];
   const problems = [];

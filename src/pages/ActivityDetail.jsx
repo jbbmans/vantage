@@ -32,19 +32,14 @@ export default function ActivityDetail() {
 
   const original = useMemo(() => activities.find((a) => a.id === id), [activities, id]);
   const [draft, setDraft] = useState(null);
-  // Finding 35: a failed save must not cost the work. Edits mirror into
-  // sessionStorage keyed by account, record id and source version; a
-  // fresh mount offers the draft back only when the server copy hasn't moved.
+
   const draftKey = userDraftKey(identity?.user?.id, 'activity', id);
   const [restoredDraft, setRestoredDraft] = useState(false);
   const [confirming, setConfirming] = useState(false);
   const [saving, setSaving] = useState(false);
-  // 409 stale (finding 36): the server refused to overwrite a newer copy and
-  // sent it along. The dialog gives the real choice — reload or overwrite —
-  // instead of pretending the save just failed.
+
   const [conflict, setConflict] = useState(null);
-  // Finding 34: server refusals name their fields; those names land under the
-  // exact inputs. Typing in a field clears its own error, nothing else.
+
   const [fieldErrors, setFieldErrors] = useState({});
   const [attachments, setAttachments] = useState([]);
   const [attachmentsEnabled, setAttachmentsEnabled] = useState(false);
@@ -67,28 +62,27 @@ export default function ActivityDetail() {
     if (!original) return;
     const clean = { ...original, evidence_links: original.evidence_links || [], people: original.people || [] };
     let stored = null;
-    try { stored = JSON.parse(sessionStorage.getItem(draftKey) || 'null'); } catch { /* corrupt */ }
+    try { stored = JSON.parse(sessionStorage.getItem(draftKey) || 'null'); } catch {}
     if (stored && stored.version === original.version
         && JSON.stringify(stored.draft) !== JSON.stringify(clean)) {
       setDraft({ ...clean, ...stored.draft });
       setRestoredDraft(true);
     } else {
       if (stored && stored.version !== original.version) {
-        try { sessionStorage.removeItem(draftKey); } catch { /* fine */ }
+        try { sessionStorage.removeItem(draftKey); } catch {}
       }
       setDraft(clean);
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [original]);
 
-  // Mirror every unsaved change; drop the mirror the moment draft == server.
   useEffect(() => {
     if (!draft || !original) return;
     const clean = { ...original, evidence_links: original.evidence_links || [], people: original.people || [] };
     try {
       if (JSON.stringify(draft) === JSON.stringify(clean)) sessionStorage.removeItem(draftKey);
       else sessionStorage.setItem(draftKey, JSON.stringify({ version: original.version, draft }));
-    } catch { /* storage full or blocked — the in-memory draft still stands */ }
+    } catch {}
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [draft]);
 
@@ -111,7 +105,7 @@ export default function ActivityDetail() {
   if (!draft) return null;
 
   const discardDraft = () => {
-    try { sessionStorage.removeItem(draftKey); } catch { /* fine */ }
+    try { sessionStorage.removeItem(draftKey); } catch {}
     setDraft({ ...original, evidence_links: original.evidence_links || [], people: original.people || [] });
     setRestoredDraft(false);
   };
@@ -144,7 +138,7 @@ export default function ActivityDetail() {
       setConflict(null);
       setFieldErrors({});
       setRestoredDraft(false);
-      try { sessionStorage.removeItem(draftKey); } catch { /* fine */ }
+      try { sessionStorage.removeItem(draftKey); } catch {}
       toast.success('Entry saved.');
     } catch (err) {
       if (err.status === 409 && err.code === 'stale' && err.current) {
@@ -160,14 +154,14 @@ export default function ActivityDetail() {
 
   const loadNewest = async () => {
     setConflict(null);
-    try { sessionStorage.removeItem(draftKey); } catch { /* fine */ }
+    try { sessionStorage.removeItem(draftKey); } catch {}
     await refreshAll();
     toast.success('Loaded the newest copy. Your unsaved edits were set aside.');
   };
 
   const destroy = async () => {
     const undo = await deleteRecord('activities', id);
-    // The server keeps the row, so undo is a single call rather than a re-insert.
+
     toast.success('Entry deleted.', {
       label: 'Undo',
       run: async () => {
@@ -251,7 +245,6 @@ export default function ActivityDetail() {
         </div>
       </div>
 
-      {/* bullet preview leads — it is the output this record exists to produce */}
       <Panel
         title="Bullet"
         subtitle="What this entry becomes on a board package"

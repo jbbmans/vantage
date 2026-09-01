@@ -1,8 +1,3 @@
-/**
- * The stale-write choice (v3.3 finding 36), shared by every record dialog.
- * The server refused to overwrite a newer copy and sent it along; this puts
- * the real decision in front of the person — reload it, or knowingly win.
- */
 import React from 'react';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button } from '@/components/ui/primitives';

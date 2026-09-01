@@ -1,29 +1,9 @@
-/**
- * Vantage — sign-in protection.
- *
- * v3.2 throttled by IP alone. Behind a base's NAT or a platform proxy, one IP
- * is a whole building, so a single Marine fat-fingering their password could
- * lock the shop out — and a distributed attack rotating IPs never tripped the
- * counter at all. This layers three counters and keeps each one honest about
- * what it protects:
- *
- *   per-IP        stops one machine hammering the endpoint
- *   per-username  stops a distributed guess against one account
- *   global        stops a slow spray across many accounts
- *
- * Only FAILED attempts count. A correct password clears the account's counter,
- * so the lockout-as-denial-of-service trick (spam wrong passwords at someone
- * else's username to lock them out) costs the attacker sustained effort and
- * ends the moment the real owner signs in — and the per-username threshold is
- * deliberately looser than per-IP for the same reason.
- */
-
 import { config } from './config.js';
 
 const WINDOW_MS = 15 * 60 * 1000;
-const IP_MAX = 10;          // failures per IP per window
-const USER_MAX = 15;        // failures per username per window (looser: see above)
-const GLOBAL_MAX = 300;     // failures across the whole install per window
+const IP_MAX = 10;
+const USER_MAX = 15;
+const GLOBAL_MAX = 300;
 const counters = { ip: new Map(), user: new Map() };
 const mutationCounters = new Map();
 const registrationCounters = new Map();
@@ -46,10 +26,6 @@ function peek(map, key, nowMs) {
 
 const retryAfter = (entry, nowMs) => Math.max(1, Math.ceil((entry.start + WINDOW_MS - nowMs) / 1000));
 
-/**
- * Call before verifying credentials. Returns null to proceed, or
- * { status, retryAfter, message } when the attempt should be refused.
- */
 export function checkLoginAllowed(ip, username) {
   const nowMs = Date.now();
   if (nowMs - globalCount.start > WINDOW_MS) globalCount = { count: 0, start: nowMs };
@@ -73,7 +49,6 @@ export function checkLoginAllowed(ip, username) {
   return null;
 }
 
-/** Bound cumulative authenticated writes, including repeated bulk requests. */
 export function checkMutationAllowed(userId) {
   const nowMs = Date.now();
   const key = String(userId || '');
@@ -86,7 +61,6 @@ export function checkMutationAllowed(userId) {
   return null;
 }
 
-/** Bound unauthenticated account creation by connection, without retaining IPs beyond the window. */
 export function checkRegistrationAllowed(ip) {
   const nowMs = Date.now();
   const key = String(ip || 'unknown');
@@ -99,7 +73,6 @@ export function checkRegistrationAllowed(ip) {
   return null;
 }
 
-/** Record a failed attempt. Returns true the first time the account crosses its threshold (for audit). */
 export function recordLoginFailure(ip, username) {
   const nowMs = Date.now();
   bump(counters.ip, ip, nowMs);
@@ -110,13 +83,11 @@ export function recordLoginFailure(ip, username) {
   return entry.count === USER_MAX;
 }
 
-/** A correct password clears the account and connection counters. */
 export function recordLoginSuccess(ip, username) {
   counters.ip.delete(ip);
   counters.user.delete(String(username || '').trim().toLowerCase());
 }
 
-/** Housekeeping for a long-lived process. */
 export function pruneCounters() {
   const cutoff = Date.now() - WINDOW_MS;
   for (const map of [counters.ip, counters.user, mutationCounters, registrationCounters]) {
@@ -124,7 +95,6 @@ export function pruneCounters() {
   }
 }
 
-/** Test hook. */
 export function resetCounters() {
   counters.ip.clear();
   counters.user.clear();

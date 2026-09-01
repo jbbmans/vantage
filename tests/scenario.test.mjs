@@ -1,13 +1,3 @@
-/**
- * A whole section, end to end.
- *
- * Unit tests prove the pieces. This proves the thing people actually do:
- * a section head stands up a team, Marines log work, a fire team leader
- * checks on their people, and a JEPES input comes out the other end.
- *
- * Run with: node tests/scenario.test.mjs
- */
-
 import assert from 'node:assert/strict';
 import { rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
@@ -16,9 +6,7 @@ import { join } from 'node:path';
 const DB = join(tmpdir(), `vantage-scenario-${Date.now()}.db`);
 process.env.VANTAGE_DB = DB;
 process.env.VANTAGE_TEST = '1';
-// The section head is the Instance Operator here so the scenario can claim the
-// seeded units it needs. In a real install those units would not exist at all
-// and the SNCOIC would create them (finding 5, finding 16).
+
 process.env.VANTAGE_OPERATOR = 'boletz';
 
 const { app, db } = await import('../server/index.js');
@@ -50,8 +38,6 @@ const call = async (method, path, { token, body } = {}) => {
 };
 const login = async (u, p) => (await call('POST', '/api/login', { body: { username: u, password: p } })).body.token;
 
-/* ── stand up the section ─────────────────────────────────────────── */
-
 await call('POST', '/api/setup', {
   body: {
     username: 'boletz', password: 'a-long-enough-passphrase-here',
@@ -62,15 +48,6 @@ await call('POST', '/api/setup', {
 const chief = await login('boletz', 'a-long-enough-passphrase-here');
 const chiefMe = (await call('GET', '/api/me', { token: chief })).body;
 
-/*
- * v3.4: the chief runs the shops he actually holds.
- *
- * v3.3 gave him the org-wide `section-head` role at MFR and let it cascade
- * over Budget, Accounting, Audit and FMRAC. Nothing cascades now (finding 2),
- * so he claims the two units this scenario uses and owns both. That is what a
- * SNCOIC running a section across two shops would actually do — and it is
- * visibly more work, which is the honest cost of sovereignty.
- */
 for (const unitId of ['G8-FMRAC', 'G8-BUDGET']) {
   const res = await call('POST', `/api/org/units/${unitId}/claim`, {
     token: chief, body: { owner_user_id: chiefMe.user.id, template_id: 'default' },
@@ -78,7 +55,6 @@ for (const unitId of ['G8-FMRAC', 'G8-BUDGET']) {
   assert.equal(res.status, 200, `claim ${unitId}: ${res.status} ${JSON.stringify(res.body)}`);
 }
 
-// A fire team leader running FMRAC, and two analysts under him.
 const people = [
   ['ohara', 'Sean', 'OHara', 'Sgt', 'G8-FMRAC', 'fire-team-leader', 'G8-FMRAC:fire-team-leader'],
   ['delgado', 'Ana', 'Delgado', 'LCpl', 'G8-FMRAC', 'financial-management-resource-analyst', null],
@@ -100,8 +76,6 @@ const analyst = await login('delgado', 'delgado-long-enough-passphrase');
 const budgetLead = await login('kramer', 'kramer-long-enough-passphrase');
 const delgadoId = (await call('GET', '/api/me', { token: analyst })).body.user.id;
 
-/* ── Marines log work ─────────────────────────────────────────────── */
-
 const WORK = [
   ['2026-07-05', 'Reconciled aged unliquidated obligations', 30, 'ULOs', 1118.38, 'reconciled', 'DAI',
     'MOS / Mission Accomplishment', "cleared the section's aged ULO backlog"],
@@ -119,26 +93,24 @@ for (const [date, title, quantity, unit, dollar_amount, dollar_type, system, jep
       category: 'Fiscal & Financial', visibility: 'unit', unit_id: 'G8-FMRAC' },
   });
 }
-// Prior quarter, so the change report has something to compare against.
+
 await call('POST', '/api/activities', {
   token: analyst,
   body: { date: '2026-05-02', title: 'Reconciled obligations', quantity: 8, unit_label: 'ULOs',
     dollar_amount: 400, dollar_type: 'reconciled', jepes_area: 'MOS / Mission Accomplishment', visibility: 'unit', unit_id: 'G8-FMRAC' },
 });
-// Something the Marine keeps to themselves.
+
 await call('POST', '/api/activities', {
   token: analyst,
   body: { date: '2026-08-11', title: 'Personal note about a counseling session', visibility: 'private' },
 });
 
-/* ── the tests ────────────────────────────────────────────────────── */
-
 await test('a fire team leader sees their team but not the whole section', async () => {
   const res = await call('GET', '/api/team', { token: teamLead });
   const names = res.body.roster.map((r) => r.last_name).sort();
-  // Boletz appears because he is a member of G8-FMRAC — he claimed and owns it.
-  // In v3.3 he was visible through the cascade from MFR instead; the roster
-  // is the same, the reason is not.
+
+
+
   assert.deepEqual(names, ['Boletz', 'Delgado', 'OHara', 'Whitfield']);
 });
 
@@ -182,16 +154,6 @@ await test('a Marine in a different branch sees none of it', async () => {
   assert.equal(res.body.length, 0);
 });
 
-/*
- * was: 'a section head tasks the whole section and it reaches the bottom' — one
- * task posted at MFR reached FMRAC and Budget through the cascade. Finding 2
- * removed the cascade, so a section head running two shops posts to two shops.
- *
- * That is a real ergonomic cost and the scenario states it plainly rather than
- * hiding it: the tasking loop still works, it just requires the leader to name
- * each unit they are tasking. Nobody receives an order by accident of the org
- * chart.
- */
 await test('a section head tasks each shop they hold, and it reaches the bottom', async () => {
   for (const unitId of ['G8-FMRAC', 'G8-BUDGET']) {
     const res = await call('POST', '/api/tasks', {
@@ -289,7 +251,7 @@ await test('a Marine can build their own JEPES plan from their record', async ()
   assert.ok(recs.some((r) => r.id === 'mcmap'), 'should flag the belt');
   assert.ok(recs.some((r) => r.id === 'rifle'), 'should flag the rifle qual');
   assert.ok(recs.some((r) => r.id === 'ceus'), 'should flag CEUs');
-  // Ordered by priority; no recommendation may carry an invented point value.
+
   assert.ok(recs[0].priority >= recs[1].priority);
   assert.ok(recs.every((r) => r.gain === undefined && ['data', 'heuristic', 'official'].includes(r.kind)));
 });
@@ -301,9 +263,9 @@ await test('a section head can stand up a fire team and staff it', async () => {
   });
   assert.equal(unit.status, 200);
 
-  // The new unit arrives with its OWN copy of the role template (finding 1),
-  // so the role id is unit-local. There is no global 'fire-team-leader' to
-  // reach for any more.
+
+
+
   await call('POST', '/api/team', {
     token: chief,
     body: {
@@ -315,9 +277,9 @@ await test('a section head can stand up a fire team and staff it', async () => {
   const roster = await call('GET', '/api/team', { token: chief });
   assert.ok(roster.body.roster.some((r) => r.last_name === 'Reyes'));
 
-  // And the new fire team leader sees their own unit, nothing above it.
-  // Boletz is on that roster because standing a unit up makes you its Owner
-  // and its first member — not because MFR sits above it.
+
+
+
   const token = await login('reyes', 'reyes-long-enough-passphrase');
   const theirs = await call('GET', '/api/team', { token });
   assert.deepEqual(theirs.body.roster.map((r) => r.last_name).sort(), ['Boletz', 'Reyes']);
@@ -330,7 +292,7 @@ try {
   rmSync(DB, { force: true });
   rmSync(`${DB}-wal`, { force: true });
   rmSync(`${DB}-shm`, { force: true });
-} catch { /* ignore */ }
+} catch {  }
 
 const failed = results.filter(([s]) => s === 'FAIL');
 for (const [status, name] of results) console.log(`  ${status === 'PASS' ? 'ok  ' : 'FAIL'}  ${name}`);

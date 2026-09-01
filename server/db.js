@@ -1,17 +1,3 @@
-/**
- * Vantage — database.
- *
- * SQLite, single file, WAL mode. This holds personnel records, so the schema is
- * built around three ideas:
- *
- *   1. Every record has an owner and a unit. Visibility is derived from those
- *      two columns and nothing else, so there's exactly one place to audit.
- *   2. Nothing is hard-deleted. Performance records that vanish without trace
- *      are the failure mode that gets a system thrown out.
- *   3. Every read of someone else's data writes an audit row. If a Marine asks
- *      who looked at their record, that question has an answer.
- */
-
 import Database from 'better-sqlite3';
 import { createHash, randomUUID } from 'node:crypto';
 import { RANKS, BILLETS, flattenUnits } from './usmc.js';
@@ -42,13 +28,6 @@ CREATE TABLE IF NOT EXISTS billets (
   active        INTEGER NOT NULL DEFAULT 1
 );
 
--- A unit is a sovereign boundary (v3.4 Decision 1). parent_id and level are
--- DESCRIPTIVE ONLY: they say how a human should read the org chart and convey
--- no permission, no visibility and no reach. Authorization never reads either.
---
--- owner_user_id is the Unit Owner (finding 4). It lives here rather than in a
--- role so that a role edit cannot revoke it and deactivating the last
--- admin-role holder cannot orphan the unit.
 CREATE TABLE IF NOT EXISTS units (
   id            TEXT PRIMARY KEY,
   code          TEXT NOT NULL UNIQUE,
@@ -64,9 +43,6 @@ CREATE TABLE IF NOT EXISTS units (
   created_at    TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_units_parent ON units(parent_id);
--- idx_units_owner is created by migration 006, never here: on a legacy database
--- this block runs before owner_user_id exists. Same reason as
--- idx_act_fingerprint and idx_audit_unit below.
 
 CREATE TABLE IF NOT EXISTS users (
   id             TEXT PRIMARY KEY,
@@ -83,8 +59,6 @@ CREATE TABLE IF NOT EXISTS users (
   active         INTEGER NOT NULL DEFAULT 1,
   must_change_password INTEGER NOT NULL DEFAULT 0,
   eas            TEXT,
-  -- Readiness, for the JEPES advisor. All optional; the advisor reports what
-  -- it cannot see rather than guessing.
   pft_score      INTEGER,
   cft_score      INTEGER,
   rifle_score    INTEGER,
@@ -102,21 +76,6 @@ CREATE TABLE IF NOT EXISTS users (
   updated_at     TEXT NOT NULL
 );
 
--- Roles are rows, permissions are bits, and a Marine can hold several.
---
--- unit_id is NOT NULL (finding 1). There is no such thing as a global role
--- definition: two SNCOICs at two commands must be able to have a "Training NCO"
--- that means different things, and under v3.3's nullable unit_id editing one
--- edited both. Roles arrive by COPYING a template (roles.js ROLE_TEMPLATES)
--- into a unit at creation; the copies diverge immediately and permanently.
---
--- is_system means only "this row came from a template". It confers no edit
--- protection: the owning unit may rename, re-colour, re-permission or delete
--- any of its own roles.
---
--- inherits_down is GONE (finding 2). A role grants inside the unit it was
--- granted in, full stop. position ordering is per-unit: position 30 in Unit A
--- has no relationship to position 30 in Unit B.
 CREATE TABLE IF NOT EXISTS roles (
   id            TEXT PRIMARY KEY,
   unit_id       TEXT NOT NULL REFERENCES units(id),
@@ -132,15 +91,6 @@ CREATE TABLE IF NOT EXISTS roles (
 );
 CREATE INDEX IF NOT EXISTS idx_roles_unit ON roles(unit_id);
 
--- Stated membership (finding 8). v3.3 inferred "is this person in this unit"
--- from a date-range join on assignments, which made membership, billet and
--- history the same row: a member holding no billet, a guest from another unit,
--- and an ended assignment that should still read as history were all
--- inexpressible. assignments keeps billet, dates and history; it stops
--- answering membership questions.
---
--- kind: owner | member | guest. expires_at is for guests (finding 9) and fails
--- closed the moment it passes, with no cleanup job in between.
 CREATE TABLE IF NOT EXISTS unit_members (
   id         TEXT PRIMARY KEY,
   user_id    TEXT NOT NULL REFERENCES users(id),
@@ -166,14 +116,12 @@ CREATE TABLE IF NOT EXISTS member_roles (
 CREATE INDEX IF NOT EXISTS idx_member_roles_user ON member_roles(user_id);
 CREATE INDEX IF NOT EXISTS idx_member_roles_unit ON member_roles(unit_id);
 
--- A Marine can hold more than one assignment: primary billet plus collateral
--- duties that carry their own scope (Class Leader, Color Guard NCO, and so on).
 CREATE TABLE IF NOT EXISTS assignments (
   id          TEXT PRIMARY KEY,
   user_id     TEXT NOT NULL REFERENCES users(id),
   unit_id     TEXT NOT NULL REFERENCES units(id),
   billet_id   TEXT REFERENCES billets(id),
-  role        TEXT NOT NULL DEFAULT '',  -- retired (finding 9): billets recommend, role grants authorize
+  role        TEXT NOT NULL DEFAULT '',
   is_primary  INTEGER NOT NULL DEFAULT 0,
   start_date  TEXT,
   end_date    TEXT,
@@ -212,9 +160,6 @@ CREATE TABLE IF NOT EXISTS activities (
   updated_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_act_user ON activities(user_id);
--- The duplicate-protection index on activities.fingerprint is created by
--- migration 003, never here: on a legacy database this block runs before the
--- column exists.
 CREATE INDEX IF NOT EXISTS idx_act_unit ON activities(unit_id);
 CREATE INDEX IF NOT EXISTS idx_act_date ON activities(date);
 
@@ -328,8 +273,6 @@ CREATE TABLE IF NOT EXISTS trainings (
   updated_at  TEXT NOT NULL
 );
 
--- Who looked at whose record, and when. unit_id scopes the event so a leader
--- with VIEW_AUDIT reads their unit's log and nothing beyond it.
 CREATE TABLE IF NOT EXISTS audit_log (
   id          TEXT PRIMARY KEY,
   actor_id    TEXT NOT NULL REFERENCES users(id),
@@ -343,11 +286,7 @@ CREATE TABLE IF NOT EXISTS audit_log (
 );
 CREATE INDEX IF NOT EXISTS idx_audit_subject ON audit_log(subject_id);
 CREATE INDEX IF NOT EXISTS idx_audit_at ON audit_log(at);
--- idx_audit_unit is created by migration 004 (same legacy-ordering reason).
 
--- Optional supporting files stay in SQLite so an authorized database backup is
--- a complete recovery artifact. Downloads are always attachment disposition;
--- the browser never renders these bytes inline in the Vantage origin.
 CREATE TABLE IF NOT EXISTS attachments (
   id            TEXT PRIMARY KEY,
   activity_id   TEXT NOT NULL REFERENCES activities(id),
@@ -364,8 +303,6 @@ CREATE INDEX IF NOT EXISTS idx_attachments_activity ON attachments(activity_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_attachments_live_digest
   ON attachments(activity_id, sha256) WHERE deleted_at IS NULL;
 
--- Aggregate experience counts only. There is deliberately no user, session,
--- route parameter, IP, text, filename, or record foreign key in this table.
 CREATE TABLE IF NOT EXISTS ux_daily_metrics (
   day   TEXT NOT NULL,
   event TEXT NOT NULL,
@@ -373,8 +310,64 @@ CREATE TABLE IF NOT EXISTS ux_daily_metrics (
   PRIMARY KEY (day, event)
 );
 
--- Sessions carry both deadlines: expires_at rolls with activity (inactivity
--- timeout), absolute_expires_at never moves. Either one passing ends it.
+CREATE TABLE IF NOT EXISTS notifications (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id),
+  kind        TEXT NOT NULL,
+  title       TEXT NOT NULL,
+  message     TEXT,
+  action_url  TEXT,
+  dedupe_key  TEXT,
+  read_at     TEXT,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_notifications_user_created
+  ON notifications(user_id, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_user_dedupe
+  ON notifications(user_id, dedupe_key) WHERE dedupe_key IS NOT NULL;
+
+CREATE TABLE IF NOT EXISTS rank_change_requests (
+  id                TEXT PRIMARY KEY,
+  user_id           TEXT NOT NULL REFERENCES users(id),
+  current_rank_id   TEXT REFERENCES ranks(id),
+  requested_rank_id TEXT NOT NULL REFERENCES ranks(id),
+  reason            TEXT,
+  unit_id           TEXT REFERENCES units(id),
+  status            TEXT NOT NULL DEFAULT 'pending',
+  reviewed_by       TEXT REFERENCES users(id),
+  reviewed_at       TEXT,
+  review_note       TEXT,
+  created_at        TEXT NOT NULL,
+  updated_at        TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_rank_requests_user ON rank_change_requests(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_rank_requests_status ON rank_change_requests(status, created_at DESC);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_rank_requests_one_pending
+  ON rank_change_requests(user_id) WHERE status = 'pending';
+
+CREATE TABLE IF NOT EXISTS maradmins (
+  id           TEXT PRIMARY KEY,
+  number       TEXT NOT NULL UNIQUE,
+  title        TEXT NOT NULL,
+  summary      TEXT NOT NULL,
+  url          TEXT NOT NULL,
+  status       TEXT NOT NULL DEFAULT 'Active',
+  tags         TEXT NOT NULL DEFAULT '[]',
+  audience     TEXT NOT NULL DEFAULT '[]',
+  published_at TEXT NOT NULL,
+  source_hash  TEXT,
+  fetched_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_maradmins_published ON maradmins(published_at DESC);
+
+CREATE TABLE IF NOT EXISTS maradmin_user_state (
+  user_id     TEXT NOT NULL REFERENCES users(id),
+  maradmin_id TEXT NOT NULL REFERENCES maradmins(id),
+  read_at     TEXT,
+  saved_at    TEXT,
+  PRIMARY KEY (user_id, maradmin_id)
+);
+
 CREATE TABLE IF NOT EXISTS sessions (
   token               TEXT PRIMARY KEY,
   user_id             TEXT NOT NULL REFERENCES users(id),
@@ -386,8 +379,6 @@ CREATE TABLE IF NOT EXISTS sessions (
   user_agent          TEXT
 );
 
--- One row per key. Holds schema_version and seed_version so migrations and
--- reference-data seeding are recorded acts, not boot-time guesswork.
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -405,21 +396,6 @@ export function getDb(file = resolveStoragePath(config.storage.database_path)) {
   return db;
 }
 
-/**
- * Numbered, recorded migrations (finding 29).
- *
- * CREATE TABLE IF NOT EXISTS only helps on a fresh file: a database created by
- * an earlier version keeps its old shape. v3.2's answer was "diff the columns
- * on every boot", which works until two changes need an order, or one needs
- * data movement. Each migration below runs at most once, inside a transaction,
- * and is recorded in `meta.schema_version` — so "what shape is this database
- * in" has a one-word answer.
- *
- * Rules for adding one: additive, deterministic, idempotent (each is written
- * so re-running it is harmless anyway), and never destructive — a migration
- * that drops or rewrites columns on boot is how a bad deploy eats a section's
- * records.
- */
 const addColumn = (table, name, type) => {
   const existing = new Set(db.prepare(`PRAGMA table_info(${table})`).all().map((c) => c.name));
   if (!existing.has(name)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${name} ${type}`);
@@ -447,8 +423,7 @@ const MIGRATIONS = [
       addColumn('sessions', 'last_used_at', 'TEXT');
       addColumn('sessions', 'ip', 'TEXT');
       addColumn('sessions', 'user_agent', 'TEXT');
-      // Sessions issued under the 12-day model predate the inactivity/absolute
-      // policy; ending them is the point of the change.
+
       db.prepare("DELETE FROM sessions WHERE absolute_expires_at = '9999-12-31T00:00:00.000Z'").run();
     },
   },
@@ -460,8 +435,7 @@ const MIGRATIONS = [
         addColumn(table, 'version', 'INTEGER NOT NULL DEFAULT 1');
       }
       addColumn('activities', 'fingerprint', 'TEXT');
-      // Existing rows keep a NULL fingerprint — the partial index ignores them,
-      // so history is untouched and only new writes are deduplicated.
+
       db.exec(`CREATE UNIQUE INDEX IF NOT EXISTS idx_act_fingerprint
                  ON activities(fingerprint) WHERE fingerprint IS NOT NULL AND deleted_at IS NULL`);
     },
@@ -478,67 +452,19 @@ const MIGRATIONS = [
     id: 5,
     name: '005_retire_assignment_role',
     run() {
-      // Finding 9, Option A. assignments.role never fed authorization — the
-      // permission calculation reads member_roles only — but a value sitting
-      // here *looked* authoritative, which is exactly the class of lie v3.3
-      // exists to kill. This blanks the retired label. It rewrites decorative
-      // metadata, not records: units, billets, grants and history all stand.
+
       db.prepare("UPDATE assignments SET role = ''").run();
     },
   },
   {
     id: 6,
     name: '006_tenancy',
-    // Step 4 drops and replaces `roles` while `member_roles.role_id` still
-    // references it. SQLite's documented procedure for altering a referenced
-    // table is to disable enforcement for the rebuild and then verify with
-    // PRAGMA foreign_key_check before committing — which migrate() does. The
-    // constraint is verified, not skipped.
+
     foreignKeysOff: true,
-    /**
-     * The v3.4 tenancy migration. This is the load-bearing one, and it is the
-     * only migration in Vantage's history that deliberately does NOT preserve
-     * a permission that existed before it ran. That exception is documented at
-     * length below because it is a security change, not a bug.
-     *
-     * Five things happen, in order:
-     *
-     *   1. New columns: units.level, units.data_mode, units.owner_user_id, and
-     *      freeze/lineage columns on every record table.
-     *   2. unit_members is backfilled from live assignments, so every Marine
-     *      who was in a unit stays in it.
-     *   3. Cascading grants are MATERIALISED. In v3.3 a grant of a role with
-     *      inherits_down at unit U silently conferred its bits across
-     *      subtree(U). v3.4 has no such expansion, so to preserve the
-     *      permission the migration writes the explicit grants v3.3 was
-     *      computing at read time. This is the "preserves every effective
-     *      permission" requirement, and it is done BEFORE the roles table is
-     *      rebuilt so inherits_down is still readable.
-     *   4. Global roles are forked. For every unit that holds a grant against
-     *      a unit_id IS NULL role, a unit-local copy is created and
-     *      member_roles is repointed at it. No role with live grants is ever
-     *      deleted; global rows with no grants are dropped because nothing
-     *      references them.
-     *   5. units.owner_user_id is set, so no unit comes out of the migration
-     *      orphaned if v3.3 had anyone who could reach it.
-     *
-     * THE EXCEPTION. v3.3's `permissionMap` fanned an ADMINISTRATOR grant — and
-     * legacy `users.is_admin` — across every unit in the database. Carrying
-     * that forward literally would mean writing an administrator grant into all
-     * 34 units of a typical install, which is precisely the cross-tenant
-     * superuser finding 4 exists to delete: preserving it IS the leak. So the
-     * migration converts it instead. An administrator becomes Unit Owner of
-     * every unit they were actually a member of, keeps every unit-scoped bit
-     * they held, and loses reach into units they were never in. What was
-     * dropped is counted and written to meta.migration_006_report and to the
-     * instance audit, so the change is a recorded act rather than a silent one.
-     * Operators who genuinely need instance-wide reach are named in
-     * VANTAGE_OPERATOR after the upgrade — see README, "Upgrading to v3.4".
-     */
+
     run() {
       const report = { materialised_grants: 0, forked_roles: 0, repointed_grants: 0, memberships: 0, owners: 0, dropped_global_admin: [] };
 
-      /* 1. columns */
       addColumn('units', 'level', 'TEXT');
       addColumn('units', 'data_mode', "TEXT NOT NULL DEFAULT 'full'");
       addColumn('units', 'owner_user_id', 'TEXT REFERENCES users(id)');
@@ -564,7 +490,6 @@ const MIGRATIONS = [
         CREATE INDEX IF NOT EXISTS idx_unit_members_unit ON unit_members(unit_id);
       `);
 
-      /* 2. membership from live assignments */
       const insertMember = db.prepare(
         `INSERT INTO unit_members (id, user_id, unit_id, kind, joined_at)
          VALUES (?, ?, ?, 'member', ?) ON CONFLICT(user_id, unit_id) DO NOTHING`
@@ -581,16 +506,13 @@ const MIGRATIONS = [
         const r = insertMember.run(newId(), a.user_id, a.unit_id, a.since || now());
         report.memberships += r.changes;
       }
-      // A grant in a unit is itself evidence of belonging: v3.3 let a role be
-      // granted where no assignment existed, and dropping those users would be
-      // a silent loss of access.
+
       for (const g of db.prepare('SELECT DISTINCT user_id, unit_id FROM member_roles').all()) {
         if (!db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(g.unit_id)) continue;
         const r = insertMember.run(newId(), g.user_id, g.unit_id, now());
         report.memberships += r.changes;
       }
 
-      /* 3. materialise cascading grants while inherits_down still exists */
       const hasInherits = db.prepare('PRAGMA table_info(roles)').all().some((c) => c.name === 'inherits_down');
       if (hasInherits) {
         const units = db.prepare('SELECT id, parent_id FROM units WHERE active = 1').all();
@@ -631,14 +553,12 @@ const MIGRATIONS = [
         }
       }
 
-      /* 4. fork global role definitions into unit-local copies */
       const globals = db.prepare('SELECT * FROM roles WHERE unit_id IS NULL').all();
       const insertRole = db.prepare(
         `INSERT INTO roles (id, unit_id, name, description, color, position, permissions, is_default, is_system, created_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
       );
-      // Rebuild first so the destination table has the v3.4 shape, then move
-      // rows into it. SQLite cannot add NOT NULL to an existing column.
+
       const cols = db.prepare('PRAGMA table_info(roles)').all().map((c) => c.name);
       if (!cols.includes('template_key') || cols.includes('inherits_down')) {
         db.exec(`
@@ -656,13 +576,13 @@ const MIGRATIONS = [
             created_at    TEXT NOT NULL
           );
         `);
-        // Unit-scoped definitions carry across unchanged, minus inherits_down.
+
         db.exec(`
           INSERT INTO roles_v34 (id, unit_id, template_key, name, description, color, position, permissions, is_default, is_system, created_at)
           SELECT id, unit_id, NULL, name, description, color, position, permissions, is_default, is_system, created_at
             FROM roles WHERE unit_id IS NOT NULL
         `);
-        // Global definitions fork per unit that actually holds a grant.
+
         const repoint = db.prepare('UPDATE member_roles SET role_id = ? WHERE role_id = ? AND unit_id = ?');
         const forkInto = db.prepare(
           `INSERT INTO roles_v34 (id, unit_id, template_key, name, description, color, position, permissions, is_default, is_system, created_at)
@@ -690,7 +610,6 @@ const MIGRATIONS = [
         db.exec('CREATE INDEX IF NOT EXISTS idx_roles_unit ON roles(unit_id)');
       }
 
-      /* 5. ownership, and the administrator conversion */
       const setOwner = db.prepare('UPDATE units SET owner_user_id = ? WHERE id = ? AND owner_user_id IS NULL');
       const ADMIN_BIT = 1 << 11;
       const adminUsers = db
@@ -707,17 +626,7 @@ const MIGRATIONS = [
         for (const unitId of mine) report.owners += setOwner.run(a.id, unitId).changes;
         report.dropped_global_admin.push({ username: a.username, kept_units: mine.length, lost_units: totalUnits - mine.length });
       }
-      /* Any unit still without an owner. Leaving it ownerless means nobody can
-       * ever grant anything in it, so it is unreachable forever — but promoting
-       * an arbitrary member would hand someone authority the migration
-       * invented. The rule: promote only a person who was ALREADY
-       * administering the unit, meaning they held MANAGE_ROLES and
-       * MANAGE_MEMBERS there under v3.3. They gain exactly one bit,
-       * ADMINISTRATOR, in a unit they already ran.
-       *
-       * A unit with no such person is deliberately left ownerless for the
-       * Instance Operator to claim (finding 11). That is a recorded gap
-       * someone acts on, not a silent promotion. */
+
       const RUNS_UNIT = PERMISSIONS.MANAGE_ROLES | PERMISSIONS.MANAGE_MEMBERS;
       report.promoted_owners = [];
       report.left_ownerless = [];
@@ -765,26 +674,14 @@ const MIGRATIONS = [
   {
     id: 7,
     name: '007_retire_chain_visibility',
-    /**
-     * Finding 3. `chain` meant "the unit and everyone under it", it resolved
-     * through both ancestor and subtree ids, and it was the DEFAULT on
-     * activities, recognitions and trainings — so a Marine logging an activity
-     * with the default setting published it up and down the org chart without
-     * an affirmative act.
-     *
-     * Rewriting chain → unit is a visibility REDUCTION. It cannot leak; it can
-     * only hide something that was previously visible to somebody outside the
-     * owning unit, which is the entire point. Announced in the upgrade notes.
-     */
+
     run() {
       const report = {};
       for (const table of ['activities', 'projects', 'tasks', 'goals', 'recognitions', 'trainings']) {
         const r = db.prepare(`UPDATE ${table} SET visibility = 'unit' WHERE visibility = 'chain'`).run();
         report[table] = r.changes;
       }
-      // A row that says 'unit' but has no unit cannot be read by the unit
-      // branch of the visibility clause and would be invisible-but-not-personal.
-      // Personal scope (finding 6) is where an owner-only record belongs.
+
       for (const table of ['activities', 'projects', 'tasks', 'goals', 'recognitions', 'trainings']) {
         const r = db
           .prepare(`UPDATE ${table} SET visibility = 'personal' WHERE unit_id IS NULL AND visibility NOT IN ('private','personal')`)
@@ -802,10 +699,6 @@ const MIGRATIONS = [
     run() {
       addColumn('users', 'must_change_password', 'INTEGER NOT NULL DEFAULT 0');
 
-      // Existing browser cookies contain the raw token. Replacing each stored
-      // value with its digest keeps those sessions working: the next request
-      // hashes the cookie before lookup. Already-digested rows make this
-      // migration idempotent if an interrupted deployment re-enters it.
       const rows = db.prepare('SELECT token FROM sessions').all();
       let digested = 0;
       for (const row of rows) {
@@ -823,8 +716,7 @@ const MIGRATIONS = [
     id: 9,
     name: '009_canonical_usernames_and_role_unit_integrity',
     run() {
-      /* Authentication and operator authorization must use one equivalence
-       * relation. Refuse to guess which legacy identity wins a collision. */
+
       const collisions = db.prepare(
         `SELECT lower(username) AS canonical, COUNT(*) AS n,
                 group_concat(username, ', ') AS spellings
@@ -839,10 +731,6 @@ const MIGRATIONS = [
       db.prepare('UPDATE users SET username = lower(trim(username))').run();
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_username_nocase ON users(username COLLATE NOCASE)');
 
-      /* Migration 006 materialised inherited grants before forking only global
-       * roles. A unit-scoped cascading role could therefore remain referenced
-       * from another unit. Fork every mismatched definition into the grant's
-       * exact unit before enforcing the invariant at the database boundary. */
       const mismatches = db.prepare(
         `SELECT DISTINCT mr.role_id, mr.unit_id
            FROM member_roles mr JOIN roles r ON r.id = mr.role_id
@@ -945,6 +833,73 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    id: 13,
+    name: '013_notifications_rank_requests_and_maradmins',
+    run() {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS notifications (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          kind TEXT NOT NULL,
+          title TEXT NOT NULL,
+          message TEXT,
+          action_url TEXT,
+          dedupe_key TEXT,
+          read_at TEXT,
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_notifications_user_created
+          ON notifications(user_id, created_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_notifications_user_dedupe
+          ON notifications(user_id, dedupe_key) WHERE dedupe_key IS NOT NULL;
+
+        CREATE TABLE IF NOT EXISTS rank_change_requests (
+          id TEXT PRIMARY KEY,
+          user_id TEXT NOT NULL REFERENCES users(id),
+          current_rank_id TEXT REFERENCES ranks(id),
+          requested_rank_id TEXT NOT NULL REFERENCES ranks(id),
+          reason TEXT,
+          unit_id TEXT REFERENCES units(id),
+          status TEXT NOT NULL DEFAULT 'pending',
+          reviewed_by TEXT REFERENCES users(id),
+          reviewed_at TEXT,
+          review_note TEXT,
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_rank_requests_user
+          ON rank_change_requests(user_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_rank_requests_status
+          ON rank_change_requests(status, created_at DESC);
+        CREATE UNIQUE INDEX IF NOT EXISTS idx_rank_requests_one_pending
+          ON rank_change_requests(user_id) WHERE status = 'pending';
+
+        CREATE TABLE IF NOT EXISTS maradmins (
+          id TEXT PRIMARY KEY,
+          number TEXT NOT NULL UNIQUE,
+          title TEXT NOT NULL,
+          summary TEXT NOT NULL,
+          url TEXT NOT NULL,
+          status TEXT NOT NULL DEFAULT 'Active',
+          tags TEXT NOT NULL DEFAULT '[]',
+          audience TEXT NOT NULL DEFAULT '[]',
+          published_at TEXT NOT NULL,
+          source_hash TEXT,
+          fetched_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_maradmins_published ON maradmins(published_at DESC);
+
+        CREATE TABLE IF NOT EXISTS maradmin_user_state (
+          user_id TEXT NOT NULL REFERENCES users(id),
+          maradmin_id TEXT NOT NULL REFERENCES maradmins(id),
+          read_at TEXT,
+          saved_at TEXT,
+          PRIMARY KEY (user_id, maradmin_id)
+        );
+      `);
+    },
+  },
 ];
 
 function migrate() {
@@ -953,13 +908,6 @@ function migrate() {
   for (const m of MIGRATIONS) {
     if (m.id <= current) continue;
 
-    // A migration that replaces a table other tables reference cannot run with
-    // enforcement on: dropping the parent fires an implicit delete that the
-    // rename cannot un-fire. SQLite's answer is to disable enforcement for the
-    // rebuild and verify afterwards, which is stronger than it sounds — the
-    // check below examines EVERY row in the database, not just the ones the
-    // migration touched, and refuses to record the migration if any dangle.
-    // The pragma is a no-op inside a transaction, so it is set outside one.
     const rebuild = Boolean(m.foreignKeysOff);
     if (rebuild) db.pragma('foreign_keys = OFF');
     try {
@@ -990,26 +938,6 @@ export const schemaVersion = () =>
 const now = () => new Date().toISOString();
 export const newId = () => randomUUID();
 
-/**
- * Reference data seeding (finding 30).
- *
- * Two kinds of data were being conflated:
- *
- *   System reference — ranks, system roles. Code-authoritative. The Marine
- *   Corps decides what a Corporal is, not an administrator; these upsert.
- *
- *   Command-configured — units and billets. Vantage ships one starting unit,
- *   but the moment an administrator renames a unit or retitles a billet,
- *   that edit is the truth. v3.2 re-upserted names and echelons on every
- *   boot, silently fighting the administrator; now units and billets are
- *   INSERT-only after the first seed. New reference rows added in later
- *   versions still arrive (the insert is per-row), existing rows are never
- *   touched.
- *
- * `meta.seed_version` records which seed set has been applied, so a future
- * change to the shipped tree is an explicit, versioned event rather than a
- * side effect of booting.
- */
 const SEED_VERSION = 2;
 
 function seedReference() {
@@ -1021,12 +949,6 @@ function seedReference() {
     for (const r of RANKS) insertRank.run(r.abbr, r.grade, r.abbr, r.name, r.tier, r.sort);
   })();
 
-  // Roles are NOT seeded (finding 1). There is no global role definition to
-  // seed: a role belongs to exactly one unit and arrives by copying a template
-  // (roles.js ROLE_TEMPLATES) into that unit when it is created or claimed.
-  // Seeding here is what made every install share one editable role set.
-
-  // Command-configured structure: never overwrite, only add what's missing.
   const insertBillet = db.prepare(
     `INSERT INTO billets (id, title, category, echelon, default_role) VALUES (?, ?, ?, ?, ?)
      ON CONFLICT(title) DO NOTHING`
@@ -1037,10 +959,6 @@ function seedReference() {
     }
   })();
 
-  // Organization structure is installed only into an empty database. An
-  // upgrade must never add, rename, or resurrect a unit in a command-managed
-  // org chart; the explicit factory-reset path is what creates the new MFR
-  // baseline when that destructive action is authorized.
   const unitCount = db.prepare('SELECT COUNT(*) AS count FROM units').get().count;
   if (unitCount === 0) {
     const rows = flattenUnits();
@@ -1055,9 +973,6 @@ function seedReference() {
     })();
   }
 
-  // The one shipped unit is ready to enroll people immediately. These are
-  // unit-local role rows (not global roles), and claimUnit remains idempotent
-  // when the first Unit Leader completes setup.
   if (db.prepare("SELECT 1 FROM units WHERE id = 'MFR'").get()) {
     copyTemplateInto('MFR', DEFAULT_TEMPLATE_ID);
   }
@@ -1069,10 +984,6 @@ function seedReference() {
 
 const slug = (s) => s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '');
 
-/**
- * First-run bootstrap. Creates the initial administrator so there's a way in.
- * Returns null when users already exist — this never resets an existing install.
- */
 export function bootstrapAdmin({ username, password, first_name, last_name, rank_id, mos, unit_code, billet_title, template_id }) {
   return db.transaction(() => {
     const count = db.prepare('SELECT COUNT(*) AS n FROM users').get().n;
@@ -1096,18 +1007,6 @@ export function bootstrapAdmin({ username, password, first_name, last_name, rank
   })();
 }
 
-/**
- * Copy a role template into a unit (finding 1).
- *
- * The copies are ordinary rows from the moment they land. `is_system` records
- * that they came from a template and nothing more — it does not protect them
- * from being renamed, re-permissioned or deleted by the unit that owns them.
- * Two units created from the same template diverge immediately and
- * permanently, which is the entire point.
- *
- * Idempotent: a unit that already has roles is left alone, so this can be
- * called on a path that may or may not have run before.
- */
 export function copyTemplateInto(unitId, templateId = DEFAULT_TEMPLATE_ID) {
   const existing = db.prepare('SELECT COUNT(*) AS n FROM roles WHERE unit_id = ?').get(unitId).n;
   if (existing) return db.prepare('SELECT * FROM roles WHERE unit_id = ? ORDER BY position DESC').all(unitId);
@@ -1128,14 +1027,12 @@ export function copyTemplateInto(unitId, templateId = DEFAULT_TEMPLATE_ID) {
   return db.prepare('SELECT * FROM roles WHERE unit_id = ? ORDER BY position DESC').all(unitId);
 }
 
-/** The role a template marks as the owner's. */
 export function ownerRoleId(unitId, templateId = DEFAULT_TEMPLATE_ID) {
   const template = templateById(templateId);
   const owner = template.roles.find((r) => r.owner) || template.roles[template.roles.length - 1];
   return `${unitId}:${owner.key}`.slice(0, 120);
 }
 
-/** Stated membership (finding 8). Idempotent; upgrades kind when it rises. */
 export function addMember(userId, unitId, { kind = 'member', invitedBy = null, expiresAt = null } = {}) {
   db.prepare(
     `INSERT INTO unit_members (id, user_id, unit_id, kind, joined_at, expires_at, invited_by)
@@ -1175,9 +1072,6 @@ export function removeMember(userId, unitId) {
         WHERE user_id = ? AND unit_id = ? AND (end_date IS NULL OR end_date > date('now'))`
     ).run(userId, unitId).changes;
 
-    // If the removed unit held the primary billet, promote another live
-    // assignment only where a live membership backs it. Historical rows never
-    // become current merely because the old primary ended.
     const hasPrimary = db.prepare('SELECT 1 FROM assignments WHERE user_id = ? AND is_primary = 1').get(userId);
     if (!hasPrimary) {
       const next = db.prepare(
@@ -1193,7 +1087,6 @@ export function removeMember(userId, unitId) {
   })();
 }
 
-/** Freeze the originating unit's shared snapshot before a transfer severs membership. */
 export function freezeMemberUnitRecords(userId, unitId, reason = 'membership transferred from originating unit') {
   const frozenAt = now();
   let recordsFrozen = 0;
@@ -1208,15 +1101,6 @@ export function freezeMemberUnitRecords(userId, unitId, reason = 'membership tra
   return recordsFrozen;
 }
 
-/**
- * Make a unit sovereign: give it its own role set and an Owner.
- *
- * This is the operation that turns a bare row in `units` into something a
- * SNCOIC actually holds. Phase 2 puts it behind a unit-creation invite; in
- * Phase 1 it is reachable by the bootstrap path and by the Instance Operator,
- * which is also how an imported org-chart template gets claimed one unit at a
- * time.
- */
 export function claimUnit(unitId, ownerUserId, templateId = DEFAULT_TEMPLATE_ID) {
   return db.transaction(() => {
     copyTemplateInto(unitId, templateId);
@@ -1227,7 +1111,6 @@ export function claimUnit(unitId, ownerUserId, templateId = DEFAULT_TEMPLATE_ID)
   })();
 }
 
-/** Give a Marine a role inside a unit. Idempotent. */
 export function grantRole(userId, roleId, unitId, grantedBy = null) {
   db.prepare(
     `INSERT INTO member_roles (id, user_id, role_id, unit_id, granted_by, created_at)
@@ -1245,6 +1128,16 @@ export function audit({ actor_id, action, entity, entity_id, subject_id, unit_id
     `INSERT INTO audit_log (id, actor_id, action, entity, entity_id, subject_id, unit_id, detail, at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(newId(), actor_id, action, entity || null, entity_id || null, subject_id || null, unit_id || null, detail || null, now());
+}
+
+export function notifyUser(userId, { kind, title, message = null, actionUrl = null, dedupeKey = null }) {
+  const id = newId();
+  const result = db.prepare(
+    `INSERT INTO notifications (id, user_id, kind, title, message, action_url, dedupe_key, created_at)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+     ON CONFLICT(user_id, dedupe_key) WHERE dedupe_key IS NOT NULL DO NOTHING`
+  ).run(id, userId, kind, title, message, actionUrl, dedupeKey, now());
+  return result.changes ? id : null;
 }
 
 export { now };

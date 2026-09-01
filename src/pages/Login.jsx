@@ -4,13 +4,6 @@ import { needsSetup, registerAccount, runSetup } from '@/lib/api';
 import { signIn, signInWithCac } from '@/store/useStore';
 import { Button, Input, Field } from '@/components/ui/primitives';
 
-/**
- * Sign-in, and first-run setup when the database is empty.
- *
- * Setup only appears when there are genuinely no users. Once someone exists,
- * this endpoint is closed — an open bootstrap route is how a fresh deployment
- * gets an uninvited administrator.
- */
 export default function Login() {
   const [mode, setMode] = useState('checking');
   const [username, setUsername] = useState('');
@@ -35,7 +28,7 @@ export default function Login() {
             localStorage.setItem('vantage.theme', defaultTheme);
             document.documentElement.setAttribute('data-theme', defaultTheme);
           }
-        } catch { /* the CSS default remains available */ }
+        } catch {}
         setSetupTokenRequired(Boolean(r.requiresSetupToken));
         setCapabilities({
           selfRegistration: Boolean(r.selfRegistration),
@@ -49,10 +42,7 @@ export default function Login() {
 
   const submit = async (e) => {
     e?.preventDefault();
-    // Read credentials from the submitted form instead of trusting React state
-    // alone. Password managers and secure browser handoffs can populate native
-    // inputs without emitting the same sequence of events as a keyboard; the
-    // submitted values are still present in FormData and must remain usable.
+
     const form = e?.currentTarget ? new FormData(e.currentTarget) : null;
     const submittedUsername = String(form?.get('username') || username).trim();
     const submittedPassword = String(form?.get('password') || password);
@@ -210,8 +200,8 @@ export default function Login() {
         )}
 
         <p className="fig mt-4 border-t border-rule pt-3 text-2xs leading-relaxed text-text-3">
-          VANTAGE · BUILT BY JOHN BERNARD BOLETZ · US REGION
-          <br />RECORDS STAY ON THIS DEPLOYMENT. NO EXTERNAL GENERATIVE AI.
+          VANTAGE · SELF-HOSTED PERFORMANCE RECORDS
+          <br />NO ADVERTISING OR THIRD-PARTY ANALYTICS.
         </p>
       </form>
       </div>

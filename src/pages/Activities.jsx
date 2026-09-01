@@ -138,7 +138,6 @@ export default function Activities() {
         </div>
       </div>
 
-      {/* filter bar */}
       <div className="mb-3 space-y-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-0 flex-1 sm:max-w-sm">
@@ -210,7 +209,6 @@ export default function Activities() {
         )}
       </div>
 
-      {/* running totals for the current filter */}
       <div className="mb-4 flex flex-wrap items-center gap-x-7 gap-y-2 border-y border-rule px-1 py-3">
         <span className="fig text-xs text-text-2">
           <span className="text-text">{formatNumber(filtered.length)}</span> entries
@@ -244,7 +242,7 @@ export default function Activities() {
           />
         ) : (
           <>
-            {/* table header */}
+
             <div className="hidden items-center gap-3 border-b border-rule px-3 py-1.5 md:flex">
               <span className="eyebrow w-16 shrink-0">Date</span>
               <span className="eyebrow min-w-0 flex-1">Entry</span>

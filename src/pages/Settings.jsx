@@ -1,10 +1,11 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
-  AlertTriangle, BarChart3, Download, Eye, FileSpreadsheet, MonitorCog, Server, ShieldCheck, SlidersHorizontal,
+  AlertTriangle, Check, Clock3, Download, Eye, FileSpreadsheet, GraduationCap,
+  MonitorCog, Server, ShieldCheck, X,
 } from 'lucide-react';
 import * as apiClient from '@/lib/api';
 import {
-  useIdentity, createMany, unitPath, useActivities,
+  useIdentity, createMany, unitPath, useActivities, useOrg, hydrate,
   usePrefs, setPref, flushPrefs,
 } from '@/store/useStore';
 import { parseSpreadsheet, guessMapping, applyMapping, IMPORT_FIELDS, exportWorkbook } from '@/lib/sheets';
@@ -12,7 +13,7 @@ import { screenImport } from '@/lib/duplicates';
 import { formatDTG } from '@/lib/metrics';
 import { useToast } from '@/components/ui/toast';
 import { Dialog } from '@/components/ui/Dialog';
-import { Panel, Button, Select, Badge, EmptyState, Input, Field } from '@/components/ui/primitives';
+import { Panel, Button, Select, Badge, EmptyState, Input, Field, Textarea } from '@/components/ui/primitives';
 import {
   useProjects, useTasks, useGoals, useRecognitions, useTrainings,
 } from '@/store/useStore';
@@ -27,16 +28,17 @@ export default function Settings() {
   const recognitions = useRecognitions();
   const trainings = useTrainings();
   const prefs = usePrefs();
+  const org = useOrg();
 
   const [importState, setImportState] = useState(null);
   const [audit, setAudit] = useState([]);
   const [serverVersion, setServerVersion] = useState('');
   const [sessions, setSessions] = useState([]);
-  const [dbInfo, setDbInfo] = useState(null);
-  const [deploymentConfig, setDeploymentConfig] = useState(null);
-  const [configDraft, setConfigDraft] = useState(null);
-  const [configBusy, setConfigBusy] = useState(false);
-  const [experience, setExperience] = useState(null);
+  const [rankRequests, setRankRequests] = useState({ mine: [], review: [] });
+  const [rankDialog, setRankDialog] = useState(false);
+  const [rankDraft, setRankDraft] = useState({ rank_id: '', reason: '' });
+  const [rankReview, setRankReview] = useState(null);
+  const [rankBusy, setRankBusy] = useState(false);
   const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
   const [pwBusy, setPwBusy] = useState(false);
   const sheetInput = useRef(null);
@@ -44,11 +46,6 @@ export default function Settings() {
   useEffect(() => {
     let live = true;
     apiClient.health().then((h) => { if (live && h?.version) setServerVersion(h.version); }).catch(() => {});
-    apiClient.configuration().then((c) => {
-      if (!live) return;
-      setDeploymentConfig(c);
-      setConfigDraft(c.editable || null);
-    }).catch(() => {});
     return () => { live = false; };
   }, []);
 
@@ -56,15 +53,15 @@ export default function Settings() {
     apiClient.myAudit().then(setAudit).catch(() => setAudit([]));
   }, []);
 
+  const loadRankRequests = () => apiClient.rankRequests()
+    .then(setRankRequests)
+    .catch(() => setRankRequests({ mine: [], review: [] }));
   useEffect(() => {
-    if (identity?.isOperator) {
-      apiClient.adminDb().then(setDbInfo).catch(() => setDbInfo(null));
-      apiClient.adminExperience().then(setExperience).catch(() => setExperience(null));
-    } else {
-      setDbInfo(null);
-      setExperience(null);
-    }
-  }, [identity]);
+    loadRankRequests();
+    const refresh = () => loadRankRequests();
+    window.addEventListener('vantage:rank-requests-refresh', refresh);
+    return () => window.removeEventListener('vantage:rank-requests-refresh', refresh);
+  }, []);
 
   const loadSessions = () =>
     apiClient.mySessions().then((r) => setSessions(r.sessions || [])).catch(() => setSessions([]));
@@ -81,8 +78,6 @@ export default function Settings() {
   const revokeOne = async (sid) => {
     try {
       const r = await apiClient.revokeSession(sid);
-      // Signing out this very device clears the cookie server-side; a reload
-      // lands cleanly on the login screen instead of a half-dead shell.
       if (r.current) { window.location.reload(); return; }
       loadSessions();
     } catch (err) { toast.error(apiClient.errorText(err)); }
@@ -124,8 +119,6 @@ export default function Settings() {
     const { records, problems } = applyMapping(importState.rows, importState.mapping);
     if (!records.length) return toast.error('No rows had both a title and a readable date.');
 
-    // Importing the same sheet twice is the fastest way to double a fiscal
-    // year's dollar figure without noticing, so collisions are dropped here.
     const { fresh, exact } = screenImport(records, activities);
     if (!fresh.length) {
       setImportState(null);
@@ -154,28 +147,49 @@ export default function Settings() {
     flushPrefs();
   };
 
-  const setConfigValue = (section, key, value) => setConfigDraft((current) => ({
-    ...current,
-    [section]: { ...current?.[section], [key]: value },
-  }));
-
-  const saveConfiguration = async () => {
-    setConfigBusy(true);
+  const submitRankRequest = async () => {
+    setRankBusy(true);
     try {
-      const saved = await apiClient.updateConfiguration(configDraft);
-      setDeploymentConfig(saved);
-      setConfigDraft(saved.editable || null);
-      toast.success('Deployment settings saved and applied.');
+      await apiClient.requestRankChange(rankDraft);
+      setRankDialog(false);
+      setRankDraft({ rank_id: '', reason: '' });
+      await loadRankRequests();
+      window.dispatchEvent(new CustomEvent('vantage:notifications-refresh'));
+      toast.success('Rank update sent for review.');
     } catch (err) { toast.error(apiClient.errorText(err)); }
-    finally { setConfigBusy(false); }
+    finally { setRankBusy(false); }
+  };
+
+  const cancelRankRequest = async (id) => {
+    try {
+      await apiClient.cancelRankChange(id);
+      await loadRankRequests();
+      toast.success('Rank request cancelled.');
+    } catch (err) { toast.error(apiClient.errorText(err)); }
+  };
+
+  const reviewRankRequest = async () => {
+    if (!rankReview?.status) return;
+    setRankBusy(true);
+    try {
+      await apiClient.reviewRankChange(rankReview.id, {
+        status: rankReview.status,
+        note: rankReview.note,
+      });
+      setRankReview(null);
+      await Promise.all([loadRankRequests(), hydrate()]);
+      window.dispatchEvent(new CustomEvent('vantage:notifications-refresh'));
+      toast.success(`Rank request ${rankReview.status}.`);
+    } catch (err) { toast.error(apiClient.errorText(err)); }
+    finally { setRankBusy(false); }
   };
 
   return (
     <div className="page-canvas settings-page">
       <div className="border-b border-rule pb-5">
-        <p className="eyebrow">Account and deployment controls</p>
+        <p className="eyebrow">Account controls</p>
         <h2 className="mt-2 text-3xl font-medium tracking-tight text-text sm:text-4xl">Settings console</h2>
-        <p className="mt-1.5 max-w-2xl text-base text-text-3">Identity, sessions, data movement, recovery, and deployment boundaries in one auditable place.</p>
+        <p className="mt-1.5 max-w-2xl text-base text-text-3">Identity, rank, security, data, and interface preferences in one place.</p>
       </div>
 
       <div className="grid gap-7 pt-6 lg:grid-cols-[210px_minmax(0,1fr)]">
@@ -184,12 +198,10 @@ export default function Settings() {
           <nav className="space-y-1 border-l border-rule pl-3 text-sm">
             {[
               ['account', 'Account'],
+              ['rank', 'Rank updates'],
               ['interface', 'Interface'],
               ['security', 'Password'],
               ['sessions', 'Sessions'],
-              ['database', 'Database'],
-              ['configuration', 'Configuration'],
-              ['experience', 'Experience metrics'],
               ['access-log', 'Access log'],
               ['data', 'Import & export'],
               ['storage', 'Data location'],
@@ -225,6 +237,98 @@ export default function Settings() {
           <ShieldCheck className="mt-0.5 h-3 w-3 shrink-0 text-ledger" />
           Access comes from active exact-unit membership and role grants, not rank or the org-chart breadcrumb.
           Authorized unit leaders manage grants, memberships, and role definitions directly from each team on the Team page.
+        </p>
+      </Panel>
+
+      <Panel
+        id="rank"
+        title="Rank updates"
+        subtitle="Request a correction or review updates for Marines you manage"
+        action={(
+          <Button
+            size="sm"
+            onClick={() => {
+              setRankDraft({ rank_id: '', reason: '' });
+              setRankDialog(true);
+            }}
+            disabled={rankRequests.mine.some((request) => request.status === 'pending')}
+          >
+            <GraduationCap className="h-3.5 w-3.5" />
+            Request update
+          </Button>
+        )}
+      >
+        <div className="grid gap-5 xl:grid-cols-2">
+          <section>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="eyebrow">Your requests</p>
+              <span className="text-xs text-text-3">Current: {identity?.user?.rank?.abbr || 'Unassigned'}</span>
+            </div>
+            <div className="space-y-2">
+              {rankRequests.mine.length === 0 ? (
+                <div className="rounded border border-dashed border-rule px-3 py-5 text-center text-sm text-text-3">
+                  No rank updates requested.
+                </div>
+              ) : rankRequests.mine.slice(0, 5).map((request) => (
+                <div key={request.id} className="rounded border border-rule bg-panel-2/45 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="font-medium text-text">
+                      {request.current_rank_abbr || 'Unassigned'} → {request.requested_rank_abbr}
+                    </span>
+                    <Badge tone={request.status === 'approved' ? 'ledger' : request.status === 'denied' ? 'redline' : 'neutral'}>
+                      {request.status}
+                    </Badge>
+                    <span className="ml-auto text-2xs text-text-3">{whenShort(request.created_at)}</span>
+                  </div>
+                  {request.reason && <p className="mt-1.5 text-xs leading-relaxed text-text-2">{request.reason}</p>}
+                  {request.review_note && <p className="mt-1.5 border-t border-rule pt-1.5 text-xs text-text-3">Reviewer: {request.review_note}</p>}
+                  {request.status === 'pending' && (
+                    <div className="mt-2 flex justify-end">
+                      <Button variant="ghost" size="sm" onClick={() => cancelRankRequest(request.id)}>Cancel request</Button>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </section>
+
+          <section>
+            <div className="mb-2 flex items-center justify-between gap-3">
+              <p className="eyebrow">Awaiting your review</p>
+              {rankRequests.review.length > 0 && <Badge>{rankRequests.review.length}</Badge>}
+            </div>
+            <div className="space-y-2">
+              {rankRequests.review.length === 0 ? (
+                <div className="rounded border border-dashed border-rule px-3 py-5 text-center text-sm text-text-3">
+                  No rank requests need your review.
+                </div>
+              ) : rankRequests.review.map((request) => (
+                <div key={request.id} className="rounded border border-rule bg-panel-2/45 p-3">
+                  <div className="flex flex-wrap items-start gap-2">
+                    <div className="min-w-0 flex-1">
+                      <p className="font-medium text-text">{request.first_name} {request.last_name}</p>
+                      <p className="text-xs text-text-3">
+                        {request.current_rank_abbr || 'Unassigned'} → {request.requested_rank_abbr} · {whenShort(request.created_at)}
+                      </p>
+                    </div>
+                    <div className="flex gap-1.5">
+                      <Button variant="ghost" size="sm" onClick={() => setRankReview({ ...request, status: 'denied', note: '' })}>
+                        <X className="h-3.5 w-3.5" /> Deny
+                      </Button>
+                      <Button variant="primary" size="sm" onClick={() => setRankReview({ ...request, status: 'approved', note: '' })}>
+                        <Check className="h-3.5 w-3.5" /> Approve
+                      </Button>
+                    </div>
+                  </div>
+                  {request.reason && <p className="mt-2 text-xs leading-relaxed text-text-2">{request.reason}</p>}
+                </div>
+              ))}
+            </div>
+          </section>
+        </div>
+        <p className="mt-4 flex items-start gap-2 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">
+          <Clock3 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" />
+          Approvals are restricted to authorized leaders above the member in the same unit, unit owners, and instance operators. Every decision is audited.
         </p>
       </Panel>
 
@@ -307,9 +411,6 @@ export default function Settings() {
         </p>
       </Panel>
 
-      {/* Findings 16 and 28: the shared-workstation controls, on the page a
-          Marine actually visits. The server enforces all of it; this is the
-          visibility. */}
       <Panel id="security" title="Change your password" subtitle="Changing it signs out every other session">
         <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
           <Field label="Current password">
@@ -358,132 +459,6 @@ export default function Settings() {
         )}
       </Panel>
 
-      {/* Finding 31: backups belong in the product, not in somebody's memory
-          of a shell command. Admin-only; the download itself is audited. */}
-      {dbInfo && (
-        <Panel
-          id="database"
-          title="Database"
-          subtitle="The SQLite file is the whole system — records, roles, sessions, audit"
-          action={
-            <Button variant="ghost" size="sm" asChild>
-              <a href="/api/admin/backup" download>
-                <Download className="h-3.5 w-3.5" />
-                Download backup
-              </a>
-            </Button>
-          }
-        >
-          <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
-            <div>
-              <p className="eyebrow">Size</p>
-              <p className="fig mt-0.5 text-md text-text">
-                {dbInfo.sizeBytes != null ? `${(dbInfo.sizeBytes / 1048576).toFixed(2)} MB` : '—'}
-              </p>
-            </div>
-            <div>
-              <p className="eyebrow">Schema version</p>
-              <p className="fig mt-0.5 text-md text-text">{dbInfo.schemaVersion}</p>
-            </div>
-            <div>
-              <p className="eyebrow">Last backup</p>
-              <p className="fig mt-0.5 text-md text-text">{whenShort(dbInfo.lastBackupAt)}</p>
-            </div>
-          </div>
-          <p className="mt-3 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">
-            The download is a consistent snapshot taken while the server keeps running, and every download lands in the
-            audit log. Restoring means stopping the server, replacing the file at{' '}
-            <span className="fig text-text-2">{dbInfo.path}</span>, and starting it again — the full procedure, and the
-            documented lost-administrator recovery (<span className="fig">npm run recover</span>), are in the README.
-          </p>
-        </Panel>
-      )}
-
-      {deploymentConfig && (
-        <Panel
-          id="configuration"
-          title="Deployment configuration"
-          subtitle={identity?.isOperator ? 'Safe runtime controls for this Vantage instance' : 'Deployment capabilities and boundaries'}
-        >
-          <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-            {[
-              ['Palette', deploymentConfig.ui?.palette],
-              ['Data mode', deploymentConfig.app?.data_mode],
-              ['Authentication', deploymentConfig.auth?.provider],
-              ['Self-registration', deploymentConfig.auth?.self_registration ? 'Enabled' : 'Disabled'],
-              ['CAC/PIV adapter', deploymentConfig.auth?.cac_piv?.enabled ? 'Enabled' : 'Coded · disabled'],
-              ['Attachments', deploymentConfig.attachments?.enabled ? 'Enabled' : 'Disabled'],
-              ['Retention purge', deploymentConfig.retention?.purge_days === 0 ? 'Never automatic' : `${deploymentConfig.retention?.purge_days} days`],
-              ['UX metrics', deploymentConfig.experience_metrics?.enabled ? 'First-party aggregate' : 'Disabled'],
-            ].map(([label, value]) => (
-              <div key={label} className="border-l-2 border-signal/30 pl-3">
-                <p className="eyebrow">{label}</p>
-                <p className="mt-1 text-sm font-medium capitalize text-text">{value || '—'}</p>
-              </div>
-            ))}
-          </div>
-          {identity?.isOperator && configDraft ? (
-            <div className="mt-4 border-t border-rule pt-4">
-              <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-3">
-                <Field label="New account registration">
-                  <Select value={configDraft.auth?.self_registration ? 'enabled' : 'disabled'} onValueChange={(value) => setConfigValue('auth', 'self_registration', value === 'enabled')} options={[{ value: 'enabled', label: 'Enabled' }, { value: 'disabled', label: 'Disabled' }]} />
-                </Field>
-                <Field label="Attachments">
-                  <Select value={configDraft.attachments?.enabled ? 'enabled' : 'disabled'} onValueChange={(value) => setConfigValue('attachments', 'enabled', value === 'enabled')} options={[{ value: 'enabled', label: 'Enabled' }, { value: 'disabled', label: 'Disabled' }]} />
-                </Field>
-                <Field label="Default theme">
-                  <Select value={configDraft.ui?.default_theme || 'light'} onValueChange={(value) => setConfigValue('ui', 'default_theme', value)} options={[{ value: 'light', label: 'Light' }, { value: 'dark', label: 'Dark' }]} />
-                </Field>
-                <Field label="Attachment limit" hint="MB per file">
-                  <Input type="number" min="1" max="50" value={Math.round((configDraft.attachments?.max_bytes || 10485760) / 1048576)} onChange={(event) => setConfigValue('attachments', 'max_bytes', Number(event.target.value) * 1048576)} />
-                </Field>
-                <Field label="Files per record">
-                  <Input type="number" min="1" max="50" value={configDraft.attachments?.max_per_record || 10} onChange={(event) => setConfigValue('attachments', 'max_per_record', Number(event.target.value))} />
-                </Field>
-                <Field label="Guest access maximum" hint="days">
-                  <Input type="number" min="1" max="365" value={configDraft.limits?.max_guest_days || 30} onChange={(event) => setConfigValue('limits', 'max_guest_days', Number(event.target.value))} />
-                </Field>
-                <Field label="Aggregate UX metrics">
-                  <Select value={configDraft.experience_metrics?.enabled ? 'enabled' : 'disabled'} onValueChange={(value) => setConfigValue('experience_metrics', 'enabled', value === 'enabled')} options={[{ value: 'enabled', label: 'Enabled' }, { value: 'disabled', label: 'Disabled' }]} />
-                </Field>
-              </div>
-              <div className="mt-4 flex items-start gap-3 border-t border-rule pt-3">
-                <SlidersHorizontal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" />
-                <p className="min-w-0 flex-1 text-xs leading-relaxed text-text-3">
-                  Security-sensitive proxy headers, storage paths, session policy, retention guarantees, and secrets remain deployment-managed in <span className="fig text-text-2">{deploymentConfig.config_file || 'config/app.yaml'}</span> or the hosting secret manager.
-                </p>
-                <Button variant="primary" size="sm" onClick={saveConfiguration} disabled={configBusy}>{configBusy ? 'Saving…' : 'Save configuration'}</Button>
-              </div>
-            </div>
-          ) : (
-            <p className="mt-4 flex items-start gap-2 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">
-              <SlidersHorizontal className="mt-0.5 h-3.5 w-3.5 shrink-0 text-signal" />
-              Instance Operators can update approved non-secret controls here. Security-sensitive values stay in the reviewed deployment configuration.
-            </p>
-          )}
-        </Panel>
-      )}
-
-      {experience && (
-        <Panel id="experience" title="Experience metrics" subtitle="Last 30 days · aggregate event counts only">
-          <div className="grid gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            {Object.entries(experience.rows.reduce((totals, row) => ({
-              ...totals,
-              [row.event]: (totals[row.event] || 0) + row.count,
-            }), {})).sort((a, b) => b[1] - a[1]).map(([event, count]) => (
-              <div key={event} className="flex items-center gap-3 rounded-lg bg-panel-2 px-3 py-2.5">
-                <BarChart3 className="h-4 w-4 text-signal" />
-                <span className="min-w-0 flex-1 truncate text-sm capitalize text-text-2">{event.replaceAll('_', ' ')}</span>
-                <span className="fig text-base font-semibold text-text">{count}</span>
-              </div>
-            ))}
-            {experience.rows.length === 0 && <p className="text-sm text-text-3">No aggregate usage events recorded yet.</p>}
-          </div>
-          <p className="mt-3 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">{experience.privacy}</p>
-        </Panel>
-      )}
-
-      {/* A Marine can always see who has been reading their record. */}
       <Panel
         id="access-log"
         title="Who has viewed your record"
@@ -581,6 +556,75 @@ export default function Settings() {
       </p>
         </div>
       </div>
+
+      <Dialog
+        open={rankDialog}
+        onOpenChange={setRankDialog}
+        title="Request a rank update"
+        description="An authorized leader will review the request."
+        size="sm"
+        footer={(
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setRankDialog(false)}>Cancel</Button>
+            <Button variant="primary" size="sm" disabled={rankBusy || !rankDraft.rank_id} onClick={submitRankRequest}>
+              {rankBusy ? 'Sending…' : 'Send request'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="space-y-4">
+          <Field label="Requested rank">
+            <Select
+              value={rankDraft.rank_id}
+              onValueChange={(rank_id) => setRankDraft((current) => ({ ...current, rank_id }))}
+              placeholder="Select rank"
+              options={(org.ranks || [])
+                .filter((rank) => rank.id !== identity?.user?.rank_id)
+                .map((rank) => ({ value: rank.id, label: `${rank.abbr} — ${rank.name}` }))}
+            />
+          </Field>
+          <Field label="Reason" hint="optional">
+            <Textarea
+              rows={4}
+              maxLength={500}
+              value={rankDraft.reason}
+              onChange={(event) => setRankDraft((current) => ({ ...current, reason: event.target.value }))}
+              placeholder="Promotion, correction, or effective-date context"
+            />
+          </Field>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(rankReview)}
+        onOpenChange={(open) => !open && setRankReview(null)}
+        title={`${rankReview?.status === 'approved' ? 'Approve' : 'Deny'} rank update`}
+        description={rankReview ? `${rankReview.first_name} ${rankReview.last_name}: ${rankReview.current_rank_abbr || 'Unassigned'} → ${rankReview.requested_rank_abbr}` : ''}
+        size="sm"
+        footer={(
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setRankReview(null)}>Cancel</Button>
+            <Button
+              variant={rankReview?.status === 'approved' ? 'primary' : 'danger'}
+              size="sm"
+              disabled={rankBusy}
+              onClick={reviewRankRequest}
+            >
+              {rankBusy ? 'Saving…' : rankReview?.status === 'approved' ? 'Approve update' : 'Deny request'}
+            </Button>
+          </>
+        )}
+      >
+        <Field label="Review note" hint="optional">
+          <Textarea
+            rows={4}
+            maxLength={500}
+            value={rankReview?.note || ''}
+            onChange={(event) => setRankReview((current) => ({ ...current, note: event.target.value }))}
+            placeholder="Add context for the Marine"
+          />
+        </Field>
+      </Dialog>
 
       {importState && (
         <Dialog

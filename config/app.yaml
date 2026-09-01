@@ -1,33 +1,27 @@
-# VANTAGE operator configuration
-#
-# Two-space indentation is required. Secrets do not belong here: keep
-# VANTAGE_SETUP_TOKEN and VANTAGE_CAC_PROXY_SECRET in the hosting platform's
-# secret manager. Environment variables documented in README.md may override
-# deployment-specific values without changing this file.
+# Operator configuration. Store secrets in the hosting environment.
 
 app:
   name: VANTAGE
+  display_name: VANTAGE
+  organization_name: Marine Corps
   data_mode: evaluation
   region: us
 
 deployment:
-  # Render/Fly normally use one trusted proxy hop in production. Use false
-  # when Node is directly exposed. render.yaml overrides this to 1.
   trust_proxy: false
+  public_url: ''
+  admin_url: ''
 
 ui:
   palette: ocean-light
   default_theme: light
+  announcement: ''
 
 auth:
   provider: password
   password_enabled: true
-  # New accounts are personal-only until an authorized unit leader attaches
-  # the identity to an exact unit.
   self_registration: true
   cac_piv:
-    # The reverse-proxy adapter is implemented but intentionally off until the
-    # MCEN identity architecture and trusted headers are approved.
     enabled: false
     subject_header: x-vantage-cac-subject
     username_header: x-vantage-cac-username
@@ -60,11 +54,13 @@ attachments:
 
 retention:
   soft_delete: true
-  # Zero means no automatic purge. This is validated at startup.
   purge_days: 0
 
 experience_metrics:
-  # First-party aggregate counts only: no third-party analytics, page content,
-  # record identifiers, filenames, IP addresses, or free text.
+  # Aggregate first-party counters only.
   enabled: true
   mode: first_party_aggregate
+
+maradmins:
+  enabled: true
+  refresh_minutes: 30

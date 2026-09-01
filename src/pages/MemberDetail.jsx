@@ -20,13 +20,6 @@ const PERIODS = [
   { value: 'all', label: 'ALL', ariaLabel: 'All time' },
 ];
 
-/**
- * One Marine's record, as their leader sees it.
- *
- * This exists so a fire team leader writing a JEPES input isn't reconstructing
- * a year from memory the night before it's due. Every read of this page is
- * logged against the Marine, and they can see that log on their own account.
- */
 export default function MemberDetail() {
   const { id } = useParams();
   const navigate = useNavigate();
@@ -35,9 +28,7 @@ export default function MemberDetail() {
   const [data, setData] = useState(null);
   const [error, setError] = useState('');
   const [period, setPeriod] = useState('fiscalYear');
-  // The access review is also the authority check. Only the Instance Operator
-  // receives it; unit leaders manage membership without gaining control of a
-  // multi-unit account's password or sessions.
+
   const [review, setReview] = useState(null);
   const [confirmOff, setConfirmOff] = useState(false);
   const [pwDialog, setPwDialog] = useState(false);
@@ -106,16 +97,13 @@ export default function MemberDetail() {
     [data, range]
   );
   const metrics = useMemo(() => aggregateMetrics(scoped), [scoped]);
-  // The member's rank decides the framing: a Sgt in the roster gets a FITREP
-  // input, not a JEPES one, whoever is looking at them.
+
   const memberTrack = trackForPerson(data?.person || {});
   const narrative = useMemo(() => {
     const cfg = narrativeConfig(memberTrack);
     return composeNarrative(scoped, { ...cfg, periodLabel: range.label || period });
   }, [scoped, range, period, memberTrack]);
 
-  // A deactivated Marine drops off every normal surface — which is the point —
-  // so the one leader-facing view of them is this management card.
   if (error && review && review.user?.active === false) {
     return (
       <div className="mx-auto max-w-2xl space-y-3">
@@ -199,7 +187,6 @@ export default function MemberDetail() {
         />
       </FigureRow>
 
-      {/* The reason a leader opens this page at all */}
       <Panel
         title={trackMeta(memberTrack).inputName}
         subtitle={`Ready to paste · ${narrative.length}/${narrative.limit} characters`}

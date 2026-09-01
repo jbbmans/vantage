@@ -3,7 +3,6 @@ import { Link } from 'react-router-dom';
 import { ArrowUpRight, TrendingDown, TrendingUp, Minus } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/** Count up to the value on mount. Short and once — this is a ledger, not a slot machine. */
 function useRollup(target, enabled = true) {
   const [value, setValue] = useState(enabled ? 0 : target);
   const raf = useRef();
@@ -31,10 +30,6 @@ function useRollup(target, enabled = true) {
   return value;
 }
 
-/**
- * The primary figure display. Label above, number below, delta beneath.
- * Figures are always monospaced so a column of them lines up on the decimal.
- */
 export function Figure({
   label,
   value,
@@ -119,14 +114,12 @@ export function Delta({ value, label }) {
   );
 }
 
-/** A row of figures separated by hairlines rather than gaps between cards. */
 export function FigureRow({ children, className }) {
   return (
     <div className={cn('panel grid grid-cols-2 rounded md:grid-cols-4', className)}>{children}</div>
   );
 }
 
-/** Inline sparkline. No axes, no grid, no tooltip — it is a texture, not a chart. */
 export function Sparkline({ data = [], width = 120, height = 26, className, tone = 'signal' }) {
   if (!data.length) return null;
   const values = data.map((d) => (typeof d === 'number' ? d : d.count || 0));
@@ -146,7 +139,6 @@ export function Sparkline({ data = [], width = 120, height = 26, className, tone
   );
 }
 
-/** Horizontal proportion bar used in every ranked breakdown. */
 export function Bar({ value, max, color, label, figure, className }) {
   const pct = max > 0 ? Math.min(100, (value / max) * 100) : 0;
   return (

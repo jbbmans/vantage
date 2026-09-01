@@ -1,10 +1,5 @@
 import assert from 'node:assert/strict';
 
-/**
- * The migration fixture predates the switch to Node's built-in test runner.
- * Keep its reader-friendly expectations without downloading an undeclared
- * test framework at release time.
- */
 export function expect(actual, message = '') {
   const label = message || 'expectation failed';
   return {

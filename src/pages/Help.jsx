@@ -145,7 +145,7 @@ export default function Help() {
 
       <p className="mt-6 flex items-start gap-2 border-t border-rule px-1 pt-4 text-xs leading-relaxed text-text-3">
         <LifeBuoy className="mt-0.5 h-3 w-3 shrink-0" />
-        Vantage 3.6 · designed and built by John Bernard Boletz. This field guide ships with the product so operating guidance stays with the running version.
+        This field guide ships with Vantage so operating guidance stays aligned with the running version.
       </p>
     </div>
   );

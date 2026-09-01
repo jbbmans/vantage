@@ -1,7 +1,7 @@
 {
   "name": "Vantage",
   "short_name": "Vantage",
-  "description": "Local-first performance record system",
+  "description": "Self-hosted performance and career record system",
   "start_url": "/",
   "display": "standalone",
   "background_color": "#06090E",

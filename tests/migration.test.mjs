@@ -1,18 +1,3 @@
-/**
- * Migration tests — run against the CAPTURED v3.3.0 database, never a
- * synthetic one (v3.4 Definition of Done).
- *
- * The load-bearing claim under finding 1 is that migration 006 over a real
- * v3.3 database preserves every effective permission every user had before it
- * ran. This suite proves that by replaying an oracle — tests/fixtures/
- * v3_3_0.snapshot.json — captured by calling v3.3.0's own permissionsIn() for
- * every (user, unit) pair, before any v3.4 code existed.
- *
- * There is one deliberate exception, asserted here rather than hidden: the
- * ADMINISTRATOR fan-out is NOT preserved, because preserving it is the leak the
- * same Definition of Done forbids. See tests/fixtures/README.md.
- */
-
 import { describe, it, before as beforeAll, after as afterAll } from 'node:test';
 import { copyFileSync, rmSync, mkdtempSync } from 'node:fs';
 import { readFileSync } from 'node:fs';
@@ -47,7 +32,7 @@ beforeAll(async () => {
 });
 
 afterAll(() => {
-  try { db?.close(); } catch { /* already closed */ }
+  try { db?.close(); } catch {  }
   rmSync(dir, { recursive: true, force: true });
 });
 
@@ -63,8 +48,8 @@ describe('the fixture is a real v3.3.0 database', () => {
 });
 
 describe('migration 006 — tenancy', () => {
-  it('reaches the current schema version 12', () => {
-    expect(Number(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value)).toBe(12);
+  it('reaches the current schema version 13', () => {
+    expect(Number(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value)).toBe(13);
   });
 
   it('leaves no global role definitions', () => {
@@ -155,18 +140,9 @@ describe('migration 009 — canonical identity and role/unit integrity', () => {
   });
 });
 
-/**
- * THE LOAD-BEARING TEST.
- *
- * For every non-administrator in the fixture, in every unit in the fixture,
- * the bits they hold after migration must be exactly the bits v3.3.0 gave
- * them. Not a superset — a superset would mean the migration handed someone
- * authority they never had. Not a subset — a subset is the silent loss of
- * access that makes people distrust an upgrade.
- */
 describe('migration 006 preserves every effective permission', () => {
-  // Computed inside the tests, not in the describe body: describe callbacks run
-  // at collection time, before beforeAll has opened the database.
+
+
   const adminUsernames = () => new Set(report006.dropped_global_admin.map((d) => d.username));
 
   it('identifies at least one non-administrator to check', () => {
@@ -176,9 +152,9 @@ describe('migration 006 preserves every effective permission', () => {
 
   it('reproduces v3.3.0 bits exactly, unit by unit', () => {
     const admins = adminUsernames();
-    // The one sanctioned change: a unit left ownerless by the administrator
-    // conversion promotes whoever was ALREADY running it. They gain exactly
-    // ADMINISTRATOR, in exactly that unit. Everything else must be identical.
+
+
+
     const promoted = new Set(report006.promoted_owners.map((p) => `${p.username}@${p.unit_id}`));
 
     const drift = [];
@@ -200,21 +176,21 @@ describe('migration 006 preserves every effective permission', () => {
   });
 
   it('only promotes people who already administered the unit', () => {
-    const RUNS_UNIT = (1 << 7) | (1 << 6); // MANAGE_ROLES | MANAGE_MEMBERS
+    const RUNS_UNIT = (1 << 7) | (1 << 6);
     for (const p of report006.promoted_owners || []) {
       expect(
         (p.before_bits & RUNS_UNIT) === RUNS_UNIT,
         `${p.username} was promoted to owner of ${p.unit_id} without already running it (bits ${p.before_bits})`
       ).toBe(true);
-      // And the promotion is exactly one bit, not a blank cheque.
+
       const snap = ORACLE.users[p.username].permissions[p.unit_id] || 0;
       expect(p.before_bits & ~snap).toBe(0);
     }
   });
 
   it('leaves a unit ownerless rather than inventing an owner for it', () => {
-    // Recorded, not silent: an ownerless unit is a gap the Instance Operator
-    // closes with a claim, which is finding 11's recovery path.
+
+
     expect(Array.isArray(report006.left_ownerless)).toBe(true);
     for (const unitId of report006.left_ownerless) {
       expect(db.prepare('SELECT owner_user_id FROM units WHERE id = ?').get(unitId).owner_user_id).toBeNull();
@@ -222,8 +198,8 @@ describe('migration 006 preserves every effective permission', () => {
   });
 
   it('materialises cascading grants rather than recomputing them', () => {
-    // The fixture contains a role granted with inherits_down. Preserving its
-    // effect without a tree means explicit rows must exist in the subtree.
+
+
     expect(report006.materialised_grants).toBeGreaterThan(0);
   });
 
@@ -233,13 +209,6 @@ describe('migration 006 preserves every effective permission', () => {
   });
 });
 
-/**
- * The exception, asserted explicitly.
- *
- * If someone later "fixes" the migration to preserve the fan-out, this test
- * fails and tells them why — which is the entire reason it is written as an
- * assertion instead of a paragraph in a changelog.
- */
 describe('migration 006 deliberately does not preserve the ADMINISTRATOR fan-out', () => {
   it('recorded what it dropped', () => {
     expect(report006.dropped_global_admin.length).toBeGreaterThan(0);
@@ -270,7 +239,7 @@ describe('migration 006 deliberately does not preserve the ADMINISTRATOR fan-out
     const user = db.prepare('SELECT * FROM users WHERE username = ?').get(username);
     const owned = db.prepare('SELECT COUNT(*) AS n FROM units WHERE owner_user_id = ?').get(user.id).n;
     expect(owned).toBeGreaterThan(0);
-    // And that ownership is real authority, not a label.
+
     const someUnit = db.prepare('SELECT id FROM units WHERE owner_user_id = ? LIMIT 1').get(user.id).id;
     expect(permissionsIn(db, user, someUnit) & ADMINISTRATOR).toBeTruthy();
   });
@@ -299,9 +268,9 @@ describe('migration 007 — chain visibility retired', () => {
   });
 
   it('is a reduction — nothing became visible to more people', () => {
-    // 'unit' is strictly narrower than 'chain' was, so the only legal
-    // transition is chain -> unit. Anything that gained a broader tier would
-    // be a leak introduced by the migration itself.
+
+
+
     const broadened = db
       .prepare("SELECT COUNT(*) AS n FROM activities WHERE visibility NOT IN ('personal','private','unit')")
       .get().n;

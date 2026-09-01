@@ -4,19 +4,6 @@ import { usePrefs, setPref } from '@/store/useStore';
 import { Button } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
 
-/**
- * Dashboard layout.
- *
- * Every section on the Command Center can be collapsed to its title bar or
- * hidden entirely, and the choice follows the Marine between machines because
- * it's a server-side preference, not a browser one. A comptroller clerk who
- * never uses goals shouldn't scroll past a goals panel every morning.
- *
- * Hidden and collapsed are different states on purpose: collapsed keeps the
- * title bar as a reminder the data exists; hidden removes it from the page and
- * only the Display menu brings it back.
- */
-
 const PREF_KEY = 'dashboard';
 
 export function useDashboardLayout(sectionIds = []) {
@@ -64,10 +51,6 @@ export function useDashboardLayout(sectionIds = []) {
   };
 }
 
-/**
- * The chrome around one dashboard section. Children render only when expanded,
- * so a collapsed chart isn't quietly re-rendering on every keystroke.
- */
 export function DashboardSection({ id, title, subtitle, layout, className, action, children }) {
   const [dragging, setDragging] = useState(false);
   if (layout.isHidden(id)) return null;
@@ -134,7 +117,6 @@ export function DashboardSection({ id, title, subtitle, layout, className, actio
   );
 }
 
-/** The Display menu: one checkbox per section, plus a reset. */
 export function DisplayMenu({ sections, layout }) {
   const [open, setOpen] = useState(false);
   const ref = useRef(null);

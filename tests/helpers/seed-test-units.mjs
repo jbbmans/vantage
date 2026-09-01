@@ -1,7 +1,3 @@
-/**
- * Historical multi-unit fixture used only by authorization regression tests.
- * Production seed data contains MFR and nothing beneath it.
- */
 export function seedTestUnits(db) {
   const insert = db.prepare(
     `INSERT INTO units (id, code, name, short_name, echelon, parent_id, created_at)

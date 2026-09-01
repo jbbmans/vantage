@@ -5,7 +5,6 @@ export function cn(...inputs) {
   return twMerge(clsx(inputs));
 }
 
-/** Trigger a browser download for text content. No server round-trip. */
 export function downloadText(filename, text, mime = 'application/json') {
   const blob = new Blob([text], { type: mime });
   const url = URL.createObjectURL(blob);
@@ -32,7 +31,7 @@ export async function copyToClipboard(text) {
     await navigator.clipboard.writeText(text);
     return true;
   } catch {
-    // Clipboard API needs a secure context; fall back to a hidden textarea.
+
     const ta = document.createElement('textarea');
     ta.value = text;
     ta.style.position = 'fixed';
@@ -45,7 +44,6 @@ export async function copyToClipboard(text) {
   }
 }
 
-/** Slug for filenames: lowercase, hyphenated, no surprises on any filesystem. */
 export function slug(s = '') {
   return s.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '') || 'export';
 }

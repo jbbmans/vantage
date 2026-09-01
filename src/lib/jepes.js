@@ -1,22 +1,3 @@
-/**
- * Vantage — JEPES preparation dashboard (v3.3 findings 19–21).
- *
- * JEPES (MCO 1616.1) scores Privates through Corporals on four equally
- * weighted pillars of 250 points each — a 1,000-point score, plus bonus
- * points. The pillar framework is public. The point tables are not: PFT, CFT
- * and rifle enter the score as percentiles against your peers in your grade,
- * recalculated by HQMC, and the per-element tables live in the order's
- * Appendix B and on MOL.
- *
- * Earlier versions of this module estimated pillar points anyway, from
- * invented belt tables and raw-score scaling. That number looked authoritative
- * and wasn't, which is worse than no number. So this module no longer
- * produces points at all. It produces a *preparation dashboard*: which inputs
- * are on record, which are missing, where each one stands, and what to work
- * on — with every judgement labeled as Vantage's coaching, never as policy.
- * The only official score is the one on MOL.
- */
-
 export const PILLARS = [
   { key: 'warfighting', label: 'Warfighting', composition: 'Rifle (ARQ) percentile + MCMAP belt', hint: 'Rifle qualification and MCMAP belt.' },
   { key: 'physical', label: 'Physical Toughness', composition: 'PFT + CFT percentiles vs. your grade', hint: 'PFT and CFT scores.' },
@@ -24,23 +5,16 @@ export const PILLARS = [
   { key: 'command', label: 'Command Input', composition: 'Three marks 0.0–5.0 from your chain', hint: 'Three marks from your chain of command.' },
 ];
 
-/** Stored belt values are unchanged from earlier releases for data compatibility. */
 export const MCMAP_BELTS = ['Tan', 'Grey', 'Green', 'Brown', 'Black 1st', 'Black 2nd', 'Black 3rd'];
 
 export const RIFLE_QUALS = ['Unqualified', 'Marksman', 'Sharpshooter', 'Expert'];
 
-/**
- * ARQ classification bands per MCO 3574.2M. The ARQ is scored by target
- * destroys plus drill completions — there is no 0–350 ARQ total; the 0–350
- * scale belongs to the entry-level training tables only.
- */
 export const ARQ_BANDS = [
   { qual: 'Expert', band: '43–50 destroys, plus one iteration of all three drills' },
   { qual: 'Sharpshooter', band: '31–42 destroys, plus two drill types' },
   { qual: 'Marksman', band: '15–30 destroys, plus any one drill type' },
 ];
 
-/** PFT/CFT class floors per MCO 6100.13A: 1st ≥ 235, 2nd ≥ 200, 3rd ≥ 150. */
 export function fitnessClass(score) {
   if (score === null || score === undefined || score === '') return null;
   const n = Number(score);
@@ -54,19 +28,8 @@ export function fitnessClass(score) {
 const isCorporal = (grade) => grade === 'E-4';
 const entered = (v) => !(v === null || v === undefined || v === '');
 
-/**
- * Item states drive the dashboard chips. 'top' / 'solid' / 'attention' are
- * Vantage's coaching read of an entered value — a heuristic, labeled as such
- * in the UI — and 'missing' means exactly that: not entered, not zero.
- */
 const item = (key, label, value, state, note) => ({ key, label, value, state, ...(note ? { note } : {}) });
 
-/**
- * Build the preparation dashboard. Returns per-pillar input status — never
- * points, never a composite. Anything missing is reported as unknown rather
- * than assumed to be zero, because "your Warfighting is terrible" is a bad
- * thing to tell someone whose rifle qual simply hasn't been entered.
- */
 export function estimate(profile = {}) {
   const grade = profile.rank_grade || 'E-4';
   const cpl = isCorporal(grade);
@@ -152,23 +115,12 @@ export function estimate(profile = {}) {
   };
 }
 
-/* ── recommendations ──────────────────────────────────────────────── */
-
-/**
- * Every recommendation carries a `kind` (see evalRefs REC_KINDS): 'data' when
- * it comes straight from what is or isn't in the Marine's own record,
- * 'heuristic' when it is Vantage's coaching opinion, 'official' when it
- * points at policy. None of them carries an invented point value — the old
- * "+37 pts" estimates are gone because the real conversion is a peer
- * percentile Vantage cannot see (finding 19).
- */
 const rec = (o) => ({ effort: 'medium', category: 'General', kind: 'heuristic', ...o });
 
 export function recommend(profile = {}, activityStats = {}) {
   const est = estimate(profile);
   const out = [];
 
-  /* ── data gaps first: you cannot plan around what you have not entered ── */
   for (const key of est.missing) {
     const pillar = PILLARS.find((p) => p.key === key);
     out.push(rec({
@@ -182,7 +134,6 @@ export function recommend(profile = {}, activityStats = {}) {
     }));
   }
 
-  /* ── Warfighting ── */
   const belt = profile.mcmap_belt;
   if (belt && belt !== 'Black 3rd') {
     const idx = MCMAP_BELTS.indexOf(belt);
@@ -215,7 +166,6 @@ export function recommend(profile = {}, activityStats = {}) {
     }));
   }
 
-  /* ── Physical Toughness ── */
   const pftScore = Number(profile.pft_score) || 0;
   const cftScore = Number(profile.cft_score) || 0;
   if (entered(profile.pft_score) && pftScore < 300) {
@@ -257,7 +207,6 @@ export function recommend(profile = {}, activityStats = {}) {
     }));
   }
 
-  /* ── Mental Agility ── */
   if (entered(profile.ceus) && Number(profile.ceus) < 60) {
     out.push(rec({
       id: 'ceus',
@@ -309,7 +258,6 @@ export function recommend(profile = {}, activityStats = {}) {
     priority: 87,
   }));
 
-  /* ── Command Input ── */
   const marks = [profile.cmd_character, profile.cmd_mos, profile.cmd_leadership].filter((m) => entered(m));
   if (marks.length) {
     const weakest = [
@@ -336,7 +284,6 @@ export function recommend(profile = {}, activityStats = {}) {
     }
   }
 
-  /* ── evidence quality, from the logged record ── */
   const { total = 0, withOutcome = 0, thinAreas = [] } = activityStats;
   if (total >= 5 && withOutcome / total < 0.6) {
     out.push(rec({
@@ -368,7 +315,6 @@ export function recommend(profile = {}, activityStats = {}) {
   return out.sort((a, b) => b.priority - a.priority);
 }
 
-/** The pillar with the most missing or attention-flagged inputs — a coaching read, not a score. */
 export function biggestLever(profile = {}) {
   const est = estimate(profile);
   const gaps = PILLARS

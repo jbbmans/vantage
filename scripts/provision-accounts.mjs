@@ -1,13 +1,3 @@
-/**
- * One-time, shell-only provisioning for a freshly reset Vantage instance.
- *
- * Real personnel data and temporary passwords belong in a chmod 600 JSON file
- * on the deployment host. They must never be committed with this script.
- *
- *   VANTAGE_PROVISION=1 npm run provision:accounts -- \
- *     --input /tmp/vantage-provision.json --delete-input
- */
-
 import { existsSync, readFileSync, lstatSync, realpathSync, unlinkSync } from 'node:fs';
 import { isAbsolute, resolve } from 'node:path';
 import { hashPassword } from '../server/auth.js';

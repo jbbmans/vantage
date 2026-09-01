@@ -3,15 +3,6 @@ import { eachDayOfInterval, format, differenceInCalendarDays } from 'date-fns';
 import { fiscalYearRange, dailyCounts, dayKey, formatDTG } from '@/lib/metrics';
 import { cn } from '@/lib/utils';
 
-/**
- * The fiscal tape.
- *
- * One hairline tick per day of the federal fiscal year, 01 Oct → 30 Sep,
- * shaded by how much you logged that day, with quarter boundaries marked and
- * today flagged. A calendar heatmap answers "was I busy lately"; this answers
- * "what does my record look like across the year a board will actually review",
- * which is the only version of the question that matters in September.
- */
 export default function FiscalTape({ activities = [], asOf = new Date(), onSelectDay, className }) {
   const [hover, setHover] = useState(null);
 
@@ -22,7 +13,6 @@ export default function FiscalTape({ activities = [], asOf = new Date(), onSelec
     const m = Math.max(1, ...Object.values(c));
     const ti = differenceInCalendarDays(asOf, r.start);
 
-    // Quarter boundaries as day offsets, for the tick marks and labels.
     const q = [];
     for (let i = 0; i < 4; i++) {
       const startMonth = new Date(r.start.getFullYear(), r.start.getMonth() + i * 3, 1);
@@ -38,8 +28,6 @@ export default function FiscalTape({ activities = [], asOf = new Date(), onSelec
   const total = days.length;
   const pct = (i) => (i / total) * 100;
 
-  // Five discrete levels. Discrete beats a gradient here: you can actually
-  // tell a 2-activity day from a 5-activity day at a glance.
   const level = (n) => (!n ? 0 : Math.min(4, Math.ceil((n / max) * 4)));
   const FILLS = ['var(--tape-0)', 'var(--tape-1)', 'var(--tape-2)', 'var(--tape-3)', 'var(--tape-4)'];
 
@@ -58,7 +46,7 @@ export default function FiscalTape({ activities = [], asOf = new Date(), onSelec
         '--tape-4': 'rgb(var(--signal))',
       }}
     >
-      {/* header line */}
+
       <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
         <div className="flex items-baseline gap-2">
           <span className="eyebrow">Fiscal Tape</span>
@@ -79,7 +67,6 @@ export default function FiscalTape({ activities = [], asOf = new Date(), onSelec
         </div>
       </div>
 
-      {/* the tape itself */}
       <div className="relative h-tape rounded border border-rule bg-panel">
         <svg
           viewBox={`0 0 ${total} 40`}
@@ -108,13 +95,12 @@ export default function FiscalTape({ activities = [], asOf = new Date(), onSelec
               />
             );
           })}
-          {/* quarter dividers */}
+
           {quarters.slice(1).map((q) => (
             <rect key={q.label} x={q.index} y={0} width={0.5} height={40} fill="rgb(var(--rule-strong))" />
           ))}
         </svg>
 
-        {/* today caret — drawn in HTML so it never distorts with the viewBox */}
         {todayIndex >= 0 && todayIndex < total && (
           <div
             className="pointer-events-none absolute top-0 h-full"
@@ -128,7 +114,6 @@ export default function FiscalTape({ activities = [], asOf = new Date(), onSelec
           </div>
         )}
 
-        {/* hover read-out */}
         {hover && (
           <div
             className="pointer-events-none absolute -top-8 z-10 -translate-x-1/2 whitespace-nowrap rounded border border-rule-strong bg-panel px-1.5 py-0.5 shadow-[var(--shadow)]"
@@ -142,7 +127,6 @@ export default function FiscalTape({ activities = [], asOf = new Date(), onSelec
         )}
       </div>
 
-      {/* quarter rail */}
       <div className="relative mt-1 h-3">
         {quarters.map((q, i) => {
           const isCurrent = todayIndex >= q.index && (i === 3 || todayIndex < quarters[i + 1].index);
@@ -164,7 +148,6 @@ export default function FiscalTape({ activities = [], asOf = new Date(), onSelec
   );
 }
 
-/** Compact variant for the header rail — no labels, just the pulse. */
 export function TapeStrip({ activities = [], className }) {
   const { days, counts, max, todayIndex } = useMemo(() => {
     const r = fiscalYearRange(new Date());

@@ -1,11 +1,3 @@
-/**
- * Vantage — domain vocabulary.
- * Rebuilt from call sites; the original module was not recoverable from the archive.
- *
- * Everything the app calls a "category", an "area", or a "dollar type" is defined
- * here and nowhere else. If a term needs to change, it changes once.
- */
-
 export const CATEGORIES = [
   'Fiscal & Financial',
   'Leadership',
@@ -19,11 +11,6 @@ export const CATEGORIES = [
   'Other',
 ];
 
-/**
- * Stable per-category hue. Used by charts, dots, and the fiscal tape.
- * Deliberately excludes blue — that hue belongs to the accent alone, so a
- * category dot is never mistaken for an active-state indicator.
- */
 export const CATEGORY_COLORS = {
   'Fiscal & Financial': '#3DD68C',
   Leadership: '#F0A93B',
@@ -57,14 +44,8 @@ export const JEPES_AREAS = [
   'Unassigned',
 ];
 
-/** The three scored areas, excluding the Unassigned bucket. */
 export const JEPES_CORE = JEPES_AREAS.filter((a) => a !== 'Unassigned');
 
-/**
- * Dollar types exist so a total is never ambiguous. Money you *reconciled* is
- * not money you *saved*, and a board that catches you conflating the two stops
- * trusting every other figure on the page.
- */
 export const DOLLAR_TYPES = [
   { key: 'reconciled', label: 'Reconciled', verb: 'reconciled', summable: true },
   { key: 'obligated', label: 'Obligated', verb: 'obligated', summable: true },
@@ -81,11 +62,6 @@ export const DOLLAR_TYPE_DEFINITIONS = {
   impact: 'General fiscal impact that does not fit a narrower type.',
 };
 
-/**
- * The rule shown next to every rolled-up dollar figure. Reviewed dollars are
- * excluded from headline totals because reviewing $4M and recovering $4M are
- * not the same accomplishment, and only one of them survives a follow-up question.
- */
 export const DOLLAR_SUM_RULE =
   'Headline totals sum Reconciled, Obligated, Saved, and Impact. Reviewed is tracked separately — funds crossing your desk are not funds you moved.';
 
@@ -118,7 +94,6 @@ export const RECOGNITION_TYPES = ['award', 'loa', 'certificate', 'commendation',
 export const TRAINING_TYPES = ['pme', 'course', 'qualification', 'certification', 'education', 'skill', 'training'];
 export const TRAINING_STATUS = ['completed', 'in_progress', 'scheduled'];
 
-/** Keyword → category. First match wins, so order matters: specific before general. */
 const CATEGORY_HINTS = [
   [/\bulo\b|\bumt\b|\bmipr\b|reconcil|obligat|deobligat|fiscal|budget|funds?\b|dai\b|advana|sabrs|audit|invoice|disburse|comptroller/i, 'Fiscal & Financial'],
   [/\bloa\b|award|commendat|certificate|meritorious|recogni/i, 'Recognition'],
@@ -131,7 +106,6 @@ const CATEGORY_HINTS = [
   [/roster|paperwork|filing|admin|process|route|log\b|record/i, 'Administration'],
 ];
 
-/** Best-guess category for free text. Always returns something. */
 export function suggestCategory(text = '') {
   for (const [pattern, category] of CATEGORY_HINTS) {
     if (pattern.test(text)) return category;
@@ -139,7 +113,6 @@ export function suggestCategory(text = '') {
   return 'Other';
 }
 
-/** Best-guess JEPES area for free text. */
 export function suggestJepesArea(text = '', category = '') {
   if (/mentor|counsel|supervis|\bled\b|class leader|\bteam\b|billet/i.test(text)) return 'Leadership';
   if (/integrity|volunteer|conduct|character|community|standard/i.test(text)) return 'Individual Character';
@@ -151,10 +124,8 @@ export function suggestJepesArea(text = '', category = '') {
   return 'Unassigned';
 }
 
-/** The fiscal year starts 1 October. This is the single source of that truth. */
-export const FISCAL_YEAR_START_MONTH = 9; // zero-indexed October
+export const FISCAL_YEAR_START_MONTH = 9;
 
-/** Echelons, largest to smallest. Mirrors server/usmc.js. */
 export const ECHELON_OPTIONS = [
   { value: 'command', label: 'Command' },
   { value: 'msc', label: 'Major Subordinate Command' },

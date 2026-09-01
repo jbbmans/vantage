@@ -1,26 +1,5 @@
 import { passwordProblem } from './passwordPolicy.js';
 
-/**
- * Vantage — server-side validation.
- *
- * v3.2 trusted the client: the generic CRUD path wrote whatever arrived. On a
- * single-user tool that is a style problem; on a multi-user API it means a
- * hand-built request can store a 2 MB "title", a PFT of 999999, a dollar
- * amount of Infinity, or a date of "banana", and every report downstream
- * inherits the garbage. The client remains the friendly validator; this file
- * is the authoritative one.
- *
- * Two rules throughout:
- *   - Reject, don't clamp. Silently turning PFT 9999 into 300 stores a lie.
- *   - Name the field. "Request failed (400)" tells the user nothing; the
- *     response carries { fieldErrors: { dollar_amount: '…' } } so the form
- *     can point at the box that's wrong.
- */
-
-/* Enums mirrored from src/lib/constants.js. The client file imports UI-only
- * things (icons, colors), so the vocabulary is restated here rather than
- * importing a browser module into the server. A mismatch fails loudly in the
- * test suite, which asserts the two lists agree. */
 export const ENUMS = {
   categories: [
     'Fiscal & Financial', 'Leadership', 'Training & PME', 'Administration', 'Operations',
@@ -36,21 +15,13 @@ export const ENUMS = {
   recognitionTypes: ['award', 'loa', 'certificate', 'commendation', 'feedback', 'email', 'other'],
   trainingTypes: ['pme', 'course', 'qualification', 'certification', 'education', 'skill', 'training'],
   trainingStatus: ['completed', 'in_progress', 'scheduled'],
-  // 'chain' is deleted (finding 3): it meant "the unit and everyone under it",
-  // which is automatic cross-unit sharing, and it was the default on the three
-  // most-used record types. 'personal' is finding 6 — a record that belongs to
-  // a person rather than a unit.
+
   visibilities: ['personal', 'private', 'unit'],
   degrees: ['associate', 'bachelor'],
   pme: ['distance', 'resident'],
   mcmapBelts: ['Tan', 'Grey', 'Green', 'Brown', 'Black 1st', 'Black 2nd', 'Black 3rd'],
   rifleQuals: ['Unqualified', 'Marksman', 'Sharpshooter', 'Expert'],
 };
-
-/* ── field validators ─────────────────────────────────────────────── */
-/* Each returns an error string, or null when the value passes. `undefined`
- * always passes — the CRUD layer treats it as "field not sent". Empty string
- * and null pass unless the field is required: they mean "clear this". */
 
 const absent = (v) => v === undefined || v === null || v === '';
 
@@ -79,14 +50,12 @@ const oneOf = (list, { required = false } = {}) => (v) => {
   return list.includes(v) ? null : `Must be one of: ${list.join(', ')}.`;
 };
 
-/** ISO-ish date: YYYY-MM-DD that the Date parser agrees exists. */
 const isoDate = ({ required = false } = {}) => (v) => {
   if (absent(v)) return required ? 'Required.' : null;
   if (typeof v !== 'string' || !/^\d{4}-\d{2}-\d{2}$/.test(v)) return 'Must be a date (YYYY-MM-DD).';
   const t = Date.parse(`${v}T00:00:00Z`);
   if (Number.isNaN(t)) return 'Not a real calendar date.';
-  // Date.parse quietly rolls impossible dates forward — 2026-02-31 becomes
-  // March 3rd — so the components must survive the round trip.
+
   const d = new Date(t);
   const [year, month, day] = v.split('-').map(Number);
   if (d.getUTCFullYear() !== year || d.getUTCMonth() + 1 !== month || d.getUTCDate() !== day) {
@@ -108,8 +77,7 @@ const evidenceLinks = () => (v) => {
   if (!Array.isArray(v)) return 'Must be a list of links.';
   if (v.length > MAX_EVIDENCE_LINKS) return `At most ${MAX_EVIDENCE_LINKS} links.`;
   for (const link of v) {
-    // The client stores { label, url } objects; plain strings are accepted for
-    // imports and hand-built API calls. Nothing else is.
+
     if (typeof link === 'string') {
       if (link.length > 500) return 'A link is longer than 500 characters.';
       if (badScheme(link)) return 'That link scheme is not allowed.';
@@ -120,8 +88,7 @@ const evidenceLinks = () => (v) => {
       if (label !== undefined && label !== null && (typeof label !== 'string' || label.length > 200)) {
         return 'A link label is not text or is longer than 200 characters.';
       }
-      // Evidence lives on MCEN shares as often as on the web, so UNC paths and
-      // plain document names are allowed; javascript:/data: URIs are not.
+
       if (url !== undefined && url !== null && (typeof url !== 'string' || url.length > 500)) {
         return 'A link URL is not text or is longer than 500 characters.';
       }
@@ -132,8 +99,6 @@ const evidenceLinks = () => (v) => {
   }
   return null;
 };
-
-/* ── per-table schemas ────────────────────────────────────────────── */
 
 export const RECORD_SCHEMAS = {
   activities: {
@@ -216,13 +181,10 @@ export const RECORD_SCHEMAS = {
   },
 };
 
-/** Readiness inputs (finding 21): reject out-of-range rather than clamp. */
 export const READINESS_SCHEMA = {
   pft_score: num(0, 300, { integer: true }),
   cft_score: num(0, 300, { integer: true }),
-  // The rifle course of fire and its scale have been revised over the years;
-  // 0–350 covers the current annual qualification without hard-coding one
-  // year's table. The evaluation config carries the reference and date.
+
   rifle_score: num(0, 350, { integer: true }),
   rifle_qual: oneOf(ENUMS.rifleQuals),
   mcmap_belt: oneOf(ENUMS.mcmapBelts),
@@ -262,14 +224,6 @@ export const USER_SCHEMA = {
   billet_id: str(120),
 };
 
-/* ── runner ───────────────────────────────────────────────────────── */
-
-/**
- * Validate a body against a schema. Only checks keys the schema knows;
- * `required` fields are enforced only when `partial` is false (creates), so a
- * PATCH-style update that never mentions `title` doesn't fail on it.
- * Returns null when clean, otherwise { fieldErrors }.
- */
 export function validate(schema, body = {}, { partial = false } = {}) {
   const fieldErrors = {};
   for (const [field, check] of Object.entries(schema)) {
@@ -281,7 +235,6 @@ export function validate(schema, body = {}, { partial = false } = {}) {
   return Object.keys(fieldErrors).length ? { fieldErrors } : null;
 }
 
-/** Strip a body down to schema-known keys — unknown keys are dropped, never stored. */
 export function pick(schema, body = {}) {
   const out = {};
   for (const field of Object.keys(schema)) {
@@ -290,7 +243,6 @@ export function pick(schema, body = {}) {
   return out;
 }
 
-/** Human-readable single line from a fieldErrors map — "title: Required. date: Must be a date." */
 export function fieldErrorMessage(fieldErrors) {
   return Object.entries(fieldErrors)
     .map(([field, msg]) => `${field}: ${msg}`)
@@ -298,7 +250,7 @@ export function fieldErrorMessage(fieldErrors) {
 }
 
 export const BULK_LIMITS = {
-  /** Finding 12: a 2 MB JSON body can hold tens of thousands of rows. */
+
   maxRows: 500,
   maxBodyBytes: 2 * 1024 * 1024,
 };

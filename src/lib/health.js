@@ -1,13 +1,3 @@
-/**
- * Vantage — record health and the daily action list (v3.3 findings 45, 46).
- *
- * Two questions, answered from the Marine's own records with no server round
- * trip: "what should I do today?" and "how usable is this activity record?"
- * Everything here is Vantage coaching over the person's data — counts and
- * pointers, never a judgement of the Marine — and every item carries a route
- * so the dashboard can send you straight to the fix.
- */
-
 import { findDuplicates } from './duplicates.js';
 import { daysUntil } from './evaluation.js';
 
@@ -17,7 +7,6 @@ const ageDays = (iso, now) => {
   return Number.isNaN(t) ? null : Math.floor((now.getTime() - t) / DAY);
 };
 
-/** Readiness inputs per track — the fields the Readiness page actually asks for. */
 const READINESS_FIELDS = {
   jepes: [
     ['rifle_qual', 'rifle qualification'], ['mcmap_belt', 'MCMAP belt'],
@@ -34,10 +23,6 @@ const READINESS_FIELDS = {
 
 const missing = (v) => v === null || v === undefined || v === '';
 
-/**
- * Record health for one Marine's own log (finding 46). Returns issue rows
- * `{ key, label, count, detail, to }` — an empty array is a clean bill.
- */
 export function recordHealth({ activities = [], goals = [], profile = null, track = 'jepes', now = new Date() } = {}) {
   const issues = [];
   const push = (key, count, label, detail, to) => {
@@ -85,10 +70,6 @@ export function recordHealth({ activities = [], goals = [], profile = null, trac
   return issues;
 }
 
-/**
- * The "Today" block (finding 45): the short, ordered list of what actually
- * needs the Marine's attention right now. Same row shape as recordHealth.
- */
 export function todayActions({
   tasks = [], goals = [], activities = [], profile = null, track = 'jepes',
   fitrepPeriodEnd = null, now = new Date(),

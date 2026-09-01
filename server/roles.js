@@ -1,44 +1,27 @@
-/**
- * Vantage — permission flags.
- *
- * A bitfield, the way Discord does it. The previous model had three hard-coded
- * roles, which meant every command that didn't organise itself as
- * member/team-lead/section-head had to pretend it did. A shop with a Training
- * NCO who should see everyone's PME but nobody's fiscal work had no way to say
- * that.
- *
- * Roles are rows. Permissions are bits. A Marine can hold several roles and
- * gets the union of them. That's the whole model.
- */
-
 export const PERMISSIONS = {
-  /** See that a unit exists and who is in it. */
+
   VIEW_UNIT: 1 << 0,
-  /** See records members have shared. Never covers anything marked private. */
+
   VIEW_RECORDS: 1 << 1,
-  /** Open a member's full record page. */
+
   VIEW_MEMBER_DETAIL: 1 << 2,
-  /** Correct someone else's entry before it goes on a package. */
+
   MANAGE_RECORDS: 1 << 3,
-  /** Post tasks and projects to the unit. */
+
   CREATE_SHARED_WORK: 1 << 4,
-  /** Post goals to the unit. */
+
   CREATE_SHARED_GOALS: 1 << 5,
-  /** Add Marines, move them between units, end assignments. */
+
   MANAGE_MEMBERS: 1 << 6,
-  /** Create roles and hand them out. */
+
   MANAGE_ROLES: 1 << 7,
-  /** Rename and restructure this unit. Creating a NEW unit needs an invite. */
+
   MANAGE_UNITS: 1 << 8,
-  /** Read the access log for this unit. */
+
   VIEW_AUDIT: 1 << 9,
-  /** Pull the unit's data out as a bounded CSV export. */
+
   EXPORT_DATA: 1 << 10,
-  /**
-   * Everything, inside the unit the grant was made in. v3.3 fanned this out
-   * across every unit in the database (finding 4); v3.4 does not. Kept as a
-   * separate bit so it can be audited on its own.
-   */
+
   ADMINISTRATOR: 1 << 11,
 };
 
@@ -129,35 +112,6 @@ export const listPermissions = (bits) =>
 export const fromKeys = (keys = []) =>
   keys.reduce((bits, key) => bits | (PERMISSIONS[key] || 0), 0);
 
-/**
- * Role TEMPLATES (finding 1).
- *
- * v3.3 seeded six roles with `unit_id = NULL`, which the schema comment
- * described as "applies org-wide". So on a fresh install every role in the
- * database was a single global object shared by every unit, and two SNCOICs at
- * two commands could not have a "Training NCO" that meant different things —
- * editing one edited both. That was the single largest obstacle to tenancy.
- *
- * These are no longer rows. They are a template set. At unit creation the
- * chosen template is COPIED into the new unit as ordinary, editable, unit-local
- * rows, which diverge immediately and permanently. `is_system` survives on the
- * copies only as "this row came from a template" and confers no edit
- * protection: the owning unit may rename, re-colour, re-permission or delete
- * any of its own roles.
- *
- * `inherits_down` is gone from the model entirely (finding 2). A role grants
- * inside the unit it was granted in, full stop.
- *
- * `position` is the hierarchy, and it is now PER UNIT: you cannot create, edit,
- * delete or hand out a role at or above your own highest position in that
- * unit's own scale. Position 30 in Unit A has no relationship to position 30 in
- * Unit B.
- *
- * `owner: true` marks the role the unit's creator receives. It is a
- * convenience, not the source of their authority — that is
- * `units.owner_user_id`, which no role edit can revoke.
- */
-
 const OWNER_BITS = PERMISSIONS.ADMINISTRATOR;
 
 const SNCOIC_BITS = fromKeys([
@@ -177,10 +131,6 @@ const SNCO_BITS = FIRE_TEAM_LEADER_BITS | fromKeys([
 
 const MARINE_BITS = fromKeys(['VIEW_UNIT']);
 
-/**
- * The one default template ships the six approved Vantage roles. They form a
- * deliberate capability ladder while remaining editable, unit-local copies.
- */
 export const ROLE_TEMPLATES = [
   {
     id: 'default',
@@ -227,7 +177,6 @@ export const DEFAULT_TEMPLATE_ID = 'default';
 export const templateById = (id) =>
   ROLE_TEMPLATES.find((t) => t.id === id) || ROLE_TEMPLATES.find((t) => t.id === DEFAULT_TEMPLATE_ID);
 
-/** Public shape for the creation wizard — no bit maths on the wire. */
 export const templateSummaries = () =>
   ROLE_TEMPLATES.map((t) => ({
     id: t.id,

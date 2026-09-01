@@ -1,16 +1,9 @@
 import {
   Gauge, ListChecks, Briefcase, Target, GraduationCap, FileBarChart,
   Settings2, Users, Building2, Activity, LifeBuoy,
+  ScrollText, ShieldCheck,
 } from 'lucide-react';
 
-/**
- * Navigation lives in its own module so the shell and the command palette can
- * both read it without importing each other.
- *
- * `requires` is a permission bit that must be held somewhere for the item to
- * appear. Presentation only — the server refuses the data regardless, so
- * hiding a link is a courtesy, not a control.
- */
 export const NAV = [
   { to: '/', label: 'Command', icon: Gauge, end: true, key: 'g d' },
   { to: '/activities', label: 'Records', icon: ListChecks, key: 'g a' },
@@ -19,8 +12,10 @@ export const NAV = [
   { to: '/work', label: 'Work', icon: Briefcase, key: 'g w', activeOn: ['/goals'] },
   { to: '/goals', label: 'Goals', icon: Target, key: 'g g' },
   { to: '/career', label: 'Career', icon: GraduationCap, key: 'g v', activeOn: ['/readiness'] },
+  { to: '/maradmins', label: 'MARADMINs', icon: ScrollText, key: 'g m' },
   { to: '/reports', label: 'Reports', icon: FileBarChart, key: 'g p' },
   { to: '/units', label: 'Units', icon: Building2, key: 'g u', requires: 'MANAGE_UNITS' },
   { to: '/help', label: 'Help', icon: LifeBuoy, key: 'g h' },
   { to: '/settings', label: 'Settings', icon: Settings2, key: 'g s' },
+  { to: '/operator', label: 'Owner console', icon: ShieldCheck, key: 'g o', requiresOperator: true },
 ];

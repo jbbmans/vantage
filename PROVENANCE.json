@@ -1,0 +1,9 @@
+{
+  "schema": "vantage-provenance/v1",
+  "product": "Vantage",
+  "creator": "John Bernard Boletz",
+  "canonical_source": "https://github.com/jbbmans/vantage",
+  "copyright_year": 2026,
+  "license": "UNLICENSED",
+  "release": "3.7.0"
+}

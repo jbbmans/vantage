@@ -28,7 +28,6 @@ const EFFORT_LABEL = {
   high: 'long-term effort',
 };
 
-/** Chip that tells a Marine whether a line is policy, their own data, or Vantage's opinion (finding 22). */
 function KindChip({ kind }) {
   const k = REC_KINDS[kind] || REC_KINDS.heuristic;
   return <Badge tone={k.tone}>{k.label}</Badge>;
@@ -52,7 +51,6 @@ function StateChip({ it }) {
   );
 }
 
-/** Official-source links only (finding 50), with the date the citations were last verified (finding 48). */
 function ReferencesPanel({ entries }) {
   return (
     <Panel title="References" subtitle={`Official sources · citations verified ${EVAL_VERIFIED}`}>
@@ -60,8 +58,7 @@ function ReferencesPanel({ entries }) {
         {entries.map((ref) => (
           <div key={ref.order} className="flex flex-wrap items-center gap-2">
             <Button variant="ghost" size="sm" asChild>
-              {/* Short label so the row wraps on a phone; the full citation
-                  lives in the tooltip title and in evalRefs. */}
+
               <a href={ref.url} target="_blank" rel="noreferrer" title={ref.citation}>
                 <ExternalLink className="h-3 w-3" />
                 {ref.order}
@@ -82,28 +79,12 @@ function ReferencesPanel({ entries }) {
   );
 }
 
-/**
- * The JEPES preparation dashboard.
- *
- * It deliberately shows no composite score. The official conversion is
- * percentile-based against your peer group and lives on MOL; a number Vantage
- * invented would look authoritative and be wrong (v3.3 finding 19). What it
- * shows instead: which inputs are on record, where each stands, and what to
- * work on — with every judgement labeled as coaching, never as policy.
- */
 export default function Readiness() {
   const track = useEvalTrack();
   if (track === 'fitrep') return <FitrepReadiness />;
   return <JepesReadiness />;
 }
 
-/**
- * Sergeants and above are not on JEPES. There is no cutting score to grind, no
- * belt worth fifty points, no monthly recalculation. Their report is written
- * by a Reporting Senior against that RS's whole history of Marines, and the
- * one thing they control is the evidence in front of the RS when the pen
- * comes out. So this page is about coverage and the input package, not pillars.
- */
 function FitrepReadiness() {
   const activities = useActivities();
   const identity = useIdentity();
@@ -163,7 +144,6 @@ function FitrepReadiness() {
         subtitle={`${identity?.user?.rank?.abbr || ''} ${identity?.user?.last_name || ''} · fitness report track — ${EVAL_REFERENCES.fitrep.citation}`}
       />
 
-      {/* reporting period */}
       <Panel title="Reporting period" subtitle="When your Reporting Senior next writes">
         <div className="flex flex-wrap items-end gap-3">
           <Field label="Period ends" hint="From your last report or your S-1. Vantage starts nudging at 45 days out.">
@@ -181,7 +161,6 @@ function FitrepReadiness() {
         </div>
       </Panel>
 
-      {/* attribute coverage */}
       <Panel
         title="Attribute coverage"
         subtitle={`Your RS marks 14 attributes across sections D–H · ${covered}/14 have possible supporting evidence in your log`}
@@ -223,7 +202,6 @@ function FitrepReadiness() {
         ))}
       </Panel>
 
-      {/* recommendations */}
       <Panel title="What to do next" subtitle="Policy pointers, your own data, and Vantage's coaching — labeled apart" bodyClassName="p-0">
         {recs.map((r) => (
           <div key={r.id} className="row flex items-start gap-2.5 px-3 py-2.5">
@@ -236,7 +214,6 @@ function FitrepReadiness() {
         ))}
       </Panel>
 
-      {/* the few figures that ride on the report */}
       <Panel title="Recorded on the report" subtitle="Printed on the report — MCO 1610.7B attaches no point value or cap to them">
         <div className="grid grid-cols-2 gap-3 sm:grid-cols-4">
           <Field error={fieldErrors.pft_score} label="PFT" hint="Out of 300">
@@ -356,7 +333,6 @@ function JepesReadiness() {
         )}
       </PageHeader>
 
-      {/* ── the four pillars, as input status — never as points (finding 19) ── */}
       <Panel
         title="Where you stand"
         subtitle={`${Math.round(est.completeness * 4)} of 4 pillars have data · the score itself is computed by HQMC on MOL`}
@@ -389,7 +365,6 @@ function JepesReadiness() {
         )}
       </Panel>
 
-      {/* ── ranked recommendations ── */}
       <Panel
         title="What to do next"
         subtitle="Policy pointers, your own data, and Vantage's coaching — labeled apart, with no invented point values"
@@ -415,7 +390,6 @@ function JepesReadiness() {
         )}
       </Panel>
 
-      {/* ── inputs ── */}
       <div className="grid grid-cols-1 gap-3 lg:grid-cols-2">
         <Panel title="Warfighting" subtitle="ARQ classification and MCMAP belt">
           <div className="grid grid-cols-2 gap-3">
