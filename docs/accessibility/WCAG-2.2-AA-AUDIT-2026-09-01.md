@@ -5,6 +5,21 @@
 **Audited build:** `ff14562f21f6b91f195dfe5939fd6924061e0548`  
 **Evidence run:** [GitHub Actions run 33541640858](https://github.com/jbbmans/vantage/actions/runs/33541640858)
 
+## Remediation addendum — 2026-09-01
+
+All four findings from this audit are **closed in the current PR #4 remediation** and independently rechecked in [GitHub Actions run 33543293499](https://github.com/jbbmans/vantage/actions/runs/33543293499).
+
+| Finding | Status | Recheck evidence |
+|---|---|---|
+| A11Y-01 active-navigation contrast | Closed | Active desktop labels now use the high-contrast text token; 15/15 routed axe scans report no serious or critical violations. |
+| A11Y-02 Owner Console reflow | Closed | Owner Console fits at 375 and 768 CSS pixels; shared fields/panels and console grid children may shrink and wrap. |
+| A11Y-03 mobile Quick Log obscuration | Closed | The fixed overlay was replaced with a sticky-header action; the 375-pixel interaction test confirms it remains visible, opens Quick Log, and does not cover page content. |
+| A11Y-04 Quick Log persistent label | Closed | The primary textarea now has the visible, programmatically associated label “Describe the completed activity,” verified by browser regression coverage. |
+
+The remediation run passed **15/15** route-level axe checks and **36/36** mobile reflow and interaction checks. The release-gate source/API job also passed lint, production dependency audit, the full test suite, and build. The broad browser job still stops on the pre-existing Team-transfer `Reassign` locator timeout; that failure is outside these four findings and occurs before the accessibility subtests.
+
+A WCAG 2.2 AA conformance claim remains withheld pending the manual assistive-technology, zoom, forced-colors, theme, density, populated-state, and error-state matrix listed below.
+
 ## Verdict
 
 VANTAGE is **not ready for a WCAG 2.2 AA conformance claim**. This audit confirmed two release-blocking accessibility defects:
