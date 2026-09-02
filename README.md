@@ -19,11 +19,14 @@ Vantage is a self-hosted performance, work, readiness, and career-record system 
 
 - React 18, Vite, Tailwind CSS, Radix UI, and Recharts
 - Node.js 22, Express 5, and SQLite with versioned migrations
+- A guarded SQLite-to-PostgreSQL preparation toolkit for the managed-database transition
 - One production process serving the API and compiled application
 - HttpOnly revocable sessions, `scrypt` password hashing, CSP, HSTS, CSRF checks, and audited protected actions
 - Docker and Render deployment with a persistent disk
 
 SQLite requires one application instance per database. Use a persistent, encrypted volume and tested off-host backups.
+
+The application runtime is not yet PostgreSQL-capable. The [PostgreSQL migration path](docs/POSTGRESQL-MIGRATION.md) provides the canonical target schema, a verified transactional export/import package, Render provisioning guidance, and the mandatory runtime/cutover gates. It deliberately prevents a premature database switch.
 
 ## Development
 
@@ -83,6 +86,8 @@ Owner-console APIs are host-gated in production, so they only answer on the conf
 ## Backup and recovery
 
 The owner console downloads a consistent, audited SQLite snapshot. To restore, stop the service, preserve the current database and WAL companions, replace the mounted database with a verified snapshot, then restart one instance and validate `/api/health`.
+
+To prepare a PostgreSQL rehearsal package without changing the live database, run `npm run migrate:postgres:prepare -- --source /absolute/vantage.db --output /secure/vantage-postgres.sql`. The source is snapshotted read-only, integrity and audit checks run first, and existing output files are never overwritten.
 
 Lost-operator recovery requires shell access and explicit intent:
 
