@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Plus, Sparkles, Trash2, Target, TrendingUp } from 'lucide-react';
 import { useGoals, useActivities, createRecord, updateRecord, deleteRecord, refreshAll } from '@/store/useStore';
 import { aiAssist, aiStatus, errorText } from '@/lib/api';
@@ -27,11 +27,9 @@ export default function Goals() {
   const [filter, setFilter] = useState('active');
   const [aiBusy, setAiBusy] = useState(false);
   const [aiAvailable, setAiAvailable] = useState(false);
-  const lastGoalDraft = useRef('');
 
   useEffect(() => {
     if (!dialog) return undefined;
-    lastGoalDraft.current = '';
     aiStatus().then((status) => setAiAvailable(Boolean(status.available))).catch(() => setAiAvailable(false));
     return undefined;
   }, [dialog]);
@@ -85,10 +83,12 @@ export default function Goals() {
     }
   };
 
-  const draftGoal = async (draft, set, automatic = false) => {
+  const draftGoal = async (draft, set) => {
     const objective = [draft.title, draft.description].filter(Boolean).join('\n').trim();
-    if (!aiAvailable || !objective || (automatic && (lastGoalDraft.current === objective || aiBusy))) return;
-    lastGoalDraft.current = objective;
+    if (!objective) {
+      toast.error('Describe the objective before generating.');
+      return;
+    }
     setAiBusy(true);
     try {
       const result = await aiAssist('goal_draft', { objective, target_date: draft.period_end });
@@ -102,9 +102,9 @@ export default function Goals() {
         period_end: suggestion.period_end,
         category: CATEGORIES.includes(suggestion.category) ? suggestion.category : undefined,
       })) if (value !== undefined && value !== null && value !== '') set(key, value);
-      if (!automatic) toast.success('AI goal suggestion applied. Verify every field before saving.');
+      toast.success('Vantage generated editable goal fields. Verify before saving.');
     } catch (error) {
-      if (!automatic) toast.error(errorText(error));
+      toast.error(errorText(error));
     } finally { setAiBusy(false); }
   };
 
@@ -213,17 +213,21 @@ export default function Goals() {
           onSave={save}
           fields={(draft, set) => (
             <>
-              {aiAvailable && (
-                <div className="flex items-center gap-2 rounded border border-rule bg-panel-2/40 p-3 text-xs text-text-3">
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-rule bg-panel-2/40 p-3 text-xs text-text-3">
+                <p className="flex items-center gap-2">
                   <Sparkles className={cn('h-3.5 w-3.5 text-signal', aiBusy && 'animate-pulse')} />
-                  <span>{aiBusy ? 'Vantage is shaping measurable fields…' : 'Vantage drafts measurable fields as you describe the objective. Verify before saving.'}</span>
-                </div>
-              )}
+                  <span>{aiAvailable ? 'Generated fields stay editable in this form.' : 'Vantage generation is unavailable until the server key is configured.'}</span>
+                </p>
+                <Button type="button" size="sm" onClick={() => draftGoal(draft, set)} disabled={aiBusy}>
+                  <Sparkles className={cn('h-3.5 w-3.5', aiBusy && 'animate-pulse')} />
+                  {aiBusy ? 'Generating…' : 'Generate using Vantage'}
+                </Button>
+              </div>
               <Field error={goalErrors.title} label="Title">
-                <Input autoFocus value={draft.title || ''} onChange={(e) => set('title', e.target.value)} onBlur={() => draftGoal(draft, set, true)} />
+                <Input autoFocus value={draft.title || ''} onChange={(e) => set('title', e.target.value)} />
               </Field>
               <Field label="Description">
-                <Textarea rows={2} value={draft.description || ''} onChange={(e) => set('description', e.target.value)} onBlur={() => draftGoal(draft, set, true)} />
+                <Textarea rows={2} value={draft.description || ''} onChange={(e) => set('description', e.target.value)} />
               </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field error={goalErrors.target_value} label="Target">

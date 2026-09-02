@@ -1,11 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { Bookmark, CalendarDays, ExternalLink, RefreshCw, Search, ShieldCheck, Sparkles } from 'lucide-react';
+import { Bookmark, CalendarDays, Copy, ExternalLink, RefreshCw, Search, ShieldCheck, Sparkles } from 'lucide-react';
 import { useSearchParams } from 'react-router-dom';
 import * as api from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { Dialog } from '@/components/ui/Dialog';
-import { Badge, Button, EmptyState, Input, Panel, Segmented } from '@/components/ui/primitives';
-import { cn } from '@/lib/utils';
+import { Badge, Button, EmptyState, Input, Panel, Segmented, Textarea } from '@/components/ui/primitives';
+import { cn, copyToClipboard } from '@/lib/utils';
 
 function displayDate(value, long = false) {
   if (!value) return '—';
@@ -26,6 +26,7 @@ export default function Maradmins() {
   const [aiSummary, setAiSummary] = useState(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiAvailable, setAiAvailable] = useState(false);
+  const [aiText, setAiText] = useState('');
 
   const load = async ({ wait = false } = {}) => {
     setLoading(true);
@@ -67,22 +68,23 @@ export default function Maradmins() {
     });
   }, [state.rows, query, scope, tag]);
 
-  const summarizeWithAi = async (row = selected, automatic = false) => {
-    if (!row || !aiAvailable) return;
+  const summarizeWithAi = async (row = selected) => {
+    if (!row) return;
     setAiBusy(true);
     setAiSummary(null);
+    setAiText('');
     try {
       const result = await api.aiAssist('maradmin_summary', { id: row.id });
       setAiSummary(result.output);
-      if (!automatic) toast.success('GenAI.mil summary generated. Verify it against the official message.');
-    } catch (error) { if (!automatic) toast.error(api.errorText(error)); }
+      setAiText(result.output?.plain_language || '');
+      toast.success('Vantage generated a summary. Verify it against the official message.');
+    } catch (error) { toast.error(api.errorText(error)); }
     finally { setAiBusy(false); }
   };
 
   const open = async (row) => {
     setAiSummary(null);
     setSelected(row);
-    summarizeWithAi(row, true);
     if (!row.read_at) {
       const readAt = new Date().toISOString();
       setState((current) => ({
@@ -232,6 +234,9 @@ export default function Maradmins() {
                 <Bookmark className={cn('h-3.5 w-3.5', selected.saved_at && 'fill-current text-signal')} />
                 {selected.saved_at ? 'Saved' : 'Save'}
               </Button>
+              <Button size="sm" onClick={() => summarizeWithAi(selected)} disabled={aiBusy}>
+                <Sparkles className={cn('h-3.5 w-3.5', aiBusy && 'animate-pulse')} /> {aiBusy ? 'Generating…' : 'Generate using Vantage'}
+              </Button>
               <Button variant="primary" size="sm" asChild>
                 <a href={selected.url} target="_blank" rel="noreferrer">Read official message <ExternalLink className="h-3.5 w-3.5" /></a>
               </Button>
@@ -255,8 +260,14 @@ export default function Maradmins() {
             </div>
             {aiSummary && (
               <div className="space-y-3 rounded-xl border border-signal/30 bg-signal/5 p-4">
-                <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-signal" /><p className="eyebrow">GenAI.mil suggestion</p></div>
-                <p className="text-base leading-relaxed text-text-2">{aiSummary.plain_language}</p>
+                <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-signal" /><p className="eyebrow">GenAI.mil suggestion</p><Button className="ml-auto" size="sm" onClick={async () => ((await copyToClipboard(aiText)) ? toast.success('Summary copied.') : toast.error('Could not reach the clipboard.'))}><Copy className="h-3.5 w-3.5" /> Copy</Button></div>
+                <Textarea
+                  rows={4}
+                  value={aiText}
+                  onChange={(event) => setAiText(event.target.value)}
+                  aria-label="Edit Vantage-generated MARADMIN summary"
+                  className="text-base leading-relaxed"
+                />
                 {[
                   ['Who is affected', aiSummary.who_is_affected],
                   ['Required actions', aiSummary.required_actions],
