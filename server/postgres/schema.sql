@@ -1,4 +1,4 @@
--- VANTAGE PostgreSQL schema, aligned with SQLite schema version 16.
+-- VANTAGE PostgreSQL schema, aligned with SQLite schema version 17.
 -- This file intentionally preserves the application's current TEXT timestamp and
 -- SMALLINT 0/1 contracts so a later runtime-adapter change does not alter API JSON.
 
@@ -437,6 +437,19 @@ CREATE TABLE security_incident_events (
   sequence BIGINT GENERATED ALWAYS AS IDENTITY UNIQUE
 );
 CREATE INDEX idx_security_incident_events_case ON security_incident_events(incident_id, created_at);
+
+CREATE TABLE ai_usage_daily (
+  day TEXT NOT NULL,
+  user_id TEXT NOT NULL REFERENCES users(id) DEFERRABLE INITIALLY DEFERRED,
+  workflow TEXT NOT NULL,
+  requests INTEGER NOT NULL DEFAULT 0,
+  prompt_tokens INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens INTEGER NOT NULL DEFAULT 0,
+  failures INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, user_id, workflow)
+);
+CREATE INDEX idx_ai_usage_day ON ai_usage_daily(day);
 
 CREATE TABLE meta (
   key TEXT PRIMARY KEY,

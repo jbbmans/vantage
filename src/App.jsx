@@ -19,6 +19,7 @@ const Activities = lazy(() => import('@/pages/Activities'));
 const ActivityDetail = lazy(() => import('@/pages/ActivityDetail'));
 const Work = lazy(() => import('@/pages/Work'));
 const Goals = lazy(() => import('@/pages/Goals'));
+const AiAssist = lazy(() => import('@/pages/AiAssist'));
 const Career = lazy(() => import('@/pages/Career'));
 const Team = lazy(() => import('@/pages/Team'));
 const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
@@ -108,6 +109,7 @@ export default function App() {
                   <Route path="team/:id" element={<Deferred><MemberDetail /></Deferred>} />
                   <Route path="work" element={<Deferred><Work /></Deferred>} />
                   <Route path="goals" element={<Deferred><Goals /></Deferred>} />
+                  <Route path="ai" element={<Deferred><AiAssist /></Deferred>} />
                   <Route path="career" element={<Deferred><Career /></Deferred>} />
                   <Route path="maradmins" element={<Deferred><Maradmins /></Deferred>} />
                   <Route path="development" element={<Navigate to="/career?tab=development" replace />} />

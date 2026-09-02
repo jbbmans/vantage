@@ -50,6 +50,7 @@ const TABLES = [
   'integration_clients',
   'security_incidents',
   'security_incident_events',
+  'ai_usage_daily',
   'meta',
 ];
 

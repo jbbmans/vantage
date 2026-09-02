@@ -94,7 +94,7 @@ assert.match(sql, /decode\('0001ff', 'hex'\)/);
 assert.doesNotMatch(sql, /session-digest-not-exported/);
 assert.doesNotMatch(sql, /\bPRAGMA\b|COLLATE NOCASE|\bBLOB\b/);
 assert.match(sql, /SET CONSTRAINTS ALL IMMEDIATE;\nCOMMIT;/);
-assert.equal(manifest.sqlite_schema_version, 16);
+assert.equal(manifest.sqlite_schema_version, 17);
 assert.equal(manifest.audit_entries_verified, 1);
 assert.equal(manifest.tables.sessions.source_rows, 1);
 assert.equal(manifest.tables.sessions.exported_rows, 0);

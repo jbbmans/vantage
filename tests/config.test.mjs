@@ -36,4 +36,11 @@ assert.equal(validateConfig(integrations).integrations.enabled, true);
 integrations.integrations.requests_per_15_minutes = 29;
 assert.throws(() => validateConfig(integrations), /integrations\.requests_per_15_minutes/i);
 
+const ai = structuredClone(DEFAULT_CONFIG);
+ai.ai.enabled = true;
+ai.ai.requests_per_minute = 120;
+assert.equal(validateConfig(ai).ai.model, 'gemini-2.5-flash');
+ai.ai.base_url = 'https://unapproved.example/v1';
+assert.throws(() => validateConfig(ai), /GenAI\.mil/i);
+
 console.log('  ok    strict YAML configuration parser');

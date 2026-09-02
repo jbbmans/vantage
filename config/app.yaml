@@ -72,3 +72,16 @@ integrations:
   # Disabled until an Instance Operator approves an exact-unit client.
   enabled: false
   requests_per_15_minutes: 600
+
+ai:
+  # GenAI.mil requests leave only from the VANTAGE server. Keep the API key in
+  # VANTAGE_GENAI_API_KEY; never place it in this file or browser code.
+  enabled: false
+  base_url: https://api.genai.mil/v1
+  model: gemini-2.5-flash
+  max_output_tokens: 1800
+  timeout_ms: 45000
+  requests_per_minute: 100
+  per_user_requests_per_minute: 12
+  daily_token_budget: 45000000
+  per_user_daily_tokens: 250000
