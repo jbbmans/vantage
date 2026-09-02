@@ -6,7 +6,7 @@ import { Check, ChevronDown } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 const VARIANTS = {
-  primary: 'bg-signal text-signal-ink hover:bg-signal/90 border-signal font-medium',
+  primary: 'bg-signal text-signal-ink hover:bg-signal/90 border-signal font-medium shadow-token-xs',
   default: 'bg-panel-2 text-text border-rule hover:border-rule-strong hover:bg-panel-2/70',
   ghost: 'bg-transparent border-transparent text-text-2 hover:text-text hover:bg-panel-2',
   danger: 'bg-transparent border-rule text-redline hover:bg-redline/10 hover:border-redline/50',
@@ -30,7 +30,8 @@ export const Button = forwardRef(function Button(
     <Comp
       ref={ref}
       className={cn(
-        'inline-flex shrink-0 items-center rounded border transition-[color,background-color,border-color,transform,box-shadow] duration-150',
+        'tap-target inline-flex shrink-0 items-center rounded border transition-[color,background-color,border-color,transform,box-shadow] duration-150',
+        'focus-visible:ring-2 focus-visible:ring-signal focus-visible:ring-offset-2',
         'hover:-translate-y-px active:translate-y-0 active:scale-[0.98]',
         'disabled:pointer-events-none disabled:opacity-40',
         VARIANTS[variant],
@@ -56,7 +57,7 @@ export const Textarea = forwardRef(function Textarea({ className, rows = 3, ...p
 
 export function Label({ className, children, hint, ...props }) {
   return (
-    <label className={cn('mb-1 flex items-baseline gap-2', className)} {...props}>
+    <label className={cn('mb-1 flex flex-wrap items-baseline gap-x-2 gap-y-0.5', className)} {...props}>
       <span className="eyebrow">{children}</span>
       {hint && <span className="text-2xs text-text-3">{hint}</span>}
     </label>
@@ -81,7 +82,7 @@ export function Field({ label, hint, error, children, className }) {
     if (Object.keys(extra).length) control = React.cloneElement(children, extra);
   }
   return (
-    <div className={className}>
+    <div className={cn('min-w-0', className)}>
       <Label id={labelId} hint={hint}>{label}</Label>
       {control}
       {error && <p id={errorId} className="mt-1 text-2xs leading-snug text-redline">{error}</p>}
@@ -192,7 +193,7 @@ export function Tooltip({ content, children, side = 'top', className }) {
 
 export function Panel({ title, subtitle, action, children, className, bodyClassName, id }) {
   return (
-    <section id={id} className={cn('panel scroll-mt-24 rounded', className)}>
+    <section id={id} className={cn('panel min-w-0 scroll-mt-24', className)}>
       {(title || action) && (
         <header className="flex items-center justify-between gap-3 border-b border-rule px-3 py-2">
           <div className="min-w-0">
@@ -202,7 +203,7 @@ export function Panel({ title, subtitle, action, children, className, bodyClassN
           {action && <div className="flex shrink-0 items-center gap-1.5">{action}</div>}
         </header>
       )}
-      <div className={cn('p-3', bodyClassName)}>{children}</div>
+      <div className={cn('panel-body p-3', bodyClassName)}>{children}</div>
     </section>
   );
 }

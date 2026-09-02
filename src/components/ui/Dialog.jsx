@@ -13,7 +13,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[#102a36]/45 backdrop-blur-[2px] data-[state=open]:animate-scale-in" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-nav/55 backdrop-blur-[2px] data-[state=open]:animate-scale-in" />
         <DialogPrimitive.Content
           className={cn(
             'fixed z-50 flex flex-col overflow-hidden border border-rule-strong bg-panel shadow-[var(--shadow)]',

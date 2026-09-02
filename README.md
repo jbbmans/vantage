@@ -11,17 +11,23 @@ Vantage is a self-hosted performance, work, readiness, and career-record system 
 - First-party notifications and a searchable command menu
 - Cached MARADMIN ingestion from the official Marines.mil RSS feed
 - Restricted owner console for safe, non-secret instance configuration
+- Opt-in, exact-unit read-only API for approved enterprise integrations
+- Confidential incident and vulnerability reporting with an operator-only triage queue
+- Governed GenAI.mil assistance for capture, goals, evaluation writing, personal reviews, record quality, MARADMINs, and aggregate briefs
 - Responsive light/dark interface with no advertising or third-party analytics
 
 ## Architecture
 
 - React 18, Vite, Tailwind CSS, Radix UI, and Recharts
 - Node.js 22, Express 5, and SQLite with versioned migrations
+- A guarded SQLite-to-PostgreSQL preparation toolkit for the managed-database transition
 - One production process serving the API and compiled application
 - HttpOnly revocable sessions, `scrypt` password hashing, CSP, HSTS, CSRF checks, and audited protected actions
 - Docker and Render deployment with a persistent disk
 
 SQLite requires one application instance per database. Use a persistent, encrypted volume and tested off-host backups.
+
+The application runtime is not yet PostgreSQL-capable. The [PostgreSQL migration path](docs/POSTGRESQL-MIGRATION.md) provides the canonical target schema, a verified transactional export/import package, Render provisioning guidance, and the mandatory runtime/cutover gates. It deliberately prevents a premature database switch.
 
 ## Development
 
@@ -51,8 +57,19 @@ Reviewed non-secret defaults live in [`config/app.yaml`](config/app.yaml). Produ
 | `TRUST_PROXY` | Trusted reverse-proxy hop configuration |
 | `VANTAGE_MARADMIN_ENABLED` | Enable official-feed ingestion |
 | `VANTAGE_MARADMIN_REFRESH_MINUTES` | Feed cache interval |
+| `VANTAGE_INTEGRATIONS_ENABLED` | Enable the approved read-only integration surface |
+| `VANTAGE_INTEGRATION_REQUESTS_PER_15_MINUTES` | Per-client/source read limit |
+| `VANTAGE_GENAI_API_KEY` | Server-held GenAI.mil API credential |
+| `VANTAGE_AI_ENABLED` | Enable the governed AI gateway |
+| `VANTAGE_GENAI_MODEL` | Approved GenAI.mil model identifier |
 
 CAC/PIV support remains disabled until an approved certificate-verifying proxy is configured. See `.env.example` and `config/app.yaml` for the full supported surface.
+
+The enterprise API is disabled by default. Its credentials are created and revoked in the restricted Owner Console, are bound to one exact unit, and are shown only once. See [`docs/ENTERPRISE-API.md`](docs/ENTERPRISE-API.md) for the v1 contract and security boundary.
+
+Security reports are visible only to the reporter and Instance Operator and never enter unit exports or integration responses. See [`docs/SECURITY-INCIDENTS.md`](docs/SECURITY-INCIDENTS.md) for lifecycle, access, audit, and operational boundaries.
+
+AI is disabled by default and requires a server-held GenAI.mil key. See [`docs/GENAI-MIL.md`](docs/GENAI-MIL.md) and [`docs/adr/ADR-001-GENAI-GATEWAY.md`](docs/adr/ADR-001-GENAI-GATEWAY.md) for the workflow, deployment, key-lock, data-minimization, and human-review boundaries.
 
 ## Render deployment
 
@@ -75,6 +92,8 @@ Owner-console APIs are host-gated in production, so they only answer on the conf
 ## Backup and recovery
 
 The owner console downloads a consistent, audited SQLite snapshot. To restore, stop the service, preserve the current database and WAL companions, replace the mounted database with a verified snapshot, then restart one instance and validate `/api/health`.
+
+To prepare a PostgreSQL rehearsal package without changing the live database, run `npm run migrate:postgres:prepare -- --source /absolute/vantage.db --output /secure/vantage-postgres.sql`. The source is snapshotted read-only, integrity and audit checks run first, and existing output files are never overwritten.
 
 Lost-operator recovery requires shell access and explicit intent:
 

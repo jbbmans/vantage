@@ -132,7 +132,7 @@ for (const [unitId, roleId] of [['G8-FMRAC', branchManagerFmrac.id], ['G8-BUDGET
   });
   assert.equal(res.status, 200, `fixture: hayes into ${unitId} — ${res.status} ${JSON.stringify(res.body)}`);
 }
-const hayes = await login('hayes', PW('hayes'));
+let hayes = await login('hayes', PW('hayes'));
 
 await makeUser(admin, { username: 'rivera', unit_id: 'G8-FMRAC' });
 await makeUser(admin, { username: 'ohara', unit_id: 'G8-FMRAC', rank_id: 'Sgt' });
@@ -268,6 +268,11 @@ await test('an administrator can still do all of it', async () => {
   await call('DELETE', `/api/team/${riveraId}/roles/${auditor.id}?unit_id=G8-FMRAC`, { token: admin });
 });
 
+// Grant/revoke operations intentionally end the subject's prior session; later
+// authorization checks use fresh sessions rather than relying on stale fixtures.
+rivera = await login('rivera', PW('rivera'));
+hayes = await login('hayes', PW('hayes'));
+
 await test('permission bits outside the catalogue are rejected outright', async () => {
   const res = await call('POST', '/api/roles', {
     token: admin, body: { name: 'Ghost Bits', position: 1, permissions: 1 << 30 },
@@ -294,7 +299,7 @@ await test('TRANSFER: a leader cannot reassign a Marine whose role is at or abov
   assert.equal(res.status, 403);
 });
 
-await test('TRANSFER: old-unit roles are revoked and live sessions recompute scope (finding 2)', async () => {
+await test('TRANSFER: privilege-boundary changes revoke the stale session before reauthentication', async () => {
   await makeUser(admin, { username: 'diaz', unit_id: 'G8-FMRAC' });
   const diazId = fixtureId((await call('GET', '/api/team', { token: admin })).body.roster, 'diaz');
   await call('POST', `/api/team/${diazId}/roles`, { token: admin, body: { role_id: clerk.id, unit_id: 'G8-FMRAC' } });
@@ -306,12 +311,15 @@ await test('TRANSFER: old-unit roles are revoked and live sessions recompute sco
   });
   assert.equal(moved.status, 200);
   assert.ok(moved.body.revokedRoles.includes('Clerk'), `revoked: ${JSON.stringify(moved.body.revokedRoles)}`);
-  assert.equal(moved.body.sessionsRevoked, 0, 'a unit-local transfer does not need account-wide session authority');
+  assert.ok(moved.body.sessionsRevoked >= 1, 'the old authority-bearing session is revoked');
 
   const refreshed = await call('GET', '/api/me', { token: diazToken });
-  assert.equal(refreshed.status, 200, 'the session remains usable');
-  assert.ok(refreshed.body.unitIds.includes('G8-BUDGET'), 'the same session sees the new scope immediately');
-  assert.ok(!refreshed.body.unitIds.includes('G8-FMRAC'), 'the old scope is gone immediately');
+  assert.equal(refreshed.status, 401, 'the pre-change session cannot carry a new authority map');
+  const diazFreshToken = await login('diaz', PW('diaz'));
+  const fresh = await call('GET', '/api/me', { token: diazFreshToken });
+  assert.equal(fresh.status, 200, 'a fresh session is issued after authentication');
+  assert.ok(fresh.body.unitIds.includes('G8-BUDGET'), 'the reauthenticated session sees the new scope');
+  assert.ok(!fresh.body.unitIds.includes('G8-FMRAC'), 'the old scope is gone after reauthentication');
 
   const record = await call('GET', `/api/team/${diazId}`, { token: admin });
   assert.ok(!record.body.roles.some((r) => r.unit_id === 'G8-FMRAC'), 'no grant may remain in the old unit');
@@ -321,6 +329,23 @@ await test('TRANSFER: old-unit roles are revoked and live sessions recompute sco
     record.body.roles.some((r) => r.id === 'G8-BUDGET:marine' && r.unit_id === 'G8-BUDGET'),
     `baseline role follows to the new unit: ${JSON.stringify(record.body.roles.map((r) => r.id))}`
   );
+});
+
+await test('COMBINED MANAGEMENT: a stable assignment role grant revokes the pre-grant session', async () => {
+  await makeUser(admin, { username: 'stablegrant', unit_id: 'G8-FMRAC' });
+  const stableId = fixtureId((await call('GET', '/api/team', { token: admin })).body.roster, 'stablegrant');
+  const stableToken = await login('stablegrant', PW('stablegrant'));
+  const stableRole = (await call('POST', '/api/roles', {
+    token: admin, body: { name: 'Stable Grant', unit_id: 'G8-FMRAC', position: 1, permissions: P.VIEW_UNIT | P.VIEW_RECORDS },
+  })).body;
+  const managed = await call('PUT', `/api/team/${stableId}/manage`, {
+    token: hayes, body: { unit_id: 'G8-FMRAC', role_id: stableRole.id, mos: '0121' },
+  });
+  assert.equal(managed.status, 200, JSON.stringify(managed.body));
+  assert.equal(managed.body.assignment.moved, false);
+  assert.ok(managed.body.sessionsRevoked >= 1);
+  assert.equal((await call('GET', '/api/me', { token: stableToken })).status, 401);
+  assert.equal((await call('GET', '/api/me', { token: await login('stablegrant', PW('stablegrant')) })).status, 200);
 });
 
 await test('TRANSFER: an explicitly retained collateral role survives', async () => {
@@ -521,13 +546,15 @@ await test('CREATE_SHARED_WORK alone cannot post goals to a foreign unit', async
 
 
 
-  await call('POST', '/api/org/units/G8-BUDGET/members', {
+  const membership = await call('POST', '/api/org/units/G8-BUDGET/members', {
     token: admin,
     body: {
       user_id: riveraId, role_id: workOnly.id, kind: 'guest',
       expires_at: new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10),
     },
   });
+  assert.ok(membership.body.sessionsRevoked >= 1);
+  rivera = await login('rivera', PW('rivera'));
 
   const goal = await call('POST', '/api/goals', {
     token: rivera, body: { title: 'Smuggled goal', visibility: 'unit', unit_id: 'G8-BUDGET' },
@@ -543,13 +570,15 @@ await test('CREATE_SHARED_GOALS alone cannot post tasks to a foreign unit', asyn
   const goalsOnly = (await call('POST', '/api/roles', {
     token: admin, body: { name: 'Goals Only', unit_id: 'G8-BUDGET', position: 2, permissions: P.VIEW_UNIT | P.CREATE_SHARED_GOALS },
   })).body;
-  await call('POST', '/api/org/units/G8-BUDGET/members', {
+  const membership = await call('POST', '/api/org/units/G8-BUDGET/members', {
     token: admin,
     body: {
       user_id: oharaId, role_id: goalsOnly.id, kind: 'guest',
       expires_at: new Date(Date.now() + 20 * 86_400_000).toISOString().slice(0, 10),
     },
   });
+  assert.ok(membership.body.sessionsRevoked >= 1);
+  ohara = await login('ohara', PW('ohara'));
 
   const task = await call('POST', '/api/tasks', {
     token: ohara, body: { title: 'Smuggled tasking', visibility: 'unit', unit_id: 'G8-BUDGET' },
@@ -773,6 +802,22 @@ await test('failures from one connection trip the per-IP limit even across usern
     if (last.status === 429) break;
   }
   assert.equal(last.status, 429);
+  resetCounters();
+});
+
+await test('a successful login cannot reset the connection failure budget', async () => {
+  resetCounters();
+  for (let i = 0; i < LOGIN_LIMITS.IP_MAX; i += 1) {
+    const bad = await call('POST', '/api/login', { body: { username: `interleave-${i}`, password: 'whatever-whatever' } });
+    assert.equal(bad.status, 401);
+    if (i < LOGIN_LIMITS.IP_MAX - 1) {
+      assert.ok(await login('boletz', 'cobalt-orbit-velvet-anchor-927'));
+    }
+  }
+  const validButThrottled = await call('POST', '/api/login', {
+    body: { username: 'boletz', password: 'cobalt-orbit-velvet-anchor-927' },
+  });
+  assert.equal(validButThrottled.status, 429);
   resetCounters();
 });
 

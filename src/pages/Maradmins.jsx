@@ -23,6 +23,8 @@ export default function Maradmins() {
   const [scope, setScope] = useState('all');
   const [tag, setTag] = useState('All');
   const [selected, setSelected] = useState(null);
+  const [aiSummary, setAiSummary] = useState(null);
+  const [aiBusy, setAiBusy] = useState(false);
 
   const load = async ({ wait = false } = {}) => {
     setLoading(true);
@@ -61,7 +63,20 @@ export default function Maradmins() {
     });
   }, [state.rows, query, scope, tag]);
 
+  const summarizeWithAi = async () => {
+    if (!selected) return;
+    setAiBusy(true);
+    setAiSummary(null);
+    try {
+      const result = await api.aiAssist('maradmin_summary', { id: selected.id });
+      setAiSummary(result.output);
+      toast.success('GenAI.mil summary generated. Verify it against the official message.');
+    } catch (error) { toast.error(api.errorText(error)); }
+    finally { setAiBusy(false); }
+  };
+
   const open = async (row) => {
+    setAiSummary(null);
     setSelected(row);
     if (!row.read_at) {
       const readAt = new Date().toISOString();
@@ -212,6 +227,9 @@ export default function Maradmins() {
                 <Bookmark className={cn('h-3.5 w-3.5', selected.saved_at && 'fill-current text-signal')} />
                 {selected.saved_at ? 'Saved' : 'Save'}
               </Button>
+              <Button size="sm" onClick={summarizeWithAi} disabled={aiBusy}>
+                <Sparkles className={cn('h-3.5 w-3.5', aiBusy && 'animate-pulse')} /> {aiBusy ? 'Summarizing…' : 'AI summary'}
+              </Button>
               <Button variant="primary" size="sm" asChild>
                 <a href={selected.url} target="_blank" rel="noreferrer">Read official message <ExternalLink className="h-3.5 w-3.5" /></a>
               </Button>
@@ -232,6 +250,26 @@ export default function Maradmins() {
               <p className="eyebrow">Official title</p>
               <p className="mt-1 text-lg font-semibold leading-snug text-text">{selected.title}</p>
             </div>
+            {aiSummary && (
+              <div className="space-y-3 rounded-xl border border-signal/30 bg-signal/5 p-4">
+                <div className="flex items-center gap-2"><Sparkles className="h-4 w-4 text-signal" /><p className="eyebrow">GenAI.mil suggestion</p></div>
+                <p className="text-base leading-relaxed text-text-2">{aiSummary.plain_language}</p>
+                {[
+                  ['Who is affected', aiSummary.who_is_affected],
+                  ['Required actions', aiSummary.required_actions],
+                  ['Deadlines', aiSummary.deadlines],
+                  ['Cautions', aiSummary.cautions],
+                ].filter(([, items]) => items?.length).map(([label, items]) => (
+                  <div key={label}>
+                    <p className="eyebrow">{label}</p>
+                    <ul className="mt-1 space-y-1 text-sm leading-relaxed text-text-2">
+                      {items.map((item, index) => <li key={index}>• {typeof item === 'object' ? JSON.stringify(item) : item}</li>)}
+                    </ul>
+                  </div>
+                ))}
+                <p className="border-t border-rule pt-2 text-xs text-text-3">AI output is not authoritative. Read the linked Marines.mil message before acting.</p>
+              </div>
+            )}
             <div className="grid gap-4 sm:grid-cols-2">
               <div>
                 <p className="eyebrow">Identifiers</p>

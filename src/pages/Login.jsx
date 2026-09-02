@@ -78,8 +78,8 @@ export default function Login() {
 
   return (
     <div className="relative flex min-h-screen items-center justify-center overflow-hidden bg-ink p-4 sm:p-8">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-64 bg-[radial-gradient(circle_at_35%_0%,rgba(39,118,210,0.16),transparent_58%)]" />
-      <div className="relative grid w-full max-w-5xl overflow-hidden rounded-[1.4rem] border border-rule bg-panel shadow-[0_28px_80px_rgba(16,49,70,0.12)] lg:grid-cols-[1.05fr_0.95fr]">
+      <div className="pointer-events-none absolute inset-x-0 top-0 h-64 bg-[radial-gradient(circle_at_35%_0%,rgb(var(--signal)/0.16),transparent_58%)]" />
+      <div className="relative grid w-full max-w-5xl overflow-hidden rounded-lg border border-rule bg-panel shadow-token-lg lg:grid-cols-[1.05fr_0.95fr]">
         <section className="hidden min-h-[650px] flex-col justify-between bg-nav p-10 text-white lg:flex">
           <div>
             <img src="/mark.svg" alt="" className="h-10 w-10 brightness-0 invert" />
@@ -90,8 +90,8 @@ export default function Login() {
             </p>
           </div>
           <div className="space-y-3 border-t border-white/12 pt-6 text-sm text-white/68">
-            <p className="flex items-center gap-2"><LockKeyhole className="h-4 w-4 text-[#7bc4ed]" /> Exact-unit access boundaries</p>
-            <p className="flex items-center gap-2"><BadgeCheck className="h-4 w-4 text-[#7bc4ed]" /> Audited protected record reads</p>
+            <p className="flex items-center gap-2"><LockKeyhole className="h-4 w-4 text-signal" /> Exact-unit access boundaries</p>
+            <p className="flex items-center gap-2"><BadgeCheck className="h-4 w-4 text-signal" /> Audited protected record reads</p>
             <p className="text-xs leading-5 text-white/55">Controlled evaluation system. Verify authorization before entering real personnel information.</p>
           </div>
         </section>

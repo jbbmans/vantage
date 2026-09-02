@@ -70,13 +70,13 @@ const alphaBossId = must(await call('POST', '/api/team', {
   token: opToken,
   body: { username: 'alphaboss', password: PW('alphaboss'), first_name: 'A', last_name: 'Boss', unit_id: 'MFR' },
 }), 'create alpha boss').id;
-const alphaToken = await login('alphaboss', PW('alphaboss'));
+let alphaToken = await login('alphaboss', PW('alphaboss'));
 
 const bravoBossId = must(await call('POST', '/api/team', {
   token: opToken,
   body: { username: 'bravoboss', password: PW('bravoboss'), first_name: 'B', last_name: 'Boss', unit_id: 'MFR' },
 }), 'create bravo owner account').id;
-const bravoToken = await login('bravoboss', PW('bravoboss'));
+let bravoToken = await login('bravoboss', PW('bravoboss'));
 
 const alpha = must(await call('POST', '/api/org/units', {
   token: opToken, body: { name: 'Alpha Section', code: 'ALPHA', level: 'L4', template_id: 'default' },
@@ -95,6 +95,11 @@ for (const [unit, ownerId] of [[alpha, alphaBossId], [bravo, bravoBossId]]) {
     token: opToken, body: { user_id: ownerId },
   }), `transfer ${unit.id}`);
 }
+
+// Ownership is an authority change, so the owner uses a newly authenticated
+// session for the exact-unit tenancy assertions below.
+alphaToken = await login('alphaboss', PW('alphaboss'));
+bravoToken = await login('bravoboss', PW('bravoboss'));
 
 const registerAndEnroll = async (ownerToken, unit, username, firstName) => {
   must(await call('POST', '/api/register', {
@@ -241,6 +246,20 @@ await test("Alpha's owner cannot grant an Alpha role scoped into Bravo", async (
       token: alphaToken, body: { role_id: `${alpha.id}:sncoic`, unit_id: bravo.id },
     }),
     'Alpha role granted into Bravo'
+  );
+});
+
+await test("Alpha's owner cannot use a foreign role ID to revoke a Bravo session", async () => {
+  const foreignRevoke = await call(
+    'DELETE',
+    `/api/team/${bravoMarineId}/roles/${encodeURIComponent(`${bravo.id}:marine`)}?unit_id=${encodeURIComponent(alpha.id)}`,
+    { token: alphaToken }
+  );
+  assert.equal(foreignRevoke.status, 403);
+  assert.equal(
+    (await call('GET', '/api/me', { token: bravoMarineToken })).status,
+    200,
+    'foreign rejection must not revoke Bravo sessions'
   );
 });
 

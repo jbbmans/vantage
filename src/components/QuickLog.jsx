@@ -6,7 +6,7 @@ import { Button, Field, Input, NumberInput, Select, Textarea, Badge, Dot } from 
 import { useToast } from '@/components/ui/toast';
 import { parseQuickLog, primaryQuantity } from '@/lib/quickLogParser';
 import { createRecord } from '@/store/useStore';
-import { errorText, trackExperience } from '@/lib/api';
+import { aiAssist, errorText, trackExperience } from '@/lib/api';
 import { CATEGORIES, CATEGORY_COLORS, JEPES_AREAS, DOLLAR_TYPES, UNIT_SUGGESTIONS } from '@/lib/constants';
 import { formatDollarsExact } from '@/lib/metrics';
 import { strength, weaknesses, composeBullet } from '@/lib/bullets';
@@ -30,6 +30,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
   const [text, setText] = useState(initialText);
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
   const [overrides, setOverrides] = useState({});
 
   const DRAFT_KEY = draftKey(identity?.user?.id, 'quicklog');
@@ -77,6 +78,33 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
 
   const set = (key) => (value) => setOverrides((o) => ({ ...o, [key]: value }));
   const setEvent = (key) => (e) => set(key)(e.target.value);
+
+  const extractWithAi = async () => {
+    if (!text.trim()) return;
+    setAiBusy(true);
+    try {
+      const response = await aiAssist('quick_log', { text });
+      const suggestion = response.output || {};
+      const next = {};
+      for (const [source, target] of [
+        ['title', 'title'], ['date', 'date'], ['action_amount', 'quantity'], ['action_unit', 'unit'],
+        ['transaction_value', 'dollar_amount'], ['organization', 'organization'], ['system', 'system'],
+        ['result', 'result'], ['status', 'status'],
+      ]) {
+        if (suggestion[source] !== null && suggestion[source] !== undefined && suggestion[source] !== '') {
+          next[target] = suggestion[source];
+        }
+      }
+      if (CATEGORIES.includes(suggestion.category)) next.category = suggestion.category;
+      if (JEPES_AREAS.includes(suggestion.evaluation_area)) next.jepes_area = suggestion.evaluation_area;
+      if (DOLLAR_TYPES.some((item) => item.key === suggestion.dollar_type)) next.dollar_type = suggestion.dollar_type;
+      setOverrides((current) => ({ ...current, ...next }));
+      setExpanded(true);
+      toast.success('GenAI.mil extracted a suggestion. Verify every field before saving.');
+    } catch (error) {
+      toast.error(errorText(error));
+    } finally { setAiBusy(false); }
+  };
 
   const save = async () => {
     if (!record?.title?.trim()) {
@@ -135,14 +163,16 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
       }
     >
       <div onKeyDown={onKeyDown} className="space-y-3">
-        <Textarea
-          autoFocus
-          rows={2}
-          value={text}
-          onChange={(e) => setText(e.target.value)}
-          placeholder="Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday"
-          className="text-md"
-        />
+        <Field label="Describe the completed activity" hint="include the result, quantity, and value when applicable">
+          <Textarea
+            autoFocus
+            rows={2}
+            value={text}
+            onChange={(e) => setText(e.target.value)}
+            placeholder="Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday"
+            className="text-md"
+          />
+        </Field>
 
         {!text.trim() && (
           <div className="flex flex-wrap gap-1.5">
@@ -155,6 +185,16 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
                 {ex}
               </button>
             ))}
+          </div>
+        )}
+
+        {text.trim() && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-rule bg-panel-2/40 px-3 py-2">
+            <p className="text-xs text-text-3">Need a deeper extraction? GenAI.mil can suggest fields; it never saves for you.</p>
+            <Button size="sm" onClick={extractWithAi} disabled={aiBusy}>
+              <Sparkles className={cn('h-3.5 w-3.5', aiBusy && 'animate-pulse')} />
+              {aiBusy ? 'Extracting…' : 'Extract with AI'}
+            </Button>
           </div>
         )}
 
@@ -175,14 +215,14 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
                 <Field label="Date">
                   <Input type="date" value={record.date} onChange={setEvent('date')} />
                 </Field>
-                <Field label="Quantity">
+                <Field label="Action amount" hint="how many items or actions you completed">
                   <NumberInput
                     value={record.quantity ?? ''}
                     onChange={setEvent('quantity')}
                     placeholder="—"
                   />
                 </Field>
-                <Field label="Unit">
+                <Field label="Action unit">
                   <Input
                     list="unit-suggestions"
                     value={record.unit ?? ''}
@@ -195,7 +235,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
                     ))}
                   </datalist>
                 </Field>
-                <Field label="Dollars">
+                <Field label="Transaction value" hint="the dollar value tied to the action — separate from action amount">
                   <NumberInput
                     value={record.dollar_amount ?? ''}
                     onChange={setEvent('dollar_amount')}
@@ -216,7 +256,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
                     options={areaOptions(track)}
                   />
                 </Field>
-                <Field label="Dollar type">
+                <Field label="Dollar type" hint="what happened to the transaction value">
                   <Select
                     value={record.dollar_type}
                     onValueChange={set('dollar_type')}
@@ -284,7 +324,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
               )}
               {record.dollar_amount ? (
                 <p className="fig mt-2 text-2xs text-text-3">
-                  Recorded to the cent as {formatDollarsExact(Number(String(record.dollar_amount).replace(/[$,]/g, '')) || 0)}
+                  Transaction value recorded to the cent as {formatDollarsExact(Number(String(record.dollar_amount).replace(/[$,]/g, '')) || 0)}
                 </p>
               ) : null}
             </div>

@@ -48,8 +48,31 @@ describe('the fixture is a real v3.3.0 database', () => {
 });
 
 describe('migration 006 — tenancy', () => {
-  it('reaches the current schema version 13', () => {
-    expect(Number(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value)).toBe(13);
+  it('reaches the current schema version 17', () => {
+    expect(Number(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value)).toBe(17);
+  });
+
+  it('adds exact-unit integration clients without storing raw credentials', () => {
+    const columns = db.prepare('PRAGMA table_info(integration_clients)').all().map((column) => column.name);
+    expect(columns.includes('unit_id')).toBe(true);
+    expect(columns.includes('token_hash')).toBe(true);
+    expect(columns.includes('token')).toBe(false);
+  });
+
+  it('adds confidential incident cases with append-only event history', () => {
+    const cases = db.prepare('PRAGMA table_info(security_incidents)').all().map((column) => column.name);
+    const events = db.prepare('PRAGMA table_info(security_incident_events)').all().map((column) => column.name);
+    expect(cases.includes('reporter_id')).toBe(true);
+    expect(cases.includes('description')).toBe(true);
+    expect(cases.includes('unit_id')).toBe(false);
+    expect(events.includes('visible_to_reporter')).toBe(true);
+  });
+
+  it('adds aggregate-only GenAI usage governance', () => {
+    const columns = db.prepare('PRAGMA table_info(ai_usage_daily)').all().map((row) => row.name);
+    expect(columns).toEqual([
+      'day', 'user_id', 'workflow', 'requests', 'prompt_tokens', 'completion_tokens', 'total_tokens', 'failures',
+    ]);
   });
 
   it('leaves no global role definitions', () => {
