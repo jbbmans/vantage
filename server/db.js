@@ -1,5 +1,5 @@
 import Database from 'better-sqlite3';
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, createHmac, randomUUID, timingSafeEqual } from 'node:crypto';
 import { RANKS, BILLETS, flattenUnits } from './usmc.js';
 import { ROLE_TEMPLATES, DEFAULT_TEMPLATE_ID, templateById, PERMISSIONS } from './roles.js';
 import { hashPassword, sessionDigest } from './auth.js';
@@ -378,6 +378,36 @@ CREATE TABLE IF NOT EXISTS sessions (
   ip                  TEXT,
   user_agent          TEXT
 );
+
+CREATE TABLE IF NOT EXISTS integration_clients (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  unit_id      TEXT NOT NULL REFERENCES units(id),
+  scope        TEXT NOT NULL DEFAULT 'unit.shared.read' CHECK (scope = 'unit.shared.read'),
+  token_prefix TEXT NOT NULL UNIQUE,
+  token_hash   TEXT NOT NULL UNIQUE,
+  active       INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+  created_by   TEXT NOT NULL REFERENCES users(id),
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  last_used_at TEXT,
+  revoked_at   TEXT,
+  revoked_by   TEXT REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_integration_clients_unit ON integration_clients(unit_id);
+
+CREATE TABLE IF NOT EXISTS ai_usage_daily (
+  day               TEXT NOT NULL,
+  user_id           TEXT NOT NULL REFERENCES users(id),
+  workflow          TEXT NOT NULL,
+  requests          INTEGER NOT NULL DEFAULT 0,
+  prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens      INTEGER NOT NULL DEFAULT 0,
+  failures          INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, user_id, workflow)
+);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_day ON ai_usage_daily(day);
 
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
@@ -900,7 +930,120 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    id: 14,
+    name: '014_tamper_evident_audit_chain',
+    run() {
+      addColumn('audit_log', 'prev_hash', 'TEXT');
+      addColumn('audit_log', 'entry_hash', 'TEXT');
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_audit_entry_hash ON audit_log(entry_hash) WHERE entry_hash IS NOT NULL');
+      let previous = '';
+      const rows = db.prepare(
+        'SELECT rowid, id, actor_id, action, entity, entity_id, subject_id, unit_id, detail, at FROM audit_log ORDER BY rowid'
+      ).all();
+      const update = db.prepare('UPDATE audit_log SET prev_hash = ?, entry_hash = ? WHERE rowid = ?');
+      for (const row of rows) {
+        const hash = auditEntryHash(row, previous);
+        update.run(previous || null, hash, row.rowid);
+        previous = hash;
+      }
+      setAuditAnchor(previous, rows.length);
+    },
+  },
+  {
+    id: 15,
+    name: '015_exact_unit_integration_clients',
+    run() {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS integration_clients (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          unit_id TEXT NOT NULL REFERENCES units(id),
+          scope TEXT NOT NULL DEFAULT 'unit.shared.read' CHECK (scope = 'unit.shared.read'),
+          token_prefix TEXT NOT NULL UNIQUE,
+          token_hash TEXT NOT NULL UNIQUE,
+          active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+          created_by TEXT NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          last_used_at TEXT,
+          revoked_at TEXT,
+          revoked_by TEXT REFERENCES users(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_integration_clients_unit ON integration_clients(unit_id);
+      `);
+    },
+  },
+  {
+    id: 16,
+    name: '016_confidential_security_incidents',
+    run() {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS security_incidents (
+          id TEXT PRIMARY KEY,
+          reporter_id TEXT NOT NULL REFERENCES users(id),
+          category TEXT NOT NULL CHECK (category IN (
+            'vulnerability', 'security_incident', 'privacy', 'account_access',
+            'data_integrity', 'availability', 'other'
+          )),
+          severity TEXT NOT NULL CHECK (severity IN ('informational', 'low', 'moderate', 'high', 'critical')),
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          affected_area TEXT,
+          observed_at TEXT,
+          status TEXT NOT NULL DEFAULT 'submitted' CHECK (status IN (
+            'submitted', 'acknowledged', 'investigating', 'mitigated', 'closed'
+          )),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          acknowledged_at TEXT,
+          resolved_at TEXT,
+          last_actor_id TEXT REFERENCES users(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_security_incidents_reporter
+          ON security_incidents(reporter_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_security_incidents_status
+          ON security_incidents(status, severity, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS security_incident_events (
+          id TEXT PRIMARY KEY,
+          incident_id TEXT NOT NULL REFERENCES security_incidents(id),
+          actor_id TEXT NOT NULL REFERENCES users(id),
+          kind TEXT NOT NULL CHECK (kind IN ('submitted', 'status', 'reporter_follow_up', 'operator_note')),
+          from_status TEXT,
+          to_status TEXT,
+          message TEXT,
+          visible_to_reporter INTEGER NOT NULL DEFAULT 1 CHECK (visible_to_reporter IN (0, 1)),
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_security_incident_events_case
+          ON security_incident_events(incident_id, created_at);
+      `);
+    },
+  },
+  {
+    id: 17,
+    name: '017_genai_usage_governance',
+    run() {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS ai_usage_daily (
+          day               TEXT NOT NULL,
+          user_id           TEXT NOT NULL REFERENCES users(id),
+          workflow          TEXT NOT NULL,
+          requests          INTEGER NOT NULL DEFAULT 0,
+          prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+          completion_tokens INTEGER NOT NULL DEFAULT 0,
+          total_tokens      INTEGER NOT NULL DEFAULT 0,
+          failures          INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (day, user_id, workflow)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_usage_day ON ai_usage_daily(day);
+      `);
+    },
+  },
 ];
+
+export const LATEST_SCHEMA_VERSION = MIGRATIONS.at(-1).id;
 
 function migrate() {
   db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
@@ -937,6 +1080,65 @@ export const schemaVersion = () =>
 
 const now = () => new Date().toISOString();
 export const newId = () => randomUUID();
+
+function auditIntegrityKey() {
+  const key = String(process.env.VANTAGE_AUDIT_HMAC_KEY || '');
+  if (Buffer.byteLength(key, 'utf8') >= 32) return key;
+  if (process.env.NODE_ENV === 'production') {
+    throw new Error('VANTAGE_AUDIT_HMAC_KEY must be at least 32 bytes in production.');
+  }
+  // Development/test only: production must supply an environment-held key.
+  return 'vantage-development-audit-key-not-for-production';
+}
+
+function auditEntryHash(row, previous) {
+  const canonical = JSON.stringify([
+    previous || '', row.id, row.actor_id, row.action, row.entity || null,
+    row.entity_id || null, row.subject_id || null, row.unit_id || null,
+    row.detail || null, row.at,
+  ]);
+  return createHmac('sha256', auditIntegrityKey()).update(canonical, 'utf8').digest('hex');
+}
+
+function setAuditAnchor(hash, count) {
+  const payload = JSON.stringify([hash || '', count]);
+  const mac = createHmac('sha256', auditIntegrityKey()).update(`audit-anchor:${payload}`, 'utf8').digest('hex');
+  db.prepare(
+    "INSERT INTO meta (key, value) VALUES ('audit_log_anchor', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value"
+  ).run(JSON.stringify({ hash: hash || '', count, mac }));
+}
+
+export function verifyAuditChain(database = db) {
+  const rows = database.prepare(
+    'SELECT rowid, id, actor_id, action, entity, entity_id, subject_id, unit_id, detail, at, prev_hash, entry_hash FROM audit_log ORDER BY rowid'
+  ).all();
+  let previous = '';
+  for (const row of rows) {
+    const expected = auditEntryHash(row, previous);
+    const supplied = Buffer.from(String(row.entry_hash || ''), 'utf8');
+    const calculated = Buffer.from(expected, 'utf8');
+    if (row.prev_hash !== (previous || null) || !row.entry_hash
+      || supplied.length !== calculated.length || !timingSafeEqual(supplied, calculated)) {
+      return { ok: false, count: rows.length, reason: `audit entry ${row.id} does not match the chain` };
+    }
+    previous = row.entry_hash;
+  }
+  const anchor = database.prepare("SELECT value FROM meta WHERE key = 'audit_log_anchor'").get()?.value;
+  try {
+    const parsed = JSON.parse(anchor || '{}');
+    const payload = JSON.stringify([parsed.hash || '', parsed.count]);
+    const expectedMac = createHmac('sha256', auditIntegrityKey()).update(`audit-anchor:${payload}`, 'utf8').digest('hex');
+    const suppliedMac = Buffer.from(String(parsed.mac || ''), 'utf8');
+    const calculatedMac = Buffer.from(expectedMac, 'utf8');
+    if (parsed.hash !== previous || parsed.count !== rows.length
+      || suppliedMac.length !== calculatedMac.length || !timingSafeEqual(suppliedMac, calculatedMac)) {
+      return { ok: false, count: rows.length, reason: 'audit anchor does not match the chain' };
+    }
+  } catch {
+    return { ok: false, count: rows.length, reason: 'audit anchor is invalid' };
+  }
+  return { ok: true, count: rows.length };
+}
 
 const SEED_VERSION = 2;
 
@@ -1124,10 +1326,20 @@ export function revokeRole(userId, roleId, unitId) {
 }
 
 export function audit({ actor_id, action, entity, entity_id, subject_id, unit_id, detail }) {
+  const entry = {
+    id: newId(), actor_id, action, entity: entity || null, entity_id: entity_id || null,
+    subject_id: subject_id || null, unit_id: unit_id || null, detail: detail || null, at: now(),
+  };
+  const previous = db.prepare('SELECT entry_hash FROM audit_log ORDER BY rowid DESC LIMIT 1').get()?.entry_hash || '';
+  const entryHash = auditEntryHash(entry, previous);
   db.prepare(
-    `INSERT INTO audit_log (id, actor_id, action, entity, entity_id, subject_id, unit_id, detail, at)
-     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)`
-  ).run(newId(), actor_id, action, entity || null, entity_id || null, subject_id || null, unit_id || null, detail || null, now());
+    `INSERT INTO audit_log (id, actor_id, action, entity, entity_id, subject_id, unit_id, detail, at, prev_hash, entry_hash)
+     VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(
+    entry.id, entry.actor_id, entry.action, entry.entity, entry.entity_id, entry.subject_id,
+    entry.unit_id, entry.detail, entry.at, previous || null, entryHash
+  );
+  setAuditAnchor(entryHash, db.prepare('SELECT COUNT(*) AS n FROM audit_log').get().n);
 }
 
 export function notifyUser(userId, { kind, title, message = null, actionUrl = null, dedupeKey = null }) {

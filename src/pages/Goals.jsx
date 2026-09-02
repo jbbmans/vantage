@@ -1,7 +1,7 @@
 import React, { useMemo, useState } from 'react';
-import { Plus, Trash2, Target, TrendingUp } from 'lucide-react';
+import { Plus, Sparkles, Trash2, Target, TrendingUp } from 'lucide-react';
 import { useGoals, useActivities, createRecord, updateRecord, deleteRecord, refreshAll } from '@/store/useStore';
-import { errorText } from '@/lib/api';
+import { aiAssist, errorText } from '@/lib/api';
 import { CATEGORIES, GOAL_TYPES, GOAL_STATUS } from '@/lib/constants';
 import { formatNumber, formatDTG, inPeriod, toDate } from '@/lib/metrics';
 import { useToast } from '@/components/ui/toast';
@@ -25,6 +25,7 @@ export default function Goals() {
   const [goalErrors, setGoalErrors] = useState({});
   const [confirming, setConfirming] = useState(null);
   const [filter, setFilter] = useState('active');
+  const [aiBusy, setAiBusy] = useState(false);
 
   const withProgress = useMemo(
     () =>
@@ -180,6 +181,38 @@ export default function Goals() {
           onSave={save}
           fields={(draft, set) => (
             <>
+              <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-rule bg-panel-2/40 p-3">
+                <p className="text-xs leading-relaxed text-text-3">Describe the objective below, then let GenAI.mil suggest measurable fields.</p>
+                <Button
+                  type="button"
+                  size="sm"
+                  disabled={aiBusy || !(draft.title || draft.description)?.trim()}
+                  onClick={async () => {
+                    setAiBusy(true);
+                    try {
+                      const result = await aiAssist('goal_draft', {
+                        objective: [draft.title, draft.description].filter(Boolean).join('\n'),
+                        target_date: draft.period_end,
+                      });
+                      const suggestion = result.output || {};
+                      for (const [key, value] of Object.entries({
+                        title: suggestion.title,
+                        description: suggestion.description,
+                        target_value: suggestion.target_value,
+                        unit: suggestion.unit,
+                        period_start: suggestion.period_start,
+                        period_end: suggestion.period_end,
+                        category: CATEGORIES.includes(suggestion.category) ? suggestion.category : undefined,
+                      })) if (value !== undefined && value !== null && value !== '') set(key, value);
+                      toast.success('AI goal suggestion applied. Verify every field before saving.');
+                    } catch (error) { toast.error(errorText(error)); }
+                    finally { setAiBusy(false); }
+                  }}
+                >
+                  <Sparkles className={cn('h-3.5 w-3.5', aiBusy && 'animate-pulse')} />
+                  {aiBusy ? 'Drafting…' : 'Draft with AI'}
+                </Button>
+              </div>
               <Field error={goalErrors.title} label="Title">
                 <Input autoFocus value={draft.title || ''} onChange={(e) => set('title', e.target.value)} />
               </Field>

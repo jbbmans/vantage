@@ -33,6 +33,19 @@ check('production login does not return a JavaScript-readable session token', ()
   assert.ok(!/authorization\s*:\s*`Bearer/.test(api));
 });
 
+check('test-only bearer authentication is rejected in production', () => {
+  assert.ok(index.includes("if (PRODUCTION && process.env.VANTAGE_TEST === '1')"));
+});
+
+check('every explicit authenticated mutation retains the CSRF-capable auth middleware', () => {
+  const exempt = new Set(['/api/setup', '/api/register', '/api/login', '/api/auth/cac-piv']);
+  for (const line of index.split('\n')) {
+    const match = line.match(/app\.(post|put|delete)\('([^']+)'/);
+    if (!match || exempt.has(match[2])) continue;
+    assert.ok(line.includes(', auth,'), `missing auth middleware: ${line.trim()}`);
+  }
+});
+
 check('session credentials are digested before SQLite lookup and storage', () => {
   assert.ok(auth.includes('const digest = sessionDigest(token)'));
   assert.ok(auth.includes('digest, userId'));
@@ -98,10 +111,11 @@ check('unit-shared reads require VIEW_RECORDS and roster projections are bounded
   assert.ok(index.includes('row.username = null'));
 });
 
-check('membership changes require independent authority and preserve unrelated sessions', () => {
+check('membership changes require independent authority and revoke affected sessions', () => {
   assert.ok(index.includes("code: 'self_membership_change'"));
   assert.ok(index.includes("code: 'hierarchy'"));
-  assert.ok(index.includes('const sessionsRevoked = 0'));
+  assert.ok(index.includes('revokePrivilegeSessions([userId])'));
+  assert.ok(lifecycle.includes('invalidateUserSessions(db, targetId)'));
 });
 
 check('browser state and sensitive drafts are cleared at identity boundaries', () => {

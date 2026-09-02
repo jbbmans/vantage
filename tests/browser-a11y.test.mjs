@@ -51,12 +51,25 @@ for (const [path, label] of [
   ['/', 'command center'], ['/activities', 'activities'], ['/work', 'work'],
   ['/goals', 'goals'], ['/career', 'career'], ['/readiness', 'readiness'], ['/maradmins', 'MARADMINs'], ['/reports', 'reports'],
   ['/team', 'team'], ['/units', 'units'],
-  ['/settings', 'settings'], ['/operator', 'owner console'], ['/help', 'help'],
+  ['/settings', 'settings'], ['/operator', 'owner console'], ['/ai', 'AI assist'], ['/help', 'help'],
 ]) {
   await page.goto(BASE + path, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(700);
   await scan(label);
 }
+
+await page.goto(BASE, { waitUntil: 'domcontentloaded' });
+await page.waitForTimeout(700);
+await page.keyboard.press('n');
+await page.getByRole('dialog').waitFor();
+const quickLogInput = page.getByLabel('Describe the completed activity');
+if (!await quickLogInput.isVisible().catch(() => false)) {
+  problems.push('quick log: primary activity field has no persistent visible label');
+  console.log('  FAIL  quick log — primary activity field has no persistent visible label');
+} else {
+  console.log('  ok    quick log — primary activity field has a persistent visible label');
+}
+await scan('quick log');
 
 await browser.close();
 srv.kill();

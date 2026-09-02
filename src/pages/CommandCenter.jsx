@@ -53,6 +53,7 @@ import {
 import { DOLLAR_TYPES } from '@/lib/constants';
 import { strength, unitFor } from '@/lib/bullets';
 import FiscalTape from '@/components/FiscalTape';
+import DollarTypeBreakdown from '@/components/DollarTypeBreakdown';
 import { DashboardSection, DisplayMenu, useDashboardLayout } from '@/components/DashboardSection';
 import { Badge, Button, EmptyState, Select } from '@/components/ui/primitives';
 import * as apiClient from '@/lib/api';
@@ -67,9 +68,9 @@ const PERIOD_OPTIONS = [
 
 const CHART_MODES = [
   { key: 'impact', label: 'Impact' },
-  { key: 'transactions', label: 'Transactions' },
+  { key: 'actionAmount', label: 'Action amount' },
   { key: 'hours', label: 'Hours' },
-  { key: 'records', label: 'Records' },
+  { key: 'records', label: 'Complete records' },
 ];
 
 const SUPPORT_SECTIONS = [
@@ -105,7 +106,8 @@ function buildWeeklySeries(activities) {
     return {
       label: format(start, 'MMM dd'),
       impact,
-      transactions: rows.length,
+      actionAmount: rows.reduce((sum, activity) => sum + (Number(activity.quantity) || 0), 0),
+      recordCount: rows.length,
       records: rows.filter((activity) => strength(activity) >= 2).length,
       hours: rows.reduce((sum, activity) => sum + activityHours(activity), 0),
     };
@@ -132,7 +134,8 @@ function ImpactTooltip({ active, payload, label }) {
     <div className="rounded-md border border-rule bg-panel px-3 py-2 shadow-[var(--shadow)]">
       <p className="text-xs font-semibold text-text">Week of {label}</p>
       {values.impact != null && <p className="mt-1 text-xs text-text-2">Impact <span className="fig ml-2 text-signal">{formatDollarsExact(values.impact)}</span></p>}
-      {values.transactions != null && <p className="text-xs text-text-2">Transactions <span className="fig ml-2 text-text">{values.transactions}</span></p>}
+      {values.actionAmount != null && <p className="text-xs text-text-2">Action amount <span className="fig ml-2 text-text">{formatNumber(values.actionAmount)}</span></p>}
+      {values.recordCount != null && <p className="text-xs text-text-2">Activity records <span className="fig ml-2 text-text">{formatNumber(values.recordCount)}</span></p>}
       {values.hours != null && <p className="text-xs text-text-2">Hours <span className="fig ml-2 text-text">{values.hours.toFixed(1)}</span></p>}
       {values.records != null && <p className="text-xs text-text-2">Complete records <span className="fig ml-2 text-text">{values.records}</span></p>}
     </div>
@@ -216,12 +219,22 @@ export default function CommandCenter() {
       <p className="mt-2 text-xs text-text-3">{rangeLabel}</p>
 
       <section className="mt-4 grid grid-cols-2 divide-x divide-rule border-y border-rule sm:grid-cols-5" aria-label="Headline metrics">
-        <div className="col-span-2 sm:col-span-1"><Metric primary value={formatDollars(metrics.totalDollars)} label="recorded impact" to="/reports" /></div>
-        <div className="pl-4 sm:pl-7"><Metric value={formatNumber(scoped.length)} label="transactions" to="/activities" /></div>
+        <div className="col-span-2 sm:col-span-1"><Metric primary value={formatDollars(metrics.totalDollars)} label="headline dollar impact" to="/reports" /></div>
+        <div className="pl-4 sm:pl-7"><Metric value={formatNumber(scoped.length)} label="activity records" to="/activities" /></div>
         <div className="pl-4 sm:pl-7"><Metric accent value={`${completenessRate}%`} label="records complete" to="/activities?quality=complete" /></div>
         <div className="pl-4 sm:pl-7"><Metric value={`${workHours.toFixed(1)}h`} label="work logged" to="/work" /></div>
         <div className="pl-4 sm:pl-7"><Metric value={formatNumber(openActionCount)} label="next actions" to={actionsToday[0]?.to || '/readiness'} /></div>
       </section>
+
+      <div className="mt-4">
+        <div className="mb-2 flex items-end justify-between gap-3">
+          <div>
+            <h3 className="text-sm font-semibold text-text">Transaction value by dollar type</h3>
+            <p className="mt-0.5 text-xs text-text-3">Each value stays classified instead of disappearing into one total.</p>
+          </div>
+        </div>
+        <DollarTypeBreakdown amounts={metrics.dollarsByType} linkToRecords />
+      </div>
 
       <div className="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_245px]">
         <section className="min-w-0 border-b border-rule py-6 xl:border-r xl:pr-8" aria-labelledby="impact-heading">
@@ -243,7 +256,7 @@ export default function CommandCenter() {
             </div>
             <div className="flex items-center gap-5 text-xs text-text-3">
               <span className="flex items-center gap-2"><span className="h-0.5 w-5 bg-signal" />{chartLabel}</span>
-              {chartMode === 'impact' && <span className="flex items-center gap-2"><span className="h-0.5 w-5 bg-text" />Transactions</span>}
+              {chartMode === 'impact' && <span className="flex items-center gap-2"><span className="h-0.5 w-5 bg-text" />Activity records</span>}
             </div>
           </div>
 
@@ -274,7 +287,7 @@ export default function CommandCenter() {
                 )}
                 <ChartTooltip content={<ImpactTooltip />} cursor={{ stroke: 'rgb(var(--rule-strong))', strokeDasharray: '3 3' }} />
                 <Area yAxisId="left" type="linear" dataKey={chartKey} stroke="rgb(var(--signal))" strokeWidth={2} fill="rgb(var(--signal))" fillOpacity={0.1} dot={false} activeDot={{ r: 5, fill: 'rgb(var(--signal))', stroke: 'rgb(var(--panel))', strokeWidth: 2 }} />
-                {chartMode === 'impact' && <Line yAxisId="right" type="linear" dataKey="transactions" stroke="rgb(var(--text))" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} />}
+                {chartMode === 'impact' && <Line yAxisId="right" type="linear" dataKey="recordCount" stroke="rgb(var(--text))" strokeWidth={1.5} dot={false} activeDot={{ r: 4 }} />}
               </ComposedChart>
             </ResponsiveContainer>
           </div>
@@ -311,7 +324,7 @@ export default function CommandCenter() {
           <div className="overflow-x-auto">
             <div className="min-w-[760px]">
               <div className="grid grid-cols-[minmax(260px,1.8fr)_1fr_0.65fr_0.8fr_0.8fr] gap-4 border-b border-rule px-2 pb-2 text-xs font-semibold text-text-3">
-                <span>Activity</span><span>Type</span><span>Quantity</span><span>Impact</span><span>Status</span>
+                <span>Activity</span><span>Type</span><span>Action amount</span><span>Transaction value</span><span>Status</span>
               </div>
               {recent.map((activity) => {
                 const complete = strength(activity) >= 2;

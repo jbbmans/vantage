@@ -34,6 +34,12 @@ services:
         sync: false
       - key: VANTAGE_OPERATOR_ID
         sync: false
+      - key: VANTAGE_GENAI_API_KEY
+        sync: false
+      - key: VANTAGE_AI_ENABLED
+        value: "false"
+      - key: VANTAGE_GENAI_MODEL
+        value: gemini-2.5-flash
     disk:
       name: vantage-data
       mountPath: /data

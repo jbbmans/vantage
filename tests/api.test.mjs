@@ -102,7 +102,7 @@ await call('POST', '/api/org/units/CLR-4/claim', {
   token: adminToken, body: { owner_user_id: nguyenId, template_id: 'default' },
 });
 
-const riveraToken = await login('rivera', 'a-different-long-passphrase');
+let riveraToken = await login('rivera', 'a-different-long-passphrase');
 const nguyenToken = await login('nguyen', 'yet-another-long-passphrase');
 const rivera = (await call('GET', '/api/me', { token: riveraToken })).body;
 const nguyen = (await call('GET', '/api/me', { token: nguyenToken })).body;
@@ -201,6 +201,24 @@ await test('authorized leaders can edit member profile fields directly', async (
   const detail = await call('GET', `/api/team/${rivera.user.id}`, { token: adminToken });
   assert.equal(detail.body.person.email, 'raul.rivera@example.mil');
   assert.equal(detail.body.person.eas, '2029-09-30');
+});
+
+await test('the Instance Operator can directly correct their own rank', async () => {
+  const changed = await call('PUT', `/api/team/${me.user.id}/profile`, {
+    token: adminToken,
+    body: { rank_id: 'Sgt' },
+  });
+  assert.equal(changed.status, 200, changed.body?.error);
+  assert.ok(changed.body.changed.includes('rank_id'));
+
+  const identity = await call('GET', '/api/me', { token: adminToken });
+  assert.equal(identity.body.user.rank.abbr, 'Sgt');
+
+  const restored = await call('PUT', `/api/team/${me.user.id}/profile`, {
+    token: adminToken,
+    body: { rank_id: 'Cpl' },
+  });
+  assert.equal(restored.status, 200, restored.body?.error);
 });
 
 await test('combined member management is atomic when assignment validation fails', async () => {
@@ -447,6 +465,7 @@ await test('nobody can create a role at or above their own position', async () =
     token: adminToken,
     body: { role_id: 'G8-FMRAC:sncoic', unit_id: 'G8-FMRAC' },
   });
+  riveraToken = await login('rivera', 'a-different-long-passphrase');
   const token = await login('rivera', 'a-different-long-passphrase');
   const res = await call('POST', '/api/roles', {
     token,
@@ -763,7 +782,7 @@ await test('optional attachments are sniffed, authorized, downloadable, and soft
     token: riveraToken,
     body: { title: 'Attachment boundary', date: '2026-08-12', visibility: 'unit', unit_id: 'G8-FMRAC' },
   });
-  const pdf = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n');
+  const pdf = Buffer.from('%PDF-1.7\n1 0 obj\n<<>>\nendobj\n%%EOF\n');
   const upload = await callRaw('POST', `/api/activities/${activity.body.id}/attachments`, {
     token: riveraToken, body: pdf, filename: 'ULO support.pdf', contentType: 'application/pdf',
   });

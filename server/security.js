@@ -7,6 +7,10 @@ const GLOBAL_MAX = 300;
 const counters = { ip: new Map(), user: new Map() };
 const mutationCounters = new Map();
 const registrationCounters = new Map();
+const integrationClientCounters = new Map();
+const integrationIpCounters = new Map();
+const incidentUserCounters = new Map();
+const incidentIpCounters = new Map();
 let globalCount = { count: 0, start: Date.now() };
 const MUTATION_MAX = config.limits.mutations_per_15_minutes;
 
@@ -73,6 +77,36 @@ export function checkRegistrationAllowed(ip) {
   return null;
 }
 
+export function checkIntegrationReadAllowed(clientId, ip) {
+  const nowMs = Date.now();
+  for (const [map, key] of [
+    [integrationClientCounters, String(clientId || 'unknown')],
+    [integrationIpCounters, String(ip || 'unknown')],
+  ]) {
+    const count = peek(map, key, nowMs);
+    if (count >= config.integrations.requests_per_15_minutes) {
+      return { status: 429, retryAfter: retryAfter(map.get(key), nowMs) };
+    }
+  }
+  bump(integrationClientCounters, String(clientId || 'unknown'), nowMs);
+  bump(integrationIpCounters, String(ip || 'unknown'), nowMs);
+  return null;
+}
+
+export function checkIncidentSubmissionAllowed(userId, ip) {
+  const nowMs = Date.now();
+  for (const [map, key] of [
+    [incidentUserCounters, String(userId || 'unknown')],
+    [incidentIpCounters, String(ip || 'unknown')],
+  ]) {
+    const count = peek(map, key, nowMs);
+    if (count >= 5) return { status: 429, retryAfter: retryAfter(map.get(key), nowMs) };
+  }
+  bump(incidentUserCounters, String(userId || 'unknown'), nowMs);
+  bump(incidentIpCounters, String(ip || 'unknown'), nowMs);
+  return null;
+}
+
 export function recordLoginFailure(ip, username) {
   const nowMs = Date.now();
   bump(counters.ip, ip, nowMs);
@@ -83,14 +117,20 @@ export function recordLoginFailure(ip, username) {
   return entry.count === USER_MAX;
 }
 
-export function recordLoginSuccess(ip, username) {
-  counters.ip.delete(ip);
+export function recordLoginSuccess(_ip, username) {
+  // Keep connection-level failures until their window expires. Clearing them on
+  // any successful account login lets a bot reset an IP's budget by interleaving
+  // a known-good credential with password guesses.
   counters.user.delete(String(username || '').trim().toLowerCase());
 }
 
 export function pruneCounters() {
   const cutoff = Date.now() - WINDOW_MS;
-  for (const map of [counters.ip, counters.user, mutationCounters, registrationCounters]) {
+  for (const map of [
+    counters.ip, counters.user, mutationCounters, registrationCounters,
+    integrationClientCounters, integrationIpCounters,
+    incidentUserCounters, incidentIpCounters,
+  ]) {
     for (const [key, entry] of map) if (entry.start < cutoff) map.delete(key);
   }
 }
@@ -100,6 +140,10 @@ export function resetCounters() {
   counters.user.clear();
   mutationCounters.clear();
   registrationCounters.clear();
+  integrationClientCounters.clear();
+  integrationIpCounters.clear();
+  incidentUserCounters.clear();
+  incidentIpCounters.clear();
   globalCount = { count: 0, start: Date.now() };
 }
 

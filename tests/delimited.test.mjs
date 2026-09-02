@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { parseDelimited, rowsToCsv, safeCell } from '../src/lib/delimited.js';
+import { activityRows, guessMapping } from '../src/lib/sheets.js';
 
 let passed = 0;
 const check = (name, fn) => {
@@ -43,4 +44,35 @@ check('CSV output quotes cells and neutralizes formulas', () => {
   assert.equal(csv, '"Name","Value"\r\n"Alpha, ""one""","\'  =2+2"');
 });
 
-console.log(`\n${passed}/5 delimited-file checks passed`);
+check('finance export keeps action amount separate from transaction value', () => {
+  const [row] = activityRows([{
+    title: 'Reconciled aged ULOs',
+    quantity: 30,
+    unit: 'ULOs',
+    dollar_amount: 1118.38,
+    dollar_type: 'reconciled',
+  }]);
+  assert.equal(row['Action Amount'], 30);
+  assert.equal(row['Action Unit'], 'ULOs');
+  assert.equal(row['Transaction Value'], 1118.38);
+  assert.equal(row['Dollar Type'], 'reconciled');
+});
+
+check('finance import accepts current and legacy column labels', () => {
+  assert.deepEqual(
+    guessMapping(['Title', 'Action Amount', 'Action Unit', 'Transaction Value', 'Dollar Type']),
+    {
+      title: 'Title',
+      quantity: 'Action Amount',
+      unit: 'Action Unit',
+      dollar_amount: 'Transaction Value',
+      dollar_type: 'Dollar Type',
+    }
+  );
+  const legacy = guessMapping(['Title', 'Quantity', 'Unit', 'Dollar Amount', 'Dollar Type']);
+  assert.equal(legacy.quantity, 'Quantity');
+  assert.equal(legacy.unit, 'Unit');
+  assert.equal(legacy.dollar_amount, 'Dollar Amount');
+});
+
+console.log(`\n${passed}/7 delimited-file checks passed`);

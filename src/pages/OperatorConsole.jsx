@@ -1,10 +1,37 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Activity, Database, Download, Globe2, RefreshCw, Save, ServerCog, ShieldCheck, Users } from 'lucide-react';
+import {
+  Activity, Bot, Copy, Database, Download, ExternalLink, Globe2, KeyRound, RefreshCw, Save,
+  ServerCog, ShieldAlert, ShieldCheck, Trash2, Users,
+} from 'lucide-react';
 import * as api from '@/lib/api';
 import { useIdentity } from '@/store/useStore';
 import { useToast } from '@/components/ui/toast';
-import { Badge, Button, Field, Input, Panel, Select } from '@/components/ui/primitives';
+import { Badge, Button, Field, Input, Panel, Select, Textarea } from '@/components/ui/primitives';
+import { Dialog } from '@/components/ui/Dialog';
+
+const incidentTone = (value) => {
+  if (value === 'critical' || value === 'high') return 'redline';
+  if (value === 'closed' || value === 'mitigated') return 'ledger';
+  if (value === 'investigating' || value === 'acknowledged') return 'signal';
+  return 'neutral';
+};
+
+const INCIDENT_STATUS_OPTIONS = [
+  { value: 'submitted', label: 'Submitted' },
+  { value: 'acknowledged', label: 'Acknowledged' },
+  { value: 'investigating', label: 'Investigating' },
+  { value: 'mitigated', label: 'Mitigated' },
+  { value: 'closed', label: 'Closed' },
+];
+
+const INCIDENT_TRANSITIONS = {
+  submitted: ['acknowledged', 'investigating', 'closed'],
+  acknowledged: ['investigating', 'mitigated', 'closed'],
+  investigating: ['mitigated', 'closed'],
+  mitigated: ['investigating', 'closed'],
+  closed: ['investigating'],
+};
 
 function bytes(value) {
   if (value == null) return '—';
@@ -25,6 +52,17 @@ export default function OperatorConsole() {
   const [overview, setOverview] = useState(null);
   const [database, setDatabase] = useState(null);
   const [experience, setExperience] = useState(null);
+  const [integrations, setIntegrations] = useState({ clients: [], units: [], enabled: false });
+  const [ai, setAi] = useState(null);
+  const [integrationName, setIntegrationName] = useState('');
+  const [integrationUnitId, setIntegrationUnitId] = useState('');
+  const [integrationDays, setIntegrationDays] = useState(90);
+  const [revealedToken, setRevealedToken] = useState('');
+  const [incidents, setIncidents] = useState([]);
+  const [incidentDetail, setIncidentDetail] = useState(null);
+  const [incidentStatus, setIncidentStatus] = useState('');
+  const [incidentNote, setIncidentNote] = useState('');
+  const [incidentVisibility, setIncidentVisibility] = useState('reporter');
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -36,17 +74,27 @@ export default function OperatorConsole() {
         window.location.replace(`${adminOrigin}/operator`);
         return;
       }
-      const [currentConfig, nextOverview, nextDatabase, nextExperience] = await Promise.all([
+      const [currentConfig, nextOverview, nextDatabase, nextExperience, nextIntegrations, nextIncidents, nextAi] = await Promise.all([
         api.adminConfiguration(),
         api.adminOverview(),
         api.adminDb(),
         api.adminExperience(),
+        api.adminIntegrations(),
+        api.adminSecurityIncidents(),
+        api.adminAiStatus(),
       ]);
       setConfig(currentConfig);
       setDraft(currentConfig.editable);
       setOverview(nextOverview);
       setDatabase(nextDatabase);
       setExperience(nextExperience);
+      setIntegrations(nextIntegrations);
+      setIncidents(nextIncidents.incidents || []);
+      setAi(nextAi);
+      setIncidentDetail((current) => current
+        ? (nextIncidents.incidents || []).find((row) => row.id === current.id) || null
+        : null);
+      setIntegrationUnitId((current) => current || nextIntegrations.units?.[0]?.id || '');
     } catch (error) {
       toast.error(api.errorText(error));
     } finally {
@@ -83,6 +131,70 @@ export default function OperatorConsole() {
       const result = await api.syncMaradmins();
       toast.success(`Official feed refreshed: ${result.updated || 0} checked, ${result.inserted || 0} new.`);
       await load();
+    } catch (error) {
+      toast.error(api.errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createIntegration = async () => {
+    setBusy(true);
+    setRevealedToken('');
+    try {
+      const created = await api.createIntegration({
+        name: integrationName,
+        unit_id: integrationUnitId,
+        expires_in_days: Number(integrationDays),
+      });
+      setRevealedToken(created.token);
+      setIntegrationName('');
+      setIntegrations(await api.adminIntegrations());
+      toast.success('Exact-unit integration credential created. Copy it now.');
+    } catch (error) {
+      toast.error(api.errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revokeIntegration = async (id) => {
+    setBusy(true);
+    try {
+      await api.revokeIntegration(id);
+      setIntegrations(await api.adminIntegrations());
+      toast.success('Integration credential revoked.');
+    } catch (error) {
+      toast.error(api.errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openIncident = (incident) => {
+    setIncidentDetail(incident);
+    setIncidentStatus(incident.status);
+    setIncidentNote('');
+    setIncidentVisibility('reporter');
+  };
+
+  const saveIncidentUpdate = async () => {
+    if (!incidentDetail) return;
+    setBusy(true);
+    try {
+      await api.updateSecurityIncident(incidentDetail.id, {
+        status: incidentStatus,
+        note: incidentNote,
+        visible_to_reporter: incidentVisibility === 'reporter',
+      });
+      const next = await api.adminSecurityIncidents();
+      setIncidents(next.incidents || []);
+      const refreshed = (next.incidents || []).find((row) => row.id === incidentDetail.id) || null;
+      setIncidentDetail(refreshed);
+      setIncidentStatus(refreshed?.status || '');
+      setIncidentNote('');
+      window.dispatchEvent(new CustomEvent('vantage:notifications-refresh'));
+      toast.success('Security case updated and audited.');
     } catch (error) {
       toast.error(api.errorText(error));
     } finally {
@@ -136,7 +248,7 @@ export default function OperatorConsole() {
           <div className="skeleton h-52 rounded-xl" />
         </div>
       ) : (
-        <div className="mt-5 grid min-w-0 gap-4 xl:grid-cols-2">
+        <div className="mt-5 grid min-w-0 gap-4 [&>*]:min-w-0 xl:grid-cols-2">
           <Panel title="Site identity" subtitle="Visible instance labels and announcement">
             <div className="grid gap-4 sm:grid-cols-2">
               <Field label="Product label">
@@ -202,6 +314,136 @@ export default function OperatorConsole() {
             </div>
           </Panel>
 
+          <Panel title="Enterprise API" subtitle="Read-only credentials bound to one exact unit">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Field label="API surface">
+                <Select
+                  value={draft.integrations?.enabled ? 'enabled' : 'disabled'}
+                  onValueChange={(value) => setValue('integrations', 'enabled', value === 'enabled')}
+                  options={[{ value: 'disabled', label: 'Disabled' }, { value: 'enabled', label: 'Enabled' }]}
+                />
+              </Field>
+              <Field label="Client name">
+                <Input value={integrationName} onChange={(event) => setIntegrationName(event.target.value)} maxLength={80} placeholder="Approved downstream system" />
+              </Field>
+              <Field label="Exact unit">
+                <Select
+                  value={integrationUnitId}
+                  onValueChange={setIntegrationUnitId}
+                  options={(integrations.units || []).map((unit) => ({ value: unit.id, label: `${unit.code} · ${unit.short_name || unit.name}` }))}
+                />
+              </Field>
+              <Field label="Credential lifetime" hint="days">
+                <Input type="number" min="1" max="365" value={integrationDays} onChange={(event) => setIntegrationDays(Number(event.target.value))} />
+              </Field>
+              <div className="flex items-end sm:col-span-2">
+                <Button
+                  className="w-full justify-center"
+                  onClick={createIntegration}
+                  disabled={busy || integrationName.trim().length < 3 || !integrationUnitId}
+                >
+                  <KeyRound className="h-3.5 w-3.5" /> Generate credential
+                </Button>
+              </div>
+            </div>
+
+            {revealedToken && (
+              <div className="mt-4 rounded-lg border border-signal/40 bg-signal/5 p-3">
+                <p className="text-sm font-medium text-text">Copy this credential now. VANTAGE will not show it again.</p>
+                <div className="mt-2 flex min-w-0 gap-2">
+                  <Input readOnly value={revealedToken} className="min-w-0 font-mono text-xs" aria-label="New integration credential" />
+                  <Button variant="ghost" size="sm" onClick={() => navigator.clipboard.writeText(revealedToken)}>
+                    <Copy className="h-3.5 w-3.5" /> Copy
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 space-y-2 border-t border-rule pt-3">
+              {(integrations.clients || []).length === 0 && <p className="text-sm text-text-3">No integration credentials issued.</p>}
+              {(integrations.clients || []).map((client) => (
+                <div key={client.id} className="flex min-w-0 flex-wrap items-center gap-3 rounded-lg border border-rule bg-panel-2/40 px-3 py-2.5">
+                  <KeyRound className="h-4 w-4 shrink-0 text-text-3" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-text">{client.name}</p>
+                    <p className="fig truncate text-2xs text-text-3">{client.unit_code} · {client.token_hint} · expires {age(client.expires_at)}</p>
+                  </div>
+                  <Badge tone={client.active ? 'ledger' : 'neutral'}>{client.active ? 'Active' : 'Revoked'}</Badge>
+                  {client.active && (
+                    <Button variant="ghost" size="sm" onClick={() => revokeIntegration(client.id)} disabled={busy}>
+                      <Trash2 className="h-3.5 w-3.5" /> Revoke
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-text-3">Credentials expose only unit-shared activity fields and aggregates. Private records, notes, attachments, rosters, drafts, and child units are excluded.</p>
+          </Panel>
+
+          <Panel title="GenAI.mil gateway" subtitle="Server-held credentials, bounded usage, and human-reviewed suggestions">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="AI assistance">
+                <Select
+                  value={draft.ai?.enabled ? 'enabled' : 'disabled'}
+                  onValueChange={(value) => setValue('ai', 'enabled', value === 'enabled')}
+                  options={[{ value: 'disabled', label: 'Disabled' }, { value: 'enabled', label: 'Enabled' }]}
+                />
+              </Field>
+              <Field label="Model">
+                <Input value={draft.ai?.model || ''} onChange={(event) => setValue('ai', 'model', event.target.value)} maxLength={100} />
+              </Field>
+              <Field label="Maximum output tokens" hint="per request">
+                <Input type="number" min="100" max="8000" value={draft.ai?.max_output_tokens || 1800} onChange={(event) => setValue('ai', 'max_output_tokens', Number(event.target.value))} />
+              </Field>
+              <Field label="Per-user daily tokens">
+                <Input type="number" min="1000" max="5000000" value={draft.ai?.per_user_daily_tokens || 250000} onChange={(event) => setValue('ai', 'per_user_daily_tokens', Number(event.target.value))} />
+              </Field>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-rule pt-3 sm:grid-cols-4">
+              <div><p className="eyebrow">Credential</p><p className={`mt-1 text-sm ${ai?.configured ? 'text-ledger' : 'text-redline'}`}>{ai?.configured ? `Configured · ${ai.key_fingerprint}` : 'Missing'}</p></div>
+              <div><p className="eyebrow">State</p><p className={`mt-1 text-sm ${ai?.locked_at ? 'text-redline' : ai?.available ? 'text-ledger' : 'text-text-3'}`}>{ai?.locked_at ? 'Key locked' : ai?.available ? 'Available' : 'Unavailable'}</p></div>
+              <div><p className="eyebrow">Requests today</p><p className="fig mt-1 text-sm text-text">{ai?.daily?.requests || 0}</p></div>
+              <div><p className="eyebrow">Tokens today</p><p className="fig mt-1 text-sm text-text">{ai?.daily?.total_tokens || 0} / {ai?.daily?.budget_tokens || 0}</p></div>
+            </div>
+            {ai?.unlock_url && (
+              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-redline/40 bg-redline/5 p-3">
+                <Bot className="h-4 w-4 text-redline" />
+                <p className="min-w-0 flex-1 text-sm text-text-2">The GenAI.mil key reached its eight-hour lock. Unlock it before users retry.</p>
+                <Button size="sm" asChild><a href={ai.unlock_url} target="_blank" rel="noreferrer">Unlock key <ExternalLink className="h-3.5 w-3.5" /></a></Button>
+              </div>
+            )}
+            <p className="mt-3 text-xs leading-relaxed text-text-3">Set <span className="font-mono">VANTAGE_GENAI_API_KEY</span> in the hosting environment. The key is never stored in YAML, SQLite, browser code, logs, or this interface. Prompt and response bodies are not retained.</p>
+          </Panel>
+
+          <Panel id="security-incidents" title="Security incident queue" subtitle="Confidential reports visible only to the reporter and Instance Operator">
+            <div className="mb-3 grid grid-cols-2 gap-3 border-b border-rule pb-3 sm:grid-cols-3">
+              <div><p className="eyebrow">Open</p><p className="fig mt-1 text-lg text-text">{incidents.filter((row) => row.status !== 'closed').length}</p></div>
+              <div><p className="eyebrow">Critical / high</p><p className="fig mt-1 text-lg text-text">{incidents.filter((row) => row.status !== 'closed' && ['critical', 'high'].includes(row.severity)).length}</p></div>
+              <div><p className="eyebrow">Submitted</p><p className="fig mt-1 text-lg text-text">{incidents.filter((row) => row.status === 'submitted').length}</p></div>
+            </div>
+            <div className="space-y-2">
+              {incidents.length === 0 && <p className="text-sm text-text-3">No confidential security reports submitted.</p>}
+              {incidents.map((incident) => (
+                <div key={incident.id} className="flex min-w-0 flex-wrap items-start gap-3 rounded-lg border border-rule bg-panel-2/40 p-3">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-text-3" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="min-w-0 truncate text-sm font-medium text-text">{incident.title}</p>
+                      <Badge tone={incidentTone(incident.status)}>{incident.status}</Badge>
+                      <Badge tone={incidentTone(incident.severity)}>{incident.severity}</Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-text-3">
+                      {incident.reporter_rank_abbr ? `${incident.reporter_rank_abbr} ` : ''}{incident.reporter_last_name}, {incident.reporter_first_name}
+                      {' · '}Case {incident.id.slice(0, 8)}
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => openIncident(incident)}>Manage</Button>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-text-3">Case content never enters unit exports, enterprise API responses, experience metrics, or unit-leader dashboards. Status changes and notes are append-only audit events.</p>
+          </Panel>
+
           <Panel title="Production domains" subtitle="Deployment-owned; change these through reviewed environment configuration">
             <div className="space-y-3">
               {[
@@ -232,6 +474,87 @@ export default function OperatorConsole() {
       )}
 
       <p className="mt-5 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">Security-sensitive values—operator identity, proxy trust, CAC/PIV verification, database path, and secrets—remain deployment-managed and never enter this interface.</p>
+
+      <Dialog
+        open={Boolean(incidentDetail)}
+        onOpenChange={(open) => !open && setIncidentDetail(null)}
+        title={incidentDetail?.title || 'Security incident'}
+        description={incidentDetail ? `Case ${incidentDetail.id.slice(0, 8)} · ${incidentDetail.reporter_username}` : ''}
+        size="lg"
+        footer={(
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setIncidentDetail(null)}>Close</Button>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={busy || (!incidentNote.trim() && incidentStatus === incidentDetail?.status)}
+              onClick={saveIncidentUpdate}
+            >
+              {busy ? 'Saving…' : 'Save case update'}
+            </Button>
+          </>
+        )}
+      >
+        {incidentDetail && (
+          <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,.7fr)]">
+            <div className="min-w-0 space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge tone={incidentTone(incidentDetail.status)}>{incidentDetail.status}</Badge>
+                <Badge tone={incidentTone(incidentDetail.severity)}>{incidentDetail.severity}</Badge>
+                <Badge>{incidentDetail.category.replace(/_/g, ' ')}</Badge>
+              </div>
+              {incidentDetail.affected_area && <p className="text-xs text-text-3">Affected area: <span className="text-text-2">{incidentDetail.affected_area}</span></p>}
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-2">{incidentDetail.description}</p>
+              <div className="space-y-2 border-t border-rule pt-3">
+                <p className="eyebrow">Complete case history</p>
+                {(incidentDetail.events || []).map((event) => (
+                  <div key={event.id} className="rounded border border-rule bg-panel-2/40 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-text">{event.kind.replace(/_/g, ' ')}</span>
+                      {event.to_status && <Badge tone={incidentTone(event.to_status)}>{event.to_status}</Badge>}
+                      {!event.visible_to_reporter && <Badge tone="redline">Operator only</Badge>}
+                      <span className="fig ml-auto text-2xs text-text-3">{age(event.created_at)}</span>
+                    </div>
+                    {event.message && <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-text-2">{event.message}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="min-w-0 space-y-4 lg:border-l lg:border-rule lg:pl-5">
+              <Field label="Case status">
+                <Select
+                  value={incidentStatus}
+                  onValueChange={setIncidentStatus}
+                  options={INCIDENT_STATUS_OPTIONS.filter((option) =>
+                    option.value === incidentDetail.status
+                    || INCIDENT_TRANSITIONS[incidentDetail.status]?.includes(option.value)
+                  )}
+                />
+              </Field>
+              <Field label="Update or note" hint="2,000 characters">
+                <Textarea
+                  rows={8}
+                  maxLength={2000}
+                  value={incidentNote}
+                  onChange={(event) => setIncidentNote(event.target.value)}
+                  placeholder="Document triage, containment, reproduction, mitigation, or closure details."
+                />
+              </Field>
+              <Field label="Note visibility">
+                <Select
+                  value={incidentVisibility}
+                  onValueChange={setIncidentVisibility}
+                  options={[
+                    { value: 'reporter', label: 'Visible to reporter' },
+                    { value: 'operator', label: 'Instance Operator only' },
+                  ]}
+                />
+              </Field>
+              <p className="text-xs leading-relaxed text-text-3">Reporter-visible updates create an in-app notification. Operator-only notes remain hidden from the reporter and unit leadership.</p>
+            </div>
+          </div>
+        )}
+      </Dialog>
     </div>
   );
 }

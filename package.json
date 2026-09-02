@@ -13,11 +13,12 @@
     "build": "vite build",
     "start": "node server/index.js",
     "lint": "eslint . --quiet",
-    "test": "node tests/config.test.mjs && node tests/attachments.test.mjs && node tests/factory-reset.test.mjs && node tests/provision-accounts.test.mjs && node tests/maintenance.test.mjs && node tests/static.test.mjs && node tests/hardening-static.test.mjs && node tests/delimited.test.mjs && node tests/logic.test.mjs && node tests/maradmins.test.mjs && node tests/api.test.mjs && node tests/scenario.test.mjs && node tests/security.test.mjs && node tests/matrix.test.mjs && node tests/tenancy.test.mjs && node tests/load-50.test.mjs && node tests/persona-100.test.mjs && node --test tests/migration.test.mjs",
+    "test": "node tests/config.test.mjs && node tests/attachments.test.mjs && node tests/proxy-trust.test.mjs && node tests/audit-integrity.test.mjs && node tests/cac-security.test.mjs && node tests/factory-reset.test.mjs && node tests/provision-accounts.test.mjs && node tests/maintenance.test.mjs && node tests/static.test.mjs && node tests/hardening-static.test.mjs && node tests/delimited.test.mjs && node tests/logic.test.mjs && node tests/maradmins.test.mjs && node tests/integrations.test.mjs && node tests/incidents.test.mjs && node tests/ai.test.mjs && node tests/postgres-migration.test.mjs && node tests/api.test.mjs && node tests/scenario.test.mjs && node tests/security.test.mjs && node tests/matrix.test.mjs && node tests/tenancy.test.mjs && node tests/load-50.test.mjs && node tests/persona-100.test.mjs && node --test tests/migration.test.mjs",
+    "test:ai": "node tests/ai.test.mjs",
     "test:logic": "node tests/logic.test.mjs",
     "test:api": "node tests/api.test.mjs",
     "test:scenario": "node tests/scenario.test.mjs",
-    "test:browser": "npm run build && node tests/browser.test.mjs && node tests/browser-ui.test.mjs && node tests/browser-track.test.mjs && node tests/browser-a11y.test.mjs && node tests/browser-mobile.test.mjs",
+    "test:browser": "npm run build && node tests/browser-incidents.test.mjs && node tests/browser.test.mjs && node tests/browser-ui.test.mjs && node tests/browser-track.test.mjs && node tests/browser-a11y.test.mjs && node tests/browser-mobile.test.mjs",
     "test:all": "npm test && npm run test:browser",
     "test:security": "node tests/security.test.mjs",
     "recover": "node scripts/recover-admin.mjs",
@@ -31,7 +32,9 @@
     "test:migration": "node --test tests/migration.test.mjs",
     "test:matrix": "node tests/matrix.test.mjs",
     "test:load50": "node tests/load-50.test.mjs",
-    "test:persona100": "node tests/persona-100.test.mjs"
+    "test:persona100": "node tests/persona-100.test.mjs",
+    "migrate:postgres:prepare": "node scripts/sqlite-to-postgres.mjs",
+    "test:postgres-migration": "node tests/postgres-migration.test.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.6",
