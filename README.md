@@ -12,6 +12,7 @@ Vantage is a self-hosted performance, work, readiness, and career-record system 
 - Cached MARADMIN ingestion from the official Marines.mil RSS feed
 - Restricted owner console for safe, non-secret instance configuration
 - Opt-in, exact-unit read-only API for approved enterprise integrations
+- Confidential incident and vulnerability reporting with an operator-only triage queue
 - Responsive light/dark interface with no advertising or third-party analytics
 
 ## Architecture
@@ -58,6 +59,8 @@ Reviewed non-secret defaults live in [`config/app.yaml`](config/app.yaml). Produ
 CAC/PIV support remains disabled until an approved certificate-verifying proxy is configured. See `.env.example` and `config/app.yaml` for the full supported surface.
 
 The enterprise API is disabled by default. Its credentials are created and revoked in the restricted Owner Console, are bound to one exact unit, and are shown only once. See [`docs/ENTERPRISE-API.md`](docs/ENTERPRISE-API.md) for the v1 contract and security boundary.
+
+Security reports are visible only to the reporter and Instance Operator and never enter unit exports or integration responses. See [`docs/SECURITY-INCIDENTS.md`](docs/SECURITY-INCIDENTS.md) for lifecycle, access, audit, and operational boundaries.
 
 ## Render deployment
 

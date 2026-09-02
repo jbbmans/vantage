@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import {
   AlertTriangle, Check, Clock3, Download, Eye, FileSpreadsheet, GraduationCap,
-  MonitorCog, Server, ShieldCheck, X,
+  MonitorCog, Server, ShieldAlert, ShieldCheck, X,
 } from 'lucide-react';
 import * as apiClient from '@/lib/api';
 import {
@@ -17,6 +17,17 @@ import { Panel, Button, Select, Badge, EmptyState, Input, Field, Textarea } from
 import {
   useProjects, useTasks, useGoals, useRecognitions, useTrainings,
 } from '@/store/useStore';
+
+const EMPTY_INCIDENT = {
+  category: 'vulnerability', severity: 'moderate', title: '', description: '', affected_area: '', observed_at: '',
+};
+
+const incidentTone = (value) => {
+  if (value === 'critical' || value === 'high') return 'redline';
+  if (value === 'closed' || value === 'mitigated') return 'ledger';
+  if (value === 'investigating' || value === 'acknowledged') return 'signal';
+  return 'neutral';
+};
 
 export default function Settings() {
   const toast = useToast();
@@ -43,6 +54,12 @@ export default function Settings() {
   const [rankBusy, setRankBusy] = useState(false);
   const [pw, setPw] = useState({ current: '', next: '', confirm: '' });
   const [pwBusy, setPwBusy] = useState(false);
+  const [incidents, setIncidents] = useState([]);
+  const [incidentDialog, setIncidentDialog] = useState(false);
+  const [incidentDraft, setIncidentDraft] = useState(EMPTY_INCIDENT);
+  const [incidentDetail, setIncidentDetail] = useState(null);
+  const [incidentFollowUp, setIncidentFollowUp] = useState('');
+  const [incidentBusy, setIncidentBusy] = useState(false);
   const sheetInput = useRef(null);
 
   useEffect(() => {
@@ -68,6 +85,43 @@ export default function Settings() {
   const loadSessions = () =>
     apiClient.mySessions().then((r) => setSessions(r.sessions || [])).catch(() => setSessions([]));
   useEffect(() => { loadSessions(); }, []);
+
+  const loadIncidents = () => apiClient.securityIncidents()
+    .then((result) => {
+      const next = result.incidents || [];
+      setIncidents(next);
+      setIncidentDetail((current) => current ? next.find((row) => row.id === current.id) || null : null);
+    })
+    .catch(() => setIncidents([]));
+  useEffect(() => { loadIncidents(); }, []);
+
+  const submitIncident = async () => {
+    setIncidentBusy(true);
+    try {
+      await apiClient.submitSecurityIncident({
+        ...incidentDraft,
+        observed_at: incidentDraft.observed_at || null,
+      });
+      setIncidentDialog(false);
+      setIncidentDraft(EMPTY_INCIDENT);
+      await loadIncidents();
+      window.dispatchEvent(new CustomEvent('vantage:notifications-refresh'));
+      toast.success('Confidential security report submitted.');
+    } catch (err) { toast.error(apiClient.errorText(err)); }
+    finally { setIncidentBusy(false); }
+  };
+
+  const sendIncidentFollowUp = async () => {
+    if (!incidentDetail || !incidentFollowUp.trim()) return;
+    setIncidentBusy(true);
+    try {
+      await apiClient.followUpSecurityIncident(incidentDetail.id, incidentFollowUp);
+      setIncidentFollowUp('');
+      await loadIncidents();
+      toast.success('Follow-up added to the confidential case.');
+    } catch (err) { toast.error(apiClient.errorText(err)); }
+    finally { setIncidentBusy(false); }
+  };
 
   const signOutOthers = async () => {
     try {
@@ -221,6 +275,7 @@ export default function Settings() {
               ['interface', 'Interface'],
               ['security', 'Password'],
               ['sessions', 'Sessions'],
+              ['security-reports', 'Security reports'],
               ['access-log', 'Access log'],
               ['data', 'Import & export'],
               ['storage', 'Data location'],
@@ -493,6 +548,45 @@ export default function Settings() {
       </Panel>
 
       <Panel
+        id="security-reports"
+        title="Confidential security reports"
+        subtitle="Report a suspected vulnerability, security incident, privacy concern, or account issue"
+        action={(
+          <Button size="sm" onClick={() => { setIncidentDraft(EMPTY_INCIDENT); setIncidentDialog(true); }}>
+            <ShieldAlert className="h-3.5 w-3.5" /> Report concern
+          </Button>
+        )}
+      >
+        <div className="space-y-2">
+          {incidents.length === 0 ? (
+            <div className="rounded border border-dashed border-rule px-3 py-5 text-center text-sm text-text-3">
+              You have not submitted a security report.
+            </div>
+          ) : incidents.map((incident) => (
+            <div key={incident.id} className="flex min-w-0 flex-wrap items-start gap-3 rounded-lg border border-rule bg-panel-2/40 p-3">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-text-3" />
+              <div className="min-w-0 flex-1">
+                <div className="flex flex-wrap items-center gap-2">
+                  <p className="min-w-0 truncate text-sm font-medium text-text">{incident.title}</p>
+                  <Badge tone={incidentTone(incident.status)}>{incident.status}</Badge>
+                  <Badge tone={incidentTone(incident.severity)}>{incident.severity}</Badge>
+                </div>
+                <p className="mt-1 line-clamp-2 text-xs leading-relaxed text-text-3">{incident.description}</p>
+                <p className="fig mt-1 text-2xs text-text-3">Case {incident.id.slice(0, 8)} · updated {whenShort(incident.updated_at)}</p>
+              </div>
+              <Button variant="ghost" size="sm" onClick={() => { setIncidentDetail(incident); setIncidentFollowUp(''); }}>
+                View case
+              </Button>
+            </div>
+          ))}
+        </div>
+        <p className="mt-3 flex items-start gap-2 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">
+          <ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ledger" />
+          Case details are visible only to you and the Instance Operator. Unit leaders do not receive access. Use established emergency and command-reporting channels when immediate action is required.
+        </p>
+      </Panel>
+
+      <Panel
         id="access-log"
         title="Who has viewed your record"
         subtitle="Protected reads by authorized members of a unit you share are logged"
@@ -681,6 +775,139 @@ export default function Settings() {
             placeholder="Add context for the Marine"
           />
         </Field>
+      </Dialog>
+
+      <Dialog
+        open={incidentDialog}
+        onOpenChange={setIncidentDialog}
+        title="Submit a confidential security report"
+        description="Provide enough detail for the Instance Operator to reproduce, contain, or investigate the concern."
+        size="md"
+        footer={(
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setIncidentDialog(false)}>Cancel</Button>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={incidentBusy || !incidentDraft.title.trim() || !incidentDraft.description.trim()}
+              onClick={submitIncident}
+            >
+              {incidentBusy ? 'Submitting…' : 'Submit confidential report'}
+            </Button>
+          </>
+        )}
+      >
+        <div className="grid gap-4 sm:grid-cols-2">
+          <Field label="Concern type">
+            <Select
+              value={incidentDraft.category}
+              onValueChange={(category) => setIncidentDraft((current) => ({ ...current, category }))}
+              options={[
+                { value: 'vulnerability', label: 'Suspected vulnerability' },
+                { value: 'security_incident', label: 'Security incident' },
+                { value: 'privacy', label: 'Privacy concern' },
+                { value: 'account_access', label: 'Account or access issue' },
+                { value: 'data_integrity', label: 'Data integrity concern' },
+                { value: 'availability', label: 'Availability or outage' },
+                { value: 'other', label: 'Other security concern' },
+              ]}
+            />
+          </Field>
+          <Field label="Observed severity" hint="your best assessment">
+            <Select
+              value={incidentDraft.severity}
+              onValueChange={(severity) => setIncidentDraft((current) => ({ ...current, severity }))}
+              options={[
+                { value: 'informational', label: 'Informational' },
+                { value: 'low', label: 'Low' },
+                { value: 'moderate', label: 'Moderate' },
+                { value: 'high', label: 'High' },
+                { value: 'critical', label: 'Critical' },
+              ]}
+            />
+          </Field>
+          <Field label="Title" className="sm:col-span-2">
+            <Input
+              maxLength={160}
+              value={incidentDraft.title}
+              onChange={(event) => setIncidentDraft((current) => ({ ...current, title: event.target.value }))}
+              placeholder="Short, specific summary"
+            />
+          </Field>
+          <Field label="Affected area" hint="optional">
+            <Input
+              maxLength={120}
+              value={incidentDraft.affected_area}
+              onChange={(event) => setIncidentDraft((current) => ({ ...current, affected_area: event.target.value }))}
+              placeholder="Page, workflow, account, or service"
+            />
+          </Field>
+          <Field label="When observed" hint="optional">
+            <Input
+              type="datetime-local"
+              value={incidentDraft.observed_at}
+              onChange={(event) => setIncidentDraft((current) => ({ ...current, observed_at: event.target.value }))}
+            />
+          </Field>
+          <Field label="Description and reproduction details" className="sm:col-span-2">
+            <Textarea
+              rows={8}
+              maxLength={5000}
+              value={incidentDraft.description}
+              onChange={(event) => setIncidentDraft((current) => ({ ...current, description: event.target.value }))}
+              placeholder="What happened, what you expected, steps to reproduce, and any containment already performed. Do not include passwords, CAC PINs, access tokens, or other secrets."
+            />
+          </Field>
+        </div>
+      </Dialog>
+
+      <Dialog
+        open={Boolean(incidentDetail)}
+        onOpenChange={(open) => !open && setIncidentDetail(null)}
+        title={incidentDetail?.title || 'Security report'}
+        description={incidentDetail ? `Case ${incidentDetail.id.slice(0, 8)} · ${incidentDetail.category.replace(/_/g, ' ')}` : ''}
+        size="md"
+        footer={(
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setIncidentDetail(null)}>Close</Button>
+            <Button variant="primary" size="sm" disabled={incidentBusy || !incidentFollowUp.trim()} onClick={sendIncidentFollowUp}>
+              {incidentBusy ? 'Sending…' : 'Add follow-up'}
+            </Button>
+          </>
+        )}
+      >
+        {incidentDetail && (
+          <div className="space-y-4">
+            <div className="flex flex-wrap gap-2">
+              <Badge tone={incidentTone(incidentDetail.status)}>{incidentDetail.status}</Badge>
+              <Badge tone={incidentTone(incidentDetail.severity)}>{incidentDetail.severity}</Badge>
+              {incidentDetail.affected_area && <Badge>{incidentDetail.affected_area}</Badge>}
+            </div>
+            <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-2">{incidentDetail.description}</p>
+            <div className="space-y-2 border-t border-rule pt-3">
+              <p className="eyebrow">Case history</p>
+              {(incidentDetail.events || []).map((event) => (
+                <div key={event.id} className="rounded border border-rule bg-panel-2/40 p-3">
+                  <div className="flex flex-wrap items-center gap-2">
+                    <span className="text-xs font-medium text-text">{event.kind.replace(/_/g, ' ')}</span>
+                    {event.to_status && <Badge tone={incidentTone(event.to_status)}>{event.to_status}</Badge>}
+                    <span className="fig ml-auto text-2xs text-text-3">{whenShort(event.created_at)}</span>
+                  </div>
+                  {event.message && <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-text-2">{event.message}</p>}
+                </div>
+              ))}
+            </div>
+            <Field label="Follow-up information" hint="2,000 characters">
+              <Textarea
+                rows={4}
+                maxLength={2000}
+                value={incidentFollowUp}
+                onChange={(event) => setIncidentFollowUp(event.target.value)}
+                placeholder="Add new observations or answer an operator request."
+              />
+            </Field>
+          </div>
+        )}
       </Dialog>
 
       {importState && (

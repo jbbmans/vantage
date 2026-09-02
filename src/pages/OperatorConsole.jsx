@@ -2,12 +2,36 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
   Activity, Copy, Database, Download, Globe2, KeyRound, RefreshCw, Save,
-  ServerCog, ShieldCheck, Trash2, Users,
+  ServerCog, ShieldAlert, ShieldCheck, Trash2, Users,
 } from 'lucide-react';
 import * as api from '@/lib/api';
 import { useIdentity } from '@/store/useStore';
 import { useToast } from '@/components/ui/toast';
-import { Badge, Button, Field, Input, Panel, Select } from '@/components/ui/primitives';
+import { Badge, Button, Field, Input, Panel, Select, Textarea } from '@/components/ui/primitives';
+import { Dialog } from '@/components/ui/Dialog';
+
+const incidentTone = (value) => {
+  if (value === 'critical' || value === 'high') return 'redline';
+  if (value === 'closed' || value === 'mitigated') return 'ledger';
+  if (value === 'investigating' || value === 'acknowledged') return 'signal';
+  return 'neutral';
+};
+
+const INCIDENT_STATUS_OPTIONS = [
+  { value: 'submitted', label: 'Submitted' },
+  { value: 'acknowledged', label: 'Acknowledged' },
+  { value: 'investigating', label: 'Investigating' },
+  { value: 'mitigated', label: 'Mitigated' },
+  { value: 'closed', label: 'Closed' },
+];
+
+const INCIDENT_TRANSITIONS = {
+  submitted: ['acknowledged', 'investigating', 'closed'],
+  acknowledged: ['investigating', 'mitigated', 'closed'],
+  investigating: ['mitigated', 'closed'],
+  mitigated: ['investigating', 'closed'],
+  closed: ['investigating'],
+};
 
 function bytes(value) {
   if (value == null) return '—';
@@ -33,6 +57,11 @@ export default function OperatorConsole() {
   const [integrationUnitId, setIntegrationUnitId] = useState('');
   const [integrationDays, setIntegrationDays] = useState(90);
   const [revealedToken, setRevealedToken] = useState('');
+  const [incidents, setIncidents] = useState([]);
+  const [incidentDetail, setIncidentDetail] = useState(null);
+  const [incidentStatus, setIncidentStatus] = useState('');
+  const [incidentNote, setIncidentNote] = useState('');
+  const [incidentVisibility, setIncidentVisibility] = useState('reporter');
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -44,12 +73,13 @@ export default function OperatorConsole() {
         window.location.replace(`${adminOrigin}/operator`);
         return;
       }
-      const [currentConfig, nextOverview, nextDatabase, nextExperience, nextIntegrations] = await Promise.all([
+      const [currentConfig, nextOverview, nextDatabase, nextExperience, nextIntegrations, nextIncidents] = await Promise.all([
         api.adminConfiguration(),
         api.adminOverview(),
         api.adminDb(),
         api.adminExperience(),
         api.adminIntegrations(),
+        api.adminSecurityIncidents(),
       ]);
       setConfig(currentConfig);
       setDraft(currentConfig.editable);
@@ -57,6 +87,10 @@ export default function OperatorConsole() {
       setDatabase(nextDatabase);
       setExperience(nextExperience);
       setIntegrations(nextIntegrations);
+      setIncidents(nextIncidents.incidents || []);
+      setIncidentDetail((current) => current
+        ? (nextIncidents.incidents || []).find((row) => row.id === current.id) || null
+        : null);
       setIntegrationUnitId((current) => current || nextIntegrations.units?.[0]?.id || '');
     } catch (error) {
       toast.error(api.errorText(error));
@@ -127,6 +161,37 @@ export default function OperatorConsole() {
       await api.revokeIntegration(id);
       setIntegrations(await api.adminIntegrations());
       toast.success('Integration credential revoked.');
+    } catch (error) {
+      toast.error(api.errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const openIncident = (incident) => {
+    setIncidentDetail(incident);
+    setIncidentStatus(incident.status);
+    setIncidentNote('');
+    setIncidentVisibility('reporter');
+  };
+
+  const saveIncidentUpdate = async () => {
+    if (!incidentDetail) return;
+    setBusy(true);
+    try {
+      await api.updateSecurityIncident(incidentDetail.id, {
+        status: incidentStatus,
+        note: incidentNote,
+        visible_to_reporter: incidentVisibility === 'reporter',
+      });
+      const next = await api.adminSecurityIncidents();
+      setIncidents(next.incidents || []);
+      const refreshed = (next.incidents || []).find((row) => row.id === incidentDetail.id) || null;
+      setIncidentDetail(refreshed);
+      setIncidentStatus(refreshed?.status || '');
+      setIncidentNote('');
+      window.dispatchEvent(new CustomEvent('vantage:notifications-refresh'));
+      toast.success('Security case updated and audited.');
     } catch (error) {
       toast.error(api.errorText(error));
     } finally {
@@ -312,6 +377,35 @@ export default function OperatorConsole() {
             <p className="mt-3 text-xs leading-relaxed text-text-3">Credentials expose only unit-shared activity fields and aggregates. Private records, notes, attachments, rosters, drafts, and child units are excluded.</p>
           </Panel>
 
+          <Panel id="security-incidents" title="Security incident queue" subtitle="Confidential reports visible only to the reporter and Instance Operator">
+            <div className="mb-3 grid grid-cols-2 gap-3 border-b border-rule pb-3 sm:grid-cols-3">
+              <div><p className="eyebrow">Open</p><p className="fig mt-1 text-lg text-text">{incidents.filter((row) => row.status !== 'closed').length}</p></div>
+              <div><p className="eyebrow">Critical / high</p><p className="fig mt-1 text-lg text-text">{incidents.filter((row) => row.status !== 'closed' && ['critical', 'high'].includes(row.severity)).length}</p></div>
+              <div><p className="eyebrow">Submitted</p><p className="fig mt-1 text-lg text-text">{incidents.filter((row) => row.status === 'submitted').length}</p></div>
+            </div>
+            <div className="space-y-2">
+              {incidents.length === 0 && <p className="text-sm text-text-3">No confidential security reports submitted.</p>}
+              {incidents.map((incident) => (
+                <div key={incident.id} className="flex min-w-0 flex-wrap items-start gap-3 rounded-lg border border-rule bg-panel-2/40 p-3">
+                  <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-text-3" />
+                  <div className="min-w-0 flex-1">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <p className="min-w-0 truncate text-sm font-medium text-text">{incident.title}</p>
+                      <Badge tone={incidentTone(incident.status)}>{incident.status}</Badge>
+                      <Badge tone={incidentTone(incident.severity)}>{incident.severity}</Badge>
+                    </div>
+                    <p className="mt-1 text-xs text-text-3">
+                      {incident.reporter_rank_abbr ? `${incident.reporter_rank_abbr} ` : ''}{incident.reporter_last_name}, {incident.reporter_first_name}
+                      {' · '}Case {incident.id.slice(0, 8)}
+                    </p>
+                  </div>
+                  <Button variant="ghost" size="sm" onClick={() => openIncident(incident)}>Manage</Button>
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-text-3">Case content never enters unit exports, enterprise API responses, experience metrics, or unit-leader dashboards. Status changes and notes are append-only audit events.</p>
+          </Panel>
+
           <Panel title="Production domains" subtitle="Deployment-owned; change these through reviewed environment configuration">
             <div className="space-y-3">
               {[
@@ -342,6 +436,87 @@ export default function OperatorConsole() {
       )}
 
       <p className="mt-5 border-t border-rule pt-3 text-xs leading-relaxed text-text-3">Security-sensitive values—operator identity, proxy trust, CAC/PIV verification, database path, and secrets—remain deployment-managed and never enter this interface.</p>
+
+      <Dialog
+        open={Boolean(incidentDetail)}
+        onOpenChange={(open) => !open && setIncidentDetail(null)}
+        title={incidentDetail?.title || 'Security incident'}
+        description={incidentDetail ? `Case ${incidentDetail.id.slice(0, 8)} · ${incidentDetail.reporter_username}` : ''}
+        size="lg"
+        footer={(
+          <>
+            <Button variant="ghost" size="sm" onClick={() => setIncidentDetail(null)}>Close</Button>
+            <Button
+              variant="primary"
+              size="sm"
+              disabled={busy || (!incidentNote.trim() && incidentStatus === incidentDetail?.status)}
+              onClick={saveIncidentUpdate}
+            >
+              {busy ? 'Saving…' : 'Save case update'}
+            </Button>
+          </>
+        )}
+      >
+        {incidentDetail && (
+          <div className="grid min-w-0 gap-5 lg:grid-cols-[minmax(0,1fr)_minmax(260px,.7fr)]">
+            <div className="min-w-0 space-y-4">
+              <div className="flex flex-wrap gap-2">
+                <Badge tone={incidentTone(incidentDetail.status)}>{incidentDetail.status}</Badge>
+                <Badge tone={incidentTone(incidentDetail.severity)}>{incidentDetail.severity}</Badge>
+                <Badge>{incidentDetail.category.replace(/_/g, ' ')}</Badge>
+              </div>
+              {incidentDetail.affected_area && <p className="text-xs text-text-3">Affected area: <span className="text-text-2">{incidentDetail.affected_area}</span></p>}
+              <p className="whitespace-pre-wrap text-sm leading-relaxed text-text-2">{incidentDetail.description}</p>
+              <div className="space-y-2 border-t border-rule pt-3">
+                <p className="eyebrow">Complete case history</p>
+                {(incidentDetail.events || []).map((event) => (
+                  <div key={event.id} className="rounded border border-rule bg-panel-2/40 p-3">
+                    <div className="flex flex-wrap items-center gap-2">
+                      <span className="text-xs font-medium text-text">{event.kind.replace(/_/g, ' ')}</span>
+                      {event.to_status && <Badge tone={incidentTone(event.to_status)}>{event.to_status}</Badge>}
+                      {!event.visible_to_reporter && <Badge tone="redline">Operator only</Badge>}
+                      <span className="fig ml-auto text-2xs text-text-3">{age(event.created_at)}</span>
+                    </div>
+                    {event.message && <p className="mt-1.5 whitespace-pre-wrap text-xs leading-relaxed text-text-2">{event.message}</p>}
+                  </div>
+                ))}
+              </div>
+            </div>
+            <div className="min-w-0 space-y-4 lg:border-l lg:border-rule lg:pl-5">
+              <Field label="Case status">
+                <Select
+                  value={incidentStatus}
+                  onValueChange={setIncidentStatus}
+                  options={INCIDENT_STATUS_OPTIONS.filter((option) =>
+                    option.value === incidentDetail.status
+                    || INCIDENT_TRANSITIONS[incidentDetail.status]?.includes(option.value)
+                  )}
+                />
+              </Field>
+              <Field label="Update or note" hint="2,000 characters">
+                <Textarea
+                  rows={8}
+                  maxLength={2000}
+                  value={incidentNote}
+                  onChange={(event) => setIncidentNote(event.target.value)}
+                  placeholder="Document triage, containment, reproduction, mitigation, or closure details."
+                />
+              </Field>
+              <Field label="Note visibility">
+                <Select
+                  value={incidentVisibility}
+                  onValueChange={setIncidentVisibility}
+                  options={[
+                    { value: 'reporter', label: 'Visible to reporter' },
+                    { value: 'operator', label: 'Instance Operator only' },
+                  ]}
+                />
+              </Field>
+              <p className="text-xs leading-relaxed text-text-3">Reporter-visible updates create an in-app notification. Operator-only notes remain hidden from the reporter and unit leadership.</p>
+            </div>
+          </div>
+        )}
+      </Dialog>
     </div>
   );
 }

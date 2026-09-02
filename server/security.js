@@ -9,6 +9,8 @@ const mutationCounters = new Map();
 const registrationCounters = new Map();
 const integrationClientCounters = new Map();
 const integrationIpCounters = new Map();
+const incidentUserCounters = new Map();
+const incidentIpCounters = new Map();
 let globalCount = { count: 0, start: Date.now() };
 const MUTATION_MAX = config.limits.mutations_per_15_minutes;
 
@@ -91,6 +93,20 @@ export function checkIntegrationReadAllowed(clientId, ip) {
   return null;
 }
 
+export function checkIncidentSubmissionAllowed(userId, ip) {
+  const nowMs = Date.now();
+  for (const [map, key] of [
+    [incidentUserCounters, String(userId || 'unknown')],
+    [incidentIpCounters, String(ip || 'unknown')],
+  ]) {
+    const count = peek(map, key, nowMs);
+    if (count >= 5) return { status: 429, retryAfter: retryAfter(map.get(key), nowMs) };
+  }
+  bump(incidentUserCounters, String(userId || 'unknown'), nowMs);
+  bump(incidentIpCounters, String(ip || 'unknown'), nowMs);
+  return null;
+}
+
 export function recordLoginFailure(ip, username) {
   const nowMs = Date.now();
   bump(counters.ip, ip, nowMs);
@@ -113,6 +129,7 @@ export function pruneCounters() {
   for (const map of [
     counters.ip, counters.user, mutationCounters, registrationCounters,
     integrationClientCounters, integrationIpCounters,
+    incidentUserCounters, incidentIpCounters,
   ]) {
     for (const [key, entry] of map) if (entry.start < cutoff) map.delete(key);
   }
@@ -125,6 +142,8 @@ export function resetCounters() {
   registrationCounters.clear();
   integrationClientCounters.clear();
   integrationIpCounters.clear();
+  incidentUserCounters.clear();
+  incidentIpCounters.clear();
   globalCount = { count: 0, start: Date.now() };
 }
 
