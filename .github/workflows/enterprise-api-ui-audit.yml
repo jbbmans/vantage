@@ -1,0 +1,26 @@
+name: enterprise-api-ui-audit
+
+on:
+  push:
+    branches: [audit/enterprise-api-ui]
+
+permissions:
+  contents: read
+
+jobs:
+  accessibility-and-mobile:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+          cache: npm
+      - run: npm ci
+      - run: npx playwright install --with-deps chromium
+      - run: npm run build
+      - name: Owner console accessibility
+        run: node tests/browser-a11y.test.mjs
+      - name: Mobile and reflow
+        run: node tests/browser-mobile.test.mjs
