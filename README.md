@@ -11,6 +11,7 @@ Vantage is a self-hosted performance, work, readiness, and career-record system 
 - First-party notifications and a searchable command menu
 - Cached MARADMIN ingestion from the official Marines.mil RSS feed
 - Restricted owner console for safe, non-secret instance configuration
+- Opt-in, exact-unit read-only API for approved enterprise integrations
 - Responsive light/dark interface with no advertising or third-party analytics
 
 ## Architecture
@@ -51,8 +52,12 @@ Reviewed non-secret defaults live in [`config/app.yaml`](config/app.yaml). Produ
 | `TRUST_PROXY` | Trusted reverse-proxy hop configuration |
 | `VANTAGE_MARADMIN_ENABLED` | Enable official-feed ingestion |
 | `VANTAGE_MARADMIN_REFRESH_MINUTES` | Feed cache interval |
+| `VANTAGE_INTEGRATIONS_ENABLED` | Enable the approved read-only integration surface |
+| `VANTAGE_INTEGRATION_REQUESTS_PER_15_MINUTES` | Per-client/source read limit |
 
 CAC/PIV support remains disabled until an approved certificate-verifying proxy is configured. See `.env.example` and `config/app.yaml` for the full supported surface.
+
+The enterprise API is disabled by default. Its credentials are created and revoked in the restricted Owner Console, are bound to one exact unit, and are shown only once. See [`docs/ENTERPRISE-API.md`](docs/ENTERPRISE-API.md) for the v1 contract and security boundary.
 
 ## Render deployment
 

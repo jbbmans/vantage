@@ -29,4 +29,11 @@ const unsafeCacHeader = structuredClone(cacWithBoundary);
 unsafeCacHeader.auth.cac_piv.subject_header = 'x-forwarded-user';
 assert.throws(() => validateConfig(unsafeCacHeader), /forwarding header/i);
 
+const integrations = structuredClone(DEFAULT_CONFIG);
+integrations.integrations.enabled = true;
+integrations.integrations.requests_per_15_minutes = 30;
+assert.equal(validateConfig(integrations).integrations.enabled, true);
+integrations.integrations.requests_per_15_minutes = 29;
+assert.throws(() => validateConfig(integrations), /integrations\.requests_per_15_minutes/i);
+
 console.log('  ok    strict YAML configuration parser');

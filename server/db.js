@@ -379,6 +379,23 @@ CREATE TABLE IF NOT EXISTS sessions (
   user_agent          TEXT
 );
 
+CREATE TABLE IF NOT EXISTS integration_clients (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  unit_id      TEXT NOT NULL REFERENCES units(id),
+  scope        TEXT NOT NULL DEFAULT 'unit.shared.read' CHECK (scope = 'unit.shared.read'),
+  token_prefix TEXT NOT NULL UNIQUE,
+  token_hash   TEXT NOT NULL UNIQUE,
+  active       INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+  created_by   TEXT NOT NULL REFERENCES users(id),
+  created_at   TEXT NOT NULL,
+  expires_at   TEXT NOT NULL,
+  last_used_at TEXT,
+  revoked_at   TEXT,
+  revoked_by   TEXT REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_integration_clients_unit ON integration_clients(unit_id);
+
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -918,6 +935,30 @@ const MIGRATIONS = [
         previous = hash;
       }
       setAuditAnchor(previous, rows.length);
+    },
+  },
+  {
+    id: 15,
+    name: '015_exact_unit_integration_clients',
+    run() {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS integration_clients (
+          id TEXT PRIMARY KEY,
+          name TEXT NOT NULL,
+          unit_id TEXT NOT NULL REFERENCES units(id),
+          scope TEXT NOT NULL DEFAULT 'unit.shared.read' CHECK (scope = 'unit.shared.read'),
+          token_prefix TEXT NOT NULL UNIQUE,
+          token_hash TEXT NOT NULL UNIQUE,
+          active INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+          created_by TEXT NOT NULL REFERENCES users(id),
+          created_at TEXT NOT NULL,
+          expires_at TEXT NOT NULL,
+          last_used_at TEXT,
+          revoked_at TEXT,
+          revoked_by TEXT REFERENCES users(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_integration_clients_unit ON integration_clients(unit_id);
+      `);
     },
   },
 ];
