@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Copy, Download, Printer, FileText, Inbox, Users, ArrowUp, ArrowDown, Minus, ListChecks, Sparkles, TrendingUp } from 'lucide-react';
 import {
   useActivities, useProjects, useRecognitions, useTrainings, useGoals, useTasks,
@@ -19,7 +19,7 @@ import { useEvalTrack } from '@/store/useStore';
 import { exportWorkbook } from '@/lib/sheets';
 import { copyToClipboard, downloadText } from '@/lib/utils';
 import { useToast } from '@/components/ui/toast';
-import { Panel, EmptyState, Button, Segmented, Badge, Tooltip, Select } from '@/components/ui/primitives';
+import { Panel, EmptyState, Button, Segmented, Badge, Tooltip, Select, Textarea } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
 
 const PERIODS = [
@@ -80,7 +80,7 @@ export default function Reports() {
   const [aiResult, setAiResult] = useState(null);
   const [aiBusy, setAiBusy] = useState(false);
   const [aiAvailable, setAiAvailable] = useState(false);
-  const lastAiKey = useRef('');
+  const [aiText, setAiText] = useState('');
 
   const me = identity?.user?.id;
   const reportUnitId = identity?.assignments?.find((a) => a.is_primary)?.unit_id
@@ -160,7 +160,7 @@ export default function Reports() {
     toast.success('Downloaded.');
   };
 
-  const generateAiDraft = async (automatic = false) => {
+  const generateAiDraft = async () => {
     setAiBusy(true);
     setAiResult(null);
     try {
@@ -177,22 +177,15 @@ export default function Reports() {
           character_limit: narrativeConfig(track).limit,
         });
       setAiResult(result.output);
-      if (!automatic) toast.success('AI draft generated. Verify every fact before use.');
-    } catch (error) { if (!automatic) toast.error(apiClient.errorText(error)); }
+      setAiText(result.output?.narrative || result.output?.executive_summary || result.output?.summary || JSON.stringify(result.output, null, 2));
+      toast.success('Vantage generated editable report text. Verify every fact before use.');
+    } catch (error) { toast.error(apiClient.errorText(error)); }
     finally { setAiBusy(false); }
   };
 
   useEffect(() => {
     apiClient.aiStatus().then((status) => setAiAvailable(Boolean(status.available))).catch(() => setAiAvailable(false));
   }, []);
-
-  useEffect(() => {
-    if (!aiAvailable || !pool.length) return;
-    const key = [unitScope ? reportUnitId : me, period, range.start.toISOString(), range.end.toISOString(), track].join('|');
-    if (lastAiKey.current === key) return;
-    lastAiKey.current = key;
-    generateAiDraft(true);
-  }, [aiAvailable, pool.length, unitScope, reportUnitId, me, period, range, track]);
 
   const hasUnitReportSource = canExportUnit && activities.some((activity) => activity.unit_id === reportUnitId);
   if (!pool.length && !hasUnitReportSource) {
@@ -256,7 +249,11 @@ export default function Reports() {
             <Printer className="h-3.5 w-3.5" />
             Print
           </Button>
-          {aiAvailable && <span className="flex items-center gap-1.5 text-xs text-text-3"><Sparkles className={cn('h-3.5 w-3.5 text-signal', aiBusy && 'animate-pulse')} />{aiBusy ? 'Vantage is drafting…' : 'Vantage drafted this report for review'}</span>}
+          <Button size="sm" onClick={generateAiDraft} disabled={aiBusy}>
+            <Sparkles className={cn('h-3.5 w-3.5', aiBusy && 'animate-pulse')} />
+            {aiBusy ? 'Generating…' : 'Generate using Vantage'}
+          </Button>
+          <span className="sr-only">{aiAvailable ? 'Vantage generation is available.' : 'Vantage generation is unavailable until the server key is configured.'}</span>
           </div>
         </div>
 
@@ -371,13 +368,16 @@ export default function Reports() {
           title="GenAI.mil suggestion"
           subtitle="Human review required · no automatic save"
           action={<Button size="sm" onClick={async () => {
-            const text = aiResult.narrative || aiResult.executive_summary || JSON.stringify(aiResult, null, 2);
-            (await copyToClipboard(text)) ? toast.success('AI draft copied.') : toast.error('Could not reach the clipboard.');
+            (await copyToClipboard(aiText)) ? toast.success('Vantage draft copied.') : toast.error('Could not reach the clipboard.');
           }}><Copy className="h-3.5 w-3.5" /> Copy</Button>}
         >
-          <p className="whitespace-pre-wrap text-base leading-relaxed text-text">
-            {aiResult.narrative || aiResult.executive_summary || aiResult.summary}
-          </p>
+          <Textarea
+            rows={8}
+            value={aiText}
+            onChange={(event) => setAiText(event.target.value)}
+            aria-label="Edit Vantage-generated report"
+            className="text-base leading-relaxed"
+          />
           {Object.entries(aiResult).filter(([key, value]) => Array.isArray(value) && value.length).map(([key, values]) => (
             <div key={key} className="mt-3 border-t border-rule pt-3">
               <p className="eyebrow">{key.replaceAll('_', ' ')}</p>
