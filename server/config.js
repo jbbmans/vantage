@@ -81,6 +81,10 @@ export const DEFAULT_CONFIG = Object.freeze({
     enabled: true,
     refresh_minutes: 30,
   },
+  integrations: {
+    enabled: false,
+    requests_per_15_minutes: 600,
+  },
 });
 
 function stripComment(raw) {
@@ -263,6 +267,7 @@ export function validateConfig(value) {
     ['retention.soft_delete', value.retention.soft_delete],
     ['experience_metrics.enabled', value.experience_metrics.enabled],
     ['maradmins.enabled', value.maradmins.enabled],
+    ['integrations.enabled', value.integrations.enabled],
   ]) {
     if (typeof flag !== 'boolean') throw new Error(`${name} must be true or false.`);
   }
@@ -277,6 +282,7 @@ export function validateConfig(value) {
   numberIn('attachments.max_bytes', value.attachments.max_bytes, 1024, 52428800);
   numberIn('attachments.max_per_record', value.attachments.max_per_record, 1, 50);
   numberIn('maradmins.refresh_minutes', value.maradmins.refresh_minutes, 5, 1440);
+  numberIn('integrations.requests_per_15_minutes', value.integrations.requests_per_15_minutes, 30, 10000);
   if (!Array.isArray(value.attachments.allowed_types) || !value.attachments.allowed_types.length) {
     throw new Error('attachments.allowed_types must be a non-empty inline array.');
   }
@@ -325,6 +331,10 @@ function withEnvironment(config) {
   next.limits.max_guest_days = envNumber('VANTAGE_MAX_GUEST_DAYS', next.limits.max_guest_days);
   next.maradmins.enabled = envBoolean('VANTAGE_MARADMIN_ENABLED', next.maradmins.enabled);
   next.maradmins.refresh_minutes = envNumber('VANTAGE_MARADMIN_REFRESH_MINUTES', next.maradmins.refresh_minutes);
+  next.integrations.enabled = envBoolean('VANTAGE_INTEGRATIONS_ENABLED', next.integrations.enabled);
+  next.integrations.requests_per_15_minutes = envNumber(
+    'VANTAGE_INTEGRATION_REQUESTS_PER_15_MINUTES', next.integrations.requests_per_15_minutes
+  );
   return next;
 }
 
@@ -345,6 +355,7 @@ const EDITABLE_CONFIG = Object.freeze({
   attachments: ['enabled', 'max_bytes', 'max_per_record'],
   experience_metrics: ['enabled'],
   maradmins: ['enabled', 'refresh_minutes'],
+  integrations: ['enabled'],
 });
 
 export function editableConfig() {
@@ -404,6 +415,7 @@ export function safeConfig() {
     retention: config.retention,
     experience_metrics: config.experience_metrics,
     maradmins: config.maradmins,
+    integrations: config.integrations,
     editable: editableConfig(),
     config_file: process.env.VANTAGE_CONFIG || 'config/app.yaml',
   };

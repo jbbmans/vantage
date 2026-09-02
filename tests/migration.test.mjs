@@ -48,8 +48,15 @@ describe('the fixture is a real v3.3.0 database', () => {
 });
 
 describe('migration 006 — tenancy', () => {
-  it('reaches the current schema version 14', () => {
-    expect(Number(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value)).toBe(14);
+  it('reaches the current schema version 15', () => {
+    expect(Number(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get().value)).toBe(15);
+  });
+
+  it('adds exact-unit integration clients without storing raw credentials', () => {
+    const columns = db.prepare('PRAGMA table_info(integration_clients)').all().map((column) => column.name);
+    expect(columns.includes('unit_id')).toBe(true);
+    expect(columns.includes('token_hash')).toBe(true);
+    expect(columns.includes('token')).toBe(false);
   });
 
   it('leaves no global role definitions', () => {

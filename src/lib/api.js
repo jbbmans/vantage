@@ -137,6 +137,9 @@ export const adminDb = () => api.get('/admin/db');
 export const adminExperience = (days = 30) => api.get(`/admin/experience?days=${encodeURIComponent(days)}`);
 export const adminOverview = () => api.get('/admin/overview');
 export const syncMaradmins = () => api.post('/admin/maradmins/sync');
+export const adminIntegrations = () => api.get('/admin/integrations');
+export const createIntegration = (payload) => api.post('/admin/integrations', payload);
+export const revokeIntegration = (id) => api.del(`/admin/integrations/${encodeURIComponent(id)}`);
 
 export const notifications = (limit = 40) => api.get(`/notifications?limit=${encodeURIComponent(limit)}`);
 export const markNotificationRead = (id) => api.put(`/notifications/${encodeURIComponent(id)}/read`);

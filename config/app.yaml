@@ -67,3 +67,8 @@ experience_metrics:
 maradmins:
   enabled: true
   refresh_minutes: 30
+
+integrations:
+  # Disabled until an Instance Operator approves an exact-unit client.
+  enabled: false
+  requests_per_15_minutes: 600

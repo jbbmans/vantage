@@ -1,6 +1,9 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
-import { Activity, Database, Download, Globe2, RefreshCw, Save, ServerCog, ShieldCheck, Users } from 'lucide-react';
+import {
+  Activity, Copy, Database, Download, Globe2, KeyRound, RefreshCw, Save,
+  ServerCog, ShieldCheck, Trash2, Users,
+} from 'lucide-react';
 import * as api from '@/lib/api';
 import { useIdentity } from '@/store/useStore';
 import { useToast } from '@/components/ui/toast';
@@ -25,6 +28,11 @@ export default function OperatorConsole() {
   const [overview, setOverview] = useState(null);
   const [database, setDatabase] = useState(null);
   const [experience, setExperience] = useState(null);
+  const [integrations, setIntegrations] = useState({ clients: [], units: [], enabled: false });
+  const [integrationName, setIntegrationName] = useState('');
+  const [integrationUnitId, setIntegrationUnitId] = useState('');
+  const [integrationDays, setIntegrationDays] = useState(90);
+  const [revealedToken, setRevealedToken] = useState('');
   const [busy, setBusy] = useState(false);
 
   const load = async () => {
@@ -36,17 +44,20 @@ export default function OperatorConsole() {
         window.location.replace(`${adminOrigin}/operator`);
         return;
       }
-      const [currentConfig, nextOverview, nextDatabase, nextExperience] = await Promise.all([
+      const [currentConfig, nextOverview, nextDatabase, nextExperience, nextIntegrations] = await Promise.all([
         api.adminConfiguration(),
         api.adminOverview(),
         api.adminDb(),
         api.adminExperience(),
+        api.adminIntegrations(),
       ]);
       setConfig(currentConfig);
       setDraft(currentConfig.editable);
       setOverview(nextOverview);
       setDatabase(nextDatabase);
       setExperience(nextExperience);
+      setIntegrations(nextIntegrations);
+      setIntegrationUnitId((current) => current || nextIntegrations.units?.[0]?.id || '');
     } catch (error) {
       toast.error(api.errorText(error));
     } finally {
@@ -83,6 +94,39 @@ export default function OperatorConsole() {
       const result = await api.syncMaradmins();
       toast.success(`Official feed refreshed: ${result.updated || 0} checked, ${result.inserted || 0} new.`);
       await load();
+    } catch (error) {
+      toast.error(api.errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const createIntegration = async () => {
+    setBusy(true);
+    setRevealedToken('');
+    try {
+      const created = await api.createIntegration({
+        name: integrationName,
+        unit_id: integrationUnitId,
+        expires_in_days: Number(integrationDays),
+      });
+      setRevealedToken(created.token);
+      setIntegrationName('');
+      setIntegrations(await api.adminIntegrations());
+      toast.success('Exact-unit integration credential created. Copy it now.');
+    } catch (error) {
+      toast.error(api.errorText(error));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const revokeIntegration = async (id) => {
+    setBusy(true);
+    try {
+      await api.revokeIntegration(id);
+      setIntegrations(await api.adminIntegrations());
+      toast.success('Integration credential revoked.');
     } catch (error) {
       toast.error(api.errorText(error));
     } finally {
@@ -200,6 +244,72 @@ export default function OperatorConsole() {
               <div><p className="eyebrow">Last success</p><p className="fig mt-1 text-sm text-text">{age(overview?.maradmins?.lastSuccess)}</p></div>
               <div><p className="eyebrow">State</p><p className={`mt-1 text-sm ${overview?.maradmins?.lastError ? 'text-redline' : 'text-ledger'}`}>{overview?.maradmins?.lastError ? 'Using cache' : 'Healthy'}</p></div>
             </div>
+          </Panel>
+
+          <Panel title="Enterprise API" subtitle="Read-only credentials bound to one exact unit">
+            <div className="grid gap-4 sm:grid-cols-3">
+              <Field label="API surface">
+                <Select
+                  value={draft.integrations?.enabled ? 'enabled' : 'disabled'}
+                  onValueChange={(value) => setValue('integrations', 'enabled', value === 'enabled')}
+                  options={[{ value: 'disabled', label: 'Disabled' }, { value: 'enabled', label: 'Enabled' }]}
+                />
+              </Field>
+              <Field label="Client name">
+                <Input value={integrationName} onChange={(event) => setIntegrationName(event.target.value)} maxLength={80} placeholder="Approved downstream system" />
+              </Field>
+              <Field label="Exact unit">
+                <Select
+                  value={integrationUnitId}
+                  onValueChange={setIntegrationUnitId}
+                  options={(integrations.units || []).map((unit) => ({ value: unit.id, label: `${unit.code} · ${unit.short_name || unit.name}` }))}
+                />
+              </Field>
+              <Field label="Credential lifetime" hint="days">
+                <Input type="number" min="1" max="365" value={integrationDays} onChange={(event) => setIntegrationDays(Number(event.target.value))} />
+              </Field>
+              <div className="flex items-end sm:col-span-2">
+                <Button
+                  className="w-full justify-center"
+                  onClick={createIntegration}
+                  disabled={busy || integrationName.trim().length < 3 || !integrationUnitId}
+                >
+                  <KeyRound className="h-3.5 w-3.5" /> Generate credential
+                </Button>
+              </div>
+            </div>
+
+            {revealedToken && (
+              <div className="mt-4 rounded-lg border border-signal/40 bg-signal/5 p-3">
+                <p className="text-sm font-medium text-text">Copy this credential now. VANTAGE will not show it again.</p>
+                <div className="mt-2 flex min-w-0 gap-2">
+                  <Input readOnly value={revealedToken} className="min-w-0 font-mono text-xs" aria-label="New integration credential" />
+                  <Button variant="ghost" size="sm" onClick={() => navigator.clipboard.writeText(revealedToken)}>
+                    <Copy className="h-3.5 w-3.5" /> Copy
+                  </Button>
+                </div>
+              </div>
+            )}
+
+            <div className="mt-4 space-y-2 border-t border-rule pt-3">
+              {(integrations.clients || []).length === 0 && <p className="text-sm text-text-3">No integration credentials issued.</p>}
+              {(integrations.clients || []).map((client) => (
+                <div key={client.id} className="flex min-w-0 flex-wrap items-center gap-3 rounded-lg border border-rule bg-panel-2/40 px-3 py-2.5">
+                  <KeyRound className="h-4 w-4 shrink-0 text-text-3" />
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-text">{client.name}</p>
+                    <p className="fig truncate text-2xs text-text-3">{client.unit_code} · {client.token_hint} · expires {age(client.expires_at)}</p>
+                  </div>
+                  <Badge tone={client.active ? 'ledger' : 'neutral'}>{client.active ? 'Active' : 'Revoked'}</Badge>
+                  {client.active && (
+                    <Button variant="ghost" size="sm" onClick={() => revokeIntegration(client.id)} disabled={busy}>
+                      <Trash2 className="h-3.5 w-3.5" /> Revoke
+                    </Button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="mt-3 text-xs leading-relaxed text-text-3">Credentials expose only unit-shared activity fields and aggregates. Private records, notes, attachments, rosters, drafts, and child units are excluded.</p>
           </Panel>
 
           <Panel title="Production domains" subtitle="Deployment-owned; change these through reviewed environment configuration">

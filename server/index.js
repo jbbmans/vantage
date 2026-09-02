@@ -41,6 +41,10 @@ import { attachmentDisposition, inspectAttachment } from './attachments.js';
 import { EXPERIENCE_EVENTS, recordExperience } from './experience.js';
 import { maradminSyncState, syncMaradmins } from './maradmins.js';
 import { isTrustedProxyAddress, singleHeader } from './proxyTrust.js';
+import {
+  INTEGRATION_SCOPE, decodeCursor, encodeCursor, issueIntegrationClient,
+  listIntegrationClients, requireExactIntegrationUnit, requireIntegration, revokeIntegrationClient,
+} from './integrations.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const db = getDb();
@@ -189,6 +193,158 @@ app.put('/api/admin/config', auth, operatorHostGate, operatorGate(db), (req, res
   } catch (err) {
     fail(res, 400, err.message || 'That configuration change is not valid.');
   }
+});
+
+app.get('/api/admin/integrations', auth, operatorHostGate, operatorGate(db), (req, res) => {
+  const units = db.prepare(
+    'SELECT id, code, name, short_name FROM units WHERE active = 1 ORDER BY level, name'
+  ).all();
+  res.json({ enabled: config.integrations.enabled, scope: INTEGRATION_SCOPE, clients: listIntegrationClients(db), units });
+});
+
+app.post('/api/admin/integrations', auth, operatorHostGate, operatorGate(db), (req, res) => {
+  try {
+    const client = issueIntegrationClient(db, {
+      name: req.body?.name,
+      unitId: req.body?.unit_id,
+      expiresInDays: req.body?.expires_in_days ?? 90,
+      createdBy: req.user.id,
+    });
+    audit({
+      actor_id: req.user.id,
+      action: 'integration_client_created',
+      entity: 'integration_client',
+      entity_id: client.id,
+      unit_id: client.unit_id,
+      detail: `${client.name}; ${client.scope}; expires ${client.expires_at}`,
+    });
+    res.status(201).json(client);
+  } catch (err) {
+    fail(res, 400, err.message || 'Integration client could not be created.', { code: 'validation' });
+  }
+});
+
+app.delete('/api/admin/integrations/:id', auth, operatorHostGate, operatorGate(db), (req, res) => {
+  const client = db.prepare('SELECT id, name, unit_id FROM integration_clients WHERE id = ?').get(req.params.id);
+  if (!client || !revokeIntegrationClient(db, client.id, req.user.id)) {
+    return fail(res, 404, 'No active integration client was found.', { code: 'not_found' });
+  }
+  audit({
+    actor_id: req.user.id,
+    action: 'integration_client_revoked',
+    entity: 'integration_client',
+    entity_id: client.id,
+    unit_id: client.unit_id,
+    detail: client.name,
+  });
+  res.json({ ok: true });
+});
+
+const integrationAuth = requireIntegration(db);
+const exactIntegrationUnit = [integrationAuth, requireExactIntegrationUnit];
+const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
+const validIsoDate = (value) => {
+  if (!ISO_DATE.test(value)) return false;
+  const parsed = new Date(`${value}T00:00:00.000Z`);
+  return Number.isFinite(parsed.getTime()) && parsed.toISOString().slice(0, 10) === value;
+};
+const integrationDateRange = (query) => {
+  const today = new Date();
+  const defaultTo = today.toISOString().slice(0, 10);
+  const defaultFrom = new Date(today.getTime() - 30 * 86_400_000).toISOString().slice(0, 10);
+  const from = String(query.from || defaultFrom);
+  const to = String(query.to || defaultTo);
+  if (!validIsoDate(from) || !validIsoDate(to)) return null;
+  const fromMs = Date.parse(`${from}T00:00:00.000Z`);
+  const toMs = Date.parse(`${to}T00:00:00.000Z`);
+  if (!Number.isFinite(fromMs) || !Number.isFinite(toMs) || fromMs > toMs || toMs - fromMs > 366 * 86_400_000) return null;
+  return { from, to };
+};
+
+app.get('/api/integrations/v1', integrationAuth, (req, res) => {
+  res.json({
+    api_version: '1.0',
+    scope: req.integration.scope,
+    unit_id: req.integration.unit_id,
+    links: {
+      unit: `/api/integrations/v1/units/${req.integration.unit_id}`,
+      activities: `/api/integrations/v1/units/${req.integration.unit_id}/activities`,
+      summary: `/api/integrations/v1/units/${req.integration.unit_id}/summary`,
+    },
+  });
+});
+
+app.get('/api/integrations/v1/units/:unitId', ...exactIntegrationUnit, (req, res) => {
+  const unit = db.prepare(
+    `SELECT id, parent_id, code, name, short_name, echelon, level, data_mode
+       FROM units WHERE id = ? AND active = 1`
+  ).get(req.integration.unit_id);
+  if (!unit) return fail(res, 404, 'No such integration resource.', { code: 'not_found' });
+  res.json({ api_version: '1.0', data: unit });
+});
+
+app.get('/api/integrations/v1/units/:unitId/summary', ...exactIntegrationUnit, (req, res) => {
+  const range = integrationDateRange(req.query);
+  if (!range) return fail(res, 400, 'Use a valid from/to date window of no more than 366 days.', { code: 'invalid_range' });
+  const categories = db.prepare(
+    `SELECT COALESCE(category, 'Uncategorized') AS category,
+            COUNT(*) AS entries,
+            COALESCE(SUM(quantity), 0) AS action_amount,
+            COALESCE(SUM(dollar_amount), 0) AS transaction_value
+       FROM activities
+      WHERE unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL AND date >= ? AND date <= ?
+      GROUP BY COALESCE(category, 'Uncategorized') ORDER BY entries DESC, category`
+  ).all(req.integration.unit_id, range.from, range.to);
+  const dollarTypes = db.prepare(
+    `SELECT COALESCE(dollar_type, 'Unclassified') AS dollar_type,
+            COUNT(*) AS entries, COALESCE(SUM(dollar_amount), 0) AS transaction_value
+       FROM activities
+      WHERE unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL AND date >= ? AND date <= ?
+        AND dollar_amount IS NOT NULL
+      GROUP BY COALESCE(dollar_type, 'Unclassified') ORDER BY transaction_value DESC, dollar_type`
+  ).all(req.integration.unit_id, range.from, range.to);
+  res.json({
+    api_version: '1.0',
+    unit_id: req.integration.unit_id,
+    range,
+    totals: {
+      entries: categories.reduce((sum, row) => sum + Number(row.entries || 0), 0),
+      action_amount: categories.reduce((sum, row) => sum + Number(row.action_amount || 0), 0),
+      transaction_value: categories.reduce((sum, row) => sum + Number(row.transaction_value || 0), 0),
+    },
+    categories,
+    dollar_types: dollarTypes,
+  });
+});
+
+app.get('/api/integrations/v1/units/:unitId/activities', ...exactIntegrationUnit, (req, res) => {
+  const requestedLimit = req.query.limit === undefined ? 100 : Number(req.query.limit);
+  if (!Number.isInteger(requestedLimit) || requestedLimit < 1 || requestedLimit > 200) {
+    return fail(res, 400, 'limit must be an integer from 1 through 200.', { code: 'invalid_limit' });
+  }
+  const cursor = decodeCursor(req.query.cursor);
+  if (req.query.cursor && !cursor) return fail(res, 400, 'cursor is invalid.', { code: 'invalid_cursor' });
+  const cursorClause = cursor ? 'AND (a.updated_at > ? OR (a.updated_at = ? AND a.id > ?))' : '';
+  const params = cursor
+    ? [req.integration.unit_id, cursor.updatedAt, cursor.updatedAt, cursor.id, requestedLimit + 1]
+    : [req.integration.unit_id, requestedLimit + 1];
+  const rows = db.prepare(
+    `SELECT a.id, a.user_id AS subject_id, a.unit_id, a.date, a.title, a.category, a.jepes_area,
+            a.quantity AS action_amount, a.unit_label AS action_unit,
+            a.dollar_amount AS transaction_value, a.dollar_type,
+            a.result, a.organization, a.system, a.status, a.created_at, a.updated_at
+       FROM activities a
+      WHERE a.unit_id = ? AND a.visibility = 'unit' AND a.deleted_at IS NULL ${cursorClause}
+      ORDER BY a.updated_at, a.id LIMIT ?`
+  ).all(...params);
+  const hasMore = rows.length > requestedLimit;
+  const data = hasMore ? rows.slice(0, requestedLimit) : rows;
+  res.json({
+    api_version: '1.0',
+    unit_id: req.integration.unit_id,
+    data,
+    page: { limit: requestedLimit, next_cursor: hasMore ? encodeCursor(data.at(-1)) : null },
+  });
 });
 
 const needs = (flag, unitFrom = (req) => req.body?.unit_id || req.params?.unitId) => (req, res, next) => {
