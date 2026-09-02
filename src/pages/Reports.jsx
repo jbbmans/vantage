@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Copy, Download, Printer, FileText, Inbox, Users, ArrowUp, ArrowDown, Minus, ListChecks, Sparkles, TrendingUp } from 'lucide-react';
 import {
   useActivities, useProjects, useRecognitions, useTrainings, useGoals, useTasks,
@@ -79,6 +79,8 @@ export default function Reports() {
   const [limit, setLimit] = useState(8);
   const [aiResult, setAiResult] = useState(null);
   const [aiBusy, setAiBusy] = useState(false);
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const lastAiKey = useRef('');
 
   const me = identity?.user?.id;
   const reportUnitId = identity?.assignments?.find((a) => a.is_primary)?.unit_id
@@ -158,7 +160,7 @@ export default function Reports() {
     toast.success('Downloaded.');
   };
 
-  const generateAiDraft = async () => {
+  const generateAiDraft = async (automatic = false) => {
     setAiBusy(true);
     setAiResult(null);
     try {
@@ -175,10 +177,22 @@ export default function Reports() {
           character_limit: narrativeConfig(track).limit,
         });
       setAiResult(result.output);
-      toast.success('AI draft generated. Verify every fact before use.');
-    } catch (error) { toast.error(apiClient.errorText(error)); }
+      if (!automatic) toast.success('AI draft generated. Verify every fact before use.');
+    } catch (error) { if (!automatic) toast.error(apiClient.errorText(error)); }
     finally { setAiBusy(false); }
   };
+
+  useEffect(() => {
+    apiClient.aiStatus().then((status) => setAiAvailable(Boolean(status.available))).catch(() => setAiAvailable(false));
+  }, []);
+
+  useEffect(() => {
+    if (!aiAvailable || !pool.length) return;
+    const key = [unitScope ? reportUnitId : me, period, range.start.toISOString(), range.end.toISOString(), track].join('|');
+    if (lastAiKey.current === key) return;
+    lastAiKey.current = key;
+    generateAiDraft(true);
+  }, [aiAvailable, pool.length, unitScope, reportUnitId, me, period, range, track]);
 
   const hasUnitReportSource = canExportUnit && activities.some((activity) => activity.unit_id === reportUnitId);
   if (!pool.length && !hasUnitReportSource) {
@@ -242,10 +256,7 @@ export default function Reports() {
             <Printer className="h-3.5 w-3.5" />
             Print
           </Button>
-          <Button size="sm" onClick={generateAiDraft} disabled={aiBusy}>
-            <Sparkles className={cn('h-3.5 w-3.5', aiBusy && 'animate-pulse')} />
-            {aiBusy ? 'Drafting…' : unitScope ? 'AI command brief' : 'AI narrative'}
-          </Button>
+          {aiAvailable && <span className="flex items-center gap-1.5 text-xs text-text-3"><Sparkles className={cn('h-3.5 w-3.5 text-signal', aiBusy && 'animate-pulse')} />{aiBusy ? 'Vantage is drafting…' : 'Vantage drafted this report for review'}</span>}
           </div>
         </div>
 
