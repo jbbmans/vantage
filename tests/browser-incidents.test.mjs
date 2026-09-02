@@ -65,7 +65,7 @@ try {
   await page.getByLabel('Update or note').fill('Synthetic case acknowledged by the Instance Operator.');
   await page.getByRole('button', { name: /save case update/i }).click();
   await page.getByText('Synthetic case acknowledged by the Instance Operator.').waitFor({ timeout: 6000 });
-  await page.getByRole('contentinfo').getByRole('button', { name: 'Close' }).click();
+  await page.getByRole('banner').getByRole('button', { name: 'Close' }).click();
 
   await page.goto(`${BASE}/settings#security-reports`, { waitUntil: 'domcontentloaded' });
   await page.getByText('Browser disclosure case').waitFor({ timeout: 6000 });
