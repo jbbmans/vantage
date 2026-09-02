@@ -1010,6 +1010,8 @@ const MIGRATIONS = [
   },
 ];
 
+export const LATEST_SCHEMA_VERSION = MIGRATIONS.at(-1).id;
+
 function migrate() {
   db.exec('CREATE TABLE IF NOT EXISTS meta (key TEXT PRIMARY KEY, value TEXT NOT NULL)');
   const current = Number(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get()?.value || 0);
