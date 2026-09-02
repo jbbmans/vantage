@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { format } from 'date-fns';
 import { Sparkles, ChevronDown, Zap } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
@@ -6,7 +6,7 @@ import { Button, Field, Input, NumberInput, Select, Textarea, Badge, Dot } from 
 import { useToast } from '@/components/ui/toast';
 import { parseQuickLog, primaryQuantity } from '@/lib/quickLogParser';
 import { createRecord } from '@/store/useStore';
-import { aiAssist, errorText, trackExperience } from '@/lib/api';
+import { aiAssist, aiStatus, errorText, trackExperience } from '@/lib/api';
 import { CATEGORIES, CATEGORY_COLORS, JEPES_AREAS, DOLLAR_TYPES, UNIT_SUGGESTIONS } from '@/lib/constants';
 import { formatDollarsExact } from '@/lib/metrics';
 import { strength, weaknesses, composeBullet } from '@/lib/bullets';
@@ -31,7 +31,9 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [aiBusy, setAiBusy] = useState(false);
+  const [aiAvailable, setAiAvailable] = useState(false);
   const [overrides, setOverrides] = useState({});
+  const lastAiText = useRef('');
 
   const DRAFT_KEY = draftKey(identity?.user?.id, 'quicklog');
   useEffect(() => {
@@ -40,6 +42,8 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
       try { stored = sessionStorage.getItem(DRAFT_KEY) || ''; } catch {}
       setText(initialText || stored);
       setOverrides({});
+      lastAiText.current = '';
+      aiStatus().then((status) => setAiAvailable(Boolean(status.available))).catch(() => setAiAvailable(false));
       setExpanded(Boolean(prefs.interface?.quickLogExpanded));
     }
   }, [open, initialText, DRAFT_KEY, prefs.interface?.quickLogExpanded]);
@@ -79,8 +83,10 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
   const set = (key) => (value) => setOverrides((o) => ({ ...o, [key]: value }));
   const setEvent = (key) => (e) => set(key)(e.target.value);
 
-  const extractWithAi = async () => {
+  const extractWithAi = async (automatic = false) => {
     if (!text.trim()) return;
+    if (automatic && (lastAiText.current === text.trim() || aiBusy)) return;
+    lastAiText.current = text.trim();
     setAiBusy(true);
     try {
       const response = await aiAssist('quick_log', { text });
@@ -100,9 +106,9 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
       if (DOLLAR_TYPES.some((item) => item.key === suggestion.dollar_type)) next.dollar_type = suggestion.dollar_type;
       setOverrides((current) => ({ ...current, ...next }));
       setExpanded(true);
-      toast.success('GenAI.mil extracted a suggestion. Verify every field before saving.');
+      if (!automatic) toast.success('GenAI.mil extracted a suggestion. Verify every field before saving.');
     } catch (error) {
-      toast.error(errorText(error));
+      if (!automatic) toast.error(errorText(error));
     } finally { setAiBusy(false); }
   };
 
@@ -169,6 +175,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
             rows={2}
             value={text}
             onChange={(e) => setText(e.target.value)}
+            onBlur={() => { if (aiAvailable) extractWithAi(true); }}
             placeholder="Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday"
             className="text-md"
           />
@@ -188,13 +195,10 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
           </div>
         )}
 
-        {text.trim() && (
-          <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-rule bg-panel-2/40 px-3 py-2">
-            <p className="text-xs text-text-3">Need a deeper extraction? GenAI.mil can suggest fields; it never saves for you.</p>
-            <Button size="sm" onClick={extractWithAi} disabled={aiBusy}>
-              <Sparkles className={cn('h-3.5 w-3.5', aiBusy && 'animate-pulse')} />
-              {aiBusy ? 'Extracting…' : 'Extract with AI'}
-            </Button>
+        {text.trim() && aiAvailable && (
+          <div className="flex items-center gap-2 rounded border border-rule bg-panel-2/40 px-3 py-2 text-xs text-text-3">
+            <Sparkles className={cn('h-3.5 w-3.5 text-signal', aiBusy && 'animate-pulse')} />
+            <span>{aiBusy ? 'Vantage is enriching this entry…' : 'Vantage enriches this entry as you work. Verify every suggested field before saving.'}</span>
           </div>
         )}
 

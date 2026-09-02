@@ -1,7 +1,7 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Plus, Sparkles, Trash2, Target, TrendingUp } from 'lucide-react';
 import { useGoals, useActivities, createRecord, updateRecord, deleteRecord, refreshAll } from '@/store/useStore';
-import { aiAssist, errorText } from '@/lib/api';
+import { aiAssist, aiStatus, errorText } from '@/lib/api';
 import { CATEGORIES, GOAL_TYPES, GOAL_STATUS } from '@/lib/constants';
 import { formatNumber, formatDTG, inPeriod, toDate } from '@/lib/metrics';
 import { useToast } from '@/components/ui/toast';
@@ -26,6 +26,15 @@ export default function Goals() {
   const [confirming, setConfirming] = useState(null);
   const [filter, setFilter] = useState('active');
   const [aiBusy, setAiBusy] = useState(false);
+  const [aiAvailable, setAiAvailable] = useState(false);
+  const lastGoalDraft = useRef('');
+
+  useEffect(() => {
+    if (!dialog) return undefined;
+    lastGoalDraft.current = '';
+    aiStatus().then((status) => setAiAvailable(Boolean(status.available))).catch(() => setAiAvailable(false));
+    return undefined;
+  }, [dialog]);
 
   const withProgress = useMemo(
     () =>
@@ -74,6 +83,29 @@ export default function Goals() {
         toast.error(errorText(err));
       }
     }
+  };
+
+  const draftGoal = async (draft, set, automatic = false) => {
+    const objective = [draft.title, draft.description].filter(Boolean).join('\n').trim();
+    if (!aiAvailable || !objective || (automatic && (lastGoalDraft.current === objective || aiBusy))) return;
+    lastGoalDraft.current = objective;
+    setAiBusy(true);
+    try {
+      const result = await aiAssist('goal_draft', { objective, target_date: draft.period_end });
+      const suggestion = result.output || {};
+      for (const [key, value] of Object.entries({
+        title: suggestion.title,
+        description: suggestion.description,
+        target_value: suggestion.target_value,
+        unit: suggestion.unit,
+        period_start: suggestion.period_start,
+        period_end: suggestion.period_end,
+        category: CATEGORIES.includes(suggestion.category) ? suggestion.category : undefined,
+      })) if (value !== undefined && value !== null && value !== '') set(key, value);
+      if (!automatic) toast.success('AI goal suggestion applied. Verify every field before saving.');
+    } catch (error) {
+      if (!automatic) toast.error(errorText(error));
+    } finally { setAiBusy(false); }
   };
 
   return (
@@ -181,43 +213,17 @@ export default function Goals() {
           onSave={save}
           fields={(draft, set) => (
             <>
-              <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-rule bg-panel-2/40 p-3">
-                <p className="text-xs leading-relaxed text-text-3">Describe the objective below, then let GenAI.mil suggest measurable fields.</p>
-                <Button
-                  type="button"
-                  size="sm"
-                  disabled={aiBusy || !(draft.title || draft.description)?.trim()}
-                  onClick={async () => {
-                    setAiBusy(true);
-                    try {
-                      const result = await aiAssist('goal_draft', {
-                        objective: [draft.title, draft.description].filter(Boolean).join('\n'),
-                        target_date: draft.period_end,
-                      });
-                      const suggestion = result.output || {};
-                      for (const [key, value] of Object.entries({
-                        title: suggestion.title,
-                        description: suggestion.description,
-                        target_value: suggestion.target_value,
-                        unit: suggestion.unit,
-                        period_start: suggestion.period_start,
-                        period_end: suggestion.period_end,
-                        category: CATEGORIES.includes(suggestion.category) ? suggestion.category : undefined,
-                      })) if (value !== undefined && value !== null && value !== '') set(key, value);
-                      toast.success('AI goal suggestion applied. Verify every field before saving.');
-                    } catch (error) { toast.error(errorText(error)); }
-                    finally { setAiBusy(false); }
-                  }}
-                >
-                  <Sparkles className={cn('h-3.5 w-3.5', aiBusy && 'animate-pulse')} />
-                  {aiBusy ? 'Drafting…' : 'Draft with AI'}
-                </Button>
-              </div>
+              {aiAvailable && (
+                <div className="flex items-center gap-2 rounded border border-rule bg-panel-2/40 p-3 text-xs text-text-3">
+                  <Sparkles className={cn('h-3.5 w-3.5 text-signal', aiBusy && 'animate-pulse')} />
+                  <span>{aiBusy ? 'Vantage is shaping measurable fields…' : 'Vantage drafts measurable fields as you describe the objective. Verify before saving.'}</span>
+                </div>
+              )}
               <Field error={goalErrors.title} label="Title">
-                <Input autoFocus value={draft.title || ''} onChange={(e) => set('title', e.target.value)} />
+                <Input autoFocus value={draft.title || ''} onChange={(e) => set('title', e.target.value)} onBlur={() => draftGoal(draft, set, true)} />
               </Field>
               <Field label="Description">
-                <Textarea rows={2} value={draft.description || ''} onChange={(e) => set('description', e.target.value)} />
+                <Textarea rows={2} value={draft.description || ''} onChange={(e) => set('description', e.target.value)} onBlur={() => draftGoal(draft, set, true)} />
               </Field>
               <div className="grid grid-cols-2 gap-3">
                 <Field error={goalErrors.target_value} label="Target">

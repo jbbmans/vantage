@@ -25,6 +25,7 @@ export default function Maradmins() {
   const [selected, setSelected] = useState(null);
   const [aiSummary, setAiSummary] = useState(null);
   const [aiBusy, setAiBusy] = useState(false);
+  const [aiAvailable, setAiAvailable] = useState(false);
 
   const load = async ({ wait = false } = {}) => {
     setLoading(true);
@@ -38,7 +39,10 @@ export default function Maradmins() {
     }
   };
 
-  useEffect(() => { load(); }, []);
+  useEffect(() => {
+    load();
+    api.aiStatus().then((status) => setAiAvailable(Boolean(status.available))).catch(() => setAiAvailable(false));
+  }, []);
 
   const requested = params.get('open');
   useEffect(() => {
@@ -63,21 +67,22 @@ export default function Maradmins() {
     });
   }, [state.rows, query, scope, tag]);
 
-  const summarizeWithAi = async () => {
-    if (!selected) return;
+  const summarizeWithAi = async (row = selected, automatic = false) => {
+    if (!row || !aiAvailable) return;
     setAiBusy(true);
     setAiSummary(null);
     try {
-      const result = await api.aiAssist('maradmin_summary', { id: selected.id });
+      const result = await api.aiAssist('maradmin_summary', { id: row.id });
       setAiSummary(result.output);
-      toast.success('GenAI.mil summary generated. Verify it against the official message.');
-    } catch (error) { toast.error(api.errorText(error)); }
+      if (!automatic) toast.success('GenAI.mil summary generated. Verify it against the official message.');
+    } catch (error) { if (!automatic) toast.error(api.errorText(error)); }
     finally { setAiBusy(false); }
   };
 
   const open = async (row) => {
     setAiSummary(null);
     setSelected(row);
+    summarizeWithAi(row, true);
     if (!row.read_at) {
       const readAt = new Date().toISOString();
       setState((current) => ({
@@ -227,9 +232,6 @@ export default function Maradmins() {
                 <Bookmark className={cn('h-3.5 w-3.5', selected.saved_at && 'fill-current text-signal')} />
                 {selected.saved_at ? 'Saved' : 'Save'}
               </Button>
-              <Button size="sm" onClick={summarizeWithAi} disabled={aiBusy}>
-                <Sparkles className={cn('h-3.5 w-3.5', aiBusy && 'animate-pulse')} /> {aiBusy ? 'Summarizing…' : 'AI summary'}
-              </Button>
               <Button variant="primary" size="sm" asChild>
                 <a href={selected.url} target="_blank" rel="noreferrer">Read official message <ExternalLink className="h-3.5 w-3.5" /></a>
               </Button>
@@ -246,6 +248,7 @@ export default function Maradmins() {
                 </div>
               </div>
             </div>
+            {aiAvailable && aiBusy && <p className="flex items-center gap-2 text-xs text-text-3"><Sparkles className="h-3.5 w-3.5 animate-pulse text-signal" /> Vantage is preparing a plain-language summary for review…</p>}
             <div>
               <p className="eyebrow">Official title</p>
               <p className="mt-1 text-lg font-semibold leading-snug text-text">{selected.title}</p>

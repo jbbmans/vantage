@@ -36,8 +36,10 @@ services:
         sync: false
       - key: VANTAGE_GENAI_API_KEY
         sync: false
+      - key: VANTAGE_AUDIT_HMAC_KEY
+        sync: false
       - key: VANTAGE_AI_ENABLED
-        value: "false"
+        value: "true"
       - key: VANTAGE_GENAI_MODEL
         value: gemini-2.5-flash
     disk:

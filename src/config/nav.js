@@ -1,7 +1,7 @@
 import {
   Gauge, ListChecks, Briefcase, Target, GraduationCap, FileBarChart,
   Settings2, Users, Building2, Activity, LifeBuoy,
-  ScrollText, ShieldCheck, Sparkles,
+  ScrollText, ShieldCheck,
 } from 'lucide-react';
 
 export const NAV = [
@@ -14,7 +14,6 @@ export const NAV = [
   { to: '/career', label: 'Career', icon: GraduationCap, key: 'g v', activeOn: ['/readiness'] },
   { to: '/maradmins', label: 'MARADMINs', icon: ScrollText, key: 'g m' },
   { to: '/reports', label: 'Reports', icon: FileBarChart, key: 'g p' },
-  { to: '/ai', label: 'AI Assist', icon: Sparkles, key: 'g i' },
   { to: '/units', label: 'Units', icon: Building2, key: 'g u', requires: 'MANAGE_UNITS' },
   { to: '/help', label: 'Help', icon: LifeBuoy, key: 'g h' },
   { to: '/settings', label: 'Settings', icon: Settings2, key: 'g s' },

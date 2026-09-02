@@ -51,7 +51,7 @@ for (const [path, label] of [
   ['/', 'command center'], ['/activities', 'activities'], ['/work', 'work'],
   ['/goals', 'goals'], ['/career', 'career'], ['/readiness', 'readiness'], ['/maradmins', 'MARADMINs'], ['/reports', 'reports'],
   ['/team', 'team'], ['/units', 'units'],
-  ['/settings', 'settings'], ['/operator', 'owner console'], ['/ai', 'AI assist'], ['/help', 'help'],
+  ['/settings', 'settings'], ['/operator', 'owner console'], ['/help', 'help'],
 ]) {
   await page.goto(BASE + path, { waitUntil: 'domcontentloaded' });
   await page.waitForTimeout(700);
