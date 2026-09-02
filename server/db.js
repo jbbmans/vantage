@@ -961,6 +961,53 @@ const MIGRATIONS = [
       `);
     },
   },
+  {
+    id: 16,
+    name: '016_confidential_security_incidents',
+    run() {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS security_incidents (
+          id TEXT PRIMARY KEY,
+          reporter_id TEXT NOT NULL REFERENCES users(id),
+          category TEXT NOT NULL CHECK (category IN (
+            'vulnerability', 'security_incident', 'privacy', 'account_access',
+            'data_integrity', 'availability', 'other'
+          )),
+          severity TEXT NOT NULL CHECK (severity IN ('informational', 'low', 'moderate', 'high', 'critical')),
+          title TEXT NOT NULL,
+          description TEXT NOT NULL,
+          affected_area TEXT,
+          observed_at TEXT,
+          status TEXT NOT NULL DEFAULT 'submitted' CHECK (status IN (
+            'submitted', 'acknowledged', 'investigating', 'mitigated', 'closed'
+          )),
+          created_at TEXT NOT NULL,
+          updated_at TEXT NOT NULL,
+          acknowledged_at TEXT,
+          resolved_at TEXT,
+          last_actor_id TEXT REFERENCES users(id)
+        );
+        CREATE INDEX IF NOT EXISTS idx_security_incidents_reporter
+          ON security_incidents(reporter_id, created_at DESC);
+        CREATE INDEX IF NOT EXISTS idx_security_incidents_status
+          ON security_incidents(status, severity, updated_at DESC);
+
+        CREATE TABLE IF NOT EXISTS security_incident_events (
+          id TEXT PRIMARY KEY,
+          incident_id TEXT NOT NULL REFERENCES security_incidents(id),
+          actor_id TEXT NOT NULL REFERENCES users(id),
+          kind TEXT NOT NULL CHECK (kind IN ('submitted', 'status', 'reporter_follow_up', 'operator_note')),
+          from_status TEXT,
+          to_status TEXT,
+          message TEXT,
+          visible_to_reporter INTEGER NOT NULL DEFAULT 1 CHECK (visible_to_reporter IN (0, 1)),
+          created_at TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_security_incident_events_case
+          ON security_incident_events(incident_id, created_at);
+      `);
+    },
+  },
 ];
 
 function migrate() {

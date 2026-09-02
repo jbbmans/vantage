@@ -26,6 +26,7 @@ import { isInstanceOperator, isBootstrapOperator, operatorGate } from './instanc
 import { normalizeUsername } from './identity.js';
 import {
   checkLoginAllowed, checkRegistrationAllowed, recordLoginFailure, recordLoginSuccess, pruneCounters,
+  checkIncidentSubmissionAllowed,
 } from './security.js';
 import {
   RECORD_SCHEMAS, READINESS_SCHEMA, USER_SCHEMA, validate, fieldErrorMessage, BULK_LIMITS,
@@ -45,6 +46,9 @@ import {
   INTEGRATION_SCOPE, decodeCursor, encodeCursor, issueIntegrationClient,
   listIntegrationClients, requireExactIntegrationUnit, requireIntegration, revokeIntegrationClient,
 } from './integrations.js';
+import {
+  addReporterFollowUp, createIncident, listOperatorIncidents, listReporterIncidents, updateIncident,
+} from './incidents.js';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
 const db = getDb();
@@ -768,6 +772,105 @@ app.get('/api/me', auth, (req, res) => {
 });
 
 const isOperator = (user) => isInstanceOperator(user) || isBootstrapOperator(db, user);
+
+const operatorRecipients = () => db.prepare(
+  'SELECT id, username, is_admin FROM users WHERE active = 1 ORDER BY created_at'
+).all().filter((user) => isOperator(user));
+
+app.get('/api/security-incidents', auth, (req, res) => {
+  res.json({ incidents: listReporterIncidents(db, req.user.id) });
+});
+
+app.post('/api/security-incidents', auth, (req, res) => {
+  const limited = checkIncidentSubmissionAllowed(req.user.id, req.ip);
+  if (limited) {
+    res.setHeader('Retry-After', String(limited.retryAfter));
+    return fail(res, limited.status, 'Too many security reports were submitted. Try again later.', {
+      code: 'incident_throttled',
+    });
+  }
+  const result = createIncident(db, req.user.id, req.body || {});
+  if (!result.ok) return failValidation(res, result.errors);
+  const incident = result.value;
+  audit({
+    actor_id: req.user.id,
+    action: 'security_incident_submitted',
+    entity: 'security_incident',
+    entity_id: incident.id,
+    subject_id: req.user.id,
+    detail: `${incident.category}; ${incident.severity}`,
+  });
+  for (const operator of operatorRecipients()) {
+    if (operator.id === req.user.id) continue;
+    notifyUser(operator.id, {
+      kind: 'security_incident',
+      title: 'New confidential security report',
+      message: `${incident.category.replace(/_/g, ' ')} · ${incident.severity}`,
+      actionUrl: '/operator#security-incidents',
+      dedupeKey: `security-incident:${incident.id}`,
+    });
+  }
+  res.status(201).json(incident);
+});
+
+app.post('/api/security-incidents/:id/follow-up', auth, (req, res) => {
+  const limited = checkIncidentSubmissionAllowed(req.user.id, req.ip);
+  if (limited) {
+    res.setHeader('Retry-After', String(limited.retryAfter));
+    return fail(res, limited.status, 'Too many security-report updates were submitted. Try again later.', {
+      code: 'incident_throttled',
+    });
+  }
+  const result = addReporterFollowUp(db, req.user.id, req.params.id, req.body?.message);
+  if (!result.ok) return fail(res, result.status, result.message, { code: result.status === 404 ? 'not_found' : 'validation' });
+  audit({
+    actor_id: req.user.id,
+    action: 'security_incident_follow_up',
+    entity: 'security_incident',
+    entity_id: req.params.id,
+    subject_id: req.user.id,
+    detail: 'reporter-visible follow-up added',
+  });
+  for (const operator of operatorRecipients()) {
+    if (operator.id === req.user.id) continue;
+    notifyUser(operator.id, {
+      kind: 'security_incident',
+      title: 'Security report received a follow-up',
+      message: `Case ${req.params.id.slice(0, 8)}`,
+      actionUrl: '/operator#security-incidents',
+      dedupeKey: `security-incident-follow-up:${result.value.id}`,
+    });
+  }
+  res.status(201).json(result.value);
+});
+
+app.get('/api/admin/security-incidents', auth, operatorHostGate, operatorGate(db), (req, res) => {
+  res.json({ incidents: listOperatorIncidents(db) });
+});
+
+app.put('/api/admin/security-incidents/:id', auth, operatorHostGate, operatorGate(db), (req, res) => {
+  const result = updateIncident(db, req.user.id, req.params.id, req.body || {});
+  if (!result.ok) return fail(res, result.status, result.message, { code: result.status === 404 ? 'not_found' : 'validation' });
+  const change = result.value;
+  audit({
+    actor_id: req.user.id,
+    action: change.from_status === change.status ? 'security_incident_note_added' : 'security_incident_status_changed',
+    entity: 'security_incident',
+    entity_id: req.params.id,
+    subject_id: change.reporter_id,
+    detail: `${change.from_status} -> ${change.status}; ${change.visible_to_reporter ? 'reporter-visible' : 'operator-only'}`,
+  });
+  if (change.visible_to_reporter) {
+    notifyUser(change.reporter_id, {
+      kind: 'security_incident',
+      title: `Security report ${change.status}`,
+      message: change.note ? change.note.slice(0, 240) : `Your confidential report is now ${change.status}.`,
+      actionUrl: '/settings#security-reports',
+      dedupeKey: `security-incident-event:${change.event_id}`,
+    });
+  }
+  res.json(change);
+});
 
 function rankAuthority(actor, target) {
   if (!target) return { ok: false, status: 404, message: 'No such Marine.' };

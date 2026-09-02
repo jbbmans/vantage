@@ -140,6 +140,13 @@ export const syncMaradmins = () => api.post('/admin/maradmins/sync');
 export const adminIntegrations = () => api.get('/admin/integrations');
 export const createIntegration = (payload) => api.post('/admin/integrations', payload);
 export const revokeIntegration = (id) => api.del(`/admin/integrations/${encodeURIComponent(id)}`);
+export const securityIncidents = () => api.get('/security-incidents');
+export const submitSecurityIncident = (payload) => api.post('/security-incidents', payload);
+export const followUpSecurityIncident = (id, message) =>
+  api.post(`/security-incidents/${encodeURIComponent(id)}/follow-up`, { message });
+export const adminSecurityIncidents = () => api.get('/admin/security-incidents');
+export const updateSecurityIncident = (id, payload) =>
+  api.put(`/admin/security-incidents/${encodeURIComponent(id)}`, payload);
 
 export const notifications = (limit = 40) => api.get(`/notifications?limit=${encodeURIComponent(limit)}`);
 export const markNotificationRead = (id) => api.put(`/notifications/${encodeURIComponent(id)}/read`);
