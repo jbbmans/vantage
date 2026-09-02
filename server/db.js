@@ -396,6 +396,19 @@ CREATE TABLE IF NOT EXISTS integration_clients (
 );
 CREATE INDEX IF NOT EXISTS idx_integration_clients_unit ON integration_clients(unit_id);
 
+CREATE TABLE IF NOT EXISTS ai_usage_daily (
+  day               TEXT NOT NULL,
+  user_id           TEXT NOT NULL REFERENCES users(id),
+  workflow          TEXT NOT NULL,
+  requests          INTEGER NOT NULL DEFAULT 0,
+  prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+  completion_tokens INTEGER NOT NULL DEFAULT 0,
+  total_tokens      INTEGER NOT NULL DEFAULT 0,
+  failures          INTEGER NOT NULL DEFAULT 0,
+  PRIMARY KEY (day, user_id, workflow)
+);
+CREATE INDEX IF NOT EXISTS idx_ai_usage_day ON ai_usage_daily(day);
+
 CREATE TABLE IF NOT EXISTS meta (
   key   TEXT PRIMARY KEY,
   value TEXT NOT NULL
@@ -1005,6 +1018,26 @@ const MIGRATIONS = [
         );
         CREATE INDEX IF NOT EXISTS idx_security_incident_events_case
           ON security_incident_events(incident_id, created_at);
+      `);
+    },
+  },
+  {
+    id: 17,
+    name: '017_genai_usage_governance',
+    run() {
+      db.exec(`
+        CREATE TABLE IF NOT EXISTS ai_usage_daily (
+          day               TEXT NOT NULL,
+          user_id           TEXT NOT NULL REFERENCES users(id),
+          workflow          TEXT NOT NULL,
+          requests          INTEGER NOT NULL DEFAULT 0,
+          prompt_tokens     INTEGER NOT NULL DEFAULT 0,
+          completion_tokens INTEGER NOT NULL DEFAULT 0,
+          total_tokens      INTEGER NOT NULL DEFAULT 0,
+          failures          INTEGER NOT NULL DEFAULT 0,
+          PRIMARY KEY (day, user_id, workflow)
+        );
+        CREATE INDEX IF NOT EXISTS idx_ai_usage_day ON ai_usage_daily(day);
       `);
     },
   },

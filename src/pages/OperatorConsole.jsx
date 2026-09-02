@@ -1,7 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import {
-  Activity, Copy, Database, Download, Globe2, KeyRound, RefreshCw, Save,
+  Activity, Bot, Copy, Database, Download, ExternalLink, Globe2, KeyRound, RefreshCw, Save,
   ServerCog, ShieldAlert, ShieldCheck, Trash2, Users,
 } from 'lucide-react';
 import * as api from '@/lib/api';
@@ -53,6 +53,7 @@ export default function OperatorConsole() {
   const [database, setDatabase] = useState(null);
   const [experience, setExperience] = useState(null);
   const [integrations, setIntegrations] = useState({ clients: [], units: [], enabled: false });
+  const [ai, setAi] = useState(null);
   const [integrationName, setIntegrationName] = useState('');
   const [integrationUnitId, setIntegrationUnitId] = useState('');
   const [integrationDays, setIntegrationDays] = useState(90);
@@ -73,13 +74,14 @@ export default function OperatorConsole() {
         window.location.replace(`${adminOrigin}/operator`);
         return;
       }
-      const [currentConfig, nextOverview, nextDatabase, nextExperience, nextIntegrations, nextIncidents] = await Promise.all([
+      const [currentConfig, nextOverview, nextDatabase, nextExperience, nextIntegrations, nextIncidents, nextAi] = await Promise.all([
         api.adminConfiguration(),
         api.adminOverview(),
         api.adminDb(),
         api.adminExperience(),
         api.adminIntegrations(),
         api.adminSecurityIncidents(),
+        api.adminAiStatus(),
       ]);
       setConfig(currentConfig);
       setDraft(currentConfig.editable);
@@ -88,6 +90,7 @@ export default function OperatorConsole() {
       setExperience(nextExperience);
       setIntegrations(nextIntegrations);
       setIncidents(nextIncidents.incidents || []);
+      setAi(nextAi);
       setIncidentDetail((current) => current
         ? (nextIncidents.incidents || []).find((row) => row.id === current.id) || null
         : null);
@@ -375,6 +378,41 @@ export default function OperatorConsole() {
               ))}
             </div>
             <p className="mt-3 text-xs leading-relaxed text-text-3">Credentials expose only unit-shared activity fields and aggregates. Private records, notes, attachments, rosters, drafts, and child units are excluded.</p>
+          </Panel>
+
+          <Panel title="GenAI.mil gateway" subtitle="Server-held credentials, bounded usage, and human-reviewed suggestions">
+            <div className="grid gap-4 sm:grid-cols-2">
+              <Field label="AI assistance">
+                <Select
+                  value={draft.ai?.enabled ? 'enabled' : 'disabled'}
+                  onValueChange={(value) => setValue('ai', 'enabled', value === 'enabled')}
+                  options={[{ value: 'disabled', label: 'Disabled' }, { value: 'enabled', label: 'Enabled' }]}
+                />
+              </Field>
+              <Field label="Model">
+                <Input value={draft.ai?.model || ''} onChange={(event) => setValue('ai', 'model', event.target.value)} maxLength={100} />
+              </Field>
+              <Field label="Maximum output tokens" hint="per request">
+                <Input type="number" min="100" max="8000" value={draft.ai?.max_output_tokens || 1800} onChange={(event) => setValue('ai', 'max_output_tokens', Number(event.target.value))} />
+              </Field>
+              <Field label="Per-user daily tokens">
+                <Input type="number" min="1000" max="5000000" value={draft.ai?.per_user_daily_tokens || 250000} onChange={(event) => setValue('ai', 'per_user_daily_tokens', Number(event.target.value))} />
+              </Field>
+            </div>
+            <div className="mt-4 grid grid-cols-2 gap-3 border-t border-rule pt-3 sm:grid-cols-4">
+              <div><p className="eyebrow">Credential</p><p className={`mt-1 text-sm ${ai?.configured ? 'text-ledger' : 'text-redline'}`}>{ai?.configured ? `Configured · ${ai.key_fingerprint}` : 'Missing'}</p></div>
+              <div><p className="eyebrow">State</p><p className={`mt-1 text-sm ${ai?.locked_at ? 'text-redline' : ai?.available ? 'text-ledger' : 'text-text-3'}`}>{ai?.locked_at ? 'Key locked' : ai?.available ? 'Available' : 'Unavailable'}</p></div>
+              <div><p className="eyebrow">Requests today</p><p className="fig mt-1 text-sm text-text">{ai?.daily?.requests || 0}</p></div>
+              <div><p className="eyebrow">Tokens today</p><p className="fig mt-1 text-sm text-text">{ai?.daily?.total_tokens || 0} / {ai?.daily?.budget_tokens || 0}</p></div>
+            </div>
+            {ai?.unlock_url && (
+              <div className="mt-4 flex flex-wrap items-center gap-3 rounded-lg border border-redline/40 bg-redline/5 p-3">
+                <Bot className="h-4 w-4 text-redline" />
+                <p className="min-w-0 flex-1 text-sm text-text-2">The GenAI.mil key reached its eight-hour lock. Unlock it before users retry.</p>
+                <Button size="sm" asChild><a href={ai.unlock_url} target="_blank" rel="noreferrer">Unlock key <ExternalLink className="h-3.5 w-3.5" /></a></Button>
+              </div>
+            )}
+            <p className="mt-3 text-xs leading-relaxed text-text-3">Set <span className="font-mono">VANTAGE_GENAI_API_KEY</span> in the hosting environment. The key is never stored in YAML, SQLite, browser code, logs, or this interface. Prompt and response bodies are not retained.</p>
           </Panel>
 
           <Panel id="security-incidents" title="Security incident queue" subtitle="Confidential reports visible only to the reporter and Instance Operator">

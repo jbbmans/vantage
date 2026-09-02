@@ -85,6 +85,17 @@ export const DEFAULT_CONFIG = Object.freeze({
     enabled: false,
     requests_per_15_minutes: 600,
   },
+  ai: {
+    enabled: false,
+    base_url: 'https://api.genai.mil/v1',
+    model: 'gemini-2.5-flash',
+    max_output_tokens: 1800,
+    timeout_ms: 45000,
+    requests_per_minute: 100,
+    per_user_requests_per_minute: 12,
+    daily_token_budget: 45000000,
+    per_user_daily_tokens: 250000,
+  },
 });
 
 function stripComment(raw) {
@@ -268,6 +279,7 @@ export function validateConfig(value) {
     ['experience_metrics.enabled', value.experience_metrics.enabled],
     ['maradmins.enabled', value.maradmins.enabled],
     ['integrations.enabled', value.integrations.enabled],
+    ['ai.enabled', value.ai.enabled],
   ]) {
     if (typeof flag !== 'boolean') throw new Error(`${name} must be true or false.`);
   }
@@ -283,6 +295,24 @@ export function validateConfig(value) {
   numberIn('attachments.max_per_record', value.attachments.max_per_record, 1, 50);
   numberIn('maradmins.refresh_minutes', value.maradmins.refresh_minutes, 5, 1440);
   numberIn('integrations.requests_per_15_minutes', value.integrations.requests_per_15_minutes, 30, 10000);
+  if (typeof value.ai.base_url !== 'string' || !/^https:\/\/api\.genai\.mil\/v1\/?$/.test(value.ai.base_url)) {
+    throw new Error('ai.base_url must be the GenAI.mil v1 HTTPS endpoint.');
+  }
+  if (typeof value.ai.model !== 'string' || !/^[A-Za-z0-9][A-Za-z0-9._:-]{1,99}$/.test(value.ai.model)) {
+    throw new Error('ai.model must be a valid model identifier.');
+  }
+  numberIn('ai.max_output_tokens', value.ai.max_output_tokens, 100, 8000);
+  numberIn('ai.timeout_ms', value.ai.timeout_ms, 5000, 120000);
+  numberIn('ai.requests_per_minute', value.ai.requests_per_minute, 1, 120);
+  numberIn('ai.per_user_requests_per_minute', value.ai.per_user_requests_per_minute, 1, 60);
+  if (value.ai.per_user_requests_per_minute > value.ai.requests_per_minute) {
+    throw new Error('ai.per_user_requests_per_minute cannot exceed ai.requests_per_minute.');
+  }
+  numberIn('ai.daily_token_budget', value.ai.daily_token_budget, 10000, 50000000);
+  numberIn('ai.per_user_daily_tokens', value.ai.per_user_daily_tokens, 1000, 5000000);
+  if (value.ai.per_user_daily_tokens > value.ai.daily_token_budget) {
+    throw new Error('ai.per_user_daily_tokens cannot exceed ai.daily_token_budget.');
+  }
   if (!Array.isArray(value.attachments.allowed_types) || !value.attachments.allowed_types.length) {
     throw new Error('attachments.allowed_types must be a non-empty inline array.');
   }
@@ -335,6 +365,17 @@ function withEnvironment(config) {
   next.integrations.requests_per_15_minutes = envNumber(
     'VANTAGE_INTEGRATION_REQUESTS_PER_15_MINUTES', next.integrations.requests_per_15_minutes
   );
+  next.ai.enabled = envBoolean('VANTAGE_AI_ENABLED', next.ai.enabled);
+  if (process.env.VANTAGE_GENAI_BASE_URL) next.ai.base_url = String(process.env.VANTAGE_GENAI_BASE_URL).replace(/\/$/, '');
+  if (process.env.VANTAGE_GENAI_MODEL) next.ai.model = String(process.env.VANTAGE_GENAI_MODEL);
+  next.ai.max_output_tokens = envNumber('VANTAGE_GENAI_MAX_OUTPUT_TOKENS', next.ai.max_output_tokens);
+  next.ai.timeout_ms = envNumber('VANTAGE_GENAI_TIMEOUT_MS', next.ai.timeout_ms);
+  next.ai.requests_per_minute = envNumber('VANTAGE_GENAI_REQUESTS_PER_MINUTE', next.ai.requests_per_minute);
+  next.ai.per_user_requests_per_minute = envNumber(
+    'VANTAGE_GENAI_PER_USER_REQUESTS_PER_MINUTE', next.ai.per_user_requests_per_minute
+  );
+  next.ai.daily_token_budget = envNumber('VANTAGE_GENAI_DAILY_TOKEN_BUDGET', next.ai.daily_token_budget);
+  next.ai.per_user_daily_tokens = envNumber('VANTAGE_GENAI_PER_USER_DAILY_TOKENS', next.ai.per_user_daily_tokens);
   return next;
 }
 
@@ -356,6 +397,7 @@ const EDITABLE_CONFIG = Object.freeze({
   experience_metrics: ['enabled'],
   maradmins: ['enabled', 'refresh_minutes'],
   integrations: ['enabled'],
+  ai: ['enabled', 'model', 'max_output_tokens', 'per_user_daily_tokens'],
 });
 
 export function editableConfig() {
@@ -416,6 +458,12 @@ export function safeConfig() {
     experience_metrics: config.experience_metrics,
     maradmins: config.maradmins,
     integrations: config.integrations,
+    ai: {
+      enabled: config.ai.enabled,
+      model: config.ai.model,
+      max_output_tokens: config.ai.max_output_tokens,
+      per_user_daily_tokens: config.ai.per_user_daily_tokens,
+    },
     editable: editableConfig(),
     config_file: process.env.VANTAGE_CONFIG || 'config/app.yaml',
   };

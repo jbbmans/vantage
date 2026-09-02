@@ -38,6 +38,7 @@ import {
   accessReview, primaryAssignment,
 } from './lifecycle.js';
 import { applyEditableConfig, config, editableConfig, safeConfig } from './config.js';
+import { AiError, aiStatus, runAiWorkflow } from './ai.js';
 import { attachmentDisposition, inspectAttachment } from './attachments.js';
 import { EXPERIENCE_EVENTS, recordExperience } from './experience.js';
 import { maradminSyncState, syncMaradmins } from './maradmins.js';
@@ -196,6 +197,55 @@ app.put('/api/admin/config', auth, operatorHostGate, operatorGate(db), (req, res
     res.json({ ...safeConfig(), editable: editableConfig() });
   } catch (err) {
     fail(res, 400, err.message || 'That configuration change is not valid.');
+  }
+});
+
+app.get('/api/ai/status', auth, (req, res) => {
+  res.json(aiStatus(db, { userId: req.user.id }));
+});
+
+app.get('/api/admin/ai/status', auth, operatorHostGate, operatorGate(db), (req, res) => {
+  res.json(aiStatus(db, { operator: true, userId: req.user.id }));
+});
+
+app.post('/api/ai/assist', auth, async (req, res) => {
+  const workflow = String(req.body?.workflow || '');
+  try {
+    const result = await runAiWorkflow(db, req.user, workflow, req.body?.input);
+    audit({
+      actor_id: req.user.id,
+      action: 'ai_assist',
+      entity: 'ai_request',
+      entity_id: result.request_id,
+      detail: `${workflow}; model ${result.model}; ${result.usage.total_tokens} tokens; suggestion only`,
+    });
+    res.json(result);
+  } catch (error) {
+    if (error instanceof AiError) {
+      if (error.retryAfter) res.setHeader('Retry-After', String(error.retryAfter));
+      if (error.code === 'ai_key_locked') {
+        const operator = process.env.VANTAGE_OPERATOR_ID
+          ? db.prepare('SELECT id FROM users WHERE id = ? AND active = 1').get(process.env.VANTAGE_OPERATOR_ID)
+          : db.prepare('SELECT id FROM users WHERE username = ? COLLATE NOCASE AND active = 1')
+            .get(normalizeUsername(process.env.VANTAGE_OPERATOR));
+        if (operator) notifyUser(operator.id, {
+          kind: 'system',
+          title: 'GenAI.mil key needs unlock',
+          message: 'AI assistance is paused until the eight-hour GenAI.mil key lock is cleared.',
+          actionUrl: '/operator',
+          dedupeKey: `genai-key-lock:${new Date().toISOString().slice(0, 13)}`,
+        });
+      }
+      audit({
+        actor_id: req.user.id,
+        action: 'ai_assist_failed',
+        entity: 'ai_request',
+        detail: `${workflow || 'unknown'}; ${error.code}`,
+      });
+      return fail(res, error.status, error.message, { code: error.code });
+    }
+    console.error('AI assistance failed:', error);
+    return fail(res, 500, 'AI assistance failed.', { code: 'ai_error' });
   }
 });
 

@@ -6,7 +6,7 @@ import { Button, Field, Input, NumberInput, Select, Textarea, Badge, Dot } from 
 import { useToast } from '@/components/ui/toast';
 import { parseQuickLog, primaryQuantity } from '@/lib/quickLogParser';
 import { createRecord } from '@/store/useStore';
-import { errorText, trackExperience } from '@/lib/api';
+import { aiAssist, errorText, trackExperience } from '@/lib/api';
 import { CATEGORIES, CATEGORY_COLORS, JEPES_AREAS, DOLLAR_TYPES, UNIT_SUGGESTIONS } from '@/lib/constants';
 import { formatDollarsExact } from '@/lib/metrics';
 import { strength, weaknesses, composeBullet } from '@/lib/bullets';
@@ -30,6 +30,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
   const [text, setText] = useState(initialText);
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [aiBusy, setAiBusy] = useState(false);
   const [overrides, setOverrides] = useState({});
 
   const DRAFT_KEY = draftKey(identity?.user?.id, 'quicklog');
@@ -77,6 +78,33 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
 
   const set = (key) => (value) => setOverrides((o) => ({ ...o, [key]: value }));
   const setEvent = (key) => (e) => set(key)(e.target.value);
+
+  const extractWithAi = async () => {
+    if (!text.trim()) return;
+    setAiBusy(true);
+    try {
+      const response = await aiAssist('quick_log', { text });
+      const suggestion = response.output || {};
+      const next = {};
+      for (const [source, target] of [
+        ['title', 'title'], ['date', 'date'], ['action_amount', 'quantity'], ['action_unit', 'unit'],
+        ['transaction_value', 'dollar_amount'], ['organization', 'organization'], ['system', 'system'],
+        ['result', 'result'], ['status', 'status'],
+      ]) {
+        if (suggestion[source] !== null && suggestion[source] !== undefined && suggestion[source] !== '') {
+          next[target] = suggestion[source];
+        }
+      }
+      if (CATEGORIES.includes(suggestion.category)) next.category = suggestion.category;
+      if (JEPES_AREAS.includes(suggestion.evaluation_area)) next.jepes_area = suggestion.evaluation_area;
+      if (DOLLAR_TYPES.some((item) => item.key === suggestion.dollar_type)) next.dollar_type = suggestion.dollar_type;
+      setOverrides((current) => ({ ...current, ...next }));
+      setExpanded(true);
+      toast.success('GenAI.mil extracted a suggestion. Verify every field before saving.');
+    } catch (error) {
+      toast.error(errorText(error));
+    } finally { setAiBusy(false); }
+  };
 
   const save = async () => {
     if (!record?.title?.trim()) {
@@ -157,6 +185,16 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }) {
                 {ex}
               </button>
             ))}
+          </div>
+        )}
+
+        {text.trim() && (
+          <div className="flex flex-wrap items-center justify-between gap-2 rounded border border-rule bg-panel-2/40 px-3 py-2">
+            <p className="text-xs text-text-3">Need a deeper extraction? GenAI.mil can suggest fields; it never saves for you.</p>
+            <Button size="sm" onClick={extractWithAi} disabled={aiBusy}>
+              <Sparkles className={cn('h-3.5 w-3.5', aiBusy && 'animate-pulse')} />
+              {aiBusy ? 'Extracting…' : 'Extract with AI'}
+            </Button>
           </div>
         )}
 

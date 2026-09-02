@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Copy, Download, Printer, FileText, Inbox, Users, ArrowUp, ArrowDown, Minus, ListChecks, TrendingUp } from 'lucide-react';
+import { Copy, Download, Printer, FileText, Inbox, Users, ArrowUp, ArrowDown, Minus, ListChecks, Sparkles, TrendingUp } from 'lucide-react';
 import {
   useActivities, useProjects, useRecognitions, useTrainings, useGoals, useTasks,
   useIdentity, useCanLead, usePrefs, unitPath,
@@ -77,6 +77,8 @@ export default function Reports() {
   const [style, setStyle] = useState('jepes');
   const [scope, setScope] = useState('me');
   const [limit, setLimit] = useState(8);
+  const [aiResult, setAiResult] = useState(null);
+  const [aiBusy, setAiBusy] = useState(false);
 
   const me = identity?.user?.id;
   const reportUnitId = identity?.assignments?.find((a) => a.is_primary)?.unit_id
@@ -156,6 +158,28 @@ export default function Reports() {
     toast.success('Downloaded.');
   };
 
+  const generateAiDraft = async () => {
+    setAiBusy(true);
+    setAiResult(null);
+    try {
+      const result = unitScope
+        ? await apiClient.aiAssist('command_brief', {
+          unit_id: reportUnitId,
+          from: range.start.toISOString().slice(0, 10),
+          to: range.end.toISOString().slice(0, 10),
+        })
+        : await apiClient.aiAssist('report_narrative', {
+          track,
+          from: range.start.toISOString().slice(0, 10),
+          to: range.end.toISOString().slice(0, 10),
+          character_limit: narrativeConfig(track).limit,
+        });
+      setAiResult(result.output);
+      toast.success('AI draft generated. Verify every fact before use.');
+    } catch (error) { toast.error(apiClient.errorText(error)); }
+    finally { setAiBusy(false); }
+  };
+
   const hasUnitReportSource = canExportUnit && activities.some((activity) => activity.unit_id === reportUnitId);
   if (!pool.length && !hasUnitReportSource) {
     return (
@@ -217,6 +241,10 @@ export default function Reports() {
           <Button variant="default" size="sm" onClick={() => window.print()}>
             <Printer className="h-3.5 w-3.5" />
             Print
+          </Button>
+          <Button size="sm" onClick={generateAiDraft} disabled={aiBusy}>
+            <Sparkles className={cn('h-3.5 w-3.5', aiBusy && 'animate-pulse')} />
+            {aiBusy ? 'Drafting…' : unitScope ? 'AI command brief' : 'AI narrative'}
           </Button>
           </div>
         </div>
@@ -325,6 +353,31 @@ export default function Reports() {
           ))}
         </div>
       </div>
+
+      {aiResult && (
+        <Panel
+          className="no-print"
+          title="GenAI.mil suggestion"
+          subtitle="Human review required · no automatic save"
+          action={<Button size="sm" onClick={async () => {
+            const text = aiResult.narrative || aiResult.executive_summary || JSON.stringify(aiResult, null, 2);
+            (await copyToClipboard(text)) ? toast.success('AI draft copied.') : toast.error('Could not reach the clipboard.');
+          }}><Copy className="h-3.5 w-3.5" /> Copy</Button>}
+        >
+          <p className="whitespace-pre-wrap text-base leading-relaxed text-text">
+            {aiResult.narrative || aiResult.executive_summary || aiResult.summary}
+          </p>
+          {Object.entries(aiResult).filter(([key, value]) => Array.isArray(value) && value.length).map(([key, values]) => (
+            <div key={key} className="mt-3 border-t border-rule pt-3">
+              <p className="eyebrow">{key.replaceAll('_', ' ')}</p>
+              <ul className="mt-1 space-y-1 text-sm leading-relaxed text-text-2">
+                {values.map((value, index) => <li key={index}>• {typeof value === 'object' ? JSON.stringify(value) : value}</li>)}
+              </ul>
+            </div>
+          ))}
+          <p className="mt-3 border-t border-rule pt-2 text-xs text-text-3">AI output is a draft, not an official evaluation or command decision. Verify figures against VANTAGE records.</p>
+        </Panel>
+      )}
 
       {(view === 'narrative' || typeof window !== 'undefined') && (
         <Panel
