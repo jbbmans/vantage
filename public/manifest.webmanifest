@@ -1,10 +1,15 @@
 {
   "name": "Vantage",
   "short_name": "Vantage",
-  "description": "Self-hosted performance and career record system",
+  "description": "Performance, readiness, and career records for Marine Corps teams.",
   "start_url": "/",
+  "scope": "/",
   "display": "standalone",
-  "background_color": "#06090E",
-  "theme_color": "#06090E",
-  "icons": [{ "src": "/mark.svg", "sizes": "any", "type": "image/svg+xml" }]
+  "background_color": "#f5f6f8",
+  "theme_color": "#0f172a",
+  "icons": [
+    { "src": "/mark.svg", "sizes": "any", "type": "image/svg+xml", "purpose": "any" },
+    { "src": "/icon-192.png", "sizes": "192x192", "type": "image/png" },
+    { "src": "/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any maskable" }
+  ]
 }
