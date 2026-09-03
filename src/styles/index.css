@@ -1,0 +1,148 @@
+/*
+ * VANTAGE 5 DESIGN TOKENS
+ * Surfaces: canvas (page), surface (cards), surface-2 (recessed), surface-3 (hover).
+ * Ink: ink (primary), ink-2 (secondary), ink-3 (muted).
+ * Accent: chosen per user from five presets; accent-ink is the text color on accent.
+ * Semantic: good / warn / bad / info. Rail: the navigation sidebar.
+ */
+
+@font-face {
+  font-family: 'Inter Tight';
+  src: url('/fonts/inter-tight-latin.woff2') format('woff2');
+  font-weight: 300 800;
+  font-display: swap;
+}
+@font-face { font-family: 'IBM Plex Mono'; src: url('/fonts/plex-mono-400.woff2') format('woff2'); font-weight: 400; font-display: swap; }
+@font-face { font-family: 'IBM Plex Mono'; src: url('/fonts/plex-mono-500.woff2') format('woff2'); font-weight: 500; font-display: swap; }
+@font-face { font-family: 'IBM Plex Mono'; src: url('/fonts/plex-mono-600.woff2') format('woff2'); font-weight: 600; font-display: swap; }
+
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  :root, [data-theme='light'] {
+    --canvas: 246 247 249;
+    --surface: 255 255 255;
+    --surface-2: 241 243 246;
+    --surface-3: 233 236 241;
+    --line: 226 230 236;
+    --line-strong: 196 204 214;
+    --ink: 17 24 39;
+    --ink-2: 71 84 103;
+    --ink-3: 115 128 148;
+    --good: 22 132 92;
+    --warn: 180 110 20;
+    --bad: 190 44 54;
+    --info: 37 99 168;
+    --rail: 255 255 255;
+    --rail-ink: 17 24 39;
+    --shadow-card: 0 1px 2px rgb(16 24 40 / 0.05), 0 1px 3px rgb(16 24 40 / 0.06);
+    --shadow-pop: 0 12px 32px -12px rgb(16 24 40 / 0.22), 0 2px 6px -2px rgb(16 24 40 / 0.1);
+    --shadow-modal: 0 32px 80px -24px rgb(16 24 40 / 0.4), 0 8px 24px -12px rgb(16 24 40 / 0.2);
+    color-scheme: light;
+  }
+  [data-theme='dark'] {
+    --canvas: 12 16 24;
+    --surface: 20 26 36;
+    --surface-2: 28 35 48;
+    --surface-3: 36 45 60;
+    --line: 42 52 68;
+    --line-strong: 70 84 104;
+    --ink: 236 240 246;
+    --ink-2: 178 190 206;
+    --ink-3: 130 143 162;
+    --good: 74 201 148;
+    --warn: 232 176 74;
+    --bad: 245 112 118;
+    --info: 110 168 236;
+    --rail: 16 21 30;
+    --rail-ink: 236 240 246;
+    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
+    --shadow-pop: 0 16px 40px -12px rgb(0 0 0 / 0.7), 0 2px 6px -2px rgb(0 0 0 / 0.5);
+    --shadow-modal: 0 40px 100px -24px rgb(0 0 0 / 0.85);
+    color-scheme: dark;
+  }
+
+  /* Accent presets: scarlet (default), ocean, olive, steel, ember. Each defines accent, accent-ink, accent-soft. */
+  :root, [data-accent='scarlet'] { --accent: 178 34 34; --accent-ink: 255 255 255; --accent-soft: 253 235 235; --accent-2: 196 154 44; }
+  [data-theme='dark'][data-accent='scarlet'], [data-theme='dark']:not([data-accent]) { --accent: 234 88 88; --accent-ink: 20 8 8; --accent-soft: 68 26 28; --accent-2: 226 186 82; }
+  [data-accent='ocean'] { --accent: 20 104 183; --accent-ink: 255 255 255; --accent-soft: 227 238 250; --accent-2: 20 150 160; }
+  [data-theme='dark'][data-accent='ocean'] { --accent: 91 170 232; --accent-ink: 5 23 34; --accent-soft: 22 46 68; --accent-2: 96 200 206; }
+  [data-accent='olive'] { --accent: 79 111 59; --accent-ink: 255 255 255; --accent-soft: 232 240 226; --accent-2: 156 124 60; }
+  [data-theme='dark'][data-accent='olive'] { --accent: 146 190 110; --accent-ink: 12 22 8; --accent-soft: 36 52 30; --accent-2: 210 178 96; }
+  [data-accent='steel'] { --accent: 55 72 96; --accent-ink: 255 255 255; --accent-soft: 230 236 244; --accent-2: 120 140 165; }
+  [data-theme='dark'][data-accent='steel'] { --accent: 160 182 210; --accent-ink: 12 18 28; --accent-soft: 40 52 70; --accent-2: 110 132 160; }
+  [data-accent='ember'] { --accent: 194 65 12; --accent-ink: 255 255 255; --accent-soft: 253 236 226; --accent-2: 180 120 30; }
+  [data-theme='dark'][data-accent='ember'] { --accent: 251 146 60; --accent-ink: 30 12 4; --accent-soft: 70 36 18; --accent-2: 220 170 70; }
+
+  * { border-color: rgb(var(--line)); }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  body {
+    @apply bg-canvas text-ink font-sans text-base antialiased;
+    font-feature-settings: 'cv11' 1, 'ss01' 1, 'tnum' 1;
+    text-rendering: optimizeLegibility;
+    min-width: 320px;
+    overscroll-behavior-y: none;
+  }
+  h1, h2, h3, h4 { text-wrap: balance; letter-spacing: -0.01em; }
+  .fig { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+  .mono { @apply font-mono; font-variant-numeric: tabular-nums; }
+  .eyebrow { @apply text-2xs font-semibold uppercase text-ink-3; letter-spacing: 0.1em; }
+  :focus-visible { @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-canvas; }
+  ::selection { background: rgb(var(--accent) / 0.22); }
+  ::-webkit-scrollbar { width: 10px; height: 10px; }
+  ::-webkit-scrollbar-thumb { background: rgb(var(--line-strong)); border: 3px solid rgb(var(--canvas)); border-radius: 8px; }
+  input[type='date']::-webkit-calendar-picker-indicator { cursor: pointer; opacity: .6; }
+  [data-theme='dark'] input[type='date']::-webkit-calendar-picker-indicator { filter: invert(0.8); }
+}
+
+@layer components {
+  .card { @apply rounded-lg border border-line bg-surface shadow-card; }
+  .card-hover { @apply transition-[border-color,box-shadow,transform] duration-150 hover:border-line-strong hover:shadow-pop; }
+  .field {
+    @apply w-full min-w-0 rounded-md border border-line bg-surface px-3 py-2 text-base text-ink placeholder:text-ink-3 transition-colors;
+    box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.03);
+  }
+  .field:hover { @apply border-line-strong; }
+  .field:focus { @apply border-accent outline-none ring-2 ring-accent/25; }
+  .field[aria-invalid='true'] { @apply border-bad ring-2 ring-bad/20; }
+  .chip { @apply inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-2xs font-semibold uppercase tracking-wider text-ink-2; }
+  .row { @apply border-b border-line last:border-b-0 transition-colors hover:bg-surface-2; }
+  .page { @apply mx-auto w-full max-w-[1400px]; }
+  .page-title { @apply text-2xl font-semibold tracking-tight text-ink sm:text-3xl; }
+  .page-lede { @apply mt-1 max-w-2xl text-base text-ink-2; }
+  .stat-value { @apply fig text-2xl font-semibold text-ink; }
+  .nav-item { @apply flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink; }
+  .nav-item[aria-current='page'] { @apply bg-accent-soft text-accent; }
+  .kbd { @apply inline-flex h-5 min-w-5 items-center justify-center rounded border border-line bg-surface-2 px-1 font-mono text-2xs text-ink-3; }
+  .skeleton { position: relative; overflow: hidden; background: rgb(var(--surface-2)); }
+  .skeleton::after { content: ''; position: absolute; inset: 0; translate: -100% 0; background: linear-gradient(90deg, transparent, rgb(var(--ink) / 0.06), transparent); animation: sweep 1.3s ease-in-out infinite; }
+  .prose-tight p + p { margin-top: .6em; }
+  .link { @apply text-accent underline-offset-2 hover:underline; }
+  .divider { @apply border-t border-line; }
+  .badge-dot { @apply inline-block h-2 w-2 shrink-0 rounded-full; }
+  .table-head { @apply text-2xs font-semibold uppercase tracking-wider text-ink-3; }
+}
+
+@keyframes sweep { to { translate: 100% 0; } }
+[data-density='compact'] .card > .card-body { padding: .625rem .75rem; }
+[data-density='compact'] .row { min-height: 2.25rem; }
+[data-density='compact'] .page { row-gap: .75rem; }
+
+@media (max-width: 639px) {
+  input, select, textarea, button[role='combobox'] { font-size: 16px; }
+  [data-radix-popper-content-wrapper] { max-width: calc(100vw - 1rem) !important; }
+}
+@media (pointer: coarse) { .tap, .field { min-height: 2.6rem; } }
+@media (prefers-reduced-motion: reduce) {
+  html { scroll-behavior: auto; }
+  *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
+}
+@media print {
+  :root { --canvas: 255 255 255; --surface: 255 255 255; --surface-2: 255 255 255; --line: 190 190 190; --ink: 0 0 0; --ink-2: 40 40 40; --ink-3: 90 90 90; }
+  .no-print { display: none !important; }
+  body { background: #fff; font-size: 11pt; }
+  .card { border: 0 !important; border-top: 1px solid #999 !important; box-shadow: none !important; break-inside: avoid; }
+  @page { margin: 16mm 14mm; }
+}

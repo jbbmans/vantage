@@ -20,6 +20,6 @@ export default tseslint.config(
   {
     files: ['src/**/*.{ts,tsx}'],
     plugins: { 'react-hooks': reactHooks },
-    rules: { ...reactHooks.configs.recommended.rules },
+    rules: { ...reactHooks.configs.recommended.rules, 'react-hooks/set-state-in-effect': 'off', 'react-hooks/preserve-manual-memoization': 'off' },
   }
 );

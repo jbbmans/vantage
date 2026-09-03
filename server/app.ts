@@ -107,6 +107,7 @@ export function createApp(ctx: AppContext) {
   app.use(express.json({ limit: '4mb' }));
   app.use(cookieParser());
 
+  app.get('/api/ranks', (_req, res) => res.json(ctx.db.prepare('SELECT id, grade, abbr, name, tier FROM ranks ORDER BY sort').all()));
   app.use('/api/auth', authRouter);
   app.use('/api/me', meRouter);
   app.use('/api/records', recordsRouter);
