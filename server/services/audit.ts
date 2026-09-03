@@ -11,7 +11,7 @@ export interface AuditEntry {
 function entryHash(secret: string, row: Record<string, unknown>, previous: string): string {
   const canonical = JSON.stringify([
     previous || '', row.id, row.actor_id ?? null, row.action, row.entity ?? null, row.entity_id ?? null,
-    row.subject_id ?? null, row.unit_id ?? null, row.detail ?? null, row.at,
+    row.subject_id ?? null, row.unit_id ?? null, row.detail ?? null, row.at, row.ip ?? null,
   ]);
   return hmac(secret, canonical);
 }

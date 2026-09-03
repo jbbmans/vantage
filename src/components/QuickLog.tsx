@@ -48,7 +48,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     return {
       title: parsed.title, date: format(parsed.date, 'yyyy-MM-dd'), category: parsed.category, eval_area: parsed.eval_area, quantity, unit_label: unit,
       dollar_amount: parsed.dollar_amount, dollar_type: parsed.dollar_type, system: parsed.system || '', organization: '', result: '', notes: '', status: 'completed',
-      visibility: prefs.defaultVisibility || (identity?.primaryUnitId ? 'unit' : 'private'), unit_id: identity?.primaryUnitId || null,
+      visibility: prefs.defaultVisibility || 'private', unit_id: identity?.primaryUnitId || null,
       ...overrides,
     } as Record<string, any>;
   }, [parsed, overrides, prefs.defaultVisibility, identity?.primaryUnitId]);

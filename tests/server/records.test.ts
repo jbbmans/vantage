@@ -99,15 +99,17 @@ test('tasks and goals: assignment requires shared unit; assignee sees the task',
   assert.ok(mine.body.some((r: any) => r.id === t.body.id));
   const notes = app.ctx.db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND kind = ?').get(rivera.id, 'assignment') as { n: number };
   assert.equal(notes.n, 1);
-  const bad = await app.call('POST', '/api/records/tasks', { token: rivera.token, body: { title: 'Nope', visibility: 'unit', assignee_id: outsider.id } });
+  const bad = await app.call('POST', '/api/records/tasks', { token: nguyen.token, body: { title: 'Nope', visibility: 'unit', assignee_id: outsider.id } });
   assert.equal(bad.status, 400);
+  assert.equal((await app.call('POST', '/api/records/tasks', { token: rivera.token, body: { title: 'No permission', visibility: 'unit' } })).status, 403);
   const g = await app.call('POST', '/api/records/goals', { token: rivera.token, body: { title: 'Clear 100 ULOs', metric: 'activity_quantity', category: 'Fiscal & Financial', target_value: 100, period_end: '2026-12-31' } });
   assert.equal(g.status, 201);
   assert.equal(g.body.visibility, 'private');
 });
 
 test('projects and trainings and awards follow the same policy', async () => {
-  const p = await app.call('POST', '/api/records/projects', { token: rivera.token, body: { name: 'Audit prep', visibility: 'unit' } });
+  assert.equal((await app.call('POST', '/api/records/projects', { token: rivera.token, body: { name: 'Audit prep', visibility: 'unit' } })).status, 403);
+  const p = await app.call('POST', '/api/records/projects', { token: nguyen.token, body: { name: 'Audit prep', visibility: 'unit' } });
   assert.equal(p.status, 201);
   const tr = await app.call('POST', '/api/records/trainings', { token: rivera.token, body: { title: 'MarineNet Cyber', hours: 2, type: 'pme' } });
   assert.equal(tr.status, 201);
@@ -316,4 +318,26 @@ test('csv import keeps an updated row in its original unit', async () => {
   assert.equal(after.body.unit_id, 'G8');
   assert.equal(after.body.visibility, 'unit');
   assert.equal(after.body.title, 'Scoped entry (edited)');
+});
+
+test('a plain member can share personal records but not post governed work without the permission', async () => {
+  const activity = await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Shared by a Marine', date: '2026-08-02', visibility: 'unit', unit_id: 'G8' } });
+  assert.equal(activity.status, 201);
+  const task = await app.call('POST', '/api/records/tasks', { token: rivera.token, body: { title: 'Unit tasking from a Marine', visibility: 'unit', unit_id: 'G8' } });
+  assert.equal(task.status, 403);
+  const own = await app.call('POST', '/api/records/tasks', { token: rivera.token, body: { title: 'My own task', visibility: 'private' } });
+  assert.equal(own.status, 201);
+  const leader = await app.call('POST', '/api/records/tasks', { token: nguyen.token, body: { title: 'SNCO tasking', visibility: 'unit', unit_id: 'G8' } });
+  assert.equal(leader.status, 201);
+});
+
+test('shared goals count only unit-visible work; private goals see everything', async () => {
+  await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Private ULO work', date: '2026-08-03', quantity: 7, unit_label: 'ULOs', category: 'Fiscal & Financial', visibility: 'private' } });
+  await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Shared ULO work', date: '2026-08-04', quantity: 3, unit_label: 'ULOs', category: 'Fiscal & Financial', visibility: 'unit', unit_id: 'G8' } });
+  const shared = await app.call('POST', '/api/records/goals', { token: nguyen.token, body: { title: 'Rivera ULOs', metric: 'activity_quantity', category: 'Fiscal & Financial', target_value: 100, period_start: '2026-08-01', period_end: '2026-08-31', assignee_id: rivera.id, visibility: 'unit', unit_id: 'G8' } });
+  assert.equal(shared.status, 201);
+  const seen = await app.call('GET', `/api/records/goals/${shared.body.id}`, { token: nguyen.token });
+  assert.equal(seen.body.current_value, 3);
+  const mine = await app.call('POST', '/api/records/goals', { token: rivera.token, body: { title: 'All my ULOs', metric: 'activity_quantity', category: 'Fiscal & Financial', target_value: 100, period_start: '2026-08-01', period_end: '2026-08-31', visibility: 'private' } });
+  assert.equal((await app.call('GET', `/api/records/goals/${mine.body.id}`, { token: rivera.token })).body.current_value, 10);
 });

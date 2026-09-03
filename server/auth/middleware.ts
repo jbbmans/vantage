@@ -27,6 +27,10 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     const allowed = ['/api/me', '/api/me/password', '/api/auth/logout'];
     if (!allowed.includes(req.originalUrl.split('?')[0])) return next(new HttpError(403, 'Change the temporary password before using Vantage.', 'password_change_required'));
   }
+  if (ctx.runtime.maintenance && !resolved.user.is_operator) {
+    const allowed = ['/api/me', '/api/auth/logout', '/api/auth/sudo'];
+    if (!allowed.includes(req.originalUrl.split('?')[0])) return next(new HttpError(503, 'Vantage is in scheduled maintenance. Try again shortly.', 'maintenance'));
+  }
   req.user = resolved.user;
   req.sessionId = resolved.session.id;
   req.sessionRow = resolved.session;

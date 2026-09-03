@@ -21,8 +21,8 @@
     "test:browser": "playwright test",
     "pretest:browser": "vite build",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
-    "recover": "node scripts/recover-operator.ts",
-    "reset:factory": "node scripts/factory-reset.ts"
+    "recover-operator": "node scripts/recover-operator.ts",
+    "factory-reset": "node scripts/factory-reset.ts"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

@@ -234,6 +234,10 @@ authRouter.post('/reset', wrap((req, res) => {
   audit(ctx, { actor_id: pending.user_id, action: 'password_reset', subject_id: pending.user_id, ip });
   const row = ctx.db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(pending.user_id) as UserRow | undefined;
   if (!row) throw badRequest('That account is not active.');
+  if (row.totp_enabled) {
+    const { token: challenge } = issueToken(ctx, 'login_mfa', { userId: row.id, ttlMinutes: 5, payload: { ip } });
+    return res.json({ ok: false, mfa: 'totp', challenge });
+  }
   return finishSignIn(req, res, row, 'password', 'password_reset_login');
 }));
 

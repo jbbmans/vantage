@@ -1,7 +1,7 @@
 import { withGoalProgress } from './records.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AppContext, SessionUser } from '../context.ts';
-import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
+import { PERMISSIONS, can, scopeFor, detailUnitsFor } from '../authz/scope.ts';
 import { HttpError } from '../lib/errors.ts';
 import { limiters } from '../auth/limiter.ts';
 import { today } from '../lib/ids.ts';
@@ -91,7 +91,7 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
       if (subjectId === user.id) activities = ownActivities(ctx, user.id, from!, to!, 100);
       else {
         const unitId = str(safe.unit_id, 64);
-        if (!unitId || !can(scope, PERMISSIONS.COUNSEL, unitId)) throw new AiError('You cannot draft a citation for that Marine.', 403, 'forbidden');
+        if (!unitId || !detailUnitsFor(ctx, scope, subjectId).filter((u) => can(scope, PERMISSIONS.COUNSEL, u)).includes(unitId)) throw new AiError('You cannot draft a citation for that Marine.', 403, 'forbidden');
         activities = sharedActivities(ctx, subjectId, unitId, from!, to!, 100);
       }
       return { award: str(safe.award, 200) || 'Navy and Marine Corps Achievement Medal', period: { from, to }, facts: str(safe.facts, 6000) || null, activities };
@@ -99,14 +99,15 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
     case 'counseling_prep': {
       const subjectId = str(safe.user_id, 64);
       const unitId = str(safe.unit_id, 64);
-      if (!subjectId || !unitId || !can(scope, PERMISSIONS.COUNSEL, unitId)) throw new AiError('You cannot prepare a counseling for that Marine.', 403, 'forbidden');
+      const counselUnits = subjectId ? detailUnitsFor(ctx, scope, subjectId).filter((u) => can(scope, PERMISSIONS.COUNSEL, u)) : [];
+      if (!subjectId || !unitId || !counselUnits.includes(unitId)) throw new AiError('You cannot prepare a counseling for that Marine.', 403, 'forbidden');
       const days = int(safe.days, 90, 7, 366);
       const from = daysAgo(days);
       return {
         from, to: nowDay,
         activities: sharedActivities(ctx, subjectId, unitId, from, nowDay, 120),
         goals: withGoalProgress(ctx, ctx.db.prepare(`SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL LIMIT 20`).all(subjectId, subjectId, unitId) as GoalRow[]).map(goalView),
-        prior_counselings: ctx.db.prepare(`SELECT date, type, follow_up_date FROM counselings WHERE user_id = ? AND unit_id = ? AND deleted_at IS NULL ORDER BY date DESC LIMIT 5`).all(subjectId, unitId),
+        prior_counselings: ctx.db.prepare(`SELECT date, type, follow_up_date FROM counselings WHERE user_id = ? AND unit_id = ? AND deleted_at IS NULL AND (visibility = 'unit' OR counselor_id = ?) ORDER BY date DESC LIMIT 5`).all(subjectId, unitId, user.id),
       };
     }
     case 'personal_review':

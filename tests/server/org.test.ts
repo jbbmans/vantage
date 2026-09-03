@@ -208,7 +208,8 @@ test('operator console: runtime settings, users, lifecycle, export/import, backu
   assert.equal((await app.call('GET', '/api/admin/backup', { token: opToken })).status, 400);
   const maint = await app.call('POST', '/api/admin/maintenance', { token: opToken, body: { enabled: true } });
   assert.equal(maint.body.maintenance, true);
-  assert.equal((await app.call('GET', '/api/records/activities', { token: opToken })).status, 503);
+  assert.equal((await app.call('GET', '/api/records/activities', { token: opToken })).status, 200);
+  assert.equal((await app.call('GET', '/api/records/activities', { token: (await app.login('marine')).body.token })).status, 503);
   await app.call('POST', '/api/admin/maintenance', { token: opToken, body: { enabled: false } });
   app.ctx.db.prepare('UPDATE sessions SET sudo_until = NULL').run();
   assert.equal((await app.call('GET', '/api/admin/overview', { token: opToken })).status, 403);

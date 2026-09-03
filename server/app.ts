@@ -97,8 +97,11 @@ export function createApp(ctx: AppContext) {
     }
   });
 
+  // In maintenance, sign-in stays open so owners can work, but nothing else under /auth may write (registration, resets, invitations, setup).
+  // Signed-in non-owners are turned away in requireAuth.
+  const MAINTENANCE_OPEN = new Set(['/auth/login', '/auth/login/mfa', '/auth/passkey/options', '/auth/passkey/verify', '/auth/logout', '/auth/sudo']);
   app.use('/api', (req, res, next) => {
-    if (ctx.runtime.maintenance && !req.path.startsWith('/auth') && !req.path.startsWith('/admin') && req.path !== '/me') {
+    if (ctx.runtime.maintenance && req.path.startsWith('/auth') && !MAINTENANCE_OPEN.has(req.path) && req.method !== 'GET') {
       res.setHeader('Cache-Control', 'no-store');
       return res.status(503).json({ error: 'Vantage is in scheduled maintenance. Try again shortly.', code: 'maintenance' });
     }

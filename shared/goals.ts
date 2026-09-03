@@ -1,6 +1,6 @@
 import { SUMMABLE_DOLLAR_TYPES } from './constants.ts';
 
-export interface GoalLike { user_id?: string; assignee_id?: string | null; metric?: string | null; category?: string | null; period_start?: string | null; period_end?: string | null; current_value?: number | string | null; target_value?: number | string | null }
+export interface GoalLike { user_id?: string; assignee_id?: string | null; visibility?: string; unit_id?: string | null; metric?: string | null; category?: string | null; period_start?: string | null; period_end?: string | null; current_value?: number | string | null; target_value?: number | string | null }
 export interface ActivityLike { user_id?: string; date?: string | null; category?: string | null; quantity?: number | null; dollar_amount?: number | null; dollar_type?: string | null }
 export interface TrainingLike { user_id?: string; date?: string | null; hours?: number | null }
 

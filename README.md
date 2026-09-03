@@ -35,8 +35,8 @@ Scripts:
 | `npm run test:browser` | builds the client and runs the Playwright suite (desktop, phone, axe) |
 | `npm run build` | production client into `dist/` |
 | `npm start` | production server (`node server/index.ts`), serves `dist/` |
-| `npm run recover-operator -- <username>` | grant owner authority from the shell |
-| `npm run factory-reset` | wipe the database (asks for confirmation) |
+| `VANTAGE_RECOVERY=1 npm run recover-operator -- <username>` | grant owner authority and a temporary password from the shell |
+| `VANTAGE_FACTORY_RESET=1 npm run factory-reset -- ERASE-EVERYTHING` | delete the database; the next start runs first-time setup |
 
 Requirements: Node 22.18 or newer. No build step for the server; Node runs the TypeScript directly.
 

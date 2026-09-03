@@ -4,12 +4,12 @@ import { CATEGORIES, DOLLAR_TYPES, UNIT_SUGGESTIONS, ACTIVITY_STATUS } from '../
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
 import { useProjects, useTrack } from '@/lib/queries';
 import { onText } from '@/components/common';
-import { humanize } from '@/lib/utils';
+import { humanize, todayIso } from '@/lib/utils';
 
 export interface ActivityDraft { id?: string; version?: number; title: string; date: string; category: string | null; eval_area: string | null; quantity: number | string | null; unit_label: string; dollar_amount: number | string | null; dollar_type: string | null; result: string; organization: string; system: string; project_id: string | null; status: string; notes: string; evidence_links: Array<{ label?: string | null; url?: string | null }>; visibility: 'private' | 'unit'; unit_id: string | null }
 
 export const emptyActivity = (defaults: Partial<ActivityDraft> = {}): ActivityDraft => ({
-  title: '', date: new Date().toISOString().slice(0, 10), category: null, eval_area: 'Unassigned', quantity: '', unit_label: '', dollar_amount: '', dollar_type: null, result: '', organization: '', system: '', project_id: null, status: 'completed', notes: '', evidence_links: [], visibility: 'private', unit_id: null, ...defaults,
+  title: '', date: todayIso(), category: null, eval_area: 'Unassigned', quantity: '', unit_label: '', dollar_amount: '', dollar_type: null, result: '', organization: '', system: '', project_id: null, status: 'completed', notes: '', evidence_links: [], visibility: 'private', unit_id: null, ...defaults,
 });
 export const toActivityDraft = (a: Record<string, any>): ActivityDraft => ({ ...emptyActivity(), ...a, quantity: a.quantity ?? '', dollar_amount: a.dollar_amount ?? '', unit_label: a.unit_label || '', result: a.result || '', organization: a.organization || '', system: a.system || '', notes: a.notes || '', evidence_links: a.evidence_links || [] });
 

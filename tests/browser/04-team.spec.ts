@@ -27,6 +27,7 @@ test('a leader invites a Marine by link, sees their shared work on the unit dash
   const dialog = await quickLog(ip, 'Processed 12 MIPRs with zero returns today');
   await dialog.getByLabel('Result').fill('zero returns');
   await dialog.getByRole('button', { name: /Organization, system, notes, visibility/ }).click();
+  await dialog.getByRole('radio', { name: /Share with unit/ }).click();
   await expect(dialog.getByRole('radio', { name: /Share with unit/ })).toHaveAttribute('aria-checked', 'true');
   await dialog.getByRole('button', { name: 'Save activity' }).click();
   await expect(ip.getByRole('status').filter({ hasText: 'Activity logged.' })).toBeVisible();

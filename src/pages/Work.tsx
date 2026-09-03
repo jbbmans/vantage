@@ -9,6 +9,7 @@ import { DateText, StatusBadge, useParam, onText } from '@/components/common';
 import { useDeleteRecord, useIdentity, useProjects, useTasks, useTeam, useUpdateRecord, usePrefs, useActivities } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { WORK_STATUS, PRIORITIES } from '../../shared/constants';
+import { PERMISSIONS } from '../../shared/permissions';
 import { humanize, cn, todayIso } from '@/lib/utils';
 
 interface TaskDraft { id?: string; version?: number; title: string; notes: string; status: string; priority: string; due_date: string; project_id: string | null; assignee_id: string | null; visibility: 'private' | 'unit'; unit_id: string | null }
@@ -130,7 +131,7 @@ export default function Work() {
             </div>
             {canAssign && d.visibility === 'unit' && <Field label="Assign to" hint="members of the shared unit"><Select value={d.assignee_id || '__me'} onValueChange={(v) => set('assignee_id', v === '__me' ? null : v)} options={[{ value: '__me', label: 'Myself' }, ...roster.filter((r) => r.id !== me && r.memberships.some((m: any) => m.unit_id === d.unit_id)).map((r) => ({ value: r.id, label: `${r.rank_abbr || ''} ${r.last_name}, ${r.first_name}`.trim() }))]} /></Field>}
             <Field label="Notes"><Textarea rows={3} value={d.notes} onChange={onText(set, 'notes')} /></Field>
-            <VisibilityPicker value={d.visibility} unitId={d.unit_id} onChange={(v) => { set('visibility', v.visibility); set('unit_id', v.unit_id ?? null); }} />
+            <VisibilityPicker permission={PERMISSIONS.CREATE_SHARED_WORK} value={d.visibility} unitId={d.unit_id} onChange={(v) => { set('visibility', v.visibility); set('unit_id', v.unit_id ?? null); }} />
             {d.id && <div className="flex justify-end"><Button size="xs" variant="danger" onClick={() => { setConfirm({ store: 'tasks', row: d }); setTaskDraft(null); }}>Delete task</Button></div>}
           </>
         )} />
@@ -147,7 +148,7 @@ export default function Work() {
               <Field label="Progress %" error={errors.progress}><NumberInput value={d.progress} onChange={onText(set, 'progress')} /></Field>
               <Field label="Organization"><Input value={d.organization} onChange={onText(set, 'organization')} /></Field>
             </div>
-            <VisibilityPicker value={d.visibility} unitId={d.unit_id} onChange={(v) => { set('visibility', v.visibility); set('unit_id', v.unit_id ?? null); }} />
+            <VisibilityPicker permission={PERMISSIONS.CREATE_SHARED_WORK} value={d.visibility} unitId={d.unit_id} onChange={(v) => { set('visibility', v.visibility); set('unit_id', v.unit_id ?? null); }} />
           </>
         )} />
       <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title={`Delete this ${confirm?.store === 'tasks' ? 'task' : 'project'}?`} body="It moves to the recycle bin for 30 days." onConfirm={async () => { try { await (confirm!.store === 'tasks' ? deleteTask : deleteProject).mutateAsync(confirm!.row.id); toast.success('Deleted.'); } catch (e) { toast.error(api.errorText(e)); } }} />

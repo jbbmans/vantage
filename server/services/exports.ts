@@ -3,6 +3,9 @@ import { RECORD_TABLE_NAMES } from './records.ts';
 import { VERSION } from '../version.ts';
 import { now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
+import { hmac } from '../lib/crypto.ts';
+
+const keyCheck = (secret: string) => hmac(secret, 'vantage-instance-key-check');
 
 const EXPORT_TABLES = ['ranks', 'users', 'readiness', 'units', 'unit_members', 'roles', 'member_roles', 'passkeys', 'recovery_codes', ...RECORD_TABLE_NAMES, 'attachments', 'audit_log', 'notifications', 'maradmins', 'maradmin_user_state', 'ai_usage_daily', 'email_log', 'meta'] as const;
 
@@ -17,11 +20,12 @@ export function exportInstance(ctx: AppContext) {
       return out;
     });
   }
-  return { format: 'vantage-instance/1', version: VERSION, exported_at: now(), tables };
+  return { format: 'vantage-instance/1', version: VERSION, exported_at: now(), key_check: keyCheck(ctx.config.secret), tables };
 }
 
-export function importInstance(ctx: AppContext, archive: { format?: string; tables?: Record<string, Array<Record<string, unknown>>> }, actorId: string) {
+export function importInstance(ctx: AppContext, archive: { format?: string; key_check?: string; tables?: Record<string, Array<Record<string, unknown>>> }, actorId: string) {
   if (archive?.format !== 'vantage-instance/1' || !archive.tables) throw new Error('That file is not a Vantage instance archive.');
+  if (archive.key_check && archive.key_check !== keyCheck(ctx.config.secret)) throw new Error('This archive was exported under a different VANTAGE_SECRET. Set the same secret on this host before importing, or authenticator secrets and the audit chain will not verify.');
   const users = (ctx.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
   const activities = (ctx.db.prepare('SELECT COUNT(*) AS n FROM activities').get() as { n: number }).n;
   if (users > 1 || activities > 0) throw new Error('Import only into a fresh instance (one operator account, no records).');

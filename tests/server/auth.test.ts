@@ -165,3 +165,62 @@ test('non-leaders cannot invite; hierarchy caps the role', async () => {
   assert.equal((await app.call('POST', '/api/org/units/G8/invites', { token: u.token, body: {} })).status, 403);
   assert.equal((await app.call('POST', '/api/org/units/G8/invites', { token: op.token, body: { role_id: 'G8:unit-leader' } })).status, 400);
 });
+
+test('maintenance mode blocks registration and non-owner requests but lets owners work', async () => {
+  const m = await startApp();
+  try {
+    const op = await m.setupOperator();
+    const user = await m.register('maint');
+    await m.call('POST', '/api/auth/sudo', { token: op.token, body: { password: PASSWORD } });
+    assert.equal((await m.call('POST', '/api/admin/maintenance', { token: op.token, body: { enabled: true } })).status, 200);
+    assert.equal((await m.call('POST', '/api/auth/register', { body: { username: 'late', password: PASSWORD, first_name: 'L', last_name: 'M' } })).status, 503);
+    assert.equal((await m.call('GET', '/api/records/activities', { token: user.token })).status, 503);
+    assert.equal((await m.call('GET', '/api/me', { token: user.token })).status, 200);
+    assert.equal((await m.login('maint')).status, 200);
+    assert.equal((await m.call('GET', '/api/records/activities', { token: op.token })).status, 200);
+    assert.equal((await m.call('POST', '/api/admin/maintenance', { token: op.token, body: { enabled: false } })).status, 200);
+    assert.equal((await m.call('GET', '/api/records/activities', { token: user.token })).status, 200);
+  } finally { await m.close(); }
+});
+
+test('a password reset on an MFA-enabled account still asks for the second factor', async () => {
+  const m = await startApp();
+  try {
+    await m.setupOperator();
+    const u = await m.register('resetmfa', { email: 'resetmfa@example.mil' });
+    await m.call('POST', '/api/auth/sudo', { token: u.token, body: { password: PASSWORD } });
+    const start = await m.call('POST', '/api/me/mfa/totp/start', { token: u.token });
+    const code = totpCode(start.body.secret, Math.floor(Date.now() / 30000));
+    assert.equal((await m.call('POST', '/api/me/mfa/totp/confirm', { token: u.token, body: { code } })).status, 200);
+    assert.equal((await m.call('POST', '/api/auth/forgot', { body: { identifier: 'resetmfa' } })).status, 200);
+    const mail = m.ctx.mailer.outbox.find((x) => x.kind === 'reset');
+    assert.ok(mail, 'reset email sent');
+    const token = decodeURIComponent(/token=([^\s&"]+)/.exec(mail!.text)![1]);
+    const reset = await m.call('POST', '/api/auth/reset', { body: { token, password: 'meadow-copper-signal-harbor-8812' } });
+    assert.equal(reset.status, 200);
+    assert.equal(reset.body.ok, false);
+    assert.equal(reset.body.mfa, 'totp');
+    const done = await m.call('POST', '/api/auth/login/mfa', { body: { challenge: reset.body.challenge, code: totpCode(start.body.secret, Math.floor(Date.now() / 30000)) } });
+    assert.equal(done.status, 200);
+    assert.equal(done.body.ok, true);
+  } finally { await m.close(); }
+});
+
+test('a pre-5.0 database file is set aside instead of being opened', async () => {
+  const { mkdtempSync, readdirSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const { tmpdir } = await import('node:os');
+  const Database = (await import('better-sqlite3')).default;
+  const { openDatabase } = await import('../../server/db/index.ts');
+  const dir = mkdtempSync(join(tmpdir(), 'vantage-legacy-'));
+  const path = join(dir, 'vantage.db');
+  const old = new Database(path);
+  old.exec('CREATE TABLE users (id TEXT PRIMARY KEY, username TEXT, is_admin INTEGER); INSERT INTO users VALUES (\'u1\', \'legacy\', 1);');
+  old.close();
+  const db = openDatabase(path);
+  const columns = (db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map((c) => c.name);
+  assert.ok(columns.includes('is_operator'));
+  assert.equal((db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n, 0);
+  db.close();
+  assert.ok(readdirSync(dir).some((f) => f.startsWith('vantage.db.legacy-')));
+});

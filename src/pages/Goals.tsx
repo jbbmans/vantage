@@ -13,6 +13,7 @@ import { GOAL_TYPES, GOAL_STATUS, GOAL_METRICS, CATEGORIES } from '../../shared/
 import { goalProgress } from '../../shared/goals';
 import { formatNumber, formatDollars } from '../../shared/metrics';
 import { daysUntil } from '../../shared/evaluation';
+import { PERMISSIONS } from '../../shared/permissions';
 import { humanize, cn, todayIso } from '@/lib/utils';
 
 interface GoalDraft { id?: string; version?: number; title: string; description: string; type: string; category: string | null; metric: string; current_value: number | string; target_value: number | string; unit_label: string; status: string; period_start: string; period_end: string; visibility: 'private' | 'unit'; unit_id: string | null; assignee_id?: string | null }
@@ -85,7 +86,7 @@ export default function Goals() {
               <Field label="Starts"><Input type="date" value={d.period_start} onChange={onText(set, 'period_start')} /></Field>
               <Field label="Ends"><Input type="date" value={d.period_end} onChange={onText(set, 'period_end')} /></Field>
             </div>
-            <VisibilityPicker value={d.visibility} unitId={d.unit_id} onChange={(v) => { set('visibility', v.visibility); set('unit_id', v.unit_id ?? null); }} />
+            <VisibilityPicker permission={PERMISSIONS.CREATE_SHARED_GOALS} value={d.visibility} unitId={d.unit_id} onChange={(v) => { set('visibility', v.visibility); set('unit_id', v.unit_id ?? null); }} />
             {identity?.instance.aiEnabled && <p className="flex items-center gap-1.5 text-2xs text-ink-3"><Sparkles className="h-3 w-3" />AI suggestions are drafts. Check the number and the date.</p>}
           </>
         )} />

@@ -61,7 +61,11 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
     if (mode === 'invite' && token) api.inviteStatus(token).then((info) => { setTokenInfo(info); if (info?.suggested) setForm((f) => ({ ...f, first_name: info.suggested.first_name || '', last_name: info.suggested.last_name || '', rank_id: info.suggested.rank_id || '', email: info.email || '' })); }).catch(() => setTokenInfo({ valid: false }));
   }, [mode, params]);
 
-  const finish = () => { qc.invalidateQueries({ queryKey: keys.me }); window.history.replaceState(null, '', '/'); };
+  const finish = () => {
+    qc.invalidateQueries({ queryKey: keys.me });
+    const authPath = ['/login', '/register', '/reset', '/invite', '/setup'].some((p) => path.startsWith(p));
+    window.history.replaceState(null, '', authPath ? '/' : `${window.location.pathname}${window.location.search}`);
+  };
   const fail = (e: unknown) => { const err = e as api.ApiError; setError(err.fieldErrors && Object.keys(err.fieldErrors).length ? 'Check the highlighted fields.' : api.errorText(e)); setFieldErrors(err.fieldErrors || {}); };
   const run = async (fn: () => Promise<unknown>) => { setBusy(true); setError(''); setFieldErrors({}); try { await fn(); } catch (e) { fail(e); } finally { setBusy(false); } };
 
@@ -73,7 +77,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
   const submitSetup = () => run(async () => { await api.runSetup({ ...form, email: form.email || null, rank_id: form.rank_id || null, mos: form.mos || null, middle_initial: form.middle_initial || null, unit_short_name: form.unit_short_name || null }); finish(); });
   const submitRegister = () => run(async () => { await api.register({ username: form.username, password: form.password, first_name: form.first_name, last_name: form.last_name, middle_initial: form.middle_initial || null, rank_id: form.rank_id || null, mos: form.mos || null, email: form.email || null }); finish(); });
   const submitForgot = () => run(async () => { const r = await api.forgotPassword(form.identifier); toast.info(r.emailEnabled ? 'If that account has an email on file, a reset link is on its way.' : 'Email is not configured on this server. Ask your unit leader or the owner for a temporary password.'); setMode('login'); });
-  const submitReset = () => run(async () => { await api.resetPassword(params.get('token') || '', form.password); finish(); });
+  const submitReset = () => run(async () => { const r = await api.resetPassword(params.get('token') || '', form.password); if (r?.mfa === 'totp') { setChallenge(r.challenge); setMode('mfa'); } else finish(); });
   const submitInvite = () => run(async () => { await api.acceptInvite({ token: params.get('token') || '', username: form.username, password: form.password, first_name: form.first_name, last_name: form.last_name, rank_id: form.rank_id || null, mos: form.mos || null, email: form.email || undefined }); finish(); });
   const passkey = () => run(async () => {
     const { options, key } = await api.passkeyOptions(form.username || undefined);

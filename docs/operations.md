@@ -15,7 +15,7 @@ Restoring a `.db` file: turn on maintenance mode, replace `/data/vantage.db` (a 
 
 ## Recovering owner access
 
-If every owner is locked out: `npm run recover-operator -- <username>` on the server grants owner authority. On Render use `render ssh vantage` then `cd /app && node scripts/recover-operator.ts <username>`. Sessions for that user are reset; sign in again.
+If every owner is locked out: `VANTAGE_RECOVERY=1 npm run recover-operator -- <username>` on the server grants owner authority, clears that account's authenticator, and prints a temporary password. On Render use `render ssh vantage` then `cd /app && VANTAGE_RECOVERY=1 node scripts/recover-operator.ts <username>`. Sessions for that user are reset; sign in with the temporary password and set a new one.
 
 ## Lost phone
 
@@ -23,7 +23,11 @@ The owner (or any user for themselves after signing in with a recovery code) can
 
 ## Maintenance mode
 
-**Owner console → Settings → Maintenance** blocks everyone but owners with a 503. Turn it on before a restore or a move.
+**Owner console → Settings → Maintenance** blocks everyone but owners with a 503, including registration, invitations, and password resets. Non-owners can still sign in, but every other request is refused until it is turned off. Turn it on before a restore or a move.
+
+## Upgrading from Vantage 4
+
+5.0 uses a fresh schema and does not migrate 4.x data. On first start against a 4.x database file, the server moves it aside as `vantage.db.legacy-<timestamp>` and creates a new database; nothing is overwritten. Keep the legacy file if you need it on a 4.x build.
 
 ## Health
 

@@ -34,8 +34,10 @@ export function canEdit(scope: Scope, userId: string, row: RecordRow): boolean {
 }
 
 /** May the caller place a record with this visibility inside this unit? */
-export function canPlace(scope: Scope, visibility: string, unitId: string | null, shareFlag: number): boolean {
+export function canPlace(scope: Scope, visibility: string, unitId: string | null, shareFlag: number, personal = false): boolean {
   if (visibility === 'private') return !unitId || isMember(scope, unitId) || can(scope, shareFlag, unitId);
   if (!unitId) return false;
-  return isMember(scope, unitId) || can(scope, shareFlag, unitId);
+  // Personal career records (activities, training, awards, counseling) may be shared by any member.
+  // Governed work (tasks, projects, goals) needs the unit's share permission.
+  return personal ? isMember(scope, unitId) || can(scope, shareFlag, unitId) : can(scope, shareFlag, unitId);
 }
