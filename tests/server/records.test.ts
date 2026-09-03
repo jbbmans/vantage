@@ -241,3 +241,17 @@ test('preferences validate and persist; profile email change needs sudo', async 
   await app.call('POST', '/api/auth/sudo', { token: nguyen.token, body: { password: PASSWORD } });
   assert.equal((await app.call('PUT', '/api/me/profile', { token: nguyen.token, body: { email: 'rivera@example.mil' } })).status, 400);
 });
+
+test('the recycle bin purges records deleted more than 30 days ago and keeps the rest', async () => {
+  const { purgeDeleted } = await import('../../server/services/records.ts');
+  const old = await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Old deleted thing', date: '2026-01-05' } });
+  const fresh = await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Recently deleted thing', date: '2026-01-06' } });
+  await app.call('DELETE', `/api/records/activities/${old.body.id}`, { token: rivera.token });
+  await app.call('DELETE', `/api/records/activities/${fresh.body.id}`, { token: rivera.token });
+  app.ctx.db.prepare('UPDATE activities SET deleted_at = ? WHERE id = ?').run(new Date(Date.now() - 31 * 86_400_000).toISOString(), old.body.id);
+  const result = purgeDeleted(app.ctx);
+  assert.equal(result.records, 1);
+  assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM activities WHERE id = ?').get(old.body.id) as { n: number }).n, 0);
+  assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM activities WHERE id = ?').get(fresh.body.id) as { n: number }).n, 1);
+  assert.equal((await app.call('POST', `/api/records/activities/${fresh.body.id}/restore`, { token: rivera.token })).status, 200);
+});

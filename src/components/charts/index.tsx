@@ -19,8 +19,9 @@ export function AreaChart({ data, height = 220, format = (v) => String(v), secon
   const line = data.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(d.value).toFixed(1)}`).join(' ');
   const area = data.length ? `${line} L${x(data.length - 1).toFixed(1)},${(pad.t + innerH).toFixed(1)} L${x(0).toFixed(1)},${(pad.t + innerH).toFixed(1)} Z` : '';
   const lineS = data.some((d) => d.secondary != null) ? data.map((d, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${yS(d.secondary || 0).toFixed(1)}`).join(' ') : null;
-  const ticks = [0, 0.5, 1].map((f) => ({ v: max * f, y: y(max * f) }));
+  const ticks = [...new Set([0, Math.round(max / 2), max])].map((v) => ({ v, y: y(v) }));
   const step = Math.max(1, Math.ceil(data.length / 6));
+  const showLabel = (i: number) => i === data.length - 1 || (i % step === 0 && data.length - 1 - i >= step / 2);
   return (
     <figure className={cn('relative w-full', className)} aria-label={ariaLabel}>
       <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label={ariaLabel} preserveAspectRatio="none"
@@ -32,7 +33,7 @@ export function AreaChart({ data, height = 220, format = (v) => String(v), secon
         {area && <path d={area} fill={`url(#${id}-fill)`} />}
         {line && <path d={line} fill="none" stroke="rgb(var(--accent))" strokeWidth="2.2" strokeLinejoin="round" strokeLinecap="round" vectorEffect="non-scaling-stroke" />}
         {lineS && <path d={lineS} fill="none" stroke="rgb(var(--ink-3))" strokeWidth="1.5" strokeDasharray="4 3" vectorEffect="non-scaling-stroke" />}
-        {data.map((d, i) => (i % step === 0 || i === data.length - 1) && <text key={d.label} x={x(i)} y={height - 8} fontSize="10" textAnchor={i === 0 ? 'start' : i === data.length - 1 ? 'end' : 'middle'} fill="rgb(var(--ink-3))">{d.label}</text>)}
+        {data.map((d, i) => showLabel(i) && <text key={d.label} x={x(i)} y={height - 8} fontSize="10" textAnchor={i === 0 ? 'start' : i === data.length - 1 ? 'end' : 'middle'} fill="rgb(var(--ink-3))">{d.label}</text>)}
         {hover != null && data[hover] && <g><line x1={x(hover)} x2={x(hover)} y1={pad.t} y2={pad.t + innerH} stroke="rgb(var(--line-strong))" /><circle cx={x(hover)} cy={y(data[hover].value)} r="4.5" fill="rgb(var(--accent))" stroke="rgb(var(--surface))" strokeWidth="2" /></g>}
       </svg>
       {hover != null && data[hover] && (

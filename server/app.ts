@@ -23,6 +23,7 @@ import { configureLimits, configureAiLimits, pruneLimiters } from './auth/limite
 import { syncMaradmins } from './services/maradmins.ts';
 import { runDigestTick } from './services/digest.ts';
 import { now } from './lib/ids.ts';
+import { purgeDeleted } from './services/records.ts';
 
 export function loadRuntime(db: Db, config: AppConfig): RuntimeSettings {
   const defaults: RuntimeSettings = {
@@ -138,6 +139,7 @@ export function startSchedulers(ctx: AppContext) {
   const timers: NodeJS.Timeout[] = [];
   const every = (ms: number, fn: () => void) => { const t = setInterval(fn, ms); t.unref?.(); timers.push(t); };
   every(15 * 60_000, () => { pruneLimiters(); try { pruneSessions(ctx); } catch {} });
+  every(6 * 60 * 60_000, () => { try { const r = purgeDeleted(ctx); if (r.records) console.log(`${now()} purged ${r.records} records from the recycle bin`); } catch (e) { console.warn(`Purge failed: ${(e as Error).message}`); } });
   if (ctx.runtime.maradminsEnabled && !ctx.config.test) {
     const run = () => syncMaradmins(ctx).catch((e: Error) => console.warn(`MARADMIN refresh skipped: ${e.message}`));
     const first = setTimeout(run, 3_000); first.unref?.(); timers.push(first);

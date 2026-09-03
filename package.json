@@ -15,7 +15,7 @@
     "dev:web": "vite",
     "build": "vite build",
     "start": "node server/index.ts",
-    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.web.json --noEmit",
+    "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tests/browser",
     "lint": "eslint .",
     "test": "node --test --test-concurrency=1 \"tests/server/**/*.test.ts\"",
     "test:browser": "playwright test",

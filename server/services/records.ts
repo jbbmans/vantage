@@ -274,3 +274,21 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
   audit(ctx, { actor_id: user.id, action: 'import', entity: 'activities', detail: `${created} created, ${updated} updated, ${duplicates.length} duplicates skipped`, ip });
   return { created, updated, duplicates: duplicates.length, duplicateRows: duplicates };
 }
+
+/** Permanently remove records (and their attachments) that have sat in the recycle bin longer than `days`. */
+export function purgeDeleted(ctx: AppContext, days = 30): { records: number; attachments: number } {
+  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+  let records = 0; let attachments = 0;
+  ctx.db.transaction(() => {
+    for (const table of RECORD_TABLE_NAMES) {
+      const gone = ctx.db.prepare(`SELECT id FROM ${table} WHERE deleted_at IS NOT NULL AND deleted_at < ?`).all(cutoff) as Array<{ id: string }>;
+      if (!gone.length) continue;
+      for (const { id } of gone) attachments += ctx.db.prepare('DELETE FROM attachments WHERE record_table = ? AND record_id = ?').run(table, id).changes;
+      if (table === 'projects') for (const { id } of gone) { ctx.db.prepare('UPDATE tasks SET project_id = NULL WHERE project_id = ?').run(id); ctx.db.prepare('UPDATE activities SET project_id = NULL WHERE project_id = ?').run(id); }
+      records += ctx.db.prepare(`DELETE FROM ${table} WHERE deleted_at IS NOT NULL AND deleted_at < ?`).run(cutoff).changes;
+    }
+    attachments += ctx.db.prepare('DELETE FROM attachments WHERE deleted_at IS NOT NULL AND deleted_at < ?').run(cutoff).changes;
+  })();
+  if (records || attachments) audit(ctx, { actor_id: null, action: 'purge_deleted', entity: 'instance', detail: `${records} records, ${attachments} attachments older than ${days} days` });
+  return { records, attachments };
+}
