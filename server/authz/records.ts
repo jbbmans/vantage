@@ -13,14 +13,14 @@ export function readableClause(ctx: AppContext, scope: Scope, userId: string, al
     params.push(...readable);
   }
   if (opts.counselor) { parts.push(`${alias}.counselor_id = ?`); params.push(userId); }
-  if (opts.assignee) { parts.push(`${alias}.assignee_id = ?`); params.push(userId); }
+  if (opts.assignee) { parts.push(`(${alias}.assignee_id = ? AND ${alias}.visibility = 'unit')`); params.push(userId); }
   return { clause: `(${parts.join(' OR ')})`, params };
 }
 
 export function canRead(scope: Scope, userId: string, row: RecordRow): boolean {
   if (row.user_id === userId) return true;
   if (row.counselor_id && row.counselor_id === userId) return true;
-  if (row.assignee_id && row.assignee_id === userId) return true;
+  if (row.assignee_id && row.assignee_id === userId && row.visibility === 'unit') return true;
   if (row.visibility !== 'unit' || !row.unit_id) return false;
   return can(scope, PERMISSIONS.VIEW_RECORDS, row.unit_id) || (isMember(scope, row.unit_id) && Boolean(row.assignee_id));
 }

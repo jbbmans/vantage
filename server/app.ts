@@ -105,7 +105,8 @@ export function createApp(ctx: AppContext) {
     next();
   });
 
-  app.use(express.json({ limit: '4mb' }));
+  const json = express.json({ limit: '4mb' });
+  app.use((req, res, next) => (req.path === '/api/admin/import' ? next() : json(req, res, next)));
   app.use(cookieParser());
 
   app.get('/api/ranks', (_req, res) => res.json(ctx.db.prepare('SELECT id, grade, abbr, name, tier FROM ranks ORDER BY sort').all()));

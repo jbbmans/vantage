@@ -1,4 +1,5 @@
 import { Router } from 'express';
+import express from 'express';
 import { z } from 'zod';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -138,7 +139,7 @@ adminRouter.get('/export', wrap((req, res) => {
   res.json(archive);
 }));
 
-adminRouter.post('/import', wrap((req, res) => {
+adminRouter.post('/import', express.json({ limit: '512mb' }), wrap((req, res) => {
   const archive = req.body;
   let counts;
   try { counts = importInstance(req.ctx, archive, req.user.id); } catch (error) { throw badRequest((error as Error).message); }

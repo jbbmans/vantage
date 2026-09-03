@@ -38,7 +38,12 @@ export default function CsvImportDialog({ open, onOpenChange }: { open: boolean;
   const preview = useMemo(() => {
     if (!parsed) return null;
     const { records, problems } = applyMapping(parsed.rows, mapping);
-    const withVisibility = records.map((r) => ({ ...r, visibility: visibility === 'keep' ? (r.visibility === 'unit' ? 'unit' : 'private') : visibility, unit_id: identity?.primaryUnitId || null }));
+    const byId = new Map<string, any>((existing || []).map((e: any) => [e.id, e]));
+    const withVisibility = records.map((r) => {
+      const prior = r.id ? byId.get(r.id) : null;
+      const vis = visibility !== 'keep' ? visibility : r.visibility === 'unit' || r.visibility === 'private' ? r.visibility : prior?.visibility || 'private';
+      return { ...r, visibility: vis, unit_id: prior ? prior.unit_id : identity?.primaryUnitId || null };
+    });
     const updates = withVisibility.filter((r) => r.id && (existing || []).some((e: any) => e.id === r.id));
     const fresh = withVisibility.filter((r) => !updates.includes(r));
     const screened = screenImport(fresh, existing || []);

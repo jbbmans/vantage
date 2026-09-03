@@ -250,13 +250,15 @@ authRouter.post('/invite/accept', wrap((req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
   const body = parse(z.object({ token: z.string().max(200), username: usernameField, password: passwordField, first_name: z.string().trim().min(1).max(80), last_name: z.string().trim().min(1).max(80), rank_id: z.string().max(12).nullish(), mos: z.string().max(12).nullish(), email: emailField.optional() }), req.body);
-  const pending = consumeToken(ctx, 'invite', body.token);
+  const pending = peekToken(ctx, 'invite', body.token);
   if (!pending) throw badRequest('That invitation is invalid or has expired. Ask your leader for a new one.');
+  if (ctx.db.prepare('SELECT 1 FROM users WHERE username = ? COLLATE NOCASE').get(body.username)) throw badRequest('That username is taken.', { fieldErrors: { username: 'Unavailable.' } });
   if (body.rank_id && !ctx.db.prepare('SELECT 1 FROM ranks WHERE id = ?').get(body.rank_id)) throw badRequest('No such rank.', { fieldErrors: { rank_id: 'No such rank.' } });
   const email = pending.email || body.email || null;
   const id = newId();
   try {
     ctx.db.transaction(() => {
+      if (!consumeToken(ctx, 'invite', body.token)) throw badRequest('That invitation was just used. Ask your leader for a new one.');
       ctx.db.prepare(`INSERT INTO users (id, username, email, password_hash, first_name, last_name, rank_id, mos, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
         .run(id, body.username, email, hashPassword(body.password), body.first_name, body.last_name, body.rank_id || null, body.mos || null, now(), now());
       const unitId = pending.payload.unit_id ? String(pending.payload.unit_id) : null;

@@ -122,6 +122,7 @@ export const trainingSchema = z.object({
 
 export const awardSchema = z.object({
   name: text(200).trim().min(1, 'Required.'),
+  user_id: optText(64),
   date: optDate,
   type: optEnum(AWARD_TYPES),
   status: optEnum(AWARD_STATUS),

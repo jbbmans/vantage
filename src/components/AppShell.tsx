@@ -10,7 +10,7 @@ import * as Popover from '@radix-ui/react-popover';
 import QuickLog from '@/components/QuickLog';
 import CommandPalette from '@/components/CommandPalette';
 import ShortcutsDialog from '@/components/ShortcutsDialog';
-import SudoDialog from '@/components/SudoDialog';
+import SudoDialog, { type SudoRequest } from '@/components/SudoDialog';
 import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
@@ -31,9 +31,9 @@ function useOnline() {
   return online;
 }
 
-function useOutboxCount() {
+function useOutboxCount(userId: string | undefined) {
   const [count, setCount] = useState(0);
-  useEffect(() => { const refresh = () => outbox.count().then(setCount); refresh(); return onOutboxChange(refresh); }, []);
+  useEffect(() => { if (!userId) { setCount(0); return; } const refresh = () => outbox.count(userId).then(setCount); refresh(); return onOutboxChange(refresh); }, [userId]);
   return count;
 }
 
@@ -88,14 +88,15 @@ export default function AppShell() {
   const location = useLocation();
   const navigate = useNavigate();
   const online = useOnline();
-  const pending = useOutboxCount();
+  const userId = identity?.user.id;
+  const pending = useOutboxCount(userId);
   const [drawer, setDrawer] = useState(false);
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('vantage.rail') === 'collapsed'; } catch { return false; } });
   const [quickLog, setQuickLog] = useState(false);
   const [quickLogSeed, setQuickLogSeed] = useState('');
   const [palette, setPalette] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
-  const [sudoOpen, setSudoOpen] = useState<null | (() => void)>(null);
+  const [sudoOpen, setSudoOpen] = useState<null | SudoRequest>(null);
   const [updateReady, setUpdateReady] = useState(false);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => resolveTheme(identity?.prefs.theme || storedTheme()));
 
@@ -106,16 +107,17 @@ export default function AppShell() {
   useEffect(() => { const h = () => setUpdateReady(true); window.addEventListener('vantage:update-available', h); return () => window.removeEventListener('vantage:update-available', h); }, []);
 
   const flush = useCallback(async () => {
-    const result = await flushOutbox((payload) => api.createRecord('activities', payload));
+    if (!userId) return;
+    const result = await flushOutbox((payload) => api.createRecord('activities', payload), userId);
     if (result.sent) { qc.invalidateQueries({ queryKey: ['records', 'activities'] }); toast.success(`${result.sent} queued ${result.sent === 1 ? 'entry' : 'entries'} synced.`); }
-  }, [qc, toast]);
+  }, [qc, toast, userId]);
   useEffect(() => { if (online) flush(); }, [online, flush]);
 
   const openQuickLog = useCallback((seed = '') => { setQuickLogSeed(seed); setQuickLog(true); }, []);
   useEffect(() => {
     const h = (e: Event) => openQuickLog((e as CustomEvent<string>).detail || '');
     window.addEventListener('vantage:open-quick-log', h);
-    const sudoHandler = (e: Event) => setSudoOpen(() => (e as CustomEvent<() => void>).detail || (() => {}));
+    const sudoHandler = (e: Event) => setSudoOpen((e as CustomEvent<SudoRequest>).detail);
     window.addEventListener('vantage:sudo-required', sudoHandler);
     return () => { window.removeEventListener('vantage:open-quick-log', h); window.removeEventListener('vantage:sudo-required', sudoHandler); };
   }, [openQuickLog]);
@@ -255,7 +257,7 @@ export default function AppShell() {
         <QuickLog open={quickLog} onOpenChange={setQuickLog} initialText={quickLogSeed} />
         <CommandPalette open={palette} onOpenChange={setPalette} onQuickLog={openQuickLog} nav={visibleNav} />
         <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
-        <SudoDialog open={Boolean(sudoOpen)} onOpenChange={(o) => { if (!o) setSudoOpen(null); }} onConfirmed={() => { const cb = sudoOpen; setSudoOpen(null); cb?.(); }} />
+        <SudoDialog open={Boolean(sudoOpen)} onOpenChange={(o) => { if (!o) { sudoOpen?.cancel(); setSudoOpen(null); } }} onConfirmed={() => { const req = sudoOpen; setSudoOpen(null); req?.confirm(); }} />
       </div>
     </OutboxContext.Provider>
   );

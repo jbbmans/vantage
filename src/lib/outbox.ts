@@ -2,7 +2,7 @@
 const DB_NAME = 'vantage-outbox';
 const STORE = 'activities';
 
-export interface OutboxItem { id: string; createdAt: string; payload: Record<string, unknown>; attempts: number; lastError?: string }
+export interface OutboxItem { id: string; userId: string; createdAt: string; payload: Record<string, unknown>; attempts: number; lastError?: string }
 
 function open(): Promise<IDBDatabase> {
   return new Promise((resolve, reject) => {
@@ -25,18 +25,19 @@ function tx<T>(mode: IDBTransactionMode, fn: (store: IDBObjectStore) => IDBReque
 }
 
 export const outbox = {
-  async add(payload: Record<string, unknown>): Promise<OutboxItem> {
-    const item: OutboxItem = { id: crypto.randomUUID(), createdAt: new Date().toISOString(), payload, attempts: 0 };
+  async add(payload: Record<string, unknown>, userId: string): Promise<OutboxItem> {
+    const item: OutboxItem = { id: crypto.randomUUID(), userId, createdAt: new Date().toISOString(), payload, attempts: 0 };
     await tx('readwrite', (s) => s.put(item));
     notify();
     return item;
   },
-  async list(): Promise<OutboxItem[]> {
-    try { return ((await tx('readonly', (s) => s.getAll())) as OutboxItem[]).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); } catch { return []; }
+  /** Items queued by one account. Entries from other accounts on a shared device stay put until that account signs in. */
+  async list(userId: string): Promise<OutboxItem[]> {
+    try { return ((await tx('readonly', (s) => s.getAll())) as OutboxItem[]).filter((i) => i.userId === userId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); } catch { return []; }
   },
   async remove(id: string) { await tx('readwrite', (s) => s.delete(id)); notify(); },
   async update(item: OutboxItem) { await tx('readwrite', (s) => s.put(item)); notify(); },
-  async count() { try { return await tx('readonly', (s) => s.count()); } catch { return 0; } },
+  async count(userId: string) { return (await this.list(userId)).length; },
 };
 
 const listeners = new Set<() => void>();
@@ -44,12 +45,12 @@ function notify() { listeners.forEach((l) => l()); }
 export function onOutboxChange(fn: () => void) { listeners.add(fn); return () => { listeners.delete(fn); }; }
 
 let flushing = false;
-export async function flushOutbox(send: (payload: Record<string, unknown>) => Promise<unknown>): Promise<{ sent: number; failed: number }> {
-  if (flushing) return { sent: 0, failed: 0 };
+export async function flushOutbox(send: (payload: Record<string, unknown>) => Promise<unknown>, userId: string): Promise<{ sent: number; failed: number }> {
+  if (flushing || !userId) return { sent: 0, failed: 0 };
   flushing = true;
   let sent = 0; let failed = 0;
   try {
-    for (const item of await outbox.list()) {
+    for (const item of await outbox.list(userId)) {
       try { await send(item.payload); await outbox.remove(item.id); sent += 1; }
       catch (error) {
         const e = error as { status?: number; message?: string };

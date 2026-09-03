@@ -46,7 +46,7 @@ export function unitDashboard(ctx: AppContext, unitId: string, from: string, to:
   const overdue = openTasks.filter((t) => t.due_date && t.due_date < todayIso);
   const goals = db.prepare(`SELECT status, current_value, target_value, period_end FROM goals WHERE unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL`).all(unitId) as Array<{ status: string; current_value: number; target_value: number | null; period_end: string | null }>;
   const awards = db.prepare(`SELECT status, COUNT(*) AS n FROM awards WHERE unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL AND status IN ('recommended','submitted','approved') GROUP BY status`).all(unitId) as Array<{ status: string; n: number }>;
-  const counselings = db.prepare(`SELECT user_id, MAX(date) AS last FROM counselings WHERE unit_id = ? AND deleted_at IS NULL GROUP BY user_id`).all(unitId) as Array<{ user_id: string; last: string | null }>;
+  const counselings = db.prepare(`SELECT user_id, MAX(date) AS last FROM counselings WHERE unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL GROUP BY user_id`).all(unitId) as Array<{ user_id: string; last: string | null }>;
   const lastCounseling = new Map(counselings.map((c) => [c.user_id, c.last]));
   const readiness = db.prepare(`SELECT r.user_id, r.pft_score, r.cft_score, r.rifle_qual, r.mcmap_belt, r.pme_complete FROM readiness r JOIN unit_members um ON um.user_id = r.user_id WHERE um.unit_id = ?`).all(unitId) as Array<{ user_id: string; pft_score: number | null; cft_score: number | null; rifle_qual: string | null; mcmap_belt: string | null; pme_complete: string | null }>;
   const readinessMap = new Map(readiness.map((r) => [r.user_id, r]));

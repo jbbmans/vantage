@@ -8,7 +8,7 @@ import RecordDialog from '@/components/RecordDialog';
 import CsvImportDialog from '@/components/CsvImportDialog';
 import { ActivityFields, emptyActivity, toActivityDraft, activityPayload, type ActivityDraft } from '@/components/ActivityForm';
 import { PeriodSelect, DateText, CategoryDot, useParam, Table } from '@/components/common';
-import { useActivities, useDeleteRecord, useIdentity, usePrefs, useRestoreRecord, useSavePrefs, useTrack, unitName, useOrg } from '@/lib/queries';
+import { useActivities, useRecords, useDeleteRecord, useIdentity, usePrefs, useRestoreRecord, useSavePrefs, useTrack, unitName, useOrg } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { CATEGORIES } from '../../shared/constants';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
@@ -27,7 +27,7 @@ export default function Records() {
   const prefs = usePrefs();
   const savePrefs = useSavePrefs();
   const track = useTrack();
-  const { data: rows, isPending } = useActivities();
+  const { data: liveRows, isPending } = useActivities();
   const remove = useDeleteRecord('activities');
   const restore = useRestoreRecord('activities');
   const [q, setQ] = useState('');
@@ -36,6 +36,8 @@ export default function Records() {
   const [category, setCategory] = useParam('category', 'all');
   const [area, setArea] = useParam('area', 'all');
   const [quality, setQuality] = useParam('quality', 'all');
+  const { data: deletedRows } = useRecords('activities', { deleted: '1' }, quality === 'deleted');
+  const rows = quality === 'deleted' ? deletedRows : liveRows;
   const [owner, setOwner] = useParam('owner', 'all');
   const [sort, setSort] = useState<Sort>('date');
   const [view, setView] = useState<'list' | 'cards'>(() => (window.innerWidth < 640 ? 'cards' : 'list'));
@@ -80,11 +82,13 @@ export default function Records() {
     try { const name = await api.downloadFile(api.reportCsvUrl({ period: from && to ? 'custom' : period, from, to }), 'vantage-activities.csv'); toast.success(`Downloaded ${name}.`); }
     catch (e) { toast.error(api.errorText(e)); }
   };
-  const canEditRow = (a: any) => a.user_id === identity?.user.id ? !a.frozen_at : Boolean(a.unit_id && identity && ((identity.permissions[a.unit_id] || 0) & ((1 << 12) | (1 << 3))));
+  const canEditRow = (a: any) => !a.deleted_at && (a.user_id === identity?.user.id ? !a.frozen_at : Boolean(a.unit_id && identity && ((identity.permissions[a.unit_id] || 0) & ((1 << 12) | (1 << 3)))));
+  const restoreRow = async (a: any) => { try { await restore.mutateAsync(a.id); toast.success('Entry restored.'); } catch (e) { toast.error(api.errorText(e)); } };
 
   const qualityOptions = [
     { value: 'all', label: 'All entries' }, { value: 'needs-detail', label: 'Missing an outcome' }, { value: 'untagged', label: `Untagged ${trackMeta(track).areaLabel.toLowerCase()}` },
     { value: 'no-numbers', label: 'No quantity or value' }, { value: 'duplicates', label: `Possible duplicates${dupIds.size ? ` (${dupIds.size})` : ''}` },
+    { value: 'deleted', label: 'Recycle bin (30 days)' },
   ];
 
   return (
@@ -110,7 +114,7 @@ export default function Records() {
       </div>
 
       {isPending ? <div className="space-y-2">{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-12" />)}</div> : filtered.length === 0 ? (
-        <div className="card"><EmptyState icon={Search} title={rows?.length ? 'Nothing matches those filters' : 'No activities yet'} description={rows?.length ? 'Loosen a filter, or widen the period.' : 'Press N to log your first one, or import a spreadsheet.'} action={rows?.length ? <Button onClick={() => { setQ(''); setCategory('all'); setArea('all'); setQuality('all'); setOwner('all'); setPeriod('all'); }}>Clear filters</Button> : <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}>Log activity</Button>} /></div>
+        <div className="card"><EmptyState icon={Search} title={quality === 'deleted' ? 'The recycle bin is empty' : rows?.length ? 'Nothing matches those filters' : 'No activities yet'} description={rows?.length ? 'Loosen a filter, or widen the period.' : 'Press N to log your first one, or import a spreadsheet.'} action={rows?.length ? <Button onClick={() => { setQ(''); setCategory('all'); setArea('all'); setQuality('all'); setOwner('all'); setPeriod('all'); }}>Clear filters</Button> : <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}>Log activity</Button>} /></div>
       ) : view === 'list' ? (
         <div className="card" style={{ overflow: 'hidden' }}>
           <Table minWidth={760} head={<><th className="w-24">Date</th><th>Entry</th><th className="w-40">{trackMeta(track).areaLabel}</th><th className="w-28 text-right">Qty</th><th className="w-28 text-right">Value</th><th className="w-20">Share</th><th className="w-24"></th></>}>
@@ -127,7 +131,7 @@ export default function Records() {
                   <td className="fig text-right text-xs">{a.quantity != null ? `${formatNumber(a.quantity)} ${a.unit_label || ''}` : ''}</td>
                   <td className="fig text-right text-xs">{a.dollar_amount != null ? formatDollars(a.dollar_amount) : ''}</td>
                   <td><Tooltip content={a.visibility === 'unit' ? `Shared with ${unitName(identity, a.unit_id, org)}` : 'Only you'}><span className="inline-flex text-ink-3">{a.visibility === 'unit' ? <Users className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}</span></Tooltip></td>
-                  <td className="text-right"><span className="inline-flex items-center gap-1"><Tooltip content={`Bullet strength ${s}/5`}><span className={cn('fig text-2xs', s >= 4 ? 'text-good' : s >= 2 ? 'text-ink-3' : 'text-warn')}>{s}/5</span></Tooltip>{canEditRow(a) && <><Button size="xs" variant="ghost" onClick={() => setEditing(toActivityDraft(a))}>Edit</Button><Button size="xs" variant="ghost" className="text-ink-3 hover:text-bad" onClick={() => setConfirm(a)} aria-label="Delete">×</Button></>}</span></td>
+                  <td className="text-right"><span className="inline-flex items-center gap-1"><Tooltip content={`Bullet strength ${s}/5`}><span className={cn('fig text-2xs', s >= 4 ? 'text-good' : s >= 2 ? 'text-ink-3' : 'text-warn')}>{s}/5</span></Tooltip>{a.deleted_at ? <Button size="xs" variant="soft" onClick={() => restoreRow(a)}><RotateCcw className="h-3 w-3" />Restore</Button> : canEditRow(a) && <><Button size="xs" variant="ghost" onClick={() => setEditing(toActivityDraft(a))}>Edit</Button><Button size="xs" variant="ghost" className="text-ink-3 hover:text-bad" onClick={() => setConfirm(a)} aria-label="Delete">×</Button></>}</span></td>
                 </tr>
               );
             })}
@@ -146,7 +150,7 @@ export default function Records() {
                 {mapAreaToTrack(a.eval_area, track) !== 'Unassigned' && <Badge tone="info">{mapAreaToTrack(a.eval_area, track)}</Badge>}
                 {dupIds.has(a.id) && <Badge tone="bad"><AlertTriangle className="h-3 w-3" />Dup?</Badge>}
               </div>
-              <div className="mt-3 flex items-center justify-between border-t border-line pt-2 text-xs text-ink-3"><span className="flex items-center gap-1">{a.visibility === 'unit' ? <Users className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}{a.visibility === 'unit' ? unitName(identity, a.unit_id, org) : 'Only you'}</span>{canEditRow(a) && <span><Button size="xs" variant="ghost" onClick={() => setEditing(toActivityDraft(a))}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm(a)}>Delete</Button></span>}</div>
+              <div className="mt-3 flex items-center justify-between border-t border-line pt-2 text-xs text-ink-3"><span className="flex items-center gap-1">{a.visibility === 'unit' ? <Users className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}{a.visibility === 'unit' ? unitName(identity, a.unit_id, org) : 'Only you'}</span>{a.deleted_at ? <Button size="xs" variant="soft" onClick={() => restoreRow(a)}>Restore</Button> : canEditRow(a) && <span><Button size="xs" variant="ghost" onClick={() => setEditing(toActivityDraft(a))}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm(a)}>Delete</Button></span>}</div>
             </article>
           ))}
         </div>

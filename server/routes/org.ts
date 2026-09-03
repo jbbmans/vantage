@@ -2,7 +2,7 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
-import { requireAuth, requireOperator } from '../auth/middleware.ts';
+import { requireAuth, requireOperator, requireSudo } from '../auth/middleware.ts';
 import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith } from '../authz/scope.ts';
 import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, type RoleRow } from '../services/org.ts';
 import { audit } from '../services/audit.ts';
@@ -11,7 +11,7 @@ import { invalidateUserSessions } from '../auth/sessions.ts';
 import { issueToken } from '../auth/tokens.ts';
 import { layout } from '../services/email.ts';
 import { emailField, profileSchema } from '../../shared/schemas.ts';
-import { hydrate } from '../services/records.ts';
+import { hydrate, withGoalProgress } from '../services/records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { unitDashboard } from '../services/dashboard.ts';
 import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
@@ -260,6 +260,7 @@ orgRouter.delete('/team/:userId/roles/:roleId', wrap((req, res) => {
   if (!isUnitOwner(ctx, req.user.id, role.unit_id)) {
     if (!can(scope, PERMISSIONS.MANAGE_ROLES, role.unit_id)) throw forbidden('You cannot manage roles there.');
     if (role.position >= positionIn(scope, role.unit_id)) throw forbidden('That role is at or above your own.', 'hierarchy');
+    if (positionIn(scopeFor(ctx, { id: userId }), role.unit_id) >= positionIn(scope, role.unit_id)) throw forbidden('You cannot change roles for a Marine at or above your own position.', 'hierarchy');
   }
   const r = ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND role_id = ?').run(userId, role.id);
   if (!r.changes) throw notFound('That Marine does not hold that role.');
@@ -303,9 +304,10 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
   const counselings = isSelf
     ? ctx.db.prepare('SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC').all(id)
     : ctx.db.prepare(`SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND (counselor_id = ? OR (visibility = 'unit' AND unit_id IN (${ph}))) ORDER BY date DESC`).all(id, req.user.id, ...units);
-  const goals = isSelf
+  const rawGoals = isSelf
     ? ctx.db.prepare('SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL').all(id, id)
     : ctx.db.prepare(`SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND visibility = 'unit' AND unit_id IN (${ph})`).all(id, id, ...units);
+  const goals = withGoalProgress(ctx, rawGoals as never);
   const tasks = isSelf
     ? ctx.db.prepare(`SELECT * FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND status <> 'completed'`).all(id, id)
     : ctx.db.prepare(`SELECT * FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND status <> 'completed' AND visibility = 'unit' AND unit_id IN (${ph})`).all(id, id, ...units);
@@ -339,7 +341,7 @@ orgRouter.put('/team/:userId/profile', wrap((req, res) => {
 }));
 
 // Operator-only account lifecycle -------------------------------------
-orgRouter.post('/team/:userId/deactivate', requireOperator, wrap((req, res) => {
+orgRouter.post('/team/:userId/deactivate', requireOperator, requireSudo, wrap((req, res) => {
   const ctx = req.ctx;
   const id = String(req.params.userId);
   if (id === req.user.id) throw badRequest('You cannot deactivate your own account.');
@@ -352,14 +354,14 @@ orgRouter.post('/team/:userId/deactivate', requireOperator, wrap((req, res) => {
   audit(ctx, { actor_id: req.user.id, action: 'deactivate_member', entity: 'user', entity_id: id, subject_id: id, detail: `sessions revoked: ${revoked}`, ip: clientIp(req) });
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
-orgRouter.post('/team/:userId/reactivate', requireOperator, wrap((req, res) => {
+orgRouter.post('/team/:userId/reactivate', requireOperator, requireSudo, wrap((req, res) => {
   const id = String(req.params.userId);
   const r = req.ctx.db.prepare('UPDATE users SET active = 1, updated_at = ? WHERE id = ?').run(now(), id);
   if (!r.changes) throw notFound('No such Marine.');
   audit(req.ctx, { actor_id: req.user.id, action: 'reactivate_member', entity: 'user', entity_id: id, subject_id: id, ip: clientIp(req) });
   res.json({ ok: true });
 }));
-orgRouter.post('/team/:userId/reset-mfa', requireOperator, wrap((req, res) => {
+orgRouter.post('/team/:userId/reset-mfa', requireOperator, requireSudo, wrap((req, res) => {
   const ctx = req.ctx;
   const id = String(req.params.userId);
   if (!ctx.db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) throw notFound('No such Marine.');
@@ -372,7 +374,7 @@ orgRouter.post('/team/:userId/reset-mfa', requireOperator, wrap((req, res) => {
   audit(ctx, { actor_id: req.user.id, action: 'reset_mfa', entity: 'user', entity_id: id, subject_id: id, detail: `sessions revoked: ${revoked}`, ip: clientIp(req) });
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
-orgRouter.post('/team/:userId/temporary-password', requireOperator, wrap((req, res) => {
+orgRouter.post('/team/:userId/temporary-password', requireOperator, requireSudo, wrap((req, res) => {
   const ctx = req.ctx;
   const id = String(req.params.userId);
   if (id === req.user.id) throw badRequest('Use Change password for your own account.');
@@ -384,13 +386,13 @@ orgRouter.post('/team/:userId/temporary-password', requireOperator, wrap((req, r
   audit(ctx, { actor_id: req.user.id, action: 'temporary_password', entity: 'user', entity_id: id, subject_id: id, detail: `sessions revoked: ${revoked}`, ip: clientIp(req) });
   res.json({ ok: true, password, sessionsRevoked: revoked });
 }));
-orgRouter.post('/team/:userId/logout', requireOperator, wrap((req, res) => {
+orgRouter.post('/team/:userId/logout', requireOperator, requireSudo, wrap((req, res) => {
   const id = String(req.params.userId);
   const revoked = invalidateUserSessions(req.ctx, id);
   audit(req.ctx, { actor_id: req.user.id, action: 'force_logout', entity: 'user', entity_id: id, subject_id: id, detail: `sessions revoked: ${revoked}`, ip: clientIp(req) });
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
-orgRouter.post('/team/:userId/operator', requireOperator, wrap((req, res) => {
+orgRouter.post('/team/:userId/operator', requireOperator, requireSudo, wrap((req, res) => {
   const ctx = req.ctx;
   const id = String(req.params.userId);
   const grant = Boolean(req.body?.grant);

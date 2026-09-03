@@ -7,6 +7,7 @@ import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/err
 import { parse } from '../lib/http.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
+import { goalProgress, type GoalLike, type ActivityLike, type TrainingLike } from '../../shared/goals.ts';
 import { notify } from './notifications.ts';
 import { statSync } from 'node:fs';
 
@@ -42,10 +43,12 @@ export function activityFingerprint(userId: string, row: { date?: string | null;
   return createHash('sha256').update([userId, row.date || '', String(row.title || '').trim().toLowerCase().replace(/\s+/g, ' '), row.quantity ?? '', row.dollar_amount ?? ''].join('|')).digest('hex');
 }
 
-export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTable, scope: Scope, opts: { unitId?: string | null; from?: string | null; to?: string | null; limit?: number; offset?: number; q?: string | null } = {}) {
+export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTable, scope: Scope, opts: { unitId?: string | null; from?: string | null; to?: string | null; limit?: number; offset?: number; q?: string | null; deleted?: boolean } = {}) {
   const spec = TABLES[table];
   const { clause, params } = readableClause(ctx, scope, user.id, 't', { memberReadable: spec.memberReadable, counselor: spec.counselor, assignee: spec.assignee });
-  const where = [`t.deleted_at IS NULL`, clause];
+  // The recycle bin is personal: only the owner sees their own deleted rows.
+  const where = opts.deleted ? ['t.deleted_at IS NOT NULL', 't.user_id = ?'] : [`t.deleted_at IS NULL`, clause];
+  if (opts.deleted) params.splice(0, params.length, user.id);
   if (opts.unitId) { where.push('t.unit_id = ?'); params.push(opts.unitId); }
   const dateCol = table === 'tasks' ? 'due_date' : table === 'goals' ? 'period_end' : 'date';
   if (opts.from) { where.push(`t.${dateCol} >= ?`); params.push(opts.from); }
@@ -53,7 +56,23 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   const limit = Math.min(Math.max(Number(opts.limit) || 2000, 1), 5000);
   const offset = Math.max(Number(opts.offset) || 0, 0);
   const rows = ctx.db.prepare(`SELECT t.* FROM ${table} t WHERE ${where.join(' AND ')} ORDER BY ${spec.orderBy} LIMIT ? OFFSET ?`).all(...params, limit, offset) as Array<Record<string, unknown>>;
-  return rows.map((r) => hydrate(r, table)!);
+  const hydrated = rows.map((r) => hydrate(r, table)!);
+  return table === 'goals' ? withGoalProgress(ctx, hydrated as never) : hydrated;
+}
+
+/** Auto-tracked goals get their current value from the subject's logged work, so every server consumer sees the same number the Goals page shows. */
+export function withGoalProgress<T extends GoalLike>(ctx: AppContext, goals: T[]): T[] {
+  const cache = new Map<string, { activities: ActivityLike[]; trainings: TrainingLike[] }>();
+  return goals.map((g) => {
+    if (!g.metric || g.metric === 'manual') return g;
+    const subject = String(g.assignee_id || g.user_id || '');
+    if (!cache.has(subject)) cache.set(subject, {
+      activities: ctx.db.prepare('SELECT user_id, date, category, quantity, dollar_amount, dollar_type FROM activities WHERE user_id = ? AND deleted_at IS NULL').all(subject) as ActivityLike[],
+      trainings: ctx.db.prepare('SELECT user_id, date, hours FROM trainings WHERE user_id = ? AND deleted_at IS NULL').all(subject) as TrainingLike[],
+    });
+    const src = cache.get(subject)!;
+    return { ...g, current_value: goalProgress(g, src.activities, src.trainings).current };
+  });
 }
 
 export function getRecord(ctx: AppContext, table: RecordTable, id: string, { includeDeleted = false } = {}) {
@@ -92,22 +111,25 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   // Counselings are written *about* a member by a counselor. The subject is user_id; the author is counselor_id.
   let ownerId = user.id;
   let counselorId: string | null = null;
-  if (table === 'counselings' && data.user_id && data.user_id !== user.id) {
+  let onBehalf = false;
+  if ((table === 'counselings' || table === 'awards') && data.user_id && data.user_id !== user.id) {
     const subject = String(data.user_id);
     const units = detailUnitsFor(ctx, scope, subject).filter((u) => can(scope, PERMISSIONS.COUNSEL, u));
-    if (!units.length) throw forbidden('You cannot record a counseling for that Marine.');
+    if (!units.length) throw forbidden(table === 'awards' ? 'You cannot recommend an award for that Marine.' : 'You cannot record a counseling for that Marine.');
     ownerId = subject;
-    counselorId = user.id;
+    onBehalf = true;
+    if (table === 'counselings') counselorId = user.id;
+    else data.visibility = 'unit';
     if (!data.unit_id || !units.includes(String(data.unit_id))) data.unit_id = units[0];
-  } else if (table === 'counselings') {
-    counselorId = null;
   }
+  delete data.user_id;
 
   const visibility = (data.visibility as string) || 'private';
   const unitId = (data.unit_id as string | null | undefined) ?? scope.primaryUnitId ?? null;
   if (unitId && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(unitId)) throw badRequest('No such unit.', { fieldErrors: { unit_id: 'No such unit.' } });
   if (visibility === 'unit' && !unitId) throw badRequest('Choose a unit before sharing this record.', { fieldErrors: { unit_id: 'Required to share.' } });
-  if (!counselorId && !canPlace(scope, visibility, unitId, spec.shareFlag)) throw forbidden('You cannot place a record in that unit.');
+  if (!onBehalf && !canPlace(scope, visibility, unitId, spec.shareFlag)) throw forbidden('You cannot place a record in that unit.');
+  if (spec.assignee && visibility !== 'unit' && data.assignee_id && data.assignee_id !== user.id) data.assignee_id = null;
   if (spec.assignee) {
     const problem = assigneeProblem(ctx, scope, user.id, data.assignee_id as string | null, unitId);
     if (problem) throw badRequest(problem, { fieldErrors: { assignee_id: problem } });
@@ -130,6 +152,9 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     throw error;
   }
   audit(ctx, { actor_id: user.id, action: 'create', entity: table, entity_id: id, subject_id: ownerId !== user.id ? ownerId : null, unit_id: unitId, ip });
+  if (table === 'awards' && onBehalf) {
+    notify(ctx, ownerId, { kind: 'award', title: 'Award recommendation started', message: `${user.first_name} ${user.last_name} recommended you for ${String(data.name || 'an award')}.`, actionUrl: '/career?tab=awards', dedupeKey: `award:${id}` });
+  }
   if (table === 'counselings' && counselorId) {
     notify(ctx, ownerId, { kind: 'counseling', title: 'New counseling recorded', message: `${user.first_name} ${user.last_name} recorded a ${String(data.type || 'counseling').replace('_', ' ')} counseling.`, actionUrl: `/career?tab=counseling&open=${id}`, dedupeKey: `counseling:${id}` });
   }
@@ -154,6 +179,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (finalVisibility === 'unit' && !finalUnit) throw badRequest('Choose a unit before sharing this record.', { fieldErrors: { unit_id: 'Required to share.' } });
   if (finalUnit && finalUnit !== row.unit_id && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(finalUnit)) throw badRequest('No such unit.');
   if (scopeChanged && !canPlace(scope, finalVisibility, finalUnit, spec.shareFlag)) throw forbidden('You cannot place a record in that unit.');
+  if (spec.assignee && finalVisibility !== 'unit') { const who = (data.assignee_id as string | null | undefined) ?? (row.assignee_id as string | null); if (who && who !== user.id) data.assignee_id = null; }
   if (spec.assignee && (data.assignee_id !== undefined || scopeChanged)) {
     const problem = assigneeProblem(ctx, scope, user.id, (data.assignee_id as string | null | undefined) ?? (row.assignee_id as string | null), finalUnit);
     if (problem) throw badRequest(problem, { fieldErrors: { assignee_id: problem } });
@@ -221,8 +247,8 @@ export function restoreRecord(ctx: AppContext, user: SessionUser, table: RecordT
 }
 
 export function readableRecord(ctx: AppContext, user: SessionUser, table: RecordTable, id: string, reqKey: object) {
-  const row = getRecord(ctx, table, id);
-  if (!row) throw notFound('No such record.');
+  const row = getRecord(ctx, table, id, { includeDeleted: true });
+  if (!row || (row.deleted_at && row.user_id !== user.id)) throw notFound('No such record.');
   const scope = scopeFor(ctx, user, reqKey);
   if (!canRead(scope, user.id, row)) throw forbidden('You cannot open that record.');
   return row;
@@ -242,8 +268,9 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
     const result = RECORD_SCHEMAS.activities.safeParse(rest);
     if (!result.success) throw badRequest(`Row ${i + 1}: ${result.error.issues[0]?.message || 'invalid'} (${result.error.issues[0]?.path.join('.')})`, { row: i });
     const data = result.data as Record<string, unknown>;
-    const visibility = (data.visibility as string) || 'private';
-    const unitId = (data.unit_id as string | null | undefined) ?? scope.primaryUnitId ?? null;
+    const existing = typeof id === 'string' && id ? (ctx.db.prepare('SELECT unit_id, visibility FROM activities WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(id, user.id) as { unit_id: string | null; visibility: string } | undefined) : undefined;
+    const visibility = (data.visibility as string | undefined) ?? existing?.visibility ?? 'private';
+    const unitId = data.unit_id !== undefined ? ((data.unit_id as string | null) || null) : existing ? existing.unit_id : (scope.primaryUnitId ?? null);
     if (visibility === 'unit' && !unitId) throw badRequest(`Row ${i + 1}: shared activities need a unit.`, { row: i });
     if (!canPlace(scope, visibility, unitId, PERMISSIONS.CREATE_SHARED_WORK)) throw forbidden(`Row ${i + 1}: you cannot import into that unit.`);
     planned.push({ id: typeof id === 'string' && id ? id : undefined, data, visibility, unitId });

@@ -5,7 +5,7 @@ import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/err
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor } from '../authz/scope.ts';
 import { canEdit, canRead } from '../authz/records.ts';
-import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord } from '../services/records.ts';
+import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress } from '../services/records.ts';
 import { inspectAttachment, attachmentDisposition } from '../services/attachments.ts';
 import { audit } from '../services/audit.ts';
 import { newId, now } from '../lib/ids.ts';
@@ -25,7 +25,7 @@ recordsRouter.get('/:table', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   const rows = listRecords(req.ctx, req.user, table, scope, {
     unitId: req.query.unit_id ? String(req.query.unit_id) : null, from: req.query.from ? String(req.query.from) : null, to: req.query.to ? String(req.query.to) : null,
-    limit: Number(req.query.limit) || undefined, offset: Number(req.query.offset) || undefined,
+    limit: Number(req.query.limit) || undefined, offset: Number(req.query.offset) || undefined, deleted: req.query.deleted === '1',
   });
   // Cross-person reads are audited once per subject per 5 minutes so leaders see they are accountable without flooding the log.
   const foreign = new Map<string, number>();
@@ -44,7 +44,8 @@ recordsRouter.post('/activities/import', wrap((req, res) => {
 
 recordsRouter.get('/:table/:id', wrap((req, res) => {
   const table = tableParam(req);
-  const row = readableRecord(req.ctx, req.user, table, String(req.params.id), req);
+  const raw = readableRecord(req.ctx, req.user, table, String(req.params.id), req);
+  const row = table === 'goals' ? withGoalProgress(req.ctx, [raw])[0] : raw;
   if (row.user_id !== req.user.id) audit(req.ctx, { actor_id: req.user.id, action: 'view_record', entity: table, entity_id: row.id, subject_id: row.user_id, unit_id: row.unit_id, ip: clientIp(req) });
   res.json(row);
 }));

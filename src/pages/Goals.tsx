@@ -9,7 +9,8 @@ import { AiAction } from '@/components/AiPanel';
 import { DateText, StatusBadge, onText } from '@/components/common';
 import { useActivities, useDeleteRecord, useGoals, useIdentity, usePrefs, useTrainings, useUpdateRecord } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { GOAL_TYPES, GOAL_STATUS, GOAL_METRICS, CATEGORIES, SUMMABLE_DOLLAR_TYPES } from '../../shared/constants';
+import { GOAL_TYPES, GOAL_STATUS, GOAL_METRICS, CATEGORIES } from '../../shared/constants';
+import { goalProgress } from '../../shared/goals';
 import { formatNumber, formatDollars } from '../../shared/metrics';
 import { daysUntil } from '../../shared/evaluation';
 import { humanize, cn, todayIso } from '@/lib/utils';
@@ -17,18 +18,6 @@ import { humanize, cn, todayIso } from '@/lib/utils';
 interface GoalDraft { id?: string; version?: number; title: string; description: string; type: string; category: string | null; metric: string; current_value: number | string; target_value: number | string; unit_label: string; status: string; period_start: string; period_end: string; visibility: 'private' | 'unit'; unit_id: string | null; assignee_id?: string | null }
 
 const METRIC_LABEL: Record<string, string> = { manual: 'Tracked by hand', activity_count: 'Count of logged activities', activity_dollars: 'Dollars in logged activities', activity_quantity: 'Quantities in logged activities', training_hours: 'Training hours logged' };
-
-export function goalProgress(g: any, activities: any[], trainings: any[]) {
-  const inWindow = (d: string | null) => d && (!g.period_start || d >= g.period_start) && (!g.period_end || d <= g.period_end);
-  const acts = activities.filter((a) => a.user_id === (g.assignee_id || g.user_id) && inWindow(a.date) && (!g.category || a.category === g.category));
-  let current = Number(g.current_value) || 0;
-  if (g.metric === 'activity_count') current = acts.length;
-  else if (g.metric === 'activity_dollars') current = acts.reduce((n, a) => n + ((a.dollar_amount && (!a.dollar_type || SUMMABLE_DOLLAR_TYPES.includes(a.dollar_type))) ? Number(a.dollar_amount) : 0), 0);
-  else if (g.metric === 'activity_quantity') current = acts.reduce((n, a) => n + (Number(a.quantity) || 0), 0);
-  else if (g.metric === 'training_hours') current = trainings.filter((t) => t.user_id === (g.assignee_id || g.user_id) && inWindow(t.date)).reduce((n, t) => n + (Number(t.hours) || 0), 0);
-  const target = Number(g.target_value) || 0;
-  return { current, target, pct: target ? Math.min(100, Math.max(0, (current / target) * 100)) : 0, auto: g.metric !== 'manual' };
-}
 
 export default function Goals() {
   const toast = useToast();

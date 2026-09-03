@@ -1,3 +1,4 @@
+import { withGoalProgress } from './records.ts';
 import type { AppContext } from '../context.ts';
 import { layout } from './email.ts';
 import { audit } from './audit.ts';
@@ -26,7 +27,7 @@ export function composeDigest(ctx: AppContext, user: DigestUser) {
   const noOutcome = acts.filter((a) => !a.result).length;
   const overdue = db.prepare(`SELECT title, due_date FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND status <> 'completed' AND deleted_at IS NULL AND due_date < ? ORDER BY due_date LIMIT 5`).all(user.id, user.id, todayIso) as Array<{ title: string; due_date: string }>;
   const dueSoon = db.prepare(`SELECT title, due_date FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND status <> 'completed' AND deleted_at IS NULL AND due_date >= ? AND due_date <= ? ORDER BY due_date LIMIT 5`).all(user.id, user.id, todayIso, soon) as Array<{ title: string; due_date: string }>;
-  const goals = db.prepare(`SELECT title, period_end, current_value, target_value FROM goals WHERE (user_id = ? OR assignee_id = ?) AND status = 'active' AND deleted_at IS NULL AND period_end >= ? AND period_end <= ? ORDER BY period_end LIMIT 5`).all(user.id, user.id, todayIso, soon) as Array<{ title: string; period_end: string; current_value: number; target_value: number | null }>;
+  const goals = withGoalProgress(ctx, db.prepare(`SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND status = 'active' AND deleted_at IS NULL AND period_end >= ? AND period_end <= ? ORDER BY period_end LIMIT 5`).all(user.id, user.id, todayIso, soon) as Array<{ title: string; period_end: string; current_value: number; target_value: number | null; metric: string; user_id: string }>);
   const maradmins = db.prepare(`SELECT number, title FROM maradmins WHERE published_at >= ? ORDER BY published_at DESC LIMIT 6`).all(new Date(Date.now() - 7 * 86_400_000).toISOString()) as Array<{ number: string; title: string }>;
   const followUps = db.prepare(`SELECT c.follow_up_date, u.first_name, u.last_name FROM counselings c JOIN users u ON u.id = c.user_id WHERE c.counselor_id = ? AND c.deleted_at IS NULL AND c.follow_up_date >= ? AND c.follow_up_date <= ? ORDER BY c.follow_up_date LIMIT 5`).all(user.id, todayIso, soon) as Array<{ follow_up_date: string; first_name: string; last_name: string }>;
 

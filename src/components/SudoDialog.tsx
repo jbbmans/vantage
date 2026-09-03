@@ -27,14 +27,18 @@ export default function SudoDialog({ open, onOpenChange, onConfirmed }: { open: 
   );
 }
 
-/** Run an action; if the server demands step-up auth, open the sudo dialog and retry once. */
+export interface SudoRequest { confirm: () => void; cancel: () => void }
+const waiters: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
+const settle = (ok: boolean) => { const list = waiters.splice(0, waiters.length); for (const w of list) { if (ok) w.resolve(); else w.reject(new Error('Confirmation cancelled.')); } };
+
+/** Run an action; if the server demands step-up auth, open the sudo dialog (once, for every concurrent caller) and retry. */
 export async function withSudo<T>(action: () => Promise<T>): Promise<T> {
   try { return await action(); }
   catch (error) {
     if ((error as { code?: string })?.code !== 'sudo_required') throw error;
     await new Promise<void>((resolve, reject) => {
-      const timeout = setTimeout(() => reject(new Error('Confirmation cancelled.')), 5 * 60_000);
-      window.dispatchEvent(new CustomEvent('vantage:sudo-required', { detail: () => { clearTimeout(timeout); resolve(); } }));
+      waiters.push({ resolve, reject });
+      if (waiters.length === 1) window.dispatchEvent(new CustomEvent<SudoRequest>('vantage:sudo-required', { detail: { confirm: () => settle(true), cancel: () => settle(false) } }));
     });
     return action();
   }

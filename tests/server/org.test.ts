@@ -229,3 +229,62 @@ test('instance import restores an archive into a fresh instance', async () => {
     assert.ok(list.body.length >= 1);
   } finally { await fresh.close(); }
 });
+
+test('private counselings never reach the unit dashboard', async () => {
+  const marineToken = (await app.login('marine')).body.token;
+  const res = await app.call('POST', '/api/records/counselings', { token: marineToken, body: { summary: 'Personal reflection', date: '2026-08-30', visibility: 'private', unit_id: op.unitId } });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  const dash = await app.call('GET', `/api/org/units/${op.unitId}/dashboard?from=2026-01-01&to=2026-12-31`, { token: op.token });
+  assert.equal(dash.status, 200);
+  const row = dash.body.members.find((m: any) => m.id === marine.id);
+  assert.ok(row);
+  assert.notEqual(row.last_counseling, '2026-08-30');
+});
+
+test('operator lifecycle actions require a fresh password confirmation', async () => {
+  const opToken = (await app.login('boletz')).body.token;
+  app.ctx.db.prepare('UPDATE sessions SET sudo_until = NULL').run();
+  const stale = await app.call('POST', `/api/org/team/${other.id}/logout`, { token: opToken });
+  assert.equal(stale.status, 403);
+  assert.equal(stale.body.code, 'sudo_required');
+  assert.equal((await app.call('POST', `/api/org/team/${other.id}/reset-mfa`, { token: opToken })).status, 403);
+  await app.call('POST', '/api/auth/sudo', { token: opToken, body: { password: PASSWORD } });
+  assert.equal((await app.call('POST', `/api/org/team/${other.id}/logout`, { token: opToken })).status, 200);
+});
+
+test('reassigning a unit leader from the owner console strips the former leader', async () => {
+  const opToken = (await app.login('boletz')).body.token;
+  const unit = await app.call('POST', '/api/org/units', { token: opToken, body: { name: 'Disbursing', short_name: 'DISB', parent_id: op.unitId } });
+  assert.equal(unit.status, 201, JSON.stringify(unit.body));
+  const unitId = unit.body.id;
+  await app.call('POST', `/api/org/units/${unitId}/members`, { token: opToken, body: { user_id: sncoic.id } });
+  await app.call('POST', `/api/org/units/${unitId}/members`, { token: opToken, body: { user_id: nco.id } });
+  await app.call('POST', '/api/auth/sudo', { token: opToken, body: { password: PASSWORD } });
+  assert.equal((await app.call('POST', `/api/admin/units/${unitId}/claim`, { token: opToken, body: { owner_user_id: sncoic.id } })).status, 200);
+  const sncoicToken = (await app.login('sncoic')).body.token;
+  assert.ok((await app.call('GET', '/api/me', { token: sncoicToken })).body.ownedUnitIds.includes(unitId));
+  // The operator was the unit's first leader, so the reassignment revoked their sessions too.
+  const opAgain = (await app.login('boletz')).body.token;
+  await app.call('POST', '/api/auth/sudo', { token: opAgain, body: { password: PASSWORD } });
+  assert.equal((await app.call('POST', `/api/admin/units/${unitId}/claim`, { token: opAgain, body: { owner_user_id: nco.id } })).status, 200);
+  const sncoicAfter = (await app.login('sncoic')).body.token;
+  const me = await app.call('GET', '/api/me', { token: sncoicAfter });
+  assert.ok(!me.body.ownedUnitIds.includes(unitId));
+  assert.ok(!me.body.roles.some((r: any) => r.unit_id === unitId && r.key === 'unit-leader'));
+  const ncoMe = await app.call('GET', '/api/me', { token: (await app.login('nco')).body.token });
+  assert.ok(ncoMe.body.ownedUnitIds.includes(unitId));
+});
+
+test('an invitation survives a rejected first attempt', async () => {
+  const opToken = (await app.login('boletz')).body.token;
+  const invite = await app.call('POST', `/api/org/units/${op.unitId}/invites`, { token: opToken, body: { first_name: 'Pat', last_name: 'Reyes' } });
+  assert.equal(invite.status, 201, JSON.stringify(invite.body));
+  const token = new URL(invite.body.url).searchParams.get('token')!;
+  const taken = await app.call('POST', '/api/auth/invite/accept', { body: { token, username: 'marine', password: PASSWORD, first_name: 'Pat', last_name: 'Reyes' } });
+  assert.equal(taken.status, 400);
+  const badRank = await app.call('POST', '/api/auth/invite/accept', { body: { token, username: 'reyes', password: PASSWORD, first_name: 'Pat', last_name: 'Reyes', rank_id: 'NOPE' } });
+  assert.equal(badRank.status, 400);
+  const ok = await app.call('POST', '/api/auth/invite/accept', { body: { token, username: 'reyes', password: PASSWORD, first_name: 'Pat', last_name: 'Reyes' } });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
+  assert.equal((await app.call('POST', '/api/auth/invite/accept', { body: { token, username: 'reyes2', password: PASSWORD, first_name: 'Pat', last_name: 'Reyes' } })).status, 400);
+});

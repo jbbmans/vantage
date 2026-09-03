@@ -80,12 +80,19 @@ export function removeMember(ctx: AppContext, userId: string, unitId: string) {
 }
 
 export function claimUnit(ctx: AppContext, unitId: string, ownerId: string) {
+  const previous = (ctx.db.prepare('SELECT owner_user_id FROM units WHERE id = ?').get(unitId) as { owner_user_id: string | null } | undefined)?.owner_user_id || null;
+  let sessionsRevoked = 0;
   ctx.db.transaction(() => {
     seedRoles(ctx, unitId);
     addMember(ctx, ownerId, unitId, { primary: false });
     ctx.db.prepare('UPDATE units SET owner_user_id = ? WHERE id = ?').run(ownerId, unitId);
     ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(ownerId, ownerRoleId(unitId), unitId, ownerId, now());
+    if (previous && previous !== ownerId) {
+      ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND unit_id = ? AND role_id IN (SELECT id FROM roles WHERE unit_id = ? AND (permissions & ?) <> 0)').run(previous, unitId, unitId, PERMISSIONS.ADMINISTRATOR);
+      sessionsRevoked += invalidateUserSessions(ctx, previous);
+    }
   })();
+  return { previous, sessionsRevoked };
 }
 
 export function createUnit(ctx: AppContext, actor: SessionUser, scope: Scope, body: { name?: string; short_name?: string | null; code?: string | null; echelon?: string | null; location?: string | null; parent_id?: string | null }, ip?: string) {

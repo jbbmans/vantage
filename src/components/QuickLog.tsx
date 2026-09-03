@@ -73,7 +73,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
       onOpenChange(false);
     } catch (err) {
       if (isOffline(err) || !navigator.onLine) {
-        await outbox.add(body);
+        await outbox.add(body, identity?.user.id || '');
         toast.info('You are offline. The entry is queued and will sync when the connection returns.');
         writeDraft(key, null);
         onOpenChange(false);

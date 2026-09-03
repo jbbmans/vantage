@@ -1,3 +1,4 @@
+import { withGoalProgress } from './records.ts';
 import { createHash, randomUUID } from 'node:crypto';
 import type { AppContext, SessionUser } from '../context.ts';
 import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
@@ -58,6 +59,9 @@ function aggregate(ctx: AppContext, unitId: string, from: string, to: string) {
   };
 }
 
+type GoalRow = { title: string; description?: string | null; target_value: number | null; current_value: number; unit_label: string | null; status: string; period_end: string | null; metric: string; user_id: string; assignee_id?: string | null };
+const goalView = (g: GoalRow) => ({ title: g.title, target_value: g.target_value, current_value: g.current_value, unit: g.unit_label, status: g.status, period_end: g.period_end });
+
 function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, input: unknown, reqKey: object) {
   const safe = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Record<string, unknown>;
   const nowDay = today();
@@ -101,7 +105,7 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
       return {
         from, to: nowDay,
         activities: sharedActivities(ctx, subjectId, unitId, from, nowDay, 120),
-        goals: ctx.db.prepare(`SELECT title, target_value, current_value, unit_label AS unit, status, period_end FROM goals WHERE (user_id = ? OR assignee_id = ?) AND unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL LIMIT 20`).all(subjectId, subjectId, unitId),
+        goals: withGoalProgress(ctx, ctx.db.prepare(`SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL LIMIT 20`).all(subjectId, subjectId, unitId) as GoalRow[]).map(goalView),
         prior_counselings: ctx.db.prepare(`SELECT date, type, follow_up_date FROM counselings WHERE user_id = ? AND unit_id = ? AND deleted_at IS NULL ORDER BY date DESC LIMIT 5`).all(subjectId, unitId),
       };
     }
@@ -111,7 +115,7 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
       const from = daysAgo(days);
       const payload: Record<string, unknown> = { from, to: nowDay, activities: ownActivities(ctx, user.id, from, nowDay, workflow === 'record_quality' ? 100 : 150) };
       if (workflow === 'personal_review') {
-        payload.goals = ctx.db.prepare(`SELECT title, description, target_value, current_value, unit_label AS unit, status, period_end FROM goals WHERE user_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 30`).all(user.id);
+        payload.goals = withGoalProgress(ctx, ctx.db.prepare(`SELECT * FROM goals WHERE user_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 30`).all(user.id) as GoalRow[]).map((g) => ({ ...goalView(g), description: g.description }));
         payload.tasks = ctx.db.prepare(`SELECT title, status, priority, due_date FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 40`).all(user.id, user.id);
       }
       return payload;

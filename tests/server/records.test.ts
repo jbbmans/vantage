@@ -255,3 +255,65 @@ test('the recycle bin purges records deleted more than 30 days ago and keeps the
   assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM activities WHERE id = ?').get(fresh.body.id) as { n: number }).n, 1);
   assert.equal((await app.call('POST', `/api/records/activities/${fresh.body.id}/restore`, { token: rivera.token })).status, 200);
 });
+
+test('a leader’s award recommendation is owned by the Marine it is for', async () => {
+  const res = await app.call('POST', '/api/records/awards', { token: nguyen.token, body: { name: 'Navy and Marine Corps Achievement Medal', user_id: rivera.id, status: 'recommended', date: '2026-08-01' } });
+  assert.equal(res.status, 201, JSON.stringify(res.body));
+  assert.equal(res.body.user_id, rivera.id);
+  assert.equal(res.body.visibility, 'unit');
+  assert.equal(res.body.unit_id, 'G8');
+  const mine = await app.call('GET', '/api/records/awards', { token: rivera.token });
+  assert.ok(mine.body.some((a: any) => a.id === res.body.id));
+  const denied = await app.call('POST', '/api/records/awards', { token: outsider.token, body: { name: 'Coin', user_id: rivera.id } });
+  assert.equal(denied.status, 403);
+});
+
+test('making an assigned task private drops the assignee and hides it from them', async () => {
+  const created = await app.call('POST', '/api/records/tasks', { token: nguyen.token, body: { title: 'Pull the Q4 numbers', visibility: 'unit', unit_id: 'G8', assignee_id: rivera.id } });
+  assert.equal(created.status, 201, JSON.stringify(created.body));
+  assert.ok((await app.call('GET', '/api/records/tasks', { token: rivera.token })).body.some((t: any) => t.id === created.body.id));
+  const hidden = await app.call('PUT', `/api/records/tasks/${created.body.id}`, { token: nguyen.token, body: { visibility: 'private', version: created.body.version } });
+  assert.equal(hidden.status, 200, JSON.stringify(hidden.body));
+  assert.equal(hidden.body.assignee_id, null);
+  assert.ok(!(await app.call('GET', '/api/records/tasks', { token: rivera.token })).body.some((t: any) => t.id === created.body.id));
+  assert.equal((await app.call('GET', `/api/records/tasks/${created.body.id}`, { token: rivera.token })).status, 403);
+  const privateWithAssignee = await app.call('POST', '/api/records/tasks', { token: nguyen.token, body: { title: 'Private but assigned', visibility: 'private', unit_id: 'G8', assignee_id: rivera.id } });
+  assert.equal(privateWithAssignee.body.assignee_id, null);
+});
+
+test('deleted records stay reachable by their owner for the retention window', async () => {
+  const created = await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Binned entry', date: '2026-02-02', visibility: 'unit', unit_id: 'G8' } });
+  await app.call('DELETE', `/api/records/activities/${created.body.id}`, { token: rivera.token });
+  const bin = await app.call('GET', '/api/records/activities?deleted=1', { token: rivera.token });
+  assert.ok(bin.body.some((a: any) => a.id === created.body.id && a.deleted_at));
+  assert.ok(!bin.body.some((a: any) => a.user_id !== rivera.id));
+  const detail = await app.call('GET', `/api/records/activities/${created.body.id}`, { token: rivera.token });
+  assert.equal(detail.status, 200);
+  assert.ok(detail.body.deleted_at);
+  assert.equal((await app.call('GET', `/api/records/activities/${created.body.id}`, { token: nguyen.token })).status, 404);
+  assert.ok(!(await app.call('GET', '/api/records/activities?deleted=1', { token: nguyen.token })).body.some((a: any) => a.id === created.body.id));
+});
+
+test('auto-tracked goal progress is computed on the server from logged work', async () => {
+  const goal = await app.call('POST', '/api/records/goals', { token: rivera.token, body: { title: 'Reconcile 100 ULOs', metric: 'activity_quantity', category: 'Fiscal & Financial', target_value: 100, period_start: '2026-03-01', period_end: '2026-03-31' } });
+  assert.equal(goal.status, 201, JSON.stringify(goal.body));
+  await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Reconciled 40 ULOs', date: '2026-03-10', quantity: 40, category: 'Fiscal & Financial' } });
+  await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Reconciled 25 ULOs', date: '2026-03-20', quantity: 25, category: 'Fiscal & Financial' } });
+  await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Outside the window', date: '2026-04-02', quantity: 99, category: 'Fiscal & Financial' } });
+  const list = await app.call('GET', '/api/records/goals', { token: rivera.token });
+  assert.equal(list.body.find((g: any) => g.id === goal.body.id).current_value, 65);
+  assert.equal((await app.call('GET', `/api/records/goals/${goal.body.id}`, { token: rivera.token })).body.current_value, 65);
+  const preview = await app.call('GET', '/api/me/digest/preview', { token: rivera.token });
+  assert.equal(preview.status, 200);
+});
+
+test('csv import keeps an updated row in its original unit', async () => {
+  const created = await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Scoped entry', date: '2026-05-05', visibility: 'unit', unit_id: 'G8' } });
+  const res = await app.call('POST', '/api/records/activities/import', { token: rivera.token, body: { rows: [{ id: created.body.id, title: 'Scoped entry (edited)', date: '2026-05-05' }] } });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.equal(res.body.updated, 1);
+  const after = await app.call('GET', `/api/records/activities/${created.body.id}`, { token: rivera.token });
+  assert.equal(after.body.unit_id, 'G8');
+  assert.equal(after.body.visibility, 'unit');
+  assert.equal(after.body.title, 'Scoped entry (edited)');
+});
