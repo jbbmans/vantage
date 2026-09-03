@@ -79,7 +79,7 @@ export const logout = async () => { try { await api.post('/auth/logout'); } catc
 export const sudo = (password: string) => api.post('/auth/sudo', { password });
 export const forgotPassword = (identifier: string) => api.post('/auth/forgot', { identifier });
 export const resetStatus = (token: string) => api.get(`/auth/reset?token=${encodeURIComponent(token)}`);
-export const resetPassword = (token: string, password: string) => api.post('/auth/reset', { token, password }).then((r) => { markSignedIn(); return r; });
+export const resetPassword = (token: string, password: string) => api.post('/auth/reset', { token, password }).then((r) => { if (r.ok) markSignedIn(); return r; });
 export const inviteStatus = (token: string) => api.get(`/auth/invite?token=${encodeURIComponent(token)}`);
 export const acceptInvite = (payload: unknown) => api.post('/auth/invite/accept', payload).then((r) => { markSignedIn(); return r; });
 
@@ -193,7 +193,7 @@ export const adminMaintenance = (enabled: boolean) => api.post('/admin/maintenan
 export async function downloadFile(url: string, fallbackName: string) {
   const res = await fetch(url, { credentials: 'same-origin' });
   if (res.status === 401) { markSignedOut(); window.dispatchEvent(new CustomEvent('vantage:signed-out')); throw new ApiError('Your session has expired.', 401); }
-  if (!res.ok) { let msg = `Download failed (${res.status}).`; try { msg = (await res.json()).error || msg; } catch {} throw new ApiError(msg, res.status); }
+  if (!res.ok) { let payload: Record<string, unknown> = {}; try { payload = await res.json(); } catch {} throw new ApiError((payload.error as string) || `Download failed (${res.status}).`, res.status, payload); }
   const blob = await res.blob();
   const name = res.headers.get('content-disposition')?.match(/filename="([^"]+)"/)?.[1] || fallbackName;
   const link = document.createElement('a');

@@ -234,9 +234,10 @@ export function deleteRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   ctx.db.transaction(() => {
     ctx.db.prepare(`UPDATE ${table} SET deleted_at = ?, updated_at = ? WHERE id = ?`).run(now(), now(), id);
     if (table === 'projects') {
-      const tasks = ctx.db.prepare('UPDATE tasks SET project_id = NULL WHERE project_id = ?').run(id).changes;
-      const acts = ctx.db.prepare('UPDATE activities SET project_id = NULL WHERE project_id = ?').run(id).changes;
-      detail = `unlinked ${tasks} tasks, ${acts} activities`;
+      // Links stay in place while the project sits in the recycle bin, so a restore brings the project back whole. Purge unlinks.
+      const tasks = (ctx.db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE project_id = ?').get(id) as { n: number }).n;
+      const acts = (ctx.db.prepare('SELECT COUNT(*) AS n FROM activities WHERE project_id = ?').get(id) as { n: number }).n;
+      detail = `${tasks} tasks, ${acts} activities still linked`;
     }
   })();
   audit(ctx, { actor_id: user.id, action: 'delete', entity: table, entity_id: id, subject_id: row.user_id !== user.id ? row.user_id : null, unit_id: row.unit_id, detail, ip });
@@ -265,10 +266,8 @@ export function readableRecord(ctx: AppContext, user: SessionUser, table: Record
 export function importActivities(ctx: AppContext, user: SessionUser, rows: unknown[], reqKey: object, ip?: string) {
   if (!Array.isArray(rows) || !rows.length) throw badRequest('No rows to import.');
   if (rows.length > 1000) throw badRequest('Imports are limited to 1000 activities per request. Split the file and import in batches.');
-  const capacity = capacityProblem(ctx, user.id, rows.length);
-  if (capacity) throw new HttpError(507, capacity, 'record_quota');
   const scope = scopeFor(ctx, user, reqKey);
-  const planned: Array<{ id?: string; data: Record<string, unknown>; visibility: string; unitId: string | null }> = [];
+  const planned: Array<{ id?: string; exists: boolean; data: Record<string, unknown>; visibility: string; unitId: string | null }> = [];
   rows.forEach((raw, i) => {
     const source = (raw && typeof raw === 'object' ? raw : {}) as Record<string, unknown>;
     const { id, ...rest } = source;
@@ -280,8 +279,10 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
     const unitId = data.unit_id !== undefined ? ((data.unit_id as string | null) || null) : existing ? existing.unit_id : (scope.primaryUnitId ?? null);
     if (visibility === 'unit' && !unitId) throw badRequest(`Row ${i + 1}: shared activities need a unit.`, { row: i });
     if (!canPlace(scope, visibility, unitId, PERMISSIONS.CREATE_SHARED_WORK, true)) throw forbidden(`Row ${i + 1}: you cannot import into that unit.`);
-    planned.push({ id: typeof id === 'string' && id ? id : undefined, data, visibility, unitId });
+    planned.push({ id: typeof id === 'string' && id ? id : undefined, exists: Boolean(existing), data, visibility, unitId });
   });
+  const capacity = capacityProblem(ctx, user.id, planned.filter((p) => !p.exists).length);
+  if (capacity) throw new HttpError(507, capacity, 'record_quota');
   const spec = TABLES.activities;
   let created = 0; let updated = 0; const duplicates: number[] = [];
   ctx.db.transaction(() => {

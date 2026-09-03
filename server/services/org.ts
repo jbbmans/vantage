@@ -69,6 +69,8 @@ export function removeMember(ctx: AppContext, userId: string, unitId: string) {
       recordsFrozen += ctx.db.prepare(`UPDATE ${table} SET frozen_at = ?, updated_at = ?, version = version + 1 WHERE user_id = ? AND unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL AND frozen_at IS NULL`).run(frozenAt, frozenAt, userId, unitId).changes;
     }
     const roles = ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND unit_id = ?').run(userId, unitId).changes;
+    // Work assigned to the departing Marine inside this unit goes back to its author.
+    for (const table of ['tasks', 'goals']) ctx.db.prepare(`UPDATE ${table} SET assignee_id = NULL, updated_at = ?, version = version + 1 WHERE assignee_id = ? AND unit_id = ? AND deleted_at IS NULL`).run(frozenAt, userId, unitId);
     const wasPrimary = ctx.db.prepare('SELECT is_primary FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, unitId) as { is_primary: number } | undefined;
     ctx.db.prepare('DELETE FROM unit_members WHERE user_id = ? AND unit_id = ?').run(userId, unitId);
     if (wasPrimary?.is_primary) {

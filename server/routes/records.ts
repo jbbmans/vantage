@@ -28,12 +28,17 @@ recordsRouter.get('/:table', wrap((req, res) => {
     limit: Number(req.query.limit) || undefined, offset: Number(req.query.offset) || undefined, deleted: req.query.deleted === '1',
   });
   // Cross-person reads are audited once per subject per 5 minutes so leaders see they are accountable without flooding the log.
-  const foreign = new Map<string, number>();
-  for (const r of rows) if (r.user_id !== req.user.id) foreign.set(String(r.user_id), (foreign.get(String(r.user_id)) || 0) + 1);
+  const foreign = new Map<string, { subject: string; unit: string | null; count: number }>();
+  for (const r of rows) {
+    if (r.user_id === req.user.id) continue;
+    const key = `${r.user_id}|${r.unit_id || ''}`;
+    const entry = foreign.get(key) || { subject: String(r.user_id), unit: (r.unit_id as string | null) || null, count: 0 };
+    entry.count += 1; foreign.set(key, entry);
+  }
   if (foreign.size) {
-    const recent = req.ctx.db.prepare(`SELECT 1 FROM audit_log WHERE actor_id = ? AND action = 'list_records' AND entity = ? AND subject_id = ? AND at > ? LIMIT 1`);
+    const recent = req.ctx.db.prepare(`SELECT 1 FROM audit_log WHERE actor_id = ? AND action = 'list_records' AND entity = ? AND subject_id = ? AND unit_id IS ? AND at > ? LIMIT 1`);
     const cutoff = new Date(Date.now() - 5 * 60_000).toISOString();
-    for (const [subject, count] of foreign) if (!recent.get(req.user.id, table, subject, cutoff)) audit(req.ctx, { actor_id: req.user.id, action: 'list_records', entity: table, subject_id: subject, detail: `${count} rows`, ip: clientIp(req) });
+    for (const e of foreign.values()) if (!recent.get(req.user.id, table, e.subject, e.unit, cutoff)) audit(req.ctx, { actor_id: req.user.id, action: 'list_records', entity: table, subject_id: e.subject, unit_id: e.unit, detail: `${e.count} rows`, ip: clientIp(req) });
   }
   res.json(rows);
 }));

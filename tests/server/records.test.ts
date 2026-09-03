@@ -341,3 +341,44 @@ test('shared goals count only unit-visible work; private goals see everything', 
   const mine = await app.call('POST', '/api/records/goals', { token: rivera.token, body: { title: 'All my ULOs', metric: 'activity_quantity', category: 'Fiscal & Financial', target_value: 100, period_start: '2026-08-01', period_end: '2026-08-31', visibility: 'private' } });
   assert.equal((await app.call('GET', `/api/records/goals/${mine.body.id}`, { token: rivera.token })).body.current_value, 10);
 });
+
+test('the counseled Marine can acknowledge a leader-recorded counseling but not rewrite or delete it', async () => {
+  const c = await app.call('POST', '/api/records/counselings', { token: nguyen.token, body: { user_id: rivera.id, type: 'monthly', date: '2026-09-02', summary: 'Recorded by the SNCO.', visibility: 'unit' } });
+  assert.equal(c.status, 201);
+  assert.equal((await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: rivera.token, body: { summary: 'Rewritten by the subject', version: c.body.version } })).status, 403);
+  assert.equal((await app.call('DELETE', `/api/records/counselings/${c.body.id}`, { token: rivera.token })).status, 403);
+  assert.equal((await app.call('POST', `/api/records/counselings/${c.body.id}/acknowledge`, { token: rivera.token })).status, 200);
+  assert.equal((await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: nguyen.token, body: { summary: 'Corrected by the counselor', version: c.body.version + 1 } })).status, 200);
+});
+
+test('a soft-deleted project keeps its task links so a restore brings it back whole', async () => {
+  const p = await app.call('POST', '/api/records/projects', { token: rivera.token, body: { name: 'Recoverable project' } });
+  const t = await app.call('POST', '/api/records/tasks', { token: rivera.token, body: { title: 'Linked task', project_id: p.body.id } });
+  assert.equal(t.body.project_id, p.body.id);
+  assert.equal((await app.call('DELETE', `/api/records/projects/${p.body.id}`, { token: rivera.token })).status, 200);
+  assert.equal((await app.call('GET', `/api/records/tasks/${t.body.id}`, { token: rivera.token })).body.project_id, p.body.id);
+  assert.equal((await app.call('POST', `/api/records/projects/${p.body.id}/restore`, { token: rivera.token })).status, 200);
+  assert.equal((await app.call('GET', `/api/records/tasks/${t.body.id}`, { token: rivera.token })).body.project_id, p.body.id);
+});
+
+test('import quota counts only rows that create records', async () => {
+  const existing = await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Quota update target', date: '2026-08-09' } });
+  const original = app.ctx.config.limits.maxRecordsPerUser;
+  const held = (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM activities WHERE user_id = ?').get(rivera.id) as { n: number }).n
+    + ['projects', 'tasks', 'goals', 'trainings', 'awards', 'counselings'].reduce((n, t) => n + (app.ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE user_id = ?`).get(rivera.id) as { n: number }).n, 0);
+  (app.ctx.config.limits as { maxRecordsPerUser: number }).maxRecordsPerUser = held;
+  try {
+    const update = await app.call('POST', '/api/records/activities/import', { token: rivera.token, body: { rows: [{ id: existing.body.id, title: 'Quota update target (edited)', date: '2026-08-09' }] } });
+    assert.equal(update.status, 200);
+    assert.equal(update.body.updated, 1);
+    const create = await app.call('POST', '/api/records/activities/import', { token: rivera.token, body: { rows: [{ title: 'One too many', date: '2026-08-10' }] } });
+    assert.equal(create.status, 507);
+  } finally { (app.ctx.config.limits as { maxRecordsPerUser: number }).maxRecordsPerUser = original; }
+});
+
+test('listing another Marine’s shared records lands in that unit’s access log', async () => {
+  await app.call('GET', '/api/records/activities', { token: nguyen.token });
+  const row = app.ctx.db.prepare(`SELECT unit_id FROM audit_log WHERE actor_id = ? AND action = 'list_records' AND subject_id = ? ORDER BY seq DESC LIMIT 1`).get(nguyen.id, rivera.id) as { unit_id: string | null } | undefined;
+  assert.ok(row, 'list audit written');
+  assert.equal(row!.unit_id, 'G8');
+});

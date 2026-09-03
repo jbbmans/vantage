@@ -16,6 +16,7 @@ import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { audit } from '../services/audit.ts';
 import { notifyOperators } from '../services/notifications.ts';
 import { now } from '../lib/ids.ts';
+import { zonedNow } from '../lib/clock.ts';
 
 export const miscRouter = Router();
 miscRouter.use(requireAuth);
@@ -56,7 +57,7 @@ miscRouter.get('/reports/delta', wrap((req, res) => {
   const awards = req.ctx.db.prepare(`SELECT date FROM awards WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ date: string | null }>;
   const trainings = req.ctx.db.prepare(`SELECT date, hours FROM trainings WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ date: string | null; hours: number | null }>;
   const goals = req.ctx.db.prepare(`SELECT status FROM goals WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ status: string }>;
-  const range = rangeForPeriod(q.period);
+  const range = rangeForPeriod(q.period, zonedNow(req.ctx.config.timezone));
   const track = q.track || buildReport(req.ctx, { userId, unitId, period: q.period }).track;
   res.json(comparePeriods(activities as never, range, { areas: areasFor(track), awards, trainings, goals }));
 }));
@@ -81,7 +82,7 @@ miscRouter.get('/reports/csv', wrap((req, res) => {
   const where = unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
   const params = unitId ? [userId, unitId] : [userId];
   const dateClause = q.period === 'all' ? '' : ' AND date >= ? AND date <= ?';
-  const bounds = q.period === 'all' ? [] : (() => { const r = rangeForPeriod(q.period); const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; return [q.from || iso(r.start), q.to || iso(r.end)]; })();
+  const bounds = q.period === 'all' ? [] : (() => { const r = rangeForPeriod(q.period, zonedNow(req.ctx.config.timezone)); const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; return [q.from || iso(r.start), q.to || iso(r.end)]; })();
   const rows = (req.ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL${dateClause} ORDER BY date DESC`).all(...params, ...bounds) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
   audit(req.ctx, { actor_id: req.user.id, action: 'export_csv', entity: 'activities', subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: `${rows.length} rows`, ip: clientIp(req) });
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');

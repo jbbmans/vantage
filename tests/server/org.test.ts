@@ -289,3 +289,17 @@ test('an invitation survives a rejected first attempt', async () => {
   assert.equal(ok.status, 200, JSON.stringify(ok.body));
   assert.equal((await app.call('POST', '/api/auth/invite/accept', { body: { token, username: 'reyes2', password: PASSWORD, first_name: 'Pat', last_name: 'Reyes' } })).status, 400);
 });
+
+test('removing a member returns their assigned unit work to its author', async () => {
+  const opToken = (await app.login('boletz')).body.token;
+  await app.call('POST', '/api/auth/sudo', { token: opToken, body: { password: PASSWORD } });
+  const marineToken = (await app.login('marine')).body.token;
+  const task = await app.call('POST', '/api/records/tasks', { token: opToken, body: { title: 'Assigned before departure', visibility: 'unit', unit_id: op.unitId, assignee_id: marine.id } });
+  assert.equal(task.status, 201);
+  assert.ok((await app.call('GET', '/api/records/tasks', { token: marineToken })).body.some((t: any) => t.id === task.body.id));
+  assert.equal((await app.call('DELETE', `/api/org/units/${op.unitId}/members/${marine.id}`, { token: opToken })).status, 200);
+  const after = await app.call('GET', `/api/records/tasks/${task.body.id}`, { token: opToken });
+  assert.equal(after.body.assignee_id, null);
+  const again = (await app.login('marine')).body.token;
+  assert.ok(!(await app.call('GET', '/api/records/tasks', { token: again })).body.some((t: any) => t.id === task.body.id));
+});

@@ -27,6 +27,8 @@ export function canRead(scope: Scope, userId: string, row: RecordRow): boolean {
 
 export function canEdit(scope: Scope, userId: string, row: RecordRow): boolean {
   if (row.frozen_at) return false;
+  // A counseling recorded by a leader belongs to its author; the counseled Marine acknowledges it and nothing more.
+  if (row.counselor_id && row.counselor_id !== row.user_id && row.user_id === userId) return false;
   if (row.user_id === userId) return row.visibility === 'private' || !row.unit_id || isMember(scope, row.unit_id);
   if (row.counselor_id && row.counselor_id === userId) return true;
   if (row.visibility !== 'unit' || !row.unit_id) return false;

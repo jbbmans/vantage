@@ -36,7 +36,7 @@ export async function registrationOptions(ctx: AppContext, user: { id: string; u
     userDisplayName: `${user.first_name} ${user.last_name}`,
     attestationType: 'none',
     excludeCredentials: existing.map((c) => ({ id: c.id, transports: JSON.parse(c.transports || '[]') as AuthenticatorTransport[] })),
-    authenticatorSelection: { residentKey: 'preferred', userVerification: 'preferred' },
+    authenticatorSelection: { residentKey: 'preferred', userVerification: 'required' },
   });
   remember(`reg:${user.id}`, options.challenge, user.id);
   return options;
@@ -46,7 +46,7 @@ export async function completeRegistration(ctx: AppContext, userId: string, resp
   const pending = take(`reg:${userId}`);
   if (!pending) throw new Error('Passkey registration timed out. Start again.');
   const verification = await verifyRegistrationResponse({
-    response, expectedChallenge: pending.challenge, expectedOrigin: ctx.config.publicUrl, expectedRPID: ctx.config.rpId, requireUserVerification: false,
+    response, expectedChallenge: pending.challenge, expectedOrigin: ctx.config.publicUrl, expectedRPID: ctx.config.rpId, requireUserVerification: true,
   });
   if (!verification.verified || !verification.registrationInfo) throw new Error('The passkey could not be verified.');
   const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
@@ -67,7 +67,7 @@ export async function authenticationOptions(ctx: AppContext, username?: string |
         .map((c) => ({ id: c.id, transports: JSON.parse(c.transports || '[]') as AuthenticatorTransport[] }));
     }
   }
-  const options = await generateAuthenticationOptions({ rpID: ctx.config.rpId, allowCredentials: allow, userVerification: 'preferred' });
+  const options = await generateAuthenticationOptions({ rpID: ctx.config.rpId, allowCredentials: allow, userVerification: 'required' });
   const key = `auth:${options.challenge}`;
   remember(key, options.challenge, userId);
   return { options, key };
@@ -80,7 +80,7 @@ export async function completeAuthentication(ctx: AppContext, response: Authenti
   if (!row) throw new Error('That passkey is not registered here.');
   if (pending.userId && pending.userId !== row.user_id) throw new Error('That passkey belongs to a different account.');
   const verification = await verifyAuthenticationResponse({
-    response, expectedChallenge: pending.challenge, expectedOrigin: ctx.config.publicUrl, expectedRPID: ctx.config.rpId, requireUserVerification: false,
+    response, expectedChallenge: pending.challenge, expectedOrigin: ctx.config.publicUrl, expectedRPID: ctx.config.rpId, requireUserVerification: true,
     credential: { id: row.id, publicKey: new Uint8Array(row.public_key), counter: row.counter, transports: JSON.parse(row.transports || '[]') },
   });
   if (!verification.verified) throw new Error('The passkey could not be verified.');

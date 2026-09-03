@@ -232,3 +232,15 @@ test('quick log does not read "14 Marines" as a March date', async () => {
   assert.equal(dated.date.getMonth(), 2);
   assert.equal(dated.date.getDate(), 12);
 });
+
+test('zonedNow reports the wall clock of the configured timezone', async () => {
+  const { zonedNow } = await import('../../server/lib/clock.ts');
+  const at = new Date('2026-10-01T02:30:00Z');
+  const ny = zonedNow('America/New_York', at);
+  assert.equal(ny.getMonth(), 8);
+  assert.equal(ny.getDate(), 30);
+  assert.equal(ny.getHours(), 22);
+  const tokyo = zonedNow('Asia/Tokyo', at);
+  assert.equal(tokyo.getDate(), 1);
+  assert.equal(tokyo.getHours(), 11);
+});
