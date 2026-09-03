@@ -4,7 +4,7 @@ The whole system is one web service with a persistent disk. Budget: the Starter 
 
 ## First deploy
 
-1. Push this repository to GitHub (`main` is the deploy branch).
+1. The code lives at https://github.com/jbbmans/vantage-main (`main` is the deploy branch).
 2. In Render, choose **New → Blueprint**, pick the repository, and accept `render.yaml`. Render creates the `vantage` service, the `vantage-data` disk mounted at `/data`, and generates `VANTAGE_SECRET` and `VANTAGE_SETUP_TOKEN`.
 3. Wait for the first build (5 to 8 minutes; it compiles `better-sqlite3` and the client).
 4. Open the service's **Environment** tab and copy the value of `VANTAGE_SETUP_TOKEN`.
