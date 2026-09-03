@@ -48,10 +48,12 @@ export function Field({ label, hint, error, children, className, required }: { l
   return (
     <div className={cn('min-w-0', className)}>
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
-        <span id={labelId} className="text-xs font-semibold text-ink-2">{label}{required && <span className="ml-0.5 text-bad" aria-hidden>*</span>}</span>
+        <span className="text-xs font-semibold text-ink-2"><span id={labelId}>{label}</span>{required && <span className="ml-0.5 text-bad" aria-hidden>*</span>}</span>
         {hint && <span id={hintId} className="truncate text-2xs text-ink-3">{hint}</span>}
       </div>
-      {React.cloneElement(children, extra)}
+      {children.type === React.Fragment
+        ? React.cloneElement(children, {}, ...(React.Children.map(children.props.children as React.ReactNode, (child: React.ReactNode, i: number) => (i === 0 && React.isValidElement(child) ? React.cloneElement(child as React.ReactElement<any>, extra) : child)) || []))
+        : React.cloneElement(children, extra)}
       {error && <p id={errorId} className="mt-1 text-xs leading-snug text-bad" role="alert">{error}</p>}
     </div>
   );
@@ -191,10 +193,10 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
   );
 }
 
-export function Progress({ value, max = 100, tone = 'accent', className }: { value: number; max?: number; tone?: 'accent' | 'good' | 'warn' | 'bad'; className?: string }) {
+export function Progress({ value, max = 100, tone = 'accent', className, label = 'Progress' }: { value: number; max?: number; tone?: 'accent' | 'good' | 'warn' | 'bad'; className?: string; label?: string }) {
   const pct = max ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
   return (
-    <div className={cn('h-1.5 w-full overflow-hidden rounded-full bg-surface-3', className)} role="progressbar" aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
+    <div className={cn('h-1.5 w-full overflow-hidden rounded-full bg-surface-3', className)} role="progressbar" aria-label={label} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
       <div className={cn('h-full rounded-full transition-[width]', tone === 'accent' && 'bg-accent', tone === 'good' && 'bg-good', tone === 'warn' && 'bg-warn', tone === 'bad' && 'bg-bad')} style={{ width: `${pct}%` }} />
     </div>
   );

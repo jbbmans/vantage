@@ -23,7 +23,7 @@ export function AreaChart({ data, height = 220, format = (v) => String(v), secon
   const step = Math.max(1, Math.ceil(data.length / 6));
   return (
     <figure className={cn('relative w-full', className)} aria-label={ariaLabel}>
-      <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" preserveAspectRatio="none"
+      <svg viewBox={`0 0 ${width} ${height}`} className="h-auto w-full" role="img" aria-label={ariaLabel} preserveAspectRatio="none"
         onMouseLeave={() => setHover(null)} onMouseMove={(e) => { const r = e.currentTarget.getBoundingClientRect(); const px = ((e.clientX - r.left) / r.width) * width; let best = 0; let bd = Infinity; data.forEach((_, i) => { const d = Math.abs(x(i) - px); if (d < bd) { bd = d; best = i; } }); setHover(best); }}>
         <defs>
           <linearGradient id={`${id}-fill`} x1="0" x2="0" y1="0" y2="1"><stop offset="0%" stopColor="rgb(var(--accent))" stopOpacity="0.28" /><stop offset="100%" stopColor="rgb(var(--accent))" stopOpacity="0.02" /></linearGradient>
@@ -103,7 +103,7 @@ export function Heatmap({ counts, weeks = 18, className, onSelect }: { counts: R
   for (let i = 0; i < weeks * 7 + today.getDay() + 1; i += 1) { const d = new Date(start); d.setDate(start.getDate() + i); if (d > today) break; days.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); }
   const max = Math.max(1, ...Object.values(counts));
   return (
-    <div className={cn('grid grid-flow-col gap-[3px]', className)} style={{ gridTemplateRows: 'repeat(7, minmax(0, 1fr))' }} role="img" aria-label="Activity by day">
+    <div className={cn('grid grid-flow-col gap-[3px]', className)} style={{ gridTemplateRows: 'repeat(7, minmax(0, 1fr))' }} role="group" aria-label="Activity by day">
       {days.map((day) => {
         const n = counts[day] || 0;
         const level = n === 0 ? 0 : Math.ceil((n / max) * 4);

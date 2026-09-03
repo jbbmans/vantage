@@ -7,8 +7,8 @@ import { trackForGrade, type Track } from '../../shared/evaluation.ts';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
-    queries: { staleTime: 30_000, gcTime: 10 * 60_000, retry: (count, error) => (error as api.ApiError)?.status === 0 ? count < 1 : false, refetchOnWindowFocus: true },
-    mutations: { retry: false },
+    queries: { networkMode: 'always', staleTime: 30_000, gcTime: 10 * 60_000, retry: (count, error) => (error as api.ApiError)?.status === 0 ? count < 1 : false, refetchOnWindowFocus: true },
+    mutations: { retry: false, networkMode: 'always' },
   },
 });
 

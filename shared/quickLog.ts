@@ -16,7 +16,7 @@ function parseWhen(text: string, now: Date): { date: Date; matched: string | nul
   if (/\blast week\b/.test(lower)) return { date: startOfDay(subDays(now, 7)), matched: 'last week' };
   const daysAgo = lower.match(/\b(\d{1,2})\s+days?\s+ago\b/);
   if (daysAgo) return { date: startOfDay(subDays(now, parseInt(daysAgo[1], 10))), matched: daysAgo[0] };
-  const dmy = text.match(/\b(\d{1,2})\s+(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)[a-z]*\.?(\s+\d{2,4})?\b/i);
+  const dmy = text.match(/\b(\d{1,2})\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b\.?(\s+\d{2,4})?\b/i);
   if (dmy) {
     const year = dmy[3] ? dmy[3].trim() : String(now.getFullYear());
     const full = `${dmy[1]} ${dmy[2].slice(0, 3)} ${year.length === 2 ? `20${year}` : year}`;

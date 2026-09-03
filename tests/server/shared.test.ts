@@ -221,3 +221,14 @@ test('digest local clock resolves weekday and hour in a timezone', () => {
   assert.equal(c.weekday, 1);
   assert.equal(c.hour, 6);
 });
+
+test('quick log does not read "14 Marines" as a March date', async () => {
+  const { parseQuickLog } = await import('../../shared/quickLog.ts');
+  const now = new Date('2026-09-03T12:00:00');
+  const parsed = parseQuickLog('Briefed 14 Marines on the new travel policy', now);
+  assert.equal(parsed.date.getMonth(), 8);
+  assert.equal(parsed.date.getDate(), 3);
+  const dated = parseQuickLog('Briefed 14 Marines on 12 Mar', now);
+  assert.equal(dated.date.getMonth(), 2);
+  assert.equal(dated.date.getDate(), 12);
+});

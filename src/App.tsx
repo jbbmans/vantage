@@ -1,4 +1,4 @@
-import React, { Suspense, lazy, useEffect } from 'react';
+import React, { Suspense, lazy, useEffect, useReducer } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import AppShell from '@/components/AppShell';
@@ -48,11 +48,17 @@ function NavigateBridge() {
 
 export default function App() {
   const qc = useQueryClient();
+  const [, rerender] = useReducer((n: number) => n + 1, 0);
   const identity = useIdentity();
+  useEffect(() => {
+    const onSignedIn = () => { rerender(); qc.invalidateQueries({ queryKey: keys.me }); };
+    window.addEventListener('vantage:signed-in', onSignedIn);
+    return () => window.removeEventListener('vantage:signed-in', onSignedIn);
+  }, [qc]);
 
   useEffect(() => {
     applyTheme(storedTheme());
-    const onSignedOut = () => { qc.removeQueries({ queryKey: keys.me }); qc.clear(); qc.invalidateQueries({ queryKey: keys.me }); };
+    const onSignedOut = () => { qc.removeQueries({ queryKey: keys.me }); qc.clear(); rerender(); };
     window.addEventListener('vantage:signed-out', onSignedOut);
     return () => window.removeEventListener('vantage:signed-out', onSignedOut);
   }, [qc]);

@@ -19,6 +19,7 @@
     "lint": "eslint .",
     "test": "node --test --test-concurrency=1 \"tests/server/**/*.test.ts\"",
     "test:browser": "playwright test",
+    "pretest:browser": "vite build",
     "check": "npm run lint && npm run typecheck && npm test && npm run build",
     "recover": "node scripts/recover-operator.ts",
     "reset:factory": "node scripts/factory-reset.ts"

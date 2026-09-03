@@ -32,7 +32,7 @@ function markSignedOut() {
 }
 
 export const hasSession = () => sessionState !== 'none';
-export const markSignedIn = () => { sessionState = 'active'; };
+export const markSignedIn = () => { sessionState = 'active'; window.dispatchEvent(new CustomEvent('vantage:signed-in')); };
 
 async function request<T = any>(method: string, path: string, body?: unknown, init: RequestInit = {}): Promise<T> {
   let res: Response;

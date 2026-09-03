@@ -30,9 +30,9 @@
     --line-strong: 196 204 214;
     --ink: 17 24 39;
     --ink-2: 71 84 103;
-    --ink-3: 115 128 148;
-    --good: 22 132 92;
-    --warn: 180 110 20;
+    --ink-3: 96 108 128;
+    --good: 16 112 78;
+    --warn: 150 90 10;
     --bad: 190 44 54;
     --info: 37 99 168;
     --rail: 255 255 255;
@@ -66,7 +66,7 @@
 
   /* Accent presets: scarlet (default), ocean, olive, steel, ember. Each defines accent, accent-ink, accent-soft. */
   :root, [data-accent='scarlet'] { --accent: 178 34 34; --accent-ink: 255 255 255; --accent-soft: 253 235 235; --accent-2: 196 154 44; }
-  [data-theme='dark'][data-accent='scarlet'], [data-theme='dark']:not([data-accent]) { --accent: 234 88 88; --accent-ink: 20 8 8; --accent-soft: 68 26 28; --accent-2: 226 186 82; }
+  [data-theme='dark'][data-accent='scarlet'], [data-theme='dark']:not([data-accent]) { --accent: 234 88 88; --accent-ink: 20 8 8; --accent-soft: 56 20 22; --accent-2: 226 186 82; }
   [data-accent='ocean'] { --accent: 20 104 183; --accent-ink: 255 255 255; --accent-soft: 227 238 250; --accent-2: 20 150 160; }
   [data-theme='dark'][data-accent='ocean'] { --accent: 91 170 232; --accent-ink: 5 23 34; --accent-soft: 22 46 68; --accent-2: 96 200 206; }
   [data-accent='olive'] { --accent: 79 111 59; --accent-ink: 255 255 255; --accent-soft: 232 240 226; --accent-2: 156 124 60; }
