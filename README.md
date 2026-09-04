@@ -1,116 +1,75 @@
-# Vantage 3.7
+# Vantage
 
-Vantage is a self-hosted performance, work, readiness, and career-record system for Marine Corps teams. It combines individual capture with exact-unit permissions, auditable administration, reporting, notifications, and official MARADMIN tracking.
+Performance records for Marines. Log what you did in one sentence, keep the evidence, and turn it into a JEPES or FITREP input, a bullet package, and a PDF when the evaluation comes due. Leaders see only what their Marines chose to share, and every look is logged.
 
-## Capabilities
+Vantage 5 is a ground-up rewrite: TypeScript end to end, a fresh schema, passkeys and authenticator sign-in, offline capture on phones, counseling and award tracking, unit dashboards, weekly email digests, CSV that round-trips, and GenAI.mil drafting with the model of your choice.
 
-- Quick Log and structured performance records
-- Work, goals, training, recognition, readiness, and reports
-- Exact-unit memberships, roles, ownership, and audit trails
-- Leader-managed profiles plus self-service rank update requests
-- First-party notifications and a searchable command menu
-- Cached MARADMIN ingestion from the official Marines.mil RSS feed
-- Restricted owner console for safe, non-secret instance configuration
-- Opt-in, exact-unit read-only API for approved enterprise integrations
-- Confidential incident and vulnerability reporting with an operator-only triage queue
-- Governed GenAI.mil assistance for capture, goals, evaluation writing, personal reviews, record quality, MARADMINs, and aggregate briefs
-- Responsive light/dark interface with no advertising or third-party analytics
+## What it does
 
-## Architecture
+- **Analyst-grade reports.** The Reports page's Full analysis view and its PDF read the record the way a board or a reporting senior would: period against prior period, run rate and pace, monthly trend, composition by area, category, value type, system and organization, concentration of value, logging cadence, coverage and data quality, goals, career record, the narrative and bullet package, and a full entry ledger as the appendix.
+- **Complete export.** Settings → Your data downloads everything tied to an account as a zip: profile, rank, units and roles, every record including the recycle bin, readiness, attachments, notifications, preferences, audit trail, AI usage, email history; one JSON file plus a CSV per dataset.
+- **Configurable metrics.** The Owner console's Metrics tab renames the money metric, defines the value types that roll into the headline total, and sets the categories and unit suggestions, so shops other than a comptroller section can track what they actually do.
+- **Quick Log.** Press `N`, type "Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday". Vantage extracts the date, quantity, dollars, system, category, and evaluation area. Works offline; entries queue on the device and sync later.
+- **Records.** Filter by period, category, area, and quality (missing outcome, untagged, duplicates). Edit, attach evidence files, restore from a 30-day recycle bin.
+- **Reports.** Section I narrative to the character limit, bullet package by area, period-over-period comparison, PDF and CSV export. JEPES for E-1 to E-4, FITREP for E-5 and up, switchable.
+- **Work, Goals, Career.** Tasks and projects, goals that update themselves from the log, training hours, award pipeline from recommendation to presentation, counselings with acknowledgement.
+- **Readiness.** JEPES pillars or FITREP attribute coverage, plus ranked coaching on where the points are, with citations to the governing orders.
+- **Team.** Roster, unit dashboard built from shared entries only, roles with per-unit permissions, invitations by link or email, access log.
+- **Security.** 15-character minimum passwords (scrypt), passkeys (WebAuthn), TOTP with recovery codes, step-up confirmation for sensitive settings, device session list, CSRF and rate limiting, HMAC-chained audit log. Private records are never readable by leaders or the owner through the app.
+- **Owner console.** Instance settings, AI model allowlist, accounts, units, audit chain check, SQLite backup download, and a JSON export/import that moves the whole instance to any host.
 
-- React 18, Vite, Tailwind CSS, Radix UI, and Recharts
-- Node.js 22, Express 5, and SQLite with versioned migrations
-- A guarded SQLite-to-PostgreSQL preparation toolkit for the managed-database transition
-- One production process serving the API and compiled application
-- HttpOnly revocable sessions, `scrypt` password hashing, CSP, HSTS, CSRF checks, and audited protected actions
-- Docker and Render deployment with a persistent disk
-
-SQLite requires one application instance per database. Use a persistent, encrypted volume and tested off-host backups.
-
-The application runtime is not yet PostgreSQL-capable. The [PostgreSQL migration path](docs/POSTGRESQL-MIGRATION.md) provides the canonical target schema, a verified transactional export/import package, Render provisioning guidance, and the mandatory runtime/cutover gates. It deliberately prevents a premature database switch.
-
-## Development
-
-Requirements: Node.js 22 and npm 10 or newer.
+## Run it locally
 
 ```bash
-npm ci
+npm install
 cp .env.example .env
-npm run dev
+npm run dev          # API on :8787, Vite on :5173
 ```
 
-The local Vite server proxies `/api` to Express. Development is intended for synthetic or specifically authorized test information.
+Open http://localhost:5173, create the owner account and first unit.
+
+Scripts:
+
+| Command | What it does |
+| --- | --- |
+| `npm run dev` | API with `--watch` plus the Vite dev server |
+| `npm run check` | lint, typecheck, server tests, production build |
+| `npm test` | server test suite (in-memory SQLite) |
+| `npm run test:browser` | builds the client and runs the Playwright suite (desktop, phone, axe) |
+| `npm run build` | production client into `dist/` |
+| `npm start` | production server (`node server/index.ts`), serves `dist/` |
+| `VANTAGE_RECOVERY=1 npm run recover-operator -- <username>` | grant owner authority and a temporary password from the shell |
+| `VANTAGE_FACTORY_RESET=1 npm run factory-reset -- ERASE-EVERYTHING` | delete the database; the next start runs first-time setup |
+
+Requirements: Node 22.18 or newer. No build step for the server; Node runs the TypeScript directly.
+
+## Deploy
+
+The reference deployment is one Render Starter web service with a 1 GB disk, auto-deploying from `main`, at https://vantageusmc.com. `render.yaml` describes it; `Dockerfile` builds it.
+
+- [Render deployment](docs/deploy-render.md)
+- [Namecheap DNS](docs/dns-namecheap.md)
+- [Email (Resend or SMTP)](docs/email.md)
+- [Operations: backups, restore, moving hosts](docs/operations.md)
+- [Security model](docs/security.md)
+- [Architecture](docs/architecture.md)
 
 ## Configuration
 
-Reviewed non-secret defaults live in [`config/app.yaml`](config/app.yaml). Production secrets belong in the hosting provider’s secret manager.
+Everything is an environment variable. `.env.example` lists them with defaults. The ones that matter in production:
 
 | Variable | Purpose |
 | --- | --- |
-| `VANTAGE_DB` | Absolute persistent SQLite path |
-| `VANTAGE_SETUP_TOKEN` | Protected first-run setup secret |
-| `VANTAGE_OPERATOR_ID` | Durable owner-console account UUID |
-| `VANTAGE_OPERATOR` | Bootstrap operator username |
-| `VANTAGE_PUBLIC_URL` | Public application origin |
-| `VANTAGE_ADMIN_URL` | Restricted owner-console origin |
-| `VANTAGE_DATA_MODE` | `evaluation` or `operational` |
-| `TRUST_PROXY` | Trusted reverse-proxy hop configuration |
-| `VANTAGE_MARADMIN_ENABLED` | Enable official-feed ingestion |
-| `VANTAGE_MARADMIN_REFRESH_MINUTES` | Feed cache interval |
-| `VANTAGE_INTEGRATIONS_ENABLED` | Enable the approved read-only integration surface |
-| `VANTAGE_INTEGRATION_REQUESTS_PER_15_MINUTES` | Per-client/source read limit |
-| `VANTAGE_GENAI_API_KEY` | Server-held GenAI.mil API credential |
-| `VANTAGE_AI_ENABLED` | Enable the governed AI gateway |
-| `VANTAGE_GENAI_MODEL` | Approved GenAI.mil model identifier |
+| `VANTAGE_PUBLIC_URL` | HTTPS origin of the site; drives passkeys, cookies, and email links |
+| `VANTAGE_SECRET` | 32+ random characters; signs tokens, encrypts MFA secrets, chains the audit log |
+| `VANTAGE_SETUP_TOKEN` | 24+ characters; required once, to create the owner account |
+| `VANTAGE_DB` | SQLite path on the persistent disk |
+| `TRUST_PROXY` | `true` behind Render or any reverse proxy |
+| `VANTAGE_EMAIL_PROVIDER` | `none`, `resend`, or `smtp` |
+| `VANTAGE_AI_ENABLED`, `VANTAGE_GENAI_API_KEY`, `VANTAGE_GENAI_MODELS` | GenAI.mil drafting help and the model allowlist |
 
-CAC/PIV support remains disabled until an approved certificate-verifying proxy is configured. See `.env.example` and `config/app.yaml` for the full supported surface.
+## Status
 
-The enterprise API is disabled by default. Its credentials are created and revoked in the restricted Owner Console, are bound to one exact unit, and are shown only once. See [`docs/ENTERPRISE-API.md`](docs/ENTERPRISE-API.md) for the v1 contract and security boundary.
+Vantage is not a system of record. Marine Online is. Point tables and orders change; the app cites what it relies on and never computes an official score.
 
-Security reports are visible only to the reporter and Instance Operator and never enter unit exports or integration responses. See [`docs/SECURITY-INCIDENTS.md`](docs/SECURITY-INCIDENTS.md) for lifecycle, access, audit, and operational boundaries.
-
-AI is disabled by default and requires a server-held GenAI.mil key. See [`docs/GENAI-MIL.md`](docs/GENAI-MIL.md) and [`docs/adr/ADR-001-GENAI-GATEWAY.md`](docs/adr/ADR-001-GENAI-GATEWAY.md) for the workflow, deployment, key-lock, data-minimization, and human-review boundaries.
-
-## Render deployment
-
-[`render.yaml`](render.yaml) defines a single Docker web service, one persistent `/data` disk, health checks, and these production origins:
-
-- `https://vantageusmc.com`
-- `https://admin.vantageusmc.com/operator`
-
-After applying the Blueprint:
-
-1. Confirm the service region, plan, and `/data` disk before first-run setup.
-2. Set `VANTAGE_OPERATOR`, then replace it with the account UUID in `VANTAGE_OPERATOR_ID` after setup.
-3. Point the apex domain to the Render hostname using the DNS provider’s ANAME/ALIAS record.
-4. Point `admin` to the same Render hostname using a CNAME record.
-5. Remove conflicting AAAA records and verify both domains in Render.
-6. Keep the deployment in `evaluation` mode until the required operational approvals are complete.
-
-Owner-console APIs are host-gated in production, so they only answer on the configured admin hostname.
-
-## Backup and recovery
-
-The owner console downloads a consistent, audited SQLite snapshot. To restore, stop the service, preserve the current database and WAL companions, replace the mounted database with a verified snapshot, then restart one instance and validate `/api/health`.
-
-To prepare a PostgreSQL rehearsal package without changing the live database, run `npm run migrate:postgres:prepare -- --source /absolute/vantage.db --output /secure/vantage-postgres.sql`. The source is snapshotted read-only, integrity and audit checks run first, and existing output files are never overwritten.
-
-Lost-operator recovery requires shell access and explicit intent:
-
-```bash
-VANTAGE_RECOVERY=1 npm run recover -- <canonical-username>
-```
-
-## Verification
-
-```bash
-npm run lint
-npm test
-npm run test:browser
-```
-
-The suite covers configuration, migrations, permissions, tenancy, lifecycle recovery, attachments, imports, API behavior, mobile layouts, accessibility, and multi-persona isolation.
-
-## Rights and provenance
-
-Vantage is proprietary and distributed without a license grant. See [`NOTICE`](NOTICE) and [`PROVENANCE.json`](PROVENANCE.json) for the canonical rights and source record.
+See `NOTICE` for terms.
