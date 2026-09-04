@@ -2,7 +2,9 @@ import { useState } from 'react';
 import { Sparkles, PenLine, ClipboardCheck, Target, ScanSearch } from 'lucide-react';
 import { PageHeader, Panel, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, Progress } from '@/components/ui/primitives';
 import { AiAction, AiResult, ModelPicker, useAiModel } from '@/components/AiPanel';
+import { Link } from 'react-router';
 import { useParam } from '@/components/common';
+import { Button } from '@/components/ui/primitives';
 import { useAiStatus, useIdentity } from '@/lib/queries';
 import { formatNumber } from '../../shared/metrics';
 
@@ -24,7 +26,16 @@ export default function AiAssist() {
   const [out, setOut] = useState<Record<string, Out>>({});
   const setResult = (key: string) => (output: Record<string, unknown>, meta: { model: string; tokens: number }) => setOut((o) => ({ ...o, [key]: { output, meta } }));
 
-  if (!identity?.instance.aiEnabled) return <div className="page"><PageHeader eyebrow="AI assist" title="Drafting help" /><div className="card"><EmptyState icon={Sparkles} title="AI assistance is off on this deployment" description="The owner enables it in the Owner console with a GenAI.mil key." /></div></div>;
+  if (!identity?.instance.aiEnabled) {
+    const operator = Boolean(identity?.user.is_operator);
+    const reason = status && !status.configured ? 'No GenAI.mil key is set on the server yet.' : 'The owner has switched it off for now.';
+    const next = operator ? (status && !status.configured ? 'Add VANTAGE_GENAI_API_KEY to the service environment, redeploy, then turn the switch on.' : 'Turn it on under Owner console → AI.') : 'Ask the owner to turn it on.';
+    return (
+      <div className="page"><PageHeader eyebrow="AI assist" title="Drafting help" />
+        <div className="card"><EmptyState icon={Sparkles} title="AI assistance is off on this deployment" description={`${reason} ${next}`} action={operator ? <Button asChild variant="primary"><Link to="/operator?tab=ai">Open the AI settings</Link></Button> : undefined} /></div>
+      </div>
+    );
+  }
   const daily = status?.daily;
 
   return (

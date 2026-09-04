@@ -107,7 +107,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
     <div className="flex min-h-screen flex-col bg-canvas">
       <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-gradient-to-b from-accent-soft to-transparent" aria-hidden />
       <header className="relative z-10 flex items-center justify-between px-5 py-4">
-        <div className="flex items-center gap-3"><img src="/mark.svg" alt="" className="h-9 w-9 rounded-lg" /><div><p className="text-sm font-bold tracking-[0.16em] text-ink">VANTAGE</p><p className="text-2xs text-ink-3">{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'Performance records for Marines'}</p></div></div>
+        <div className="flex items-center gap-3"><img src="/mark.svg" alt="" width={36} height={36} className="h-9 w-9 rounded-lg" /><div><p className="text-sm font-bold tracking-[0.16em] text-ink">VANTAGE</p><p className="text-2xs text-ink-3">{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'Performance records for Marines'}</p></div></div>
         <button type="button" onClick={toggleTheme} className="rounded-md p-2 text-ink-2 hover:bg-surface-2" aria-label="Toggle theme">{theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</button>
       </header>
       <main className="relative z-10 flex flex-1 items-start justify-center px-4 pb-16 pt-6 sm:pt-12">
@@ -123,7 +123,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
 
             {mode === 'login' && (
               <form className="mt-5 space-y-3" onSubmit={(e) => { e.preventDefault(); submitLogin(); }}>
-                <Field label="Username" error={fieldErrors.username}><Input autoFocus autoComplete="username webauthn" autoCapitalize="none" value={form.username} onChange={set('username')} /></Field>
+                <Field label="Username" error={fieldErrors.username}><Input autoFocus autoComplete="username webauthn" spellCheck={false} autoCapitalize="none" value={form.username} onChange={set('username')} /></Field>
                 <Field label="Password" error={fieldErrors.password}><Input type="password" autoComplete="current-password" value={form.password} onChange={set('password')} /></Field>
                 <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy} disabled={offline || !form.username || !form.password}>Sign in</Button>
                 <Button type="button" variant="outline" size="lg" className="w-full" onClick={passkey} disabled={busy || offline}><Fingerprint className="h-4 w-4" />Sign in with a passkey</Button>
@@ -136,7 +136,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
 
             {mode === 'mfa' && (
               <form className="mt-5 space-y-3" onSubmit={(e) => { e.preventDefault(); submitMfa(); }}>
-                <Field label="Code" hint="6 digits, or a recovery code"><Input autoFocus inputMode="numeric" autoComplete="one-time-code" value={form.code} onChange={set('code')} className="fig text-lg tracking-[0.3em]" /></Field>
+                <Field label="Code" hint="6 digits, or a recovery code"><Input autoFocus inputMode="numeric" autoComplete="one-time-code" spellCheck={false} value={form.code} onChange={set('code')} className="fig text-lg tracking-[0.3em]" /></Field>
                 <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy} disabled={form.code.replace(/\s/g, '').length < 6}><ShieldCheck className="h-4 w-4" />Verify</Button>
               </form>
             )}
@@ -151,8 +151,8 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
                   <Field label="Rank" error={fieldErrors.rank_id}>{RankSelect}</Field>
                   <Field label="MOS" error={fieldErrors.mos}><Input value={form.mos} onChange={set('mos')} placeholder="3451" /></Field>
                 </div>
-                <Field label="Username" required hint="letters, numbers, dot, dash, underscore" error={fieldErrors.username}><Input value={form.username} onChange={set('username')} autoComplete="username" autoCapitalize="none" /></Field>
-                <Field label="Email" hint={mode === 'invite' && tokenInfo?.email ? 'set by the invitation' : 'optional; used for reset links and the weekly digest'} error={fieldErrors.email}><Input type="email" value={form.email} onChange={set('email')} autoComplete="email" disabled={mode === 'invite' && Boolean(tokenInfo?.email)} /></Field>
+                <Field label="Username" required hint="letters, numbers, dot, dash, underscore" error={fieldErrors.username}><Input value={form.username} onChange={set('username')} autoComplete="username" autoCapitalize="none" spellCheck={false} /></Field>
+                <Field label="Email" hint={mode === 'invite' && tokenInfo?.email ? 'set by the invitation' : 'optional; used for reset links and the weekly digest'} error={fieldErrors.email}><Input type="email" spellCheck={false} value={form.email} onChange={set('email')} autoComplete="email" disabled={mode === 'invite' && Boolean(tokenInfo?.email)} /></Field>
                 <Field label="Password" required hint={`${MIN_PASSWORD_LENGTH}+ characters`} error={fieldErrors.password}><Input type="password" value={form.password} onChange={set('password')} autoComplete="new-password" /></Field>
                 <PasswordMeter value={form.password} />
                 {mode === 'setup' && (

@@ -25,7 +25,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
             </div>
             <DialogPrimitive.Close className="-mr-1 -mt-1 rounded-md p-1.5 text-ink-3 transition-colors hover:bg-surface-2 hover:text-ink" aria-label="Close"><X className="h-4 w-4" /></DialogPrimitive.Close>
           </header>
-          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4">{children}</div>
+          <div className="min-h-0 flex-1 overflow-y-auto px-5 py-4 [overscroll-behavior:contain]">{children}</div>
           {footer && <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface-2/60 px-5 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-3 max-[420px]:[&>*]:flex-1 max-[420px]:[&>*]:justify-center">{footer}</footer>}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>

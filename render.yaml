@@ -46,9 +46,9 @@ services:
         value: "Vantage <no-reply@vantageusmc.com>"
       - key: RESEND_API_KEY
         sync: false
-      # GenAI.mil (optional). The key never reaches the browser.
+      # GenAI.mil (optional). The key never reaches the browser. AI stays unavailable until the key is set in the dashboard.
       - key: VANTAGE_AI_ENABLED
-        value: "false"
+        value: "true"
       - key: VANTAGE_GENAI_API_KEY
         sync: false
       - key: VANTAGE_GENAI_BASE_URL

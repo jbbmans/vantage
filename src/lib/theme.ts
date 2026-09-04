@@ -5,8 +5,11 @@ export function resolveTheme(mode: ThemeMode): 'light' | 'dark' {
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
+const THEME_COLOR: Record<'light' | 'dark', string> = { light: '#f6f7f9', dark: '#0c1018' };
 export function applyTheme(mode: ThemeMode) {
-  document.documentElement.setAttribute('data-theme', resolveTheme(mode));
+  const resolved = resolveTheme(mode);
+  document.documentElement.setAttribute('data-theme', resolved);
+  document.querySelector('meta[name="theme-color"]')?.setAttribute('content', THEME_COLOR[resolved]);
   try { localStorage.setItem('vantage.theme', mode); } catch {}
 }
 

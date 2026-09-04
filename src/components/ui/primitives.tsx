@@ -21,20 +21,20 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
   return (
     <Comp ref={ref} type={asChild ? undefined : (props.type || 'button')} disabled={disabled || loading}
       className={cn('tap inline-flex shrink-0 items-center rounded-md border font-medium transition-[color,background-color,border-color,box-shadow,transform,filter] duration-150 active:scale-[0.985] disabled:pointer-events-none disabled:opacity-45', VARIANTS[variant], SIZES[size], className)} {...props}>
-      {loading && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}
-      {children}
+      {asChild ? children : <>{loading && <Loader2 className="h-4 w-4 animate-spin" aria-hidden />}{children}</>}
     </Comp>
   );
 });
 
-export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function Input({ className, ...props }, ref) {
-  return <input ref={ref} className={cn('field h-9', className)} {...props} />;
+const finePointer = () => typeof window === 'undefined' || !window.matchMedia?.('(pointer: coarse)').matches;
+export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function Input({ className, autoFocus, ...props }, ref) {
+  return <input ref={ref} autoFocus={autoFocus && finePointer()} className={cn('field h-9', className)} {...props} />;
 });
 export const NumberInput = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function NumberInput({ className, ...props }, ref) {
   return <input ref={ref} type="text" inputMode="decimal" className={cn('field fig h-9', className)} {...props} />;
 });
-export const Textarea = forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, rows = 3, ...props }, ref) {
-  return <textarea ref={ref} rows={rows} className={cn('field resize-y leading-relaxed', className)} {...props} />;
+export const Textarea = forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, rows = 3, autoFocus, ...props }, ref) {
+  return <textarea ref={ref} rows={rows} autoFocus={autoFocus && finePointer()} className={cn('field resize-y leading-relaxed', className)} {...props} />;
 });
 
 export function Field({ label, hint, error, children, className, required }: { label: React.ReactNode; hint?: React.ReactNode; error?: string | null; children: React.ReactElement<any>; className?: string; required?: boolean }) {
@@ -91,6 +91,10 @@ export type Tone = keyof typeof TONES;
 export function Badge({ tone = 'neutral', className, children, ...props }: { tone?: Tone; className?: string; children: React.ReactNode } & React.HTMLAttributes<HTMLSpanElement>) {
   return <span className={cn('chip', TONES[tone], className)} {...props}>{children}</span>;
 }
+/** Role chip: the role colour is shown as a dot so the text keeps readable ink contrast whatever colour a leader picks. */
+export const RoleBadge = ({ color, children, className }: { color?: string | null; children: React.ReactNode; className?: string }) => (
+  <Badge className={cn('gap-1.5 pl-1.5', className)}><Dot color={color || '#6b7a8f'} />{children}</Badge>
+);
 export const Dot = ({ color, className }: { color?: string; className?: string }) => <span className={cn('badge-dot', className)} style={{ backgroundColor: color }} aria-hidden />;
 
 export function TooltipProvider({ children }: { children: React.ReactNode }) {

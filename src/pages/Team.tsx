@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, UserPlus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy } from 'lucide-react';
-import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, Panel, Stat, Skeleton, Switch } from '@/components/ui/primitives';
+import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult } from '@/components/AiPanel';
@@ -74,7 +74,7 @@ function Roster({ team, unit, unitLabel, canManage }: { team: any; unit: string;
               <tr key={p.id}>
                 <td><span className="flex items-center gap-2.5"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 text-xs font-bold text-ink">{(p.first_name[0] || '') + (p.last_name[0] || '')}</span><span className="min-w-0"><span className="block font-medium text-ink">{p.rank_abbr || ''} {p.last_name}, {p.first_name}</span><span className="block text-xs text-ink-3">{m ? `${m.unit_short || m.unit_name}${m.is_primary ? '' : ' (secondary)'}` : ''}</span></span></span></td>
                 <td className="fig text-xs">{p.mos || ''}</td><td className="text-xs text-ink-2">{m?.billet || ''}</td>
-                <td><span className="flex flex-wrap gap-1">{p.roles.filter((r: any) => r.unit_id === unit).map((r: any) => <Badge key={r.id} style={{ borderColor: r.color || undefined, color: r.color || undefined }}>{r.name}</Badge>)}</span></td>
+                <td><span className="flex flex-wrap gap-1">{p.roles.filter((r: any) => r.unit_id === unit).map((r: any) => <RoleBadge key={r.id} color={r.color}>{r.name}</RoleBadge>)}</span></td>
                 <td className="text-right">{p.canOpen ? <Button size="xs" asChild><Link to={`/team/${p.id}`}>Open</Link></Button> : <span className="text-2xs text-ink-3">roster only</span>}</td>
               </tr>
             ); })}

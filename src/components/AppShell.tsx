@@ -11,6 +11,7 @@ import QuickLog from '@/components/QuickLog';
 import CommandPalette from '@/components/CommandPalette';
 import ShortcutsDialog from '@/components/ShortcutsDialog';
 import SudoDialog, { type SudoRequest } from '@/components/SudoDialog';
+import ErrorBoundary from '@/components/ErrorBoundary';
 import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
@@ -180,7 +181,7 @@ export default function AppShell() {
       <div className="flex min-h-screen bg-canvas">
         <aside className={cn('no-print sticky top-0 hidden h-screen shrink-0 flex-col border-r border-line bg-rail text-rail-ink transition-[width] duration-200 lg:flex', collapsed ? 'w-[68px]' : 'w-[240px]')}>
           <div className={cn('flex h-16 items-center gap-3 border-b border-line px-4', collapsed && 'justify-center px-0')}>
-            <img src="/mark.svg" alt="Vantage" className="h-8 w-8 rounded-lg" />
+            <img src="/mark.svg" alt="Vantage" width={32} height={32} className="h-8 w-8 rounded-lg" />
             {!collapsed && <div className="min-w-0"><p className="text-sm font-bold tracking-[0.14em] text-ink">VANTAGE</p><p className="truncate text-2xs text-ink-3">{identity?.instance.organizationName}</p></div>}
           </div>
           {navList(false)}
@@ -196,7 +197,7 @@ export default function AppShell() {
             <button type="button" className="absolute inset-0 bg-ink/40 backdrop-blur-sm animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu" />
             <aside className="absolute inset-y-0 left-0 flex w-[min(86vw,300px)] flex-col bg-rail shadow-modal animate-slide-in-left">
               <div className="flex h-16 items-center gap-3 border-b border-line px-4">
-                <img src="/mark.svg" alt="" className="h-8 w-8 rounded-lg" />
+                <img src="/mark.svg" alt="" width={32} height={32} className="h-8 w-8 rounded-lg" />
                 <div className="min-w-0"><p className="text-sm font-bold tracking-[0.14em] text-ink">VANTAGE</p><p className="truncate text-2xs text-ink-3">{user ? `${user.first_name} ${user.last_name}` : ''}</p></div>
                 <button type="button" onClick={() => setDrawer(false)} className="ml-auto rounded-md p-2 text-ink-3 hover:bg-surface-2" aria-label="Close menu"><X className="h-4 w-4" /></button>
               </div>
@@ -249,7 +250,7 @@ export default function AppShell() {
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-accent" /><span>{identity.instance.announcement}</span>
               </div>
             )}
-            <div key={location.pathname} className="animate-fade-up"><Outlet /></div>
+            <ErrorBoundary resetKey={location.pathname + location.search}><div key={location.pathname} className="animate-fade-up"><Outlet /></div></ErrorBoundary>
           </main>
           <footer className="no-print border-t border-line px-5 py-2.5 text-2xs text-ink-3 lg:px-8">Vantage v{VERSION} · Records stay on this deployment's server.</footer>
         </div>
