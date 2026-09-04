@@ -8,7 +8,7 @@ export interface TestApp {
   ctx: AppContext;
   base: string;
   close: () => Promise<void>;
-  call: (method: string, path: string, opts?: { token?: string; body?: unknown; headers?: Record<string, string>; raw?: Buffer }) => Promise<{ status: number; body: any; headers: Headers; text: string }>;
+  call: (method: string, path: string, opts?: { token?: string; body?: unknown; headers?: Record<string, string>; raw?: Buffer; binary?: boolean }) => Promise<{ status: number; body: any; headers: Headers; text: string; buffer?: Buffer }>;
   setupOperator: () => Promise<{ token: string; id: string; unitId: string }>;
   register: (username: string, extra?: Record<string, unknown>) => Promise<{ token: string; id: string }>;
   login: (username: string, password?: string) => Promise<{ status: number; body: any }>;
@@ -31,6 +31,7 @@ export async function startApp(env: Record<string, string> = {}): Promise<TestAp
   const call: TestApp['call'] = async (method, path, opts = {}) => {
     const headers: Record<string, string> = { ...(opts.raw ? {} : { 'content-type': 'application/json' }), ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}), ...(opts.headers || {}) };
     const res = await fetch(base + path, { method, headers, body: opts.raw ? new Uint8Array(opts.raw) : opts.body !== undefined ? JSON.stringify(opts.body) : undefined });
+    if (opts.binary) { const buffer = Buffer.from(await res.arrayBuffer()); return { status: res.status, body: null, headers: res.headers, text: '', buffer }; }
     const text = await res.text();
     let body: any = null;
     try { body = text ? JSON.parse(text) : null; } catch { body = text; }

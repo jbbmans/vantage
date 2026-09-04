@@ -167,6 +167,7 @@ const qs = (params: Record<string, string | number | undefined | null>) => Objec
 export const report = (params: Record<string, string | number | undefined | null>) => api.get(`/reports?${qs(params)}`);
 export const reportDelta = (params: Record<string, string | number | undefined | null>) => api.get(`/reports/delta?${qs(params)}`);
 export const reportPdfUrl = (params: Record<string, string | number | undefined | null>) => `/api/reports/pdf?${qs(params)}`;
+export const myExportUrl = (format: 'zip' | 'json') => `/api/me/export?format=${format}`;
 export const reportCsvUrl = (params: Record<string, string | number | undefined | null>) => `/api/reports/csv?${qs(params)}`;
 export const aiStatus = () => api.get('/ai/status');
 export const aiAssist = (workflow: string, input: unknown, model?: string) => api.post('/ai/assist', { workflow, input, model });

@@ -173,14 +173,21 @@ function Digest() {
 }
 
 function DataTab() {
-  const toast = useToast(); const [importOpen, setImportOpen] = useState(false);
+  const toast = useToast(); const [importOpen, setImportOpen] = useState(false); const [exporting, setExporting] = useState<'zip' | 'json' | null>(null);
+  const exportAll = async (format: 'zip' | 'json') => {
+    setExporting(format);
+    try { const n = await withSudo(() => api.downloadFile(api.myExportUrl(format), `vantage-export.${format}`)); toast.success(`Downloaded ${n}.`); }
+    catch (e) { toast.error(api.errorText(e)); }
+    finally { setExporting(null); }
+  };
   const exportCsv = async () => { try { const n = await api.downloadFile(api.reportCsvUrl({ period: 'all' }), 'vantage-activities.csv'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } };
   const exportPdf = async () => { try { const n = await api.downloadFile(api.reportPdfUrl({ period: 'fiscalYear', limit: 12 }), 'vantage-report.pdf'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } };
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Panel title="Export" subtitle="your records belong to you">
-        <div className="flex flex-wrap gap-2"><Button onClick={exportCsv}><Download className="h-4 w-4" />All activities (CSV)</Button><Button onClick={exportPdf}><Printer className="h-4 w-4" />This FY as PDF</Button></div>
-        <p className="mt-3 text-xs leading-relaxed text-ink-3">The CSV includes a Vantage ID column. Edit it in a spreadsheet and import it back: rows with an ID update the original, rows without become new entries.</p>
+      <Panel title="Export everything" subtitle="your record belongs to you" className="lg:col-span-2">
+        <div className="flex flex-wrap gap-2"><Button variant="primary" onClick={() => exportAll('zip')} loading={exporting === 'zip'}><Download className="h-4 w-4" />Everything (ZIP)</Button><Button onClick={() => exportAll('json')} loading={exporting === 'json'}><Download className="h-4 w-4" />Everything (JSON)</Button><Button onClick={exportCsv}><Download className="h-4 w-4" />Activities (CSV)</Button><Button onClick={exportPdf}><Printer className="h-4 w-4" />This FY as PDF</Button></div>
+        <p className="mt-3 text-xs leading-relaxed text-ink-3">The ZIP holds every piece of data tied to your account: profile, rank, MOS and EAS, units, memberships and roles, every activity, task, project, goal, training, award and counseling (recycle bin included), readiness figures, attachments as files, notifications, preferences, the audit trail of your record, AI usage, and email history. It arrives as one JSON file plus a CSV per dataset. Secrets never leave: no password, authenticator, or passkey material.</p>
+        <p className="mt-2 text-xs leading-relaxed text-ink-3">The activities CSV includes a Vantage ID column. Edit it in a spreadsheet and import it back: rows with an ID update the original, rows without become new entries.</p>
       </Panel>
       <Panel title="Import" subtitle="from a Vantage export or any spreadsheet">
         <Button variant="primary" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4" />Import CSV</Button>

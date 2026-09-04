@@ -17,6 +17,7 @@ import { newId, now } from '../lib/ids.ts';
 import { ancestorIds } from '../services/org.ts';
 import { PERMISSION_LIST } from '../../shared/permissions.ts';
 import { composeDigest, sendDigest } from '../services/digest.ts';
+import { buildPersonalExport, buildPersonalExportZip } from '../services/personalExport.ts';
 
 export const meRouter = Router();
 meRouter.use(requireAuth);
@@ -96,6 +97,26 @@ meRouter.post('/password', wrap((req, res) => {
   const revoked = invalidateUserSessions(ctx, req.user.id, req.sessionId);
   audit(ctx, { actor_id: req.user.id, action: 'password_change', detail: `other sessions revoked: ${revoked}`, ip: clientIp(req) });
   res.json({ ok: true, otherSessionsRevoked: revoked });
+}));
+
+/** Everything the signed-in Marine owns, as one JSON archive or a zip of JSON + CSVs + attachments. Step-up required: it is the whole record. */
+meRouter.get('/export', requireSudo, wrap((req, res) => {
+  const ctx = req.ctx;
+  const format = req.query.format === 'json' ? 'json' : 'zip';
+  if (format === 'json') {
+    const { _files, ...archive } = buildPersonalExport(ctx, req.user.id, { attachments: false });
+    void _files;
+    audit(ctx, { actor_id: req.user.id, action: 'export_personal', entity: 'user', entity_id: req.user.id, detail: `json; ${JSON.stringify(archive.counts)}`.slice(0, 900), ip: clientIp(req) });
+    res.setHeader('Content-Type', 'application/json; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="vantage-${req.user.username}-${archive.exported_at.slice(0, 10)}.json"`);
+    res.send(JSON.stringify(archive, null, 2));
+    return;
+  }
+  const { buffer, filename, counts } = buildPersonalExportZip(ctx, req.user.id);
+  audit(ctx, { actor_id: req.user.id, action: 'export_personal', entity: 'user', entity_id: req.user.id, detail: `zip; ${JSON.stringify(counts)}`.slice(0, 900), ip: clientIp(req) });
+  res.setHeader('Content-Type', 'application/zip');
+  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+  res.send(buffer);
 }));
 
 meRouter.get('/sessions', wrap((req, res) => res.json({ sessions: listSessions(req.ctx, req.user.id, req.sessionId) })));
