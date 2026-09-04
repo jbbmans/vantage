@@ -7,11 +7,17 @@ import { now } from '../lib/ids.ts';
 
 const challenges = new Map<string, { challenge: string; userId: string | null; expires: number }>();
 const CHALLENGE_TTL = 5 * 60_000;
+/** Hard ceiling on outstanding challenges; beyond it the oldest are dropped so a flood of option requests cannot grow memory. */
+export const MAX_CHALLENGES = 2000;
+let sweptAt = 0;
 
 function remember(key: string, challenge: string, userId: string | null) {
-  for (const [k, v] of challenges) if (v.expires < Date.now()) challenges.delete(k);
-  challenges.set(key, { challenge, userId, expires: Date.now() + CHALLENGE_TTL });
+  const at = Date.now();
+  if (at - sweptAt > 30_000) { sweptAt = at; for (const [k, v] of challenges) if (v.expires < at) challenges.delete(k); }
+  while (challenges.size >= MAX_CHALLENGES) challenges.delete(challenges.keys().next().value as string);
+  challenges.set(key, { challenge, userId, expires: at + CHALLENGE_TTL });
 }
+export function passkeyChallengeCount() { return challenges.size; }
 
 function take(key: string) {
   const entry = challenges.get(key);

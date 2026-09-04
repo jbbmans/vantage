@@ -135,6 +135,7 @@ export function unitName(identity: Identity | undefined, unitId?: string | null,
 }
 
 export async function signOutEverywhere() {
+  try { await api.revokeOtherSessions(); } catch {}
   try { await api.logout(); } catch {}
   queryClient.clear();
   window.dispatchEvent(new CustomEvent('vantage:signed-out'));

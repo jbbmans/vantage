@@ -244,3 +244,11 @@ test('zonedNow reports the wall clock of the configured timezone', async () => {
   assert.equal(tokyo.getDate(), 1);
   assert.equal(tokyo.getHours(), 11);
 });
+
+test('csv import rejects impossible slash dates instead of rolling them forward', () => {
+  const parsed = C.parseCsvText('Date,Title\n02/30/2026,Rolled\n2/28/26,Fine\n13/01/2026,Bad month\n');
+  const { records, problems } = C.applyMapping(parsed.rows, C.guessMapping(parsed.columns));
+  assert.deepEqual(records.map((r) => r.date), ['2026-02-28']);
+  assert.deepEqual(problems.map((p) => p.row), [2, 4]);
+  assert.ok(problems.every((p) => p.issue === 'unreadable date'));
+});

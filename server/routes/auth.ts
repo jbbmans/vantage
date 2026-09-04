@@ -158,8 +158,10 @@ authRouter.post('/login/mfa', wrap((req, res) => {
 
 authRouter.post('/passkey/options', wrap(async (req, res) => {
   const ctx = req.ctx;
-  const limited = limiters.loginIp.limited(clientIp(req));
+  const ip = clientIp(req);
+  const limited = limiters.loginIp.limited(ip);
   if (limited) throw tooMany('Too many sign-in attempts from this connection. Try again later.', limited.retryAfter);
+  limiters.loginIp.bump(ip);
   const username = typeof req.body?.username === 'string' ? req.body.username.trim().toLowerCase().slice(0, 40) : null;
   const { options, key } = await authenticationOptions(ctx, username || null);
   res.json({ options, key });
@@ -211,8 +213,9 @@ authRouter.post('/forgot', wrap(async (req, res) => {
     const { token } = issueToken(ctx, 'reset', { userId: row.id, email: row.email, ttlMinutes: 30, payload: { ip } });
     const url = `${ctx.config.publicUrl}/reset?token=${encodeURIComponent(token)}`;
     const mail = layout({ title: 'Reset your Vantage password', intro: `${row.first_name}, someone asked to reset the password for ${row.username}. This link works for 30 minutes and only once. If that was not you, ignore this message.`, cta: { label: 'Choose a new password', url } });
-    await ctx.mailer.send({ to: row.email, subject: 'Reset your Vantage password', text: mail.text, html: mail.html, kind: 'reset', userId: row.id });
     audit(ctx, { actor_id: row.id, action: 'password_reset_requested', subject_id: row.id, ip });
+    // Not awaited: the response must take the same time whether or not an account matched, so a slow provider cannot reveal one.
+    void ctx.mailer.send({ to: row.email, subject: 'Reset your Vantage password', text: mail.text, html: mail.html, kind: 'reset', userId: row.id }).catch(() => undefined);
   }
   res.json({ ok: true, emailEnabled: ctx.mailer.enabled });
 }));

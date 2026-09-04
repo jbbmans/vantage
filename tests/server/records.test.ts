@@ -347,8 +347,26 @@ test('the counseled Marine can acknowledge a leader-recorded counseling but not 
   assert.equal(c.status, 201);
   assert.equal((await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: rivera.token, body: { summary: 'Rewritten by the subject', version: c.body.version } })).status, 403);
   assert.equal((await app.call('DELETE', `/api/records/counselings/${c.body.id}`, { token: rivera.token })).status, 403);
+  const corrected = await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: nguyen.token, body: { summary: 'Corrected by the counselor before acknowledgement', version: c.body.version } });
+  assert.equal(corrected.status, 200);
   assert.equal((await app.call('POST', `/api/records/counselings/${c.body.id}/acknowledge`, { token: rivera.token })).status, 200);
-  assert.equal((await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: nguyen.token, body: { summary: 'Corrected by the counselor', version: c.body.version + 1 } })).status, 200);
+  // Once acknowledged, the text the Marine signed off on is frozen for the counselor too.
+  assert.equal((await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: nguyen.token, body: { summary: 'Rewritten after acknowledgement', version: corrected.body.version + 1 } })).status, 403);
+  assert.equal((await app.call('DELETE', `/api/records/counselings/${c.body.id}`, { token: nguyen.token })).status, 403);
+});
+
+test('restoring an activity whose identical twin is live is a conflict, not a crash', async () => {
+  const first = await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Twin entry', date: '2026-02-02', quantity: 4, unit_label: 'MIPRs' } });
+  assert.equal(first.status, 201);
+  assert.equal((await app.call('DELETE', `/api/records/activities/${first.body.id}`, { token: rivera.token })).status, 200);
+  const second = await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Twin entry', date: '2026-02-02', quantity: 4, unit_label: 'MIPRs' } });
+  assert.equal(second.status, 201);
+  const restore = await app.call('POST', `/api/records/activities/${first.body.id}/restore`, { token: rivera.token });
+  assert.equal(restore.status, 409);
+  assert.equal(restore.body.code, 'duplicate');
+  assert.equal(restore.body.duplicate_id, second.body.id);
+  assert.equal((await app.call('DELETE', `/api/records/activities/${second.body.id}`, { token: rivera.token })).status, 200);
+  assert.equal((await app.call('POST', `/api/records/activities/${first.body.id}/restore`, { token: rivera.token })).status, 200);
 });
 
 test('a soft-deleted project keeps its task links so a restore brings it back whole', async () => {

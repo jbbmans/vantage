@@ -249,6 +249,10 @@ export function restoreRecord(ctx: AppContext, user: SessionUser, table: RecordT
   if (!row || !row.deleted_at) throw notFound('No such deleted record.');
   const scope = scopeFor(ctx, user, reqKey);
   if (!canEdit(scope, user.id, row)) throw forbidden('That record is not yours to restore.');
+  if (table === 'activities' && row.fingerprint) {
+    const twin = ctx.db.prepare('SELECT id, title FROM activities WHERE user_id = ? AND fingerprint = ? AND deleted_at IS NULL AND id != ?').get(row.user_id, row.fingerprint, id) as { id: string; title: string } | undefined;
+    if (twin) throw conflict(`An identical live entry already exists (“${twin.title}”). Delete that one first, or leave this copy to purge.`, 'duplicate', { duplicate_id: twin.id });
+  }
   ctx.db.prepare(`UPDATE ${table} SET deleted_at = NULL, updated_at = ? WHERE id = ?`).run(now(), id);
   audit(ctx, { actor_id: user.id, action: 'restore', entity: table, entity_id: id, unit_id: row.unit_id, ip });
   return getRecord(ctx, table, id)!;

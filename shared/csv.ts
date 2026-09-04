@@ -114,8 +114,10 @@ const toISODate = (v: unknown): string | null => {
   const m = s.match(/^(\d{1,2})\/(\d{1,2})\/(\d{2,4})$/);
   if (m) {
     const y = m[3].length === 2 ? 2000 + Number(m[3]) : Number(m[3]);
-    const d = new Date(Date.UTC(y, Number(m[1]) - 1, Number(m[2])));
-    return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+    const month = Number(m[1]); const day = Number(m[2]);
+    const d = new Date(Date.UTC(y, month - 1, day));
+    if (Number.isNaN(d.getTime()) || d.getUTCFullYear() !== y || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return null;
+    return d.toISOString().slice(0, 10);
   }
   const d = new Date(s);
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);

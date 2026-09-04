@@ -146,7 +146,8 @@ export function startSchedulers(ctx: AppContext) {
   const every = (ms: number, fn: () => void) => { const t = setInterval(fn, ms); t.unref?.(); timers.push(t); };
   every(15 * 60_000, () => { pruneLimiters(); try { pruneSessions(ctx); } catch {} });
   every(6 * 60 * 60_000, () => { try { const r = purgeDeleted(ctx); if (r.records) console.log(`${now()} purged ${r.records} records from the recycle bin`); } catch (e) { console.warn(`Purge failed: ${(e as Error).message}`); } });
-  if (ctx.runtime.maradminsEnabled && !ctx.config.test) {
+  if (!ctx.config.test) {
+    // Registered whether or not the feed is on: syncMaradmins is a no-op while the runtime switch is off, so enabling it later starts refreshes without a restart.
     const run = () => syncMaradmins(ctx).catch((e: Error) => console.warn(`MARADMIN refresh skipped: ${e.message}`));
     const first = setTimeout(run, 3_000); first.unref?.(); timers.push(first);
     every(5 * 60_000, run);
