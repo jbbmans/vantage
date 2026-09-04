@@ -235,3 +235,35 @@ test('passkey option requests count against the sign-in limiter and the challeng
   resetPasskeyChallenges();
   resetLimiters();
 });
+
+test('second-factor failures are counted per account, so a fresh challenge does not reset the limit', async () => {
+  resetLimiters();
+  const u = await app.register('lockme');
+  assert.equal((await app.call('POST', '/api/auth/sudo', { token: u.token, body: { password: PASSWORD } })).status, 200);
+  const start = await app.call('POST', '/api/me/mfa/totp/start', { token: u.token });
+  assert.equal(start.status, 200);
+  assert.equal((await app.call('POST', '/api/me/mfa/totp/confirm', { token: u.token, body: { code: totpCode(start.body.secret, Math.floor(Date.now() / 30000)) } })).status, 200);
+  let lastLogin = 0;
+  for (let i = 0; i < 12; i++) {
+    const login = await app.login('lockme');
+    lastLogin = login.status;
+    if (login.status !== 200) break;
+    assert.equal(login.body.mfa, 'totp');
+    const bad = await app.call('POST', '/api/auth/login/mfa', { body: { challenge: login.body.challenge, code: '000000' } });
+    assert.ok(bad.status === 401 || bad.status === 429, `attempt ${i}: ${bad.status} ${JSON.stringify(bad.body)}`);
+  }
+  assert.equal(lastLogin, 429, 'replacement challenges should stop being issued once the account is locked');
+  resetLimiters();
+});
+
+test('the profile endpoint cannot change an email address without the confirmation link when email is configured', async () => {
+  const u = await app.register('mailer', { email: 'mailer@example.mil' });
+  assert.equal((await app.call('POST', '/api/auth/sudo', { token: u.token, body: { password: PASSWORD } })).status, 200);
+  const direct = await app.call('PUT', '/api/me/profile', { token: u.token, body: { email: 'stolen@example.mil' } });
+  assert.equal(direct.status, 400);
+  assert.match(direct.body.error, /confirm/i);
+  assert.equal((await app.call('GET', '/api/me', { token: u.token })).body.user.email, 'mailer@example.mil');
+  const cleared = await app.call('PUT', '/api/me/profile', { token: u.token, body: { email: null } });
+  assert.equal(cleared.status, 200);
+  assert.equal((await app.call('GET', '/api/me', { token: u.token })).body.user.email, null);
+});

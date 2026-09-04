@@ -54,6 +54,7 @@ export default function Work() {
   const newProject = () => setProjectDraft({ name: '', description: '', status: 'active', priority: 'medium', progress: 0, start_date: today, target_date: '', organization: '', visibility: prefs.defaultVisibility || 'private', unit_id: identity?.primaryUnitId || null });
   const canAssign = Boolean(identity && Object.values(identity.permissions).some((b) => b & ((1 << 12) | (1 << 4))));
   const canEditRow = (r: any) => r.user_id === me || Boolean(r.unit_id && identity && ((identity.permissions[r.unit_id] || 0) & ((1 << 12) | (1 << 3))));
+  const canToggleRow = (r: any) => canEditRow(r) || (r.assignee_id === me && r.visibility === 'unit');
 
   return (
     <div className="page">
@@ -75,7 +76,7 @@ export default function Work() {
                   <header className="flex items-center gap-2 border-b border-line px-4 py-2"><span className={cn('badge-dot', tone === 'bad' ? 'bg-bad' : tone === 'warn' ? 'bg-warn' : tone === 'good' ? 'bg-good' : 'bg-line-strong')} /><h2 className="text-sm font-semibold text-ink">{label}</h2><span className="fig text-xs text-ink-3">{list.length}</span></header>
                   <ul>{list.map((t: any) => (
                     <li key={t.id} className="row flex items-start gap-3 px-4 py-2.5">
-                      <button type="button" onClick={() => toggle(t)} disabled={!canEditRow(t)} className="mt-0.5 text-ink-3 hover:text-good disabled:opacity-40" aria-label={t.status === 'completed' ? 'Reopen task' : 'Complete task'}>{t.status === 'completed' ? <CheckCircle2 className="h-5 w-5 text-good" /> : <Circle className="h-5 w-5" />}</button>
+                      <button type="button" onClick={() => toggle(t)} disabled={!canToggleRow(t)} className="mt-0.5 text-ink-3 hover:text-good disabled:opacity-40" aria-label={t.status === 'completed' ? 'Reopen task' : 'Complete task'}>{t.status === 'completed' ? <CheckCircle2 className="h-5 w-5 text-good" /> : <Circle className="h-5 w-5" />}</button>
                       <div className="min-w-0 flex-1">
                         <button type="button" className={cn('block truncate text-left text-sm font-medium text-ink hover:underline', t.status === 'completed' && 'line-through text-ink-3')} onClick={() => canEditRow(t) && setTaskDraft({ ...t, notes: t.notes || '', due_date: t.due_date || '' })}>{t.title}</button>
                         <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-3">

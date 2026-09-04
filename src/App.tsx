@@ -3,6 +3,7 @@ import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-route
 import { useQueryClient } from '@tanstack/react-query';
 import AppShell from '@/components/AppShell';
 import Login from '@/pages/Login';
+import ForcePasswordChange from '@/pages/ForcePasswordChange';
 import Dashboard from '@/pages/Dashboard';
 import { ToastProvider } from '@/components/ui/toast';
 import { TooltipProvider, Skeleton, EmptyState, Button } from '@/components/ui/primitives';
@@ -82,6 +83,10 @@ export default function App() {
           {signedOut || !identity.data ? (
             <Routes>
               <Route path="*" element={<Login serverError={identity.isError && (identity.error as { status?: number })?.status !== 401 ? (identity.error as Error).message : null} onRetry={() => identity.refetch()} />} />
+            </Routes>
+          ) : identity.data.user.must_change_password ? (
+            <Routes>
+              <Route path="*" element={<ForcePasswordChange />} />
             </Routes>
           ) : (
             <Routes>

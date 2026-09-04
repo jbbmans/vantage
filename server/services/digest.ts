@@ -1,3 +1,4 @@
+import { zonedDay } from '../lib/clock.ts';
 import { withGoalProgress } from './records.ts';
 import type { AppContext } from '../context.ts';
 import { layout } from './email.ts';
@@ -19,9 +20,9 @@ export function localClock(timezone: string, at = new Date()) {
 
 export function composeDigest(ctx: AppContext, user: DigestUser) {
   const db = ctx.db;
-  const since = new Date(Date.now() - 7 * 86_400_000).toISOString().slice(0, 10);
-  const todayIso = new Date().toISOString().slice(0, 10);
-  const soon = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
+  const since = zonedDay(ctx.config.timezone, -7);
+  const todayIso = zonedDay(ctx.config.timezone);
+  const soon = zonedDay(ctx.config.timezone, 14);
   const acts = db.prepare(`SELECT title, dollar_amount, dollar_type, result FROM activities WHERE user_id = ? AND deleted_at IS NULL AND date >= ? ORDER BY date DESC`).all(user.id, since) as Array<{ title: string; dollar_amount: number | null; dollar_type: string | null; result: string | null }>;
   const dollars = acts.reduce((n, a) => n + (isSummable(a.dollar_type, ctx.runtime.metrics) ? Number(a.dollar_amount) || 0 : 0), 0);
   const noOutcome = acts.filter((a) => !a.result).length;

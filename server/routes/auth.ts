@@ -126,6 +126,8 @@ authRouter.post('/login', wrap((req, res) => {
   if (userLimit) throw tooMany('Too many failed attempts for this account. Try again later.', userLimit.retryAfter);
   limiters.loginUser.clear(name);
   if (row.totp_enabled) {
+    const mfaLimit = limiters.mfaUser.limited(row.id);
+    if (mfaLimit) throw tooMany('Too many second-factor failures for this account. Try again later.', mfaLimit.retryAfter);
     const { token } = issueToken(ctx, 'login_mfa', { userId: row.id, ttlMinutes: 5, payload: { ip } });
     return res.json({ ok: false, mfa: 'totp', challenge: token });
   }
@@ -143,6 +145,8 @@ authRouter.post('/login/mfa', wrap((req, res) => {
   if (!pending?.user_id) throw unauthorized('The sign-in challenge expired. Start again.', 'challenge_expired');
   const row = ctx.db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(pending.user_id) as UserRow | undefined;
   if (!row) throw unauthorized('The sign-in challenge expired. Start again.', 'challenge_expired');
+  const accountLimit = limiters.mfaUser.limited(row.id);
+  if (accountLimit) throw tooMany('Too many second-factor failures for this account. Try again later.', accountLimit.retryAfter);
   const secret = row.totp_secret ? decryptSecret(ctx.config.secret, row.totp_secret) : null;
   const clean = code.replace(/\s+/g, '').toLowerCase();
   let ok = Boolean(secret) && verifyTotp(secret!, clean);
@@ -151,7 +155,14 @@ authRouter.post('/login/mfa', wrap((req, res) => {
     const rc = ctx.db.prepare('SELECT id FROM recovery_codes WHERE user_id = ? AND code_hash = ? AND used_at IS NULL').get(row.id, sha256(`recovery:${normalized}`)) as { id: string } | undefined;
     if (rc) { ctx.db.prepare('UPDATE recovery_codes SET used_at = ? WHERE id = ?').run(now(), rc.id); ok = true; audit(ctx, { actor_id: row.id, action: 'recovery_code_used', ip }); }
   }
-  if (!ok) { limiters.mfaToken.bump(key); throw unauthorized('That code is not valid.', 'bad_code'); }
+  if (!ok) {
+    limiters.mfaToken.bump(key);
+    limiters.loginIp.bump(ip);
+    const e = limiters.mfaUser.bump(row.id);
+    if (e.count === 10) audit(ctx, { actor_id: row.id, action: 'login_lockout', ip, detail: 'second-factor failure threshold reached' });
+    throw unauthorized('That code is not valid.', 'bad_code');
+  }
+  limiters.mfaUser.clear(row.id);
   consumeToken(ctx, 'login_mfa', challenge);
   return finishSignIn(req, res, row, 'password+totp');
 }));

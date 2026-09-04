@@ -1,6 +1,9 @@
 export const MAX_IMPORT_ROWS = 1000;
 export const MAX_IMPORT_COLUMNS = 100;
 
+/** Undo the apostrophe safeCell adds so a round-tripped export does not grow one per pass. */
+export const unprotectCell = (text: string) => (/^'\s*[=+\-@]/u.test(text) ? text.slice(1) : text);
+
 export function safeCell(value: unknown): string {
   if (typeof value === 'number' && Number.isFinite(value)) return String(value);
   const text = String(value ?? '');
@@ -138,7 +141,7 @@ export function applyMapping(rows: Array<Record<string, string>>, mapping: Recor
     for (const [field, column] of Object.entries(mapping)) {
       if (!column) continue;
       const raw = row[column];
-      rec[field] = raw == null ? '' : String(raw).trim();
+      rec[field] = raw == null ? '' : unprotectCell(String(raw).trim());
     }
     const out: ImportedActivity = {
       id: rec.id ? String(rec.id) : undefined,

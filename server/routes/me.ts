@@ -64,6 +64,7 @@ meRouter.put('/profile', wrap((req, res) => {
   const body = parse(profileSchema, req.body);
   if (body.email !== undefined && body.email !== req.user.email) {
     if (!req.sessionRow.sudo_until || new Date(req.sessionRow.sudo_until).getTime() < Date.now()) throw forbidden('Confirm your password to change your email.', 'sudo_required');
+    if (body.email && ctx.mailer.enabled) throw badRequest('New addresses are confirmed by a link. Use the email confirmation flow.', { code: 'email_confirmation_required', fieldErrors: { email: 'Confirm the new address through the link sent to it.' } });
     if (body.email && ctx.db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id <> ?').get(body.email, req.user.id)) throw badRequest('That email is already in use.', { fieldErrors: { email: 'Already in use.' } });
   }
   if (body.rank_id && !ctx.db.prepare('SELECT 1 FROM ranks WHERE id = ?').get(body.rank_id)) throw badRequest('No such rank.', { fieldErrors: { rank_id: 'No such rank.' } });

@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { AppContext, SessionUser } from '../context.ts';
 import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
 import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor } from '../authz/scope.ts';
-import { readableClause, canEdit, canPlace, canRead, type RecordRow } from '../authz/records.ts';
+import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS } from '../authz/records.ts';
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
 import { valueType } from '../../shared/constants.ts';
 
@@ -184,8 +184,14 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const row = getRecord(ctx, table, id);
   if (!row) throw notFound('No such record.');
   const scope = scopeFor(ctx, user, reqKey);
-  if (!canEdit(scope, user.id, row)) throw forbidden(row.frozen_at ? 'That record is frozen because the author left the unit.' : 'That record is not yours to edit.');
+  const assigneeOnly = !canEdit(scope, user.id, row) && isAssignee(scope, user.id, row);
+  if (!canEdit(scope, user.id, row) && !assigneeOnly) throw forbidden(row.frozen_at ? 'That record is frozen because the author left the unit.' : 'That record is not yours to edit.');
   const data = parse((RECORD_SCHEMAS[table] as unknown as { partial: () => never }).partial() as never, body) as Record<string, unknown>;
+  if (assigneeOnly) {
+    const allowed = new Set([...(ASSIGNEE_FIELDS[table] || []), 'version']);
+    const blocked = Object.keys(data).filter((k) => data[k] !== undefined && !allowed.has(k));
+    if (blocked.length) throw forbidden(`As the assignee you may update ${(ASSIGNEE_FIELDS[table] || []).join(' and ')}, not ${blocked.join(', ')}.`, 'assignee_fields_only');
+  }
   checkValueType(ctx, table, data);
 
   const finalVisibility = (data.visibility as string | undefined) ?? row.visibility;

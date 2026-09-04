@@ -98,6 +98,7 @@ miscRouter.get('/reports/pdf', wrap(async (req, res) => {
 
 miscRouter.get('/reports/csv', wrap((req, res) => {
   const { q, userId, unitId } = reportTarget(req);
+  if (userId !== req.user.id && !(unitId && can(scopeFor(req.ctx, req.user, req), PERMISSIONS.EXPORT_DATA, unitId))) throw forbidden('Exporting another Marine’s records needs the unit’s export permission.');
   const where = unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
   const params = unitId ? [userId, unitId] : [userId];
   const dateClause = q.period === 'all' ? '' : ' AND date >= ? AND date <= ?';

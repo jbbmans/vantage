@@ -37,6 +37,12 @@ export function canEdit(scope: Scope, userId: string, row: RecordRow): boolean {
   return can(scope, PERMISSIONS.MANAGE_RECORDS, row.unit_id);
 }
 
+/** Fields an assignee may change on work assigned to them: execution, never disclosure, ownership, or assignment. */
+export const ASSIGNEE_FIELDS: Record<string, readonly string[]> = { tasks: ['status', 'notes'], goals: ['status', 'current_value'] };
+export function isAssignee(scope: Scope, userId: string, row: RecordRow): boolean {
+  return Boolean(row.assignee_id && row.assignee_id === userId && row.user_id !== userId && row.visibility === 'unit' && row.unit_id && isMember(scope, row.unit_id) && !row.frozen_at);
+}
+
 /** May the caller place a record with this visibility inside this unit? */
 export function canPlace(scope: Scope, visibility: string, unitId: string | null, shareFlag: number, personal = false): boolean {
   if (visibility === 'private') return !unitId || isMember(scope, unitId) || can(scope, shareFlag, unitId);

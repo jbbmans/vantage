@@ -4,7 +4,7 @@ import type { AppContext, SessionUser } from '../context.ts';
 import { PERMISSIONS, can, scopeFor, detailUnitsFor } from '../authz/scope.ts';
 import { HttpError } from '../lib/errors.ts';
 import { limiters } from '../auth/limiter.ts';
-import { today } from '../lib/ids.ts';
+import { zonedDay } from '../lib/clock.ts';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const state = { lockedAt: null as string | null, unlockUrl: null as string | null, lastErrorAt: null as string | null, lastErrorCode: null as string | number | null };
@@ -72,7 +72,7 @@ const goalView = (g: GoalRow) => ({ title: g.title, target_value: g.target_value
 
 function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, input: unknown, reqKey: object) {
   const safe = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Record<string, unknown>;
-  const nowDay = today();
+  const nowDay = zonedDay(ctx.config.timezone);
   const scope = scopeFor(ctx, user, reqKey);
   switch (workflow) {
     case 'quick_log': {
@@ -177,7 +177,7 @@ function preflight(ctx: AppContext, userId: string) {
   if (g) throw new AiError('AI request limit reached. Try again shortly.', 429, 'rate_limit', { retryAfter: g.retryAfter });
   const u = limiters.aiUser.limited(userId);
   if (u) throw new AiError('Your AI request limit is reached. Try again shortly.', 429, 'rate_limit', { retryAfter: u.retryAfter });
-  const day = today();
+  const day = zonedDay(ctx.config.timezone);
   const total = (ctx.db.prepare('SELECT COALESCE(SUM(total_tokens), 0) AS t FROM ai_usage_daily WHERE day = ?').get(day) as { t: number }).t;
   const mine = (ctx.db.prepare('SELECT COALESCE(SUM(total_tokens), 0) AS t FROM ai_usage_daily WHERE day = ? AND user_id = ?').get(day, userId) as { t: number }).t;
   if (total >= ctx.config.ai.dailyTokenBudget) throw new AiError('The Vantage daily AI budget has been reached.', 429, 'daily_limit');
@@ -206,7 +206,7 @@ function storeUsage(ctx: AppContext, userId: string, workflow: string, model: st
     `INSERT INTO ai_usage_daily (day, user_id, workflow, model, requests, prompt_tokens, completion_tokens, total_tokens, failures) VALUES (?, ?, ?, ?, 1, ?, ?, ?, ?)
      ON CONFLICT(day, user_id, workflow, model) DO UPDATE SET requests = requests + 1, prompt_tokens = prompt_tokens + excluded.prompt_tokens,
        completion_tokens = completion_tokens + excluded.completion_tokens, total_tokens = total_tokens + excluded.total_tokens, failures = failures + excluded.failures`
-  ).run(today(), userId, workflow, model, prompt, completion, total, success ? 0 : 1);
+  ).run(zonedDay(ctx.config.timezone), userId, workflow, model, prompt, completion, total, success ? 0 : 1);
   return { prompt_tokens: prompt, completion_tokens: completion, total_tokens: total };
 }
 
@@ -303,7 +303,7 @@ export async function discoverModels(ctx: AppContext): Promise<string[]> {
 }
 
 export function aiStatus(ctx: AppContext, { operator = false, userId = null as string | null } = {}) {
-  const day = today();
+  const day = zonedDay(ctx.config.timezone);
   const models = ctx.runtime.aiModels.length ? ctx.runtime.aiModels : ctx.config.ai.models;
   const mine = userId ? (ctx.db.prepare('SELECT COALESCE(SUM(requests), 0) AS requests, COALESCE(SUM(total_tokens), 0) AS total_tokens FROM ai_usage_daily WHERE day = ? AND user_id = ?').get(day, userId) as { requests: number; total_tokens: number }) : null;
   const base = {

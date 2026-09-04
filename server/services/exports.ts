@@ -4,6 +4,7 @@ import { VERSION } from '../version.ts';
 import { now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { hmac } from '../lib/crypto.ts';
+import { loadRuntime } from '../runtime.ts';
 
 const keyCheck = (secret: string) => hmac(secret, 'vantage-instance-key-check');
 
@@ -54,6 +55,8 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   } finally {
     ctx.db.pragma('foreign_keys = ON');
   }
+  // The archive brought its own runtime settings; the in-memory copy must follow or the next save would overwrite them.
+  Object.assign(ctx.runtime, loadRuntime(ctx.db, ctx.config));
   // The importing operator's own account was replaced by the archive, so the entry names it in detail rather than by foreign key.
   audit(ctx, { actor_id: null, action: 'instance_import', entity: 'instance', detail: `by ${actorId}; ${JSON.stringify(counts)}`.slice(0, 900) });
   return counts;

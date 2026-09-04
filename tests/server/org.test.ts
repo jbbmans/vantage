@@ -351,3 +351,13 @@ test('an owner can redefine the money metric, value types, and categories; forms
   const { DEFAULT_METRICS } = await import('../../shared/constants.ts');
   await app.call('PUT', '/api/admin/runtime', { token: opToken, body: { metrics: DEFAULT_METRICS } });
 });
+
+test('digest windows and AI dates follow the instance timezone', async () => {
+  const { zonedDay } = await import('../../server/lib/clock.ts');
+  const at = new Date('2026-09-04T23:30:00Z');
+  assert.equal(zonedDay('America/New_York', 0, at), '2026-09-04');
+  assert.equal(zonedDay('UTC', 0, at), '2026-09-04');
+  assert.equal(zonedDay('Pacific/Kiritimati', 0, at), '2026-09-05');
+  assert.equal(zonedDay('America/New_York', -7, at), '2026-08-28');
+  assert.equal(zonedDay('America/New_York', 14, at), '2026-09-18');
+});

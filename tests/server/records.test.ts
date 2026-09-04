@@ -239,7 +239,15 @@ test('preferences validate and persist; profile email change needs sudo', async 
   const email = await app.call('PUT', '/api/me/profile', { token: rivera.token, body: { email: 'rivera@example.mil' } });
   assert.equal(email.status, 403);
   await app.call('POST', '/api/auth/sudo', { token: rivera.token, body: { password: PASSWORD } });
-  assert.equal((await app.call('PUT', '/api/me/profile', { token: rivera.token, body: { email: 'rivera@example.mil', mos: '3451' } })).status, 200);
+  // With email configured, an address only changes through its confirmation link; the profile endpoint refuses to short-cut it.
+  const direct = await app.call('PUT', '/api/me/profile', { token: rivera.token, body: { email: 'rivera@example.mil', mos: '3451' } });
+  assert.equal(direct.status, 400);
+  assert.equal((await app.call('PUT', '/api/me/profile', { token: rivera.token, body: { mos: '3451' } })).status, 200);
+  assert.equal((await app.call('POST', '/api/me/email/verify', { token: rivera.token, body: { email: 'rivera@example.mil' } })).status, 200);
+  const mail = app.ctx.mailer.outbox.at(-1)!;
+  const verifyToken = decodeURIComponent(mail.text.match(/verify=([^\s]+)/)![1]);
+  assert.equal((await app.call('POST', '/api/me/email/confirm', { token: rivera.token, body: { token: verifyToken } })).status, 200);
+  assert.equal((await app.call('GET', '/api/me', { token: rivera.token })).body.user.email, 'rivera@example.mil');
   await app.call('POST', '/api/auth/sudo', { token: nguyen.token, body: { password: PASSWORD } });
   assert.equal((await app.call('PUT', '/api/me/profile', { token: nguyen.token, body: { email: 'rivera@example.mil' } })).status, 400);
 });
@@ -399,4 +407,34 @@ test('listing another Marine’s shared records lands in that unit’s access lo
   const row = app.ctx.db.prepare(`SELECT unit_id FROM audit_log WHERE actor_id = ? AND action = 'list_records' AND subject_id = ? ORDER BY seq DESC LIMIT 1`).get(nguyen.id, rivera.id) as { unit_id: string | null } | undefined;
   assert.ok(row, 'list audit written');
   assert.equal(row!.unit_id, 'G8');
+});
+
+test('an assignee can complete the task assigned to them but cannot retitle or reassign it', async () => {
+  const t = await app.call('POST', '/api/records/tasks', { token: nguyen.token, body: { title: 'Reconcile the aged ULOs', visibility: 'unit', unit_id: 'G8', assignee_id: rivera.id } });
+  assert.equal(t.status, 201);
+  const done = await app.call('PUT', `/api/records/tasks/${t.body.id}`, { token: rivera.token, body: { status: 'completed', version: t.body.version } });
+  assert.equal(done.status, 200, JSON.stringify(done.body));
+  assert.equal(done.body.status, 'completed');
+  const retitle = await app.call('PUT', `/api/records/tasks/${t.body.id}`, { token: rivera.token, body: { title: 'Mine now', version: done.body.version } });
+  assert.equal(retitle.status, 403);
+  assert.equal(retitle.body.code, 'assignee_fields_only');
+  const reassign = await app.call('PUT', `/api/records/tasks/${t.body.id}`, { token: rivera.token, body: { assignee_id: null, version: done.body.version } });
+  assert.equal(reassign.status, 403);
+  const g = await app.call('POST', '/api/records/goals', { token: nguyen.token, body: { title: 'Manual goal for Rivera', metric: 'manual', target_value: 10, visibility: 'unit', unit_id: 'G8', assignee_id: rivera.id } });
+  assert.equal(g.status, 201, JSON.stringify(g.body));
+  const progress = await app.call('PUT', `/api/records/goals/${g.body.id}`, { token: rivera.token, body: { current_value: 4, version: g.body.version } });
+  assert.equal(progress.status, 200, JSON.stringify(progress.body));
+  assert.equal(progress.body.current_value, 4);
+});
+
+test('exporting another Marine’s CSV needs the unit export permission, not just member detail', async () => {
+  const ftl = await app.register('ftlead', { rank_id: 'Cpl' });
+  await enroll(app, op.token, 'G8', ftl.id, 'fire-team-leader');
+  const ftlToken = (await app.login('ftlead')).body.token;
+  await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Shared for export', date: '2026-09-03', visibility: 'unit', unit_id: 'G8' } });
+  const denied = await app.call('GET', `/api/reports/csv?user_id=${rivera.id}&period=all`, { token: ftlToken });
+  assert.equal(denied.status, 403);
+  const allowed = await app.call('GET', `/api/reports/csv?user_id=${rivera.id}&period=all`, { token: nguyen.token });
+  assert.equal(allowed.status, 200);
+  assert.match(allowed.text, /Shared for export/);
 });

@@ -111,7 +111,7 @@ test('csv parse, mapping, and export round-trip', () => {
   assert.equal(records[0].id, 'abc');
   assert.equal(records[0].quantity, 22);
   assert.equal(records[0].result, 'all graduated, "top" class');
-  assert.equal(records[0].notes, "'=SUM(1)");
+  assert.equal(records[0].notes, "=SUM(1)");
   assert.deepEqual(records[0].evidence_links, [{ label: 'Roster', url: 'https://example.mil/r' }]);
   assert.equal(C.guessMapping(['Quantity', 'Dollar Amount', 'JEPES Area']).quantity, 'Quantity');
   assert.throws(() => C.parseDelimited('"a,b', ','));
@@ -251,4 +251,15 @@ test('csv import rejects impossible slash dates instead of rolling them forward'
   assert.deepEqual(records.map((r) => r.date), ['2026-02-28']);
   assert.deepEqual(problems.map((p) => p.row), [2, 4]);
   assert.ok(problems.every((p) => p.issue === 'unreadable date'));
+});
+
+test('csv formula protection is added on export and removed again on import', () => {
+  assert.equal(C.safeCell('=SUM(A1)'), "'=SUM(A1)");
+  assert.equal(C.unprotectCell("'=SUM(A1)"), '=SUM(A1)');
+  assert.equal(C.unprotectCell("'-5 ULOs"), '-5 ULOs');
+  assert.equal(C.unprotectCell("'Tis the season"), "'Tis the season");
+  const csv = C.rowsToCsv([{ Title: '-40 ULOs deobligated', Date: '2026-08-01' }]);
+  const parsed = C.parseCsvText(csv);
+  const { records } = C.applyMapping(parsed.rows, C.guessMapping(parsed.columns));
+  assert.equal(records[0].title, '-40 ULOs deobligated');
 });

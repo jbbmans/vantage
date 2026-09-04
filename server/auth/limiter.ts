@@ -36,6 +36,8 @@ export const limiters = {
   registerIp: new Window(20),
   resetIp: new Window(10),
   mfaToken: new Window(6),
+  /** Failed second-factor attempts per account, across every challenge issued in the window. */
+  mfaUser: new Window(10),
   mutations: new Window(300),
   aiGlobal: new Window(100, 60_000),
   aiUser: new Window(12, 60_000),
