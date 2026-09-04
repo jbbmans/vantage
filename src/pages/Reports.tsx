@@ -13,6 +13,7 @@ import { comparisonToText, type Comparison, type Movement } from '../../shared/d
 import { formatDollars, formatNumber } from '../../shared/metrics';
 import { trackMeta, type Track } from '../../shared/evaluation';
 import { copyToClipboard, cn } from '@/lib/utils';
+import ReportAnalysis from './ReportAnalysis';
 
 export default function Reports() {
   const cfg = useMetrics();
@@ -28,7 +29,7 @@ export default function Reports() {
   const [period, setPeriod] = useState(prefs.reportPeriod || 'fiscalYear');
   const [style, setStyle] = useState<'jepes' | 'fitrep' | 'resume'>(myTrack === 'fitrep' ? 'fitrep' : 'jepes');
   const [track, setTrack] = useState<Track | ''>('');
-  const [view, setView] = useState<'narrative' | 'bullets' | 'delta'>((prefs.reportView as never) || 'narrative');
+  const [view, setView] = useState<'narrative' | 'bullets' | 'delta' | 'analysis'>((prefs.reportView as never) || 'narrative');
   const [limit, setLimit] = useState(8);
   const [aiOut, setAiOut] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const q = { period, style, track: track || undefined, limit, user_id: subjectId || undefined, unit_id: unitParam || undefined };
@@ -39,8 +40,8 @@ export default function Reports() {
   const meta = trackMeta(effectiveTrack);
   const pkgText = useMemo(() => (report ? packageToText(report.pkg, `${meta.inputName} · ${report.subject} · ${report.label}`) : ''), [report, meta.inputName]);
   const copy = async (text: string, what: string) => { if (await copyToClipboard(text)) toast.success(`${what} copied.`); else toast.error('Could not copy.'); };
-  const download = async (kind: 'pdf' | 'csv') => {
-    try { const name = await api.downloadFile(kind === 'pdf' ? api.reportPdfUrl({ ...q, limit: 12 }) : api.reportCsvUrl(q), kind === 'pdf' ? 'vantage-report.pdf' : 'vantage-activities.csv'); toast.success(`Downloaded ${name}.`); }
+  const download = async (kind: 'pdf' | 'csv' | 'analysis') => {
+    try { const name = await api.downloadFile(kind === 'pdf' ? api.reportPdfUrl({ ...q, limit: 12 }) : kind === 'analysis' ? api.analysisPdfUrl({ ...q, limit: 12 }) : api.reportCsvUrl(q), kind === 'pdf' ? 'vantage-report.pdf' : kind === 'analysis' ? 'vantage-analysis.pdf' : 'vantage-activities.csv'); toast.success(`Downloaded ${name}.`); }
     catch (e) { toast.error(api.errorText(e)); }
   };
 
@@ -48,6 +49,7 @@ export default function Reports() {
     <div className="page">
       <PageHeader eyebrow="Reports" title={subject ? `${meta.inputName} for ${subject.rank_abbr || ''} ${subject.last_name}` : meta.inputName} lede={`A narrative and a bullet package built from ${subject ? 'their shared' : 'your'} logged entries. Copy it, or export a PDF to hand to the reporting senior.`}>
         <Button onClick={() => download('csv')}><Download className="h-4 w-4" />CSV</Button>
+        <Button onClick={() => download('analysis')}><FileDown className="h-4 w-4" />Analysis PDF</Button>
         <Button variant="primary" onClick={() => download('pdf')}><FileDown className="h-4 w-4" />Export PDF</Button>
       </PageHeader>
 
@@ -56,7 +58,7 @@ export default function Reports() {
         <Select aria-label="Evaluation system" className="w-40" value={track || 'auto'} onValueChange={(v) => setTrack(v === 'auto' ? '' : (v as Track))} options={[{ value: 'auto', label: `By rank (${meta.name})` }, { value: 'jepes', label: 'JEPES' }, { value: 'fitrep', label: 'FITREP' }]} />
         <Select aria-label="Bullet style" className="w-36" value={style} onValueChange={(v) => setStyle(v as never)} options={[{ value: 'jepes', label: 'JEPES style' }, { value: 'fitrep', label: 'FITREP style' }, { value: 'resume', label: 'Résumé style' }]} />
         <Select aria-label="Bullets per area" className="w-40" value={String(limit)} onValueChange={(v) => setLimit(Number(v))} options={[4, 8, 12, 20].map((n) => ({ value: String(n), label: `${n} per area` }))} />
-        <Segmented className="ml-auto" label="View" value={view} onChange={(v) => { setView(v); savePrefs.mutate({ reportView: v }); }} options={[{ value: 'narrative', label: 'Narrative' }, { value: 'bullets', label: 'Bullets' }, { value: 'delta', label: 'Period over period' }]} />
+        <Segmented className="ml-auto" label="View" value={view} onChange={(v) => { setView(v); savePrefs.mutate({ reportView: v }); }} options={[{ value: 'narrative', label: 'Narrative' }, { value: 'bullets', label: 'Bullets' }, { value: 'delta', label: 'Period over period' }, { value: 'analysis', label: 'Full analysis' }]} />
       </div>
 
       {isPending ? <Skeleton className="h-72" /> : error || !report ? <div className="card"><EmptyState title="Could not build the report" description={api.errorText(error)} /></div> : (
@@ -100,6 +102,8 @@ export default function Reports() {
               )}
             </Panel>
           )}
+
+          {view === 'analysis' && <ReportAnalysis q={q} areaLabel={meta.areaLabel} onDownload={() => download('analysis')} />}
 
           {view === 'delta' && (!delta ? <Skeleton className="h-64" /> : (
             <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">

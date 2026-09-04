@@ -165,6 +165,8 @@ export const setOperator = (id: string, grant: boolean) => api.post(`/org/team/$
 // Reports, AI, MARADMINs, search --------------------------------------
 const qs = (params: Record<string, string | number | undefined | null>) => Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
 export const report = (params: Record<string, string | number | undefined | null>) => api.get(`/reports?${qs(params)}`);
+export const reportAnalysis = (params: Record<string, string | number | undefined | null>) => api.get(`/reports/analysis?${qs(params)}`);
+export const analysisPdfUrl = (params: Record<string, string | number | undefined | null>) => `/api/reports/analysis.pdf?${qs(params)}`;
 export const reportDelta = (params: Record<string, string | number | undefined | null>) => api.get(`/reports/delta?${qs(params)}`);
 export const reportPdfUrl = (params: Record<string, string | number | undefined | null>) => `/api/reports/pdf?${qs(params)}`;
 export const myExportUrl = (format: 'zip' | 'json') => `/api/me/export?format=${format}`;

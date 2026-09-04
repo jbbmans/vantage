@@ -5,6 +5,8 @@ import { badRequest, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor, can, PERMISSIONS, detailUnitsFor } from '../authz/scope.ts';
 import { buildReport } from '../services/reports.ts';
+import { buildAnalysisReport } from '../services/analytics.ts';
+import { renderAnalysisPdf } from '../services/analyticsPdf.ts';
 import { renderReportPdf } from '../services/pdf.ts';
 import { comparePeriods } from '../../shared/delta.ts';
 import { rangeForPeriod } from '../../shared/metrics.ts';
@@ -60,6 +62,23 @@ miscRouter.get('/reports/delta', wrap((req, res) => {
   const range = rangeForPeriod(q.period, zonedNow(req.ctx.config.timezone));
   const track = q.track || buildReport(req.ctx, { userId, unitId, period: q.period }).track;
   res.json(comparePeriods(activities as never, range, { areas: areasFor(track), awards, trainings, goals }));
+}));
+
+miscRouter.get('/reports/analysis', wrap((req, res) => {
+  const { q, userId, unitId } = reportTarget(req);
+  res.json(buildAnalysisReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, track: q.track }));
+}));
+
+miscRouter.get('/reports/analysis.pdf', wrap(async (req, res) => {
+  const { q, userId, unitId } = reportTarget(req);
+  const report = buildAnalysisReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, track: q.track });
+  const base = buildReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit ?? 12, track: q.track });
+  const pdf = await renderAnalysisPdf({ report, narrative: base.narrative, pkg: base.pkg });
+  audit(req.ctx, { actor_id: req.user.id, action: 'export_pdf', entity: 'user', entity_id: userId, subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: `analysis; ${report.label}`, ip: clientIp(req) });
+  const file = `vantage-analysis-${report.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`;
+  res.setHeader('Content-Type', 'application/pdf');
+  res.setHeader('Content-Disposition', `attachment; filename="${file}"`);
+  res.send(pdf);
 }));
 
 miscRouter.get('/reports/pdf', wrap(async (req, res) => {

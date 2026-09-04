@@ -40,6 +40,7 @@ export const keys = {
   maradmins: ['maradmins'] as const,
   report: (params: Record<string, unknown>) => ['report', params] as const,
   delta: (params: Record<string, unknown>) => ['delta', params] as const,
+  analysis: (params: Record<string, unknown>) => ['analysis', params] as const,
   dashboard: (unitId: string, from?: string, to?: string) => ['dashboard', unitId, from, to] as const,
 };
 
