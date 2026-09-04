@@ -26,10 +26,12 @@ export default {
         info: token('--info'),
         rail: token('--rail'),
         'rail-ink': token('--rail-ink'),
+        'accent-2': token('--accent-2'),
       },
       fontFamily: {
-        sans: ['"Inter Tight"', 'Inter', 'ui-sans-serif', 'system-ui', '-apple-system', '"Segoe UI"', 'sans-serif'],
-        mono: ['"IBM Plex Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
+        sans: ['Geist', 'ui-sans-serif', 'system-ui', '-apple-system', '"Segoe UI"', 'sans-serif'],
+        serif: ['Newsreader', 'Georgia', '"Times New Roman"', 'serif'],
+        mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
       },
       fontSize: {
         '2xs': ['11px', { lineHeight: '15px', letterSpacing: '0.02em' }],
@@ -43,7 +45,7 @@ export default {
         '3xl': ['36px', { lineHeight: '40px', letterSpacing: '-0.03em' }],
         '4xl': ['48px', { lineHeight: '50px', letterSpacing: '-0.04em' }],
       },
-      borderRadius: { DEFAULT: '8px', sm: '6px', md: '10px', lg: '14px', xl: '20px' },
+      borderRadius: { DEFAULT: '10px', sm: '7px', md: '12px', lg: '16px', xl: '24px' },
       boxShadow: {
         card: 'var(--shadow-card)',
         pop: 'var(--shadow-pop)',
@@ -58,9 +60,9 @@ export default {
         'slide-up': { from: { opacity: '0', transform: 'translateY(100%)' }, to: { opacity: '1', transform: 'translateY(0)' } },
       },
       animation: {
-        'fade-up': 'fade-up .2s ease-out both',
-        'fade-in': 'fade-in .15s ease-out both',
-        'scale-in': 'scale-in .14s ease-out both',
+        'fade-up': 'fade-up .26s cubic-bezier(.22,.8,.32,1) both',
+        'fade-in': 'fade-in .18s cubic-bezier(.22,.8,.32,1) both',
+        'scale-in': 'scale-in .16s cubic-bezier(.22,.8,.32,1) both',
         'slide-in-right': 'slide-in-right .22s cubic-bezier(.22,.8,.32,1) both',
         'slide-in-left': 'slide-in-left .22s cubic-bezier(.22,.8,.32,1) both',
         'slide-up': 'slide-up .22s cubic-bezier(.22,.8,.32,1) both',

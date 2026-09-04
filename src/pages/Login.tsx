@@ -104,21 +104,34 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
   };
 
   return (
-    <div className="flex min-h-screen flex-col bg-canvas">
-      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden><div className="absolute inset-0 login-grid" /><div className="absolute -top-40 left-1/2 h-[28rem] w-[56rem] -translate-x-1/2 rounded-full bg-accent-soft opacity-70 blur-3xl" /></div>
-      <header className="relative z-10 flex items-center justify-between px-5 py-4">
-        <div className="flex items-center gap-3"><img src="/mark.svg" alt="" width={36} height={36} className="h-9 w-9 rounded-lg" /><div><p className="text-sm font-bold tracking-[0.16em] text-ink">VANTAGE</p><p className="text-2xs text-ink-3">{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'Performance records for Marines'}</p></div></div>
-        <button type="button" onClick={toggleTheme} className="rounded-md p-2 text-ink-2 hover:bg-surface-2" aria-label="Toggle theme">{theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</button>
-      </header>
-      <main className="relative z-10 flex flex-1 items-start justify-center px-4 pb-16 pt-6 sm:pt-12">
+    <div className="min-h-screen bg-canvas lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
+      <aside className="relative hidden overflow-hidden bg-rail text-rail-ink lg:flex lg:flex-col lg:justify-between lg:p-12" aria-hidden>
+        <div className="pointer-events-none absolute inset-0"><div className="absolute inset-0 login-grid-rail" /><div className="absolute -bottom-40 -left-20 h-[30rem] w-[30rem] rounded-full bg-accent opacity-[0.16] blur-3xl" /><div className="absolute -right-24 top-10 h-[22rem] w-[22rem] rounded-full opacity-[0.12] blur-3xl" style={{ backgroundColor: 'rgb(var(--accent-2))' }} /></div>
+        <div className="relative flex items-center gap-3"><img src="/mark.svg" alt="" width={40} height={40} className="h-10 w-10" /><div><p className="text-[13px] font-bold tracking-[0.2em]">VANTAGE</p><p className="text-2xs text-rail-ink/55">{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'Performance records for Marines'}</p></div></div>
+        <div className="relative max-w-lg">
+          <h2 className="display text-[54px] font-medium leading-[1.02] tracking-[-0.02em]">Your record, <em className="italic" style={{ color: 'rgb(var(--accent-2))' }}>from a better vantage.</em></h2>
+          <p className="mt-6 max-w-md text-md leading-relaxed text-rail-ink/70">Log the work as it happens. Vantage turns it into JEPES and FITREP input, unit dashboards, and an analysis an evaluator can trust, with every figure traced to a record.</p>
+          <ul className="mt-8 space-y-3 text-sm text-rail-ink/80">
+            {['Quick Log reads a sentence and files the numbers.', 'Narratives, bullets, and a working-paper PDF from the same entries.', 'Private by default. Shared only when you say so, and every open is logged.'].map((t) => <li key={t} className="flex items-start gap-3"><span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: 'rgb(var(--accent-2))' }} />{t}</li>)}
+          </ul>
+        </div>
+        <p className="relative text-2xs text-rail-ink/45">Records stay on this deployment's server. Nothing here is a system of record; MOL is.</p>
+      </aside>
+      <div className="relative flex min-h-screen flex-col">
+        <div className="pointer-events-none absolute inset-0 overflow-hidden lg:hidden" aria-hidden><div className="absolute inset-0 login-grid" /></div>
+        <header className="relative z-10 flex items-center justify-between px-5 py-4 lg:justify-end lg:px-8">
+          <div className="flex items-center gap-3 lg:hidden"><img src="/mark.svg" alt="" width={36} height={36} className="h-9 w-9" /><div><p className="text-[13px] font-bold tracking-[0.18em] text-ink">VANTAGE</p><p className="text-2xs text-ink-3">{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'Performance records for Marines'}</p></div></div>
+          <button type="button" onClick={toggleTheme} className="rounded-full border border-line bg-surface p-2 text-ink-2 shadow-card hover:bg-surface-2" aria-label="Toggle theme">{theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</button>
+        </header>
+        <main className="relative z-10 flex flex-1 items-start justify-center px-4 pb-16 pt-4 sm:pt-10 lg:items-center lg:pt-0">
         <div className="w-full max-w-md">
           {status?.announcement && <div className="mb-4 rounded-lg border border-accent/25 bg-accent-soft px-3 py-2 text-sm text-ink">{status.announcement}</div>}
           {status?.maintenance && <div className="mb-4 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink">Vantage is in maintenance. Only the owner can sign in right now.</div>}
           {(serverError || statusError) && <div className="mb-4 flex items-start gap-2 rounded-lg border border-bad/40 bg-bad/5 px-3 py-2 text-sm text-ink"><WifiOff className="mt-0.5 h-4 w-4 shrink-0 text-bad" /><span className="flex-1">{serverError || statusError}</span><Button size="xs" onClick={() => { setStatusError(''); onRetry(); api.setupStatus().then(setStatus).catch((e) => setStatusError(api.errorText(e))); }}>Retry</Button></div>}
-          <div className="card p-6 sm:p-8">
+          <div className="card p-6 shadow-pop sm:p-8">
             {mode !== 'login' && mode !== 'setup' && <button type="button" onClick={() => { setMode('login'); setError(''); }} className="mb-4 flex items-center gap-1 text-xs text-ink-3 hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />Back to sign in</button>}
-            <h1 className="text-xl font-semibold text-ink">{heading[mode][0]}</h1>
-            <p className="mt-1 text-sm text-ink-3">{heading[mode][1]}</p>
+            <h1 className="display text-[28px] font-medium leading-tight text-ink">{heading[mode][0]}</h1>
+            <p className="mt-1.5 text-sm text-ink-3">{heading[mode][1]}</p>
             {error && <p role="alert" className="mt-4 rounded-md border border-bad/40 bg-bad/5 px-3 py-2 text-sm text-bad">{error}</p>}
 
             {mode === 'login' && (
@@ -186,7 +199,8 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
           </div>
           <p className="mt-6 text-center text-2xs text-ink-3">Vantage v{VERSION}. Records stay on this deployment's server. Nothing here is a system of record; MOL is.</p>
         </div>
-      </main>
+        </main>
+      </div>
     </div>
   );
 }

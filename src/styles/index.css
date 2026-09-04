@@ -3,18 +3,14 @@
  * Surfaces: canvas (page), surface (cards), surface-2 (recessed), surface-3 (hover).
  * Ink: ink (primary), ink-2 (secondary), ink-3 (muted).
  * Accent: chosen per user from five presets; accent-ink is the text color on accent.
- * Semantic: good / warn / bad / info. Rail: the navigation sidebar.
+ * Semantic: good / warn / bad / info. Rail: the navigation sidebar, navy in both themes.
+ * Type: Geist for the interface, Newsreader for page titles and the sign-in hero, JetBrains Mono for figures.
  */
 
-@font-face {
-  font-family: 'Inter Tight';
-  src: url('/fonts/inter-tight-latin.woff2') format('woff2');
-  font-weight: 300 800;
-  font-display: swap;
-}
-@font-face { font-family: 'IBM Plex Mono'; src: url('/fonts/plex-mono-400.woff2') format('woff2'); font-weight: 400; font-display: swap; }
-@font-face { font-family: 'IBM Plex Mono'; src: url('/fonts/plex-mono-500.woff2') format('woff2'); font-weight: 500; font-display: swap; }
-@font-face { font-family: 'IBM Plex Mono'; src: url('/fonts/plex-mono-600.woff2') format('woff2'); font-weight: 600; font-display: swap; }
+@font-face { font-family: 'Geist'; src: url('/fonts/geist-normal.woff2') format('woff2'); font-weight: 300 800; font-display: swap; }
+@font-face { font-family: 'Newsreader'; src: url('/fonts/newsreader-normal.woff2') format('woff2'); font-weight: 400 700; font-style: normal; font-display: swap; }
+@font-face { font-family: 'Newsreader'; src: url('/fonts/newsreader-italic.woff2') format('woff2'); font-weight: 400 700; font-style: italic; font-display: swap; }
+@font-face { font-family: 'JetBrains Mono'; src: url('/fonts/jetbrains-normal.woff2') format('woff2'); font-weight: 400 700; font-display: swap; }
 
 @tailwind base;
 @tailwind components;
@@ -22,42 +18,42 @@
 
 @layer base {
   :root, [data-theme='light'] {
-    --canvas: 246 247 249;
+    --canvas: 245 244 240;
     --surface: 255 255 255;
-    --surface-2: 241 243 246;
-    --surface-3: 233 236 241;
-    --line: 226 230 236;
-    --line-strong: 196 204 214;
-    --ink: 17 24 39;
-    --ink-2: 71 84 103;
-    --ink-3: 96 108 128;
-    --good: 16 112 78;
-    --warn: 150 90 10;
-    --bad: 190 44 54;
-    --info: 37 99 168;
-    --rail: 255 255 255;
-    --rail-ink: 17 24 39;
-    --shadow-card: 0 1px 2px rgb(16 24 40 / 0.05), 0 1px 3px rgb(16 24 40 / 0.06);
-    --shadow-pop: 0 12px 32px -12px rgb(16 24 40 / 0.22), 0 2px 6px -2px rgb(16 24 40 / 0.1);
-    --shadow-modal: 0 32px 80px -24px rgb(16 24 40 / 0.4), 0 8px 24px -12px rgb(16 24 40 / 0.2);
+    --surface-2: 240 238 233;
+    --surface-3: 232 229 223;
+    --line: 228 225 218;
+    --line-strong: 199 195 187;
+    --ink: 26 25 23;
+    --ink-2: 82 79 74;
+    --ink-3: 110 106 99;
+    --good: 22 110 74;
+    --warn: 150 88 12;
+    --bad: 186 42 48;
+    --info: 36 92 160;
+    --rail: 15 23 42;
+    --rail-ink: 226 232 240;
+    --shadow-card: 0 1px 2px rgb(38 32 20 / 0.04), 0 1px 3px rgb(38 32 20 / 0.05);
+    --shadow-pop: 0 14px 36px -14px rgb(38 32 20 / 0.24), 0 2px 6px -2px rgb(38 32 20 / 0.08);
+    --shadow-modal: 0 32px 80px -24px rgb(38 32 20 / 0.36), 0 8px 24px -12px rgb(38 32 20 / 0.16);
     color-scheme: light;
   }
   [data-theme='dark'] {
-    --canvas: 12 16 24;
-    --surface: 20 26 36;
-    --surface-2: 28 35 48;
-    --surface-3: 36 45 60;
-    --line: 42 52 68;
-    --line-strong: 70 84 104;
-    --ink: 236 240 246;
-    --ink-2: 178 190 206;
-    --ink-3: 130 143 162;
+    --canvas: 10 13 20;
+    --surface: 17 22 32;
+    --surface-2: 24 30 42;
+    --surface-3: 32 40 54;
+    --line: 36 45 60;
+    --line-strong: 68 80 100;
+    --ink: 235 238 243;
+    --ink-2: 180 190 205;
+    --ink-3: 136 148 166;
     --good: 74 201 148;
     --warn: 232 176 74;
     --bad: 245 112 118;
     --info: 110 168 236;
-    --rail: 16 21 30;
-    --rail-ink: 236 240 246;
+    --rail: 8 11 18;
+    --rail-ink: 226 232 240;
     --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
     --shadow-pop: 0 16px 40px -12px rgb(0 0 0 / 0.7), 0 2px 6px -2px rgb(0 0 0 / 0.5);
     --shadow-modal: 0 40px 100px -24px rgb(0 0 0 / 0.85);
@@ -81,7 +77,8 @@
   html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
   body {
     @apply bg-canvas text-ink font-sans text-base antialiased;
-    font-feature-settings: 'cv11' 1, 'ss01' 1, 'tnum' 1;
+    font-feature-settings: 'ss01' 1, 'cv01' 1;
+    font-optical-sizing: auto;
     text-rendering: optimizeLegibility;
     min-width: 320px;
     overscroll-behavior-y: none;
@@ -89,7 +86,8 @@
   h1, h2, h3, h4 { text-wrap: balance; letter-spacing: -0.01em; }
   .fig { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
   .mono { @apply font-mono; font-variant-numeric: tabular-nums; }
-  .eyebrow { @apply text-2xs font-semibold uppercase text-ink-3; letter-spacing: 0.1em; }
+  .eyebrow { @apply text-2xs font-semibold uppercase text-ink-3; letter-spacing: 0.12em; }
+  .display { @apply font-serif; font-optical-sizing: auto; letter-spacing: -0.012em; }
   :focus-visible { @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-canvas; }
   ::selection { background: rgb(var(--accent) / 0.22); }
   ::-webkit-scrollbar { width: 10px; height: 10px; }
@@ -100,25 +98,27 @@
 
 @layer components {
   .card { @apply rounded-lg border border-line bg-surface shadow-card; }
-  .card-hover { @apply transition-[border-color,box-shadow,transform] duration-150 hover:border-line-strong hover:shadow-pop; }
+  .card-hover { @apply transition-[border-color,box-shadow,transform] duration-200 ease-[cubic-bezier(.22,.8,.32,1)] hover:-translate-y-px hover:border-line-strong hover:shadow-pop; }
   .field {
-    @apply w-full min-w-0 rounded-md border border-line bg-surface px-3 py-2 text-base text-ink placeholder:text-ink-3 transition-colors;
-    box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.03);
+    @apply w-full min-w-0 rounded-md border border-line bg-surface px-3 py-2 text-base text-ink placeholder:text-ink-3 transition-[border-color,box-shadow] duration-150;
+    box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.025);
   }
   .field:hover { @apply border-line-strong; }
   .field:focus { @apply border-line-strong outline-none ring-[3px] ring-ink/10; }
   .skip-link { @apply sr-only; }
   .skip-link:focus { @apply not-sr-only fixed left-3 top-3 z-[100] rounded-md bg-surface px-3 py-2 text-sm font-semibold text-ink shadow-pop ring-2 ring-accent; }
   .login-grid { background-image: linear-gradient(rgb(var(--ink) / 0.045) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--ink) / 0.045) 1px, transparent 1px); background-size: 32px 32px; mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, black 30%, transparent 100%); }
+  .login-grid-rail { background-image: linear-gradient(rgb(var(--rail-ink) / 0.06) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--rail-ink) / 0.06) 1px, transparent 1px); background-size: 36px 36px; mask-image: radial-gradient(ellipse 80% 70% at 30% 20%, black 20%, transparent 100%); }
   .field[aria-invalid='true'] { @apply border-bad ring-2 ring-bad/20; }
   .chip { @apply inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-2xs font-semibold uppercase tracking-wider text-ink-2; }
-  .row { @apply border-b border-line last:border-b-0 transition-colors hover:bg-surface-2; }
+  .row { @apply border-b border-line last:border-b-0 transition-colors hover:bg-surface-2/70; }
   .page { @apply mx-auto w-full max-w-[1400px]; }
-  .page-title { @apply text-2xl font-semibold tracking-tight text-ink sm:text-3xl; text-wrap: balance; }
-  .page-lede { @apply mt-1 max-w-2xl text-base text-ink-2; text-wrap: pretty; }
-  .stat-value { @apply fig text-2xl font-semibold text-ink; }
-  .nav-item { @apply flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink; }
-  .nav-item[aria-current='page'] { @apply bg-accent-soft text-accent; }
+  .page-title { @apply display text-[30px] font-medium leading-[1.08] text-ink sm:text-[38px]; text-wrap: balance; }
+  .page-lede { @apply mt-2 max-w-2xl text-md text-ink-2; text-wrap: pretty; }
+  .stat-value { @apply fig text-[26px] font-semibold leading-none tracking-[-0.02em] text-ink; }
+  .nav-item { @apply relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-rail-ink/70 transition-colors hover:bg-rail-ink/[0.07] hover:text-rail-ink; }
+  .nav-item[aria-current='page'] { @apply bg-rail-ink/10 text-rail-ink; }
+  .nav-item[aria-current='page']::before { content: ''; @apply absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-accent-2; }
   .kbd { @apply inline-flex h-5 min-w-5 items-center justify-center rounded border border-line bg-surface-2 px-1 font-mono text-2xs text-ink-3; }
   .skeleton { position: relative; overflow: hidden; background: rgb(var(--surface-2)); }
   .skeleton::after { content: ''; position: absolute; inset: 0; translate: -100% 0; background: linear-gradient(90deg, transparent, rgb(var(--ink) / 0.06), transparent); animation: sweep 1.3s ease-in-out infinite; }
@@ -126,7 +126,8 @@
   .link { @apply text-accent underline-offset-2 hover:underline; }
   .divider { @apply border-t border-line; }
   .badge-dot { @apply inline-block h-2 w-2 shrink-0 rounded-full; }
-  .table-head { @apply text-2xs font-semibold uppercase tracking-wider text-ink-3; }
+  .table-head { @apply text-2xs font-semibold uppercase tracking-[0.08em] text-ink-3; }
+  .accent-2 { color: rgb(var(--accent-2)); }
 }
 
 @keyframes sweep { to { translate: 100% 0; } }

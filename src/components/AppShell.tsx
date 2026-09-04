@@ -159,16 +159,16 @@ export default function AppShell() {
       {visibleNav.filter((i) => !i.secondary).map((item) => (
         <Tooltip key={item.to} content={collapsed && !mobile ? item.label : null} side="right">
           <NavLink to={item.to} end={item.end} className={cn('nav-item', collapsed && !mobile && 'justify-center px-0')} aria-current={location.pathname === item.to || (!item.end && location.pathname.startsWith(item.to)) ? 'page' : undefined}>
-            <item.icon className="h-[18px] w-[18px] shrink-0" />
+            <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" strokeWidth={1.75} />
             {(!collapsed || mobile) && <span className="truncate">{item.label}</span>}
           </NavLink>
         </Tooltip>
       ))}
-      <div className="my-2 divider" />
+      <div className="my-2 border-t border-rail-ink/10" />
       {visibleNav.filter((i) => i.secondary).map((item) => (
         <Tooltip key={item.to} content={collapsed && !mobile ? item.label : null} side="right">
           <NavLink to={item.to} className={cn('nav-item', collapsed && !mobile && 'justify-center px-0')} aria-current={location.pathname.startsWith(item.to) ? 'page' : undefined}>
-            <item.icon className="h-[18px] w-[18px] shrink-0" />
+            <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" strokeWidth={1.75} />
             {(!collapsed || mobile) && <span className="truncate">{item.label}</span>}
           </NavLink>
         </Tooltip>
@@ -180,13 +180,13 @@ export default function AppShell() {
     <OutboxContext.Provider value={{ pending, flush }}>
       <div className="flex min-h-screen bg-canvas">
         <a href="#main" className="skip-link">Skip to content</a>
-        <aside className={cn('no-print sticky top-0 hidden h-screen shrink-0 flex-col border-r border-line bg-rail text-rail-ink transition-[width] duration-200 lg:flex', collapsed ? 'w-[68px]' : 'w-[240px]')}>
-          <div className={cn('flex h-16 items-center gap-3 border-b border-line px-4', collapsed && 'justify-center px-0')}>
-            <img src="/mark.svg" alt="Vantage" width={32} height={32} className="h-8 w-8 rounded-lg" />
-            {!collapsed && <div className="min-w-0"><p className="text-sm font-bold tracking-[0.14em] text-ink">VANTAGE</p><p className="truncate text-2xs text-ink-3">{identity?.instance.organizationName}</p></div>}
+        <aside className={cn('no-print sticky top-0 hidden h-screen shrink-0 flex-col bg-rail text-rail-ink transition-[width] duration-200 ease-[cubic-bezier(.22,.8,.32,1)] lg:flex', collapsed ? 'w-[68px]' : 'w-[244px]')}>
+          <div className={cn('flex h-16 items-center gap-3 px-4', collapsed && 'justify-center px-0')}>
+            <img src="/mark.svg" alt="Vantage" width={32} height={32} className="h-8 w-8" />
+            {!collapsed && <div className="min-w-0"><p className="text-[13px] font-bold tracking-[0.18em] text-rail-ink">VANTAGE</p><p className="truncate text-2xs text-rail-ink/55">{identity?.instance.organizationName}</p></div>}
           </div>
           {navList(false)}
-          <div className="border-t border-line p-2">
+          <div className="border-t border-rail-ink/10 p-2">
             <button type="button" onClick={toggleRail} className="nav-item w-full justify-center" aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}>
               {collapsed ? <ChevronsRight className="h-4 w-4" /> : <><ChevronsLeft className="h-4 w-4" /><span className="text-xs">Collapse</span></>}
             </button>
@@ -196,11 +196,11 @@ export default function AppShell() {
         {drawer && (
           <div className="no-print fixed inset-0 z-50 lg:hidden">
             <button type="button" className="absolute inset-0 bg-ink/40 backdrop-blur-sm animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu" />
-            <aside className="absolute inset-y-0 left-0 flex w-[min(86vw,300px)] flex-col bg-rail shadow-modal animate-slide-in-left">
-              <div className="flex h-16 items-center gap-3 border-b border-line px-4">
-                <img src="/mark.svg" alt="" width={32} height={32} className="h-8 w-8 rounded-lg" />
-                <div className="min-w-0"><p className="text-sm font-bold tracking-[0.14em] text-ink">VANTAGE</p><p className="truncate text-2xs text-ink-3">{user ? `${user.first_name} ${user.last_name}` : ''}</p></div>
-                <button type="button" onClick={() => setDrawer(false)} className="ml-auto rounded-md p-2 text-ink-3 hover:bg-surface-2" aria-label="Close menu"><X className="h-4 w-4" /></button>
+            <aside className="absolute inset-y-0 left-0 flex w-[min(86vw,300px)] flex-col bg-rail text-rail-ink shadow-modal animate-slide-in-left">
+              <div className="flex h-16 items-center gap-3 border-b border-rail-ink/10 px-4">
+                <img src="/mark.svg" alt="" width={32} height={32} className="h-8 w-8" />
+                <div className="min-w-0"><p className="text-[13px] font-bold tracking-[0.18em] text-rail-ink">VANTAGE</p><p className="truncate text-2xs text-rail-ink/55">{user ? `${user.first_name} ${user.last_name}` : ''}</p></div>
+                <button type="button" onClick={() => setDrawer(false)} className="ml-auto rounded-md p-2 text-rail-ink/70 hover:bg-rail-ink/10 hover:text-rail-ink" aria-label="Close menu"><X className="h-4 w-4" /></button>
               </div>
               {navList(true)}
             </aside>
@@ -208,20 +208,20 @@ export default function AppShell() {
         )}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="no-print sticky top-0 z-30 flex h-16 items-center gap-2 border-b border-line bg-surface/90 px-3 backdrop-blur-md sm:px-5 lg:px-6">
+          <header className="no-print sticky top-0 z-30 flex h-16 items-center gap-2 border-b border-line/70 bg-canvas/85 px-3 backdrop-blur-md sm:px-5 lg:px-8">
             <button type="button" className="rounded-md p-2 text-ink-2 hover:bg-surface-2 lg:hidden" onClick={() => setDrawer(true)} aria-label="Open menu"><MenuIcon className="h-5 w-5" /></button>
-            <h1 className="min-w-0 truncate text-md font-semibold text-ink">{titleFor(location.pathname)}</h1>
+            <h1 className="min-w-0 truncate text-sm font-semibold tracking-[-0.005em] text-ink-2">{titleFor(location.pathname)}</h1>
             <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
               {!online && <Tooltip content="Offline. New entries queue on this device."><span className="flex h-9 items-center gap-1.5 rounded-md bg-warn/10 px-2 text-xs font-medium text-warn"><WifiOff className="h-4 w-4" /><span className="hidden sm:inline">Offline</span></span></Tooltip>}
               {online && pending > 0 && <button type="button" onClick={flush} className="flex h-9 items-center gap-1.5 rounded-md bg-info/10 px-2 text-xs font-medium text-info hover:brightness-95"><CloudOff className="h-4 w-4" />{pending} queued</button>}
-              <button type="button" onClick={() => setPalette(true)} className="flex h-9 items-center gap-2 rounded-md border border-line bg-surface-2/60 px-2.5 text-sm text-ink-3 transition-colors hover:border-line-strong hover:text-ink" aria-label="Search">
+              <button type="button" onClick={() => setPalette(true)} className="flex h-9 items-center gap-2 rounded-full border border-line bg-surface px-3 text-sm text-ink-3 shadow-card transition-colors hover:border-line-strong hover:text-ink" aria-label="Search">
                 <Command className="hidden h-4 w-4 md:block" aria-hidden /><Search className="h-4 w-4 md:hidden" aria-hidden /><span className="hidden md:inline">Search…</span><span className="hidden lg:inline"><Kbd>⌘K</Kbd></span>
               </button>
               <Button variant="primary" size="sm" onClick={() => openQuickLog('')} className="h-9" aria-label="Log activity"><Plus className="h-4 w-4" /><span className="hidden xl:inline">Log activity</span></Button>
               <NotificationBell onNavigate={(to) => navigate(to)} />
               <Menu>
                 <MenuTrigger asChild>
-                  <button type="button" className="flex h-9 w-9 items-center justify-center rounded-full border border-line bg-surface-2 text-xs font-bold text-ink" aria-label="Account menu">{initials(user?.first_name, user?.last_name)}</button>
+                  <button type="button" className="flex h-9 w-9 items-center justify-center rounded-full bg-rail text-xs font-bold text-rail-ink ring-2 ring-canvas" aria-label="Account menu">{initials(user?.first_name, user?.last_name)}</button>
                 </MenuTrigger>
                 <MenuContent>
                   <div className="border-b border-line px-2.5 pb-2 pt-1">
@@ -239,7 +239,7 @@ export default function AppShell() {
             </div>
           </header>
 
-          <main id="main" tabIndex={-1} className="min-w-0 flex-1 px-4 pb-24 pt-5 outline-none sm:px-6 lg:px-8 lg:pb-16">
+          <main id="main" tabIndex={-1} className="min-w-0 flex-1 px-4 pb-24 pt-6 outline-none sm:px-6 lg:px-10 lg:pb-16 lg:pt-8">
             {updateReady && (
               <div role="status" className="no-print page mb-4 flex items-center gap-3 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-sm text-ink">
                 <RefreshCw className="h-4 w-4 text-info" /><span className="flex-1">A new version of Vantage is ready.</span>
@@ -253,7 +253,7 @@ export default function AppShell() {
             )}
             <ErrorBoundary resetKey={location.pathname + location.search}><div key={location.pathname} className="animate-fade-up"><Outlet /></div></ErrorBoundary>
           </main>
-          <footer className="no-print border-t border-line px-5 py-2.5 text-2xs text-ink-3 lg:px-8">Vantage v{VERSION} · Records stay on this deployment's server.</footer>
+          <footer className="no-print px-5 py-3 text-2xs text-ink-3 lg:px-10">Vantage v{VERSION} · Records stay on this deployment's server.</footer>
         </div>
 
         <QuickLog open={quickLog} onOpenChange={setQuickLog} initialText={quickLogSeed} />
