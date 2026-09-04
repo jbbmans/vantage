@@ -17,6 +17,9 @@ const AI_ANSWERS: Record<string, unknown> = {
 };
 function startMockGenAi(): Promise<string> {
   const mock = createServer((req, res) => {
+    res.setHeader('access-control-allow-origin', '*');
+    res.setHeader('access-control-allow-headers', 'authorization, content-type');
+    if (req.method === 'OPTIONS') { res.statusCode = 204; res.end(); return; }
     let data = '';
     req.on('data', (c) => { data += c; });
     req.on('end', () => {

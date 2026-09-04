@@ -52,3 +52,13 @@ test('the owner console shows the gateway key, discovers models, and can switch 
   await expect(page.getByRole('heading', { name: 'Drafting help' })).toBeVisible();
   await expect(page.getByLabel('AI model')).toBeVisible();
 });
+
+test('the reach check calls the gateway from the browser and reports the outcome', async ({ page }) => {
+  await page.goto('/operator?tab=ai');
+  await page.getByLabel('GenAI.mil key for the reach check').fill('wrong-key');
+  await page.getByRole('button', { name: 'Test from this browser' }).click();
+  await expect(page.getByRole('status').filter({ hasText: /rejected that key \(401\)/ })).toBeVisible();
+  await page.getByLabel('GenAI.mil key for the reach check').fill('browser-test-genai-key');
+  await page.getByRole('button', { name: 'Test from this browser' }).click();
+  await expect(page.getByRole('status').filter({ hasText: /Reachable from this browser · 4 models/ })).toBeVisible();
+});

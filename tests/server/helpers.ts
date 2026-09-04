@@ -65,7 +65,7 @@ export async function enroll(app: TestApp, operatorToken: string, unitId: string
   if (res.status !== 201) throw new Error(`enroll failed: ${res.status} ${JSON.stringify(res.body)}`);
 }
 
-export function mockGenAi(handler: (body: any) => { status?: number; json: unknown }): Promise<{ url: string; close: () => void; calls: any[] }> {
+export function mockGenAi(handler: (body: any, url: string) => { status?: number; json?: unknown; html?: string }): Promise<{ url: string; close: () => void; calls: any[] }> {
   const calls: any[] = [];
   const server: Server = createServer((req, res) => {
     let data = '';
@@ -73,7 +73,8 @@ export function mockGenAi(handler: (body: any) => { status?: number; json: unkno
     req.on('end', () => {
       const body = data ? JSON.parse(data) : {};
       calls.push({ url: req.url, auth: req.headers.authorization, body });
-      const out = handler(body);
+      const out = handler(body, req.url || '');
+      if (out.html != null) { res.writeHead(out.status || 200, { 'content-type': 'text/html; charset=UTF-8' }); res.end(out.html); return; }
       res.writeHead(out.status || 200, { 'content-type': 'application/json' });
       res.end(JSON.stringify(out.json));
     });

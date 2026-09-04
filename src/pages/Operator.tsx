@@ -91,14 +91,28 @@ function AiSettings() {
   const { data, isPending, refetch } = useAdmin('ai', api.adminAi);
   const toast = useToast(); const qc = useQueryClient();
   const [models, setModels] = useState<string[] | null>(null); const [def, setDef] = useState(''); const [enabled, setEnabled] = useState<boolean | null>(null); const [add, setAdd] = useState(''); const [discovered, setDiscovered] = useState<string[] | null>(null); const [busy, setBusy] = useState(false);
+  const [probeKey, setProbeKey] = useState(''); const [probe, setProbe] = useState<{ tone: 'good' | 'bad' | 'warn'; text: string } | null>(null); const [probing, setProbing] = useState(false);
   useEffect(() => { if (data && models == null) { setModels(data.models); setDef(data.default_model); setEnabled(data.enabled); } }, [data, models]);
   if (isPending || !data || models == null) return <Skeleton className="h-64" />;
+  const blocked = data.last_error_code === 'network_blocked';
+  const lastError = data.last_error_code ? (blocked ? 'GenAI.mil refused the last call because this server is outside DoD networks.' : `The last call failed (${data.last_error_code}) ${timeAgo(data.last_error_at)}.`) : null;
+  /** Runs from the browser, not the server: shows whether GenAI.mil is reachable from wherever the operator is sitting. The key is used once and never stored. */
+  const probeFromBrowser = async () => {
+    setProbing(true); setProbe(null);
+    try {
+      const res = await fetch(`${data.base_url}/models`, { headers: { authorization: `Bearer ${probeKey.trim()}` } });
+      if (res.ok) { const body = await res.json().catch(() => ({})); const n = Array.isArray(body?.data) ? body.data.length : 0; setProbe({ tone: 'good', text: `Reachable from this browser · ${n} models offered. Calls made from a device on this network would work.` }); }
+      else setProbe({ tone: res.status === 401 || res.status === 403 ? 'warn' : 'bad', text: res.status === 401 || res.status === 403 ? `Reachable from this browser, but GenAI.mil rejected that key (${res.status}).` : `GenAI.mil answered ${res.status} from this browser. A 503 means this device is outside DoD networks too.` });
+    } catch { setProbe({ tone: 'bad', text: 'This browser could not reach GenAI.mil at all: the network blocks it, or the gateway does not allow calls from web pages.' }); }
+    finally { setProbing(false); }
+  };
   const save = async () => { setBusy(true); try { await withSudo(() => api.adminRuntime({ aiEnabled: Boolean(enabled), aiModels: models, aiDefaultModel: def })); qc.invalidateQueries({ queryKey: keys.me }); qc.invalidateQueries({ queryKey: keys.aiStatus }); refetch(); toast.success('AI settings saved.'); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="GenAI.mil" subtitle={data.configured ? `key ${data.key_fingerprint} · ${data.base_url}` : 'no key configured'} action={<Button size="sm" variant="primary" onClick={save} loading={busy}><Save className="h-4 w-4" />Save</Button>}>
         {!data.configured && <p className="mb-3 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink">No GenAI.mil key on this server. On Render, open the service → Environment, add VANTAGE_GENAI_API_KEY with your GenAI.mil key, save, and let it redeploy. The switch below unlocks once the key is present.</p>}
         <Switch checked={Boolean(enabled)} onChange={setEnabled} label="AI assistance on" description="Users see drafting help and can pick a model from the list below." disabled={!data.configured} />
+        {lastError && <div className={`mt-3 rounded-md border px-3 py-2 text-sm text-ink ${blocked ? 'border-bad/40 bg-bad/5' : 'border-warn/40 bg-warn/10'}`}><p className="font-medium">{lastError}</p>{blocked && <p className="mt-1 text-xs text-ink-2">GenAI.mil only accepts calls from DoD networks. A server on Render, or any commercial host, is outside them, so every AI request fails whatever the key. AI will work once Vantage runs on a DoD-network host. Use the check below to see whether the device you are on can reach the gateway.</p>}</div>}
         {data.locked && <div className="mt-3 flex items-center justify-between gap-2 rounded-md border border-bad/40 bg-bad/5 px-3 py-2 text-sm"><span className="text-ink">Key locked by the gateway since {timeAgo(data.locked_at)}{data.unlock_url ? <a className="link ml-1" href={data.unlock_url} target="_blank" rel="noopener noreferrer">unlock at GenAI.mil</a> : ''}.</span><Button size="sm" onClick={async () => { try { await withSudo(() => api.adminAiUnlock()); refetch(); toast.success('Lock cleared. The next request will tell.'); } catch (e) { toast.error(api.errorText(e)); } }}><Unlock className="h-3.5 w-3.5" />Clear</Button></div>}
         <div className="mt-4">
           <p className="mb-1.5 text-xs font-semibold text-ink-2">Models users may choose</p>
@@ -107,6 +121,15 @@ function AiSettings() {
           {discovered && <div className="mt-2 flex flex-wrap gap-1">{discovered.filter((m) => !models.includes(m)).map((m) => <button key={m} type="button" className="rounded-full border border-line px-2 py-0.5 font-mono text-2xs hover:border-accent" onClick={() => setModels([...models, m])}>+ {m}</button>)}{discovered.every((m) => models.includes(m)) && <span className="text-xs text-ink-3">Everything the gateway offers is already listed.</span>}</div>}
           <p className="mt-2 text-2xs text-ink-3">GenAI.mil fronts several model families (Gemini, Grok, GPT). Discover lists what your key can reach.</p>
         </div>
+      </Panel>
+      <Panel title="Reach check" subtitle="from this browser, not the server">
+        <p className="text-sm text-ink-2">Paste a GenAI.mil key and Vantage asks the gateway for its model list directly from this browser. Nothing is stored; the result only tells you whether this device’s network can reach GenAI.mil.</p>
+        <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void probeFromBrowser(); }}>
+          <Input aria-label="GenAI.mil key for the reach check" type="password" autoComplete="off" spellCheck={false} placeholder="genai key…" value={probeKey} onChange={(e) => setProbeKey(e.target.value)} />
+          <Button type="submit" loading={probing} disabled={!probeKey.trim()}>Test from this browser</Button>
+        </form>
+        {probe && <p role="status" className={`mt-3 rounded-md border px-3 py-2 text-sm text-ink ${probe.tone === 'good' ? 'border-good/40 bg-good/10' : probe.tone === 'warn' ? 'border-warn/40 bg-warn/10' : 'border-bad/40 bg-bad/5'}`}>{probe.text}</p>}
+        <p className="mt-2 text-2xs text-ink-3">Server: {data.base_url}{data.last_error_at ? ` · last server-side failure ${timeAgo(data.last_error_at)}` : ''}</p>
       </Panel>
       <Panel title="Usage" subtitle="today, across everyone">
         <div className="grid grid-cols-3 gap-3"><Stat label="Requests" value={data.daily.requests} /><Stat label="Tokens" value={Number(data.daily.total_tokens).toLocaleString()} hint={`budget ${Number(data.daily.budget_tokens).toLocaleString()}`} /><Stat label="Failures" value={data.daily.failures} tone={data.daily.failures ? 'warn' : undefined} /></div>

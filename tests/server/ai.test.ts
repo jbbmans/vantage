@@ -6,9 +6,10 @@ import { resetAiState } from '../../server/services/ai.ts';
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
 let mock: Awaited<ReturnType<typeof mockGenAi>>;
-let mode: 'ok' | 'locked' | 'garbage' | 'rate' = 'ok';
+let mode: 'ok' | 'locked' | 'garbage' | 'rate' | 'blocked' = 'ok';
 before(async () => {
   mock = await mockGenAi((body) => {
+    if (mode === 'blocked') return { status: 503, html: '<!doctype html><html><head><title>Unauthorized Access - GenAI.mil</title></head><body>You have reached this page because you are not authorized to visit GenAI.mil from outside of DoW networks.</body></html>' };
     if (mode === 'locked') return { status: 401, json: { error: { message: 'locked', unlock_url: 'https://genai.mil/unlock/abc' } } };
     if (mode === 'rate') return { status: 429, json: { error: { retry_after_seconds: 7 } } };
     if (mode === 'garbage') return { json: { choices: [{ message: { content: 'not json at all' } }], usage: { prompt_tokens: 5, completion_tokens: 1 } } };
@@ -91,4 +92,22 @@ test('disabling AI at runtime blocks requests and usage is recorded per model', 
   assert.equal(res.status, 503);
   assert.equal(res.body.code, 'ai_disabled');
   await app.call('PUT', '/api/admin/runtime', { token: op.token, body: { aiEnabled: true } });
+});
+
+test('the GenAI.mil network gate is reported as a hosting problem, for requests and for discovery', async () => {
+  mode = 'blocked';
+  try {
+    const res = await app.call('POST', '/api/ai/assist', { token: op.token, body: { workflow: 'quick_log', input: { text: 'Reconciled 30 ULOs' } } });
+    assert.equal(res.status, 503);
+    assert.equal(res.body.code, 'ai_network_blocked');
+    assert.match(res.body.error, /DoD networks/);
+    const status = await app.call('GET', '/api/admin/ai', { token: op.token });
+    assert.equal(status.body.last_error_code, 'network_blocked');
+    assert.equal(status.body.locked, false);
+    const discover = await app.call('POST', '/api/admin/ai/discover', { token: op.token });
+    assert.equal(discover.status, 503);
+    assert.equal(discover.body.code, 'ai_network_blocked');
+  } finally { mode = 'ok'; resetAiState(); }
+  const ok = await app.call('POST', '/api/admin/ai/discover', { token: op.token });
+  assert.equal(ok.status, 200, JSON.stringify(ok.body));
 });

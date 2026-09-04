@@ -27,6 +27,14 @@ export class AiError extends HttpError {
   constructor(message: string, status = 502, code = 'ai_error', extra: Record<string, unknown> = {}) { super(status, message, code, extra); }
 }
 
+/** GenAI.mil answers every call from outside DoD networks with a 503 HTML page, whatever the key. Treat that as a hosting problem, not a key problem. */
+export function networkBlocked(status: number, contentType: string | null, body: string): boolean {
+  if (status !== 503 && status !== 403) return false;
+  const html = /text\/html/i.test(contentType || '') || /^\s*<!doctype html/i.test(body);
+  return html && /outside of Do[DW] networks|Unauthorized Access - GenAI\.mil/i.test(body);
+}
+const NETWORK_BLOCKED_MESSAGE = 'GenAI.mil refused this server: the gateway only accepts calls from DoD networks, and this Vantage server is hosted outside them.';
+
 const str = (v: unknown, max = 8000) => String(v ?? '').trim().slice(0, max);
 const int = (v: unknown, fallback: number, min: number, max: number) => { const n = Number(v); return Number.isInteger(n) && n >= min && n <= max ? n : fallback; };
 const date = (v: unknown, fallback: string | null) => { const t = str(v, 10); return DAY.test(t) ? t : fallback; };
@@ -244,6 +252,10 @@ export async function runAiWorkflow(ctx: AppContext, user: SessionUser, workflow
       storeUsage(ctx, user.id, workflow, model, body?.usage, false);
       state.lastErrorAt = new Date().toISOString();
       state.lastErrorCode = response.status;
+      if (networkBlocked(response.status, response.headers.get('content-type'), raw)) {
+        state.lastErrorCode = 'network_blocked';
+        throw new AiError(NETWORK_BLOCKED_MESSAGE, 503, 'ai_network_blocked');
+      }
       if (response.status === 401 && body?.error?.unlock_url) {
         state.lockedAt = state.lastErrorAt;
         state.unlockUrl = safeUnlockUrl(body.error.unlock_url);
@@ -271,9 +283,22 @@ export async function runAiWorkflow(ctx: AppContext, user: SessionUser, workflow
 
 export async function discoverModels(ctx: AppContext): Promise<string[]> {
   if (!ctx.config.ai.apiKey) throw new AiError('GenAI.mil is not configured on this server.', 503, 'ai_not_configured');
-  const response = await fetch(`${ctx.config.ai.baseUrl}/models`, { headers: { authorization: `Bearer ${ctx.config.ai.apiKey}` }, signal: AbortSignal.timeout(15_000) });
-  if (!response.ok) throw new AiError(`GenAI.mil model discovery returned ${response.status}.`, 502, 'upstream_error');
-  const body = await response.json() as { data?: Array<{ id?: string }> };
+  let response: Response;
+  try { response = await fetch(`${ctx.config.ai.baseUrl}/models`, { headers: { authorization: `Bearer ${ctx.config.ai.apiKey}` }, signal: AbortSignal.timeout(15_000) }); }
+  catch (error) {
+    state.lastErrorAt = new Date().toISOString(); state.lastErrorCode = (error as Error)?.name === 'TimeoutError' ? 'timeout' : 'network';
+    throw new AiError('GenAI.mil is unreachable from the Vantage server.', 503, 'ai_unreachable');
+  }
+  const raw = await response.text();
+  if (!response.ok) {
+    state.lastErrorAt = new Date().toISOString(); state.lastErrorCode = response.status;
+    if (networkBlocked(response.status, response.headers.get('content-type'), raw)) { state.lastErrorCode = 'network_blocked'; throw new AiError(NETWORK_BLOCKED_MESSAGE, 503, 'ai_network_blocked'); }
+    if (response.status === 401 || response.status === 403) throw new AiError('GenAI.mil rejected the configured key.', 503, 'ai_not_authorized');
+    throw new AiError(`GenAI.mil model discovery returned ${response.status}.`, 502, 'upstream_error');
+  }
+  let body: { data?: Array<{ id?: string }> };
+  try { body = JSON.parse(raw); } catch { throw new AiError('GenAI.mil returned an unreadable model list.', 502, 'invalid_ai_response'); }
+  state.lastErrorAt = null; state.lastErrorCode = null;
   return (body.data || []).map((m) => String(m.id || '')).filter(Boolean).sort();
 }
 

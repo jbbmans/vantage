@@ -20,7 +20,7 @@ Auto-deploy is on: every push to `main` builds and replaces the running containe
 ## Optional services
 
 - **Email** (reset links, invitations, digests): set `VANTAGE_EMAIL_PROVIDER=resend` and `RESEND_API_KEY`, or `smtp` and `SMTP_URL`. See [email.md](email.md).
-- **AI drafting**: add `VANTAGE_GENAI_API_KEY` (your GenAI.mil key) in the service's Environment tab and let Render redeploy. AI is on by default once a key exists; the owner console's AI tab shows the key fingerprint, discovers the models the key can reach, edits the allowlist in `VANTAGE_GENAI_MODELS`, and switches AI off without a redeploy. Without a key the AI pages explain what is missing.
+- **AI drafting needs a DoD-network host.** GenAI.mil answers every API call from outside DoD networks with a 503 "Unauthorized Access" page, whatever key is sent. Render, like every commercial host, is outside those networks, so on Render the AI features stay unavailable and the Owner console explains why. To use AI, run Vantage on a host inside a DoD network (the same Docker image works anywhere) and then: add `VANTAGE_GENAI_API_KEY` (your GenAI.mil key) in the service's Environment tab and let Render redeploy. AI is on by default once a key exists; the owner console's AI tab shows the key fingerprint, discovers the models the key can reach, edits the allowlist in `VANTAGE_GENAI_MODELS`, and switches AI off without a redeploy. Without a key the AI pages explain what is missing.
 - **Self-registration**: `VANTAGE_SELF_REGISTRATION=true` lets anyone with the URL create an account. Default is off; leaders invite by link or email.
 
 ## Sizing
