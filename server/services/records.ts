@@ -4,6 +4,13 @@ import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
 import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor } from '../authz/scope.ts';
 import { readableClause, canEdit, canPlace, canRead, type RecordRow } from '../authz/records.ts';
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
+import { valueType } from '../../shared/constants.ts';
+
+/** Value types are defined per instance, so the schema accepts any key and the runtime list is the authority. */
+function checkValueType(ctx: AppContext, table: string, data: Record<string, unknown>) {
+  if (table !== 'activities' || !data.dollar_type) return;
+  if (!valueType(String(data.dollar_type), ctx.runtime.metrics)) throw badRequest(`Unknown value type “${String(data.dollar_type)}”. Pick one of: ${ctx.runtime.metrics.value_types.map((t) => t.key).join(', ')}.`, { fieldErrors: { dollar_type: 'Not one of this instance’s value types.' } });
+}
 import { parse } from '../lib/http.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
@@ -78,7 +85,7 @@ export function withGoalProgress<T extends GoalLike>(ctx: AppContext, goals: T[]
       });
     }
     const src = cache.get(key)!;
-    return { ...g, current_value: goalProgress(g, src.activities, src.trainings).current };
+    return { ...g, current_value: goalProgress(g, src.activities, src.trainings, ctx.runtime.metrics).current };
   });
 }
 
@@ -111,6 +118,7 @@ function assigneeProblem(ctx: AppContext, scope: Scope, userId: string, assignee
 export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTable, body: unknown, reqKey: object, ip?: string) {
   const spec = TABLES[table];
   const data = parse(RECORD_SCHEMAS[table] as never, body) as Record<string, unknown>;
+  checkValueType(ctx, table, data);
   const capacity = capacityProblem(ctx, user.id);
   if (capacity) throw new HttpError(507, capacity, 'record_quota');
   const scope = scopeFor(ctx, user, reqKey);
@@ -178,6 +186,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const scope = scopeFor(ctx, user, reqKey);
   if (!canEdit(scope, user.id, row)) throw forbidden(row.frozen_at ? 'That record is frozen because the author left the unit.' : 'That record is not yours to edit.');
   const data = parse((RECORD_SCHEMAS[table] as unknown as { partial: () => never }).partial() as never, body) as Record<string, unknown>;
+  checkValueType(ctx, table, data);
 
   const finalVisibility = (data.visibility as string | undefined) ?? row.visibility;
   const finalUnit = data.unit_id === undefined ? row.unit_id : ((data.unit_id as string | null) || null);
@@ -278,6 +287,7 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
     const result = RECORD_SCHEMAS.activities.safeParse(rest);
     if (!result.success) throw badRequest(`Row ${i + 1}: ${result.error.issues[0]?.message || 'invalid'} (${result.error.issues[0]?.path.join('.')})`, { row: i });
     const data = result.data as Record<string, unknown>;
+    if (data.dollar_type && !valueType(String(data.dollar_type), ctx.runtime.metrics)) throw badRequest(`Row ${i + 1}: unknown value type “${String(data.dollar_type)}”. This instance uses: ${ctx.runtime.metrics.value_types.map((t) => t.key).join(', ')}.`, { row: i });
     const existing = typeof id === 'string' && id ? (ctx.db.prepare('SELECT unit_id, visibility FROM activities WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(id, user.id) as { unit_id: string | null; visibility: string } | undefined) : undefined;
     const visibility = (data.visibility as string | undefined) ?? existing?.visibility ?? 'private';
     const unitId = data.unit_id !== undefined ? ((data.unit_id as string | null) || null) : existing ? existing.unit_id : (scope.primaryUnitId ?? null);

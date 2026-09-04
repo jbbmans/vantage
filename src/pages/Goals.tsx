@@ -7,9 +7,9 @@ import RecordDialog from '@/components/RecordDialog';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { AiAction } from '@/components/AiPanel';
 import { DateText, StatusBadge, onText } from '@/components/common';
-import { useActivities, useDeleteRecord, useGoals, useIdentity, usePrefs, useTrainings, useUpdateRecord } from '@/lib/queries';
+import { useActivities, useDeleteRecord, useGoals, useIdentity, usePrefs, useTrainings, useUpdateRecord, useMetrics } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { GOAL_TYPES, GOAL_STATUS, GOAL_METRICS, CATEGORIES } from '../../shared/constants';
+import { GOAL_TYPES, GOAL_STATUS, GOAL_METRICS, categoryNames } from '../../shared/constants';
 import { goalProgress } from '../../shared/goals';
 import { formatNumber, formatDollars } from '../../shared/metrics';
 import { daysUntil } from '../../shared/evaluation';
@@ -21,6 +21,7 @@ interface GoalDraft { id?: string; version?: number; title: string; description:
 const METRIC_LABEL: Record<string, string> = { manual: 'Tracked by hand', activity_count: 'Count of logged activities', activity_dollars: 'Dollars in logged activities', activity_quantity: 'Quantities in logged activities', training_hours: 'Training hours logged' };
 
 export default function Goals() {
+  const cfg = useMetrics();
   const toast = useToast();
   const { data: identity } = useIdentity();
   const prefs = usePrefs();
@@ -79,7 +80,7 @@ export default function Goals() {
               <Field label="Type"><Select value={d.type} onValueChange={(v) => set('type', v)} options={GOAL_TYPES.map((s) => ({ value: s, label: humanize(s) }))} /></Field>
               <Field label="Status"><Select value={d.status} onValueChange={(v) => set('status', v)} options={GOAL_STATUS.map((s) => ({ value: s, label: humanize(s) }))} /></Field>
               <Field label="Measured by" className="col-span-2"><Select value={d.metric} onValueChange={(v) => set('metric', v)} options={GOAL_METRICS.map((m) => ({ value: m, label: METRIC_LABEL[m] }))} /></Field>
-              {d.metric !== 'manual' && d.metric !== 'training_hours' && <Field label="Only count category" className="col-span-2"><Select value={d.category || '__any'} onValueChange={(v) => set('category', v === '__any' ? null : v)} options={[{ value: '__any', label: 'Any category' }, ...CATEGORIES.map((c) => ({ value: c, label: c }))]} /></Field>}
+              {d.metric !== 'manual' && d.metric !== 'training_hours' && <Field label="Only count category" className="col-span-2"><Select value={d.category || '__any'} onValueChange={(v) => set('category', v === '__any' ? null : v)} options={[{ value: '__any', label: 'Any category' }, ...categoryNames(cfg).map((c) => ({ value: c, label: c }))]} /></Field>}
               <Field label="Target" required error={errors.target_value}><NumberInput value={d.target_value} onChange={onText(set, 'target_value')} placeholder="100" /></Field>
               {d.metric === 'manual' ? <Field label="Current" error={errors.current_value}><NumberInput value={d.current_value} onChange={onText(set, 'current_value')} /></Field> : <Field label="Unit label"><Input value={d.unit_label} onChange={onText(set, 'unit_label')} placeholder="ULOs" /></Field>}
               {d.metric === 'manual' && <Field label="Unit label" className="col-span-2"><Input value={d.unit_label} onChange={onText(set, 'unit_label')} placeholder="ULOs" /></Field>}

@@ -1,5 +1,5 @@
 import type { AppContext } from '../context.ts';
-import { SUMMABLE_DOLLAR_TYPES } from '../../shared/constants.ts';
+import { isSummable } from '../../shared/constants.ts';
 import { strength } from '../../shared/bullets.ts';
 
 const weekKey = (dateStr: string) => {
@@ -21,7 +21,7 @@ export function unitDashboard(ctx: AppContext, unitId: string, from: string, to:
   let dollars = 0; let reviewed = 0; let complete = 0;
   for (const a of activities) {
     const amount = Number(a.dollar_amount) || 0;
-    const summable = SUMMABLE_DOLLAR_TYPES.includes(a.dollar_type || 'impact');
+    const summable = isSummable(a.dollar_type, ctx.runtime.metrics);
     if (summable) dollars += amount; else reviewed += amount;
     const isComplete = strength(a as never) >= 2;
     if (isComplete) complete += 1;

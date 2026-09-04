@@ -4,16 +4,17 @@ import { Plus, ArrowRight, Flame, CalendarClock, ClipboardCheck, Sparkles, Users
 import { PageHeader, Stat, Panel, Button, EmptyState, Skeleton, Progress, Badge } from '@/components/ui/primitives';
 import { AreaChart, Donut, Heatmap, BarList } from '@/components/charts';
 import { PeriodSelect, StatusBadge, DateText, CategoryDot } from '@/components/common';
-import { useActivities, useGoals, useIdentity, usePrefs, useReadiness, useSavePrefs, useTasks, useTrack } from '@/lib/queries';
+import { useActivities, useGoals, useIdentity, usePrefs, useReadiness, useSavePrefs, useTasks, useTrack, useMetrics } from '@/lib/queries';
 import { aggregateMetrics, activitiesInRange, rangeForPeriod, dailyCounts, currentStreak, daysSinceLastActivity, formatDollars, formatNumber, previousRange, delta as pctDelta, fiscalYearProgress } from '../../shared/metrics';
 import { recordHealth, todayActions } from '../../shared/health';
 import { areaBalance } from '../../shared/narrative';
 import { areasFor, trackMeta } from '../../shared/evaluation';
-import { CATEGORY_COLORS, type Category } from '../../shared/constants';
+import { categoryColor } from '../../shared/constants';
 import { format, eachWeekOfInterval, startOfWeek } from 'date-fns';
 import { cn } from '@/lib/utils';
 
 export default function Dashboard() {
+  const cfg = useMetrics();
   const navigate = useNavigate();
   const { data: identity } = useIdentity();
   const prefs = usePrefs();
@@ -28,8 +29,8 @@ export default function Dashboard() {
   const mine = useMemo(() => (activities || []).filter((a: any) => a.user_id === identity?.user.id), [activities, identity?.user.id]);
   const inRange = useMemo(() => activitiesInRange(mine, range), [mine, range]);
   const prior = useMemo(() => activitiesInRange(mine, previousRange(range)), [mine, range]);
-  const metrics = useMemo(() => aggregateMetrics(inRange), [inRange]);
-  const priorMetrics = useMemo(() => aggregateMetrics(prior), [prior]);
+  const metrics = useMemo(() => aggregateMetrics(inRange, cfg), [inRange, cfg]);
+  const priorMetrics = useMemo(() => aggregateMetrics(prior, cfg), [prior, cfg]);
   const counts = useMemo(() => dailyCounts(mine), [mine]);
   const streak = useMemo(() => currentStreak(mine), [mine]);
   const since = useMemo(() => daysSinceLastActivity(mine), [mine]);
@@ -39,8 +40,8 @@ export default function Dashboard() {
   const weekly = useMemo(() => {
     if (!inRange.length && range.end < range.start) return [];
     const weeks = eachWeekOfInterval({ start: range.start, end: range.end > new Date() ? new Date() : range.end });
-    return weeks.map((w) => { const key = format(startOfWeek(w), 'yyyy-MM-dd'); const items = inRange.filter((a: any) => a.date && format(startOfWeek(new Date(`${a.date}T00:00:00`)), 'yyyy-MM-dd') === key); return { label: format(w, 'd MMM'), value: items.length, secondary: Math.round(aggregateMetrics(items).totalDollars) }; });
-  }, [inRange, range]);
+    return weeks.map((w) => { const key = format(startOfWeek(w), 'yyyy-MM-dd'); const items = inRange.filter((a: any) => a.date && format(startOfWeek(new Date(`${a.date}T00:00:00`)), 'yyyy-MM-dd') === key); return { label: format(w, 'd MMM'), value: items.length, secondary: Math.round(aggregateMetrics(items, cfg).totalDollars) }; });
+  }, [inRange, range, cfg]);
   const openTasks = (tasks || []).filter((t: any) => t.status !== 'completed' && (t.assignee_id || t.user_id) === identity?.user.id);
   const activeGoals = (goals || []).filter((g: any) => g.status === 'active');
   const fy = fiscalYearProgress();
@@ -66,7 +67,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Entries" value={formatNumber(metrics.totalActivities)} hint={hint(countDelta)} to="/records" />
-        <Stat label="Dollars moved" value={formatDollars(metrics.totalDollars)} hint={metrics.reviewedDollars ? `${formatDollars(metrics.reviewedDollars)} reviewed separately` : hint(dollarsDelta)} tone="accent" to="/reports" />
+        <Stat label={`${cfg.currency_label} moved`} value={formatDollars(metrics.totalDollars)} hint={metrics.reviewedDollars ? `${formatDollars(metrics.reviewedDollars)} reviewed separately` : hint(dollarsDelta)} tone="accent" to="/reports" />
         <Stat label="With an outcome" value={`${metrics.totalActivities ? Math.round((metrics.withOutcome / metrics.totalActivities) * 100) : 0}%`} hint={`${metrics.totalActivities - metrics.withOutcome} entries need a result`} tone={metrics.totalActivities && metrics.withOutcome / metrics.totalActivities < 0.6 ? 'warn' : 'good'} to="/records?quality=needs-detail" />
         <Stat label="Streak" value={<span className="flex items-center gap-1.5">{streak}<Flame className={cn('h-5 w-5', streak > 0 ? 'text-warn' : 'text-ink-3')} /></span>} hint={streak ? 'consecutive days logged' : 'log today to start one'} />
       </div>
@@ -93,7 +94,7 @@ export default function Dashboard() {
           {balance.some((b) => b.count === 0) && <p className="mt-3 text-xs text-ink-3">An empty area is marked from impression. Log something honest under it.</p>}
         </Panel>
         <Panel title="By category">
-          {metrics.totalActivities ? <Donut size={128} segments={Object.entries(metrics.byCategory).sort((a, b) => b[1].count - a[1].count).slice(0, 6).map(([k, v]) => ({ label: k, value: v.count, color: CATEGORY_COLORS[k as Category] || CATEGORY_COLORS.Other }))} centerValue={String(metrics.totalActivities)} centerLabel="entries" /> : <p className="text-sm text-ink-3">No entries in this period.</p>}
+          {metrics.totalActivities ? <Donut size={128} segments={Object.entries(metrics.byCategory).sort((a, b) => b[1].count - a[1].count).slice(0, 6).map(([k, v]) => ({ label: k, value: v.count, color: categoryColor(k, cfg) }))} centerValue={String(metrics.totalActivities)} centerLabel="entries" /> : <p className="text-sm text-ink-3">No entries in this period.</p>}
         </Panel>
         <Panel title="Record health" subtitle="fix these before the package is due" action={<Link to="/reports" className="text-xs text-accent hover:underline">Build report</Link>}>
           {health.length === 0 ? <p className="flex items-center gap-2 text-sm text-good"><ClipboardCheck className="h-4 w-4" />Clean. Every entry has a date, an outcome, and an area.</p> : (

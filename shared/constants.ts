@@ -54,6 +54,81 @@ export const UNIT_SUGGESTIONS = [
   'hours', 'Marines', 'personnel', 'briefs', 'audits', 'accounts', 'tickets',
 ];
 
+/**
+ * What an instance measures. The defaults are the G-8 comptroller set the app grew up with; an owner can rename the money
+ * metric, redefine the value types (which ones roll into the headline total), and set the categories and unit suggestions
+ * for any other shop. Records keep whatever key they were saved with, so retiring a type never rewrites history.
+ */
+export interface MetricsConfig {
+  currency_label: string;
+  currency_symbol: string;
+  value_types: DollarType[];
+  categories: Array<{ name: string; color: string }>;
+  unit_suggestions: string[];
+}
+export const DEFAULT_METRICS: MetricsConfig = {
+  currency_label: 'Dollars',
+  currency_symbol: '$',
+  value_types: DOLLAR_TYPES.map((d) => ({ ...d })),
+  categories: CATEGORIES.map((name) => ({ name, color: CATEGORY_COLORS[name] })),
+  unit_suggestions: [...UNIT_SUGGESTIONS],
+};
+export const CATEGORY_PALETTE = ['#1f9d6a', '#d98b1f', '#7c5cf0', '#6b7a8f', '#149ca6', '#c33fb8', '#e0506f', '#7fb31d', '#9264e6', '#54627a', '#2f6fd6', '#b8862b'];
+
+export const summableKeys = (cfg: MetricsConfig = DEFAULT_METRICS) => cfg.value_types.filter((d) => d.summable).map((d) => d.key);
+/** A missing type counts toward the headline (it always has); an unknown or non-summable type is tracked separately. */
+export const isSummable = (type: string | null | undefined, cfg: MetricsConfig = DEFAULT_METRICS) => !type || summableKeys(cfg).includes(type);
+export const valueType = (key: string | null | undefined, cfg: MetricsConfig = DEFAULT_METRICS) => cfg.value_types.find((d) => d.key === key) || null;
+export const categoryNames = (cfg: MetricsConfig = DEFAULT_METRICS) => cfg.categories.map((c) => c.name);
+export function categoryColor(name: string | null | undefined, cfg: MetricsConfig = DEFAULT_METRICS): string {
+  const hit = cfg.categories.find((c) => c.name === (name || 'Other'));
+  if (hit) return hit.color;
+  let h = 0; for (const ch of String(name || 'Other')) h = (h * 31 + ch.charCodeAt(0)) >>> 0;
+  return CATEGORY_PALETTE[h % CATEGORY_PALETTE.length];
+}
+export function dollarSumRule(cfg: MetricsConfig = DEFAULT_METRICS): string {
+  const inn = cfg.value_types.filter((d) => d.summable).map((d) => d.label);
+  const out = cfg.value_types.filter((d) => !d.summable).map((d) => d.label);
+  const label = cfg.currency_label.toLowerCase();
+  if (!out.length) return `Headline totals sum every ${label} type: ${inn.join(', ')}.`;
+  return `Headline totals sum ${inn.join(', ')}. ${out.join(' and ')} ${out.length === 1 ? 'is' : 'are'} tracked separately: ${label} crossing your desk are not ${label} you moved.`;
+}
+/** Normalises anything an operator or an old archive hands us into a usable configuration. */
+export function normalizeMetrics(input: unknown): MetricsConfig {
+  const raw = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
+  const str = (v: unknown, max: number, fallback: string) => { const s = String(v ?? '').trim().slice(0, max); return s || fallback; };
+  const types = Array.isArray(raw.value_types) ? raw.value_types : [];
+  const seen = new Set<string>();
+  const value_types: DollarType[] = [];
+  for (const t of types as Array<Record<string, unknown>>) {
+    const key = String(t?.key ?? '').trim().toLowerCase().replace(/[^a-z0-9_-]/g, '').slice(0, 30);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    const label = str(t.label, 40, key);
+    value_types.push({ key, label, verb: str(t.verb, 40, label.toLowerCase()), summable: t.summable !== false, definition: String(t.definition ?? '').trim().slice(0, 200) });
+    if (value_types.length >= 20) break;
+  }
+  const cats = Array.isArray(raw.categories) ? raw.categories : [];
+  const names = new Set<string>();
+  const categories: Array<{ name: string; color: string }> = [];
+  for (const c of cats as Array<Record<string, unknown> | string>) {
+    const name = str(typeof c === 'string' ? c : c?.name, 60, '');
+    if (!name || names.has(name)) continue;
+    names.add(name);
+    const color = typeof c === 'object' && c && /^#[0-9a-f]{6}$/i.test(String(c.color || '')) ? String(c.color).toLowerCase() : CATEGORY_PALETTE[categories.length % CATEGORY_PALETTE.length];
+    categories.push({ name, color });
+    if (categories.length >= 40) break;
+  }
+  const units = Array.isArray(raw.unit_suggestions) ? [...new Set((raw.unit_suggestions as unknown[]).map((u) => String(u ?? '').trim().slice(0, 30)).filter(Boolean))].slice(0, 60) : [];
+  return {
+    currency_label: str(raw.currency_label, 30, DEFAULT_METRICS.currency_label),
+    currency_symbol: String(raw.currency_symbol ?? '$').trim().slice(0, 4) || '$',
+    value_types: value_types.length ? value_types : DEFAULT_METRICS.value_types.map((d) => ({ ...d })),
+    categories: categories.length ? categories : DEFAULT_METRICS.categories.map((c) => ({ ...c })),
+    unit_suggestions: units.length ? units : [...DEFAULT_METRICS.unit_suggestions],
+  };
+}
+
 export const VISIBILITIES = ['private', 'unit'] as const;
 export type Visibility = (typeof VISIBILITIES)[number];
 

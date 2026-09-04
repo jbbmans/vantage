@@ -2,7 +2,8 @@ import React, { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Badge, Select, type Tone } from '@/components/ui/primitives';
 import { PERIOD_OPTIONS, formatDate, formatDollars, formatNumber } from '../../shared/metrics';
-import { CATEGORY_COLORS, type Category } from '../../shared/constants';
+import { categoryColor } from '../../shared/constants';
+import { useMetrics } from '@/lib/queries';
 import { humanize } from '@/lib/utils';
 
 const STATUS_TONES: Record<string, Tone> = {
@@ -14,7 +15,7 @@ export const StatusBadge = ({ value, className }: { value?: string | null; class
 export const DateText = ({ value, pattern, fallback = 'No date' }: { value?: string | null; pattern?: string; fallback?: string }) => <span className="fig">{value ? formatDate(value, pattern) : <span className="text-ink-3">{fallback}</span>}</span>;
 export const Money = ({ value }: { value?: number | null }) => <span className="fig">{value == null ? '' : formatDollars(value)}</span>;
 export const Num = ({ value }: { value?: number | null }) => <span className="fig">{value == null ? '' : formatNumber(value)}</span>;
-export const CategoryDot = ({ category }: { category?: string | null }) => <span className="badge-dot" style={{ backgroundColor: CATEGORY_COLORS[(category || 'Other') as Category] || CATEGORY_COLORS.Other }} aria-hidden />;
+export const CategoryDot = ({ category }: { category?: string | null }) => { const cfg = useMetrics(); return <span className="badge-dot" style={{ backgroundColor: categoryColor(category, cfg) }} aria-hidden />; };
 
 export function PeriodSelect({ value, onChange, className, includeAll = true }: { value: string; onChange: (v: string) => void; className?: string; includeAll?: boolean }) {
   return <Select aria-label="Period" className={className} value={value} onValueChange={onChange} options={PERIOD_OPTIONS.filter((p) => includeAll || p.value !== 'all').map((p) => ({ value: p.value, label: p.label }))} />;

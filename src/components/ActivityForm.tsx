@@ -1,8 +1,8 @@
 import { Field, Input, NumberInput, Select, Textarea } from '@/components/ui/primitives';
 import VisibilityPicker from '@/components/VisibilityPicker';
-import { CATEGORIES, DOLLAR_TYPES, UNIT_SUGGESTIONS, ACTIVITY_STATUS } from '../../shared/constants';
+import { ACTIVITY_STATUS, categoryNames, valueType } from '../../shared/constants';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
-import { useProjects, useTrack } from '@/lib/queries';
+import { useProjects, useTrack, useMetrics } from '@/lib/queries';
 import { onText } from '@/components/common';
 import { humanize, todayIso } from '@/lib/utils';
 
@@ -15,6 +15,7 @@ export const toActivityDraft = (a: Record<string, any>): ActivityDraft => ({ ...
 
 export function ActivityFields({ draft, set, errors }: { draft: ActivityDraft; set: (k: any, v: unknown) => void; errors: Record<string, string> }) {
   const track = useTrack();
+  const cfg = useMetrics();
   const { data: projects } = useProjects();
   const links = draft.evidence_links || [];
   const setLink = (i: number, patch: Partial<{ label: string; url: string }>) => set('evidence_links', links.map((l, j) => (j === i ? { ...l, ...patch } : l)));
@@ -24,12 +25,12 @@ export function ActivityFields({ draft, set, errors }: { draft: ActivityDraft; s
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Date" error={errors.date}><Input type="date" value={draft.date || ''} onChange={onText(set, 'date')} /></Field>
         <Field label="Status"><Select value={draft.status} onValueChange={(v) => set('status', v)} options={ACTIVITY_STATUS.map((s) => ({ value: s, label: humanize(s) }))} /></Field>
-        <Field label="Category"><Select value={draft.category} onValueChange={(v) => set('category', v)} options={CATEGORIES.map((c) => ({ value: c, label: c }))} placeholder="Pick a category" /></Field>
+        <Field label="Category"><Select value={draft.category} onValueChange={(v) => set('category', v)} options={categoryNames(cfg).map((c) => ({ value: c, label: c }))} placeholder="Pick a category" /></Field>
         <Field label={trackMeta(track).areaLabel}><Select value={mapAreaToTrack(draft.eval_area, track)} onValueChange={(v) => set('eval_area', v)} options={areaOptions(track)} /></Field>
         <Field label="Action amount" hint="how many" error={errors.quantity}><NumberInput value={draft.quantity ?? ''} onChange={onText(set, 'quantity')} placeholder="30" /></Field>
-        <Field label="Action unit"><><Input list="activity-units" value={draft.unit_label} onChange={onText(set, 'unit_label')} placeholder="ULOs" /><datalist id="activity-units">{UNIT_SUGGESTIONS.map((u) => <option key={u} value={u} />)}</datalist></></Field>
-        <Field label="Transaction value" hint="dollars tied to the action" error={errors.dollar_amount}><NumberInput value={draft.dollar_amount ?? ''} onChange={onText(set, 'dollar_amount')} placeholder="1118.38" /></Field>
-        <Field label="Dollar type" hint={draft.dollar_type ? DOLLAR_TYPES.find((d) => d.key === draft.dollar_type)?.definition : undefined}><Select value={draft.dollar_type} onValueChange={(v) => set('dollar_type', v)} options={DOLLAR_TYPES.map((d) => ({ value: d.key, label: d.label }))} placeholder="None" /></Field>
+        <Field label="Action unit"><><Input list="activity-units" value={draft.unit_label} onChange={onText(set, 'unit_label')} placeholder="ULOs" /><datalist id="activity-units">{cfg.unit_suggestions.map((u) => <option key={u} value={u} />)}</datalist></></Field>
+        <Field label="Transaction value" hint={`${cfg.currency_label.toLowerCase()} tied to the action`} error={errors.dollar_amount}><NumberInput value={draft.dollar_amount ?? ''} onChange={onText(set, 'dollar_amount')} placeholder="1118.38" /></Field>
+        <Field label="Value type" hint={draft.dollar_type ? valueType(draft.dollar_type, cfg)?.definition : undefined}><Select value={draft.dollar_type} onValueChange={(v) => set('dollar_type', v)} options={cfg.value_types.map((d) => ({ value: d.key, label: d.label }))} placeholder="None" /></Field>
       </div>
       <Field label="Result" hint="the so-what: what changed because you did it"><Input value={draft.result} onChange={onText(set, 'result')} placeholder="cleared the aged backlog with zero findings" /></Field>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">

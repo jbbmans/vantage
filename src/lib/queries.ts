@@ -1,3 +1,5 @@
+import { DEFAULT_METRICS, type MetricsConfig } from '../../shared/constants';
+import { setCurrencySymbol } from '../../shared/metrics';
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as api from './api.ts';
 import type { Store } from './api.ts';
@@ -21,7 +23,7 @@ export interface Identity {
   roles: Array<{ unit_id: string; id: string; name: string; color: string | null; position: number; permissions: number }>;
   canLead: boolean; manageableUnits: string[]; counselUnits: string[]; exportUnits: string[];
   session: { id: string; method: string; sudoUntil: string | null };
-  instance: { displayName: string; organizationName: string; announcement: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean };
+  instance: { displayName: string; organizationName: string; announcement: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean; metrics: MetricsConfig };
 }
 
 export const keys = {
@@ -42,7 +44,12 @@ export const keys = {
 };
 
 export function useIdentity() {
-  return useQuery<Identity>({ queryKey: keys.me, queryFn: api.me, staleTime: 60_000, enabled: api.hasSession(), retry: false });
+  return useQuery<Identity>({ queryKey: keys.me, queryFn: async () => { const id = await api.me() as Identity; setCurrencySymbol(id.instance?.metrics?.currency_symbol || '$'); return id; }, staleTime: 60_000, enabled: api.hasSession(), retry: false });
+}
+/** The instance's metric configuration: money label and symbol, value types, categories, unit suggestions. */
+export function useMetrics(): MetricsConfig {
+  const { data } = useIdentity();
+  return data?.instance.metrics || DEFAULT_METRICS;
 }
 export function useOrg() {
   return useQuery({ queryKey: keys.org, queryFn: api.org, staleTime: 5 * 60_000 });

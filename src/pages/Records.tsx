@@ -8,9 +8,9 @@ import RecordDialog from '@/components/RecordDialog';
 import CsvImportDialog from '@/components/CsvImportDialog';
 import { ActivityFields, emptyActivity, toActivityDraft, activityPayload, type ActivityDraft } from '@/components/ActivityForm';
 import { PeriodSelect, DateText, CategoryDot, useParam, Table } from '@/components/common';
-import { useActivities, useRecords, useDeleteRecord, useIdentity, usePrefs, useRestoreRecord, useSavePrefs, useTrack, unitName, useOrg } from '@/lib/queries';
+import { useActivities, useRecords, useDeleteRecord, useIdentity, usePrefs, useRestoreRecord, useSavePrefs, useTrack, unitName, useOrg, useMetrics } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { CATEGORIES } from '../../shared/constants';
+import { categoryNames } from '../../shared/constants';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
 import { activitiesInRange, rangeForPeriod, formatDollars, formatNumber, aggregateMetrics } from '../../shared/metrics';
 import { findDuplicates } from '../../shared/duplicates';
@@ -20,6 +20,7 @@ import { cn } from '@/lib/utils';
 type Sort = 'date' | 'value' | 'strength' | 'updated';
 
 export default function Records() {
+  const cfg = useMetrics();
   const navigate = useNavigate();
   const toast = useToast();
   const { data: identity } = useIdentity();
@@ -69,7 +70,7 @@ export default function Records() {
     };
     return [...list].sort(cmp[sort]);
   }, [rows, from, to, period, owner, category, area, quality, q, sort, dupIds, identity?.user.id, track]);
-  const metrics = useMemo(() => aggregateMetrics(filtered), [filtered]);
+  const metrics = useMemo(() => aggregateMetrics(filtered, cfg), [filtered, cfg]);
   const hasShared = (rows || []).some((a: any) => a.user_id !== identity?.user.id);
 
   const del = async (a: any) => {
@@ -103,7 +104,7 @@ export default function Records() {
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search records" className="pl-8" placeholder="Search title, result, org, system…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
           {from && to ? <Badge tone="accent" className="normal-case tracking-normal">{from === to ? from : `${from} → ${to}`}<button type="button" className="ml-1 hover:text-ink" onClick={() => navigate('/records')} aria-label="Clear date filter">×</button></Badge> : <PeriodSelect value={period} onChange={(v) => { setPeriod(v); savePrefs.mutate({ reportPeriod: v }); }} className="w-40" />}
-          <Select aria-label="Category" className="w-44" value={category} onValueChange={setCategory} options={[{ value: 'all', label: 'All categories' }, ...CATEGORIES.map((c) => ({ value: c, label: c }))]} />
+          <Select aria-label="Category" className="w-44" value={category} onValueChange={setCategory} options={[{ value: 'all', label: 'All categories' }, ...categoryNames(cfg).map((c) => ({ value: c, label: c }))]} />
           <Select aria-label={trackMeta(track).areaLabel} className="w-48" value={area} onValueChange={setArea} options={[{ value: 'all', label: `All ${trackMeta(track).areaLabel.toLowerCase()}s` }, ...areaOptions(track)]} />
           <Select aria-label="Quality filter" className="w-52" value={quality} onValueChange={setQuality} options={qualityOptions} />
           {hasShared && <Select aria-label="Owner" className="w-36" value={owner} onValueChange={setOwner} options={[{ value: 'all', label: 'Everyone' }, { value: 'mine', label: 'Mine' }, { value: 'unit', label: 'Shared with me' }]} />}

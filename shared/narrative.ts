@@ -1,5 +1,5 @@
 import { formatNumber } from './metrics.ts';
-import { SUMMABLE_DOLLAR_TYPES, JEPES_CORE } from './constants.ts';
+import { JEPES_CORE, DEFAULT_METRICS, isSummable, type MetricsConfig } from './constants.ts';
 import { strength, unitFor, type BulletSource } from './bullets.ts';
 
 export const DEFAULT_LIMIT = 1000;
@@ -19,7 +19,7 @@ function money(n: number): string | null {
   return `$${Math.round(n)}`;
 }
 
-function summarise(list: BulletSource[] = []) {
+function summarise(list: BulletSource[] = [], metrics: MetricsConfig = DEFAULT_METRICS) {
   const units: Record<string, number> = {};
   const systems = new Set<string>();
   const orgs = new Set<string>();
@@ -31,7 +31,7 @@ function summarise(list: BulletSource[] = []) {
       units[key] = (units[key] || 0) + Number(a.quantity);
     }
     if (a.dollar_amount) {
-      if (SUMMABLE_DOLLAR_TYPES.includes(a.dollar_type || 'impact')) dollars += Number(a.dollar_amount);
+      if (isSummable(a.dollar_type, metrics)) dollars += Number(a.dollar_amount);
       else reviewed += Number(a.dollar_amount);
     }
     if (a.system) systems.add(a.system);
@@ -61,8 +61,8 @@ const AREA_VERB: Record<string, { counted: string; money: string }> = {
   'Evaluation Responsibilities': { counted: 'evaluated', money: 'oversaw' },
 };
 
-function headlineSentence(area: string, list: BulletSource[]): string | null {
-  const s = summarise(list);
+function headlineSentence(area: string, list: BulletSource[], metrics: MetricsConfig = DEFAULT_METRICS): string | null {
+  const s = summarise(list, metrics);
   if (!s.count) return null;
   const verbs = AREA_VERB[area] || AREA_VERB['MOS / Mission Accomplishment'];
   const quantity = series(s.unitList);
@@ -90,7 +90,7 @@ function supportingSentences(list: BulletSource[]): string[] {
 }
 
 export interface NarrativeOptions {
-  limit?: number; periodLabel?: string; areas?: readonly string[]; labels?: Record<string, string>; fallbackArea?: string;
+  limit?: number; periodLabel?: string; areas?: readonly string[]; labels?: Record<string, string>; fallbackArea?: string; metrics?: MetricsConfig;
 }
 
 export interface Narrative {
@@ -99,7 +99,7 @@ export interface Narrative {
 }
 
 export function composeNarrative(activities: BulletSource[] = [], opts: NarrativeOptions = {}): Narrative {
-  const { limit = DEFAULT_LIMIT, periodLabel = '', areas = JEPES_CORE, labels = AREA_LABEL, fallbackArea = 'MOS / Mission Accomplishment' } = opts;
+  const { limit = DEFAULT_LIMIT, periodLabel = '', areas = JEPES_CORE, labels = AREA_LABEL, fallbackArea = 'MOS / Mission Accomplishment', metrics = DEFAULT_METRICS } = opts;
 
   const byArea = areas
     .map((area) => ({ area, label: labels[area] || area.toUpperCase(), items: activities.filter((a) => a.eval_area === area) }))
@@ -114,7 +114,7 @@ export function composeNarrative(activities: BulletSource[] = [], opts: Narrativ
 
   const blocks = byArea
     .map((g) => {
-      const headline = headlineSentence(g.area, g.items);
+      const headline = headlineSentence(g.area, g.items, metrics);
       return { ...g, headline: headline ? `${g.label}: ${capitalize(headline)}.` : null, support: supportingSentences(g.items), used: [] as string[] };
     })
     .filter((b): b is typeof b & { headline: string } => Boolean(b.headline));
@@ -155,10 +155,10 @@ export function composeNarrative(activities: BulletSource[] = [], opts: Narrativ
   };
 }
 
-export function areaBalance(activities: BulletSource[] = [], areas: readonly string[] = JEPES_CORE) {
+export function areaBalance(activities: BulletSource[] = [], areas: readonly string[] = JEPES_CORE, metrics: MetricsConfig = DEFAULT_METRICS) {
   return areas.map((area) => {
     const items = activities.filter((a) => a.eval_area === area);
-    const s = summarise(items);
+    const s = summarise(items, metrics);
     return {
       area, label: AREA_LABEL[area] || area, count: items.length, dollars: s.dollars,
       withOutcome: items.filter((a) => a.result).length, share: activities.length ? items.length / activities.length : 0,

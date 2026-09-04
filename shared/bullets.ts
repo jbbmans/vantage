@@ -1,5 +1,5 @@
 import { formatDollarsExact, formatNumber, formatDTG, toDate } from './metrics.ts';
-import { JEPES_CORE, SUMMABLE_DOLLAR_TYPES } from './constants.ts';
+import { JEPES_CORE, DEFAULT_METRICS, isSummable, type MetricsConfig } from './constants.ts';
 
 export type BulletStyle = 'jepes' | 'fitrep' | 'resume';
 
@@ -128,8 +128,8 @@ export function composeBullet(a: BulletSource = {}, opts: { style?: BulletStyle;
   return sentence;
 }
 
-export function composeRollup(activities: BulletSource[] = [], opts: { label?: string; period?: string; style?: BulletStyle } = {}): string | null {
-  const { label = 'fiscal actions', period = '', style = 'jepes' } = opts;
+export function composeRollup(activities: BulletSource[] = [], opts: { label?: string; period?: string; style?: BulletStyle; metrics?: MetricsConfig } = {}): string | null {
+  const { label = 'fiscal actions', period = '', style = 'jepes', metrics = DEFAULT_METRICS } = opts;
   if (!activities.length) return null;
   const unitTotals: Record<string, number> = {};
   let dollars = 0;
@@ -142,7 +142,7 @@ export function composeRollup(activities: BulletSource[] = [], opts: { label?: s
       unitTotals[unit] = (unitTotals[unit] || 0) + Number(a.quantity);
     }
     if (a.dollar_amount) {
-      if (SUMMABLE_DOLLAR_TYPES.includes(a.dollar_type || 'impact')) dollars += Number(a.dollar_amount);
+      if (isSummable(a.dollar_type, metrics)) dollars += Number(a.dollar_amount);
       else reviewed += Number(a.dollar_amount);
     }
     if (a.organization) orgs.add(a.organization);
@@ -193,8 +193,8 @@ export interface PackageGroup {
   bullets: Array<{ id?: string; text: string; date?: string | null; strength: number }>;
 }
 
-export function buildPackage(activities: BulletSource[] = [], opts: { periodLabel?: string; style?: BulletStyle; limitPerArea?: number; areas?: readonly string[] } = {}): PackageGroup[] {
-  const { periodLabel = '', style = 'jepes', limitPerArea = 8, areas = JEPES_CORE } = opts;
+export function buildPackage(activities: BulletSource[] = [], opts: { periodLabel?: string; style?: BulletStyle; limitPerArea?: number; areas?: readonly string[]; metrics?: MetricsConfig } = {}): PackageGroup[] {
+  const { periodLabel = '', style = 'jepes', limitPerArea = 8, areas = JEPES_CORE, metrics = DEFAULT_METRICS } = opts;
   const cap = !limitPerArea || limitPerArea === Infinity ? Infinity : limitPerArea;
   return groupByAreas(activities, areas).map(({ area, activities: items }) => {
     const ranked = [...items].sort((a, b) => strength(b) - strength(a));
@@ -203,7 +203,7 @@ export function buildPackage(activities: BulletSource[] = [], opts: { periodLabe
       area,
       count: items.length,
       withheld: Math.max(0, items.length - shown.length),
-      rollup: composeRollup(items, { period: periodLabel, style }),
+      rollup: composeRollup(items, { period: periodLabel, style, metrics }),
       bullets: shown.map((a) => ({ id: a.id, text: composeBullet(a, { style }), date: a.date, strength: strength(a) })),
     };
   });

@@ -1,6 +1,7 @@
 import type { Db } from './db/index.ts';
 import type { AppConfig } from './config.ts';
 import type { Mailer } from './services/email.ts';
+import type { MetricsConfig } from '../shared/constants.ts';
 
 export interface AppContext {
   db: Db;
@@ -22,6 +23,8 @@ export interface RuntimeSettings {
   attachmentsEnabled: boolean;
   maradminsEnabled: boolean;
   maintenance: boolean;
+  /** What this instance measures: money label and symbol, value types, categories, unit suggestions. */
+  metrics: MetricsConfig;
 }
 
 export interface SessionUser {

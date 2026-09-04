@@ -6,6 +6,7 @@ Vantage 5 is a ground-up rewrite: TypeScript end to end, a fresh schema, passkey
 
 ## What it does
 
+- **Configurable metrics.** The Owner console's Metrics tab renames the money metric, defines the value types that roll into the headline total, and sets the categories and unit suggestions, so shops other than a comptroller section can track what they actually do.
 - **Quick Log.** Press `N`, type "Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday". Vantage extracts the date, quantity, dollars, system, category, and evaluation area. Works offline; entries queue on the device and sync later.
 - **Records.** Filter by period, category, area, and quality (missing outcome, untagged, duplicates). Edit, attach evidence files, restore from a 30-day recycle bin.
 - **Reports.** Section I narrative to the character limit, bullet package by area, period-over-period comparison, PDF and CSV export. JEPES for E-1 to E-4, FITREP for E-5 and up, switchable.

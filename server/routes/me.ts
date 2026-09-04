@@ -45,7 +45,7 @@ meRouter.get('/', wrap((req, res) => {
     counselUnits: unitsWith(scope, PERMISSIONS.COUNSEL),
     exportUnits: unitsWith(scope, PERMISSIONS.EXPORT_DATA),
     session: { id: req.sessionId.slice(0, 12), method: req.sessionRow.method, sudoUntil: req.sessionRow.sudo_until },
-    instance: { displayName: ctx.runtime.displayName, organizationName: ctx.runtime.organizationName, announcement: ctx.runtime.announcement, emailEnabled: ctx.mailer.enabled, attachmentsEnabled: ctx.runtime.attachmentsEnabled, aiEnabled: ctx.runtime.aiEnabled && Boolean(ctx.config.ai.apiKey), maradminsEnabled: ctx.runtime.maradminsEnabled },
+    instance: { displayName: ctx.runtime.displayName, organizationName: ctx.runtime.organizationName, announcement: ctx.runtime.announcement, emailEnabled: ctx.mailer.enabled, attachmentsEnabled: ctx.runtime.attachmentsEnabled, aiEnabled: ctx.runtime.aiEnabled && Boolean(ctx.config.ai.apiKey), maradminsEnabled: ctx.runtime.maradminsEnabled, metrics: ctx.runtime.metrics },
   });
 }));
 

@@ -2,7 +2,7 @@ import {
   startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear,
   subDays, parseISO, isValid, format, differenceInCalendarDays,
 } from 'date-fns';
-import { SUMMABLE_DOLLAR_TYPES, FISCAL_YEAR_START_MONTH } from './constants.ts';
+import { FISCAL_YEAR_START_MONTH, DEFAULT_METRICS, isSummable, type MetricsConfig } from './constants.ts';
 import type { DateRange } from './types.ts';
 
 export function toDate(value: unknown): Date | null {
@@ -114,7 +114,7 @@ export interface MetricSource {
   dollar_amount?: number | null; dollar_type?: string | null; result?: string | null;
 }
 
-export function aggregateMetrics(list: MetricSource[] = []): Metrics {
+export function aggregateMetrics(list: MetricSource[] = [], cfg: MetricsConfig = DEFAULT_METRICS): Metrics {
   const byCategory: Record<string, Bucket> = {};
   const byArea: Record<string, Bucket> = {};
   const dollarsByType: Record<string, number> = {};
@@ -140,9 +140,9 @@ export function aggregateMetrics(list: MetricSource[] = []): Metrics {
     if (a.result && String(a.result).trim()) withOutcome += 1;
 
     if (a.dollar_amount) {
-      const type = a.dollar_type || 'impact';
+      const type = a.dollar_type || (cfg.value_types.find((d) => d.summable)?.key || cfg.value_types[0]?.key || 'impact');
       dollarsByType[type] = (dollarsByType[type] || 0) + Number(a.dollar_amount);
-      if (SUMMABLE_DOLLAR_TYPES.includes(type)) totalDollars += Number(a.dollar_amount);
+      if (isSummable(a.dollar_type, cfg)) totalDollars += Number(a.dollar_amount);
       else reviewedDollars += Number(a.dollar_amount);
     }
 
@@ -218,26 +218,30 @@ export function previousRange(range: DateRange): DateRange {
 }
 
 const nf = new Intl.NumberFormat('en-US');
-const usdExact = new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD', minimumFractionDigits: 2, maximumFractionDigits: 2 });
+const exact2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+/** The money symbol is instance-wide, so it lives here rather than being threaded through every formatter call. */
+let currencySymbol = '$';
+export const setCurrencySymbol = (s: string) => { currencySymbol = s || '$'; };
+export const getCurrencySymbol = () => currencySymbol;
 
 export function formatNumber(n: number | null | undefined): string {
   if (n == null || Number.isNaN(n)) return '0';
   return nf.format(Math.round(n * 100) / 100);
 }
 
-export function formatDollars(n: number | null | undefined): string {
-  if (!n) return '$0';
+export function formatDollars(n: number | null | undefined, symbol = currencySymbol): string {
+  if (!n) return `${symbol}0`;
   const abs = Math.abs(n);
   const sign = n < 0 ? '-' : '';
-  if (abs >= 1e9) return `${sign}$${(abs / 1e9).toFixed(2)}B`;
-  if (abs >= 1e6) return `${sign}$${(abs / 1e6).toFixed(2)}M`;
-  if (abs >= 1e4) return `${sign}$${(abs / 1e3).toFixed(1)}K`;
-  return `${sign}$${nf.format(Math.round(abs))}`;
+  if (abs >= 1e9) return `${sign}${symbol}${(abs / 1e9).toFixed(2)}B`;
+  if (abs >= 1e6) return `${sign}${symbol}${(abs / 1e6).toFixed(2)}M`;
+  if (abs >= 1e4) return `${sign}${symbol}${(abs / 1e3).toFixed(1)}K`;
+  return `${sign}${symbol}${nf.format(Math.round(abs))}`;
 }
 
-export function formatDollarsExact(n: number | null | undefined): string {
-  if (n == null) return '$0.00';
-  return usdExact.format(n);
+export function formatDollarsExact(n: number | null | undefined, symbol = currencySymbol): string {
+  if (n == null) return `${symbol}0.00`;
+  return `${n < 0 ? '-' : ''}${symbol}${exact2.format(Math.abs(n))}`;
 }
 
 export function formatCompact(n: number | null | undefined): string {

@@ -1,6 +1,8 @@
 import { Router } from 'express';
 import express from 'express';
 import { z } from 'zod';
+import { normalizeMetrics } from '../../shared/constants.ts';
+import { setCurrencySymbol } from '../../shared/metrics.ts';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chmodSync, statSync, unlinkSync } from 'node:fs';
@@ -53,12 +55,29 @@ const runtimeSchema = z.object({
   attachmentsEnabled: z.boolean().optional(),
   maradminsEnabled: z.boolean().optional(),
   maintenance: z.boolean().optional(),
+  metrics: z.object({
+    currency_label: z.string().trim().min(1).max(30),
+    currency_symbol: z.string().trim().max(4),
+    value_types: z.array(z.object({ key: z.string().regex(/^[a-z0-9][a-z0-9_-]{0,29}$/, 'Keys are lowercase letters, digits, dash, underscore.'), label: z.string().trim().min(1).max(40), verb: z.string().trim().max(40).optional(), summable: z.boolean(), definition: z.string().trim().max(200).optional() })).min(1).max(20),
+    categories: z.array(z.object({ name: z.string().trim().min(1).max(60), color: z.string().regex(/^#[0-9a-fA-F]{6}$/) })).min(1).max(40),
+    unit_suggestions: z.array(z.string().trim().min(1).max(30)).max(60),
+  }).optional(),
 });
 
 adminRouter.put('/runtime', wrap((req, res) => {
   const ctx = req.ctx;
   const patch = parse(runtimeSchema, req.body);
-  Object.assign(ctx.runtime, Object.fromEntries(Object.entries(patch).filter(([, v]) => v !== undefined)));
+  const { metrics, ...rest } = patch;
+  Object.assign(ctx.runtime, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
+  if (metrics) {
+    const keys = metrics.value_types.map((t) => t.key);
+    if (new Set(keys).size !== keys.length) throw badRequest('Value type keys must be unique.');
+    const names = metrics.categories.map((c) => c.name.toLowerCase());
+    if (new Set(names).size !== names.length) throw badRequest('Category names must be unique.');
+    if (!metrics.value_types.some((t) => t.summable)) throw badRequest('At least one value type must count toward the headline total.');
+    ctx.runtime.metrics = normalizeMetrics(metrics);
+    setCurrencySymbol(ctx.runtime.metrics.currency_symbol);
+  }
   if (!ctx.runtime.aiModels.length) ctx.runtime.aiModels = [...ctx.config.ai.models];
   if (!ctx.runtime.aiModels.includes(ctx.runtime.aiDefaultModel)) ctx.runtime.aiDefaultModel = ctx.runtime.aiModels[0];
   ctx.saveRuntime();

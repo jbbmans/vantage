@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import {
-  CATEGORIES, EVAL_AREAS, DOLLAR_TYPE_KEYS, ACTIVITY_STATUS, WORK_STATUS, PRIORITIES, GOAL_TYPES, GOAL_STATUS, GOAL_METRICS,
+  EVAL_AREAS, ACTIVITY_STATUS, WORK_STATUS, PRIORITIES, GOAL_TYPES, GOAL_STATUS, GOAL_METRICS,
   TRAINING_TYPES, TRAINING_STATUS, AWARD_TYPES, AWARD_STATUS, COUNSELING_TYPES, VISIBILITIES, DEGREES, PME_STATUS, MCMAP_BELTS, RIFLE_QUALS, ACCENTS,
 } from './constants.ts';
 import { passwordProblem } from './password.ts';
@@ -44,12 +44,12 @@ export const unitIdField = z.string().max(64).nullish();
 export const activitySchema = z.object({
   title: text(300).trim().min(1, 'Required.'),
   date: optDate,
-  category: optEnum(CATEGORIES),
+  category: optText(80),
   eval_area: z.string().max(80).nullish().or(z.literal('')).transform((v) => (v === undefined ? undefined : v && EVAL_AREAS.includes(v) ? v : v ? 'Unassigned' : null)),
   quantity: optNumber(0, 1_000_000_000),
   unit_label: optText(60),
   dollar_amount: optNumber(0, 1_000_000_000_000),
-  dollar_type: optEnum(DOLLAR_TYPE_KEYS as unknown as readonly [string, ...string[]]),
+  dollar_type: optText(40).transform((v) => (typeof v === 'string' ? v.trim().toLowerCase() : v)),
   result: optText(2000),
   organization: optText(200),
   system: optText(120),
@@ -93,7 +93,7 @@ export const goalSchema = z.object({
   title: text(300).trim().min(1, 'Required.'),
   description: optText(4000),
   type: optEnum(GOAL_TYPES),
-  category: optEnum(CATEGORIES),
+  category: optText(80),
   metric: optEnum(GOAL_METRICS),
   current_value: optNumber(-1_000_000_000, 1_000_000_000_000),
   target_value: optNumber(-1_000_000_000, 1_000_000_000_000),

@@ -1,5 +1,5 @@
 import { aggregateMetrics, activitiesInRange, previousRange, delta, formatDTG, type MetricSource } from './metrics.ts';
-import { DOLLAR_TYPES, JEPES_CORE, CATEGORIES } from './constants.ts';
+import { JEPES_CORE, DEFAULT_METRICS, categoryNames, type MetricsConfig } from './constants.ts';
 import type { DateRange } from './types.ts';
 
 export interface Movement { current: number; prior: number; diff: number; pct: number | null; direction: 'up' | 'down' | 'flat'; isNew: boolean; lapsed: boolean }
@@ -26,14 +26,15 @@ export interface Comparison {
 export function comparePeriods(
   activities: Dated[] = [],
   range: DateRange & { label?: string },
-  extras: { areas?: readonly string[]; awards?: Array<{ date?: string | null }>; trainings?: Array<{ date?: string | null; hours?: number | null }>; goals?: Array<{ status?: string }> } = {}
+  extras: { areas?: readonly string[]; awards?: Array<{ date?: string | null }>; trainings?: Array<{ date?: string | null; hours?: number | null }>; goals?: Array<{ status?: string }>; metrics?: MetricsConfig } = {}
 ): Comparison {
   const areas = extras.areas || JEPES_CORE;
+  const cfg = extras.metrics || DEFAULT_METRICS;
   const prior = previousRange(range);
   const now = activitiesInRange(activities, range);
   const before = activitiesInRange(activities, prior);
-  const a = aggregateMetrics(now);
-  const b = aggregateMetrics(before);
+  const a = aggregateMetrics(now, cfg);
+  const b = aggregateMetrics(before, cfg);
   const headline = {
     activities: movement(a.totalActivities, b.totalActivities),
     dollars: movement(a.totalDollars, b.totalDollars),
@@ -41,10 +42,10 @@ export function comparePeriods(
     quantity: movement(a.totalQuantity, b.totalQuantity),
     withOutcome: movement(a.withOutcome, b.withOutcome),
   };
-  const byDollarType = DOLLAR_TYPES.map((d) => ({ key: d.key, label: d.label, summable: d.summable, ...movement(a.dollarsByType[d.key] || 0, b.dollarsByType[d.key] || 0) }))
+  const byDollarType = cfg.value_types.map((d) => ({ key: d.key, label: d.label, summable: d.summable, ...movement(a.dollarsByType[d.key] || 0, b.dollarsByType[d.key] || 0) }))
     .filter((row) => row.current || row.prior);
   const byArea = areas.map((area) => ({ area, ...movement(a.byArea[area]?.count || 0, b.byArea[area]?.count || 0), dollars: movement(a.byArea[area]?.dollars || 0, b.byArea[area]?.dollars || 0) }));
-  const byCategory = CATEGORIES.map((cat) => ({ category: cat as string, ...movement(a.byCategory[cat]?.count || 0, b.byCategory[cat]?.count || 0) }))
+  const byCategory = [...new Set([...categoryNames(cfg), ...Object.keys(a.byCategory), ...Object.keys(b.byCategory)])].map((cat) => ({ category: cat as string, ...movement(a.byCategory[cat]?.count || 0, b.byCategory[cat]?.count || 0) }))
     .filter((row) => row.current || row.prior).sort((x, y) => Math.abs(y.diff) - Math.abs(x.diff));
   const unitKeys = new Set([...a.byUnit.map((u) => u.unit), ...b.byUnit.map((u) => u.unit)]);
   const byUnit = [...unitKeys].map((unit) => {

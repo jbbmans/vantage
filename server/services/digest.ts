@@ -3,7 +3,7 @@ import type { AppContext } from '../context.ts';
 import { layout } from './email.ts';
 import { audit } from './audit.ts';
 import { formatDollars } from '../../shared/metrics.ts';
-import { SUMMABLE_DOLLAR_TYPES } from '../../shared/constants.ts';
+import { isSummable } from '../../shared/constants.ts';
 import { now } from '../lib/ids.ts';
 
 interface DigestUser { id: string; email: string | null; first_name: string; last_name: string; prefs: string; digest_last_sent_at: string | null }
@@ -23,7 +23,7 @@ export function composeDigest(ctx: AppContext, user: DigestUser) {
   const todayIso = new Date().toISOString().slice(0, 10);
   const soon = new Date(Date.now() + 14 * 86_400_000).toISOString().slice(0, 10);
   const acts = db.prepare(`SELECT title, dollar_amount, dollar_type, result FROM activities WHERE user_id = ? AND deleted_at IS NULL AND date >= ? ORDER BY date DESC`).all(user.id, since) as Array<{ title: string; dollar_amount: number | null; dollar_type: string | null; result: string | null }>;
-  const dollars = acts.reduce((n, a) => n + (SUMMABLE_DOLLAR_TYPES.includes(a.dollar_type || 'impact') ? Number(a.dollar_amount) || 0 : 0), 0);
+  const dollars = acts.reduce((n, a) => n + (isSummable(a.dollar_type, ctx.runtime.metrics) ? Number(a.dollar_amount) || 0 : 0), 0);
   const noOutcome = acts.filter((a) => !a.result).length;
   const overdue = db.prepare(`SELECT title, due_date FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND status <> 'completed' AND deleted_at IS NULL AND due_date < ? ORDER BY due_date LIMIT 5`).all(user.id, user.id, todayIso) as Array<{ title: string; due_date: string }>;
   const dueSoon = db.prepare(`SELECT title, due_date FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND status <> 'completed' AND deleted_at IS NULL AND due_date >= ? AND due_date <= ? ORDER BY due_date LIMIT 5`).all(user.id, user.id, todayIso, soon) as Array<{ title: string; due_date: string }>;

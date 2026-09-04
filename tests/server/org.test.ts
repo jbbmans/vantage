@@ -303,3 +303,51 @@ test('removing a member returns their assigned unit work to its author', async (
   const again = (await app.login('marine')).body.token;
   assert.ok(!(await app.call('GET', '/api/records/tasks', { token: again })).body.some((t: any) => t.id === task.body.id));
 });
+
+test('an owner can redefine the money metric, value types, and categories; forms, validation, and totals follow', async () => {
+  const opToken = (await app.login('boletz')).body.token as string;
+  const custom = {
+    currency_label: 'Funds', currency_symbol: '€',
+    value_types: [
+      { key: 'executed', label: 'Executed', verb: 'executed', summable: true, definition: 'Money you executed.' },
+      { key: 'reviewed', label: 'Reviewed', verb: 'reviewed', summable: false, definition: 'Passed through review.' },
+    ],
+    categories: [{ name: 'Contracting', color: '#1f9d6a' }, { name: 'Other', color: '#54627a' }],
+    unit_suggestions: ['contracts', 'modifications'],
+  };
+  const saved = await app.call('PUT', '/api/admin/runtime', { token: opToken, body: { metrics: custom } });
+  assert.equal(saved.status, 200, JSON.stringify(saved.body));
+  assert.equal(saved.body.metrics.currency_label, 'Funds');
+  const me = await app.call('GET', '/api/me', { token: opToken });
+  assert.deepEqual(me.body.instance.metrics.value_types.map((t: { key: string }) => t.key), ['executed', 'reviewed']);
+
+  // Baseline after the switch: entries saved under retired types now sit outside the headline.
+  const before = (await app.call('GET', '/api/org/units/G8/dashboard?from=2026-09-01&to=2026-09-30', { token: opToken })).body.totals;
+
+  // Records accept the new keys and refuse retired ones.
+  const ok = await app.call('POST', '/api/records/activities', { token: opToken, body: { title: 'Executed 3 contract mods', date: '2026-09-01', category: 'Contracting', dollar_amount: 5000, dollar_type: 'executed', visibility: 'unit', unit_id: 'G8' } });
+  assert.equal(ok.status, 201, JSON.stringify(ok.body));
+  const passthrough = await app.call('POST', '/api/records/activities', { token: opToken, body: { title: 'Reviewed a package', date: '2026-09-02', dollar_amount: 700, dollar_type: 'reviewed', visibility: 'unit', unit_id: 'G8' } });
+  assert.equal(passthrough.status, 201);
+  const retired = await app.call('POST', '/api/records/activities', { token: opToken, body: { title: 'Old style', date: '2026-09-03', dollar_amount: 1, dollar_type: 'reconciled' } });
+  assert.equal(retired.status, 400);
+  assert.match(retired.body.error, /Unknown value type/);
+
+  // Headline totals follow the summable flags of the new types.
+  const dash = await app.call('GET', '/api/org/units/G8/dashboard?from=2026-09-01&to=2026-09-30', { token: opToken });
+  assert.equal(dash.status, 200, JSON.stringify(dash.body));
+  assert.equal(Math.round(dash.body.totals.dollars - before.dollars), 5000);
+  assert.equal(Math.round(dash.body.totals.reviewed - before.reviewed), 700);
+
+  // Validation: every instance needs a headline type, keys must be unique.
+  const noHeadline = await app.call('PUT', '/api/admin/runtime', { token: opToken, body: { metrics: { ...custom, value_types: [{ key: 'x', label: 'X', summable: false }] } } });
+  assert.equal(noHeadline.status, 400);
+  const dupKeys = await app.call('PUT', '/api/admin/runtime', { token: opToken, body: { metrics: { ...custom, value_types: [{ key: 'a', label: 'A', summable: true }, { key: 'a', label: 'B', summable: true }] } } });
+  assert.equal(dupKeys.status, 400);
+
+  // Settings survive a restart of the runtime.
+  const { loadRuntime } = await import('../../server/app.ts');
+  assert.equal(loadRuntime(app.ctx.db, app.ctx.config).metrics.currency_symbol, '€');
+  const { DEFAULT_METRICS } = await import('../../shared/constants.ts');
+  await app.call('PUT', '/api/admin/runtime', { token: opToken, body: { metrics: DEFAULT_METRICS } });
+});

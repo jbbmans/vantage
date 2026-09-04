@@ -8,10 +8,10 @@ import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { AreaChart, BarList } from '@/components/charts';
 import { DateText, Table, useParam } from '@/components/common';
-import { keys, useIdentity, useOrg, useRoles, useTeam, unitsWith, can } from '@/lib/queries';
+import { keys, useIdentity, useOrg, useRoles, useTeam, unitsWith, can, useMetrics } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATE, listPermissions } from '../../shared/permissions';
-import { ECHELONS, CATEGORY_COLORS, type Category } from '../../shared/constants';
+import { ECHELONS, categoryColor } from '../../shared/constants';
 import { formatDollars, formatNumber } from '../../shared/metrics';
 import { copyToClipboard, cn, humanize, fullName } from '@/lib/utils';
 import { downloadText } from '@/lib/utils';
@@ -213,6 +213,7 @@ function Units({ units, manageUnits, isOperator, roster }: { units: any[]; manag
 }
 
 function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: string; unitLabel: string; canExport: boolean; canDetail: boolean }) {
+  const cfg = useMetrics();
   const toast = useToast();
   const [days, setDays] = useState('90');
   const [now] = useState(() => Date.now());
@@ -229,12 +230,12 @@ function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: st
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Members" value={t.members} hint={`${t.contributors} logged something`} />
         <Stat label="Shared entries" value={formatNumber(t.entries)} hint={`${t.completeness}% with an outcome`} tone={t.completeness < 60 ? 'warn' : undefined} />
-        <Stat label="Dollars moved" value={formatDollars(t.dollars)} hint={t.reviewed ? `${formatDollars(t.reviewed)} reviewed` : 'summable types'} tone="accent" />
+        <Stat label={`${cfg.currency_label} moved`} value={formatDollars(t.dollars)} hint={t.reviewed ? `${formatDollars(t.reviewed)} reviewed` : 'summable types'} tone="accent" />
         <Stat label="Needs attention" value={t.overdue_tasks + t.counseling_due} hint={`${t.overdue_tasks} overdue tasks · ${t.counseling_due} counselings due`} tone={t.overdue_tasks + t.counseling_due ? 'warn' : 'good'} />
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Panel className="lg:col-span-2" title="Entries per week" padded={false} bodyClassName="p-3">{data.weekly.length > 1 ? <AreaChart ariaLabel="Unit entries per week" data={data.weekly.map((w: any) => ({ label: w.week.slice(5), value: w.entries, secondary: Math.round(w.dollars) }))} secondaryLabel="Dollars" /> : <EmptyState title="Not enough shared entries yet" />}</Panel>
-        <Panel title="By category"><BarList items={data.by_category.slice(0, 8).map((c: any) => ({ label: c.category, value: c.entries, hint: c.dollars ? formatDollars(c.dollars) : undefined }))} colorFor={(l) => CATEGORY_COLORS[l as Category]} /></Panel>
+        <Panel className="lg:col-span-2" title="Entries per week" padded={false} bodyClassName="p-3">{data.weekly.length > 1 ? <AreaChart ariaLabel="Unit entries per week" data={data.weekly.map((w: any) => ({ label: w.week.slice(5), value: w.entries, secondary: Math.round(w.dollars) }))} secondaryLabel={cfg.currency_label} /> : <EmptyState title="Not enough shared entries yet" />}</Panel>
+        <Panel title="By category"><BarList items={data.by_category.slice(0, 8).map((c: any) => ({ label: c.category, value: c.entries, hint: c.dollars ? formatDollars(c.dollars) : undefined }))} colorFor={(l) => categoryColor(l, cfg)} /></Panel>
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Panel title="Readiness and pipeline"><dl className="grid grid-cols-2 gap-2 text-sm">{[['Avg PFT', t.avg_pft ?? '—'], ['Avg CFT', t.avg_cft ?? '—'], ['Readiness reported', `${t.readiness_reported}/${t.members}`], ['Active goals', t.active_goals], ['Goals achieved', t.goals_achieved], ['Awards in progress', t.awards_in_progress]].map(([k, v]) => <div key={String(k)} className="rounded-md border border-line px-3 py-2"><dt className="eyebrow">{k}</dt><dd className="fig mt-0.5 font-semibold text-ink">{String(v)}</dd></div>)}</dl></Panel>

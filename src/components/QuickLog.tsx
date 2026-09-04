@@ -5,13 +5,13 @@ import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Input, NumberInput, Select, Textarea, Badge, Dot } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { parseQuickLog, primaryQuantity } from '../../shared/quickLog';
-import { CATEGORIES, CATEGORY_COLORS, DOLLAR_TYPES, UNIT_SUGGESTIONS, EVAL_AREAS } from '../../shared/constants';
+import { EVAL_AREAS, categoryNames, categoryColor, valueType } from '../../shared/constants';
 import { formatDollarsExact } from '../../shared/metrics';
 import { strength, weaknesses, composeBullet } from '../../shared/bullets';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { AiAction, ModelPicker } from '@/components/AiPanel';
-import { useCreateRecord, useIdentity, usePrefs, useTrack } from '@/lib/queries';
+import { useCreateRecord, useIdentity, usePrefs, useTrack, useMetrics } from '@/lib/queries';
 import { draftKey, readDraft, writeDraft } from '@/lib/drafts';
 import { errorText, isOffline } from '@/lib/api';
 import { outbox } from '@/lib/outbox';
@@ -41,17 +41,19 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
   }, [open, initialText, key, prefs.quickLogExpanded]);
   useEffect(() => { if (open) writeDraft(key, text.trim() ? text : null); }, [text, open, key]);
 
+  const cfg = useMetrics();
   const parsed = useMemo(() => (text.trim() ? parseQuickLog(text) : null), [text]);
+  const fallbackType = cfg.value_types.find((d) => d.summable)?.key || cfg.value_types[0]?.key || null;
   const record = useMemo(() => {
     if (!parsed) return null;
     const { quantity, unit } = primaryQuantity(parsed.quantities);
     return {
       title: parsed.title, date: format(parsed.date, 'yyyy-MM-dd'), category: parsed.category, eval_area: parsed.eval_area, quantity, unit_label: unit,
-      dollar_amount: parsed.dollar_amount, dollar_type: parsed.dollar_type, system: parsed.system || '', organization: '', result: '', notes: '', status: 'completed',
+      dollar_amount: parsed.dollar_amount, dollar_type: valueType(parsed.dollar_type, cfg) ? parsed.dollar_type : fallbackType, system: parsed.system || '', organization: '', result: '', notes: '', status: 'completed',
       visibility: prefs.defaultVisibility || 'private', unit_id: identity?.primaryUnitId || null,
       ...overrides,
     } as Record<string, any>;
-  }, [parsed, overrides, prefs.defaultVisibility, identity?.primaryUnitId]);
+  }, [parsed, overrides, prefs.defaultVisibility, identity?.primaryUnitId, cfg, fallbackType]);
 
   const set = (k: string) => (v: unknown) => setOverrides((o) => ({ ...o, [k]: v }));
   const setEvent = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => set(k)(e.target.value);
@@ -86,9 +88,9 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     for (const [src, dst] of [['title', 'title'], ['date', 'date'], ['action_amount', 'quantity'], ['action_unit', 'unit_label'], ['transaction_value', 'dollar_amount'], ['organization', 'organization'], ['system', 'system'], ['result', 'result'], ['status', 'status']]) {
       if (out[src] != null && out[src] !== '') next[dst] = out[src];
     }
-    if (CATEGORIES.includes(out.category)) next.category = out.category;
+    if (categoryNames(cfg).includes(out.category)) next.category = out.category;
     if (EVAL_AREAS.includes(out.evaluation_area)) next.eval_area = out.evaluation_area;
-    if (DOLLAR_TYPES.some((d) => d.key === out.dollar_type)) next.dollar_type = out.dollar_type;
+    if (valueType(out.dollar_type, cfg)) next.dollar_type = out.dollar_type;
     setOverrides((o) => ({ ...o, ...next }));
     setExpanded(true);
   };
@@ -119,11 +121,11 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
             <div className="card p-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="Date"><Input type="date" value={record!.date} onChange={setEvent('date')} /></Field>
-                <Field label="Category"><Select value={record!.category} onValueChange={set('category')} options={CATEGORIES.map((c) => ({ value: c, label: c }))} /></Field>
+                <Field label="Category"><Select value={record!.category} onValueChange={set('category')} options={categoryNames(cfg).map((c) => ({ value: c, label: c }))} /></Field>
                 <Field label="Action amount" hint="how many"><NumberInput value={record!.quantity ?? ''} onChange={setEvent('quantity')} placeholder="30" /></Field>
-                <Field label="Action unit"><><Input list="quicklog-units" value={record!.unit_label ?? ''} onChange={setEvent('unit_label')} placeholder="ULOs" /><datalist id="quicklog-units">{UNIT_SUGGESTIONS.map((u) => <option key={u} value={u} />)}</datalist></></Field>
+                <Field label="Action unit"><><Input list="quicklog-units" value={record!.unit_label ?? ''} onChange={setEvent('unit_label')} placeholder="ULOs" /><datalist id="quicklog-units">{cfg.unit_suggestions.map((u) => <option key={u} value={u} />)}</datalist></></Field>
                 <Field label="Transaction value" hint="dollars tied to the action"><NumberInput value={record!.dollar_amount ?? ''} onChange={setEvent('dollar_amount')} placeholder="1118.38" /></Field>
-                <Field label="Dollar type"><Select value={record!.dollar_type} onValueChange={set('dollar_type')} options={DOLLAR_TYPES.map((d) => ({ value: d.key, label: d.label }))} /></Field>
+                <Field label="Value type"><Select value={record!.dollar_type} onValueChange={set('dollar_type')} options={cfg.value_types.map((d) => ({ value: d.key, label: d.label }))} /></Field>
                 <Field label={trackMeta(track).areaLabel}><Select value={mapAreaToTrack(record!.eval_area, track)} onValueChange={set('eval_area')} options={areaOptions(track)} /></Field>
                 <Field label="Result" hint="the so-what"><Input value={record!.result} onChange={setEvent('result')} placeholder="cleared the aged backlog" /></Field>
               </div>
@@ -139,7 +141,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
             </div>
             <div className="card p-4">
               <div className="mb-2 flex items-center justify-between"><span className="eyebrow">Bullet preview</span><span className="flex items-center gap-1" aria-label={`Strength ${s} of 4`}>{[0, 1, 2, 3].map((i) => <span key={i} className={cn('h-1.5 w-5 rounded-full', i < s ? 'bg-accent' : 'bg-surface-3')} />)}<span className="fig ml-1 text-2xs text-ink-3">{s}/4</span></span></div>
-              <p className="flex items-start gap-2 text-base leading-relaxed text-ink"><Dot color={CATEGORY_COLORS[record!.category as keyof typeof CATEGORY_COLORS]} className="mt-2" /><span>{composeBullet(record!)}</span></p>
+              <p className="flex items-start gap-2 text-base leading-relaxed text-ink"><Dot color={categoryColor(record!.category, cfg)} className="mt-2" /><span>{composeBullet(record!)}</span></p>
               {gaps.length > 0 && <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-ink-3"><Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-accent" /><span>To strengthen: {gaps.join(' · ')}</span></p>}
               {record!.dollar_amount ? <p className="fig mt-2 text-2xs text-ink-3">Recorded to the cent as {formatDollarsExact(Number(String(record!.dollar_amount).replace(/[$,]/g, '')) || 0)}</p> : null}
             </div>

@@ -9,15 +9,16 @@ import RecordDialog from '@/components/RecordDialog';
 import { ActivityFields, toActivityDraft, type ActivityDraft } from '@/components/ActivityForm';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DescriptionList, DateText, StatusBadge, CategoryDot } from '@/components/common';
-import { keys, useDeleteRecord, useIdentity, useRestoreRecord, useTrack, unitName, useOrg } from '@/lib/queries';
+import { keys, useDeleteRecord, useIdentity, useRestoreRecord, useTrack, unitName, useOrg, useMetrics } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { composeBullet, strength, weaknesses, expandAcronyms, type BulletStyle } from '../../shared/bullets';
 import { formatDollars, formatNumber } from '../../shared/metrics';
-import { DOLLAR_TYPES } from '../../shared/constants';
+import { valueType } from '../../shared/constants';
 import { mapAreaToTrack, trackMeta } from '../../shared/evaluation';
 import { copyToClipboard, cn } from '@/lib/utils';
 
 export default function RecordDetail() {
+  const cfg = useMetrics();
   const { id = '' } = useParams();
   const navigate = useNavigate();
   const toast = useToast();
@@ -54,7 +55,7 @@ export default function RecordDetail() {
     finally { setUploading(false); if (fileInput.current) fileInput.current.value = ''; }
   };
   const copy = async () => { if (await copyToClipboard(bullet)) toast.success('Bullet copied.'); else toast.error('Could not copy.'); };
-  const dollarType = DOLLAR_TYPES.find((d) => d.key === a.dollar_type);
+  const dollarType = valueType(a.dollar_type, cfg);
 
   return (
     <div className="page max-w-5xl">

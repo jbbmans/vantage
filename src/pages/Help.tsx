@@ -2,12 +2,14 @@ import { Link } from 'react-router-dom';
 import { ExternalLink } from 'lucide-react';
 import { PageHeader, Panel, Kbd } from '@/components/ui/primitives';
 import { EVAL_REFERENCES, EVAL_VERIFIED } from '../../shared/evalRefs';
-import { DOLLAR_SUM_RULE } from '../../shared/constants';
+import { dollarSumRule } from '../../shared/constants';
+import { useMetrics } from '@/lib/queries';
 import { VERSION } from '@/lib/version';
 
 const SHORTCUTS: Array<[string, string]> = [['N', 'Log an activity from anywhere'], ['⌘K or /', 'Search and jump'], ['G then D / R / W / G / C / J / P / T / M / S', 'Go to a page'], ['?', 'This shortcut list'], ['⌘↵', 'Save the open form'], ['Esc', 'Close a dialog']];
 
 export default function Help() {
+  const cfg = useMetrics();
   return (
     <div className="page max-w-4xl">
       <PageHeader eyebrow="Help" title="How Vantage works" lede="Short answers to the questions people ask in the first week." />
@@ -23,7 +25,7 @@ export default function Help() {
             <li><strong className="text-ink">A number.</strong> How many, how much, how long. “Processed MIPRs” is a billet description; “processed 12 MIPRs, zero returns” is evidence.</li>
             <li><strong className="text-ink">An outcome.</strong> What changed because you did it. Entries without a result are the first cut from any package.</li>
             <li><strong className="text-ink">An area.</strong> JEPES marks character, MOS, and leadership separately. FITREPs mark fourteen attributes across five sections. An empty area is marked from impression.</li>
-            <li><strong className="text-ink">Dollars, typed.</strong> {DOLLAR_SUM_RULE}</li>
+            <li><strong className="text-ink">{cfg.currency_label}, typed.</strong> {dollarSumRule(cfg)}</li>
           </ul>
         </Panel>
         <Panel title="Privacy and sharing">

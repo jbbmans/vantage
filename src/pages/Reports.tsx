@@ -6,7 +6,7 @@ import { PageHeader, Button, Select, Panel, Segmented, Badge, Skeleton, EmptySta
 import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult, ModelPicker } from '@/components/AiPanel';
 import { PeriodSelect, DateText } from '@/components/common';
-import { keys, useIdentity, usePrefs, useSavePrefs, useTeam, useTrack } from '@/lib/queries';
+import { keys, useIdentity, usePrefs, useSavePrefs, useTeam, useTrack, useMetrics } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { packageToText } from '../../shared/bullets';
 import { comparisonToText, type Comparison, type Movement } from '../../shared/delta';
@@ -15,6 +15,7 @@ import { trackMeta, type Track } from '../../shared/evaluation';
 import { copyToClipboard, cn } from '@/lib/utils';
 
 export default function Reports() {
+  const cfg = useMetrics();
   const toast = useToast();
   const { data: identity } = useIdentity();
   const prefs = usePrefs();
@@ -62,7 +63,7 @@ export default function Reports() {
         <>
           <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
             <Stat label="Entries" value={formatNumber(report.counts.activities)} hint={report.label} />
-            <Stat label="Summable dollars" value={formatDollars(report.metrics.totalDollars)} hint={report.metrics.reviewedDollars ? `${formatDollars(report.metrics.reviewedDollars)} reviewed` : 'reconciled, obligated, saved, impact'} tone="accent" />
+            <Stat label={`Summable ${cfg.currency_label.toLowerCase()}`} value={formatDollars(report.metrics.totalDollars)} hint={report.metrics.reviewedDollars ? `${formatDollars(report.metrics.reviewedDollars)} reviewed` : 'reconciled, obligated, saved, impact'} tone="accent" />
             <Stat label="Awards" value={report.counts.awards} hint="in period" />
             <Stat label="Training hours" value={formatNumber(report.counts.trainingHours)} hint="in period" />
           </div>

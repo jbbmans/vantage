@@ -9,6 +9,7 @@ import { Table, useParam } from '@/components/common';
 import { keys, useIdentity, signOutEverywhere } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { copyToClipboard, downloadText, humanize, timeAgo } from '@/lib/utils';
+import { DEFAULT_METRICS, CATEGORY_PALETTE, type MetricsConfig } from '../../shared/constants';
 
 export default function Operator() {
   const { data: identity } = useIdentity();
@@ -17,10 +18,11 @@ export default function Operator() {
   return (
     <div className="page">
       <PageHeader eyebrow="Owner console" title="Run this deployment" lede="Instance-wide settings, accounts, and data. Everything here asks for your password again." />
-      <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[{ value: 'overview', label: 'Overview' }, { value: 'settings', label: 'Settings' }, { value: 'ai', label: 'AI' }, { value: 'users', label: 'Accounts' }, { value: 'units', label: 'Units' }, { value: 'audit', label: 'Audit log' }, { value: 'data', label: 'Backup and move' }]} />
+      <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[{ value: 'overview', label: 'Overview' }, { value: 'settings', label: 'Settings' }, { value: 'ai', label: 'AI' }, { value: 'metrics', label: 'Metrics' }, { value: 'users', label: 'Accounts' }, { value: 'units', label: 'Units' }, { value: 'audit', label: 'Audit log' }, { value: 'data', label: 'Backup and move' }]} />
       {tab === 'overview' && <Overview />}
       {tab === 'settings' && <RuntimeSettings />}
       {tab === 'ai' && <AiSettings />}
+      {tab === 'metrics' && <MetricsSettings />}
       {tab === 'users' && <Accounts />}
       {tab === 'units' && <UnitsAdmin />}
       {tab === 'audit' && <AuditLog />}
@@ -83,6 +85,72 @@ function RuntimeSettings() {
         <Switch checked={form.maradminsEnabled} onChange={(v) => setForm({ ...form, maradminsEnabled: v })} label="MARADMIN feed" description="Fetches public message titles from marines.mil on a schedule." />
         <Switch checked={form.maintenance} onChange={(v) => setForm({ ...form, maintenance: v })} label="Maintenance mode" description="Blocks everyone but owners. Use it around a restore or a move." />
       </Panel>
+    </div>
+  );
+}
+
+/** What this instance measures. Everything here used to be hard-coded for the G-8; now any shop can name its money metric and define its own value types and categories. */
+function MetricsSettings() {
+  const { data, isPending, refetch } = useAdmin('overview', api.adminOverview);
+  const toast = useToast(); const qc = useQueryClient();
+  const [form, setForm] = useState<MetricsConfig | null>(null); const [busy, setBusy] = useState(false); const [dirty, setDirty] = useState(false);
+  useEffect(() => { if (data?.runtime?.metrics && !form) setForm(structuredClone(data.runtime.metrics)); }, [data, form]);
+  if (isPending || !form) return <Skeleton className="h-64" />;
+  const update = (patch: Partial<MetricsConfig>) => { setForm({ ...form, ...patch }); setDirty(true); };
+  const slug = (label: string) => label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30);
+  const save = async () => {
+    setBusy(true);
+    try {
+      const cleaned: MetricsConfig = { ...form, value_types: form.value_types.filter((t) => t.label.trim()).map((t) => ({ ...t, key: t.key || slug(t.label), label: t.label.trim(), verb: (t.verb || t.label).trim().toLowerCase(), definition: (t.definition || '').trim() })), categories: form.categories.filter((c) => c.name.trim()).map((c) => ({ ...c, name: c.name.trim() })), unit_suggestions: form.unit_suggestions.map((u) => u.trim()).filter(Boolean) };
+      await withSudo(() => api.adminRuntime({ metrics: cleaned }));
+      qc.invalidateQueries({ queryKey: keys.me }); refetch(); setForm(cleaned); setDirty(false);
+      toast.success('Metrics saved. Forms and reports use the new definitions now.');
+    } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }
+  };
+  const summable = form.value_types.filter((t) => t.summable).map((t) => t.label).join(', ');
+  return (
+    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      <Panel title="Money metric" subtitle="the headline number and what it is called" action={<Button size="sm" variant="primary" onClick={save} loading={busy} disabled={!dirty}><Save className="h-4 w-4" />Save metrics</Button>}>
+        <div className="grid grid-cols-[1fr_6rem] gap-3">
+          <Field label="Label" hint="appears on stat cards and reports, e.g. Dollars, Funds, Hours billed"><Input value={form.currency_label} onChange={(e) => update({ currency_label: e.target.value })} maxLength={30} /></Field>
+          <Field label="Symbol" hint="prefix"><Input value={form.currency_symbol} onChange={(e) => update({ currency_symbol: e.target.value })} maxLength={4} /></Field>
+        </div>
+        <p className="mt-3 text-xs leading-relaxed text-ink-3">Headline totals add up the types marked <strong className="text-ink-2">counts toward headline</strong>{summable ? ` (${summable})` : ''}; the rest are shown separately so money that only crossed a desk is never claimed as money moved.</p>
+        <div className="mt-4 flex items-center justify-between"><p className="text-xs font-semibold text-ink-2">Value types</p><Button size="xs" variant="ghost" onClick={() => update({ value_types: [...form.value_types, { key: '', label: '', verb: '', summable: true, definition: '' }] })} disabled={form.value_types.length >= 20}>Add type</Button></div>
+        <ul className="mt-2 space-y-2">
+          {form.value_types.map((t, i) => (
+            <li key={i} className="rounded-md border border-line p-2">
+              <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
+                <Field label="Label"><Input aria-label={`Value type ${i + 1} label`} value={t.label} onChange={(e) => { const v = [...form.value_types]; v[i] = { ...t, label: e.target.value, key: t.key || slug(e.target.value) }; update({ value_types: v }); }} placeholder="Reconciled" /></Field>
+                <Field label="Verb" hint="in bullets"><Input aria-label={`Value type ${i + 1} verb`} value={t.verb} onChange={(e) => { const v = [...form.value_types]; v[i] = { ...t, verb: e.target.value }; update({ value_types: v }); }} placeholder="reconciled" /></Field>
+                <button type="button" className="mb-2 text-xs text-ink-3 hover:text-bad" onClick={() => update({ value_types: form.value_types.filter((_, j) => j !== i) })} aria-label={`Remove value type ${t.label || i + 1}`} disabled={form.value_types.length <= 1}>Remove</button>
+              </div>
+              <Input aria-label={`Value type ${i + 1} definition`} className="mt-2" value={t.definition} onChange={(e) => { const v = [...form.value_types]; v[i] = { ...t, definition: e.target.value }; update({ value_types: v }); }} placeholder="What counts as this type" maxLength={200} />
+              <div className="mt-1 flex items-center justify-between gap-2"><span className="mono text-2xs text-ink-3">key {t.key || slug(t.label) || '…'}</span><Switch checked={t.summable} onChange={(v) => { const list = [...form.value_types]; list[i] = { ...t, summable: v }; update({ value_types: list }); }} label={<span className="text-xs">Counts toward headline</span>} /></div>
+            </li>
+          ))}
+        </ul>
+      </Panel>
+      <div className="space-y-4">
+        <Panel title="Categories" subtitle="how entries are grouped on dashboards and in reports" action={<Button size="xs" variant="ghost" onClick={() => update({ categories: [...form.categories, { name: '', color: CATEGORY_PALETTE[form.categories.length % CATEGORY_PALETTE.length] }] })} disabled={form.categories.length >= 40}>Add category</Button>}>
+          <ul className="space-y-1.5">
+            {form.categories.map((c, i) => (
+              <li key={i} className="flex items-center gap-2">
+                <input type="color" aria-label={`Category ${i + 1} color`} value={c.color} onChange={(e) => { const v = [...form.categories]; v[i] = { ...c, color: e.target.value }; update({ categories: v }); }} className="h-8 w-8 shrink-0 cursor-pointer rounded-md border border-line bg-transparent p-0.5" />
+                <Input aria-label={`Category ${i + 1} name`} value={c.name} onChange={(e) => { const v = [...form.categories]; v[i] = { ...c, name: e.target.value }; update({ categories: v }); }} placeholder="Category name" maxLength={60} />
+                <button type="button" className="text-xs text-ink-3 hover:text-bad" onClick={() => update({ categories: form.categories.filter((_, j) => j !== i) })} aria-label={`Remove category ${c.name || i + 1}`} disabled={form.categories.length <= 1}>Remove</button>
+              </li>
+            ))}
+          </ul>
+          <p className="mt-2 text-2xs text-ink-3">Existing entries keep their category name even if you remove it here; they simply stop being offered for new entries.</p>
+        </Panel>
+        <Panel title="Unit suggestions" subtitle="offered while typing an action unit">
+          <Textarea aria-label="Unit suggestions" rows={3} value={form.unit_suggestions.join(', ')} onChange={(e) => update({ unit_suggestions: e.target.value.split(/[,\n]/).map((u) => u.trim()).filter(Boolean).slice(0, 60) })} placeholder="ULOs, MIPRs, documents, hours" />
+        </Panel>
+        <Panel title="Reset">
+          <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-ink-2">Back to the G-8 comptroller defaults: dollars, five value types, ten categories.</p><Button onClick={() => { setForm(structuredClone(DEFAULT_METRICS)); setDirty(true); }}>Load defaults</Button></div>
+        </Panel>
+      </div>
     </div>
   );
 }

@@ -27,14 +27,15 @@ export function buildReport(ctx: AppContext, opts: { userId: string; unitId?: st
   const awards = ctx.db.prepare(`SELECT name, date, status FROM awards WHERE ${where} AND deleted_at IS NULL AND date >= ? AND date <= ? ORDER BY date DESC`).all(...params, from, to) as Array<{ name: string; date: string | null; status: string }>;
   const trainings = ctx.db.prepare(`SELECT title, date, hours FROM trainings WHERE ${where} AND deleted_at IS NULL AND date >= ? AND date <= ? ORDER BY date DESC`).all(...params, from, to) as Array<{ title: string; date: string | null; hours: number | null }>;
   const cfg = narrativeConfig(track);
-  const narrative = composeNarrative(activities as never, { ...cfg, periodLabel: label });
-  const pkg = buildPackage(activities as never, { periodLabel: label, style: opts.style || (track === 'fitrep' ? 'fitrep' : 'jepes'), limitPerArea: opts.limit ?? 8, areas: areasFor(track) });
-  const metrics = aggregateMetrics(activities as never);
+  const metricsConfig = ctx.runtime.metrics;
+  const narrative = composeNarrative(activities as never, { ...cfg, periodLabel: label, metrics: metricsConfig });
+  const pkg = buildPackage(activities as never, { periodLabel: label, style: opts.style || (track === 'fitrep' ? 'fitrep' : 'jepes'), limitPerArea: opts.limit ?? 8, areas: areasFor(track), metrics: metricsConfig });
+  const metrics = aggregateMetrics(activities as never, metricsConfig);
   const unit = opts.unitId ? (ctx.db.prepare('SELECT name, short_name FROM units WHERE id = ?').get(opts.unitId) as { name: string; short_name: string | null } | undefined) : undefined;
   return {
     from, to, label, track, person, unit,
     subject: `${person?.rank_abbr || ''} ${person?.first_name || ''} ${person?.last_name || ''}`.replace(/\s+/g, ' ').trim(),
-    narrative, pkg, metrics, activities, awards, trainings,
+    narrative, pkg, metrics, metricsConfig, activities, awards, trainings,
     counts: { activities: activities.length, awards: awards.length, trainingHours: trainings.reduce((n, t) => n + (Number(t.hours) || 0), 0) },
     generatedAt: iso(new Date()),
   };
