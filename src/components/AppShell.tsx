@@ -1,7 +1,7 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Bell, ChevronsLeft, ChevronsRight, CloudOff, Command, LogOut, Menu as MenuIcon, Moon, Plus, RefreshCw, Sun, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, Bell, ChevronsLeft, ChevronsRight, CloudOff, Command, LogOut, Menu as MenuIcon, Moon, Plus, RefreshCw, Search, Sun, WifiOff, X } from 'lucide-react';
 import { NAV } from '@/config/nav';
 import { cn, initials, timeAgo } from '@/lib/utils';
 import { Button, Tooltip, Kbd } from '@/components/ui/primitives';
@@ -179,6 +179,7 @@ export default function AppShell() {
   return (
     <OutboxContext.Provider value={{ pending, flush }}>
       <div className="flex min-h-screen bg-canvas">
+        <a href="#main" className="skip-link">Skip to content</a>
         <aside className={cn('no-print sticky top-0 hidden h-screen shrink-0 flex-col border-r border-line bg-rail text-rail-ink transition-[width] duration-200 lg:flex', collapsed ? 'w-[68px]' : 'w-[240px]')}>
           <div className={cn('flex h-16 items-center gap-3 border-b border-line px-4', collapsed && 'justify-center px-0')}>
             <img src="/mark.svg" alt="Vantage" width={32} height={32} className="h-8 w-8 rounded-lg" />
@@ -214,7 +215,7 @@ export default function AppShell() {
               {!online && <Tooltip content="Offline. New entries queue on this device."><span className="flex h-9 items-center gap-1.5 rounded-md bg-warn/10 px-2 text-xs font-medium text-warn"><WifiOff className="h-4 w-4" /><span className="hidden sm:inline">Offline</span></span></Tooltip>}
               {online && pending > 0 && <button type="button" onClick={flush} className="flex h-9 items-center gap-1.5 rounded-md bg-info/10 px-2 text-xs font-medium text-info hover:brightness-95"><CloudOff className="h-4 w-4" />{pending} queued</button>}
               <button type="button" onClick={() => setPalette(true)} className="flex h-9 items-center gap-2 rounded-md border border-line bg-surface-2/60 px-2.5 text-sm text-ink-3 transition-colors hover:border-line-strong hover:text-ink" aria-label="Search">
-                <Command className="h-4 w-4" /><span className="hidden md:inline">Search…</span><span className="hidden lg:inline"><Kbd>⌘K</Kbd></span>
+                <Command className="hidden h-4 w-4 md:block" aria-hidden /><Search className="h-4 w-4 md:hidden" aria-hidden /><span className="hidden md:inline">Search…</span><span className="hidden lg:inline"><Kbd>⌘K</Kbd></span>
               </button>
               <Button variant="primary" size="sm" onClick={() => openQuickLog('')} className="h-9" aria-label="Log activity"><Plus className="h-4 w-4" /><span className="hidden xl:inline">Log activity</span></Button>
               <NotificationBell onNavigate={(to) => navigate(to)} />
@@ -238,7 +239,7 @@ export default function AppShell() {
             </div>
           </header>
 
-          <main className="min-w-0 flex-1 px-4 pb-24 pt-5 sm:px-6 lg:px-8 lg:pb-16">
+          <main id="main" tabIndex={-1} className="min-w-0 flex-1 px-4 pb-24 pt-5 outline-none sm:px-6 lg:px-8 lg:pb-16">
             {updateReady && (
               <div role="status" className="no-print page mb-4 flex items-center gap-3 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-sm text-ink">
                 <RefreshCw className="h-4 w-4 text-info" /><span className="flex-1">A new version of Vantage is ready.</span>

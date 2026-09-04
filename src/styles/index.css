@@ -106,13 +106,16 @@
     box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.03);
   }
   .field:hover { @apply border-line-strong; }
-  .field:focus { @apply border-accent outline-none ring-2 ring-accent/25; }
+  .field:focus { @apply border-line-strong outline-none ring-[3px] ring-ink/10; }
+  .skip-link { @apply sr-only; }
+  .skip-link:focus { @apply not-sr-only fixed left-3 top-3 z-[100] rounded-md bg-surface px-3 py-2 text-sm font-semibold text-ink shadow-pop ring-2 ring-accent; }
+  .login-grid { background-image: linear-gradient(rgb(var(--ink) / 0.045) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--ink) / 0.045) 1px, transparent 1px); background-size: 32px 32px; mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, black 30%, transparent 100%); }
   .field[aria-invalid='true'] { @apply border-bad ring-2 ring-bad/20; }
   .chip { @apply inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-2xs font-semibold uppercase tracking-wider text-ink-2; }
   .row { @apply border-b border-line last:border-b-0 transition-colors hover:bg-surface-2; }
   .page { @apply mx-auto w-full max-w-[1400px]; }
-  .page-title { @apply text-2xl font-semibold tracking-tight text-ink sm:text-3xl; }
-  .page-lede { @apply mt-1 max-w-2xl text-base text-ink-2; }
+  .page-title { @apply text-2xl font-semibold tracking-tight text-ink sm:text-3xl; text-wrap: balance; }
+  .page-lede { @apply mt-1 max-w-2xl text-base text-ink-2; text-wrap: pretty; }
   .stat-value { @apply fig text-2xl font-semibold text-ink; }
   .nav-item { @apply flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-ink-2 transition-colors hover:bg-surface-2 hover:text-ink; }
   .nav-item[aria-current='page'] { @apply bg-accent-soft text-accent; }

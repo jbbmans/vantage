@@ -105,7 +105,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
 
   return (
     <div className="flex min-h-screen flex-col bg-canvas">
-      <div className="pointer-events-none absolute inset-x-0 top-0 h-72 bg-gradient-to-b from-accent-soft to-transparent" aria-hidden />
+      <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden><div className="absolute inset-0 login-grid" /><div className="absolute -top-40 left-1/2 h-[28rem] w-[56rem] -translate-x-1/2 rounded-full bg-accent-soft opacity-70 blur-3xl" /></div>
       <header className="relative z-10 flex items-center justify-between px-5 py-4">
         <div className="flex items-center gap-3"><img src="/mark.svg" alt="" width={36} height={36} className="h-9 w-9 rounded-lg" /><div><p className="text-sm font-bold tracking-[0.16em] text-ink">VANTAGE</p><p className="text-2xs text-ink-3">{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'Performance records for Marines'}</p></div></div>
         <button type="button" onClick={toggleTheme} className="rounded-md p-2 text-ink-2 hover:bg-surface-2" aria-label="Toggle theme">{theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</button>
@@ -123,9 +123,9 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
 
             {mode === 'login' && (
               <form className="mt-5 space-y-3" onSubmit={(e) => { e.preventDefault(); submitLogin(); }}>
-                <Field label="Username" error={fieldErrors.username}><Input autoFocus autoComplete="username webauthn" spellCheck={false} autoCapitalize="none" value={form.username} onChange={set('username')} /></Field>
-                <Field label="Password" error={fieldErrors.password}><Input type="password" autoComplete="current-password" value={form.password} onChange={set('password')} /></Field>
-                <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy} disabled={offline || !form.username || !form.password}>Sign in</Button>
+                <Field label="Username" error={fieldErrors.username}><Input autoFocus required autoComplete="username webauthn" spellCheck={false} autoCapitalize="none" value={form.username} onChange={set('username')} /></Field>
+                <Field label="Password" error={fieldErrors.password}><Input type="password" required autoComplete="current-password" value={form.password} onChange={set('password')} /></Field>
+                <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy} disabled={offline}>Sign in</Button>
                 <Button type="button" variant="outline" size="lg" className="w-full" onClick={passkey} disabled={busy || offline}><Fingerprint className="h-4 w-4" />Sign in with a passkey</Button>
                 <div className="flex flex-wrap justify-between gap-2 pt-1 text-xs">
                   <button type="button" className="link" onClick={() => setMode('forgot')}>Forgot your password?</button>
