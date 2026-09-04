@@ -1,6 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Vantage">
-  <rect x="2" y="2" width="60" height="60" rx="14" fill="#0f172a"/>
-  <path d="M18 19 32 47 46 19" fill="none" stroke="#b22222" stroke-width="7" stroke-linejoin="round" stroke-linecap="round"/>
-  <rect x="19" y="12" width="26" height="3" rx="1.5" fill="#c49a2c"/>
-  <circle cx="32" cy="13.5" r="2.4" fill="#fff"/>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16213a"/>
+      <stop offset="1" stop-color="#090e1a"/>
+    </linearGradient>
+    <linearGradient id="gold" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#b8892a"/>
+      <stop offset="1" stop-color="#e8c25a"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e0303e"/>
+      <stop offset="1" stop-color="#9f1d22"/>
+    </linearGradient>
+  </defs>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#bg)"/>
+  <rect x="2.5" y="2.5" width="59" height="59" rx="14.5" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
+  <!-- the vantage line: left arm descends, right arm climbs past the rim -->
+  <path d="M16 21 L31.5 48" fill="none" stroke="url(#red)" stroke-width="7.5" stroke-linecap="round"/>
+  <path d="M31.5 48 L50 14" fill="none" stroke="url(#gold)" stroke-width="7.5" stroke-linecap="round"/>
+  <!-- the point of view -->
+  <circle cx="50" cy="14" r="4.6" fill="#f6e7b0"/>
+  <circle cx="50" cy="14" r="2.2" fill="#0b1220"/>
 </svg>

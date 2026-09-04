@@ -3,6 +3,7 @@ import type { PackageGroup } from '../../shared/bullets.ts';
 import type { Narrative } from '../../shared/narrative.ts';
 import type { Metrics } from '../../shared/metrics.ts';
 import { formatDollarsExact, formatNumber } from '../../shared/metrics.ts';
+import { drawMark } from '../lib/pdfMark.ts';
 
 export interface ReportPdfInput {
   title: string; subject: string; unitLine: string; period: string; track: string; generatedAt: string;
@@ -29,7 +30,8 @@ export function renderReportPdf(input: ReportPdfInput): Promise<Buffer> {
     const body = (t: string, opts: PDFKit.Mixins.TextOptions = {}) => doc.font('Helvetica').fontSize(10).fillColor(INK).text(t, { lineGap: 2.2, ...opts });
     const meta = (t: string) => doc.font('Helvetica').fontSize(8.5).fillColor(MUTED).text(t);
 
-    doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('VANTAGE', { characterSpacing: 2 });
+    drawMark(doc, doc.page.margins.left + width - 36, doc.y - 4, 36);
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('VANTAGE', doc.page.margins.left, doc.y, { characterSpacing: 2, width: width - 48 });
     doc.moveDown(0.2);
     doc.font('Helvetica-Bold').fontSize(20).fillColor(INK).text(input.title);
     doc.moveDown(0.15);

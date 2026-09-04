@@ -9,6 +9,7 @@ import type { Narrative } from '../../shared/narrative.ts';
 import type { PackageGroup } from '../../shared/bullets.ts';
 import { formatDollars, formatDollarsExact, formatNumber } from '../../shared/metrics.ts';
 import type { Movement } from '../../shared/delta.ts';
+import { drawMark } from '../lib/pdfMark.ts';
 
 const INK = '#111827'; const INK2 = '#4b5563'; const MUTED = '#6b7280'; const RULE = '#d1d5db'; const SOFT = '#f3f4f6'; const ACCENT = '#9f1d22';
 
@@ -88,7 +89,8 @@ export function renderAnalysisPdf(input: AnalysisPdfInput): Promise<Buffer> {
     }
 
     // ---- Cover block
-    doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('VANTAGE  ·  PERFORMANCE ANALYSIS', { characterSpacing: 2 });
+    drawMark(doc, left + width - 40, doc.y - 6, 40);
+    doc.font('Helvetica-Bold').fontSize(8).fillColor(MUTED).text('VANTAGE  ·  PERFORMANCE ANALYSIS', left, doc.y, { characterSpacing: 2, width: width - 56 });
     doc.moveDown(0.3);
     doc.font('Helvetica-Bold').fontSize(22).fillColor(INK).text(r.subject || 'Performance record');
     doc.moveDown(0.1);
