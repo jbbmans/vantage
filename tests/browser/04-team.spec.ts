@@ -9,7 +9,7 @@ test('a leader invites a Marine by link, sees their shared work on the unit dash
   await page.getByLabel('Last name').fill('Rivera');
   await page.getByLabel('Billet').fill('Budget Analyst');
   await page.getByRole('button', { name: 'Create link' }).click();
-  const url = (await page.locator('p.font-mono').first().textContent())!.trim();
+  const url = (await page.locator('[data-invite-url]').first().textContent())!.trim();
   expect(url).toContain('/invite?token=');
 
   const username = unique('rivera');
@@ -22,7 +22,7 @@ test('a leader invites a Marine by link, sees their shared work on the unit dash
   await ip.getByLabel('Username').fill(username);
   await ip.getByLabel('Password').fill(PASSWORD);
   await ip.getByRole('button', { name: 'Join and sign in' }).click();
-  await expect(ip.getByRole('heading', { name: /Good (morning|afternoon|evening), Ana/ })).toBeVisible();
+  await expect(ip.getByRole('heading', { name: 'Standing' })).toBeVisible();
 
   const dialog = await quickLog(ip, 'Processed 12 MIPRs with zero returns today');
   await dialog.getByLabel('Result').fill('zero returns');

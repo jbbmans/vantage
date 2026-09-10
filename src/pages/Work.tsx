@@ -73,7 +73,7 @@ export default function Work() {
             <div className="space-y-4">
               {groups.filter(([, list]) => list.length).map(([label, list, tone]) => (
                 <section key={label} className="card" style={{ overflow: 'hidden' }}>
-                  <header className="flex items-center gap-2 border-b border-line px-4 py-2"><span className={cn('badge-dot', tone === 'bad' ? 'bg-bad' : tone === 'warn' ? 'bg-warn' : tone === 'good' ? 'bg-good' : 'bg-line-strong')} /><h2 className="text-sm font-semibold text-ink">{label}</h2><span className="fig text-xs text-ink-3">{list.length}</span></header>
+                  <header className="flex items-center gap-2 border-b border-line px-4 py-2"><span className={cn('badge-dot', tone === 'bad' ? 'bg-bad' : tone === 'warn' ? 'bg-warn' : tone === 'good' ? 'bg-good' : 'bg-line-strong')} /><h2 className="font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">{label}</h2><span className="fig text-xs text-ink-3">{list.length}</span></header>
                   <ul>{list.map((t: any) => (
                     <li key={t.id} className="row flex items-start gap-3 px-4 py-2.5">
                       <button type="button" onClick={() => toggle(t)} disabled={!canToggleRow(t)} className="mt-0.5 text-ink-3 hover:text-good disabled:opacity-40" aria-label={t.status === 'completed' ? 'Reopen task' : 'Complete task'}>{t.status === 'completed' ? <CheckCircle2 className="h-5 w-5 text-good" /> : <Circle className="h-5 w-5" />}</button>

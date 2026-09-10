@@ -102,7 +102,7 @@ export default function Records() {
         <Button variant="primary" onClick={() => setEditing(emptyActivity({ visibility: prefs.defaultVisibility || 'private', unit_id: identity?.primaryUnitId || null }))}><Plus className="h-4 w-4" />New entry</Button>
       </PageHeader>
 
-      <div className="card mb-4 p-3">
+      <div className="card mb-3 p-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search records" className="pl-8" placeholder="Search title, result, org, system…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
           {from && to ? <Badge tone="accent" className="normal-case tracking-normal">{from === to ? from : `${from} → ${to}`}<button type="button" className="ml-1 hover:text-ink" onClick={() => navigate('/records')} aria-label="Clear date filter">×</button></Badge> : <PeriodSelect value={period} onChange={(v) => { setPeriod(v); savePrefs.mutate({ reportPeriod: v }); }} className="w-40" />}
@@ -114,7 +114,7 @@ export default function Records() {
           <Segmented size="sm" label="Layout" value={view} onChange={setView} options={[{ value: 'list', label: <LayoutList className="h-4 w-4" />, ariaLabel: 'List' }, { value: 'cards', label: <LayoutGrid className="h-4 w-4" />, ariaLabel: 'Cards' }]} />
         </div>
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-xs text-ink-3"><span className="fig font-medium text-ink">{filtered.length}</span> entries · <span className="fig">{formatDollars(metrics.totalDollars)}</span> summable · <span className="fig">{metrics.withOutcome}</span> with an outcome</p>
+          <p className="font-mono text-2xs uppercase tracking-wider text-ink-3"><span className="fig text-ink">{filtered.length}</span> entries · <span className="fig text-ink">{formatDollars(metrics.totalDollars)}</span> summable · <span className="fig text-ink">{metrics.withOutcome}</span> with an outcome</p>
           {identity?.instance.aiEnabled && (
             <AiAction workflow="record_quality" surface="records" input={{ days: 180 }} label="Coach my entries" onResult={(output, meta) => setCoaching({ output, meta })} />
           )}
@@ -135,7 +135,7 @@ export default function Records() {
       {isPending ? <div className="space-y-2">{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-12" />)}</div> : filtered.length === 0 ? (
         <div className="card"><EmptyState icon={Search} title={quality === 'deleted' ? 'The recycle bin is empty' : rows?.length ? 'Nothing matches those filters' : 'No activities yet'} description={rows?.length ? 'Loosen a filter, or widen the period.' : 'Press N to log your first one, or import a spreadsheet.'} action={rows?.length ? <Button onClick={() => { setQ(''); setCategory('all'); setArea('all'); setQuality('all'); setOwner('all'); setPeriod('all'); }}>Clear filters</Button> : <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}>Log activity</Button>} /></div>
       ) : view === 'list' ? (
-        <div className="card" style={{ overflow: 'hidden' }}>
+        <div className="card">
           <Table minWidth={760} head={<><th className="w-24">Date</th><th>Entry</th><th className="w-40">{trackMeta(track).areaLabel}</th><th className="w-28 text-right">Qty</th><th className="w-28 text-right">Value</th><th className="w-20">Share</th><th className="w-24"></th></>}>
             {filtered.map((a) => {
               const s = strength(a);

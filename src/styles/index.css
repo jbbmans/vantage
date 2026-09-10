@@ -1,15 +1,23 @@
 /*
- * VANTAGE 5 DESIGN TOKENS
- * Surfaces: canvas (page), surface (cards), surface-2 (recessed), surface-3 (hover).
- * Ink: ink (primary), ink-2 (secondary), ink-3 (muted).
- * Accent: chosen per user from five presets; accent-ink is the text color on accent.
- * Semantic: good / warn / bad / info. Rail: the navigation sidebar, navy in both themes.
- * Type: Geist for the interface, Newsreader for page titles and the sign-in hero, JetBrains Mono for figures.
+ * VANTAGE 5 — COMMAND CONSOLE
+ *
+ * The design language is Swiss industrial print: carbon ink on unbleached paper, one hazard red,
+ * rules instead of cards, and right angles everywhere. The dark theme is the same system inverted,
+ * not a second design.
+ *
+ * Three type roles, and every piece of text belongs to exactly one:
+ *   STRUCTURE  heavy uppercase sans, tight tracking. Page and section titles.
+ *   LABEL      monospace uppercase, wide tracking. Navigation, column heads, metadata, units.
+ *   DATA       monospace tabular figures. Every number a person might compare to another number.
+ * Prose is the exception: descriptions and body copy stay sentence case in the sans, because a
+ * paragraph set in uppercase mono is a paragraph nobody reads.
+ *
+ * Deliberately absent: rounded corners, drop shadows on content, gradients, and the scanline and
+ * halftone textures this genre invites. People read financial records here for hours; simulated
+ * screen degradation would cost legibility and buy atmosphere.
  */
 
 @font-face { font-family: 'Geist'; src: url('/fonts/geist-normal.woff2') format('woff2'); font-weight: 300 800; font-display: swap; }
-@font-face { font-family: 'Newsreader'; src: url('/fonts/newsreader-normal.woff2') format('woff2'); font-weight: 400 700; font-style: normal; font-display: swap; }
-@font-face { font-family: 'Newsreader'; src: url('/fonts/newsreader-italic.woff2') format('woff2'); font-weight: 400 700; font-style: italic; font-display: swap; }
 @font-face { font-family: 'JetBrains Mono'; src: url('/fonts/jetbrains-normal.woff2') format('woff2'); font-weight: 400 700; font-display: swap; }
 
 @tailwind base;
@@ -18,136 +26,171 @@
 
 @layer base {
   :root, [data-theme='light'] {
-    --canvas: 245 244 240;
-    --surface: 255 255 255;
-    --surface-2: 240 238 233;
-    --surface-3: 232 229 223;
-    --line: 228 225 218;
-    --line-strong: 199 195 187;
-    --ink: 26 25 23;
-    --ink-2: 82 79 74;
-    --ink-3: 110 106 99;
-    --good: 22 110 74;
-    --warn: 150 88 12;
-    --bad: 186 42 48;
-    --info: 36 92 160;
-    --rail: 15 23 42;
-    --rail-ink: 226 232 240;
-    --shadow-card: 0 1px 2px rgb(38 32 20 / 0.04), 0 1px 3px rgb(38 32 20 / 0.05);
-    --shadow-pop: 0 14px 36px -14px rgb(38 32 20 / 0.24), 0 2px 6px -2px rgb(38 32 20 / 0.08);
-    --shadow-modal: 0 32px 80px -24px rgb(38 32 20 / 0.36), 0 8px 24px -12px rgb(38 32 20 / 0.16);
+    --canvas: 238 236 230;      /* unbleached stock: the gaps between panels */
+    --surface: 248 247 243;     /* the panels themselves, one step up from the stock */
+    --surface-2: 232 230 223;
+    --surface-3: 222 219 211;
+    --line: 202 198 189;        /* every division is a drawn rule, so it must be visible */
+    --line-strong: 24 23 21;    /* structural rules: carbon, not grey */
+    --ink: 12 12 11;
+    --ink-2: 62 60 56;
+    --ink-3: 104 100 94;
+    --good: 22 101 68;
+    --warn: 140 82 10;
+    --bad: 176 30 36;
+    --info: 28 82 148;
+    --rail: 15 15 14;
+    --rail-ink: 236 234 228;
     color-scheme: light;
   }
   [data-theme='dark'] {
-    --canvas: 10 13 20;
-    --surface: 17 22 32;
-    --surface-2: 24 30 42;
-    --surface-3: 32 40 54;
-    --line: 36 45 60;
-    --line-strong: 68 80 100;
-    --ink: 235 238 243;
-    --ink-2: 180 190 205;
-    --ink-3: 136 148 166;
-    --good: 74 201 148;
-    --warn: 232 176 74;
-    --bad: 245 112 118;
-    --info: 110 168 236;
-    --rail: 8 11 18;
-    --rail-ink: 226 232 240;
-    --shadow-card: 0 1px 2px rgb(0 0 0 / 0.4);
-    --shadow-pop: 0 16px 40px -12px rgb(0 0 0 / 0.7), 0 2px 6px -2px rgb(0 0 0 / 0.5);
-    --shadow-modal: 0 40px 100px -24px rgb(0 0 0 / 0.85);
+    --canvas: 8 8 8;
+    --surface: 17 17 17;
+    --surface-2: 26 26 26;
+    --surface-3: 38 38 38;
+    --line: 58 58 58;
+    --line-strong: 176 174 168;
+    --ink: 234 234 230;
+    --ink-2: 176 174 168;
+    --ink-3: 132 130 124;
+    --good: 74 198 140;
+    --warn: 226 170 66;
+    --bad: 255 96 100;
+    --info: 108 166 234;
+    --rail: 5 5 5;
+    --rail-ink: 234 234 230;
     color-scheme: dark;
   }
 
-  /* Accent presets: scarlet (default), ocean, olive, steel, ember. Each defines accent, accent-ink, accent-soft. */
-  :root, [data-accent='scarlet'] { --accent: 178 34 34; --accent-ink: 255 255 255; --accent-soft: 253 235 235; --accent-2: 196 154 44; }
-  [data-theme='dark'][data-accent='scarlet'], [data-theme='dark']:not([data-accent]) { --accent: 234 88 88; --accent-ink: 20 8 8; --accent-soft: 56 20 22; --accent-2: 226 186 82; }
-  [data-accent='ocean'] { --accent: 20 104 183; --accent-ink: 255 255 255; --accent-soft: 227 238 250; --accent-2: 20 150 160; }
-  [data-theme='dark'][data-accent='ocean'] { --accent: 91 170 232; --accent-ink: 5 23 34; --accent-soft: 22 46 68; --accent-2: 96 200 206; }
-  [data-accent='olive'] { --accent: 79 111 59; --accent-ink: 255 255 255; --accent-soft: 232 240 226; --accent-2: 156 124 60; }
-  [data-theme='dark'][data-accent='olive'] { --accent: 146 190 110; --accent-ink: 12 22 8; --accent-soft: 36 52 30; --accent-2: 210 178 96; }
-  [data-accent='steel'] { --accent: 55 72 96; --accent-ink: 255 255 255; --accent-soft: 230 236 244; --accent-2: 120 140 165; }
-  [data-theme='dark'][data-accent='steel'] { --accent: 160 182 210; --accent-ink: 12 18 28; --accent-soft: 40 52 70; --accent-2: 110 132 160; }
-  [data-accent='ember'] { --accent: 194 65 12; --accent-ink: 255 255 255; --accent-soft: 253 236 226; --accent-2: 180 120 30; }
-  [data-theme='dark'][data-accent='ember'] { --accent: 251 146 60; --accent-ink: 30 12 4; --accent-soft: 70 36 18; --accent-2: 220 170 70; }
+  /*
+   * One signal colour at a time. Each preset is a single saturated hue used for the same three
+   * things: the active marker, the primary action, and a figure that must be noticed. Light values
+   * are darkened enough to pass AA as small text on paper; the pure hazard red does not.
+   */
+  :root, [data-accent='scarlet'] { --accent: 193 20 20; --accent-ink: 255 255 255; --accent-soft: 232 214 210; --accent-2: 140 108 20; }
+  [data-theme='dark'][data-accent='scarlet'], [data-theme='dark']:not([data-accent]) { --accent: 255 77 77; --accent-ink: 12 4 4; --accent-soft: 48 18 18; --accent-2: 224 182 74; }
+  [data-accent='ocean'] { --accent: 17 88 156; --accent-ink: 255 255 255; --accent-soft: 208 220 234; --accent-2: 18 120 128; }
+  [data-theme='dark'][data-accent='ocean'] { --accent: 96 172 236; --accent-ink: 4 16 26; --accent-soft: 16 38 58; --accent-2: 96 200 206; }
+  [data-accent='olive'] { --accent: 62 92 44; --accent-ink: 255 255 255; --accent-soft: 214 224 206; --accent-2: 130 102 44; }
+  [data-theme='dark'][data-accent='olive'] { --accent: 150 196 112; --accent-ink: 8 16 4; --accent-soft: 28 44 22; --accent-2: 210 178 96; }
+  [data-accent='steel'] { --accent: 44 60 82; --accent-ink: 255 255 255; --accent-soft: 212 218 228; --accent-2: 96 116 142; }
+  [data-theme='dark'][data-accent='steel'] { --accent: 164 188 216; --accent-ink: 8 14 22; --accent-soft: 32 44 62; --accent-2: 110 132 160; }
+  [data-accent='ember'] { --accent: 166 54 8; --accent-ink: 255 255 255; --accent-soft: 236 216 204; --accent-2: 152 100 22; }
+  [data-theme='dark'][data-accent='ember'] { --accent: 255 138 56; --accent-ink: 24 8 2; --accent-soft: 60 30 14; --accent-2: 220 170 70; }
 
   * { border-color: rgb(var(--line)); }
   button, a, [role='button'], input, select, textarea, label { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
-  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  html { -webkit-text-size-adjust: 100%; }
   body {
     @apply bg-canvas text-ink font-sans text-base antialiased;
-    font-feature-settings: 'ss01' 1, 'cv01' 1;
-    font-optical-sizing: auto;
+    font-feature-settings: 'ss01' 1, 'cv01' 1, 'tnum' 1;
     text-rendering: optimizeLegibility;
     min-width: 320px;
     overscroll-behavior-y: none;
   }
-  h1, h2, h3, h4 { text-wrap: balance; letter-spacing: -0.01em; }
-  .fig { font-variant-numeric: tabular-nums; letter-spacing: -0.01em; }
+
+  /* STRUCTURE: headings are blocks, not phrases. Tight tracking makes them read as one mass.
+     Case is set by .page-title, .display and the section-heading classes, never by the tag, so an
+     explanatory span nested inside a heading keeps its sentence case. */
+  h1, h2, h3, h4 { @apply font-semibold; letter-spacing: -0.01em; text-wrap: balance; }
+
+  /* DATA: anything a person compares against another number. */
+  .fig { @apply font-mono; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
   .mono { @apply font-mono; font-variant-numeric: tabular-nums; }
-  .eyebrow { @apply text-2xs font-semibold uppercase text-ink-3; letter-spacing: 0.12em; }
-  .display { @apply font-serif; font-optical-sizing: auto; letter-spacing: -0.012em; }
-  :focus-visible { @apply outline-none ring-2 ring-accent ring-offset-2 ring-offset-canvas; }
-  ::selection { background: rgb(var(--accent) / 0.22); }
-  ::-webkit-scrollbar { width: 10px; height: 10px; }
-  ::-webkit-scrollbar-thumb { background: rgb(var(--line-strong)); border: 3px solid rgb(var(--canvas)); border-radius: 8px; }
+
+  /* LABEL: the machine-readable layer. Wide tracking so short uppercase strings stay countable. */
+  .eyebrow { @apply font-mono text-2xs font-medium uppercase text-ink-3; letter-spacing: 0.14em; }
+  .display { @apply font-sans font-bold uppercase; letter-spacing: -0.02em; }
+
+  :focus-visible { @apply outline-none; box-shadow: 0 0 0 2px rgb(var(--canvas)), 0 0 0 4px rgb(var(--accent)); }
+  ::selection { background: rgb(var(--accent) / 0.25); }
+  ::-webkit-scrollbar { width: 12px; height: 12px; }
+  ::-webkit-scrollbar-track { background: rgb(var(--canvas)); }
+  ::-webkit-scrollbar-thumb { background: rgb(var(--line)); border: 4px solid rgb(var(--canvas)); }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--ink-3)); }
   input[type='date']::-webkit-calendar-picker-indicator { cursor: pointer; opacity: .6; }
-  [data-theme='dark'] input[type='date']::-webkit-calendar-picker-indicator { filter: invert(0.8); }
+  [data-theme='dark'] input[type='date']::-webkit-calendar-picker-indicator { filter: invert(0.85); }
 }
 
 @layer components {
-  .card { @apply rounded-lg border border-line bg-surface shadow-card; }
-  .card-hover { @apply transition-[border-color,box-shadow,transform] duration-200 ease-[cubic-bezier(.22,.8,.32,1)] hover:-translate-y-px hover:border-line-strong hover:shadow-pop; }
+  /*
+   * A panel is a compartment: a drawn box on the stock, never a floating card. The heavy top rule
+   * is what separates one compartment from the next, so a page reads as a sheet of them.
+   */
+  .card { @apply border border-line bg-surface; }
+  .card-hover { @apply transition-colors duration-100 hover:bg-surface-2; }
+  /* The compartment's heading rule. Carbon, so a panel head reads as a drawn division. */
+  .panel-head { @apply border-b border-line-strong; }
+
   .field {
-    @apply w-full min-w-0 rounded-md border border-line bg-surface px-3 py-2 text-base text-ink placeholder:text-ink-3 transition-[border-color,box-shadow] duration-150;
-    box-shadow: inset 0 1px 1px rgb(0 0 0 / 0.025);
+    @apply w-full min-w-0 border border-line bg-surface px-2.5 py-1.5 text-base text-ink placeholder:text-ink-3 transition-colors duration-100;
   }
-  .field:hover { @apply border-line-strong; }
-  .field:focus { @apply border-line-strong outline-none ring-[3px] ring-ink/10; }
+  .field:hover { border-color: rgb(var(--ink-3)); }
+  .field:focus { @apply outline-none; border-color: rgb(var(--accent)); box-shadow: inset 0 0 0 1px rgb(var(--accent)); }
+  .field[aria-invalid='true'] { border-color: rgb(var(--bad)); box-shadow: inset 0 0 0 1px rgb(var(--bad)); }
+
   .skip-link { @apply sr-only; }
-  .skip-link:focus { @apply not-sr-only fixed left-3 top-3 z-[100] rounded-md bg-surface px-3 py-2 text-sm font-semibold text-ink shadow-pop ring-2 ring-accent; }
-  .login-grid { background-image: linear-gradient(rgb(var(--ink) / 0.045) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--ink) / 0.045) 1px, transparent 1px); background-size: 32px 32px; mask-image: radial-gradient(ellipse 70% 55% at 50% 0%, black 30%, transparent 100%); }
-  .login-grid-rail { background-image: linear-gradient(rgb(var(--rail-ink) / 0.06) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--rail-ink) / 0.06) 1px, transparent 1px); background-size: 36px 36px; mask-image: radial-gradient(ellipse 80% 70% at 30% 20%, black 20%, transparent 100%); }
-  .field[aria-invalid='true'] { @apply border-bad ring-2 ring-bad/20; }
-  .chip { @apply inline-flex items-center gap-1 rounded-full border border-line px-2 py-0.5 text-2xs font-semibold uppercase tracking-wider text-ink-2; }
-  .row { @apply border-b border-line last:border-b-0 transition-colors hover:bg-surface-2/70; }
-  .page { @apply mx-auto w-full max-w-[1400px]; }
-  .page-title { @apply display text-[30px] font-medium leading-[1.08] text-ink sm:text-[38px]; text-wrap: balance; }
-  .page-lede { @apply mt-2 max-w-2xl text-md text-ink-2; text-wrap: pretty; }
-  .stat-value { @apply fig text-[26px] font-semibold leading-none tracking-[-0.02em] text-ink; }
-  .nav-item { @apply relative flex items-center gap-3 rounded-md px-3 py-2 text-sm font-medium text-rail-ink/70 transition-colors hover:bg-rail-ink/[0.07] hover:text-rail-ink; }
-  .nav-item[aria-current='page'] { @apply bg-rail-ink/10 text-rail-ink; }
-  .nav-item[aria-current='page']::before { content: ''; @apply absolute left-0 top-1/2 h-4 w-0.5 -translate-y-1/2 rounded-full bg-accent-2; }
-  .kbd { @apply inline-flex h-5 min-w-5 items-center justify-center rounded border border-line bg-surface-2 px-1 font-mono text-2xs text-ink-3; }
-  .skeleton { position: relative; overflow: hidden; background: rgb(var(--surface-2)); }
-  .skeleton::after { content: ''; position: absolute; inset: 0; translate: -100% 0; background: linear-gradient(90deg, transparent, rgb(var(--ink) / 0.06), transparent); animation: sweep 1.3s ease-in-out infinite; }
+  .skip-link:focus { @apply not-sr-only fixed left-3 top-3 z-[100] border border-line-strong bg-surface px-3 py-2 text-sm font-semibold uppercase text-ink; }
+
+  /* A chip is a stamp: square, monospaced, uppercase. */
+  .chip { @apply inline-flex items-center gap-1.5 border border-line px-1.5 py-0.5 font-mono text-2xs font-medium uppercase text-ink-2; letter-spacing: 0.08em; }
+
+  .row { @apply border-b border-line last:border-b-0 transition-colors duration-75 hover:bg-surface-2; }
+  .page { @apply mx-auto w-full max-w-[1560px]; }
+
+  /* A page title is the largest structural block on the sheet and carries a rule beneath it. */
+  .page-title { @apply display text-[26px] leading-[1.02] text-ink sm:text-[32px]; }
+  .page-lede { @apply mt-2 max-w-3xl text-sm leading-relaxed text-ink-2; text-wrap: pretty; }
+
+  /* A figure is read, not admired: monospaced so digits line up column to column. */
+  .stat-value { @apply fig text-[30px] font-medium leading-none text-ink; }
+
+  .nav-item { @apply relative flex items-center gap-2.5 border-l-2 border-transparent px-3 py-[7px] font-mono text-2xs font-medium uppercase text-rail-ink/75 transition-colors duration-100 hover:bg-rail-ink/[0.06] hover:text-rail-ink; letter-spacing: 0.1em; }
+  .nav-item[aria-current='page'] { @apply border-l-accent bg-rail-ink/[0.09] text-rail-ink; }
+
+  .kbd { @apply inline-flex h-5 min-w-5 items-center justify-center border border-line bg-surface-2 px-1 font-mono text-2xs text-ink-3; }
+
+  /* No shimmer. A loading block is a flat hatched placeholder that cannot be mistaken for content. */
+  .skeleton {
+    background-color: rgb(var(--surface-2));
+    background-image: repeating-linear-gradient(45deg, rgb(var(--line) / 0.7) 0 1px, transparent 1px 7px);
+    animation: pulse-flat 1.4s steps(2, end) infinite;
+  }
+
   .prose-tight p + p { margin-top: .6em; }
-  .link { @apply text-accent underline-offset-2 hover:underline; }
+  .link { @apply text-accent underline decoration-1 underline-offset-2; }
   .divider { @apply border-t border-line; }
-  .badge-dot { @apply inline-block h-2 w-2 shrink-0 rounded-full; }
-  .table-head { @apply text-2xs font-semibold uppercase tracking-[0.08em] text-ink-3; }
+  .rule { @apply border-t border-line-strong; }
+  .badge-dot { @apply inline-block h-1.5 w-1.5 shrink-0; }
+  .table-head { @apply font-mono text-2xs font-medium uppercase text-ink-3; letter-spacing: 0.1em; }
   .accent-2 { color: rgb(var(--accent-2)); }
+
+  /*
+   * Hairline grid: one background rule showing through 1px gaps. Cheaper and more exact than a
+   * border on every child, and it never doubles up at the seams.
+   */
+  .hairline-grid { @apply gap-px bg-line; }
+  .hairline-grid > * { @apply bg-surface; }
 }
 
-@keyframes sweep { to { translate: 100% 0; } }
-[data-density='compact'] .card > .card-body { padding: .625rem .75rem; }
-[data-density='compact'] .row { min-height: 2.25rem; }
-[data-density='compact'] .page { row-gap: .75rem; }
+@keyframes pulse-flat { 50% { opacity: .55; } }
+
+[data-density='compact'] .card > .card-body { padding: .5rem .625rem; }
+[data-density='compact'] .row { min-height: 2rem; }
+[data-density='compact'] .page { row-gap: .5rem; }
 
 @media (max-width: 639px) {
   input, select, textarea, button[role='combobox'] { font-size: 16px; }
   [data-radix-popper-content-wrapper] { max-width: calc(100vw - 1rem) !important; }
 }
-@media (pointer: coarse) { .tap, .field { min-height: 2.6rem; } }
+@media (pointer: coarse) { .tap, .field { min-height: 2.5rem; } }
 @media (prefers-reduced-motion: reduce) {
-  html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
 }
 @media print {
-  :root { --canvas: 255 255 255; --surface: 255 255 255; --surface-2: 255 255 255; --line: 190 190 190; --ink: 0 0 0; --ink-2: 40 40 40; --ink-3: 90 90 90; }
+  :root { --canvas: 255 255 255; --surface: 255 255 255; --surface-2: 255 255 255; --line: 170 170 170; --line-strong: 0 0 0; --ink: 0 0 0; --ink-2: 40 40 40; --ink-3: 90 90 90; }
   .no-print { display: none !important; }
-  body { background: #fff; font-size: 11pt; }
-  .card { border: 0 !important; border-top: 1px solid #999 !important; box-shadow: none !important; break-inside: avoid; }
+  body { background: #fff; font-size: 10pt; }
+  .card { border: 0 !important; border-top: 1.5pt solid #000 !important; break-inside: avoid; }
   @page { margin: 16mm 14mm; }
 }

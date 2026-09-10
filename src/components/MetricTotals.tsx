@@ -48,18 +48,18 @@ export function MetricCard({ total, prior, params, tone = 'headline' }: MetricCa
         type="button"
         onClick={() => setOpen(true)}
         className={cn(
-          'group flex w-full flex-col items-start gap-1 rounded-lg border border-line bg-surface px-4 py-3 text-left transition-colors hover:border-line-strong hover:bg-surface-2',
-          tone === 'tracked' && 'border-dashed'
+          'group flex w-full flex-col items-start gap-1 px-3 py-2.5 text-left transition-colors hover:bg-surface-2',
+          tone === 'tracked' && 'border-l-2 border-l-line-strong'
         )}
       >
         <span className="flex w-full items-center justify-between gap-2">
           <span className="eyebrow truncate">{metricUnitLabel(total)}</span>
-          <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100" />
+          <ArrowUpRight className="h-3 w-3 shrink-0 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100" />
         </span>
-        <span className={cn('fig text-2xl font-semibold', tone === 'tracked' ? 'text-ink-2' : 'text-ink')}>{formatMetric(total)}</span>
-        <span className="text-xs text-ink-3">
+        <span className={cn('fig text-2xl', tone === 'tracked' ? 'text-ink-2' : 'text-ink')}>{formatMetric(total)}</span>
+        <span className="font-mono text-2xs uppercase tracking-wider text-ink-3">
           {total.outcomes} {total.outcomes === 1 ? 'outcome' : 'outcomes'}
-          {delta ? `, ${delta}` : ''}
+          {delta ? ` · ${delta}` : ''}
         </span>
         {tone === 'tracked' && (
           <Badge tone="neutral" className="mt-1">Tracked on its own</Badge>
@@ -134,11 +134,11 @@ export function MetricTotalsGrid({ headline, tracked, prior, params, emptyTitle,
     return <div className="card"><EmptyState title={emptyTitle} description={emptyDescription} action={emptyAction} /></div>;
   }
   return (
-    <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
+    <div className="hairline-grid grid grid-cols-1 border border-line sm:grid-cols-2 xl:grid-cols-3">
       {headline.map((t) => <MetricCard key={t.metricId} total={t} prior={priorFor(t.metricId)} params={params} />)}
       {tracked.map((t) => (
         <Tooltip key={t.metricId} content="This value type is set not to count toward a headline total, so it is reported on its own.">
-          <span className="block"><MetricCard total={t} prior={priorFor(t.metricId)} params={params} tone="tracked" /></span>
+          <span className="block bg-surface"><MetricCard total={t} prior={priorFor(t.metricId)} params={params} tone="tracked" /></span>
         </Tooltip>
       ))}
     </div>

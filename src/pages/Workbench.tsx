@@ -485,7 +485,7 @@ function WorkItemDetail({ id, onClose, onChanged, currencyLabel }: { id: string;
 
           {mine && (
             <div className="space-y-3 rounded-md border border-line p-3">
-              <h3 className="text-sm font-semibold text-ink">What did you do?</h3>
+              <h3 className="font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">What did you do?</h3>
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 <Field label="Kind">
                   <Select
@@ -523,7 +523,7 @@ function WorkItemDetail({ id, onClose, onChanged, currencyLabel }: { id: string;
           )}
 
           <div>
-            <h3 className="mb-2 text-sm font-semibold text-ink">Who moved this</h3>
+            <h3 className="mb-2 font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">Who moved this</h3>
             {detail.data.contributors.length === 0 ? (
               <p className="text-sm text-ink-3">Nobody has recorded anything against this yet.</p>
             ) : (
@@ -542,7 +542,7 @@ function WorkItemDetail({ id, onClose, onChanged, currencyLabel }: { id: string;
 
           {detail.data.actions.length > 0 && (
             <div>
-              <h3 className="mb-2 text-sm font-semibold text-ink">History</h3>
+              <h3 className="mb-2 font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">History</h3>
               <ul className="space-y-2">
                 {detail.data.actions.map((a: any) => (
                   <li key={a.id} className="rounded-md border border-line px-3 py-2 text-sm">
@@ -597,7 +597,7 @@ function ThreadsForItem({ itemId }: { itemId: string }) {
   return (
     <div>
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h3 className="text-sm font-semibold text-ink">Correspondence</h3>
+        <h3 className="font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">Correspondence</h3>
         <Button size="xs" variant="ghost" disabled={busy} onClick={() => setPicking((v) => !v)}><Mail className="h-3.5 w-3.5" />{picking ? 'Cancel' : 'Link a thread'}</Button>
       </div>
       {picking && (

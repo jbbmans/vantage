@@ -217,7 +217,7 @@ export default function UsageConsole() {
 function TimeCard({ title, body, d, format }: { title: string; body: string; d: Distribution; format: (v: number | null) => string }) {
   return (
     <div className="rounded-lg border border-line p-3">
-      <p className="text-sm font-semibold text-ink">{title}</p>
+      <p className="font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">{title}</p>
       <p className="mt-0.5 text-xs leading-relaxed text-ink-3">{body}</p>
       <dl className="mt-2 space-y-1 text-sm">
         <div className="flex justify-between"><dt className="text-ink-3">Median</dt><dd className="fig font-medium text-ink">{format(d.median)}</dd></div>

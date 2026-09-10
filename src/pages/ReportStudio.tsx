@@ -243,7 +243,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
 
       {stale && stale.length > 0 && (
         <div className="card mb-4 border-warn/50 bg-warn/5 p-4" role="alert">
-          <h2 className="flex items-center gap-2 text-sm font-semibold text-ink"><AlertTriangle className="h-4 w-4 text-warn" />This was not saved</h2>
+          <h2 className="flex items-center gap-2 font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink"><AlertTriangle className="h-4 w-4 text-warn" />This was not saved</h2>
           <p className="mt-1 text-sm text-ink-2">The wording was written against facts that have since changed. Read the new facts, then save again.</p>
           <ul className="mt-2 space-y-1 text-xs">
             {stale.map((s) => (

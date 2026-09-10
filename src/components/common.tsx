@@ -35,8 +35,8 @@ export function Table({ head, children, className, minWidth = 640 }: { head: Rea
   return (
     <div className={className ? className : 'overflow-x-auto'}>
       <table className="w-full border-collapse text-sm" style={{ minWidth }}>
-        <thead><tr className="border-b border-line text-left [&>th]:px-3 [&>th]:py-2 [&>th]:table-head">{head}</tr></thead>
-        <tbody className="[&>tr]:row [&>tr>td]:px-3 [&>tr>td]:py-2 [&>tr>td]:align-top">{children}</tbody>
+        <thead><tr className="border-b border-line-strong bg-surface-2/60 text-left [&>th]:px-2.5 [&>th]:py-1.5 [&>th]:table-head">{head}</tr></thead>
+        <tbody className="[&>tr]:row [&>tr>td]:px-2.5 [&>tr>td]:py-1.5 [&>tr>td]:align-top">{children}</tbody>
       </table>
     </div>
   );
@@ -44,8 +44,8 @@ export function Table({ head, children, className, minWidth = 640 }: { head: Rea
 
 export function DescriptionList({ items }: { items: Array<[string, React.ReactNode]> }) {
   return (
-    <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
-      {items.filter(([, v]) => v !== null && v !== undefined && v !== '').map(([k, v]) => <div key={k} className="min-w-0"><dt className="eyebrow">{k}</dt><dd className="mt-0.5 break-words text-sm text-ink">{v}</dd></div>)}
+    <dl className="hairline-grid grid grid-cols-1 border border-line sm:grid-cols-2">
+      {items.filter(([, v]) => v !== null && v !== undefined && v !== '').map(([k, v]) => <div key={k} className="min-w-0 px-2.5 py-2"><dt className="eyebrow">{k}</dt><dd className="mt-1 break-words text-sm text-ink">{v}</dd></div>)}
     </dl>
   );
 }

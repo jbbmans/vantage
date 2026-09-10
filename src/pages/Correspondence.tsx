@@ -173,7 +173,7 @@ function ThreadRow({ thread, onOpen }: { thread: ThreadSummary; onOpen: () => vo
         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 text-ink-3"><Mail className="h-4 w-4" /></span>
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-2">
-            <span className="truncate text-sm font-semibold text-ink">{thread.subject}</span>
+            <span className="truncate font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">{thread.subject}</span>
             <Badge tone={STATE_TONE[state]}>{STATE_LABEL[state] || state}</Badge>
             {thread.visibility === 'private' && <Badge>Private</Badge>}
           </span>
@@ -306,7 +306,7 @@ function Contacts({ onNew }: { onNew: () => void }) {
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {contacts.data.map((c) => (
         <div key={String(c.id)} className="card p-4">
-          <p className="text-sm font-semibold text-ink">{String(c.name)}</p>
+          <p className="font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">{String(c.name)}</p>
           {c.role || c.organization ? <p className="mt-0.5 text-xs text-ink-3">{[c.role, c.organization].filter(Boolean).join(' · ')}</p> : null}
           <div className="mt-2 space-y-0.5 text-xs text-ink-2">
             {c.email ? <p className="truncate">{String(c.email)}</p> : null}
@@ -544,7 +544,7 @@ function Mailboxes() {
               <li key={String(c.id)} className="rounded-md border border-line p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-ink">{String(c.account_label)}</p>
+                    <p className="truncate font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">{String(c.account_label)}</p>
                     <p className="text-xs text-ink-3">{String(c.cloud)} · {String(c.status)}</p>
                   </div>
                   <div className="flex gap-1.5">

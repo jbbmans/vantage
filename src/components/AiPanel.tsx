@@ -63,7 +63,7 @@ export function AiResult({ output, meta, primaryKey }: { output: Record<string, 
   return (
     <div className="rounded-lg border border-accent/30 bg-accent-soft/40 p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <p className="flex items-center gap-2 text-sm font-semibold text-ink"><WandSparkles className="h-4 w-4 text-accent" />AI suggestion{meta && <span className="text-xs font-normal text-ink-3">{meta.model} · {meta.tokens} tokens{daily ? ` · today ${daily.requests} requests, ${daily.used_tokens.toLocaleString()} of ${daily.limit_tokens.toLocaleString()} tokens` : ''}</span>}</p>
+        <p className="flex items-center gap-2 font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink"><WandSparkles className="h-4 w-4 text-accent" />AI suggestion{meta && <span className="text-xs font-normal text-ink-3">{meta.model} · {meta.tokens} tokens{daily ? ` · today ${daily.requests} requests, ${daily.used_tokens.toLocaleString()} of ${daily.limit_tokens.toLocaleString()} tokens` : ''}</span>}</p>
         {Boolean(preferred) && <Button size="xs" variant="ghost" onClick={async () => { if (await copyToClipboard(String(preferred))) toast.success('Copied.'); else toast.error('Could not copy.'); }}><Copy className="h-3.5 w-3.5" />Copy</Button>}
       </div>
       <div className="space-y-3">{Object.entries(output).map(([k, v]) => <section key={k}><h4 className="eyebrow mb-1">{humanize(k)}</h4><AiResultValue value={v} /></section>)}</div>

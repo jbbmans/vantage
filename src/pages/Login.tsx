@@ -27,7 +27,7 @@ function PasswordMeter({ value }: { value: string }) {
   const problem = passwordProblem(value);
   return (
     <div className="mt-1.5">
-      <div className="flex gap-1">{[0, 1, 2, 3].map((i) => <span key={i} className={cn('h-1 flex-1 rounded-full', i < s.score ? (s.score >= 3 ? 'bg-good' : s.score === 2 ? 'bg-warn' : 'bg-bad') : 'bg-surface-3')} />)}</div>
+      <div className="flex gap-1">{[0, 1, 2, 3].map((i) => <span key={i} className={cn('h-1 flex-1', i < s.score ? (s.score >= 3 ? 'bg-good' : s.score === 2 ? 'bg-warn' : 'bg-bad') : 'bg-surface-3')} />)}</div>
       <p className={cn('mt-1 text-2xs', problem ? 'text-ink-3' : 'text-good')}>{problem || `${s.label}. Long and memorable beats short and clever.`}</p>
     </div>
   );
@@ -106,33 +106,33 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
   return (
     <div className="min-h-screen bg-canvas lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
       <aside className="relative hidden overflow-hidden bg-rail text-rail-ink lg:flex lg:flex-col lg:justify-between lg:p-12" aria-hidden>
-        <div className="pointer-events-none absolute inset-0"><div className="absolute inset-0 login-grid-rail" /><div className="absolute -bottom-40 -left-20 h-[30rem] w-[30rem] rounded-full bg-accent opacity-[0.16] blur-3xl" /><div className="absolute -right-24 top-10 h-[22rem] w-[22rem] rounded-full opacity-[0.12] blur-3xl" style={{ backgroundColor: 'rgb(var(--accent-2))' }} /></div>
-        <div className="relative flex items-center gap-3"><img src="/mark.svg" alt="" width={40} height={40} className="h-10 w-10" /><div><p className="text-[13px] font-bold tracking-[0.2em]">VANTAGE</p><p className="text-2xs text-rail-ink/55">{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'Performance records for Marines'}</p></div></div>
+        <div className="pointer-events-none absolute inset-0"><div className="absolute inset-0 login-grid-rail" /></div>
+        <div className="relative flex items-center gap-3"><img src="/mark.svg" alt="" width={32} height={32} className="h-8 w-8" /><div><p className="font-mono text-2xs font-bold tracking-[0.24em]">VANTAGE</p><p className="font-mono text-2xs tracking-[0.06em] text-rail-ink/65">{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'Performance records for Marines'}</p></div></div>
         <div className="relative max-w-lg">
-          <h2 className="display text-[54px] font-medium leading-[1.02] tracking-[-0.02em]">Your record, <em className="italic" style={{ color: 'rgb(var(--accent-2))' }}>from a better vantage.</em></h2>
+          <h2 className="display text-[46px] leading-[0.96]">Your record,<br /><span style={{ color: 'rgb(var(--accent))' }}>from a better vantage.</span></h2>
           <p className="mt-6 max-w-md text-md leading-relaxed text-rail-ink/70">Log the work as it happens. Vantage turns it into JEPES and FITREP input, unit dashboards, and an analysis an evaluator can trust, with every figure traced to a record.</p>
           <ul className="mt-8 space-y-3 text-sm text-rail-ink/80">
-            {['Quick Log reads a sentence and files the numbers.', 'Narratives, bullets, and a working-paper PDF from the same entries.', 'Private by default. Shared only when you say so, and every open is logged.'].map((t) => <li key={t} className="flex items-start gap-3"><span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full" style={{ backgroundColor: 'rgb(var(--accent-2))' }} />{t}</li>)}
+            {['Quick Log reads a sentence and files the numbers.', 'Narratives, bullets, and a working-paper PDF from the same entries.', 'Private by default. Shared only when you say so, and every open is logged.'].map((t) => <li key={t} className="flex items-start gap-3"><span className="mt-[7px] h-1.5 w-1.5 shrink-0" style={{ backgroundColor: 'rgb(var(--accent))' }} />{t}</li>)}
           </ul>
         </div>
-        <p className="relative text-2xs text-rail-ink/45">Records stay on this deployment's server. Nothing here is a system of record; MOL is.</p>
+        <p className="relative text-2xs text-rail-ink/65">Records stay on this deployment's server. Nothing here is a system of record; MOL is.</p>
       </aside>
       <div className="relative flex min-h-screen flex-col">
         <div className="pointer-events-none absolute inset-0 overflow-hidden lg:hidden" aria-hidden><div className="absolute inset-0 login-grid" /></div>
         <header className="relative z-10 flex items-center justify-between px-5 py-4 lg:justify-end lg:px-8">
-          <div className="flex items-center gap-3 lg:hidden"><img src="/mark.svg" alt="" width={36} height={36} className="h-9 w-9" /><div><p className="text-[13px] font-bold tracking-[0.18em] text-ink">VANTAGE</p><p className="text-2xs text-ink-3">{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'Performance records for Marines'}</p></div></div>
-          <button type="button" onClick={toggleTheme} className="rounded-full border border-line bg-surface p-2 text-ink-2 shadow-card hover:bg-surface-2" aria-label="Toggle theme">{theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</button>
+          <div className="flex items-center gap-3 lg:hidden"><img src="/mark.svg" alt="" width={36} height={36} className="h-9 w-9" /><div><p className="font-mono text-2xs font-bold tracking-[0.24em] text-ink">VANTAGE</p><p className="font-mono text-2xs text-ink-3">{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'Performance records for Marines'}</p></div></div>
+          <button type="button" onClick={toggleTheme} className="border border-line bg-surface p-2 text-ink-2 hover:bg-surface-2" aria-label="Toggle theme">{theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</button>
         </header>
         <main className="relative z-10 flex flex-1 items-start justify-center px-4 pb-16 pt-4 sm:pt-10 lg:items-center lg:pt-0">
         <div className="w-full max-w-md">
-          {status?.announcement && <div className="mb-4 rounded-lg border border-accent/25 bg-accent-soft px-3 py-2 text-sm text-ink">{status.announcement}</div>}
-          {status?.maintenance && <div className="mb-4 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink">Vantage is in maintenance. Only the owner can sign in right now.</div>}
-          {(serverError || statusError) && <div className="mb-4 flex items-start gap-2 rounded-lg border border-bad/40 bg-bad/5 px-3 py-2 text-sm text-ink"><WifiOff className="mt-0.5 h-4 w-4 shrink-0 text-bad" /><span className="flex-1">{serverError || statusError}</span><Button size="xs" onClick={() => { setStatusError(''); onRetry(); api.setupStatus().then(setStatus).catch((e) => setStatusError(api.errorText(e))); }}>Retry</Button></div>}
+          {status?.announcement && <div className="mb-4 border-l-2 border-l-accent border-y border-r border-line bg-surface px-3 py-2 text-sm text-ink">{status.announcement}</div>}
+          {status?.maintenance && <div className="mb-4 border-l-2 border-l-warn border-y border-r border-line bg-surface px-3 py-2 text-sm text-ink">Vantage is in maintenance. Only the owner can sign in right now.</div>}
+          {(serverError || statusError) && <div className="mb-4 flex items-start gap-2 border-l-2 border-l-bad border-y border-r border-line bg-surface px-3 py-2 text-sm text-ink"><WifiOff className="mt-0.5 h-4 w-4 shrink-0 text-bad" /><span className="flex-1">{serverError || statusError}</span><Button size="xs" onClick={() => { setStatusError(''); onRetry(); api.setupStatus().then(setStatus).catch((e) => setStatusError(api.errorText(e))); }}>Retry</Button></div>}
           <div className="card p-6 shadow-pop sm:p-8">
             {mode !== 'login' && mode !== 'setup' && <button type="button" onClick={() => { setMode('login'); setError(''); }} className="mb-4 flex items-center gap-1 text-xs text-ink-3 hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />Back to sign in</button>}
-            <h1 className="display text-[28px] font-medium leading-tight text-ink">{heading[mode][0]}</h1>
+            <h1 className="display text-[26px] leading-tight text-ink">{heading[mode][0]}</h1>
             <p className="mt-1.5 text-sm text-ink-3">{heading[mode][1]}</p>
-            {error && <p role="alert" className="mt-4 rounded-md border border-bad/40 bg-bad/5 px-3 py-2 text-sm text-bad">{error}</p>}
+            {error && <p role="alert" className="mt-4 border-l-2 border-l-bad border-y border-r border-line px-3 py-2 text-sm text-bad">{error}</p>}
 
             {mode === 'login' && (
               <form className="mt-5 space-y-3" onSubmit={(e) => { e.preventDefault(); submitLogin(); }}>
@@ -156,7 +156,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
 
             {(mode === 'setup' || mode === 'register' || mode === 'invite') && (
               <form className="mt-5 space-y-3" onSubmit={(e) => { e.preventDefault(); (mode === 'setup' ? submitSetup : mode === 'register' ? submitRegister : submitInvite)(); }}>
-                {mode === 'invite' && tokenInfo && !tokenInfo.valid && <p className="rounded-md border border-bad/40 bg-bad/5 px-3 py-2 text-sm text-bad">This invitation is invalid or has expired. Ask your leader for a new one.</p>}
+                {mode === 'invite' && tokenInfo && !tokenInfo.valid && <p className="border-l-2 border-l-bad border-y border-r border-line px-3 py-2 text-sm text-bad">This invitation is invalid or has expired. Ask your leader for a new one.</p>}
                 {mode === 'setup' && status?.requiresSetupToken && <Field label="Deployment setup token" hint="from the server environment" error={fieldErrors.setup_token}><Input autoFocus value={form.setup_token} onChange={set('setup_token')} autoComplete="off" /></Field>}
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="First name" required error={fieldErrors.first_name}><Input value={form.first_name} onChange={set('first_name')} autoComplete="given-name" /></Field>
@@ -190,7 +190,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
 
             {mode === 'reset' && (
               <form className="mt-5 space-y-3" onSubmit={(e) => { e.preventDefault(); submitReset(); }}>
-                {tokenInfo && !tokenInfo.valid && <p className="rounded-md border border-bad/40 bg-bad/5 px-3 py-2 text-sm text-bad">This reset link is invalid or has expired. Request a new one.</p>}
+                {tokenInfo && !tokenInfo.valid && <p className="border-l-2 border-l-bad border-y border-r border-line px-3 py-2 text-sm text-bad">This reset link is invalid or has expired. Request a new one.</p>}
                 <Field label="New password" hint={`${MIN_PASSWORD_LENGTH}+ characters`} error={fieldErrors.password}><Input type="password" autoFocus value={form.password} onChange={set('password')} autoComplete="new-password" /></Field>
                 <PasswordMeter value={form.password} />
                 <Button type="submit" variant="primary" size="lg" className="w-full" loading={busy} disabled={Boolean(passwordProblem(form.password)) || (tokenInfo && !tokenInfo.valid)}><KeyRound className="h-4 w-4" />Set password and sign in</Button>

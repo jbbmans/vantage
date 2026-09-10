@@ -1,10 +1,10 @@
 /* Vantage service worker: offline app shell + cache-first hashed assets. API requests never touch the cache. */
-const VERSION = 'v5-1';
+const VERSION = 'v5-2';
 const SHELL = `vantage-shell-${VERSION}`;
 const ASSETS = `vantage-assets-${VERSION}`;
 const SHELL_URLS = [
   '/', '/manifest.webmanifest', '/mark.svg', '/icon-192.png', '/icon-512.png',
-  '/fonts/geist-normal.woff2', '/fonts/newsreader-normal.woff2', '/fonts/newsreader-italic.woff2', '/fonts/jetbrains-normal.woff2',
+  '/fonts/geist-normal.woff2', '/fonts/jetbrains-normal.woff2',
 ];
 
 self.addEventListener('install', (event) => {

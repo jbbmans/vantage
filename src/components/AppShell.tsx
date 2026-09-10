@@ -20,7 +20,7 @@ import { flushOutbox, onOutboxChange, outbox } from '@/lib/outbox';
 import { resolveTheme, storedTheme } from '@/lib/theme';
 import { VERSION } from '@/lib/version';
 
-const TITLES: Array<[string, string]> = [['/records', 'Records'], ['/work', 'Work'], ['/goals', 'Goals'], ['/career', 'Career'], ['/readiness', 'Readiness'], ['/reports', 'Reports'], ['/team', 'Team'], ['/maradmins', 'MARADMINs'], ['/assist', 'AI assist'], ['/settings', 'Settings'], ['/operator', 'Owner console'], ['/help', 'Help']];
+const TITLES: Array<[string, string]> = [['/records', 'Records'], ['/queue', 'Queue'], ['/work', 'Tasks'], ['/goals', 'Goals'], ['/correspondence', 'Correspondence'], ['/studio', 'Report Studio'], ['/career', 'Career'], ['/readiness', 'Readiness'], ['/reports', 'Analysis'], ['/team', 'Team'], ['/maradmins', 'MARADMINs'], ['/settings', 'Settings'], ['/operator', 'Owner console'], ['/help', 'Help']];
 const titleFor = (p: string) => (p === '/' ? 'Dashboard' : TITLES.find(([path]) => p.startsWith(path))?.[1] || 'Vantage');
 
 function useOnline() {
@@ -171,21 +171,21 @@ export default function AppShell() {
   const primary = identity?.memberships.find((m) => m.is_primary) || identity?.memberships[0];
 
   const navList = (mobile: boolean) => (
-    <nav className="flex-1 overflow-y-auto px-2 py-2" aria-label="Primary">
+    <nav className="flex-1 overflow-y-auto py-1" aria-label="Primary">
       {NAV_GROUPS.map((group) => {
         const items = visibleNav.filter((i) => i.group === group);
         if (!items.length) return null;
         return (
-          <div key={group} className="mb-2">
+          <div key={group} className="mb-1">
             {(!collapsed || mobile) && group !== 'More' && (
-              <p className="px-2.5 pb-1 pt-1.5 text-2xs font-semibold uppercase tracking-[0.14em] text-rail-ink/70">{group}</p>
+              <p className="border-b border-rail-ink/12 px-3 pb-1 pt-2 font-mono text-2xs font-medium uppercase tracking-[0.16em] text-rail-ink/65">{group}</p>
             )}
-            {group === 'More' && <div className="my-1.5 border-t border-rail-ink/10" />}
-            <div className="space-y-0.5">
+            {group === 'More' && <div className="my-2 border-t border-rail-ink/12" />}
+            <div>
               {items.map((item) => (
                 <Tooltip key={item.to} content={collapsed && !mobile ? item.label : null} side="right">
                   <NavLink to={item.to} end={item.end} className={cn('nav-item', collapsed && !mobile && 'justify-center px-0')} aria-current={location.pathname === item.to || (!item.end && location.pathname.startsWith(item.to)) ? 'page' : undefined}>
-                    <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" strokeWidth={1.75} />
+                    <item.icon className="h-[15px] w-[15px] shrink-0" strokeWidth={2} />
                     {(!collapsed || mobile) && <span className="truncate">{item.label}</span>}
                   </NavLink>
                 </Tooltip>
@@ -201,27 +201,27 @@ export default function AppShell() {
     <OutboxContext.Provider value={{ pending, flush }}>
       <div className="flex min-h-screen bg-canvas">
         <a href="#main" className="skip-link">Skip to content</a>
-        <aside className={cn('no-print sticky top-0 hidden h-screen shrink-0 flex-col bg-rail text-rail-ink transition-[width] duration-200 ease-[cubic-bezier(.22,.8,.32,1)] lg:flex', collapsed ? 'w-[68px]' : 'w-[244px]')}>
-          <div className={cn('flex h-16 items-center gap-3 px-4', collapsed && 'justify-center px-0')}>
-            <img src="/mark.svg" alt="Vantage" width={32} height={32} className="h-8 w-8" />
-            {!collapsed && <div className="min-w-0"><p className="text-[13px] font-bold tracking-[0.18em] text-rail-ink">VANTAGE</p><p className="truncate text-2xs text-rail-ink/55">{identity?.instance.organizationName}</p></div>}
+        <aside className={cn('no-print sticky top-0 hidden h-screen shrink-0 flex-col border-r border-line-strong bg-rail text-rail-ink transition-[width] duration-150 lg:flex', collapsed ? 'w-[56px]' : 'w-[212px]')}>
+          <div className={cn('flex h-11 items-center gap-2.5 border-b border-rail-ink/12 px-3', collapsed && 'justify-center px-0')}>
+            <img src="/mark.svg" alt="Vantage" width={22} height={22} className="h-[22px] w-[22px]" />
+            {!collapsed && <div className="min-w-0"><p className="font-mono text-2xs font-bold tracking-[0.24em] text-rail-ink">VANTAGE</p><p className="truncate font-mono text-2xs tracking-[0.06em] text-rail-ink/65">{identity?.instance.organizationName}</p></div>}
           </div>
           {navList(false)}
-          <div className="border-t border-rail-ink/10 p-2">
+          <div className="border-t border-rail-ink/12">
             <button type="button" onClick={toggleRail} className="nav-item w-full justify-center" aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}>
-              {collapsed ? <ChevronsRight className="h-4 w-4" /> : <><ChevronsLeft className="h-4 w-4" /><span className="text-xs">Collapse</span></>}
+              {collapsed ? <ChevronsRight className="h-3.5 w-3.5" /> : <><ChevronsLeft className="h-3.5 w-3.5" /><span>Collapse</span></>}
             </button>
           </div>
         </aside>
 
         {drawer && (
           <div className="no-print fixed inset-0 z-50 lg:hidden">
-            <button type="button" className="absolute inset-0 bg-ink/40 backdrop-blur-sm animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu" />
-            <aside className="absolute inset-y-0 left-0 flex w-[min(86vw,300px)] flex-col bg-rail text-rail-ink shadow-modal animate-slide-in-left">
-              <div className="flex h-16 items-center gap-3 border-b border-rail-ink/10 px-4">
-                <img src="/mark.svg" alt="" width={32} height={32} className="h-8 w-8" />
-                <div className="min-w-0"><p className="text-[13px] font-bold tracking-[0.18em] text-rail-ink">VANTAGE</p><p className="truncate text-2xs text-rail-ink/55">{user ? `${user.first_name} ${user.last_name}` : ''}</p></div>
-                <button type="button" onClick={() => setDrawer(false)} className="ml-auto rounded-md p-2 text-rail-ink/70 hover:bg-rail-ink/10 hover:text-rail-ink" aria-label="Close menu"><X className="h-4 w-4" /></button>
+            <button type="button" className="absolute inset-0 bg-ink/60 animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu" />
+            <aside className="absolute inset-y-0 left-0 flex w-[min(86vw,272px)] flex-col border-r border-line-strong bg-rail text-rail-ink animate-slide-in-left">
+              <div className="flex h-11 items-center gap-2.5 border-b border-rail-ink/12 px-3">
+                <img src="/mark.svg" alt="" width={22} height={22} className="h-[22px] w-[22px]" />
+                <div className="min-w-0"><p className="font-mono text-2xs font-bold tracking-[0.24em] text-rail-ink">VANTAGE</p><p className="truncate font-mono text-2xs text-rail-ink/65">{user ? `${user.first_name} ${user.last_name}` : ''}</p></div>
+                <button type="button" onClick={() => setDrawer(false)} className="ml-auto p-2 text-rail-ink/70 hover:bg-rail-ink/10 hover:text-rail-ink" aria-label="Close menu"><X className="h-4 w-4" /></button>
               </div>
               {navList(true)}
             </aside>
@@ -229,20 +229,20 @@ export default function AppShell() {
         )}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="no-print sticky top-0 z-30 flex h-16 items-center gap-2 border-b border-line/70 bg-canvas/85 px-3 backdrop-blur-md sm:px-5 lg:px-8">
-            <button type="button" className="rounded-md p-2 text-ink-2 hover:bg-surface-2 lg:hidden" onClick={() => setDrawer(true)} aria-label="Open menu"><MenuIcon className="h-5 w-5" /></button>
-            <h1 className="min-w-0 truncate text-sm font-semibold tracking-[-0.005em] text-ink-2">{titleFor(location.pathname)}</h1>
+          <header className="no-print sticky top-0 z-30 flex h-11 items-center gap-2 border-b border-line-strong bg-canvas px-3 sm:px-4 lg:px-6">
+            <button type="button" className="p-1.5 text-ink-2 hover:bg-surface-2 lg:hidden" onClick={() => setDrawer(true)} aria-label="Open menu"><MenuIcon className="h-4 w-4" /></button>
+            <h1 className="min-w-0 truncate font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink-2">{titleFor(location.pathname)}</h1>
             <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
-              {!online && <Tooltip content="Offline. New entries queue on this device."><span className="flex h-9 items-center gap-1.5 rounded-md bg-warn/10 px-2 text-xs font-medium text-warn"><WifiOff className="h-4 w-4" /><span className="hidden sm:inline">Offline</span></span></Tooltip>}
-              {online && pending > 0 && <button type="button" onClick={flush} className="flex h-9 items-center gap-1.5 rounded-md bg-info/10 px-2 text-xs font-medium text-info hover:brightness-95"><CloudOff className="h-4 w-4" />{pending} queued</button>}
-              <button type="button" onClick={() => setPalette(true)} className="flex h-9 items-center gap-2 rounded-full border border-line bg-surface px-3 text-sm text-ink-3 shadow-card transition-colors hover:border-line-strong hover:text-ink" aria-label="Search">
-                <Command className="hidden h-4 w-4 md:block" aria-hidden /><Search className="h-4 w-4 md:hidden" aria-hidden /><span className="hidden md:inline">Search…</span><span className="hidden lg:inline"><Kbd>⌘K</Kbd></span>
+              {!online && <Tooltip content="Offline. New entries queue on this device."><span className="flex h-7 items-center gap-1.5 border border-warn px-2 font-mono text-2xs uppercase tracking-wider text-warn"><WifiOff className="h-3.5 w-3.5" /><span className="hidden sm:inline">Offline</span></span></Tooltip>}
+              {online && pending > 0 && <button type="button" onClick={flush} className="flex h-7 items-center gap-1.5 border border-info px-2 font-mono text-2xs uppercase tracking-wider text-info hover:bg-info hover:text-canvas"><CloudOff className="h-3.5 w-3.5" />{pending} queued</button>}
+              <button type="button" onClick={() => setPalette(true)} className="flex h-7 items-center gap-2 border border-line bg-surface px-2.5 font-mono text-2xs uppercase tracking-[0.1em] text-ink-3 transition-colors hover:border-line-strong hover:text-ink" aria-label="Search">
+                <Command className="hidden h-3.5 w-3.5 md:block" aria-hidden /><Search className="h-3.5 w-3.5 md:hidden" aria-hidden /><span className="hidden md:inline">Search</span><span className="hidden lg:inline"><Kbd>⌘K</Kbd></span>
               </button>
-              <Button variant="primary" size="sm" onClick={() => openQuickLog('')} className="h-9" aria-label="Log activity"><Plus className="h-4 w-4" /><span className="hidden xl:inline">Log activity</span></Button>
+              <Button variant="primary" size="sm" onClick={() => openQuickLog('')} aria-label="Log activity"><Plus className="h-3.5 w-3.5" /><span className="hidden xl:inline">Log activity</span></Button>
               <NotificationBell onNavigate={(to) => navigate(to)} />
               <Menu>
                 <MenuTrigger asChild>
-                  <button type="button" className="flex h-9 w-9 items-center justify-center rounded-full bg-rail text-xs font-bold text-rail-ink ring-2 ring-canvas" aria-label="Account menu">{initials(user?.first_name, user?.last_name)}</button>
+                  <button type="button" className="flex h-7 w-7 items-center justify-center border border-line-strong bg-rail font-mono text-2xs font-bold text-rail-ink" aria-label="Account menu">{initials(user?.first_name, user?.last_name)}</button>
                 </MenuTrigger>
                 <MenuContent>
                   <div className="border-b border-line px-2.5 pb-2 pt-1">
@@ -260,15 +260,15 @@ export default function AppShell() {
             </div>
           </header>
 
-          <main id="main" tabIndex={-1} className="min-w-0 flex-1 px-4 pb-24 pt-6 outline-none sm:px-6 lg:px-10 lg:pb-16 lg:pt-8">
+          <main id="main" tabIndex={-1} className="min-w-0 flex-1 px-3 pb-24 pt-4 outline-none sm:px-4 lg:px-6 lg:pb-12 lg:pt-5">
             {updateReady && (
-              <div role="status" className="no-print page mb-4 flex items-center gap-3 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-sm text-ink">
+              <div role="status" className="no-print page mb-3 flex items-center gap-2.5 border-l-2 border-l-info border-y border-r border-line bg-surface px-3 py-2 text-sm text-ink">
                 <RefreshCw className="h-4 w-4 text-info" /><span className="flex-1">A new version of Vantage is ready.</span>
                 <Button size="xs" onClick={() => { navigator.serviceWorker?.getRegistration().then((r) => r?.waiting?.postMessage('skip-waiting')); setTimeout(() => window.location.reload(), 300); }}>Reload</Button>
               </div>
             )}
             {identity?.instance.announcement && (
-              <div role="status" className="no-print page mb-4 flex items-start gap-2 rounded-lg border border-accent/25 bg-accent-soft px-3 py-2.5 text-sm text-ink">
+              <div role="status" className="no-print page mb-3 flex items-start gap-2 border-l-2 border-l-accent border-y border-r border-line bg-surface px-3 py-2 text-sm text-ink">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-accent" /><span>{identity.instance.announcement}</span>
               </div>
             )}

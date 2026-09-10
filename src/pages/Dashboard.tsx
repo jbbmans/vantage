@@ -69,8 +69,8 @@ export default function Dashboard() {
   return (
     <div className="page">
       <PageHeader
-        eyebrow={range.label}
-        title={`${greeting}, ${first}.`}
+        eyebrow={`${range.label} · ${greeting}, ${first}`}
+        title="Standing"
         lede={nothingYet
           ? 'Nothing is recorded for this period yet. Log one outcome and the picture starts forming.'
           : `${data.outcomesWithMeasures} ${data.outcomesWithMeasures === 1 ? 'outcome' : 'outcomes'} carried a measurable result this period.`}
@@ -81,8 +81,8 @@ export default function Dashboard() {
 
       {/* Attention ---------------------------------------------------- */}
       <section aria-labelledby="attention-heading" className="mb-6">
-        <h2 id="attention-heading" className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink">
-          <AlertTriangle className={cn('h-4 w-4', attention.length ? 'text-warn' : 'text-ink-3')} />
+        <h2 id="attention-heading" className="mb-2 flex items-center gap-2 border-b border-line pb-1.5 font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">
+          <AlertTriangle className={cn('h-3.5 w-3.5', attention.length ? 'text-warn' : 'text-ink-3')} />
           Needs your attention
         </h2>
         {attention.length === 0 && health.length === 0 ? (
@@ -91,15 +91,15 @@ export default function Dashboard() {
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
             <Panel title="Act on these now" subtitle="deadlines and gaps that move if you do not">
               {attention.length === 0 ? <p className="text-sm text-ink-3">Nothing time-sensitive right now.</p> : (
-                <ul className="space-y-2">{attention.map((a) => (
+                <ul className="-mx-3 -my-3 divide-y divide-line border-y border-line">{attention.map((a) => (
                   <li key={a.key}>
-                    <Link to={a.to} className="flex items-start gap-3 rounded-md border border-line px-3 py-2 transition-colors hover:border-line-strong hover:bg-surface-2">
-                      <span className="fig mt-0.5 min-w-6 text-center text-sm font-semibold text-accent">{a.count ?? <CalendarClock className="h-4 w-4" />}</span>
+                    <Link to={a.to} className="flex items-start gap-3 px-3 py-2 transition-colors hover:bg-surface-2">
+                      <span className="fig mt-px min-w-6 text-center text-sm text-accent">{a.count ?? <CalendarClock className="h-3.5 w-3.5" />}</span>
                       <span className="min-w-0 flex-1">
-                        <span className="block text-sm font-medium text-ink">{a.label}</span>
-                        <span className="block truncate text-xs text-ink-3">{a.detail}</span>
+                        <span className="block text-sm text-ink">{a.label}</span>
+                        <span className="block truncate font-mono text-2xs uppercase tracking-wider text-ink-3">{a.detail}</span>
                       </span>
-                      <ArrowRight className="mt-1 h-4 w-4 shrink-0 text-ink-3" />
+                      <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-3" />
                     </Link>
                   </li>
                 ))}</ul>
@@ -109,9 +109,9 @@ export default function Dashboard() {
               {health.length === 0 ? (
                 <p className="flex items-center gap-2 text-sm text-good"><CheckCircle2 className="h-4 w-4" />Nothing to fix.</p>
               ) : (
-                <ul className="space-y-1.5">{health.map((h) => (
+                <ul className="-mx-3 -my-3 divide-y divide-line border-y border-line">{health.map((h) => (
                   <li key={h.key}>
-                    <Link to={h.to} className="flex items-center justify-between gap-3 rounded-md px-2 py-1.5 text-sm transition-colors hover:bg-surface-2">
+                    <Link to={h.to} className="flex items-center justify-between gap-3 px-3 py-2 text-sm transition-colors hover:bg-surface-2">
                       <span className="flex items-center gap-2"><Badge tone={h.key === 'duplicates' ? 'bad' : 'warn'}>{h.count}</Badge><span className="text-ink">{h.label}</span></span>
                       <ArrowRight className="h-3.5 w-3.5 text-ink-3" />
                     </Link>
@@ -125,10 +125,10 @@ export default function Dashboard() {
 
       {/* Accomplished ------------------------------------------------- */}
       <section aria-labelledby="accomplished-heading" className="mb-6">
-        <h2 id="accomplished-heading" className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink">
+        <h2 id="accomplished-heading" className="mb-2 flex items-center gap-2 font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">
           <CheckCircle2 className="h-4 w-4 text-good" />
           Accomplished this period
-          <span className="text-xs font-normal text-ink-3">every figure opens into the outcomes behind it</span>
+          <span className="text-xs font-normal normal-case tracking-normal text-ink-3">every figure opens into the outcomes behind it</span>
         </h2>
         <MetricTotalsGrid
           headline={data.headline}
@@ -143,7 +143,7 @@ export default function Dashboard() {
 
       {/* Progressing -------------------------------------------------- */}
       <section aria-labelledby="progressing-heading">
-        <h2 id="progressing-heading" className="mb-2 flex items-center gap-2 text-sm font-semibold text-ink">
+        <h2 id="progressing-heading" className="mb-2 flex items-center gap-2 font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">
           <TrendingUp className="h-4 w-4 text-accent" />
           Progressing
         </h2>

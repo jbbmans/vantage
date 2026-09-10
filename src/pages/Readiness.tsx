@@ -74,7 +74,7 @@ export default function Readiness() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {PILLARS.map((p) => { const pillar = est.pillars[p.key]; return (
                   <div key={p.key} className={cn('rounded-lg border p-3', pillar.known ? 'border-line' : 'border-dashed border-warn/50')}>
-                    <div className="flex items-baseline justify-between gap-2"><h3 className="text-sm font-semibold text-ink">{p.label}</h3><span className="fig text-2xs text-ink-3">{pillar.enteredCount}/{pillar.itemCount}</span></div>
+                    <div className="flex items-baseline justify-between gap-2"><h3 className="font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">{p.label}</h3><span className="fig text-2xs text-ink-3">{pillar.enteredCount}/{pillar.itemCount}</span></div>
                     <p className="text-2xs text-ink-3">{p.composition}</p>
                     <ul className="mt-2 space-y-1">{pillar.items.map((it) => <li key={it.key} className="flex items-baseline justify-between gap-2 text-sm"><span className="text-ink-2">{it.label}</span><span className={cn('fig text-right text-xs', STATE_TONE[it.state])} title={it.note}>{it.value ?? 'Not entered'}</span></li>)}</ul>
                   </div>
@@ -86,7 +86,7 @@ export default function Readiness() {
             <Panel title="Attribute coverage" subtitle="does your log evidence each section your RS marks?">
               <div className="space-y-3">{coverage.map((s) => (
                 <div key={s.key} className="rounded-lg border border-line p-3">
-                  <div className="flex items-baseline justify-between gap-2"><h3 className="text-sm font-semibold text-ink">Section {s.section}: {s.key}</h3><span className="fig text-xs text-ink-3">{s.tagged} tagged</span></div>
+                  <div className="flex items-baseline justify-between gap-2"><h3 className="font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">Section {s.section}: {s.key}</h3><span className="fig text-xs text-ink-3">{s.tagged} tagged</span></div>
                   <ul className="mt-2 flex flex-wrap gap-1.5">{s.attributes.map((a) => <li key={a.attribute}><Badge tone={a.likely ? 'good' : 'warn'} title={a.examples.join(' · ')}>{a.attribute} · {a.likely}</Badge></li>)}</ul>
                 </div>
               ))}</div>
