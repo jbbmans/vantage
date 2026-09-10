@@ -1,28 +1,38 @@
 <!doctype html>
-<html lang="en" data-theme="light">
+<html lang="en" data-theme="light" data-accent="scarlet">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="color-scheme" content="dark light" />
-    <meta name="theme-color" content="#06090E" />
-    <meta name="description" content="Performance record system for a Marine Corps section." />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#f5f4f0" />
+    <meta name="description" content="Vantage: performance, readiness, and career records for Marine Corps teams." />
     <meta name="robots" content="noindex, nofollow" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Vantage" />
     <link rel="icon" type="image/svg+xml" href="/mark.svg" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png" />
+    <meta property="og:title" content="Vantage" />
+    <meta property="og:description" content="Performance, readiness, and career records for Marine Corps teams." />
+    <meta property="og:image" content="/og.png" />
+    <meta name="twitter:card" content="summary_large_image" />
     <link rel="manifest" href="/manifest.webmanifest" />
-    <link rel="preload" href="/fonts/inter-tight-latin.woff2" as="font" type="font/woff2" crossorigin />
-    <link rel="preload" href="/fonts/plex-mono-500.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/geist-normal.woff2" as="font" type="font/woff2" crossorigin />
+    <link rel="preload" href="/fonts/newsreader-normal.woff2" as="font" type="font/woff2" crossorigin />
     <title>Vantage</title>
     <script>
       try {
-        var t = localStorage.getItem('vantage.theme') || 'light';
-        var resolved = t === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : t;
-        document.documentElement.setAttribute('data-theme', resolved === 'dark' ? 'dark' : 'light');
+        var mode = localStorage.getItem('vantage.theme') || 'light';
+        var dark = mode === 'dark' || (mode === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        var accent = localStorage.getItem('vantage.accent');
+        if (accent) document.documentElement.setAttribute('data-accent', accent);
       } catch (e) {}
     </script>
   </head>
   <body>
     <div id="root"></div>
     <noscript>Vantage needs JavaScript enabled.</noscript>
-    <script type="module" src="/src/main.jsx"></script>
+    <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

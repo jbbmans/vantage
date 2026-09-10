@@ -1,13 +1,10 @@
 node_modules/
-.npm-cache/
 dist/
 *.db
 *.db-wal
 *.db-shm
+.env
 .DS_Store
-
-# The captured v3.3.0 database is a TEST FIXTURE, not an install. The v3.4
-# Definition of Done requires migration tests to run against a real v3.3.0
-# database file rather than a synthetic one, so this single .db is tracked
-# deliberately. It contains only fabricated Marines; see tests/fixtures/README.
-!tests/fixtures/*.db
+playwright-report/
+test-results/
+data/

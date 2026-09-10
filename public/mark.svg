@@ -1,17 +1,24 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-label="Vantage">
   <defs>
-    <linearGradient id="field" x1="8" y1="5" x2="56" y2="59" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#173C4C"/>
-      <stop offset="1" stop-color="#071820"/>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#16213a"/>
+      <stop offset="1" stop-color="#090e1a"/>
     </linearGradient>
-    <linearGradient id="signal" x1="20" y1="16" x2="43" y2="52" gradientUnits="userSpaceOnUse">
-      <stop stop-color="#8AC8FF"/>
-      <stop offset="1" stop-color="#3187D6"/>
+    <linearGradient id="gold" x1="0" y1="1" x2="1" y2="0">
+      <stop offset="0" stop-color="#b8892a"/>
+      <stop offset="1" stop-color="#e8c25a"/>
+    </linearGradient>
+    <linearGradient id="red" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#e0303e"/>
+      <stop offset="1" stop-color="#9f1d22"/>
     </linearGradient>
   </defs>
-  <path d="M32 3 56 12v18c0 14.1-8.3 24.8-24 31C16.3 54.8 8 44.1 8 30V12L32 3Z" fill="url(#field)"/>
-  <path d="M32 6.6 52.5 14v16c0 11.9-6.7 21.2-20.5 27-13.8-5.8-20.5-15.1-20.5-27V14L32 6.6Z" fill="none" stroke="#8AC8FF" stroke-opacity=".25"/>
-  <path d="m17 18 15 34 15-34h-7.7L32 36.9 24.7 18H17Z" fill="url(#signal)"/>
-  <path d="M18 29.5h28" stroke="#EAF6FF" stroke-opacity=".38" stroke-width="1.5"/>
-  <circle cx="32" cy="29.5" r="2.5" fill="#EAF6FF"/>
+  <rect x="2" y="2" width="60" height="60" rx="15" fill="url(#bg)"/>
+  <rect x="2.5" y="2.5" width="59" height="59" rx="14.5" fill="none" stroke="#ffffff" stroke-opacity="0.08"/>
+  <!-- the vantage line: left arm descends, right arm climbs past the rim -->
+  <path d="M16 21 L31.5 48" fill="none" stroke="url(#red)" stroke-width="7.5" stroke-linecap="round"/>
+  <path d="M31.5 48 L50 14" fill="none" stroke="url(#gold)" stroke-width="7.5" stroke-linecap="round"/>
+  <!-- the point of view -->
+  <circle cx="50" cy="14" r="4.6" fill="#f6e7b0"/>
+  <circle cx="50" cy="14" r="2.2" fill="#0b1220"/>
 </svg>

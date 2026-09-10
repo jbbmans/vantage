@@ -1,7 +1,12 @@
 node_modules
 dist
+data
 *.db
 *.db-wal
 *.db-shm
 .git
+.github
 tests
+playwright-report
+test-results
+docs

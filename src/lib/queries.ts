@@ -1,0 +1,223 @@
+import { DEFAULT_METRICS, type MetricsConfig } from '../../shared/constants';
+import { setCurrencySymbol } from '../../shared/metrics';
+import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import * as api from './api.ts';
+import type { Store } from './api.ts';
+import type { Prefs } from '../../shared/schemas.ts';
+import { applyAccent, applyDensity, applyTheme } from './theme.ts';
+import { trackForGrade, type Track } from '../../shared/evaluation.ts';
+import type { MetricTotal } from '../../shared/metricEngine.ts';
+
+export const queryClient = new QueryClient({
+  defaultOptions: {
+    queries: { networkMode: 'always', staleTime: 30_000, gcTime: 10 * 60_000, retry: (count, error) => (error as api.ApiError)?.status === 0 ? count < 1 : false, refetchOnWindowFocus: true },
+    mutations: { retry: false, networkMode: 'always' },
+  },
+});
+
+export interface Identity {
+  user: { id: string; username: string; email: string | null; first_name: string; last_name: string; middle_initial: string | null; rank_id: string | null; mos: string | null; eas: string | null; is_operator: number; totp_enabled: number; must_change_password: number; last_login_at: string | null; created_at: string; passkeys: number; rank: { id: string; grade: string; abbr: string; name: string } | null };
+  prefs: Prefs;
+  memberships: Array<{ unit_id: string; is_primary: number; billet: string | null; joined_at: string; unit_name: string; unit_short: string | null; unit_code: string; parent_id: string | null }>;
+  primaryUnitId: string | null; unitIds: string[]; readableUnitIds: string[]; ownedUnitIds: string[];
+  permissions: Record<string, number>; positions: Record<string, number>;
+  roles: Array<{ unit_id: string; id: string; name: string; color: string | null; position: number; permissions: number }>;
+  canLead: boolean; manageableUnits: string[]; counselUnits: string[]; exportUnits: string[];
+  session: { id: string; method: string; sudoUntil: string | null };
+  instance: { displayName: string; organizationName: string; announcement: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean; metrics: MetricsConfig };
+}
+
+export interface MetricSeriesPoint { key: string; label: string; value: number; outcomes: number; contributors: string[] }
+export interface MetricsReport {
+  period: { from: string; to: string };
+  prior: { from: string; to: string };
+  headline: MetricTotal[];
+  tracked: MetricTotal[];
+  priorHeadline: MetricTotal[];
+  monthly: Array<{ metricId: string; metricLabel: string; unit: string; points: MetricSeriesPoint[] }>;
+  byCategory: Array<{ dimension: string; value: string; totals: MetricTotal[] }>;
+  byArea: Array<{ dimension: string; value: string; totals: MetricTotal[] }>;
+  catalog: Array<{ metricId: string; metricLabel: string; kind: string; unit: string; headline: boolean }>;
+  outcomesWithMeasures: number;
+}
+export interface MetricContributor { id: string; table: 'activities' | 'trainings'; date: string; title: string; user_id: string; unit_id: string | null; value: number; unit: string }
+
+export const keys = {
+  me: ['me'] as const,
+  org: ['org'] as const,
+  records: (store: Store, params?: Record<string, unknown>) => ['records', store, params || {}] as const,
+  record: (store: Store, id: string) => ['record', store, id] as const,
+  team: ['team'] as const,
+  member: (id: string) => ['member', id] as const,
+  roles: ['roles'] as const,
+  notifications: ['notifications'] as const,
+  readiness: ['readiness'] as const,
+  aiStatus: ['ai-status'] as const,
+  maradmins: ['maradmins'] as const,
+  report: (params: Record<string, unknown>) => ['report', params] as const,
+  delta: (params: Record<string, unknown>) => ['delta', params] as const,
+  analysis: (params: Record<string, unknown>) => ['analysis', params] as const,
+  dashboard: (unitId: string, from?: string, to?: string) => ['dashboard', unitId, from, to] as const,
+  metrics: (params: Record<string, unknown>) => ['metrics', params] as const,
+  metricContributors: (params: Record<string, unknown>) => ['metric-contributors', params] as const,
+  goalContributors: (id: string) => ['goal-contributors', id] as const,
+  reportDrafts: ['report-drafts'] as const,
+  reportDraft: (id: string) => ['report-draft', id] as const,
+};
+
+export function useIdentity() {
+  return useQuery<Identity>({ queryKey: keys.me, queryFn: async () => { const id = await api.me() as Identity; setCurrencySymbol(id.instance?.metrics?.currency_symbol || '$'); return id; }, staleTime: 60_000, enabled: api.hasSession(), retry: false });
+}
+/** The instance's metric configuration: money label and symbol, value types, categories, unit suggestions. */
+export function useMetrics(): MetricsConfig {
+  const { data } = useIdentity();
+  return data?.instance.metrics || DEFAULT_METRICS;
+}
+export function useOrg() {
+  return useQuery({ queryKey: keys.org, queryFn: api.org, staleTime: 5 * 60_000 });
+}
+export function useRecords(store: Store, params?: Record<string, string | undefined>, enabled = true) {
+  return useQuery<any[]>({ queryKey: keys.records(store, params), queryFn: () => api.listRecords(store, params), enabled });
+}
+export const useActivities = () => useRecords('activities');
+export const useTasks = () => useRecords('tasks');
+export const useProjects = () => useRecords('projects');
+export const useGoals = () => useRecords('goals');
+export const useTrainings = () => useRecords('trainings');
+export const useAwards = () => useRecords('awards');
+export const useCounselings = () => useRecords('counselings');
+
+export function invalidateRecords(qc: QueryClient, store: Store) {
+  qc.invalidateQueries({ queryKey: ['records', store] });
+  qc.invalidateQueries({ queryKey: ['record', store] });
+  qc.invalidateQueries({ queryKey: ['report'] });
+  qc.invalidateQueries({ queryKey: ['delta'] });
+  qc.invalidateQueries({ queryKey: ['dashboard'] });
+  if (store === 'projects') { qc.invalidateQueries({ queryKey: ['records', 'tasks'] }); qc.invalidateQueries({ queryKey: ['records', 'activities'] }); }
+}
+
+export function useCreateRecord(store: Store) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (data: unknown) => api.createRecord(store, data), onSuccess: () => invalidateRecords(qc, store) });
+}
+export function useUpdateRecord(store: Store) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: ({ id, patch }: { id: string; patch: unknown }) => api.updateRecord(store, id, patch), onSuccess: () => invalidateRecords(qc, store) });
+}
+export function useDeleteRecord(store: Store) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => api.deleteRecord(store, id), onSuccess: () => invalidateRecords(qc, store) });
+}
+export function useRestoreRecord(store: Store) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => api.restoreRecord(store, id), onSuccess: () => invalidateRecords(qc, store) });
+}
+
+export function usePrefs(): Prefs {
+  const { data } = useIdentity();
+  return data?.prefs || {};
+}
+
+export function useSavePrefs() {
+  const qc = useQueryClient();
+  return useMutation({
+    mutationFn: (patch: Partial<Prefs>) => api.savePrefs(patch),
+    onMutate: async (patch) => {
+      await qc.cancelQueries({ queryKey: keys.me });
+      const previous = qc.getQueryData<Identity>(keys.me);
+      if (previous) qc.setQueryData<Identity>(keys.me, { ...previous, prefs: { ...previous.prefs, ...patch } });
+      if (patch.theme) applyTheme(patch.theme);
+      if (patch.accent) applyAccent(patch.accent);
+      if (patch.density) applyDensity(patch.density);
+      return { previous };
+    },
+    onError: (_e, _p, ctx) => { if (ctx?.previous) qc.setQueryData(keys.me, ctx.previous); },
+    onSettled: () => qc.invalidateQueries({ queryKey: keys.me }),
+  });
+}
+
+export function useTrack(): Track {
+  const { data } = useIdentity();
+  return trackForGrade(data?.user.rank?.grade);
+}
+
+/** The authoritative figures for a period. The client never re-derives a total from a page of rows. */
+export function useMetricsReport(params: Record<string, string | undefined>, enabled = true) {
+  return useQuery<MetricsReport>({ queryKey: keys.metrics(params), queryFn: () => api.metrics(params) as Promise<MetricsReport>, enabled, staleTime: 30_000 });
+}
+/** The outcomes behind one figure, so every number on screen can be opened. */
+export function useMetricContributors(params: Record<string, string | undefined> | null) {
+  return useQuery<MetricContributor[]>({ queryKey: keys.metricContributors(params || {}), queryFn: () => api.metricContributors(params!) as Promise<MetricContributor[]>, enabled: Boolean(params) });
+}
+
+/** The outcomes that counted toward one goal. */
+export function useGoalContributors(id: string | null) {
+  return useQuery<Array<{ table: string; id: string; date: string; title: string; value: number; unit: string }>>({
+    queryKey: keys.goalContributors(id || ''), queryFn: () => api.goalContributors(id!), enabled: Boolean(id),
+  });
+}
+export const useReportDrafts = () => useQuery({ queryKey: keys.reportDrafts, queryFn: api.listReportDrafts, staleTime: 30_000 });
+export const useReportDraft = (id: string | null) => useQuery({ queryKey: keys.reportDraft(id || ''), queryFn: () => api.reportDraft(id!), enabled: Boolean(id) });
+
+export const useReadiness = () => useQuery({ queryKey: keys.readiness, queryFn: api.readiness, staleTime: 60_000 });
+export const useAiStatus = () => useQuery({ queryKey: keys.aiStatus, queryFn: api.aiStatus, staleTime: 5 * 60_000 });
+export const useNotifications = (enabled = true) => useQuery({ queryKey: keys.notifications, queryFn: () => api.notifications(40), refetchInterval: 60_000, enabled });
+export const useTeam = (enabled = true) => useQuery({ queryKey: keys.team, queryFn: api.team, enabled });
+export const useRoles = (enabled = true) => useQuery({ queryKey: keys.roles, queryFn: api.roles, enabled });
+
+export function can(identity: Identity | undefined, flag: number, unitId?: string | null): boolean {
+  if (!identity || !unitId) return false;
+  const bits = identity.permissions[unitId] || 0;
+  return Boolean(bits & (1 << 12)) || Boolean(bits & flag);
+}
+export const canAnywhere = (identity: Identity | undefined, flag: number) => Boolean(identity && Object.values(identity.permissions).some((bits) => Boolean(bits & (1 << 12)) || Boolean(bits & flag)));
+export const unitsWith = (identity: Identity | undefined, flag: number) => identity ? Object.entries(identity.permissions).filter(([, bits]) => Boolean(bits & (1 << 12)) || Boolean(bits & flag)).map(([id]) => id) : [];
+
+export function unitName(identity: Identity | undefined, unitId?: string | null, org?: { units?: Array<{ id: string; name: string; short_name: string | null }> }) {
+  if (!unitId) return '';
+  const m = identity?.memberships.find((x) => x.unit_id === unitId);
+  if (m) return m.unit_short || m.unit_name;
+  const u = org?.units?.find((x) => x.id === unitId);
+  return u ? u.short_name || u.name : unitId;
+}
+
+export async function signOutEverywhere() {
+  try { await api.revokeOtherSessions(); } catch {}
+  try { await api.logout(); } catch {}
+  queryClient.clear();
+  window.dispatchEvent(new CustomEvent('vantage:signed-out'));
+}
+
+// Correspondence -------------------------------------------------------
+export interface ThreadSummary {
+  id: string; subject: string; state: string; unit_id: string | null; visibility: string;
+  contact_id: string | null; contact_name: string | null; contact_organization: string | null;
+  follow_up_at: string | null; last_message_at: string | null; response_at: string | null;
+  ksd_at: string | null; resolved_at: string | null; message_count: number; linked_items: number;
+  provider: string | null; version: number; updated_at: string;
+}
+
+export const correspondenceKeys = {
+  contacts: ['contacts'] as const,
+  threads: (params: Record<string, unknown>) => ['threads', params] as const,
+  thread: (id: string) => ['thread', id] as const,
+  itemThreads: (id: string) => ['item-threads', id] as const,
+  connectors: ['connectors'] as const,
+};
+
+export const useContacts = (enabled = true) => useQuery<Array<Record<string, any>>>({ queryKey: correspondenceKeys.contacts, queryFn: api.listContacts, staleTime: 60_000, enabled });
+export const useThreads = (params: Record<string, string | undefined> = {}) =>
+  useQuery<ThreadSummary[]>({ queryKey: correspondenceKeys.threads(params), queryFn: () => api.listThreads(params), staleTime: 15_000 });
+export const useThread = (id: string | null) =>
+  useQuery<{ thread: any; messages: any[]; links: any[]; contact: any }>({ queryKey: correspondenceKeys.thread(id || ''), queryFn: () => api.threadDetail(id!), enabled: Boolean(id) });
+export const useItemThreads = (workItemId: string | null) =>
+  useQuery<ThreadSummary[]>({ queryKey: correspondenceKeys.itemThreads(workItemId || ''), queryFn: () => api.threadsForItem(workItemId!), enabled: Boolean(workItemId) });
+export const useConnectors = (enabled = true) =>
+  useQuery<{ connectors: any[]; clouds: Array<{ value: string; label: string; graph: string; authority: string }>; scopes: string[] }>({ queryKey: correspondenceKeys.connectors, queryFn: api.listConnectors, staleTime: 60_000, enabled });
+
+/** Everything that could have changed when a thread moves. */
+export function invalidateCorrespondence(qc: QueryClient, threadId?: string) {
+  qc.invalidateQueries({ queryKey: ['threads'] });
+  qc.invalidateQueries({ queryKey: ['item-threads'] });
+  if (threadId) qc.invalidateQueries({ queryKey: correspondenceKeys.thread(threadId) });
+}
