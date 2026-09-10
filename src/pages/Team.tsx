@@ -8,11 +8,12 @@ import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { AreaChart, BarList } from '@/components/charts';
 import { DateText, Table, useParam } from '@/components/common';
-import { keys, useIdentity, useOrg, useRoles, useTeam, unitsWith, can, useMetrics } from '@/lib/queries';
+import { keys, useIdentity, useOrg, useRoles, useTeam, unitsWith, can, useMetrics, useMetricsReport } from '@/lib/queries';
+import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
 import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATE, listPermissions } from '../../shared/permissions';
 import { ECHELONS, categoryColor } from '../../shared/constants';
-import { formatDollars, formatNumber } from '../../shared/metrics';
+import { formatDollars } from '../../shared/metrics';
 import { copyToClipboard, cn, humanize, fullName } from '@/lib/utils';
 import { downloadText } from '@/lib/utils';
 
@@ -220,29 +221,53 @@ function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: st
   const to = new Date(now).toISOString().slice(0, 10);
   const from = new Date(now - (Number(days) - 1) * 86_400_000).toISOString().slice(0, 10);
   const { data, isPending } = useQuery({ queryKey: keys.dashboard(unitId, from, to), queryFn: () => api.unitDashboard(unitId, from, to) });
+  // The unit's figures come from the one metric layer, scoped server-side to this unit's shared work.
+  const unitMetricParams = useMemo(() => ({ from, to, unit_id: unitId }), [from, to, unitId]);
+  const unitMetrics = useMetricsReport(unitMetricParams);
   const [brief, setBrief] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
+  const unitTop = unitMetrics.data?.monthly?.[0];
   const exportJson = async () => { try { const r = await api.unitExport(unitId); downloadText(`vantage-${unitId}-${to}.json`, JSON.stringify(r, null, 2), 'application/json'); toast.success('Unit export downloaded.'); } catch (e) { toast.error(api.errorText(e)); } };
   if (isPending || !data) return <Skeleton className="h-64" />;
   const t = data.totals;
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center gap-2"><Select aria-label="Window" className="w-40" value={days} onValueChange={setDays} options={[{ value: '30', label: 'Last 30 days' }, { value: '90', label: 'Last 90 days' }, { value: '180', label: 'Last 180 days' }, { value: '365', label: 'Last year' }]} /><span className="text-xs text-ink-3">Shared entries only · {from} to {to}</span>{canExport && <Button className="ml-auto" onClick={exportJson}><Download className="h-4 w-4" />Export unit data</Button>}</div>
-      <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Members" value={t.members} hint={`${t.contributors} logged something`} />
-        <Stat label="Shared entries" value={formatNumber(t.entries)} hint={`${t.completeness}% with an outcome`} tone={t.completeness < 60 ? 'warn' : undefined} />
-        <Stat label={`${cfg.currency_label} moved`} value={formatDollars(t.dollars)} hint={t.reviewed ? `${formatDollars(t.reviewed)} reviewed` : 'summable types'} tone="accent" />
-        <Stat label="Needs attention" value={t.overdue_tasks + t.counseling_due} hint={`${t.overdue_tasks} overdue tasks · ${t.counseling_due} counselings due`} tone={t.overdue_tasks + t.counseling_due ? 'warn' : 'good'} />
+      <div>
+        <h3 className="eyebrow mb-2">What the unit produced in this window</h3>
+        <MetricTotalsGrid
+          headline={unitMetrics.data?.headline || []}
+          tracked={unitMetrics.data?.tracked || []}
+          prior={unitMetrics.data?.priorHeadline || []}
+          params={unitMetricParams}
+          emptyTitle="Nothing measurable shared in this window"
+          emptyDescription="Members have shared no entry carrying a quantity, a value, or logged hours."
+        />
+      </div>
+      <div className="grid grid-cols-2 gap-3 lg:grid-cols-3">
+        <Stat label="Members" value={t.members} hint={`${t.contributors} shared something`} />
+        <Stat label="Outcomes with a result" value={`${t.completeness}%`} hint="the rest need a result written" tone={t.completeness < 60 ? 'warn' : undefined} />
+        <Stat label="Needs attention" value={t.overdue_tasks + t.counseling_due} hint={`${t.overdue_tasks} overdue tasks, ${t.counseling_due} counselings due`} tone={t.overdue_tasks + t.counseling_due ? 'warn' : 'good'} />
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Panel className="lg:col-span-2" title="Entries per week" padded={false} bodyClassName="p-3">{data.weekly.length > 1 ? <AreaChart ariaLabel="Unit entries per week" data={data.weekly.map((w: any) => ({ label: w.week.slice(5), value: w.entries, secondary: Math.round(w.dollars) }))} secondaryLabel={cfg.currency_label} /> : <EmptyState title="Not enough shared entries yet" />}</Panel>
-        <Panel title="By category"><BarList items={data.by_category.slice(0, 8).map((c: any) => ({ label: c.category, value: c.entries, hint: c.dollars ? formatDollars(c.dollars) : undefined }))} colorFor={(l) => categoryColor(l, cfg)} /></Panel>
+        <Panel className="lg:col-span-2" title={unitTop ? `${unitTop.metricLabel} by month` : 'Over time'} subtitle="on the same basis as the figures above" padded={false} bodyClassName="p-3">
+          {unitTop && unitTop.points.length > 1
+            ? <AreaChart ariaLabel={`${unitTop.metricLabel} by month`} data={unitTop.points.map((pt) => ({ label: pt.label, value: pt.value }))} />
+            : <EmptyState title="Not enough history for a chart yet" description="A couple of months of shared outcomes will show the shape here." />}
+        </Panel>
+        <Panel title="Where the work landed" subtitle="outcomes by category">
+          <BarList
+            items={(unitMetrics.data?.byCategory || []).map((b) => ({ label: b.value, value: b.totals.reduce((n, x) => n + x.outcomes, 0) })).sort((a, b) => b.value - a.value).slice(0, 8)}
+            format={(v) => `${v} ${v === 1 ? 'outcome' : 'outcomes'}`}
+            colorFor={(l) => categoryColor(l, cfg)}
+          />
+        </Panel>
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Panel title="Readiness and pipeline"><dl className="grid grid-cols-2 gap-2 text-sm">{[['Avg PFT', t.avg_pft ?? '—'], ['Avg CFT', t.avg_cft ?? '—'], ['Readiness reported', `${t.readiness_reported}/${t.members}`], ['Active goals', t.active_goals], ['Goals achieved', t.goals_achieved], ['Awards in progress', t.awards_in_progress]].map(([k, v]) => <div key={String(k)} className="rounded-md border border-line px-3 py-2"><dt className="eyebrow">{k}</dt><dd className="fig mt-0.5 font-semibold text-ink">{String(v)}</dd></div>)}</dl></Panel>
         <Panel className="lg:col-span-2" title="Members" subtitle={canDetail ? 'open a Marine to see their shared record' : 'member detail requires the Open member records permission'} padded={false}>
           {!data.members.length ? <EmptyState title={canDetail ? 'No members' : 'Member breakdown hidden'} /> : (
-            <Table head={<><th>Marine</th><th className="w-20 text-right">Entries</th><th className="w-28 text-right">Dollars</th><th className="w-24 text-right">Outcome %</th><th className="w-24">Last entry</th><th className="w-28">Counseling</th></>}>
-              {data.members.map((m: any) => <tr key={m.id}><td><Link to={`/team/${m.id}`} className="font-medium text-ink hover:underline">{m.rank_abbr || ''} {m.name}</Link>{m.billet && <span className="block text-xs text-ink-3">{m.billet}</span>}</td><td className="fig text-right">{m.entries}</td><td className="fig text-right text-xs">{m.dollars ? formatDollars(m.dollars) : ''}</td><td className={cn('fig text-right text-xs', m.completeness != null && m.completeness < 60 && 'text-warn')}>{m.completeness ?? '—'}</td><td className="text-xs"><DateText value={m.last_entry} fallback="none" /></td><td>{m.counseling_due ? <Badge tone="warn">Due</Badge> : <span className="text-xs text-ink-3"><DateText value={m.last_counseling} fallback="" /></span>}</td></tr>)}
+            <Table head={<><th>Marine</th><th className="w-28 text-right">{cfg.currency_label}</th><th className="w-24 text-right">With a result</th><th className="w-24 text-right" title="How many outcomes they shared. Provenance for the figures, not a score.">Shared</th><th className="w-24">Last shared</th><th className="w-28">Counseling</th></>}>
+              {data.members.map((m: any) => <tr key={m.id}><td><Link to={`/team/${m.id}`} className="font-medium text-ink hover:underline">{m.rank_abbr || ''} {m.name}</Link>{m.billet && <span className="block text-xs text-ink-3">{m.billet}</span>}</td><td className="fig text-right text-xs">{m.dollars ? formatDollars(m.dollars) : ''}</td><td className={cn('fig text-right text-xs', m.completeness != null && m.completeness < 60 && 'text-warn')}>{m.completeness == null ? '—' : `${m.completeness}%`}</td><td className="fig text-right text-xs text-ink-3">{m.entries}</td><td className="text-xs"><DateText value={m.last_entry} fallback="none" /></td><td>{m.counseling_due ? <Badge tone="warn">Due</Badge> : <span className="text-xs text-ink-3"><DateText value={m.last_counseling} fallback="" /></span>}</td></tr>)}
             </Table>
           )}
         </Panel>

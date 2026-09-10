@@ -111,3 +111,17 @@ test('the GenAI.mil network gate is reported as a hosting problem, for requests 
   const ok = await app.call('POST', '/api/admin/ai/discover', { token: op.token });
   assert.equal(ok.status, 200, JSON.stringify(ok.body));
 });
+
+test('a review window keeps entries dated on a clock that runs ahead of the instance', async () => {
+  // Honolulu is far behind UTC, so "today" on almost any member's clock is tomorrow on the instance calendar.
+  const far = await startApp({ VANTAGE_TIMEZONE: 'Pacific/Honolulu', VANTAGE_AI_ENABLED: 'true', VANTAGE_GENAI_API_KEY: 'test-key-123', VANTAGE_GENAI_BASE_URL: mock.url });
+  try {
+    const owner = await far.setupOperator();
+    const ahead = new Date(Date.now() + 20 * 3_600_000).toISOString().slice(0, 10);
+    const created = await far.call('POST', '/api/records/activities', { token: owner.token, body: { title: 'Logged from a clock ahead of the instance', visibility: 'private', date: ahead } });
+    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const review = await far.call('POST', '/api/ai/assist', { token: owner.token, body: { workflow: 'personal_review', input: { days: 30 } } });
+    assert.equal(review.status, 200, JSON.stringify(review.body));
+    assert.ok(JSON.stringify(mock.calls.at(-1)!.body).includes('Logged from a clock ahead of the instance'));
+  } finally { await far.close(); }
+});

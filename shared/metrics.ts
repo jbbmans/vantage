@@ -170,17 +170,6 @@ export function aggregateMetrics(list: MetricSource[] = [], cfg: MetricsConfig =
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-export function dailyCounts<T extends { date?: string | null }>(list: T[] = [], range?: DateRange | null): Record<string, number> {
-  const map: Record<string, number> = {};
-  for (const a of list) {
-    const d = toDate(a.date);
-    if (!d || (range && (d < range.start || d > range.end))) continue;
-    const k = dayKey(d);
-    map[k] = (map[k] || 0) + 1;
-  }
-  return map;
-}
-
 export function daysSinceLastActivity<T extends { date?: string | null }>(list: T[] = [], ref = new Date()): number | null {
   let latest: Date | null = null;
   for (const a of list) {
@@ -188,22 +177,6 @@ export function daysSinceLastActivity<T extends { date?: string | null }>(list: 
     if (d && d <= endOfDay(ref) && (!latest || d > latest)) latest = d;
   }
   return latest ? Math.max(0, differenceInCalendarDays(startOfDay(ref), startOfDay(latest))) : null;
-}
-
-export function currentStreak<T extends { date?: string | null }>(list: T[] = [], ref = new Date()): number {
-  const days = new Set(list.map((a) => toDate(a.date)).filter((d): d is Date => Boolean(d)).map(dayKey));
-  if (!days.size) return 0;
-  let streak = 0;
-  let cursor = startOfDay(ref);
-  if (!days.has(dayKey(cursor))) {
-    cursor = subDays(cursor, 1);
-    if (!days.has(dayKey(cursor))) return 0;
-  }
-  while (days.has(dayKey(cursor))) {
-    streak += 1;
-    cursor = subDays(cursor, 1);
-  }
-  return streak;
 }
 
 export function delta(current: number, previous: number): number | null {

@@ -5,6 +5,7 @@ import { badRequest, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor, can, PERMISSIONS, detailUnitsFor } from '../authz/scope.ts';
 import { buildReport } from '../services/reports.ts';
+import { metricsReport, metricContributors, defaultPeriod } from '../services/metrics.ts';
 import { buildAnalysisReport } from '../services/analytics.ts';
 import { renderAnalysisPdf } from '../services/analyticsPdf.ts';
 import { renderReportPdf } from '../services/pdf.ts';
@@ -44,6 +45,49 @@ function reportTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
   }
   return { q, userId, unitId };
 }
+
+// Metrics -------------------------------------------------------------
+// Every figure the product shows is computed here, over rows the caller may actually read.
+const metricsQuery = z.object({
+  from: z.string().max(10).optional(), to: z.string().max(10).optional(),
+  unit_id: z.string().max(64).optional(), user_id: z.string().max(64).optional(),
+  scope: z.enum(['me', 'all']).default('me'),
+  aggregation: z.enum(['sum', 'max', 'min', 'average', 'latest', 'distinct']).optional(),
+  category: z.string().max(120).optional(), area: z.string().max(120).optional(),
+});
+
+function metricTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
+  const q = parse(metricsQuery, req.query);
+  const scope = scopeFor(req.ctx, req.user, req);
+  const fallback = defaultPeriod(req.ctx);
+  if (q.unit_id && !can(scope, PERMISSIONS.VIEW_RECORDS, q.unit_id)) throw forbidden('You cannot see that unit\'s figures.');
+  if (q.user_id && q.user_id !== req.user.id && !detailUnitsFor(req.ctx, scope, q.user_id).length) throw forbidden('You cannot see that Marine\'s figures.');
+  const filters: Record<string, string | null> = {};
+  if (q.category) filters.category = q.category === 'Unassigned' ? null : q.category;
+  if (q.area) filters.area = q.area === 'Unassigned' ? null : q.area;
+  return {
+    scope,
+    opts: {
+      from: q.from || fallback.from, to: q.to || fallback.to,
+      unitId: q.unit_id || null, subjectId: q.user_id || null,
+      mineOnly: q.scope === 'me' && !q.unit_id && !q.user_id,
+      aggregation: q.aggregation,
+      filters: Object.keys(filters).length ? filters : undefined,
+    },
+  };
+}
+
+miscRouter.get('/metrics', wrap((req, res) => {
+  const { scope, opts } = metricTarget(req);
+  res.json(metricsReport(req.ctx, req.user, scope, opts));
+}));
+
+miscRouter.get('/metrics/contributors', wrap((req, res) => {
+  const metricId = String(req.query.metric_id || '');
+  if (!metricId) throw badRequest('Name the metric to open.');
+  const { scope, opts } = metricTarget(req);
+  res.json(metricContributors(req.ctx, req.user, scope, { ...opts, metricId }));
+}));
 
 miscRouter.get('/reports', wrap((req, res) => {
   const { q, userId, unitId } = reportTarget(req);

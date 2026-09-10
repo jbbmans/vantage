@@ -9,9 +9,10 @@ import RecordDialog from '@/components/RecordDialog';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, StatusBadge, CategoryDot, DescriptionList, Table, useParam } from '@/components/common';
 import { CounselingFields, AwardFields, emptyCounseling, emptyAward } from '@/pages/Career';
-import { keys, useIdentity, useOrg, useRoles, useTrack, useMetrics } from '@/lib/queries';
+import { keys, useIdentity, useOrg, useRoles, useTrack, useMetrics, useMetricsReport } from '@/lib/queries';
+import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
-import { aggregateMetrics, formatDollars, formatNumber } from '../../shared/metrics';
+import { aggregateMetrics, formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
 import { trackForGrade, trackMeta, mapAreaToTrack } from '../../shared/evaluation';
 import { estimate } from '../../shared/jepes';
 import { humanize, fullName, cn } from '@/lib/utils';
@@ -36,6 +37,9 @@ export default function MemberDetail() {
   const person = data?.person;
   const track = person ? trackForGrade(person.rank_grade) : myTrack;
   const metrics = useMemo(() => aggregateMetrics(data?.activities || [], cfg), [data, cfg]);
+  // Figures for another Marine come from the server, scoped to what they actually shared with us.
+  const memberParams = useMemo(() => { const r = rangeForPeriod('fiscalYear'); return { from: dayKey(r.start), to: dayKey(r.end), user_id: id }; }, [id]);
+  const memberMetrics = useMetricsReport(memberParams, Boolean(data));
   const est = useMemo(() => (readiness ? estimate(readiness) : null), [readiness]);
   const isSelf = id === identity?.user.id;
   const unitId = data?.detailUnits?.[0];
@@ -62,9 +66,18 @@ export default function MemberDetail() {
         <Button onClick={download}><FileDown className="h-4 w-4" />{trackMeta(track).inputName} PDF</Button>
       </PageHeader>
       {!isSelf && <p className="mb-4 flex items-center gap-2 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-2"><ShieldCheck className="h-4 w-4 text-ink-3" />You are seeing only what this Marine shared with {data.detailUnits.map(unitLabel).join(', ')}. This view was logged to the unit access log.</p>}
-      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Shared entries" value={formatNumber(metrics.totalActivities)} hint={`${metrics.totalActivities ? Math.round((metrics.withOutcome / metrics.totalActivities) * 100) : 0}% with outcome`} />
-        <Stat label={`${cfg.currency_label} moved`} value={formatDollars(metrics.totalDollars)} tone="accent" />
+      <div className="mb-4">
+        <h2 className="eyebrow mb-2">Shared outcomes, fiscal year to date</h2>
+        <MetricTotalsGrid
+          headline={memberMetrics.data?.headline || []}
+          tracked={memberMetrics.data?.tracked || []}
+          prior={memberMetrics.data?.priorHeadline || []}
+          params={memberParams}
+          emptyTitle="No shared outcome carries a measurable result yet"
+          emptyDescription="This Marine has shared no entry with a quantity, a value, or logged hours in this period."
+        />
+      </div>
+      <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-2">
         <Stat label="Open tasks" value={data.tasks.length} hint={`${data.goals.filter((g: any) => g.status === 'active').length} active goals`} />
         <Stat label="Counselings" value={data.counselings.length} hint={pendingAck ? `${pendingAck} not yet acknowledged` : 'all acknowledged'} tone={pendingAck ? 'warn' : undefined} />
       </div>

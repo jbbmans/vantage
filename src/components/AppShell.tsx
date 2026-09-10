@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Bell, ChevronsLeft, ChevronsRight, CloudOff, Command, LogOut, Menu as MenuIcon, Moon, Plus, RefreshCw, Search, Sun, WifiOff, X } from 'lucide-react';
-import { NAV } from '@/config/nav';
+import { NAV, NAV_GROUPS } from '@/config/nav';
 import { cn, initials, timeAgo } from '@/lib/utils';
 import { Button, Tooltip, Kbd } from '@/components/ui/primitives';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/components/ui/Menu';
@@ -155,24 +155,29 @@ export default function AppShell() {
   const primary = identity?.memberships.find((m) => m.is_primary) || identity?.memberships[0];
 
   const navList = (mobile: boolean) => (
-    <nav className="flex-1 space-y-0.5 overflow-y-auto px-2 py-2" aria-label="Primary">
-      {visibleNav.filter((i) => !i.secondary).map((item) => (
-        <Tooltip key={item.to} content={collapsed && !mobile ? item.label : null} side="right">
-          <NavLink to={item.to} end={item.end} className={cn('nav-item', collapsed && !mobile && 'justify-center px-0')} aria-current={location.pathname === item.to || (!item.end && location.pathname.startsWith(item.to)) ? 'page' : undefined}>
-            <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" strokeWidth={1.75} />
-            {(!collapsed || mobile) && <span className="truncate">{item.label}</span>}
-          </NavLink>
-        </Tooltip>
-      ))}
-      <div className="my-2 border-t border-rail-ink/10" />
-      {visibleNav.filter((i) => i.secondary).map((item) => (
-        <Tooltip key={item.to} content={collapsed && !mobile ? item.label : null} side="right">
-          <NavLink to={item.to} className={cn('nav-item', collapsed && !mobile && 'justify-center px-0')} aria-current={location.pathname.startsWith(item.to) ? 'page' : undefined}>
-            <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" strokeWidth={1.75} />
-            {(!collapsed || mobile) && <span className="truncate">{item.label}</span>}
-          </NavLink>
-        </Tooltip>
-      ))}
+    <nav className="flex-1 overflow-y-auto px-2 py-2" aria-label="Primary">
+      {NAV_GROUPS.map((group) => {
+        const items = visibleNav.filter((i) => i.group === group);
+        if (!items.length) return null;
+        return (
+          <div key={group} className="mb-2">
+            {(!collapsed || mobile) && group !== 'More' && (
+              <p className="px-2.5 pb-1 pt-1.5 text-2xs font-semibold uppercase tracking-[0.14em] text-rail-ink/70">{group}</p>
+            )}
+            {group === 'More' && <div className="my-1.5 border-t border-rail-ink/10" />}
+            <div className="space-y-0.5">
+              {items.map((item) => (
+                <Tooltip key={item.to} content={collapsed && !mobile ? item.label : null} side="right">
+                  <NavLink to={item.to} end={item.end} className={cn('nav-item', collapsed && !mobile && 'justify-center px-0')} aria-current={location.pathname === item.to || (!item.end && location.pathname.startsWith(item.to)) ? 'page' : undefined}>
+                    <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" strokeWidth={1.75} />
+                    {(!collapsed || mobile) && <span className="truncate">{item.label}</span>}
+                  </NavLink>
+                </Tooltip>
+              ))}
+            </div>
+          </div>
+        );
+      })}
     </nav>
   );
 

@@ -38,7 +38,10 @@ const NETWORK_BLOCKED_MESSAGE = 'GenAI.mil refused this server: the gateway only
 const str = (v: unknown, max = 8000) => String(v ?? '').trim().slice(0, max);
 const int = (v: unknown, fallback: number, min: number, max: number) => { const n = Number(v); return Number.isInteger(n) && n >= min && n <= max ? n : fallback; };
 const date = (v: unknown, fallback: string | null) => { const t = str(v, 10); return DAY.test(t) ? t : fallback; };
-const daysAgo = (d: number) => new Date(Date.now() - d * 86_400_000).toISOString().slice(0, 10);
+/** Window bounds run on the instance calendar. The upper bound reaches one day past it so an entry
+ *  dated "today" by a member whose clock is ahead of the instance is never dropped from their own review. */
+const windowStart = (ctx: AppContext, days: number) => zonedDay(ctx.config.timezone, -days);
+const windowEnd = (ctx: AppContext) => zonedDay(ctx.config.timezone, 1);
 
 function sanitize(row: Record<string, unknown>) {
   return {
@@ -73,6 +76,7 @@ const goalView = (g: GoalRow) => ({ title: g.title, target_value: g.target_value
 function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, input: unknown, reqKey: object) {
   const safe = (input && typeof input === 'object' && !Array.isArray(input) ? input : {}) as Record<string, unknown>;
   const nowDay = zonedDay(ctx.config.timezone);
+  const queryEnd = windowEnd(ctx);
   const scope = scopeFor(ctx, user, reqKey);
   switch (workflow) {
     case 'quick_log': {
@@ -92,15 +96,17 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
       return { kind: kinds.has(String(safe.kind)) ? safe.kind : 'evaluation_bullet', source, audience: str(safe.audience, 120) || null, limit: int(safe.limit, 1200, 100, 5000) };
     }
     case 'award_citation': {
-      const from = date(safe.from, daysAgo(365));
+      const from = date(safe.from, windowStart(ctx, 365));
       const to = date(safe.to, nowDay);
+      // An explicit end is honoured exactly; a defaulted one reaches past the instance day (see windowEnd).
+      const queryTo = safe.to ? to! : queryEnd;
       const subjectId = str(safe.user_id, 64) || user.id;
       let activities;
-      if (subjectId === user.id) activities = ownActivities(ctx, user.id, from!, to!, 100);
+      if (subjectId === user.id) activities = ownActivities(ctx, user.id, from!, queryTo, 100);
       else {
         const unitId = str(safe.unit_id, 64);
         if (!unitId || !detailUnitsFor(ctx, scope, subjectId).filter((u) => can(scope, PERMISSIONS.COUNSEL, u)).includes(unitId)) throw new AiError('You cannot draft a citation for that Marine.', 403, 'forbidden');
-        activities = sharedActivities(ctx, subjectId, unitId, from!, to!, 100);
+        activities = sharedActivities(ctx, subjectId, unitId, from!, queryTo, 100);
       }
       return { award: str(safe.award, 200) || 'Navy and Marine Corps Achievement Medal', period: { from, to }, facts: str(safe.facts, 6000) || null, activities };
     }
@@ -110,10 +116,10 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
       const counselUnits = subjectId ? detailUnitsFor(ctx, scope, subjectId).filter((u) => can(scope, PERMISSIONS.COUNSEL, u)) : [];
       if (!subjectId || !unitId || !counselUnits.includes(unitId)) throw new AiError('You cannot prepare a counseling for that Marine.', 403, 'forbidden');
       const days = int(safe.days, 90, 7, 366);
-      const from = daysAgo(days);
+      const from = windowStart(ctx, days);
       return {
         from, to: nowDay,
-        activities: sharedActivities(ctx, subjectId, unitId, from, nowDay, 120),
+        activities: sharedActivities(ctx, subjectId, unitId, from, queryEnd, 120),
         goals: withGoalProgress(ctx, ctx.db.prepare(`SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL LIMIT 20`).all(subjectId, subjectId, unitId) as GoalRow[]).map(goalView),
         prior_counselings: ctx.db.prepare(`SELECT date, type, follow_up_date FROM counselings WHERE user_id = ? AND unit_id = ? AND deleted_at IS NULL AND (visibility = 'unit' OR counselor_id = ?) ORDER BY date DESC LIMIT 5`).all(subjectId, unitId, user.id),
       };
@@ -121,8 +127,8 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
     case 'personal_review':
     case 'record_quality': {
       const days = int(safe.days, workflow === 'record_quality' ? 180 : 30, 7, 366);
-      const from = daysAgo(days);
-      const payload: Record<string, unknown> = { from, to: nowDay, activities: ownActivities(ctx, user.id, from, nowDay, workflow === 'record_quality' ? 100 : 150) };
+      const from = windowStart(ctx, days);
+      const payload: Record<string, unknown> = { from, to: nowDay, activities: ownActivities(ctx, user.id, from, queryEnd, workflow === 'record_quality' ? 100 : 150) };
       if (workflow === 'personal_review') {
         payload.goals = withGoalProgress(ctx, ctx.db.prepare(`SELECT * FROM goals WHERE user_id = ? AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 30`).all(user.id) as GoalRow[]).map((g) => ({ ...goalView(g), description: g.description }));
         payload.tasks = ctx.db.prepare(`SELECT title, status, priority, due_date FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL ORDER BY updated_at DESC LIMIT 40`).all(user.id, user.id);
@@ -130,11 +136,11 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
       return payload;
     }
     case 'report_narrative': {
-      const from = date(safe.from, daysAgo(180))!;
+      const from = date(safe.from, windowStart(ctx, 180))!;
       const to = date(safe.to, nowDay)!;
       if (from > to) throw new AiError('The report start must be before its end.', 400, 'validation');
       const track = safe.track === 'fitrep' ? 'fitrep' : 'jepes';
-      return { from, to, track, character_limit: int(safe.character_limit, track === 'fitrep' ? 2000 : 1000, 300, 5000), activities: ownActivities(ctx, user.id, from, to, 200) };
+      return { from, to, track, character_limit: int(safe.character_limit, track === 'fitrep' ? 2000 : 1000, 300, 5000), activities: ownActivities(ctx, user.id, from, safe.to ? to : queryEnd, 200) };
     }
     case 'maradmin_summary': {
       const row = ctx.db.prepare('SELECT number, title, summary, published_at, tags, audience FROM maradmins WHERE id = ?').get(str(safe.id, 100)) as Record<string, string> | undefined;
@@ -144,12 +150,12 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
     case 'command_brief': {
       const unitId = str(safe.unit_id, 120);
       if (!unitId || !can(scope, PERMISSIONS.EXPORT_DATA, unitId)) throw new AiError('You cannot generate an aggregate brief for that unit.', 403, 'forbidden');
-      const from = date(safe.from, daysAgo(30))!;
+      const from = date(safe.from, windowStart(ctx, 30))!;
       const to = date(safe.to, nowDay)!;
       if (from > to) throw new AiError('The brief start must be before its end.', 400, 'validation');
       const unit = ctx.db.prepare('SELECT short_name, name FROM units WHERE id = ? AND active = 1').get(unitId) as { short_name: string | null; name: string } | undefined;
       if (!unit) throw new AiError('No such unit.', 404, 'not_found');
-      return { unit: unit.short_name || unit.name, ...aggregate(ctx, unitId, from, to) };
+      return { unit: unit.short_name || unit.name, period: { from, to }, ...aggregate(ctx, unitId, from, safe.to ? to : queryEnd) };
     }
     default:
       throw new AiError('Unknown AI workflow.', 400, 'validation');

@@ -6,6 +6,7 @@ import type { Store } from './api.ts';
 import type { Prefs } from '../../shared/schemas.ts';
 import { applyAccent, applyDensity, applyTheme } from './theme.ts';
 import { trackForGrade, type Track } from '../../shared/evaluation.ts';
+import type { MetricTotal } from '../../shared/metricEngine.ts';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -26,6 +27,21 @@ export interface Identity {
   instance: { displayName: string; organizationName: string; announcement: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean; metrics: MetricsConfig };
 }
 
+export interface MetricSeriesPoint { key: string; label: string; value: number; outcomes: number; contributors: string[] }
+export interface MetricsReport {
+  period: { from: string; to: string };
+  prior: { from: string; to: string };
+  headline: MetricTotal[];
+  tracked: MetricTotal[];
+  priorHeadline: MetricTotal[];
+  monthly: Array<{ metricId: string; metricLabel: string; unit: string; points: MetricSeriesPoint[] }>;
+  byCategory: Array<{ dimension: string; value: string; totals: MetricTotal[] }>;
+  byArea: Array<{ dimension: string; value: string; totals: MetricTotal[] }>;
+  catalog: Array<{ metricId: string; metricLabel: string; kind: string; unit: string; headline: boolean }>;
+  outcomesWithMeasures: number;
+}
+export interface MetricContributor { id: string; table: 'activities' | 'trainings'; date: string; title: string; user_id: string; unit_id: string | null; value: number; unit: string }
+
 export const keys = {
   me: ['me'] as const,
   org: ['org'] as const,
@@ -42,6 +58,8 @@ export const keys = {
   delta: (params: Record<string, unknown>) => ['delta', params] as const,
   analysis: (params: Record<string, unknown>) => ['analysis', params] as const,
   dashboard: (unitId: string, from?: string, to?: string) => ['dashboard', unitId, from, to] as const,
+  metrics: (params: Record<string, unknown>) => ['metrics', params] as const,
+  metricContributors: (params: Record<string, unknown>) => ['metric-contributors', params] as const,
 };
 
 export function useIdentity() {
@@ -118,6 +136,15 @@ export function useSavePrefs() {
 export function useTrack(): Track {
   const { data } = useIdentity();
   return trackForGrade(data?.user.rank?.grade);
+}
+
+/** The authoritative figures for a period. The client never re-derives a total from a page of rows. */
+export function useMetricsReport(params: Record<string, string | undefined>, enabled = true) {
+  return useQuery<MetricsReport>({ queryKey: keys.metrics(params), queryFn: () => api.metrics(params) as Promise<MetricsReport>, enabled, staleTime: 30_000 });
+}
+/** The outcomes behind one figure, so every number on screen can be opened. */
+export function useMetricContributors(params: Record<string, string | undefined> | null) {
+  return useQuery<MetricContributor[]>({ queryKey: keys.metricContributors(params || {}), queryFn: () => api.metricContributors(params!) as Promise<MetricContributor[]>, enabled: Boolean(params) });
 }
 
 export const useReadiness = () => useQuery({ queryKey: keys.readiness, queryFn: api.readiness, staleTime: 60_000 });

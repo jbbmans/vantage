@@ -18,7 +18,7 @@ test('first visit runs setup, lands on the dashboard, and can sign out and back 
   await page.getByLabel('Short name').fill(OPERATOR.unit_short_name);
   await page.getByRole('button', { name: 'Create owner account' }).click();
   await expect(page.getByRole('heading', { name: /Good (morning|afternoon|evening), John/ })).toBeVisible();
-  await expect(page.getByText('Start with one sentence')).toBeVisible();
+  await expect(page.getByText('No measured outcome in this period')).toBeVisible();
 
   await page.getByRole('button', { name: 'Account menu' }).click();
   await page.getByRole('menuitem', { name: 'Sign out' }).click();

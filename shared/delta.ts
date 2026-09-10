@@ -56,7 +56,7 @@ export function comparePeriods(
 
   const notes: string[] = [];
   const emptyAreas = byArea.filter((j) => j.current === 0);
-  if (emptyAreas.length) notes.push(`No entries this period under ${emptyAreas.map((j) => j.area.replace(' / Mission Accomplishment', '')).join(' or ')}. A board reads every area.`);
+  if (emptyAreas.length) notes.push(`Nothing recorded this period under ${emptyAreas.map((j) => j.area.replace(' / Mission Accomplishment', '')).join(' or ')}. A board reads every area.`);
   const revived = byUnit.filter((u) => u.isNew);
   if (revived.length) notes.push(`New this period: ${revived.slice(0, 4).map((u) => u.unit).join(', ')}.`);
   const dropped = byUnit.filter((u) => u.lapsed);

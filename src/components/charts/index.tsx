@@ -97,19 +97,3 @@ export function Sparkline({ values, className, height = 28, width = 90 }: { valu
   return <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className={className} aria-hidden><path d={d} fill="none" stroke="rgb(var(--accent))" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" /></svg>;
 }
 
-export function Heatmap({ counts, weeks = 18, className, onSelect }: { counts: Record<string, number>; weeks?: number; className?: string; onSelect?: (day: string) => void }) {
-  const today = new Date();
-  const start = new Date(today); start.setDate(today.getDate() - (weeks * 7 - 1) - today.getDay());
-  const days: string[] = [];
-  for (let i = 0; i < weeks * 7 + today.getDay() + 1; i += 1) { const d = new Date(start); d.setDate(start.getDate() + i); if (d > today) break; days.push(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`); }
-  const max = Math.max(1, ...Object.values(counts));
-  return (
-    <div className={cn('grid grid-flow-col gap-[3px]', className)} style={{ gridTemplateRows: 'repeat(7, minmax(0, 1fr))' }} role="group" aria-label="Activity by day">
-      {days.map((day) => {
-        const n = counts[day] || 0;
-        const level = n === 0 ? 0 : Math.ceil((n / max) * 4);
-        return <button key={day} type="button" title={`${day}: ${n}`} onClick={() => onSelect?.(day)} className="h-3 w-3 rounded-[3px] transition-transform hover:scale-125" style={{ backgroundColor: level === 0 ? 'rgb(var(--surface-3))' : `rgb(var(--accent) / ${0.25 + level * 0.19})` }} aria-label={`${day}: ${n} entries`} />;
-      })}
-    </div>
-  );
-}

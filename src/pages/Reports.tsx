@@ -6,17 +6,17 @@ import { PageHeader, Button, Select, Panel, Segmented, Badge, Skeleton, EmptySta
 import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult, ModelPicker } from '@/components/AiPanel';
 import { PeriodSelect, DateText } from '@/components/common';
-import { keys, useIdentity, usePrefs, useSavePrefs, useTeam, useTrack, useMetrics } from '@/lib/queries';
+import { keys, useIdentity, usePrefs, useSavePrefs, useTeam, useTrack, useMetricsReport } from '@/lib/queries';
+import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
 import { packageToText } from '../../shared/bullets';
 import { comparisonToText, type Comparison, type Movement } from '../../shared/delta';
-import { formatDollars, formatNumber } from '../../shared/metrics';
+import { formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
 import { trackMeta, type Track } from '../../shared/evaluation';
 import { copyToClipboard, cn } from '@/lib/utils';
 import ReportAnalysis from './ReportAnalysis';
 
 export default function Reports() {
-  const cfg = useMetrics();
   const toast = useToast();
   const { data: identity } = useIdentity();
   const prefs = usePrefs();
@@ -35,6 +35,12 @@ export default function Reports() {
   const q = { period, style, track: track || undefined, limit, user_id: subjectId || undefined, unit_id: unitParam || undefined };
   const { data: report, isPending, error } = useQuery({ queryKey: keys.report(q), queryFn: () => api.report(q) });
   const { data: delta } = useQuery<Comparison>({ queryKey: keys.delta(q), queryFn: () => api.reportDelta(q), enabled: view === 'delta' });
+  // The figures come from the one metric layer, on the same period the narrative uses.
+  const metricParams = useMemo(() => {
+    const r = rangeForPeriod(period);
+    return { from: dayKey(r.start), to: dayKey(r.end), user_id: subjectId || undefined, unit_id: unitParam || undefined, scope: subjectId || unitParam ? undefined : 'me' };
+  }, [period, subjectId, unitParam]);
+  const reportMetrics = useMetricsReport(metricParams);
   const subject = subjectId ? (team?.roster || []).find((r: any) => r.id === subjectId) : null;
   const effectiveTrack: Track = report?.track || myTrack;
   const meta = trackMeta(effectiveTrack);
@@ -63,11 +69,20 @@ export default function Reports() {
 
       {isPending ? <Skeleton className="h-72" /> : error || !report ? <div className="card"><EmptyState title="Could not build the report" description={api.errorText(error)} /></div> : (
         <>
-          <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-4">
-            <Stat label="Entries" value={formatNumber(report.counts.activities)} hint={report.label} />
-            <Stat label={`Summable ${cfg.currency_label.toLowerCase()}`} value={formatDollars(report.metrics.totalDollars)} hint={report.metrics.reviewedDollars ? `${formatDollars(report.metrics.reviewedDollars)} reviewed` : 'reconciled, obligated, saved, impact'} tone="accent" />
-            <Stat label="Awards" value={report.counts.awards} hint="in period" />
-            <Stat label="Training hours" value={formatNumber(report.counts.trainingHours)} hint="in period" />
+          <div className="mb-4">
+            <h2 className="eyebrow mb-2">What the work produced, {report.label}</h2>
+            <MetricTotalsGrid
+              headline={reportMetrics.data?.headline || []}
+              tracked={reportMetrics.data?.tracked || []}
+              prior={reportMetrics.data?.priorHeadline || []}
+              params={metricParams}
+              emptyTitle="Nothing measurable in this period"
+              emptyDescription="Widen the period, or add a quantity or a value to the work you logged."
+            />
+            <div className="mt-3 grid grid-cols-2 gap-3 lg:grid-cols-2">
+              <Stat label="Awards in period" value={report.counts.awards} />
+              <Stat label="Training hours in period" value={formatNumber(report.counts.trainingHours)} />
+            </div>
           </div>
 
           {view === 'narrative' && (

@@ -14,8 +14,16 @@ test('the owner renames the money metric and adds a value type; forms and stat c
   await confirmSudoIfAsked(page);
   await expect(page.getByText('Metrics saved.')).toBeVisible();
 
+  // A figure only appears once there is something to measure, so record one against the new type.
+  const created = await page.request.post('/api/records/activities', {
+    headers: { 'x-vantage-client': '1' },
+    data: { title: 'Executed a contract modification', visibility: 'unit', date: new Date().toISOString().slice(0, 10), dollar_amount: 5000, dollar_type: 'executed' },
+  });
+  expect(created.ok(), await created.text()).toBeTruthy();
+
   await page.goto('/');
-  await expect(page.getByText('Funds moved')).toBeVisible();
+  // Each value type is reported on its own, labelled with the instance's own money word.
+  await expect(page.getByRole('button', { name: /Funds, Executed/ })).toBeVisible();
 
   const dialog = await quickLog(page, 'Executed 3 contract modifications worth $5,000 for G-8');
   await dialog.getByRole('button', { name: /Organization, system, notes/ }).click();

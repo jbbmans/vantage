@@ -164,6 +164,8 @@ export const setOperator = (id: string, grant: boolean) => api.post(`/org/team/$
 
 // Reports, AI, MARADMINs, search --------------------------------------
 const qs = (params: Record<string, string | number | undefined | null>) => Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
+export const metrics = (params: Record<string, string | number | undefined | null>) => api.get(`/metrics?${qs(params)}`);
+export const metricContributors = (params: Record<string, string | number | undefined | null>) => api.get(`/metrics/contributors?${qs(params)}`);
 export const report = (params: Record<string, string | number | undefined | null>) => api.get(`/reports?${qs(params)}`);
 export const reportAnalysis = (params: Record<string, string | number | undefined | null>) => api.get(`/reports/analysis?${qs(params)}`);
 export const analysisPdfUrl = (params: Record<string, string | number | undefined | null>) => `/api/reports/analysis.pdf?${qs(params)}`;
