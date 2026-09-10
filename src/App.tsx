@@ -20,6 +20,7 @@ const Goals = lazy(() => import('@/pages/Goals'));
 const Career = lazy(() => import('@/pages/Career'));
 const Readiness = lazy(() => import('@/pages/Readiness'));
 const Reports = lazy(() => import('@/pages/Reports'));
+const ReportStudio = lazy(() => import('@/pages/ReportStudio'));
 const Team = lazy(() => import('@/pages/Team'));
 const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
 const Maradmins = lazy(() => import('@/pages/Maradmins'));
@@ -101,6 +102,7 @@ export default function App() {
                 <Route path="career" element={<D><Career /></D>} />
                 <Route path="readiness" element={<D><Readiness /></D>} />
                 <Route path="reports" element={<D><Reports /></D>} />
+                <Route path="studio" element={<D><ReportStudio /></D>} />
                 <Route path="team" element={<D><Team /></D>} />
                 <Route path="team/:id" element={<D><MemberDetail /></D>} />
                 <Route path="maradmins" element={<D><Maradmins /></D>} />

@@ -559,3 +559,45 @@ CREATE TABLE IF NOT EXISTS work_views (
 );
 CREATE INDEX IF NOT EXISTS idx_work_views_user ON work_views(user_id);
 CREATE INDEX IF NOT EXISTS idx_work_views_unit ON work_views(unit_id, shared);
+
+-- Phase 3: typed goals and report revisions ---------------------------------
+-- Goals gain a typed measure. Those columns are added by migration 003 rather than here, because
+-- ALTER TABLE is not idempotent and this file is replayed on every boot. The legacy `metric` column
+-- stays for rows created before this and is read through a compatibility path, never rewritten.
+
+-- A report someone is building. The draft is a name and a period; its content lives in revisions.
+CREATE TABLE IF NOT EXISTS report_drafts (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users(id),
+  subject_id   TEXT NOT NULL REFERENCES users(id),
+  unit_id      TEXT REFERENCES units(id),
+  visibility   TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'unit')),
+  title        TEXT NOT NULL,
+  period_start TEXT NOT NULL,
+  period_end   TEXT NOT NULL,
+  track        TEXT NOT NULL DEFAULT 'jepes',
+  latest_revision INTEGER NOT NULL DEFAULT 0,
+  version      INTEGER NOT NULL DEFAULT 1,
+  deleted_at   TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_report_drafts_user ON report_drafts(user_id, updated_at DESC);
+
+-- One saved version of a report. Immutable once written: a later edit is a new revision.
+-- source_snapshots records the exact version of every record the wording was built from, which is
+-- what makes a later export provably the thing that was reviewed.
+CREATE TABLE IF NOT EXISTS report_revisions (
+  id               TEXT PRIMARY KEY,
+  report_id        TEXT NOT NULL REFERENCES report_drafts(id),
+  revision         INTEGER NOT NULL,
+  title            TEXT NOT NULL,
+  period_start     TEXT NOT NULL,
+  period_end       TEXT NOT NULL,
+  sections         TEXT NOT NULL DEFAULT '[]',
+  source_snapshots TEXT NOT NULL DEFAULT '[]',
+  note             TEXT,
+  created_by       TEXT NOT NULL REFERENCES users(id),
+  created_at       TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_report_revisions_number ON report_revisions(report_id, revision);

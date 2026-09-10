@@ -59,8 +59,9 @@ export interface MetricTotal {
 
 /** Normalizes a unit for compatibility. Case and a trailing plural do not make two units different. */
 export function unitKeyOf(unit: string | null | undefined): string {
-  const text = String(unit ?? '').trim().toLowerCase();
-  if (!text) return 'items';
+  // A missing unit is "items", and then normalizes like any other word, so an unlabelled quantity
+  // and one labelled "items" are the same metric rather than two that never add up.
+  const text = (String(unit ?? '').trim() || 'items').toLowerCase();
   return text.endsWith('s') && text.length > 3 ? text.slice(0, -1) : text;
 }
 

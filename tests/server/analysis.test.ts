@@ -47,7 +47,9 @@ test('the analysis compares the period with the prior one and breaks the record 
   assert.ok(a.concentration.top3ValueShare === 100);
   assert.equal(a.coverage.fields.find((f: { key: string }) => f.key === 'evidence').count, 1);
   assert.equal(a.consistency.activeDays, 4);
-  assert.equal(a.goals.items[0].current, 64);
+  // Only the ULOs count toward a goal about ULOs. Leading PT for 22 Marines is real work and a
+  // different measure; adding it here is how a goal stops meaning anything.
+  assert.equal(a.goals.items[0].current, 30);
   assert.equal(a.career.hoursByType[0].type, 'course');
   assert.ok(a.summary.length >= 3 && a.summary[0].includes('4 entries'));
   assert.equal(a.appendix.length, 4);

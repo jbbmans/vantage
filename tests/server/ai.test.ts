@@ -2,6 +2,7 @@ import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, enroll, mockGenAi, type TestApp } from './helpers.ts';
 import { resetAiState } from '../../server/services/ai.ts';
+import { zonedDay } from '../../server/lib/clock.ts';
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
@@ -113,15 +114,24 @@ test('the GenAI.mil network gate is reported as a hosting problem, for requests 
 });
 
 test('a review window keeps entries dated on a clock that runs ahead of the instance', async () => {
-  // Honolulu is far behind UTC, so "today" on almost any member's clock is tomorrow on the instance calendar.
+  // Honolulu sits ten hours behind UTC, so a member almost anywhere else is on a later calendar day
+  // than the instance. The window reaches exactly one day past the instance day: far enough that
+  // nobody's "today" is dropped, not so far that genuinely future-dated work is counted.
   const far = await startApp({ VANTAGE_TIMEZONE: 'Pacific/Honolulu', VANTAGE_AI_ENABLED: 'true', VANTAGE_GENAI_API_KEY: 'test-key-123', VANTAGE_GENAI_BASE_URL: mock.url });
   try {
     const owner = await far.setupOperator();
-    const ahead = new Date(Date.now() + 20 * 3_600_000).toISOString().slice(0, 10);
-    const created = await far.call('POST', '/api/records/activities', { token: owner.token, body: { title: 'Logged from a clock ahead of the instance', visibility: 'private', date: ahead } });
-    assert.equal(created.status, 201, JSON.stringify(created.body));
+    const instanceDay = zonedDay('Pacific/Honolulu');
+    const shift = (days: number) => new Date(Date.parse(`${instanceDay}T00:00:00Z`) + days * 86_400_000).toISOString().slice(0, 10);
+
+    for (const [title, date] of [['Logged from a clock ahead of the instance', shift(1)], ['Dated well into the future', shift(2)]] as const) {
+      const created = await far.call('POST', '/api/records/activities', { token: owner.token, body: { title, visibility: 'private', date } });
+      assert.equal(created.status, 201, JSON.stringify(created.body));
+    }
+
     const review = await far.call('POST', '/api/ai/assist', { token: owner.token, body: { workflow: 'personal_review', input: { days: 30 } } });
     assert.equal(review.status, 200, JSON.stringify(review.body));
-    assert.ok(JSON.stringify(mock.calls.at(-1)!.body).includes('Logged from a clock ahead of the instance'));
+    const sent = JSON.stringify(mock.calls.at(-1)!.body);
+    assert.ok(sent.includes('Logged from a clock ahead of the instance'), 'a member whose clock runs ahead still sees their own work');
+    assert.ok(!sent.includes('Dated well into the future'), 'and work dated beyond that is still out of the window');
   } finally { await far.close(); }
 });

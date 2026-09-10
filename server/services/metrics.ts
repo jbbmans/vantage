@@ -43,8 +43,18 @@ const TRAINING_COLUMNS = `t.id, t.user_id, t.unit_id, t.date, t.title, NULL AS c
   NULL AS quantity, NULL AS unit_label, NULL AS dollar_amount, NULL AS dollar_type, NULL AS organization,
   NULL AS system, NULL AS result, t.hours`;
 
+type RowLoader = (table: 'activities' | 'trainings', columns: string) => SourceRow[];
+
+function collectRows(load: RowLoader): SourceRow[] {
+  // Ids are namespaced so an activity and a training that share a rowid can never be treated as one outcome.
+  return [
+    ...load('activities', ACTIVITY_COLUMNS).map((r) => ({ ...r, id: `activities:${r.id}` })),
+    ...load('trainings', TRAINING_COLUMNS).map((r) => ({ ...r, id: `trainings:${r.id}` })),
+  ];
+}
+
 function sourceRows(ctx: AppContext, user: SessionUser, scope: Scope, opts: MetricScopeOptions): SourceRow[] {
-  const collect = (table: 'activities' | 'trainings', columns: string): SourceRow[] => {
+  return collectRows((table, columns) => {
     const { clause, params } = readableClause(ctx, scope, user.id, 't');
     const where = ['t.deleted_at IS NULL', clause, 't.date >= ?', 't.date <= ?'];
     params.push(opts.from, opts.to);
@@ -52,12 +62,32 @@ function sourceRows(ctx: AppContext, user: SessionUser, scope: Scope, opts: Metr
     if (opts.subjectId) { where.push('t.user_id = ?'); params.push(opts.subjectId); }
     if (opts.mineOnly) { where.push('t.user_id = ?'); params.push(user.id); }
     return ctx.db.prepare(`SELECT ${columns} FROM ${table} t WHERE ${where.join(' AND ')}`).all(...params) as SourceRow[];
-  };
-  // Ids are namespaced so an activity and a training that share a rowid can never be treated as one outcome.
-  return [
-    ...collect('activities', ACTIVITY_COLUMNS).map((r) => ({ ...r, id: `activities:${r.id}` })),
-    ...collect('trainings', TRAINING_COLUMNS).map((r) => ({ ...r, id: `trainings:${r.id}` })),
-  ];
+  });
+}
+
+/**
+ * Measures for one person's own work, independent of who is asking.
+ *
+ * Goal progress uses this: a goal's figure is a fact about the subject's work, so it must read the
+ * same whether the subject, their team lead, or a nightly job is looking. Sharing is respected by
+ * `sharedOnly`, which limits it to what the subject actually published to the unit.
+ */
+export function subjectMeasures(ctx: AppContext, subjectId: string, opts: { from: string; to: string; unitId?: string | null; sharedOnly?: boolean }): Measure[] {
+  const rows = collectRows((table, columns) => {
+    const where = ['t.deleted_at IS NULL', 't.user_id = ?', 't.date >= ?', 't.date <= ?'];
+    const params: unknown[] = [subjectId, opts.from, opts.to];
+    if (opts.sharedOnly && opts.unitId) { where.push("t.visibility = 'unit' AND t.unit_id = ?"); params.push(opts.unitId); }
+    return ctx.db.prepare(`SELECT ${columns} FROM ${table} t WHERE ${where.join(' AND ')}`).all(...params) as SourceRow[];
+  });
+  return measuresOfAll(rows as never, ctx.runtime.metrics);
+}
+
+/** Measures for everything a unit's members shared with it, independent of who is asking. */
+export function unitMeasures(ctx: AppContext, unitId: string, opts: { from: string; to: string }): Measure[] {
+  const rows = collectRows((table, columns) => ctx.db.prepare(
+    `SELECT ${columns} FROM ${table} t WHERE t.deleted_at IS NULL AND t.visibility = 'unit' AND t.unit_id = ? AND t.date >= ? AND t.date <= ?`
+  ).all(unitId, opts.from, opts.to) as SourceRow[]);
+  return measuresOfAll(rows as never, ctx.runtime.metrics);
 }
 
 export function measuresFor(ctx: AppContext, user: SessionUser, scope: Scope, opts: MetricScopeOptions): Measure[] {

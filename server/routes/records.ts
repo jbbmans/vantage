@@ -8,6 +8,7 @@ import { canEdit, canRead } from '../authz/records.ts';
 import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress } from '../services/records.ts';
 import { inspectAttachment, attachmentDisposition } from '../services/attachments.ts';
 import { audit } from '../services/audit.ts';
+import { goalContributors } from '../services/goals.ts';
 import { newId, now } from '../lib/ids.ts';
 import { statSync } from 'node:fs';
 
@@ -41,6 +42,15 @@ recordsRouter.get('/:table', wrap((req, res) => {
     for (const e of foreign.values()) if (!recent.get(req.user.id, table, e.subject, e.unit, cutoff)) audit(req.ctx, { actor_id: req.user.id, action: 'list_records', entity: table, subject_id: e.subject, unit_id: e.unit, detail: `${e.count} rows`, ip: clientIp(req) });
   }
   res.json(rows);
+}));
+
+/**
+ * The outcomes behind one goal's figure. Every automatic goal opens into this, so a member can
+ * check the number rather than take it on faith.
+ */
+recordsRouter.get('/goals/:id/contributors', wrap((req, res) => {
+  const raw = readableRecord(req.ctx, req.user, 'goals', String(req.params.id), req) as Record<string, unknown>;
+  res.json(goalContributors(req.ctx, raw as never));
 }));
 
 recordsRouter.post('/activities/import', wrap((req, res) => {

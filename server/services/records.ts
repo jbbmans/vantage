@@ -1,6 +1,7 @@
 import { createHash } from 'node:crypto';
 import type { AppContext, SessionUser } from '../context.ts';
 import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
+import { withTypedProgress, validateTypedGoal } from './goals.ts';
 import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor } from '../authz/scope.ts';
 import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS } from '../authz/records.ts';
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
@@ -8,13 +9,18 @@ import { valueType } from '../../shared/constants.ts';
 
 /** Value types are defined per instance, so the schema accepts any key and the runtime list is the authority. */
 function checkValueType(ctx: AppContext, table: string, data: Record<string, unknown>) {
+  if (table === 'goals') {
+    // A typed goal has to name a metric this instance actually measures, and a direction that says
+    // which way is better. Both are checked here so the rule holds for every way a goal is written.
+    validateTypedGoal(ctx, data as never, data.target_value as number | null | undefined);
+    return;
+  }
   if (table !== 'activities' || !data.dollar_type) return;
   if (!valueType(String(data.dollar_type), ctx.runtime.metrics)) throw badRequest(`Unknown value type “${String(data.dollar_type)}”. Pick one of: ${ctx.runtime.metrics.value_types.map((t) => t.key).join(', ')}.`, { fieldErrors: { dollar_type: 'Not one of this instance’s value types.' } });
 }
 import { parse } from '../lib/http.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
-import { goalProgress, type GoalLike, type ActivityLike, type TrainingLike } from '../../shared/goals.ts';
 import { notify } from './notifications.ts';
 import { statSync } from 'node:fs';
 
@@ -27,7 +33,11 @@ export const TABLES: Record<RecordTable, TableSpec> = {
   },
   projects: { fields: ['name', 'description', 'status', 'priority', 'progress', 'start_date', 'target_date', 'organization'], json: [], shareFlag: PERMISSIONS.CREATE_SHARED_WORK, memberReadable: true, orderBy: 't.updated_at DESC' },
   tasks: { fields: ['title', 'notes', 'status', 'priority', 'due_date', 'project_id', 'assignee_id'], json: [], shareFlag: PERMISSIONS.CREATE_SHARED_WORK, memberReadable: true, assignee: true, orderBy: 't.due_date IS NULL, t.due_date, t.created_at DESC' },
-  goals: { fields: ['title', 'description', 'type', 'category', 'metric', 'current_value', 'target_value', 'unit_label', 'status', 'period_start', 'period_end', 'assignee_id'], json: [], shareFlag: PERMISSIONS.CREATE_SHARED_GOALS, memberReadable: true, assignee: true, orderBy: 't.period_end IS NULL, t.period_end, t.created_at DESC' },
+  goals: {
+    fields: ['title', 'description', 'type', 'category', 'metric', 'current_value', 'target_value', 'unit_label', 'status', 'period_start', 'period_end', 'assignee_id',
+      'metric_id', 'direction', 'baseline_value', 'aggregation', 'filters', 'measure_scope', 'completed_at'],
+    json: ['filters'], shareFlag: PERMISSIONS.CREATE_SHARED_GOALS, memberReadable: true, assignee: true, orderBy: 't.period_end IS NULL, t.period_end, t.created_at DESC',
+  },
   trainings: { fields: ['date', 'title', 'type', 'hours', 'provider', 'status', 'notes'], json: [], shareFlag: PERMISSIONS.CREATE_SHARED_WORK, personal: true, orderBy: 't.date DESC, t.created_at DESC' },
   awards: { fields: ['date', 'name', 'type', 'status', 'recommending_official', 'approving_authority', 'citation', 'notes', 'submitted_at', 'approved_at', 'presented_at'], json: [], shareFlag: PERMISSIONS.COUNSEL, personal: true, orderBy: 't.date DESC, t.created_at DESC' },
   counselings: { fields: ['date', 'type', 'counselor_name', 'summary', 'strengths', 'improvements', 'goals_set', 'follow_up_date'], json: [], shareFlag: PERMISSIONS.COUNSEL, personal: true, counselor: true, orderBy: 't.date DESC, t.created_at DESC' },
@@ -68,25 +78,18 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   return table === 'goals' ? withGoalProgress(ctx, hydrated as never) : hydrated;
 }
 
-/** Auto-tracked goals get their current value from the subject's logged work, so every server consumer sees the same number the Goals page shows. */
-export function withGoalProgress<T extends GoalLike>(ctx: AppContext, goals: T[]): T[] {
-  const cache = new Map<string, { activities: ActivityLike[]; trainings: TrainingLike[] }>();
-  return goals.map((g) => {
-    if (!g.metric || g.metric === 'manual') return g;
-    const subject = String(g.assignee_id || g.user_id || '');
-    const shared = g.visibility === 'unit' && g.unit_id ? String(g.unit_id) : null;
-    const key = `${subject}|${shared || ''}`;
-    if (!cache.has(key)) {
-      const scopeSql = shared ? " AND visibility = 'unit' AND unit_id = ?" : '';
-      const args = shared ? [subject, shared] : [subject];
-      cache.set(key, {
-        activities: ctx.db.prepare(`SELECT user_id, date, category, quantity, dollar_amount, dollar_type FROM activities WHERE user_id = ? AND deleted_at IS NULL${scopeSql}`).all(...args) as ActivityLike[],
-        trainings: ctx.db.prepare(`SELECT user_id, date, hours FROM trainings WHERE user_id = ? AND deleted_at IS NULL${scopeSql}`).all(...args) as TrainingLike[],
-      });
-    }
-    const src = cache.get(key)!;
-    return { ...g, current_value: goalProgress(g, src.activities, src.trainings, ctx.runtime.metrics).current };
-  });
+/**
+ * Every consumer of a goal reads its progress from the one typed engine, so a figure means the
+ * same thing on the Goals page, in a counseling brief, and in an export.
+ */
+export function withGoalProgress<T extends Record<string, unknown>>(ctx: AppContext, goals: T[]): T[] {
+  return withTypedProgress(ctx, goals as never) as unknown as T[];
+}
+
+/** What a write returns: the same shape a read returns, so a goal always carries its progress. */
+function readBack(ctx: AppContext, table: RecordTable, id: string) {
+  const row = getRecord(ctx, table, id)!;
+  return table === 'goals' ? withGoalProgress(ctx, [row as never])[0] : row;
 }
 
 export function getRecord(ctx: AppContext, table: RecordTable, id: string, { includeDeleted = false } = {}) {
@@ -176,7 +179,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (spec.assignee && data.assignee_id && data.assignee_id !== user.id) {
     notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || ''), actionUrl: table === 'tasks' ? '/work' : '/goals', dedupeKey: `${table}:${id}:assigned` });
   }
-  return getRecord(ctx, table, id)!;
+  return readBack(ctx, table, id);
 }
 
 export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTable, id: string, body: unknown, reqKey: object, ip?: string) {
@@ -237,7 +240,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (spec.assignee && data.assignee_id && data.assignee_id !== row.assignee_id && data.assignee_id !== user.id) {
     notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || row.title || ''), actionUrl: table === 'tasks' ? '/work' : '/goals', dedupeKey: `${table}:${id}:assigned:${data.assignee_id}` });
   }
-  return getRecord(ctx, table, id)!;
+  return readBack(ctx, table, id);
 }
 
 export function deleteRecord(ctx: AppContext, user: SessionUser, table: RecordTable, id: string, reqKey: object, ip?: string) {
@@ -270,7 +273,7 @@ export function restoreRecord(ctx: AppContext, user: SessionUser, table: RecordT
   }
   ctx.db.prepare(`UPDATE ${table} SET deleted_at = NULL, updated_at = ? WHERE id = ?`).run(now(), id);
   audit(ctx, { actor_id: user.id, action: 'restore', entity: table, entity_id: id, unit_id: row.unit_id, ip });
-  return getRecord(ctx, table, id)!;
+  return readBack(ctx, table, id);
 }
 
 export function readableRecord(ctx: AppContext, user: SessionUser, table: RecordTable, id: string, reqKey: object) {

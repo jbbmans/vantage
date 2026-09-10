@@ -1,11 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
-import { badRequest, forbidden, notFound } from '../lib/errors.ts';
+import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor, can, PERMISSIONS, detailUnitsFor } from '../authz/scope.ts';
 import { buildReport } from '../services/reports.ts';
 import { metricsReport, metricContributors, defaultPeriod } from '../services/metrics.ts';
+import { createDraft, listDrafts, readableDraft, listRevisions, getRevision, availableSources, saveRevision, revisionDrift, renderRevisionText, StaleSourceError } from '../services/reportStudio.ts';
 import { buildAnalysisReport } from '../services/analytics.ts';
 import { renderAnalysisPdf } from '../services/analyticsPdf.ts';
 import { renderReportPdf } from '../services/pdf.ts';
@@ -45,6 +46,87 @@ function reportTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
   }
   return { q, userId, unitId };
 }
+
+// Report Studio -------------------------------------------------------
+const draftSchema = z.object({
+  title: z.string().max(200),
+  period_start: z.string().max(10),
+  period_end: z.string().max(10),
+  subject_id: z.string().max(64).nullable().optional(),
+  unit_id: z.string().max(64).nullable().optional(),
+  track: z.enum(['jepes', 'fitrep']).optional(),
+  visibility: z.enum(['private', 'unit']).optional(),
+});
+
+miscRouter.get('/studio/reports', wrap((req, res) => {
+  res.json(listDrafts(req.ctx, req.user, scopeFor(req.ctx, req.user, req)));
+}));
+
+miscRouter.post('/studio/reports', wrap((req, res) => {
+  const q = parse(draftSchema, req.body);
+  const scope = scopeFor(req.ctx, req.user, req);
+  const draft = createDraft(req.ctx, req.user, scope, { ...q, subject_id: q.subject_id ?? null, unit_id: q.unit_id ?? null });
+  audit(req.ctx, { actor_id: req.user.id, action: 'create_report', entity: 'report_drafts', entity_id: draft.id, subject_id: draft.subject_id, unit_id: draft.unit_id, ip: clientIp(req) });
+  res.status(201).json(draft);
+}));
+
+miscRouter.get('/studio/reports/:id', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  const draft = readableDraft(req.ctx, req.user, scope, String(req.params.id));
+  const revisions = listRevisions(req.ctx, draft.id);
+  const latest = draft.latest_revision ? getRevision(req.ctx, draft.id, draft.latest_revision) : null;
+  res.json({
+    draft, revisions, latest,
+    sources: availableSources(req.ctx, req.user, scope, draft),
+    // Which of the cited records have moved since the last save, without pretending the save moved.
+    drift: draft.latest_revision ? revisionDrift(req.ctx, draft.id, draft.latest_revision) : [],
+  });
+}));
+
+const revisionSchema = z.object({
+  title: z.string().max(200).optional(),
+  period_start: z.string().max(10).optional(),
+  period_end: z.string().max(10).optional(),
+  note: z.string().max(500).nullable().optional(),
+  base_revision: z.coerce.number().int().nullable().optional(),
+  sections: z.array(z.object({ heading: z.string().max(200), body: z.string().max(20000), source_ids: z.array(z.string().max(64)).max(200).optional() })).max(40),
+  sources: z.array(z.object({ table: z.string().max(40), id: z.string().max(64), version: z.coerce.number().int() })).max(400),
+});
+
+miscRouter.post('/studio/reports/:id/revisions', wrap((req, res) => {
+  const q = parse(revisionSchema, req.body);
+  const scope = scopeFor(req.ctx, req.user, req);
+  try {
+    const result = saveRevision(req.ctx, req.user, scope, String(req.params.id), q as never);
+    audit(req.ctx, { actor_id: req.user.id, action: 'save_report_revision', entity: 'report_revisions', entity_id: result.revision.id, subject_id: result.draft.subject_id, unit_id: result.draft.unit_id, detail: `revision ${result.revision.revision}`, ip: clientIp(req) });
+    res.status(201).json(result);
+  } catch (e) {
+    // A stale source is not a server error: it is the check doing its job, and the client needs the list.
+    if (e instanceof StaleSourceError) throw conflict(e.message, 'stale_sources', { stale: e.stale });
+    throw e;
+  }
+}));
+
+miscRouter.get('/studio/reports/:id/revisions/:revision', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  const draft = readableDraft(req.ctx, req.user, scope, String(req.params.id));
+  const revision = getRevision(req.ctx, draft.id, Number(req.params.revision));
+  if (!revision) throw notFound('No such revision.');
+  res.json({ draft, revision, drift: revisionDrift(req.ctx, draft.id, revision.revision) });
+}));
+
+miscRouter.get('/studio/reports/:id/revisions/:revision/export.txt', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  const draft = readableDraft(req.ctx, req.user, scope, String(req.params.id));
+  const revision = Number(req.params.revision);
+  // Rendered from the saved revision, never from the live records, so the export is the thing
+  // that was reviewed even if a source has been edited since.
+  const text = renderRevisionText(req.ctx, draft.id, revision);
+  audit(req.ctx, { actor_id: req.user.id, action: 'export_report_revision', entity: 'report_revisions', entity_id: `${draft.id}:${revision}`, subject_id: draft.subject_id, unit_id: draft.unit_id, ip: clientIp(req) });
+  res.setHeader('content-type', 'text/plain; charset=utf-8');
+  res.setHeader('content-disposition', `attachment; filename="vantage-report-r${revision}.txt"`);
+  res.send(text);
+}));
 
 // Metrics -------------------------------------------------------------
 // Every figure the product shows is computed here, over rows the caller may actually read.

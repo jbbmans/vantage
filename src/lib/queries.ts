@@ -60,6 +60,9 @@ export const keys = {
   dashboard: (unitId: string, from?: string, to?: string) => ['dashboard', unitId, from, to] as const,
   metrics: (params: Record<string, unknown>) => ['metrics', params] as const,
   metricContributors: (params: Record<string, unknown>) => ['metric-contributors', params] as const,
+  goalContributors: (id: string) => ['goal-contributors', id] as const,
+  reportDrafts: ['report-drafts'] as const,
+  reportDraft: (id: string) => ['report-draft', id] as const,
 };
 
 export function useIdentity() {
@@ -146,6 +149,15 @@ export function useMetricsReport(params: Record<string, string | undefined>, ena
 export function useMetricContributors(params: Record<string, string | undefined> | null) {
   return useQuery<MetricContributor[]>({ queryKey: keys.metricContributors(params || {}), queryFn: () => api.metricContributors(params!) as Promise<MetricContributor[]>, enabled: Boolean(params) });
 }
+
+/** The outcomes that counted toward one goal. */
+export function useGoalContributors(id: string | null) {
+  return useQuery<Array<{ table: string; id: string; date: string; title: string; value: number; unit: string }>>({
+    queryKey: keys.goalContributors(id || ''), queryFn: () => api.goalContributors(id!), enabled: Boolean(id),
+  });
+}
+export const useReportDrafts = () => useQuery({ queryKey: keys.reportDrafts, queryFn: api.listReportDrafts, staleTime: 30_000 });
+export const useReportDraft = (id: string | null) => useQuery({ queryKey: keys.reportDraft(id || ''), queryFn: () => api.reportDraft(id!), enabled: Boolean(id) });
 
 export const useReadiness = () => useQuery({ queryKey: keys.readiness, queryFn: api.readiness, staleTime: 60_000 });
 export const useAiStatus = () => useQuery({ queryKey: keys.aiStatus, queryFn: api.aiStatus, staleTime: 5 * 60_000 });

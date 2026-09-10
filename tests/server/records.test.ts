@@ -342,12 +342,18 @@ test('a plain member can share personal records but not post governed work witho
 test('shared goals count only unit-visible work; private goals see everything', async () => {
   await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Private ULO work', date: '2026-08-03', quantity: 7, unit_label: 'ULOs', category: 'Fiscal & Financial', visibility: 'private' } });
   await app.call('POST', '/api/records/activities', { token: rivera.token, body: { title: 'Shared ULO work', date: '2026-08-04', quantity: 3, unit_label: 'ULOs', category: 'Fiscal & Financial', visibility: 'unit', unit_id: 'G8' } });
-  const shared = await app.call('POST', '/api/records/goals', { token: nguyen.token, body: { title: 'Rivera ULOs', metric: 'activity_quantity', category: 'Fiscal & Financial', target_value: 100, period_start: '2026-08-01', period_end: '2026-08-31', assignee_id: rivera.id, visibility: 'unit', unit_id: 'G8' } });
+  const shared = await app.call('POST', '/api/records/goals', { token: nguyen.token, body: { title: 'Rivera ULOs', metric: 'activity_quantity', unit_label: 'ULOs', category: 'Fiscal & Financial', target_value: 100, period_start: '2026-08-01', period_end: '2026-08-31', assignee_id: rivera.id, visibility: 'unit', unit_id: 'G8' } });
   assert.equal(shared.status, 201);
   const seen = await app.call('GET', `/api/records/goals/${shared.body.id}`, { token: nguyen.token });
   assert.equal(seen.body.current_value, 3);
-  const mine = await app.call('POST', '/api/records/goals', { token: rivera.token, body: { title: 'All my ULOs', metric: 'activity_quantity', category: 'Fiscal & Financial', target_value: 100, period_start: '2026-08-01', period_end: '2026-08-31', visibility: 'private' } });
+  const mine = await app.call('POST', '/api/records/goals', { token: rivera.token, body: { title: 'All my ULOs', metric: 'activity_quantity', unit_label: 'ULOs', category: 'Fiscal & Financial', target_value: 100, period_start: '2026-08-01', period_end: '2026-08-31', visibility: 'private' } });
   assert.equal((await app.call('GET', `/api/records/goals/${mine.body.id}`, { token: rivera.token })).body.current_value, 10);
+
+  // A goal that never said what it counts does not quietly absorb a different unit, and says why.
+  const unlabelled = await app.call('POST', '/api/records/goals', { token: rivera.token, body: { title: 'Some number of things', metric: 'activity_quantity', category: 'Fiscal & Financial', target_value: 100, period_start: '2026-08-01', period_end: '2026-08-31', visibility: 'private' } });
+  const read = await app.call('GET', `/api/records/goals/${unlabelled.body.id}`, { token: rivera.token });
+  assert.equal(read.body.current_value, 0);
+  assert.match(read.body.progress.basis, /measured in ULOs rather than items/i);
 });
 
 test('the counseled Marine can acknowledge a leader-recorded counseling but not rewrite or delete it', async () => {

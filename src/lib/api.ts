@@ -168,6 +168,15 @@ export const setOperator = (id: string, grant: boolean) => api.post(`/org/team/$
 
 // Reports, AI, MARADMINs, search --------------------------------------
 const qs = (params: Record<string, string | number | undefined | null>) => Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
+// Typed goals and Report Studio ---------------------------------------
+export const goalContributors = (id: string) => api.get(`/records/goals/${encodeURIComponent(id)}/contributors`);
+export const listReportDrafts = () => api.get('/studio/reports');
+export const createReportDraft = (body: Record<string, unknown>) => api.post('/studio/reports', body);
+export const reportDraft = (id: string) => api.get(`/studio/reports/${encodeURIComponent(id)}`);
+export const saveReportRevision = (id: string, body: Record<string, unknown>) => api.post(`/studio/reports/${encodeURIComponent(id)}/revisions`, body);
+export const reportRevision = (id: string, revision: number) => api.get(`/studio/reports/${encodeURIComponent(id)}/revisions/${revision}`);
+export const reportRevisionExportUrl = (id: string, revision: number) => `/api/studio/reports/${encodeURIComponent(id)}/revisions/${revision}/export.txt`;
+
 // Work intake and the workbench ---------------------------------------
 export const uploadSource = (file: File, opts: { unitId: string | null; visibility: 'private' | 'unit' }) =>
   request('POST', '/work/sources', file, {

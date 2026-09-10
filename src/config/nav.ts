@@ -1,5 +1,5 @@
 import {
-  Gauge, ListChecks, Briefcase, Target, GraduationCap, FileBarChart, Users, ScrollText, Activity, Sparkles, Settings2, ShieldCheck, LifeBuoy, Inbox,
+  Gauge, ListChecks, Briefcase, Target, GraduationCap, FileBarChart, Users, ScrollText, Activity, Sparkles, Settings2, ShieldCheck, LifeBuoy, Inbox, FileText,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -28,7 +28,8 @@ export const NAV: NavItem[] = [
   { to: '/work', label: 'Tasks', icon: Briefcase, key: 'w', group: 'Work', hint: 'Your tasks and projects' },
   { to: '/goals', label: 'Goals', icon: Target, key: 'g', group: 'Work', hint: 'Targets and how they are tracking' },
   { to: '/records', label: 'Records', icon: ListChecks, key: 'r', group: 'Record', hint: 'Every outcome you logged' },
-  { to: '/reports', label: 'Reports', icon: FileBarChart, key: 'p', group: 'Record', hint: 'Build a package from the facts' },
+  { to: '/studio', label: 'Report Studio', icon: FileText, key: 'p', group: 'Record', hint: 'Write a package against the facts' },
+  { to: '/reports', label: 'Analysis', icon: FileBarChart, key: 'y', group: 'Record', hint: 'What the record shows' },
   { to: '/career', label: 'Career', icon: GraduationCap, key: 'c', group: 'Record', hint: 'Training, awards, counseling' },
   { to: '/readiness', label: 'Readiness', icon: Activity, key: 'j', group: 'Record', hint: 'Dates and requirements' },
   { to: '/team', label: 'Team', icon: Users, key: 't', requiresLead: true, group: 'Organization', hint: 'People and workload' },

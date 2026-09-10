@@ -15,6 +15,25 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
   // The tables themselves are created by schema.sql, which runs with IF NOT EXISTS on every boot,
   // so an existing database gains them without touching a single existing row.
   { id: 2, name: '002_work_intake', run: () => {} },
+  // The report tables come from schema.sql, which is safe to replay. These columns cannot: SQLite has
+  // no ADD COLUMN IF NOT EXISTS, so they are added once here, and skipped if a column already exists.
+  {
+    id: 3,
+    name: '003_typed_goals',
+    run: (db) => {
+      const existing = new Set((db.prepare('PRAGMA table_info(goals)').all() as Array<{ name: string }>).map((c) => c.name));
+      const columns: Array<[string, string]> = [
+        ['metric_id', 'TEXT'],
+        ['direction', "TEXT NOT NULL DEFAULT 'increase'"],
+        ['baseline_value', 'REAL'],
+        ['aggregation', "TEXT NOT NULL DEFAULT 'sum'"],
+        ['filters', "TEXT NOT NULL DEFAULT '{}'"],
+        ['measure_scope', "TEXT NOT NULL DEFAULT 'subject'"],
+        ['completed_at', 'TEXT'],
+      ];
+      for (const [name, type] of columns) if (!existing.has(name)) db.exec(`ALTER TABLE goals ADD COLUMN ${name} ${type}`);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 

@@ -28,7 +28,9 @@ test('unit normalization folds case and a trailing plural but nothing else', () 
   assert.equal(unitKeyOf('ULOs'), unitKeyOf('ulo'));
   assert.equal(unitKeyOf('Invoices'), 'invoice');
   assert.notEqual(unitKeyOf('miles'), unitKeyOf('minutes'));
-  assert.equal(unitKeyOf(''), 'items');
+  // A missing unit and an explicit "items" are the same metric, so an unlabelled quantity adds up.
+  assert.equal(unitKeyOf(''), 'item');
+  assert.equal(unitKeyOf(''), unitKeyOf('items'));
   // Three letters or fewer keep their s, so "OPS" does not become "OP".
   assert.equal(unitKeyOf('OPS'), 'ops');
 });

@@ -105,6 +105,14 @@ export const goalSchema = z.object({
   visibility: visibilityField,
   unit_id: unitIdField,
   version: z.number().int().optional(),
+  // The typed half of a goal: what it measures, which way is better, and where it started.
+  metric_id: optText(120),
+  direction: z.enum(['increase', 'decrease', 'threshold', 'completion']).optional(),
+  baseline_value: optNumber(-1_000_000_000, 1_000_000_000_000),
+  aggregation: z.enum(['sum', 'max', 'min', 'average', 'latest', 'distinct']).optional(),
+  filters: z.record(z.string().max(40), z.string().max(200).nullable()).optional(),
+  measure_scope: z.enum(['subject', 'unit']).optional(),
+  completed_at: optDate,
 });
 
 export const trainingSchema = z.object({
