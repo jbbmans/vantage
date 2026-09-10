@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureSetup, loginAs, OPERATOR } from './fixtures';
+import { ensureSetup, loginAs, logout, registerAs, unique, OPERATOR } from './fixtures';
 
 const H = { 'x-vantage-client': '1' };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -125,4 +125,28 @@ test('a goal recorded before typed goals says plainly that it counts entries', a
   const card = page.getByRole('article').filter({ hasText: 'An older goal' });
   await expect(card).toContainText('counts entries, not outcomes');
   await expect(card.getByRole('button', { name: 'What counted?' })).toHaveCount(0);
+});
+
+test('a report written about somebody is theirs to read, not to rewrite', async ({ page }) => {
+  // The leader writes a report about a Marine in their unit.
+  const subjectName = unique('subj');
+  await registerAs(page, subjectName, { rank_id: 'Cpl' });
+  const subject = await (await page.request.get('/api/me')).json();
+  await logout(page);
+  await loginAs(page, OPERATOR.username);
+  await page.request.post('/api/org/units/G8/members', { headers: H, data: { user_id: subject.user.id } });
+
+  const created = await page.request.post('/api/studio/reports', {
+    headers: H,
+    data: { title: 'Counseling package', subject_id: subject.user.id, unit_id: 'G8', visibility: 'unit', period_start: '2026-01-01', period_end: '2026-03-31' },
+  });
+  expect(created.ok(), await created.text()).toBeTruthy();
+
+  // The subject can open it. Everything that would write is gone, rather than shown and refused.
+  await logout(page);
+  await loginAs(page, subjectName);
+  await page.goto('/studio');
+  await page.getByText('Counseling package').first().click();
+  await expect(page.getByRole('heading', { name: 'Counseling package' })).toBeVisible();
+  await expect(page.getByRole('button', { name: 'Save revision' })).toBeDisabled();
 });

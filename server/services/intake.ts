@@ -1,9 +1,10 @@
 import { createHash } from 'node:crypto';
+import { statSync } from 'node:fs';
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
 import { can, isMember, PERMISSIONS } from '../authz/scope.ts';
 import { record } from './telemetry.ts';
-import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
+import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { readWorkbook, readDelimited, sniffDelimiter, WorkbookError } from '../lib/workbook.ts';
 import { ZipError } from '../lib/zip.ts';
@@ -63,6 +64,50 @@ function assertCanPlace(scope: Scope, unitId: string | null, visibility: string)
   if (!isMember(scope, unitId)) throw forbidden('You are not a member of that unit.');
 }
 
+
+/** How much of the file store one person is already holding. Soft-deleted sources still occupy it. */
+export function storedBytesFor(ctx: AppContext, userId: string): number {
+  const row = ctx.db.prepare('SELECT COALESCE(SUM(byte_size), 0) AS n FROM source_files WHERE user_id = ?').get(userId) as { n: number };
+  return Number(row.n) || 0;
+}
+
+/**
+ * Refuses an upload that would take the instance past its safety threshold, or one person past
+ * their share of the file store.
+ *
+ * The per-file limit alone bounds nothing: the same account can send the same 25 MB workbook all
+ * day. The database threshold exists so an operator always has headroom to take a backup, and an
+ * upload path that ignores it can spend that headroom on somebody's spreadsheets.
+ */
+export function assertCapacity(ctx: AppContext, userId: string, incoming: number) {
+  if (ctx.db.name !== ':memory:') {
+    try {
+      if (statSync(ctx.db.name).size + incoming >= ctx.config.limits.maxDatabaseBytes) {
+        throw new HttpError(507, 'The database is too close to its safety threshold to take another upload. Ask the owner to clear old sources or raise the limit.', 'database_capacity');
+      }
+    } catch (e) { if (e instanceof HttpError) throw e; }
+  }
+  const held = storedBytesFor(ctx, userId);
+  const quota = ctx.config.intake.maxBytesPerUser;
+  if (held + incoming > quota) {
+    throw new HttpError(507, `You are holding ${Math.round(held / 1_048_576)} MB of uploaded workbooks, and the limit here is ${Math.round(quota / 1_048_576)} MB. Remove a source you no longer need.`, 'storage_quota');
+  }
+}
+
+/**
+ * Drops the bytes of sources past the retention window, keeping the row so the work they produced
+ * still says where it came from. A workbook is evidence for as long as the policy says, not forever.
+ */
+export function pruneSources(ctx: AppContext): number {
+  const days = ctx.config.intake.retainDays;
+  if (!days) return 0;
+  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+  const result = ctx.db.prepare(
+    "UPDATE source_files SET content = zeroblob(0), byte_size = 0, deleted_at = COALESCE(deleted_at, ?), notes = COALESCE(notes, '') || ' Bytes released after the retention window.' WHERE created_at < ? AND byte_size > 0"
+  ).run(now(), cutoff);
+  return Number(result.changes || 0);
+}
+
 export async function uploadSource(
   ctx: AppContext,
   user: SessionUser,
@@ -76,6 +121,7 @@ export async function uploadSource(
     throw badRequest(`That file is ${Math.round(input.buffer.length / 1_048_576)} MB. The limit here is ${Math.round(ctx.config.intake.maxBytes / 1_048_576)} MB.`);
   }
   assertCanPlace(scope, input.unitId, input.visibility);
+  assertCapacity(ctx, user.id, input.buffer.length);
 
   const kind = classifyUpload(input.filename, input.contentType, input.buffer);
   const sha256 = createHash('sha256').update(input.buffer).digest('hex');
@@ -230,16 +276,24 @@ function parseNumber(value: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
+/** True only for a day that exists. "2026-99-99" is shaped like a date and is not one. */
+function realCalendarDay(iso: string): boolean {
+  const [y, m, d] = iso.split('-').map(Number);
+  const at = new Date(Date.UTC(y, m - 1, d));
+  return at.getUTCFullYear() === y && at.getUTCMonth() + 1 === m && at.getUTCDate() === d && y >= 1940 && y <= 2100;
+}
+
 function parseDate(value: string): string | null {
   const text = value.trim();
-  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return text;
+  if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return realCalendarDay(text) ? text : null;
   const slash = /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/.exec(text);
   if (slash) {
     const [, a, b, c] = slash;
     const year = c.length === 2 ? 2000 + Number(c) : Number(c);
     // Month-first, matching how these workbooks are produced in this environment.
     const iso = `${year}-${String(Number(a)).padStart(2, '0')}-${String(Number(b)).padStart(2, '0')}`;
-    return Number.isNaN(Date.parse(`${iso}T00:00:00Z`)) ? null : iso;
+    // Date.parse rolls 31 February forward to March rather than refusing it, so it cannot be the test.
+    return realCalendarDay(iso) ? iso : null;
   }
   return null;
 }
@@ -344,10 +398,18 @@ export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, 
   const raw = sheetRows(ctx, source, plan.sheet_name);
   const { rows, rejections, headers } = normalizeRows(raw, plan);
 
-  const existing = ctx.db.prepare(
-    `SELECT id, natural_key, row_hash, title, reference, due_date, amount, amount_type, quantity, unit_label, state, claimed_by
-       FROM work_items WHERE unit_id IS ? AND deleted_at IS NULL`
-  ).all(plan.unit_id) as Array<Record<string, unknown>>;
+  // A row is "the same row" only within the place it was imported into. A private import matches the
+  // importer's own private rows; a unit import matches that unit's shared rows. Without both halves
+  // of that, two people importing the same identifier overwrite each other's work.
+  const existing = plan.visibility === 'private'
+    ? ctx.db.prepare(
+      `SELECT id, natural_key, row_hash, title, reference, due_date, amount, amount_type, quantity, unit_label, state, claimed_by
+         FROM work_items WHERE owner_id = ? AND visibility = 'private' AND unit_id IS ? AND deleted_at IS NULL`
+    ).all(user.id, plan.unit_id) as Array<Record<string, unknown>>
+    : ctx.db.prepare(
+      `SELECT id, natural_key, row_hash, title, reference, due_date, amount, amount_type, quantity, unit_label, state, claimed_by
+         FROM work_items WHERE unit_id IS ? AND visibility = 'unit' AND deleted_at IS NULL`
+    ).all(plan.unit_id) as Array<Record<string, unknown>>;
   const byKey = new Map(existing.map((e) => [String(e.natural_key), e]));
 
   const willInsert: NormalizedRow[] = [];
@@ -420,7 +482,7 @@ export function runImport(
             quantity = ?, unit_label = ?, data = ?, import_job_id = ?, source_file_id = ?,
             source_changed_at = CASE WHEN claimed_by IS NOT NULL THEN ? ELSE source_changed_at END,
             version = version + 1, updated_at = ?
-      WHERE id = ?`
+      WHERE id = ? AND deleted_at IS NULL AND unit_id IS ? AND visibility = ? AND (visibility = 'unit' OR owner_id = ?)`
   );
 
   try {
@@ -431,8 +493,11 @@ export function runImport(
       }
       for (const row of preview.will_update) {
         // A person's own state and claim survive a reimport. The source describes the work, not who is doing it.
+        // The same predicate the match was made under, restated at the write. A row that moved between
+        // the preview and the commit is simply not updated rather than updated by the wrong person.
         update.run(row.row_hash, row.source_row, row.title, row.reference, row.due_date, row.amount, row.amount_type,
-          row.quantity, row.unit_label, JSON.stringify(row.data), jobId, sourceId, at, at, row.existing_id);
+          row.quantity, row.unit_label, JSON.stringify(row.data), jobId, sourceId, at, at, row.existing_id,
+          plan.unit_id, plan.visibility, user.id);
       }
       ctx.db.prepare(
         `UPDATE import_jobs SET status = 'completed', processed_rows = ?, inserted_rows = ?, updated_rows = ?, unchanged_rows = ?, rejected_rows = ?, finished_at = ?, updated_at = ? WHERE id = ?`

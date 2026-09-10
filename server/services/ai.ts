@@ -1,5 +1,6 @@
 import { withGoalProgress } from './records.ts';
 import { createHash, randomUUID } from 'node:crypto';
+import { summableKeys } from '../../shared/constants.ts';
 import { record } from './telemetry.ts';
 import type { AppContext, SessionUser } from '../context.ts';
 import { PERMISSIONS, can, scopeFor, detailUnitsFor } from '../authz/scope.ts';
@@ -63,9 +64,15 @@ function sharedActivities(ctx: AppContext, userId: string, unitId: string, from:
 
 function aggregate(ctx: AppContext, unitId: string, from: string, to: string) {
   const base = `FROM activities WHERE unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL AND date >= ? AND date <= ?`;
+  // Which value types roll into the headline is the instance's decision, not this file's. Reading it
+  // here keeps the brief agreeing with the dashboard after an owner changes the configuration.
+  const headline = summableKeys(ctx.runtime.metrics);
+  const headlineSum = headline.length
+    ? `COALESCE(SUM(CASE WHEN dollar_type IN (${headline.map(() => '?').join(',')}) OR dollar_type IS NULL THEN dollar_amount ELSE 0 END), 0)`
+    : '0';
   return {
     from, to,
-    categories: ctx.db.prepare(`SELECT COALESCE(category, 'Uncategorized') AS category, COUNT(*) AS entries, COALESCE(SUM(quantity), 0) AS action_amount, COALESCE(SUM(CASE WHEN dollar_type IN ('reconciled','obligated','saved','impact') THEN dollar_amount ELSE 0 END), 0) AS headline_transaction_value, SUM(CASE WHEN NULLIF(trim(result), '') IS NOT NULL THEN 1 ELSE 0 END) AS with_result ${base} GROUP BY 1 ORDER BY entries DESC`).all(unitId, from, to),
+    categories: ctx.db.prepare(`SELECT COALESCE(category, 'Uncategorized') AS category, COUNT(*) AS entries, COALESCE(SUM(quantity), 0) AS action_amount, ${headlineSum} AS headline_transaction_value, SUM(CASE WHEN NULLIF(trim(result), '') IS NOT NULL THEN 1 ELSE 0 END) AS with_result ${base} GROUP BY 1 ORDER BY entries DESC`).all(...headline, unitId, from, to),
     dollar_types: ctx.db.prepare(`SELECT COALESCE(dollar_type, 'unclassified') AS dollar_type, COUNT(*) AS entries, COALESCE(SUM(dollar_amount), 0) AS transaction_value ${base} AND dollar_amount IS NOT NULL GROUP BY 1 ORDER BY transaction_value DESC`).all(unitId, from, to),
     contributors: (ctx.db.prepare(`SELECT COUNT(DISTINCT user_id) AS n ${base}`).get(unitId, from, to) as { n: number }).n,
   };

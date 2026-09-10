@@ -42,8 +42,29 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   const recordIds = new Map<string, Set<string>>();
   for (const [table, rows] of Object.entries(records)) recordIds.set(table, new Set(rows.map((r) => String(r.id))));
 
-  const attachmentRows = (db.prepare('SELECT id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, created_at, deleted_at FROM attachments WHERE uploaded_by = ? OR (record_table = ? AND record_id IN (SELECT id FROM activities WHERE user_id = ?)) ORDER BY created_at').all(userId, 'activities', userId) as Row[])
-    .filter((a) => recordIds.get(String(a.record_table))?.has(String(a.record_id)) || a.uploaded_by === userId);
+  // Every record in this archive, whoever attached the file. The export promises the whole account,
+  // and an award citation uploaded by a leader is still evidence about this Marine's own record.
+  const attachedPairs: Array<[string, string]> = [];
+  for (const [table, ids] of recordIds) for (const id of ids) attachedPairs.push([table, id]);
+  const attachmentColumns = 'id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, created_at, deleted_at';
+  const byOwnRecord = attachedPairs.length
+    ? (() => {
+      // Chunked because SQLite caps how many parameters one statement may carry.
+      const rows: Row[] = [];
+      for (let i = 0; i < attachedPairs.length; i += 400) {
+        const chunk = attachedPairs.slice(i, i + 400);
+        rows.push(...db.prepare(
+          `SELECT ${attachmentColumns} FROM attachments WHERE ${chunk.map(() => '(record_table = ? AND record_id = ?)').join(' OR ')}`
+        ).all(...chunk.flat()) as Row[]);
+      }
+      return rows;
+    })()
+    : [];
+  const byUpload = db.prepare(`SELECT ${attachmentColumns} FROM attachments WHERE uploaded_by = ?`).all(userId) as Row[];
+  const seenAttachments = new Set<string>();
+  const attachmentRows = [...byOwnRecord, ...byUpload]
+    .filter((a) => { const id = String(a.id); if (seenAttachments.has(id)) return false; seenAttachments.add(id); return true; })
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   const attachmentFiles: Array<Row & { content: Buffer }> = attachments ? attachmentRows.map((a) => ({ ...a, content: (db.prepare('SELECT content FROM attachments WHERE id = ?').get(String(a.id)) as { content: Buffer }).content })) : [];
 
   const notifications = db.prepare('SELECT id, kind, title, message, action_url, read_at, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC').all(userId) as Row[];

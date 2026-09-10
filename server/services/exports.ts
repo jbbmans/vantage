@@ -8,7 +8,19 @@ import { loadRuntime } from '../runtime.ts';
 
 const keyCheck = (secret: string) => hmac(secret, 'vantage-instance-key-check');
 
-const EXPORT_TABLES = ['ranks', 'users', 'readiness', 'units', 'unit_members', 'roles', 'member_roles', 'passkeys', 'recovery_codes', ...RECORD_TABLE_NAMES, 'attachments', 'audit_log', 'notifications', 'maradmins', 'maradmin_user_state', 'ai_usage_daily', 'email_log', 'meta'] as const;
+// Ordered so a row's parents are always restored before it. Sessions and tokens are deliberately
+// excluded; everything a person made must be here, or "portable" is not a true word for the archive.
+const EXPORT_TABLES = [
+  'ranks', 'users', 'readiness', 'units', 'unit_members', 'roles', 'member_roles', 'passkeys', 'recovery_codes',
+  ...RECORD_TABLE_NAMES,
+  // Work intake: the original workbook, the job that read it, the rows, and what people did to them.
+  'source_files', 'import_jobs', 'work_items', 'work_actions', 'work_views',
+  // Report Studio: a draft and every revision it has been saved as.
+  'report_drafts', 'report_revisions',
+  // Correspondence: contacts before threads, threads before their messages and links.
+  'contacts', 'connectors', 'threads', 'thread_messages', 'thread_links',
+  'attachments', 'audit_log', 'notifications', 'maradmins', 'maradmin_user_state', 'ai_usage_daily', 'product_events', 'email_log', 'meta',
+] as const;
 
 /** Full-instance JSON archive: everything needed to stand the instance up on another host. Sessions and tokens are deliberately excluded. */
 export function exportInstance(ctx: AppContext) {

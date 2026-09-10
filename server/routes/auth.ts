@@ -204,12 +204,21 @@ authRouter.post('/logout', requireAuth, wrap((req, res) => {
 authRouter.post('/sudo', requireAuth, wrap((req, res) => {
   const ctx = req.ctx;
   const { password } = parse(z.object({ password: z.string().max(512) }), req.body);
+  // Guessing a password is guessing a password, whether or not a session is already open. This
+  // reads the same limiter it feeds, so step-up cannot be used as an unmetered oracle.
+  const limited = limiters.loginUser.limited(req.user.username);
+  if (limited) {
+    record(ctx, 'security.step_up', { granted: false, method: 'password' }, { id: req.user.id });
+    throw tooMany('Too many failed confirmations. Try again shortly.', limited.retryAfter);
+  }
   const row = ctx.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id) as { password_hash: string };
   if (!verifyPassword(password, row.password_hash)) {
     limiters.loginUser.bump(req.user.username);
     record(ctx, 'security.step_up', { granted: false, method: 'password' }, { id: req.user.id });
     throw forbidden('Current password is incorrect.', 'bad_password');
   }
+  // Proving it is you clears the failures, so a mistyped confirmation cannot lock you out of login.
+  limiters.loginUser.clear(req.user.username);
   const until = grantSudo(ctx, req.sessionId);
   record(ctx, 'security.step_up', { granted: true, method: 'password' }, { id: req.user.id });
   res.json({ ok: true, until });

@@ -2,10 +2,19 @@
 const VERSION = 'v5-1';
 const SHELL = `vantage-shell-${VERSION}`;
 const ASSETS = `vantage-assets-${VERSION}`;
-const SHELL_URLS = ['/', '/manifest.webmanifest', '/mark.svg', '/icon-192.png', '/icon-512.png', '/fonts/inter-tight-latin.woff2', '/fonts/plex-mono-500.woff2'];
+const SHELL_URLS = [
+  '/', '/manifest.webmanifest', '/mark.svg', '/icon-192.png', '/icon-512.png',
+  '/fonts/geist-normal.woff2', '/fonts/newsreader-normal.woff2', '/fonts/newsreader-italic.woff2', '/fonts/jetbrains-normal.woff2',
+];
 
 self.addEventListener('install', (event) => {
-  event.waitUntil(caches.open(SHELL).then((cache) => cache.addAll(SHELL_URLS).catch(() => undefined)).then(() => self.skipWaiting()));
+  // Cached one at a time on purpose. addAll is all-or-nothing, so a single renamed font used to
+  // take the whole shell down with it and leave the app with nothing to serve offline.
+  event.waitUntil(
+    caches.open(SHELL)
+      .then((cache) => Promise.all(SHELL_URLS.map((url) => cache.add(url).catch(() => undefined))))
+      .then(() => self.skipWaiting())
+  );
 });
 
 self.addEventListener('activate', (event) => {

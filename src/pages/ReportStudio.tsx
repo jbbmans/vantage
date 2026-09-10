@@ -224,7 +224,9 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
   if (query.isPending) return <div className="page space-y-3"><Skeleton className="h-10 w-64" /><Skeleton className="h-64" /></div>;
   if (!draft) return <div className="page"><div className="card"><EmptyState title="Cannot open this report" action={<Button onClick={onBack}>Back</Button>} /></div></div>;
 
-  const mine = draft.user_id === query.data.draft.user_id;
+  // A report shared with its subject is theirs to read, not to rewrite. This used to compare the
+  // draft with itself, so a subject was shown live controls and a Save the server always refused.
+  const mine = draft.user_id === identity?.user.id;
 
   return (
     <div className="page">

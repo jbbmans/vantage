@@ -19,7 +19,7 @@ import { workRouter } from './routes/work.ts';
 import { correspondenceRouter } from './routes/correspondence.ts';
 import { record } from './services/telemetry.ts';
 import { pruneEvents } from './services/usage.ts';
-import { reconcileInterruptedJobs } from './services/intake.ts';
+import { pruneSources, reconcileInterruptedJobs } from './services/intake.ts';
 import { orgRouter } from './routes/org.ts';
 import { miscRouter } from './routes/misc.ts';
 import { adminRouter } from './routes/admin.ts';
@@ -167,6 +167,8 @@ export function startSchedulers(ctx: AppContext) {
   every(6 * 60 * 60_000, () => { try { const r = purgeDeleted(ctx); if (r.records) console.log(`${now()} purged ${r.records} records from the recycle bin`); } catch (e) { console.warn(`Purge failed: ${(e as Error).message}`); } });
   // Analytics steer a product; they are not a memory. Anything past the window goes on its own.
   every(24 * 60 * 60_000, () => { try { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); } catch (e) { console.warn(`Event prune failed: ${(e as Error).message}`); } });
+  // Uploaded workbooks are evidence for as long as the retention policy says, and no longer.
+  every(24 * 60 * 60_000, () => { try { const released = pruneSources(ctx); if (released) console.log(`${now()} released the bytes of ${released} source files past the retention window`); } catch (e) { console.warn(`Source prune failed: ${(e as Error).message}`); } });
   if (!ctx.config.test) {
     // Registered whether or not the feed is on: syncMaradmins is a no-op while the runtime switch is off, so enabling it later starts refreshes without a restart.
     const run = () => syncMaradmins(ctx).catch((e: Error) => console.warn(`MARADMIN refresh skipped: ${e.message}`));
