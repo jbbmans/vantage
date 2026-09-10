@@ -27,7 +27,7 @@ const Maradmins = lazy(() => import('@/pages/Maradmins'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const Operator = lazy(() => import('@/pages/Operator'));
 const Help = lazy(() => import('@/pages/Help'));
-const AiAssist = lazy(() => import('@/pages/AiAssist'));
+const Correspondence = lazy(() => import('@/pages/Correspondence'));
 
 function Fallback() {
   return <div className="page space-y-3"><Skeleton className="h-8 w-56" /><Skeleton className="h-40" /><Skeleton className="h-64" /></div>;
@@ -106,10 +106,11 @@ export default function App() {
                 <Route path="team" element={<D><Team /></D>} />
                 <Route path="team/:id" element={<D><MemberDetail /></D>} />
                 <Route path="maradmins" element={<D><Maradmins /></D>} />
-                <Route path="assist" element={<D><AiAssist /></D>} />
+                <Route path="correspondence" element={<D><Correspondence /></D>} />
                 <Route path="settings" element={<D><Settings /></D>} />
                 <Route path="operator" element={<D><Operator /></D>} />
                 <Route path="help" element={<D><Help /></D>} />
+                <Route path="assist" element={<Navigate to="/" replace />} />
                 <Route path="activities" element={<Navigate to="/records" replace />} />
                 <Route path="activities/:id" element={<RedirectRecord />} />
                 <Route path="login" element={<Navigate to="/" replace />} />

@@ -34,6 +34,8 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       for (const [name, type] of columns) if (!existing.has(name)) db.exec(`ALTER TABLE goals ADD COLUMN ${name} ${type}`);
     },
   },
+  // Correspondence tables come from schema.sql, which is safe to replay.
+  { id: 4, name: '004_correspondence', run: () => {} },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 

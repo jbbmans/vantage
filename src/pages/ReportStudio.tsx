@@ -6,6 +6,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { DateText } from '@/components/common';
 import { useIdentity, useReportDrafts, useReportDraft } from '@/lib/queries';
+import { AiAction, AiResult } from '@/components/AiPanel';
 import * as api from '@/lib/api';
 import { formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
 import { cn } from '@/lib/utils';
@@ -106,6 +107,7 @@ function DraftList({ onOpen }: { onOpen: (id: string) => void }) {
 }
 
 function Editor({ id, onBack }: { id: string; onBack: () => void }) {
+  const { data: identity } = useIdentity();
   const toast = useToast();
   const qc = useQueryClient();
   const query = useReportDraft(id);
@@ -140,6 +142,15 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
 
   const sourceById = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources]);
   const chosen = [...selected].map((sid) => sourceById.get(sid)).filter(Boolean);
+  const [sectionAi, setSectionAi] = useState<Record<number, { output: Record<string, unknown>; meta: { model: string; tokens: number } }>>({});
+  /** Only the records this report cites are sent. Nothing the report is not built from leaves the server. */
+  const citedFacts = useMemo(() => chosen.map((s: any) => [
+    s.title,
+    s.date,
+    s.quantity != null ? `${formatNumber(s.quantity)} ${s.unit_label || ''}`.trim() : '',
+    s.dollar_amount != null ? `${formatDollars(s.dollar_amount)} ${s.dollar_type || ''}`.trim() : '',
+    s.result || '',
+  ].filter(Boolean).join(' · ')).join('\n'), [chosen]);
 
   const toggle = (sourceId: string) => setSelected((prev) => {
     const next = new Set(prev);
@@ -252,7 +263,20 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
                   className="w-full bg-transparent font-semibold text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
                 />
               }
-              action={sections.length > 1 ? <Button size="xs" variant="ghost" onClick={() => setSections((prev) => prev.filter((_, i) => i !== index))} aria-label={`Remove ${section.heading}`}><X className="h-3.5 w-3.5" /></Button> : undefined}
+              action={
+                <>
+                  {identity?.instance.aiEnabled && (
+                    <AiAction
+                      workflow="writing"
+                      input={{ kind: 'executive_summary', source: `Section: ${section.heading}\n${citedFacts}`, limit: 1600 }}
+                      label="Draft from the cited records"
+                      disabled={chosen.length === 0}
+                      onResult={(output, meta) => setSectionAi((prev) => ({ ...prev, [index]: { output, meta } }))}
+                    />
+                  )}
+                  {sections.length > 1 && <Button size="xs" variant="ghost" onClick={() => setSections((prev) => prev.filter((_, i) => i !== index))} aria-label={`Remove ${section.heading}`}><X className="h-3.5 w-3.5" /></Button>}
+                </>
+              }
             >
               <Textarea
                 aria-label={`${section.heading} text`}
@@ -262,6 +286,17 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
                 placeholder="Write what changed because of the work, in the units it was measured in."
               />
               <p className="mt-1 text-2xs text-ink-3">{section.body.length.toLocaleString()} characters</p>
+              {sectionAi[index] && (
+                <div className="mt-3 space-y-2">
+                  <AiResult output={sectionAi[index].output} meta={sectionAi[index].meta} primaryKey="draft" />
+                  <div className="flex flex-wrap gap-2">
+                    {typeof sectionAi[index].output.draft === 'string' && (
+                      <Button size="xs" variant="soft" onClick={() => { const text = String(sectionAi[index].output.draft); setSections((prev) => prev.map((sec, i) => (i === index ? { ...sec, body: text } : sec))); }}>Use this text</Button>
+                    )}
+                    <Button size="xs" variant="ghost" onClick={() => setSectionAi((prev) => { const next = { ...prev }; delete next[index]; return next; })}>Dismiss</Button>
+                  </div>
+                </div>
+              )}
             </Panel>
           ))}
           <Button onClick={() => setSections((prev) => [...prev, { heading: 'New section', body: '', source_ids: [] }])}><Plus className="h-4 w-4" />Add a section</Button>

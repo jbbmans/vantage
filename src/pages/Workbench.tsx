@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowDown, ArrowUp, Bookmark, Check, ClipboardCopy, Filter, Hand, Inbox,
+  ArrowDown, ArrowUp, Bookmark, Check, ClipboardCopy, Filter, Hand, Inbox, Mail,
   RefreshCw, Search, Upload, X,
 } from 'lucide-react';
 import { PageHeader, Button, Input, Select, Badge, EmptyState, Skeleton, Field, Textarea, NumberInput } from '@/components/ui/primitives';
@@ -9,7 +9,7 @@ import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { DateText } from '@/components/common';
 import ImportWizard from '@/components/ImportWizard';
-import { useIdentity, useMetrics } from '@/lib/queries';
+import { useIdentity, useMetrics, useItemThreads, useThreads, invalidateCorrespondence } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { formatDollars, formatNumber } from '../../shared/metrics';
 import { cn, todayIso, useMediaQuery } from '@/lib/utils';
@@ -536,6 +536,8 @@ function WorkItemDetail({ id, onClose, onChanged, currencyLabel }: { id: string;
             )}
           </div>
 
+          <ThreadsForItem itemId={id} />
+
           {detail.data.actions.length > 0 && (
             <div>
               <h3 className="mb-2 text-sm font-semibold text-ink">History</h3>
@@ -561,5 +563,62 @@ function WorkItemDetail({ id, onClose, onChanged, currencyLabel }: { id: string;
         </div>
       )}
     </Dialog>
+  );
+}
+
+
+/**
+ * The correspondence about this row. One email can be about a hundred rows, so linking is a link:
+ * the message is never copied per row, and never counted per row.
+ */
+function ThreadsForItem({ itemId }: { itemId: string }) {
+  const toast = useToast();
+  const qc = useQueryClient();
+  const linked = useItemThreads(itemId);
+  const all = useThreads({});
+  const [picking, setPicking] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const linkedIds = new Set((linked.data || []).map((t) => t.id));
+  const candidates = (all.data || []).filter((t) => !linkedIds.has(t.id));
+
+  const link = async (threadId: string) => {
+    setBusy(true);
+    try {
+      await api.linkThreadWork(threadId, [itemId]);
+      invalidateCorrespondence(qc, threadId);
+      setPicking(false);
+      toast.success('Linked.');
+    } catch (err) { toast.error(api.errorText(err)); }
+    finally { setBusy(false); }
+  };
+
+  return (
+    <div>
+      <div className="mb-2 flex items-center justify-between gap-2">
+        <h3 className="text-sm font-semibold text-ink">Correspondence</h3>
+        <Button size="xs" variant="ghost" disabled={busy} onClick={() => setPicking((v) => !v)}><Mail className="h-3.5 w-3.5" />{picking ? 'Cancel' : 'Link a thread'}</Button>
+      </div>
+      {picking && (
+        candidates.length ? (
+          <ul className="mb-2 space-y-1">
+            {candidates.slice(0, 12).map((t) => (
+              <li key={t.id}>
+                <button type="button" disabled={busy} onClick={() => link(t.id)} className="w-full truncate rounded-md border border-line px-3 py-1.5 text-left text-sm text-ink-2 hover:border-line-strong hover:bg-surface-2">{t.subject}</button>
+              </li>
+            ))}
+          </ul>
+        ) : <p className="mb-2 text-sm text-ink-3">No other threads to link. Start one under Correspondence.</p>
+      )}
+      {linked.data?.length ? (
+        <ul className="space-y-1 text-sm">
+          {linked.data.map((t) => (
+            <li key={t.id} className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-2">
+              <span className="min-w-0 truncate text-ink">{t.subject}</span>
+              <span className="shrink-0 text-xs text-ink-3">{t.state.replace(/_/g, ' ')}</span>
+            </li>
+          ))}
+        </ul>
+      ) : <p className="text-sm text-ink-3">No email is linked to this row yet.</p>}
+    </div>
   );
 }

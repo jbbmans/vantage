@@ -1,7 +1,8 @@
 import { useState } from 'react';
+import { useQueryClient } from '@tanstack/react-query';
 import { Sparkles, WandSparkles, ShieldCheck, Copy } from 'lucide-react';
 import { Button, Select } from '@/components/ui/primitives';
-import { useAiStatus, usePrefs, useSavePrefs } from '@/lib/queries';
+import { useAiStatus, usePrefs, useSavePrefs, keys } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { copyToClipboard, humanize } from '@/lib/utils';
@@ -26,12 +27,15 @@ export function AiAction({ workflow, input, label = 'Draft with AI', onResult, s
   const [model, , , available] = useAiModel();
   const [busy, setBusy] = useState(false);
   const toast = useToast();
+  const qc = useQueryClient();
   if (!available) return null;
   const run = async () => {
     setBusy(true);
     try {
       const res = await api.aiAssist(workflow, input, model);
       onResult(res.output || {}, { model: res.model, tokens: res.usage?.total_tokens || 0 });
+      // The day's usage just moved, so the figure shown next to the result is refetched rather than cached.
+      qc.invalidateQueries({ queryKey: keys.aiStatus });
       toast.success(`Drafted with ${res.model}. Verify every fact before saving.`);
     } catch (err) { toast.error(api.errorText(err)); }
     finally { setBusy(false); }
@@ -48,11 +52,15 @@ export function AiResultValue({ value }: { value: unknown }) {
 
 export function AiResult({ output, meta, primaryKey }: { output: Record<string, unknown>; meta?: { model: string; tokens: number }; primaryKey?: string }) {
   const toast = useToast();
+  // The day's budget is shown where the cost is incurred, so nobody has to go to the owner console
+  // to find out why a request started failing.
+  const { data: status } = useAiStatus();
+  const daily = status?.daily;
   const preferred = primaryKey && output[primaryKey] ? output[primaryKey] : output.draft || output.narrative || output.citation || output.executive_summary || output.summary || output.plain_language;
   return (
     <div className="rounded-lg border border-accent/30 bg-accent-soft/40 p-4">
       <div className="mb-3 flex items-center justify-between gap-2">
-        <p className="flex items-center gap-2 text-sm font-semibold text-ink"><WandSparkles className="h-4 w-4 text-accent" />AI suggestion{meta && <span className="text-xs font-normal text-ink-3">{meta.model} · {meta.tokens} tokens</span>}</p>
+        <p className="flex items-center gap-2 text-sm font-semibold text-ink"><WandSparkles className="h-4 w-4 text-accent" />AI suggestion{meta && <span className="text-xs font-normal text-ink-3">{meta.model} · {meta.tokens} tokens{daily ? ` · today ${daily.requests} requests, ${daily.used_tokens.toLocaleString()} of ${daily.limit_tokens.toLocaleString()} tokens` : ''}</span>}</p>
         {Boolean(preferred) && <Button size="xs" variant="ghost" onClick={async () => { if (await copyToClipboard(String(preferred))) toast.success('Copied.'); else toast.error('Could not copy.'); }}><Copy className="h-3.5 w-3.5" />Copy</Button>}
       </div>
       <div className="space-y-3">{Object.entries(output).map(([k, v]) => <section key={k}><h4 className="eyebrow mb-1">{humanize(k)}</h4><AiResultValue value={v} /></section>)}</div>

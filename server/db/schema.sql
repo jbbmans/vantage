@@ -601,3 +601,115 @@ CREATE TABLE IF NOT EXISTS report_revisions (
   created_at       TEXT NOT NULL
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_report_revisions_number ON report_revisions(report_id, revision);
+
+-- Phase 4: correspondence ---------------------------------------------------
+-- A person or office the unit deals with. Kept apart from users: a vendor is not an account.
+CREATE TABLE IF NOT EXISTS contacts (
+  id           TEXT PRIMARY KEY,
+  owner_id     TEXT NOT NULL REFERENCES users(id),
+  unit_id      TEXT REFERENCES units(id),
+  visibility   TEXT NOT NULL DEFAULT 'unit' CHECK (visibility IN ('private', 'unit')),
+  name         TEXT NOT NULL,
+  email        TEXT,
+  organization TEXT,
+  role         TEXT,
+  phone        TEXT,
+  notes        TEXT,
+  version      INTEGER NOT NULL DEFAULT 1,
+  deleted_at   TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_contacts_unit ON contacts(unit_id, visibility);
+CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
+
+-- One conversation. Its state is the thing a person actually wants to know: is anyone waiting on me,
+-- am I waiting on them, did the document arrive, is this finished.
+CREATE TABLE IF NOT EXISTS threads (
+  id             TEXT PRIMARY KEY,
+  owner_id       TEXT NOT NULL REFERENCES users(id),
+  unit_id        TEXT REFERENCES units(id),
+  visibility     TEXT NOT NULL DEFAULT 'unit' CHECK (visibility IN ('private', 'unit')),
+  contact_id     TEXT REFERENCES contacts(id),
+  subject        TEXT NOT NULL,
+  -- draft: written, not sent. sent: gone out. awaiting_reply: sent and nothing back yet.
+  -- response_received: they replied. ksd_received: the supporting document actually arrived.
+  -- resolved: the underlying question is closed. These are four different facts, not one.
+  state          TEXT NOT NULL DEFAULT 'draft'
+                 CHECK (state IN ('draft', 'sent', 'awaiting_reply', 'response_received', 'ksd_received', 'resolved')),
+  follow_up_at   TEXT,
+  last_message_at TEXT,
+  response_at    TEXT,
+  ksd_at         TEXT,
+  resolved_at    TEXT,
+  -- set when the thread came from a connected mailbox rather than being written here
+  provider       TEXT,
+  provider_thread_id TEXT,
+  connector_id   TEXT,
+  version        INTEGER NOT NULL DEFAULT 1,
+  deleted_at     TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_threads_unit ON threads(unit_id, state, follow_up_at);
+CREATE INDEX IF NOT EXISTS idx_threads_owner ON threads(owner_id, state);
+CREATE INDEX IF NOT EXISTS idx_threads_contact ON threads(contact_id);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_threads_provider ON threads(connector_id, provider_thread_id) WHERE provider_thread_id IS NOT NULL;
+
+-- One message in a conversation. Bodies are stored sanitized; the raw HTML is never rendered.
+CREATE TABLE IF NOT EXISTS thread_messages (
+  id            TEXT PRIMARY KEY,
+  thread_id     TEXT NOT NULL REFERENCES threads(id),
+  direction     TEXT NOT NULL CHECK (direction IN ('outbound', 'inbound')),
+  -- the provider's own id. Threading follows this, never a subject line, which anyone can copy.
+  provider_message_id TEXT,
+  connector_id  TEXT,
+  source        TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'eml', 'graph')),
+  from_name     TEXT,
+  from_email    TEXT,
+  to_emails     TEXT NOT NULL DEFAULT '[]',
+  cc_emails     TEXT NOT NULL DEFAULT '[]',
+  sent_at       TEXT,
+  subject       TEXT,
+  body_text     TEXT,
+  body_html     TEXT,
+  blocked_remote_images INTEGER NOT NULL DEFAULT 0,
+  blocked_active_content INTEGER NOT NULL DEFAULT 0,
+  attachments   TEXT NOT NULL DEFAULT '[]',
+  created_by    TEXT REFERENCES users(id),
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_thread_messages_thread ON thread_messages(thread_id, sent_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_thread_messages_provider ON thread_messages(connector_id, provider_message_id) WHERE provider_message_id IS NOT NULL;
+
+-- One email can concern a hundred documents. It is still one email: the link lives here, so a
+-- message is never copied per document and never counted per document.
+CREATE TABLE IF NOT EXISTS thread_links (
+  id           TEXT PRIMARY KEY,
+  thread_id    TEXT NOT NULL REFERENCES threads(id),
+  work_item_id TEXT NOT NULL REFERENCES work_items(id),
+  created_by   TEXT NOT NULL REFERENCES users(id),
+  created_at   TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_thread_links_pair ON thread_links(thread_id, work_item_id);
+CREATE INDEX IF NOT EXISTS idx_thread_links_item ON thread_links(work_item_id);
+
+-- A mailbox connection. Read-only, and the national cloud is recorded rather than inferred.
+CREATE TABLE IF NOT EXISTS connectors (
+  id             TEXT PRIMARY KEY,
+  user_id        TEXT NOT NULL REFERENCES users(id),
+  provider       TEXT NOT NULL,
+  -- global, usgov (GCC High), usgovdod (DoD). Chosen by the operator; never guessed from an address.
+  cloud          TEXT NOT NULL DEFAULT 'global',
+  account_label  TEXT NOT NULL,
+  access         TEXT NOT NULL DEFAULT 'read_only' CHECK (access IN ('read_only', 'read_write')),
+  status         TEXT NOT NULL DEFAULT 'disconnected'
+                 CHECK (status IN ('disconnected', 'needs_authorization', 'connected', 'error')),
+  scopes         TEXT NOT NULL DEFAULT '[]',
+  delta_token    TEXT,
+  last_sync_at   TEXT,
+  last_error     TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_connectors_user ON connectors(user_id, provider);

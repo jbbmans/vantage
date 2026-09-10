@@ -1,8 +1,9 @@
-import { useMemo } from 'react';
+import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, ArrowRight, AlertTriangle, CheckCircle2, TrendingUp, Sparkles, Users, CalendarClock } from 'lucide-react';
 import { PageHeader, Panel, Button, EmptyState, Skeleton, Progress, Badge } from '@/components/ui/primitives';
 import { AreaChart, BarList } from '@/components/charts';
+import { AiAction, AiResult } from '@/components/AiPanel';
 import { PeriodSelect, StatusBadge, DateText } from '@/components/common';
 import { MetricTotalsGrid, formatMetric, metricUnitLabel } from '@/components/MetricTotals';
 import { useGoals, useIdentity, usePrefs, useReadiness, useSavePrefs, useTasks, useTrack, useMetricsReport } from '@/lib/queries';
@@ -18,6 +19,7 @@ import { cn } from '@/lib/utils';
 export default function Dashboard() {
   const navigate = useNavigate();
   const { data: identity } = useIdentity();
+  const [review, setReview] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const prefs = usePrefs();
   const savePrefs = useSavePrefs();
   const track = useTrack();
@@ -236,6 +238,19 @@ export default function Dashboard() {
             )}
           </div>
         </div>
+
+        {identity?.instance.aiEnabled && (
+          <Panel
+            className="mt-4"
+            title="Where do I stand?"
+            subtitle="reads your own entries, goals and open tasks for this period; nobody else's"
+            action={<AiAction workflow="personal_review" input={{ days: 90 }} label="Review my record" onResult={(output, meta) => setReview({ output, meta })} />}
+          >
+            {review
+              ? <AiResult output={review.output} meta={review.meta} />
+              : <p className="flex items-center gap-2 text-sm text-ink-3"><Sparkles className="h-4 w-4" />A read of the last 90 days against what you said you were going for. A draft, never a rating.</p>}
+          </Panel>
+        )}
       </section>
     </div>
   );

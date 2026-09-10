@@ -13,18 +13,22 @@ test('quick log extracts fields with AI and the model picker offers the allowlis
   await expect(dialog.getByLabel('System')).toHaveValue('DAI');
 });
 
-test('the AI assist page drafts prose, reviews the record, and shows the daily budget', async ({ page }) => {
+test('AI is offered where the work happens, and there is no standalone destination', async ({ page }) => {
+  // The old page is gone; a bookmark to it lands on the dashboard rather than a dead end.
   await page.goto('/assist');
-  await expect(page.getByRole('heading', { name: 'Drafting help' })).toBeVisible();
-  await page.getByLabel('Source facts').fill('Reconciled 30 ULOs totaling $1,118.38 in DAI.');
-  await page.getByRole('button', { name: 'Draft', exact: true }).click();
-  await expect(page.getByText(/Reconciled 30 unliquidated obligations/)).toBeVisible();
-  await expect(page.getByText(/Verify the dollar figure/)).toBeVisible();
-  await expect(page.getByText(/1 requests? · 200 of/)).toBeVisible();
+  await expect(page).toHaveURL(/\/$/);
+  await expect(page.getByRole('link', { name: 'AI assist' })).toHaveCount(0);
 
-  await page.getByRole('tab', { name: 'Personal review' }).click();
+  // The review reads your own record, from the dashboard.
   await page.getByRole('button', { name: 'Review my record' }).click();
   await expect(page.getByText('Steady fiscal work with measurable outcomes.')).toBeVisible();
+  // The day's budget is reported next to the result, so the cost is visible where it is spent.
+  await expect(page.getByText(/today \d+ requests?, [\d,]+ of [\d,]+ tokens/)).toBeVisible();
+
+  // Coaching on entry quality sits with the entries.
+  await page.goto('/records');
+  await page.getByRole('button', { name: 'Coach my entries' }).click();
+  await expect(page.getByRole('heading', { name: 'Which entries are weak' })).toBeVisible();
 });
 
 test('the owner console shows the gateway key, discovers models, and can switch AI off and on', async ({ page }) => {
@@ -39,18 +43,17 @@ test('the owner console shows the gateway key, discovers models, and can switch 
   await page.getByRole('button', { name: 'Save' }).click();
   await confirmSudoIfAsked(page);
   await expect(page.getByText('AI settings saved.')).toBeVisible();
-  await page.goto('/assist');
-  await expect(page.getByText('AI assistance is off on this deployment')).toBeVisible();
-  await expect(page.getByRole('link', { name: 'Open the AI settings' })).toBeVisible();
+  // With AI off, the contextual buttons are simply not there: nothing to press, nothing to explain.
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Review my record' })).toHaveCount(0);
 
   await page.goto('/operator?tab=ai');
   await page.getByRole('switch', { name: 'AI assistance on' }).click();
   await page.getByRole('button', { name: 'Save' }).click();
   await confirmSudoIfAsked(page);
   await expect(page.getByText('AI settings saved.')).toBeVisible();
-  await page.goto('/assist');
-  await expect(page.getByRole('heading', { name: 'Drafting help' })).toBeVisible();
-  await expect(page.getByLabel('AI model')).toBeVisible();
+  await page.goto('/');
+  await expect(page.getByRole('button', { name: 'Review my record' })).toBeVisible();
 });
 
 test('the reach check calls the gateway from the browser and reports the outcome', async ({ page }) => {

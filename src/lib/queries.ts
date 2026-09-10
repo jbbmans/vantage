@@ -187,3 +187,37 @@ export async function signOutEverywhere() {
   queryClient.clear();
   window.dispatchEvent(new CustomEvent('vantage:signed-out'));
 }
+
+// Correspondence -------------------------------------------------------
+export interface ThreadSummary {
+  id: string; subject: string; state: string; unit_id: string | null; visibility: string;
+  contact_id: string | null; contact_name: string | null; contact_organization: string | null;
+  follow_up_at: string | null; last_message_at: string | null; response_at: string | null;
+  ksd_at: string | null; resolved_at: string | null; message_count: number; linked_items: number;
+  provider: string | null; version: number; updated_at: string;
+}
+
+export const correspondenceKeys = {
+  contacts: ['contacts'] as const,
+  threads: (params: Record<string, unknown>) => ['threads', params] as const,
+  thread: (id: string) => ['thread', id] as const,
+  itemThreads: (id: string) => ['item-threads', id] as const,
+  connectors: ['connectors'] as const,
+};
+
+export const useContacts = (enabled = true) => useQuery<Array<Record<string, any>>>({ queryKey: correspondenceKeys.contacts, queryFn: api.listContacts, staleTime: 60_000, enabled });
+export const useThreads = (params: Record<string, string | undefined> = {}) =>
+  useQuery<ThreadSummary[]>({ queryKey: correspondenceKeys.threads(params), queryFn: () => api.listThreads(params), staleTime: 15_000 });
+export const useThread = (id: string | null) =>
+  useQuery<{ thread: any; messages: any[]; links: any[]; contact: any }>({ queryKey: correspondenceKeys.thread(id || ''), queryFn: () => api.threadDetail(id!), enabled: Boolean(id) });
+export const useItemThreads = (workItemId: string | null) =>
+  useQuery<ThreadSummary[]>({ queryKey: correspondenceKeys.itemThreads(workItemId || ''), queryFn: () => api.threadsForItem(workItemId!), enabled: Boolean(workItemId) });
+export const useConnectors = (enabled = true) =>
+  useQuery<{ connectors: any[]; clouds: Array<{ value: string; label: string; graph: string; authority: string }>; scopes: string[] }>({ queryKey: correspondenceKeys.connectors, queryFn: api.listConnectors, staleTime: 60_000, enabled });
+
+/** Everything that could have changed when a thread moves. */
+export function invalidateCorrespondence(qc: QueryClient, threadId?: string) {
+  qc.invalidateQueries({ queryKey: ['threads'] });
+  qc.invalidateQueries({ queryKey: ['item-threads'] });
+  if (threadId) qc.invalidateQueries({ queryKey: correspondenceKeys.thread(threadId) });
+}

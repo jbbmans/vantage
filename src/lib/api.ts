@@ -249,3 +249,32 @@ export async function downloadFile(url: string, fallbackName: string) {
   setTimeout(() => URL.revokeObjectURL(link.href), 2000);
   return name;
 }
+
+// Correspondence -------------------------------------------------------
+export const listContacts = () => api.get('/correspondence/contacts');
+export const createContact = (body: Record<string, unknown>) => api.post('/correspondence/contacts', body);
+export const updateContact = (id: string, body: Record<string, unknown>) => api.put(`/correspondence/contacts/${encodeURIComponent(id)}`, body);
+export const listThreads = (params: Record<string, string | number | undefined | null> = {}) => api.get(`/correspondence/threads?${qs(params)}`);
+export const createThread = (body: Record<string, unknown>) => api.post('/correspondence/threads', body);
+export const threadDetail = (id: string) => api.get(`/correspondence/threads/${encodeURIComponent(id)}`);
+export const setThreadState = (id: string, body: Record<string, unknown>) => api.post(`/correspondence/threads/${encodeURIComponent(id)}/state`, body);
+export const addThreadMessage = (id: string, body: Record<string, unknown>) => api.post(`/correspondence/threads/${encodeURIComponent(id)}/messages`, body);
+export const linkThreadWork = (id: string, workItemIds: string[]) => api.post(`/correspondence/threads/${encodeURIComponent(id)}/links`, { work_item_ids: workItemIds });
+export const unlinkThreadWork = (id: string, workItemId: string) => request('DELETE', `/correspondence/threads/${encodeURIComponent(id)}/links/${encodeURIComponent(workItemId)}`);
+export const threadsForItem = (workItemId: string) => api.get(`/correspondence/items/${encodeURIComponent(workItemId)}/threads`);
+/** Sends the raw .eml bytes; placement travels in headers so the body stays the file itself. */
+export const importEmail = (file: File, opts: { threadId?: string | null; unitId: string | null; visibility: 'private' | 'unit'; contactId?: string | null; direction?: 'inbound' | 'outbound' }) =>
+  request('POST', '/correspondence/messages/import', file, {
+    headers: {
+      'content-type': 'message/rfc822',
+      'x-thread-id': opts.threadId || '',
+      'x-unit-id': opts.unitId || '',
+      'x-visibility': opts.visibility,
+      'x-contact-id': opts.contactId || '',
+      'x-direction': opts.direction || 'inbound',
+    },
+  });
+export const listConnectors = () => api.get('/correspondence/connectors');
+export const createConnector = (body: Record<string, unknown>) => api.post('/correspondence/connectors', body);
+export const connectorAuthorization = (id: string) => api.get(`/correspondence/connectors/${encodeURIComponent(id)}/authorization`);
+export const deleteConnector = (id: string) => request('DELETE', `/correspondence/connectors/${encodeURIComponent(id)}`);

@@ -16,6 +16,7 @@ import { authRouter } from './routes/auth.ts';
 import { meRouter } from './routes/me.ts';
 import { recordsRouter } from './routes/records.ts';
 import { workRouter } from './routes/work.ts';
+import { correspondenceRouter } from './routes/correspondence.ts';
 import { reconcileInterruptedJobs } from './services/intake.ts';
 import { orgRouter } from './routes/org.ts';
 import { miscRouter } from './routes/misc.ts';
@@ -107,7 +108,7 @@ export function createApp(ctx: AppContext) {
   });
 
   const json = express.json({ limit: '4mb' });
-  const RAW_BODY_PATHS = /^\/api\/(admin\/import|work\/sources$)/;
+  const RAW_BODY_PATHS = /^\/api\/(admin\/import|work\/sources$|correspondence\/messages\/import$)/;
   app.use((req, res, next) => (RAW_BODY_PATHS.test(req.path) ? next() : json(req, res, next)));
   app.use(cookieParser());
 
@@ -116,6 +117,7 @@ export function createApp(ctx: AppContext) {
   app.use('/api/me', meRouter);
   app.use('/api/records', recordsRouter);
   app.use('/api/work', workRouter);
+  app.use('/api/correspondence', correspondenceRouter);
   app.use('/api/org', orgRouter);
   app.use('/api', miscRouter);
   app.use('/api/admin', adminRouter);

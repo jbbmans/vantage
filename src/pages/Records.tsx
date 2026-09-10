@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, Download, Upload, Search, LayoutList, LayoutGrid, Lock, Users, AlertTriangle, RotateCcw } from 'lucide-react';
-import { PageHeader, Button, Input, Select, Segmented, EmptyState, Badge, Skeleton, Tooltip } from '@/components/ui/primitives';
+import { PageHeader, Panel, Button, Input, Select, Segmented, EmptyState, Badge, Skeleton, Tooltip } from '@/components/ui/primitives';
+import { AiAction, AiResult } from '@/components/AiPanel';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
@@ -43,6 +44,7 @@ export default function Records() {
   const [sort, setSort] = useState<Sort>('date');
   const [view, setView] = useState<'list' | 'cards'>(() => (window.innerWidth < 640 ? 'cards' : 'list'));
   const [editing, setEditing] = useState<ActivityDraft | null>(null);
+  const [coaching, setCoaching] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const [confirm, setConfirm] = useState<any>(null);
   const [importOpen, setImportOpen] = useParam('import');
 
@@ -111,8 +113,24 @@ export default function Records() {
           <Select aria-label="Sort" className="w-36" value={sort} onValueChange={(v) => setSort(v as Sort)} options={[{ value: 'date', label: 'Newest first' }, { value: 'value', label: 'Highest value' }, { value: 'strength', label: 'Strongest' }, { value: 'updated', label: 'Recently edited' }]} />
           <Segmented size="sm" label="Layout" value={view} onChange={setView} options={[{ value: 'list', label: <LayoutList className="h-4 w-4" />, ariaLabel: 'List' }, { value: 'cards', label: <LayoutGrid className="h-4 w-4" />, ariaLabel: 'Cards' }]} />
         </div>
-        <p className="mt-2 text-xs text-ink-3"><span className="fig font-medium text-ink">{filtered.length}</span> entries · <span className="fig">{formatDollars(metrics.totalDollars)}</span> summable · <span className="fig">{metrics.withOutcome}</span> with an outcome</p>
+        <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
+          <p className="text-xs text-ink-3"><span className="fig font-medium text-ink">{filtered.length}</span> entries · <span className="fig">{formatDollars(metrics.totalDollars)}</span> summable · <span className="fig">{metrics.withOutcome}</span> with an outcome</p>
+          {identity?.instance.aiEnabled && (
+            <AiAction workflow="record_quality" input={{ days: 180 }} label="Coach my entries" onResult={(output, meta) => setCoaching({ output, meta })} />
+          )}
+        </div>
       </div>
+
+      {coaching && (
+        <Panel
+          className="mb-4"
+          title="Which entries are weak"
+          subtitle="the last six months, with suggested rewrites; a coach, not a grader"
+          action={<Button size="xs" variant="ghost" onClick={() => setCoaching(null)}>Dismiss</Button>}
+        >
+          <AiResult output={coaching.output} meta={coaching.meta} />
+        </Panel>
+      )}
 
       {isPending ? <div className="space-y-2">{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-12" />)}</div> : filtered.length === 0 ? (
         <div className="card"><EmptyState icon={Search} title={quality === 'deleted' ? 'The recycle bin is empty' : rows?.length ? 'Nothing matches those filters' : 'No activities yet'} description={rows?.length ? 'Loosen a filter, or widen the period.' : 'Press N to log your first one, or import a spreadsheet.'} action={rows?.length ? <Button onClick={() => { setQ(''); setCategory('all'); setArea('all'); setQuality('all'); setOwner('all'); setPeriod('all'); }}>Clear filters</Button> : <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}>Log activity</Button>} /></div>
