@@ -1,5 +1,5 @@
 import {
-  Gauge, ListChecks, Briefcase, Target, GraduationCap, FileBarChart, Users, ScrollText, Activity, Sparkles, Settings2, ShieldCheck, LifeBuoy,
+  Gauge, ListChecks, Briefcase, Target, GraduationCap, FileBarChart, Users, ScrollText, Activity, Sparkles, Settings2, ShieldCheck, LifeBuoy, Inbox,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -24,7 +24,8 @@ export interface NavItem {
 
 export const NAV: NavItem[] = [
   { to: '/', label: 'Today', icon: Gauge, end: true, key: 'd', group: 'Work', hint: 'What needs you now' },
-  { to: '/work', label: 'Work', icon: Briefcase, key: 'w', group: 'Work', hint: 'Tasks, projects and cases' },
+  { to: '/queue', label: 'Queue', icon: Inbox, key: 'q', group: 'Work', hint: 'Imported work, and who is holding it' },
+  { to: '/work', label: 'Tasks', icon: Briefcase, key: 'w', group: 'Work', hint: 'Your tasks and projects' },
   { to: '/goals', label: 'Goals', icon: Target, key: 'g', group: 'Work', hint: 'Targets and how they are tracking' },
   { to: '/records', label: 'Records', icon: ListChecks, key: 'r', group: 'Record', hint: 'Every outcome you logged' },
   { to: '/reports', label: 'Reports', icon: FileBarChart, key: 'p', group: 'Record', hint: 'Build a package from the facts' },

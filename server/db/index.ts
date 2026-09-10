@@ -12,6 +12,9 @@ const SCHEMA = readFileSync(resolve(HERE, 'schema.sql'), 'utf8');
 /** Ordered migrations applied after the base schema. Keep each idempotent. */
 const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
   { id: 1, name: '001_initial', run: () => {} },
+  // The tables themselves are created by schema.sql, which runs with IF NOT EXISTS on every boot,
+  // so an existing database gains them without touching a single existing row.
+  { id: 2, name: '002_work_intake', run: () => {} },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 

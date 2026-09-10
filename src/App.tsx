@@ -15,6 +15,7 @@ import AppLoader from '@/components/AppLoader';
 const Records = lazy(() => import('@/pages/Records'));
 const RecordDetail = lazy(() => import('@/pages/RecordDetail'));
 const Work = lazy(() => import('@/pages/Work'));
+const Workbench = lazy(() => import('@/pages/Workbench'));
 const Goals = lazy(() => import('@/pages/Goals'));
 const Career = lazy(() => import('@/pages/Career'));
 const Readiness = lazy(() => import('@/pages/Readiness'));
@@ -95,6 +96,7 @@ export default function App() {
                 <Route path="records" element={<D><Records /></D>} />
                 <Route path="records/:id" element={<D><RecordDetail /></D>} />
                 <Route path="work" element={<D><Work /></D>} />
+                <Route path="queue" element={<D><Workbench /></D>} />
                 <Route path="goals" element={<D><Goals /></D>} />
                 <Route path="career" element={<D><Career /></D>} />
                 <Route path="readiness" element={<D><Readiness /></D>} />

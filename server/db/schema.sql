@@ -431,3 +431,131 @@ CREATE TABLE IF NOT EXISTS email_log (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_email_log_created ON email_log(created_at DESC);
+
+-- Phase 2: work intake ------------------------------------------------------
+-- An uploaded workbook, kept exactly as it arrived. Nothing here is ever rewritten:
+-- a reimport reads these bytes again rather than trusting a derived copy.
+CREATE TABLE IF NOT EXISTS source_files (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users(id),
+  unit_id      TEXT REFERENCES units(id),
+  visibility   TEXT NOT NULL DEFAULT 'unit' CHECK (visibility IN ('private', 'unit')),
+  filename     TEXT NOT NULL,
+  content_type TEXT NOT NULL,
+  kind         TEXT NOT NULL CHECK (kind IN ('xlsx', 'delimited')),
+  byte_size    INTEGER NOT NULL,
+  sha256       TEXT NOT NULL,
+  -- quarantined until a scan clears it; nothing is parsed for import while quarantined.
+  scan_status  TEXT NOT NULL DEFAULT 'quarantined' CHECK (scan_status IN ('quarantined', 'clean', 'rejected', 'skipped')),
+  scan_detail  TEXT,
+  scanner      TEXT,
+  scanned_at   TEXT,
+  notes        TEXT NOT NULL DEFAULT '[]',
+  content      BLOB NOT NULL,
+  deleted_at   TEXT,
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_source_files_user ON source_files(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_source_files_unit ON source_files(unit_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_source_files_sha ON source_files(sha256);
+
+-- One run of an import over one sheet of one source file. Survives a restart mid-run.
+CREATE TABLE IF NOT EXISTS import_jobs (
+  id              TEXT PRIMARY KEY,
+  source_file_id  TEXT NOT NULL REFERENCES source_files(id),
+  user_id         TEXT NOT NULL REFERENCES users(id),
+  unit_id         TEXT REFERENCES units(id),
+  visibility      TEXT NOT NULL DEFAULT 'unit' CHECK (visibility IN ('private', 'unit')),
+  sheet_name      TEXT NOT NULL,
+  header_row      INTEGER NOT NULL DEFAULT 1,
+  mapping         TEXT NOT NULL DEFAULT '{}',
+  key_columns     TEXT NOT NULL DEFAULT '[]',
+  status          TEXT NOT NULL DEFAULT 'pending' CHECK (status IN ('pending', 'running', 'completed', 'failed', 'cancelled')),
+  total_rows      INTEGER NOT NULL DEFAULT 0,
+  processed_rows  INTEGER NOT NULL DEFAULT 0,
+  inserted_rows   INTEGER NOT NULL DEFAULT 0,
+  updated_rows    INTEGER NOT NULL DEFAULT 0,
+  unchanged_rows  INTEGER NOT NULL DEFAULT 0,
+  rejected_rows   INTEGER NOT NULL DEFAULT 0,
+  rejections      TEXT NOT NULL DEFAULT '[]',
+  error           TEXT,
+  idempotency_key TEXT UNIQUE,
+  started_at      TEXT,
+  finished_at     TEXT,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_import_jobs_user ON import_jobs(user_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_import_jobs_source ON import_jobs(source_file_id);
+
+-- A normalized row of work. Its natural key comes verbatim from the source: never reconstructed,
+-- never padded, never re-derived from a truncated display value.
+CREATE TABLE IF NOT EXISTS work_items (
+  id              TEXT PRIMARY KEY,
+  unit_id         TEXT REFERENCES units(id),
+  owner_id        TEXT NOT NULL REFERENCES users(id),
+  visibility      TEXT NOT NULL DEFAULT 'unit' CHECK (visibility IN ('private', 'unit')),
+  source_file_id  TEXT REFERENCES source_files(id),
+  import_job_id   TEXT REFERENCES import_jobs(id),
+  natural_key     TEXT NOT NULL,
+  row_hash        TEXT NOT NULL,
+  source_row      INTEGER,
+  title           TEXT NOT NULL,
+  reference       TEXT,
+  due_date        TEXT,
+  amount          REAL,
+  amount_type     TEXT,
+  quantity        REAL,
+  unit_label      TEXT,
+  state           TEXT NOT NULL DEFAULT 'open' CHECK (state IN ('open', 'in_progress', 'waiting', 'resolved', 'not_applicable')),
+  data            TEXT NOT NULL DEFAULT '{}',
+  claimed_by      TEXT REFERENCES users(id),
+  claimed_at      TEXT,
+  resolved_at     TEXT,
+  -- set when a later import of the same key changed the source values under an in-flight claim
+  source_changed_at TEXT,
+  version         INTEGER NOT NULL DEFAULT 1,
+  deleted_at      TEXT,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_items_key ON work_items(unit_id, natural_key) WHERE deleted_at IS NULL;
+CREATE INDEX IF NOT EXISTS idx_work_items_unit_state ON work_items(unit_id, state, due_date);
+CREATE INDEX IF NOT EXISTS idx_work_items_claim ON work_items(claimed_by, state);
+CREATE INDEX IF NOT EXISTS idx_work_items_source ON work_items(source_file_id);
+
+-- Something a person did about a work item. This is the bridge from doing the work to the record of it.
+CREATE TABLE IF NOT EXISTS work_actions (
+  id              TEXT PRIMARY KEY,
+  work_item_id    TEXT NOT NULL REFERENCES work_items(id),
+  user_id         TEXT NOT NULL REFERENCES users(id),
+  unit_id         TEXT REFERENCES units(id),
+  kind            TEXT NOT NULL,
+  note            TEXT,
+  occurred_at     TEXT NOT NULL,
+  -- the measurable outcome this action produced, if any
+  quantity        REAL,
+  unit_label      TEXT,
+  dollar_amount   REAL,
+  dollar_type     TEXT,
+  -- the personal record drafted from this action, if the person kept it
+  activity_id     TEXT REFERENCES activities(id),
+  idempotency_key TEXT UNIQUE,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_work_actions_item ON work_actions(work_item_id, occurred_at DESC);
+CREATE INDEX IF NOT EXISTS idx_work_actions_user ON work_actions(user_id, occurred_at DESC);
+
+-- A saved arrangement of the workbench: filters, sort, columns.
+CREATE TABLE IF NOT EXISTS work_views (
+  id         TEXT PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id),
+  unit_id    TEXT REFERENCES units(id),
+  name       TEXT NOT NULL,
+  shared     INTEGER NOT NULL DEFAULT 0,
+  config     TEXT NOT NULL DEFAULT '{}',
+  created_at TEXT NOT NULL,
+  updated_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_work_views_user ON work_views(user_id);
+CREATE INDEX IF NOT EXISTS idx_work_views_unit ON work_views(unit_id, shared);

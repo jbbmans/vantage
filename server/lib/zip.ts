@@ -1,5 +1,5 @@
 /** A minimal ZIP writer (deflate, no encryption) so exports can bundle many files without another dependency. */
-import { deflateRawSync, crc32 } from 'node:zlib';
+import { deflateRawSync, inflateRawSync, crc32 } from 'node:zlib';
 
 export interface ZipEntry { name: string; data: Buffer | string; modified?: Date }
 
@@ -52,4 +52,67 @@ export function listZip(buf: Buffer): string[] {
     p += 46 + n + extra + comment;
   }
   return names;
+}
+
+export interface ZipRead { name: string; data: Buffer }
+
+/** Caps that keep a hostile archive from exhausting memory before we have looked at anything. */
+export interface ZipLimits { maxEntries?: number; maxEntryBytes?: number; maxTotalBytes?: number }
+
+export class ZipError extends Error {
+  constructor(message: string) { super(message); this.name = 'ZipError'; }
+}
+
+/**
+ * Reads a ZIP container. Deliberately minimal: it walks the central directory, refuses anything
+ * encrypted or oversized, and never writes to disk, so a malformed archive fails as a value
+ * rather than as a side effect.
+ */
+export function readZip(buf: Buffer, limits: ZipLimits = {}): Map<string, Buffer> {
+  const maxEntries = limits.maxEntries ?? 512;
+  const maxEntryBytes = limits.maxEntryBytes ?? 64 * 1024 * 1024;
+  const maxTotalBytes = limits.maxTotalBytes ?? 128 * 1024 * 1024;
+  const out = new Map<string, Buffer>();
+
+  const endIdx = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  if (endIdx < 0 || endIdx + 22 > buf.length) throw new ZipError('This is not a readable workbook. The archive has no directory.');
+  const count = buf.readUInt16LE(endIdx + 10);
+  if (count > maxEntries) throw new ZipError(`This workbook holds ${count} parts, more than the ${maxEntries} we will open.`);
+
+  let p = buf.readUInt32LE(endIdx + 16);
+  let total = 0;
+  for (let i = 0; i < count; i += 1) {
+    if (p + 46 > buf.length || buf.readUInt32LE(p) !== 0x02014b50) throw new ZipError('This workbook is damaged. Its directory does not line up.');
+    const flags = buf.readUInt16LE(p + 8);
+    const method = buf.readUInt16LE(p + 10);
+    const compressed = buf.readUInt32LE(p + 20);
+    const uncompressed = buf.readUInt32LE(p + 24);
+    const nameLen = buf.readUInt16LE(p + 28);
+    const extraLen = buf.readUInt16LE(p + 30);
+    const commentLen = buf.readUInt16LE(p + 32);
+    const localOffset = buf.readUInt32LE(p + 42);
+    const name = buf.subarray(p + 46, p + 46 + nameLen).toString('utf8');
+    p += 46 + nameLen + extraLen + commentLen;
+
+    if (flags & 0x1) throw new ZipError('This workbook is password protected. Remove the protection and upload it again.');
+    if (uncompressed > maxEntryBytes) throw new ZipError(`One part of this workbook expands to ${uncompressed} bytes, past the limit we will read.`);
+    total += uncompressed;
+    if (total > maxTotalBytes) throw new ZipError('This workbook expands past the size limit we will read.');
+    // A part naming a parent directory is never legitimate here and is the classic archive escape.
+    if (name.includes('..') || name.startsWith('/')) throw new ZipError(`This workbook contains an unsafe part name: ${name}`);
+
+    if (localOffset + 30 > buf.length || buf.readUInt32LE(localOffset) !== 0x04034b50) throw new ZipError('This workbook is damaged. A part header is missing.');
+    const localNameLen = buf.readUInt16LE(localOffset + 26);
+    const localExtraLen = buf.readUInt16LE(localOffset + 28);
+    const start = localOffset + 30 + localNameLen + localExtraLen;
+    const body = buf.subarray(start, start + compressed);
+    if (method === 0) out.set(name, Buffer.from(body));
+    else if (method === 8) {
+      let inflated: Buffer;
+      try { inflated = inflateRawSync(body, { maxOutputLength: maxEntryBytes }); }
+      catch { throw new ZipError(`This workbook could not be read. The part "${name}" did not decompress.`); }
+      out.set(name, inflated);
+    } else throw new ZipError(`This workbook uses a compression method we do not read (${method}).`);
+  }
+  return out;
 }

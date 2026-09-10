@@ -38,10 +38,14 @@ async function request<T = any>(method: string, path: string, body?: unknown, in
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {
-      method, credentials: 'same-origin',
-      headers: { ...(body instanceof Blob || body instanceof ArrayBuffer ? {} : { 'content-type': 'application/json' }), 'x-vantage-client': '1', ...(init.headers as Record<string, string> | undefined) },
-      body: body === undefined ? undefined : body instanceof Blob || body instanceof ArrayBuffer ? (body as BodyInit) : JSON.stringify(body),
+      // The caller's options come first, so the pieces below always win. Spreading init last used to
+      // replace the merged headers wholesale, which quietly dropped the client header this server
+      // requires on every write.
       ...init,
+      method,
+      credentials: 'same-origin',
+      headers: { ...(body instanceof Blob || body instanceof ArrayBuffer ? {} : { 'content-type': 'application/json' }), ...(init.headers as Record<string, string> | undefined), 'x-vantage-client': '1' },
+      body: body === undefined ? undefined : body instanceof Blob || body instanceof ArrayBuffer ? (body as BodyInit) : JSON.stringify(body),
     });
   } catch {
     throw new ApiError('Cannot reach the Vantage server. Check your connection.', 0, { code: 'offline' });
@@ -164,6 +168,32 @@ export const setOperator = (id: string, grant: boolean) => api.post(`/org/team/$
 
 // Reports, AI, MARADMINs, search --------------------------------------
 const qs = (params: Record<string, string | number | undefined | null>) => Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
+// Work intake and the workbench ---------------------------------------
+export const uploadSource = (file: File, opts: { unitId: string | null; visibility: 'private' | 'unit' }) =>
+  request('POST', '/work/sources', file, {
+    headers: {
+      'content-type': file.type || 'application/octet-stream',
+      'x-filename': file.name.replace(/[^\x20-\x7e]/g, '_').slice(0, 255),
+      'x-unit-id': opts.unitId || '',
+      'x-visibility': opts.visibility,
+    },
+  });
+export const listSources = () => api.get('/work/sources');
+export const inspectSource = (id: string) => api.get(`/work/sources/${encodeURIComponent(id)}`);
+export const previewImport = (plan: unknown) => api.post('/work/imports/preview', plan);
+export const runImport = (plan: unknown, idempotencyKey: string) => request('POST', '/work/imports', plan, { headers: { 'idempotency-key': idempotencyKey } });
+export const listImports = () => api.get('/work/imports');
+export const listWorkItems = (params: Record<string, string | number | undefined | null>) => api.get(`/work/items?${qs(params)}`);
+export const workItem = (id: string) => api.get(`/work/items/${encodeURIComponent(id)}`);
+export const claimWorkItem = (id: string, version: number) => api.post(`/work/items/${encodeURIComponent(id)}/claim`, { version });
+export const releaseWorkItem = (id: string, version: number) => api.post(`/work/items/${encodeURIComponent(id)}/release`, { version });
+export const patchWorkItem = (id: string, patch: Record<string, unknown>) => request('PATCH', `/work/items/${encodeURIComponent(id)}`, patch);
+export const recordWorkAction = (id: string, body: Record<string, unknown>, idempotencyKey: string) =>
+  request('POST', `/work/items/${encodeURIComponent(id)}/actions`, body, { headers: { 'idempotency-key': idempotencyKey } });
+export const listWorkViews = () => api.get('/work/views');
+export const saveWorkView = (body: Record<string, unknown>) => api.post('/work/views', body);
+export const deleteWorkView = (id: string) => request('DELETE', `/work/views/${encodeURIComponent(id)}`);
+
 export const metrics = (params: Record<string, string | number | undefined | null>) => api.get(`/metrics?${qs(params)}`);
 export const metricContributors = (params: Record<string, string | number | undefined | null>) => api.get(`/metrics/contributors?${qs(params)}`);
 export const report = (params: Record<string, string | number | undefined | null>) => api.get(`/reports?${qs(params)}`);

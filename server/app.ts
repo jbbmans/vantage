@@ -15,6 +15,8 @@ import { VERSION } from './version.ts';
 import { authRouter } from './routes/auth.ts';
 import { meRouter } from './routes/me.ts';
 import { recordsRouter } from './routes/records.ts';
+import { workRouter } from './routes/work.ts';
+import { reconcileInterruptedJobs } from './services/intake.ts';
 import { orgRouter } from './routes/org.ts';
 import { miscRouter } from './routes/misc.ts';
 import { adminRouter } from './routes/admin.ts';
@@ -38,6 +40,10 @@ export function createContext(config: AppConfig): AppContext {
     db.prepare(`UPDATE users SET is_operator = 1 WHERE lower(username) IN (${config.operatorUsernames.map(() => '?').join(',')})`).run(...config.operatorUsernames);
   }
   pruneSessions(ctx);
+  // An import that was mid-flight when the process stopped is closed out honestly rather than
+  // left pending forever. Its apply ran in one transaction, so nothing is half-written.
+  const interrupted = reconcileInterruptedJobs(ctx);
+  if (interrupted) console.warn(`Marked ${interrupted} interrupted import job(s) as failed.`);
   return ctx;
 }
 
@@ -101,13 +107,15 @@ export function createApp(ctx: AppContext) {
   });
 
   const json = express.json({ limit: '4mb' });
-  app.use((req, res, next) => (req.path === '/api/admin/import' ? next() : json(req, res, next)));
+  const RAW_BODY_PATHS = /^\/api\/(admin\/import|work\/sources$)/;
+  app.use((req, res, next) => (RAW_BODY_PATHS.test(req.path) ? next() : json(req, res, next)));
   app.use(cookieParser());
 
   app.get('/api/ranks', (_req, res) => res.json(ctx.db.prepare('SELECT id, grade, abbr, name, tier FROM ranks ORDER BY sort').all()));
   app.use('/api/auth', authRouter);
   app.use('/api/me', meRouter);
   app.use('/api/records', recordsRouter);
+  app.use('/api/work', workRouter);
   app.use('/api/org', orgRouter);
   app.use('/api', miscRouter);
   app.use('/api/admin', adminRouter);

@@ -1,3 +1,4 @@
+import { useEffect, useState } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
 
@@ -40,3 +41,21 @@ export const timeAgo = (iso?: string | null) => {
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
 export const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+
+/**
+ * Watches a media query. Used where a phone and a desktop need genuinely different markup rather
+ * than the same markup hidden with CSS: two copies of a list in the DOM is two copies a screen
+ * reader has to walk past.
+ */
+export function useMediaQuery(query: string): boolean {
+  const [matches, setMatches] = useState(() => (typeof window === 'undefined' ? false : window.matchMedia?.(query).matches ?? false));
+  useEffect(() => {
+    const media = window.matchMedia?.(query);
+    if (!media) return;
+    const onChange = () => setMatches(media.matches);
+    onChange();
+    media.addEventListener('change', onChange);
+    return () => media.removeEventListener('change', onChange);
+  }, [query]);
+  return matches;
+}

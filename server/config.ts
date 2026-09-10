@@ -19,6 +19,7 @@ export interface AppConfig {
   sessions: { idleMinutes: number; absoluteHours: number; maxActive: number; sudoMinutes: number };
   limits: { mutationsPer15Minutes: number; registrationsPer15Minutes: number; maxRecordsPerUser: number; maxDatabaseBytes: number };
   attachments: { enabled: boolean; maxBytes: number; maxPerRecord: number; allowedTypes: string[] };
+  intake: { enabled: boolean; maxBytes: number; maxRows: number; maxColumns: number; retainDays: number; scannerCommand: string | null };
   ai: {
     enabled: boolean; apiKey: string; baseUrl: string; models: string[]; defaultModel: string; maxOutputTokens: number; timeoutMs: number;
     requestsPerMinute: number; perUserRequestsPerMinute: number; dailyTokenBudget: number; perUserDailyTokens: number;
@@ -119,6 +120,15 @@ export function loadConfig(env = process.env): AppConfig {
       maxBytes: envNumber(env, 'VANTAGE_ATTACHMENT_MAX_BYTES', 10 * 1024 * 1024),
       maxPerRecord: envNumber(env, 'VANTAGE_ATTACHMENTS_PER_RECORD', 10),
       allowedTypes: ['application/pdf', 'image/jpeg', 'image/png', 'text/plain', 'text/csv'],
+    },
+    intake: {
+      enabled: envBool(env, 'VANTAGE_INTAKE_ENABLED', true),
+      maxBytes: envNumber(env, 'VANTAGE_INTAKE_MAX_BYTES', 25 * 1024 * 1024),
+      maxRows: envNumber(env, 'VANTAGE_INTAKE_MAX_ROWS', 20000),
+      maxColumns: envNumber(env, 'VANTAGE_INTAKE_MAX_COLUMNS', 128),
+      retainDays: envNumber(env, 'VANTAGE_INTAKE_RETAIN_DAYS', 400),
+      // A local scanner only. Vantage never uploads a file elsewhere to have it scanned.
+      scannerCommand: env.VANTAGE_SCANNER_COMMAND ? String(env.VANTAGE_SCANNER_COMMAND) : null,
     },
     ai: {
       enabled: envBool(env, 'VANTAGE_AI_ENABLED', false),
