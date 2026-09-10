@@ -1,5 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
+import { ingest, record, EVENTS } from '../services/telemetry.ts';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
@@ -24,6 +25,31 @@ import { zonedNow } from '../lib/clock.ts';
 
 export const miscRouter = Router();
 miscRouter.use(requireAuth);
+
+// Product events --------------------------------------------------------
+/**
+ * A batch of product events from the client. The actor is taken from the session, never from the
+ * body: a client that could name its own user could name somebody else's.
+ *
+ * A rejected event is not a failed request. Telemetry must never stand between a person and their
+ * work, so the response reports what was dropped and why, and the caller carries on regardless.
+ */
+miscRouter.post('/events', wrap((req, res) => {
+  const events = Array.isArray(req.body?.events) ? req.body.events : [];
+  const result = ingest(req.ctx, { id: req.user.id, sessionId: req.sessionId ?? null }, events, 'client');
+  res.status(202).json(result);
+}));
+
+/** The catalog, so a client can tell what it may send and an operator can see what is measured. */
+miscRouter.get('/events/catalog', wrap((_req, res) => {
+  res.json({
+    events: Object.entries(EVENTS).map(([name, spec]) => ({
+      name, family: spec.family, serverOnly: Boolean(spec.serverOnly),
+      properties: Object.entries(spec.properties).map(([key, p]) => ({ key, kind: p.kind, values: p.values || null })),
+      times: spec.times || [],
+    })),
+  });
+}));
 
 // Reports ---------------------------------------------------------------
 const reportQuery = z.object({
@@ -125,6 +151,7 @@ miscRouter.get('/studio/reports/:id/revisions/:revision/export.txt', wrap((req, 
   audit(req.ctx, { actor_id: req.user.id, action: 'export_report_revision', entity: 'report_revisions', entity_id: `${draft.id}:${revision}`, subject_id: draft.subject_id, unit_id: draft.unit_id, ip: clientIp(req) });
   res.setHeader('content-type', 'text/plain; charset=utf-8');
   res.setHeader('content-disposition', `attachment; filename="vantage-report-r${revision}.txt"`);
+  record(req.ctx, 'report.exported', { revision, format: 'txt' }, { id: req.user.id });
   res.send(text);
 }));
 

@@ -36,6 +36,21 @@
 - Per-user daily token limits and an instance budget. A key lock from the gateway pauses AI and notifies owners.
 - Nothing is written from an AI result without the user pressing save.
 
+## Correspondence and mailboxes
+
+- Message HTML is sanitized server-side from an allowlist before storage; scripts, handlers, and non-`http(s)`/`mailto`/`tel` links never survive.
+- Remote images are stripped rather than proxied. A tracking pixel would otherwise report when a Marine opened their mail, and from which network.
+- Mailbox connectors are read-only (`offline_access`, `User.Read`, `Mail.Read`) and name their national cloud explicitly. Delta sync keys on the provider's message ids, and a message deleted upstream never deletes the local record of the work.
+- Live syncing is not wired to a token flow in this build. The authorization plan is shown before anything is authorized, and an unauthorized sync says so rather than reporting an empty mailbox.
+
+## Product analytics
+
+- The event catalog is closed. A client can only send names and properties declared in `server/services/telemetry.ts`; anything else is dropped with a reason.
+- No property can hold free text. Values are numbers, booleans, or one of a fixed set of words, so passwords, keystrokes, cancelled drafts, email bodies, and workbook cells have nowhere to go.
+- The actor is taken from the session, never from the request body, and a client cannot raise an event the server is responsible for.
+- The Owner role grants no privilege over privacy here: the console reports counts and distributions only, and withholds any breakdown fewer than three people produced.
+- Events are retained for a bounded window and can be pruned from the console.
+
 ## Threats considered
 
 | Threat | Mitigation |
@@ -48,3 +63,8 @@
 | Malicious upload | Type sniffing, size cap, attachment disposition, no inline render |
 | Prompt injection via records | Data labeled untrusted; no tool access; output is a draft |
 | Disk full | Write refusal near the size threshold; backups from the console |
+| Tracking pixel in imported mail | Remote images stripped, never fetched; the reader is told |
+| Script in an email body | Allowlist sanitizer; scripts and handlers dropped before storage |
+| Reading a government mailbox from the wrong cloud | The national cloud is declared, never inferred from an address |
+| Content leaking into analytics | Closed catalog with scalar-only properties; undeclared values dropped |
+| De-anonymizing a small cohort | Breakdowns under three contributors withheld |

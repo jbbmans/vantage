@@ -1,5 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { installTelemetry, track } from '@/lib/telemetry';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Bell, ChevronsLeft, ChevronsRight, CloudOff, Command, LogOut, Menu as MenuIcon, Moon, Plus, RefreshCw, Search, Sun, WifiOff, X } from 'lucide-react';
 import { NAV, NAV_GROUPS } from '@/config/nav';
@@ -81,12 +82,27 @@ function NotificationBell({ onNavigate }: { onNavigate: (to: string) => void }) 
   );
 }
 
+/** Which destination a path belongs to, as one of the words the event catalog allows. */
+function surfaceOf(pathname: string): string {
+  const segment = pathname.split('/')[1] || '';
+  const map: Record<string, string> = {
+    '': 'dashboard', records: 'records', queue: 'queue', work: 'tasks', goals: 'goals',
+    correspondence: 'correspondence', studio: 'studio', reports: 'reports', career: 'career',
+    readiness: 'readiness', team: 'team', settings: 'settings', operator: 'operator', help: 'help',
+  };
+  return map[segment] || 'dashboard';
+}
+
 export default function AppShell() {
   const toast = useToast();
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
   const savePrefs = useSavePrefs();
   const location = useLocation();
+
+  // Which destinations get used, and whether people come back. Paths only, never their ids.
+  useEffect(() => { installTelemetry(); track('session.started', { returning: document.referrer.includes(window.location.host) }); }, []);
+  useEffect(() => { track('surface.viewed', { surface: surfaceOf(location.pathname) }); }, [location.pathname]);
   const navigate = useNavigate();
   const online = useOnline();
   const userId = identity?.user.id;

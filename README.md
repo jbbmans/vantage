@@ -12,6 +12,11 @@ Vantage 5 is a ground-up rewrite: TypeScript end to end, a fresh schema, passkey
 - **Quick Log.** Press `N`, type "Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday". Vantage extracts the date, quantity, dollars, system, category, and evaluation area. Works offline; entries queue on the device and sync later.
 - **Records.** Filter by period, category, area, and quality (missing outcome, untagged, duplicates). Edit, attach evidence files, restore from a 30-day recycle bin.
 - **Reports.** Section I narrative to the character limit, bullet package by area, period-over-period comparison, PDF and CSV export. JEPES for E-1 to E-4, FITREP for E-5 and up, switchable.
+- **Queue.** Bring a spreadsheet in and the rows become work a team can hold: sort, filter, claim, act, and have the action write your own record. The original workbook is never modified, and reimporting the same file changes nothing.
+- **Correspondence.** The emails behind the work, linked to the work they are about. A reply, the knowledge you asked for, and a closed matter are three separate facts with three separate dates. Import saved `.eml` files, or connect a Microsoft 365 mailbox read-only, in the national cloud you name.
+- **Report Studio.** Write a package against the records it cites. Every save re-reads those records inside the same transaction and refuses if one changed, so an exported revision is provably what was reviewed.
+- **AI where the work is.** Drafting help sits on the page you are working on rather than in a separate destination, and every result says what it cost. Nothing is saved without you pressing save.
+- **Usage and reliability.** The Owner console reports whether the product is working: adoption, where captures are abandoned, import conversion, failures. It reports counts across people, never a person's row, and it cannot hold anything anyone typed.
 - **Work, Goals, Career.** Tasks and projects, goals that update themselves from the log, training hours, award pipeline from recommendation to presentation, counselings with acknowledgement.
 - **Readiness.** JEPES pillars or FITREP attribute coverage, plus ranked coaching on where the points are, with citations to the governing orders.
 - **Team.** Roster, unit dashboard built from shared entries only, roles with per-unit permissions, invitations by link or email, access log.

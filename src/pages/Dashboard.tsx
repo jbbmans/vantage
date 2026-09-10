@@ -244,7 +244,7 @@ export default function Dashboard() {
             className="mt-4"
             title="Where do I stand?"
             subtitle="reads your own entries, goals and open tasks for this period; nobody else's"
-            action={<AiAction workflow="personal_review" input={{ days: 90 }} label="Review my record" onResult={(output, meta) => setReview({ output, meta })} />}
+            action={<AiAction workflow="personal_review" surface="dashboard" input={{ days: 90 }} label="Review my record" onResult={(output, meta) => setReview({ output, meta })} />}
           >
             {review
               ? <AiResult output={review.output} meta={review.meta} />

@@ -1,4 +1,5 @@
-import { useContext, useEffect, useMemo, useState } from 'react';
+import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { captureTimer, track as trackEvent } from '@/lib/telemetry';
 import { format } from 'date-fns';
 import { ChevronDown, Sparkles, WifiOff, Zap } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
@@ -31,6 +32,14 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, unknown>>({});
+  const [aiUsed, setAiUsed] = useState(false);
+  // One timer per opening. How a capture ended is the most useful thing this app can learn about
+  // itself, and it is a state, never the words the person had typed.
+  const capture = useRef<ReturnType<typeof captureTimer> | null>(null);
+  useEffect(() => {
+    if (open) { capture.current = captureTimer('quick_log'); setAiUsed(false); }
+    return () => { capture.current?.abandoned('closed_immediately'); capture.current = null; };
+  }, [open]);
   const key = draftKey(identity?.user.id, 'quicklog');
 
   useEffect(() => {
@@ -65,11 +74,23 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
   });
 
   const save = async () => {
-    if (!record?.title?.trim()) { toast.error('Give the entry a title before saving.'); return; }
+    if (!record?.title?.trim()) {
+      capture.current?.abandoned('validation_blocked', { fields_filled: record ? Object.values(record).filter(Boolean).length : 0, had_measure: false });
+      capture.current = captureTimer('quick_log');
+      toast.error('Give the entry a title before saving.');
+      return;
+    }
     setSaving(true);
     const body = payload()!;
     try {
       await create.mutateAsync(body);
+      capture.current?.completed({
+        had_measure: body.quantity != null || body.dollar_amount != null,
+        had_outcome: Boolean(record.result),
+        ai_assisted: aiUsed,
+        source: aiUsed ? 'ai_draft' : 'manual',
+      });
+      capture.current = null;
       toast.success('Activity logged.');
       writeDraft(key, null);
       onOpenChange(false);
@@ -79,7 +100,11 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
         toast.info('You are offline. The entry is queued and will sync when the connection returns.');
         writeDraft(key, null);
         onOpenChange(false);
-      } else toast.error(`${errorText(err)} Your text is kept here.`);
+      } else {
+        capture.current?.abandoned('save_failed');
+        capture.current = captureTimer('quick_log');
+        toast.error(`${errorText(err)} Your text is kept here.`);
+      }
     } finally { setSaving(false); }
   };
 
@@ -93,6 +118,8 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     if (valueType(out.dollar_type, cfg)) next.dollar_type = out.dollar_type;
     setOverrides((o) => ({ ...o, ...next }));
     setExpanded(true);
+    setAiUsed(true);
+    trackEvent('ai.accepted', { workflow: 'quick_log', edited: false });
   };
 
   const s = record ? strength(record) : 0;
@@ -116,7 +143,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
           <>
             <div className="flex flex-wrap items-center gap-2">
               <span className="flex flex-wrap items-center gap-1.5"><Zap className="h-3.5 w-3.5 text-accent" />{parsed.inferred.map((chip) => <Badge key={chip} tone="accent">{chip}</Badge>)}</span>
-              <span className="ml-auto flex items-center gap-2"><ModelPicker className="h-8 w-44 text-xs" /><AiAction workflow="quick_log" input={{ text }} label="Extract with AI" onResult={applyAi} /></span>
+              <span className="ml-auto flex items-center gap-2"><ModelPicker className="h-8 w-44 text-xs" /><AiAction workflow="quick_log" surface="quick_log" input={{ text }} label="Extract with AI" onResult={applyAi} /></span>
             </div>
             <div className="card p-4">
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

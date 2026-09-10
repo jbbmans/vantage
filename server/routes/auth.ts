@@ -10,6 +10,7 @@ import { requireAuth } from '../auth/middleware.ts';
 import { issueToken, consumeToken, peekToken, revokeTokens } from '../auth/tokens.ts';
 import { verifyTotp } from '../auth/totp.ts';
 import { authenticationOptions, completeAuthentication } from '../auth/passkeys.ts';
+import { record } from '../services/telemetry.ts';
 import { audit } from '../services/audit.ts';
 import { layout } from '../services/email.ts';
 import { newId, now } from '../lib/ids.ts';
@@ -204,8 +205,13 @@ authRouter.post('/sudo', requireAuth, wrap((req, res) => {
   const ctx = req.ctx;
   const { password } = parse(z.object({ password: z.string().max(512) }), req.body);
   const row = ctx.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id) as { password_hash: string };
-  if (!verifyPassword(password, row.password_hash)) { limiters.loginUser.bump(req.user.username); throw forbidden('Current password is incorrect.', 'bad_password'); }
+  if (!verifyPassword(password, row.password_hash)) {
+    limiters.loginUser.bump(req.user.username);
+    record(ctx, 'security.step_up', { granted: false, method: 'password' }, { id: req.user.id });
+    throw forbidden('Current password is incorrect.', 'bad_password');
+  }
   const until = grantSudo(ctx, req.sessionId);
+  record(ctx, 'security.step_up', { granted: true, method: 'password' }, { id: req.user.id });
   res.json({ ok: true, until });
 }));
 

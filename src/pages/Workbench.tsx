@@ -13,6 +13,7 @@ import { useIdentity, useMetrics, useItemThreads, useThreads, invalidateCorrespo
 import * as api from '@/lib/api';
 import { formatDollars, formatNumber } from '../../shared/metrics';
 import { cn, todayIso, useMediaQuery } from '@/lib/utils';
+import { track } from '@/lib/telemetry';
 
 /**
  * The workbench: the rows of work a team is holding, arranged so a person can move through them
@@ -186,6 +187,7 @@ export default function Workbench() {
   const saveCurrentView = async () => {
     try {
       await api.saveWorkView({ name: viewName, config: { state: query.state, claimed: query.claimed, q: query.q, sort: query.sort, direction: query.direction, unit_id: query.unit_id } });
+      track('work.view_saved', { filters: [query.state, query.claimed, query.q, query.unit_id].filter(Boolean).length });
       toast.success('View saved.');
       setSaveViewOpen(false); setViewName('');
       qc.invalidateQueries({ queryKey: ['work-views'] });

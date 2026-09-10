@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, ArrowLeft, Check, Download, FileText, History, Plus, ShieldCheck, X } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Textarea, Select, Badge, EmptyState, Skeleton, Panel } from '@/components/ui/primitives';
@@ -7,6 +7,7 @@ import { useToast } from '@/components/ui/toast';
 import { DateText } from '@/components/common';
 import { useIdentity, useReportDrafts, useReportDraft } from '@/lib/queries';
 import { AiAction, AiResult } from '@/components/AiPanel';
+import { editorClock, track } from '@/lib/telemetry';
 import * as api from '@/lib/api';
 import { formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
 import { cn } from '@/lib/utils';
@@ -108,6 +109,9 @@ function DraftList({ onOpen }: { onOpen: (id: string) => void }) {
 
 function Editor({ id, onBack }: { id: string; onBack: () => void }) {
   const { data: identity } = useIdentity();
+  // Two times, kept apart: how long the editor was open, and an estimate of active editing. Neither
+  // is time worked, and neither is ever added to the other.
+  const clock = useRef(editorClock());
   const toast = useToast();
   const qc = useQueryClient();
   const query = useReportDraft(id);
@@ -193,6 +197,13 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
       setNote('');
       qc.invalidateQueries({ queryKey: ['report-draft', id] });
       qc.invalidateQueries({ queryKey: ['report-drafts'] });
+      // The server counts the revision itself. This carries the two times only it could know.
+      track('editor.session', {
+        surface: 'studio',
+        sections: sections.length,
+        characters: sections.reduce((n, sec) => n + sec.body.length, 0),
+        saved: true,
+      }, clock.current.read());
       toast.success('Saved as a new revision.');
     } catch (e) {
       const err = e as api.ApiError;
@@ -268,6 +279,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
                   {identity?.instance.aiEnabled && (
                     <AiAction
                       workflow="writing"
+                      surface="studio"
                       input={{ kind: 'executive_summary', source: `Section: ${section.heading}\n${citedFacts}`, limit: 1600 }}
                       label="Draft from the cited records"
                       disabled={chosen.length === 0}
@@ -282,7 +294,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
                 aria-label={`${section.heading} text`}
                 rows={Math.max(4, Math.ceil(section.body.length / 90))}
                 value={section.body}
-                onChange={(e) => setSections((prev) => prev.map((s, i) => (i === index ? { ...s, body: e.target.value } : s)))}
+                onChange={(e) => { clock.current.beat(); setSections((prev) => prev.map((s, i) => (i === index ? { ...s, body: e.target.value } : s))); }}
                 placeholder="Write what changed because of the work, in the units it was measured in."
               />
               <p className="mt-1 text-2xs text-ink-3">{section.body.length.toLocaleString()} characters</p>

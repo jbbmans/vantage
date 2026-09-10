@@ -36,6 +36,8 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
   },
   // Correspondence tables come from schema.sql, which is safe to replay.
   { id: 4, name: '004_correspondence', run: () => {} },
+  // The product_events table comes from schema.sql, which is safe to replay.
+  { id: 5, name: '005_product_events', run: () => {} },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 

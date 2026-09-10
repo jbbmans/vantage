@@ -422,6 +422,7 @@ function ThreadDetail({ id, onClose }: { id: string | null; onClose: () => void 
                 <Button variant="primary" size="sm" loading={busy} disabled={!reply.trim()} onClick={send}><Send className="h-3.5 w-3.5" />Record message</Button>
                 <AiAction
                   workflow="writing"
+                  surface="correspondence"
                   input={{ kind: 'email', source: `Subject: ${thread.subject}\n${reply}`, audience: detail.data?.contact ? `${detail.data.contact.name}${detail.data.contact.organization ? `, ${detail.data.contact.organization}` : ''}` : undefined, limit: 1200 }}
                   label="Draft this email"
                   disabled={!reply.trim()}

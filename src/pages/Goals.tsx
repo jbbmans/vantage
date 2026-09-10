@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { Plus, Target, Sparkles, Info, ArrowRight } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, Progress, NumberInput, Segmented, Skeleton } from '@/components/ui/primitives';
@@ -7,6 +7,7 @@ import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { AiAction } from '@/components/AiPanel';
+import { track } from '@/lib/telemetry';
 import { DateText, StatusBadge, onText } from '@/components/common';
 import { useDeleteRecord, useGoals, useIdentity, usePrefs, useMetrics, useGoalContributors, useMetricsReport } from '@/lib/queries';
 import * as api from '@/lib/api';
@@ -276,6 +277,8 @@ function toDraft(g: any): GoalDraft {
 
 function WhatCounted({ goal, onClose }: { goal: any; onClose: () => void }) {
   const query = useGoalContributors(goal.id);
+  // Whether people open a goal to see what counted toward it. The count, never the outcomes.
+  useEffect(() => { if (query.data) track('goal.inspected', { contributors: query.data.length }); }, [query.data]);
   const rows = query.data || [];
   const money = String(goal.metric_id || '').startsWith('money:');
   const sum = rows.reduce((n, r) => n + r.value, 0);

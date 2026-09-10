@@ -278,3 +278,11 @@ export const listConnectors = () => api.get('/correspondence/connectors');
 export const createConnector = (body: Record<string, unknown>) => api.post('/correspondence/connectors', body);
 export const connectorAuthorization = (id: string) => api.get(`/correspondence/connectors/${encodeURIComponent(id)}/authorization`);
 export const deleteConnector = (id: string) => request('DELETE', `/correspondence/connectors/${encodeURIComponent(id)}`);
+
+// Product events -------------------------------------------------------
+/** Fire-and-forget. keepalive lets a batch finish after the page is gone. */
+export const sendEvents = (events: unknown[], keepalive = false) =>
+  request('POST', '/events', { events }, keepalive ? { keepalive: true } : {});
+export const eventCatalog = () => api.get('/events/catalog');
+export const adminUsage = (params: Record<string, string | number | undefined | null>) => api.get(`/admin/usage?${qs(params)}`);
+export const adminPruneEvents = (olderThanDays: number) => api.post('/admin/usage/prune', { older_than_days: olderThanDays });

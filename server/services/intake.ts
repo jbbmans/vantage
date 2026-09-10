@@ -2,6 +2,7 @@ import { createHash } from 'node:crypto';
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
 import { can, isMember, PERMISSIONS } from '../authz/scope.ts';
+import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { readWorkbook, readDelimited, sniffDelimiter, WorkbookError } from '../lib/workbook.ts';
@@ -91,6 +92,12 @@ export async function uploadSource(
   ctx.db.prepare('UPDATE source_files SET scan_status = ?, scan_detail = ?, scanner = ?, scanned_at = ? WHERE id = ?')
     .run(verdict.verdict, verdict.detail, verdict.scanner, now(), id);
 
+  // The shape of the file and what the scanner said. Never the filename, which can carry a case number.
+  record(ctx, 'import.uploaded', {
+    format: kind === 'xlsx' ? 'xlsx' : kind === 'delimited' ? 'csv' : 'other',
+    bytes: input.buffer.length,
+    scan: verdict.verdict === 'clean' ? 'clean' : verdict.verdict === 'rejected' ? 'infected' : verdict.verdict === 'skipped' ? 'skipped' : 'error',
+  }, { id: user.id });
   return getSource(ctx, id)!;
 }
 
@@ -437,6 +444,14 @@ export function runImport(
     throw e;
   }
 
+  record(ctx, 'import.committed', {
+    inserted: preview.will_insert.length,
+    updated: preview.will_update.length,
+    unchanged: preview.unchanged,
+    rejected: preview.rejections.length,
+    // An import that changed nothing is the same spreadsheet again, which is worth telling apart.
+    reimport: preview.will_insert.length === 0 && preview.total_rows > 0,
+  }, { id: user.id });
   return ctx.db.prepare('SELECT * FROM import_jobs WHERE id = ?').get(jobId) as ImportJobRow;
 }
 

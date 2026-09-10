@@ -19,9 +19,38 @@ import { newId, now } from '../lib/ids.ts';
 import { layout } from '../services/email.ts';
 import { runDigestTick } from '../services/digest.ts';
 import { RECORD_TABLE_NAMES } from '../services/records.ts';
+import { usageReport, pruneEvents, MIN_COHORT } from '../services/usage.ts';
+import { EVENTS } from '../services/telemetry.ts';
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireOperator, requireSudo);
+
+// Usage and reliability --------------------------------------------------
+const usageQuery = z.object({ from: z.string().max(10).optional(), to: z.string().max(10).optional(), days: z.coerce.number().int().min(1).max(400).optional() });
+
+/**
+ * What the product is doing, in aggregate. Owner is a role over an instance, not over the people in
+ * it: this returns counts and distributions, never a person's row, and withholds any breakdown too
+ * few people produced.
+ */
+adminRouter.get('/usage', wrap((req, res) => {
+  const q = parse(usageQuery, req.query);
+  const days = q.days ?? 30;
+  const to = q.to || now().slice(0, 10);
+  const from = q.from || new Date(Date.parse(`${to}T00:00:00Z`) - (days - 1) * 86_400_000).toISOString().slice(0, 10);
+  res.json({
+    report: usageReport(req.ctx, { from, to }),
+    minimumCohort: MIN_COHORT,
+    catalogSize: Object.keys(EVENTS).length,
+  });
+}));
+
+/** Trims events past the retention window. Analytics steer a product; they are not a memory. */
+adminRouter.post('/usage/prune', wrap((req, res) => {
+  const removed = pruneEvents(req.ctx, Number(req.body?.older_than_days) || 400);
+  audit(req.ctx, { actor_id: req.user.id, action: 'prune_events', entity: 'product_events', detail: `${removed} removed`, ip: clientIp(req) });
+  res.json({ removed });
+}));
 
 adminRouter.get('/overview', wrap((req, res) => {
   const { db } = req.ctx;

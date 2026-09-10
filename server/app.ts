@@ -17,6 +17,8 @@ import { meRouter } from './routes/me.ts';
 import { recordsRouter } from './routes/records.ts';
 import { workRouter } from './routes/work.ts';
 import { correspondenceRouter } from './routes/correspondence.ts';
+import { record } from './services/telemetry.ts';
+import { pruneEvents } from './services/usage.ts';
 import { reconcileInterruptedJobs } from './services/intake.ts';
 import { orgRouter } from './routes/org.ts';
 import { miscRouter } from './routes/misc.ts';
@@ -124,12 +126,29 @@ export function createApp(ctx: AppContext) {
 
   app.use('/api', (_req, res) => res.status(404).json({ error: 'No such API route.', code: 'not_found' }));
 
+  /**
+   * Which part of the API a path belongs to, for reliability reporting. A fixed set of words rather
+   * than the path itself: a path can carry an id, and an id is not something analytics may hold.
+   */
+  const routeFamily = (path: string): string => {
+    const segment = path.replace(/^\/api\//, '').split('/')[0] || 'other';
+    const known = ['records', 'work', 'correspondence', 'studio', 'metrics', 'reports', 'org', 'auth', 'admin', 'ai'];
+    if (segment === 'imports') return 'imports';
+    return known.includes(segment) ? segment : 'other';
+  };
+
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
-    if (err instanceof HttpError) return sendError(res, err);
+    if (err instanceof HttpError) {
+      // A refusal is a security fact worth counting: which surface, never who or what they asked for.
+      if (err.status === 403) record(ctx, 'security.authorization_denied', { route: routeFamily(req.path) });
+      if (err.status >= 500) record(ctx, 'reliability.request_failed', { status: err.status, route: routeFamily(req.path) });
+      return sendError(res, err);
+    }
     const e = err as { type?: string; status?: number; message?: string };
     if (e?.type === 'entity.too.large') return res.status(413).json({ error: 'Request body is too large.', code: 'too_large' });
     if (e?.type === 'entity.parse.failed') return res.status(400).json({ error: 'The request body is not valid JSON.', code: 'bad_json' });
     console.error('Unhandled request error:', err);
+    record(ctx, 'reliability.request_failed', { status: 500, route: routeFamily(req.path) });
     return res.status(500).json({ error: 'The server could not complete that request.', code: 'server_error' });
   });
 
@@ -146,6 +165,8 @@ export function startSchedulers(ctx: AppContext) {
   const every = (ms: number, fn: () => void) => { const t = setInterval(fn, ms); t.unref?.(); timers.push(t); };
   every(15 * 60_000, () => { pruneLimiters(); try { pruneSessions(ctx); } catch {} });
   every(6 * 60 * 60_000, () => { try { const r = purgeDeleted(ctx); if (r.records) console.log(`${now()} purged ${r.records} records from the recycle bin`); } catch (e) { console.warn(`Purge failed: ${(e as Error).message}`); } });
+  // Analytics steer a product; they are not a memory. Anything past the window goes on its own.
+  every(24 * 60 * 60_000, () => { try { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); } catch (e) { console.warn(`Event prune failed: ${(e as Error).message}`); } });
   if (!ctx.config.test) {
     // Registered whether or not the feed is on: syncMaradmins is a no-op while the runtime switch is off, so enabling it later starts refreshes without a restart.
     const run = () => syncMaradmins(ctx).catch((e: Error) => console.warn(`MARADMIN refresh skipped: ${e.message}`));

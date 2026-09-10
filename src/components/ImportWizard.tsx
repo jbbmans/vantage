@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { track } from '@/lib/telemetry';
 import { AlertTriangle, ArrowRight, Check, FileSpreadsheet, ShieldAlert, ShieldCheck, Upload } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Field, Select, Badge, Skeleton, EmptyState, NumberInput } from '@/components/ui/primitives';
@@ -48,6 +49,17 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
   const [job, setJob] = useState<any>(null);
   const [unitId, setUnitId] = useState(identity?.primaryUnitId || '');
   const [runKey] = useState(() => `import-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
+  const openedAt = useRef(0);
+  const stepRef = useRef<Step>('file');
+  const finished = useRef(false);
+  useEffect(() => { openedAt.current = Date.now(); }, []);
+  useEffect(() => { stepRef.current = step; }, [step]);
+  // Where people give up on an import is the whole point of measuring it. The step, never the file.
+  useEffect(() => () => {
+    if (finished.current || stepRef.current === 'done') return;
+    const where = stepRef.current === 'file' ? 'at_upload' : stepRef.current === 'sheet' || stepRef.current === 'mapping' ? 'at_mapping' : 'at_preview';
+    track('import.abandoned', { state: where }, { form_ms: Date.now() - openedAt.current });
+  }, []);
 
   const sheet = useMemo(() => (inspection?.sheets || []).find((s: any) => s.name === sheetName) || inspection?.sheets?.[0], [inspection, sheetName]);
   const headers: string[] = useMemo(() => {
@@ -99,7 +111,17 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
 
   const runPreview = async () => {
     setBusy(true);
-    try { setPreview(await api.previewImport(plan())); setStep('preview'); }
+    try {
+      const result = await api.previewImport(plan());
+      setPreview(result);
+      setStep('preview');
+      track('import.previewed', {
+        rows: result.total_rows || 0,
+        mapped_columns: Object.keys(mapping).length,
+        unmapped_columns: Math.max(0, (inspection?.sheets?.find((x: any) => x.name === sheetName)?.columns?.length || 0) - Object.keys(mapping).length),
+        damaged_identifiers: (result.rejections || []).filter((r: any) => /digits|scientific|rounded/i.test(String(r.reason || ''))).length,
+      });
+    }
     catch (e) { toast.error(api.errorText(e)); }
     finally { setBusy(false); }
   };
@@ -108,9 +130,13 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
     setBusy(true);
     try {
       const result = await api.runImport(plan(), runKey);
+      finished.current = true;
       setJob(result);
       setStep('done');
-    } catch (e) { toast.error(api.errorText(e)); }
+    } catch (e) {
+      track('import.abandoned', { state: 'save_failed' }, { form_ms: Date.now() - openedAt.current });
+      toast.error(api.errorText(e));
+    }
     finally { setBusy(false); }
   };
 

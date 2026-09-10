@@ -1,4 +1,5 @@
 import type { AppContext, SessionUser } from '../context.ts';
+import { record } from './telemetry.ts';
 import { badRequest, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { parseAddresses, type ParsedEmail } from '../lib/eml.ts';
@@ -226,6 +227,7 @@ export async function syncMailbox(
   } catch (e) {
     ctx.db.prepare("UPDATE connectors SET status = 'error', last_error = ?, updated_at = ? WHERE id = ?")
       .run(String((e as Error).message).slice(0, 500), now(), connector.id);
+    record(ctx, 'correspondence.sync', { cloud: connector.cloud, stored: result.stored, skipped: result.skipped, pages: result.pages, failed: true }, { id: user.id });
     throw e;
   }
 
@@ -237,6 +239,8 @@ export async function syncMailbox(
   } else {
     ctx.db.prepare('UPDATE connectors SET last_sync_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), connector.id);
   }
+  // How much a mailbox brought in, and from which cloud. No subject, no address, no body.
+  record(ctx, 'correspondence.sync', { cloud: connector.cloud, stored: result.stored, skipped: result.skipped, pages: result.pages, failed: false }, { id: user.id });
   return result;
 }
 

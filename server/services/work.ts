@@ -1,6 +1,7 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
 import { can, isMember, PERMISSIONS } from '../authz/scope.ts';
+import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
@@ -159,6 +160,7 @@ export function claimItem(ctx: AppContext, user: SessionUser, scope: Scope, id: 
     ctx.db.prepare(
       `UPDATE work_items SET claimed_by = ?, claimed_at = ?, state = CASE WHEN state = 'open' THEN 'in_progress' ELSE state END, version = version + 1, updated_at = ? WHERE id = ?`
     ).run(user.id, at, at, id);
+    record(ctx, 'work.claimed', { bulk: false, count: 1 }, { id: user.id });
     return hydrate(reload(ctx, id));
   })();
 }
@@ -174,6 +176,7 @@ export function releaseItem(ctx: AppContext, user: SessionUser, scope: Scope, id
     ctx.db.prepare(
       `UPDATE work_items SET claimed_by = NULL, claimed_at = NULL, state = CASE WHEN state = 'in_progress' THEN 'open' ELSE state END, version = version + 1, updated_at = ? WHERE id = ?`
     ).run(at, id);
+    record(ctx, 'work.released', { held_hours: row.claimed_at ? Math.max(0, (Date.parse(at) - Date.parse(row.claimed_at)) / 3_600_000) : 0 }, { id: user.id });
     return hydrate(reload(ctx, id));
   })();
 }
@@ -296,6 +299,8 @@ export function recordAction(
     }
 
     const action = ctx.db.prepare('SELECT * FROM work_actions WHERE id = ?').get(actionId) as Record<string, unknown>;
+    // A replayed action returns above without reaching here, so retries never count twice.
+    record(ctx, 'work.action_recorded', { kind, drafted_record: Boolean(activityId), resolved: Boolean(input.resolve || kind === 'resolved') }, { id: user.id });
     return { action, item: hydrate(reload(ctx, itemId)), activity_id: activityId, replayed: false };
   })();
 }

@@ -1,4 +1,5 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
+import { captureTimer } from '@/lib/telemetry';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
@@ -23,22 +24,45 @@ export default function RecordDialog<T extends Record<string, any>>({ store, ope
   const [conflict, setConflict] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   useEffect(() => { if (open) { setDraft(initial); setErrors({}); setConflict(null); } }, [open, initial]);
+  // The funnel for the full forms, same shape as Quick Log: how it ended, never what was in it.
+  const capture = useRef<ReturnType<typeof captureTimer> | null>(null);
+  useEffect(() => {
+    if (open) capture.current = captureTimer('record_form');
+    return () => { capture.current?.abandoned('closed_immediately'); capture.current = null; };
+  }, [open]);
   if (!draft) return null;
   const set = (k: keyof T & string, v: unknown) => { setDraft((d) => (d ? { ...d, [k]: v } : d)); setErrors((e) => { if (!e[k]) return e; const n = { ...e }; delete n[k]; return n; }); };
   const save = async (versionOverride?: number) => {
     const problem = validate?.(draft);
-    if (problem) { toast.error(problem); return; }
+    if (problem) {
+      capture.current?.abandoned('validation_blocked', { fields_filled: Object.values(draft).filter(Boolean).length });
+      capture.current = captureTimer('record_form');
+      toast.error(problem);
+      return;
+    }
     setSaving(true);
     try {
       const saved = draft.id
         ? await update.mutateAsync({ id: draft.id, patch: { ...draft, version: versionOverride ?? draft.version } })
         : await create.mutateAsync(draft);
+      capture.current?.completed({
+        had_measure: draft.quantity != null || draft.dollar_amount != null,
+        had_outcome: Boolean(draft.result),
+        ai_assisted: false,
+        source: 'manual',
+      });
+      capture.current = null;
       toast.success(`${noun} ${draft.id ? 'updated' : 'added'}.`);
       onSaved?.(saved);
       onOpenChange(false);
     } catch (err: any) {
       if (err?.status === 409 && err?.code === 'stale' && err?.extra?.current) setConflict(err.extra.current);
-      else { setErrors(err?.fieldErrors || {}); toast.error(errorText(err)); }
+      else {
+        capture.current?.abandoned('save_failed');
+        capture.current = captureTimer('record_form');
+        setErrors(err?.fieldErrors || {});
+        toast.error(errorText(err));
+      }
     } finally { setSaving(false); }
   };
   return (

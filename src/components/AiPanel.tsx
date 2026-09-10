@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useQueryClient } from '@tanstack/react-query';
+import { track } from '@/lib/telemetry';
 import { Sparkles, WandSparkles, ShieldCheck, Copy } from 'lucide-react';
 import { Button, Select } from '@/components/ui/primitives';
 import { useAiStatus, usePrefs, useSavePrefs, keys } from '@/lib/queries';
@@ -23,7 +24,7 @@ export function ModelPicker({ className }: { className?: string }) {
 }
 
 /** Inline AI action: one button that runs a workflow with the user's chosen model and hands back parsed output. */
-export function AiAction({ workflow, input, label = 'Draft with AI', onResult, size = 'sm', disabled }: { workflow: string; input: unknown; label?: string; onResult: (output: Record<string, any>, meta: { model: string; tokens: number }) => void; size?: 'xs' | 'sm' | 'md'; disabled?: boolean }) {
+export function AiAction({ workflow, input, label = 'Draft with AI', onResult, size = 'sm', disabled, surface }: { workflow: string; input: unknown; label?: string; onResult: (output: Record<string, any>, meta: { model: string; tokens: number }) => void; size?: 'xs' | 'sm' | 'md'; disabled?: boolean; surface?: string }) {
   const [model, , , available] = useAiModel();
   const [busy, setBusy] = useState(false);
   const toast = useToast();
@@ -31,6 +32,8 @@ export function AiAction({ workflow, input, label = 'Draft with AI', onResult, s
   if (!available) return null;
   const run = async () => {
     setBusy(true);
+    // Which workflow was asked for, and from where. The prompt itself is never recorded.
+    track('ai.requested', { workflow, surface: surface || 'dashboard' });
     try {
       const res = await api.aiAssist(workflow, input, model);
       onResult(res.output || {}, { model: res.model, tokens: res.usage?.total_tokens || 0 });

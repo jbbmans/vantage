@@ -1,6 +1,7 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
 import { can, detailUnitsFor, PERMISSIONS } from '../authz/scope.ts';
+import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { canRead } from '../authz/records.ts';
@@ -206,7 +207,11 @@ export function saveRevision(ctx: AppContext, user: SessionUser, scope: Scope, d
       }
       snapshots.push(snapshotOf(ref.table, row));
     }
-    if (stale.length) throw new StaleSourceError(stale);
+    if (stale.length) {
+      // A refused save is the provenance rule doing its job, and worth counting as such.
+      record(ctx, 'report.stale_source_rejected', { sources: input.sources.length, stale: stale.length }, { id: user.id });
+      throw new StaleSourceError(stale);
+    }
 
     const revision = current.latest_revision + 1;
     const at = now();
@@ -217,6 +222,12 @@ export function saveRevision(ctx: AppContext, user: SessionUser, scope: Scope, d
     ctx.db.prepare('UPDATE report_drafts SET title = ?, period_start = ?, period_end = ?, latest_revision = ?, version = version + 1, updated_at = ? WHERE id = ?')
       .run(title, periodStart, periodEnd, revision, at, draftId);
 
+    record(ctx, 'report.revision_saved', {
+      revision,
+      sources: snapshots.length,
+      sections: sections.length,
+      characters: sections.reduce((n, sec) => n + String(sec.body || '').length, 0),
+    }, { id: user.id });
     return { draft: getDraft(ctx, draftId)!, revision: getRevision(ctx, draftId, revision)! };
   })();
 }

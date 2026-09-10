@@ -20,6 +20,7 @@ function checkValueType(ctx: AppContext, table: string, data: Record<string, unk
 }
 import { parse } from '../lib/http.ts';
 import { newId, now } from '../lib/ids.ts';
+import { record } from './telemetry.ts';
 import { audit } from './audit.ts';
 import { notify } from './notifications.ts';
 import { statSync } from 'node:fs';
@@ -170,6 +171,22 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     throw error;
   }
   audit(ctx, { actor_id: user.id, action: 'create', entity: table, entity_id: id, subject_id: ownerId !== user.id ? ownerId : null, unit_id: unitId, ip });
+  if (table === 'goals') {
+    // The shape of the goal, not its wording: whether it names a metric and can advance on its own.
+    record(ctx, 'goal.created', {
+      typed: Boolean(data.metric_id),
+      direction: String(data.direction || 'increase'),
+      automatic: Boolean(data.metric_id) && data.metric !== 'manual',
+    }, { id: user.id });
+  }
+  if (table === 'activities') {
+    // Which part of a measurable outcome is missing, so entry quality can be steered without
+    // reading anybody's entries.
+    if (data.quantity == null && data.dollar_amount == null) record(ctx, 'quality.record_missing_measure', { missing: 'quantity' }, { id: user.id });
+    else if (!data.result) record(ctx, 'quality.record_missing_measure', { missing: 'outcome' }, { id: user.id });
+    else if (!data.eval_area) record(ctx, 'quality.record_missing_measure', { missing: 'area' }, { id: user.id });
+    else if (data.quantity != null && !data.unit_label) record(ctx, 'quality.record_missing_measure', { missing: 'unit' }, { id: user.id });
+  }
   if (table === 'awards' && onBehalf) {
     notify(ctx, ownerId, { kind: 'award', title: 'Award recommendation started', message: `${user.first_name} ${user.last_name} recommended you for ${String(data.name || 'an award')}.`, actionUrl: '/career?tab=awards', dedupeKey: `award:${id}` });
   }

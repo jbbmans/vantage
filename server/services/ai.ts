@@ -1,5 +1,6 @@
 import { withGoalProgress } from './records.ts';
 import { createHash, randomUUID } from 'node:crypto';
+import { record } from './telemetry.ts';
 import type { AppContext, SessionUser } from '../context.ts';
 import { PERMISSIONS, can, scopeFor, detailUnitsFor } from '../authz/scope.ts';
 import { HttpError } from '../lib/errors.ts';
@@ -231,7 +232,34 @@ export function resolveModel(ctx: AppContext, requested: unknown): string {
   return allowed.includes(ctx.runtime.aiDefaultModel) ? ctx.runtime.aiDefaultModel : allowed[0];
 }
 
+/**
+ * Maps a failure to one of the reasons the analytics catalog allows. The message itself is never
+ * recorded: an upstream error can quote a request, and a request can quote a person's draft.
+ */
+function failureReason(error: unknown): string {
+  const code = (error as { code?: string })?.code;
+  if (code === 'ai_network_blocked' || code === 'ai_unreachable' || code === 'ai_timeout') return 'unreachable';
+  if (code === 'ai_not_authorized' || code === 'ai_key_locked' || code === 'upstream_rate_limit') return 'rejected';
+  if (code === 'ai_disabled' || code === 'ai_not_configured') return 'disabled';
+  if (code === 'ai_budget' || code === 'quota') return 'budget';
+  if (code === 'invalid_ai_response') return 'invalid_output';
+  return 'rejected';
+}
+
 export async function runAiWorkflow(ctx: AppContext, user: SessionUser, workflow: string, input: unknown, requestedModel: unknown, reqKey: object) {
+  const startedAt = Date.now();
+  try {
+    const result = await runAiWorkflowInner(ctx, user, workflow, input, requestedModel, reqKey);
+    // Counted where the outcome is actually known. The workflow and the cost, never the content.
+    record(ctx, 'ai.answered', { workflow, tokens: result.usage?.total_tokens ?? 0, ms: Date.now() - startedAt, failed: false, reason: 'ok' }, { id: user.id });
+    return result;
+  } catch (error) {
+    record(ctx, 'ai.answered', { workflow, tokens: 0, ms: Date.now() - startedAt, failed: true, reason: failureReason(error) }, { id: user.id });
+    throw error;
+  }
+}
+
+async function runAiWorkflowInner(ctx: AppContext, user: SessionUser, workflow: string, input: unknown, requestedModel: unknown, reqKey: object) {
   if (!WORKFLOW_IDS.has(workflow)) throw new AiError('Unknown AI workflow.', 400, 'validation');
   preflight(ctx, user.id);
   const payload = buildPayload(ctx, user, workflow, input, reqKey);

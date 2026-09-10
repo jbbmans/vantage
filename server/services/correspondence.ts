@@ -1,6 +1,7 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
 import { can, isMember, PERMISSIONS } from '../authz/scope.ts';
+import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { parseEml, looksLikeOutlookMsg, EmlError, type ParsedEmail } from '../lib/eml.ts';
@@ -140,6 +141,7 @@ export function createThread(ctx: AppContext, user: SessionUser, scope: Scope, i
   const at = now();
   ctx.db.prepare('INSERT INTO threads (id, owner_id, unit_id, visibility, contact_id, subject, state, follow_up_at, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
     .run(id, user.id, unitId, visibility, contactId, subject, 'draft', (input.follow_up_at as string | null) || null, at, at);
+  record(ctx, 'correspondence.thread_created', { has_contact: Boolean(contactId), has_follow_up: Boolean(input.follow_up_at) }, { id: user.id });
   return getThread(ctx, id)!;
 }
 
@@ -204,6 +206,12 @@ export function setThreadState(ctx: AppContext, user: SessionUser, scope: Scope,
     for (const [key, value] of Object.entries(stamps)) { sets.push(`${key} = ?`); params.push(value); }
     if (change.follow_up_at !== undefined) { sets.push('follow_up_at = ?'); params.push(change.follow_up_at || null); }
     ctx.db.prepare(`UPDATE threads SET ${sets.join(', ')} WHERE id = ?`).run(...params, id);
+    // How long a request waited, counted from the message that went out rather than from the thread.
+    const sentAt = thread.last_message_at;
+    record(ctx, 'correspondence.state_changed', {
+      to: change.state,
+      days_since_sent: sentAt ? Math.max(0, (Date.parse(at.slice(0, 10)) - Date.parse(sentAt.slice(0, 10))) / 86_400_000) : 0,
+    }, { id: user.id });
     return getThread(ctx, id)!;
   })();
 }
@@ -268,6 +276,14 @@ export function storeParsedMessage(
     JSON.stringify(parsed.attachments), meta.createdBy || null, at,
   );
   ctx.db.prepare('UPDATE threads SET last_message_at = ?, version = version + 1, updated_at = ? WHERE id = ?').run(parsed.date || at, at, threadId);
+  // What the sanitizer had to take out, and how many files came along. Never the subject or the body.
+  record(ctx, 'correspondence.message_imported', {
+    source: meta.source,
+    duplicate: false,
+    blocked_remote_images: safe.blockedRemoteImages,
+    blocked_active_content: safe.blockedActiveContent,
+    attachments: parsed.attachments.length,
+  }, { id: meta.createdBy || null });
   return ctx.db.prepare('SELECT * FROM thread_messages WHERE id = ?').get(id) as Record<string, unknown>;
 }
 
@@ -313,7 +329,11 @@ export function importEml(
     if (parsed.messageId) {
       const existing = ctx.db.prepare('SELECT * FROM thread_messages WHERE thread_id = ? AND provider_message_id = ?').get(thread.id, parsed.messageId) as Record<string, unknown> | undefined;
       // The same saved message imported twice is the same message.
-      if (existing) return { thread: getThread(ctx, thread.id)!, message: existing, created, replayed: true };
+      if (existing) {
+        // The same email arriving again is worth counting as a duplicate, not as a second email.
+        record(ctx, 'correspondence.message_imported', { source: 'eml', duplicate: true, attachments: 0 }, { id: user.id });
+        return { thread: getThread(ctx, thread.id)!, message: existing, created, replayed: true };
+      }
     }
 
     const message = storeParsedMessage(ctx, thread.id, parsed, { direction, source: 'eml', createdBy: user.id });
@@ -352,6 +372,8 @@ export function linkThreadMany(ctx: AppContext, user: SessionUser, scope: Scope,
   return ctx.db.transaction(() => {
     let linked = 0;
     for (const itemId of unique) if (linkThread(ctx, user, scope, threadId, itemId).linked) linked += 1;
+    // The count of links made, so the one-email-many-documents shape is visible in the figures.
+    record(ctx, 'correspondence.linked', { items: linked }, { id: user.id });
     return { linked, requested: unique.length };
   })();
 }

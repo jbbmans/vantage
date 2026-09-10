@@ -116,7 +116,7 @@ export default function Records() {
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-ink-3"><span className="fig font-medium text-ink">{filtered.length}</span> entries · <span className="fig">{formatDollars(metrics.totalDollars)}</span> summable · <span className="fig">{metrics.withOutcome}</span> with an outcome</p>
           {identity?.instance.aiEnabled && (
-            <AiAction workflow="record_quality" input={{ days: 180 }} label="Coach my entries" onResult={(output, meta) => setCoaching({ output, meta })} />
+            <AiAction workflow="record_quality" surface="records" input={{ days: 180 }} label="Coach my entries" onResult={(output, meta) => setCoaching({ output, meta })} />
           )}
         </div>
       </div>

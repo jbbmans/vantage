@@ -713,3 +713,32 @@ CREATE TABLE IF NOT EXISTS connectors (
   updated_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_connectors_user ON connectors(user_id, provider);
+
+-- Product analytics ----------------------------------------------------
+-- What people did with Vantage, in a shape that can be counted. This table holds names and numbers
+-- only. It never holds draft text, workbook cells, email bodies, keystrokes, or anything a person
+-- typed: a property whose value is not a declared scalar is refused before it reaches here.
+CREATE TABLE IF NOT EXISTS product_events (
+  id           TEXT PRIMARY KEY,
+  name         TEXT NOT NULL,
+  -- the actor, kept so adoption can be counted per person. Never joined into an exported analytic.
+  user_id      TEXT REFERENCES users(id),
+  unit_id      TEXT,
+  session_id   TEXT,
+  -- the surface the event came from: 'client' or 'server'.
+  origin       TEXT NOT NULL DEFAULT 'client' CHECK (origin IN ('client', 'server')),
+  -- declared properties, already validated against the catalog. JSON object of scalars.
+  properties   TEXT NOT NULL DEFAULT '{}',
+  -- The three time concepts are separate columns because they are separate facts and must never be
+  -- added together: how long a form was open, how long the editor judged the person to be actively
+  -- working, and how long the person said the work itself took.
+  form_ms          INTEGER,
+  active_editor_ms INTEGER,
+  confirmed_work_minutes REAL,
+  -- when it happened on the client, and when the server received it. Both kept: a device clock lies.
+  occurred_at  TEXT NOT NULL,
+  received_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_product_events_name ON product_events(name, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_product_events_user ON product_events(user_id, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_product_events_received ON product_events(received_at);

@@ -1,3 +1,4 @@
+import { track } from '@/lib/telemetry';
 import React from 'react';
 import { AlertTriangle, RefreshCw, Home } from 'lucide-react';
 import { Button } from '@/components/ui/primitives';
@@ -9,7 +10,12 @@ export default class ErrorBoundary extends React.Component<{ children: React.Rea
   state: State = { error: null };
   static getDerivedStateFromError(error: Error): State { return { error }; }
   componentDidUpdate(prev: { resetKey?: string }) { if (prev.resetKey !== this.props.resetKey && this.state.error) this.setState({ error: null }); }
-  componentDidCatch(error: Error, info: React.ErrorInfo) { console.error('Vantage page error', error, info.componentStack); }
+  componentDidCatch(error: Error, info: React.ErrorInfo) {
+    console.error('Vantage page error', error, info.componentStack);
+    // Which surface broke and whether the person could carry on. Never the message: a React error
+    // can quote the props that produced it, and props can hold somebody's record.
+    track('reliability.client_error', { surface: surfaceOf(window.location.pathname), recovered: false });
+  }
   render() {
     if (!this.state.error) return this.props.children;
     const message = this.state.error.message || String(this.state.error);
@@ -28,4 +34,13 @@ export default class ErrorBoundary extends React.Component<{ children: React.Rea
       </div>
     );
   }
+}
+
+
+/** Kept here rather than imported, so the boundary never depends on a module that might be broken. */
+function surfaceOf(pathname: string): string {
+  const segment = pathname.split('/')[1] || '';
+  const known = ['records', 'queue', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'team', 'settings', 'operator', 'help'];
+  if (segment === 'work') return 'tasks';
+  return known.includes(segment) ? segment : 'dashboard';
 }
