@@ -1,0 +1,19 @@
+User-agent: *
+Allow: /
+Disallow: /login
+Disallow: /register
+Disallow: /reset
+Disallow: /invite
+Disallow: /setup
+Disallow: /records
+Disallow: /work
+Disallow: /goals
+Disallow: /career
+Disallow: /readiness
+Disallow: /reports
+Disallow: /team
+Disallow: /settings
+Disallow: /operator
+Disallow: /api/
+
+Sitemap: https://vantageusmc.com/sitemap.xml
