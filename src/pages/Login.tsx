@@ -105,22 +105,22 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
 
   return (
     <div className="min-h-screen bg-canvas lg:grid lg:grid-cols-[minmax(0,5fr)_minmax(0,6fr)]">
-      <aside className="relative hidden overflow-hidden bg-rail text-rail-ink lg:flex lg:flex-col lg:justify-between lg:p-12" aria-hidden>
+      <aside className="relative hidden overflow-hidden bg-rail-active text-white lg:flex lg:flex-col lg:justify-between lg:p-12" aria-hidden>
         <div className="pointer-events-none absolute inset-0"><div className="absolute inset-0 login-grid-rail" /></div>
-        <div className="relative flex items-center gap-3"><img src="/mark.svg" alt="" width={32} height={32} className="h-8 w-8" /><div><p className="font-mono text-2xs font-bold tracking-[0.24em]">VANTAGE</p><p className="font-mono text-2xs tracking-[0.06em] text-rail-ink/65">{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'Performance records for Marines'}</p></div></div>
+        <div className="relative flex items-center gap-3"><img src="/mark.svg" alt="" width={32} height={32} className="h-8 w-8" /><div><p className="text-xl font-bold tracking-[-0.03em]">VANTAGE</p><p className="text-xs text-white/75">{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'Performance records for Marines'}</p></div></div>
         <div className="relative max-w-lg">
-          <h2 className="display text-[46px] leading-[0.96]">Your record,<br /><span style={{ color: 'rgb(var(--accent))' }}>from a better vantage.</span></h2>
-          <p className="mt-6 max-w-md text-md leading-relaxed text-rail-ink/70">Log the work as it happens. Vantage turns it into JEPES and FITREP input, unit dashboards, and an analysis an evaluator can trust, with every figure traced to a record.</p>
-          <ul className="mt-8 space-y-3 text-sm text-rail-ink/80">
-            {['Quick Log reads a sentence and files the numbers.', 'Narratives, bullets, and a working-paper PDF from the same entries.', 'Private by default. Shared only when you say so, and every open is logged.'].map((t) => <li key={t} className="flex items-start gap-3"><span className="mt-[7px] h-1.5 w-1.5 shrink-0" style={{ backgroundColor: 'rgb(var(--accent))' }} />{t}</li>)}
+          <h2 className="display text-[46px] leading-[0.96] text-white">Your record,<br /><span className="text-[#7ab7ff]">from a better vantage.</span></h2>
+          <p className="mt-6 max-w-md text-md leading-relaxed text-white/80">Log the work as it happens. Vantage turns it into JEPES and FITREP input, unit dashboards, and an analysis an evaluator can trust, with every figure traced to a record.</p>
+          <ul className="mt-8 space-y-3 text-sm text-white/85">
+            {['Quick Log reads a sentence and files the numbers.', 'Narratives, bullets, and a working-paper PDF from the same entries.', 'Private by default. Shared only when you say so, and every open is logged.'].map((t) => <li key={t} className="flex items-start gap-3"><span className="mt-[7px] h-1.5 w-1.5 shrink-0 rounded-full bg-[#7ab7ff]" />{t}</li>)}
           </ul>
         </div>
-        <p className="relative text-2xs text-rail-ink/65">Records stay on this deployment's server. Nothing here is a system of record; MOL is.</p>
+        <p className="relative text-xs text-white/70">Records stay on this deployment's server. Nothing here is a system of record; MOL is.</p>
       </aside>
       <div className="relative flex min-h-screen flex-col">
         <div className="pointer-events-none absolute inset-0 overflow-hidden lg:hidden" aria-hidden><div className="absolute inset-0 login-grid" /></div>
         <header className="relative z-10 flex items-center justify-between px-5 py-4 lg:justify-end lg:px-8">
-          <div className="flex items-center gap-3 lg:hidden"><img src="/mark.svg" alt="" width={36} height={36} className="h-9 w-9" /><div><p className="font-mono text-2xs font-bold tracking-[0.24em] text-ink">VANTAGE</p><p className="font-mono text-2xs text-ink-3">{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'Performance records for Marines'}</p></div></div>
+          <div className="flex items-center gap-3 lg:hidden"><img src="/mark.svg" alt="" width={36} height={36} className="h-9 w-9" /><div><p className="text-xl font-bold tracking-[-0.03em] text-ink">VANTAGE</p><p className="text-xs text-ink-3">{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'Performance records for Marines'}</p></div></div>
           <button type="button" onClick={toggleTheme} className="border border-line bg-surface p-2 text-ink-2 hover:bg-surface-2" aria-label="Toggle theme">{theme === 'dark' ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}</button>
         </header>
         <main className="relative z-10 flex flex-1 items-start justify-center px-4 pb-16 pt-4 sm:pt-10 lg:items-center lg:pt-0">

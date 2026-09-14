@@ -5,22 +5,24 @@ import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
+/* The primary action is the one thing on a screen filled with the signal colour, so there is never
+   a question of what the screen wants you to do next. Everything else is a bordered white button. */
 const VARIANTS = {
-  primary: 'bg-accent text-accent-ink border-accent hover:bg-ink hover:border-ink hover:text-canvas',
-  default: 'bg-surface text-ink border-line hover:border-line-strong hover:bg-surface-2',
-  soft: 'bg-surface-2 text-ink border-line hover:border-line-strong',
+  primary: 'bg-accent text-accent-ink border-accent shadow-card hover:brightness-110 hover:shadow-pop',
+  default: 'bg-surface text-ink border-line-strong hover:bg-surface-2 hover:border-ink-3/50',
+  soft: 'bg-surface-2 text-ink-2 border-transparent hover:bg-surface-3 hover:text-ink',
   ghost: 'bg-transparent border-transparent text-ink-2 hover:text-ink hover:bg-surface-2',
-  danger: 'bg-transparent border-line text-bad hover:bg-bad hover:text-canvas hover:border-bad',
-  outline: 'bg-transparent border-line-strong text-ink hover:bg-ink hover:text-canvas',
+  danger: 'bg-surface border-line-strong text-bad hover:bg-bad/10 hover:border-bad/50',
+  outline: 'bg-transparent border-ink-3/40 text-ink hover:bg-surface-2',
 } as const;
-const SIZES = { xs: 'h-6 px-2 text-2xs gap-1', sm: 'h-7 px-2.5 text-2xs gap-1.5', md: 'h-8 px-3 text-2xs gap-1.5', lg: 'h-10 px-5 text-xs gap-2', icon: 'h-8 w-8 justify-center', 'icon-sm': 'h-7 w-7 justify-center', 'icon-xs': 'h-6 w-6 justify-center' } as const;
+const SIZES = { xs: 'h-6 px-2 text-xs gap-1', sm: 'h-7 px-2.5 text-xs gap-1.5', md: 'h-9 px-3.5 text-base gap-2', lg: 'h-11 px-5 text-md gap-2', icon: 'h-9 w-9 justify-center', 'icon-sm': 'h-7 w-7 justify-center', 'icon-xs': 'h-6 w-6 justify-center' } as const;
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> { variant?: keyof typeof VARIANTS; size?: keyof typeof SIZES; asChild?: boolean; loading?: boolean }
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ className, variant = 'default', size = 'md', asChild = false, loading = false, children, disabled, ...props }, ref) {
   const Comp: any = asChild ? Slot : 'button';
   return (
     <Comp ref={ref} type={asChild ? undefined : (props.type || 'button')} disabled={disabled || loading}
-      className={cn('tap inline-flex shrink-0 items-center border font-mono font-medium uppercase tracking-[0.1em] transition-colors duration-75 disabled:pointer-events-none disabled:opacity-40', VARIANTS[variant], SIZES[size], className)} {...props}>
+      className={cn('tap inline-flex shrink-0 items-center justify-center rounded-md border font-medium leading-none transition-[background-color,border-color,box-shadow,filter] duration-150 disabled:pointer-events-none disabled:opacity-45', VARIANTS[variant], SIZES[size], className)} {...props}>
       {asChild ? children : <>{loading && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}{children}</>}
     </Comp>
   );
@@ -28,10 +30,10 @@ export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button
 
 const finePointer = () => typeof window === 'undefined' || !window.matchMedia?.('(pointer: coarse)').matches;
 export const Input = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function Input({ className, autoFocus, ...props }, ref) {
-  return <input ref={ref} autoFocus={autoFocus && finePointer()} className={cn('field h-8', className)} {...props} />;
+  return <input ref={ref} autoFocus={autoFocus && finePointer()} className={cn('field h-9 py-0', className)} {...props} />;
 });
 export const NumberInput = forwardRef<HTMLInputElement, React.InputHTMLAttributes<HTMLInputElement>>(function NumberInput({ className, ...props }, ref) {
-  return <input ref={ref} type="text" inputMode="decimal" className={cn('field fig h-8', className)} {...props} />;
+  return <input ref={ref} type="text" inputMode="decimal" className={cn('field fig h-9 py-0', className)} {...props} />;
 });
 export const Textarea = forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttributes<HTMLTextAreaElement>>(function Textarea({ className, rows = 3, autoFocus, ...props }, ref) {
   return <textarea ref={ref} rows={rows} autoFocus={autoFocus && finePointer()} className={cn('field resize-y leading-relaxed', className)} {...props} />;
@@ -48,8 +50,8 @@ export function Field({ label, hint, error, children, className, required }: { l
   return (
     <div className={cn('min-w-0', className)}>
       <div className="mb-1.5 flex items-baseline justify-between gap-2">
-        <span className="eyebrow text-ink-2"><span id={labelId}>{label}</span>{required && <span className="ml-1 text-accent" aria-hidden>*</span>}</span>
-        {hint && <span id={hintId} className="truncate font-mono text-2xs lowercase tracking-normal text-ink-3">{hint}</span>}
+        <span className="text-base font-medium text-ink"><span id={labelId}>{label}</span>{required && <span className="ml-1 text-accent" aria-hidden>*</span>}</span>
+        {hint && <span id={hintId} className="truncate text-xs text-ink-3">{hint}</span>}
       </div>
       {children.type === React.Fragment
         ? React.cloneElement(children, {}, ...(React.Children.map(children.props.children as React.ReactNode, (child: React.ReactNode, i: number) => (i === 0 && React.isValidElement(child) ? React.cloneElement(child as React.ReactElement<any>, extra) : child)) || []))
@@ -63,17 +65,17 @@ export interface SelectOption { value: string; label: string; disabled?: boolean
 export function Select({ value, onValueChange, options, placeholder = 'Select…', className, disabled, ...rest }: { value?: string | null; onValueChange: (v: string) => void; options: Array<SelectOption | string>; placeholder?: string; className?: string; disabled?: boolean; 'aria-label'?: string; 'aria-labelledby'?: string; id?: string }) {
   return (
     <SelectPrimitive.Root value={value || undefined} onValueChange={onValueChange} disabled={disabled}>
-      <SelectPrimitive.Trigger {...rest} aria-label={rest['aria-label'] ?? (rest['aria-labelledby'] ? undefined : placeholder)} className={cn('field flex h-8 items-center justify-between gap-2 text-left data-[placeholder]:text-ink-3', className)}>
+      <SelectPrimitive.Trigger {...rest} aria-label={rest['aria-label'] ?? (rest['aria-labelledby'] ? undefined : placeholder)} className={cn('field flex h-9 items-center justify-between gap-2 py-0 text-left data-[placeholder]:text-ink-3', className)}>
         <span className="truncate"><SelectPrimitive.Value placeholder={placeholder} /></span>
         <SelectPrimitive.Icon><ChevronDown className="h-4 w-4 shrink-0 text-ink-3" /></SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>
-        <SelectPrimitive.Content position="popper" sideOffset={4} className="z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden border border-line-strong bg-surface shadow-pop animate-scale-in">
+        <SelectPrimitive.Content position="popper" sideOffset={4} className="z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-line bg-surface shadow-modal animate-scale-in">
           <SelectPrimitive.Viewport className="p-1">
             {options.map((opt) => {
               const o = typeof opt === 'string' ? { value: opt, label: opt } : opt;
               return (
-                <SelectPrimitive.Item key={o.value} value={o.value} disabled={o.disabled} className="relative flex cursor-pointer select-none items-center px-2.5 py-1.5 pr-8 text-sm text-ink-2 outline-none data-[highlighted]:bg-ink data-[highlighted]:text-canvas data-[disabled]:opacity-40">
+                <SelectPrimitive.Item key={o.value} value={o.value} disabled={o.disabled} className="relative flex cursor-pointer select-none items-center rounded px-2.5 py-1.5 pr-8 text-base text-ink-2 outline-none data-[highlighted]:bg-surface-2 data-[highlighted]:text-ink data-[disabled]:opacity-40">
                   <SelectPrimitive.ItemText>{o.label}</SelectPrimitive.ItemText>
                   <SelectPrimitive.ItemIndicator className="absolute right-2"><Check className="h-3.5 w-3.5 text-accent" /></SelectPrimitive.ItemIndicator>
                 </SelectPrimitive.Item>
@@ -86,7 +88,7 @@ export function Select({ value, onValueChange, options, placeholder = 'Select…
   );
 }
 
-const TONES = { neutral: 'border-line text-ink-2 bg-surface', accent: 'border-accent text-accent bg-transparent', good: 'border-good text-good bg-transparent', warn: 'border-warn text-warn bg-transparent', bad: 'border-bad text-bad bg-transparent', info: 'border-info text-info bg-transparent' } as const;
+const TONES = { neutral: 'bg-surface-2 text-ink-2', accent: 'bg-accent-soft text-accent', good: 'bg-good/12 text-good', warn: 'bg-warn/12 text-warn', bad: 'bg-bad/12 text-bad', info: 'bg-info/12 text-info' } as const;
 export type Tone = keyof typeof TONES;
 export function Badge({ tone = 'neutral', className, children, ...props }: { tone?: Tone; className?: string; children: React.ReactNode } & React.HTMLAttributes<HTMLSpanElement>) {
   return <span className={cn('chip', TONES[tone], className)} {...props}>{children}</span>;
@@ -106,7 +108,7 @@ export function Tooltip({ content, children, side = 'top' }: { content: React.Re
     <TooltipPrimitive.Root>
       <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
-        <TooltipPrimitive.Content side={side} sideOffset={6} className="z-50 max-w-xs rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs text-ink-2 shadow-pop animate-scale-in">{content}</TooltipPrimitive.Content>
+        <TooltipPrimitive.Content side={side} sideOffset={6} className="z-50 max-w-xs rounded-md bg-rail-active px-2.5 py-1.5 text-xs leading-snug text-white shadow-modal animate-scale-in">{content}</TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>
   );
@@ -116,15 +118,15 @@ export function Panel({ title, subtitle, action, children, className, bodyClassN
   return (
     <section id={id} className={cn('card min-w-0 scroll-mt-24', className)}>
       {(title || action) && (
-        <header className="panel-head flex items-center justify-between gap-3 bg-surface-2/60 px-3 py-2">
+        <header className="panel-head flex items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
-            {title && <h2 className="font-mono text-2xs font-medium uppercase tracking-[0.12em] text-ink">{title}</h2>}
-            {subtitle && <p className="mt-0.5 truncate text-xs normal-case text-ink-3">{subtitle}</p>}
+            {title && <h2 className="truncate text-md font-semibold text-ink">{title}</h2>}
+            {subtitle && <p className="mt-0.5 truncate text-xs text-ink-3">{subtitle}</p>}
           </div>
-          {action && <div className="flex shrink-0 items-center gap-1.5">{action}</div>}
+          {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
         </header>
       )}
-      <div className={cn('card-body', padded && 'p-3', bodyClassName)}>{children}</div>
+      <div className={cn('card-body', padded && 'p-4', bodyClassName)}>{children}</div>
     </section>
   );
 }
@@ -132,9 +134,9 @@ export function Panel({ title, subtitle, action, children, className, bodyClassN
 export function EmptyState({ icon: Icon, title, description, action, className }: { icon?: React.ComponentType<{ className?: string }>; title: string; description?: React.ReactNode; action?: React.ReactNode; className?: string }) {
   return (
     <div className={cn('flex flex-col items-center justify-center px-4 py-10 text-center', className)}>
-      {Icon && <div className="mb-3 flex h-9 w-9 items-center justify-center border border-line-strong text-ink-3"><Icon className="h-4 w-4" /></div>}
-      <p className="display text-md text-ink">{title}</p>
-      {description && <p className="mt-1.5 max-w-sm text-sm leading-relaxed text-ink-3">{description}</p>}
+      {Icon && <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-ink-3"><Icon className="h-[18px] w-[18px]" /></div>}
+      <p className="text-lg font-semibold text-ink">{title}</p>
+      {description && <p className="mt-1.5 max-w-sm text-base leading-relaxed text-ink-3">{description}</p>}
       {action && <div className="mt-4 flex flex-wrap justify-center gap-2">{action}</div>}
     </div>
   );
@@ -142,13 +144,13 @@ export function EmptyState({ icon: Icon, title, description, action, className }
 
 export function Stat({ label, value, hint, tone, to, icon: Icon }: { label: string; value: React.ReactNode; hint?: React.ReactNode; tone?: 'accent' | 'good' | 'warn' | 'bad'; to?: string; icon?: React.ComponentType<{ className?: string }> }) {
   const body = (
-    <div className="card card-hover flex h-full min-w-0 flex-col justify-between p-3">
-      <div className="flex items-center justify-between gap-2 border-b border-line pb-1.5">
-        <p className="eyebrow truncate">{label}</p>
-        {Icon && <Icon className="h-3.5 w-3.5 shrink-0 text-ink-3" />}
+    <div className="card card-hover flex h-full min-w-0 flex-col justify-between p-4">
+      <div className="flex items-start justify-between gap-2">
+        <p className="truncate text-base font-medium text-ink-2">{label}</p>
+        {Icon && <Icon className="h-4 w-4 shrink-0 text-ink-3" />}
       </div>
-      <p className={cn('stat-value mt-3', tone === 'accent' && 'text-accent', tone === 'good' && 'text-good', tone === 'warn' && 'text-warn', tone === 'bad' && 'text-bad')}>{value}</p>
-      {hint && <p className="mt-1.5 truncate font-mono text-2xs uppercase tracking-wider text-ink-3">{hint}</p>}
+      <p className={cn('stat-value mt-4', tone === 'accent' && 'text-accent', tone === 'good' && 'text-good', tone === 'warn' && 'text-warn', tone === 'bad' && 'text-bad')}>{value}</p>
+      {hint && <p className="mt-1.5 truncate text-xs text-ink-3">{hint}</p>}
     </div>
   );
   return to ? <a href={to} onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent('vantage:navigate', { detail: to })); }} className="block h-full">{body}</a> : body;
@@ -166,13 +168,13 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
     return true;
   };
   return (
-    <div role="tablist" aria-label={label} className={cn('inline-flex border border-line bg-surface', className)}>
+    <div role="tablist" aria-label={label} className={cn('inline-flex rounded-md border border-line bg-surface-2 p-0.5', className)}>
       {options.map((o, i) => {
         const active = o.value === value;
         return (
           <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" aria-selected={active} aria-label={o.ariaLabel} tabIndex={active ? 0 : -1}
             onClick={() => onChange(o.value)} onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}
-            className={cn('border-r border-line font-mono uppercase tracking-[0.1em] transition-colors last:border-r-0', size === 'sm' ? 'px-2 py-1 text-2xs' : 'px-3 py-1.5 text-2xs', active ? 'bg-ink text-canvas' : 'text-ink-3 hover:bg-surface-2 hover:text-ink')}>
+            className={cn('rounded font-medium transition-colors', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}>
             {o.label}
           </button>
         );
@@ -183,13 +185,13 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
 
 export function Tabs<T extends string>({ value, onChange, tabs, className }: { value: T; onChange: (v: T) => void; tabs: Array<{ value: T; label: React.ReactNode; count?: number }>; className?: string }) {
   return (
-    <div role="tablist" className={cn('flex gap-1 overflow-x-auto border-b border-line-strong', className)}>
+    <div role="tablist" className={cn('tab-bar overflow-x-auto', className)}>
       {tabs.map((t) => {
         const active = t.value === value;
         return (
           <button key={t.value} type="button" role="tab" aria-selected={active} onClick={() => onChange(t.value)}
-            className={cn('-mb-px flex shrink-0 items-center gap-1.5 border-b-2 px-3 py-2 font-mono text-2xs font-medium uppercase tracking-[0.1em] transition-colors', active ? 'border-accent text-ink' : 'border-transparent text-ink-3 hover:text-ink')}>
-            {t.label}{t.count != null && <span className={cn('fig px-1 text-2xs', active ? 'text-accent' : 'text-ink-3')}>{t.count}</span>}
+            className={cn('tab flex shrink-0 items-center gap-1.5', active && 'border-accent text-accent')}>
+            {t.label}{t.count != null && <span className={cn('fig rounded-full px-1.5 py-0.5 text-2xs', active ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-ink-3')}>{t.count}</span>}
           </button>
         );
       })}
@@ -200,8 +202,8 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
 export function Progress({ value, max = 100, tone = 'accent', className, label = 'Progress' }: { value: number; max?: number; tone?: 'accent' | 'good' | 'warn' | 'bad'; className?: string; label?: string }) {
   const pct = max ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
   return (
-    <div className={cn('h-2 w-full overflow-hidden border border-line bg-surface-2', className)} role="progressbar" aria-label={label} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
-      <div className={cn('h-full', tone === 'accent' && 'bg-accent', tone === 'good' && 'bg-good', tone === 'warn' && 'bg-warn', tone === 'bad' && 'bg-bad')} style={{ width: `${pct}%` }} />
+    <div className={cn('h-1.5 w-full overflow-hidden rounded-full bg-surface-3', className)} role="progressbar" aria-label={label} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
+      <div className={cn('h-full rounded-full transition-[width] duration-300', tone === 'accent' && 'bg-accent', tone === 'good' && 'bg-good', tone === 'warn' && 'bg-warn', tone === 'bad' && 'bg-bad')} style={{ width: `${pct}%` }} />
     </div>
   );
 }
@@ -211,13 +213,13 @@ export const Kbd = ({ children }: { children: React.ReactNode }) => <kbd classNa
 
 export function PageHeader({ eyebrow, title, lede, children }: { eyebrow?: string; title: React.ReactNode; lede?: React.ReactNode; children?: React.ReactNode }) {
   return (
-    <div className="mb-4 border-b-2 border-line-strong pb-3">
+    <div className="mb-6">
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div className="min-w-0">
-          {eyebrow && <p className="eyebrow mb-1.5">{eyebrow}</p>}
+          {eyebrow && <p className="eyebrow mb-2">{eyebrow}</p>}
           <h1 className="page-title">{title}</h1>
         </div>
-        {children && <div className="flex flex-wrap items-center gap-1.5">{children}</div>}
+        {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
       </div>
       {lede && <p className="page-lede">{lede}</p>}
     </div>
@@ -228,12 +230,12 @@ export function Switch({ checked, onChange, label, description, disabled }: { ch
   return (
     <label className={cn('flex cursor-pointer items-start justify-between gap-4 rounded-md px-1 py-2', disabled && 'cursor-not-allowed opacity-50')}>
       <span className="min-w-0">
-        <span className="block font-mono text-2xs font-medium uppercase tracking-[0.1em] text-ink">{label}</span>
+        <span className="block text-base font-medium text-ink">{label}</span>
         {description && <span className="mt-0.5 block text-xs leading-relaxed text-ink-3">{description}</span>}
       </span>
       <button type="button" role="switch" aria-checked={checked} disabled={disabled} onClick={() => onChange(!checked)}
-        className={cn('relative mt-0.5 h-5 w-10 shrink-0 border transition-colors', checked ? 'border-accent bg-accent' : 'border-line-strong bg-surface-2')}>
-        <span className={cn('absolute top-[2px] h-[14px] w-[14px] transition-[left]', checked ? 'left-[23px] bg-accent-ink' : 'left-[2px] bg-ink-3')} />
+        className={cn('relative mt-0.5 h-5 w-9 shrink-0 rounded-full border transition-colors', checked ? 'border-accent bg-accent' : 'border-line-strong bg-surface-3')}>
+        <span className={cn('absolute top-[2px] h-[14px] w-[14px] rounded-full shadow-card transition-[left] duration-150', checked ? 'left-[18px] bg-accent-ink' : 'left-[2px] bg-surface')} />
       </button>
     </label>
   );

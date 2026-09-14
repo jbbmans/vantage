@@ -25,7 +25,7 @@ test('quick log parses a sentence, saves it, and the record round-trips through 
   await edit.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByText('G-8 Comptroller').first()).toBeVisible();
 
-  await page.goto('/reports');
+  await page.goto('/reports?tab=analysis');
   await expect(page.getByRole('heading', { name: /JEPES input/ })).toBeVisible();
   await expect(page.getByText(/MISSION:/)).toBeVisible();
   const [pdf] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export PDF' }).click()]);
@@ -54,7 +54,7 @@ test('csv import updates rows that carry a Vantage ID instead of duplicating the
 });
 
 test('tasks, goals, training and awards can be created and appear on the dashboard', async ({ page }) => {
-  await page.goto('/work');
+  await page.goto('/work?tab=tasks');
   await page.getByRole('button', { name: 'New task' }).click();
   const task = page.getByRole('dialog', { name: 'New task' });
   await task.getByLabel('Title').fill('Close out FY obligations');

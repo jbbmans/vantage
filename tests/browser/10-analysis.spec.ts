@@ -9,7 +9,7 @@ test('the full analysis view reads the record like an analyst and exports its PD
   await dialog.getByRole('button', { name: 'Save activity' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Activity logged.' })).toBeVisible();
 
-  await page.goto('/reports');
+  await page.goto('/reports?tab=analysis');
   await page.getByRole('tab', { name: 'Full analysis' }).click();
   await expect(page.getByRole('heading', { name: 'Executive summary' })).toBeVisible();
   await expect(page.getByText(/entries in /).first()).toBeVisible();

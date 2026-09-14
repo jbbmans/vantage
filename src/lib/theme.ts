@@ -5,7 +5,7 @@ export function resolveTheme(mode: ThemeMode): 'light' | 'dark' {
   return window.matchMedia?.('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
 }
 
-const THEME_COLOR: Record<'light' | 'dark', string> = { light: '#f6f7f9', dark: '#0c1018' };
+const THEME_COLOR: Record<'light' | 'dark', string> = { light: '#f7f9fb', dark: '#111c2a' };
 export function applyTheme(mode: ThemeMode) {
   const resolved = resolveTheme(mode);
   document.documentElement.setAttribute('data-theme', resolved);

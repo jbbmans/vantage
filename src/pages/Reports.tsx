@@ -2,10 +2,10 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { FileDown, Download, Copy, TrendingUp, TrendingDown, Minus, Sparkles } from 'lucide-react';
-import { PageHeader, Button, Select, Panel, Segmented, Badge, Skeleton, EmptyState, Stat } from '@/components/ui/primitives';
+import { Button, Select, Panel, Segmented, Badge, Skeleton, EmptyState, Stat } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult, ModelPicker } from '@/components/AiPanel';
-import { PeriodSelect, DateText } from '@/components/common';
+import { PeriodSelect, DateText, PageShell } from '@/components/common';
 import { keys, useIdentity, usePrefs, useSavePrefs, useTeam, useTrack, useMetricsReport } from '@/lib/queries';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
@@ -16,7 +16,7 @@ import { trackMeta, type Track } from '../../shared/evaluation';
 import { copyToClipboard, cn } from '@/lib/utils';
 import ReportAnalysis from './ReportAnalysis';
 
-export default function Reports() {
+export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const toast = useToast();
   const { data: identity } = useIdentity();
   const prefs = usePrefs();
@@ -52,12 +52,17 @@ export default function Reports() {
   };
 
   return (
-    <div className="page">
-      <PageHeader eyebrow="Reports" title={subject ? `${meta.inputName} for ${subject.rank_abbr || ''} ${subject.last_name}` : meta.inputName} lede={`A narrative and a bullet package built from ${subject ? 'their shared' : 'your'} logged entries. Copy it, or export a PDF to hand to the reporting senior.`}>
+    <PageShell
+      embedded={embedded}
+      eyebrow="Reports"
+      title={subject ? `${meta.inputName} for ${subject.rank_abbr || ''} ${subject.last_name}` : meta.inputName}
+      lede={`A narrative and a bullet package built from ${subject ? 'their shared' : 'your'} logged entries. Copy it, or export a PDF to hand to the reporting senior.`}
+      actions={<>
         <Button onClick={() => download('csv')}><Download className="h-4 w-4" />CSV</Button>
         <Button onClick={() => download('analysis')}><FileDown className="h-4 w-4" />Analysis PDF</Button>
         <Button variant="primary" onClick={() => download('pdf')}><FileDown className="h-4 w-4" />Export PDF</Button>
-      </PageHeader>
+      </>}
+    >
 
       <div className="card mb-4 flex flex-wrap items-center gap-2 p-3">
         <PeriodSelect value={period} onChange={(v) => { setPeriod(v); savePrefs.mutate({ reportPeriod: v }); }} className="w-44" />
@@ -95,7 +100,7 @@ export default function Reports() {
               <div className="space-y-4">
                 <Panel title="Recognitions in period">{report.awards.length === 0 && report.trainings.length === 0 ? <p className="text-sm text-ink-3">No awards or training in this period.</p> : <ul className="space-y-1 text-sm">{report.awards.map((a: any, i: number) => <li key={`a${i}`} className="flex justify-between gap-2"><span className="truncate text-ink">{a.name}</span><span className="shrink-0 text-xs text-ink-3"><DateText value={a.date} /></span></li>)}{report.trainings.map((t: any, i: number) => <li key={`t${i}`} className="flex justify-between gap-2"><span className="truncate text-ink-2">{t.title}</span><span className="fig shrink-0 text-xs text-ink-3">{t.hours ? `${t.hours} h` : ''}</span></li>)}</ul>}</Panel>
                 {identity?.instance.aiEnabled && !subjectId && (
-                  <Panel title="AI narrative draft" subtitle="from the same entries; verify every figure" action={<ModelPicker className="h-8 w-40 text-xs" />}>
+                  <Panel title="AI narrative draft" subtitle="From the same entries; verify every figure" action={<ModelPicker className="h-8 w-40 text-xs" />}>
                     <AiAction workflow="report_narrative" input={{ from: report.from, to: report.to, track: effectiveTrack, character_limit: report.narrative.limit }} label="Draft narrative" onResult={(output, meta2) => setAiOut({ output, meta: meta2 })} size="md" />
                     {aiOut && <div className="mt-3"><AiResult output={aiOut.output} meta={aiOut.meta} primaryKey="narrative" /></div>}
                     {!aiOut && <p className="mt-2 flex items-center gap-1.5 text-2xs text-ink-3"><Sparkles className="h-3 w-3" />Sends your entries in this period to GenAI.mil.</p>}
@@ -109,7 +114,7 @@ export default function Reports() {
             <Panel title="Bullet package" subtitle={`${report.pkg.reduce((n: number, g: any) => n + g.bullets.length, 0)} bullets across ${report.pkg.length} areas`} action={<Button size="sm" variant="ghost" onClick={() => copy(pkgText, 'Package')}><Copy className="h-3.5 w-3.5" />Copy all</Button>}>
               {report.pkg.length === 0 ? <EmptyState title="Nothing to package" description="Log entries with a result and a number; those make the cut." /> : (
                 <div className="space-y-5">{report.pkg.map((g: any) => (
-                  <section key={g.area}><h3 className="mb-2 flex items-center justify-between font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">{g.area}<span className="fig text-xs font-normal text-ink-3">{g.count} entries · top {g.bullets.length}</span></h3>
+                  <section key={g.area}><h3 className="mb-2 flex items-center justify-between text-md font-semibold text-ink">{g.area}<span className="fig text-xs font-normal text-ink-3">{g.count} entries · top {g.bullets.length}</span></h3>
                     {g.rollup && <p className="mb-2 rounded-md bg-accent-soft/50 px-3 py-2 text-sm text-ink">{g.rollup}</p>}
                     <ul className="space-y-1.5">{g.bullets.map((b: any, i: number) => <li key={i} className="group flex items-start gap-2 rounded-md border border-line px-3 py-2 font-mono text-xs leading-relaxed text-ink"><span className="flex-1">{b.text}</span><button type="button" onClick={() => copy(b.text, 'Bullet')} className="text-ink-3 opacity-0 transition-opacity hover:text-ink group-hover:opacity-100" aria-label="Copy bullet"><Copy className="h-3.5 w-3.5" /></button></li>)}</ul>
                   </section>
@@ -126,9 +131,9 @@ export default function Reports() {
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   {([['Entries', delta.headline.activities, formatNumber], ['Summable dollars', delta.headline.dollars, formatDollars], ['Reviewed dollars', delta.headline.reviewed, formatDollars], ['Quantity', delta.headline.quantity, formatNumber], ['With outcome', delta.headline.withOutcome, formatNumber], ['Awards', delta.extras.awards, formatNumber]] as Array<[string, Movement, (n: number) => string]>).map(([label, m, f]) => <MovementTile key={label} label={label} m={m} format={f} />)}
                 </div>
-                <h3 className="mb-2 mt-5 font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">By {meta.areaLabel.toLowerCase()}</h3>
+                <h3 className="mb-2 mt-5 text-md font-semibold text-ink">By {meta.areaLabel.toLowerCase()}</h3>
                 <ul className="space-y-1.5">{delta.byArea.map((a) => <li key={a.area} className="flex items-center justify-between gap-2 text-sm"><span className="text-ink">{a.area}</span><span className="flex items-center gap-2"><MovementInline m={a} format={formatNumber} /><span className="text-xs text-ink-3"><MovementInline m={a.dollars} format={formatDollars} /></span></span></li>)}</ul>
-                <h3 className="mb-2 mt-5 font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">By dollar type</h3>
+                <h3 className="mb-2 mt-5 text-md font-semibold text-ink">By dollar type</h3>
                 <ul className="space-y-1.5">{delta.byDollarType.filter((d) => d.current || d.prior).map((d) => <li key={d.key} className="flex items-center justify-between text-sm"><span className="text-ink">{d.label}{!d.summable && <span className="ml-1 text-2xs text-ink-3">not summed</span>}</span><MovementInline m={d} format={formatDollars} /></li>)}</ul>
               </Panel>
               <Panel title="Reading the change"><ul className="list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-ink-2">{delta.notes.map((n, i) => <li key={i}>{n}</li>)}</ul></Panel>
@@ -136,7 +141,7 @@ export default function Reports() {
           ))}
         </>
       )}
-    </div>
+    </PageShell>
   );
 }
 

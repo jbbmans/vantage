@@ -54,7 +54,7 @@ function Overview() {
         <Panel title="Email" subtitle={data.email.enabled ? `${data.email.provider} · from ${data.email.from}` : 'not configured'} action={data.email.enabled ? <Button size="sm" onClick={async () => { try { await withSudo(() => api.adminEmailTest()); toast.success('Test email sent to you.'); } catch (e) { toast.error(api.errorText(e)); } }}><Mail className="h-3.5 w-3.5" />Send test</Button> : undefined}>
           {!data.email.enabled ? <p className="text-sm text-ink-2">Set VANTAGE_EMAIL_PROVIDER to resend or smtp with its credentials to enable reset links, invitations, and digests.</p> : !data.email.recent.length ? <p className="text-sm text-ink-3">No email sent yet.</p> : <ul className="space-y-1 text-xs">{data.email.recent.map((m: any, i: number) => <li key={i} className="flex justify-between gap-2"><span className="truncate text-ink">{m.kind} → {m.to_address}</span><span className={m.status === 'sent' ? 'text-good' : 'text-bad'}>{m.status}{m.error ? `: ${m.error}` : ''}</span></li>)}</ul>}
         </Panel>
-        <Panel title="Audit chain" subtitle="tamper-evident log">
+        <Panel title="Audit chain" subtitle="Tamper-evident log">
           <p className="text-sm"><Badge tone={data.audit.ok ? 'good' : 'bad'}>{data.audit.ok ? 'Intact' : 'Broken'}</Badge> <span className="fig text-ink-2">{data.audit.count} entries</span></p>
           {!data.audit.ok && <p className="mt-2 text-xs text-bad">{data.audit.reason}. Restore from a backup taken before that point and investigate.</p>}
           <p className="mt-3 text-sm text-ink-2">MARADMIN feed: {data.maradmins.enabled ? `${data.maradmins.count} cached · last sync ${data.maradmins.lastSuccess ? timeAgo(data.maradmins.lastSuccess) : 'never'}` : 'off'}{data.maradmins.lastError ? <span className="block text-xs text-warn">{data.maradmins.lastError}</span> : null}</p>
@@ -112,7 +112,7 @@ function MetricsSettings() {
   const summable = form.value_types.filter((t) => t.summable).map((t) => t.label).join(', ');
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Panel title="Money metric" subtitle="the headline number and what it is called" action={<Button size="sm" variant="primary" onClick={save} loading={busy} disabled={!dirty}><Save className="h-4 w-4" />Save metrics</Button>}>
+      <Panel title="Money metric" subtitle="The headline number and what it is called" action={<Button size="sm" variant="primary" onClick={save} loading={busy} disabled={!dirty}><Save className="h-4 w-4" />Save metrics</Button>}>
         <div className="grid grid-cols-[1fr_6rem] gap-3">
           <Field label="Label" hint="appears on stat cards and reports, e.g. Dollars, Funds, Hours billed"><Input value={form.currency_label} onChange={(e) => update({ currency_label: e.target.value })} maxLength={30} /></Field>
           <Field label="Symbol" hint="prefix"><Input value={form.currency_symbol} onChange={(e) => update({ currency_symbol: e.target.value })} maxLength={4} /></Field>
@@ -134,7 +134,7 @@ function MetricsSettings() {
         </ul>
       </Panel>
       <div className="space-y-4">
-        <Panel title="Categories" subtitle="how entries are grouped on dashboards and in reports" action={<Button size="xs" variant="ghost" onClick={() => update({ categories: [...form.categories, { name: '', color: CATEGORY_PALETTE[form.categories.length % CATEGORY_PALETTE.length] }] })} disabled={form.categories.length >= 40}>Add category</Button>}>
+        <Panel title="Categories" subtitle="How entries are grouped on dashboards and in reports" action={<Button size="xs" variant="ghost" onClick={() => update({ categories: [...form.categories, { name: '', color: CATEGORY_PALETTE[form.categories.length % CATEGORY_PALETTE.length] }] })} disabled={form.categories.length >= 40}>Add category</Button>}>
           <ul className="space-y-1.5">
             {form.categories.map((c, i) => (
               <li key={i} className="flex items-center gap-2">
@@ -146,7 +146,7 @@ function MetricsSettings() {
           </ul>
           <p className="mt-2 text-2xs text-ink-3">Existing entries keep their category name even if you remove it here; they simply stop being offered for new entries.</p>
         </Panel>
-        <Panel title="Unit suggestions" subtitle="offered while typing an action unit">
+        <Panel title="Unit suggestions" subtitle="Offered while typing an action unit">
           <Textarea aria-label="Unit suggestions" rows={3} value={form.unit_suggestions.join(', ')} onChange={(e) => update({ unit_suggestions: e.target.value.split(/[,\n]/).map((u) => u.trim()).filter(Boolean).slice(0, 60) })} placeholder="ULOs, MIPRs, documents, hours" />
         </Panel>
         <Panel title="Reset">
@@ -192,7 +192,7 @@ function AiSettings() {
           <p className="mt-2 text-2xs text-ink-3">GenAI.mil fronts several model families (Gemini, Grok, GPT). Discover lists what your key can reach.</p>
         </div>
       </Panel>
-      <Panel title="Reach check" subtitle="from this browser, not the server">
+      <Panel title="Reach check" subtitle="From this browser, not the server">
         <p className="text-sm text-ink-2">Paste a GenAI.mil key and Vantage asks the gateway for its model list directly from this browser. Nothing is stored; the result only tells you whether this device’s network can reach GenAI.mil.</p>
         <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void probeFromBrowser(); }}>
           <Input aria-label="GenAI.mil key for the reach check" type="password" autoComplete="off" spellCheck={false} placeholder="genai key…" value={probeKey} onChange={(e) => setProbeKey(e.target.value)} />
@@ -201,7 +201,7 @@ function AiSettings() {
         {probe && <p role="status" className={`mt-3 rounded-md border px-3 py-2 text-sm text-ink ${probe.tone === 'good' ? 'border-good/40 bg-good/10' : probe.tone === 'warn' ? 'border-warn/40 bg-warn/10' : 'border-bad/40 bg-bad/5'}`}>{probe.text}</p>}
         <p className="mt-2 text-2xs text-ink-3">Server: {data.base_url}{data.last_error_at ? ` · last server-side failure ${timeAgo(data.last_error_at)}` : ''}</p>
       </Panel>
-      <Panel title="Usage" subtitle="today, across everyone">
+      <Panel title="Usage" subtitle="Today, across everyone">
         <div className="grid grid-cols-3 gap-3"><Stat label="Requests" value={data.daily.requests} /><Stat label="Tokens" value={Number(data.daily.total_tokens).toLocaleString()} hint={`budget ${Number(data.daily.budget_tokens).toLocaleString()}`} /><Stat label="Failures" value={data.daily.failures} tone={data.daily.failures ? 'warn' : undefined} /></div>
         <h3 className="mb-1.5 mt-4 text-xs font-semibold text-ink-2">Last 30 days by model</h3>
         {!data.by_model_30d?.length ? <p className="text-sm text-ink-3">No requests yet.</p> : <Table minWidth={320} head={<><th>Model</th><th className="text-right">Requests</th><th className="text-right">Tokens</th><th className="text-right">Failures</th></>}>{data.by_model_30d.map((m: any) => <tr key={m.model}><td className="mono text-xs">{m.model}</td><td className="fig text-right">{m.requests}</td><td className="fig text-right">{Number(m.total_tokens).toLocaleString()}</td><td className="fig text-right">{m.failures}</td></tr>)}</Table>}
@@ -294,11 +294,11 @@ function DataAdmin() {
   const toggleMaintenance = async (on: boolean) => { try { await withSudo(() => api.adminMaintenance(on)); toast.success(on ? 'Maintenance on. Only owners can sign in.' : 'Maintenance off.'); } catch (e) { toast.error(api.errorText(e)); } };
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Panel title="Backup" subtitle="a consistent copy of the SQLite database">
+      <Panel title="Backup" subtitle="A consistent copy of the SQLite database">
         <p className="text-sm text-ink-2">Render's disk is not backed up for you. Download a copy on a schedule you can live with, and before any upgrade.</p>
         <Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button>
       </Panel>
-      <Panel title="Move to another host" subtitle="portable JSON of the whole instance">
+      <Panel title="Move to another host" subtitle="Portable JSON of the whole instance">
         <p className="text-sm text-ink-2">Export everything (accounts, units, roles, records, attachments, audit log) as one JSON file. Import it into a fresh Vantage anywhere: Render, a VM, a laptop. Passwords, passkeys, and authenticators carry over.</p>
         <div className="mt-3 flex flex-wrap gap-2"><Button onClick={exportJson} loading={busy === 'export'}><Download className="h-4 w-4" />Export instance</Button><label className="inline-flex"><input type="file" accept="application/json,.json" className="sr-only" onChange={(e) => setImportFile(e.target.files?.[0] || null)} /><Button asChild><span><Upload className="h-4 w-4" />{importFile ? importFile.name : 'Choose export to import'}</span></Button></label>{importFile && <Button variant="danger" onClick={() => setConfirmImport(true)} loading={busy === 'import'}>Import and replace</Button>}</div>
       </Panel>

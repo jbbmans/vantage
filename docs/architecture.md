@@ -56,11 +56,19 @@ The service worker caches the app shell and hashed assets; API calls never touch
 
 ## Client conventions
 
-- Pages under `src/pages`, one per route; shared UI in `src/components/ui`; API and query hooks in `src/lib`.
-- Theme tokens are CSS variables (`--canvas`, `--surface`, `--ink`, `--accent`, semantic colors) on `:root`, switched by `data-theme` and `data-accent`; Tailwind maps them with alpha support.
+- Pages under `src/pages`; shared UI in `src/components/ui`; API and query hooks in `src/lib`.
+- Eleven navigation destinations, defined once in `src/config/nav.ts`. Two of them are hubs — `WorkHub`
+  (case queue, tasks, projects, correspondence) and `ReportsHub` (packages, analysis) — that render an
+  existing page with `embedded`, so a screen that is a tab and a screen that is a destination are the
+  same component rather than two copies. `PageShell` in `src/components/common.tsx` is what `embedded`
+  switches: the hub owns the hero, the page keeps its own heading and actions. `NAV_REDIRECTS` keeps
+  every retired path (`/queue`, `/studio`, `/correspondence`, `/maradmins`) landing on the tab that
+  absorbed it.
+- Theme tokens are CSS variables (`--canvas`, `--surface`, `--ink`, `--accent`, semantic colors) on `:root`, switched by `data-theme` and `data-accent`; Tailwind maps them with alpha support. Every muted tone is chosen to clear WCAG AA against the darkest surface it can land on, which the axe spec checks in both themes.
 - Forms use a generic `RecordDialog` that handles validation errors, version conflicts, and toasts.
 
 ## Testing
 
 - `tests/server`: node:test against an in-memory database, HTTP level, 240+ cases including permission boundaries, MFA, passkeys (mocked), imports, digests, AI mock, instance export/import, the typed metric engine, workbook parsing, the workbench, typed goals, report provenance, correspondence and connectors, and the analytics catalog.
-- `tests/browser`: Playwright against the built client and a test-mode server: setup, sign-in, quick log, CSV round-trip, PDF, TOTP, passkeys (CDP virtual authenticator), invites, unit dashboard, counseling, offline queue, axe accessibility in both themes, phone layout, metric drill-down, the workbench, Report Studio, correspondence, and the usage console.
+- `tests/browser`: Playwright against the built client and a test-mode server: setup, sign-in, quick log, CSV round-trip, PDF, TOTP, passkeys (CDP virtual authenticator), invites, unit dashboard, counseling, offline queue, axe accessibility in both themes, phone layout, metric drill-down, the workbench, Report Studio, correspondence, the usage console, and that every destination opens and every
+  retired path still redirects.

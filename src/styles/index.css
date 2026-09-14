@@ -1,20 +1,20 @@
 /*
- * VANTAGE 5 — COMMAND CONSOLE
+ * VANTAGE — DESIGN SYSTEM
  *
- * The design language is Swiss industrial print: carbon ink on unbleached paper, one hazard red,
- * rules instead of cards, and right angles everywhere. The dark theme is the same system inverted,
- * not a second design.
+ * The surface is a cool sheet of paper (#f7f9fb) with white cards laid on it, navy ink, and one
+ * signal colour. Nothing is decorative: a card is a card because its contents belong together, a
+ * rule divides, and the signal colour means "this is the thing to act on". Corners are softened to
+ * 7px so a dense financial table still reads as a document rather than a spreadsheet.
  *
- * Three type roles, and every piece of text belongs to exactly one:
- *   STRUCTURE  heavy uppercase sans, tight tracking. Page and section titles.
- *   LABEL      monospace uppercase, wide tracking. Navigation, column heads, metadata, units.
- *   DATA       monospace tabular figures. Every number a person might compare to another number.
- * Prose is the exception: descriptions and body copy stay sentence case in the sans, because a
- * paragraph set in uppercase mono is a paragraph nobody reads.
- *
- * Deliberately absent: rounded corners, drop shadows on content, gradients, and the scanline and
- * halftone textures this genre invites. People read financial records here for hours; simulated
- * screen degradation would cost legibility and buy atmosphere.
+ * Type has three roles, and every piece of text belongs to exactly one:
+ *   DISPLAY  the sans at large size, tight tracking, sentence case. Page titles and figures a
+ *            person should register before reading anything else.
+ *   UI       the sans at 13px. Everything a person clicks, scans, or fills in.
+ *   DOCUMENT the serif. Reserved for surfaces that are a document rather than an interface —
+ *            report drafts, counseling text, anything printed or signed. The serif is how the app
+ *            says "this is the record", and it must never leak into chrome.
+ * Monospace is not a fourth role. It is a property of numbers: any figure a person might compare
+ * against another figure gets tabular lining, so digits stack column to column.
  */
 
 @font-face { font-family: 'Geist'; src: url('/fonts/geist-normal.woff2') format('woff2'); font-weight: 300 800; font-display: swap; }
@@ -26,158 +26,164 @@
 
 @layer base {
   :root, [data-theme='light'] {
-    --canvas: 238 236 230;      /* unbleached stock: the gaps between panels */
-    --surface: 248 247 243;     /* the panels themselves, one step up from the stock */
-    --surface-2: 232 230 223;
-    --surface-3: 222 219 211;
-    --line: 202 198 189;        /* every division is a drawn rule, so it must be visible */
-    --line-strong: 24 23 21;    /* structural rules: carbon, not grey */
-    --ink: 12 12 11;
-    --ink-2: 62 60 56;
-    --ink-3: 104 100 94;
-    --good: 22 101 68;
-    --warn: 140 82 10;
-    --bad: 176 30 36;
-    --info: 28 82 148;
-    --rail: 15 15 14;
-    --rail-ink: 236 234 228;
+    --canvas: 247 249 251;      /* the sheet: every gap between cards */
+    --surface: 255 255 255;     /* the cards themselves */
+    --surface-2: 241 245 248;   /* sidebar, table heads, quiet fills */
+    --surface-3: 230 237 245;   /* hover, pressed */
+    --line: 224 230 238;
+    --line-strong: 212 221 232;
+    --ink: 19 29 48;
+    --ink-2: 63 77 99;
+    --ink-3: 95 106 127;   /* the muted tone still clears AA on every surface it lands on */
+    --good: 34 106 79;
+    --warn: 154 92 8;
+    --bad: 170 44 41;
+    --info: 8 102 212;
+    --rail: 241 245 248;        /* the sidebar is paper too, one step cooler than the sheet */
+    --rail-ink: 53 74 104;
+    --rail-active: 26 41 64;    /* the active destination is a solid navy block */
     color-scheme: light;
   }
   [data-theme='dark'] {
-    --canvas: 8 8 8;
-    --surface: 17 17 17;
-    --surface-2: 26 26 26;
-    --surface-3: 38 38 38;
-    --line: 58 58 58;
-    --line-strong: 176 174 168;
-    --ink: 234 234 230;
-    --ink-2: 176 174 168;
-    --ink-3: 132 130 124;
-    --good: 74 198 140;
-    --warn: 226 170 66;
-    --bad: 255 96 100;
-    --info: 108 166 234;
-    --rail: 5 5 5;
-    --rail-ink: 234 234 230;
+    --canvas: 17 28 42;
+    --surface: 24 37 54;
+    --surface-2: 30 45 64;
+    --surface-3: 38 55 76;
+    --line: 44 59 78;
+    --line-strong: 58 76 98;
+    --ink: 224 232 241;
+    --ink-2: 173 188 206;
+    --ink-3: 143 160 182;
+    --good: 138 200 172;
+    --warn: 225 182 110;
+    --bad: 255 143 138;
+    --info: 122 183 255;
+    --rail: 19 32 47;
+    --rail-ink: 176 193 213;
+    --rail-active: 37 66 98;
     color-scheme: dark;
   }
 
   /*
-   * One signal colour at a time. Each preset is a single saturated hue used for the same three
-   * things: the active marker, the primary action, and a figure that must be noticed. Light values
-   * are darkened enough to pass AA as small text on paper; the pure hazard red does not.
+   * One signal colour at a time, used for exactly three things: the active marker, the primary
+   * action, and a figure that must be noticed. Light values are darkened until they pass AA as
+   * small text on white; the dark values are lightened until they pass on the navy surface.
    */
-  :root, [data-accent='scarlet'] { --accent: 193 20 20; --accent-ink: 255 255 255; --accent-soft: 232 214 210; --accent-2: 140 108 20; }
-  [data-theme='dark'][data-accent='scarlet'], [data-theme='dark']:not([data-accent]) { --accent: 255 77 77; --accent-ink: 12 4 4; --accent-soft: 48 18 18; --accent-2: 224 182 74; }
-  [data-accent='ocean'] { --accent: 17 88 156; --accent-ink: 255 255 255; --accent-soft: 208 220 234; --accent-2: 18 120 128; }
-  [data-theme='dark'][data-accent='ocean'] { --accent: 96 172 236; --accent-ink: 4 16 26; --accent-soft: 16 38 58; --accent-2: 96 200 206; }
-  [data-accent='olive'] { --accent: 62 92 44; --accent-ink: 255 255 255; --accent-soft: 214 224 206; --accent-2: 130 102 44; }
-  [data-theme='dark'][data-accent='olive'] { --accent: 150 196 112; --accent-ink: 8 16 4; --accent-soft: 28 44 22; --accent-2: 210 178 96; }
-  [data-accent='steel'] { --accent: 44 60 82; --accent-ink: 255 255 255; --accent-soft: 212 218 228; --accent-2: 96 116 142; }
-  [data-theme='dark'][data-accent='steel'] { --accent: 164 188 216; --accent-ink: 8 14 22; --accent-soft: 32 44 62; --accent-2: 110 132 160; }
-  [data-accent='ember'] { --accent: 166 54 8; --accent-ink: 255 255 255; --accent-soft: 236 216 204; --accent-2: 152 100 22; }
-  [data-theme='dark'][data-accent='ember'] { --accent: 255 138 56; --accent-ink: 24 8 2; --accent-soft: 60 30 14; --accent-2: 220 170 70; }
+  :root, [data-accent='ocean'] { --accent: 8 102 212; --accent-ink: 255 255 255; --accent-soft: 234 243 255; --accent-2: 21 118 128; }
+  [data-theme='dark'][data-accent='ocean'], [data-theme='dark']:not([data-accent]) { --accent: 122 183 255; --accent-ink: 14 32 55; --accent-soft: 30 54 81; --accent-2: 110 200 206; }
+  [data-accent='scarlet'] { --accent: 182 26 26; --accent-ink: 255 255 255; --accent-soft: 253 235 234; --accent-2: 146 91 4; }
+  [data-theme='dark'][data-accent='scarlet'] { --accent: 255 138 138; --accent-ink: 46 8 8; --accent-soft: 62 27 27; --accent-2: 225 182 110; }
+  [data-accent='olive'] { --accent: 56 94 56; --accent-ink: 255 255 255; --accent-soft: 233 243 233; --accent-2: 146 91 4; }
+  [data-theme='dark'][data-accent='olive'] { --accent: 141 200 141; --accent-ink: 10 32 10; --accent-soft: 28 54 30; --accent-2: 225 182 110; }
+  [data-accent='steel'] { --accent: 60 78 102; --accent-ink: 255 255 255; --accent-soft: 236 240 246; --accent-2: 104 117 140; }
+  [data-theme='dark'][data-accent='steel'] { --accent: 165 187 214; --accent-ink: 14 26 42; --accent-soft: 36 52 72; --accent-2: 143 160 182; }
+  [data-accent='ember'] { --accent: 175 72 12; --accent-ink: 255 255 255; --accent-soft: 253 238 228; --accent-2: 146 91 4; }
+  [data-theme='dark'][data-accent='ember'] { --accent: 255 162 106; --accent-ink: 44 16 2; --accent-soft: 66 34 18; --accent-2: 225 182 110; }
 
   * { border-color: rgb(var(--line)); }
   button, a, [role='button'], input, select, textarea, label { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
   html { -webkit-text-size-adjust: 100%; }
   body {
     @apply bg-canvas text-ink font-sans text-base antialiased;
-    font-feature-settings: 'ss01' 1, 'cv01' 1, 'tnum' 1;
+    font-feature-settings: 'ss01' 1, 'cv01' 1;
     text-rendering: optimizeLegibility;
     min-width: 320px;
     overscroll-behavior-y: none;
   }
 
-  /* STRUCTURE: headings are blocks, not phrases. Tight tracking makes them read as one mass.
-     Case is set by .page-title, .display and the section-heading classes, never by the tag, so an
-     explanatory span nested inside a heading keeps its sentence case. */
-  h1, h2, h3, h4 { @apply font-semibold; letter-spacing: -0.01em; text-wrap: balance; }
+  /* Headings set their own case and size through .page-title / .display / explicit classes, so an
+     explanatory span nested inside one keeps the size and case it was given. */
+  h1, h2, h3, h4 { @apply font-semibold text-ink; letter-spacing: -0.015em; text-wrap: balance; }
 
-  /* DATA: anything a person compares against another number. */
-  .fig { @apply font-mono; font-variant-numeric: tabular-nums; letter-spacing: -0.02em; }
+  /* Numbers a person compares against other numbers. Tabular lining, never a different family —
+     the sans already has proper lining figures and switching to mono breaks the line. */
+  .fig { font-variant-numeric: tabular-nums; letter-spacing: -0.015em; }
   .mono { @apply font-mono; font-variant-numeric: tabular-nums; }
 
-  /* LABEL: the machine-readable layer. Wide tracking so short uppercase strings stay countable. */
-  .eyebrow { @apply font-mono text-2xs font-medium uppercase text-ink-3; letter-spacing: 0.14em; }
-  .display { @apply font-sans font-bold uppercase; letter-spacing: -0.02em; }
+  /* A quiet uppercase label above a block. Wide tracking keeps short strings countable. */
+  .eyebrow { @apply text-2xs font-semibold uppercase text-ink-3; letter-spacing: 0.08em; }
+  .display { @apply font-sans font-bold text-ink; letter-spacing: -0.03em; }
 
-  :focus-visible { @apply outline-none; box-shadow: 0 0 0 2px rgb(var(--canvas)), 0 0 0 4px rgb(var(--accent)); }
-  ::selection { background: rgb(var(--accent) / 0.25); }
-  ::-webkit-scrollbar { width: 12px; height: 12px; }
-  ::-webkit-scrollbar-track { background: rgb(var(--canvas)); }
-  ::-webkit-scrollbar-thumb { background: rgb(var(--line)); border: 4px solid rgb(var(--canvas)); }
-  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--ink-3)); }
-  input[type='date']::-webkit-calendar-picker-indicator { cursor: pointer; opacity: .6; }
+  :focus-visible { @apply outline-none; box-shadow: 0 0 0 2px rgb(var(--surface)), 0 0 0 4px rgb(var(--accent) / .55); }
+  ::selection { background: rgb(var(--accent) / 0.18); }
+  ::-webkit-scrollbar { width: 11px; height: 11px; }
+  ::-webkit-scrollbar-track { background: transparent; }
+  ::-webkit-scrollbar-thumb { background: rgb(var(--ink-3) / .3); border: 3px solid transparent; background-clip: content-box; border-radius: 99px; }
+  ::-webkit-scrollbar-thumb:hover { background: rgb(var(--ink-3) / .5); background-clip: content-box; }
+  input[type='date']::-webkit-calendar-picker-indicator { cursor: pointer; opacity: .55; }
   [data-theme='dark'] input[type='date']::-webkit-calendar-picker-indicator { filter: invert(0.85); }
 }
 
 @layer components {
-  /*
-   * A panel is a compartment: a drawn box on the stock, never a floating card. The heavy top rule
-   * is what separates one compartment from the next, so a page reads as a sheet of them.
-   */
-  .card { @apply border border-line bg-surface; }
-  .card-hover { @apply transition-colors duration-100 hover:bg-surface-2; }
-  /* The compartment's heading rule. Carbon, so a panel head reads as a drawn division. */
-  .panel-head { @apply border-b border-line-strong; }
+  /* A card groups things that belong together. It sits on the sheet; it does not float above it,
+     so the shadow is a hairline lift rather than a drop shadow. */
+  .card { @apply rounded-lg border border-line bg-surface shadow-card; }
+  .card-hover { @apply transition-[background-color,border-color,box-shadow] duration-150 hover:border-line-strong hover:shadow-pop; }
+  /* The divider between a card's heading and its contents. */
+  .panel-head { @apply border-b border-line; }
 
   .field {
-    @apply w-full min-w-0 border border-line bg-surface px-2.5 py-1.5 text-base text-ink placeholder:text-ink-3 transition-colors duration-100;
+    @apply w-full min-w-0 rounded-md border border-line-strong bg-surface px-3 py-2 text-base text-ink placeholder:text-ink-3 transition-[border-color,box-shadow] duration-150;
   }
-  .field:hover { border-color: rgb(var(--ink-3)); }
-  .field:focus { @apply outline-none; border-color: rgb(var(--accent)); box-shadow: inset 0 0 0 1px rgb(var(--accent)); }
-  .field[aria-invalid='true'] { border-color: rgb(var(--bad)); box-shadow: inset 0 0 0 1px rgb(var(--bad)); }
+  .field:hover { border-color: rgb(var(--ink-3) / .6); }
+  .field:focus { @apply outline-none; border-color: rgb(var(--accent)); box-shadow: 0 0 0 3px rgb(var(--accent) / .12); }
+  .field[aria-invalid='true'] { border-color: rgb(var(--bad)); box-shadow: 0 0 0 3px rgb(var(--bad) / .12); }
 
   .skip-link { @apply sr-only; }
-  .skip-link:focus { @apply not-sr-only fixed left-3 top-3 z-[100] border border-line-strong bg-surface px-3 py-2 text-sm font-semibold uppercase text-ink; }
+  .skip-link:focus { @apply not-sr-only fixed left-3 top-3 z-[100] rounded-md border border-line bg-surface px-3 py-2 text-sm font-semibold text-ink shadow-modal; }
 
-  /* A chip is a stamp: square, monospaced, uppercase. */
-  .chip { @apply inline-flex items-center gap-1.5 border border-line px-1.5 py-0.5 font-mono text-2xs font-medium uppercase text-ink-2; letter-spacing: 0.08em; }
+  /* A chip states a fact in one or two words: a status, a count, a category. */
+  .chip { @apply inline-flex items-center gap-1.5 rounded border border-transparent bg-surface-2 px-2 py-1 text-xs font-medium text-ink-2; }
 
-  .row { @apply border-b border-line last:border-b-0 transition-colors duration-75 hover:bg-surface-2; }
-  .page { @apply mx-auto w-full max-w-[1560px]; }
+  .row { @apply border-b border-line last:border-b-0 transition-colors duration-100 hover:bg-surface-2/70; }
+  .page { @apply mx-auto w-full max-w-[1440px]; }
 
-  /* A page title is the largest structural block on the sheet and carries a rule beneath it. */
-  .page-title { @apply display text-[26px] leading-[1.02] text-ink sm:text-[32px]; }
-  .page-lede { @apply mt-2 max-w-3xl text-sm leading-relaxed text-ink-2; text-wrap: pretty; }
+  /* The one large thing on the page. It states what this screen is for in a sentence a person
+     could say out loud, which is why it is sentence case and not a label. */
+  .page-title { @apply display text-[30px] leading-[1.06] sm:text-[40px]; }
+  .page-lede { @apply mt-2 max-w-3xl text-md leading-relaxed text-ink-2; text-wrap: pretty; }
 
-  /* A figure is read, not admired: monospaced so digits line up column to column. */
-  .stat-value { @apply fig text-[30px] font-medium leading-none text-ink; }
+  /* A figure is read, not admired. Big, tight, and tabular so two of them line up. */
+  .stat-value { @apply fig text-[34px] font-semibold leading-none text-ink; }
 
-  .nav-item { @apply relative flex items-center gap-2.5 border-l-2 border-transparent px-3 py-[7px] font-mono text-2xs font-medium uppercase text-rail-ink/75 transition-colors duration-100 hover:bg-rail-ink/[0.06] hover:text-rail-ink; letter-spacing: 0.1em; }
-  .nav-item[aria-current='page'] { @apply border-l-accent bg-rail-ink/[0.09] text-rail-ink; }
+  /* The active destination is a solid block, not a tint: at a glance you are somewhere. */
+  .nav-item { @apply relative flex items-center gap-3 rounded-md px-3 py-2 text-base font-medium text-rail-ink transition-colors duration-100 hover:bg-surface-3 hover:text-ink; }
+  .nav-item[aria-current='page'] { background: rgb(var(--rail-active)); @apply text-white shadow-pop; }
+  .nav-item[aria-current='page']:hover { background: rgb(var(--rail-active)); @apply text-white; }
+  .nav-label { @apply px-3 pb-2 text-2xs font-semibold uppercase text-ink-3; letter-spacing: 0.075em; }
 
-  .kbd { @apply inline-flex h-5 min-w-5 items-center justify-center border border-line bg-surface-2 px-1 font-mono text-2xs text-ink-3; }
+  .kbd { @apply inline-flex h-5 min-w-5 items-center justify-center rounded border border-line bg-surface-2 px-1.5 font-mono text-2xs text-ink-3; }
 
-  /* No shimmer. A loading block is a flat hatched placeholder that cannot be mistaken for content. */
-  .skeleton {
-    background-color: rgb(var(--surface-2));
-    background-image: repeating-linear-gradient(45deg, rgb(var(--line) / 0.7) 0 1px, transparent 1px 7px);
-    animation: pulse-flat 1.4s steps(2, end) infinite;
-  }
+  .skeleton { @apply rounded bg-surface-3; animation: pulse-soft 1.6s ease-in-out infinite; }
 
   .prose-tight p + p { margin-top: .6em; }
-  .link { @apply text-accent underline decoration-1 underline-offset-2; }
+  .link { @apply text-accent underline decoration-1 underline-offset-2 hover:decoration-2; }
   .divider { @apply border-t border-line; }
-  .rule { @apply border-t border-line-strong; }
-  .badge-dot { @apply inline-block h-1.5 w-1.5 shrink-0; }
-  .table-head { @apply font-mono text-2xs font-medium uppercase text-ink-3; letter-spacing: 0.1em; }
+  .rule { @apply border-t border-line; }
+  .badge-dot { @apply inline-block h-1.5 w-1.5 shrink-0 rounded-full; }
+  .table-head { @apply text-xs font-medium text-ink-3; }
   .accent-2 { color: rgb(var(--accent-2)); }
 
-  /*
-   * Hairline grid: one background rule showing through 1px gaps. Cheaper and more exact than a
-   * border on every child, and it never doubles up at the seams.
-   */
-  .hairline-grid { @apply gap-px bg-line; }
+  /* Tabs underline the current view. The underline sits on the container's rule so switching tabs
+     moves a mark along a line rather than lighting up a separate object. */
+  .tab-bar { @apply flex items-center gap-6 border-b border-line; }
+  .tab { @apply relative -mb-px border-b-2 border-transparent pb-2.5 pt-1 text-md font-medium text-ink-3 transition-colors hover:text-ink-2; }
+  .tab[data-state='active'], .tab[aria-selected='true'] { @apply border-accent text-accent; }
+
+  /* Hairline grid: one background rule showing through 1px gaps, so seams never double up. */
+  .hairline-grid { @apply gap-px overflow-hidden rounded-lg border border-line bg-line; }
   .hairline-grid > * { @apply bg-surface; }
+
+  /* DOCUMENT surfaces: a report draft is set like something that will be printed and signed. */
+  .doc-body { @apply font-serif text-[15px] leading-[1.75] text-ink; }
+  .doc-title { @apply font-serif text-[34px] font-normal leading-[1.15] text-ink sm:text-[44px]; letter-spacing: -0.015em; }
 }
 
-@keyframes pulse-flat { 50% { opacity: .55; } }
+@keyframes pulse-soft { 50% { opacity: .5; } }
 
-[data-density='compact'] .card > .card-body { padding: .5rem .625rem; }
-[data-density='compact'] .row { min-height: 2rem; }
-[data-density='compact'] .page { row-gap: .5rem; }
+[data-density='compact'] .card > .card-body { padding: .625rem .75rem; }
+[data-density='compact'] .row { min-height: 2.25rem; }
+[data-density='compact'] .page { row-gap: .75rem; }
 
 @media (max-width: 639px) {
   input, select, textarea, button[role='combobox'] { font-size: 16px; }
@@ -188,9 +194,9 @@
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
 }
 @media print {
-  :root { --canvas: 255 255 255; --surface: 255 255 255; --surface-2: 255 255 255; --line: 170 170 170; --line-strong: 0 0 0; --ink: 0 0 0; --ink-2: 40 40 40; --ink-3: 90 90 90; }
+  :root { --canvas: 255 255 255; --surface: 255 255 255; --surface-2: 255 255 255; --surface-3: 255 255 255; --line: 190 190 190; --line-strong: 140 140 140; --ink: 0 0 0; --ink-2: 40 40 40; --ink-3: 90 90 90; }
   .no-print { display: none !important; }
-  body { background: #fff; font-size: 10pt; }
-  .card { border: 0 !important; border-top: 1.5pt solid #000 !important; break-inside: avoid; }
+  body { background: #fff; font-size: 10.5pt; }
+  .card { border: 0 !important; border-top: 1pt solid #999 !important; box-shadow: none !important; break-inside: avoid; }
   @page { margin: 16mm 14mm; }
 }

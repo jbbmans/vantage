@@ -1,6 +1,6 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, ArrowRight, AlertTriangle, CheckCircle2, TrendingUp, Sparkles, Users, CalendarClock } from 'lucide-react';
+import { ArrowRight, AlertTriangle, CheckCircle2, TrendingUp, Sparkles, Users, CalendarClock } from 'lucide-react';
 import { PageHeader, Panel, Button, EmptyState, Skeleton, Progress, Badge } from '@/components/ui/primitives';
 import { AreaChart, BarList } from '@/components/charts';
 import { AiAction, AiResult } from '@/components/AiPanel';
@@ -76,12 +76,11 @@ export default function Dashboard() {
           : `${data.outcomesWithMeasures} ${data.outcomesWithMeasures === 1 ? 'outcome' : 'outcomes'} carried a measurable result this period.`}
       >
         <PeriodSelect value={period} onChange={(v) => savePrefs.mutate({ dashboardPeriod: v })} className="w-44" />
-        <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log activity</Button>
       </PageHeader>
 
       {/* Attention ---------------------------------------------------- */}
       <section aria-labelledby="attention-heading" className="mb-6">
-        <h2 id="attention-heading" className="mb-2 flex items-center gap-2 border-b border-line pb-1.5 font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">
+        <h2 id="attention-heading" className="mb-2 flex items-center gap-2 border-b border-line pb-1.5 text-md font-semibold text-ink">
           <AlertTriangle className={cn('h-3.5 w-3.5', attention.length ? 'text-warn' : 'text-ink-3')} />
           Needs your attention
         </h2>
@@ -89,7 +88,7 @@ export default function Dashboard() {
           <div className="card"><p className="flex items-center gap-2 text-sm text-good"><CheckCircle2 className="h-4 w-4" />Nothing is overdue, closing, or incomplete. Log what you did today.</p></div>
         ) : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            <Panel title="Act on these now" subtitle="deadlines and gaps that move if you do not">
+            <Panel title="Act on these now" subtitle="Deadlines and gaps that move if you do not">
               {attention.length === 0 ? <p className="text-sm text-ink-3">Nothing time-sensitive right now.</p> : (
                 <ul className="-mx-3 -my-3 divide-y divide-line border-y border-line">{attention.map((a) => (
                   <li key={a.key}>
@@ -97,7 +96,7 @@ export default function Dashboard() {
                       <span className="fig mt-px min-w-6 text-center text-sm text-accent">{a.count ?? <CalendarClock className="h-3.5 w-3.5" />}</span>
                       <span className="min-w-0 flex-1">
                         <span className="block text-sm text-ink">{a.label}</span>
-                        <span className="block truncate font-mono text-2xs uppercase tracking-wider text-ink-3">{a.detail}</span>
+                        <span className="block truncate text-xs text-ink-3">{a.detail}</span>
                       </span>
                       <ArrowRight className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-3" />
                     </Link>
@@ -105,7 +104,7 @@ export default function Dashboard() {
                 ))}</ul>
               )}
             </Panel>
-            <Panel title="Fix before the package is due" subtitle="record gaps that weaken a claim" action={<Link to="/reports" className="text-xs text-accent hover:underline">Build report</Link>}>
+            <Panel title="Fix before the package is due" subtitle="Record gaps that weaken a claim" action={<Link to="/reports" className="text-xs text-accent hover:underline">Build report</Link>}>
               {health.length === 0 ? (
                 <p className="flex items-center gap-2 text-sm text-good"><CheckCircle2 className="h-4 w-4" />Nothing to fix.</p>
               ) : (
@@ -125,10 +124,10 @@ export default function Dashboard() {
 
       {/* Accomplished ------------------------------------------------- */}
       <section aria-labelledby="accomplished-heading" className="mb-6">
-        <h2 id="accomplished-heading" className="mb-2 flex items-center gap-2 font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">
+        <h2 id="accomplished-heading" className="mb-2 flex items-center gap-2 text-md font-semibold text-ink">
           <CheckCircle2 className="h-4 w-4 text-good" />
           Accomplished this period
-          <span className="text-xs font-normal normal-case tracking-normal text-ink-3">every figure opens into the outcomes behind it</span>
+          <span className="text-xs font-normal text-ink-3">Every figure opens into the outcomes behind it.</span>
         </h2>
         <MetricTotalsGrid
           headline={data.headline}
@@ -143,14 +142,14 @@ export default function Dashboard() {
 
       {/* Progressing -------------------------------------------------- */}
       <section aria-labelledby="progressing-heading">
-        <h2 id="progressing-heading" className="mb-2 flex items-center gap-2 font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">
+        <h2 id="progressing-heading" className="mb-2 flex items-center gap-2 text-md font-semibold text-ink">
           <TrendingUp className="h-4 w-4 text-accent" />
           Progressing
         </h2>
         <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
           <Panel
             title={topSeries ? metricUnitLabel({ kind: data.headline[0].kind, unit: topSeries.unit, metricLabel: topSeries.metricLabel }) : 'Over time'}
-            subtitle="by month, on the same basis as the figure above"
+            subtitle="By month, on the same basis as the figure above"
             className="xl:col-span-2"
             padded={false}
             bodyClassName="p-3"
@@ -187,7 +186,7 @@ export default function Dashboard() {
         </div>
 
         <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
-          <Panel title="Where the work landed" subtitle="outcomes by category" className="lg:col-span-2">
+          <Panel title="Where the work landed" subtitle="Outcomes by category" className="lg:col-span-2">
             {data.byCategory.length === 0 ? (
               <p className="text-sm text-ink-3">Nothing categorised in this period.</p>
             ) : (
@@ -216,7 +215,7 @@ export default function Dashboard() {
               )}
             </Panel>
             {identity?.canLead ? (
-              <Panel title="Leading" subtitle="units you can see">
+              <Panel title="Leading" subtitle="Units you can see">
                 <ul className="space-y-1.5">{identity.memberships.filter((m) => identity.readableUnitIds.includes(m.unit_id)).map((m) => (
                   <li key={m.unit_id}>
                     <Link to={`/team?tab=dashboard&unit=${m.unit_id}`} className="flex items-center justify-between rounded-md border border-line px-3 py-2 text-sm hover:border-line-strong hover:bg-surface-2">
@@ -243,7 +242,7 @@ export default function Dashboard() {
           <Panel
             className="mt-4"
             title="Where do I stand?"
-            subtitle="reads your own entries, goals and open tasks for this period; nobody else's"
+            subtitle="Reads your own entries, goals and open tasks for this period; nobody else's"
             action={<AiAction workflow="personal_review" surface="dashboard" input={{ days: 90 }} label="Review my record" onResult={(output, meta) => setReview({ output, meta })} />}
           >
             {review

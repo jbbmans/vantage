@@ -13,7 +13,7 @@ const CSV = [
 test.beforeEach(async ({ page, request }) => { await ensureSetup(request); await loginAs(page, OPERATOR.username); });
 
 test('a spreadsheet is imported through the wizard, and the preview is shown before anything is written', async ({ page }) => {
-  await page.goto('/queue');
+  await page.goto('/work?tab=queue');
   await page.getByRole('button', { name: 'Import a spreadsheet' }).first().click();
 
   const dialog = page.getByRole('dialog');
@@ -66,7 +66,7 @@ test('the same file imported again changes nothing', async ({ page }) => {
 });
 
 test('a row is claimed, worked and recorded, and the outcome reaches the dashboard once', async ({ page }) => {
-  await page.goto('/queue');
+  await page.goto('/work?tab=queue');
   const row = page.getByRole('row').filter({ hasText: 'WB-100' }).first();
   await expect(row).toBeVisible();
   await row.getByRole('button', { name: 'Claim' }).click();
@@ -120,7 +120,7 @@ test('an identifier the spreadsheet mangled is refused with the reason, not repa
 
 test('the queue is keyboard-navigable and a selection copies as pasteable rows', async ({ page, context }) => {
   await context.grantPermissions(['clipboard-read', 'clipboard-write']);
-  await page.goto('/queue');
+  await page.goto('/work?tab=queue');
   await expect(page.getByText('WB-101')).toBeVisible();
 
   await page.getByRole('region', { name: 'Work queue rows' }).or(page.locator('[aria-label="Work queue rows"]')).first().click({ position: { x: 5, y: 5 } }).catch(() => undefined);

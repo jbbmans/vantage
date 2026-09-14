@@ -83,7 +83,7 @@ export default function UsageConsole() {
         <Stat label="Failed requests" value={formatNumber(r.reliability.failedRequests)} tone={r.reliability.failedRequests ? 'warn' : undefined} hint="server refused or broke" icon={ShieldCheck} />
       </div>
 
-      <Panel title="Three different times" subtitle="measured separately because they measure different things; they are never added together">
+      <Panel title="Three different times" subtitle="Measured separately because they measure different things; they are never added together">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
           <TimeCard
             title="Form open"
@@ -107,7 +107,7 @@ export default function UsageConsole() {
       </Panel>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-        <Panel title="Where captures are abandoned" subtitle="the state a person left in, never what they had written">
+        <Panel title="Where captures are abandoned" subtitle="The state a person left in, never what they had written">
           <Buckets items={r.capture.abandonmentStates} withheldCount={r.capture.abandonmentWithheld} empty="No abandoned captures in this period." />
         </Panel>
 
@@ -160,7 +160,7 @@ export default function UsageConsole() {
           <Row label="Records cited per revision, median" value={r.goalsAndReports.sourcesPerRevision.median ?? '—'} />
         </Panel>
 
-        <Panel title="AI" subtitle="what was asked for and what it cost; never a prompt, never a draft">
+        <Panel title="AI" subtitle="What was asked for and what it cost; never a prompt, never a draft">
           <Row label="Requests" value={formatNumber(r.ai.requested)} />
           <Row label="Answered" value={formatNumber(r.ai.answered)} />
           <Row label="Failed" value={formatNumber(r.ai.failed)} />
@@ -184,14 +184,14 @@ export default function UsageConsole() {
           <div className="mt-3"><Buckets items={r.reliability.byRoute} empty="No failing requests in this period." /></div>
         </Panel>
 
-        <Panel title="Security" subtitle="counts of refusals and step-ups, never who was refused">
+        <Panel title="Security" subtitle="Counts of refusals and step-ups, never who was refused">
           <Row label="Step-ups asked for" value={formatNumber(r.security.stepUps)} />
           <Row label="Step-ups granted" value={formatNumber(r.security.stepUpsGranted)} />
           <Row label="Requests refused for authorization" value={formatNumber(r.security.authorizationDenied)} />
           <div className="mt-3"><Buckets items={r.security.deniedByRoute} empty="Nothing was refused in this period." /></div>
         </Panel>
 
-        <Panel title="Data quality" subtitle="what entries are missing, so the form can be fixed rather than the person corrected">
+        <Panel title="Data quality" subtitle="What entries are missing, so the form can be fixed rather than the person corrected">
           <Buckets items={r.quality.missingMeasures} empty="Nothing missing was recorded in this period." />
         </Panel>
       </div>
@@ -199,7 +199,7 @@ export default function UsageConsole() {
       <Panel title="What is measured" subtitle={`${r.coverage.length} declared measures; a client cannot send anything not on this list`}>
         <div className="flex flex-wrap gap-1.5">
           {r.coverage.map((c: { name: string; family: string; instrumented: boolean; events: number }) => (
-            <Badge key={c.name} tone={c.instrumented ? 'accent' : 'neutral'} className="normal-case tracking-normal">
+            <Badge key={c.name} tone={c.instrumented ? 'accent' : 'neutral'}>
               {c.name}{c.events ? ` · ${formatNumber(c.events)}` : ''}
             </Badge>
           ))}
@@ -217,7 +217,7 @@ export default function UsageConsole() {
 function TimeCard({ title, body, d, format }: { title: string; body: string; d: Distribution; format: (v: number | null) => string }) {
   return (
     <div className="rounded-lg border border-line p-3">
-      <p className="font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">{title}</p>
+      <p className="text-md font-semibold text-ink">{title}</p>
       <p className="mt-0.5 text-xs leading-relaxed text-ink-3">{body}</p>
       <dl className="mt-2 space-y-1 text-sm">
         <div className="flex justify-between"><dt className="text-ink-3">Median</dt><dd className="fig font-medium text-ink">{format(d.median)}</dd></div>

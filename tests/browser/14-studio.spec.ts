@@ -19,7 +19,7 @@ async function seedRecord(page: any, title: string, extra: Record<string, unknow
 test('a report is written against chosen records and saved as a revision', async ({ page }) => {
   await seedRecord(page, 'Reconciled the aged obligations');
 
-  await page.goto('/studio');
+  await page.goto('/reports?tab=packages');
   await page.getByRole('button', { name: 'New report' }).click();
   const start = page.getByRole('dialog', { name: 'Start a report' });
   await start.getByLabel('Title').fill('Studio walkthrough');
@@ -43,7 +43,7 @@ test('a save is refused when a cited record changed, and goes through once the a
     headers: H, data: { title: 'Drift check', period_start: daysAgo(30), period_end: today() },
   })).json();
 
-  await page.goto('/studio');
+  await page.goto('/reports?tab=packages');
   await page.getByText('Drift check').click();
   await page.getByRole('button', { name: 'Choose', exact: true }).click();
   const picker = page.getByRole('dialog', { name: 'Choose the records this report cites' });
@@ -145,7 +145,7 @@ test('a report written about somebody is theirs to read, not to rewrite', async 
   // The subject can open it. Everything that would write is gone, rather than shown and refused.
   await logout(page);
   await loginAs(page, subjectName);
-  await page.goto('/studio');
+  await page.goto('/reports?tab=packages');
   await page.getByText('Counseling package').first().click();
   await expect(page.getByRole('heading', { name: 'Counseling package' })).toBeVisible();
   await expect(page.getByRole('button', { name: 'Save revision' })).toBeDisabled();

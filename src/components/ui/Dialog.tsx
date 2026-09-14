@@ -15,18 +15,18 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
           'fixed z-50 flex flex-col overflow-hidden border border-line-strong bg-surface shadow-modal focus:outline-none',
           drawer
             ? 'inset-x-0 bottom-0 max-h-[92dvh] data-[state=open]:animate-slide-up sm:inset-y-0 sm:left-auto sm:right-0 sm:max-h-none sm:w-[min(46vw,580px)] sm:border-y-0 sm:border-r-0 sm:data-[state=open]:animate-slide-in-right'
-            : cn('inset-x-0 bottom-0 max-h-[92dvh] data-[state=open]:animate-slide-up sm:inset-auto sm:left-1/2 sm:top-1/2 sm:max-h-[88vh] sm:w-[calc(100vw-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:data-[state=open]:animate-scale-in', widths[size]),
+            : cn('inset-x-0 bottom-0 max-h-[92dvh] data-[state=open]:animate-slide-up sm:inset-auto sm:left-1/2 sm:top-1/2 sm:max-h-[88vh] sm:w-[calc(100vw-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:data-[state=open]:animate-modal-in', widths[size]),
           className
         )}>
           <header className="panel-head flex items-start justify-between gap-4 bg-surface-2/60 px-4 pb-2 pt-3">
             <div className="min-w-0">
-              <DialogPrimitive.Title className="font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink">{title}</DialogPrimitive.Title>
-              {description && <DialogPrimitive.Description className="mt-1 text-xs normal-case leading-relaxed tracking-normal text-ink-3">{description}</DialogPrimitive.Description>}
+              <DialogPrimitive.Title className="text-md font-semibold text-ink">{title}</DialogPrimitive.Title>
+              {description && <DialogPrimitive.Description className="mt-1 text-xs leading-relaxed text-ink-3">{description}</DialogPrimitive.Description>}
             </div>
             <DialogPrimitive.Close className="-mr-1 -mt-1 p-1.5 text-ink-3 transition-colors hover:bg-ink hover:text-canvas" aria-label="Close"><X className="h-4 w-4" /></DialogPrimitive.Close>
           </header>
           <div className="min-h-0 flex-1 overflow-y-auto px-4 py-3 [overscroll-behavior:contain]">{children}</div>
-          {footer && <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-line-strong bg-surface-2/60 px-4 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-3 max-[420px]:[&>*]:flex-1 max-[420px]:[&>*]:justify-center">{footer}</footer>}
+          {footer && <footer className="flex flex-wrap items-center justify-end gap-2 border-t border-line bg-surface-2/50 px-4 pb-[max(.75rem,env(safe-area-inset-bottom))] pt-3 max-[420px]:[&>*]:flex-1 max-[420px]:[&>*]:justify-center">{footer}</footer>}
         </DialogPrimitive.Content>
       </DialogPrimitive.Portal>
     </DialogPrimitive.Root>

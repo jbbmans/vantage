@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Badge, Select, type Tone } from '@/components/ui/primitives';
+import { Badge, PageHeader, Select, type Tone } from '@/components/ui/primitives';
 import { PERIOD_OPTIONS, formatDate, formatDollars, formatNumber } from '../../shared/metrics';
 import { categoryColor } from '../../shared/constants';
 import { useMetrics } from '@/lib/queries';
@@ -19,6 +19,30 @@ export const CategoryDot = ({ category }: { category?: string | null }) => { con
 
 export function PeriodSelect({ value, onChange, className, includeAll = true }: { value: string; onChange: (v: string) => void; className?: string; includeAll?: boolean }) {
   return <Select aria-label="Period" className={className} value={value} onValueChange={onChange} options={PERIOD_OPTIONS.filter((p) => includeAll || p.value !== 'all').map((p) => ({ value: p.value, label: p.label }))} />;
+}
+
+/**
+ * A page renders either as its own destination or as one tab inside a hub. `embedded` is what the
+ * hub passes down: the hub already carries the hero, so the page steps down from a page title to a
+ * section heading. Everything below the header is identical either way, which is why merging two
+ * destinations did not mean maintaining two versions of a screen.
+ */
+export function PageShell({ embedded, eyebrow, title, lede, actions, children }: { embedded?: boolean; eyebrow?: string; title: React.ReactNode; lede?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode }) {
+  if (embedded) {
+    // The hub's title says what the destination is for; this one names the tab you are on, which
+    // for a screen whose subject depends on your rank (a JEPES input versus a FITREP) is the only
+    // place that fact appears.
+    return (
+      <>
+        <div className="-mt-1 mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="min-w-0 truncate text-lg font-semibold text-ink">{title}</h2>
+          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+        </div>
+        {children}
+      </>
+    );
+  }
+  return <div className="page"><PageHeader eyebrow={eyebrow} title={title} lede={lede}>{actions}</PageHeader>{children}</div>;
 }
 
 /** URL-synced string state (e.g. active tab), without history spam. */

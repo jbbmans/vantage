@@ -104,8 +104,8 @@ export default function Records() {
 
       <div className="card mb-3 p-2">
         <div className="flex flex-wrap items-center gap-2">
-          <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search records" className="pl-8" placeholder="Search title, result, org, system…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-          {from && to ? <Badge tone="accent" className="normal-case tracking-normal">{from === to ? from : `${from} → ${to}`}<button type="button" className="ml-1 hover:text-ink" onClick={() => navigate('/records')} aria-label="Clear date filter">×</button></Badge> : <PeriodSelect value={period} onChange={(v) => { setPeriod(v); savePrefs.mutate({ reportPeriod: v }); }} className="w-40" />}
+          <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search records" className="pl-8" placeholder="Title, result, or system…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+          {from && to ? <Badge tone="accent">{from === to ? from : `${from} → ${to}`}<button type="button" className="ml-1 hover:text-ink" onClick={() => navigate('/records')} aria-label="Clear date filter">×</button></Badge> : <PeriodSelect value={period} onChange={(v) => { setPeriod(v); savePrefs.mutate({ reportPeriod: v }); }} className="w-40" />}
           <Select aria-label="Category" className="w-44" value={category} onValueChange={setCategory} options={[{ value: 'all', label: 'All categories' }, ...categoryNames(cfg).map((c) => ({ value: c, label: c }))]} />
           <Select aria-label={trackMeta(track).areaLabel} className="w-48" value={area} onValueChange={setArea} options={[{ value: 'all', label: `All ${trackMeta(track).areaLabel.toLowerCase()}s` }, ...areaOptions(track)]} />
           <Select aria-label="Quality filter" className="w-52" value={quality} onValueChange={setQuality} options={qualityOptions} />
@@ -114,7 +114,7 @@ export default function Records() {
           <Segmented size="sm" label="Layout" value={view} onChange={setView} options={[{ value: 'list', label: <LayoutList className="h-4 w-4" />, ariaLabel: 'List' }, { value: 'cards', label: <LayoutGrid className="h-4 w-4" />, ariaLabel: 'Cards' }]} />
         </div>
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
-          <p className="font-mono text-2xs uppercase tracking-wider text-ink-3"><span className="fig text-ink">{filtered.length}</span> entries · <span className="fig text-ink">{formatDollars(metrics.totalDollars)}</span> summable · <span className="fig text-ink">{metrics.withOutcome}</span> with an outcome</p>
+          <p className="text-xs text-ink-3"><span className="fig text-ink">{filtered.length}</span> entries · <span className="fig text-ink">{formatDollars(metrics.totalDollars)}</span> summable · <span className="fig text-ink">{metrics.withOutcome}</span> with an outcome</p>
           {identity?.instance.aiEnabled && (
             <AiAction workflow="record_quality" surface="records" input={{ days: 180 }} label="Coach my entries" onResult={(output, meta) => setCoaching({ output, meta })} />
           )}
@@ -125,7 +125,7 @@ export default function Records() {
         <Panel
           className="mb-4"
           title="Which entries are weak"
-          subtitle="the last six months, with suggested rewrites; a coach, not a grader"
+          subtitle="The last six months, with suggested rewrites; a coach, not a grader"
           action={<Button size="xs" variant="ghost" onClick={() => setCoaching(null)}>Dismiss</Button>}
         >
           <AiResult output={coaching.output} meta={coaching.meta} />

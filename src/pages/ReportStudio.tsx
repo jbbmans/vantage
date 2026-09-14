@@ -4,7 +4,7 @@ import { AlertTriangle, ArrowLeft, Check, Download, FileText, History, Plus, Shi
 import { PageHeader, Button, Field, Input, Textarea, Select, Badge, EmptyState, Skeleton, Panel } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
-import { DateText } from '@/components/common';
+import { DateText, PageShell } from '@/components/common';
 import { useIdentity, useReportDrafts, useReportDraft } from '@/lib/queries';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { editorClock, track } from '@/lib/telemetry';
@@ -29,12 +29,12 @@ const BLANK_SECTIONS: Section[] = [
   { heading: 'Individual character', body: '', source_ids: [] },
 ];
 
-export default function ReportStudio() {
+export default function ReportStudio({ embedded }: { embedded?: boolean } = {}) {
   const [openId, setOpenId] = useState<string | null>(null);
-  return openId ? <Editor id={openId} onBack={() => setOpenId(null)} /> : <DraftList onOpen={setOpenId} />;
+  return openId ? <Editor id={openId} onBack={() => setOpenId(null)} /> : <DraftList embedded={embedded} onOpen={setOpenId} />;
 }
 
-function DraftList({ onOpen }: { onOpen: (id: string) => void }) {
+function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedded?: boolean }) {
   const toast = useToast();
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
@@ -61,10 +61,13 @@ function DraftList({ onOpen }: { onOpen: (id: string) => void }) {
   };
 
   return (
-    <div className="page">
-      <PageHeader eyebrow="Report Studio" title="Packages" lede="Each saved version records which facts it was built from. Exporting hands over exactly what was reviewed.">
-        <Button variant="primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" />New report</Button>
-      </PageHeader>
+    <PageShell
+      embedded={embedded}
+      eyebrow="Report Studio"
+      title="Packages"
+      lede="Each saved version records which facts it was built from. Exporting hands over exactly what was reviewed."
+      actions={<Button variant="primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" />New report</Button>}
+    >
 
       {drafts.isPending ? <Skeleton className="h-40" /> : (drafts.data || []).length === 0 ? (
         <div className="card"><EmptyState icon={FileText} title="No reports yet" description="Start one for the period you are reporting on, then pull in the records it should cite." action={<Button variant="primary" onClick={() => setCreating(true)}>Start a report</Button>} /></div>
@@ -103,7 +106,7 @@ function DraftList({ onOpen }: { onOpen: (id: string) => void }) {
           ]} />
         </Field>
       </Dialog>
-    </div>
+    </PageShell>
   );
 }
 
@@ -233,7 +236,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
       <button type="button" onClick={onBack} className="mb-3 inline-flex items-center gap-1 text-xs text-ink-3 hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />All reports</button>
       <PageHeader
         eyebrow={`${draft.period_start} to ${draft.period_end}`}
-        title={<input aria-label="Report title" value={title} onChange={(e) => setTitle(e.target.value)} className="w-full bg-transparent text-inherit outline-none focus-visible:ring-2 focus-visible:ring-accent" />}
+        title={<input aria-label="Report title" value={title} onChange={(e) => setTitle(e.target.value)} className="doc-title w-full bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-accent" />}
         lede={draft.latest_revision ? `Saved through revision ${draft.latest_revision}.` : 'Not saved yet. Pick the records this report is built from, then save a revision.'}
       >
         <Button onClick={() => setHistory(true)}><History className="h-4 w-4" />History</Button>
@@ -243,7 +246,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
 
       {stale && stale.length > 0 && (
         <div className="card mb-4 border-warn/50 bg-warn/5 p-4" role="alert">
-          <h2 className="flex items-center gap-2 font-mono text-2xs font-medium uppercase tracking-[0.14em] text-ink"><AlertTriangle className="h-4 w-4 text-warn" />This was not saved</h2>
+          <h2 className="flex items-center gap-2 text-md font-semibold text-ink"><AlertTriangle className="h-4 w-4 text-warn" />This was not saved</h2>
           <p className="mt-1 text-sm text-ink-2">The wording was written against facts that have since changed. Read the new facts, then save again.</p>
           <ul className="mt-2 space-y-1 text-xs">
             {stale.map((s) => (
@@ -269,12 +272,15 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
             <Panel
               key={index}
               title={
-                <input
-                  aria-label={`Section ${index + 1} heading`}
-                  value={section.heading}
-                  onChange={(e) => setSections((prev) => prev.map((s, i) => (i === index ? { ...s, heading: e.target.value } : s)))}
-                  className="w-full bg-transparent font-semibold text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
-                />
+                <span className="flex items-baseline gap-3">
+                  <span className="fig shrink-0 text-md font-semibold text-ink-3">{String(index + 1).padStart(2, '0')}</span>
+                  <input
+                    aria-label={`Section ${index + 1} heading`}
+                    value={section.heading}
+                    onChange={(e) => setSections((prev) => prev.map((s, i) => (i === index ? { ...s, heading: e.target.value } : s)))}
+                    className="w-full bg-transparent font-serif text-xl text-ink outline-none focus-visible:ring-2 focus-visible:ring-accent"
+                  />
+                </span>
               }
               action={
                 <>
@@ -294,6 +300,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
             >
               <Textarea
                 aria-label={`${section.heading} text`}
+                className="doc-body border-0 bg-transparent px-0 py-0 focus:shadow-none"
                 rows={Math.max(4, Math.ceil(section.body.length / 90))}
                 value={section.body}
                 onChange={(e) => { clock.current.beat(); setSections((prev) => prev.map((s, i) => (i === index ? { ...s, body: e.target.value } : s))); }}
@@ -316,7 +323,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
           <Button onClick={() => setSections((prev) => [...prev, { heading: 'New section', body: '', source_ids: [] }])}><Plus className="h-4 w-4" />Add a section</Button>
         </div>
 
-        <Panel title={`${chosen.length} cited ${chosen.length === 1 ? 'record' : 'records'}`} subtitle="every claim traces to one of these" action={<Button size="xs" variant="ghost" onClick={() => setPicker(true)}>Choose</Button>}>
+        <Panel title={`${chosen.length} cited ${chosen.length === 1 ? 'record' : 'records'}`} subtitle="Every claim traces to one of these" action={<Button size="xs" variant="ghost" onClick={() => setPicker(true)}>Choose</Button>}>
           {chosen.length === 0 ? (
             <EmptyState title="Nothing cited yet" description="Pick the records this report is built from. A report cannot be saved without them." action={<Button onClick={() => setPicker(true)}>Choose records</Button>} />
           ) : (
