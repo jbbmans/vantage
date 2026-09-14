@@ -1,14 +1,15 @@
-import React, { Suspense, lazy, useEffect, useReducer } from 'react';
+import React, { Suspense, lazy, useEffect, useReducer, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import AppShell from '@/components/AppShell';
 import Login from '@/pages/Login';
+import PublicSite from '@/pages/PublicSite';
 import ForcePasswordChange from '@/pages/ForcePasswordChange';
 import Dashboard from '@/pages/Dashboard';
 import { ToastProvider } from '@/components/ui/toast';
 import { TooltipProvider, Skeleton, EmptyState, Button } from '@/components/ui/primitives';
 import { useIdentity, keys } from '@/lib/queries';
-import { hasSession } from '@/lib/api';
+import { hasSession, setupStatus } from '@/lib/api';
 import { applyAccent, applyDensity, applyTheme, storedTheme } from '@/lib/theme';
 import AppLoader from '@/components/AppLoader';
 import { NAV_REDIRECTS } from '@/config/nav';
@@ -46,10 +47,21 @@ function NavigateBridge() {
   return null;
 }
 
+function SignedOutHome({ serverError, onRetry }: { serverError: string | null; onRetry: () => void }) {
+  const [state, setState] = useState<'loading' | 'setup' | 'public'>('loading');
+  useEffect(() => {
+    setupStatus().then((status) => setState(status.needsSetup ? 'setup' : 'public')).catch(() => setState('public'));
+  }, []);
+  if (state === 'loading') return <AppLoader />;
+  if (state === 'setup') return <Login serverError={serverError} onRetry={onRetry} />;
+  return <PublicSite />;
+}
+
 export default function App() {
   const qc = useQueryClient();
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   const identity = useIdentity();
+
   useEffect(() => {
     const onSignedIn = () => { rerender(); qc.invalidateQueries({ queryKey: keys.me }); };
     window.addEventListener('vantage:signed-in', onSignedIn);
@@ -72,16 +84,29 @@ export default function App() {
   }, [identity.data?.prefs]);
 
   const signedOut = !hasSession() || (identity.isError && (identity.error as { status?: number })?.status === 401);
-  if (!signedOut && identity.isPending) return <AppLoader />;
+  const publicStandalone = window.location.pathname === '/display' || window.location.pathname === '/about';
+  if (!publicStandalone && !signedOut && identity.isPending) return <AppLoader />;
+
+  const serverError = identity.isError && (identity.error as { status?: number })?.status !== 401 ? (identity.error as Error).message : null;
 
   return (
     <TooltipProvider>
       <ToastProvider>
         <BrowserRouter>
           <NavigateBridge />
-          {signedOut || !identity.data ? (
+          {publicStandalone ? (
             <Routes>
-              <Route path="*" element={<Login serverError={identity.isError && (identity.error as { status?: number })?.status !== 401 ? (identity.error as Error).message : null} onRetry={() => identity.refetch()} />} />
+              <Route path="*" element={<PublicSite />} />
+            </Routes>
+          ) : signedOut || !identity.data ? (
+            <Routes>
+              <Route path="/" element={<SignedOutHome serverError={serverError} onRetry={() => identity.refetch()} />} />
+              <Route path="/login" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
+              <Route path="/register" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
+              <Route path="/reset" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
+              <Route path="/invite" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
+              <Route path="/setup" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
+              <Route path="*" element={<Navigate to="/" replace />} />
             </Routes>
           ) : identity.data.user.must_change_password ? (
             <Routes>
@@ -103,8 +128,6 @@ export default function App() {
                 <Route path="settings" element={<D><Settings /></D>} />
                 <Route path="operator" element={<D><Operator /></D>} />
                 <Route path="help" element={<D><Help /></D>} />
-                {/* Destinations that were merged away. A link someone saved a year ago still lands
-                    on the tab that absorbed it rather than on a not-found page. */}
                 {Object.entries(NAV_REDIRECTS).map(([from, to]) => (
                   <Route key={from} path={from.slice(1)} element={<Navigate to={to} replace />} />
                 ))}
