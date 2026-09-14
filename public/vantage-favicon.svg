@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64" role="img" aria-labelledby="title">
+  <title id="title">Vantage</title>
+  <rect width="64" height="64" rx="14" fill="#0B2D5B"/>
+  <path fill="#FFFFFF" d="M9 21h13.5L32 37.4 41.5 21H55L32 57 9 21Z"/>
+  <path fill="#14B8A6" d="M32 7 45.5 20.5 38.2 27.8 32 21.6 25.8 27.8 18.5 20.5 32 7Z"/>
+  <path fill="#0B2D5B" d="M32 21.6 41.2 32 32 45.7 22.8 32 32 21.6Z"/>
+  <path fill="#2563EB" d="M32 27.4 36.9 32 32 39.6 27.1 32 32 27.4Z"/>
+</svg>
