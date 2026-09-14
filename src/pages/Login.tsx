@@ -216,12 +216,13 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
     register: ['Join Vantage', 'Create your account', 'Self-registration is open on this deployment.'],
     forgot: ['Account recovery', 'Reset your password', 'Enter your username or email. If email is configured, a one-time link follows.'],
     reset: ['Account recovery', 'Choose a new password', tokenInfo?.email ? `Resetting the account for ${tokenInfo.email}.` : 'This link works once and expires after 30 minutes.'],
-    invite: ['Your invitation', 'Join the workspace', tokenInfo?.unit ? `${tokenInfo.invitedBy || 'A leader'} invited you to ${tokenInfo.unit}.` : 'Create your account to join the unit.'],
+    invite: ['Your invitation', 'Accept your invitation', tokenInfo?.unit ? `${tokenInfo.invitedBy || 'A leader'} invited you to ${tokenInfo.unit}.` : 'Create your account to join the unit.'],
   };
 
   const passwordInput = (
-    <div className="auth-password-wrap">
+    <div className="auth-password-wrap" role="group" aria-label="Password controls">
       <Input
+        aria-label="Password"
         type={showPassword ? 'text' : 'password'}
         required
         autoComplete={mode === 'login' ? 'current-password' : 'new-password'}
@@ -306,10 +307,10 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
             {mode === 'login' && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitLogin(); }}>
                 <Field label="Username" error={fieldErrors.username}>
-                  <div className="auth-input-wrap"><UserRound /><Input autoFocus required autoComplete="username webauthn" spellCheck={false} autoCapitalize="none" value={form.username} onChange={set('username')} /></div>
+                  <div className="auth-input-wrap" role="group" aria-label="Username controls"><UserRound /><Input aria-label="Username" autoFocus required autoComplete="username webauthn" spellCheck={false} autoCapitalize="none" value={form.username} onChange={set('username')} /></div>
                 </Field>
                 <Field label="Password" error={fieldErrors.password}>
-                  <div className="auth-input-wrap"><LockKeyhole />{passwordInput}</div>
+                  <div className="auth-input-wrap" role="group" aria-label="Password field"><LockKeyhole />{passwordInput}</div>
                 </Field>
                 <div className="auth-form-links">
                   <button type="button" className="link" onClick={() => setMode('forgot')}>Forgot your password?</button>
