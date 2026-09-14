@@ -1,5 +1,5 @@
 import React, { Suspense, lazy, useEffect, useReducer, useState } from 'react';
-import { BrowserRouter, Navigate, Route, Routes, useNavigate } from 'react-router-dom';
+import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import AppShell from '@/components/AppShell';
 import Login from '@/pages/Login';
@@ -57,8 +57,10 @@ function SignedOutHome({ serverError, onRetry }: { serverError: string | null; o
   return <PublicSite />;
 }
 
-export default function App() {
+function AppRoutes() {
   const qc = useQueryClient();
+  const navigate = useNavigate();
+  const location = useLocation();
   const [, rerender] = useReducer((n: number) => n + 1, 0);
   const identity = useIdentity();
 
@@ -70,10 +72,15 @@ export default function App() {
 
   useEffect(() => {
     applyTheme(storedTheme());
-    const onSignedOut = () => { qc.removeQueries({ queryKey: keys.me }); qc.clear(); rerender(); };
+    const onSignedOut = () => {
+      qc.removeQueries({ queryKey: keys.me });
+      qc.clear();
+      navigate('/login', { replace: true });
+      rerender();
+    };
     window.addEventListener('vantage:signed-out', onSignedOut);
     return () => window.removeEventListener('vantage:signed-out', onSignedOut);
-  }, [qc]);
+  }, [navigate, qc]);
 
   useEffect(() => {
     const prefs = identity.data?.prefs;
@@ -84,59 +91,67 @@ export default function App() {
   }, [identity.data?.prefs]);
 
   const signedOut = !hasSession() || (identity.isError && (identity.error as { status?: number })?.status === 401);
-  const publicStandalone = window.location.pathname === '/display' || window.location.pathname === '/about';
+  const publicStandalone = location.pathname === '/display' || location.pathname === '/about';
   if (!publicStandalone && !signedOut && identity.isPending) return <AppLoader />;
 
   const serverError = identity.isError && (identity.error as { status?: number })?.status !== 401 ? (identity.error as Error).message : null;
 
+  if (publicStandalone) {
+    return <Routes><Route path="*" element={<PublicSite />} /></Routes>;
+  }
+
+  if (signedOut || !identity.data) {
+    return (
+      <Routes>
+        <Route path="/" element={<SignedOutHome serverError={serverError} onRetry={() => identity.refetch()} />} />
+        <Route path="/login" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
+        <Route path="/register" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
+        <Route path="/reset" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
+        <Route path="/invite" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
+        <Route path="/setup" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
+        <Route path="*" element={<Navigate to="/login" replace />} />
+      </Routes>
+    );
+  }
+
+  if (identity.data.user.must_change_password) {
+    return <Routes><Route path="*" element={<ForcePasswordChange />} /></Routes>;
+  }
+
+  return (
+    <Routes>
+      <Route element={<AppShell />}>
+        <Route index element={<Dashboard />} />
+        <Route path="records" element={<D><Records /></D>} />
+        <Route path="records/:id" element={<D><RecordDetail /></D>} />
+        <Route path="work" element={<D><WorkHub /></D>} />
+        <Route path="goals" element={<D><Goals /></D>} />
+        <Route path="career" element={<D><Career /></D>} />
+        <Route path="readiness" element={<D><Readiness /></D>} />
+        <Route path="reports" element={<D><ReportsHub /></D>} />
+        <Route path="team" element={<D><Team /></D>} />
+        <Route path="team/:id" element={<D><MemberDetail /></D>} />
+        <Route path="settings" element={<D><Settings /></D>} />
+        <Route path="operator" element={<D><Operator /></D>} />
+        <Route path="help" element={<D><Help /></D>} />
+        {Object.entries(NAV_REDIRECTS).map(([from, to]) => (
+          <Route key={from} path={from.slice(1)} element={<Navigate to={to} replace />} />
+        ))}
+        <Route path="activities/:id" element={<RedirectRecord />} />
+        <Route path="login" element={<Navigate to="/" replace />} />
+        <Route path="*" element={<NotFound />} />
+      </Route>
+    </Routes>
+  );
+}
+
+export default function App() {
   return (
     <TooltipProvider>
       <ToastProvider>
         <BrowserRouter>
           <NavigateBridge />
-          {publicStandalone ? (
-            <Routes>
-              <Route path="*" element={<PublicSite />} />
-            </Routes>
-          ) : signedOut || !identity.data ? (
-            <Routes>
-              <Route path="/" element={<SignedOutHome serverError={serverError} onRetry={() => identity.refetch()} />} />
-              <Route path="/login" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
-              <Route path="/register" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
-              <Route path="/reset" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
-              <Route path="/invite" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
-              <Route path="/setup" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
-              <Route path="*" element={<Navigate to="/" replace />} />
-            </Routes>
-          ) : identity.data.user.must_change_password ? (
-            <Routes>
-              <Route path="*" element={<ForcePasswordChange />} />
-            </Routes>
-          ) : (
-            <Routes>
-              <Route element={<AppShell />}>
-                <Route index element={<Dashboard />} />
-                <Route path="records" element={<D><Records /></D>} />
-                <Route path="records/:id" element={<D><RecordDetail /></D>} />
-                <Route path="work" element={<D><WorkHub /></D>} />
-                <Route path="goals" element={<D><Goals /></D>} />
-                <Route path="career" element={<D><Career /></D>} />
-                <Route path="readiness" element={<D><Readiness /></D>} />
-                <Route path="reports" element={<D><ReportsHub /></D>} />
-                <Route path="team" element={<D><Team /></D>} />
-                <Route path="team/:id" element={<D><MemberDetail /></D>} />
-                <Route path="settings" element={<D><Settings /></D>} />
-                <Route path="operator" element={<D><Operator /></D>} />
-                <Route path="help" element={<D><Help /></D>} />
-                {Object.entries(NAV_REDIRECTS).map(([from, to]) => (
-                  <Route key={from} path={from.slice(1)} element={<Navigate to={to} replace />} />
-                ))}
-                <Route path="activities/:id" element={<RedirectRecord />} />
-                <Route path="login" element={<Navigate to="/" replace />} />
-                <Route path="*" element={<NotFound />} />
-              </Route>
-            </Routes>
-          )}
+          <AppRoutes />
         </BrowserRouter>
       </ToastProvider>
     </TooltipProvider>
