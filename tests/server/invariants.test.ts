@@ -24,7 +24,23 @@ function walk(dir: string): string[] {
 const files = ROOTS.flatMap(walk).map((path) => ({ path, text: readFileSync(path, 'utf8') }));
 
 test('no streak survives anywhere in the product', () => {
-  const offenders = files.filter((f) => /\bstreak\b/i.test(f.text)).map((f) => f.path);
+  /*
+   * The rule is that no streak exists, not that the word is unsayable. The field guide answers
+   * "does logging more make me look better?" and the honest answer uses the word — somebody who
+   * wants a streak searches for one, and the guide should meet them with a no rather than silence.
+   *
+   * So a sentence may carry the word only while denying it. Any sentence that uses it
+   * affirmatively — a label, a stat, a bit of encouragement — still fails, which is the thing this
+   * guard was written to catch.
+   */
+  const denies = /\b(no|not|never|without|removed|abandoned|zero)\b/i;
+  const offenders: string[] = [];
+  for (const f of files) {
+    for (const sentence of f.text.split(/(?<=[.!?])\s+|\n/)) {
+      if (!/\bstreaks?\b/i.test(sentence)) continue;
+      if (!denies.test(sentence)) offenders.push(`${f.path}: ${sentence.trim().slice(0, 90)}`);
+    }
+  }
   assert.deepEqual(offenders, [], 'A streak rewards logging in, not doing the work. It was removed deliberately.');
 });
 

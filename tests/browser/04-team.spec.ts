@@ -20,7 +20,7 @@ test('a leader invites a Marine by link, sees their shared work on the unit dash
   await expect(ip.getByText(/invited you to G8/)).toBeVisible();
   await expect(ip.getByLabel('First name')).toHaveValue('Ana');
   await ip.getByLabel('Username').fill(username);
-  await ip.getByLabel('Password').fill(PASSWORD);
+  await ip.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await ip.getByRole('button', { name: 'Join and sign in' }).click();
   await expect(ip.getByRole('heading', { name: 'Standing' })).toBeVisible();
 

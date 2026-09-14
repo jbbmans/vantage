@@ -1,0 +1,26 @@
+# Vantage
+
+Vantage is a self-hosted performance, productivity, readiness, work tracking, reporting, and team decision-support platform.
+
+## Public website
+- https://vantageusmc.com/
+- Product display: https://vantageusmc.com/display
+
+## What Vantage does
+Vantage helps operational teams capture work, organize actions and outcomes, track goals and readiness, manage spreadsheet-supported work queues and correspondence, build reports, and understand individual and team performance from traceable source records.
+
+## Core capabilities
+- Performance and action tracking
+- Work and project management
+- Spreadsheet-supported queues
+- Goals and measurable progress
+- Readiness tracking
+- Correspondence tracking
+- Report creation and source-linked analysis
+- Team and unit visibility
+- Role-aware access
+- Self-hosted deployment controls
+- AI-assisted workflows embedded where work happens
+
+## Important clarification
+Vantage is an independent software project. It is not an official Department of Defense or U.S. Marine Corps system of record.

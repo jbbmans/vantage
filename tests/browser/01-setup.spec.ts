@@ -13,7 +13,7 @@ test('first visit runs setup, lands on the dashboard, and can sign out and back 
   await page.getByLabel('MOS').fill('3451');
   await page.getByLabel('Username').fill(OPERATOR.username);
   await page.getByLabel('Email').fill('boletz@example.mil');
-  await page.getByLabel('Password').fill(PASSWORD);
+  await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByLabel('First unit').fill(OPERATOR.unit_name);
   await page.getByLabel('Short name').fill(OPERATOR.unit_short_name);
   await page.getByRole('button', { name: 'Create owner account' }).click();
@@ -24,18 +24,18 @@ test('first visit runs setup, lands on the dashboard, and can sign out and back 
   await page.getByRole('menuitem', { name: 'Sign out' }).click();
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
 
-  await page.getByLabel('Username').fill(OPERATOR.username);
-  await page.getByLabel('Password').fill('not-the-password-at-all');
+  await page.getByLabel('Username', { exact: true }).fill(OPERATOR.username);
+  await page.getByLabel('Password', { exact: true }).fill('not-the-password-at-all');
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('alert')).toContainText('incorrect');
-  await page.getByLabel('Password').fill(PASSWORD);
+  await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Standing' })).toBeVisible();
   await logout(page);
 });
 
 test('forgot-password flow never reveals whether an account exists', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/login');
   await page.getByRole('button', { name: 'Forgot your password?' }).click();
   await page.getByLabel('Username or email').fill('nobody-here');
   await page.getByRole('button', { name: 'Send reset link' }).click();

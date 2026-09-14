@@ -1,5 +1,13 @@
 /* Vantage service worker: offline app shell + cache-first hashed assets. API requests never touch the cache. */
-const VERSION = 'v5-4-login-brand';
+/*
+ * Bump this on every release that changes the client bundle or the shell.
+ *
+ * It is what makes an installed copy notice there is a new version: the browser only fires
+ * `updatefound` when this file's bytes differ, and main.tsx's update prompt hangs off that. Ship a
+ * rebuilt client without touching this and everyone who keeps the app open stays on the old one
+ * until they happen to hard-reload — which, for a PWA people leave open all day, is a long time.
+ */
+const VERSION = 'v5-5-public-site-seo-guide';
 const SHELL = `vantage-shell-${VERSION}`;
 const ASSETS = `vantage-assets-${VERSION}`;
 const SHELL_URLS = [
