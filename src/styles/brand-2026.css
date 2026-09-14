@@ -117,6 +117,11 @@ aside.bg-rail {
   box-shadow: 4px 0 18px rgba(8, 30, 58, 0.07);
 }
 
+aside.bg-rail img[src='/mark.svg'],
+aside.bg-rail-active img[src='/mark.svg'] {
+  content: url('/brand/mark-reversed.svg');
+}
+
 aside.bg-rail .nav-label {
   color: rgb(157 181 207);
 }
