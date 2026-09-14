@@ -7,11 +7,11 @@
  * rebuilt client without touching this and everyone who keeps the app open stays on the old one
  * until they happen to hard-reload — which, for a PWA people leave open all day, is a long time.
  */
-const VERSION = 'v5-5-public-site-seo-guide';
+const VERSION = 'v5-5-favicon-refresh-20260914';
 const SHELL = `vantage-shell-${VERSION}`;
 const ASSETS = `vantage-assets-${VERSION}`;
 const SHELL_URLS = [
-  '/', '/manifest.webmanifest', '/mark.svg', '/app-icon.svg', '/brand/mark-reversed.svg', '/brand/mark-monochrome.svg', '/icon-192.png', '/icon-512.png',
+  '/', '/manifest.webmanifest', '/mark.svg', '/favicon.svg', '/app-icon.svg', '/brand/mark-reversed.svg', '/brand/mark-monochrome.svg', '/icon-192.png', '/icon-512.png',
   '/fonts/geist-normal.woff2', '/fonts/jetbrains-normal.woff2',
 ];
 
