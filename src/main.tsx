@@ -10,6 +10,7 @@ import './styles/experience-motion.css';
 import './styles/login-premium.css';
 import './styles/public-site.css';
 import './styles/public-site-a11y.css';
+import './styles/public-showcase.css';
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
