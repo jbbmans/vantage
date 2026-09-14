@@ -27,6 +27,65 @@ export interface AppConfig {
   email: { provider: 'none' | 'resend' | 'smtp' | 'memory'; from: string; resendApiKey: string; smtpUrl: string };
   maradmins: { enabled: boolean; refreshMinutes: number; source: string };
   selfRegistration: boolean;
+  cac: CacConfig;
+}
+
+export interface CacConfig {
+  /**
+   * 'off'    — no certificate sign-in. The default, and what every existing deployment stays on.
+   * 'direct' — this process terminates TLS and asks for a client certificate itself.
+   * 'proxy'  — something in front terminates TLS and forwards the certificate in a header.
+   */
+  mode: 'off' | 'direct' | 'proxy';
+  /** When true, passwords stop being accepted and a certificate is the only way in. */
+  exclusive: boolean;
+  /** PEM bundle of the CAs a client certificate must chain to. Required in direct mode. */
+  caBundlePath: string;
+  /** Header carrying the URL-encoded or base64 PEM (nginx: ssl_client_escaped_cert). */
+  certHeader: string;
+  /** Header carrying the proxy's own verdict, and the value that means it verified the chain. */
+  verifyHeader: string;
+  verifySuccessValue: string;
+  /**
+   * Shared secret the proxy must present. Proxy mode refuses to start without one: any client that
+   * can reach this process directly could otherwise set the certificate header and become anybody.
+   */
+  proxySecretHeader: string;
+  proxySecret: string;
+  /** Certificate policy OIDs to require, if the deployment wants to insist on hardware-backed certs. */
+  requirePolicyOids: string[];
+  /** Create an account on first sign-in, but only for an EDIPI the personnel roster already lists. */
+  autoProvisionFromRoster: boolean;
+}
+
+function readCacConfig(env: NodeJS.ProcessEnv, production: boolean): CacConfig {
+  const mode = (env.CAC_MODE || 'off').trim().toLowerCase();
+  if (!['off', 'direct', 'proxy'].includes(mode)) throw new Error('CAC_MODE must be off, direct, or proxy.');
+  const cfg: CacConfig = {
+    mode: mode as CacConfig['mode'],
+    exclusive: envBool(env, 'CAC_EXCLUSIVE', false),
+    caBundlePath: (env.CAC_CA_BUNDLE || '').trim(),
+    certHeader: (env.CAC_CERT_HEADER || 'x-client-cert').trim().toLowerCase(),
+    verifyHeader: (env.CAC_VERIFY_HEADER || 'x-client-verify').trim().toLowerCase(),
+    verifySuccessValue: (env.CAC_VERIFY_SUCCESS || 'SUCCESS').trim(),
+    proxySecretHeader: (env.CAC_PROXY_SECRET_HEADER || 'x-cac-proxy-secret').trim().toLowerCase(),
+    proxySecret: env.CAC_PROXY_SECRET || '',
+    requirePolicyOids: envList(env, 'CAC_REQUIRE_POLICY_OIDS', []),
+    autoProvisionFromRoster: envBool(env, 'CAC_AUTO_PROVISION', false),
+  };
+  if (cfg.mode === 'proxy') {
+    // The whole security of proxy mode rests on this. Without it, a forged header is a sign-in as
+    // any EDIPI the attacker names, so the process refuses to start rather than start insecurely.
+    if (cfg.proxySecret.length < 32) {
+      throw new Error('CAC_MODE=proxy requires CAC_PROXY_SECRET of at least 32 characters. Without it, anyone who can reach this server directly could forge a certificate header.');
+    }
+  }
+  if (cfg.mode === 'direct' && !cfg.caBundlePath) {
+    throw new Error('CAC_MODE=direct requires CAC_CA_BUNDLE pointing at the PEM bundle of trusted issuing CAs.');
+  }
+  if (cfg.exclusive && cfg.mode === 'off') throw new Error('CAC_EXCLUSIVE needs CAC_MODE set to direct or proxy.');
+  void production;
+  return cfg;
 }
 
 function envNumber(env: NodeJS.ProcessEnv, name: string, fallback: number): number {
@@ -156,6 +215,7 @@ export function loadConfig(env = process.env): AppConfig {
       source: env.VANTAGE_MARADMIN_SOURCE || 'https://www.marines.mil/DesktopModules/ArticleCS/RSS.ashx?ContentType=6&Site=481&category=14336&max=50',
     },
     selfRegistration: envBool(env, 'VANTAGE_SELF_REGISTRATION', true),
+    cac: readCacConfig(env, production),
   };
 }
 

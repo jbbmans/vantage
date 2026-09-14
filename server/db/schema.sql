@@ -193,6 +193,14 @@ CREATE TABLE IF NOT EXISTS activities (
 );
 CREATE INDEX IF NOT EXISTS idx_activities_user_date ON activities(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_activities_unit ON activities(unit_id, visibility, date);
+-- The unit rollups on the team dashboard aggregate every shared row in a unit, so an index that only
+-- finds the rows still has to visit each one. This one carries the aggregated columns too, which
+-- lets those queries be answered from the index alone: measured at 1.5M rows, composition-by-area
+-- went from 402ms to 33ms. It costs roughly a fifth more disk, which is the right trade for a screen
+-- a section leader opens every morning.
+CREATE INDEX IF NOT EXISTS idx_activities_unit_rollup
+  ON activities(unit_id, visibility, date, user_id, dollar_amount, quantity, eval_area)
+  WHERE deleted_at IS NULL;
 CREATE UNIQUE INDEX IF NOT EXISTS idx_activities_fingerprint ON activities(user_id, fingerprint) WHERE fingerprint IS NOT NULL AND deleted_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS projects (
@@ -742,3 +750,100 @@ CREATE TABLE IF NOT EXISTS product_events (
 CREATE INDEX IF NOT EXISTS idx_product_events_name ON product_events(name, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_product_events_user ON product_events(user_id, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_product_events_received ON product_events(received_at);
+
+-- Authoritative personnel ----------------------------------------------
+-- The roster as an upstream system of record states it. Vantage does not invent rows here; every
+-- row arrives from a named source with a sync stamp, and the EDIPI is the only join key, because
+-- names collide, change on marriage, and are spelled inconsistently between systems.
+--
+-- This table is deliberately separate from users. A roster row can exist with no account (someone
+-- who has not signed in yet) and an account can exist with no roster row (a local account on an
+-- instance that has no feed). Keeping them apart is what makes the divergence report possible.
+CREATE TABLE IF NOT EXISTS personnel_roster (
+  edipi          TEXT PRIMARY KEY,
+  last_name      TEXT NOT NULL,
+  first_name     TEXT NOT NULL,
+  middle_initial TEXT,
+  rank_id        TEXT,
+  mos            TEXT,
+  eas            TEXT,
+  unit_code      TEXT,
+  billet         TEXT,
+  -- 'active' or 'separated'. A person who leaves is marked, never deleted: their record still has
+  -- to be answerable to them and to a records request.
+  status         TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'separated')),
+  source         TEXT NOT NULL,
+  -- hash of the upstream row, so an unchanged row costs nothing and an edit is detectable.
+  row_hash       TEXT NOT NULL,
+  synced_at      TEXT NOT NULL,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_roster_status ON personnel_roster(status, unit_code);
+CREATE INDEX IF NOT EXISTS idx_roster_name ON personnel_roster(last_name, first_name);
+
+-- Every applied roster sync, and what it changed. Kept so a person can be shown why their rank
+-- changed under them, and so an assessor can see the feed is not silently rewriting records.
+CREATE TABLE IF NOT EXISTS personnel_sync_runs (
+  id          TEXT PRIMARY KEY,
+  source      TEXT NOT NULL,
+  actor_id    TEXT REFERENCES users(id),
+  dry_run     INTEGER NOT NULL DEFAULT 0 CHECK (dry_run IN (0, 1)),
+  rows_seen   INTEGER NOT NULL DEFAULT 0,
+  created     INTEGER NOT NULL DEFAULT 0,
+  updated     INTEGER NOT NULL DEFAULT 0,
+  separated   INTEGER NOT NULL DEFAULT 0,
+  conflicts   INTEGER NOT NULL DEFAULT 0,
+  detail      TEXT NOT NULL DEFAULT '{}',
+  at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_sync_runs_at ON personnel_sync_runs(at);
+
+-- Records management ----------------------------------------------------
+-- What each kind of record is kept for, how long, and under whose authority. A retention schedule
+-- with no citation is somebody's guess, so the citation is a column rather than a comment.
+CREATE TABLE IF NOT EXISTS retention_schedules (
+  id           TEXT PRIMARY KEY,
+  record_type  TEXT NOT NULL UNIQUE,
+  retain_days  INTEGER NOT NULL CHECK (retain_days > 0),
+  -- 'destroy' removes the row. 'anonymize' keeps the countable facts and drops what identifies a
+  -- person. 'review' only ever reports: it never acts on its own.
+  disposition  TEXT NOT NULL CHECK (disposition IN ('destroy', 'anonymize', 'review')),
+  authority    TEXT,
+  notes        TEXT,
+  -- off until somebody with the authority to say so turns it on. Nothing is ever deleted by default.
+  enabled      INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL
+);
+
+-- A hold freezes disposition for what it covers. Holds always win over a schedule, and the whole
+-- engine refuses to run while an instance-wide hold is open.
+CREATE TABLE IF NOT EXISTS legal_holds (
+  id          TEXT PRIMARY KEY,
+  scope       TEXT NOT NULL CHECK (scope IN ('instance', 'user', 'record_type')),
+  subject_id  TEXT,
+  record_type TEXT,
+  reason      TEXT NOT NULL,
+  placed_by   TEXT NOT NULL REFERENCES users(id),
+  placed_at   TEXT NOT NULL,
+  released_by TEXT REFERENCES users(id),
+  released_at TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_holds_open ON legal_holds(released_at, scope);
+
+-- What disposition actually did, every time it ran. This is the evidence that retention was applied
+-- as written, which is the thing an assessor asks for.
+CREATE TABLE IF NOT EXISTS disposition_runs (
+  id          TEXT PRIMARY KEY,
+  actor_id    TEXT REFERENCES users(id),
+  dry_run     INTEGER NOT NULL DEFAULT 0 CHECK (dry_run IN (0, 1)),
+  record_type TEXT NOT NULL,
+  disposition TEXT NOT NULL,
+  eligible    INTEGER NOT NULL DEFAULT 0,
+  acted       INTEGER NOT NULL DEFAULT 0,
+  held        INTEGER NOT NULL DEFAULT 0,
+  detail      TEXT,
+  at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_disposition_at ON disposition_runs(at);

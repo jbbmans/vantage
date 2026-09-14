@@ -67,6 +67,12 @@ The service worker caches the app shell and hashed assets; API calls never touch
 - Theme tokens are CSS variables (`--canvas`, `--surface`, `--ink`, `--accent`, semantic colors) on `:root`, switched by `data-theme` and `data-accent`; Tailwind maps them with alpha support. Every muted tone is chosen to clear WCAG AA against the darkest surface it can land on, which the axe spec checks in both themes.
 - Forms use a generic `RecordDialog` that handles validation errors, version conflicts, and toasts.
 
+## Scale
+
+One instance is comfortable to roughly 1,000–1,500 people; `scripts/scale-check.ts` measures it and
+`docs/deployment-scale.md` records the numbers and why the deployment federates on the command
+boundary rather than centralizing.
+
 ## Testing
 
 - `tests/server`: node:test against an in-memory database, HTTP level, 240+ cases including permission boundaries, MFA, passkeys (mocked), imports, digests, AI mock, instance export/import, the typed metric engine, workbook parsing, the workbench, typed goals, report provenance, correspondence and connectors, and the analytics catalog.

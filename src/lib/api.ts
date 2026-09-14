@@ -231,6 +231,26 @@ export const adminUsers = () => api.get('/admin/users');
 export const adminUnits = () => api.get('/admin/units');
 export const adminClaimUnit = (id: string, ownerId?: string) => api.post(`/admin/units/${encodeURIComponent(id)}/claim`, { owner_user_id: ownerId });
 export const adminAudit = (limit = 200) => api.get(`/admin/audit?limit=${limit}`);
+
+// Authoritative personnel
+export const adminPersonnel = () => api.get('/admin/personnel');
+export const adminPersonnelDivergence = () => api.get('/admin/personnel/divergence');
+export const adminPersonnelRuns = () => api.get('/admin/personnel/runs');
+/** The roster travels as text so a personnel extract can be posted exactly as it was exported. */
+export const adminPersonnelSync = (text: string, source: string, opts: { apply?: boolean; confirmSeparations?: boolean } = {}) =>
+  // A Blob rather than a string: the request helper JSON-encodes anything else, which would wrap the
+  // extract in quotes and hand the parser a single escaped line.
+  request<any>('POST', `/admin/personnel/sync?source=${encodeURIComponent(source)}${opts.apply ? '&apply=1' : ''}${opts.confirmSeparations ? '&confirm_separations=1' : ''}`,
+    new Blob([text], { type: 'text/plain' }), { headers: { 'content-type': 'text/plain' } });
+export const adminPersonnelLink = (userId: string, edipi: string | null) => api.post('/admin/personnel/link', { user_id: userId, edipi });
+
+// Records management and privacy
+export const adminRetention = () => api.get('/admin/retention');
+export const adminSaveSchedule = (body: unknown) => api.put('/admin/retention/schedule', body);
+export const adminPlaceHold = (body: unknown) => api.post('/admin/retention/holds', body);
+export const adminReleaseHold = (id: string) => api.del(`/admin/retention/holds/${encodeURIComponent(id)}`);
+export const adminRunDisposition = (apply: boolean) => api.post(`/admin/retention/run${apply ? '?apply=1' : ''}`);
+export const adminPrivacyInventory = () => api.get('/admin/privacy/inventory');
 export const adminImport = (archive: unknown) => api.post('/admin/import', archive);
 export const adminMaintenance = (enabled: boolean) => api.post('/admin/maintenance', { enabled });
 

@@ -19,6 +19,10 @@ Vantage 5 is a ground-up rewrite: TypeScript end to end, a fresh schema, passkey
 - **Goals and Career.** Goals that update themselves from the log; training hours, the award pipeline from recommendation to presentation, counselings with acknowledgement, and the MARADMINs that change what any of it requires.
 - **Readiness.** JEPES pillars or FITREP attribute coverage, plus ranked coaching on where the points are, with citations to the governing orders.
 - **Team.** Roster, unit dashboard built from shared entries only, roles with per-unit permissions, invitations by link or email, access log.
+- **CAC / PIV sign-in.** Optional certificate sign-in in either a direct-mTLS or behind-a-gateway shape, binding on the EDIPI alone and counting as both factors. Off by default; proxy mode refuses to start without a shared secret, because a forged header would otherwise be a sign-in as anybody. See `docs/cac-and-records.md`.
+- **Authoritative personnel.** A roster extract from an upstream personnel system becomes the source for rank, unit, MOS and EAS; those fields stop being self-editable, every change is audited field by field, a sync never deletes anybody, and an extract that would separate a large share of the roster stops and asks.
+- **Records management.** Retention schedules with their citation, legal holds that suspend disposition and always win, previews before anything acts, and an audited log of every run. Nothing disposes until somebody enables it.
+- **Privacy inventory.** A PIA data inventory generated from the live schema, so it cannot quietly stop being true; unclassified and stale columns are reported as the gaps they are.
 - **Security.** 15-character minimum passwords (scrypt), passkeys (WebAuthn), TOTP with recovery codes, step-up confirmation for sensitive settings, device session list, CSRF and rate limiting, HMAC-chained audit log. Private records are never readable by leaders or the owner through the app.
 - **Owner console.** Instance settings, AI model allowlist, accounts, units, audit chain check, SQLite backup download, and a JSON export/import that moves the whole instance to any host.
 

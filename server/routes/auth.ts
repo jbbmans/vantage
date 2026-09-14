@@ -9,6 +9,7 @@ import { createSession, destroySession, invalidateUserSessions, SESSION_COOKIE, 
 import { requireAuth } from '../auth/middleware.ts';
 import { issueToken, consumeToken, peekToken, revokeTokens } from '../auth/tokens.ts';
 import { verifyTotp } from '../auth/totp.ts';
+import { presentedCertificate, resolveAccount, CacError } from '../auth/cac.ts';
 import { authenticationOptions, completeAuthentication } from '../auth/passkeys.ts';
 import { record } from '../services/telemetry.ts';
 import { audit } from '../services/audit.ts';
@@ -46,7 +47,9 @@ authRouter.get('/setup', wrap((req, res) => {
   res.json({
     needsSetup: userCount(ctx) === 0,
     requiresSetupToken: ctx.config.production && userCount(ctx) === 0,
-    selfRegistration: ctx.runtime.selfRegistration,
+    // A card-only instance has no password path, so there is nothing for self-registration to create.
+    selfRegistration: ctx.runtime.selfRegistration && !ctx.config.cac.exclusive,
+    cac: { enabled: ctx.config.cac.mode !== 'off', exclusive: ctx.config.cac.exclusive },
     emailEnabled: ctx.mailer.enabled,
     displayName: ctx.runtime.displayName,
     announcement: ctx.runtime.announcement,
@@ -82,6 +85,7 @@ authRouter.post('/setup', wrap((req, res) => {
 authRouter.post('/register', wrap((req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
+  if (ctx.config.cac.exclusive) throw forbidden('This instance requires a CAC. Accounts are created from the personnel roster.', 'cac_required');
   if (!ctx.runtime.selfRegistration) throw notFound('Self-registration is not enabled. Ask a leader for an invitation.');
   if (userCount(ctx) === 0) throw conflict('The deployment must be initialized before accounts can self-register.', 'setup_required');
   const limited = limiters.registerIp.limited(ip);
@@ -108,6 +112,7 @@ const loginSchema = z.object({ username: z.string().max(40), password: z.string(
 authRouter.post('/login', wrap((req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
+  if (ctx.config.cac.exclusive) throw forbidden('This instance requires a CAC. Sign in with your card.', 'cac_required');
   const { username, password } = parse(loginSchema, req.body);
   const name = username.trim().toLowerCase();
   const ipLimit = limiters.loginIp.limited(ip);
@@ -313,3 +318,64 @@ authRouter.post('/invite/accept', wrap((req, res) => {
 }));
 
 export function throwIfInactive(user: { active: number }) { if (!user.active) throw new HttpError(403, 'That account is deactivated.', 'inactive'); }
+
+/**
+ * Sign in with a CAC or PIV certificate.
+ *
+ * There is no request body: the identity is the certificate the TLS layer already validated, and
+ * anything the client could put in a body would be a claim rather than a proof.
+ *
+ * A certificate counts as both factors — the card is something you have and the PIN that unlocked
+ * it is something you know — so an account with TOTP enabled is not challenged again. That is the
+ * same reasoning that lets a passkey skip the second step.
+ */
+authRouter.post('/cac', wrap((req, res) => {
+  const ctx = req.ctx;
+  const ip = clientIp(req);
+  if (ctx.config.cac.mode === 'off') throw notFound('Certificate sign-in is not enabled here.');
+
+  const limited = limiters.loginIp.limited(ip);
+  if (limited) throw tooMany('Too many sign-in attempts from this connection. Try again later.', limited.retryAfter);
+
+  let identity;
+  try {
+    identity = presentedCertificate(req, ctx.config.cac);
+  } catch (error) {
+    limiters.loginIp.bump(ip);
+    if (error instanceof CacError) {
+      audit(ctx, { action: 'cac_rejected', ip, detail: error.code });
+      throw unauthorized(error.message, error.code);
+    }
+    throw error;
+  }
+  if (!identity) {
+    // No certificate reached us at all. In proxy mode this is also what a forged header without the
+    // shared secret looks like, deliberately: the attempt should not be able to tell the difference.
+    throw unauthorized('No card was presented. Check the card is in the reader, then try again.', 'cac_no_certificate');
+  }
+
+  let resolution;
+  try {
+    resolution = resolveAccount(ctx, identity);
+  } catch (error) {
+    if (error instanceof CacError) {
+      limiters.loginIp.bump(ip);
+      audit(ctx, { action: 'cac_rejected', ip, detail: `${error.code} edipi=${identity.edipi}` });
+      throw unauthorized(error.message, error.code);
+    }
+    throw error;
+  }
+
+  const row = ctx.db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(resolution.userId) as UserRow | undefined;
+  if (!row) throw unauthorized('That account is not active.', 'cac_inactive');
+
+  limiters.loginIp.clear(ip);
+  if (resolution.provisioned) {
+    audit(ctx, { actor_id: row.id, action: 'cac_provisioned', subject_id: row.id, ip, detail: `edipi=${identity.edipi} from roster` });
+  }
+  audit(ctx, {
+    actor_id: row.id, action: 'cac_verified', ip,
+    detail: `edipi=${identity.edipi} cn=${identity.commonName ?? '—'} issuer=${identity.issuer ?? '—'} serial=${identity.serial ?? '—'}`,
+  });
+  return finishSignIn(req, res, row, 'cac');
+}));

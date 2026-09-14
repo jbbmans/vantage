@@ -9,6 +9,7 @@ import { Table, useParam } from '@/components/common';
 import { keys, useIdentity, signOutEverywhere } from '@/lib/queries';
 import * as api from '@/lib/api';
 import UsageConsole from '@/components/UsageConsole';
+import { PersonnelConsole, RetentionConsole, PrivacyConsole } from '@/components/GovernanceConsole';
 import { copyToClipboard, downloadText, humanize, timeAgo } from '@/lib/utils';
 import { DEFAULT_METRICS, CATEGORY_PALETTE, type MetricsConfig } from '../../shared/constants';
 
@@ -19,13 +20,16 @@ export default function Operator() {
   return (
     <div className="page">
       <PageHeader eyebrow="Owner console" title="Run this deployment" lede="Instance-wide settings, accounts, and data. Everything here asks for your password again." />
-      <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[{ value: 'overview', label: 'Overview' }, { value: 'settings', label: 'Settings' }, { value: 'ai', label: 'AI' }, { value: 'metrics', label: 'Metrics' }, { value: 'users', label: 'Accounts' }, { value: 'units', label: 'Units' }, { value: 'usage', label: 'Usage and reliability' }, { value: 'audit', label: 'Audit log' }, { value: 'data', label: 'Backup and move' }]} />
+      <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[{ value: 'overview', label: 'Overview' }, { value: 'settings', label: 'Settings' }, { value: 'ai', label: 'AI' }, { value: 'metrics', label: 'Metrics' }, { value: 'users', label: 'Accounts' }, { value: 'units', label: 'Units' }, { value: 'personnel', label: 'Personnel' }, { value: 'retention', label: 'Retention' }, { value: 'privacy', label: 'Privacy' }, { value: 'usage', label: 'Usage and reliability' }, { value: 'audit', label: 'Audit log' }, { value: 'data', label: 'Backup and move' }]} />
       {tab === 'overview' && <Overview />}
       {tab === 'settings' && <RuntimeSettings />}
       {tab === 'ai' && <AiSettings />}
       {tab === 'metrics' && <MetricsSettings />}
       {tab === 'users' && <Accounts />}
       {tab === 'units' && <UnitsAdmin />}
+      {tab === 'personnel' && <PersonnelConsole />}
+      {tab === 'retention' && <RetentionConsole />}
+      {tab === 'privacy' && <PrivacyConsole />}
       {tab === 'usage' && <UsageConsole />}
       {tab === 'audit' && <AuditLog />}
       {tab === 'data' && <DataAdmin />}

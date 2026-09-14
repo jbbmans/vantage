@@ -38,6 +38,26 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
   { id: 4, name: '004_correspondence', run: () => {} },
   // The product_events table comes from schema.sql, which is safe to replay.
   { id: 5, name: '005_product_events', run: () => {} },
+  // The roster, retention and hold tables come from schema.sql. These user columns cannot: they
+  // carry the identity the feed and a CAC both key on, so an existing database gains them here.
+  {
+    id: 6,
+    name: '006_authoritative_identity',
+    run: (db) => {
+      const existing = new Set((db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map((c) => c.name));
+      const columns: Array<[string, string]> = [
+        // The DoD EDIPI. Unique where present, which a partial index enforces below, because most
+        // instances will have local accounts with no EDIPI at all and NULLs must stay allowed.
+        ['edipi', 'TEXT'],
+        // 'local' means a person maintains their own profile. 'roster' means an upstream system
+        // does, and the sourced fields stop being self-editable.
+        ['identity_source', "TEXT NOT NULL DEFAULT 'local'"],
+        ['identity_synced_at', 'TEXT'],
+      ];
+      for (const [name, type] of columns) if (!existing.has(name)) db.exec(`ALTER TABLE users ADD COLUMN ${name} ${type}`);
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_edipi ON users(edipi) WHERE edipi IS NOT NULL');
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 
