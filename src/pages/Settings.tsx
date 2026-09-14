@@ -10,7 +10,7 @@ import CsvImportDialog from '@/components/CsvImportDialog';
 import { Table, useParam } from '@/components/common';
 import { keys, useIdentity, useOrg, usePrefs, useSavePrefs, signOutEverywhere } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { ACCENTS, VISIBILITIES } from '../../shared/constants';
+import { ACCENTS, DEFAULT_ACCENT, VISIBILITIES } from '../../shared/constants';
 import { passwordProblem, passwordStrength } from '../../shared/password';
 import { copyToClipboard, downloadText, timeAgo, humanize, cn } from '@/lib/utils';
 
@@ -95,7 +95,7 @@ function Security() {
   const u = identity!.user;
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Panel title="Password" subtitle="fifteen characters or more; changing it signs out other devices">
+      <Panel title="Password" subtitle="Fifteen characters or more; changing it signs out other devices">
         <div className="space-y-3">
           <Field label="Current password"><Input type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} /></Field>
           <Field label="New password" hint={pw.next ? passwordStrength(pw.next).label : undefined}><Input type="password" autoComplete="new-password" value={pw.next} onChange={(e) => setPw({ ...pw, next: e.target.value })} /></Field>
@@ -108,13 +108,13 @@ function Security() {
         <div className="flex gap-2"><Input aria-label="Passkey name" placeholder="This phone" value={pkName} onChange={(e) => setPkName(e.target.value)} /><Button variant="primary" onClick={addPasskey}><Fingerprint className="h-4 w-4" />Add passkey</Button></div>
         <p className="mt-2 text-2xs text-ink-3">Registered for {pk?.rpId || window.location.hostname}. Add one per device you sign in from.</p>
       </Panel>
-      <Panel title="Authenticator app" subtitle="a six-digit code as a second step" action={<Badge tone={u.totp_enabled ? 'good' : 'neutral'}>{u.totp_enabled ? 'On' : 'Off'}</Badge>}>
+      <Panel title="Authenticator app" subtitle="A six-digit code as a second step" action={<Badge tone={u.totp_enabled ? 'good' : 'neutral'}>{u.totp_enabled ? 'On' : 'Off'}</Badge>}>
         {u.totp_enabled ? <div className="flex flex-wrap gap-2"><Button onClick={regen}>New recovery codes</Button><Button variant="danger" onClick={() => setConfirmDisable(true)}>Turn off</Button></div> : <div className="space-y-2"><p className="text-sm text-ink-2">Scan a QR code with any authenticator app. You get ten recovery codes for when the phone is not around.</p><Button variant="primary" onClick={startTotp}><Smartphone className="h-4 w-4" />Set up</Button></div>}
       </Panel>
       <Panel title="Signed-in devices" action={<Button size="sm" variant="ghost" onClick={async () => { try { const r = await api.revokeOtherSessions(); toast.success(`${r.revoked} other session${r.revoked === 1 ? '' : 's'} signed out.`); refetchSessions(); } catch (e) { toast.error(api.errorText(e)); } }}><LogOut className="h-3.5 w-3.5" />Sign out others</Button>}>
         <ul className="space-y-1.5">{(sessions?.sessions || []).map((s: any) => <li key={s.id} className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-sm"><span><span className="flex items-center gap-2 text-ink">{s.current ? <Badge tone="accent">This device</Badge> : null}<span className="truncate">{describeAgent(s.user_agent)}</span></span><span className="block text-2xs text-ink-3">{s.method} · {s.ip || 'unknown IP'} · active {timeAgo(s.last_used_at || s.created_at)}</span></span>{!s.current && <Button size="xs" variant="ghost" onClick={async () => { try { await api.revokeSession(s.id); refetchSessions(); } catch (e) { toast.error(api.errorText(e)); } }}>Sign out</Button>}</li>)}</ul>
       </Panel>
-      <Panel className="lg:col-span-2" title="Who has looked at your record" subtitle="every open of your data by someone else" padded={false}>
+      <Panel className="lg:col-span-2" title="Who has looked at your record" subtitle="Every open of your data by someone else" padded={false}>
         {!audit?.length ? <EmptyState icon={ShieldCheck} title="Nobody but you" description="Leaders opening your shared records will show up here." /> : <Table head={<><th className="w-40">When</th><th className="w-40">Who</th><th>What</th></>}>{audit.map((r: any) => <tr key={r.id}><td className="fig text-xs text-ink-3">{new Date(r.at).toLocaleString()}</td><td className="text-xs">{r.rank_abbr || ''} {r.last_name || 'System'}</td><td className="text-xs text-ink">{humanize(r.action)}{r.entity ? ` · ${r.entity}` : ''}{r.detail ? <span className="text-ink-3"> · {r.detail}</span> : ''}</td></tr>)}</Table>}
       </Panel>
 
@@ -141,8 +141,8 @@ function Appearance() {
         <Segmented label="Theme" value={theme} onChange={(v) => save.mutate({ theme: v })} options={[{ value: 'light', label: <span className="flex items-center gap-1.5"><Sun className="h-4 w-4" />Light</span> }, { value: 'dark', label: <span className="flex items-center gap-1.5"><Moon className="h-4 w-4" />Dark</span> }, { value: 'system', label: <span className="flex items-center gap-1.5"><Monitor className="h-4 w-4" />System</span> }]} />
         <div className="mt-5"><p className="mb-2 text-xs font-semibold text-ink-2">Density</p><Segmented label="Density" value={prefs.density || 'comfortable'} onChange={(v) => save.mutate({ density: v })} options={[{ value: 'comfortable', label: 'Comfortable' }, { value: 'compact', label: 'Compact' }]} /></div>
       </Panel>
-      <Panel title="Accent color" subtitle="pre-set palettes tuned for both themes">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{ACCENTS.map((a) => <button key={a.id} type="button" onClick={() => save.mutate({ accent: a.id })} className={cn('flex items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors', (prefs.accent || 'scarlet') === a.id ? 'border-accent bg-accent-soft' : 'border-line hover:border-line-strong')}><span className="flex h-8 w-8 items-center justify-center rounded-full border border-line" data-accent={a.id} style={{ backgroundColor: 'rgb(var(--accent))' }}>{(prefs.accent || 'scarlet') === a.id && <Check className="h-4 w-4" style={{ color: 'rgb(var(--accent-ink))' }} />}</span><span><span className="block text-sm font-medium text-ink">{a.label}</span><span className="block text-xs text-ink-3">{a.hint}</span></span></button>)}</div>
+      <Panel title="Accent color" subtitle="Pre-set palettes tuned for both themes">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{ACCENTS.map((a) => <button key={a.id} type="button" onClick={() => save.mutate({ accent: a.id })} className={cn('flex items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors', (prefs.accent || DEFAULT_ACCENT) === a.id ? 'border-accent bg-accent-soft' : 'border-line hover:border-line-strong')}><span className="flex h-8 w-8 items-center justify-center rounded-full border border-line" data-accent={a.id} style={{ backgroundColor: 'rgb(var(--accent))' }}>{(prefs.accent || DEFAULT_ACCENT) === a.id && <Check className="h-4 w-4" style={{ color: 'rgb(var(--accent-ink))' }} />}</span><span><span className="block text-sm font-medium text-ink">{a.label}</span><span className="block text-xs text-ink-3">{a.hint}</span></span></button>)}</div>
       </Panel>
       <Panel title="Defaults" className="lg:col-span-2">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
@@ -184,12 +184,12 @@ function DataTab() {
   const exportPdf = async () => { try { const n = await api.downloadFile(api.reportPdfUrl({ period: 'fiscalYear', limit: 12 }), 'vantage-report.pdf'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } };
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Panel title="Export everything" subtitle="your record belongs to you" className="lg:col-span-2">
+      <Panel title="Export everything" subtitle="Your record belongs to you" className="lg:col-span-2">
         <div className="flex flex-wrap gap-2"><Button variant="primary" onClick={() => exportAll('zip')} loading={exporting === 'zip'}><Download className="h-4 w-4" />Everything (ZIP)</Button><Button onClick={() => exportAll('json')} loading={exporting === 'json'}><Download className="h-4 w-4" />Everything (JSON)</Button><Button onClick={exportCsv}><Download className="h-4 w-4" />Activities (CSV)</Button><Button onClick={exportPdf}><Printer className="h-4 w-4" />This FY as PDF</Button></div>
         <p className="mt-3 text-xs leading-relaxed text-ink-3">The ZIP holds every piece of data tied to your account: profile, rank, MOS and EAS, units, memberships and roles, every activity, task, project, goal, training, award and counseling (recycle bin included), readiness figures, attachments as files, notifications, preferences, the audit trail of your record, AI usage, and email history. It arrives as one JSON file plus a CSV per dataset. Secrets never leave: no password, authenticator, or passkey material.</p>
         <p className="mt-2 text-xs leading-relaxed text-ink-3">The activities CSV includes a Vantage ID column. Edit it in a spreadsheet and import it back: rows with an ID update the original, rows without become new entries.</p>
       </Panel>
-      <Panel title="Import" subtitle="from a Vantage export or any spreadsheet">
+      <Panel title="Import" subtitle="From a Vantage export or any spreadsheet">
         <Button variant="primary" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4" />Import CSV</Button>
         <p className="mt-3 text-xs leading-relaxed text-ink-3">Up to 1000 rows per file. Likely duplicates are screened before anything is written.</p>
       </Panel>

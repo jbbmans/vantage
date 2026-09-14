@@ -17,7 +17,7 @@ test('first visit runs setup, lands on the dashboard, and can sign out and back 
   await page.getByLabel('First unit').fill(OPERATOR.unit_name);
   await page.getByLabel('Short name').fill(OPERATOR.unit_short_name);
   await page.getByRole('button', { name: 'Create owner account' }).click();
-  await expect(page.getByRole('heading', { name: /Good (morning|afternoon|evening), John/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Standing' })).toBeVisible();
   await expect(page.getByText('No measured outcome in this period')).toBeVisible();
 
   await page.getByRole('button', { name: 'Account menu' }).click();
@@ -30,7 +30,7 @@ test('first visit runs setup, lands on the dashboard, and can sign out and back 
   await expect(page.getByRole('alert')).toContainText('incorrect');
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
-  await expect(page.getByRole('heading', { name: /Good (morning|afternoon|evening), John/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Standing' })).toBeVisible();
   await logout(page);
 });
 

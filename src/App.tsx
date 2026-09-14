@@ -11,23 +11,20 @@ import { useIdentity, keys } from '@/lib/queries';
 import { hasSession } from '@/lib/api';
 import { applyAccent, applyDensity, applyTheme, storedTheme } from '@/lib/theme';
 import AppLoader from '@/components/AppLoader';
+import { NAV_REDIRECTS } from '@/config/nav';
 
 const Records = lazy(() => import('@/pages/Records'));
 const RecordDetail = lazy(() => import('@/pages/RecordDetail'));
-const Work = lazy(() => import('@/pages/Work'));
-const Workbench = lazy(() => import('@/pages/Workbench'));
+const WorkHub = lazy(() => import('@/pages/WorkHub'));
 const Goals = lazy(() => import('@/pages/Goals'));
 const Career = lazy(() => import('@/pages/Career'));
 const Readiness = lazy(() => import('@/pages/Readiness'));
-const Reports = lazy(() => import('@/pages/Reports'));
-const ReportStudio = lazy(() => import('@/pages/ReportStudio'));
+const ReportsHub = lazy(() => import('@/pages/ReportsHub'));
 const Team = lazy(() => import('@/pages/Team'));
 const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
-const Maradmins = lazy(() => import('@/pages/Maradmins'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const Operator = lazy(() => import('@/pages/Operator'));
 const Help = lazy(() => import('@/pages/Help'));
-const Correspondence = lazy(() => import('@/pages/Correspondence'));
 
 function Fallback() {
   return <div className="page space-y-3"><Skeleton className="h-8 w-56" /><Skeleton className="h-40" /><Skeleton className="h-64" /></div>;
@@ -96,22 +93,21 @@ export default function App() {
                 <Route index element={<Dashboard />} />
                 <Route path="records" element={<D><Records /></D>} />
                 <Route path="records/:id" element={<D><RecordDetail /></D>} />
-                <Route path="work" element={<D><Work /></D>} />
-                <Route path="queue" element={<D><Workbench /></D>} />
+                <Route path="work" element={<D><WorkHub /></D>} />
                 <Route path="goals" element={<D><Goals /></D>} />
                 <Route path="career" element={<D><Career /></D>} />
                 <Route path="readiness" element={<D><Readiness /></D>} />
-                <Route path="reports" element={<D><Reports /></D>} />
-                <Route path="studio" element={<D><ReportStudio /></D>} />
+                <Route path="reports" element={<D><ReportsHub /></D>} />
                 <Route path="team" element={<D><Team /></D>} />
                 <Route path="team/:id" element={<D><MemberDetail /></D>} />
-                <Route path="maradmins" element={<D><Maradmins /></D>} />
-                <Route path="correspondence" element={<D><Correspondence /></D>} />
                 <Route path="settings" element={<D><Settings /></D>} />
                 <Route path="operator" element={<D><Operator /></D>} />
                 <Route path="help" element={<D><Help /></D>} />
-                <Route path="assist" element={<Navigate to="/" replace />} />
-                <Route path="activities" element={<Navigate to="/records" replace />} />
+                {/* Destinations that were merged away. A link someone saved a year ago still lands
+                    on the tab that absorbed it rather than on a not-found page. */}
+                {Object.entries(NAV_REDIRECTS).map(([from, to]) => (
+                  <Route key={from} path={from.slice(1)} element={<Navigate to={to} replace />} />
+                ))}
                 <Route path="activities/:id" element={<RedirectRecord />} />
                 <Route path="login" element={<Navigate to="/" replace />} />
                 <Route path="*" element={<NotFound />} />

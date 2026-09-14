@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { installTelemetry, track } from '@/lib/telemetry';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Bell, ChevronsLeft, ChevronsRight, CloudOff, Command, LogOut, Menu as MenuIcon, Moon, Plus, RefreshCw, Search, Sun, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, Bell, ChevronDown, ChevronsLeft, ChevronsRight, CloudOff, LogOut, Menu as MenuIcon, Moon, Plus, RefreshCw, Search, Sun, WifiOff, X } from 'lucide-react';
 import { NAV, NAV_GROUPS } from '@/config/nav';
 import { cn, initials, timeAgo } from '@/lib/utils';
 import { Button, Tooltip, Kbd } from '@/components/ui/primitives';
@@ -20,8 +20,21 @@ import { flushOutbox, onOutboxChange, outbox } from '@/lib/outbox';
 import { resolveTheme, storedTheme } from '@/lib/theme';
 import { VERSION } from '@/lib/version';
 
-const TITLES: Array<[string, string]> = [['/records', 'Records'], ['/work', 'Work'], ['/goals', 'Goals'], ['/career', 'Career'], ['/readiness', 'Readiness'], ['/reports', 'Reports'], ['/team', 'Team'], ['/maradmins', 'MARADMINs'], ['/assist', 'AI assist'], ['/settings', 'Settings'], ['/operator', 'Owner console'], ['/help', 'Help']];
-const titleFor = (p: string) => (p === '/' ? 'Dashboard' : TITLES.find(([path]) => p.startsWith(path))?.[1] || 'Vantage');
+/** Destination name, and the one-line subtitle the breadcrumb shows beside it. */
+const TITLES: Array<[string, string, string]> = [
+  ['/records', 'Records', 'Your source record'],
+  ['/work', 'Work', 'Queue, tasks and correspondence'],
+  ['/goals', 'Goals', 'Targets and progress'],
+  ['/career', 'Career', 'Training, awards, counseling'],
+  ['/readiness', 'Readiness', 'Dates and requirements'],
+  ['/reports', 'Reports', 'Report studio'],
+  ['/team', 'Team', 'People and workload'],
+  ['/settings', 'Settings', 'Your preferences'],
+  ['/operator', 'Owner console', 'This deployment'],
+  ['/help', 'Field guide', 'How Vantage works'],
+];
+const entryFor = (p: string) => (p === '/' ? (['/', 'Today', 'Your next move'] as const) : TITLES.find(([path]) => p.startsWith(path)));
+const titleFor = (p: string) => entryFor(p)?.[1] || 'Vantage';
 
 function useOnline() {
   const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
@@ -83,12 +96,17 @@ function NotificationBell({ onNavigate }: { onNavigate: (to: string) => void }) 
 }
 
 /** Which destination a path belongs to, as one of the words the event catalog allows. */
-function surfaceOf(pathname: string): string {
+function surfaceOf(pathname: string, search: string): string {
   const segment = pathname.split('/')[1] || '';
+  const tab = new URLSearchParams(search).get('tab') || '';
+  // Work and Reports are each one destination with several tabs. Reporting them as one surface
+  // would hide which half of the screen people actually use, so the tab decides the name.
+  if (segment === 'work') return tab === 'mail' ? 'correspondence' : tab === 'tasks' || tab === 'projects' ? 'tasks' : 'queue';
+  if (segment === 'reports') return tab === 'analysis' ? 'reports' : 'studio';
+  if (segment === 'career') return tab === 'messages' ? 'maradmins' : 'career';
   const map: Record<string, string> = {
-    '': 'dashboard', records: 'records', queue: 'queue', work: 'tasks', goals: 'goals',
-    correspondence: 'correspondence', studio: 'studio', reports: 'reports', career: 'career',
-    readiness: 'readiness', team: 'team', settings: 'settings', operator: 'operator', help: 'help',
+    '': 'dashboard', records: 'records', goals: 'goals', readiness: 'readiness',
+    team: 'team', settings: 'settings', operator: 'operator', help: 'help',
   };
   return map[segment] || 'dashboard';
 }
@@ -102,7 +120,7 @@ export default function AppShell() {
 
   // Which destinations get used, and whether people come back. Paths only, never their ids.
   useEffect(() => { installTelemetry(); track('session.started', { returning: document.referrer.includes(window.location.host) }); }, []);
-  useEffect(() => { track('surface.viewed', { surface: surfaceOf(location.pathname) }); }, [location.pathname]);
+  useEffect(() => { track('surface.viewed', { surface: surfaceOf(location.pathname, location.search) }); }, [location.pathname, location.search]);
   const navigate = useNavigate();
   const online = useOnline();
   const userId = identity?.user.id;
@@ -170,22 +188,21 @@ export default function AppShell() {
   const user = identity?.user;
   const primary = identity?.memberships.find((m) => m.is_primary) || identity?.memberships[0];
 
+  // "More" sinks to the bottom of the rail: settings and the field guide are always reachable but
+  // never compete with the destinations a person came here to open.
   const navList = (mobile: boolean) => (
-    <nav className="flex-1 overflow-y-auto px-2 py-2" aria-label="Primary">
+    <nav className="flex flex-1 flex-col overflow-y-auto px-2 py-2" aria-label="Primary">
       {NAV_GROUPS.map((group) => {
         const items = visibleNav.filter((i) => i.group === group);
         if (!items.length) return null;
         return (
-          <div key={group} className="mb-2">
-            {(!collapsed || mobile) && group !== 'More' && (
-              <p className="px-2.5 pb-1 pt-1.5 text-2xs font-semibold uppercase tracking-[0.14em] text-rail-ink/70">{group}</p>
-            )}
-            {group === 'More' && <div className="my-1.5 border-t border-rail-ink/10" />}
+          <div key={group} className={cn('mb-1', group === 'More' && 'mt-auto pt-4')}>
+            {(!collapsed || mobile) && group !== 'More' && <p className="nav-label pt-4">{group}</p>}
             <div className="space-y-0.5">
               {items.map((item) => (
                 <Tooltip key={item.to} content={collapsed && !mobile ? item.label : null} side="right">
                   <NavLink to={item.to} end={item.end} className={cn('nav-item', collapsed && !mobile && 'justify-center px-0')} aria-current={location.pathname === item.to || (!item.end && location.pathname.startsWith(item.to)) ? 'page' : undefined}>
-                    <item.icon className="h-[18px] w-[18px] shrink-0 opacity-90" strokeWidth={1.75} />
+                    <item.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.8} />
                     {(!collapsed || mobile) && <span className="truncate">{item.label}</span>}
                   </NavLink>
                 </Tooltip>
@@ -197,18 +214,39 @@ export default function AppShell() {
     </nav>
   );
 
+  const brand = (
+    <div className={cn('flex h-[52px] shrink-0 items-center gap-2 px-4', collapsed && 'justify-center px-0')}>
+      <img src="/mark.svg" alt="" width={26} height={26} className="h-[26px] w-[26px]" />
+      {!collapsed && <span className="text-xl font-bold tracking-[-0.03em] text-ink">VANTAGE</span>}
+    </div>
+  );
+
+  /* Which workspace you are in, stated once, at the top, where a person looks to check they are
+     filing this against the right unit. */
+  const workspace = (
+    <button
+      type="button"
+      onClick={() => navigate(identity?.canLead ? '/team?tab=units' : '/settings')}
+      className="mx-4 mb-1 mt-4 flex shrink-0 items-center justify-between gap-2 border-b border-line-strong pb-3 text-left"
+    >
+      <span className="min-w-0">
+        <span className="block text-xs leading-relaxed text-ink-3">{identity?.instance.organizationName || 'Workspace'}</span>
+        <span className="mt-0.5 block truncate text-base font-medium text-ink">{primary ? primary.unit_short || primary.unit_name : 'No unit yet'}</span>
+      </span>
+      <ChevronDown className="h-4 w-4 shrink-0 text-ink-3" aria-hidden />
+    </button>
+  );
+
   return (
     <OutboxContext.Provider value={{ pending, flush }}>
       <div className="flex min-h-screen bg-canvas">
         <a href="#main" className="skip-link">Skip to content</a>
-        <aside className={cn('no-print sticky top-0 hidden h-screen shrink-0 flex-col bg-rail text-rail-ink transition-[width] duration-200 ease-[cubic-bezier(.22,.8,.32,1)] lg:flex', collapsed ? 'w-[68px]' : 'w-[244px]')}>
-          <div className={cn('flex h-16 items-center gap-3 px-4', collapsed && 'justify-center px-0')}>
-            <img src="/mark.svg" alt="Vantage" width={32} height={32} className="h-8 w-8" />
-            {!collapsed && <div className="min-w-0"><p className="text-[13px] font-bold tracking-[0.18em] text-rail-ink">VANTAGE</p><p className="truncate text-2xs text-rail-ink/55">{identity?.instance.organizationName}</p></div>}
-          </div>
+        <aside className={cn('no-print sticky top-0 hidden h-screen shrink-0 flex-col border-r border-line bg-rail transition-[width] duration-150 lg:flex', collapsed ? 'w-[68px]' : 'w-[225px]')}>
+          {brand}
+          {!collapsed && workspace}
           {navList(false)}
-          <div className="border-t border-rail-ink/10 p-2">
-            <button type="button" onClick={toggleRail} className="nav-item w-full justify-center" aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}>
+          <div className="px-2 pb-2">
+            <button type="button" onClick={toggleRail} className="nav-item w-full justify-center text-ink-3" aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}>
               {collapsed ? <ChevronsRight className="h-4 w-4" /> : <><ChevronsLeft className="h-4 w-4" /><span className="text-xs">Collapse</span></>}
             </button>
           </div>
@@ -216,33 +254,39 @@ export default function AppShell() {
 
         {drawer && (
           <div className="no-print fixed inset-0 z-50 lg:hidden">
-            <button type="button" className="absolute inset-0 bg-ink/40 backdrop-blur-sm animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu" />
-            <aside className="absolute inset-y-0 left-0 flex w-[min(86vw,300px)] flex-col bg-rail text-rail-ink shadow-modal animate-slide-in-left">
-              <div className="flex h-16 items-center gap-3 border-b border-rail-ink/10 px-4">
-                <img src="/mark.svg" alt="" width={32} height={32} className="h-8 w-8" />
-                <div className="min-w-0"><p className="text-[13px] font-bold tracking-[0.18em] text-rail-ink">VANTAGE</p><p className="truncate text-2xs text-rail-ink/55">{user ? `${user.first_name} ${user.last_name}` : ''}</p></div>
-                <button type="button" onClick={() => setDrawer(false)} className="ml-auto rounded-md p-2 text-rail-ink/70 hover:bg-rail-ink/10 hover:text-rail-ink" aria-label="Close menu"><X className="h-4 w-4" /></button>
+            <button type="button" className="absolute inset-0 bg-ink/60 animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu" />
+            <aside className="absolute inset-y-0 left-0 flex w-[min(86vw,280px)] flex-col border-r border-line bg-rail animate-slide-in-left">
+              <div className="flex h-[52px] shrink-0 items-center gap-2 px-4">
+                <img src="/mark.svg" alt="" width={26} height={26} className="h-[26px] w-[26px]" />
+                <span className="text-xl font-bold tracking-[-0.03em] text-ink">VANTAGE</span>
+                <button type="button" onClick={() => setDrawer(false)} className="ml-auto rounded-md p-2 text-ink-3 hover:bg-surface-3 hover:text-ink" aria-label="Close menu"><X className="h-4 w-4" /></button>
               </div>
+              {workspace}
               {navList(true)}
             </aside>
           </div>
         )}
 
         <div className="flex min-w-0 flex-1 flex-col">
-          <header className="no-print sticky top-0 z-30 flex h-16 items-center gap-2 border-b border-line/70 bg-canvas/85 px-3 backdrop-blur-md sm:px-5 lg:px-8">
-            <button type="button" className="rounded-md p-2 text-ink-2 hover:bg-surface-2 lg:hidden" onClick={() => setDrawer(true)} aria-label="Open menu"><MenuIcon className="h-5 w-5" /></button>
-            <h1 className="min-w-0 truncate text-sm font-semibold tracking-[-0.005em] text-ink-2">{titleFor(location.pathname)}</h1>
+          <header className="no-print sticky top-0 z-30 flex h-[60px] items-center gap-3 border-b border-line bg-surface px-3 sm:px-4 lg:px-6">
+            <button type="button" className="rounded-md p-1.5 text-ink-2 hover:bg-surface-2 lg:hidden" onClick={() => setDrawer(true)} aria-label="Open menu"><MenuIcon className="h-5 w-5" /></button>
+            {/* Where you are, and what this screen is. Two words beat a folder path nobody reads. */}
+            <h1 className="flex min-w-0 items-baseline gap-2">
+              <span className="truncate text-lg font-semibold text-ink">{titleFor(location.pathname)}</span>
+              <span className="hidden shrink-0 text-ink-3 sm:inline" aria-hidden>/</span>
+              <span className="hidden truncate text-base text-ink-3 sm:inline">{entryFor(location.pathname)?.[2]}</span>
+            </h1>
             <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
-              {!online && <Tooltip content="Offline. New entries queue on this device."><span className="flex h-9 items-center gap-1.5 rounded-md bg-warn/10 px-2 text-xs font-medium text-warn"><WifiOff className="h-4 w-4" /><span className="hidden sm:inline">Offline</span></span></Tooltip>}
-              {online && pending > 0 && <button type="button" onClick={flush} className="flex h-9 items-center gap-1.5 rounded-md bg-info/10 px-2 text-xs font-medium text-info hover:brightness-95"><CloudOff className="h-4 w-4" />{pending} queued</button>}
-              <button type="button" onClick={() => setPalette(true)} className="flex h-9 items-center gap-2 rounded-full border border-line bg-surface px-3 text-sm text-ink-3 shadow-card transition-colors hover:border-line-strong hover:text-ink" aria-label="Search">
-                <Command className="hidden h-4 w-4 md:block" aria-hidden /><Search className="h-4 w-4 md:hidden" aria-hidden /><span className="hidden md:inline">Search…</span><span className="hidden lg:inline"><Kbd>⌘K</Kbd></span>
+              {!online && <Tooltip content="Offline. New entries queue on this device."><span className="flex h-9 items-center gap-1.5 rounded-md bg-warn/12 px-2.5 text-xs font-medium text-warn"><WifiOff className="h-4 w-4" /><span className="hidden sm:inline">Offline</span></span></Tooltip>}
+              {online && pending > 0 && <button type="button" onClick={flush} className="flex h-9 items-center gap-1.5 rounded-md bg-info/12 px-2.5 text-xs font-medium text-info hover:bg-info/20"><CloudOff className="h-4 w-4" />{pending} queued</button>}
+              <button type="button" onClick={() => setPalette(true)} className="flex h-9 items-center gap-2 rounded-md border border-line-strong bg-surface px-3 text-base text-ink-3 transition-colors hover:border-ink-3/50 hover:text-ink-2 md:w-64 lg:w-80" aria-label="Search">
+                <Search className="h-4 w-4 shrink-0" aria-hidden /><span className="hidden md:inline">Search cases, records, or actions…</span><span className="ml-auto hidden lg:inline"><Kbd>⌘K</Kbd></span>
               </button>
-              <Button variant="primary" size="sm" onClick={() => openQuickLog('')} className="h-9" aria-label="Log activity"><Plus className="h-4 w-4" /><span className="hidden xl:inline">Log activity</span></Button>
+              <Button variant="primary" onClick={() => openQuickLog('')} aria-label="Log activity"><Plus className="h-4 w-4" /><span className="hidden xl:inline">Log activity</span></Button>
               <NotificationBell onNavigate={(to) => navigate(to)} />
               <Menu>
                 <MenuTrigger asChild>
-                  <button type="button" className="flex h-9 w-9 items-center justify-center rounded-full bg-rail text-xs font-bold text-rail-ink ring-2 ring-canvas" aria-label="Account menu">{initials(user?.first_name, user?.last_name)}</button>
+                  <button type="button" className="flex h-9 w-9 items-center justify-center rounded-full bg-rail-active text-xs font-semibold text-white" aria-label="Account menu">{initials(user?.first_name, user?.last_name)}</button>
                 </MenuTrigger>
                 <MenuContent>
                   <div className="border-b border-line px-2.5 pb-2 pt-1">
@@ -260,21 +304,21 @@ export default function AppShell() {
             </div>
           </header>
 
-          <main id="main" tabIndex={-1} className="min-w-0 flex-1 px-4 pb-24 pt-6 outline-none sm:px-6 lg:px-10 lg:pb-16 lg:pt-8">
+          <main id="main" tabIndex={-1} className="min-w-0 flex-1 px-4 pb-24 pt-6 outline-none sm:px-6 lg:px-8 lg:pb-16 lg:pt-8">
             {updateReady && (
-              <div role="status" className="no-print page mb-4 flex items-center gap-3 rounded-lg border border-info/30 bg-info/10 px-3 py-2 text-sm text-ink">
+              <div role="status" className="no-print page card mb-4 flex items-center gap-2.5 border-l-[3px] border-l-info px-4 py-3 text-base text-ink">
                 <RefreshCw className="h-4 w-4 text-info" /><span className="flex-1">A new version of Vantage is ready.</span>
                 <Button size="xs" onClick={() => { navigator.serviceWorker?.getRegistration().then((r) => r?.waiting?.postMessage('skip-waiting')); setTimeout(() => window.location.reload(), 300); }}>Reload</Button>
               </div>
             )}
             {identity?.instance.announcement && (
-              <div role="status" className="no-print page mb-4 flex items-start gap-2 rounded-lg border border-accent/25 bg-accent-soft px-3 py-2.5 text-sm text-ink">
+              <div role="status" className="no-print page card mb-4 flex items-start gap-2 border-l-[3px] border-l-accent px-4 py-3 text-base text-ink">
                 <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-accent" /><span>{identity.instance.announcement}</span>
               </div>
             )}
             <ErrorBoundary resetKey={location.pathname + location.search}><div key={location.pathname} className="animate-fade-up"><Outlet /></div></ErrorBoundary>
           </main>
-          <footer className="no-print px-5 py-3 text-2xs text-ink-3 lg:px-10">Vantage v{VERSION} · Records stay on this deployment's server.</footer>
+          <footer className="no-print px-4 py-4 text-xs text-ink-3 sm:px-6 lg:px-8">Vantage v{VERSION} · Records stay on this deployment's server.</footer>
         </div>
 
         <QuickLog open={quickLog} onOpenChange={setQuickLog} initialText={quickLogSeed} />

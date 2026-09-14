@@ -51,7 +51,7 @@ export default function Readiness() {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
-          <Panel title="Your figures" subtitle="enter what MOL shows; leave unknowns blank">
+          <Panel title="Your figures" subtitle="Enter what MOL shows; leave unknowns blank">
             <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
               <Field label="PFT" hint={fitnessClass(form.pft_score) || undefined}><NumberInput value={form.pft_score || ''} onChange={(e) => set('pft_score')(e.target.value)} placeholder="0-300" /></Field>
               <Field label="CFT" hint={fitnessClass(form.cft_score) || undefined}><NumberInput value={form.cft_score || ''} onChange={(e) => set('cft_score')(e.target.value)} placeholder="0-300" /></Field>
@@ -74,7 +74,7 @@ export default function Readiness() {
               <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
                 {PILLARS.map((p) => { const pillar = est.pillars[p.key]; return (
                   <div key={p.key} className={cn('rounded-lg border p-3', pillar.known ? 'border-line' : 'border-dashed border-warn/50')}>
-                    <div className="flex items-baseline justify-between gap-2"><h3 className="text-sm font-semibold text-ink">{p.label}</h3><span className="fig text-2xs text-ink-3">{pillar.enteredCount}/{pillar.itemCount}</span></div>
+                    <div className="flex items-baseline justify-between gap-2"><h3 className="text-md font-semibold text-ink">{p.label}</h3><span className="fig text-2xs text-ink-3">{pillar.enteredCount}/{pillar.itemCount}</span></div>
                     <p className="text-2xs text-ink-3">{p.composition}</p>
                     <ul className="mt-2 space-y-1">{pillar.items.map((it) => <li key={it.key} className="flex items-baseline justify-between gap-2 text-sm"><span className="text-ink-2">{it.label}</span><span className={cn('fig text-right text-xs', STATE_TONE[it.state])} title={it.note}>{it.value ?? 'Not entered'}</span></li>)}</ul>
                   </div>
@@ -83,10 +83,10 @@ export default function Readiness() {
               <p className="mt-3 flex items-start gap-1.5 text-2xs text-ink-3"><Info className="mt-0.5 h-3 w-3 shrink-0" />Vantage never computes a JEPES score. Point tables live in {ref.order} and change; MOL is authoritative.</p>
             </Panel>
           ) : (
-            <Panel title="Attribute coverage" subtitle="does your log evidence each section your RS marks?">
+            <Panel title="Attribute coverage" subtitle="Does your log evidence each section your RS marks?">
               <div className="space-y-3">{coverage.map((s) => (
                 <div key={s.key} className="rounded-lg border border-line p-3">
-                  <div className="flex items-baseline justify-between gap-2"><h3 className="text-sm font-semibold text-ink">Section {s.section}: {s.key}</h3><span className="fig text-xs text-ink-3">{s.tagged} tagged</span></div>
+                  <div className="flex items-baseline justify-between gap-2"><h3 className="text-md font-semibold text-ink">Section {s.section}: {s.key}</h3><span className="fig text-xs text-ink-3">{s.tagged} tagged</span></div>
                   <ul className="mt-2 flex flex-wrap gap-1.5">{s.attributes.map((a) => <li key={a.attribute}><Badge tone={a.likely ? 'good' : 'warn'} title={a.examples.join(' · ')}>{a.attribute} · {a.likely}</Badge></li>)}</ul>
                 </div>
               ))}</div>
@@ -96,7 +96,7 @@ export default function Readiness() {
         </div>
 
         <div className="space-y-4">
-          <Panel title="Where the points are" subtitle="ordered by impact" action={<button type="button" className="text-xs text-accent hover:underline" onClick={() => setEffortSort((v) => !v)}>{effortSort ? 'By impact' : 'By effort'}</button>}>
+          <Panel title="Where the points are" subtitle="Ordered by impact" action={<button type="button" className="text-xs text-accent hover:underline" onClick={() => setEffortSort((v) => !v)}>{effortSort ? 'By impact' : 'By effort'}</button>}>
             <ol className="space-y-2">{sortedRecs.map((r) => (
               <li key={r.id} className="rounded-md border border-line p-3">
                 <div className="flex flex-wrap items-center gap-1.5"><Badge tone={REC_KINDS[r.kind]?.tone || 'neutral'}>{REC_KINDS[r.kind]?.label || r.kind}</Badge><Badge>{r.effort} effort</Badge><span className="text-2xs text-ink-3">{r.category}</span></div>

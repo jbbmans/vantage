@@ -1,16 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ExternalLink, Bookmark, BookmarkCheck, Search, RefreshCw, ScrollText } from 'lucide-react';
-import { PageHeader, Button, Input, Select, Badge, EmptyState, Skeleton, Segmented } from '@/components/ui/primitives';
+import { Button, Input, Select, Badge, EmptyState, Skeleton, Segmented } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult } from '@/components/AiPanel';
-import { DateText, useParam } from '@/components/common';
+import { DateText, PageShell, useParam } from '@/components/common';
 import { keys, useIdentity } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { cn } from '@/lib/utils';
 
-export default function Maradmins() {
+export default function Maradmins({ embedded }: { embedded?: boolean } = {}) {
   const toast = useToast();
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
@@ -33,13 +33,20 @@ export default function Maradmins() {
 
   const unread = rows.filter((r) => !r.read_at).length;
 
-  if (!identity?.instance.maradminsEnabled) return <div className="page"><PageHeader eyebrow="MARADMINs" title="Message feed" /><div className="card"><EmptyState icon={ScrollText} title="The MARADMIN feed is off on this deployment" description="The owner can enable it in the Owner console. Vantage only ever caches public message titles." /></div></div>;
+  if (!identity?.instance.maradminsEnabled) return (
+    <PageShell embedded={embedded} eyebrow="MARADMINs" title="Message feed">
+      <div className="card"><EmptyState icon={ScrollText} title="The MARADMIN feed is off on this deployment" description="The owner can enable it in the Owner console. Vantage only ever caches public message titles." /></div>
+    </PageShell>
+  );
 
   return (
-    <div className="page">
-      <PageHeader eyebrow="MARADMINs" title="Message feed" lede="Public Marine administrative messages, cached here so you see what changed. Read the full text on marines.mil; nothing here is authoritative.">
-        <Button onClick={() => refetch()} loading={isFetching}><RefreshCw className="h-4 w-4" />Refresh</Button>
-      </PageHeader>
+    <PageShell
+      embedded={embedded}
+      eyebrow="MARADMINs"
+      title="Message feed"
+      lede="Public Marine administrative messages, cached here so you see what changed. Read the full text on marines.mil; nothing here is authoritative."
+      actions={<Button onClick={() => refetch()} loading={isFetching}><RefreshCw className="h-4 w-4" />Refresh</Button>}
+    >
       <div className="card mb-4 flex flex-wrap items-center gap-2 p-3">
         <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search messages" className="pl-8" placeholder="Number or title…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <Select aria-label="Topic" className="w-44" value={tag} onValueChange={setTag} options={[{ value: 'all', label: 'All topics' }, ...tags.map((t) => ({ value: t, label: t }))]} />
@@ -72,6 +79,6 @@ export default function Maradmins() {
           </div>
         )}
       </Dialog>
-    </div>
+    </PageShell>
   );
 }

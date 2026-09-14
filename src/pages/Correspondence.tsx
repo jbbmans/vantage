@@ -4,11 +4,11 @@ import {
   Mail, MailPlus, Paperclip, Plug, Send, Upload, UserRound, ShieldAlert, Link2, ImageOff, Clock,
 } from 'lucide-react';
 import {
-  PageHeader, Panel, Button, Input, Select, Textarea, Field, Badge, EmptyState, Skeleton, Tabs, type Tone,
+  Panel, Button, Input, Select, Textarea, Field, Badge, EmptyState, Skeleton, Tabs, type Tone,
 } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
-import { DateText, useParam } from '@/components/common';
+import { DateText, PageShell, useParam } from '@/components/common';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import {
   useIdentity, useContacts, useThreads, useThread, useConnectors, invalidateCorrespondence,
@@ -57,11 +57,11 @@ const STATE_MEANING: Record<State, string> = {
 const emptyThread = { subject: '', unit_id: '', visibility: 'unit' as 'unit' | 'private', contact_id: '', follow_up_at: '' };
 const emptyContact = { name: '', email: '', organization: '', role: '', phone: '', notes: '', visibility: 'unit' as 'unit' | 'private', unit_id: '' };
 
-export default function Correspondence() {
+export default function Correspondence({ embedded }: { embedded?: boolean } = {}) {
   const toast = useToast();
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
-  const [tab, setTab] = useParam('tab', 'threads');
+  const [tab, setTab] = useParam('mail', 'threads');
   const [stateFilter, setStateFilter] = useParam('state', '');
   const [dueOnly, setDueOnly] = useState(false);
   const [search, setSearch] = useState('');
@@ -83,16 +83,16 @@ export default function Correspondence() {
   const due = rows.filter((t) => t.follow_up_at && t.follow_up_at <= todayIso() && t.state !== 'resolved' && t.state !== 'ksd_received');
 
   return (
-    <div className="page">
-      <PageHeader
-        eyebrow="Work"
-        title="Correspondence"
-        lede="The emails behind the work, linked to the work they are about. A reply is not an answer, and an answer is not a closed matter, so each is recorded on its own."
-      >
+    <PageShell
+      embedded={embedded}
+      eyebrow="Work"
+      title="Correspondence"
+      lede="The emails behind the work, linked to the work they are about. A reply is not an answer, and an answer is not a closed matter, so each is recorded on its own."
+      actions={<>
         <Button variant="ghost" onClick={() => setContactOpen(true)}><UserRound className="h-4 w-4" />New contact</Button>
         <Button variant="primary" onClick={() => setComposing(true)}><MailPlus className="h-4 w-4" />New thread</Button>
-      </PageHeader>
-
+      </>}
+    >
       <Tabs
         value={tab}
         onChange={setTab}
@@ -160,7 +160,7 @@ export default function Correspondence() {
         onSaved={() => { qc.invalidateQueries({ queryKey: correspondenceKeys.contacts }); setContactOpen(false); toast.success('Contact saved.'); }}
       />
       <ThreadDetail id={openId || null} onClose={() => setOpenId('')} />
-    </div>
+    </PageShell>
   );
 }
 
@@ -173,7 +173,7 @@ function ThreadRow({ thread, onOpen }: { thread: ThreadSummary; onOpen: () => vo
         <span className="mt-0.5 flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 text-ink-3"><Mail className="h-4 w-4" /></span>
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-2">
-            <span className="truncate text-sm font-semibold text-ink">{thread.subject}</span>
+            <span className="truncate text-md font-semibold text-ink">{thread.subject}</span>
             <Badge tone={STATE_TONE[state]}>{STATE_LABEL[state] || state}</Badge>
             {thread.visibility === 'private' && <Badge>Private</Badge>}
           </span>
@@ -306,7 +306,7 @@ function Contacts({ onNew }: { onNew: () => void }) {
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {contacts.data.map((c) => (
         <div key={String(c.id)} className="card p-4">
-          <p className="text-sm font-semibold text-ink">{String(c.name)}</p>
+          <p className="text-md font-semibold text-ink">{String(c.name)}</p>
           {c.role || c.organization ? <p className="mt-0.5 text-xs text-ink-3">{[c.role, c.organization].filter(Boolean).join(' · ')}</p> : null}
           <div className="mt-2 space-y-0.5 text-xs text-ink-2">
             {c.email ? <p className="truncate">{String(c.email)}</p> : null}
@@ -384,7 +384,7 @@ function ThreadDetail({ id, onClose }: { id: string | null; onClose: () => void 
             {detail.data?.contact && <Badge>{String(detail.data.contact.name)}</Badge>}
           </div>
 
-          <Panel title="Where it stands" subtitle="a reply, the knowledge you asked for, and a closed matter are three separate facts">
+          <Panel title="Where it stands" subtitle="A reply, the knowledge you asked for, and a closed matter are three separate facts">
             <div className="space-y-3">
               <dl className="grid grid-cols-1 gap-2 text-xs sm:grid-cols-3">
                 <Fact label="Response received" value={thread.response_at} />
@@ -440,7 +440,7 @@ function ThreadDetail({ id, onClose }: { id: string | null; onClose: () => void 
             </div>
           </Panel>
 
-          <Panel title={`Linked work (${detail.data?.links.length || 0})`} subtitle="one email can be about a hundred rows and is still one email">
+          <Panel title={`Linked work (${detail.data?.links.length || 0})`} subtitle="One email can be about a hundred rows and is still one email">
             {detail.data?.links.length ? (
               <ul className="space-y-1.5">
                 {detail.data.links.map((l) => (
@@ -519,7 +519,7 @@ function Mailboxes() {
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Panel title="Connect a mailbox" subtitle="read-only, and only after you authorize it">
+      <Panel title="Connect a mailbox" subtitle="Read-only, and only after you authorize it">
         <div className="space-y-3">
           <Field label="Which Microsoft cloud" hint="never guessed from your address">
             <Select
@@ -544,7 +544,7 @@ function Mailboxes() {
               <li key={String(c.id)} className="rounded-md border border-line p-3">
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <div className="min-w-0">
-                    <p className="truncate text-sm font-semibold text-ink">{String(c.account_label)}</p>
+                    <p className="truncate text-md font-semibold text-ink">{String(c.account_label)}</p>
                     <p className="text-xs text-ink-3">{String(c.cloud)} · {String(c.status)}</p>
                   </div>
                   <div className="flex gap-1.5">

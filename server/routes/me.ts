@@ -6,6 +6,7 @@ import { badRequest, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth, requireSudo } from '../auth/middleware.ts';
 import { scopeFor, unitsWith, PERMISSIONS, can, detailUnitsFor } from '../authz/scope.ts';
 import { profileSchema, passwordField, readinessSchema, prefsSchema, emailField } from '../../shared/schemas.ts';
+import { sourcedFieldsFor } from '../services/personnel.ts';
 import { hashPassword, verifyPassword, encryptSecret, decryptSecret, sha256 } from '../lib/crypto.ts';
 import { invalidateUserSessions, listSessions, revokeSessionByPrefix, SESSION_COOKIE, SIGNED_IN_COOKIE } from '../auth/sessions.ts';
 import { generateTotpSecret, otpauthUrl, verifyTotp, generateRecoveryCodes } from '../auth/totp.ts';
@@ -68,6 +69,18 @@ meRouter.put('/profile', wrap((req, res) => {
     if (body.email && ctx.db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id <> ?').get(body.email, req.user.id)) throw badRequest('That email is already in use.', { fieldErrors: { email: 'Already in use.' } });
   }
   if (body.rank_id && !ctx.db.prepare('SELECT 1 FROM ranks WHERE id = ?').get(body.rank_id)) throw badRequest('No such rank.', { fieldErrors: { rank_id: 'No such rank.' } });
+  // Where a personnel feed owns this account, the fields it owns are not the person's to edit.
+  // Refused here rather than hidden in the client, because a hidden field is not a control.
+  const owned = sourcedFieldsFor(ctx, req.user.id);
+  if (owned.length) {
+    const attempted = owned.filter((f) => (body as Record<string, unknown>)[f] !== undefined && (body as Record<string, unknown>)[f] !== (req.user as unknown as Record<string, unknown>)[f]);
+    if (attempted.length) {
+      throw badRequest(
+        `${attempted.length === 1 ? 'That field comes' : 'Those fields come'} from the personnel feed and cannot be edited here. Ask your admin to correct it upstream.`,
+        { code: 'field_is_sourced', fieldErrors: Object.fromEntries(attempted.map((f) => [f, 'Set by the personnel feed.'])) },
+      );
+    }
+  }
   const sets: string[] = []; const vals: unknown[] = [];
   for (const [k, v] of Object.entries(body)) { if (v === undefined) continue; sets.push(`${k} = ?`); vals.push(v); }
   if (!sets.length) return res.json({ ok: true, changed: [] });

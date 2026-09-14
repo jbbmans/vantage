@@ -21,6 +21,9 @@ import { runDigestTick } from '../services/digest.ts';
 import { RECORD_TABLE_NAMES } from '../services/records.ts';
 import { usageReport, pruneEvents, MIN_COHORT } from '../services/usage.ts';
 import { EVENTS } from '../services/telemetry.ts';
+import { parseRoster, planSync, applySync, divergence, rosterStats, isEdipi, SOURCED_FIELDS, type SyncPlan } from '../services/personnel.ts';
+import { listSchedules, saveSchedule, openHolds, placeHold, releaseHold, runDisposition, dispositionHistory, RETAINABLE_TYPES } from '../services/retention.ts';
+import { buildInventory, inventoryMarkdown } from '../services/privacyInventory.ts';
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireOperator, requireSudo);
@@ -203,3 +206,143 @@ adminRouter.post('/maintenance', wrap((req, res) => {
 
 import { claimUnit as _claimUnit } from '../services/org.ts';
 function claimModule() { return { claimUnit: _claimUnit }; }
+
+// Authoritative personnel ------------------------------------------------
+// A roster arrives as text, not JSON, so the extract a personnel shop already has can be posted
+// without being reshaped first. 32 MB holds a very large command several times over.
+const rosterBody = express.text({ type: ['text/*', 'application/json'], limit: '32mb' });
+
+adminRouter.get('/personnel', wrap((req, res) => {
+  res.json({ ...rosterStats(req.ctx), sourcedFields: SOURCED_FIELDS });
+}));
+
+adminRouter.get('/personnel/divergence', wrap((req, res) => {
+  res.json(divergence(req.ctx));
+}));
+
+adminRouter.get('/personnel/runs', wrap((req, res) => {
+  res.json(req.ctx.db.prepare('SELECT * FROM personnel_sync_runs ORDER BY at DESC LIMIT 50').all());
+}));
+
+/**
+ * Plan a sync, or apply one. Planning is a read: it reports exactly what would change and touches
+ * nothing. Applying requires the caller to have seen a plan, because `apply` is refused unless it
+ * carries the same extract.
+ */
+adminRouter.post('/personnel/sync', rosterBody, wrap((req, res) => {
+  const ctx = req.ctx;
+  const apply = String(req.query.apply || '') === '1';
+  const source = String(req.query.source || 'roster').slice(0, 60).trim() || 'roster';
+  const text = typeof req.body === 'string' ? req.body : '';
+  if (!text.trim()) throw badRequest('Post the roster extract as the request body.');
+
+  // Confirming a mass separation is a deliberate, separate act: planning never sets it.
+  const confirmSeparations = apply && String(req.query.confirm_separations || '') === '1';
+  const parsed = parseRoster(text);
+  const plan = planSync(ctx, parsed.rows, source, parsed.rejected, confirmSeparations);
+
+  if (!apply) {
+    audit(ctx, { actor_id: req.user.id, action: 'personnel_sync_planned', detail: `${source}: ${plan.rowsSeen} rows`, ip: clientIp(req) });
+    return res.json({ applied: false, plan: summarize(plan) });
+  }
+  if (plan.massSeparation) {
+    throw badRequest(
+      `That extract would separate ${plan.massSeparation.count} of ${plan.massSeparation.activeBefore} people on the roster. If the extract really is the whole command, re-send it with confirm_separations=1.`,
+      { code: 'mass_separation', massSeparation: plan.massSeparation },
+    );
+  }
+  const { runId } = applySync(ctx, plan, req.user.id);
+  res.json({ applied: true, runId, plan: summarize(plan) });
+}));
+
+/** The plan, trimmed for the wire: full lists would be tens of thousands of rows on a real command. */
+function summarize(plan: SyncPlan) {
+  return {
+    source: plan.source,
+    rowsSeen: plan.rowsSeen,
+    massSeparation: plan.massSeparation ?? null,
+    unchanged: plan.unchanged,
+    counts: { creates: plan.creates.length, updates: plan.updates.length, separations: plan.separations.length, conflicts: plan.conflicts.length, rejected: plan.rejected.length },
+    creates: plan.creates.slice(0, 100).map((c) => ({ edipi: c.edipi, name: `${c.last_name}, ${c.first_name}`, rank_id: c.rank_id, unit_code: c.unit_code })),
+    updates: plan.updates.slice(0, 100),
+    separations: plan.separations.slice(0, 100),
+    conflicts: plan.conflicts.slice(0, 100),
+    rejected: plan.rejected.slice(0, 100),
+  };
+}
+
+/** Attach an EDIPI to an account by hand, for an instance with no feed or a person the feed missed. */
+adminRouter.post('/personnel/link', wrap((req, res) => {
+  const ctx = req.ctx;
+  const { user_id, edipi } = parse(z.object({ user_id: z.string().max(64), edipi: z.string().max(32).nullable() }), req.body);
+  const user = ctx.db.prepare('SELECT id, edipi FROM users WHERE id = ?').get(user_id) as { id: string; edipi: string | null } | undefined;
+  if (!user) throw badRequest('No such account.');
+  if (edipi !== null) {
+    if (!isEdipi(edipi)) throw badRequest('An EDIPI is exactly ten digits.', { fieldErrors: { edipi: 'Ten digits.' } });
+    const taken = ctx.db.prepare('SELECT id FROM users WHERE edipi = ? AND id <> ?').get(edipi, user_id) as { id: string } | undefined;
+    if (taken) throw badRequest('Another account already carries that EDIPI.', { fieldErrors: { edipi: 'Already linked to another account.' } });
+  }
+  ctx.db.prepare("UPDATE users SET edipi = ?, identity_source = CASE WHEN ? IS NULL THEN 'local' ELSE identity_source END, updated_at = ? WHERE id = ?")
+    .run(edipi, edipi, now(), user_id);
+  audit(ctx, { actor_id: req.user.id, action: edipi ? 'personnel_link' : 'personnel_unlink', entity: 'users', entity_id: user_id, subject_id: user_id, detail: edipi ? `EDIPI ${edipi}` : 'EDIPI cleared', ip: clientIp(req) });
+  res.json({ ok: true });
+}));
+
+// Records management -----------------------------------------------------
+
+adminRouter.get('/retention', wrap((req, res) => {
+  res.json({
+    schedules: listSchedules(req.ctx),
+    retainableTypes: RETAINABLE_TYPES,
+    holds: openHolds(req.ctx),
+    history: dispositionHistory(req.ctx, 50),
+  });
+}));
+
+adminRouter.put('/retention/schedule', wrap((req, res) => {
+  const body = parse(z.object({
+    record_type: z.string().max(40),
+    retain_days: z.coerce.number().int().min(1).max(36_500),
+    disposition: z.enum(['destroy', 'anonymize', 'review']),
+    authority: z.string().max(300).nullable().optional(),
+    notes: z.string().max(1000).nullable().optional(),
+    enabled: z.boolean().optional(),
+  }), req.body);
+  res.json(saveSchedule(req.ctx, body, req.user.id));
+}));
+
+adminRouter.post('/retention/holds', wrap((req, res) => {
+  const body = parse(z.object({
+    scope: z.enum(['instance', 'user', 'record_type']),
+    subject_id: z.string().max(64).nullable().optional(),
+    record_type: z.string().max(40).nullable().optional(),
+    reason: z.string().min(1).max(1000),
+  }), req.body);
+  res.json(placeHold(req.ctx, body, req.user.id));
+}));
+
+adminRouter.delete('/retention/holds/:id', wrap((req, res) => {
+  releaseHold(req.ctx, String(req.params.id), req.user.id);
+  res.json({ ok: true });
+}));
+
+/**
+ * Disposition is a dry run unless the caller asks for the real thing. Acting is the exception and
+ * has to be spelled out, because the operation is irreversible for whatever it touches.
+ */
+adminRouter.post('/retention/run', wrap((req, res) => {
+  const apply = String(req.query.apply || '') === '1';
+  const result = runDisposition(req.ctx, { dryRun: !apply, actorId: req.user.id });
+  res.json({ applied: apply && !result.blocked, ...result });
+}));
+
+// Privacy ----------------------------------------------------------------
+
+adminRouter.get('/privacy/inventory', wrap((req, res) => {
+  const inventory = buildInventory(req.ctx);
+  if (String(req.query.format || '') === 'markdown') {
+    res.type('text/markdown').send(inventoryMarkdown(inventory));
+    return;
+  }
+  res.json(inventory);
+}));

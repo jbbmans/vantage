@@ -53,7 +53,7 @@ export default function Help() {
           </ul>
         </Panel>
         <Panel title="Keyboard shortcuts"><ul className="grid grid-cols-1 gap-1.5 text-sm sm:grid-cols-2">{SHORTCUTS.map(([k, v]) => <li key={k} className="flex items-center justify-between gap-3 rounded-md border border-line px-3 py-1.5"><span className="text-ink-2">{v}</span><Kbd>{k}</Kbd></li>)}</ul></Panel>
-        <Panel title="AI assistance" subtitle="when the owner has enabled it">
+        <Panel title="AI assistance" subtitle="When the owner has enabled it">
           <p className="text-sm leading-relaxed text-ink-2">Drafting help runs through GenAI.mil, the Department's approved gateway, using the model you pick in Settings. Only the fields needed for the task are sent, never private records of other Marines. Every suggestion is a draft: check every figure, date, and reference before you use it. Nothing is saved automatically, and every request is logged.</p>
         </Panel>
         <Panel title="References" subtitle={`verified ${EVAL_VERIFIED}; the order on MOL is authoritative`}>

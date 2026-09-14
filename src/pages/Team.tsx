@@ -116,14 +116,14 @@ function Invites({ unitId, unitLabel }: { unitId: string; unitLabel: (id: string
   const create = async () => { setBusy(true); try { const r = await api.createInvite(unitId, { email: form.email || undefined, first_name: form.first_name || undefined, last_name: form.last_name || undefined, rank_id: form.rank_id || null, billet: form.billet || null, role_id: form.role_id || null }); setCreated(r); refetch(); toast.success(r.emailed ? `Invitation emailed to ${form.email}.` : 'Invitation link created. Copy it and send it yourself.'); setForm({ email: '', first_name: '', last_name: '', rank_id: '', billet: '', role_id: '' }); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-      <Panel title={`Invite to ${unitLabel(unitId)}`} subtitle="a link that works for seven days" className="lg:col-span-1">
+      <Panel title={`Invite to ${unitLabel(unitId)}`} subtitle="A link that works for seven days" className="lg:col-span-1">
         <div className="space-y-3">
           <Field label="Email" hint={identity?.instance.emailEnabled ? 'emailed automatically' : 'optional; email is not configured, so you send the link'}><Input type="email" value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
           <div className="grid grid-cols-2 gap-3"><Field label="First name"><Input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} /></Field><Field label="Last name"><Input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} /></Field>
             <Field label="Rank"><Select value={form.rank_id || '__none'} onValueChange={(v) => setForm({ ...form, rank_id: v === '__none' ? '' : v })} options={[{ value: '__none', label: 'Not set' }, ...(org?.ranks || []).map((r: any) => ({ value: r.id, label: r.abbr }))]} /></Field><Field label="Billet"><Input value={form.billet} onChange={(e) => setForm({ ...form, billet: e.target.value })} /></Field></div>
           <Field label="Role on arrival"><Select value={form.role_id || '__none'} onValueChange={(v) => setForm({ ...form, role_id: v === '__none' ? '' : v })} options={[{ value: '__none', label: 'Marine (default)' }, ...roles.map((r: any) => ({ value: r.id, label: r.name }))]} /></Field>
           <Button variant="primary" className="w-full" onClick={create} loading={busy}>{form.email && identity?.instance.emailEnabled ? <><Mail className="h-4 w-4" />Send invitation</> : <><Link2 className="h-4 w-4" />Create link</>}</Button>
-          {created && <div className="rounded-md border border-good/40 bg-good/5 p-3 text-xs"><p className="font-medium text-ink">Invitation ready{created.emailed ? ' and emailed' : ''}.</p><p className="mt-1 break-all font-mono text-ink-2">{created.url}</p><Button size="xs" className="mt-2" onClick={async () => { if (await copyToClipboard(created.url)) toast.success('Link copied.'); else toast.error('Could not copy.'); }}><Copy className="h-3 w-3" />Copy link</Button></div>}
+          {created && <div className="border-l-2 border-l-good border-y border-r border-line p-3 text-xs"><p className="font-medium text-ink">Invitation ready{created.emailed ? ' and emailed' : ''}.</p><p data-invite-url className="mt-1 break-all font-mono text-ink-2">{created.url}</p><Button size="xs" className="mt-2" onClick={async () => { if (await copyToClipboard(created.url)) toast.success('Link copied.'); else toast.error('Could not copy.'); }}><Copy className="h-3 w-3" />Copy link</Button></div>}
         </div>
       </Panel>
       <Panel title="Open invitations" className="lg:col-span-2" padded={false}>
@@ -249,12 +249,12 @@ function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: st
         <Stat label="Needs attention" value={t.overdue_tasks + t.counseling_due} hint={`${t.overdue_tasks} overdue tasks, ${t.counseling_due} counselings due`} tone={t.overdue_tasks + t.counseling_due ? 'warn' : 'good'} />
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Panel className="lg:col-span-2" title={unitTop ? `${unitTop.metricLabel} by month` : 'Over time'} subtitle="on the same basis as the figures above" padded={false} bodyClassName="p-3">
+        <Panel className="lg:col-span-2" title={unitTop ? `${unitTop.metricLabel} by month` : 'Over time'} subtitle="On the same basis as the figures above" padded={false} bodyClassName="p-3">
           {unitTop && unitTop.points.length > 1
             ? <AreaChart ariaLabel={`${unitTop.metricLabel} by month`} data={unitTop.points.map((pt) => ({ label: pt.label, value: pt.value }))} />
             : <EmptyState title="Not enough history for a chart yet" description="A couple of months of shared outcomes will show the shape here." />}
         </Panel>
-        <Panel title="Where the work landed" subtitle="outcomes by category">
+        <Panel title="Where the work landed" subtitle="Outcomes by category">
           <BarList
             items={(unitMetrics.data?.byCategory || []).map((b) => ({ label: b.value, value: b.totals.reduce((n, x) => n + x.outcomes, 0) })).sort((a, b) => b.value - a.value).slice(0, 8)}
             format={(v) => `${v} ${v === 1 ? 'outcome' : 'outcomes'}`}
@@ -282,7 +282,7 @@ function UnitAudit({ unitId }: { unitId: string }) {
   if (isPending) return <Skeleton className="h-64" />;
   const rows: any[] = data?.rows || data || [];
   return (
-    <Panel title="Who has been reading records in this unit" subtitle="every cross-person open is logged with the actor, the subject, and the time" padded={false}>
+    <Panel title="Who has been reading records in this unit" subtitle="Every cross-person open is logged with the actor, the subject, and the time" padded={false}>
       {!rows.length ? <EmptyState icon={ClipboardList} title="No access events yet" /> : (
         <Table head={<><th className="w-40">When</th><th className="w-32">Who</th><th>Action</th><th className="w-32">Subject</th><th>Detail</th></>}>
           {rows.map((r: any) => <tr key={r.id}><td className="fig text-xs text-ink-3">{new Date(r.at).toLocaleString()}</td><td className="text-xs">{r.actor_username || fullName(r) || 'system'}</td><td className="text-xs text-ink">{humanize(r.action)}{r.entity ? <span className="text-ink-3"> · {r.entity}</span> : ''}</td><td className="text-xs">{r.subject_username || ''}</td><td className="truncate text-xs text-ink-3">{r.detail}</td></tr>)}

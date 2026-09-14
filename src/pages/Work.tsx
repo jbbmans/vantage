@@ -1,11 +1,11 @@
 import { useMemo, useState } from 'react';
 import { Plus, CheckCircle2, Circle, Clock, FolderKanban, ListTodo } from 'lucide-react';
-import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, Progress, Skeleton, NumberInput } from '@/components/ui/primitives';
+import { Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, Progress, Skeleton, NumberInput } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
 import VisibilityPicker from '@/components/VisibilityPicker';
-import { DateText, StatusBadge, useParam, onText } from '@/components/common';
+import { DateText, PageShell, StatusBadge, useParam, onText } from '@/components/common';
 import { useDeleteRecord, useIdentity, useProjects, useTasks, useTeam, useUpdateRecord, usePrefs, useActivities } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { WORK_STATUS, PRIORITIES } from '../../shared/constants';
@@ -15,7 +15,7 @@ import { humanize, cn, todayIso } from '@/lib/utils';
 interface TaskDraft { id?: string; version?: number; title: string; notes: string; status: string; priority: string; due_date: string; project_id: string | null; assignee_id: string | null; visibility: 'private' | 'unit'; unit_id: string | null }
 interface ProjectDraft { id?: string; version?: number; name: string; description: string; status: string; priority: string; progress: number | string; start_date: string; target_date: string; organization: string; visibility: 'private' | 'unit'; unit_id: string | null }
 
-export default function Work() {
+export default function Work({ embedded }: { embedded?: boolean } = {}) {
   const toast = useToast();
   const { data: identity } = useIdentity();
   const prefs = usePrefs();
@@ -57,11 +57,14 @@ export default function Work() {
   const canToggleRow = (r: any) => canEditRow(r) || (r.assignee_id === me && r.visibility === 'unit');
 
   return (
-    <div className="page">
-      <PageHeader eyebrow="Work" title="Tasks and projects" lede="What is in flight, what is due, and what it rolls up to. Completed work becomes a logged activity in one click.">
-        {tab === 'tasks' ? <Button variant="primary" onClick={() => newTask()}><Plus className="h-4 w-4" />New task</Button> : <Button variant="primary" onClick={newProject}><Plus className="h-4 w-4" />New project</Button>}
-      </PageHeader>
-      <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[{ value: 'tasks', label: 'Tasks', count: (tasks || []).filter((t: any) => t.status !== 'completed').length }, { value: 'projects', label: 'Projects', count: (projects || []).filter((p: any) => p.status !== 'completed').length }]} />
+    <PageShell
+      embedded={embedded}
+      eyebrow="Work"
+      title="Tasks and projects"
+      lede="What is in flight, what is due, and what it rolls up to. Completed work becomes a logged activity in one click."
+      actions={tab === 'projects' ? <Button variant="primary" onClick={newProject}><Plus className="h-4 w-4" />New project</Button> : <Button variant="primary" onClick={() => newTask()}><Plus className="h-4 w-4" />New task</Button>}
+    >
+      {!embedded && <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[{ value: 'tasks', label: 'Tasks', count: (tasks || []).filter((t: any) => t.status !== 'completed').length }, { value: 'projects', label: 'Projects', count: (projects || []).filter((p: any) => p.status !== 'completed').length }]} />}
 
       {tab === 'tasks' && (
         <>
@@ -73,7 +76,7 @@ export default function Work() {
             <div className="space-y-4">
               {groups.filter(([, list]) => list.length).map(([label, list, tone]) => (
                 <section key={label} className="card" style={{ overflow: 'hidden' }}>
-                  <header className="flex items-center gap-2 border-b border-line px-4 py-2"><span className={cn('badge-dot', tone === 'bad' ? 'bg-bad' : tone === 'warn' ? 'bg-warn' : tone === 'good' ? 'bg-good' : 'bg-line-strong')} /><h2 className="text-sm font-semibold text-ink">{label}</h2><span className="fig text-xs text-ink-3">{list.length}</span></header>
+                  <header className="flex items-center gap-2 border-b border-line px-4 py-2"><span className={cn('badge-dot', tone === 'bad' ? 'bg-bad' : tone === 'warn' ? 'bg-warn' : tone === 'good' ? 'bg-good' : 'bg-line-strong')} /><h2 className="text-md font-semibold text-ink">{label}</h2><span className="fig text-xs text-ink-3">{list.length}</span></header>
                   <ul>{list.map((t: any) => (
                     <li key={t.id} className="row flex items-start gap-3 px-4 py-2.5">
                       <button type="button" onClick={() => toggle(t)} disabled={!canToggleRow(t)} className="mt-0.5 text-ink-3 hover:text-good disabled:opacity-40" aria-label={t.status === 'completed' ? 'Reopen task' : 'Complete task'}>{t.status === 'completed' ? <CheckCircle2 className="h-5 w-5 text-good" /> : <Circle className="h-5 w-5" />}</button>
@@ -153,7 +156,7 @@ export default function Work() {
           </>
         )} />
       <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title={`Delete this ${confirm?.store === 'tasks' ? 'task' : 'project'}?`} body="It moves to the recycle bin for 30 days." onConfirm={async () => { try { await (confirm!.store === 'tasks' ? deleteTask : deleteProject).mutateAsync(confirm!.row.id); toast.success('Deleted.'); } catch (e) { toast.error(api.errorText(e)); } }} />
-    </div>
+    </PageShell>
   );
 }
 

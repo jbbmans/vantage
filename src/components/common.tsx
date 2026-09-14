@@ -1,6 +1,6 @@
 import React, { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
-import { Badge, Select, type Tone } from '@/components/ui/primitives';
+import { Badge, PageHeader, Select, type Tone } from '@/components/ui/primitives';
 import { PERIOD_OPTIONS, formatDate, formatDollars, formatNumber } from '../../shared/metrics';
 import { categoryColor } from '../../shared/constants';
 import { useMetrics } from '@/lib/queries';
@@ -21,6 +21,30 @@ export function PeriodSelect({ value, onChange, className, includeAll = true }: 
   return <Select aria-label="Period" className={className} value={value} onValueChange={onChange} options={PERIOD_OPTIONS.filter((p) => includeAll || p.value !== 'all').map((p) => ({ value: p.value, label: p.label }))} />;
 }
 
+/**
+ * A page renders either as its own destination or as one tab inside a hub. `embedded` is what the
+ * hub passes down: the hub already carries the hero, so the page steps down from a page title to a
+ * section heading. Everything below the header is identical either way, which is why merging two
+ * destinations did not mean maintaining two versions of a screen.
+ */
+export function PageShell({ embedded, eyebrow, title, lede, actions, children }: { embedded?: boolean; eyebrow?: string; title: React.ReactNode; lede?: React.ReactNode; actions?: React.ReactNode; children: React.ReactNode }) {
+  if (embedded) {
+    // The hub's title says what the destination is for; this one names the tab you are on, which
+    // for a screen whose subject depends on your rank (a JEPES input versus a FITREP) is the only
+    // place that fact appears.
+    return (
+      <>
+        <div className="-mt-1 mb-4 flex flex-wrap items-center justify-between gap-2">
+          <h2 className="min-w-0 truncate text-lg font-semibold text-ink">{title}</h2>
+          {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
+        </div>
+        {children}
+      </>
+    );
+  }
+  return <div className="page"><PageHeader eyebrow={eyebrow} title={title} lede={lede}>{actions}</PageHeader>{children}</div>;
+}
+
 /** URL-synced string state (e.g. active tab), without history spam. */
 export function useParam(name: string, fallback = ''): [string, (v: string) => void] {
   const [params, setParams] = useSearchParams();
@@ -33,10 +57,10 @@ export function useParam(name: string, fallback = ''): [string, (v: string) => v
 
 export function Table({ head, children, className, minWidth = 640 }: { head: React.ReactNode; children: React.ReactNode; className?: string; minWidth?: number }) {
   return (
-    <div className={className ? className : 'overflow-x-auto'}>
+    <div className={className ? className : 'scroll-x'}>
       <table className="w-full border-collapse text-sm" style={{ minWidth }}>
-        <thead><tr className="border-b border-line text-left [&>th]:px-3 [&>th]:py-2 [&>th]:table-head">{head}</tr></thead>
-        <tbody className="[&>tr]:row [&>tr>td]:px-3 [&>tr>td]:py-2 [&>tr>td]:align-top">{children}</tbody>
+        <thead><tr className="border-b border-line-strong bg-surface-2/60 text-left [&>th]:px-2.5 [&>th]:py-1.5 [&>th]:table-head">{head}</tr></thead>
+        <tbody className="[&>tr]:row [&>tr>td]:px-2.5 [&>tr>td]:py-1.5 [&>tr>td]:align-top">{children}</tbody>
       </table>
     </div>
   );
@@ -44,8 +68,8 @@ export function Table({ head, children, className, minWidth = 640 }: { head: Rea
 
 export function DescriptionList({ items }: { items: Array<[string, React.ReactNode]> }) {
   return (
-    <dl className="grid grid-cols-1 gap-x-6 gap-y-2 sm:grid-cols-2">
-      {items.filter(([, v]) => v !== null && v !== undefined && v !== '').map(([k, v]) => <div key={k} className="min-w-0"><dt className="eyebrow">{k}</dt><dd className="mt-0.5 break-words text-sm text-ink">{v}</dd></div>)}
+    <dl className="hairline-grid grid grid-cols-1 border border-line sm:grid-cols-2">
+      {items.filter(([, v]) => v !== null && v !== undefined && v !== '').map(([k, v]) => <div key={k} className="min-w-0 px-2.5 py-2"><dt className="eyebrow">{k}</dt><dd className="mt-1 break-words text-sm text-ink">{v}</dd></div>)}
     </dl>
   );
 }

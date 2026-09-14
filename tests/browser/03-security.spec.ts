@@ -34,7 +34,7 @@ test('authenticator enrolment adds a second step to sign-in and recovery codes w
   await expect(page.getByRole('alert')).toContainText('not valid');
   await page.getByLabel('Code').fill(recovery[0]);
   await page.getByRole('button', { name: 'Verify' }).click();
-  await expect(page.getByRole('heading', { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Standing' })).toBeVisible();
 
   await logout(page);
   await page.goto('/');
@@ -46,7 +46,7 @@ test('authenticator enrolment adds a second step to sign-in and recovery codes w
   await expect(page.getByRole('alert')).toContainText('not valid');
   await page.getByLabel('Code').fill(code(secret));
   await page.getByRole('button', { name: 'Verify' }).click();
-  await expect(page.getByRole('heading', { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Standing' })).toBeVisible();
 });
 
 test('a passkey registered in settings signs the user in without a password', async ({ page, request }) => {
@@ -67,7 +67,7 @@ test('a passkey registered in settings signs the user in without a password', as
   await logout(page);
   await page.goto('/');
   await page.getByRole('button', { name: 'Sign in with a passkey' }).click();
-  await expect(page.getByRole('heading', { name: /Good (morning|afternoon|evening)/ })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Standing' })).toBeVisible();
   await page.goto('/settings?tab=security');
   await expect(page.getByText(/used .* ago|used just now/)).toBeVisible();
 });

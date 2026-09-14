@@ -202,11 +202,13 @@ export function suggestEvalArea(text = '', category = ''): string {
   return 'Unassigned';
 }
 
+/** The first entry is the default for an account that has never chosen one. */
 export const ACCENTS = [
+  { id: 'ocean', label: 'Ocean', hint: 'Signal blue — the default' },
   { id: 'scarlet', label: 'Scarlet & Gold', hint: 'Marine Corps colors' },
-  { id: 'ocean', label: 'Ocean', hint: 'Signal blue on slate' },
   { id: 'olive', label: 'Olive', hint: 'Woodland green' },
   { id: 'steel', label: 'Steel', hint: 'Neutral graphite' },
   { id: 'ember', label: 'Ember', hint: 'Warm amber' },
 ] as const;
 export type AccentId = (typeof ACCENTS)[number]['id'];
+export const DEFAULT_ACCENT: AccentId = ACCENTS[0].id;
