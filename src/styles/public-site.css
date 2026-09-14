@@ -175,7 +175,8 @@
 .ring-two { width: 520px; height: 520px; border-style: dashed; opacity: .66; animation: public-spin-reverse 36s linear infinite; }
 .workflow-core { position: absolute; left: 50%; top: 50%; display: grid; place-items: center; width: 190px; height: 190px; transform: translate(-50%,-50%); border: 1px solid #cedae7; border-radius: 50%; background: #fff; box-shadow: 0 24px 56px rgba(8,45,85,.1); text-align: center; }
 .workflow-core img { width: 62px; height: 62px; }
-.workflow-core span { margin-top: 6px; color: #8090a1; font-size: 9px; letter-spacing: .15em; }
+/* 9px tracked caps. #8090a1 measured 3.27:1 on white and failed AA; this is 5.08:1. */
+.workflow-core span { margin-top: 6px; color: #5e7086; font-size: 9px; letter-spacing: .15em; }
 .workflow-core strong { color: #0b3159; font-size: 13px; }
 .workflow-node { position: absolute; display: flex; align-items: center; gap: 9px; min-width: 118px; padding: 11px 13px; border: 1px solid #d5e0eb; border-radius: 8px; background: #fff; box-shadow: 0 12px 28px rgba(8,45,85,.08); color: #37516b; font-size: 12px; font-weight: 700; animation: node-bob 5s ease-in-out infinite; }
 .workflow-node svg { width: 18px; height: 18px; color: #2563eb; }
@@ -183,7 +184,10 @@
 .workflow-lede { margin: 22px 0 0; color: #62768d; font-size: 18px; line-height: 1.65; }
 .workflow-steps { display: grid; gap: 0; margin-top: 36px; border-top: 1px solid #dce5ef; }
 .workflow-steps > div { display: grid; grid-template-columns: 52px 1fr; gap: 14px; padding: 18px 0; border-bottom: 1px solid #dce5ef; }
-.workflow-steps b { color: #14a896; font-size: 11px; letter-spacing: .13em; }
+/* Summit Teal (#14B8A6) is the brand's mark colour and measures 2.97:1 on white — it cannot carry
+   11px type, or type at any size. This is the same hue darkened to 5.47:1. Reach for the darkened
+   value whenever the teal has to be read rather than just seen. */
+.workflow-steps b { color: #0f766e; font-size: 11px; letter-spacing: .13em; }
 .workflow-steps span strong, .workflow-steps span small { display: block; }
 .workflow-steps span strong { color: #183a59; font-size: 16px; }
 .workflow-steps span small { margin-top: 4px; color: #71859a; font-size: 13px; line-height: 1.5; }
@@ -231,8 +235,28 @@
 .public-footer > p:nth-child(2) { text-align: center; letter-spacing: .08em; }
 .public-disclaimer { max-width: 410px; text-align: right; line-height: 1.5; }
 
-[data-reveal] { opacity: 0; transform: translateY(24px); transition: opacity 720ms cubic-bezier(.2,.75,.2,1), transform 720ms cubic-bezier(.2,.75,.2,1); transition-delay: var(--delay, 0ms); }
-[data-reveal].is-visible { opacity: 1; transform: translateY(0); }
+/*
+ * Scroll reveal, arranged so the page is never blank and never unreadable.
+ *
+ * The rule used to be `[data-reveal] { opacity: 0 }`, with only an IntersectionObserver putting it
+ * back. That left 28 of this page's 30 sections invisible until a human scrolled — which meant a
+ * screenshot, a social preview, a print, a stalled observer and, most expensively, a search-engine
+ * renderer that does not scroll all saw an empty page under the hero. Content that exists only
+ * after a scroll event is content a crawler is entitled to treat as hidden.
+ *
+ * So the resting state is VISIBLE. The script opts individual elements into being hidden, and only
+ * ones that were already below the fold when the page loaded, and only once it has an observer to
+ * put them back. Anything on screen at load is never hidden at all. See PublicSite.tsx, which also
+ * carries a timer that un-hides everything regardless, so no failure mode ends in a blank page.
+ *
+ * Do not reintroduce a bare `opacity: 0` here.
+ */
+[data-reveal] { opacity: 1; transform: none; }
+.reveal-armed[data-reveal] { transition: transform 720ms cubic-bezier(.2,.75,.2,1); transition-delay: var(--delay, 0ms); }
+/* Transform only — never opacity. A section that is 18px low is still a section somebody can read,
+   photograph and index; a section at opacity 0 is not. That distinction is the whole point of this
+   block, so if the slide ever feels too subtle, make it travel further rather than fading it in. */
+.reveal-armed[data-reveal]:not(.is-visible) { transform: translateY(18px); }
 
 @keyframes public-spin { to { transform: rotate(360deg); } }
 @keyframes public-spin-reverse { to { transform: rotate(-360deg); } }
@@ -286,5 +310,22 @@
 
 @media (prefers-reduced-motion: reduce) {
   .public-site *, .public-site *::before, .public-site *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; scroll-behavior: auto !important; transition-duration: .001ms !important; }
-  [data-reveal] { opacity: 1 !important; transform: none !important; }
+  [data-reveal], .reveal-armed[data-reveal]:not(.is-visible) { opacity: 1 !important; transform: none !important; }
 }
+
+/* ── Watch ─────────────────────────────────────────────────────────────────────────────────────
+   A slot with no recording in it is a labelled, honest gap rather than an empty box or a play
+   button that does nothing. The frame keeps its 16:9 so the section does not reflow on the day the
+   files land. */
+.video-section .section-intro { margin-bottom: 34px; }
+.video-grid { display: grid; gap: 22px; grid-template-columns: repeat(auto-fit, minmax(290px, 1fr)); }
+.video-card { margin: 0; overflow: hidden; border: 1px solid #dce5ef; border-radius: 16px; background: #fff; box-shadow: 0 18px 44px rgba(8,45,85,.07); }
+.video-frame { position: relative; aspect-ratio: 16 / 9; background: #eef3f9; }
+.video-frame video { width: 100%; height: 100%; object-fit: cover; display: block; }
+.video-empty { display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 10px; height: 100%; color: #5e7086; }
+.video-empty svg { width: 30px; height: 30px; stroke-width: 1.4; }
+.video-empty span { font-size: 11px; font-weight: 600; letter-spacing: .13em; text-transform: uppercase; }
+.video-card figcaption { padding: 18px 20px 20px; border-top: 1px solid #e6ecf4; }
+.video-card figcaption h3 { margin: 0; color: #12314f; font-size: 16px; }
+.video-card figcaption p { margin: 7px 0 0; color: #405a73; font-size: 13px; line-height: 1.6; }
+.video-card figcaption small { display: block; margin-top: 11px; color: #5e7086; font-size: 11px; letter-spacing: .06em; text-transform: uppercase; }

@@ -1,13 +1,14 @@
 <?xml version="1.0" encoding="UTF-8"?>
+<!--
+  Only canonical URLs belong here. /display and /about render the same page as / and all three
+  carry a canonical pointing at /, so listing them would ask Google to consider three URLs for one
+  piece of content — which splits the ranking rather than tripling it.
+-->
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
   <url>
     <loc>https://vantageusmc.com/</loc>
+    <lastmod>2026-09-14</lastmod>
     <changefreq>weekly</changefreq>
     <priority>1.0</priority>
-  </url>
-  <url>
-    <loc>https://vantageusmc.com/display</loc>
-    <changefreq>weekly</changefreq>
-    <priority>0.8</priority>
   </url>
 </urlset>

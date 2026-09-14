@@ -27,6 +27,7 @@ import { passwordProblem, passwordStrength, MIN_PASSWORD_LENGTH } from '../../sh
 import { applyTheme, resolveTheme, storedTheme } from '@/lib/theme';
 import { VERSION } from '@/lib/version';
 import { cn } from '@/lib/utils';
+import { applySeo, clearPublicStructuredData } from '@/lib/seo';
 
 type Mode = 'login' | 'mfa' | 'setup' | 'register' | 'forgot' | 'reset' | 'invite';
 
@@ -100,14 +101,15 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
   };
 
   useEffect(() => {
-    document.title = 'Sign in | Vantage';
-    let robots = document.querySelector<HTMLMetaElement>('meta[name="robots"]');
-    if (!robots) {
-      robots = document.createElement('meta');
-      robots.name = 'robots';
-      document.head.appendChild(robots);
-    }
-    robots.content = 'noindex, nofollow';
+    // The application is not content. Sign-in, reset and invite carry noindex, and the public
+    // page's FAQ/video structured data is dropped so it cannot follow a person in here.
+    applySeo({
+      title: 'Sign in | Vantage',
+      description: 'Sign in to your Vantage deployment.',
+      canonicalPath: '/login',
+      indexable: false,
+    });
+    clearPublicStructuredData();
 
     api.setupStatus().then((s: Status) => {
       setStatus(s);

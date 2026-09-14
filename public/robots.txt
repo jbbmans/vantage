@@ -1,5 +1,13 @@
+# The public page is the only thing here that is content. Everything behind sign-in is an
+# application: crawling it costs budget, returns the same shell on every path, and risks a
+# signed-out route being indexed as if it were a page.
 User-agent: *
-Allow: /
+Allow: /$
+Allow: /display
+Allow: /about
+Allow: /og.png
+Allow: /mark.svg
+
 Disallow: /login
 Disallow: /register
 Disallow: /reset
@@ -9,11 +17,13 @@ Disallow: /records
 Disallow: /work
 Disallow: /goals
 Disallow: /career
+Disallow: /maradmins
 Disallow: /readiness
 Disallow: /reports
 Disallow: /team
 Disallow: /settings
 Disallow: /operator
+Disallow: /help
 Disallow: /api/
 
 Sitemap: https://vantageusmc.com/sitemap.xml

@@ -1,5 +1,7 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
+import { applySeo, applyPublicStructuredData } from '@/lib/seo';
+import { VIDEOS, publishedVideos } from '@/config/videos';
 import {
   Activity,
   ArrowRight,
@@ -19,6 +21,7 @@ import {
   Sparkles,
   Target,
   Users,
+  Video,
   Workflow,
   Zap,
 } from 'lucide-react';
@@ -110,31 +113,52 @@ const faqs = [
   ['Can it support Marine Corps performance documentation?', 'Vantage can organize source records and draft material that may help users prepare performance inputs such as JEPES or FITREP-related narratives. Official submissions still belong in the authoritative systems and processes.'],
   ['How does Vantage handle accountability?', 'The product is built around traceability. Actions stay connected to source records, visibility is permission-aware, important changes are attributable, and outputs can be traced back to the facts used to create them.'],
   ['Does Vantage use AI?', 'Yes, when enabled by the deployment owner. AI is woven into relevant workflows rather than isolated in a separate destination, and generated material remains something a person must review.'],
-];
-
-function setMeta(name: string, content: string) {
-  let el = document.querySelector<HTMLMetaElement>(`meta[name="${name}"]`);
-  if (!el) {
-    el = document.createElement('meta');
-    el.name = name;
-    document.head.appendChild(el);
-  }
-  el.content = content;
-}
+  // `as const` so each entry stays a [question, answer] pair. The FAQ schema is generated from this
+  // exact array, so a malformed row would become malformed structured data.
+] as const satisfies ReadonlyArray<readonly [string, string]>;
 
 export default function PublicSite() {
   useEffect(() => {
-    document.title = 'Vantage | Performance, Productivity, Readiness & Work Management';
-    setMeta('description', 'Meet Vantage: a self-hosted platform for performance records, productivity, work management, readiness tracking, reporting, team visibility, and AI-assisted operational workflows.');
-    setMeta('robots', 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1');
+    /*
+     * `/`, `/display` and `/about` all render this page. They share one canonical so the three URLs
+     * consolidate into a single ranking instead of competing with each other for the same query.
+     */
+    applySeo({
+      title: 'Vantage | Performance, Productivity & Readiness Software',
+      description: 'A self-hosted platform for performance records, work management, readiness tracking, goals and reporting — with every figure traceable to the record behind it.',
+      canonicalPath: '/',
+      indexable: true,
+    });
+    applyPublicStructuredData(faqs, publishedVideos().map((v) => ({
+      name: v.title, description: v.description, url: v.src, thumbnail: v.poster, uploadDate: v.published,
+    })));
 
+    /*
+     * Scroll reveal that can never leave the page blank.
+     *
+     * Everything is visible in the stylesheet by default. Here we hide only the elements that were
+     * already below the fold when the page loaded, and only if this browser actually has an
+     * observer to put them back. Whatever is on screen at load is never touched, so the first
+     * frame — the one a screenshot, a social card and a crawler get — is always complete.
+     */
+    const els = Array.from(document.querySelectorAll<HTMLElement>('[data-reveal]'));
+    if (!('IntersectionObserver' in window)) return;
+
+    const belowFold = els.filter((el) => el.getBoundingClientRect().top > window.innerHeight);
+    belowFold.forEach((el) => el.classList.add('reveal-armed'));
+
+    const reveal = (el: Element) => el.classList.add('is-visible');
     const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) entry.target.classList.add('is-visible');
-      }
+      for (const entry of entries) if (entry.isIntersecting) reveal(entry.target);
     }, { threshold: 0.12, rootMargin: '0px 0px -50px' });
-    document.querySelectorAll('[data-reveal]').forEach((el) => observer.observe(el));
-    return () => observer.disconnect();
+    belowFold.forEach((el) => observer.observe(el));
+
+    // Last line of defence. A renderer that never scrolls — a crawler, a screenshot service, a
+    // headless preview — would otherwise sit on hidden content forever. After this the page is
+    // whole no matter what the observer did or did not do.
+    const failsafe = window.setTimeout(() => belowFold.forEach(reveal), 2500);
+
+    return () => { observer.disconnect(); window.clearTimeout(failsafe); };
   }, []);
 
   return (
@@ -149,6 +173,7 @@ export default function PublicSite() {
           <a href="#platform">Platform</a>
           <a href="#experience">Experience</a>
           <a href="#security">Trust</a>
+          <a href="#watch">Watch</a>
           <a href="#faq">FAQ</a>
         </nav>
         <Link to="/login" className="public-signin">Sign in <ArrowRight aria-hidden /></Link>
@@ -387,6 +412,39 @@ export default function PublicSite() {
           <div>
             <p>Vantage combines performance tracking, work management, readiness tracking, reporting, goal management, correspondence tracking, spreadsheet workflows, and team dashboards in one self-hosted product. It was designed around the practical problem of turning operational activity into usable evidence without losing the facts underneath it.</p>
             <p>For Marine Corps and other operational environments, that means a place to organize the work that supports evaluation inputs, unit reporting, financial management actions, readiness awareness, task ownership, and leadership visibility—while official records continue to live in their authoritative systems.</p>
+          </div>
+        </section>
+
+        <section className="public-section video-section" id="watch">
+          <div className="section-intro" data-reveal>
+            <p className="public-kicker"><span /> Watch</p>
+            <h2>See it work before you commit to it.</h2>
+            <p>Short walkthroughs of the parts people ask about most. The full library, including the
+              deployment and governance walkthroughs, sits inside the product under the field guide.</p>
+          </div>
+          <div className="video-grid" data-reveal>
+            {VIDEOS.filter((v) => ['tour', 'quick-log', 'import', 'report-studio'].includes(v.id)).map((slot) => (
+              <figure key={slot.id} className="video-card">
+                <div className="video-frame">
+                  {slot.src ? (
+                    <video controls preload="none" poster={slot.poster} aria-labelledby={`pv-${slot.id}`}>
+                      <source src={slot.src} />
+                      {slot.captions && <track kind="captions" src={slot.captions} srcLang="en" label="English" default />}
+                    </video>
+                  ) : (
+                    <div className="video-empty">
+                      <Video aria-hidden />
+                      <span>Not recorded yet</span>
+                    </div>
+                  )}
+                </div>
+                <figcaption>
+                  <h3 id={`pv-${slot.id}`}>{slot.title}</h3>
+                  <p>{slot.description}</p>
+                  <small>{slot.src ? slot.length : `about ${slot.length} when it lands`}</small>
+                </figcaption>
+              </figure>
+            ))}
           </div>
         </section>
 
