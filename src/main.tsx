@@ -9,6 +9,7 @@ import './styles/brand-2026.css';
 import './styles/experience-motion.css';
 import './styles/login-premium.css';
 import './styles/public-site.css';
+import './styles/public-site-a11y.css';
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>
