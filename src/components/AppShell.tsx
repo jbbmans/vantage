@@ -6,6 +6,7 @@ import { AlertTriangle, Bell, ChevronDown, ChevronsLeft, ChevronsRight, CloudOff
 import { NAV, NAV_GROUPS } from '@/config/nav';
 import { cn, initials, timeAgo } from '@/lib/utils';
 import { Button, Tooltip, Kbd } from '@/components/ui/primitives';
+import Logo, { Mark } from '@/components/Logo';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/components/ui/Menu';
 import * as Popover from '@radix-ui/react-popover';
 import QuickLog from '@/components/QuickLog';
@@ -217,8 +218,7 @@ export default function AppShell() {
 
   const brand = (
     <div className={cn('flex h-[52px] shrink-0 items-center gap-2 px-4', collapsed && 'justify-center px-0')}>
-      <img src="/mark.svg" alt="" width={26} height={26} className="h-[26px] w-[26px]" />
-      {!collapsed && <span className="text-xl font-bold tracking-[-0.03em] text-ink">VANTAGE</span>}
+      {collapsed ? <Mark size={26} /> : <Logo size={26} />}
     </div>
   );
 
@@ -258,8 +258,7 @@ export default function AppShell() {
             <button type="button" className="absolute inset-0 bg-ink/60 animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu" />
             <aside className="absolute inset-y-0 left-0 flex w-[min(86vw,280px)] flex-col border-r border-line bg-rail animate-slide-in-left">
               <div className="flex h-[52px] shrink-0 items-center gap-2 px-4">
-                <img src="/mark.svg" alt="" width={26} height={26} className="h-[26px] w-[26px]" />
-                <span className="text-xl font-bold tracking-[-0.03em] text-ink">VANTAGE</span>
+                <Logo size={26} />
                 <button type="button" onClick={() => setDrawer(false)} className="ml-auto rounded-md p-2 text-ink-3 hover:bg-surface-3 hover:text-ink" aria-label="Close menu"><X className="h-4 w-4" /></button>
               </div>
               {workspace}

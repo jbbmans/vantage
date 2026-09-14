@@ -28,9 +28,14 @@ export default {
         'rail-ink': token('--rail-ink'),
         'rail-active': token('--rail-active'),
         'accent-2': token('--accent-2'),
+        // Summit Teal. The mark, and marks in charts. Never type — it is 2.49:1 on white.
+        'brand-teal': token('--brand-teal'),
       },
       fontFamily: {
-        sans: ['Geist', 'ui-sans-serif', 'system-ui', '-apple-system', '"Segoe UI"', 'sans-serif'],
+        // Inter is the brand typeface, self-hosted. The fallbacks are real faces, not a bare
+        // `sans-serif`: if the woff2 fails to load the page should still be set in something with
+        // Inter's proportions rather than whatever the platform picks.
+        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
         // Document surfaces only. A system serif, so a report draft costs no extra download.
         serif: ['Georgia', '"Iowan Old Style"', '"Times New Roman"', 'serif'],
@@ -51,9 +56,9 @@ export default {
       borderRadius: { DEFAULT: '5px', none: '0px', sm: '4px', md: '6px', lg: '7px', xl: '10px', '2xl': '14px', '3xl': '20px', full: '9999px' },
       boxShadow: {
         // A card rests on the sheet. The lift is a hairline, never a drop shadow.
-        card: '0 1px 2px rgb(19 29 48 / .04)',
-        pop: '0 1px 2px rgb(19 29 48 / .06), 0 4px 12px rgb(19 29 48 / .05)',
-        modal: '0 1px 3px rgb(19 29 48 / .1), 0 18px 48px -12px rgb(19 29 48 / .22)',
+        card: '0 1px 2px rgb(11 45 91 / .05)',
+        pop: '0 1px 2px rgb(11 45 91 / .07), 0 4px 12px rgb(11 45 91 / .06)',
+        modal: '0 1px 3px rgb(11 45 91 / .11), 0 18px 48px -12px rgb(11 45 91 / .24)',
       },
       keyframes: {
         'fade-up': { from: { opacity: '0', transform: 'translateY(4px)' }, to: { opacity: '1', transform: 'translateY(0)' } },

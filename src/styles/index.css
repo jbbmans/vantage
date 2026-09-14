@@ -1,10 +1,23 @@
 /*
  * VANTAGE — DESIGN SYSTEM
  *
- * The surface is a cool sheet of paper (#f7f9fb) with white cards laid on it, navy ink, and one
- * signal colour. Nothing is decorative: a card is a card because its contents belong together, a
- * rule divides, and the signal colour means "this is the thing to act on". Corners are softened to
- * 7px so a dense financial table still reads as a document rather than a spreadsheet.
+ * Built on the VANTAGE brand palette. Five colours, each with a job:
+ *
+ *   Deep Navy    #0B2D5B  trust, stability, leadership   → ink, the rail's active block, primary fill
+ *   Cobalt Blue  #2563EB  progress, clarity, momentum    → the accent: act on this
+ *   Summit Teal  #14B8A6  insight, balance, forward       → the mark, and marks in charts
+ *   Glacier      #EAF0F6  simplicity, focus, possibility → quiet fills, the rail, table heads
+ *   White        #FFFFFF  clean, modern, open            → the cards
+ *
+ * SUMMIT TEAL IS NOT A TEXT COLOUR. Measured against white it is 2.49:1, which fails AA for any
+ * size — it is the logo, a chart mark, a fill, and nothing a person has to read. Where the brand's
+ * teal has to carry a word, `--accent-2` is a darkened teal (#0F766E, 5.47:1) that keeps the hue
+ * and clears the bar. Every other value below was measured too, on every surface it lands on.
+ *
+ * The surface is a cool sheet with white cards laid on it, navy ink, and one signal colour.
+ * Nothing is decorative: a card is a card because its contents belong together, a rule divides,
+ * and the signal colour means "this is the thing to act on". Corners are softened to 7px so a
+ * dense financial table still reads as a document rather than a spreadsheet.
  *
  * Type has three roles, and every piece of text belongs to exactly one:
  *   DISPLAY  the sans at large size, tight tracking, sentence case. Page titles and figures a
@@ -17,7 +30,10 @@
  * against another figure gets tabular lining, so digits stack column to column.
  */
 
-@font-face { font-family: 'Geist'; src: url('/fonts/geist-normal.woff2') format('woff2'); font-weight: 300 800; font-display: swap; }
+/* Inter is the brand typeface. Self-hosted rather than pulled from a font CDN: an instance inside
+   a DoD enclave may have no route to one, and a typeface that silently falls back is a brand that
+   silently stops existing. Variable weight, Latin subset, SIL OFL (see fonts/OFL.txt). */
+@font-face { font-family: 'Inter'; src: url('/fonts/inter-normal.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
 @font-face { font-family: 'JetBrains Mono'; src: url('/fonts/jetbrains-normal.woff2') format('woff2'); font-weight: 400 700; font-display: swap; }
 
 @tailwind base;
@@ -26,41 +42,45 @@
 
 @layer base {
   :root, [data-theme='light'] {
-    --canvas: 247 249 251;      /* the sheet: every gap between cards */
-    --surface: 255 255 255;     /* the cards themselves */
-    --surface-2: 241 245 248;   /* sidebar, table heads, quiet fills */
-    --surface-3: 230 237 245;   /* hover, pressed */
-    --line: 224 230 238;
-    --line-strong: 212 221 232;
-    --ink: 19 29 48;
-    --ink-2: 63 77 99;
-    --ink-3: 95 106 127;   /* the muted tone still clears AA on every surface it lands on */
+    --canvas: 244 247 251;      /* the sheet: every gap between cards, a tint of Glacier */
+    --surface: 255 255 255;     /* the cards themselves — brand White */
+    --surface-2: 234 240 246;   /* Glacier: sidebar, table heads, quiet fills */
+    --surface-3: 220 230 240;   /* hover, pressed */
+    --line: 214 224 235;
+    --line-strong: 194 208 224;
+    --ink: 11 45 91;            /* Deep Navy — 13.6:1 on white */
+    --ink-2: 58 82 117;         /* 7.9:1 on white, 6.9:1 on Glacier */
+    --ink-3: 85 105 127;        /* the muted tone: 5.7:1 on white, 4.9:1 on Glacier */
     --good: 34 106 79;
     --warn: 154 92 8;
     --bad: 170 44 41;
-    --info: 8 102 212;
-    --rail: 241 245 248;        /* the sidebar is paper too, one step cooler than the sheet */
-    --rail-ink: 53 74 104;
-    --rail-active: 26 41 64;    /* the active destination is a solid navy block */
+    --info: 37 99 235;
+    --rail: 234 240 246;        /* the sidebar is Glacier, one step cooler than the sheet */
+    --rail-ink: 58 82 117;
+    --rail-active: 11 45 91;    /* the active destination is a solid Deep Navy block */
+    --brand-teal: 20 184 166;   /* Summit Teal, for the mark and for chart marks. Never for text. */
     color-scheme: light;
   }
+  /* Dark is the brand navy taken all the way down, not a neutral grey. Every value measured
+     against the surface it sits on: ink 12.9:1, ink-2 8.4:1, ink-3 6.0:1, accent 7.2:1. */
   [data-theme='dark'] {
-    --canvas: 17 28 42;
-    --surface: 24 37 54;
-    --surface-2: 30 45 64;
-    --surface-3: 38 55 76;
-    --line: 44 59 78;
-    --line-strong: 58 76 98;
-    --ink: 224 232 241;
-    --ink-2: 173 188 206;
-    --ink-3: 143 160 182;
+    --canvas: 11 23 41;
+    --surface: 18 36 61;
+    --surface-2: 26 48 80;
+    --surface-3: 35 64 100;
+    --line: 40 64 95;
+    --line-strong: 55 82 122;
+    --ink: 226 234 244;
+    --ink-2: 174 192 216;
+    --ink-3: 141 162 191;
     --good: 138 200 172;
     --warn: 225 182 110;
     --bad: 255 143 138;
-    --info: 122 183 255;
-    --rail: 19 32 47;
-    --rail-ink: 176 193 213;
-    --rail-active: 37 66 98;
+    --info: 138 176 255;
+    --rail: 11 23 41;
+    --rail-ink: 174 192 216;
+    --rail-active: 37 99 235;   /* on navy the active block is Cobalt: navy on navy says nothing */
+    --brand-teal: 45 212 191;   /* Summit Teal lifted so the mark holds on the dark ground */
     color-scheme: dark;
   }
 
@@ -68,9 +88,20 @@
    * One signal colour at a time, used for exactly three things: the active marker, the primary
    * action, and a figure that must be noticed. Light values are darkened until they pass AA as
    * small text on white; the dark values are lightened until they pass on the navy surface.
+   *
+   * `cobalt` is the brand accent and the default. The rest stay available because an instance is
+   * not always this instance — a command that adopts VANTAGE under its own colours should be able
+   * to, and a deployment that needs to look unlike the last one it replaced has a reason to.
+   * Changing the accent never changes the mark: the logo is Deep Navy, Cobalt and Summit Teal
+   * wherever it appears.
+   *
+   * --accent-2 is the brand's teal, darkened to 5.47:1 so it can carry a word. Summit Teal itself
+   * (--brand-teal) is 2.49:1 and belongs to the mark and to chart marks, never to type.
    */
-  :root, [data-accent='ocean'] { --accent: 8 102 212; --accent-ink: 255 255 255; --accent-soft: 234 243 255; --accent-2: 21 118 128; }
-  [data-theme='dark'][data-accent='ocean'], [data-theme='dark']:not([data-accent]) { --accent: 122 183 255; --accent-ink: 14 32 55; --accent-soft: 30 54 81; --accent-2: 110 200 206; }
+  :root, [data-accent='cobalt'] { --accent: 37 99 235; --accent-ink: 255 255 255; --accent-soft: 231 239 254; --accent-2: 15 118 110; }
+  [data-theme='dark'][data-accent='cobalt'], [data-theme='dark']:not([data-accent]) { --accent: 138 176 255; --accent-ink: 11 23 41; --accent-soft: 26 48 80; --accent-2: 79 209 197; }
+  [data-accent='ocean'] { --accent: 8 102 212; --accent-ink: 255 255 255; --accent-soft: 234 243 255; --accent-2: 21 118 128; }
+  [data-theme='dark'][data-accent='ocean'] { --accent: 122 183 255; --accent-ink: 14 32 55; --accent-soft: 30 54 81; --accent-2: 110 200 206; }
   [data-accent='scarlet'] { --accent: 182 26 26; --accent-ink: 255 255 255; --accent-soft: 253 235 234; --accent-2: 146 91 4; }
   [data-theme='dark'][data-accent='scarlet'] { --accent: 255 138 138; --accent-ink: 46 8 8; --accent-soft: 62 27 27; --accent-2: 225 182 110; }
   [data-accent='olive'] { --accent: 56 94 56; --accent-ink: 255 255 255; --accent-soft: 233 243 233; --accent-2: 146 91 4; }

@@ -204,7 +204,8 @@ export function suggestEvalArea(text = '', category = ''): string {
 
 /** The first entry is the default for an account that has never chosen one. */
 export const ACCENTS = [
-  { id: 'ocean', label: 'Ocean', hint: 'Signal blue — the default' },
+  { id: 'cobalt', label: 'Cobalt', hint: 'The VANTAGE brand accent — the default' },
+  { id: 'ocean', label: 'Ocean', hint: 'A deeper signal blue' },
   { id: 'scarlet', label: 'Scarlet & Gold', hint: 'Marine Corps colors' },
   { id: 'olive', label: 'Olive', hint: 'Woodland green' },
   { id: 'steel', label: 'Steel', hint: 'Neutral graphite' },
