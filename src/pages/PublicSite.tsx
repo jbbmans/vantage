@@ -7,7 +7,6 @@ import {
   Bell,
   CheckCircle2,
   ChevronRight,
-  Clock3,
   Database,
   FileSpreadsheet,
   FileText,
