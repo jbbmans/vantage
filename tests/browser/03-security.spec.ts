@@ -25,8 +25,8 @@ test('authenticator enrolment adds a second step to sign-in and recovery codes w
 
   await logout(page);
   await page.goto('/login');
-  await page.getByLabel('Username').fill(username);
-  await page.getByLabel('Password').fill(PASSWORD);
+  await page.getByLabel('Username', { exact: true }).fill(username);
+  await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Second step' })).toBeVisible();
   await page.getByLabel('Code').fill('000000');
@@ -38,8 +38,8 @@ test('authenticator enrolment adds a second step to sign-in and recovery codes w
 
   await logout(page);
   await page.goto('/login');
-  await page.getByLabel('Username').fill(username);
-  await page.getByLabel('Password').fill(PASSWORD);
+  await page.getByLabel('Username', { exact: true }).fill(username);
+  await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
   await page.getByLabel('Code').fill(recovery[0]);
   await page.getByRole('button', { name: 'Verify' }).click();
