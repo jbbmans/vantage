@@ -39,6 +39,48 @@ export const Textarea = forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttrib
   return <textarea ref={ref} rows={rows} autoFocus={autoFocus && finePointer()} className={cn('field resize-y leading-relaxed', className)} {...props} />;
 });
 
+
+/**
+ * Put the label, hint and error associations on the control itself.
+ *
+ * `Field` used to clone its direct child. That works while the child is the input, and silently
+ * stops working the moment somebody wraps it — an icon beside the input, a show/hide button — at
+ * which point `aria-describedby` and `aria-invalid` land on a `<div>` and the error stops being
+ * announced. Nothing looks wrong, and the a11y test still passes if the input happens to carry its
+ * own `aria-label`, so the failure is invisible from every direction except a screen reader.
+ *
+ * So instead of assuming shape, walk down to the first thing that is actually a form control.
+ */
+const CONTROL_TYPES = new Set(['input', 'select', 'textarea']);
+
+function applyToControl(node: React.ReactElement<any>, extra: Record<string, unknown>): React.ReactNode {
+  if (typeof node.type === 'string' && !CONTROL_TYPES.has(node.type)) {
+    // A plain wrapper element: recurse into its children and attach to the first control found.
+    const kids = React.Children.toArray(node.props.children);
+    let done = false;
+    const next = kids.map((child) => {
+      if (done || !React.isValidElement(child)) return child;
+      const applied = applyToControl(child as React.ReactElement<any>, extra);
+      if (applied !== child) done = true;
+      return applied;
+    });
+    return done ? React.cloneElement(node, {}, ...next) : node;
+  }
+  if (node.type === React.Fragment) {
+    const kids = React.Children.toArray(node.props.children);
+    let done = false;
+    const next = kids.map((child) => {
+      if (done || !React.isValidElement(child)) return child;
+      const applied = applyToControl(child as React.ReactElement<any>, extra);
+      if (applied !== child) done = true;
+      return applied;
+    });
+    return React.cloneElement(node, {}, ...next);
+  }
+  // A control, or a component we trust to forward these through to one.
+  return React.cloneElement(node, extra);
+}
+
 export function Field({ label, hint, error, children, className, required }: { label: React.ReactNode; hint?: React.ReactNode; error?: string | null; children: React.ReactElement<any>; className?: string; required?: boolean }) {
   const uid = useId();
   const labelId = `${uid}-label`; const errorId = `${uid}-error`; const hintId = `${uid}-hint`;
@@ -56,9 +98,7 @@ export function Field({ label, hint, error, children, className, required }: { l
         <span className="text-base font-medium text-ink"><span id={labelId}>{label}</span>{required && <span className="ml-1 text-accent" aria-hidden>*</span>}</span>
         {hint && <span id={hintId} className="text-xs leading-snug text-ink-3">{hint}</span>}
       </div>
-      {children.type === React.Fragment
-        ? React.cloneElement(children, {}, ...(React.Children.map(children.props.children as React.ReactNode, (child: React.ReactNode, i: number) => (i === 0 && React.isValidElement(child) ? React.cloneElement(child as React.ReactElement<any>, extra) : child)) || []))
-        : React.cloneElement(children, extra)}
+      {applyToControl(children, extra)}
       {error && <p id={errorId} className="mt-1 text-xs leading-snug text-bad" role="alert">{error}</p>}
     </div>
   );

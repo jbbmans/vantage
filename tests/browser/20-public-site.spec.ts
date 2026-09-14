@@ -1,4 +1,5 @@
 import { test, expect } from '@playwright/test';
+import { ensureSetup, logout } from './fixtures';
 
 /**
  * The public page has to be whole before anybody scrolls.
@@ -62,6 +63,23 @@ test.describe('the public site', () => {
     expect(meta.h1s, 'a page should have exactly one h1').toBe(1);
     expect(meta.jsonLd.length, 'structured data missing').toBeGreaterThan(0);
     for (const block of meta.jsonLd) expect(() => JSON.parse(block), 'structured data must parse').not.toThrow();
+  });
+
+  test('the sign-in fields carry their own label and error association', async ({ page, request }) => {
+    // Field used to clone its direct child, which stopped working the moment an input was wrapped
+    // for an icon — the aria landed on a <div> and the error was never announced. The assertion is
+    // on the input itself for that reason: anything else passes while a screen reader gets nothing.
+    await ensureSetup(request);
+    await logout(page);
+    await page.goto('/login', { waitUntil: 'networkidle' });
+    const username = page.locator('input[autocomplete*="username"]').first();
+    await username.waitFor();
+    const labelledBy = await username.getAttribute('aria-labelledby');
+    const ariaLabel = await username.getAttribute('aria-label');
+    expect(labelledBy || ariaLabel, 'the username input has no accessible name of its own').toBeTruthy();
+    if (labelledBy) {
+      await expect(page.locator(`#${labelledBy}`), 'aria-labelledby points at nothing').toHaveCount(1);
+    }
   });
 
   test('keeps the signed-in application out of the index', async ({ page }) => {

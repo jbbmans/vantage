@@ -222,7 +222,10 @@ export default function PublicSite() {
                 </div>
                 <div className="preview-main">
                   <div className="preview-topline"><span>Command Element / G-8</span><i>JB</i></div>
-                  <div className="preview-heading"><div><small>OPERATIONAL PICTURE</small><strong>Good afternoon.</strong></div><button>+ Log activity</button></div>
+                  {/* The mockup is a picture of the product, not the product. This was a real <button> with no
+                      handler: focusable, pressable, and silent when pressed, which reads as a broken page
+                      rather than as an illustration. It is presentational now and out of the tab order. */}
+                  <div className="preview-heading"><div><small>OPERATIONAL PICTURE</small><strong>Good afternoon.</strong></div><span className="preview-fauxbutton" aria-hidden>+ Log activity</span></div>
                   <div className="preview-stats">
                     <div><small>Actions completed</small><strong>148</strong><span>+18 this week</span></div>
                     <div><small>Value moved</small><strong>$1.84M</strong><span>12 active items</span></div>

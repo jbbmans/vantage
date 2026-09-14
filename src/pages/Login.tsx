@@ -277,10 +277,13 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
         </div>
 
         <section className="auth-shell" aria-labelledby="auth-heading">
+          {/* An owner who sets an instance display name is told, in the owner console, that it shows
+              on the sign-in page. Hard-coding the wordmark here quietly broke that promise for every
+              custom-branded deployment, so the configured name wins and Vantage is the fallback. */}
           <div className="auth-brand-lockup">
             <div className="auth-mark-wrap"><img src="/mark.svg" alt="" /></div>
-            <p>VANTAGE</p>
-            <span>Performance · Productivity · Readiness</span>
+            <p>{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'VANTAGE'}</p>
+            <span>{status?.displayName && status.displayName !== 'Vantage' ? 'Powered by Vantage' : 'Performance · Productivity · Readiness'}</span>
           </div>
 
           <div className="auth-card">

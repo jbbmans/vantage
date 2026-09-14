@@ -47,6 +47,10 @@ function NavigateBridge() {
   return null;
 }
 
+/** Routes that render the public page for anybody, signed in or not. */
+const PUBLIC_ROUTES = ['/display', '/about'];
+export const isPublicRoute = (pathname: string) => PUBLIC_ROUTES.includes(pathname);
+
 function SignedOutHome({ serverError, onRetry }: { serverError: string | null; onRetry: () => void }) {
   const [state, setState] = useState<'loading' | 'setup' | 'public'>('loading');
   useEffect(() => {
@@ -75,7 +79,10 @@ function AppRoutes() {
     const onSignedOut = () => {
       qc.removeQueries({ queryKey: keys.me });
       qc.clear();
-      navigate('/login', { replace: true });
+      // /display and /about are for anyone. A stale session marker whose /me comes back 401 used to
+      // fire this and bounce a visitor reading the public page over to sign-in, which is the one
+      // thing those routes promise will not happen.
+      if (!isPublicRoute(window.location.pathname)) navigate('/login', { replace: true });
       rerender();
     };
     window.addEventListener('vantage:signed-out', onSignedOut);
@@ -91,13 +98,22 @@ function AppRoutes() {
   }, [identity.data?.prefs]);
 
   const signedOut = !hasSession() || (identity.isError && (identity.error as { status?: number })?.status === 401);
-  const publicStandalone = location.pathname === '/display' || location.pathname === '/about';
+  const publicStandalone = isPublicRoute(location.pathname);
+  // A session that failed for any reason other than "not signed in" is an outage, not a sign-out.
+  // Showing the marketing page to somebody who was working would look like their account vanished.
+  const identityBroken = identity.isError && (identity.error as { status?: number })?.status !== 401;
   if (!publicStandalone && !signedOut && identity.isPending) return <AppLoader />;
 
   const serverError = identity.isError && (identity.error as { status?: number })?.status !== 401 ? (identity.error as Error).message : null;
 
   if (publicStandalone) {
     return <Routes><Route path="*" element={<PublicSite />} /></Routes>;
+  }
+
+  // An identity call that failed for a reason other than 401 goes to the sign-in screen carrying the
+  // error and its retry, rather than falling through to the marketing page with no explanation.
+  if (identityBroken) {
+    return <Routes><Route path="*" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} /></Routes>;
   }
 
   if (signedOut || !identity.data) {

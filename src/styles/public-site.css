@@ -8,7 +8,11 @@
   --public-line: #dce5ef;
   --public-soft: #f5f8fc;
   min-height: 100vh;
-  overflow: hidden;
+  /* `overflow: hidden` here made this element the nearest scrolling ancestor of the sticky header,
+     which meant the header scrolled away instead of pinning. `clip` does the same job of stopping
+     the decorative rings bleeding sideways without creating a scroll container, and clipping only
+     the horizontal axis leaves vertical position: sticky working. */
+  overflow-x: clip;
   background: #fff;
   color: var(--public-ink);
 }
@@ -117,7 +121,7 @@
 .preview-heading { display: flex; align-items: flex-end; justify-content: space-between; gap: 12px; margin-top: 18px; }
 .preview-heading small { display: block; color: #7e92a7; font-size: 8px; letter-spacing: .14em; }
 .preview-heading strong { display: block; margin-top: 4px; color: #0b2d5b; font-size: 22px; letter-spacing: -.03em; }
-.preview-heading button { border: 0; border-radius: 5px; background: #2563eb; padding: 8px 10px; color: white; font-size: 9px; font-weight: 700; }
+.preview-heading .preview-fauxbutton { display: inline-block; border-radius: 5px; background: #2563eb; padding: 8px 10px; color: white; font-size: 9px; font-weight: 700; }
 .preview-stats { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; margin-top: 16px; }
 .preview-stats > div { min-width: 0; border: 1px solid #dfe7ef; border-radius: 8px; background: #fff; padding: 12px; box-shadow: 0 5px 14px rgba(8,45,85,.04); }
 .preview-stats small, .preview-stats span { display: block; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
@@ -258,8 +262,13 @@
    block, so if the slide ever feels too subtle, make it travel further rather than fading it in. */
 .reveal-armed[data-reveal]:not(.is-visible) { transform: translateY(18px); }
 
-@keyframes public-spin { to { transform: rotate(360deg); } }
-@keyframes public-spin-reverse { to { transform: rotate(-360deg); } }
+/* The rings are centred with `transform: translate(-50%,-50%)`, and an animation's transform
+   REPLACES that rather than adding to it — so a bare `rotate()` here walked both rings half their
+   own width and height off the core for the whole cycle. Every frame has to carry the centring
+   translate. This is the third time this class of bug has appeared in this codebase; if you add a
+   keyframe that sets `transform`, check what the element's resting transform already does. */
+@keyframes public-spin { from { transform: translate(-50%,-50%) rotate(0deg); } to { transform: translate(-50%,-50%) rotate(360deg); } }
+@keyframes public-spin-reverse { from { transform: translate(-50%,-50%) rotate(0deg); } to { transform: translate(-50%,-50%) rotate(-360deg); } }
 @keyframes product-float { 0%,100% { transform: rotateY(-5deg) rotateX(2deg) translateY(0); } 50% { transform: rotateY(-4deg) rotateX(1deg) translateY(-9px); } }
 @keyframes float-card { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-9px); } }
 @keyframes node-bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(-7px); } }

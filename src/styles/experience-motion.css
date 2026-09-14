@@ -132,7 +132,14 @@ header.sticky button:active { transform: translateY(0) scale(.98); }
 @keyframes vantage-shimmer { 60%,100% { transform: translateX(110%); } }
 
 @media (prefers-reduced-motion: reduce) {
+  /* Radix renders menus, selects, tooltips and dialogs through a portal directly under <body>, so
+     scoping this to #main and the chrome left every overlay animating for somebody who asked the
+     operating system for less motion. The portal wrapper and the animation utilities are named
+     explicitly because the portal is not inside any of the other selectors. */
   #main *, #main *::before, #main *::after,
+  [data-radix-popper-content-wrapper], [data-radix-popper-content-wrapper] *,
+  [data-radix-portal], [data-radix-portal] *,
+  [class*='animate-'],
   header.sticky *, aside.bg-rail *, aside.bg-rail-active * {
     animation-duration: .001ms !important;
     animation-iteration-count: 1 !important;

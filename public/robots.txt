@@ -1,18 +1,20 @@
-# The public page is the only thing here that is content. Everything behind sign-in is an
-# application: crawling it costs budget, returns the same shell on every path, and risks a
-# signed-out route being indexed as if it were a page.
+# Only the public page is content. Everything behind sign-in is an application.
+#
+# Note the shape of this: the authentication routes are CRAWLABLE but not indexable. Disallowing
+# them looks stricter and is actually weaker — a crawler that is not allowed to fetch /login cannot
+# see the `noindex` on it, so the URL stays eligible to be indexed as a bare link with no content.
+# Letting the crawler read the page is what lets it read the instruction to drop it.
+#
+# The application routes below are different: they render the same shell on every path and have no
+# content worth a crawl, so they stay disallowed to save crawl budget. They are additionally served
+# noindex once the client boots.
 User-agent: *
-Allow: /$
-Allow: /display
-Allow: /about
-Allow: /og.png
-Allow: /mark.svg
+Allow: /
+Allow: /login
+Allow: /register
+Allow: /reset
+Allow: /invite
 
-Disallow: /login
-Disallow: /register
-Disallow: /reset
-Disallow: /invite
-Disallow: /setup
 Disallow: /records
 Disallow: /work
 Disallow: /goals
