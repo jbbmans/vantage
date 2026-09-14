@@ -10,8 +10,17 @@ const serious = (violations: Array<{ impact?: string | null; id: string; nodes: 
 test('sign-in page has no serious accessibility violations', async ({ page, request }) => {
   await ensureSetup(request);
   await logout(page);
-  await page.goto('/');
+  await page.goto('/login');
   await expect(page.getByRole('heading', { name: 'Sign in' })).toBeVisible();
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(serious(results.violations)).toEqual([]);
+});
+
+test('public display page has no serious accessibility violations', async ({ page, request }) => {
+  await ensureSetup(request);
+  await logout(page);
+  await page.goto('/display');
+  await expect(page.getByRole('heading', { name: /Turn operational work into/i })).toBeVisible();
   const results = await new AxeBuilder({ page }).analyze();
   expect(serious(results.violations)).toEqual([]);
 });
