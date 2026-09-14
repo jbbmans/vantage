@@ -1,12 +1,12 @@
 {
   "name": "Vantage",
   "short_name": "Vantage",
-  "description": "Performance, readiness, and career records for Marine Corps teams.",
+  "description": "Performance, productivity, readiness, and career records for Marine Corps teams.",
   "start_url": "/",
   "scope": "/",
   "display": "standalone",
-  "background_color": "#f5f4f0",
-  "theme_color": "#0b1220",
+  "background_color": "#F5F8FC",
+  "theme_color": "#0B2D5B",
   "icons": [
     {
       "src": "/mark.svg",

@@ -1,9 +1,9 @@
 /* Vantage service worker: offline app shell + cache-first hashed assets. API requests never touch the cache. */
-const VERSION = 'v5-2';
+const VERSION = 'v5-3-brand';
 const SHELL = `vantage-shell-${VERSION}`;
 const ASSETS = `vantage-assets-${VERSION}`;
 const SHELL_URLS = [
-  '/', '/manifest.webmanifest', '/mark.svg', '/icon-192.png', '/icon-512.png',
+  '/', '/manifest.webmanifest', '/mark.svg', '/brand/mark-reversed.svg', '/brand/mark-monochrome.svg', '/icon-192.png', '/icon-512.png',
   '/fonts/geist-normal.woff2', '/fonts/jetbrains-normal.woff2',
 ];
 
