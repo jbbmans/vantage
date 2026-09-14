@@ -35,7 +35,7 @@ test('first visit runs setup, lands on the dashboard, and can sign out and back 
 });
 
 test('forgot-password flow never reveals whether an account exists', async ({ page }) => {
-  await page.goto('/');
+  await page.goto('/login');
   await page.getByRole('button', { name: 'Forgot your password?' }).click();
   await page.getByLabel('Username or email').fill('nobody-here');
   await page.getByRole('button', { name: 'Send reset link' }).click();
