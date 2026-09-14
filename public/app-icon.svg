@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" role="img" aria-labelledby="vantage-app-icon-title">
+  <title id="vantage-app-icon-title">Vantage app icon</title>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="#0B2D5B"/>
+  <path fill="#FFFFFF" d="M20 40h25l19 33 19-33h25L64 112 20 40Z"/>
+  <path fill="#14B8A6" d="M64 17 89 42 76 55 64 43 52 55 39 42 64 17Z"/>
+  <path fill="#0B2D5B" d="M64 42 82 62 64 88 46 62 64 42Z"/>
+  <path fill="#2563EB" d="M64 50 74 62 64 78 54 62 64 50Z"/>
+</svg>
