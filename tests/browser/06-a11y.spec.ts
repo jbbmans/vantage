@@ -20,7 +20,7 @@ test('public display page has no serious accessibility violations', async ({ pag
   await ensureSetup(request);
   await logout(page);
   await page.goto('/display');
-  await expect(page.getByRole('heading', { name: /Turn operational work into/i })).toBeVisible();
+  await expect(page.getByRole('heading', { name: /See the work/i })).toBeVisible();
   const results = await new AxeBuilder({ page }).analyze();
   expect(serious(results.violations)).toEqual([]);
 });
