@@ -138,7 +138,9 @@ function AppRoutes() {
           <Route key={from} path={from.slice(1)} element={<Navigate to={to} replace />} />
         ))}
         <Route path="activities/:id" element={<RedirectRecord />} />
-        <Route path="login" element={<Navigate to="/" replace />} />
+        {['login', 'register', 'reset', 'invite', 'setup'].map((path) => (
+          <Route key={path} path={path} element={<Navigate to="/" replace />} />
+        ))}
         <Route path="*" element={<NotFound />} />
       </Route>
     </Routes>
