@@ -1,7 +1,7 @@
 /* Public-site contrast pass. The display site deliberately uses small interface mockups,
    so supporting text needs stronger ink than typical decorative marketing UI. */
 .public-site {
-  --public-muted: #4b647f;
+  --public-muted: #405a73;
 }
 
 .public-nav-links,
@@ -12,8 +12,13 @@
 .public-metrics span,
 .faq-list details p,
 .public-footer,
-.public-disclaimer {
-  color: #4b647f;
+.public-disclaimer,
+.problem-grid p,
+.showcase-feature > p:not(.showcase-feature-eyebrow),
+.tour-copy > p,
+.ai-showcase-copy > p:not(.public-kicker),
+.seo-story > div:last-child p {
+  color: #405a73;
 }
 
 .preview-topline,
@@ -23,34 +28,70 @@
 .preview-feed p small,
 .float-card small,
 .feature-number,
-.workflow-steps span small {
-  color: #526a82;
+.workflow-steps span small,
+.showcase-browser-bar,
+.browser-search,
+.tour-ui-top span,
+.parsed-grid small,
+.sheet-toolbar span,
+.sheet-head,
+.sheet-footer span,
+.report-paper small,
+.report-citations span,
+.ai-source-row span {
+  color: #405a73;
 }
 
 .preview-feed p {
   color: #3f5872;
 }
 
-.preview-stats span {
-  color: #087f72;
+.preview-stats span,
+.tour-copy > span,
+.sheet-row span:nth-child(5) {
+  color: #08796d;
   font-weight: 650;
 }
 
 .public-marquee > div {
-  color: #4b647f;
+  color: #405a73;
+}
+
+/* Small captions and UI chrome need full normal-text contrast, even when they are only mockups. */
+.showcase-feature-eyebrow {
+  color: #185f91 !important;
+}
+
+.sheet-row,
+.ai-actions button,
+.tour-tags b {
+  color: #35516b;
+}
+
+.report-toolbar > span {
+  color: #405a73;
 }
 
 /* Keep small text in dark sections comfortably above WCAG AA. */
 .dark-copy > p:not(.public-kicker),
 .trust-grid p,
-.public-cta > p:not(.public-kicker) {
-  color: #c8d7e6;
+.public-cta > p:not(.public-kicker),
+.audience-grid p,
+.audience-inner .section-intro > p:last-child,
+.ai-card-top small {
+  color: #d7e4f0;
 }
 
 .public-kicker.light {
-  color: #d0deeb;
+  color: #dbe7f2;
 }
 
 .preview-nav-item {
-  color: #d0deeb;
+  color: #dbe7f2;
+}
+
+.audience-grid article > span,
+.ai-card-top i,
+.showcase-proof-band i {
+  color: #a6eee5;
 }
