@@ -1,0 +1,305 @@
+/* Vantage authentication experience
+ * Reference direction: centered brand lockup, quiet white canvas, enterprise controls,
+ * and restrained mountain geometry. Scoped to auth screens by the existing login-grid marker.
+ */
+
+body:has(.login-grid-rail) {
+  background: #f8fafc;
+}
+
+/* The previous split-screen marketing rail is intentionally removed. Auth should feel like
+   one focused application surface rather than a landing page next to a form. */
+body:has(.login-grid-rail) aside:has(.login-grid-rail) {
+  display: none !important;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div {
+  grid-column: 1 / -1 !important;
+  min-height: 100svh;
+  background: #fbfdff;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div::before {
+  content: 'VANTAGE  /  SECURE PERFORMANCE PLATFORM';
+  position: fixed;
+  left: 28px;
+  top: 24px;
+  z-index: 20;
+  color: #526a84;
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: .17em;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > header {
+  position: fixed;
+  inset: 0 0 auto 0;
+  z-index: 30;
+  justify-content: flex-end !important;
+  padding: 18px 22px !important;
+  background: transparent !important;
+}
+
+/* The centered brand lockup replaces the duplicate mobile header logo. */
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > header > div:first-child {
+  display: none !important;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > header button[aria-label='Toggle theme'] {
+  width: 36px;
+  height: 36px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #d8e2ec;
+  border-radius: 8px;
+  background: rgba(255,255,255,.92);
+  color: #294665;
+  box-shadow: 0 1px 2px rgba(11,45,91,.04);
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main {
+  position: relative;
+  min-height: 100svh;
+  align-items: center !important;
+  justify-content: center !important;
+  overflow: hidden;
+  padding: 56px 20px 76px !important;
+  background: #fbfdff;
+}
+
+/* Flat, abstract mountain line at the bottom. It echoes the reference without introducing
+   photography or a decorative gradient into the authentication experience. */
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main::after {
+  content: '';
+  position: absolute;
+  left: 50%;
+  bottom: -34px;
+  width: min(760px, 94vw);
+  height: 118px;
+  transform: translateX(-50%);
+  background: #eaf0f6;
+  clip-path: polygon(0 100%, 11% 76%, 18% 88%, 31% 48%, 40% 74%, 49% 38%, 56% 61%, 66% 20%, 77% 67%, 84% 49%, 100% 100%);
+  opacity: .72;
+  pointer-events: none;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main > div {
+  position: relative;
+  z-index: 2;
+  width: 100%;
+  max-width: 420px !important;
+  padding-top: 154px;
+}
+
+/* Primary brand lockup above every authentication state. */
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main > div::before {
+  content: '';
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 92px;
+  height: 92px;
+  transform: translateX(-50%);
+  background: url('/mark.svg') center / contain no-repeat;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main > div::after {
+  content: 'VANTAGE\A Performance  •  Productivity  •  Readiness';
+  white-space: pre;
+  position: absolute;
+  top: 98px;
+  left: 50%;
+  width: 100%;
+  transform: translateX(-50%);
+  text-align: center;
+  color: #0b2d5b;
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1.85;
+  letter-spacing: .02em;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main .card {
+  border: 0 !important;
+  border-radius: 0 !important;
+  background: transparent !important;
+  box-shadow: none !important;
+  padding: 18px 0 0 !important;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main .card h1 {
+  color: #0b2d5b;
+  font-weight: 700;
+  letter-spacing: -.025em;
+}
+
+/* Match the reference copy on the normal sign-in state while keeping the semantic heading intact. */
+body:has(.login-grid-rail) input[autocomplete='current-password'] ~ * {
+  --vantage-login-present: 1;
+}
+
+body:has(.login-grid-rail) main:has(input[autocomplete='current-password']) .card h1 {
+  font-size: 0 !important;
+}
+
+body:has(.login-grid-rail) main:has(input[autocomplete='current-password']) .card h1::after {
+  content: 'Welcome Back';
+  font-size: 28px;
+  line-height: 1.15;
+}
+
+body:has(.login-grid-rail) main:has(input[autocomplete='current-password']) .card h1 + p {
+  font-size: 0 !important;
+  margin-top: 6px;
+}
+
+body:has(.login-grid-rail) main:has(input[autocomplete='current-password']) .card h1 + p::after {
+  content: 'Sign in to your Vantage account.';
+  color: #61768e;
+  font-size: 14px;
+  line-height: 1.5;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main form {
+  margin-top: 24px !important;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main form > * + * {
+  margin-top: 14px;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main form .field {
+  min-height: 46px;
+  border: 1px solid #cfdbe7;
+  border-radius: 7px;
+  background-color: #fff;
+  color: #132f4f;
+  box-shadow: 0 1px 2px rgba(11,45,91,.025);
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main form .field:hover {
+  border-color: #afc0d2;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main form .field:focus,
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main form .field:focus-visible {
+  border-color: #2563eb;
+  box-shadow: 0 0 0 3px rgba(37,99,235,.11);
+  outline: none;
+}
+
+/* Small in-field identity cues, matching the reference without changing form behavior. */
+body:has(.login-grid-rail) input[autocomplete^='username'] {
+  padding-left: 42px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23526a84' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M20 21a8 8 0 0 0-16 0'/%3E%3Ccircle cx='12' cy='7' r='4'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 14px center;
+}
+
+body:has(.login-grid-rail) input[autocomplete='current-password'] {
+  padding-left: 42px;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%23526a84' stroke-width='1.8' stroke-linecap='round' stroke-linejoin='round'%3E%3Crect width='16' height='12' x='4' y='10' rx='2'/%3E%3Cpath d='M8 10V7a4 4 0 0 1 8 0v3'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: 14px center;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main form button[type='submit'] {
+  min-height: 46px;
+  border-color: #0b2d5b;
+  border-radius: 7px;
+  background: #0b2d5b;
+  color: #fff;
+  box-shadow: none;
+  font-weight: 650;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main form button[type='submit']:hover:not(:disabled) {
+  border-color: #123d73;
+  background: #123d73;
+  filter: none;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main form button[type='button'] {
+  border-radius: 7px;
+}
+
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main .link {
+  color: #1760b5;
+  font-weight: 550;
+}
+
+/* Notices stay aligned with the form rather than turning into large banners. */
+body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main > div > [class*='border-l-2'] {
+  border-radius: 7px;
+  background: #fff;
+}
+
+/* Dark mode retains the same composition, with a sober navy application canvas. */
+[data-theme='dark'] body:has(.login-grid-rail),
+[data-theme='dark'] body:has(.login-grid-rail) aside:has(.login-grid-rail) + div,
+[data-theme='dark'] body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main {
+  background: #08172b;
+}
+
+[data-theme='dark'] body:has(.login-grid-rail) aside:has(.login-grid-rail) + div::before {
+  color: #9fb4ca;
+}
+
+[data-theme='dark'] body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main > div::before {
+  background-image: url('/brand/mark-reversed.svg');
+}
+
+[data-theme='dark'] body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main > div::after,
+[data-theme='dark'] body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main .card h1 {
+  color: #edf4fb;
+}
+
+[data-theme='dark'] body:has(.login-grid-rail) main:has(input[autocomplete='current-password']) .card h1 + p::after {
+  color: #a8bad0;
+}
+
+[data-theme='dark'] body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main form .field {
+  border-color: #2e4a68;
+  background-color: #0e233d;
+  color: #edf4fb;
+}
+
+[data-theme='dark'] body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main::after {
+  background: #132b49;
+  opacity: .66;
+}
+
+[data-theme='dark'] body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > header button[aria-label='Toggle theme'] {
+  border-color: #2e4a68;
+  background: #0e233d;
+  color: #dbe8f5;
+}
+
+@media (max-width: 640px) {
+  body:has(.login-grid-rail) aside:has(.login-grid-rail) + div::before {
+    left: 18px;
+    top: 20px;
+    max-width: 230px;
+    font-size: 8px;
+  }
+
+  body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main {
+    padding: 64px 22px 72px !important;
+  }
+
+  body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main > div {
+    max-width: 380px !important;
+    padding-top: 136px;
+  }
+
+  body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main > div::before {
+    width: 80px;
+    height: 80px;
+  }
+
+  body:has(.login-grid-rail) aside:has(.login-grid-rail) + div > main > div::after {
+    top: 86px;
+    font-size: 10px;
+  }
+}
