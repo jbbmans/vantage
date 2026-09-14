@@ -19,6 +19,7 @@ const RecordDetail = lazy(() => import('@/pages/RecordDetail'));
 const WorkHub = lazy(() => import('@/pages/WorkHub'));
 const Goals = lazy(() => import('@/pages/Goals'));
 const Career = lazy(() => import('@/pages/Career'));
+const Maradmins = lazy(() => import('@/pages/Maradmins'));
 const Readiness = lazy(() => import('@/pages/Readiness'));
 const ReportsHub = lazy(() => import('@/pages/ReportsHub'));
 const Team = lazy(() => import('@/pages/Team'));
@@ -143,6 +144,7 @@ function AppRoutes() {
         <Route path="work" element={<D><WorkHub /></D>} />
         <Route path="goals" element={<D><Goals /></D>} />
         <Route path="career" element={<D><Career /></D>} />
+        <Route path="maradmins" element={<D><Maradmins /></D>} />
         <Route path="readiness" element={<D><Readiness /></D>} />
         <Route path="reports" element={<D><ReportsHub /></D>} />
         <Route path="team" element={<D><Team /></D>} />

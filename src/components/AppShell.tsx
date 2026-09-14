@@ -26,6 +26,7 @@ const TITLES: Array<[string, string, string]> = [
   ['/work', 'Work', 'Queue, tasks and correspondence'],
   ['/goals', 'Goals', 'Targets and progress'],
   ['/career', 'Career', 'Training, awards, counseling'],
+  ['/maradmins', 'MARADMINs', 'Messages that change a requirement'],
   ['/readiness', 'Readiness', 'Dates and requirements'],
   ['/reports', 'Reports', 'Report studio'],
   ['/team', 'Team', 'People and workload'],
@@ -103,10 +104,9 @@ function surfaceOf(pathname: string, search: string): string {
   // would hide which half of the screen people actually use, so the tab decides the name.
   if (segment === 'work') return tab === 'mail' ? 'correspondence' : tab === 'tasks' || tab === 'projects' ? 'tasks' : 'queue';
   if (segment === 'reports') return tab === 'analysis' ? 'reports' : 'studio';
-  if (segment === 'career') return tab === 'messages' ? 'maradmins' : 'career';
   const map: Record<string, string> = {
-    '': 'dashboard', records: 'records', goals: 'goals', readiness: 'readiness',
-    team: 'team', settings: 'settings', operator: 'operator', help: 'help',
+    '': 'dashboard', records: 'records', goals: 'goals', readiness: 'readiness', career: 'career',
+    maradmins: 'maradmins', team: 'team', settings: 'settings', operator: 'operator', help: 'help',
   };
   return map[segment] || 'dashboard';
 }
@@ -161,6 +161,7 @@ export default function AppShell() {
     if (item.requiresLead && !identity?.canLead) return false;
     if (item.requiresOperator && !identity?.user.is_operator) return false;
     if (item.requiresAi && !identity?.instance.aiEnabled) return false;
+    if (item.requiresMaradmins && !identity?.instance.maradminsEnabled) return false;
     return true;
   }), [identity]);
 

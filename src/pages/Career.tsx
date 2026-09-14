@@ -1,8 +1,7 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
+import { Navigate } from 'react-router-dom';
 import { Plus, GraduationCap, Award as AwardIcon, MessageSquare, CheckCircle2, Paperclip } from 'lucide-react';
-import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, NumberInput, Skeleton, Stat } from '@/components/ui/primitives';
-
-const Maradmins = lazy(() => import('./Maradmins'));
+import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, NumberInput, Stat } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
@@ -106,6 +105,10 @@ export default function Career() {
   const canEditRow = (r: any) => r.user_id === me ? !r.frozen_at : Boolean(r.unit_id && identity && ((identity.permissions[r.unit_id] || 0) & ((1 << 12) | (1 << 3))));
   const acknowledge = async (c: any) => { try { await api.acknowledgeCounseling(c.id); invalidateRecords(qc, 'counselings'); toast.success('Acknowledged.'); setView(null); } catch (e) { toast.error(api.errorText(e)); } };
 
+  // MARADMINs used to be a tab here. Anything anyone bookmarked or pasted into a message still
+  // works and lands on the destination that absorbed it.
+  if (tab === 'messages') return <Navigate to="/maradmins" replace />;
+
   return (
     <div className="page">
       <PageHeader eyebrow="Career" title="Training, awards, and counseling" lede="The parts of the record that are not day-to-day work but decide how the year is scored.">
@@ -113,21 +116,16 @@ export default function Career() {
         {tab === 'awards' && <Button variant="primary" onClick={() => setAward(emptyAward(vis, unit))}><Plus className="h-4 w-4" />Track an award</Button>}
         {tab === 'counseling' && <Button variant="primary" onClick={() => setCounseling(emptyCounseling(vis, unit))}><Plus className="h-4 w-4" />Record counseling</Button>}
       </PageHeader>
-      {tab !== 'messages' && <div className="mb-4 grid grid-cols-3 gap-3">
+      <div className="mb-4 grid grid-cols-3 gap-3">
         <Stat label="Training hours" value={formatNumber(hours)} hint={`${(trainings || []).length} entries`} />
         <Stat label="Awards in progress" value={(awards || []).filter((a: any) => ['recommended', 'submitted', 'approved'].includes(a.status)).length} hint={`${(awards || []).filter((a: any) => a.status === 'presented').length} presented`} />
         <Stat label="Counselings" value={(counselings || []).length} hint={(counselings || []).some((c: any) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'one awaits your acknowledgement' : 'up to date'} tone={(counselings || []).some((c: any) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'warn' : undefined} />
-      </div>}
+      </div>
       <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[
         { value: 'training', label: 'Training', count: (trainings || []).length },
         { value: 'awards', label: 'Awards', count: (awards || []).length },
         { value: 'counseling', label: 'Counseling', count: (counselings || []).length },
-        // The messages that create these requirements belong beside the record they change, not in
-        // a destination of their own that nobody thinks to open.
-        ...(identity?.instance.maradminsEnabled ? [{ value: 'messages', label: 'MARADMINs' }] : []),
       ]} />
-
-      {tab === 'messages' && <Suspense fallback={<Skeleton className="h-64" />}><Maradmins embedded /></Suspense>}
 
       {tab === 'training' && ((trainings || []).length === 0 ? <div className="card"><EmptyState icon={GraduationCap} title="No training logged" description="PME, MarineNet courses, certifications, college. Hours here feed training-hour goals and the evaluation package." action={<Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}>Log training</Button>} /></div> : (
         <div className="card" style={{ overflow: 'hidden' }}><Table head={<><th className="w-24">Date</th><th>Training</th><th className="w-28">Type</th><th className="w-20 text-right">Hours</th><th className="w-28">Status</th><th className="w-28"></th></>}>

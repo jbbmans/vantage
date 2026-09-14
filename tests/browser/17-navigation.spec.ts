@@ -2,8 +2,10 @@ import { test, expect } from '@playwright/test';
 import { ensureSetup, loginAs, OPERATOR } from './fixtures';
 
 /**
- * Fifteen destinations became eleven. Anything a person saved a link to — a bookmark, a link pasted
- * into a message a year ago — has to land on the tab that absorbed it, not on a not-found page.
+ * Destinations have been merged and, in one case, un-merged. Anything a person saved a link to — a
+ * bookmark, a link pasted into a message a year ago — has to land where that screen lives now,
+ * never on a not-found page. That includes links to a tab that has since been promoted back out
+ * into a destination of its own.
  */
 test('links to the destinations that were merged still land on the right tab', async ({ page, request }) => {
   await ensureSetup(request);
@@ -14,6 +16,8 @@ test('links to the destinations that were merged still land on the right tab', a
     ['/correspondence', '/work?tab=mail', 'Correspondence'],
     ['/studio', '/reports?tab=packages', 'Packages'],
     ['/activities', '/records', 'Activities'],
+    // MARADMINs went the other way: it was a tab under Career and is a destination again.
+    ['/career?tab=messages', '/maradmins', 'MARADMIN'],
   ];
   for (const [from, to, visible] of moved) {
     await page.goto(from);
@@ -28,7 +32,7 @@ test('every navigation destination opens without an error boundary', async ({ pa
   const errors: string[] = [];
   page.on('pageerror', (e) => errors.push(String(e.message)));
 
-  for (const path of ['/', '/work', '/records', '/career', '/goals', '/readiness', '/reports', '/team', '/settings', '/operator', '/help']) {
+  for (const path of ['/', '/work', '/records', '/career', '/maradmins', '/goals', '/readiness', '/reports', '/team', '/settings', '/operator', '/help']) {
     await page.goto(path);
     await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();
     await expect(page.getByText('This page hit an error')).toHaveCount(0);
