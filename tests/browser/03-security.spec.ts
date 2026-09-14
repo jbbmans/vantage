@@ -24,7 +24,7 @@ test('authenticator enrolment adds a second step to sign-in and recovery codes w
   await expect(page.getByText('On', { exact: true })).toBeVisible();
 
   await logout(page);
-  await page.goto('/');
+  await page.goto('/login');
   await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
@@ -37,7 +37,7 @@ test('authenticator enrolment adds a second step to sign-in and recovery codes w
   await expect(page.getByRole('heading', { name: 'Standing' })).toBeVisible();
 
   await logout(page);
-  await page.goto('/');
+  await page.goto('/login');
   await page.getByLabel('Username').fill(username);
   await page.getByLabel('Password').fill(PASSWORD);
   await page.getByRole('button', { name: 'Sign in', exact: true }).click();
@@ -65,7 +65,7 @@ test('a passkey registered in settings signs the user in without a password', as
   await expect(page.getByText('Virtual authenticator')).toBeVisible();
 
   await logout(page);
-  await page.goto('/');
+  await page.goto('/login');
   await page.getByRole('button', { name: 'Sign in with a passkey' }).click();
   await expect(page.getByRole('heading', { name: 'Standing' })).toBeVisible();
   await page.goto('/settings?tab=security');
