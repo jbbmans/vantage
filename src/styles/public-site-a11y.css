@@ -1,0 +1,56 @@
+/* Public-site contrast pass. The display site deliberately uses small interface mockups,
+   so supporting text needs stronger ink than typical decorative marketing UI. */
+.public-site {
+  --public-muted: #4b647f;
+}
+
+.public-nav-links,
+.hero-proof,
+.section-intro > p:last-child,
+.feature-card > p,
+.workflow-lede,
+.public-metrics span,
+.faq-list details p,
+.public-footer,
+.public-disclaimer {
+  color: #4b647f;
+}
+
+.preview-topline,
+.preview-heading small,
+.preview-stats small,
+.preview-panel-title span,
+.preview-feed p small,
+.float-card small,
+.feature-number,
+.workflow-steps span small {
+  color: #526a82;
+}
+
+.preview-feed p {
+  color: #3f5872;
+}
+
+.preview-stats span {
+  color: #087f72;
+  font-weight: 650;
+}
+
+.public-marquee > div {
+  color: #4b647f;
+}
+
+/* Keep small text in dark sections comfortably above WCAG AA. */
+.dark-copy > p:not(.public-kicker),
+.trust-grid p,
+.public-cta > p:not(.public-kicker) {
+  color: #c8d7e6;
+}
+
+.public-kicker.light {
+  color: #d0deeb;
+}
+
+.preview-nav-item {
+  color: #d0deeb;
+}
