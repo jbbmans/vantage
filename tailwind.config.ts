@@ -58,10 +58,16 @@ export default {
       keyframes: {
         'fade-up': { from: { opacity: '0', transform: 'translateY(4px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
+        // Safe only where nothing else owns `transform`. Radix popper content qualifies, because
+        // the popper transforms a wrapper. Anything centred by a translate of its own does not:
+        // an animation's transform replaces that translate outright and the element lands offset.
+        // Use 'modal-in' (both axes) or 'popover-in' (horizontal only) in those cases instead.
         'scale-in': { from: { opacity: '0', transform: 'scale(.97)' }, to: { opacity: '1', transform: 'scale(1)' } },
         // The centered modal is positioned by a translate, and an animation's transform replaces it
         // outright — so its entrance has to carry that translate through every frame.
         'modal-in': { from: { opacity: '0', transform: 'translate(-50%, -50%) scale(.97)' }, to: { opacity: '1', transform: 'translate(-50%, -50%) scale(1)' } },
+        // Horizontally centred but vertically anchored, like the command palette.
+        'popover-in': { from: { opacity: '0', transform: 'translateX(-50%) scale(.98)' }, to: { opacity: '1', transform: 'translateX(-50%) scale(1)' } },
         'slide-in-right': { from: { opacity: '0', transform: 'translateX(16px)' }, to: { opacity: '1', transform: 'translateX(0)' } },
         'slide-in-left': { from: { opacity: '0', transform: 'translateX(-16px)' }, to: { opacity: '1', transform: 'translateX(0)' } },
         'slide-up': { from: { opacity: '0', transform: 'translateY(100%)' }, to: { opacity: '1', transform: 'translateY(0)' } },
@@ -71,6 +77,7 @@ export default {
         'fade-in': 'fade-in .14s ease-out both',
         'scale-in': 'scale-in .14s cubic-bezier(.2,0,0,1) both',
         'modal-in': 'modal-in .16s cubic-bezier(.2,0,0,1) both',
+        'popover-in': 'popover-in .14s cubic-bezier(.2,0,0,1) both',
         'slide-in-right': 'slide-in-right .2s cubic-bezier(.2,0,0,1) both',
         'slide-in-left': 'slide-in-left .2s cubic-bezier(.2,0,0,1) both',
         'slide-up': 'slide-up .22s cubic-bezier(.2,0,0,1) both',

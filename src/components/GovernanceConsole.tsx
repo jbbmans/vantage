@@ -90,8 +90,8 @@ export function PersonnelConsole() {
             {plan.counts.rejected > 0 && <Badge tone="bad">{plan.counts.rejected} rejected rows</Badge>}
           </div>
           {plan.updates.length > 0 && (
-            <div className="card mb-3" style={{ overflow: 'hidden' }}>
-              <Table head={<><th className="w-32">EDIPI</th><th>Name</th><th>Changes</th></>}>
+            <div className="-mx-4 mb-3 -mt-1">
+              <Table minWidth={520} head={<><th className="w-32">EDIPI</th><th>Name</th><th>Changes</th></>}>
                 {plan.updates.map((u: any) => (
                   <tr key={u.edipi}><td className="mono text-xs">{u.edipi}</td><td>{u.name}</td>
                     <td className="text-xs text-ink-2">{u.changes.map((c: any) => `${humanize(c.field)}: ${c.from ?? '—'} → ${c.to ?? '—'}`).join('; ')}</td></tr>
@@ -193,8 +193,8 @@ export function RetentionConsole() {
       )}
 
       <Panel title="Retention schedules" subtitle="Each one is off until you turn it on. A schedule with no citation is somebody's guess, so the authority is a field rather than a note.">
-        <div className="card" style={{ overflow: 'hidden' }}>
-          <Table head={<><th>Record type</th><th className="w-28">Keep for</th><th className="w-32">Then</th><th>Authority</th><th className="w-24">Enabled</th><th className="w-20"></th></>}>
+        <div className="-mx-4 -mt-1">
+          <Table minWidth={560} head={<><th>Record type</th><th className="w-28">Keep for</th><th className="w-32">Then</th><th>Authority</th><th className="w-24">Enabled</th><th className="w-16"></th></>}>
             {retainableTypes.map((type: string) => {
               const s: any = byType.get(type);
               return (
@@ -222,8 +222,8 @@ export function RetentionConsole() {
       {preview && !preview.blocked && (
         <Panel title="What disposition would do now">
           {preview.lines.length === 0 ? <p className="text-sm text-ink-3">No schedule is enabled, so there is nothing to run.</p> : (
-            <div className="card" style={{ overflow: 'hidden' }}>
-              <Table head={<><th>Record type</th><th className="w-32">Action</th><th className="w-28">Cutoff</th><th className="w-24 text-right">Eligible</th><th className="w-24 text-right">Held</th><th className="w-24 text-right">Acted</th></>}>
+            <div className="-mx-4 -mt-1">
+              <Table minWidth={620} head={<><th>Record type</th><th className="w-32">Action</th><th className="w-28">Cutoff</th><th className="w-24 text-right">Eligible</th><th className="w-24 text-right">Held</th><th className="w-24 text-right">Acted</th></>}>
                 {preview.lines.map((l: any) => (
                   <tr key={l.record_type}>
                     <td>{humanize(l.record_type)}{l.skipped && <span className="block text-xs text-warn">{l.skipped}</span>}</td>
@@ -259,8 +259,8 @@ export function RetentionConsole() {
 
       <Panel title="Disposition history" subtitle="Every run, including the ones that removed nothing. A log with gaps cannot answer the question it exists for.">
         {history.length === 0 ? <p className="text-sm text-ink-3">Disposition has never run.</p> : (
-          <div className="card" style={{ overflow: 'hidden' }}>
-            <Table head={<><th className="w-40">When</th><th>Record type</th><th className="w-28">Action</th><th className="w-24 text-right">Eligible</th><th className="w-24 text-right">Acted</th><th className="w-20">Mode</th></>}>
+          <div className="-mx-4 -mt-1">
+            <Table minWidth={620} head={<><th className="w-40">When</th><th>Record type</th><th className="w-28">Action</th><th className="w-24 text-right">Eligible</th><th className="w-24 text-right">Acted</th><th className="w-20">Mode</th></>}>
               {history.map((r: any) => (
                 <tr key={r.id}>
                   <td className="text-xs"><DateText value={r.at} /></td>
@@ -350,8 +350,8 @@ export function PrivacyConsole() {
         subtitle="Built from the live database every time it is opened, so it cannot quietly stop being true the way a written document does."
         action={<Button onClick={async () => { const md = await withSudo(() => fetch('/api/admin/privacy/inventory?format=markdown', { credentials: 'same-origin', headers: { 'x-vantage-client': '1' } }).then((r) => r.text())); downloadText('vantage-data-inventory.md', md); }}><Download className="h-4 w-4" />Export for the PIA</Button>}
       >
-        <div className="card" style={{ overflow: 'hidden' }}>
-          <Table head={<><th>Table</th><th className="w-24 text-right">Rows</th><th>Purpose</th><th className="w-40">Retention</th><th className="w-24">Gaps</th></>}>
+        <div className="-mx-4 -mt-1">
+          <Table minWidth={680} head={<><th>Table</th><th className="w-24 text-right">Rows</th><th>Purpose</th><th className="w-40">Retention</th><th className="w-24">Gaps</th></>}>
             {data.tables.map((t: any) => (
               <tr key={t.table} className="cursor-pointer" onClick={() => setOpen(open === t.table ? null : t.table)}>
                 <td className="font-medium text-ink">{t.table}</td>

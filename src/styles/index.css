@@ -166,13 +166,52 @@
 
   /* Tabs underline the current view. The underline sits on the container's rule so switching tabs
      moves a mark along a line rather than lighting up a separate object. */
-  .tab-bar { @apply flex items-center gap-6 border-b border-line; }
+  /* On a phone the strip takes the full width rather than sitting inside the page gutter: the
+     gutter was costing 32px, which is the difference between a tab label fitting and being cut. */
+  .tab-bar { @apply -mx-4 flex items-center gap-6 border-b border-line px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8; }
   .tab { @apply relative -mb-px border-b-2 border-transparent pb-2.5 pt-1 text-md font-medium text-ink-3 transition-colors hover:text-ink-2; }
   .tab[data-state='active'], .tab[aria-selected='true'] { @apply border-accent text-accent; }
 
+  /*
+   * Anything that scrolls sideways says so.
+   *
+   * A tab strip, a wide table and a segmented control all overflow on a phone, and an edge that
+   * simply stops looks identical to an edge that ends — so people never discover the rest. These
+   * four layers put a soft shadow at whichever edge has content beyond it: the two `local` gradients
+   * scroll with the content and cover the fixed `scroll` shadows when that edge is reached, so the
+   * hint appears and disappears on its own with no script and no measuring.
+   */
+  .scroll-x {
+    overflow-x: auto;
+    background:
+      linear-gradient(to right, rgb(var(--surface)) 40%, rgb(var(--surface) / 0)) left center / 28px 100% no-repeat local,
+      linear-gradient(to left, rgb(var(--surface)) 40%, rgb(var(--surface) / 0)) right center / 28px 100% no-repeat local,
+      radial-gradient(farthest-side at 0 50%, rgb(var(--ink) / .22), rgb(var(--ink) / 0)) left center / 18px 100% no-repeat scroll,
+      radial-gradient(farthest-side at 100% 50%, rgb(var(--ink) / .22), rgb(var(--ink) / 0)) right center / 18px 100% no-repeat scroll;
+  }
+  /* On the sheet rather than on a card, the cover gradients have to match the sheet. */
+  .scroll-x-canvas {
+    background-image:
+      linear-gradient(to right, rgb(var(--canvas)) 40%, rgb(var(--canvas) / 0)),
+      linear-gradient(to left, rgb(var(--canvas)) 40%, rgb(var(--canvas) / 0)),
+      radial-gradient(farthest-side at 0 50%, rgb(var(--ink) / .22), rgb(var(--ink) / 0)),
+      radial-gradient(farthest-side at 100% 50%, rgb(var(--ink) / .22), rgb(var(--ink) / 0));
+  }
+  /* A scrollbar under a tab strip is noise; the fade already says there is more. */
+  .scroll-x-quiet { scrollbar-width: none; }
+  .scroll-x-quiet::-webkit-scrollbar { height: 0; }
+
   /* Hairline grid: one background rule showing through 1px gaps, so seams never double up. */
-  .hairline-grid { @apply gap-px overflow-hidden rounded-lg border border-line bg-line; }
-  .hairline-grid > * { @apply bg-surface; }
+  /*
+   * Hairline grid: cells divided by a single 1px rule with no doubling at the seams.
+   *
+   * The rule is a ring on each cell rather than a background showing through the gaps, so that when
+   * the last row is only part full the leftover space is card surface rather than divider colour.
+   * With the background approach a partial row rendered as a large block in a different shade,
+   * which reads as a tile that failed to load rather than as the end of the list.
+   */
+  .hairline-grid { @apply gap-px overflow-hidden rounded-lg bg-surface; box-shadow: 0 0 0 1px rgb(var(--line)); }
+  .hairline-grid > * { @apply bg-surface; box-shadow: 0 0 0 1px rgb(var(--line)); }
 
   /* DOCUMENT surfaces: a report draft is set like something that will be printed and signed. */
   .doc-body { @apply font-serif text-[15px] leading-[1.75] text-ink; }
@@ -189,7 +228,12 @@
   input, select, textarea, button[role='combobox'] { font-size: 16px; }
   [data-radix-popper-content-wrapper] { max-width: calc(100vw - 1rem) !important; }
 }
-@media (pointer: coarse) { .tap, .field { min-height: 2.5rem; } }
+/* A finger is not a cursor. On a touch screen every control and field clears 44px, which is the
+   size below which people start missing and hitting the thing next to it. */
+@media (pointer: coarse) {
+  .tap, .field { min-height: 2.75rem; }
+  .tab { padding-bottom: 0.75rem; padding-top: 0.5rem; }
+}
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
 }

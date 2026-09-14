@@ -166,6 +166,19 @@ test('a column added to the schema and not to the declaration is reported, not i
   } finally { await app.close(); }
 });
 
+test('no declared column has drifted away from the schema', async () => {
+  const app = await startApp();
+  try {
+    await app.setupOperator();
+    const inv = buildInventory(app.ctx);
+    const drifted = inv.tables.filter((t) => t.stale.length).map((t) => `${t.table}: ${t.stale.join(', ')}`);
+    // The inventory reports drift for the instance operator; it should never be reporting our own.
+    // A declaration that names a column the database does not have is a privacy artifact that is
+    // simply wrong, which is worse than one that is incomplete.
+    assert.deepEqual(drifted, [], `the shipped declaration names columns that do not exist:\n${drifted.join('\n')}`);
+  } finally { await app.close(); }
+});
+
 test('every table the inventory declares still exists', async () => {
   const app = await startApp();
   try {

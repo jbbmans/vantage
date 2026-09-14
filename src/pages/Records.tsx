@@ -136,7 +136,7 @@ export default function Records() {
         <div className="card"><EmptyState icon={Search} title={quality === 'deleted' ? 'The recycle bin is empty' : rows?.length ? 'Nothing matches those filters' : 'No activities yet'} description={rows?.length ? 'Loosen a filter, or widen the period.' : 'Press N to log your first one, or import a spreadsheet.'} action={rows?.length ? <Button onClick={() => { setQ(''); setCategory('all'); setArea('all'); setQuality('all'); setOwner('all'); setPeriod('all'); }}>Clear filters</Button> : <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}>Log activity</Button>} /></div>
       ) : view === 'list' ? (
         <div className="card">
-          <Table minWidth={760} head={<><th className="w-24">Date</th><th>Entry</th><th className="w-40">{trackMeta(track).areaLabel}</th><th className="w-28 text-right">Qty</th><th className="w-28 text-right">Value</th><th className="w-20">Share</th><th className="w-24"></th></>}>
+          <Table minWidth={880} head={<><th className="w-24">Date</th><th className="min-w-[18rem]">Entry</th><th className="w-40">{trackMeta(track).areaLabel}</th><th className="w-28 text-right">Qty</th><th className="w-28 text-right">Value</th><th className="w-20">Share</th><th className="w-24"></th></>}>
             {filtered.map((a) => {
               const s = strength(a);
               return (

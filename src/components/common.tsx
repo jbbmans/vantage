@@ -57,7 +57,7 @@ export function useParam(name: string, fallback = ''): [string, (v: string) => v
 
 export function Table({ head, children, className, minWidth = 640 }: { head: React.ReactNode; children: React.ReactNode; className?: string; minWidth?: number }) {
   return (
-    <div className={className ? className : 'overflow-x-auto'}>
+    <div className={className ? className : 'scroll-x'}>
       <table className="w-full border-collapse text-sm" style={{ minWidth }}>
         <thead><tr className="border-b border-line-strong bg-surface-2/60 text-left [&>th]:px-2.5 [&>th]:py-1.5 [&>th]:table-head">{head}</tr></thead>
         <tbody className="[&>tr]:row [&>tr>td]:px-2.5 [&>tr>td]:py-1.5 [&>tr>td]:align-top">{children}</tbody>

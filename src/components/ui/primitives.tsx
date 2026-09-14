@@ -49,9 +49,12 @@ export function Field({ label, hint, error, children, className, required }: { l
   if (error) extra['aria-invalid'] = true;
   return (
     <div className={cn('min-w-0', className)}>
-      <div className="mb-1.5 flex items-baseline justify-between gap-2">
+      {/* The hint sits beside the label when there is room and drops under it when there is not.
+          It used to truncate, which on a phone meant the sentence explaining the field was the part
+          that disappeared. */}
+      <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
         <span className="text-base font-medium text-ink"><span id={labelId}>{label}</span>{required && <span className="ml-1 text-accent" aria-hidden>*</span>}</span>
-        {hint && <span id={hintId} className="truncate text-xs text-ink-3">{hint}</span>}
+        {hint && <span id={hintId} className="text-xs leading-snug text-ink-3">{hint}</span>}
       </div>
       {children.type === React.Fragment
         ? React.cloneElement(children, {}, ...(React.Children.map(children.props.children as React.ReactNode, (child: React.ReactNode, i: number) => (i === 0 && React.isValidElement(child) ? React.cloneElement(child as React.ReactElement<any>, extra) : child)) || []))
@@ -121,7 +124,7 @@ export function Panel({ title, subtitle, action, children, className, bodyClassN
         <header className="panel-head flex items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
             {title && <h2 className="truncate text-md font-semibold text-ink">{title}</h2>}
-            {subtitle && <p className="mt-0.5 truncate text-xs text-ink-3">{subtitle}</p>}
+            {subtitle && <p className="mt-0.5 text-xs leading-relaxed text-ink-3">{subtitle}</p>}
           </div>
           {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
         </header>
@@ -168,13 +171,13 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
     return true;
   };
   return (
-    <div role="tablist" aria-label={label} className={cn('inline-flex rounded-md border border-line bg-surface-2 p-0.5', className)}>
+    <div role="tablist" aria-label={label} className={cn('inline-flex max-w-full shrink-0 rounded-md border border-line bg-surface-2 p-0.5 scroll-x scroll-x-quiet', className)}>
       {options.map((o, i) => {
         const active = o.value === value;
         return (
           <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" aria-selected={active} aria-label={o.ariaLabel} tabIndex={active ? 0 : -1}
             onClick={() => onChange(o.value)} onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}
-            className={cn('rounded font-medium transition-colors', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}>
+            className={cn('shrink-0 whitespace-nowrap rounded font-medium transition-colors', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}>
             {o.label}
           </button>
         );
@@ -184,13 +187,22 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
 }
 
 export function Tabs<T extends string>({ value, onChange, tabs, className }: { value: T; onChange: (v: T) => void; tabs: Array<{ value: T; label: React.ReactNode; count?: number }>; className?: string }) {
+  const strip = React.useRef<HTMLDivElement | null>(null);
+  // On a phone the active tab is often past the right edge, which leaves a person looking at a
+  // strip that does not contain where they are. Bring it into view whenever it changes.
+  React.useEffect(() => {
+    const el = strip.current?.querySelector<HTMLElement>('[aria-selected="true"]');
+    // Centred rather than nearest: 'nearest' parks the active tab flush against the edge fade,
+    // which is where it is hardest to read. When the strip fits, this is a no-op.
+    el?.scrollIntoView({ block: 'nearest', inline: 'center' });
+  }, [value]);
   return (
-    <div role="tablist" className={cn('tab-bar overflow-x-auto', className)}>
+    <div ref={strip} role="tablist" className={cn('tab-bar scroll-x scroll-x-canvas scroll-x-quiet', className)}>
       {tabs.map((t) => {
         const active = t.value === value;
         return (
           <button key={t.value} type="button" role="tab" aria-selected={active} onClick={() => onChange(t.value)}
-            className={cn('tab flex shrink-0 items-center gap-1.5', active && 'border-accent text-accent')}>
+            className={cn('tab flex shrink-0 items-center gap-1.5 whitespace-nowrap', active && 'border-accent text-accent')}>
             {t.label}{t.count != null && <span className={cn('fig rounded-full px-1.5 py-0.5 text-2xs', active ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-ink-3')}>{t.count}</span>}
           </button>
         );
@@ -214,14 +226,14 @@ export const Kbd = ({ children }: { children: React.ReactNode }) => <kbd classNa
 export function PageHeader({ eyebrow, title, lede, children }: { eyebrow?: string; title: React.ReactNode; lede?: React.ReactNode; children?: React.ReactNode }) {
   return (
     <div className="mb-6">
-      <div className="flex flex-wrap items-end justify-between gap-4">
-        <div className="min-w-0">
+      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+        <div className="min-w-0 flex-1 basis-[22rem]">
           {eyebrow && <p className="eyebrow mb-2">{eyebrow}</p>}
           <h1 className="page-title">{title}</h1>
+          {lede && <p className="page-lede">{lede}</p>}
         </div>
         {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
       </div>
-      {lede && <p className="page-lede">{lede}</p>}
     </div>
   );
 }

@@ -103,8 +103,45 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     authority: 'Necessary to operate authenticated access.',
     access: 'The person, for their own sessions.',
     columns: {
-      id: 'technical', user_id: 'identifier', token_hash: 'authentication', ip: 'technical', user_agent: 'technical',
-      method: 'technical', sudo_until: 'technical', created_at: 'technical', last_seen_at: 'technical', expires_at: 'technical',
+      id: 'authentication', user_id: 'identifier', ip: 'technical', user_agent: 'technical',
+      method: 'technical', sudo_until: 'technical', created_at: 'technical', last_used_at: 'technical',
+      expires_at: 'technical', absolute_expires_at: 'technical',
+    },
+  },
+  retention_schedules: {
+    purpose: 'How long each kind of record is kept and what happens then, with the authority it is kept under.',
+    authority: 'Records management. The schedule itself is the instrument, so it is retained as long as the records it governs.',
+    access: 'The owner.',
+    columns: {
+      id: 'technical', record_type: 'none', retain_days: 'none', disposition: 'none', authority: 'none',
+      notes: 'none', enabled: 'none', created_at: 'technical', updated_at: 'technical',
+    },
+  },
+  legal_holds: {
+    purpose: 'Which records are frozen against disposition, why, and who froze them.',
+    authority: 'Preservation obligation. A hold naming a person is about that person, so it is treated as identifying.',
+    access: 'The owner.',
+    columns: {
+      id: 'technical', scope: 'none', subject_id: 'identifier', record_type: 'none', reason: 'employment',
+      placed_by: 'identifier', placed_at: 'technical', released_by: 'identifier', released_at: 'technical',
+    },
+  },
+  disposition_runs: {
+    purpose: 'What disposition did on each run, which is the evidence that retention was applied as written.',
+    authority: 'Records management accountability.',
+    access: 'The owner.',
+    columns: {
+      id: 'technical', actor_id: 'identifier', dry_run: 'none', record_type: 'none', disposition: 'none',
+      eligible: 'none', acted: 'none', held: 'none', detail: 'technical', at: 'technical',
+    },
+  },
+  personnel_sync_runs: {
+    purpose: 'Every applied roster sync and what it changed, so a person can be told why their record changed under them.',
+    authority: 'Records management accountability for the personnel feed.',
+    access: 'The owner.',
+    columns: {
+      id: 'technical', source: 'technical', actor_id: 'identifier', dry_run: 'none', rows_seen: 'none',
+      created: 'none', updated: 'none', separated: 'none', conflicts: 'none', detail: 'technical', at: 'technical',
     },
   },
   product_events: {

@@ -50,14 +50,46 @@ boundary the authorization already follows means:
 Rolling several instances up for a higher echelon is a reporting problem, not a database problem,
 and reporting can be fed by the export rather than by shared storage.
 
-## When a central database would be right
+## Corps-wide, and what that does not settle
 
-If a requirement arrives for one live database across many commands — a Corps-wide dashboard over
-individual records rather than over submitted reports — SQLite is the wrong store and the answer is
-PostgreSQL.
+The intent is Marine Corps wide. That is a decision about reach, and it is worth being precise that
+it is not yet a decision about storage, because the two get conflated and the conflation is what
+buys the wrong database.
 
-That port is not started, deliberately. `better-sqlite3` is synchronous and used at 629 call sites
-across 35 files; every one becomes async, along with the 254 tests. It is a large, mechanical,
-risky change, and doing it speculatively before anyone has decided between federated and central
-would be building the expensive half of a decision nobody has made. The work is well understood and
-can be scheduled when the requirement is real.
+Corps-wide reach is satisfied by either shape:
+
+- **Federated.** One instance per command, on the boundary above. Reach comes from deploying many
+  instances; a higher echelon is fed by exports and submitted reports. This is what the current
+  build does, today, at the measured sizes.
+- **Central.** One live database holding every Marine's records, with commands as scopes inside it.
+
+They are the same product to a user and a different problem to an engineer. Federated is a
+deployment exercise with the code that already exists. Central is a port.
+
+## What central costs, if that is the call
+
+At Corps scale a single live database is well past SQLite. A Marine Corps of roughly 170,000 at the
+same 300 records per person is on the order of 50M rows and about 30 GB — two orders of magnitude
+above the largest size measured above, and the rollup query that already needs 298 ms at 5,000
+people does not get better with more rows. A single writer is also the wrong shape for that many
+concurrent sessions regardless of row count. The answer there is PostgreSQL.
+
+That port is not started. `better-sqlite3` is synchronous, and the whole server is written against
+that fact: about a thousand database call sites across 46 files, every one of which becomes async,
+along with the 288 server tests that await them.
+
+```
+# statement prepares and executions, which is the set that has to change
+grep -rnoE '\.(prepare|exec|pragma|transaction)\(|\)\.(get|all|run)\(' server/ shared/ scripts/ | wc -l
+```
+
+It is large and mechanical rather than clever, which makes it schedulable but not cheap, and it is
+the kind of change that should be done deliberately and reviewed rather than folded into a UI pass.
+
+Beyond the mechanical work, central deployment also has to answer the things federation answers by
+construction: whose
+authorization envelope covers one database holding every Marine's counseling history, who the
+records officer for it is, and what an outage or a bad restore touches.
+
+Recorded here so the decision is made on the record rather than inherited from whichever store
+happened to be in the repository.
