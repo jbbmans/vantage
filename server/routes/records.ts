@@ -9,6 +9,7 @@ import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, r
 import { inspectAttachment, attachmentDisposition } from '../services/attachments.ts';
 import { audit } from '../services/audit.ts';
 import { goalContributors } from '../services/goals.ts';
+import { listComments, addComment, editComment, deleteComment } from '../services/comments.ts';
 import { newId, now } from '../lib/ids.ts';
 import { statSync } from 'node:fs';
 
@@ -95,7 +96,17 @@ recordsRouter.post('/counselings/:id/acknowledge', wrap((req, res) => {
 }));
 
 // Attachments ----------------------------------------------------------
-const ATTACHABLE = new Set(['activities', 'awards', 'counselings', 'trainings']);
+/**
+ * Which records take a file. Tasks, projects and goals were left off the original list, which meant
+ * the one place people actually needed to hang a document — the tasking it supports — was the one
+ * place that refused it.
+ *
+ * Nothing else had to change to allow them: every entry here is a row in TABLES, so canRead and
+ * canEdit already decide access from the host record's own visibility, unit and assignee. A file on
+ * a private task stays private; a file on a task assigned to somebody is reachable by the assignee
+ * exactly as the task itself is.
+ */
+const ATTACHABLE = new Set(['activities', 'awards', 'counselings', 'trainings', 'tasks', 'projects', 'goals']);
 const attachmentBody = (req: express.Request, res: express.Response, next: express.NextFunction) =>
   express.raw({ type: () => true, limit: req.ctx.config.attachments.maxBytes })(req, res, next);
 
@@ -158,4 +169,27 @@ recordsRouter.delete('/:table/:id/attachments/:attachmentId', wrap((req, res) =>
   if (!r.changes) throw notFound('No such attachment.');
   audit(req.ctx, { actor_id: req.user.id, action: 'delete_attachment', entity: table, entity_id: row.id, unit_id: row.unit_id, ip: clientIp(req) });
   res.json({ ok: true });
+}));
+
+// Comments ---------------------------------------------------------------
+// Every one of these resolves the host record first and asks the host's own permission rules.
+// There is no comment-level visibility to get wrong: see the record, see its conversation.
+const commentArgs = (req: express.Request) => [
+  req.ctx, req.user, scopeFor(req.ctx, req.user, req), String(req.params.table), String(req.params.id),
+] as const;
+
+recordsRouter.get('/:table/:id/comments', wrap((req, res) => {
+  res.json({ comments: listComments(...commentArgs(req)) });
+}));
+
+recordsRouter.post('/:table/:id/comments', wrap((req, res) => {
+  res.status(201).json(addComment(...commentArgs(req), String(req.body?.body ?? ''), clientIp(req)));
+}));
+
+recordsRouter.put('/:table/:id/comments/:commentId', wrap((req, res) => {
+  res.json(editComment(...commentArgs(req), String(req.params.commentId), String(req.body?.body ?? ''), clientIp(req)));
+}));
+
+recordsRouter.delete('/:table/:id/comments/:commentId', wrap((req, res) => {
+  res.json(deleteComment(...commentArgs(req), String(req.params.commentId), clientIp(req)));
 }));

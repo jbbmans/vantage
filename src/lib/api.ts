@@ -135,6 +135,13 @@ export const uploadAttachment = (store: Store, id: string, file: File) => reques
 export const deleteAttachment = (store: Store, id: string, attachmentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`);
 export const attachmentUrl = (store: Store, id: string, attachmentId: string) => `/api/records/${store}/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`;
 
+// Comments. Every one of these is gated server-side by the host record's own visibility, so there
+// is no client-side notion of who may read a thread — ask, and a 403 is the answer.
+export const comments = (store: Store, id: string) => api.get(`/records/${store}/${encodeURIComponent(id)}/comments`);
+export const addComment = (store: Store, id: string, body: string) => api.post(`/records/${store}/${encodeURIComponent(id)}/comments`, { body });
+export const editComment = (store: Store, id: string, commentId: string, body: string) => api.put(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`, { body });
+export const deleteComment = (store: Store, id: string, commentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`);
+
 // Org ----------------------------------------------------------------
 export const team = () => api.get('/org/team');
 export const member = (id: string) => api.get(`/org/team/${encodeURIComponent(id)}`);

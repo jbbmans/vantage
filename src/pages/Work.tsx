@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Plus, CheckCircle2, Circle, Clock, FolderKanban, ListTodo } from 'lucide-react';
 import { Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, Progress, Skeleton, NumberInput } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/Dialog';
@@ -81,7 +82,7 @@ export default function Work({ embedded }: { embedded?: boolean } = {}) {
                     <li key={t.id} className="row flex items-start gap-3 px-4 py-2.5">
                       <button type="button" onClick={() => toggle(t)} disabled={!canToggleRow(t)} className="mt-0.5 text-ink-3 hover:text-good disabled:opacity-40" aria-label={t.status === 'completed' ? 'Reopen task' : 'Complete task'}>{t.status === 'completed' ? <CheckCircle2 className="h-5 w-5 text-good" /> : <Circle className="h-5 w-5" />}</button>
                       <div className="min-w-0 flex-1">
-                        <button type="button" className={cn('block truncate text-left text-sm font-medium text-ink hover:underline', t.status === 'completed' && 'line-through text-ink-3')} onClick={() => canEditRow(t) && setTaskDraft({ ...t, notes: t.notes || '', due_date: t.due_date || '' })}>{t.title}</button>
+                        <Link to={`/records/tasks/${t.id}`} className={cn('block truncate text-left text-sm font-medium text-ink hover:underline', t.status === 'completed' && 'line-through text-ink-3')}>{t.title}</Link>
                         <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-3">
                           {t.due_date && <span className={cn('flex items-center gap-1', t.status !== 'completed' && t.due_date < today && 'text-bad')}><Clock className="h-3 w-3" /><DateText value={t.due_date} /></span>}
                           {t.project_id && <span>{(projects || []).find((p: any) => p.id === t.project_id)?.name}</span>}
@@ -91,6 +92,7 @@ export default function Work({ embedded }: { embedded?: boolean } = {}) {
                         </p>
                       </div>
                       {t.priority !== 'medium' && <StatusBadge value={t.priority} />}
+                      {canEditRow(t) && <Button size="xs" variant="ghost" aria-label={`Edit ${t.title}`} onClick={() => setTaskDraft({ ...t, notes: t.notes || '', due_date: t.due_date || '' })}>Edit</Button>}
                       {t.status === 'completed' && <Button size="xs" variant="soft" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: t.title }))}>Log it</Button>}
                     </li>
                   ))}</ul>
@@ -115,7 +117,7 @@ export default function Work({ embedded }: { embedded?: boolean } = {}) {
                   {p.description && <p className="mt-1 line-clamp-3 text-sm text-ink-2">{p.description}</p>}
                   <div className="mt-3"><div className="flex justify-between text-xs text-ink-3"><span>{done}/{pTasks.length} tasks · {acts} activities</span><span className="fig">{pct}%</span></div><Progress value={pct} className="mt-1" tone={pct >= 100 ? 'good' : 'accent'} /></div>
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-3">{p.target_date && <Badge tone={p.status !== 'completed' && p.target_date < today ? 'bad' : 'neutral'}>Due <DateText value={p.target_date} /></Badge>}{p.priority !== 'medium' && <StatusBadge value={p.priority} />}{p.visibility === 'unit' && <Badge tone="info">Shared</Badge>}</div>
-                  <div className="mt-auto flex justify-between gap-2 border-t border-line pt-3"><Button size="xs" variant="ghost" onClick={() => { setProjectFilter(p.id); setTab('tasks'); }}>Tasks</Button><span className="flex gap-1"><Button size="xs" variant="ghost" onClick={() => newTask({ project_id: p.id })}>+ Task</Button>{canEditRow(p) && <><Button size="xs" variant="ghost" onClick={() => setProjectDraft({ ...p, description: p.description || '', start_date: p.start_date || '', target_date: p.target_date || '', organization: p.organization || '', progress: p.progress ?? 0 })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'projects', row: p })}>Delete</Button></>}</span></div>
+                  <div className="mt-auto flex justify-between gap-2 border-t border-line pt-3"><span className="flex gap-1"><Button size="xs" variant="ghost" onClick={() => { setProjectFilter(p.id); setTab('tasks'); }}>Tasks</Button><Link to={`/records/projects/${p.id}`} className="link self-center text-xs">Open</Link></span><span className="flex gap-1"><Button size="xs" variant="ghost" onClick={() => newTask({ project_id: p.id })}>+ Task</Button>{canEditRow(p) && <><Button size="xs" variant="ghost" onClick={() => setProjectDraft({ ...p, description: p.description || '', start_date: p.start_date || '', target_date: p.target_date || '', organization: p.organization || '', progress: p.progress ?? 0 })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'projects', row: p })}>Delete</Button></>}</span></div>
                 </article>
               );
             })}

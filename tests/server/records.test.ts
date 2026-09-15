@@ -444,3 +444,55 @@ test('exporting another Marine’s CSV needs the unit export permission, not jus
   assert.equal(allowed.status, 200);
   assert.match(allowed.text, /Shared for export/);
 });
+
+/**
+ * A file belongs on the tasking it supports. Tasks, projects and goals were excluded from
+ * ATTACHABLE, so the useful case — here is the spreadsheet this task is about — was the one the
+ * product refused.
+ *
+ * The permission half is the part worth proving, and it is proved by what stays hidden. Nothing in
+ * the attachment code decides who may read a file; the host record does. So a plain member of the
+ * same unit, who cannot read another member's shared task because they hold no VIEW_RECORDS, must
+ * not be able to reach its attachment either. Hanging a file on a record is not a way to publish it.
+ */
+test('tasks, projects and goals take files, and the file is exactly as reachable as its host', async () => {
+  const png = Buffer.concat([Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'), Buffer.alloc(40, 2), Buffer.from('0000000049454e44ae426082', 'hex')]);
+  const put = (table: string, id: string, token: string, name: string) =>
+    app.call('POST', `/api/records/${table}/${id}/attachments`, { token, raw: png, headers: { 'content-type': 'image/png', 'x-vantage-filename': name } });
+
+  for (const [table, body] of [
+    ['tasks', { title: 'Reconcile the October sheet', visibility: 'unit' }],
+    ['projects', { name: 'October reconciliation', visibility: 'unit' }],
+    ['goals', { title: 'Close every October case', visibility: 'unit' }],
+  ] as const) {
+    // nguyen is the SNCO; posting shared tasking is theirs to do.
+    const rec = await app.call('POST', `/api/records/${table}`, { token: nguyen.token, body });
+    assert.equal(rec.status, 201, `${table}: ${JSON.stringify(rec.body)}`);
+    const up = await put(table, rec.body.id, nguyen.token, 'sheet.png');
+    assert.equal(up.status, 201, `${table} should take a file: ${JSON.stringify(up.body)}`);
+
+    // Somebody who can read the host record reads the file with it.
+    const reader = await app.call('GET', `/api/records/${table}/${rec.body.id}/attachments`, { token: op.token });
+    assert.equal(reader.status, 200, `${table}: a reader of the record lists the file`);
+    assert.equal(reader.body.attachments.length, 1, `${table}: and sees exactly the one file`);
+
+    // A plain member of the same unit cannot read the host, so the file is out of reach too.
+    assert.equal((await app.call('GET', `/api/records/${table}/${rec.body.id}/attachments`, { token: rivera.token })).status, 403,
+      `${table}: a file does not widen who can see the record`);
+
+    // And somebody outside the unit can neither read nor delete it.
+    assert.equal((await app.call('GET', `/api/records/${table}/${rec.body.id}/attachments`, { token: outsider.token })).status, 403);
+    assert.equal((await app.call('DELETE', `/api/records/${table}/${rec.body.id}/attachments/${up.body.id}`, { token: outsider.token })).status, 403);
+  }
+
+  // The private case, from the other direction: a file on somebody's private task is unreachable
+  // even by the SNCO who can read every shared record in the unit.
+  const secret = await app.call('POST', '/api/records/tasks', { token: rivera.token, body: { title: 'Private tasking', visibility: 'private' } });
+  assert.equal(secret.status, 201, JSON.stringify(secret.body));
+  const hidden = await put('tasks', secret.body.id, rivera.token, 'private.png');
+  assert.equal(hidden.status, 201, JSON.stringify(hidden.body));
+  assert.equal((await app.call('GET', `/api/records/tasks/${secret.body.id}/attachments`, { token: nguyen.token })).status, 403,
+    'a file on a private task is not readable by a unit peer, even an SNCO');
+  // The owner still reaches their own.
+  assert.equal((await app.call('GET', `/api/records/tasks/${secret.body.id}/attachments`, { token: rivera.token })).body.attachments.length, 1);
+});

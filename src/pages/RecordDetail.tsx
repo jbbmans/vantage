@@ -9,6 +9,7 @@ import RecordDialog from '@/components/RecordDialog';
 import { ActivityFields, toActivityDraft, type ActivityDraft } from '@/components/ActivityForm';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DescriptionList, DateText, StatusBadge, CategoryDot } from '@/components/common';
+import { Comments } from '@/components/Comments';
 import { keys, useDeleteRecord, useIdentity, useRestoreRecord, useTrack, unitName, useOrg, useMetrics } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { composeBullet, strength, weaknesses, expandAcronyms, type BulletStyle } from '../../shared/bullets';
@@ -122,6 +123,8 @@ export default function RecordDetail() {
           </Panel>
         </div>
       </div>
+
+      <Comments table="activities" id={id} canModerate={Boolean(a.unit_id && identity && ((identity.permissions[a.unit_id] || 0) & ((1 << 12) | (1 << 3))))} />
 
       <RecordDialog<ActivityDraft> store="activities" open={Boolean(editing)} onOpenChange={(o) => { if (!o) setEditing(null); }} initial={editing} title="Edit activity" noun="Activity" size="lg" fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : null)} onSaved={() => qc.invalidateQueries({ queryKey: keys.record('activities', id) })} />
       <ConfirmDialog open={confirm} onOpenChange={setConfirm} title="Delete this entry?" body="It moves to the recycle bin for 30 days and can be restored from this page." onConfirm={async () => { try { await remove.mutateAsync(id); toast.success('Entry deleted.'); navigate('/records'); } catch (e) { toast.error(api.errorText(e)); } }} />
