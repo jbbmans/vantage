@@ -1,0 +1,560 @@
+{
+  "version": 1,
+  "date": "2026-09-15",
+  "source_commit": "659cbba99cbfc374420f60c7030bce258a2cd68c",
+  "status": "Production storyboards; replacement footage, final voice and music not yet produced or approved.",
+  "films": [
+    {
+      "id": "tour",
+      "title": "The work. The evidence. The impact.",
+      "audience": "First-time visitors and prospective sponsors",
+      "goal": "Explain one complete work-to-report journey in 75 seconds.",
+      "music": "100 BPM; warm electronic pulse, rounded bass, restrained percussion. Introduce rhythm after the opening question.",
+      "proof": "One completed synthetic work item appears once in Records and is selected as a report source.",
+      "shots": [
+        {
+          "time": "00:00-00:07",
+          "picture": "Tight crop of a finished, source-linked report. Cut to three separate task, spreadsheet and note fragments. Overlay: Where did the impact go?",
+          "voice": "The work gets done. But when someone asks what changed, the story is scattered across spreadsheets, inboxes, and memory.",
+          "edit": "Cold open; three clean cuts; no logo bumper. One muted paper sound, then a beat of silence."
+        },
+        {
+          "time": "00:07-00:18",
+          "picture": "Pull back into the real VANTAGE workspace. Show one synthetic work item with an owner, context and status.",
+          "voice": "VANTAGE brings that story together. It connects daily work, performance records, and reporting in a workspace built for Marines and operational teams.",
+          "edit": "J-cut: start the sentence before the UI appears. Flat logo in the app; persistent Demo data label."
+        },
+        {
+          "time": "00:18-00:31",
+          "picture": "Complete the selected item through its actual workflow. Hold the confirmation, then open its resulting record.",
+          "voice": "Start with the work. Capture the outcome, the amount, and the supporting context. Check what you are saving, then keep it with the record.",
+          "edit": "Follow one cursor. Punch in only on outcome fields. Do not cut across the save and confirmation."
+        },
+        {
+          "time": "00:31-00:44",
+          "picture": "Show the outcome in its correct metric group; open the source detail. Keep UMT counts separate from unrelated units.",
+          "voice": "The picture grows from those records. You can see what was accomplished and inspect the detail behind it, without treating every entry as the same kind of output.",
+          "edit": "Match cut on the identical item title. Teal underline on the source link. Hold the evidence for three seconds."
+        },
+        {
+          "time": "00:44-01:04",
+          "picture": "Open Reports, choose the relevant range and records, generate a draft, open a source, revise one sentence and save.",
+          "voice": "When it is time to report, start from the evidence you already have. Build a draft, check its sources, and edit it before you share it. The judgment stays with you.",
+          "edit": "Compress genuine loading with a visible Time shortened label. Music drops under source explanation. No simulated AI response."
+        },
+        {
+          "time": "01:04-01:15",
+          "picture": "Full product frame, then flat mark and short end line: Make the work visible. CTA: Explore VANTAGE.",
+          "voice": "VANTAGE. Make the work visible, keep the evidence close, and turn everyday action into a clearer picture. Explore the product to see how it works.",
+          "edit": "Resolve the musical phrase. Two-second end-card hold, clean audio tail, no trailer boom."
+        }
+      ]
+    },
+    {
+      "id": "first-week",
+      "title": "Your first week in VANTAGE",
+      "audience": "New individual users",
+      "goal": "Establish a small repeatable routine rather than tour every menu.",
+      "music": "92 BPM; soft keys and sparse pulse. Lower energy than the overview.",
+      "proof": "User can save a record, correct it, create a measurable goal and review a weekly report selection.",
+      "shots": [
+        {
+          "time": "00:00-00:08",
+          "picture": "Open on a populated weekly record list. Overlay: A useful first week.",
+          "voice": "Your first week has one goal: build a record you can actually use. Start small, and keep the detail while it is fresh.",
+          "edit": "Outcome first. Gentle 110% crop; music enters beneath the second sentence."
+        },
+        {
+          "time": "00:08-00:25",
+          "picture": "Day one: show profile, rank, unit membership and record visibility controls using a fictional account.",
+          "voice": "Check your profile and unit membership first. Review the visibility setting whenever you create a record. Your role and membership determine which team views you can access.",
+          "edit": "Day 1 chapter marker. Circle only the control being explained. Never show a password or invitation token."
+        },
+        {
+          "time": "00:25-00:44",
+          "picture": "Open Quick Log. Enter a synthetic completed task, review the parsed fields, choose visibility and save.",
+          "voice": "Log one real outcome from your day. Include what you did, how much you completed, and why it mattered. Review the fields and save the activity.",
+          "edit": "Typing accelerated between the first and last words; normal-speed review and save. Show confirmation."
+        },
+        {
+          "time": "00:44-01:03",
+          "picture": "Day two: reopen the record and correct a result. Open Goals and set one measurable target with the correct unit.",
+          "voice": "If you missed context, edit the record. Then choose one measurable goal. Use a target with a clear unit, so progress tells you something useful.",
+          "edit": "Cut on navigation. Before-and-after text highlight; preserve the rest of the screen."
+        },
+        {
+          "time": "01:03-01:21",
+          "picture": "Friday: filter the reporting period and inspect the recorded work. Open a report source.",
+          "voice": "At the end of the week, review your records for missing detail and check the reporting period. Open the source behind a figure before relying on it.",
+          "edit": "Friday chapter marker. No fictional time-saving counter. Let the viewer read the date range."
+        },
+        {
+          "time": "01:21-01:30",
+          "picture": "Three-line recap: Capture / Check / Review. End on Quick Log entry point.",
+          "voice": "Capture while the detail is fresh. Check what you saved. Review the week. That is enough to make your first week useful.",
+          "edit": "Three beat-synced reveals; fade music over the last two seconds."
+        }
+      ]
+    },
+    {
+      "id": "quick-log",
+      "title": "From one sentence to a saved record",
+      "audience": "Individual contributors",
+      "goal": "Show successful capture, review, save and retrieval.",
+      "music": "96 BPM; minimal plucked synth and quiet pulse.",
+      "proof": "Save activity succeeds; the saved record preserves quantity, amount, value type, date and visibility.",
+      "shots": [
+        {
+          "time": "00:00-00:06",
+          "picture": "Close-up of the finished record: 8 UMTs, $12,600, result and date. Overlay: Start with one sentence.",
+          "voice": "A useful record starts with what you actually did. Here is how to capture it without losing the detail.",
+          "edit": "Result-first cold open; one short confirmation sound."
+        },
+        {
+          "time": "00:06-00:14",
+          "picture": "Return to Today; activate Quick Log through the visible control. Show N shortcut as optional annotation.",
+          "voice": "Open Quick Log from the workspace. You can also press N when you are not typing into another field.",
+          "edit": "Cursor glide to the real button. Tiny N callout outside the click target."
+        },
+        {
+          "time": "00:14-00:27",
+          "picture": "Type: Resolved 8 UMTs totaling $12,600 yesterday. Show parsing finish before the next shot.",
+          "voice": "Write a clear sentence. Include the action, quantity, amount, and date. VANTAGE proposes structured fields from the text for you to review.",
+          "edit": "Speed up typing only. Keep the final sentence visible for three seconds."
+        },
+        {
+          "time": "00:27-00:43",
+          "picture": "Open details. Inspect count, unit, amount, value type and date; choose visibility and fix one field if needed.",
+          "voice": "Check the quantity and dollar amount separately. Confirm the type of financial action and the date, then choose who should see the record. Correct anything the parser misunderstood.",
+          "edit": "Two restrained punch-ins. Use a labeled illustrative example; never call all reviewed dollars savings."
+        },
+        {
+          "time": "00:43-00:54",
+          "picture": "Click Save activity. Keep success feedback visible. Open Records and the newly saved item.",
+          "voice": "Save the activity, then open it in Records. You should see the same outcome and the details you just checked.",
+          "edit": "Unbroken save-to-confirmation shot. Match cut to identical saved title; music ducks."
+        },
+        {
+          "time": "00:54-01:00",
+          "picture": "Hold the saved record. End overlay: Capture. Review. Save.",
+          "voice": "One sentence starts the record. Your review makes it useful.",
+          "edit": "No Escape-to-discard ending. Two-second end hold with captions still visible."
+        }
+      ]
+    },
+    {
+      "id": "visibility",
+      "title": "Choose who can see the record",
+      "audience": "Individuals and leaders",
+      "goal": "Demonstrate private and shared records with two different roles.",
+      "music": "84 BPM; quiet ambient bed, no dramatic security effects.",
+      "proof": "A member and a separate leader account show the intended record visible only after sharing; audit view verified before narration.",
+      "shots": [
+        {
+          "time": "00:00-00:07",
+          "picture": "Two labeled views: My record / Leader view. Shared record is not present in the leader view yet.",
+          "voice": "Before you share a record, know which audience you are choosing. Visibility is a decision worth checking at the point of saving.",
+          "edit": "Split screen only for role comparison. Both panels labeled Demo accounts."
+        },
+        {
+          "time": "00:07-00:18",
+          "picture": "Open record details and show the actual selected visibility, not a decorative privacy badge.",
+          "voice": "Open the record and inspect its visibility. Do not assume a default: check the setting on the record you are about to use.",
+          "edit": "Slow 120% crop to visibility control. Music remains low."
+        },
+        {
+          "time": "00:18-00:29",
+          "picture": "Save a private test record. Switch to a separate ordinary unit leader session and inspect the corresponding view.",
+          "voice": "In this example, the record is private. The ordinary unit leader view does not include it. These two screens belong to different test users.",
+          "edit": "Role title card during switch; do not log in as owner for the leader example."
+        },
+        {
+          "time": "00:29-00:42",
+          "picture": "Return to the member; share to the intended unit; save; inspect the named unit before confirmation.",
+          "voice": "When you want to share, select the correct unit and save. Check the unit name as carefully as the visibility setting.",
+          "edit": "One close-up. Keep save confirmation in frame; discrete tick sound."
+        },
+        {
+          "time": "00:42-00:53",
+          "picture": "Leader opens the now-shared record. Return to the member audit view and locate the actual access event if present.",
+          "voice": "The shared record is now available to the authorized leader. Review the access history available in your deployment to understand how it was used.",
+          "edit": "Match cut on exact record title. Do not claim universal access logging if this event is absent."
+        },
+        {
+          "time": "00:53-01:00",
+          "picture": "End on the record visibility control with recap: Check audience / Check unit / Save.",
+          "voice": "Choose the audience, confirm the unit, and check the saved result.",
+          "edit": "No claims about absolute privacy from system administrators. Resolve gently."
+        }
+      ]
+    },
+    {
+      "id": "import",
+      "title": "Bring a spreadsheet into the work queue",
+      "audience": "Team members importing operational spreadsheets",
+      "goal": "Teach preview, validation, apply and identical-file reimport.",
+      "music": "96 BPM; light pulse, remove percussion during validation.",
+      "proof": "Preview counts match applied rows; invalid input is handled visibly; identical reimport demonstrates its actual no-change result.",
+      "shots": [
+        {
+          "time": "00:00-00:08",
+          "picture": "Show a small completed queue and its original synthetic workbook. Overlay: Keep the source.",
+          "voice": "Your spreadsheet already contains useful work. Bring it into VANTAGE with the source and the review steps intact.",
+          "edit": "Match cut from original workbook to the queue. No confidential files."
+        },
+        {
+          "time": "00:08-00:24",
+          "picture": "Work > Queue > Import a spreadsheet. Select a five-row fixture containing one intentional validation issue.",
+          "voice": "Open the queue and choose Import a spreadsheet. Select your file, then review the sheet and fields VANTAGE will use.",
+          "edit": "Chapter Upload. Crop to file selection result; omit filesystem paths and unrelated filenames."
+        },
+        {
+          "time": "00:24-00:44",
+          "picture": "Show sheet selection, headers and field mapping. Point at row identity and financial fields.",
+          "voice": "Match the fields carefully. Check the identifiers, amounts, and units. A preview is the time to catch a column that would otherwise mean something different.",
+          "edit": "Chapter Map. Normal speed on mapping changes. Teal highlight on one column at a time."
+        },
+        {
+          "time": "00:44-01:08",
+          "picture": "Inspect the validation issue, correct the fixture or mapping, rerun preview and verify every displayed count.",
+          "voice": "Read the validation message before applying anything. Correct the issue and preview again. The counts and sample rows should match what you intend to bring in.",
+          "edit": "Chapter Review. Show the real error and recovery. No cut that makes the bad row disappear without explanation."
+        },
+        {
+          "time": "01:08-01:28",
+          "picture": "Apply the import; show its result and open one created work item plus its original source.",
+          "voice": "Apply the reviewed import. Open a work item and inspect its source so you can confirm where the row came from.",
+          "edit": "Keep apply and success intact. Pause on provenance; two-second music dip."
+        },
+        {
+          "time": "01:28-01:45",
+          "picture": "Import the unchanged file again. Show actual unchanged result. End with queue and source together.",
+          "voice": "Reimport the same unchanged file and inspect the result. This example should produce no duplicate work. A changed file is a different case and deserves another review.",
+          "edit": "Chapter Reimport. Show real unchanged counts; do not imply every modified workbook is idempotent."
+        }
+      ]
+    },
+    {
+      "id": "queue",
+      "title": "Claim the work. Close the loop.",
+      "audience": "Contributors and queue owners",
+      "goal": "Demonstrate ownership, status, resolution and one linked activity.",
+      "music": "102 BPM; soft rhythmic ticks, purposeful forward motion.",
+      "proof": "Item claim and resolution succeed; the linked activity exists once; an unchanged repeat does not add a second outcome.",
+      "shots": [
+        {
+          "time": "00:00-00:07",
+          "picture": "Open on resolved work item beside its linked activity. Overlay: One outcome, connected.",
+          "voice": "Finishing the task is only part of the job. Keep who did it, what changed, and the record of the outcome together.",
+          "edit": "Outcome-first split composition, then return to full product."
+        },
+        {
+          "time": "00:07-00:20",
+          "picture": "Open Work > Queue. Filter unclaimed items; inspect one row before claiming it.",
+          "voice": "Start in the queue. Find an available item, open its detail, and read the source before taking ownership.",
+          "edit": "Show the actual filter selected. No frantic scrolling."
+        },
+        {
+          "time": "00:20-00:33",
+          "picture": "Claim the item and show the owner field. Briefly demonstrate already-claimed state from the second test account.",
+          "voice": "Claim the item so the team can see who is working it. If someone already owns it, resolve that handoff before proceeding.",
+          "edit": "Cursor spotlight on claim; hold owner confirmation. Role switch explicitly labeled."
+        },
+        {
+          "time": "00:33-00:49",
+          "picture": "Update state and record follow-up context or supporting file through existing controls.",
+          "voice": "As the work moves, update its state and preserve useful context. Someone opening it later should understand what happened and what still needs attention.",
+          "edit": "Match cuts within the same item. One soft click accent on meaningful state change."
+        },
+        {
+          "time": "00:49-01:08",
+          "picture": "Resolve the item using actual completion controls. Show captured quantity, financial type and result, then open linked activity.",
+          "voice": "When the work is complete, record the outcome accurately. Check the amount and action type, then inspect the activity connected to the completed item.",
+          "edit": "Do not skip confirmation. Hold completed state and linked record for four seconds."
+        },
+        {
+          "time": "01:08-01:20",
+          "picture": "Return to queue and show the item in completed view. Overlay: Claim / Update / Resolve.",
+          "voice": "The queue shows the work is finished, and the record keeps the outcome. That is the loop you want to close.",
+          "edit": "Three-step recap. No promise of automatic recording until the actual linkage is shown."
+        }
+      ]
+    },
+    {
+      "id": "report-studio",
+      "title": "Build a report you can trace",
+      "audience": "Individuals preparing narratives and leaders reviewing them",
+      "goal": "Show source selection, real generation, revision and export.",
+      "music": "90 BPM; quiet piano or soft synth, slight lift at export.",
+      "proof": "Draft generated using enabled capability; source opens; revision saves; exported document contains the edited text.",
+      "shots": [
+        {
+          "time": "00:00-00:08",
+          "picture": "Open an actual generated report and its source list. Overlay: Start with evidence.",
+          "voice": "A convincing report begins with the facts behind it. VANTAGE helps you build the draft while keeping those facts within reach.",
+          "edit": "Hard cut from headline to real source list; no invented final document."
+        },
+        {
+          "time": "00:08-00:25",
+          "picture": "Reports > Packages. Create or open a package. Set reporting period, output type and relevant source selection.",
+          "voice": "Open Reports and choose the package you need. Set the reporting period and check which records belong in this draft.",
+          "edit": "Chapter Select. Hold the full date range, then move to source selection."
+        },
+        {
+          "time": "00:25-00:42",
+          "picture": "Click the actual generation action. Capture true loading and returned result; identify template or connected AI mode accurately.",
+          "voice": "Generate the draft from the selected material. If your deployment has AI enabled, use the available VANTAGE action and wait for the actual response.",
+          "edit": "Time-shortened loading may use a labeled cut. If generation fails, show the failure or retake after fixing it."
+        },
+        {
+          "time": "00:42-01:00",
+          "picture": "Open a citation or source link. Compare a figure and sentence to the underlying record.",
+          "voice": "Check the source behind a figure. The right number still needs the right meaning: reviewed funds, resolved discrepancies, and savings are different kinds of outcomes.",
+          "edit": "L-cut narration over source detail. Highlight matching text without covering it."
+        },
+        {
+          "time": "01:00-01:20",
+          "picture": "Edit a sentence, save the revision, inspect history if available, then export and open the file.",
+          "voice": "Edit the draft for accuracy and context. Save the revision, then export it. Open the result and confirm that your changes carried through.",
+          "edit": "Unbroken save feedback. Cut to actual exported file with synthetic data and no local path visible."
+        },
+        {
+          "time": "01:20-01:30",
+          "picture": "Report and source side by side. Recap: Select / Generate / Check / Edit.",
+          "voice": "VANTAGE helps assemble the work. You remain responsible for the final words.",
+          "edit": "Music lift at export, then resolve; no unsupported compliance claim."
+        }
+      ]
+    },
+    {
+      "id": "analysis",
+      "title": "Read the number. Inspect the evidence.",
+      "audience": "Users and leaders interpreting reports",
+      "goal": "Explain scope, units, filters and drill-down without misleading aggregation.",
+      "music": "86 BPM; sparse ambient plucks; long quiet holds on figures.",
+      "proof": "Visible date range and metric definition match the evidence; unlike units remain distinct.",
+      "shots": [
+        {
+          "time": "00:00-00:08",
+          "picture": "Large crop: 8 UMTs beside 3 training hours, with the two groups separate.",
+          "voice": "Eight financial actions and three training hours describe different work. Useful analysis preserves that difference.",
+          "edit": "Two clean reveals. Never animate the figures into a meaningless total."
+        },
+        {
+          "time": "00:08-00:23",
+          "picture": "Open full analysis through Reports. Show the actual selected reporting period and audience scope.",
+          "voice": "Begin with the scope. Check the period, the person or unit, and any filters before interpreting the results.",
+          "edit": "Chapter Scope. Teal bracket on range; normal-speed filter change."
+        },
+        {
+          "time": "00:23-00:40",
+          "picture": "Inspect one quantity group and one financial group. Show category or value-type labels.",
+          "voice": "Read the unit and the financial action type beside the number. A dollar amount alone does not explain what was accomplished.",
+          "edit": "Chapter Meaning. Punch in on labels, not only the headline numbers."
+        },
+        {
+          "time": "00:40-00:59",
+          "picture": "Open the record list underlying one displayed metric. Inspect a representative result.",
+          "voice": "Open the records behind a figure. Check whether the selected work supports the conclusion you were about to draw.",
+          "edit": "Chapter Evidence. Match cut using the same title and amount. Hold for a silent inspection beat."
+        },
+        {
+          "time": "00:59-01:18",
+          "picture": "Change the period or supported filter; show corresponding evidence set. Include a no-data view if useful.",
+          "voice": "Change the period and watch the evidence change with it. An empty view tells you there is no matching record here; it does not prove no work happened.",
+          "edit": "Chapter Compare. Show selected filter throughout; no invented before-and-after performance gains."
+        },
+        {
+          "time": "01:18-01:30",
+          "picture": "End on scope, metric group and source list together. Overlay: Scope / Meaning / Evidence.",
+          "voice": "Check the scope, understand the unit, and inspect the evidence. Then decide what the number means.",
+          "edit": "Quiet three-part recap with three seconds to read."
+        }
+      ]
+    },
+    {
+      "id": "unit-dashboard",
+      "title": "A clearer picture for the team",
+      "audience": "Unit leaders and prospective sponsors",
+      "goal": "Show permission-scoped team visibility and practical follow-up.",
+      "music": "98 BPM; steady pulse with restrained bass.",
+      "proof": "Leader sees intended unit, can inspect a shared source, and cannot see a control record in another unit.",
+      "shots": [
+        {
+          "time": "00:00-00:07",
+          "picture": "Team overview with a real selected unit and a clear follow-up item.",
+          "voice": "A team picture should help you decide where to look next, without losing the people and work behind it.",
+          "edit": "Start on the decision, not a menu fly-through."
+        },
+        {
+          "time": "00:07-00:22",
+          "picture": "Sign into ordinary leader test account and open Team. Hold unit name and membership context.",
+          "voice": "Open Team with your leadership role. Confirm which unit you are viewing and what your membership allows you to see.",
+          "edit": "Role label stays visible. Never use the operator account to imply ordinary-leader permissions."
+        },
+        {
+          "time": "00:22-00:38",
+          "picture": "Inspect an available workload or shared-outcome view. Open a synthetic member with shared records.",
+          "voice": "Use the shared records and available team views to understand the work. Select a person or outcome when you need the supporting detail.",
+          "edit": "Move from overview to detail with a controlled 250ms transition."
+        },
+        {
+          "time": "00:38-00:55",
+          "picture": "Open a shared record with missing follow-up context; show the source and current state.",
+          "voice": "Before acting on a summary, open the source. Look for the owner, the status, and the context that explains what still needs attention.",
+          "edit": "Emphasize the source label and actual state. Music ducks under explanation."
+        },
+        {
+          "time": "00:55-01:11",
+          "picture": "Show the second unit permission control case and an empty/shared-only view.",
+          "voice": "This view reflects the records and permissions available here. Missing or unshared records are a visibility limit, not a measure of someone\u2019s effort.",
+          "edit": "Side-by-side only for the scoped comparison. No ranking or leaderboard of fictional personnel."
+        },
+        {
+          "time": "01:11-01:20",
+          "picture": "Return to a useful shared record and recap: Scope / Source / Follow-up.",
+          "voice": "Confirm the scope, inspect the source, and make the next conversation more informed.",
+          "edit": "Soft musical resolution, clear end frame."
+        }
+      ]
+    },
+    {
+      "id": "counseling",
+      "title": "Record the conversation. Confirm the acknowledgement.",
+      "audience": "Leaders and counseled Marines",
+      "goal": "Show both sides of a counseling and the acknowledged-state behavior.",
+      "music": "80 BPM; warm understated pad and piano, no triumphal accents.",
+      "proof": "Leader creates a counseling; subject acknowledges; acknowledged status persists; edit restrictions are demonstrated.",
+      "shots": [
+        {
+          "time": "00:00-00:08",
+          "picture": "Counseling detail with date, summary, follow-up and acknowledgement state.",
+          "voice": "A useful counseling record keeps the conversation, the next steps, and the acknowledgement clear to both people.",
+          "edit": "No sensitive personnel examples; fictional development discussion only."
+        },
+        {
+          "time": "00:08-00:24",
+          "picture": "Leader opens the authorized member view and begins recording a counseling.",
+          "voice": "From the authorized member view, record the counseling. Check the Marine, the date, and the type before adding the summary.",
+          "edit": "Chapter Record. Highlight subject identity; do not expose real personnel."
+        },
+        {
+          "time": "00:24-00:40",
+          "picture": "Fill strengths, improvements, goals and follow-up date with a short synthetic example. Save.",
+          "voice": "Write specific strengths and improvements, then agree on a measurable next step and follow-up date. Review the record before saving it.",
+          "edit": "Typing accelerated, review at normal speed. Keep save confirmation."
+        },
+        {
+          "time": "00:40-00:57",
+          "picture": "Switch to the subject\u2019s account. Open the counseling in Career and read the same content.",
+          "voice": "The Marine opens the counseling and reviews the content. Both views should refer to the same conversation and next steps.",
+          "edit": "Explicit role-change slate. Match cut on the counseling title and date."
+        },
+        {
+          "time": "00:57-01:12",
+          "picture": "Click Acknowledge as the subject. Reload or reopen to show persisted status; leader inspects restrictions.",
+          "voice": "Acknowledge after reviewing the record. Confirm the status changed, and check how the acknowledged record can be handled in this deployment.",
+          "edit": "Keep acknowledgement action and result continuous. Do not call acknowledgement legal agreement or consent."
+        },
+        {
+          "time": "01:12-01:20",
+          "picture": "Hold follow-up date and acknowledged state. Overlay: The next step stays visible.",
+          "voice": "Keep the follow-up visible so the conversation leads to action.",
+          "edit": "Calm closing beat. No public individual assessment or ratings."
+        }
+      ]
+    },
+    {
+      "id": "setup",
+      "title": "Prepare a deployment for its first users",
+      "audience": "Instance owners and technical operators",
+      "goal": "Teach first-run sequence and verification without leaking secrets or implying accreditation.",
+      "music": "88 BPM; minimal steady bed, silence for important verification steps.",
+      "proof": "Synthetic deployment health is verified; first-run locks after setup; member visibility matches configured memberships.",
+      "shots": [
+        {
+          "time": "00:00-00:10",
+          "picture": "Local synthetic deployment with First-run checklist; verified health screen at end-state preview.",
+          "voice": "A useful deployment starts with clear ownership and a few deliberate checks before the first users arrive.",
+          "edit": "Use only disposable staging. No real dashboard billing, keys or production addresses."
+        },
+        {
+          "time": "00:10-00:33",
+          "picture": "Show prepared hosting/configuration checklist: public URL, persistent storage, email choice and backup ownership; values masked.",
+          "voice": "Confirm the intended public address, persistent storage, and operational responsibilities. Configure the required settings through your deployment\u2019s documented process, keeping secret values out of recordings.",
+          "edit": "Chapter Prepare. Use a factual checklist, not a fake hosting console. Do not show credential entry."
+        },
+        {
+          "time": "00:33-00:54",
+          "picture": "Show initial owner setup before and after secure credential entry, then verify setup cannot be reused.",
+          "voice": "Complete the first-run owner setup. Then verify that setup is closed and that the owner can sign in through the intended route.",
+          "edit": "Cut around secret entry, labeled Credential entry omitted. Preserve genuine before-and-after UI."
+        },
+        {
+          "time": "00:54-01:18",
+          "picture": "Owner creates a small synthetic unit structure and assigns supported roles. Show an unattached member\u2019s limited view.",
+          "voice": "Define the units and assign roles deliberately. Check a new member before and after attachment so the unit\u2019s information appears only where intended.",
+          "edit": "Chapter Membership. Role-change slate and controlled comparison. No bulk production mutations."
+        },
+        {
+          "time": "01:18-01:48",
+          "picture": "Owner checks authentication options, email if enabled, backup/restore evidence from staging, and a member walkthrough.",
+          "voice": "Verify the workflows the deployment relies on: sign-in, membership, saving a record, and reporting. Test backup recovery in staging. A successful homepage is not a complete deployment check.",
+          "edit": "Chapter Verify. Hold results long enough to inspect; do not narrate a test as passed without its evidence."
+        },
+        {
+          "time": "01:48-02:10",
+          "picture": "Handoff sheet: owner, support route, configuration record, backup responsibility, test date and open items.",
+          "voice": "Record who owns the deployment and how users get help. Keep a dated configuration and verification record. VANTAGE is independent software; deploying it does not establish official approval.",
+          "edit": "End on operational handoff, not account secrets. No music swell suggesting certification."
+        }
+      ]
+    },
+    {
+      "id": "governance",
+      "title": "Understand retention, holds and the inventory",
+      "audience": "Instance owners and records administrators",
+      "goal": "Explain available controls and their operational meaning using safe synthetic examples.",
+      "music": "78 BPM; quiet ambient bed, no percussion during schedule review.",
+      "proof": "Disabled schedule and documented authority shown; hold behavior verified in staging; inventory export opens correctly.",
+      "shots": [
+        {
+          "time": "00:00-00:09",
+          "picture": "Owner console: retention schedules, hold indicator and inventory export preview.",
+          "voice": "Governance starts with knowing what is stored, what rules apply, and who is responsible for those decisions.",
+          "edit": "Three purposeful cuts, no compliance stamp or shield animation."
+        },
+        {
+          "time": "00:09-00:27",
+          "picture": "Open Retention. Inspect a disabled synthetic schedule and the fields for scope and authority.",
+          "voice": "Review the schedule\u2019s scope and status. Read the stated authority and confirm that it applies before enabling any retention behavior.",
+          "edit": "Chapter Schedule. Keep status and authority visible together. No real authority invented for the example."
+        },
+        {
+          "time": "00:27-00:46",
+          "picture": "Open a held synthetic record and its actual hold information. Show documented staging verification result.",
+          "voice": "A hold changes how the affected records should be handled. Verify the behavior in a disposable environment rather than assuming a label is enough.",
+          "edit": "Chapter Hold. No live purge or destructive action. A verified fixture may demonstrate the blocked outcome."
+        },
+        {
+          "time": "00:46-01:07",
+          "picture": "Open Privacy inventory. Read actual categories, counts and any disclosed gaps.",
+          "voice": "Open the inventory and inspect what it reports. Read its gaps as well as its totals. The inventory is an input to review, not a substitute for one.",
+          "edit": "Chapter Inventory. Slow pan only if needed. Do not expose personal records beneath aggregate counts."
+        },
+        {
+          "time": "01:07-01:27",
+          "picture": "Export inventory as Markdown and open the real file. Compare one label and count with the source screen.",
+          "voice": "Export the inventory and compare it with the screen. Keep the date and deployment context so another reviewer knows what the document describes.",
+          "edit": "Chapter Export. Match cut on the same category. Keep local paths hidden."
+        },
+        {
+          "time": "01:27-01:40",
+          "picture": "End on three short lines: Scope / Authority / Verification, with independent-software clarification.",
+          "voice": "Decide the scope, document the authority, and verify the behavior. These controls support your process; they do not confer approval or compliance by themselves.",
+          "edit": "Fade to flat mark; measured delivery, no dramatic closing effect."
+        }
+      ]
+    }
+  ]
+}
