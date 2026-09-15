@@ -52,7 +52,9 @@ list.
 **Fix:** add them, with per-type permission checks (a file on a private task is private;
 a file on a unit work item follows the work item).
 
-## Finding 3 — a claim grants everything
+## Finding 3 — a claim is the only gate there is
+
+Corrected after reading every write path rather than the one I happened to open first.
 
 `server/services/work.ts`
 
@@ -60,20 +62,39 @@ a file on a unit work item follows the work item).
 mayEdit = row.claimed_by === user.id || row.owner_id === user.id || can(MANAGE_RECORDS)
 ```
 
-Claiming is the only gate. Once claimed you may rewrite every field, including
-`amount`, `quantity` and `reference` — the values that came **off the source
-spreadsheet**. Editing those makes the record disagree with its own provenance, silently.
+**What I first wrote here was wrong.** I said a claim lets you rewrite every field including
+the figures that came off the source sheet. It does not. `ItemPatch` is only
+`{ state, acknowledge_source_change }`, and a search of every `UPDATE work_items`
+in the tree shows `amount`, `quantity`, `reference` and `title` are written by the
+importer alone. Source values are already immutable through every route a person
+can reach. The provenance rule was being kept; I misread it.
 
-There is no separate notion of: I am working this / I may change its fields / I may
-close it / I may hand it to someone else.
+What is actually wrong is narrower and still real: **claiming is the only decision
+the system makes.**
 
-**Fix:** split the verbs.
+- Anyone who can *read* a row can claim it. There is no permission for it.
+- A claim then carries the authority to **resolve**. Picking work up and closing it
+  out are one gate, so there is no way to let somebody work a case without also
+  letting them declare it finished.
+- There is no way to **hand a case to somebody**. A leader cannot assign; a person
+  can only take.
+- A claim **never goes stale**. Somebody claims twelve rows on Friday and goes on
+  leave, and those rows are held until a leader with MANAGE_RECORDS notices.
+- `EDIT_WORK` had nothing to gate, because nothing about a row was editable at all —
+  including the things that *should* be, like a due date on a case somebody typed
+  by hand rather than imported.
 
-- **Claim** means *I am working this* and nothing else. It is a lock, not a grant.
-- Source-derived fields become read-only for everyone. A sheet value is a fact about the
-  sheet. You record an *action* against it; you do not overwrite it.
-- New permissions: `CLAIM_WORK`, `EDIT_WORK`, `RESOLVE_WORK`, `REASSIGN_WORK`.
-- Claims go stale on a timer instead of being held forever by someone on leave.
+**Fix:** split the verbs so each is a separate decision.
+
+- **Claim** needs `CLAIM_WORK` and means *I am working this*, nothing more.
+- **Resolve** needs `RESOLVE_WORK`. Working a case and closing it are different acts.
+- **Assign and release** need `REASSIGN_WORK`, so work can be handed over rather than
+  only taken, and a claim somebody is sitting on can be freed.
+- **Edit** needs `EDIT_WORK`, and gets a real job: a hand-typed row's own fields become
+  editable, while a row that came from a sheet keeps every source-derived value
+  read-only for everyone. That turns a rule currently kept by accident — nothing
+  offers the write — into one the server states and enforces.
+- Claims go stale on a timer and release themselves.
 
 ## Finding 4 — nobody but the Instance Operator can create a unit
 

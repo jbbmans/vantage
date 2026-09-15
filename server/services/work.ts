@@ -1,6 +1,8 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
-import { can, isMember, PERMISSIONS } from '../authz/scope.ts';
+import { can, isMember, scopeFor, PERMISSIONS } from '../authz/scope.ts';
+import { audit } from './audit.ts';
+import { notify } from './notifications.ts';
 import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
@@ -42,6 +44,48 @@ function readable(scope: Scope, user: SessionUser, row: WorkItemRow): boolean {
   return isMember(scope, row.unit_id);
 }
 
+/**
+ * The four things a person can do to a row, each decided separately.
+ *
+ * These used to be one question — do you hold the claim — which meant that letting somebody work a
+ * case also let them declare it finished, and that nobody could hand a case to anybody. They are
+ * different decisions and a unit should be able to answer them differently.
+ *
+ * Owning the row is always enough for all four: a person who typed a case in is not locked out of
+ * their own work by a permission they were never given.
+ */
+const mine = (user: SessionUser, row: WorkItemRow) => row.owner_id === user.id;
+const holder = (user: SessionUser, row: WorkItemRow) => row.claimed_by === user.id;
+const bit = (scope: Scope, row: WorkItemRow, flag: number) => (row.unit_id ? can(scope, flag, row.unit_id) : false);
+
+/** Picking work up. Reading a queue is not the same as being cleared to work it. */
+export const mayClaim = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
+  mine(user, row) || bit(scope, row, PERMISSIONS.CLAIM_WORK);
+
+/** Closing a case out, or reopening one that was closed too early. Not implied by holding it. */
+export const mayResolve = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
+  mine(user, row) || bit(scope, row, PERMISSIONS.RESOLVE_WORK);
+
+/** Handing a case to somebody, or freeing one somebody is sitting on. */
+export const mayReassign = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
+  mine(user, row) || bit(scope, row, PERMISSIONS.REASSIGN_WORK) || bit(scope, row, PERMISSIONS.MANAGE_RECORDS);
+
+/**
+ * Changing a row's own fields.
+ *
+ * A row that came off a spreadsheet keeps its source-derived values read-only for everyone, at
+ * every permission level, because those values are a fact about the sheet. Disagreeing with one is
+ * a work action, not an edit. A row somebody typed in has no source to contradict, so its own
+ * fields are editable by whoever may edit work here.
+ */
+export const mayEditFields = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
+  mine(user, row) || bit(scope, row, PERMISSIONS.EDIT_WORK);
+export const isImported = (row: WorkItemRow) => Boolean(row.source_file_id || row.import_job_id);
+
+/** Moving a row between open, in progress and waiting is execution: the holder's to do. */
+const mayProgress = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
+  holder(user, row) || mine(user, row) || bit(scope, row, PERMISSIONS.MANAGE_RECORDS);
+
 export function getItem(ctx: AppContext, id: string): WorkItemRow | null {
   return (ctx.db.prepare('SELECT * FROM work_items WHERE id = ? AND deleted_at IS NULL').get(id) as WorkItemRow | undefined) || null;
 }
@@ -57,6 +101,8 @@ export interface ListOptions {
   unitId?: string | null;
   state?: string | null;
   claimed?: 'me' | 'anyone' | 'nobody' | null;
+  /** Narrow to one project, so a project's queue and its typed work read as one list. */
+  projectId?: string | null;
   q?: string | null;
   dueBefore?: string | null;
   sort?: string | null;
@@ -84,6 +130,7 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
 
   if (opts.unitId) { where.push('w.unit_id = ?'); params.push(opts.unitId); }
   if (opts.state) { where.push('w.state = ?'); params.push(opts.state); }
+  if (opts.projectId) { where.push('w.project_id = ?'); params.push(opts.projectId); }
   if (opts.claimed === 'me') { where.push('w.claimed_by = ?'); params.push(user.id); }
   else if (opts.claimed === 'nobody') where.push('w.claimed_by IS NULL');
   else if (opts.claimed === 'anyone') where.push('w.claimed_by IS NOT NULL');
@@ -150,6 +197,7 @@ export function claimItem(ctx: AppContext, user: SessionUser, scope: Scope, id: 
   return ctx.db.transaction(() => {
     const row = reload(ctx, id);
     if (!readable(scope, user, row)) throw forbidden('That work is not yours to claim.');
+    if (!mayClaim(scope, user, row)) throw forbidden('You can see this work but you are not cleared to pick it up.');
     if (expectedVersion != null && row.version !== expectedVersion) throw conflict('This row changed while you were looking at it. Reload and try again.');
     if (row.claimed_by && row.claimed_by !== user.id) {
       const holder = ctx.db.prepare('SELECT first_name, last_name FROM users WHERE id = ?').get(row.claimed_by) as { first_name: string; last_name: string } | undefined;
@@ -170,8 +218,9 @@ export function releaseItem(ctx: AppContext, user: SessionUser, scope: Scope, id
     const row = reload(ctx, id);
     if (!readable(scope, user, row)) throw forbidden('That work is not yours.');
     if (expectedVersion != null && row.version !== expectedVersion) throw conflict('This row changed while you were looking at it. Reload and try again.');
-    const mayTakeBack = row.claimed_by === user.id || (row.unit_id ? can(scope, PERMISSIONS.MANAGE_RECORDS, row.unit_id) : false);
-    if (!mayTakeBack) throw forbidden('Only the person holding this work, or a leader who can edit shared records, can release it.');
+    if (!(holder(user, row) || mayReassign(scope, user, row))) {
+      throw forbidden('Only the person holding this work, or somebody who can reassign work here, can release it.');
+    }
     const at = now();
     ctx.db.prepare(
       `UPDATE work_items SET claimed_by = NULL, claimed_at = NULL, state = CASE WHEN state = 'in_progress' THEN 'open' ELSE state END, version = version + 1, updated_at = ? WHERE id = ?`
@@ -181,25 +230,219 @@ export function releaseItem(ctx: AppContext, user: SessionUser, scope: Scope, id
   })();
 }
 
-export interface ItemPatch { state?: WorkState; acknowledge_source_change?: boolean }
+/**
+ * Creates a piece of work by hand.
+ *
+ * Until now every row in the queue arrived from an imported sheet, which is why a project and a
+ * queue were two unrelated piles: there was no way to put a case into the queue that somebody had
+ * simply been told about. It also left EDIT_WORK with nothing it could ever apply to, since a
+ * sheet's values are read-only and there was no other kind of row.
+ *
+ * A hand-entered row carries no source_file_id, so it is the one kind whose own fields may be
+ * corrected — there is no sheet for it to contradict.
+ */
+export function createItem(
+  ctx: AppContext,
+  user: SessionUser,
+  scope: Scope,
+  input: { unit_id?: string | null; title: string; reference?: string | null; due_date?: string | null; project_id?: string | null; visibility?: string },
+) {
+  const title = String(input.title || '').trim();
+  if (!title) throw badRequest('A piece of work needs a title.', { fieldErrors: { title: 'Required.' } });
+  if (title.length > 300) throw badRequest('Keep the title under 300 characters.', { fieldErrors: { title: 'Limit 300 characters.' } });
+
+  const unitId = input.unit_id || null;
+  const visibility = input.visibility === 'private' ? 'private' : 'unit';
+  if (visibility === 'unit') {
+    if (!unitId) throw badRequest('Choose the unit this work belongs to.');
+    // Same gate as posting a shared task: putting work on a unit's queue is tasking that unit.
+    if (!can(scope, PERMISSIONS.CREATE_SHARED_WORK, unitId)) throw forbidden('You cannot put work on that unit’s queue.');
+  } else if (unitId && !isMember(scope, unitId)) {
+    throw forbidden('You are not a member of that unit.');
+  }
+
+  // A project is a container for work, so a row may name one — but only one the caller can reach.
+  let projectId: string | null = null;
+  if (input.project_id) {
+    const project = ctx.db.prepare('SELECT id, user_id, unit_id, visibility FROM projects WHERE id = ? AND deleted_at IS NULL')
+      .get(String(input.project_id)) as { id: string; user_id: string; unit_id: string | null; visibility: string } | undefined;
+    if (!project) throw badRequest('No such project.');
+    const reachable = project.user_id === user.id
+      || (project.visibility === 'unit' && project.unit_id && (isMember(scope, project.unit_id) || can(scope, PERMISSIONS.VIEW_RECORDS, project.unit_id)));
+    if (!reachable) throw forbidden('That is not a project you can file work under.');
+    projectId = project.id;
+  }
+
+  const id = newId();
+  const at = now();
+  ctx.db.prepare(
+    `INSERT INTO work_items (id, unit_id, owner_id, visibility, source_file_id, import_job_id, natural_key, row_hash, source_row,
+                             title, reference, due_date, amount, amount_type, quantity, unit_label, state, data, project_id, version, created_at, updated_at)
+     VALUES (?, ?, ?, ?, NULL, NULL, ?, '', NULL, ?, ?, ?, NULL, NULL, NULL, NULL, 'open', '{}', ?, 1, ?, ?)`
+  ).run(id, unitId, user.id, visibility, `manual:${id}`, title, input.reference?.trim() || null, input.due_date || null, projectId, at, at);
+  audit(ctx, { actor_id: user.id, action: 'work_created', entity: 'work_items', entity_id: id, unit_id: unitId });
+  record(ctx, 'work.created', { manual: true, count: 1 }, { id: user.id });
+  return hydrate(reload(ctx, id));
+}
+
+/**
+ * Hands a case to somebody else.
+ *
+ * This did not exist: work could only be taken, never given, so a leader looking at an unbalanced
+ * queue had no move to make. Assigning sets the claim on that person's behalf rather than inventing
+ * a second notion of ownership, so everything downstream that already asks "who holds this" keeps
+ * working unchanged.
+ *
+ * The person receiving it must be able to read the row on their own authority. Assigning is not a
+ * way to show somebody a case they were not cleared to see.
+ */
+export function assignItem(ctx: AppContext, user: SessionUser, scope: Scope, id: string, toUserId: string, expectedVersion: number | null) {
+  return ctx.db.transaction(() => {
+    const row = reload(ctx, id);
+    if (!readable(scope, user, row)) throw forbidden('That work is not yours.');
+    if (!mayReassign(scope, user, row)) throw forbidden('Handing work to somebody else is not yours to do.');
+    if (expectedVersion != null && row.version !== expectedVersion) throw conflict('This row changed while you were looking at it. Reload and try again.');
+    if (row.state === 'resolved') throw conflict('This work is already resolved.');
+
+    const target = ctx.db.prepare('SELECT id, first_name, last_name FROM users WHERE id = ? AND active = 1').get(toUserId) as { id: string; first_name: string; last_name: string } | undefined;
+    if (!target) throw badRequest('No such person to assign this to.');
+    // Checked with their authority, not the assigner's.
+    if (!readable(scopeFor(ctx, { id: target.id }), { id: target.id } as SessionUser, row)) {
+      throw badRequest(`${target.first_name} ${target.last_name} cannot see this work, so it cannot be assigned to them.`);
+    }
+
+    const at = now();
+    ctx.db.prepare(
+      `UPDATE work_items SET claimed_by = ?, claimed_at = ?, state = CASE WHEN state = 'open' THEN 'in_progress' ELSE state END, version = version + 1, updated_at = ? WHERE id = ?`
+    ).run(target.id, at, at, id);
+    audit(ctx, { actor_id: user.id, action: 'work_assigned', entity: 'work_items', entity_id: id, subject_id: target.id, unit_id: row.unit_id });
+    notify(ctx, target.id, {
+      kind: 'work_assigned',
+      title: 'A case was handed to you',
+      message: row.title.slice(0, 160),
+      actionUrl: '/work?tab=queue',
+      dedupeKey: `work-assign:${id}:${at}`,
+    });
+    record(ctx, 'work.assigned', { bulk: false, count: 1 }, { id: user.id });
+    return hydrate(reload(ctx, id));
+  })();
+}
+
+/**
+ * Releases claims nobody has touched in a while.
+ *
+ * Somebody claims a dozen rows on Friday and goes on leave; without this they stay held until a
+ * leader notices. A stale release is not a judgement about the person — it puts the row back on
+ * the queue so the work can move, and says in the audit trail that the system did it, not a person.
+ */
+export function releaseStaleClaims(ctx: AppContext, afterHours = 72): number {
+  const cutoff = new Date(Date.now() - afterHours * 3_600_000).toISOString();
+  const stale = ctx.db.prepare(
+    `SELECT id, unit_id, claimed_by FROM work_items
+      WHERE claimed_by IS NOT NULL AND deleted_at IS NULL
+        AND state IN ('open', 'in_progress') AND claimed_at < ? AND updated_at < ?`
+  ).all(cutoff, cutoff) as Array<{ id: string; unit_id: string | null; claimed_by: string }>;
+  if (!stale.length) return 0;
+  const at = now();
+  ctx.db.transaction(() => {
+    for (const row of stale) {
+      ctx.db.prepare(
+        `UPDATE work_items SET claimed_by = NULL, claimed_at = NULL, state = CASE WHEN state = 'in_progress' THEN 'open' ELSE state END, version = version + 1, updated_at = ? WHERE id = ?`
+      ).run(at, row.id);
+      audit(ctx, { actor_id: null, action: 'work_claim_expired', entity: 'work_items', entity_id: row.id, subject_id: row.claimed_by, unit_id: row.unit_id, detail: `untouched for ${afterHours}h` });
+    }
+  })();
+  return stale.length;
+}
+
+export interface ItemPatch {
+  state?: WorkState;
+  acknowledge_source_change?: boolean;
+  /** Only ever accepted for a row somebody typed in. A sheet's values are the sheet's. */
+  title?: string;
+  reference?: string | null;
+  due_date?: string | null;
+  /**
+   * Which project this work sits under. Unlike the fields above this is accepted on an imported row
+   * too: filing a case under a project says nothing about what the sheet reported, so it is
+   * organisation rather than a rewrite of provenance.
+   */
+  project_id?: string | null;
+}
+
+/** States that mean the case is finished. Reaching or leaving one of these needs RESOLVE_WORK. */
+const CLOSED_STATES = new Set<string>(['resolved', 'not_applicable']);
+/** Fields that belong to the row itself rather than to the sheet it came from. */
+const EDITABLE_FIELDS = ['title', 'reference', 'due_date'] as const;
 
 export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id: string, patch: ItemPatch, expectedVersion: number | null) {
   return ctx.db.transaction(() => {
     const row = reload(ctx, id);
     if (!readable(scope, user, row)) throw forbidden('That work is not yours.');
     if (expectedVersion != null && row.version !== expectedVersion) throw conflict('This row changed while you were looking at it. Reload and try again.');
-    const mayEdit = row.claimed_by === user.id || row.owner_id === user.id || (row.unit_id ? can(scope, PERMISSIONS.MANAGE_RECORDS, row.unit_id) : false);
-    if (!mayEdit) throw forbidden('Pick this work up before changing it.');
-
     const at = now();
     const sets: string[] = ['version = version + 1', 'updated_at = ?'];
     const params: unknown[] = [at];
+
     if (patch.state) {
       if (!WORK_STATES.includes(patch.state)) throw badRequest('That is not a state a work item can be in.');
+      // Declaring a case finished — or undoing that — is its own authority. Working it is not.
+      const closing = CLOSED_STATES.has(patch.state);
+      const reopening = CLOSED_STATES.has(row.state) && !closing;
+      if (closing || reopening) {
+        if (!mayResolve(scope, user, row)) {
+          throw forbidden(closing
+            ? 'You can work this case but closing one out is not yours to do.'
+            : 'Reopening a closed case is not yours to do.');
+        }
+      } else if (!mayProgress(scope, user, row)) {
+        throw forbidden('Pick this work up before changing it.');
+      }
       sets.push('state = ?'); params.push(patch.state);
       sets.push('resolved_at = ?'); params.push(patch.state === 'resolved' ? at : null);
     }
-    if (patch.acknowledge_source_change) { sets.push('source_changed_at = NULL'); }
+
+    const edits = EDITABLE_FIELDS.filter((f) => patch[f] !== undefined);
+    if (edits.length) {
+      // A value that came off a sheet is a fact about the sheet, and stays read-only for everyone.
+      // Disagreeing with one is a work action, not an edit.
+      if (isImported(row)) {
+        throw forbidden('This row came from an imported sheet. Its values are what the sheet said — record an action instead of rewriting them.');
+      }
+      if (!mayEditFields(scope, user, row)) throw forbidden('Changing this row is not yours to do.');
+      for (const field of edits) {
+        const value = patch[field];
+        if (field === 'title') {
+          const title = String(value ?? '').trim();
+          if (!title) throw badRequest('A work item needs a title.', { fieldErrors: { title: 'Required.' } });
+          if (title.length > 300) throw badRequest('Keep the title under 300 characters.');
+          sets.push('title = ?'); params.push(title);
+        } else {
+          sets.push(`${field} = ?`); params.push(value === '' || value == null ? null : String(value));
+        }
+      }
+    }
+
+    if (patch.project_id !== undefined) {
+      if (!mayEditFields(scope, user, row)) throw forbidden('Filing this work under a project is not yours to do.');
+      if (patch.project_id) {
+        const project = ctx.db.prepare('SELECT id, user_id, unit_id, visibility FROM projects WHERE id = ? AND deleted_at IS NULL')
+          .get(String(patch.project_id)) as { id: string; user_id: string; unit_id: string | null; visibility: string } | undefined;
+        if (!project) throw badRequest('No such project.');
+        const reachable = project.user_id === user.id
+          || (project.visibility === 'unit' && project.unit_id && (isMember(scope, project.unit_id) || can(scope, PERMISSIONS.VIEW_RECORDS, project.unit_id)));
+        if (!reachable) throw forbidden('That is not a project you can file work under.');
+        sets.push('project_id = ?'); params.push(project.id);
+      } else {
+        sets.push('project_id = NULL');
+      }
+    }
+
+    if (patch.acknowledge_source_change) {
+      if (!mayProgress(scope, user, row) && !mayEditFields(scope, user, row)) throw forbidden('That is not yours to acknowledge.');
+      sets.push('source_changed_at = NULL');
+    }
+    if (sets.length === 2) throw badRequest('Nothing to change.');
     ctx.db.prepare(`UPDATE work_items SET ${sets.join(', ')} WHERE id = ?`).run(...params, id);
     return hydrate(reload(ctx, id));
   })();

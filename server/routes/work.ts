@@ -12,7 +12,7 @@ import {
   MAPPABLE_FIELDS, type ImportPlan,
 } from '../services/intake.ts';
 import {
-  listItems, itemDetail, claimItem, releaseItem, updateItem, recordAction,
+  listItems, itemDetail, claimItem, releaseItem, assignItem, createItem, updateItem, recordAction,
   listViews, saveView, deleteView, WORK_STATES, ACTION_KINDS,
 } from '../services/work.ts';
 
@@ -102,6 +102,7 @@ const listSchema = z.object({
   state: z.enum(WORK_STATES).optional(),
   claimed: z.enum(['me', 'anyone', 'nobody']).optional(),
   q: z.string().max(200).optional(),
+  project_id: z.string().max(64).optional(),
   due_before: z.string().max(10).optional(),
   sort: z.string().max(40).optional(),
   direction: z.enum(['asc', 'desc']).optional(),
@@ -113,8 +114,28 @@ workRouter.get('/items', wrap((req, res) => {
   const q = parse(listSchema, req.query);
   const scope = scopeFor(req.ctx, req.user, req);
   res.json(listItems(req.ctx, req.user, scope, {
-    unitId: q.unit_id ?? null, state: q.state ?? null, claimed: q.claimed ?? null, q: q.q ?? null,
+    unitId: q.unit_id ?? null, state: q.state ?? null, claimed: q.claimed ?? null, q: q.q ?? null, projectId: q.project_id ?? null,
     dueBefore: q.due_before ?? null, sort: q.sort ?? null, direction: q.direction, limit: q.limit, offset: q.offset,
+  }));
+}));
+
+// Work typed in by hand rather than imported. Every row used to come from a sheet, which is what
+// kept a project and a queue as two unrelated piles.
+const createSchema = z.object({
+  unit_id: z.string().max(64).nullable().optional(),
+  title: z.string().max(300),
+  reference: z.string().max(200).nullable().optional(),
+  due_date: z.string().max(40).nullable().optional(),
+  project_id: z.string().max(64).nullable().optional(),
+  visibility: z.enum(['private', 'unit']).optional(),
+});
+
+workRouter.post('/items', wrap((req, res) => {
+  const q = parse(createSchema, req.body);
+  const scope = scopeFor(req.ctx, req.user, req);
+  res.status(201).json(createItem(req.ctx, req.user, scope, {
+    unit_id: q.unit_id ?? null, title: q.title, reference: q.reference ?? null,
+    due_date: q.due_date ?? null, project_id: q.project_id ?? null, visibility: q.visibility,
   }));
 }));
 
@@ -139,16 +160,33 @@ workRouter.post('/items/:id/release', wrap((req, res) => {
   res.json(releaseItem(req.ctx, req.user, scope, String(req.params.id), versionOf(req.body)));
 }));
 
+// Handing a case to somebody, which the queue previously had no way to express: work could only
+// be taken, never given.
+workRouter.post('/items/:id/assign', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  const to = String(req.body?.user_id || '');
+  res.json(assignItem(req.ctx, req.user, scope, String(req.params.id), to, versionOf(req.body)));
+}));
+
 const patchSchema = z.object({
   state: z.enum(WORK_STATES).optional(),
   acknowledge_source_change: z.boolean().optional(),
+  // Accepted only for a row somebody typed in; the service refuses these on an imported row.
+  title: z.string().max(300).optional(),
+  reference: z.string().max(200).nullable().optional(),
+  due_date: z.string().max(40).nullable().optional(),
+  // Accepted on any row, imported included: filing work under a project does not restate the sheet.
+  project_id: z.string().max(64).nullable().optional(),
   version: z.coerce.number().int().optional(),
 });
 
 workRouter.patch('/items/:id', wrap((req, res) => {
   const q = parse(patchSchema, req.body);
   const scope = scopeFor(req.ctx, req.user, req);
-  res.json(updateItem(req.ctx, req.user, scope, String(req.params.id), { state: q.state, acknowledge_source_change: q.acknowledge_source_change }, q.version ?? null));
+  res.json(updateItem(req.ctx, req.user, scope, String(req.params.id), {
+    state: q.state, acknowledge_source_change: q.acknowledge_source_change,
+    title: q.title, reference: q.reference, due_date: q.due_date, project_id: q.project_id,
+  }, q.version ?? null));
 }));
 
 const actionSchema = z.object({

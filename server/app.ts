@@ -30,6 +30,7 @@ import { syncMaradmins } from './services/maradmins.ts';
 import { runDigestTick } from './services/digest.ts';
 import { now } from './lib/ids.ts';
 import { purgeDeleted } from './services/records.ts';
+import { releaseStaleClaims } from './services/work.ts';
 import { loadRuntime } from './runtime.ts';
 export { loadRuntime };
 
@@ -194,6 +195,9 @@ export function startSchedulers(ctx: AppContext) {
   const every = (ms: number, fn: () => void) => { const t = setInterval(fn, ms); t.unref?.(); timers.push(t); };
   every(15 * 60_000, () => { pruneLimiters(); try { pruneSessions(ctx); } catch {} });
   every(6 * 60 * 60_000, () => { try { const r = purgeDeleted(ctx); if (r.records) console.log(`${now()} purged ${r.records} records from the recycle bin`); } catch (e) { console.warn(`Purge failed: ${(e as Error).message}`); } });
+  // A claim nobody has touched in three days goes back on the queue. Somebody claims a dozen rows
+  // on a Friday and goes on leave; without this the work waits for a leader to notice.
+  every(60 * 60_000, () => { try { const n = releaseStaleClaims(ctx); if (n) console.log(`${now()} released ${n} stale work claims`); } catch (e) { console.warn(`Stale claim sweep failed: ${(e as Error).message}`); } });
   // Analytics steer a product; they are not a memory. Anything past the window goes on its own.
   every(24 * 60 * 60_000, () => { try { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); } catch (e) { console.warn(`Event prune failed: ${(e as Error).message}`); } });
   // Uploaded workbooks are evidence for as long as the retention policy says, and no longer.
