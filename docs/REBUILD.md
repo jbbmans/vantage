@@ -129,8 +129,9 @@ through the table that already exists. Edit and delete your own; soft delete; au
 ## Finding 6 — password reset email works and was never switched on
 
 The mailer is real and complete: Resend, SMTP, and a memory provider for tests, with
-every send written to `email_log`. The reset flow issues a single-use 30-minute token,
-revokes prior tokens, rate-limits by IP, and audits the request.
+every send written to `email_log`. The reset flow (`POST /api/auth/forgot`) issues a
+single-use 30-minute token, revokes prior tokens, rate-limits by IP, and audits the
+request.
 
 `server/config.ts:143`
 
@@ -138,30 +139,43 @@ revokes prior tokens, rate-limits by IP, and audits the request.
 const emailProvider = (env.VANTAGE_EMAIL_PROVIDER || 'none')
 ```
 
-The default is `none`, and nothing on the running instance sets it. So the code runs, the
-send is skipped, and `email_log` records `skipped / no provider`. **This is a
-configuration gap, not a missing feature.** It needs `VANTAGE_EMAIL_PROVIDER`,
-`VANTAGE_EMAIL_FROM` and a `RESEND_API_KEY` (or `SMTP_URL`) set on the deployment.
+The default is `none`, and nothing on the running instance sets it. So the code runs,
+the send is skipped, and `email_log` records `skipped / no provider`. **This is a
+configuration gap, not missing code.**
 
-**Fix:** set the variables, make the Owner console say loudly when email is unconfigured,
-add a test-send, and surface failed and bounced sends where someone will see them.
+### What has to be set on the deployment
 
-## Finding 7 — the support ticket system, and the one thing it will not do
+| Variable | Value |
+|---|---|
+| `VANTAGE_EMAIL_PROVIDER` | `resend` (or `smtp`) |
+| `VANTAGE_EMAIL_FROM` | e.g. `VANTAGE <no-reply@yourdomain>` — the domain must be one the provider has verified |
+| `RESEND_API_KEY` | the API key, if using Resend |
+| `SMTP_URL` | the connection URL instead, if using SMTP |
+| `VANTAGE_PUBLIC_URL` | already set; the reset link is built from it, so a wrong value sends people to the wrong host |
 
-A helpdesk queue is the right idea and does not exist yet. It will: a member raises a
-ticket, it lands in a queue, whoever holds a new `VIEW_SUPPORT` permission works it,
-messages thread, state is tracked, everything audited.
+Nothing in this repository can set those — they are secrets and they belong in the
+deployment's own environment. Until they are set, resets are silently skipped, which
+is exactly what the support queue's delivery view now makes visible instead of
+leaving somebody to guess.
 
-**It will not show anyone the contents of a password-reset email.** Those mails carry a
-live single-use link; a reader of that link is one click from taking the account. Reading
-them is account takeover with extra steps, and it would defeat the reset flow's own
-security model.
+## Finding 7 — the support queue, and the one thing it will not do
 
-What the ticket actually needs to be useful is the *delivery* fact, and that is safe to
-show: which address it went to, when, and whether it sent, failed, bounced or was skipped
-because email is off. `email_log` already stores exactly that — address, kind, subject,
-status, error — and deliberately stores **no body**. That answers "why can this Marine not
-get in" without handing anyone a key.
+A helpdesk queue is the right idea and now exists: a member raises a ticket, or
+somebody who **cannot sign in** raises one from the sign-in page without an account,
+it lands in a queue, whoever holds `VIEW_SUPPORT` works it, messages thread, internal
+notes stay between staff, state and assignment are tracked, everything audited.
+
+**It does not show anyone the contents of a password-reset email.** Those mails carry
+a live single-use link; a reader of that link is one click from taking the account.
+Showing them would turn "help me sign in" into account takeover with extra steps and
+would defeat the reset flow's own security model.
+
+What the queue gets instead is the *delivery fact*, which is what actually answers
+"why can this Marine not get in": which address it went to, when, and whether it sent,
+failed, bounced, or was skipped because email is off. `email_log` stores exactly that
+and deliberately stores **no body**, so there is nothing there that could carry a
+token even by accident. A test asserts no reset link appears anywhere in the ticket
+payload.
 
 ## Finding 8 — Report Studio ignores rank
 

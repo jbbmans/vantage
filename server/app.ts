@@ -24,6 +24,7 @@ import { pruneSources, reconcileInterruptedJobs } from './services/intake.ts';
 import { orgRouter } from './routes/org.ts';
 import { miscRouter } from './routes/misc.ts';
 import { adminRouter } from './routes/admin.ts';
+import { supportRouter, publicSupportRouter } from './routes/support.ts';
 import { pruneSessions } from './auth/sessions.ts';
 import { configureLimits, configureAiLimits, pruneLimiters } from './auth/limiter.ts';
 import { syncMaradmins } from './services/maradmins.ts';
@@ -123,6 +124,11 @@ export function createApp(ctx: AppContext) {
   app.use('/api/work', workRouter);
   app.use('/api/correspondence', correspondenceRouter);
   app.use('/api/org', orgRouter);
+  app.use('/api/support', supportRouter);
+  // Raising a ticket without signing in: the commonest reason to need help is that you cannot sign
+  // in, and a queue you must sign in to reach is no use to that person. This has to mount ahead of
+  // miscRouter, which is mounted at bare '/api' and applies requireAuth to everything after it.
+  app.use('/api/public-support', publicSupportRouter);
   app.use('/api', miscRouter);
   app.use('/api/admin', adminRouter);
 
