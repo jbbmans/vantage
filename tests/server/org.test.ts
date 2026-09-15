@@ -25,11 +25,24 @@ before(async () => {
 });
 after(async () => { await app.close(); });
 
-test('sub-unit creation requires MANAGE_UNITS on the parent; top-level requires operator', async () => {
+test('a sub-unit needs authority over its parent; a unit of your own does not', async () => {
+  // Putting a unit *under* somebody else's still needs MANAGE_UNITS on that parent. Nothing about
+  // self-service loosens this: it is how you would reach into an existing hierarchy.
   const denied = await app.call('POST', '/api/org/units', { token: nco.token, body: { name: 'Sneaky', parent_id: 'G8' } });
   assert.equal(denied.status, 403);
+
+  // Standing up a unit of your own is no longer the Instance Operator's alone. It used to be, which
+  // meant a leader had to ask permission before they could organise their own people.
   const top = await app.call('POST', '/api/org/units', { token: sncoic.token, body: { name: 'Top level' } });
-  assert.equal(top.status, 403);
+  assert.equal(top.status, 201, JSON.stringify(top.body));
+  assert.equal(top.body.owner_user_id, sncoic.id, 'the person who made it owns it');
+  assert.equal(top.body.parent_id, null, 'and it hangs off nothing');
+
+  // Owning a new unit confers nothing anywhere else.
+  const after = await app.call('GET', '/api/me', { token: (await app.login('sncoic')).body.token });
+  assert.ok((after.body.permissions[top.body.id] || 0) > 0, 'authority inside their own unit');
+  assert.equal(after.body.permissions['G8'], (await app.call('GET', '/api/me', { token: sncoic.token })).body.permissions['G8'],
+    'and no change to what they hold in G8');
   const ok = await app.call('POST', '/api/org/units', { token: sncoic.token, body: { name: 'Accounting Section', short_name: 'ACCT', parent_id: 'G8' } });
   assert.equal(ok.status, 201);
   assert.equal(ok.body.id, 'ACCT');

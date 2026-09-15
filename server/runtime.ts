@@ -10,6 +10,7 @@ export function loadRuntime(db: Db, config: AppConfig): RuntimeSettings {
     displayName: 'Vantage', organizationName: 'Marine Corps', announcement: '', selfRegistration: config.selfRegistration,
     aiEnabled: config.ai.enabled, aiModels: [...config.ai.models], aiDefaultModel: config.ai.defaultModel,
     attachmentsEnabled: config.attachments.enabled, maradminsEnabled: config.maradmins.enabled, maintenance: false, metrics: DEFAULT_METRICS,
+    selfServiceUnits: true, selfServiceUnitLimit: 5,
   };
   let runtime = defaults;
   try {

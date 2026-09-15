@@ -23,6 +23,15 @@ export interface RuntimeSettings {
   attachmentsEnabled: boolean;
   maradminsEnabled: boolean;
   maintenance: boolean;
+  /**
+   * Whether an ordinary member may stand up a unit of their own, the way somebody makes a server
+   * in a chat app, rather than waiting for the Instance Operator. On by default because a fire team
+   * leader who cannot make a fire team has to ask permission to organise their own people. An
+   * enclave deployment that wants one fixed hierarchy turns it off.
+   */
+  selfServiceUnits: boolean;
+  /** How many units one person may stand up. Keeps an accident or an abuse bounded. */
+  selfServiceUnitLimit: number;
   /** What this instance measures: money label and symbol, value types, categories, unit suggestions. */
   metrics: MetricsConfig;
 }

@@ -104,7 +104,18 @@ export function createUnit(ctx: AppContext, actor: SessionUser, scope: Scope, bo
   if (parentId) {
     if (!getUnit(ctx, parentId)) throw badRequest('No such parent unit.');
     if (!can(scope, PERMISSIONS.MANAGE_UNITS, parentId)) throw forbidden('You cannot create units under that parent.');
-  } else if (!actor.is_operator) throw forbidden('Only the Instance Operator can create a new top-level organization.', 'not_operator');
+  } else if (!actor.is_operator) {
+    // Standing up a unit of your own, the way somebody makes a server in a chat app. A fire team
+    // leader who cannot make a fire team has to ask permission to organise their own people, which
+    // is the wrong shape for a tool people are meant to reach for. An enclave that wants one fixed
+    // hierarchy turns this off and gets the old behaviour back.
+    if (!ctx.runtime.selfServiceUnits) throw forbidden('Only the Instance Operator can create a new top-level organization on this instance.', 'not_operator');
+    const limit = ctx.runtime.selfServiceUnitLimit;
+    const mine = (ctx.db.prepare(
+            'SELECT COUNT(*) AS n FROM units WHERE owner_user_id = ? AND parent_id IS NULL AND active = 1'
+    ).get(actor.id) as { n: number }).n;
+    if (mine >= limit) throw forbidden(`You have already created ${mine} ${mine === 1 ? 'unit' : 'units'}. That is the limit on this instance.`, 'unit_limit');
+  }
   const code = slug(String(body.code || body.short_name || name));
   if (!code) throw badRequest('That name produces an empty unit code.');
   if (ctx.db.prepare('SELECT 1 FROM units WHERE id = ?').get(code)) throw conflict('That unit code already exists.', 'duplicate_code');
