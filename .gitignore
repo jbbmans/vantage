@@ -8,3 +8,6 @@ dist/
 playwright-report/
 test-results/
 data/
+
+# Scratch directory for the walkthrough recorder; the finished files land in public/videos/.
+.video-work/
