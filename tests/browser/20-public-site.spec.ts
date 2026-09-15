@@ -114,6 +114,38 @@ test.describe('the public site', () => {
     }
   });
 
+  test('hands a crawler the whole page without running any JavaScript', async ({ request }) => {
+    /*
+     * The point of the prerender. These are raw HTTP responses — no browser, no JavaScript — which
+     * is what Bing and the crawlers behind AI answers largely are. Before this the public page
+     * answered with an empty <div id="root">.
+     *
+     * The negative half matters as much: a signed-in request, and any route that is not the public
+     * page, must still get the plain shell. A prerendered marketing page served at /records, or to
+     * somebody on their way to their dashboard, would be a worse bug than the one this fixes.
+     */
+    const readable = (html: string) => html
+      .replace(/<script[\s\S]*?<\/script>/g, '')
+      .replace(/<[^>]+>/g, ' ')
+      .replace(/\s+/g, ' ')
+      .trim();
+
+    for (const path of ['/', '/display']) {
+      const res = await request.get(path, { headers: { 'user-agent': 'Googlebot/2.1' } });
+      expect(res.status(), `${path} did not respond`).toBe(200);
+      const html = await res.text();
+      const words = readable(html).split(' ').filter(Boolean).length;
+      expect(words, `${path} returned ${words} words of readable HTML before JavaScript`).toBeGreaterThan(400);
+      expect(html, `${path} should tell caches it varies by cookie`).toBeTruthy();
+      expect(res.headers().vary || '', `${path} must send Vary: Cookie`).toContain('Cookie');
+      expect(readable(html)).toContain('Prove the impact');
+    }
+
+    // An application route is not content and must keep getting the shell.
+    const app = await request.get('/records');
+    expect(readable(await app.text()).length, '/records should not be prerendered').toBeLessThan(200);
+  });
+
   test('keeps the signed-in application out of the index', async ({ page }) => {
     await page.goto('/login', { waitUntil: 'networkidle' });
     const robots = await page.evaluate(() => document.querySelector('meta[name="robots"]')?.getAttribute('content') || '');

@@ -13,7 +13,7 @@
     "dev": "node scripts/dev.mjs",
     "dev:api": "node --watch server/index.ts",
     "dev:web": "vite",
-    "build": "vite build",
+    "build": "vite build && node scripts/prerender.mjs",
     "start": "node server/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tests/browser",
     "lint": "eslint .",
@@ -24,7 +24,8 @@
     "recover-operator": "node scripts/recover-operator.ts",
     "factory-reset": "node scripts/factory-reset.ts",
     "icons": "node scripts/icons.mjs",
-    "video": "node scripts/video/record-all.mjs"
+    "video": "node scripts/video/record-all.mjs",
+    "prerender": "node scripts/prerender.mjs"
   },
   "dependencies": {
     "@radix-ui/react-dialog": "^1.1.15",

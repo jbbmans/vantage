@@ -9,6 +9,7 @@ import { openDatabase, metaSet } from './db/index.ts';
 import type { AppContext } from './context.ts';
 import { createMailer } from './services/email.ts';
 import { attachContext } from './auth/middleware.ts';
+import { SESSION_COOKIE, SIGNED_IN_COOKIE } from './auth/sessions.ts';
 import { HttpError } from './lib/errors.ts';
 import { sendError } from './lib/http.ts';
 import { VERSION } from './version.ts';
@@ -155,7 +156,35 @@ export function createApp(ctx: AppContext) {
   if (existsSync(distDir)) {
     app.use('/assets', express.static(join(distDir, 'assets'), { immutable: true, maxAge: '1y', index: false }));
     app.use(express.static(distDir, { index: false, maxAge: '1h', setHeaders: (res, path) => { if (path.endsWith('sw.js')) res.setHeader('Cache-Control', 'no-cache'); } }));
-    app.get(/^(?!\/api\/).*/, (_req, res) => { res.setHeader('Cache-Control', 'no-cache'); res.sendFile(join(distDir, 'index.html')); });
+
+    /*
+     * The public page is served with its markup already in it, to requests that are not signed in.
+     *
+     * Vantage is client-rendered, so the plain shell hands a crawler an empty <div id="root"> and
+     * asks it to run JavaScript to find out what this site is. Google usually will. The engines
+     * behind the other half of the traffic — Bing, and the crawlers feeding AI answers — largely
+     * will not, and "usually" is a poor foundation for the one page that has to rank.
+     *
+     * Only requests with no session cookie get it, which covers every crawler and every first-time
+     * visitor while making sure somebody who is signed in never sees a flash of the marketing page
+     * on their way to the dashboard. And only for the three routes that actually render it: a
+     * prerendered public page served at /records would be worse than nothing.
+     *
+     * Falls back to the shell whenever dist/public.html is absent, so a build that skipped the
+     * prerender step degrades to the previous behaviour instead of failing.
+     */
+    const prerendered = join(distDir, 'public.html');
+    const PUBLIC_ROUTES = new Set(['/', '/display', '/about']);
+    app.get(/^(?!\/api\/).*/, (req, res) => {
+      res.setHeader('Cache-Control', 'no-cache');
+      const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
+      if (!signedIn && PUBLIC_ROUTES.has(req.path) && existsSync(prerendered)) {
+        // Crawlers and shared caches must not be handed one visitor's variant of this URL.
+        res.setHeader('Vary', 'Cookie');
+        return res.sendFile(prerendered);
+      }
+      return res.sendFile(join(distDir, 'index.html'));
+    });
   }
   return app;
 }
