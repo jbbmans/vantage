@@ -1,7 +1,8 @@
 import { useEffect } from 'react';
 import { Link } from 'react-router-dom';
 import { applySeo, applyPublicStructuredData } from '@/lib/seo';
-import { VIDEOS, publishedVideos } from '@/config/videos';
+import { publishedVideos } from '@/config/videos';
+import LiveParser from '@/components/public/LiveParser';
 import {
   Activity,
   ArrowRight,
@@ -9,7 +10,6 @@ import {
   Bell,
   CheckCircle2,
   ChevronRight,
-  Database,
   FileSpreadsheet,
   FileText,
   Gauge,
@@ -21,9 +21,7 @@ import {
   Sparkles,
   Target,
   Users,
-  Video,
   Workflow,
-  Zap,
 } from 'lucide-react';
 
 const featureGroups = [
@@ -69,13 +67,6 @@ const featureGroups = [
     text: 'Use AI where it is useful: structuring a quick log, drafting from verified records, summarizing work, and accelerating analysis while keeping the source material visible.',
     points: ['Generate using Vantage', 'Record-aware drafting', 'Human review stays in control'],
   },
-];
-
-const workflows = [
-  ['01', 'Capture', 'Record the work once, close to when it happened.'],
-  ['02', 'Connect', 'Link the record to tasks, goals, readiness, correspondence, or a report.'],
-  ['03', 'Understand', 'See what moved, what is blocked, who owns it, and what needs attention.'],
-  ['04', 'Use it', 'Turn the same facts into decisions, follow-up, reports, and performance evidence.'],
 ];
 
 const audiences = [
@@ -287,73 +278,20 @@ export default function PublicSite() {
           </div>
         </section>
 
-        <section className="showcase-product-tour" id="experience">
-          <div className="public-section product-tour-inner">
-            <div className="section-intro" data-reveal>
-              <p className="public-kicker"><span /> The experience</p>
-              <h2>Designed to feel fast enough that people actually use it.</h2>
-              <p>The interface stays focused on actions: log the work, find the record, see what changed, understand what needs attention, and move on.</p>
-            </div>
-
-            <div className="tour-stack">
-              <article className="tour-row" data-reveal>
-                <div className="tour-copy"><span>01 / QUICK CAPTURE</span><h3>Write what happened. Vantage structures the rest.</h3><p>Quick Log is built for the moment work happens. Capture the action in plain language, preserve the measurable result, and turn it into a usable record.</p><div className="tour-tags"><b>Dollar value</b><b>Quantity</b><b>Status</b><b>Outcome</b></div></div>
-                <div className="tour-ui quick-log-ui">
-                  <div className="tour-ui-top"><strong>Log activity</strong><span>Esc</span></div>
-                  <div className="quick-log-prompt"><Sparkles /><p>Resolved 12 ULOs worth $184,220 and sent follow-up to 4th MAW.</p></div>
-                  <div className="parsed-grid"><span><small>ACTION</small><b>ULO resolution</b></span><span><small>VALUE</small><b>$184,220</b></span><span><small>UNITS</small><b>12</b></span><span><small>STATUS</small><b>Completed</b></span></div>
-                  <button>Save activity <ArrowRight /></button>
-                </div>
-              </article>
-
-              <article className="tour-row reverse" data-reveal>
-                <div className="tour-copy"><span>02 / WORKBENCH</span><h3>Turn the spreadsheet into the workflow.</h3><p>Bring in a working sheet, map the rows, create tasks, let users claim work, and preserve an attributable history instead of passing versions of a file around.</p><div className="tour-tags"><b>Import preview</b><b>Claim work</b><b>Row history</b><b>Attachments</b></div></div>
-                <div className="tour-ui spreadsheet-ui">
-                  <div className="sheet-toolbar"><FileSpreadsheet /><strong>Open Commitments.xlsx</strong><span>24 rows</span></div>
-                  <div className="sheet-head"><b>DOC</b><b>COMMAND</b><b>AMOUNT</b><b>OWNER</b><b>STATUS</b></div>
-                  {[
-                    ['M00041', '4th MAW', '$84,220', 'JB', 'Working'],
-                    ['M00042', '4th MLG', '$41,905', '—', 'Available'],
-                    ['M00043', 'CE', '$12,118', 'DL', 'Follow-up'],
-                    ['M00044', '4th MAW', '$7,442', '—', 'Available'],
-                  ].map((row) => <div className="sheet-row" key={row[0]}>{row.map((cell, i) => <span key={i}>{cell}</span>)}</div>)}
-                  <div className="sheet-footer"><span><Database /> Changes tracked</span><button>Claim selected</button></div>
-                </div>
-              </article>
-
-              <article className="tour-row" data-reveal>
-                <div className="tour-copy"><span>03 / REPORT STUDIO</span><h3>Draft from the record instead of from memory.</h3><p>Select the facts that belong in the output, generate with Vantage when useful, edit the result, and keep the supporting records attached to the draft.</p><div className="tour-tags"><b>Verified sources</b><b>AI assist</b><b>Revisions</b><b>Export</b></div></div>
-                <div className="tour-ui report-ui">
-                  <div className="report-toolbar"><span>FY26 PERFORMANCE SUMMARY</span><div><button><Sparkles /> Generate using Vantage</button><button>Export</button></div></div>
-                  <div className="report-paper">
-                    <small>SELECTED RECORDS · 18</small>
-                    <h4>Performance narrative</h4>
-                    <p>Led high-volume financial management actions across multiple supported commands, resolving aged commitments and improving the timeliness of follow-up while maintaining a complete, traceable source record.</p>
-                    <div className="report-citations"><span>ULO batch · 12 actions</span><span>Correspondence · 7 threads</span><span>Readiness · 100%</span></div>
-                  </div>
-                </div>
-              </article>
-            </div>
+        {/*
+          This was three hand-built mockups of Quick Log, the workbench and Report Studio. Recorded
+          walkthroughs of the real product do that job better and more honestly, so the drawings are
+          gone and the recordings took the anchor. Two things earn their place here instead: the
+          videos, and one thing a visitor can actually operate.
+        */}
+        <section className="public-section showcase-experience" id="experience">
+          <div className="section-intro" data-reveal>
+            <p className="public-kicker"><span /> The experience</p>
+            <h2>Type a sentence. Watch it become a record.</h2>
+            <p>This is the parser the product runs, not a demonstration of one. Whatever you write is read here in your browser — nothing is sent anywhere, and nothing is kept.</p>
           </div>
-        </section>
-
-        <section className="public-section public-workflow showcase-workflow">
-          <div className="workflow-visual" data-reveal>
-            <div className="workflow-ring ring-one" aria-hidden />
-            <div className="workflow-ring ring-two" aria-hidden />
-            <div className="workflow-core"><img src="/mark.svg" alt="" /><span>ONE RECORD</span><strong>MANY USES</strong></div>
-            <div className="workflow-node node-a"><FileSpreadsheet /><span>Work</span></div>
-            <div className="workflow-node node-b"><Target /><span>Goals</span></div>
-            <div className="workflow-node node-c"><Users /><span>Teams</span></div>
-            <div className="workflow-node node-d"><FileText /><span>Reports</span></div>
-          </div>
-          <div className="workflow-copy" data-reveal>
-            <p className="public-kicker"><span /> From event to evidence</p>
-            <h2>One record should do more than one job.</h2>
-            <p className="workflow-lede">Dashboards, goals, reports, analysis, and performance narratives should be different views of the same underlying work—not separate data-entry exercises.</p>
-            <div className="workflow-steps">
-              {workflows.map(([num, title, text]) => <div key={num}><b>{num}</b><span><strong>{title}</strong><small>{text}</small></span></div>)}
-            </div>
+          <div data-reveal>
+            <LiveParser />
           </div>
         </section>
 
@@ -366,27 +304,6 @@ export default function PublicSite() {
             <div className="audience-grid">
               {audiences.map((audience, index) => <article key={audience.label} data-reveal style={{ '--delay': `${index * 75}ms` } as React.CSSProperties}><audience.icon /><span>{audience.label}</span><h3>{audience.title}</h3><p>{audience.text}</p></article>)}
             </div>
-          </div>
-        </section>
-
-        <section className="public-section ai-showcase">
-          <div className="ai-showcase-copy" data-reveal>
-            <p className="public-kicker"><span /> Vantage Assist</p>
-            <h2>AI that already knows where the work is.</h2>
-            <p>Instead of sending users to a blank chatbot, Vantage brings assistance into the record, report, quick log, analysis, and other places where context already exists.</p>
-            <div className="ai-principles">
-              <span><ShieldCheck /> Source records stay visible</span>
-              <span><Users /> Human review stays in the loop</span>
-              <span><Zap /> Assistance appears where it saves time</span>
-            </div>
-          </div>
-          <div className="ai-showcase-ui" data-reveal>
-            <div className="ai-card-top"><Sparkles /><span><b>Generate using Vantage</b><small>18 verified records selected</small></span><i>Ready</i></div>
-            <div className="ai-response">
-              <div className="ai-line wide" /><div className="ai-line" /><div className="ai-line medium" /><div className="ai-line wide" />
-              <div className="ai-source-row"><span><FileText /> 12 activities</span><span><Mail /> 4 threads</span><span><Target /> 2 goals</span></div>
-            </div>
-            <div className="ai-actions"><button>Edit</button><button>Use draft</button></div>
           </div>
         </section>
 
@@ -407,17 +324,6 @@ export default function PublicSite() {
           </div>
         </section>
 
-        <section className="public-section seo-story" data-reveal>
-          <div>
-            <p className="public-kicker"><span /> Built from the workflow outward</p>
-            <h2>A modern performance and readiness platform for teams that need more than a checklist.</h2>
-          </div>
-          <div>
-            <p>Vantage combines performance tracking, work management, readiness tracking, reporting, goal management, correspondence tracking, spreadsheet workflows, and team dashboards in one self-hosted product. It was designed around the practical problem of turning operational activity into usable evidence without losing the facts underneath it.</p>
-            <p>For Marine Corps and other operational environments, that means a place to organize the work that supports evaluation inputs, unit reporting, financial management actions, readiness awareness, task ownership, and leadership visibility—while official records continue to live in their authoritative systems.</p>
-          </div>
-        </section>
-
         <section className="public-section video-section" id="watch">
           <div className="section-intro" data-reveal>
             <p className="public-kicker"><span /> Watch</p>
@@ -426,25 +332,21 @@ export default function PublicSite() {
               deployment and governance walkthroughs, sits inside the product under the field guide.</p>
           </div>
           <div className="video-grid" data-reveal>
-            {VIDEOS.filter((v) => ['tour', 'quick-log', 'import', 'report-studio'].includes(v.id)).map((slot) => (
+            {publishedVideos().slice(0, 4).map((slot) => (
               <figure key={slot.id} className="video-card">
+                {/* Only recorded walkthroughs reach this grid, so there is no empty state to
+                    render. The unrecorded slots still appear in the field guide, where saying
+                    "not yet" is useful; on a landing page it is just an apology. */}
                 <div className="video-frame">
-                  {slot.src ? (
-                    <video controls preload="none" poster={slot.poster} aria-labelledby={`pv-${slot.id}`}>
-                      <source src={slot.src} />
-                      {slot.captions && <track kind="captions" src={slot.captions} srcLang="en" label="English" default />}
-                    </video>
-                  ) : (
-                    <div className="video-empty">
-                      <Video aria-hidden />
-                      <span>Not recorded yet</span>
-                    </div>
-                  )}
+                  <video controls preload="none" poster={slot.poster} aria-labelledby={`pv-${slot.id}`}>
+                    <source src={slot.src} />
+                    {slot.captions && <track kind="captions" src={slot.captions} srcLang="en" label="English" default />}
+                  </video>
                 </div>
                 <figcaption>
                   <h3 id={`pv-${slot.id}`}>{slot.title}</h3>
                   <p>{slot.description}</p>
-                  <small>{slot.src ? slot.length : `about ${slot.length} when it lands`}</small>
+                  <small>{slot.length}</small>
                 </figcaption>
               </figure>
             ))}

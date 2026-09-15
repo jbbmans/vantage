@@ -38,6 +38,38 @@ test.describe('the public site', () => {
     }
   });
 
+  test('the live parser on the landing page runs the real parser', async ({ page }) => {
+    // The demo imports the product's own parseQuickLog rather than faking output. That is only
+    // worth doing if it stays wired: a demo that drifts into a hard-coded result is a lie told to
+    // somebody deciding whether to trust the product. So this types a sentence the page has never
+    // seen and checks the fields actually come out of it.
+    await page.goto('/display', { waitUntil: 'networkidle' });
+    const input = page.locator('#live-parser-input');
+    await input.scrollIntoViewIfNeeded();
+    await input.fill('Validated 48 UMTs worth $12,400 in SABRS 3 days ago');
+
+    const chips = page.locator('.parse-chip');
+    await expect(chips.first()).toBeVisible();
+    const text = (await chips.allInnerTexts()).join(' | ');
+    expect(text, 'the quantity was not read out of the sentence').toContain('48 UMTs');
+    expect(text, 'the dollar figure was not read out of the sentence').toContain('12,400');
+    expect(text, 'the system was not recognised').toContain('SABRS');
+  });
+
+  test('every walkthrough offered on the landing page actually plays', async ({ page }) => {
+    // The landing grid shows only recorded videos, so a card with no source — or a source that
+    // 404s — means the page is advertising something that does not exist.
+    await page.goto('/display', { waitUntil: 'networkidle' });
+    const sources = await page.locator('.video-card video source').evaluateAll((els) =>
+      els.map((e) => (e as HTMLSourceElement).getAttribute('src') || ''));
+    expect(sources.length, 'the landing page offers no walkthroughs at all').toBeGreaterThan(0);
+    for (const src of sources) {
+      expect(src, 'a video card has no source').toBeTruthy();
+      const res = await page.request.get(src);
+      expect(res.status(), `${src} did not load`).toBe(200);
+    }
+  });
+
   test('tells search engines what it is, and keeps the private side out of the index', async ({ page }) => {
     await page.goto('/display', { waitUntil: 'networkidle' });
     const meta = await page.evaluate(() => ({
