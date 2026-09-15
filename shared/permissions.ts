@@ -12,6 +12,16 @@ export const PERMISSIONS = {
   EXPORT_DATA: 1 << 10,
   COUNSEL: 1 << 11,
   ADMINISTRATOR: 1 << 12,
+  // Work verbs, split apart. Claiming a case used to be the only gate, and holding a claim meant
+  // you could rewrite every field on it. These are four different decisions and a unit should be
+  // able to answer them differently.
+  CLAIM_WORK: 1 << 13,
+  EDIT_WORK: 1 << 14,
+  RESOLVE_WORK: 1 << 15,
+  REASSIGN_WORK: 1 << 16,
+  // The support queue. Separate from ADMINISTRATOR because the person who answers "I cannot log
+  // in" is usually not the person who runs the unit.
+  VIEW_SUPPORT: 1 << 17,
 } as const;
 export type PermissionKey = keyof typeof PERMISSIONS;
 
@@ -25,6 +35,11 @@ export const PERMISSION_LIST: Array<{ key: PermissionKey; label: string; hint: s
   { key: 'MANAGE_RECORDS', label: 'Edit others’ records', hint: 'Correct a Marine’s shared entry. Cannot touch private entries.', group: 'Work' },
   { key: 'COUNSEL', label: 'Counsel members', hint: 'Record counselings and award recommendations for members of the unit.', group: 'Work' },
   { key: 'EXPORT_DATA', label: 'Export unit data', hint: 'Download unit records, dashboards, and command briefs.', group: 'Work' },
+  { key: 'CLAIM_WORK', label: 'Claim work', hint: 'Take a case off the queue to signal you are working it. Does not let you change its figures.', group: 'Work' },
+  { key: 'EDIT_WORK', label: 'Edit work detail', hint: 'Change a case’s own fields. Values that came off an imported sheet stay read-only for everyone.', group: 'Work' },
+  { key: 'RESOLVE_WORK', label: 'Resolve work', hint: 'Close a case out, or reopen one that was closed too early.', group: 'Work' },
+  { key: 'REASSIGN_WORK', label: 'Reassign work', hint: 'Move a case to somebody else, or release a claim somebody is sitting on.', group: 'Work' },
+  { key: 'VIEW_SUPPORT', label: 'Work the support queue', hint: 'Read and answer help requests, including sign-in trouble. Never shows the contents of anyone’s email.', group: 'Administration' },
   { key: 'MANAGE_MEMBERS', label: 'Manage members', hint: 'Invite Marines, enroll existing accounts, and move them between units.', group: 'Administration' },
   { key: 'MANAGE_ROLES', label: 'Manage roles', hint: 'Create roles and assign them. Only roles below your own.', group: 'Administration' },
   { key: 'MANAGE_UNITS', label: 'Manage units', hint: 'Rename this unit and manage its sub-units. Does not grant reach into them.', group: 'Administration' },
@@ -36,11 +51,11 @@ export const has = (bits: number, flag: number) => Boolean(bits & PERMISSIONS.AD
 export const listPermissions = (bits: number): PermissionKey[] => PERMISSION_LIST.filter((p) => bits & PERMISSIONS[p.key]).map((p) => p.key);
 export const fromKeys = (keys: PermissionKey[] = []) => keys.reduce((bits, key) => bits | (PERMISSIONS[key] || 0), 0);
 
-const MARINE_BITS = fromKeys(['VIEW_UNIT']);
-const NCO_BITS = fromKeys(['VIEW_UNIT', 'VIEW_RECORDS', 'CREATE_SHARED_WORK', 'CREATE_SHARED_GOALS']);
-const FIRE_TEAM_LEADER_BITS = NCO_BITS | fromKeys(['VIEW_MEMBER_DETAIL', 'COUNSEL']);
-const SNCO_BITS = FIRE_TEAM_LEADER_BITS | fromKeys(['MANAGE_RECORDS', 'VIEW_AUDIT', 'EXPORT_DATA']);
-const SNCOIC_BITS = SNCO_BITS | fromKeys(['MANAGE_MEMBERS', 'MANAGE_ROLES', 'MANAGE_UNITS']);
+const MARINE_BITS = fromKeys(['VIEW_UNIT', 'CLAIM_WORK']);
+const NCO_BITS = fromKeys(['VIEW_UNIT', 'VIEW_RECORDS', 'CREATE_SHARED_WORK', 'CREATE_SHARED_GOALS', 'CLAIM_WORK', 'RESOLVE_WORK']);
+const FIRE_TEAM_LEADER_BITS = NCO_BITS | fromKeys(['VIEW_MEMBER_DETAIL', 'COUNSEL', 'EDIT_WORK']);
+const SNCO_BITS = FIRE_TEAM_LEADER_BITS | fromKeys(['MANAGE_RECORDS', 'VIEW_AUDIT', 'EXPORT_DATA', 'REASSIGN_WORK']);
+const SNCOIC_BITS = SNCO_BITS | fromKeys(['MANAGE_MEMBERS', 'MANAGE_ROLES', 'MANAGE_UNITS', 'VIEW_SUPPORT']);
 const OWNER_BITS = PERMISSIONS.ADMINISTRATOR;
 
 export interface RoleTemplate { key: string; name: string; color: string; position: number; is_default: boolean; owner?: boolean; permissions: number; description: string }

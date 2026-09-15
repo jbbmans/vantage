@@ -187,3 +187,34 @@ test('every revision stays readable, so the history is a history', async () => {
   assert.equal(list.body.revisions.length, 2);
   assert.equal(list.body.revisions[0].revision, 2, 'newest first');
 });
+
+/**
+ * Which evaluation a Marine is written up under is a fact about their rank, not a checkbox.
+ * A Sergeant is an E-5 and gets a FITREP; a Corporal is an E-4 and gets JEPES. `trackForGrade`
+ * has always known that, and `buildReport` has always asked it. Report Studio did not: it stored
+ * `jepes` for anybody whose client had not explicitly said `fitrep`, so every draft written for a
+ * Sergeant came out as the wrong instrument.
+ */
+test('the evaluation track follows the rank of the Marine the report is about', async () => {
+  const cpl = await app.register('cpl-track', { rank_id: 'Cpl' });
+  const sgt = await app.register('sgt-track', { rank_id: 'Sgt' });
+  const gunner = await app.register('cwo-track', { rank_id: 'CWO3' });
+  for (const person of [cpl, sgt, gunner]) await enroll(app, op.token, 'G8', person.id);
+
+  for (const [person, expected] of [[cpl, 'jepes'], [sgt, 'fitrep'], [gunner, 'fitrep']] as const) {
+    const token = (await app.login(person === cpl ? 'cpl-track' : person === sgt ? 'sgt-track' : 'cwo-track')).body.token;
+    const own = await draft(token);
+    assert.equal(own.track, expected, `${expected} expected for their own draft`);
+
+    // And when a leader writes it for them, the track still follows the subject, not the author.
+    const forThem = await draft(op.token, { subject_id: person.id, unit_id: 'G8' });
+    assert.equal(forThem.track, expected, `${expected} expected when a leader writes it`);
+  }
+});
+
+test('an explicit track still overrides what the rank would have chosen', async () => {
+  const sgt = await app.register('sgt-override', { rank_id: 'Sgt' });
+  await enroll(app, op.token, 'G8', sgt.id);
+  const token = (await app.login('sgt-override')).body.token;
+  assert.equal((await draft(token, { track: 'jepes' })).track, 'jepes');
+});
