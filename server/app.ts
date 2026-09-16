@@ -165,7 +165,10 @@ export function createApp(ctx: AppContext) {
     // Only public marketing routes are indexable, before any JavaScript runs.
     const publicRoutes = new Set(['/', '/display', '/about']);
     const appRoute = /^\/(?:login|register|reset|invite|setup|work|goals|career|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
-    const recordRoute = /^\/(?:records|activities|team)(?:\/[^/]+)?\/?$/;
+    // Two segments, not one: a record detail is /records/:id for an activity and
+    // /records/:table/:id for a task, project or goal, which is the link shape a mention
+    // notification points at. One segment 404s the second form.
+    const recordRoute = /^\/(?:records|activities|team)(?:\/[^/]+){0,2}\/?$/;
     const indexHtml = readFileSync(join(distDir, 'index.html'), 'utf8');
     const tagManagerHead = indexHtml.match(/<!-- Google Tag Manager -->[\s\S]*?<!-- End Google Tag Manager -->/)?.[0] || '';
     const tagManagerBody = indexHtml.match(/<!-- Google Tag Manager \(noscript\) -->[\s\S]*?<!-- End Google Tag Manager \(noscript\) -->/)?.[0] || '';

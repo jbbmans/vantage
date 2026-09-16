@@ -3,6 +3,10 @@
   --navy:#0b2745;
   --blue:#075af4;
   --teal:#06b7b5;
+  /* Small muted text. One value, because seven near-identical greys for the same intent is how
+     they drifted under 4.5:1 one at a time. Clears AA on every ground this page uses, the
+     lightest tinted card (#eaf2ff) included, at the 8-12px sizes it is set in. */
+  --muted:#5b6f8b;
   background:#fff;
   color:var(--ink);
   font-family:Inter,Arial,sans-serif;
@@ -213,7 +217,7 @@
   font-size:12px;
   display:flex;
   justify-content:space-between;
-  color:#607491;
+  color:var(--muted);
   gap:10px
 }
 .demo-topbar span:last-child {
@@ -283,12 +287,12 @@
 .demo-tasks small {
   display:block;
   font-size:10px;
-  color:#61748e;
+  color:var(--muted);
   margin-top:5px
 }
 .demo-footnote {
   font-size:11px;
-  color:#637692;
+  color:var(--muted);
   margin-top:22px!important;
   max-width:210px
 }
@@ -353,7 +357,7 @@
 }
 .demo-evidence small {
   font-size:8px;
-  color:#687f9c;
+  color:var(--muted);
   margin-top:4px
 }
 .demo-evidence svg {
@@ -378,7 +382,7 @@
 }
 .demo-next p {
   font-size:10px;
-  color:#637793;
+  color:var(--muted);
   margin-top:4px!important
 }
 .demo-next button {
@@ -589,7 +593,7 @@
 }
 .mission-section-heading>p {
   font-size:15px;
-  color:#607491
+  color:var(--muted)
 }
 .mission-video-layout {
   display:grid;
@@ -632,7 +636,7 @@
 }
 .mission-video-list small {
   font-size:11px;
-  color:#697e96;
+  color:var(--muted);
   display:block;
   margin-top:5px
 }
