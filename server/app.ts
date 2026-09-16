@@ -68,7 +68,8 @@ export function createApp(ctx: AppContext) {
   const { config } = ctx;
   const app = express();
   const distDir = join(PROJECT_ROOT, 'dist');
-  const scriptSrc = ["'self'", ...inlineScriptHashes(distDir)].join(' ');
+  const tagManagerOrigin = 'https://www.googletagmanager.com';
+  const scriptSrc = ["'self'", tagManagerOrigin, ...inlineScriptHashes(distDir)].join(' ');
   const build = String(process.env.RENDER_GIT_COMMIT || process.env.VANTAGE_BUILD_ID || VERSION).slice(0, 64);
 
   app.disable('x-powered-by');
@@ -80,7 +81,7 @@ export function createApp(ctx: AppContext) {
   try { aiOrigin = new URL(config.ai.baseUrl).origin; } catch {}
   app.use((req, res, next) => {
     res.setHeader('X-Vantage-Build', build);
-    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ${aiOrigin}; worker-src 'self'; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'`);
+    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: ${tagManagerOrigin}; font-src 'self'; connect-src 'self' ${aiOrigin} ${tagManagerOrigin}; frame-src ${tagManagerOrigin}; worker-src 'self'; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -161,6 +162,23 @@ export function createApp(ctx: AppContext) {
   });
 
   if (existsSync(distDir)) {
+    // Only public marketing routes are indexable, before any JavaScript runs.
+    const publicRoutes = new Set(['/', '/display', '/about']);
+    const appRoute = /^\/(?:login|register|reset|invite|setup|work|goals|career|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
+    const recordRoute = /^\/(?:records|activities|team)(?:\/[^/]+)?\/?$/;
+    const indexHtml = readFileSync(join(distDir, 'index.html'), 'utf8');
+    const tagManagerHead = indexHtml.match(/<!-- Google Tag Manager -->[\s\S]*?<!-- End Google Tag Manager -->/)?.[0] || '';
+    const tagManagerBody = indexHtml.match(/<!-- Google Tag Manager \(noscript\) -->[\s\S]*?<!-- End Google Tag Manager \(noscript\) -->/)?.[0] || '';
+    const shell = indexHtml
+      .replace(/<meta name="robots"[^>]*>/, '<meta name="robots" content="noindex, nofollow" />')
+      .replace(/<link rel="canonical"[^>]*>/, '')
+      .replace(/<script[^>]*type="application\/ld\+json"[^>]*>[\s\S]*?<\/script>/g, '');
+    app.use((req, res, next) => {
+      if (req.path === '/index.html' || req.path === '/public.html') {
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+      }
+      next();
+    });
     app.use('/assets', express.static(join(distDir, 'assets'), { immutable: true, maxAge: '1y', index: false }));
     app.use(express.static(distDir, { index: false, maxAge: '1h', setHeaders: (res, path) => { if (path.endsWith('sw.js')) res.setHeader('Cache-Control', 'no-cache'); } }));
 
@@ -181,16 +199,19 @@ export function createApp(ctx: AppContext) {
      * prerender step degrades to the previous behaviour instead of failing.
      */
     const prerendered = join(distDir, 'public.html');
-    const PUBLIC_ROUTES = new Set(['/', '/display', '/about']);
     app.get(/^(?!\/api\/).*/, (req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
+      res.vary('Cookie');
       const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
-      if (!signedIn && PUBLIC_ROUTES.has(req.path) && existsSync(prerendered)) {
+      if ((!signedIn || req.path !== '/') && publicRoutes.has(req.path) && existsSync(prerendered)) {
         // Crawlers and shared caches must not be handed one visitor's variant of this URL.
-        res.setHeader('Vary', 'Cookie');
         return res.sendFile(prerendered);
       }
-      return res.sendFile(join(distDir, 'index.html'));
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+      if (!publicRoutes.has(req.path) && !appRoute.test(req.path) && !recordRoute.test(req.path)) {
+        return res.status(404).type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8">${tagManagerHead}<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Page not found | VANTAGE</title></head><body>${tagManagerBody}<main><h1>Page not found</h1><p>This address does not exist.</p><a href="/">Return to VANTAGE</a></main></body></html>`);
+      }
+      return res.type('html').send(shell);
     });
   }
   return app;

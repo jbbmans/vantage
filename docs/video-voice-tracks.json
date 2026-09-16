@@ -1,0 +1,110 @@
+{
+  "status": "Narration requests submitted; overview ready and remaining tracks queued when returned. Not mixed or mastered. Download blocked in the current browser; use provider pages to retrieve audio.",
+  "tracks": [
+    {
+      "id": "tour",
+      "audio_url": "https://www.aidocmaker.com/g0/audio?name=a9f89b0861c845c3a9e500b5d949a5b0",
+      "context_id": "a9f89b0861c845c3a9e500b5d949a5b0",
+      "status": "ready"
+    },
+    {
+      "id": "first-week",
+      "audio_url": "https://www.aidocmaker.com/g0/audio?name=a48ac8057bd342c59240620b6d3081ac",
+      "context_id": "a48ac8057bd342c59240620b6d3081ac",
+      "preview_transcript": null,
+      "preview_url": null,
+      "status": "queued",
+      "voice_id": "clear"
+    },
+    {
+      "id": "quick-log",
+      "audio_url": "https://www.aidocmaker.com/g0/audio?name=29c487c0a8c7462aada7494cb54a950d",
+      "context_id": "29c487c0a8c7462aada7494cb54a950d",
+      "preview_transcript": null,
+      "preview_url": null,
+      "status": "queued",
+      "voice_id": "clear"
+    },
+    {
+      "id": "visibility",
+      "audio_url": "https://www.aidocmaker.com/g0/audio?name=41397a46e1744016b0f5661e822be828",
+      "context_id": "41397a46e1744016b0f5661e822be828",
+      "preview_transcript": null,
+      "preview_url": null,
+      "status": "queued",
+      "voice_id": "clear"
+    },
+    {
+      "id": "import",
+      "audio_url": "https://www.aidocmaker.com/g0/audio?name=7d3f17feaffc402580f24f1685be85c0",
+      "context_id": "7d3f17feaffc402580f24f1685be85c0",
+      "preview_transcript": null,
+      "preview_url": null,
+      "status": "queued",
+      "voice_id": "clear"
+    },
+    {
+      "id": "queue",
+      "audio_url": "https://www.aidocmaker.com/g0/audio?name=baa877d06573493da5494f77c31f206f",
+      "context_id": "baa877d06573493da5494f77c31f206f",
+      "preview_transcript": null,
+      "preview_url": null,
+      "status": "queued",
+      "voice_id": "clear"
+    },
+    {
+      "id": "report-studio",
+      "audio_url": "https://www.aidocmaker.com/g0/audio?name=ea02fd5a7a824d07a146ea271b33a1c1",
+      "context_id": "ea02fd5a7a824d07a146ea271b33a1c1",
+      "preview_transcript": null,
+      "preview_url": null,
+      "status": "queued",
+      "voice_id": "clear"
+    },
+    {
+      "id": "analysis",
+      "audio_url": "https://www.aidocmaker.com/g0/audio?name=0c4dbb87d5fb4a48a3dab9b036943ac4",
+      "context_id": "0c4dbb87d5fb4a48a3dab9b036943ac4",
+      "preview_transcript": null,
+      "preview_url": null,
+      "status": "queued",
+      "voice_id": "clear"
+    },
+    {
+      "id": "unit-dashboard",
+      "audio_url": "https://www.aidocmaker.com/g0/audio?name=cd6f3b1e012d41f5978aeaf473b88a9f",
+      "context_id": "cd6f3b1e012d41f5978aeaf473b88a9f",
+      "preview_transcript": null,
+      "preview_url": null,
+      "status": "queued",
+      "voice_id": "clear"
+    },
+    {
+      "id": "counseling",
+      "audio_url": "https://www.aidocmaker.com/g0/audio?name=3d70129cf1b84163b8ff7fb3fc594b53",
+      "context_id": "3d70129cf1b84163b8ff7fb3fc594b53",
+      "preview_transcript": null,
+      "preview_url": null,
+      "status": "queued",
+      "voice_id": "clear"
+    },
+    {
+      "id": "setup",
+      "audio_url": "https://www.aidocmaker.com/g0/audio?name=4c328245a51f4ec0bf7167e3a2a5d35f",
+      "context_id": "4c328245a51f4ec0bf7167e3a2a5d35f",
+      "preview_transcript": null,
+      "preview_url": null,
+      "status": "queued",
+      "voice_id": "clear"
+    },
+    {
+      "id": "governance",
+      "audio_url": "https://www.aidocmaker.com/g0/audio?name=5291f62a62ba481fb0a9b7dbc4415bd2",
+      "context_id": "5291f62a62ba481fb0a9b7dbc4415bd2",
+      "preview_transcript": null,
+      "preview_url": null,
+      "status": "queued",
+      "voice_id": "clear"
+    }
+  ]
+}

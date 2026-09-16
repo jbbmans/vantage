@@ -1,10 +1,10 @@
-# Vantage
+# VANTAGE USMC
 
-Vantage is a self-hosted performance, productivity, readiness, work tracking, reporting, and team decision-support platform.
+VANTAGE (also described as VANTAGE USMC) is an independent, self-hosted performance, productivity, readiness, work tracking, reporting, and team decision-support platform.
 
 ## Public website
 - https://vantageusmc.com/
-- Product display: https://vantageusmc.com/display
+- Source code and project identity: https://github.com/jbbmans/vantage
 
 ## What Vantage does
 Vantage helps operational teams capture work, organize actions and outcomes, track goals and readiness, manage spreadsheet-supported work queues and correspondence, build reports, and understand individual and team performance from traceable source records.

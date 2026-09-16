@@ -26,6 +26,10 @@ function useTypewriter(text: string, active: boolean, speed = 38) {
   const [shown, setShown] = useState('');
   useEffect(() => {
     if (!active) return;
+    if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) {
+      setShown(text);
+      return;
+    }
     setShown('');
     let i = 0;
     const tick = window.setInterval(() => {
@@ -102,7 +106,7 @@ export default function LiveParser() {
         onFocus={() => { if (!touched) { setTouched(true); setText(typed); } }}
       />
 
-      <div className="live-parser-out" aria-live="polite">
+      <div className="live-parser-out" aria-live={touched ? 'polite' : 'off'}>
         {hasSomething ? (
           <>
             {parsed.quantities.slice(0, 2).map((q) => (

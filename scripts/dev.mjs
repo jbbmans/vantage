@@ -5,7 +5,7 @@ const root = fileURLToPath(new URL('../', import.meta.url));
 const vite = fileURLToPath(new URL('../node_modules/vite/bin/vite.js', import.meta.url));
 const children = [
   spawn(process.execPath, ['--watch', 'server/index.ts'], { cwd: root, env: { ...process.env, PORT: process.env.PORT || '8787' }, stdio: 'inherit' }),
-  spawn(process.execPath, [vite], { cwd: root, env: process.env, stdio: 'inherit' }),
+  spawn(process.execPath, [vite, ...process.argv.slice(2)], { cwd: root, env: process.env, stdio: 'inherit' }),
 ];
 let stopping = false;
 function stop(code = 0) {

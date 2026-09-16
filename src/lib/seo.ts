@@ -104,7 +104,10 @@ export function applyPublicStructuredData(faqs: ReadonlyArray<readonly [string, 
   jsonLd('org', {
     '@context': 'https://schema.org',
     '@type': 'Organization',
-    name: 'Vantage',
+    '@id': `${SITE_ORIGIN}/#organization`,
+    name: 'VANTAGE',
+    alternateName: 'VANTAGE USMC',
+    sameAs: ['https://github.com/jbbmans/vantage'],
     url: SITE_ORIGIN,
     logo: abs('/icon-512.png'),
     description: 'An independent, self-hosted platform for performance records, work management, readiness and reporting. Not a Department of Defense or U.S. Marine Corps system of record.',
@@ -113,7 +116,10 @@ export function applyPublicStructuredData(faqs: ReadonlyArray<readonly [string, 
   jsonLd('website', {
     '@context': 'https://schema.org',
     '@type': 'WebSite',
-    name: 'Vantage',
+    '@id': `${SITE_ORIGIN}/#website`,
+    name: 'VANTAGE',
+    alternateName: 'VANTAGE USMC',
+    publisher: { '@id': `${SITE_ORIGIN}/#organization` },
     url: SITE_ORIGIN,
   });
 
