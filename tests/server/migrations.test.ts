@@ -42,12 +42,17 @@ test('007 grants the split work verbs to roles that could already do that work',
     const db = openDatabase(path);
     const bits = (id: string) => (db.prepare('SELECT permissions FROM roles WHERE id = ?').get(id) as { permissions: number }).permissions;
 
-    // Everyone who could read a case could claim one before, so everyone keeps that.
-    assert.ok(bits('r-marine') & PERMISSIONS.CLAIM_WORK, 'a Marine keeps the ability to claim');
-    assert.ok(bits('r-snco') & PERMISSIONS.CLAIM_WORK, 'an SNCO keeps the ability to claim');
+    // Holding a claim already let you both work a case and close it, so both verbs go to everyone.
+    // Granting RESOLVE_WORK only to record-correctors would take closing away from every plain
+    // member on deploy, which is the regression this backfill exists to prevent.
+    for (const verb of ['CLAIM_WORK', 'RESOLVE_WORK'] as const) {
+      assert.ok(bits('r-marine') & PERMISSIONS[verb], `a Marine keeps ${verb}`);
+      assert.ok(bits('r-snco') & PERMISSIONS[verb], `an SNCO keeps ${verb}`);
+    }
 
-    // Only the role that could already correct records gains the heavier verbs.
-    for (const verb of ['EDIT_WORK', 'RESOLVE_WORK', 'REASSIGN_WORK'] as const) {
+    // The genuinely new verbs — nothing could edit a row's own fields or hand a case over before —
+    // go only to whoever could already correct records.
+    for (const verb of ['EDIT_WORK', 'REASSIGN_WORK'] as const) {
       assert.ok(bits('r-snco') & PERMISSIONS[verb], `SNCO gains ${verb}`);
       assert.equal(bits('r-marine') & PERMISSIONS[verb], 0, `a Marine does not silently gain ${verb}`);
     }

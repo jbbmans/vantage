@@ -54,7 +54,9 @@ export function ProjectWork({ projectId, unitId, canAdd }: { projectId: string; 
   return (
     <Panel
       title="Work under this project"
-      subtitle={items.length ? `${items.length} ${items.length === 1 ? 'case' : 'cases'}, however they got here` : 'Type one in, or import a sheet against this project'}
+      subtitle={items.length
+        ? `${items.length} ${items.length === 1 ? 'case' : 'cases'}, however they got here`
+        : 'Type a case in here. Filing imported sheet rows under a project is server-side only for now.'}
       action={canAdd && !adding ? <Button size="sm" onClick={() => setAdding(true)}><Plus className="h-3.5 w-3.5" />Add</Button> : undefined}
     >
       {adding && (
@@ -74,7 +76,7 @@ export function ProjectWork({ projectId, unitId, canAdd }: { projectId: string; 
         : !items.length ? (
           <EmptyState
             title="Nothing filed under this project yet"
-            description="Work typed in here and rows imported from a spreadsheet both land in this list."
+            description="Work typed in here lands in this list. Imported sheet rows can be filed under a project through the API; the control for doing it from the workbench is not built yet."
           />
         ) : (
           <ul className="hairline-grid border border-line">

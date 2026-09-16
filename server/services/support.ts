@@ -1,6 +1,6 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
-import { PERMISSIONS, unitsWith } from '../authz/scope.ts';
+import { PERMISSIONS, unitsWith, scopeFor } from '../authz/scope.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
@@ -35,13 +35,32 @@ export interface TicketRow {
   version: number; deleted_at: string | null; created_at: string; updated_at: string;
 }
 
-/** Whoever holds VIEW_SUPPORT anywhere, plus the Instance Operator, works the queue. */
-export const worksQueue = (user: SessionUser, scope: Scope) =>
-  Boolean(user.is_operator) || unitsWith(scope, PERMISSIONS.VIEW_SUPPORT).length > 0;
+/**
+ * Who works the queue, and over which tickets.
+ *
+ * This is unit-scoped rather than instance-wide, and it has to be. Anybody may stand up a unit of
+ * their own and owns it, and an owner holds every permission inside it — including VIEW_SUPPORT.
+ * So "holds VIEW_SUPPORT somewhere" would mean anyone could create a throwaway unit and read every
+ * ticket on the instance, and the email-delivery diagnostics with them. Two features that are each
+ * fine on their own, composing into an escalation.
+ *
+ * So: the Instance Operator sees everything. Everybody else sees the tickets belonging to a unit
+ * where they actually hold VIEW_SUPPORT, and their own.
+ *
+ * A ticket with no unit — every ticket raised from the sign-in page, and any a member files without
+ * naming one — is the Operator's alone. That is the conservative direction on purpose: a request
+ * for help can be about the person's own chain of command, and routing it to them by default would
+ * be the wrong failure.
+ */
+const supportUnits = (scope: Scope) => unitsWith(scope, PERMISSIONS.VIEW_SUPPORT);
 
-function assertQueue(user: SessionUser, scope: Scope) {
-  if (!worksQueue(user, scope)) throw forbidden('The support queue is not yours to read.');
-}
+/** Whether this person works any queue at all. Says nothing about which tickets. */
+export const worksQueue = (user: SessionUser, scope: Scope) =>
+  Boolean(user.is_operator) || supportUnits(scope).length > 0;
+
+/** Whether this person may work *this* ticket. */
+export const worksTicket = (user: SessionUser, scope: Scope, row: Pick<TicketRow, 'unit_id'>) =>
+  Boolean(user.is_operator) || (Boolean(row.unit_id) && supportUnits(scope).includes(row.unit_id!));
 
 /**
  * Raised by somebody signed in, or from the sign-in page by somebody who cannot get in — which is
@@ -85,15 +104,22 @@ export function raiseTicket(
 export const getTicket = (ctx: AppContext, id: string) =>
   (ctx.db.prepare('SELECT * FROM support_tickets WHERE id = ? AND deleted_at IS NULL').get(id) as TicketRow | undefined) || null;
 
-/** A person always sees their own tickets. The queue sees everything. */
+/** A person always sees their own ticket. Otherwise it has to be a queue they actually work. */
 function readable(user: SessionUser, scope: Scope, row: TicketRow) {
-  return row.requester_id === user.id || worksQueue(user, scope);
+  return row.requester_id === user.id || worksTicket(user, scope, row);
 }
 
 export function listTickets(ctx: AppContext, user: SessionUser, scope: Scope, opts: { state?: string | null; mine?: boolean } = {}) {
   const where: string[] = ['t.deleted_at IS NULL'];
   const params: unknown[] = [];
-  if (opts.mine || !worksQueue(user, scope)) { where.push('t.requester_id = ?'); params.push(user.id); }
+  const units = supportUnits(scope);
+  if (opts.mine || !worksQueue(user, scope)) {
+    where.push('t.requester_id = ?'); params.push(user.id);
+  } else if (!user.is_operator) {
+    // Their own, plus the units they actually work. Never the unscoped ones.
+    where.push(`(t.requester_id = ? OR t.unit_id IN (${units.map(() => '?').join(',') || 'NULL'}))`);
+    params.push(user.id, ...units);
+  }
   if (opts.state) { where.push('t.state = ?'); params.push(opts.state); }
   return ctx.db.prepare(
     `SELECT t.*, (SELECT COUNT(*) FROM support_messages m WHERE m.ticket_id = t.id AND m.internal = 0) AS message_count
@@ -107,7 +133,7 @@ export function ticketDetail(ctx: AppContext, user: SessionUser, scope: Scope, i
   const row = getTicket(ctx, id);
   if (!row) throw notFound('No such ticket.');
   if (!readable(user, scope, row)) throw forbidden('That ticket is not yours to read.');
-  const staff = worksQueue(user, scope);
+  const staff = worksTicket(user, scope, row);
 
   const messages = ctx.db.prepare(
     `SELECT m.id, m.author_id, m.body, m.internal, m.created_at, u.username AS author_username, u.first_name, u.last_name
@@ -141,7 +167,7 @@ export function replyToTicket(ctx: AppContext, user: SessionUser, scope: Scope, 
   const row = getTicket(ctx, id);
   if (!row) throw notFound('No such ticket.');
   if (!readable(user, scope, row)) throw forbidden('That ticket is not yours.');
-  const staff = worksQueue(user, scope);
+  const staff = worksTicket(user, scope, row);
   // A note between the people working the queue is never something the requester can write.
   if (internal && !staff) throw forbidden('Only somebody working the queue can leave an internal note.');
   const text = String(body || '').trim();
@@ -171,9 +197,9 @@ export function updateTicket(
   ctx: AppContext, user: SessionUser, scope: Scope, id: string,
   patch: { state?: string; priority?: string; assigned_to?: string | null; version?: number | null }, ip?: string,
 ) {
-  assertQueue(user, scope);
   const row = getTicket(ctx, id);
   if (!row) throw notFound('No such ticket.');
+  if (!worksTicket(user, scope, row)) throw forbidden('That ticket is not yours to work.');
   if (patch.version != null && row.version !== patch.version) throw conflict('This ticket changed while you were looking at it. Reload and try again.');
 
   const sets: string[] = ['version = version + 1', 'updated_at = ?'];
@@ -189,15 +215,28 @@ export function updateTicket(
     if (!(TICKET_PRIORITIES as readonly string[]).includes(patch.priority)) throw badRequest('That is not a priority.');
     sets.push('priority = ?'); params.push(patch.priority);
   }
+  let assignedTo: string | null = null;
   if (patch.assigned_to !== undefined) {
     if (patch.assigned_to) {
-      const who = ctx.db.prepare('SELECT id FROM users WHERE id = ? AND active = 1').get(patch.assigned_to);
+      const who = ctx.db.prepare('SELECT id, is_operator FROM users WHERE id = ? AND active = 1').get(patch.assigned_to) as { id: string; is_operator: number } | undefined;
       if (!who) throw badRequest('No such person.');
+      // Checked with their authority, not the assigner's. Otherwise a ticket lands with somebody
+      // who cannot open it: readable() would refuse them, and it would sit assigned and unworkable.
+      if (!worksTicket({ ...who, id: who.id } as SessionUser, scopeFor(ctx, { id: who.id }), row)) {
+        throw badRequest('That person cannot work this queue, so the ticket cannot be assigned to them.');
+      }
       sets.push('assigned_to = ?'); params.push(patch.assigned_to);
+      if (patch.assigned_to !== row.assigned_to && patch.assigned_to !== user.id) assignedTo = patch.assigned_to;
     } else sets.push('assigned_to = NULL');
   }
   if (sets.length === 2) throw badRequest('Nothing to change.');
   ctx.db.prepare(`UPDATE support_tickets SET ${sets.join(', ')} WHERE id = ?`).run(...params, id);
+  if (assignedTo) {
+    notify(ctx, assignedTo, {
+      kind: 'support_assigned', title: 'A help request was assigned to you',
+      message: row.subject.slice(0, 160), actionUrl: `/support/${id}`, dedupeKey: `ticket-assign:${id}:${at}`,
+    });
+  }
   audit(ctx, { actor_id: user.id, action: 'support_ticket_updated', entity: 'support_ticket', entity_id: id, subject_id: row.requester_id, ip });
   return ticketDetail(ctx, user, scope, id);
 }

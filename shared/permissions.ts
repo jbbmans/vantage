@@ -51,7 +51,10 @@ export const has = (bits: number, flag: number) => Boolean(bits & PERMISSIONS.AD
 export const listPermissions = (bits: number): PermissionKey[] => PERMISSION_LIST.filter((p) => bits & PERMISSIONS[p.key]).map((p) => p.key);
 export const fromKeys = (keys: PermissionKey[] = []) => keys.reduce((bits, key) => bits | (PERMISSIONS[key] || 0), 0);
 
-const MARINE_BITS = fromKeys(['VIEW_UNIT', 'CLAIM_WORK']);
+// Claiming and resolving together, because that is what claiming already means today. The point of
+// splitting the verbs is that a unit can now take RESOLVE_WORK away from a role that should only
+// work cases, not that every instance silently becomes stricter the day it upgrades.
+const MARINE_BITS = fromKeys(['VIEW_UNIT', 'CLAIM_WORK', 'RESOLVE_WORK']);
 const NCO_BITS = fromKeys(['VIEW_UNIT', 'VIEW_RECORDS', 'CREATE_SHARED_WORK', 'CREATE_SHARED_GOALS', 'CLAIM_WORK', 'RESOLVE_WORK']);
 const FIRE_TEAM_LEADER_BITS = NCO_BITS | fromKeys(['VIEW_MEMBER_DETAIL', 'COUNSEL', 'EDIT_WORK']);
 const SNCO_BITS = FIRE_TEAM_LEADER_BITS | fromKeys(['MANAGE_RECORDS', 'VIEW_AUDIT', 'EXPORT_DATA', 'REASSIGN_WORK']);

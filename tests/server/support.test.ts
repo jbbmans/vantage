@@ -21,6 +21,9 @@ after(async () => { await app.close(); });
 
 test('somebody who cannot sign in can still raise a ticket', async () => {
   const raised = await app.call('POST', '/api/public-support/tickets', {
+    // The client header, which the real client always sends. It is not authority — there is none to
+    // borrow here — but it keeps a cross-origin form POST from filing tickets.
+    headers: { 'x-vantage-client': '1' },
     body: { subject: 'Cannot sign in', body: 'My password reset never arrives.', category: 'sign_in', requester_email: 'locked@example.mil', requester_name: 'Locked Out' },
   });
   assert.equal(raised.status, 201, JSON.stringify(raised.body));
@@ -124,4 +127,62 @@ test('only the queue can retitle, reprioritise, assign or close a ticket', async
 test('a ticket needs something to say', async () => {
   assert.equal((await app.call('POST', '/api/support/tickets', { token: rivera.token, body: { subject: '  ', body: 'x' } })).status, 400);
   assert.equal((await app.call('POST', '/api/support/tickets', { token: rivera.token, body: { subject: 'Real', body: '   ' } })).status, 400);
+});
+
+/**
+ * The escalation that nearly shipped.
+ *
+ * Anybody may stand up a unit of their own and owns it, and an owner holds every permission inside
+ * it — VIEW_SUPPORT included. Treating "holds VIEW_SUPPORT anywhere" as authority over the whole
+ * queue therefore meant any signed-in person could create a throwaway unit and read every ticket on
+ * the instance, with the email-delivery diagnostics attached. Two features that are each fine alone.
+ */
+test('creating your own unit does not hand you everybody else’s tickets', async () => {
+  // A ticket that belongs to nobody's unit: raised from the sign-in page.
+  const anonymous = await app.call('POST', '/api/public-support/tickets', {
+    headers: { 'x-vantage-client': '1' },
+    body: { subject: 'Locked out of my account', body: 'No reset arrives.', category: 'sign_in', requester_email: 'someone@example.mil' },
+  });
+  assert.equal(anonymous.status, 201, JSON.stringify(anonymous.body));
+
+  // And one raised by a member of G8.
+  const theirs = await app.call('POST', '/api/support/tickets', { token: rivera.token, body: { subject: 'Private trouble', body: 'Something personal.', category: 'other' } });
+  assert.equal(theirs.status, 201, JSON.stringify(theirs.body));
+
+  // Now somebody makes a unit of their own, which makes them its owner and its administrator.
+  const outsider = await app.register('opportunist');
+  const made = await app.call('POST', '/api/org/units', { token: outsider.token, body: { name: 'Opportunist Team' } });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const token = (await app.login('opportunist')).body.token;
+
+  // They hold VIEW_SUPPORT — inside their own unit.
+  const listed = await app.call('GET', '/api/support/tickets', { token });
+  assert.equal(listed.status, 200);
+  const ids = (listed.body.tickets as Array<{ id: string }>).map((t) => t.id);
+  assert.ok(!ids.includes(anonymous.body.id), 'a sign-in ticket is not theirs to read');
+  assert.ok(!ids.includes(theirs.body.id), 'another unit’s ticket is not theirs to read');
+
+  // And asking for one directly is refused rather than merely filtered out of a list.
+  assert.equal((await app.call('GET', `/api/support/tickets/${theirs.body.id}`, { token })).status, 403);
+  assert.equal((await app.call('PATCH', `/api/support/tickets/${theirs.body.id}`, { token, body: { state: 'closed' } })).status, 403);
+
+  // The operator still sees both.
+  const asOperator = await app.call('GET', '/api/support/tickets', { token: op.token });
+  const opIds = (asOperator.body.tickets as Array<{ id: string }>).map((t) => t.id);
+  assert.ok(opIds.includes(anonymous.body.id) && opIds.includes(theirs.body.id));
+});
+
+test('a ticket cannot be assigned to somebody who cannot open it', async () => {
+  const ticket = await app.call('POST', '/api/support/tickets', { token: rivera.token, body: { subject: 'Assignment', body: 'x', category: 'other' } });
+  const refused = await app.call('PATCH', `/api/support/tickets/${ticket.body.id}`, { token: op.token, body: { assigned_to: rivera.id } });
+  assert.equal(refused.status, 400, 'assigning to somebody outside the queue leaves it unworkable');
+  assert.match(refused.body.error, /cannot work this queue/i);
+});
+
+test('the anonymous route still refuses a request with no client header', async () => {
+  const bare = await app.call('POST', '/api/public-support/tickets', {
+    headers: { 'x-vantage-client': '' },
+    body: { subject: 'Drive-by', body: 'From another origin.', category: 'other' },
+  });
+  assert.equal(bare.status, 403);
 });

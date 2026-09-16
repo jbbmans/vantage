@@ -536,6 +536,12 @@ export function recordAction(
     ).run(actionId, itemId, user.id, row.unit_id, kind, note, occurredAt, quantity, input.unit_label || null, dollarAmount, input.dollar_type || null, activityId, scopedKey, at);
 
     if (input.resolve || kind === 'resolved') {
+      // Recording what you did is not the same as declaring the case finished, and this path must
+      // answer to the same authority as PATCH. Without it a claimant with no RESOLVE_WORK closes
+      // work by posting an action with resolve:true — the split permission with a door left open.
+      if (!mayResolve(scope, user, row)) {
+        throw forbidden('You can record what you did, but closing this case out is not yours to do.');
+      }
       ctx.db.prepare(`UPDATE work_items SET state = 'resolved', resolved_at = ?, version = version + 1, updated_at = ? WHERE id = ?`).run(at, at, itemId);
     } else {
       ctx.db.prepare(`UPDATE work_items SET state = CASE WHEN state = 'open' THEN 'in_progress' ELSE state END, version = version + 1, updated_at = ? WHERE id = ?`).run(at, itemId);

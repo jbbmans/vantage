@@ -110,3 +110,47 @@ test('an empty or oversized comment is refused', async () => {
 test('a record type that takes no comments says so', async () => {
   assert.equal((await say('nonsense', 'whatever', nguyen.token, 'hi')).status, 404);
 });
+
+/**
+ * A mention added while editing is still a mention. Without this, whether somebody hears about being
+ * named depends on whether the author got the name into the first draft.
+ */
+test('naming somebody in an edit reaches them, and editing a typo does not ping again', async () => {
+  const task = await app.call('POST', '/api/records/tasks', { token: nguyen.token, body: { title: 'Edited mentions', visibility: 'unit' } });
+  const posted = await say('tasks', task.body.id, op.token, 'Starting on this.');
+  assert.equal(posted.status, 201);
+  assert.deepEqual(posted.body.mentions, [], 'nobody named in the first draft');
+
+  const before = (await app.call('GET', '/api/me/notifications', { token: nguyen.token })).body.rows as Array<{ kind: string }>;
+  const countBefore = before.filter((n) => n.kind === 'comment_mention').length;
+
+  const edited = await app.call('PUT', `/api/records/tasks/${task.body.id}/comments/${posted.body.id}`, {
+    token: op.token, body: { body: 'Starting on this. @nguyen can you check the second column?' },
+  });
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  assert.deepEqual(edited.body.mentions, [nguyen.id]);
+
+  const after = (await app.call('GET', '/api/me/notifications', { token: nguyen.token })).body.rows as Array<{ kind: string }>;
+  assert.equal(after.filter((n) => n.kind === 'comment_mention').length, countBefore + 1, 'they hear about being named in an edit');
+
+  // Editing again without changing who is named sends nothing further.
+  const again = await app.call('PUT', `/api/records/tasks/${task.body.id}/comments/${posted.body.id}`, {
+    token: op.token, body: { body: 'Starting on this. @nguyen can you check the second column, please?' },
+  });
+  assert.equal(again.status, 200);
+  const final = (await app.call('GET', '/api/me/notifications', { token: nguyen.token })).body.rows as Array<{ kind: string }>;
+  assert.equal(final.filter((n) => n.kind === 'comment_mention').length, countBefore + 1, 'fixing a typo is not a second ping');
+});
+
+test('a comment on a career record points somewhere that can actually open it', async () => {
+  const award = await app.call('POST', '/api/records/awards', { token: rivera.token, body: { name: 'NAM', date: '2026-09-01', visibility: 'unit' } });
+  assert.equal(award.status, 201, JSON.stringify(award.body));
+  const posted = await say('awards', award.body.id, op.token, 'Submitted the citation.');
+  assert.equal(posted.status, 201, JSON.stringify(posted.body));
+
+  const inbox = (await app.call('GET', '/api/me/notifications', { token: rivera.token })).body.rows as Array<{ kind: string; action_url: string }>;
+  const note = inbox.find((n) => n.kind === 'comment_added');
+  assert.ok(note, 'the record owner hears about it');
+  // /records/awards/:id has no page; the career screen does.
+  assert.match(note!.action_url, /^\/career\?tab=awards#/, 'and is sent where the record can be opened');
+});

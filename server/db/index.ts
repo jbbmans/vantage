@@ -84,16 +84,23 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       // quietly take capability away from every existing unit on the next deploy, so the bits are
       // granted to match exactly what each role could already do:
       //
-      //   every role            -> CLAIM_WORK      (today anyone who can read a case can claim it)
-      //   MANAGE_RECORDS holder -> EDIT_WORK, RESOLVE_WORK, REASSIGN_WORK
+      //   every role            -> CLAIM_WORK, RESOLVE_WORK
+      //   MANAGE_RECORDS holder -> EDIT_WORK, REASSIGN_WORK
+      //
+      // RESOLVE_WORK goes to everybody because holding a claim already lets you close a case, both
+      // by PATCH and by recording a resolving action. Granting it only to MANAGE_RECORDS holders
+      // would take that away from every plain member on the next deploy — the exact regression this
+      // backfill exists to prevent. The split is a control a unit can now apply, not a tightening
+      // applied to everyone by surprise. EDIT_WORK and REASSIGN_WORK are genuinely new: nothing
+      // could edit a row's own fields or hand a case over before, so nobody loses them.
       //
       // Nobody gains reach they did not have. ADMINISTRATOR is untouched because it already
       // implies everything through has().
       const CLAIM_WORK = 1 << 13, EDIT_WORK = 1 << 14, RESOLVE_WORK = 1 << 15, REASSIGN_WORK = 1 << 16;
       const MANAGE_RECORDS = 1 << 3;
-      db.prepare('UPDATE roles SET permissions = permissions | ? WHERE permissions > 0').run(CLAIM_WORK);
+      db.prepare('UPDATE roles SET permissions = permissions | ? WHERE permissions > 0').run(CLAIM_WORK | RESOLVE_WORK);
       db.prepare('UPDATE roles SET permissions = permissions | ? WHERE permissions & ? != 0')
-        .run(EDIT_WORK | RESOLVE_WORK | REASSIGN_WORK, MANAGE_RECORDS);
+        .run(EDIT_WORK | REASSIGN_WORK, MANAGE_RECORDS);
     },
   },
 ];

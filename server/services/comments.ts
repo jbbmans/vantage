@@ -102,29 +102,59 @@ export function addComment(ctx: AppContext, user: SessionUser, scope: Scope, tab
   ).run(commentId, table, id, user.id, row.unit_id ?? null, body, JSON.stringify(mentions), at);
 
   const who = `${user.first_name} ${user.last_name}`.trim() || user.username;
-  for (const target of mentions) {
-    if (target === user.id) continue;
-    notify(ctx, target, {
-      kind: 'comment_mention',
-      title: `${who} mentioned you`,
-      message: body.slice(0, 160),
-      actionUrl: `/records/${table}/${id}`,
-      dedupeKey: `comment:${commentId}:${target}`,
-    });
-  }
+  notifyMentions(ctx, { targets: mentions, exclude: user.id, who, body, table, id, commentId });
   // The owner of the record hears about a remark on it, unless they wrote it or were already named.
   if (row.user_id !== user.id && !mentions.includes(row.user_id)) {
     notify(ctx, row.user_id, {
       kind: 'comment_added',
       title: `${who} commented on your record`,
       message: body.slice(0, 160),
-      actionUrl: `/records/${table}/${id}`,
-      dedupeKey: `comment:${commentId}:${row.user_id}`,
+      actionUrl: recordUrl(table, id),
+      dedupeKey: `comment-owner:${commentId}:${row.user_id}`,
     });
   }
 
   audit(ctx, { actor_id: user.id, action: 'comment_added', entity: table, entity_id: id, subject_id: row.user_id, unit_id: row.unit_id ?? null, ip });
   return getComment(ctx, commentId)!;
+}
+
+/**
+ * Tell people they were named. Shared by adding and editing, because a mention added while editing
+ * is still a mention — the alternative is that whether somebody hears about it depends on whether
+ * the author got the name into the first draft.
+ */
+function notifyMentions(
+  ctx: AppContext,
+  opts: { targets: string[]; exclude: string; who: string; body: string; table: string; id: string; commentId: string },
+) {
+  for (const target of opts.targets) {
+    if (target === opts.exclude) continue;
+    notify(ctx, target, {
+      kind: 'comment_mention',
+      title: `${opts.who} mentioned you`,
+      message: opts.body.slice(0, 160),
+      actionUrl: recordUrl(opts.table, opts.id),
+      // Namespaced by kind as well as by comment and person. Sharing one key with the owner
+      // notification below meant that being both the record's owner and named in it got you the
+      // first of the two and silently dropped the second.
+      dedupeKey: `comment-mention:${opts.commentId}:${target}`,
+    });
+  }
+}
+
+/**
+ * Where a notification about a record should send somebody.
+ *
+ * Only tasks, projects and goals have a page of their own at /records/:table/:id. The career
+ * records — awards, counselings, training — live under their tab on the Career screen, so a link to
+ * the detail route would land them on "nothing to open here".
+ */
+function recordUrl(table: string, id: string) {
+  if (table === 'activities') return `/records/${id}`;
+  if (table === 'awards') return `/career?tab=awards#${id}`;
+  if (table === 'counselings') return `/career?tab=counseling#${id}`;
+  if (table === 'trainings') return `/career#${id}`;
+  return `/records/${table}/${id}`;
 }
 
 export function getComment(ctx: AppContext, id: string) {
@@ -147,8 +177,16 @@ export function editComment(ctx: AppContext, user: SessionUser, scope: Scope, ta
   const body = String(rawBody || '').trim();
   if (!body) throw badRequest('Write something first.', { fieldErrors: { body: 'Required.' } });
   if (body.length > MAX_BODY) throw badRequest(`Keep a comment under ${MAX_BODY} characters.`);
+  const before = new Set(JSON.parse(existing.mentions || '[]') as string[]);
+  const after = resolveMentions(ctx, body, row);
   ctx.db.prepare('UPDATE comments SET body = ?, mentions = ?, edited_at = ? WHERE id = ?')
-    .run(body, JSON.stringify(resolveMentions(ctx, body, row)), now(), commentId);
+    .run(body, JSON.stringify(after), now(), commentId);
+  // Only the people who were not already named: editing a typo should not re-ping the thread.
+  notifyMentions(ctx, {
+    targets: after.filter((t) => !before.has(t)), exclude: user.id,
+    who: `${user.first_name} ${user.last_name}`.trim() || user.username,
+    body, table, id, commentId,
+  });
   audit(ctx, { actor_id: user.id, action: 'comment_edited', entity: table, entity_id: id, subject_id: row.user_id, unit_id: row.unit_id ?? null, ip });
   return getComment(ctx, commentId)!;
 }

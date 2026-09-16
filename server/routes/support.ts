@@ -1,6 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
+import { forbidden } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor } from '../authz/scope.ts';
 import { limiters } from '../auth/limiter.ts';
@@ -32,6 +33,12 @@ publicSupportRouter.post('/tickets', wrap((req, res) => {
     requester_email: z.string().max(200).optional(),
     requester_name: z.string().max(120).optional(),
   }), req.body);
+  // The client-header check lives inside requireAuth, which this route deliberately skips, so it
+  // has to be asked for here. It is not authority — there is none to borrow on an anonymous
+  // endpoint — but it stops a drive-by form POST from another origin filing tickets, since a custom
+  // header cannot be set cross-origin without a preflight the browser will refuse.
+  if (!req.get('x-vantage-client')) throw forbidden('Request rejected: missing client header.', 'csrf');
+
   const ip = clientIp(req);
   const limited = limiters.supportIp.limited(ip);
   if (limited) return res.status(429).json({ error: 'Too many requests. Try again shortly.', code: 'rate_limited' });

@@ -232,6 +232,11 @@ orgRouter.delete('/roles/:roleId', wrap((req, res) => {
   let revoked = 0;
   ctx.db.transaction(() => {
     for (const h of ctx.db.prepare('SELECT DISTINCT user_id FROM member_roles WHERE role_id = ?').all(role.id) as Array<{ user_id: string }>) revoked += invalidateUserSessions(ctx, h.user_id);
+    // A join code may hand out this role, and that reference is a real foreign key. Revoking a code
+    // only sets revoked_at, so the row stays and would block the delete below. Released rather than
+    // deleted: an invite somebody joined on is a record of how they got here. A code left pointing
+    // at nothing falls back to the unit's default role, which is the right outcome anyway.
+    ctx.db.prepare('UPDATE unit_invites SET role_id = NULL WHERE role_id = ?').run(role.id);
     ctx.db.prepare('DELETE FROM roles WHERE id = ?').run(role.id);
   })();
   audit(ctx, { actor_id: req.user.id, action: 'delete_role', entity: 'role', entity_id: role.id, unit_id: role.unit_id, detail: `${role.name}; sessions revoked: ${revoked}`, ip: clientIp(req) });

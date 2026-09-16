@@ -1,6 +1,7 @@
 import { test, after, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, enroll, type TestApp } from './helpers.ts';
+import { PERMISSIONS } from '../../shared/permissions.ts';
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
@@ -254,25 +255,57 @@ async function freshRow(token: string, title = 'Clear a fresh obligation') {
   return byKey(token, key);
 }
 
-test('a plain member can pick work up, but closing a case out is a separate authority', async () => {
-  const row = await freshRow(op.token, 'Clear the obligation nobody has touched');
-  // alex holds a default role: claiming is theirs to do.
-  const claim = await app.call('POST', `/api/work/items/${row.id}/claim`, { token: alex.token, body: { version: row.version } });
-  assert.equal(claim.status, 200, JSON.stringify(claim.body));
+test('a unit can let somebody work cases without letting them close one', async () => {
+  // The default keeps claiming and resolving together, because that is what claiming already meant.
+  // What the split buys is this: a unit can now take RESOLVE_WORK off a role and the holder still
+  // works the queue. So the test takes it off rather than relying on a default.
+  const stripped = await app.call('PUT', '/api/org/roles/G8:marine', {
+    token: op.token, body: { permissions: PERMISSIONS.VIEW_UNIT | PERMISSIONS.CLAIM_WORK },
+  });
+  assert.equal(stripped.status, 200, JSON.stringify(stripped.body));
+  // Editing a role revokes every holder's session so the new authority is re-read — and the
+  // operator holds the default role too, so both tokens have to be taken again.
+  const worker = (await app.login('alex')).body.token;
+  const leader = (await app.login('boletz')).body.token;
 
-  // Holding it lets them move it along...
-  const progress = await app.call('PATCH', `/api/work/items/${row.id}`, { token: alex.token, body: { state: 'waiting', version: claim.body.version } });
-  assert.equal(progress.status, 200, JSON.stringify(progress.body));
+  try {
+    const row = await freshRow(leader, 'Clear the obligation nobody has touched');
+    const claim = await app.call('POST', `/api/work/items/${row.id}/claim`, { token: worker, body: { version: row.version } });
+    assert.equal(claim.status, 200, `claiming stays theirs: ${JSON.stringify(claim.body)}`);
 
-  // ...but not declare it finished. That is what the old model conflated.
-  const close = await app.call('PATCH', `/api/work/items/${row.id}`, { token: alex.token, body: { state: 'resolved', version: progress.body.version } });
-  assert.equal(close.status, 403, 'holding a case is not authority to close it');
-  assert.match(close.body.error, /closing one out is not yours/i);
+    // Moving it along is execution, and stays with whoever holds it.
+    const progress = await app.call('PATCH', `/api/work/items/${row.id}`, { token: worker, body: { state: 'waiting', version: claim.body.version } });
+    assert.equal(progress.status, 200, JSON.stringify(progress.body));
 
-  // Somebody who holds RESOLVE_WORK can.
-  const byLeader = await app.call('PATCH', `/api/work/items/${row.id}`, { token: op.token, body: { state: 'resolved', version: progress.body.version } });
-  assert.equal(byLeader.status, 200, JSON.stringify(byLeader.body));
-  assert.equal(byLeader.body.state, 'resolved');
+    // Declaring it finished is not.
+    const close = await app.call('PATCH', `/api/work/items/${row.id}`, { token: worker, body: { state: 'resolved', version: progress.body.version } });
+    assert.equal(close.status, 403, 'holding a case is not authority to close it');
+    assert.match(close.body.error, /closing one out is not yours/i);
+
+    // And the action path is not a way around it, which is where the split was previously open:
+    // recordAction wrote state='resolved' after checking only that the caller held the claim.
+    const viaAction = await app.call('POST', `/api/work/items/${row.id}/actions`, {
+      token: worker, body: { kind: 'resolved', note: 'Closing it out the back way.' },
+    });
+    assert.equal(viaAction.status, 403, 'recording a resolving action is not a way around RESOLVE_WORK');
+    const after = await byKey(leader, row.natural_key);
+    assert.notEqual(after.state, 'resolved', 'and the item did not move');
+
+    // Somebody who holds RESOLVE_WORK can.
+    const byLeader = await app.call('PATCH', `/api/work/items/${row.id}`, { token: leader, body: { state: 'resolved', version: progress.body.version } });
+    assert.equal(byLeader.status, 200, JSON.stringify(byLeader.body));
+    assert.equal(byLeader.body.state, 'resolved');
+  } finally {
+    // Put the role back so later tests see the shipped default, then take fresh tokens again for
+    // the same reason: restoring it revokes the sessions a second time.
+    await app.call('PUT', '/api/org/roles/G8:marine', {
+      token: (await app.login('boletz')).body.token,
+      body: { permissions: PERMISSIONS.VIEW_UNIT | PERMISSIONS.CLAIM_WORK | PERMISSIONS.RESOLVE_WORK },
+    });
+    op.token = (await app.login('boletz')).body.token;
+    alex.token = (await app.login('alex')).body.token;
+    bree.token = (await app.login('bree')).body.token;
+  }
 });
 
 test('work can be handed to somebody, and only to somebody who can already see it', async () => {
@@ -383,12 +416,49 @@ test('a claim nobody touches goes back on the queue by itself', async () => {
   const held = await app.call('POST', `/api/work/items/${free.id}/claim`, { token: alex.token, body: { version: free.version } });
   assert.equal(held.status, 200, JSON.stringify(held.body));
 
-  // Nothing is stale yet, so a sweep with a long window leaves it alone.
+  // Nothing is stale yet, so a sweep leaves it alone.
   assert.equal(releaseStaleClaims(app.ctx, 72), 0, 'a fresh claim is not stale');
 
-  // With a zero window every held row qualifies, and the claim is given up without a person doing it.
-  assert.ok(releaseStaleClaims(app.ctx, 0) >= 1);
+  // Age the claim rather than shrinking the window to zero. A zero-hour window puts the cutoff at
+  // the same millisecond the claim was made, so `claimed_at < cutoff` is a coin flip decided by how
+  // fast the machine is — it passed here and failed in CI. Backdating exercises the real condition:
+  // a claim nobody has touched for days.
+  const old = new Date(Date.now() - 100 * 3_600_000).toISOString();
+  app.ctx.db.prepare('UPDATE work_items SET claimed_at = ?, updated_at = ? WHERE id = ?').run(old, old, free.id);
+
+  assert.equal(releaseStaleClaims(app.ctx, 72), 1, 'a claim older than the window is given up');
   const after = await byKey(op.token, free.natural_key);
   assert.equal(after.claimed_by, null, 'the row is back on the queue');
   assert.equal(after.state, 'open');
+});
+
+/**
+ * work_items.project_id is the only one of the three project links with a real foreign key, so
+ * forgetting it in the purge does not leave a dangling row — it makes the purge throw and roll back,
+ * every time it runs, until somebody clears the reference by hand.
+ */
+test('purging a project detaches the work filed under it instead of failing forever', async () => {
+  const { purgeDeleted } = await import('../../server/services/records.ts');
+  const project = await app.call('POST', '/api/records/projects', { token: op.token, body: { name: 'Doomed project', visibility: 'unit' } });
+  assert.equal(project.status, 201, JSON.stringify(project.body));
+
+  const item = await app.call('POST', '/api/work/items', {
+    token: op.token, body: { unit_id: 'G8', title: 'Filed under a project about to go', project_id: project.body.id, visibility: 'unit' },
+  });
+  assert.equal(item.status, 201, JSON.stringify(item.body));
+
+  // Delete it and backdate the deletion past the retention cutoff.
+  assert.equal((await app.call('DELETE', `/api/records/projects/${project.body.id}`, { token: op.token })).status, 200);
+  const old = new Date(Date.now() - 60 * 86_400_000).toISOString();
+  app.ctx.db.prepare('UPDATE projects SET deleted_at = ? WHERE id = ?').run(old, project.body.id);
+
+  // Without the detach this throws a foreign-key error and takes the whole transaction with it.
+  const result = purgeDeleted(app.ctx, 30);
+  assert.ok(result.records >= 1, 'the project was actually purged');
+  assert.equal(app.ctx.db.prepare('SELECT 1 FROM projects WHERE id = ?').get(project.body.id), undefined);
+
+  // The work survives, detached rather than deleted: it is somebody's record of what they did.
+  const survivor = app.ctx.db.prepare('SELECT project_id FROM work_items WHERE id = ?').get(item.body.id) as { project_id: string | null } | undefined;
+  assert.ok(survivor, 'the work item is still there');
+  assert.equal(survivor!.project_id, null, 'and no longer points at a project that is gone');
 });
