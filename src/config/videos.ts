@@ -147,20 +147,13 @@ const VIDEO_SLOTS: VideoSlot[] = [
   },
 ];
 
-/** All guides are animated illustrations with synthetic data, not live session recordings. */
-const ANIMATED_SECONDS: Record<string, number> = {
-  tour: 62, 'first-week': 60, 'quick-log': 49, visibility: 41,
-  import: 59, queue: 53, 'report-studio': 56, analysis: 50,
-  'unit-dashboard': 51, counseling: 48, setup: 72, governance: 62,
-};
+/** Video publishing is intentionally paused while the next capture set is rebuilt and verified. */
 export const VIDEOS: VideoSlot[] = VIDEO_SLOTS.map(slot => ({
   ...slot,
-  description: `Animated guide with sample data. ${slot.description}`,
-  length: `${ANIMATED_SECONDS[slot.id]} sec`,
-  src: `/videos/animated-20260916/${slot.id}.mp4`,
-  poster: `/videos/animated-20260916/${slot.id}.jpg`,
-  captions: `/videos/animated-20260916/${slot.id}.vtt`,
-  published: '2026-09-16',
+  src: undefined,
+  poster: undefined,
+  captions: undefined,
+  published: undefined,
 }));
 
 export const TOPIC_LABELS: Record<VideoSlot['topic'], string> = {
