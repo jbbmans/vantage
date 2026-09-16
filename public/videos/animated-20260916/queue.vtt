@@ -1,0 +1,55 @@
+WEBVTT
+
+00:00:00.350 --> 00:00:03.105
+Finishing the task is only part of the
+
+00:00:03.105 --> 00:00:05.861
+job. Keep who did it, what changed, and
+
+00:00:05.861 --> 00:00:07.927
+the record of the outcome together.
+
+00:00:08.327 --> 00:00:11.591
+Start in the queue. Find an available item,
+
+00:00:11.591 --> 00:00:14.854
+open its detail, and read the source before
+
+00:00:14.854 --> 00:00:15.670
+taking ownership.
+
+00:00:16.070 --> 00:00:19.018
+Claim the item so the team can see
+
+00:00:19.018 --> 00:00:21.966
+who is working it. If someone already owns
+
+00:00:21.966 --> 00:00:24.177
+it, resolve that handoff before proceeding.
+
+00:00:24.577 --> 00:00:27.995
+As the work moves, update its state and
+
+00:00:27.995 --> 00:00:31.413
+preserve useful context. Someone opening it later should
+
+00:00:31.413 --> 00:00:34.831
+understand what happened and what still needs attention.
+
+00:00:35.231 --> 00:00:38.605
+When the work is complete, record the outcome
+
+00:00:38.605 --> 00:00:41.978
+accurately. Check the amount and action type, then
+
+00:00:41.978 --> 00:00:45.352
+inspect the activity connected to the completed item.
+
+00:00:45.752 --> 00:00:48.379
+The queue shows the work is finished, and
+
+00:00:48.379 --> 00:00:51.005
+the record keeps the outcome. That is the
+
+00:00:51.005 --> 00:00:52.647
+loop you want to close.

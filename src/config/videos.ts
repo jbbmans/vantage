@@ -36,7 +36,7 @@ export interface VideoSlot {
   published?: string;
 }
 
-export const VIDEOS: VideoSlot[] = [
+const VIDEO_SLOTS: VideoSlot[] = [
   {
     id: 'tour',
     title: 'What Vantage is, start to finish',
@@ -69,7 +69,7 @@ export const VIDEOS: VideoSlot[] = [
   {
     id: 'visibility',
     title: 'Private, unit, and who can see what',
-    description: 'Records are private until you share them, and every time a leader opens yours it is written to a log you can read.',
+    description: 'Check the record audience, the intended unit, and the saved visibility setting.',
     length: '25 sec',
     topic: 'records',
     src: '/videos/visibility.webm',
@@ -123,7 +123,7 @@ export const VIDEOS: VideoSlot[] = [
   {
     id: 'counseling',
     title: 'Counseling and acknowledgement',
-    description: 'Recording a counseling, what the Marine sees, and why acknowledged text cannot change afterwards.',
+    description: 'Record a counseling, review the next steps, and check the acknowledgement state.',
     length: '3 min',
     topic: 'team',
   },
@@ -137,7 +137,7 @@ export const VIDEOS: VideoSlot[] = [
   {
     id: 'governance',
     title: 'Retention, holds and the privacy inventory',
-    description: 'Retention schedules with their authority cited, and a privacy inventory read from the live database.',
+    description: 'Review retention scope, authority, holds, and a sample privacy inventory.',
     length: '27 sec',
     topic: 'admin',
     src: '/videos/governance.webm',
@@ -146,6 +146,22 @@ export const VIDEOS: VideoSlot[] = [
     published: '2026-09-15',
   },
 ];
+
+/** All guides are animated illustrations with synthetic data, not live session recordings. */
+const ANIMATED_SECONDS: Record<string, number> = {
+  tour: 62, 'first-week': 60, 'quick-log': 49, visibility: 41,
+  import: 59, queue: 53, 'report-studio': 56, analysis: 50,
+  'unit-dashboard': 51, counseling: 48, setup: 72, governance: 62,
+};
+export const VIDEOS: VideoSlot[] = VIDEO_SLOTS.map(slot => ({
+  ...slot,
+  description: `Animated guide with sample data. ${slot.description}`,
+  length: `${ANIMATED_SECONDS[slot.id]} sec`,
+  src: `/videos/animated-20260916/${slot.id}.mp4`,
+  poster: `/videos/animated-20260916/${slot.id}.jpg`,
+  captions: `/videos/animated-20260916/${slot.id}.vtt`,
+  published: '2026-09-16',
+}));
 
 export const TOPIC_LABELS: Record<VideoSlot['topic'], string> = {
   'getting-started': 'Getting started',

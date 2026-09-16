@@ -25,7 +25,7 @@ export default function VideoSlotCard({ slot, className }: { slot: Slot; classNa
             aria-labelledby={headingId}
           >
             <source src={slot.src} />
-            {slot.captions && <track kind="captions" src={slot.captions} srcLang="en" label="English" default />}
+            {slot.captions && <track kind="captions" src={slot.captions} srcLang="en" label="English" />}
             Your browser cannot play this video. <a href={slot.src}>Download it instead.</a>
           </video>
         ) : (
