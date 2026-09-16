@@ -175,7 +175,9 @@ export const unitsWith = (identity: Identity | undefined, flag: number) => ident
 
 export function unitName(identity: Identity | undefined, unitId?: string | null, org?: { units?: Array<{ id: string; name: string; short_name: string | null }> }) {
   if (!unitId) return '';
-  const m = identity?.memberships.find((x) => x.unit_id === unitId);
+  // The optional chain has to carry through to the call: an identity that is still loading, or a
+  // caller who passed the wrong object, otherwise throws here rather than falling back to the org.
+  const m = identity?.memberships?.find((x) => x.unit_id === unitId);
   if (m) return m.unit_short || m.unit_name;
   const u = org?.units?.find((x) => x.id === unitId);
   return u ? u.short_name || u.name : unitId;

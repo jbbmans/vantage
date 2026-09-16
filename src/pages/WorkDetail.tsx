@@ -6,6 +6,7 @@ import { Button, Badge, Panel, EmptyState, Skeleton } from '@/components/ui/prim
 import { DescriptionList, DateText, StatusBadge } from '@/components/common';
 import { Comments } from '@/components/Comments';
 import { Attachments } from '@/components/Attachments';
+import { ProjectWork } from '@/components/ProjectWork';
 import { keys, useIdentity, unitName, useOrg } from '@/lib/queries';
 import * as api from '@/lib/api';
 
@@ -84,7 +85,7 @@ export default function WorkDetail() {
         <Badge>{kind!.label}</Badge>
         {row.visibility === 'private'
           ? <Badge tone="neutral"><Lock className="h-3 w-3" />Private</Badge>
-          : <Badge tone="neutral"><Users className="h-3 w-3" />{unitName(org, row.unit_id) || 'Unit'}</Badge>}
+          : <Badge tone="neutral"><Users className="h-3 w-3" />{unitName(identity, row.unit_id, org) || 'Unit'}</Badge>}
         {row.deleted_at && <Badge tone="bad">In the recycle bin</Badge>}
       </div>
 
@@ -107,6 +108,9 @@ export default function WorkDetail() {
           ] as Array<[string, React.ReactNode]>}
         />
       </Panel>
+
+      {/* A project is a container for work, so its work is the first thing it should show. */}
+      {table === 'projects' && <ProjectWork projectId={id} unitId={row.unit_id ?? null} canAdd={canEdit} />}
 
       <Attachments table={table as api.Store} id={id} canEdit={canEdit} />
       <Comments table={table as api.Store} id={id} canModerate={steward} />

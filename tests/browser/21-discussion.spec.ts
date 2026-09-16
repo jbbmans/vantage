@@ -75,3 +75,37 @@ test('a conversation is refused to somebody who cannot read the record itself', 
   expect(refusedPost.status()).toBe(403);
   await stranger.close();
 });
+
+/**
+ * Item one, made visible: a project holds its work whether somebody typed it in or it arrived on a
+ * spreadsheet. Before this the two were unrelated piles with no column joining them, so a project
+ * page could not have shown a queue even if somebody had built one.
+ */
+test('a project page holds typed work and says where each row came from', async ({ page, request }) => {
+  await ensureSetup(request);
+  await loginAs(page, OPERATOR.username);
+
+  const name = `October reconciliation ${Date.now()}`;
+  const made = await page.request.post('/api/records/projects', { headers: H, data: { name, visibility: 'unit', unit_id: 'G8' } });
+  expect(made.status()).toBe(201);
+  const project = await made.json();
+
+  await page.goto(`/records/projects/${project.id}`);
+  await expect(page.getByRole('heading', { name })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Work under this project' })).toBeVisible();
+
+  // Scoped to the work panel: the files panel has an Add button of its own.
+  const work = page.locator('section').filter({ has: page.getByRole('heading', { name: 'Work under this project' }) });
+
+  await work.getByRole('button', { name: 'Add' }).click();
+  await work.getByLabel('What needs doing?').fill('Ring the comptroller about the mismatch');
+  await work.getByRole('button', { name: 'Add', exact: true }).click();
+
+  await expect(work.getByText('Ring the comptroller about the mismatch')).toBeVisible();
+  // And it is marked as hand-entered, because that is what decides whether its fields can be edited.
+  await expect(work.getByText('Typed in').first()).toBeVisible();
+
+  // It is on the server, not in the page.
+  await page.reload();
+  await expect(page.getByText('Ring the comptroller about the mismatch')).toBeVisible();
+});
