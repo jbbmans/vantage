@@ -16,6 +16,7 @@ import { NAV_REDIRECTS } from '@/config/nav';
 
 const Records = lazy(() => import('@/pages/Records'));
 const RecordDetail = lazy(() => import('@/pages/RecordDetail'));
+const WorkDetail = lazy(() => import('@/pages/WorkDetail'));
 const WorkHub = lazy(() => import('@/pages/WorkHub'));
 const Goals = lazy(() => import('@/pages/Goals'));
 const Career = lazy(() => import('@/pages/Career'));
@@ -141,6 +142,8 @@ function AppRoutes() {
         <Route index element={<Dashboard />} />
         <Route path="records" element={<D><Records /></D>} />
         <Route path="records/:id" element={<D><RecordDetail /></D>} />
+        {/* One task, project or goal on its own page — the surface a file and a conversation hang on. */}
+        <Route path="records/:table/:id" element={<D><WorkDetail /></D>} />
         <Route path="work" element={<D><WorkHub /></D>} />
         <Route path="goals" element={<D><Goals /></D>} />
         <Route path="career" element={<D><Career /></D>} />

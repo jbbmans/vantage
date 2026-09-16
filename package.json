@@ -20,7 +20,7 @@
     "test": "node --test --test-concurrency=1 \"tests/server/**/*.test.ts\"",
     "test:browser": "playwright test",
     "pretest:browser": "npm run build",
-    "check": "npm run lint && npm run typecheck && npm test && npm run build",
+    "check": "npm run lint && npm run typecheck && npm run build && npm test",
     "recover-operator": "node scripts/recover-operator.ts",
     "factory-reset": "node scripts/factory-reset.ts",
     "icons": "node scripts/icons.mjs",

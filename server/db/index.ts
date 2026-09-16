@@ -58,6 +58,51 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_edipi ON users(edipi) WHERE edipi IS NOT NULL');
     },
   },
+  // The comment, invite and support tables come from schema.sql, which is safe to replay. These
+  // columns and indexes cannot be.
+  {
+    id: 7,
+    name: '007_work_coherence',
+    run: (db) => {
+      // A queue row can now belong to a project, which is what lets a project hold an imported
+      // spreadsheet instead of a project and a queue being two unrelated piles of work.
+      const work = new Set((db.prepare('PRAGMA table_info(work_items)').all() as Array<{ name: string }>).map((c) => c.name));
+      if (!work.has('project_id')) db.exec('ALTER TABLE work_items ADD COLUMN project_id TEXT REFERENCES projects(id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_project ON work_items(project_id, state)');
+
+      // `tasks.project_id` and `activities.project_id` were never indexed, so "show me this
+      // project's work" was a scan of every row the person owns. They are also declared without a
+      // foreign key. That is left alone deliberately: adding one means rebuilding the table, and
+      // `activities` is the target of work_actions.activity_id, so a rebuild there risks live
+      // rows to buy a constraint that purgeDeleted() already maintains by nulling both columns
+      // when a project is purged. The index is the part that was actually costing anything.
+      db.exec('CREATE INDEX IF NOT EXISTS idx_tasks_project ON tasks(project_id)');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_activities_project ON activities(project_id)');
+
+      // Splitting the work verbs out of "you hold the claim" adds permission bits that no role
+      // stored before this migration can possibly have. Gating on them without a backfill would
+      // quietly take capability away from every existing unit on the next deploy, so the bits are
+      // granted to match exactly what each role could already do:
+      //
+      //   every role            -> CLAIM_WORK, RESOLVE_WORK
+      //   MANAGE_RECORDS holder -> EDIT_WORK, REASSIGN_WORK
+      //
+      // RESOLVE_WORK goes to everybody because holding a claim already lets you close a case, both
+      // by PATCH and by recording a resolving action. Granting it only to MANAGE_RECORDS holders
+      // would take that away from every plain member on the next deploy — the exact regression this
+      // backfill exists to prevent. The split is a control a unit can now apply, not a tightening
+      // applied to everyone by surprise. EDIT_WORK and REASSIGN_WORK are genuinely new: nothing
+      // could edit a row's own fields or hand a case over before, so nobody loses them.
+      //
+      // Nobody gains reach they did not have. ADMINISTRATOR is untouched because it already
+      // implies everything through has().
+      const CLAIM_WORK = 1 << 13, EDIT_WORK = 1 << 14, RESOLVE_WORK = 1 << 15, REASSIGN_WORK = 1 << 16;
+      const MANAGE_RECORDS = 1 << 3;
+      db.prepare('UPDATE roles SET permissions = permissions | ? WHERE permissions > 0').run(CLAIM_WORK | RESOLVE_WORK);
+      db.prepare('UPDATE roles SET permissions = permissions | ? WHERE permissions & ? != 0')
+        .run(EDIT_WORK | REASSIGN_WORK, MANAGE_RECORDS);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 
@@ -90,9 +135,7 @@ export function openDatabase(path: string): Db {
 }
 
 function migrate(db: Db) {
-  const current = Number(db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value?: string } | undefined)?.valueOf();
   const version = Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | undefined)?.value || 0);
-  void current;
   for (const m of MIGRATIONS) {
     if (m.id <= version) continue;
     db.transaction(() => {

@@ -1,6 +1,7 @@
 import { test, after, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, enroll, type TestApp } from './helpers.ts';
+import { PERMISSIONS } from '../../shared/permissions.ts';
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
@@ -229,4 +230,235 @@ test('a leader can take back work someone else is holding, and a peer cannot', a
   const leader = await app.call('POST', `/api/work/items/${target.id}/release`, { token: op.token, body: {} });
   assert.equal(leader.status, 200, JSON.stringify(leader.body));
   assert.equal(leader.body.claimed_by, null);
+});
+
+/**
+ * Claiming used to be the only decision the system made, which meant one gate answered four
+ * different questions. These prove each one separately.
+ */
+
+/**
+ * A row of its own, so these do not inherit whatever state an earlier test left ULO-1 in.
+ * Each import carries a natural key nothing else uses.
+ */
+let seq = 0;
+async function freshRow(token: string, title = 'Clear a fresh obligation') {
+  const key = `FRESH-${Date.now()}-${seq++}`;
+  const csv = ['Document,Description,Due,Amount,Type', `${key},${title},2026-08-30,1500,deobligated`].join('\n');
+  const source = await app.call('POST', '/api/work/sources', {
+    token, raw: Buffer.from(csv),
+    headers: { 'content-type': 'text/csv', 'x-filename': `${key}.csv`, 'x-unit-id': 'G8', 'x-visibility': 'unit' },
+  });
+  assert.equal(source.status, 201, JSON.stringify(source.body));
+  const job = await app.call('POST', '/api/work/imports', { token, body: { ...PLAN, sheet_name: `${key}.csv`, source_file_id: source.body.id } });
+  assert.equal(job.status, 201, JSON.stringify(job.body));
+  return byKey(token, key);
+}
+
+test('a unit can let somebody work cases without letting them close one', async () => {
+  // The default keeps claiming and resolving together, because that is what claiming already meant.
+  // What the split buys is this: a unit can now take RESOLVE_WORK off a role and the holder still
+  // works the queue. So the test takes it off rather than relying on a default.
+  const stripped = await app.call('PUT', '/api/org/roles/G8:marine', {
+    token: op.token, body: { permissions: PERMISSIONS.VIEW_UNIT | PERMISSIONS.CLAIM_WORK },
+  });
+  assert.equal(stripped.status, 200, JSON.stringify(stripped.body));
+  // Editing a role revokes every holder's session so the new authority is re-read — and the
+  // operator holds the default role too, so both tokens have to be taken again.
+  const worker = (await app.login('alex')).body.token;
+  const leader = (await app.login('boletz')).body.token;
+
+  try {
+    const row = await freshRow(leader, 'Clear the obligation nobody has touched');
+    const claim = await app.call('POST', `/api/work/items/${row.id}/claim`, { token: worker, body: { version: row.version } });
+    assert.equal(claim.status, 200, `claiming stays theirs: ${JSON.stringify(claim.body)}`);
+
+    // Moving it along is execution, and stays with whoever holds it.
+    const progress = await app.call('PATCH', `/api/work/items/${row.id}`, { token: worker, body: { state: 'waiting', version: claim.body.version } });
+    assert.equal(progress.status, 200, JSON.stringify(progress.body));
+
+    // Declaring it finished is not.
+    const close = await app.call('PATCH', `/api/work/items/${row.id}`, { token: worker, body: { state: 'resolved', version: progress.body.version } });
+    assert.equal(close.status, 403, 'holding a case is not authority to close it');
+    assert.match(close.body.error, /closing one out is not yours/i);
+
+    // And the action path is not a way around it, which is where the split was previously open:
+    // recordAction wrote state='resolved' after checking only that the caller held the claim.
+    const viaAction = await app.call('POST', `/api/work/items/${row.id}/actions`, {
+      token: worker, body: { kind: 'resolved', note: 'Closing it out the back way.' },
+    });
+    assert.equal(viaAction.status, 403, 'recording a resolving action is not a way around RESOLVE_WORK');
+    const after = await byKey(leader, row.natural_key);
+    assert.notEqual(after.state, 'resolved', 'and the item did not move');
+
+    // Somebody who holds RESOLVE_WORK can.
+    const byLeader = await app.call('PATCH', `/api/work/items/${row.id}`, { token: leader, body: { state: 'resolved', version: progress.body.version } });
+    assert.equal(byLeader.status, 200, JSON.stringify(byLeader.body));
+    assert.equal(byLeader.body.state, 'resolved');
+  } finally {
+    // Put the role back so later tests see the shipped default, then take fresh tokens again for
+    // the same reason: restoring it revokes the sessions a second time.
+    await app.call('PUT', '/api/org/roles/G8:marine', {
+      token: (await app.login('boletz')).body.token,
+      body: { permissions: PERMISSIONS.VIEW_UNIT | PERMISSIONS.CLAIM_WORK | PERMISSIONS.RESOLVE_WORK },
+    });
+    op.token = (await app.login('boletz')).body.token;
+    alex.token = (await app.login('alex')).body.token;
+    bree.token = (await app.login('bree')).body.token;
+  }
+});
+
+test('work can be handed to somebody, and only to somebody who can already see it', async () => {
+  const current = await freshRow(op.token, 'Chase the second endorsement');
+
+  const handed = await app.call('POST', `/api/work/items/${current.id}/assign`, { token: op.token, body: { user_id: bree.id, version: current.version } });
+  assert.equal(handed.status, 200, JSON.stringify(handed.body));
+  assert.equal(handed.body.claimed_by, bree.id, 'the case is now held by the person it was given to');
+
+  // They are told about it.
+  const inbox = await app.call('GET', '/api/me/notifications', { token: bree.token });
+  assert.ok((inbox.body.rows as Array<{ kind: string }>).some((n) => n.kind === 'work_assigned'), 'the recipient hears about it');
+
+  // Somebody outside the unit cannot be handed work they could not otherwise see.
+  const toStranger = await app.call('POST', `/api/work/items/${current.id}/assign`, { token: op.token, body: { user_id: outsider.id, version: handed.body.version } });
+  assert.equal(toStranger.status, 400);
+  assert.match(toStranger.body.error, /cannot see this work/i);
+
+  // And a plain member cannot hand work around at all.
+  const byMember = await app.call('POST', `/api/work/items/${current.id}/assign`, { token: alex.token, body: { user_id: alex.id, version: handed.body.version } });
+  assert.equal(byMember.status, 403);
+});
+
+/**
+ * The provenance rule, now stated by the server rather than kept by accident because no route
+ * happened to offer the write.
+ */
+test('a value that came off an imported sheet is read-only, at every level', async () => {
+  const row = await freshRow(op.token, 'Reconcile the imported figure');
+  for (const [field, value] of [['title', 'Rewritten title'], ['reference', 'ULO-999'], ['due_date', '2027-01-01']] as const) {
+    const res = await app.call('PATCH', `/api/work/items/${row.id}`, { token: op.token, body: { [field]: value, version: row.version } });
+    assert.equal(res.status, 403, `${field} should be refused on an imported row`);
+    assert.match(res.body.error, /imported sheet/i);
+  }
+  // The row is untouched.
+  const after = await byKey(op.token, row.natural_key);
+  assert.equal(after.reference, row.reference);
+  assert.equal(after.title, row.title);
+});
+
+test('a row somebody typed in is theirs to correct, unlike one off a sheet', async () => {
+  const made = await app.call('POST', '/api/work/items', {
+    token: op.token,
+    body: { unit_id: 'G8', title: 'Chase the missing signature', visibility: 'unit' },
+  });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  assert.equal(made.body.source_file_id, null, 'a typed row has no sheet behind it');
+
+  const fixed = await app.call('PATCH', `/api/work/items/${made.body.id}`, {
+    token: op.token, body: { title: 'Chase the missing signature (2nd endorsement)', version: made.body.version },
+  });
+  assert.equal(fixed.status, 200, JSON.stringify(fixed.body));
+  assert.match(fixed.body.title, /2nd endorsement/);
+
+  // Somebody with no EDIT_WORK here cannot rewrite it either — typed does not mean unguarded.
+  const byMember = await app.call('PATCH', `/api/work/items/${made.body.id}`, {
+    token: alex.token, body: { title: 'Something else entirely', version: fixed.body.version },
+  });
+  assert.equal(byMember.status, 403);
+});
+
+/**
+ * The point of the whole exercise: a project holds the work under it, whether somebody typed that
+ * work in or it arrived on a spreadsheet. Before this a project and the queue were two unrelated
+ * piles with no column joining them.
+ */
+test('a project holds typed work and imported work in one list', async () => {
+  const project = await app.call('POST', '/api/records/projects', {
+    token: op.token, body: { name: 'October reconciliation', visibility: 'unit' },
+  });
+  assert.equal(project.status, 201, JSON.stringify(project.body));
+
+  const typed = await app.call('POST', '/api/work/items', {
+    token: op.token,
+    body: { unit_id: 'G8', title: 'Ring the comptroller about the mismatch', project_id: project.body.id, visibility: 'unit' },
+  });
+  assert.equal(typed.status, 201, JSON.stringify(typed.body));
+  assert.equal(typed.body.project_id, project.body.id);
+
+  // An imported row filed under the same project.
+  const imported = await freshRow(op.token, 'Clear the obligation from the sheet');
+  const filed = await app.call('PATCH', `/api/work/items/${imported.id}`, {
+    token: op.token, body: { project_id: project.body.id, version: imported.version },
+  });
+  // Filing an imported row under a project is not rewriting what the sheet said, so it is allowed.
+  assert.equal(filed.status, 200, JSON.stringify(filed.body));
+
+  const listed = await app.call('GET', `/api/work/items?unit_id=G8&project_id=${project.body.id}`, { token: op.token });
+  assert.equal(listed.status, 200);
+  const titles = (listed.body.items as Array<{ title: string }>).map((i) => i.title).sort();
+  assert.equal(titles.length, 2, 'both kinds of work are in the project’s list');
+  assert.ok(titles.some((t) => /comptroller/.test(t)), 'the typed one');
+  assert.ok(titles.some((t) => /from the sheet/.test(t)), 'the imported one');
+});
+
+test('work cannot be filed under a project the caller cannot reach', async () => {
+  const secret = await app.call('POST', '/api/records/projects', { token: alex.token, body: { name: 'Alex private project', visibility: 'private' } });
+  assert.equal(secret.status, 201, JSON.stringify(secret.body));
+  const attempt = await app.call('POST', '/api/work/items', {
+    token: bree.token, body: { unit_id: 'G8', title: 'Sneak into their project', project_id: secret.body.id, visibility: 'unit' },
+  });
+  assert.ok(attempt.status === 403 || attempt.status === 400, `expected refusal, got ${attempt.status}`);
+});
+
+test('a claim nobody touches goes back on the queue by itself', async () => {
+  const { releaseStaleClaims } = await import('../../server/services/work.ts');
+  const free = await freshRow(op.token, 'Sit on this one over the weekend');
+  const held = await app.call('POST', `/api/work/items/${free.id}/claim`, { token: alex.token, body: { version: free.version } });
+  assert.equal(held.status, 200, JSON.stringify(held.body));
+
+  // Nothing is stale yet, so a sweep leaves it alone.
+  assert.equal(releaseStaleClaims(app.ctx, 72), 0, 'a fresh claim is not stale');
+
+  // Age the claim rather than shrinking the window to zero. A zero-hour window puts the cutoff at
+  // the same millisecond the claim was made, so `claimed_at < cutoff` is a coin flip decided by how
+  // fast the machine is — it passed here and failed in CI. Backdating exercises the real condition:
+  // a claim nobody has touched for days.
+  const old = new Date(Date.now() - 100 * 3_600_000).toISOString();
+  app.ctx.db.prepare('UPDATE work_items SET claimed_at = ?, updated_at = ? WHERE id = ?').run(old, old, free.id);
+
+  assert.equal(releaseStaleClaims(app.ctx, 72), 1, 'a claim older than the window is given up');
+  const after = await byKey(op.token, free.natural_key);
+  assert.equal(after.claimed_by, null, 'the row is back on the queue');
+  assert.equal(after.state, 'open');
+});
+
+/**
+ * work_items.project_id is the only one of the three project links with a real foreign key, so
+ * forgetting it in the purge does not leave a dangling row — it makes the purge throw and roll back,
+ * every time it runs, until somebody clears the reference by hand.
+ */
+test('purging a project detaches the work filed under it instead of failing forever', async () => {
+  const { purgeDeleted } = await import('../../server/services/records.ts');
+  const project = await app.call('POST', '/api/records/projects', { token: op.token, body: { name: 'Doomed project', visibility: 'unit' } });
+  assert.equal(project.status, 201, JSON.stringify(project.body));
+
+  const item = await app.call('POST', '/api/work/items', {
+    token: op.token, body: { unit_id: 'G8', title: 'Filed under a project about to go', project_id: project.body.id, visibility: 'unit' },
+  });
+  assert.equal(item.status, 201, JSON.stringify(item.body));
+
+  // Delete it and backdate the deletion past the retention cutoff.
+  assert.equal((await app.call('DELETE', `/api/records/projects/${project.body.id}`, { token: op.token })).status, 200);
+  const old = new Date(Date.now() - 60 * 86_400_000).toISOString();
+  app.ctx.db.prepare('UPDATE projects SET deleted_at = ? WHERE id = ?').run(old, project.body.id);
+
+  // Without the detach this throws a foreign-key error and takes the whole transaction with it.
+  const result = purgeDeleted(app.ctx, 30);
+  assert.ok(result.records >= 1, 'the project was actually purged');
+  assert.equal(app.ctx.db.prepare('SELECT 1 FROM projects WHERE id = ?').get(project.body.id), undefined);
+
+  // The work survives, detached rather than deleted: it is somebody's record of what they did.
+  const survivor = app.ctx.db.prepare('SELECT project_id FROM work_items WHERE id = ?').get(item.body.id) as { project_id: string | null } | undefined;
+  assert.ok(survivor, 'the work item is still there');
+  assert.equal(survivor!.project_id, null, 'and no longer points at a project that is gone');
 });

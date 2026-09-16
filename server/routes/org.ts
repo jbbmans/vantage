@@ -15,6 +15,7 @@ import { hydrate, withGoalProgress } from '../services/records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { unitDashboard } from '../services/dashboard.ts';
 import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
+import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
 
 export const orgRouter = Router();
 orgRouter.use(requireAuth);
@@ -231,6 +232,11 @@ orgRouter.delete('/roles/:roleId', wrap((req, res) => {
   let revoked = 0;
   ctx.db.transaction(() => {
     for (const h of ctx.db.prepare('SELECT DISTINCT user_id FROM member_roles WHERE role_id = ?').all(role.id) as Array<{ user_id: string }>) revoked += invalidateUserSessions(ctx, h.user_id);
+    // A join code may hand out this role, and that reference is a real foreign key. Revoking a code
+    // only sets revoked_at, so the row stays and would block the delete below. Released rather than
+    // deleted: an invite somebody joined on is a record of how they got here. A code left pointing
+    // at nothing falls back to the unit's default role, which is the right outcome anyway.
+    ctx.db.prepare('UPDATE unit_invites SET role_id = NULL WHERE role_id = ?').run(role.id);
     ctx.db.prepare('DELETE FROM roles WHERE id = ?').run(role.id);
   })();
   audit(ctx, { actor_id: req.user.id, action: 'delete_role', entity: 'role', entity_id: role.id, unit_id: role.unit_id, detail: `${role.name}; sessions revoked: ${revoked}`, ip: clientIp(req) });
@@ -407,3 +413,38 @@ orgRouter.post('/team/:userId/operator', requireOperator, requireSudo, wrap((req
 import { hashPassword as _hashPassword } from '../lib/crypto.ts';
 function await_import() { return { hashPassword: _hashPassword }; }
 export { conflict };
+
+// Join codes ------------------------------------------------------------
+// Distinct from the invitations above, which email one named person a single-use link. A join code
+// is shareable, reusable and revocable: the owner makes one, sends it to whoever, and people let
+// themselves in. Both exist because they answer different questions — "bring this person in" versus
+// "here is the door for my team".
+orgRouter.post('/units/:unitId/join-codes', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  res.status(201).json(createInvite(req.ctx, req.user, scope, String(req.params.unitId), {
+    role_id: req.body?.role_id ?? null,
+    note: req.body?.note ?? null,
+    max_uses: req.body?.max_uses ?? null,
+    expires_in_hours: req.body?.expires_in_hours ?? null,
+  }, clientIp(req)));
+}));
+
+orgRouter.get('/units/:unitId/join-codes', wrap((req, res) => {
+  res.json({ invites: listInvites(req.ctx, scopeFor(req.ctx, req.user, req), String(req.params.unitId)) });
+}));
+
+orgRouter.delete('/units/:unitId/join-codes/:inviteId', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  res.json(revokeInvite(req.ctx, req.user, scope, String(req.params.unitId), String(req.params.inviteId), clientIp(req)));
+}));
+
+// Looking a code up says which unit it opens and nothing else about that unit.
+orgRouter.get('/join-codes/:code', wrap((req, res) => {
+  const found = peekInvite(req.ctx, String(req.params.code));
+  if (!found) throw notFound('That invite code is not valid.');
+  res.json(found);
+}));
+
+orgRouter.post('/join-codes/:code/join', wrap((req, res) => {
+  res.json(redeemInvite(req.ctx, req.user, String(req.params.code), clientIp(req)));
+}));

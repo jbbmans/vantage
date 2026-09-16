@@ -35,6 +35,12 @@ export const limiters = {
   loginUser: new Window(10),
   registerIp: new Window(20),
   resetIp: new Window(10),
+  /**
+   * Anonymous help requests, kept separate from resetIp on purpose: sharing that window would let
+   * a flood of support requests exhaust somebody's password-reset budget, which is the one thing
+   * the person needing help is most likely to be trying next.
+   */
+  supportIp: new Window(10),
   mfaToken: new Window(6),
   /** Failed second-factor attempts per account, across every challenge issued in the window. */
   mfaUser: new Window(10),

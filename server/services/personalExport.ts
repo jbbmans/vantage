@@ -1,6 +1,6 @@
 /**
  * Everything a Marine has put into Vantage, in one archive they can keep: profile, rank, units and roles, every record
- * (including what sits in the recycle bin), readiness figures, attachments, notifications, preferences, the audit trail
+ * (including what sits in the recycle bin), readiness figures, attachments, comments, notifications, preferences, the audit trail
  * of what happened to their record, and their AI usage. Secrets never leave: no password hash, authenticator secret,
  * passkey credential, session, or token.
  */
@@ -68,6 +68,23 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   const attachmentFiles: Array<Row & { content: Buffer }> = attachments ? attachmentRows.map((a) => ({ ...a, content: (db.prepare('SELECT content FROM attachments WHERE id = ?').get(String(a.id)) as { content: Buffer }).content })) : [];
 
   const notifications = db.prepare('SELECT id, kind, title, message, action_url, read_at, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC').all(userId) as Row[];
+
+  // Remarks this person wrote, and remarks other people wrote on their records. Both halves belong
+  // in an export that promises the whole account: what you said about somebody else's tasking is
+  // yours, and what a leader wrote on your counseling is about you.
+  const commentColumns = 'id, record_table, record_id, author_id, body, mentions, edited_at, created_at, deleted_at';
+  const ownComments = db.prepare(`SELECT ${commentColumns} FROM comments WHERE author_id = ?`).all(userId) as Row[];
+  const onOwnRecords: Row[] = [];
+  for (let i = 0; i < attachedPairs.length; i += 400) {
+    const chunk = attachedPairs.slice(i, i + 400);
+    onOwnRecords.push(...db.prepare(
+      `SELECT ${commentColumns} FROM comments WHERE ${chunk.map(() => '(record_table = ? AND record_id = ?)').join(' OR ')}`
+    ).all(...chunk.flat()) as Row[]);
+  }
+  const seenComments = new Set<string>();
+  const commentRows = [...ownComments, ...onOwnRecords]
+    .filter((c) => { const id = String(c.id); if (seenComments.has(id)) return false; seenComments.add(id); return true; })
+    .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   const auditTrail = db.prepare(`SELECT al.id, al.at, al.action, al.entity, al.entity_id, al.unit_id, al.detail, al.ip, CASE WHEN al.actor_id = ? THEN 'me' ELSE COALESCE(u.username, al.actor_id) END AS actor, CASE WHEN al.subject_id = ? THEN 'me' ELSE COALESCE(s.username, al.subject_id) END AS subject
     FROM audit_log al LEFT JOIN users u ON u.id = al.actor_id LEFT JOIN users s ON s.id = al.subject_id WHERE al.actor_id = ? OR al.subject_id = ? ORDER BY al.seq DESC LIMIT 20000`).all(userId, userId, userId, userId) as Row[];
   const aiUsage = db.prepare('SELECT day, workflow, model, requests, prompt_tokens, completion_tokens, total_tokens, failures FROM ai_usage_daily WHERE user_id = ? ORDER BY day DESC').all(userId) as Row[];
@@ -84,9 +101,9 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
     units, memberships, roles,
     records,
     attachments: attachmentRows,
-    notifications, audit_trail: auditTrail, ai_usage: aiUsage, email_log: emails, maradmin_state: maradminState,
+    notifications, comments: commentRows, audit_trail: auditTrail, ai_usage: aiUsage, email_log: emails, maradmin_state: maradminState,
     security: { passkeys, sessions, authenticator_enabled: Boolean(user.totp_enabled) },
-    counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, audit_trail: auditTrail.length },
+    counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, comments: commentRows.length, audit_trail: auditTrail.length },
     _files: attachmentFiles,
   };
 }
@@ -119,6 +136,7 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string): { buffe
   }
   entries.push({ name: 'attachments.csv', data: rowsToCsv(archive.attachments.map(flat)) });
   entries.push({ name: 'notifications.csv', data: rowsToCsv(archive.notifications.map(flat)) });
+  entries.push({ name: 'comments.csv', data: rowsToCsv(archive.comments.map(flat)) });
   entries.push({ name: 'audit-trail.csv', data: rowsToCsv(archive.audit_trail.map(flat)) });
   entries.push({ name: 'ai-usage.csv', data: rowsToCsv(archive.ai_usage.map(flat)) });
   entries.push({ name: 'email-log.csv', data: rowsToCsv(archive.email_log.map(flat)) });

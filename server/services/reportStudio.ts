@@ -7,6 +7,7 @@ import { newId, now } from '../lib/ids.ts';
 import { canRead } from '../authz/records.ts';
 import { isRecordTable, getRecord } from './records.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
+import { trackForGrade, type Track } from '../../shared/evaluation.ts';
 
 /**
  * Report Studio: a draft, its revisions, and the proof that the wording matches its sources.
@@ -41,6 +42,23 @@ export interface StaleSource { table: string; id: string; title: string; expecte
 
 const SOURCE_TABLES = new Set(['activities', 'trainings', 'awards', 'counselings']);
 
+/**
+ * Which instrument a Marine is written up under is a fact about their rank, not a preference of
+ * whoever opens the editor. E-4 and below are JEPES; E-5 and above, warrants and officers are
+ * FITREP. `buildReport` has always derived it this way and Report Studio did not, so a draft for
+ * a Sergeant came out as JEPES unless the client happened to say otherwise.
+ *
+ * It follows the *subject*, never the author: a Gunny writing up a Lance Corporal is writing
+ * JEPES, and the same Gunny writing their own is writing a FITREP. An explicit choice still wins,
+ * because a rank can be mid-change and the person writing it knows which one they are filling in.
+ */
+function defaultTrack(ctx: AppContext, subjectId: string): Track {
+  const person = ctx.db.prepare(
+    'SELECT r.grade AS rank_grade FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ?'
+  ).get(subjectId) as { rank_grade: string | null } | undefined;
+  return trackForGrade(person?.rank_grade);
+}
+
 function assertSubject(ctx: AppContext, user: SessionUser, scope: Scope, subjectId: string, unitId: string | null) {
   if (subjectId === user.id) return;
   const units = detailUnitsFor(ctx, scope, subjectId);
@@ -71,7 +89,7 @@ export function createDraft(
   ctx.db.prepare(
     `INSERT INTO report_drafts (id, user_id, subject_id, unit_id, visibility, title, period_start, period_end, track, latest_revision, version, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 0, 1, ?, ?)`
-  ).run(id, user.id, subjectId, unitId, input.visibility || 'private', title, input.period_start, input.period_end, input.track === 'fitrep' ? 'fitrep' : 'jepes', at, at);
+  ).run(id, user.id, subjectId, unitId, input.visibility || 'private', title, input.period_start, input.period_end, input.track === 'fitrep' || input.track === 'jepes' ? input.track : defaultTrack(ctx, subjectId), at, at);
   return getDraft(ctx, id)!;
 }
 

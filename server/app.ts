@@ -24,12 +24,14 @@ import { pruneSources, reconcileInterruptedJobs } from './services/intake.ts';
 import { orgRouter } from './routes/org.ts';
 import { miscRouter } from './routes/misc.ts';
 import { adminRouter } from './routes/admin.ts';
+import { supportRouter, publicSupportRouter } from './routes/support.ts';
 import { pruneSessions } from './auth/sessions.ts';
 import { configureLimits, configureAiLimits, pruneLimiters } from './auth/limiter.ts';
 import { syncMaradmins } from './services/maradmins.ts';
 import { runDigestTick } from './services/digest.ts';
 import { now } from './lib/ids.ts';
 import { purgeDeleted } from './services/records.ts';
+import { releaseStaleClaims } from './services/work.ts';
 import { loadRuntime } from './runtime.ts';
 export { loadRuntime };
 
@@ -123,6 +125,11 @@ export function createApp(ctx: AppContext) {
   app.use('/api/work', workRouter);
   app.use('/api/correspondence', correspondenceRouter);
   app.use('/api/org', orgRouter);
+  app.use('/api/support', supportRouter);
+  // Raising a ticket without signing in: the commonest reason to need help is that you cannot sign
+  // in, and a queue you must sign in to reach is no use to that person. This has to mount ahead of
+  // miscRouter, which is mounted at bare '/api' and applies requireAuth to everything after it.
+  app.use('/api/public-support', publicSupportRouter);
   app.use('/api', miscRouter);
   app.use('/api/admin', adminRouter);
 
@@ -158,7 +165,10 @@ export function createApp(ctx: AppContext) {
     // Only public marketing routes are indexable, before any JavaScript runs.
     const publicRoutes = new Set(['/', '/display', '/about']);
     const appRoute = /^\/(?:login|register|reset|invite|setup|work|goals|career|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
-    const recordRoute = /^\/(?:records|activities|team)(?:\/[^/]+)?\/?$/;
+    // Two segments, not one: a record detail is /records/:id for an activity and
+    // /records/:table/:id for a task, project or goal, which is the link shape a mention
+    // notification points at. One segment 404s the second form.
+    const recordRoute = /^\/(?:records|activities|team)(?:\/[^/]+){0,2}\/?$/;
     const indexHtml = readFileSync(join(distDir, 'index.html'), 'utf8');
     const tagManagerHead = indexHtml.match(/<!-- Google Tag Manager -->[\s\S]*?<!-- End Google Tag Manager -->/)?.[0] || '';
     const tagManagerBody = indexHtml.match(/<!-- Google Tag Manager \(noscript\) -->[\s\S]*?<!-- End Google Tag Manager \(noscript\) -->/)?.[0] || '';
@@ -215,6 +225,9 @@ export function startSchedulers(ctx: AppContext) {
   const every = (ms: number, fn: () => void) => { const t = setInterval(fn, ms); t.unref?.(); timers.push(t); };
   every(15 * 60_000, () => { pruneLimiters(); try { pruneSessions(ctx); } catch {} });
   every(6 * 60 * 60_000, () => { try { const r = purgeDeleted(ctx); if (r.records) console.log(`${now()} purged ${r.records} records from the recycle bin`); } catch (e) { console.warn(`Purge failed: ${(e as Error).message}`); } });
+  // A claim nobody has touched in three days goes back on the queue. Somebody claims a dozen rows
+  // on a Friday and goes on leave; without this the work waits for a leader to notice.
+  every(60 * 60_000, () => { try { const n = releaseStaleClaims(ctx); if (n) console.log(`${now()} released ${n} stale work claims`); } catch (e) { console.warn(`Stale claim sweep failed: ${(e as Error).message}`); } });
   // Analytics steer a product; they are not a memory. Anything past the window goes on its own.
   every(24 * 60 * 60_000, () => { try { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); } catch (e) { console.warn(`Event prune failed: ${(e as Error).message}`); } });
   // Uploaded workbooks are evidence for as long as the retention policy says, and no longer.

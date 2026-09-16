@@ -135,6 +135,13 @@ export const uploadAttachment = (store: Store, id: string, file: File) => reques
 export const deleteAttachment = (store: Store, id: string, attachmentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`);
 export const attachmentUrl = (store: Store, id: string, attachmentId: string) => `/api/records/${store}/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`;
 
+// Comments. Every one of these is gated server-side by the host record's own visibility, so there
+// is no client-side notion of who may read a thread — ask, and a 403 is the answer.
+export const comments = (store: Store, id: string) => api.get(`/records/${store}/${encodeURIComponent(id)}/comments`);
+export const addComment = (store: Store, id: string, body: string) => api.post(`/records/${store}/${encodeURIComponent(id)}/comments`, { body });
+export const editComment = (store: Store, id: string, commentId: string, body: string) => api.put(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`, { body });
+export const deleteComment = (store: Store, id: string, commentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`);
+
 // Org ----------------------------------------------------------------
 export const team = () => api.get('/org/team');
 export const member = (id: string) => api.get(`/org/team/${encodeURIComponent(id)}`);
@@ -197,6 +204,8 @@ export const workItem = (id: string) => api.get(`/work/items/${encodeURIComponen
 export const claimWorkItem = (id: string, version: number) => api.post(`/work/items/${encodeURIComponent(id)}/claim`, { version });
 export const releaseWorkItem = (id: string, version: number) => api.post(`/work/items/${encodeURIComponent(id)}/release`, { version });
 export const patchWorkItem = (id: string, patch: Record<string, unknown>) => request('PATCH', `/work/items/${encodeURIComponent(id)}`, patch);
+export const createWorkItem = (body: Record<string, unknown>) => api.post('/work/items', body);
+export const assignWorkItem = (id: string, userId: string, version: number) => api.post(`/work/items/${encodeURIComponent(id)}/assign`, { user_id: userId, version });
 export const recordWorkAction = (id: string, body: Record<string, unknown>, idempotencyKey: string) =>
   request('POST', `/work/items/${encodeURIComponent(id)}/actions`, body, { headers: { 'idempotency-key': idempotencyKey } });
 export const listWorkViews = () => api.get('/work/views');

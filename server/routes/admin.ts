@@ -87,6 +87,8 @@ const runtimeSchema = z.object({
   attachmentsEnabled: z.boolean().optional(),
   maradminsEnabled: z.boolean().optional(),
   maintenance: z.boolean().optional(),
+  selfServiceUnits: z.boolean().optional(),
+  selfServiceUnitLimit: z.coerce.number().int().min(0).max(100).optional(),
   metrics: z.object({
     currency_label: z.string().trim().min(1).max(30),
     currency_symbol: z.string().trim().max(4),

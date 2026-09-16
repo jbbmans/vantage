@@ -847,3 +847,100 @@ CREATE TABLE IF NOT EXISTS disposition_runs (
   at          TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_disposition_at ON disposition_runs(at);
+
+-- Phase 7: coherence rebuild -------------------------------------------------
+-- A remark somebody made on a piece of work. Polymorphic on (record_table, record_id) exactly
+-- like attachments, because the alternative is one comment table per record type and six copies
+-- of the same permission bug.
+--
+-- There is deliberately no `visibility` column. A comment is exactly as visible as the thing it
+-- hangs on, decided at read time by the host record's own rules. Storing a visibility here would
+-- let a comment on a private counseling be marked 'unit' and leak the fact of it.
+CREATE TABLE IF NOT EXISTS comments (
+  id           TEXT PRIMARY KEY,
+  record_table TEXT NOT NULL,
+  record_id    TEXT NOT NULL,
+  author_id    TEXT NOT NULL REFERENCES users(id),
+  -- The unit the host belonged to when this was written. Copied rather than joined so the audit
+  -- trail stays true if the host is later moved.
+  unit_id      TEXT REFERENCES units(id),
+  body         TEXT NOT NULL,
+  -- user ids named with @ in the body, as a JSON array. Resolved when written, so a later rename
+  -- does not silently re-point a mention at somebody else.
+  mentions     TEXT NOT NULL DEFAULT '[]',
+  edited_at    TEXT,
+  deleted_at   TEXT,
+  created_at   TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_comments_record ON comments(record_table, record_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_id, created_at DESC);
+
+-- A reusable join code for a unit. The single-use `tokens` table cannot model this: an invite is
+-- deliberately multi-use and long-lived. The code is stored only as a hash, the same way a reset
+-- token is, so a copy of the database is not a pile of working invitations.
+CREATE TABLE IF NOT EXISTS unit_invites (
+  id          TEXT PRIMARY KEY,
+  unit_id     TEXT NOT NULL REFERENCES units(id),
+  code_hash   TEXT NOT NULL UNIQUE,
+  -- first few characters, kept so the creator can tell two live invites apart in a list
+  code_hint   TEXT NOT NULL,
+  created_by  TEXT NOT NULL REFERENCES users(id),
+  -- the role a joiner receives. NULL means the unit's default role.
+  role_id     TEXT REFERENCES roles(id),
+  note        TEXT,
+  max_uses    INTEGER,
+  uses        INTEGER NOT NULL DEFAULT 0,
+  expires_at  TEXT,
+  revoked_at  TEXT,
+  created_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unit_invites_unit ON unit_invites(unit_id, revoked_at);
+
+-- Who joined on which invite. Kept separately from `uses` so revoking an invite never erases the
+-- record that somebody came in through it.
+CREATE TABLE IF NOT EXISTS unit_invite_uses (
+  id         TEXT PRIMARY KEY,
+  invite_id  TEXT NOT NULL REFERENCES unit_invites(id),
+  user_id    TEXT NOT NULL REFERENCES users(id),
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unit_invite_uses_invite ON unit_invite_uses(invite_id);
+
+-- A request for help. This is the queue somebody works when a Marine cannot get in, not a window
+-- onto anybody's mail: no message body of an outgoing email is ever copied in here. What a ticket
+-- may show about a reset is the delivery fact from `email_log` — address, time, status — which
+-- answers "did it reach them" without handing the reader a live link.
+CREATE TABLE IF NOT EXISTS support_tickets (
+  id              TEXT PRIMARY KEY,
+  -- NULL when raised from the sign-in page by somebody who cannot get in; that is the whole point.
+  requester_id    TEXT REFERENCES users(id),
+  requester_email TEXT,
+  requester_name  TEXT,
+  unit_id         TEXT REFERENCES units(id),
+  subject         TEXT NOT NULL,
+  category        TEXT NOT NULL DEFAULT 'other',
+  state           TEXT NOT NULL DEFAULT 'open'
+                  CHECK (state IN ('open', 'in_progress', 'waiting_on_requester', 'resolved', 'closed')),
+  priority        TEXT NOT NULL DEFAULT 'normal' CHECK (priority IN ('low', 'normal', 'high', 'urgent')),
+  assigned_to     TEXT REFERENCES users(id),
+  resolved_at     TEXT,
+  closed_at       TEXT,
+  version         INTEGER NOT NULL DEFAULT 1,
+  deleted_at      TEXT,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_support_state ON support_tickets(state, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_support_requester ON support_tickets(requester_id, created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_support_assigned ON support_tickets(assigned_to, state);
+
+CREATE TABLE IF NOT EXISTS support_messages (
+  id         TEXT PRIMARY KEY,
+  ticket_id  TEXT NOT NULL REFERENCES support_tickets(id),
+  author_id  TEXT REFERENCES users(id),
+  body       TEXT NOT NULL,
+  -- a note between the people working the queue. Never rendered to the requester.
+  internal   INTEGER NOT NULL DEFAULT 0,
+  created_at TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_support_messages_ticket ON support_messages(ticket_id, created_at);
