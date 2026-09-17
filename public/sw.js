@@ -7,7 +7,7 @@
  * rebuilt client without touching this and everyone who keeps the app open stays on the old one
  * until they happen to hard-reload — which, for a PWA people leave open all day, is a long time.
  */
-const VERSION = 'v5-5-favicon-refresh-20260914';
+const VERSION = 'v5-6-brand-and-video-recovery-20260917';
 const SHELL = `vantage-shell-${VERSION}`;
 const ASSETS = `vantage-assets-${VERSION}`;
 const SHELL_URLS = [

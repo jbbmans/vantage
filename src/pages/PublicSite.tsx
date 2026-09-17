@@ -82,7 +82,7 @@ export default function PublicSite() {
           <p className="mission-eyebrow">A CLEARER VIEW OF YOUR WORK</p>
           <h1 id="vantage-hero-title">Every action.<br />A clearer picture.</h1>
           <p className="mission-subtitle">The performance and work management platform<br className="desktop-break" /> built for Marines and operational teams.</p>
-          <div className="mission-actions"><a className="mission-button" href="#product">Explore the product <ArrowRight aria-hidden /></a><a className="mission-watch" href="#watch"><Play aria-hidden />Watch the overview</a></div>
+          <div className="mission-actions"><a className="mission-button" href="#product">Explore the product <ArrowRight aria-hidden /></a>{video ? <a className="mission-watch" href="#watch"><Play aria-hidden />Watch the overview</a> : <a className="mission-watch" href="#experience"><ArrowRight aria-hidden />Try Quick Log</a>}</div>
         </section>
         <ProductDemo />
         <ol className="mission-steps" id="how-it-works"><li><span>1</span><div><h2>Capture</h2><p>Keep the work and its context in one place.</p></div></li><li><span>2</span><div><h2>Understand</h2><p>See the actions, outcomes, and evidence.</p></div></li><li><span>3</span><div><h2>Report</h2><p>Build useful outputs from the same records.</p></div></li></ol>
