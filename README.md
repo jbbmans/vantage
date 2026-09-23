@@ -1,10 +1,37 @@
 # Vantage
 
-Performance records for Marines. Log what you did in one sentence, keep the evidence, and turn it into a JEPES or FITREP input, a bullet package, and a PDF when the evaluation comes due. Leaders see only what their Marines chose to share, and every look is logged.
+**Do the work once. Keep the record. Know what comes next.**
 
-Vantage 5 is a ground-up rewrite: TypeScript end to end, a fresh schema, passkeys and authenticator sign-in, offline capture on phones, counseling and award tracking, unit dashboards, weekly email digests, CSV that round-trips, and GenAI.mil drafting with the model of your choice.
+Vantage is a Marine Corps work, accountability, performance-record and career-development platform. A Marine claims work, researches and completes it, and keeps an attributed record of their part without retyping it. A leader sees workload, waiting and blockers without a roll call. The same Marine logs what happens outside a tasker, keeps goals, plans their career, and builds supported JEPES or FITREP input.
 
-## What it does
+Five destinations: **Today · Work · Record · Goals · Career**. Team appears for people who lead a unit.
+
+- **Today**: your work with its next step, what is waiting on someone else, what is open to claim, what changed, quick capture, and your goals and next career step. Leaders see their section first: unassigned, overdue, blocked and waiting work, and who holds what.
+- **Work**: the queue of tasker items (open work, open to claim, mine), taskers and projects, tasks, and correspondence. Each item has its own page with an append-only history. Every claim, handoff, stage, wait, observation, decision, submission, funds check and verification is attributed and dated.
+- **2-Way UMT procedure** (first financial workflow, labelled an unvalidated SME walkthrough): research steps, a candidate calculation in exact cents citing every input, an explicit analyst decision, and controls that refuse submission after a failed or inconclusive funds check. Resolution waits on a verified condition.
+- **Record**: assigned work (claiming is not credit), contributions counted from the work's own history (one document counts once), your own entries, and private accomplishment drafts built only from your own cited facts.
+- **Goals** and **Career**: measurable goals; a private plan with next steps that record where their guidance came from and whether anyone checked it; training, awards, counseling and readiness.
+- **Team → Workload**: section totals and per-person counts beside definitions and stated limits. People are never labelled.
+
+See `docs/product/` for the product, `docs/domain/` for the financial model and SME questions, `docs/PROGRESS.md` for status, and `docs/demo/BOARD_DEMO.md` for the demonstration script.
+
+## Access modes
+
+| `VANTAGE_ACCESS_MODE` | What it is |
+|---|---|
+| `accounts` (default) | Real accounts: passwords, passkeys, TOTP, optional CAC. Evaluation and operation. |
+| `demo` | The synthetic demonstration. No sign-in form: each visitor gets a disposable workspace of invented people and records, removed after 24 hours. Refused in production, on a database with real accounts, and alongside CAC, email, AI or outbound feeds. |
+
+```bash
+# Synthetic demo on this machine
+npm ci && npm run build
+VANTAGE_ACCESS_MODE=demo VANTAGE_DB=:memory: VANTAGE_EMAIL_PROVIDER=none npm start   # http://localhost:8787
+```
+
+## Everything else Vantage does
+
+Nothing from the earlier product was removed. It moved: activities are under Record → Your entries, and Readiness is under Career. See `docs/product/FEATURE_PARITY.md`.
+
 
 - **Analyst-grade reports.** The Reports page's Analysis tab and its PDF read the record the way a board or a reporting senior would: period against prior period, run rate and pace, monthly trend, composition by area, category, value type, system and organization, concentration of value, logging cadence, coverage and data quality, goals, career record, the narrative and bullet package, and a full entry ledger as the appendix.
 - **Complete export.** Settings → Your data downloads everything tied to an account as a zip: profile, rank, units and roles, every record including the recycle bin, readiness, attachments, notifications, preferences, audit trail, AI usage, email history; one JSON file plus a CSV per dataset.
@@ -12,7 +39,7 @@ Vantage 5 is a ground-up rewrite: TypeScript end to end, a fresh schema, passkey
 - **Quick Log.** Press `N`, type "Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday". Vantage extracts the date, quantity, dollars, system, category, and evaluation area. Works offline; entries queue on the device and sync later.
 - **Records.** Filter by period, category, area, and quality (missing outcome, untagged, duplicates). Edit, attach evidence files, restore from a 30-day recycle bin.
 - **JEPES and FITREP input.** Section I narrative to the character limit, bullet package by area, period-over-period comparison, PDF and CSV export. JEPES for E-1 to E-4, FITREP for E-5 and up, switchable.
-- **Work.** One destination for everything with a next action, in four tabs. *Case queue*: bring a spreadsheet in and the rows become work a team can hold — sort, filter, claim, act, and have the action write your own record; the original workbook is never modified, and reimporting the same file changes nothing. *Tasks* and *Projects*: what you owe and what it rolls up to. *Correspondence*: the emails behind the work, linked to the work they are about, where a reply, the knowledge you asked for, and a closed matter are three separate facts with three separate dates — import saved `.eml` files, or connect a Microsoft 365 mailbox read-only, in the national cloud you name.
+- **Work.** One destination for everything with a next action, in four tabs. *Queue*: bring a spreadsheet in and the rows become work a team can hold — sort, filter, claim, act, and have the action write your own record; the original workbook is never modified, and reimporting the same file changes nothing. *Taskers and projects* and *Tasks*: what it rolls up to and what you owe. *Correspondence*: the emails behind the work, linked to the work they are about, where a reply, the knowledge you asked for, and a closed matter are three separate facts with three separate dates — import saved `.eml` files, or connect a Microsoft 365 mailbox read-only, in the national cloud you name.
 - **Reports.** Two tabs over one body of evidence. *Packages*: write against the records it cites; every save re-reads those records inside the same transaction and refuses if one changed, so an exported revision is provably what was reviewed. *Analysis*: what the record actually shows, before you claim it.
 - **AI where the work is.** Drafting help sits on the page you are working on rather than in a separate destination, and every result says what it cost. Nothing is saved without you pressing save.
 - **Usage and reliability.** The Owner console reports whether the product is working: adoption, where captures are abandoned, import conversion, failures. It reports counts across people, never a person's row, and it cannot hold anything anyone typed.
@@ -53,7 +80,9 @@ Requirements: Node 22.18 or newer. No build step for the server; Node runs the T
 
 ## Deploy
 
-The reference deployment is one Render Starter web service with a 1 GB disk, auto-deploying from `main`, at https://vantageusmc.com. `render.yaml` describes it; `Dockerfile` builds it.
+The core application needs only a Node 22 process, a local volume, and a reverse proxy for TLS. It makes no outbound requests with the defaults (AI and the MARADMIN feed are off), and the browser loads nothing from third parties. PostgreSQL is the production target and is not yet implemented (`docs/engineering/ADR/0003-postgresql-migration-path.md`). Deployment questions for a restricted network are in `docs/engineering/INFRASTRUCTURE_QUESTIONS.md`.
+
+The public site at https://vantageusmc.com runs on a Render web service (`render.yaml`, `Dockerfile`). That is an optional demonstration host, not a dependency.
 
 - [Render deployment](docs/deploy-render.md)
 - [Namecheap DNS](docs/dns-namecheap.md)
@@ -74,7 +103,10 @@ Everything is an environment variable. `.env.example` lists them with defaults. 
 | `VANTAGE_DB` | SQLite path on the persistent disk |
 | `TRUST_PROXY` | `true` behind Render or any reverse proxy |
 | `VANTAGE_EMAIL_PROVIDER` | `none`, `resend`, or `smtp` |
-| `VANTAGE_AI_ENABLED`, `VANTAGE_GENAI_API_KEY`, `VANTAGE_GENAI_MODELS` | GenAI.mil drafting help and the model allowlist |
+| `VANTAGE_AI_ENABLED`, `VANTAGE_GENAI_API_KEY`, `VANTAGE_GENAI_MODELS` | GenAI.mil drafting help and the model allowlist (off by default) |
+| `VANTAGE_ACCESS_MODE` | `accounts` (default) or `demo` (synthetic, no sign-in; never in production) |
+| `VANTAGE_DEMO_TTL_HOURS`, `VANTAGE_DEMO_MAX_WORKSPACES` | How long a demo workspace lasts, and how many may exist at once |
+| `VANTAGE_MARADMIN_ENABLED` | The MARADMIN feed from marines.mil. Off by default: it is the only outbound request |
 
 ## Status
 

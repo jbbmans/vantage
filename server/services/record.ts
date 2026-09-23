@@ -224,8 +224,9 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
     audit(ctx, { actor_id: user.id, action: 'view_team_workload', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${w.from}..${w.to}` });
   }
 
+  const unit = ctx.db.prepare('SELECT name, short_name FROM units WHERE id = ?').get(unitId) as { name: string; short_name: string | null } | undefined;
   return {
-    unit_id: unitId, window: w, section, unassigned, attention, members, members_visible: includeMembers,
+    unit_id: unitId, unit_name: unit ? unit.short_name || unit.name : null, window: w, section, unassigned, attention, members, members_visible: includeMembers,
     definitions: CONTRIBUTION_DEFINITIONS, limitations: WORKLOAD_LIMITATIONS,
   };
 }

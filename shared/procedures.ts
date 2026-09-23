@@ -417,7 +417,17 @@ export function candidateAdjustment(allEvents: CaseEvent[]): CandidateCalculatio
   const events = standing(allEvents);
   const obs = (field: string) => events.filter((e) => e.kind === 'observation' && e.body.field === field && Number.isSafeInteger(e.body.amount_cents));
   const latestOf = (field: string) => latest(obs(field));
-  const invoices = obs('invoice_amount');
+  // The same invoice observed twice (a second analyst re-reading it, say) is one invoice, not two.
+  // Observations that name the same invoice reference collapse to the latest; unreferenced ones each count.
+  const byReference = new Map<string, CaseEvent>();
+  const unreferenced: CaseEvent[] = [];
+  for (const e of obs('invoice_amount')) {
+    const ref = String(e.body.reference || '').trim().toUpperCase();
+    if (!ref) { unreferenced.push(e); continue; }
+    const prior = byReference.get(ref);
+    if (!prior || e.occurred_at >= prior.occurred_at) byReference.set(ref, e);
+  }
+  const invoices = [...byReference.values(), ...unreferenced];
   const award = latestOf('current_award');
   const umt = latestOf('umt_amount');
   const missing = [

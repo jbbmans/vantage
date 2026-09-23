@@ -315,3 +315,35 @@ export const sendEvents = (events: unknown[], keepalive = false) =>
 export const eventCatalog = () => api.get('/events/catalog');
 export const adminUsage = (params: Record<string, string | number | undefined | null>) => api.get(`/admin/usage?${qs(params)}`);
 export const adminPruneEvents = (olderThanDays: number) => api.post('/admin/usage/prune', { older_than_days: olderThanDays });
+
+// The case: research, stages, handoffs -------------------------------------------------------
+const itemPath = (id: string) => `/work/items/${encodeURIComponent(id)}`;
+export const recordEntry = (id: string, body: Record<string, unknown>, idempotencyKey: string) =>
+  request('POST', `${itemPath(id)}/entries`, body, { headers: { 'idempotency-key': idempotencyKey } });
+export const changeStage = (id: string, body: Record<string, unknown>) => api.post(`${itemPath(id)}/stage`, body);
+export const handOffWork = (id: string, body: Record<string, unknown>) => api.post(`${itemPath(id)}/handoff`, body);
+export const calculateCase = (id: string) => api.post(`${itemPath(id)}/calculate`);
+export const applyProcedure = (id: string, key: string) => api.post(`${itemPath(id)}/procedure`, { key });
+export const workload = (unitId: string, params: Record<string, string | undefined> = {}) => api.get(`/work/workload?${qs({ unit_id: unitId, ...params })}`);
+
+// The Record and Career ---------------------------------------------------------------------
+export const recordSummary = (params: Record<string, string | undefined> = {}) => api.get(`/record/summary?${qs(params)}`);
+export const assignedWork = () => api.get('/record/assigned');
+export const contributions = (params: Record<string, string | undefined> = {}) => api.get(`/record/contributions?${qs(params)}`);
+export const recordDrafts = () => api.get('/record/drafts');
+export const draftFromWork = (workItemId: string) => api.post('/record/drafts/from-work', { work_item_id: workItemId });
+export const updateDraft = (id: string, body: Record<string, unknown>) => api.put(`/record/drafts/${encodeURIComponent(id)}`, body);
+export const saveDraftToRecord = (id: string) => api.post(`/record/drafts/${encodeURIComponent(id)}/save`);
+export const deleteDraft = (id: string) => api.del(`/record/drafts/${encodeURIComponent(id)}`);
+export const career = () => api.get('/record/career');
+export const saveCareerProfile = (body: Record<string, unknown>) => api.put('/record/career/profile', body);
+export const createCareerStep = (body: Record<string, unknown>) => api.post('/record/career/steps', body);
+export const updateCareerStep = (id: string, body: Record<string, unknown>) => api.put(`/record/career/steps/${encodeURIComponent(id)}`, body);
+export const deleteCareerStep = (id: string) => api.del(`/record/career/steps/${encodeURIComponent(id)}`);
+
+// The synthetic demo ------------------------------------------------------------------------
+export const demoStatus = () => api.get('/demo/status');
+export const demoStart = () => api.post('/demo/start').then((r) => { markSignedIn(); return r; });
+export const demoPersona = (persona: 'marine' | 'leader') => api.post('/demo/persona', { persona }).then((r) => { markSignedIn(); return r; });
+export const demoReset = () => api.post('/demo/reset').then((r) => { markSignedIn(); return r; });
+export const handoffCandidates = (id: string) => api.get(`${itemPath(id)}/handoff-candidates`);

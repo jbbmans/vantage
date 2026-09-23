@@ -1,24 +1,28 @@
 import {
-  Gauge, ListChecks, Target, GraduationCap, Users, Activity, Settings2, ShieldCheck, LifeBuoy, FileText, Briefcase,
+  Gauge, Target, GraduationCap, Users, Settings2, ShieldCheck, LifeBuoy, FileText, Briefcase, BookOpenCheck,
   ScrollText,
   type LucideIcon,
 } from 'lucide-react';
 
 /**
- * Navigation is grouped by what a person is trying to do, not by which table the data lives in.
+ * Five destinations, each answering one question a Marine actually asks:
  *
- * Every destination here answers a question somebody actually asks. Where two destinations answered
- * the same question they were merged into one with tabs: the queue, tasks, projects and the email
- * behind them are all "what is waiting on me", so they are one Work screen; writing a package and
- * reading what the record shows are both Reports.
+ *   Today   What do I need to do, what am I waiting on, and what can I quickly record?
+ *   Work    What work exists, what is mine, what can I claim, and where does it stand?
+ *   Record  What have I actually done, and what evidence supports it?
+ *   Goals   What am I working toward, and how far have I come?
+ *   Career  Where am I professionally, and what are my next steps?
  *
- * MARADMINs is the exception that was merged and then un-merged. Filing it under Career was right
- * about *why* you read one and wrong about *when*: a message that changes a requirement has to be
- * findable on the day it drops, by somebody who is not already thinking about their own career
- * record. A destination nobody can name is a destination nobody opens, so it has its own.
+ * Team appears for people who lead a unit, because a leader should not need an administration
+ * console to see who is carrying what. Reports, MARADMINs and settings stay one click away under
+ * More rather than competing with the five.
+ *
+ * Nothing that used to exist was removed to get here. Readiness is now a tab of Career (it is part
+ * of where you stand), activities are a tab of Record (they are what you did), and every old path
+ * still lands on the tab that absorbed it.
  */
-export type NavGroup = 'Workspace' | 'Growth' | 'Organization' | 'More';
-export const NAV_GROUPS: NavGroup[] = ['Workspace', 'Growth', 'Organization', 'More'];
+export type NavGroup = 'Primary' | 'Leading' | 'More';
+export const NAV_GROUPS: NavGroup[] = ['Primary', 'Leading', 'More'];
 
 export interface NavItem {
   to: string;
@@ -34,21 +38,22 @@ export interface NavItem {
   requiresAi?: boolean;
   /** Hidden when the owner has not turned the MARADMIN feed on, so the rail never offers a dead end. */
   requiresMaradmins?: boolean;
+  /** Hidden in the synthetic demo, where accounts and deployment settings are not part of the story. */
+  hideInDemo?: boolean;
   secondary?: boolean;
 }
 
 export const NAV: NavItem[] = [
-  { to: '/', label: 'Today', icon: Gauge, end: true, key: 'd', group: 'Workspace', hint: 'What needs you now' },
-  { to: '/work', label: 'Work', icon: Briefcase, key: 'w', group: 'Workspace', hint: 'Queue, tasks, and the email behind them' },
-  { to: '/records', label: 'Records', icon: ListChecks, key: 'r', group: 'Workspace', hint: 'Every outcome you logged' },
-  { to: '/career', label: 'Career', icon: GraduationCap, key: 'c', group: 'Growth', hint: 'Training, awards, counseling' },
-  { to: '/maradmins', label: 'MARADMINs', icon: ScrollText, key: 'm', group: 'Growth', hint: 'Messages that change a requirement', requiresMaradmins: true },
-  { to: '/goals', label: 'Goals', icon: Target, key: 'g', group: 'Growth', hint: 'Targets and how they are tracking' },
-  { to: '/readiness', label: 'Readiness', icon: Activity, key: 'j', group: 'Growth', hint: 'Dates and requirements' },
-  { to: '/reports', label: 'Reports', icon: FileText, key: 'p', group: 'Growth', hint: 'Write a package against the facts' },
-  { to: '/team', label: 'Team', icon: Users, key: 't', requiresLead: true, group: 'Organization', hint: 'People, units, and workload' },
+  { to: '/', label: 'Today', icon: Gauge, end: true, key: 'd', group: 'Primary', hint: 'What needs you now' },
+  { to: '/work', label: 'Work', icon: Briefcase, key: 'w', group: 'Primary', hint: 'Taskers, the queue, and what is yours' },
+  { to: '/record', label: 'Record', icon: BookOpenCheck, key: 'r', group: 'Primary', hint: 'What you did and what backs it up' },
+  { to: '/goals', label: 'Goals', icon: Target, key: 'g', group: 'Primary', hint: 'Targets and measurable progress' },
+  { to: '/career', label: 'Career', icon: GraduationCap, key: 'c', group: 'Primary', hint: 'Next steps, training, readiness' },
+  { to: '/team', label: 'Team', icon: Users, key: 't', requiresLead: true, group: 'Leading', hint: 'Workload, people, and units' },
+  { to: '/reports', label: 'Reports', icon: FileText, key: 'p', group: 'More', secondary: true, hint: 'JEPES and FITREP input from the facts' },
+  { to: '/maradmins', label: 'MARADMINs', icon: ScrollText, key: 'm', group: 'More', secondary: true, hint: 'Messages that change a requirement', requiresMaradmins: true },
   { to: '/settings', label: 'Settings', icon: Settings2, key: 's', secondary: true, group: 'More' },
-  { to: '/operator', label: 'Owner console', icon: ShieldCheck, key: 'o', requiresOperator: true, secondary: true, group: 'More' },
+  { to: '/operator', label: 'Owner console', icon: ShieldCheck, key: 'o', requiresOperator: true, secondary: true, group: 'More', hideInDemo: true },
   { to: '/help', label: 'Field guide', icon: LifeBuoy, key: 'h', secondary: true, group: 'More' },
 ];
 
@@ -60,6 +65,8 @@ export const NAV_REDIRECTS: Record<string, string> = {
   '/queue': '/work?tab=queue',
   '/correspondence': '/work?tab=mail',
   '/studio': '/reports?tab=packages',
-  '/activities': '/records',
+  '/activities': '/record?tab=entries',
+  '/records': '/record?tab=entries',
+  '/readiness': '/career?tab=readiness',
   '/assist': '/',
 };

@@ -36,7 +36,7 @@ test('demo mode is refused in production and alongside anything that reaches rea
     { ...baseEnv, ...DEMO, VANTAGE_MARADMIN_ENABLED: 'true' },
     { ...baseEnv, VANTAGE_ACCESS_MODE: 'anonymous' },
   ];
-  for (const env of bad) assert.throws(() => loadConfig(env as NodeJS.ProcessEnv), undefined, JSON.stringify(env));
+  for (const env of bad) assert.throws(() => loadConfig(env as NodeJS.ProcessEnv), Error, JSON.stringify(env));
   assert.equal(loadConfig({ ...baseEnv, ...DEMO } as NodeJS.ProcessEnv).accessMode, 'demo');
   assert.equal(loadConfig({ ...baseEnv } as NodeJS.ProcessEnv).accessMode, 'accounts', 'accounts is the default');
 });
@@ -197,5 +197,31 @@ test('reset and expiry remove a workspace whole and leave the audit chain intact
     assert.equal(purgeExpired(app.ctx), 2);
     assert.equal((await app.call('GET', '/api/me', { token: reset.body.token })).status, 401);
     assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n, 0);
+  } finally { await app.close(); }
+});
+
+test('the seeded history follows the procedure, and every seeded calculation matches a fresh recomputation', async () => {
+  const app = await startApp(DEMO);
+  try {
+    await start(app);
+    const { db } = app.ctx;
+    const calcs = db.prepare("SELECT work_item_id, body FROM work_events WHERE kind = 'calculation'").all() as Array<{ work_item_id: string; body: string }>;
+    assert.ok(calcs.length > 50);
+    const { candidateAdjustment } = await import('../../shared/procedures.ts');
+    const { eventsFor, toCaseEvent } = await import('../../server/services/cases.ts');
+    for (const c of calcs) {
+      const stored = JSON.parse(c.body);
+      const fresh = candidateAdjustment(eventsFor(app.ctx, c.work_item_id).map(toCaseEvent));
+      assert.ok(fresh.ok);
+      if (!fresh.ok) continue;
+      assert.equal(stored.adjustment_cents, fresh.adjustment_cents);
+      assert.equal(stored.target_award_cents, fresh.target_award_cents);
+      assert.deepEqual(stored.inputs.map((i: any) => i.event_id).sort(), fresh.inputs.map((i) => i.event_id).sort(), 'the seed cites the same events a recomputation would');
+    }
+    // An item waiting on verification is next asked to verify, not to redo research.
+    const token = (await app.call('POST', '/api/demo/start', { headers: H })).body.token;
+    const waitingOnVerification = (await app.call('GET', '/api/work/items?stage=verification_required', { token })).body.items[0];
+    const detail = (await app.call('GET', `/api/work/items/${waitingOnVerification.id}`, { token })).body;
+    assert.equal(detail.case.progress.next, 'verify_invoice');
   } finally { await app.close(); }
 });

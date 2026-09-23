@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, UserPlus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy } from 'lucide-react';
@@ -15,13 +15,15 @@ import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATE, listPermissions } from '..
 import { ECHELONS, categoryColor } from '../../shared/constants';
 import { formatDollars } from '../../shared/metrics';
 import { copyToClipboard, cn, humanize, fullName } from '@/lib/utils';
+
+const TeamWorkload = lazy(() => import('./TeamWorkload'));
 import { downloadText } from '@/lib/utils';
 
 export default function Team() {
   const { data: identity } = useIdentity();
   const { data: org } = useOrg();
   const { data: team, isPending } = useTeam();
-  const [tab, setTab] = useParam('tab', 'roster');
+  const [tab, setTab] = useParam('tab', 'workload');
   const readable = identity?.readableUnitIds || [];
   const [unit, setUnit] = useParam('unit', identity?.primaryUnitId && readable.includes(identity.primaryUnitId) ? identity.primaryUnitId : readable[0] || '');
   const units: any[] = org?.units || [];
@@ -30,7 +32,7 @@ export default function Team() {
   const manageRoles = unitsWith(identity, PERMISSIONS.MANAGE_ROLES);
   const manageUnits = unitsWith(identity, PERMISSIONS.MANAGE_UNITS);
   const viewAudit = unitsWith(identity, PERMISSIONS.VIEW_AUDIT);
-  const tabs = [{ value: 'roster', label: 'Roster', count: team?.roster?.length }, { value: 'dashboard', label: 'Unit dashboard' }];
+  const tabs = [{ value: 'workload', label: 'Workload' }, { value: 'roster', label: 'Roster', count: team?.roster?.length }, { value: 'dashboard', label: 'Unit dashboard' }];
   if (manageMembers.length) tabs.push({ value: 'invites', label: 'Invitations' });
   if (manageRoles.length || manageUnits.length || identity?.user.is_operator) tabs.push({ value: 'roles', label: 'Roles' });
   if (manageUnits.length || identity?.user.is_operator) tabs.push({ value: 'units', label: 'Units' });
@@ -40,12 +42,13 @@ export default function Team() {
 
   return (
     <div className="page">
-      <PageHeader eyebrow="Team" title="Leading" lede="Shared records only. Private entries never appear here, and every open of a member's record is logged.">
+      <PageHeader eyebrow="Team" title="Team" lede="The section’s work and people. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.">
         {readable.length > 1 && <Select aria-label="Unit" className="w-56" value={unit} onValueChange={setUnit} options={readable.map((id) => ({ value: id, label: unitLabel(id) }))} />}
       </PageHeader>
       <Tabs value={tab} onChange={setTab} className="mb-4" tabs={tabs} />
       {isPending ? <Skeleton className="h-64" /> : (
         <>
+          {tab === 'workload' && unit && <Suspense fallback={<Skeleton className="h-64" />}><TeamWorkload unitId={unit} /></Suspense>}
           {tab === 'roster' && <Roster team={team} unit={unit} unitLabel={unitLabel} canManage={manageMembers.includes(unit)} />}
           {tab === 'dashboard' && unit && <UnitDashboard unitId={unit} unitLabel={unitLabel(unit)} canExport={can(identity, PERMISSIONS.EXPORT_DATA, unit)} canDetail={can(identity, PERMISSIONS.VIEW_MEMBER_DETAIL, unit)} />}
           {tab === 'invites' && <Invites unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} />}

@@ -6,7 +6,7 @@ import { seedRoles, addMember, ownerRoleId } from './org.ts';
 import { resealAuditChain } from './audit.ts';
 import { HttpError } from '../lib/errors.ts';
 import { formatCents } from '../../shared/money.ts';
-import { UMT_2WAY } from '../../shared/procedures.ts';
+import { UMT_2WAY, UMT_FORMULA } from '../../shared/procedures.ts';
 
 /**
  * The synthetic demonstration.
@@ -33,7 +33,7 @@ export const FLAGSHIP_REFERENCE = 'SYN-26-P-0047';
 /** Values a Marine would read off DAI during the flagship walkthrough. Shown only in demo mode, labelled synthetic. */
 export const FLAGSHIP_SYSTEM_VALUES = {
   reference: FLAGSHIP_REFERENCE,
-  note: 'Synthetic values for this walkthrough. In real work these are read from DAI.',
+  note: 'In real work these are read from DAI.',
   values: [
     { field: 'current_award', label: 'Current award amount', display: '$91,250.00' },
     { field: 'invoice_amount', label: 'Invoice SYN-INV-0047-1', display: '$45,000.00', reference: 'SYN-INV-0047-1' },
@@ -174,6 +174,7 @@ function seedWork(ctx: AppContext, unitId: string, ids: Record<string, string>) 
   const rand = rng(47);
   const cents = (lo: number, hi: number) => Math.round((lo + rand() * (hi - lo)) * 100);
   const importedAt = isoAt(34, 13);
+  const secondBatchAt = isoAt(6, 9);
   const at = now();
 
   // The tasker the section lead set up for this quarter's UMT review.
@@ -192,7 +193,8 @@ function seedWork(ctx: AppContext, unitId: string, ids: Record<string, string>) 
     const award = n === 47 ? 9_125_000 : cents(20_000, 150_000);
     const invoices = n === 47 ? [4_500_000, 4_472_500] : [cents(5_000, 60_000), ...(rand() > 0.5 ? [cents(2_000, 40_000)] : [])];
     const dueIn = n === 47 ? 5 : n <= 76 ? -Math.floor(rand() * 20) - 1 : Math.floor(rand() * 25) - 3;
-    items.push({ n, open: 1 + Math.floor(rand() * 9), umtCents: umt, awardCents: award, invoices, due: dayOffset(dueIn), createdAt: importedAt });
+    // The second batch arrived last week, so the section has new work as well as old.
+    items.push({ n, open: 1 + Math.floor(rand() * 9), umtCents: umt, awardCents: award, invoices, due: dayOffset(dueIn), createdAt: n >= 83 ? secondBatchAt : importedAt });
   }
   const header = ['Document Number', 'Condition', 'UMT Amount', 'Due Date', 'Office'];
   const csv = [header.join(','), ...items.map((i) => [docNumber(i.n), `"${condition(i.open)}"`, (i.umtCents / 100).toFixed(2), i.due, 'SYN-OFFICE-1'].join(','))].join('\n');
@@ -224,12 +226,15 @@ function seedWork(ctx: AppContext, unitId: string, ids: Record<string, string>) 
     // created_at orders the history; keep it in step with the synthetic timeline.
     tick += 1;
     const created = new Date(Date.parse(occurredAt) + (tick % 1000)).toISOString();
-    insertEvent.run(newId(), itemId, unitId, actor, kind, step, subject, JSON.stringify(body), occurredAt, created);
+    const eventId = newId();
+    insertEvent.run(eventId, itemId, unitId, actor, kind, step, subject, JSON.stringify(body), occurredAt, created);
+    return eventId;
   };
   const obs = (field: string, label: string, value: number, extra: Record<string, unknown> = {}) =>
     ({ field, label, amount_cents: value, currency: 'USD', display: formatCents(value), source: 'manual_observation', system: 'DAI', ...extra });
 
   const itemIds = new Map<number, string>();
+  const umtEvent = new Map<number, string>();
   for (const i of items) {
     const id = newId();
     itemIds.set(i.n, id);
@@ -238,7 +243,7 @@ function seedWork(ctx: AppContext, unitId: string, ids: Record<string, string>) 
       condition(i.open), docNumber(i.n), i.due, i.umtCents / 100, JSON.stringify(data), projectId, UMT_2WAY.key, UMT_2WAY.version, i.createdAt, i.createdAt);
     ev(id, ids.leader, 'created', i.createdAt, { origin: 'import', import_job_id: jobId, source_row: i.n + 1 });
     ev(id, ids.leader, 'procedure_applied', i.createdAt, { procedure: UMT_2WAY.key, version: UMT_2WAY.version, authority: UMT_2WAY.authority });
-    ev(id, null, 'observation', i.createdAt, { field: 'umt_amount', label: 'UMT source amount', amount_cents: i.umtCents, currency: 'USD', display: formatCents(i.umtCents), source: 'source_file', system: 'Imported sheet' }, 'identify');
+    umtEvent.set(i.n, ev(id, null, 'observation', i.createdAt, { field: 'umt_amount', label: 'UMT source amount', amount_cents: i.umtCents, currency: 'USD', display: formatCents(i.umtCents), source: 'source_file', system: 'Imported sheet' }, 'identify'));
   }
 
   const setItem = ctx.db.prepare(
@@ -249,14 +254,36 @@ function seedWork(ctx: AppContext, unitId: string, ids: Record<string, string>) 
    * One person's pass at an item, from claim to wherever they stopped. Each step is its own event,
    * so the history distinguishes research, a submission, what the system reported, and verification.
    */
+  const research = new Map<number, { awardId: string; invoiceIds: string[] }>();
   const work = (n: number, who: string, daysAgo: number, until: 'researched' | 'submitted' | 'resolved', handFrom?: string) => {
     const id = itemIds.get(n)!;
     const i = items[n - 1];
     const t = (hours: number) => isoAt(Math.max(daysAgo - hours / 24, 0.02), 13 + (hours % 6));
-    if (!handFrom) ev(id, who, 'claimed', t(0));
-    ev(id, who, 'observation', t(1), obs('current_award', 'Current award amount', i.awardCents), 'research_award');
-    i.invoices.forEach((inv, k) => ev(id, who, 'observation', t(1.5 + k * 0.2), obs('invoice_amount', 'Invoice amount', inv, { reference: `SYN-INV-${String(n).padStart(4, '0')}-${k + 1}` }), 'research_award'));
+    // Someone taking over a handed-off item picks up where it was left; they do not re-read the award.
+    let awardId = research.get(n)?.awardId;
+    let invoiceIds = research.get(n)?.invoiceIds || [];
+    if (!handFrom) {
+      ev(id, who, 'claimed', t(0));
+      awardId = ev(id, who, 'observation', t(1), obs('current_award', 'Current award amount', i.awardCents), 'research_award');
+      invoiceIds = i.invoices.map((inv, k) => ev(id, who, 'observation', t(1.5 + k * 0.2), obs('invoice_amount', 'Invoice amount', inv, { reference: `SYN-INV-${String(n).padStart(4, '0')}-${k + 1}` }), 'research_award'));
+      research.set(n, { awardId: awardId!, invoiceIds });
+    }
     if (until === 'researched') return id;
+    const invoiceTotal = i.invoices.reduce((a, b) => a + b, 0);
+    const target = invoiceTotal + i.umtCents;
+    const adjustment = target - i.awardCents;
+    ev(id, who, 'observation', t(1.8), obs('requisition_funding', 'Requisition funding available', Math.max(adjustment, 0) + 50_000), 'record_funding');
+    ev(id, who, 'calculation', t(1.9), {
+      ok: true, formula: UMT_FORMULA.key, version: UMT_FORMULA.version, title: UMT_FORMULA.title, formula_text: UMT_FORMULA.text, applicability: UMT_FORMULA.applicability, source: 'calculated',
+      inputs: [
+        { event_id: awardId, field: 'current_award', label: 'Current award', cents: i.awardCents, source: 'manual_observation' },
+        ...invoiceIds.map((eid, k) => ({ event_id: eid, field: 'invoice_amount', label: `Invoice ${k + 1}`, cents: i.invoices[k], source: 'manual_observation' })),
+        { event_id: umtEvent.get(n), field: 'umt_amount', label: 'UMT source amount', cents: i.umtCents, source: 'source_file' },
+      ],
+      invoice_total_cents: invoiceTotal, umt_amount_cents: i.umtCents, current_award_cents: i.awardCents, target_award_cents: target, adjustment_cents: adjustment,
+      direction: adjustment > 0 ? 'upward' : adjustment === 0 ? 'zero' : 'downward', requires_review: adjustment <= 0,
+      display: `${formatCents(adjustment, { signed: true })} (target ${formatCents(target)})`,
+    }, 'calculate');
     ev(id, who, 'decision', t(2), { decision: 'funding_decision', choice: 'funding_sufficient', rationale: 'Requisition shows enough available funding for the modification.' }, 'funding_decision');
     ev(id, who, 'funds_check', t(2.5), { result: 'PASSED', system: 'DAI' });
     ev(id, who, 'action_prepared', t(2.8), { reference: `SYN-MOD-${n}` }, 'award_modification');
@@ -354,7 +381,7 @@ function seedPersonalRecord(ctx: AppContext, unitId: string, ids: Record<string,
                         direction, baseline_value, aggregation, filters, measure_scope, version, created_at, updated_at)
      VALUES (?, ?, ?, 'private', ?, ?, ?, ?, 'manual', ?, ?, ?, 'active', ?, ?, ?, ?, 'latest', '{}', 'subject', 1, ?, ?)`
   );
-  goal.run(newId(), me, unitId, 'Complete Corporals Course DEP', 'Finish every module before the next promotion board.', 'developmental', 'Training & PME', 60, 100, '% complete', dayOffset(-30), dayOffset(45), 'completion', 0, at, at);
+  goal.run(newId(), me, unitId, 'Complete Corporals Course DEP', 'Finish every module before the next promotion board.', 'developmental', 'Training & PME', 60, 100, '% complete', dayOffset(-30), dayOffset(45), 'increase', 0, at, at);
   goal.run(newId(), me, unitId, 'Raise PFT score to 270', 'Two run sessions and one strength session a week.', 'quarterly', 'Leadership', 245, 270, 'points', dayOffset(-20), dayOffset(70), 'increase', 238, at, at);
 
   ctx.db.prepare(

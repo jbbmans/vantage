@@ -109,6 +109,8 @@ export interface ListOptions {
   unitId?: string | null;
   state?: string | null;
   stage?: string | null;
+  /** Only work that is not closed: the default view of a queue somebody is working from. */
+  active?: boolean;
   claimed?: 'me' | 'anyone' | 'nobody' | null;
   /** Narrow to one project, so a project's queue and its typed work read as one list. */
   projectId?: string | null;
@@ -140,6 +142,7 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
   if (opts.unitId) { where.push('w.unit_id = ?'); params.push(opts.unitId); }
   if (opts.state) { where.push('w.state = ?'); params.push(opts.state); }
   if (opts.stage) { where.push('w.stage = ?'); params.push(opts.stage); }
+  if (opts.active) where.push("w.state NOT IN ('resolved', 'not_applicable')");
   if (opts.projectId) { where.push('w.project_id = ?'); params.push(opts.projectId); }
   if (opts.claimed === 'me') { where.push('w.claimed_by = ?'); params.push(user.id); }
   else if (opts.claimed === 'nobody') where.push('w.claimed_by IS NULL');

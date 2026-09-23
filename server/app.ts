@@ -183,11 +183,11 @@ export function createApp(ctx: AppContext) {
   if (existsSync(distDir)) {
     // Only public marketing routes are indexable, before any JavaScript runs.
     const publicRoutes = new Set(['/', '/display', '/about']);
-    const appRoute = /^\/(?:login|register|reset|invite|setup|work|goals|career|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
+    const appRoute = /^\/(?:login|register|reset|invite|setup|work|record|goals|career|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
     // Two segments, not one: a record detail is /records/:id for an activity and
     // /records/:table/:id for a task, project or goal, which is the link shape a mention
     // notification points at. One segment 404s the second form.
-    const recordRoute = /^\/(?:records|activities|team)(?:\/[^/]+){0,2}\/?$/;
+    const recordRoute = /^\/(?:records|activities|team)(?:\/[^/]+){0,2}\/?$|^\/work\/items\/[^/]+\/?$/;
     const indexHtml = readFileSync(join(distDir, 'index.html'), 'utf8');
     const shell = indexHtml
       .replace(/<meta name="robots"[^>]*>/, '<meta name="robots" content="noindex, nofollow" />')

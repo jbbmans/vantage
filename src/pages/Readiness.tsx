@@ -1,7 +1,8 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { Save, ExternalLink, Info } from 'lucide-react';
-import { PageHeader, Button, Field, Input, Select, Panel, Badge, Progress, NumberInput, Skeleton } from '@/components/ui/primitives';
+import { Button, Field, Input, Select, Panel, Badge, Progress, NumberInput, Skeleton } from '@/components/ui/primitives';
+import { PageShell } from '@/components/common';
 import { useToast } from '@/components/ui/toast';
 import { keys, useActivities, useIdentity, useReadiness, useTrack } from '@/lib/queries';
 import * as api from '@/lib/api';
@@ -15,7 +16,7 @@ import { humanize, cn } from '@/lib/utils';
 
 const STATE_TONE: Record<string, string> = { top: 'text-good', solid: 'text-ink', attention: 'text-warn', missing: 'text-ink-3', external: 'text-info' };
 
-export default function Readiness() {
+export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
   const toast = useToast();
   const qc = useQueryClient();
   const track = useTrack();
@@ -44,10 +45,13 @@ export default function Readiness() {
   if (isPending) return <div className="page space-y-3"><Skeleton className="h-10 w-72" /><Skeleton className="h-64" /></div>;
 
   return (
-    <div className="page">
-      <PageHeader eyebrow={meta.readinessTitle} title={track === 'fitrep' ? 'FITREP readiness' : 'JEPES readiness'} lede={track === 'fitrep' ? 'Your rank reports on a fitness report. Vantage checks that every attribute your Reporting Senior marks has evidence behind it.' : 'The four JEPES pillars, what you have entered, and where the cheapest points are. Your MOL score is the only official number.'}>
-        <Button variant="primary" onClick={submit} loading={save.isPending} disabled={!dirty}><Save className="h-4 w-4" />Save</Button>
-      </PageHeader>
+    <PageShell
+      embedded={embedded}
+      eyebrow={meta.readinessTitle}
+      title={track === 'fitrep' ? 'FITREP readiness' : 'JEPES readiness'}
+      lede={track === 'fitrep' ? 'Your rank reports on a fitness report. Vantage checks that every attribute your Reporting Senior marks has evidence behind it.' : 'The four JEPES pillars, what you have entered, and where the cheapest points are. Your MOL score is the only official number.'}
+      actions={<Button variant="primary" onClick={submit} loading={save.isPending} disabled={!dirty}><Save className="h-4 w-4" />Save</Button>}
+    >
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="space-y-4 lg:col-span-2">
@@ -116,6 +120,6 @@ export default function Readiness() {
           </Panel>
         </div>
       </div>
-    </div>
+    </PageShell>
   );
 }

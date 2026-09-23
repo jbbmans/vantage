@@ -311,3 +311,25 @@ test('procedure progress is read from events and never infers a decision', () =>
   assert.ok(UMT_2WAY.steps.every((s) => s.help.path === null), 'no system path is published until an SME confirms it');
   assert.equal(UMT_2WAY.authority, 'sme_walkthrough');
 });
+
+test('the same invoice recorded twice counts once; unreferenced invoices each count', async () => {
+  const { candidateAdjustment } = await import('../../shared/procedures.ts');
+  const e = (id: string, field: string, cents: number, at: string, reference?: string) => ({ id, kind: 'observation', actor_id: 'u', occurred_at: at, body: { field, amount_cents: cents, reference } });
+  const result = candidateAdjustment([
+    e('a', 'current_award', 9_125_000, '2026-09-01'),
+    e('u', 'umt_amount', 430_000, '2026-09-01'),
+    e('i1', 'invoice_amount', 4_500_000, '2026-09-02', 'INV-1'),
+    e('i1b', 'invoice_amount', 4_500_000, '2026-09-05', 'inv-1'),
+    e('i2', 'invoice_amount', 4_472_500, '2026-09-02', 'INV-2'),
+  ]);
+  assert.ok(result.ok);
+  if (result.ok) {
+    assert.equal(result.invoice_total_cents, 8_972_500, 'INV-1 read twice is still one invoice');
+    assert.ok(result.inputs.some((i) => i.event_id === 'i1b') && !result.inputs.some((i) => i.event_id === 'i1'), 'the later reading is the one used');
+  }
+  const unreferenced = candidateAdjustment([
+    e('a', 'current_award', 100, '2026-09-01'), e('u', 'umt_amount', 10, '2026-09-01'),
+    e('x', 'invoice_amount', 50, '2026-09-02'), e('y', 'invoice_amount', 50, '2026-09-02'),
+  ]);
+  assert.ok(unreferenced.ok && unreferenced.invoice_total_cents === 100, 'without a reference there is nothing to say they are the same invoice');
+});

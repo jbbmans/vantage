@@ -15,7 +15,7 @@ import {
   listItems, itemDetail, claimItem, releaseItem, assignItem, createItem, updateItem, recordAction,
   listViews, saveView, deleteView, WORK_STATES, ACTION_KINDS,
 } from '../services/work.ts';
-import { recordEntry, changeStage, handOff, calculate, applyProcedure } from '../services/cases.ts';
+import { recordEntry, changeStage, handOff, calculate, applyProcedure, handoffCandidates } from '../services/cases.ts';
 import { teamWorkload, parseWindow } from '../services/record.ts';
 import { forbidden } from '../lib/errors.ts';
 import { PROCEDURES } from '../../shared/procedures.ts';
@@ -106,6 +106,7 @@ const listSchema = z.object({
   unit_id: z.string().max(64).optional(),
   state: z.enum(WORK_STATES).optional(),
   stage: z.enum(STAGES).optional(),
+  active: z.enum(['1', 'true']).optional(),
   claimed: z.enum(['me', 'anyone', 'nobody']).optional(),
   q: z.string().max(200).optional(),
   project_id: z.string().max(64).optional(),
@@ -120,7 +121,7 @@ workRouter.get('/items', wrap((req, res) => {
   const q = parse(listSchema, req.query);
   const scope = scopeFor(req.ctx, req.user, req);
   res.json(listItems(req.ctx, req.user, scope, {
-    unitId: q.unit_id ?? null, state: q.state ?? null, stage: q.stage ?? null, claimed: q.claimed ?? null, q: q.q ?? null, projectId: q.project_id ?? null,
+    unitId: q.unit_id ?? null, state: q.state ?? null, stage: q.stage ?? null, active: Boolean(q.active), claimed: q.claimed ?? null, q: q.q ?? null, projectId: q.project_id ?? null,
     dueBefore: q.due_before ?? null, sort: q.sort ?? null, direction: q.direction, limit: q.limit, offset: q.offset,
   }));
 }));
@@ -246,6 +247,11 @@ workRouter.post('/items/:id/entries', wrap((req, res) => {
 workRouter.post('/items/:id/stage', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   res.json(changeStage(req.ctx, req.user, scope, String(req.params.id), req.body));
+}));
+
+workRouter.get('/items/:id/handoff-candidates', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  res.json(handoffCandidates(req.ctx, req.user, scope, String(req.params.id)));
 }));
 
 workRouter.post('/items/:id/handoff', wrap((req, res) => {

@@ -79,26 +79,20 @@ export function captureTimer(surface: string) {
 }
 
 /**
- * An estimate of time spent actively editing.
+ * How long an editor was open. Nothing more.
  *
- * It is an estimate and is labelled one everywhere it appears. A person can be thinking hard about a
- * paragraph without touching the keyboard, and can leave a tab open over lunch. This counts the
- * stretches between keystrokes that are shorter than the idle gap, which is the closest a browser
- * can honestly get, and it is never presented as time worked.
+ * This used to also estimate "active editing" from the gaps between keystrokes. That is keystroke
+ * timing tied to a person, which Vantage does not collect: an open tab is not labour, and typing
+ * rhythm is not a measure of work. Only the time the form was open is kept, and it is never
+ * presented as time worked. The duration a person states themselves is recorded separately.
  */
-export function editorClock(idleGapMs = 45_000) {
+export function editorClock() {
   const startedAt = Date.now();
-  let activeMs = 0;
-  let lastBeat: number | null = null;
   return {
-    beat() {
-      const at = Date.now();
-      if (lastBeat != null && at - lastBeat < idleGapMs) activeMs += at - lastBeat;
-      lastBeat = at;
-    },
-    /** The two times, separately: how long the editor was open, and the active estimate. */
+    /** Kept so callers need not change; records nothing. */
+    beat() {},
     read() {
-      return { form_ms: Date.now() - startedAt, active_editor_ms: Math.round(activeMs) };
+      return { form_ms: Date.now() - startedAt };
     },
   };
 }

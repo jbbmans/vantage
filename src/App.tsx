@@ -9,19 +9,19 @@ import Dashboard from '@/pages/Dashboard';
 import { ToastProvider } from '@/components/ui/toast';
 import { TooltipProvider, Skeleton, EmptyState, Button } from '@/components/ui/primitives';
 import { useIdentity, keys } from '@/lib/queries';
-import { hasSession, setupStatus } from '@/lib/api';
+import { hasSession, setupStatus, demoStart, errorText } from '@/lib/api';
 import { applyAccent, applyDensity, applyTheme, storedTheme } from '@/lib/theme';
 import AppLoader from '@/components/AppLoader';
 import { NAV_REDIRECTS } from '@/config/nav';
 
-const Records = lazy(() => import('@/pages/Records'));
+const RecordHub = lazy(() => import('@/pages/RecordHub'));
+const WorkItemPage = lazy(() => import('@/pages/WorkItemPage'));
 const RecordDetail = lazy(() => import('@/pages/RecordDetail'));
 const WorkDetail = lazy(() => import('@/pages/WorkDetail'));
 const WorkHub = lazy(() => import('@/pages/WorkHub'));
 const Goals = lazy(() => import('@/pages/Goals'));
 const Career = lazy(() => import('@/pages/Career'));
 const Maradmins = lazy(() => import('@/pages/Maradmins'));
-const Readiness = lazy(() => import('@/pages/Readiness'));
 const ReportsHub = lazy(() => import('@/pages/ReportsHub'));
 const Team = lazy(() => import('@/pages/Team'));
 const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
@@ -63,6 +63,46 @@ function SignedOutHome({ serverError, onRetry }: { serverError: string | null; o
   return <PublicSite />;
 }
 
+/**
+ * The synthetic demo has no sign-in form. A visitor without a session is given a fresh synthetic
+ * workspace and lands on Today. This only ever happens when the server itself says it is a demo
+ * instance; an accounts instance never offers it, and a failed sign-in never falls back to it.
+ */
+// One start per page load, however many times React runs the effect (StrictMode runs it twice).
+let demoStarting: { attempt: number; promise: Promise<unknown> } | null = null;
+
+function DemoEntry() {
+  const [error, setError] = useState<string | null>(null);
+  const [attempt, setAttempt] = useState(0);
+  useEffect(() => {
+    let live = true;
+    setError(null);
+    if (!demoStarting || demoStarting.attempt !== attempt) {
+      // Cleared once settled, so a workspace that later expires starts a fresh one rather than reusing this.
+      const promise: Promise<unknown> = demoStart().finally(() => { if (demoStarting?.promise === promise) demoStarting = null; });
+      demoStarting = { attempt, promise };
+    }
+    demoStarting.promise.catch((e) => { if (live) setError(errorText(e)); });
+    return () => { live = false; };
+  }, [attempt]);
+  if (!error) return <AppLoader label="Opening the synthetic demo" />;
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-canvas p-4">
+      <div className="card w-full max-w-md"><EmptyState title="The demo could not open" description={error} action={<Button variant="primary" onClick={() => setAttempt((n) => n + 1)}>Try again</Button>} /></div>
+    </div>
+  );
+}
+
+/** Asks the server which kind of instance this is before choosing what a signed-out visitor sees. */
+function useAccessMode(enabled: boolean) {
+  const [mode, setMode] = useState<'accounts' | 'demo' | null>(null);
+  useEffect(() => {
+    if (!enabled) return;
+    setupStatus().then((s) => setMode(s.accessMode === 'demo' ? 'demo' : 'accounts')).catch(() => setMode('accounts'));
+  }, [enabled]);
+  return mode;
+}
+
 function AppRoutes() {
   const qc = useQueryClient();
   const navigate = useNavigate();
@@ -101,6 +141,7 @@ function AppRoutes() {
 
   const signedOut = !hasSession() || (identity.isError && (identity.error as { status?: number })?.status === 401);
   const publicStandalone = isPublicRoute(location.pathname);
+  const accessMode = useAccessMode(signedOut && !publicStandalone);
   // A session that failed for any reason other than "not signed in" is an outage, not a sign-out.
   // Showing the marketing page to somebody who was working would look like their account vanished.
   const identityBroken = identity.isError && (identity.error as { status?: number })?.status !== 401;
@@ -119,6 +160,8 @@ function AppRoutes() {
   }
 
   if (signedOut || !identity.data) {
+    if (accessMode === null) return <AppLoader />;
+    if (accessMode === 'demo') return <DemoEntry />;
     return (
       <Routes>
         <Route path="/" element={<SignedOutHome serverError={serverError} onRetry={() => identity.refetch()} />} />
@@ -140,15 +183,16 @@ function AppRoutes() {
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<Dashboard />} />
-        <Route path="records" element={<D><Records /></D>} />
+        <Route path="record" element={<D><RecordHub /></D>} />
         <Route path="records/:id" element={<D><RecordDetail /></D>} />
         {/* One task, project or goal on its own page — the surface a file and a conversation hang on. */}
         <Route path="records/:table/:id" element={<D><WorkDetail /></D>} />
         <Route path="work" element={<D><WorkHub /></D>} />
+        {/* One piece of work on its own page: its history, its research, and what comes next. */}
+        <Route path="work/items/:id" element={<D><WorkItemPage /></D>} />
         <Route path="goals" element={<D><Goals /></D>} />
         <Route path="career" element={<D><Career /></D>} />
         <Route path="maradmins" element={<D><Maradmins /></D>} />
-        <Route path="readiness" element={<D><Readiness /></D>} />
         <Route path="reports" element={<D><ReportsHub /></D>} />
         <Route path="team" element={<D><Team /></D>} />
         <Route path="team/:id" element={<D><MemberDetail /></D>} />
@@ -156,7 +200,7 @@ function AppRoutes() {
         <Route path="operator" element={<D><Operator /></D>} />
         <Route path="help" element={<D><Help /></D>} />
         {Object.entries(NAV_REDIRECTS).map(([from, to]) => (
-          <Route key={from} path={from.slice(1)} element={<Navigate to={to} replace />} />
+          <Route key={from} path={from.slice(1)} element={<RedirectKeepingQuery to={to} />} />
         ))}
         <Route path="activities/:id" element={<RedirectRecord />} />
         {['login', 'register', 'reset', 'invite', 'setup'].map((path) => (
@@ -179,6 +223,16 @@ export default function App() {
       </ToastProvider>
     </TooltipProvider>
   );
+}
+
+/** A retired path lands on its new home with whatever filters the old link carried. */
+function RedirectKeepingQuery({ to }: { to: string }) {
+  const location = useLocation();
+  const [path, query = ''] = to.split('?');
+  const merged = new URLSearchParams(query);
+  new URLSearchParams(location.search).forEach((value, key) => { if (!merged.has(key)) merged.set(key, value); });
+  const search = merged.toString();
+  return <Navigate to={`${path}${search ? `?${search}` : ''}`} replace />;
 }
 
 function RedirectRecord() {

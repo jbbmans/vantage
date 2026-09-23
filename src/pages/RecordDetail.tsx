@@ -60,7 +60,7 @@ export default function RecordDetail() {
 
   return (
     <div className="page max-w-5xl">
-      <Link to="/records" className="mb-3 inline-flex items-center gap-1 text-xs text-ink-3 hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />All records</Link>
+      <Link to="/record?tab=entries" className="mb-3 inline-flex items-center gap-1 text-xs text-ink-3 hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />All records</Link>
       {a.deleted_at && <div className="mb-4 flex items-center gap-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink"><span className="flex-1">This entry is in the recycle bin. It is excluded from reports and will be purged after 30 days.</span><Button size="sm" onClick={() => restore.mutateAsync(id).then(() => toast.success('Restored.')).catch((e) => toast.error(api.errorText(e)))}><RotateCcw className="h-4 w-4" />Restore</Button></div>}
       {a.frozen_at && <div className="mb-4 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">This entry was frozen when the unit membership ended. It stays on your record but cannot be edited.</div>}
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">

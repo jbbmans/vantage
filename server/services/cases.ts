@@ -408,3 +408,21 @@ export function applyProcedure(ctx: AppContext, user: SessionUser | null, scope:
     return getItem(ctx, id)!;
   })();
 }
+
+/**
+ * Who this work could be handed to: members of its unit who could see it and pick it up on their
+ * own authority. Names and ranks only, and only for the person holding the work or a leader who can
+ * reassign it, so this is not a roster by another route.
+ */
+export function handoffCandidates(ctx: AppContext, user: SessionUser, scope: Scope, id: string) {
+  const row = load(ctx, user, scope, id);
+  if (row.claimed_by !== user.id && !mayReassign(scope, user, row)) throw forbidden('Only the person holding this work, or a leader who can reassign it, can hand it off.');
+  if (!row.unit_id) return [];
+  const members = ctx.db.prepare(
+    `SELECT u.* , r.abbr AS rank_abbr FROM unit_members um JOIN users u ON u.id = um.user_id LEFT JOIN ranks r ON r.id = u.rank_id
+      WHERE um.unit_id = ? AND u.active = 1 AND u.id <> ? ORDER BY r.sort DESC, u.last_name`
+  ).all(row.unit_id, row.claimed_by || '') as Array<SessionUser & { rank_abbr: string | null }>;
+  return members
+    .filter((m) => { const s = scopeFor(ctx, m); return readable(s, m, row) && mayClaim(s, m, row); })
+    .map((m) => ({ id: m.id, name: `${m.first_name} ${m.last_name}`, rank: m.rank_abbr }));
+}

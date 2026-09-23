@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { installTelemetry, track } from '@/lib/telemetry';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Bell, ChevronDown, ChevronsLeft, ChevronsRight, CloudOff, LogOut, Menu as MenuIcon, Moon, Plus, RefreshCw, Search, Sun, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, Bell, ChevronDown, ChevronsLeft, ChevronsRight, CloudOff, FlaskConical, LogOut, Menu as MenuIcon, Moon, Plus, RefreshCw, Search, Sun, WifiOff, X } from 'lucide-react';
 import { NAV, NAV_GROUPS } from '@/config/nav';
 import { cn, initials, timeAgo } from '@/lib/utils';
 import { Button, Tooltip, Kbd } from '@/components/ui/primitives';
@@ -23,14 +23,14 @@ import { VERSION } from '@/lib/version';
 
 /** Destination name, and the one-line subtitle the breadcrumb shows beside it. */
 const TITLES: Array<[string, string, string]> = [
-  ['/records', 'Records', 'Your source record'],
-  ['/work', 'Work', 'Queue, tasks and correspondence'],
-  ['/goals', 'Goals', 'Targets and progress'],
-  ['/career', 'Career', 'Training, awards, counseling'],
+  ['/records', 'Record', 'An activity you recorded'],
+  ['/record', 'Record', 'What you did and what backs it up'],
+  ['/work', 'Work', 'Taskers, the queue, and what is yours'],
+  ['/goals', 'Goals', 'Targets and measurable progress'],
+  ['/career', 'Career', 'Next steps, training, readiness'],
   ['/maradmins', 'MARADMINs', 'Messages that change a requirement'],
-  ['/readiness', 'Readiness', 'Dates and requirements'],
-  ['/reports', 'Reports', 'Report studio'],
-  ['/team', 'Team', 'People and workload'],
+  ['/reports', 'Reports', 'JEPES and FITREP input from the facts'],
+  ['/team', 'Team', 'Workload, people, and units'],
   ['/settings', 'Settings', 'Your preferences'],
   ['/operator', 'Owner console', 'This deployment'],
   ['/help', 'Field guide', 'How Vantage works'],
@@ -105,8 +105,9 @@ function surfaceOf(pathname: string, search: string): string {
   // would hide which half of the screen people actually use, so the tab decides the name.
   if (segment === 'work') return tab === 'mail' ? 'correspondence' : tab === 'tasks' || tab === 'projects' ? 'tasks' : 'queue';
   if (segment === 'reports') return tab === 'analysis' ? 'reports' : 'studio';
+  if (segment === 'career' && tab === 'readiness') return 'readiness';
   const map: Record<string, string> = {
-    '': 'dashboard', records: 'records', goals: 'goals', readiness: 'readiness', career: 'career',
+    '': 'dashboard', records: 'records', record: 'records', goals: 'goals', readiness: 'readiness', career: 'career',
     maradmins: 'maradmins', team: 'team', settings: 'settings', operator: 'operator', help: 'help',
   };
   return map[segment] || 'dashboard';
@@ -158,7 +159,9 @@ export default function AppShell() {
     return () => { window.removeEventListener('vantage:open-quick-log', h); window.removeEventListener('vantage:sudo-required', sudoHandler); };
   }, [openQuickLog]);
 
+  const demo = identity?.demo || null;
   const visibleNav = useMemo(() => NAV.filter((item) => {
+    if (item.hideInDemo && identity?.demo) return false;
     if (item.requiresLead && !identity?.canLead) return false;
     if (item.requiresOperator && !identity?.user.is_operator) return false;
     if (item.requiresAi && !identity?.instance.aiEnabled) return false;
@@ -185,6 +188,15 @@ export default function AppShell() {
     return () => window.removeEventListener('keydown', onKey);
   }, [navigate, openQuickLog, visibleNav]);
 
+  const switchPersona = async (persona: 'marine' | 'leader') => {
+    try { await api.demoPersona(persona); qc.clear(); navigate('/'); qc.invalidateQueries(); }
+    catch (e) { toast.error(api.errorText(e)); }
+  };
+  const startOver = async () => {
+    try { await api.demoReset(); qc.clear(); navigate('/'); qc.invalidateQueries(); toast.success('A fresh synthetic workspace is ready.'); }
+    catch (e) { toast.error(api.errorText(e)); }
+  };
+
   const toggleTheme = () => { const next = theme === 'dark' ? 'light' : 'dark'; setTheme(next); savePrefs.mutate({ theme: next }); };
   const toggleRail = () => setCollapsed((c) => { const n = !c; try { localStorage.setItem('vantage.rail', n ? 'collapsed' : 'open'); } catch {} return n; });
   const user = identity?.user;
@@ -198,8 +210,8 @@ export default function AppShell() {
         const items = visibleNav.filter((i) => i.group === group);
         if (!items.length) return null;
         return (
-          <div key={group} className={cn('mb-1', group === 'More' && 'mt-auto pt-4')}>
-            {(!collapsed || mobile) && group !== 'More' && <p className="nav-label pt-4">{group}</p>}
+          <div key={group} className={cn('mb-1', group === 'More' && 'mt-auto pt-4', group === 'Primary' && 'pt-2')}>
+            {(!collapsed || mobile) && group === 'Leading' && <p className="nav-label pt-4">Leading</p>}
             <div className="space-y-0.5">
               {items.map((item) => (
                 <Tooltip key={item.to} content={collapsed && !mobile ? item.label : null} side="right">
@@ -271,11 +283,12 @@ export default function AppShell() {
           <header className="no-print sticky top-0 z-30 flex h-[60px] items-center gap-3 border-b border-line bg-surface px-3 sm:px-4 lg:px-6">
             <button type="button" className="rounded-md p-1.5 text-ink-2 hover:bg-surface-2 lg:hidden" onClick={() => setDrawer(true)} aria-label="Open menu"><MenuIcon className="h-5 w-5" /></button>
             {/* Where you are, and what this screen is. Two words beat a folder path nobody reads. */}
-            <h1 className="flex min-w-0 items-baseline gap-2">
+            {/* Not a heading: every page carries its own h1, and two per page confuses a screen reader's outline. */}
+            <p className="flex min-w-0 items-baseline gap-2">
               <span className="truncate text-lg font-semibold text-ink">{titleFor(location.pathname)}</span>
               <span className="hidden shrink-0 text-ink-3 sm:inline" aria-hidden>/</span>
               <span className="hidden truncate text-base text-ink-3 sm:inline">{entryFor(location.pathname)?.[2]}</span>
-            </h1>
+            </p>
             <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
               {!online && <Tooltip content="Offline. New entries queue on this device."><span className="flex h-9 items-center gap-1.5 rounded-md bg-warn/12 px-2.5 text-xs font-medium text-warn"><WifiOff className="h-4 w-4" /><span className="hidden sm:inline">Offline</span></span></Tooltip>}
               {online && pending > 0 && <button type="button" onClick={flush} className="flex h-9 items-center gap-1.5 rounded-md bg-info/12 px-2.5 text-xs font-medium text-info hover:bg-info/20"><CloudOff className="h-4 w-4" />{pending} queued</button>}
@@ -298,12 +311,29 @@ export default function AppShell() {
                   <MenuItem onSelect={toggleTheme} icon={theme === 'dark' ? Sun : Moon}>{theme === 'dark' ? 'Light theme' : 'Dark theme'}</MenuItem>
                   <MenuItem onSelect={() => setShortcuts(true)}>Keyboard shortcuts</MenuItem>
                   <MenuSeparator />
-                  <MenuItem danger icon={LogOut} onSelect={() => signOutEverywhere()}>Sign out</MenuItem>
+                  {demo
+                    ? <MenuItem icon={RefreshCw} onSelect={() => startOver()}>Start the demo over</MenuItem>
+                    : <MenuItem danger icon={LogOut} onSelect={() => signOutEverywhere()}>Sign out</MenuItem>}
                 </MenuContent>
               </Menu>
             </div>
           </header>
 
+          {demo && (
+            <div role="region" aria-label="Synthetic demo" className="no-print flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-line bg-accent-soft/60 px-4 py-2 text-sm text-ink sm:px-6 lg:px-8">
+              <span className="flex items-center gap-2 font-medium"><FlaskConical className="h-4 w-4 text-accent" aria-hidden />Synthetic demo</span>
+              <span className="text-ink-2">
+                You are {user?.rank?.abbr} {user?.first_name} {user?.last_name}, {demo.workspace?.persona === 'leader' ? 'the section lead' : 'a budget analyst'}.
+                <span className="hidden md:inline"> Everything here is invented; changes are kept for {demo.ttl_hours} hours, then removed.</span>
+              </span>
+              <span className="flex items-center gap-1.5 md:ml-auto">
+                {demo.workspace?.persona === 'leader'
+                  ? <Button size="sm" onClick={() => switchPersona('marine')}>View as the Marine</Button>
+                  : <Button size="sm" onClick={() => switchPersona('leader')}>View as the section lead</Button>}
+                <Button size="sm" variant="ghost" onClick={startOver}>Start over</Button>
+              </span>
+            </div>
+          )}
           <main id="main" tabIndex={-1} className="min-w-0 flex-1 px-4 pb-24 pt-6 outline-none sm:px-6 lg:px-8 lg:pb-16 lg:pt-8">
             {updateReady && (
               <div role="status" className="no-print page card mb-4 flex items-center gap-2.5 border-l-[3px] border-l-info px-4 py-3 text-base text-ink">
