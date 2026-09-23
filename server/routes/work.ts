@@ -15,6 +15,11 @@ import {
   listItems, itemDetail, claimItem, releaseItem, assignItem, createItem, updateItem, recordAction,
   listViews, saveView, deleteView, WORK_STATES, ACTION_KINDS,
 } from '../services/work.ts';
+import { recordEntry, changeStage, handOff, calculate, applyProcedure, handoffCandidates } from '../services/cases.ts';
+import { teamWorkload, parseWindow } from '../services/record.ts';
+import { forbidden } from '../lib/errors.ts';
+import { PROCEDURES } from '../../shared/procedures.ts';
+import { STAGES } from '../../shared/caseModel.ts';
 
 export const workRouter = Router();
 workRouter.use(requireAuth);
@@ -100,6 +105,8 @@ workRouter.get('/imports/:id', wrap((req, res) => {
 const listSchema = z.object({
   unit_id: z.string().max(64).optional(),
   state: z.enum(WORK_STATES).optional(),
+  stage: z.enum(STAGES).optional(),
+  active: z.enum(['1', 'true']).optional(),
   claimed: z.enum(['me', 'anyone', 'nobody']).optional(),
   q: z.string().max(200).optional(),
   project_id: z.string().max(64).optional(),
@@ -114,7 +121,7 @@ workRouter.get('/items', wrap((req, res) => {
   const q = parse(listSchema, req.query);
   const scope = scopeFor(req.ctx, req.user, req);
   res.json(listItems(req.ctx, req.user, scope, {
-    unitId: q.unit_id ?? null, state: q.state ?? null, claimed: q.claimed ?? null, q: q.q ?? null, projectId: q.project_id ?? null,
+    unitId: q.unit_id ?? null, state: q.state ?? null, stage: q.stage ?? null, active: Boolean(q.active), claimed: q.claimed ?? null, q: q.q ?? null, projectId: q.project_id ?? null,
     dueBefore: q.due_before ?? null, sort: q.sort ?? null, direction: q.direction, limit: q.limit, offset: q.offset,
   }));
 }));
@@ -212,6 +219,55 @@ workRouter.post('/items/:id/actions', wrap((req, res) => {
     audit(req.ctx, { actor_id: req.user.id, action: 'work_action', entity: 'work_items', entity_id: String(req.params.id), unit_id: result.item.unit_id, detail: q.kind, ip: clientIp(req) });
   }
   res.status(result.replayed ? 200 : 201).json(result);
+}));
+
+// The case: research, decisions, submissions, stage and waiting, handoffs --------------------
+// Each of these writes an append-only event in the same transaction as the change it describes.
+
+// A section's workload for a leader. Totals need VIEW_RECORDS; the per-person breakdown needs
+// VIEW_MEMBER_DETAIL, and opening it is logged.
+workRouter.get('/workload', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  const unitId = String(req.query.unit_id || '');
+  if (!unitId) throw forbidden('Choose a unit.');
+  res.json(teamWorkload(req.ctx, req.user, scope, unitId, parseWindow(req.query as Record<string, unknown>, 30)));
+}));
+
+workRouter.get('/procedures', wrap((_req, res) => {
+  res.json(Object.values(PROCEDURES).map((p) => ({ key: p.key, version: p.version, title: p.title, trigger: p.trigger, authority: p.authority })));
+}));
+
+workRouter.post('/items/:id/entries', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  const key = req.get('idempotency-key') ? String(req.get('idempotency-key')).slice(0, 120) : null;
+  const result = recordEntry(req.ctx, req.user, scope, String(req.params.id), req.body, key);
+  res.status(result.replayed ? 200 : 201).json(result);
+}));
+
+workRouter.post('/items/:id/stage', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  res.json(changeStage(req.ctx, req.user, scope, String(req.params.id), req.body));
+}));
+
+workRouter.get('/items/:id/handoff-candidates', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  res.json(handoffCandidates(req.ctx, req.user, scope, String(req.params.id)));
+}));
+
+workRouter.post('/items/:id/handoff', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  res.json(handOff(req.ctx, req.user, scope, String(req.params.id), req.body));
+}));
+
+workRouter.post('/items/:id/calculate', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  res.status(201).json(calculate(req.ctx, req.user, scope, String(req.params.id)));
+}));
+
+workRouter.post('/items/:id/procedure', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  const key = String((req.body as { key?: unknown })?.key || '');
+  res.json(applyProcedure(req.ctx, req.user, scope, String(req.params.id), key));
 }));
 
 // Saved views ----------------------------------------------------------

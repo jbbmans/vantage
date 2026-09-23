@@ -95,9 +95,10 @@ export const EVENTS: Record<string, EventSpec> = {
   'import.abandoned': { family: 'import', properties: { state: oneOf('at_upload', 'at_mapping', 'at_preview', 'save_failed') }, times: ['form_ms'] },
 
   // The editor ----------------------------------------------------------
-  // active_editor_ms is an estimate the client makes from typing and focus. It is labelled an
-  // estimate everywhere it is shown, and it is never presented as time worked.
-  'editor.session': { family: 'editor', properties: { surface: oneOf('studio', 'record_form', 'thread_message'), sections: num, characters: num, saved: bool }, times: ['active_editor_ms', 'form_ms'] },
+  // No typing-derived timing is accepted. The active_editor_ms column is kept only so rows written
+  // before that decision still read; nothing writes it now, because keystroke rhythm tied to a
+  // person is monitoring, not a measure of work.
+  'editor.session': { family: 'editor', properties: { surface: oneOf('studio', 'record_form', 'thread_message'), sections: num, characters: num, saved: bool }, times: ['form_ms'] },
 
   // Correspondence -------------------------------------------------------
   'correspondence.thread_created': { serverOnly: true, family: 'correspondence', properties: { has_contact: bool, has_follow_up: bool } },
@@ -109,7 +110,7 @@ export const EVENTS: Record<string, EventSpec> = {
   // Goals and reports ----------------------------------------------------
   'goal.created': { serverOnly: true, family: 'goal', properties: { typed: bool, direction: oneOf('increase', 'decrease', 'threshold', 'completion'), automatic: bool } },
   'goal.inspected': { family: 'goal', properties: { contributors: num } },
-  'report.revision_saved': { serverOnly: true, family: 'report', properties: { revision: num, sources: num, sections: num, characters: num }, times: ['active_editor_ms', 'form_ms'] },
+  'report.revision_saved': { serverOnly: true, family: 'report', properties: { revision: num, sources: num, sections: num, characters: num }, times: ['form_ms'] },
   'report.stale_source_rejected': { family: 'report', serverOnly: true, properties: { sources: num, stale: num } },
   'report.exported': { serverOnly: true, family: 'report', properties: { revision: num, format: oneOf('txt', 'pdf', 'csv') } },
 

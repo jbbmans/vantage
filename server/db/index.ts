@@ -103,6 +103,54 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
         .run(EDIT_WORK | REASSIGN_WORK, MANAGE_RECORDS);
     },
   },
+  // The work_events, record_drafts, career and demo tables come from schema.sql, which is safe to
+  // replay. These columns cannot be. Nothing existing is rewritten except that each work item gains a
+  // stage read from the state it already has, so every row lands where it already stood.
+  {
+    id: 8,
+    name: '008_case_history',
+    run: (db) => {
+      const work = new Set((db.prepare('PRAGMA table_info(work_items)').all() as Array<{ name: string }>).map((c) => c.name));
+      const workColumns: Array<[string, string]> = [
+        // Where the work stands in its workflow. `state` stays, derived from this, so every existing
+        // filter and report keeps meaning what it meant.
+        ['stage', 'TEXT'],
+        // Waiting is its own fact with a category and a start, so elapsed waiting is never mistaken
+        // for active work.
+        ['waiting_category', 'TEXT'],
+        ['waiting_since', 'TEXT'],
+        ['blocked_reason', 'TEXT'],
+        // The procedure this work follows, pinned to the version it was started under.
+        ['procedure_key', 'TEXT'],
+        ['procedure_version', 'TEXT'],
+      ];
+      for (const [name, type] of workColumns) if (!work.has(name)) db.exec(`ALTER TABLE work_items ADD COLUMN ${name} ${type}`);
+      db.exec(`UPDATE work_items SET stage = CASE state
+                 WHEN 'open' THEN 'not_started' WHEN 'in_progress' THEN 'researching' WHEN 'waiting' THEN 'waiting'
+                 WHEN 'resolved' THEN 'resolved' WHEN 'not_applicable' THEN 'not_applicable' ELSE 'not_started' END
+               WHERE stage IS NULL`);
+      db.exec('CREATE INDEX IF NOT EXISTS idx_work_items_stage ON work_items(unit_id, stage)');
+
+      // The history starts with what was already known, so a contribution made before this upgrade
+      // still counts after it. Each recorded action and each claim held today becomes one event,
+      // marked as backfilled. Additive only: no existing row changes.
+      db.exec(`INSERT OR IGNORE INTO work_events (id, work_item_id, unit_id, actor_id, kind, body, idempotency_key, occurred_at, created_at)
+               SELECT 'backfill-action-' || a.id, a.work_item_id, a.unit_id, a.user_id, 'action_recorded',
+                      json_object('action_id', a.id, 'action', a.kind, 'text', a.note, 'quantity', a.quantity, 'unit_label', a.unit_label,
+                                  'drafted_record', a.activity_id IS NOT NULL, 'backfilled', 1),
+                      'backfill:action:' || a.id, a.occurred_at || 'T12:00:00.000Z', a.created_at
+                 FROM work_actions a`);
+      db.exec(`INSERT OR IGNORE INTO work_events (id, work_item_id, unit_id, actor_id, kind, body, idempotency_key, occurred_at, created_at)
+               SELECT 'backfill-claim-' || w.id, w.id, w.unit_id, w.claimed_by, 'claimed', json_object('backfilled', 1),
+                      'backfill:claim:' || w.id, w.claimed_at, w.claimed_at
+                 FROM work_items w WHERE w.claimed_by IS NOT NULL AND w.claimed_at IS NOT NULL AND w.deleted_at IS NULL`);
+
+      const users = new Set((db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map((c) => c.name));
+      // Set only on the synthetic people of a demo workspace. A real account never carries it.
+      if (!users.has('demo_workspace_id')) db.exec('ALTER TABLE users ADD COLUMN demo_workspace_id TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_users_demo_workspace ON users(demo_workspace_id) WHERE demo_workspace_id IS NOT NULL');
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 

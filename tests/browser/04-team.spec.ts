@@ -22,7 +22,7 @@ test('a leader invites a Marine by link, sees their shared work on the unit dash
   await ip.getByLabel('Username').fill(username);
   await ip.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await ip.getByRole('button', { name: 'Join and sign in' }).click();
-  await expect(ip.getByRole('heading', { name: 'Standing' })).toBeVisible();
+  await expect(ip.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
 
   const dialog = await quickLog(ip, 'Processed 12 MIPRs with zero returns today');
   await dialog.getByLabel('Result').fill('zero returns');

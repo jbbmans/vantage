@@ -72,10 +72,12 @@ test('a row is claimed, worked and recorded, and the outcome reaches the dashboa
   await row.getByRole('button', { name: 'Claim' }).click();
   await expect(page.getByText(/You picked up WB-100/)).toBeVisible();
 
+  // The row opens onto its own page, where the whole history and the work form live.
   await page.getByText('Clear a long-standing obligation').first().click();
-  const detail = page.getByRole('dialog', { name: 'WB-100' });
-  await expect(detail).toBeVisible();
-  await expect(detail.getByText('Everything the source said')).toBeVisible();
+  await expect(page).toHaveURL(/\/work\/items\//);
+  await expect(page.getByRole('heading', { name: 'Clear a long-standing obligation', level: 1 })).toBeVisible();
+  await expect(page.getByText('Everything the source said')).toBeVisible();
+  const detail = page.getByRole('region', { name: 'What did you do?' });
 
   await detail.getByLabel('How many').fill('12');
   // A unit label unique to this spec, so the figure cannot be confused with another spec's work.

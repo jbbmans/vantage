@@ -24,7 +24,8 @@ export interface Identity {
   roles: Array<{ unit_id: string; id: string; name: string; color: string | null; position: number; permissions: number }>;
   canLead: boolean; manageableUnits: string[]; counselUnits: string[]; exportUnits: string[];
   session: { id: string; method: string; sudoUntil: string | null };
-  instance: { displayName: string; organizationName: string; announcement: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean; metrics: MetricsConfig };
+  demo: null | { mode: 'demo'; ttl_hours: number; workspace: { expires_at: string; persona: 'marine' | 'leader' | null } | null; personas: Record<string, { label: string; description: string }>; flagship: { reference: string; note: string; values: Array<{ field: string; label: string; display: string; reference?: string }>; scenario: string } };
+  instance: { accessMode?: 'accounts' | 'demo'; displayName: string; organizationName: string; announcement: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean; metrics: MetricsConfig };
 }
 
 export interface MetricSeriesPoint { key: string; label: string; value: number; outcomes: number; contributors: string[] }
@@ -222,4 +223,37 @@ export function invalidateCorrespondence(qc: QueryClient, threadId?: string) {
   qc.invalidateQueries({ queryKey: ['threads'] });
   qc.invalidateQueries({ queryKey: ['item-threads'] });
   if (threadId) qc.invalidateQueries({ queryKey: correspondenceKeys.thread(threadId) });
+}
+
+// The case, the Record, and Career --------------------------------------------------------------
+export const caseKeys = {
+  item: (id: string) => ['work-item', id] as const,
+  summary: (params: Record<string, unknown>) => ['record-summary', params] as const,
+  assigned: ['record-assigned'] as const,
+  contributions: (params: Record<string, unknown>) => ['record-contributions', params] as const,
+  drafts: ['record-drafts'] as const,
+  career: ['career'] as const,
+  workload: (unitId: string, params: Record<string, unknown>) => ['workload', unitId, params] as const,
+  demo: ['demo-status'] as const,
+};
+
+export const useWorkItem = (id: string | null) => useQuery<any>({ queryKey: caseKeys.item(id || ''), queryFn: () => api.workItem(id!), enabled: Boolean(id) });
+export const useRecordSummary = (params: Record<string, string | undefined> = {}) => useQuery<any>({ queryKey: caseKeys.summary(params), queryFn: () => api.recordSummary(params), staleTime: 15_000 });
+export const useAssignedWork = () => useQuery<any[]>({ queryKey: caseKeys.assigned, queryFn: api.assignedWork, staleTime: 10_000 });
+export const useContributions = (params: Record<string, string | undefined> = {}) => useQuery<any[]>({ queryKey: caseKeys.contributions(params), queryFn: () => api.contributions(params) });
+export const useRecordDrafts = () => useQuery<any[]>({ queryKey: caseKeys.drafts, queryFn: api.recordDrafts });
+export const useCareer = () => useQuery<any>({ queryKey: caseKeys.career, queryFn: api.career, staleTime: 30_000 });
+export const useWorkload = (unitId: string | null, params: Record<string, string | undefined> = {}) =>
+  useQuery<any>({ queryKey: caseKeys.workload(unitId || '', params), queryFn: () => api.workload(unitId!, params), enabled: Boolean(unitId), retry: false });
+export const useDemoStatus = (enabled = true) => useQuery<any>({ queryKey: caseKeys.demo, queryFn: api.demoStatus, enabled, staleTime: 60_000, retry: false });
+
+/** Everything that can change when work moves: the case, the queue, the Record, and Today. */
+export function invalidateWork(qc: QueryClient, itemId?: string) {
+  if (itemId) qc.invalidateQueries({ queryKey: caseKeys.item(itemId) });
+  qc.invalidateQueries({ queryKey: ['work-items'] });
+  qc.invalidateQueries({ queryKey: ['record-summary'] });
+  qc.invalidateQueries({ queryKey: caseKeys.assigned });
+  qc.invalidateQueries({ queryKey: ['record-contributions'] });
+  qc.invalidateQueries({ queryKey: ['workload'] });
+  qc.invalidateQueries({ queryKey: keys.notifications });
 }

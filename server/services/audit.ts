@@ -51,3 +51,24 @@ export function verifyAuditChain(ctx: AppContext): { ok: boolean; count: number;
   if (rows.length && head.mac !== hmac(config.secret, `audit-head:${head.hash}:${head.count}`)) return { ok: false, count: rows.length, reason: 'audit head signature is invalid' };
   return { ok: true, count: rows.length };
 }
+
+/**
+ * Recomputes the chain after rows were removed. Only ever runs on a synthetic demo database, where
+ * whole disposable workspaces — audit entries included — are deleted when they expire. On a real
+ * database the chain is never rewritten: that would defeat the point of having one.
+ */
+export function resealAuditChain(ctx: AppContext) {
+  const { db, config } = ctx;
+  if (config.accessMode !== 'demo' || metaGet(db, 'demo_database') !== '1') throw new Error('The audit chain is only resealed on a synthetic demo database.');
+  const rows = db.prepare('SELECT * FROM audit_log ORDER BY seq').all() as Array<Record<string, unknown>>;
+  const update = db.prepare('UPDATE audit_log SET prev_hash = ?, entry_hash = ? WHERE seq = ?');
+  db.transaction(() => {
+    let previous = '';
+    for (const row of rows) {
+      const hash = entryHash(config.secret, row, previous);
+      update.run(previous || null, hash, row.seq);
+      previous = hash;
+    }
+    metaSet(db, 'audit_head', JSON.stringify({ hash: previous, count: rows.length, mac: hmac(config.secret, `audit-head:${previous}:${rows.length}`) }));
+  })();
+}

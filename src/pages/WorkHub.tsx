@@ -8,10 +8,10 @@ const Work = lazy(() => import('./Work'));
 const Correspondence = lazy(() => import('./Correspondence'));
 
 /**
- * Everything with a next action lives here. The queue, the tasks you set yourself, the projects
- * they roll up to, and the email the whole thing is actually about were four destinations, which
- * meant four places to check before you knew what today held. They are four tabs now because the
- * question each one answers is the same question: what is waiting on me?
+ * Everything with a next action lives here. The queue of tasker items, the taskers and projects
+ * they roll up to, the tasks you set yourself, and the email the work is actually about were four
+ * destinations. They are four tabs because each answers the same question: what work exists, what
+ * is mine, and where does it stand? One item opens on its own page, at /work/items/:id.
  */
 export default function WorkHub() {
   const [tab, setTab] = useParam('tab', 'queue');
@@ -25,17 +25,17 @@ export default function WorkHub() {
     <div className="page">
       <PageHeader
         eyebrow="Work"
-        title="Keep the work moving."
-        lede="The queue, what you owe, and the correspondence behind it. Finishing something here writes the record of it."
+        title="Work"
+        lede="Every tasker item, what is yours, what is open to claim, and the correspondence behind it. What you do here is recorded for you."
       />
       <Tabs
         value={tab}
         onChange={setTab}
         className="mb-5"
         tabs={[
-          { value: 'queue', label: 'Case queue' },
+          { value: 'queue', label: 'Queue' },
+          { value: 'projects', label: 'Taskers and projects' },
           { value: 'tasks', label: 'Tasks', count: openTasks || undefined },
-          { value: 'projects', label: 'Projects' },
           { value: 'mail', label: 'Correspondence', count: waiting || undefined },
         ]}
       />

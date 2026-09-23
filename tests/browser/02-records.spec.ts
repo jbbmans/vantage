@@ -77,9 +77,11 @@ test('tasks, goals, training and awards can be created and appear on the dashboa
   await award.getByRole('button', { name: 'Add award' }).click();
   await expect(page.getByRole('heading', { name: 'Navy and Marine Corps Achievement Medal' })).toBeVisible();
 
+  // Today shows the work in your hands, with the overdue task marked, beside your goals.
   await page.goto('/');
-  await expect(page.getByText('overdue task')).toBeVisible();
-  await expect(page.getByText('Log 20 entries this quarter')).toBeVisible();
+  await expect(page.getByText('Close out FY obligations').first()).toBeVisible();
+  await page.goto('/goals');
+  await expect(page.getByRole('heading', { name: 'Log 20 entries this quarter' })).toBeVisible();
 });
 
 test('appearance settings switch theme and accent and persist across reload', async ({ page }) => {

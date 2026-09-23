@@ -7,6 +7,8 @@ import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
+import { appendEvent, caseView } from './cases.ts';
+import { STATE_TO_STAGE } from '../../shared/caseModel.ts';
 
 /**
  * The workbench: rows of work, who has picked them up, and what they did about them.
@@ -31,6 +33,8 @@ export interface WorkItemRow {
   state: string; data: string;
   claimed_by: string | null; claimed_at: string | null; resolved_at: string | null; source_changed_at: string | null;
   version: number; deleted_at: string | null; created_at: string; updated_at: string;
+  stage?: string | null; waiting_category?: string | null; waiting_since?: string | null; blocked_reason?: string | null;
+  procedure_key?: string | null; procedure_version?: string | null; project_id?: string | null;
 }
 
 export const WORK_STATES = ['open', 'in_progress', 'waiting', 'resolved', 'not_applicable'] as const;
@@ -38,7 +42,7 @@ export type WorkState = (typeof WORK_STATES)[number];
 
 const hydrate = (row: WorkItemRow) => ({ ...row, data: JSON.parse(row.data || '{}') as Record<string, string> });
 
-function readable(scope: Scope, user: SessionUser, row: WorkItemRow): boolean {
+export function readable(scope: Scope, user: SessionUser, row: WorkItemRow): boolean {
   if (row.owner_id === user.id || row.claimed_by === user.id) return true;
   if (row.visibility !== 'unit' || !row.unit_id) return false;
   return isMember(scope, row.unit_id);
@@ -83,7 +87,11 @@ export const mayEditFields = (scope: Scope, user: SessionUser, row: WorkItemRow)
 export const isImported = (row: WorkItemRow) => Boolean(row.source_file_id || row.import_job_id);
 
 /** Moving a row between open, in progress and waiting is execution: the holder's to do. */
-const mayProgress = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
+export const mayProgress = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
+  holder(user, row) || mine(user, row) || bit(scope, row, PERMISSIONS.MANAGE_RECORDS);
+
+/** Recording what you did needs you to be doing it. A leader who can edit shared records may also act. */
+export const mayAct = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
   holder(user, row) || mine(user, row) || bit(scope, row, PERMISSIONS.MANAGE_RECORDS);
 
 export function getItem(ctx: AppContext, id: string): WorkItemRow | null {
@@ -100,6 +108,9 @@ export function readableItem(ctx: AppContext, user: SessionUser, scope: Scope, i
 export interface ListOptions {
   unitId?: string | null;
   state?: string | null;
+  stage?: string | null;
+  /** Only work that is not closed: the default view of a queue somebody is working from. */
+  active?: boolean;
   claimed?: 'me' | 'anyone' | 'nobody' | null;
   /** Narrow to one project, so a project's queue and its typed work read as one list. */
   projectId?: string | null;
@@ -130,6 +141,8 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
 
   if (opts.unitId) { where.push('w.unit_id = ?'); params.push(opts.unitId); }
   if (opts.state) { where.push('w.state = ?'); params.push(opts.state); }
+  if (opts.stage) { where.push('w.stage = ?'); params.push(opts.stage); }
+  if (opts.active) where.push("w.state NOT IN ('resolved', 'not_applicable')");
   if (opts.projectId) { where.push('w.project_id = ?'); params.push(opts.projectId); }
   if (opts.claimed === 'me') { where.push('w.claimed_by = ?'); params.push(user.id); }
   else if (opts.claimed === 'nobody') where.push('w.claimed_by IS NULL');
@@ -149,8 +162,13 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
   const clause = where.join(' AND ');
   const total = (ctx.db.prepare(`SELECT COUNT(*) AS n FROM work_items w WHERE ${clause}`).get(...params) as { n: number }).n;
   const rows = ctx.db.prepare(
-    // Nulls last, so rows with no due date do not crowd the top of a due-date sort.
-    `SELECT * FROM work_items w WHERE ${clause} ORDER BY (w.${column} IS NULL), w.${column} ${direction}, w.natural_key ASC LIMIT ? OFFSET ?`
+    // Nulls last, so rows with no due date do not crowd the top of a due-date sort. The holder's
+    // name is shown to people who can already read the row: who is working a case is the whole
+    // point of a shared queue.
+    `SELECT w.*, h.first_name || ' ' || h.last_name AS holder_name, hr.abbr AS holder_rank, p.name AS project_name
+       FROM work_items w LEFT JOIN users h ON h.id = w.claimed_by LEFT JOIN ranks hr ON hr.id = h.rank_id
+       LEFT JOIN projects p ON p.id = w.project_id AND p.deleted_at IS NULL
+      WHERE ${clause} ORDER BY (w.${column} IS NULL), w.${column} ${direction}, w.natural_key ASC LIMIT ? OFFSET ?`
   ).all(...params, limit, offset) as WorkItemRow[];
 
   return { total, limit, offset, items: rows.map(hydrate) };
@@ -167,7 +185,11 @@ export function itemDetail(ctx: AppContext, user: SessionUser, scope: Scope, id:
   const source = row.source_file_id
     ? ctx.db.prepare('SELECT id, filename, created_at, sha256 FROM source_files WHERE id = ?').get(row.source_file_id)
     : null;
-  return { item: hydrate(row), actions, source, contributors: contributors(ctx, id) };
+  const project = row.project_id
+    ? ctx.db.prepare('SELECT id, name, target_date FROM projects WHERE id = ? AND deleted_at IS NULL').get(row.project_id) ?? null
+    : null;
+  // `contributors` keeps its original shape for older clients; `case` carries the attributed history.
+  return { item: hydrate(row), actions, source, project, contributors: contributors(ctx, id), case: caseView(ctx, user, scope, row) };
 }
 
 /**
@@ -206,8 +228,11 @@ export function claimItem(ctx: AppContext, user: SessionUser, scope: Scope, id: 
     if (row.state === 'resolved') throw conflict('This work is already resolved.');
     const at = now();
     ctx.db.prepare(
-      `UPDATE work_items SET claimed_by = ?, claimed_at = ?, state = CASE WHEN state = 'open' THEN 'in_progress' ELSE state END, version = version + 1, updated_at = ? WHERE id = ?`
+      `UPDATE work_items SET claimed_by = ?, claimed_at = ?, state = CASE WHEN state = 'open' THEN 'in_progress' ELSE state END,
+              stage = CASE WHEN state = 'open' THEN 'researching' ELSE COALESCE(stage, 'researching') END, version = version + 1, updated_at = ? WHERE id = ?`
     ).run(user.id, at, at, id);
+    // Claiming puts the work on the person's assigned list at once. It is not credit for anything.
+    appendEvent(ctx, { item: row, actorId: user.id, kind: 'claimed' });
     record(ctx, 'work.claimed', { bulk: false, count: 1 }, { id: user.id });
     return hydrate(reload(ctx, id));
   })();
@@ -223,8 +248,12 @@ export function releaseItem(ctx: AppContext, user: SessionUser, scope: Scope, id
     }
     const at = now();
     ctx.db.prepare(
-      `UPDATE work_items SET claimed_by = NULL, claimed_at = NULL, state = CASE WHEN state = 'in_progress' THEN 'open' ELSE state END, version = version + 1, updated_at = ? WHERE id = ?`
+      `UPDATE work_items SET claimed_by = NULL, claimed_at = NULL,
+              stage = CASE WHEN state = 'in_progress' AND COALESCE(stage, 'researching') = 'researching' THEN 'not_started' ELSE stage END,
+              state = CASE WHEN state = 'in_progress' AND COALESCE(stage, 'researching') = 'researching' THEN 'open' ELSE state END,
+              version = version + 1, updated_at = ? WHERE id = ?`
     ).run(at, id);
+    appendEvent(ctx, { item: row, actorId: user.id, kind: 'released', subjectId: row.claimed_by !== user.id ? row.claimed_by : null });
     record(ctx, 'work.released', { held_hours: row.claimed_at ? Math.max(0, (Date.parse(at) - Date.parse(row.claimed_at)) / 3_600_000) : 0 }, { id: user.id });
     return hydrate(reload(ctx, id));
   })();
@@ -280,6 +309,8 @@ export function createItem(
                              title, reference, due_date, amount, amount_type, quantity, unit_label, state, data, project_id, version, created_at, updated_at)
      VALUES (?, ?, ?, ?, NULL, NULL, ?, '', NULL, ?, ?, ?, NULL, NULL, NULL, NULL, 'open', '{}', ?, 1, ?, ?)`
   ).run(id, unitId, user.id, visibility, `manual:${id}`, title, input.reference?.trim() || null, input.due_date || null, projectId, at, at);
+  ctx.db.prepare("UPDATE work_items SET stage = 'not_started' WHERE id = ?").run(id);
+  appendEvent(ctx, { item: { id, unit_id: unitId }, actorId: user.id, kind: 'created', body: { origin: 'typed' } });
   audit(ctx, { actor_id: user.id, action: 'work_created', entity: 'work_items', entity_id: id, unit_id: unitId });
   record(ctx, 'work.created', { manual: true, count: 1 }, { id: user.id });
   return hydrate(reload(ctx, id));
@@ -313,14 +344,16 @@ export function assignItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
 
     const at = now();
     ctx.db.prepare(
-      `UPDATE work_items SET claimed_by = ?, claimed_at = ?, state = CASE WHEN state = 'open' THEN 'in_progress' ELSE state END, version = version + 1, updated_at = ? WHERE id = ?`
+      `UPDATE work_items SET claimed_by = ?, claimed_at = ?, state = CASE WHEN state = 'open' THEN 'in_progress' ELSE state END,
+              stage = CASE WHEN state = 'open' THEN 'researching' ELSE COALESCE(stage, 'researching') END, version = version + 1, updated_at = ? WHERE id = ?`
     ).run(target.id, at, at, id);
+    appendEvent(ctx, { item: row, actorId: user.id, kind: 'assigned', subjectId: target.id, body: { from: row.claimed_by } });
     audit(ctx, { actor_id: user.id, action: 'work_assigned', entity: 'work_items', entity_id: id, subject_id: target.id, unit_id: row.unit_id });
     notify(ctx, target.id, {
       kind: 'work_assigned',
       title: 'A case was handed to you',
       message: row.title.slice(0, 160),
-      actionUrl: '/work?tab=queue',
+      actionUrl: `/work/items/${id}`,
       dedupeKey: `work-assign:${id}:${at}`,
     });
     record(ctx, 'work.assigned', { bulk: false, count: 1 }, { id: user.id });
@@ -347,8 +380,12 @@ export function releaseStaleClaims(ctx: AppContext, afterHours = 72): number {
   ctx.db.transaction(() => {
     for (const row of stale) {
       ctx.db.prepare(
-        `UPDATE work_items SET claimed_by = NULL, claimed_at = NULL, state = CASE WHEN state = 'in_progress' THEN 'open' ELSE state END, version = version + 1, updated_at = ? WHERE id = ?`
+        `UPDATE work_items SET claimed_by = NULL, claimed_at = NULL,
+                stage = CASE WHEN state = 'in_progress' AND COALESCE(stage, 'researching') = 'researching' THEN 'not_started' ELSE stage END,
+                state = CASE WHEN state = 'in_progress' AND COALESCE(stage, 'researching') = 'researching' THEN 'open' ELSE state END,
+                version = version + 1, updated_at = ? WHERE id = ?`
       ).run(at, row.id);
+      appendEvent(ctx, { item: row, actorId: null, kind: 'claim_expired', subjectId: row.claimed_by, body: { after_hours: afterHours } });
       audit(ctx, { actor_id: null, action: 'work_claim_expired', entity: 'work_items', entity_id: row.id, subject_id: row.claimed_by, unit_id: row.unit_id, detail: `untouched for ${afterHours}h` });
     }
   })();
@@ -400,6 +437,17 @@ export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
       }
       sets.push('state = ?'); params.push(patch.state);
       sets.push('resolved_at = ?'); params.push(patch.state === 'resolved' ? at : null);
+      // The coarse state and the stage move together; the stage is read from the state here because
+      // this older path only knows the five states.
+      const toStage = STATE_TO_STAGE[patch.state];
+      sets.push('stage = ?'); params.push(toStage);
+      if (patch.state !== 'waiting') { sets.push('waiting_category = NULL', 'waiting_since = NULL'); }
+      const fromStage = (row as WorkItemRow & { stage?: string | null }).stage || STATE_TO_STAGE[row.state];
+      if (fromStage !== toStage) {
+        appendEvent(ctx, { item: row, actorId: user.id, kind: 'stage_changed', body: { from: fromStage, to: toStage, reason: null } });
+        if (toStage === 'resolved') appendEvent(ctx, { item: row, actorId: user.id, kind: 'resolved', body: {} });
+        if (CLOSED_STATES.has(row.state) && !closing) appendEvent(ctx, { item: row, actorId: user.id, kind: 'reopened', body: {} });
+      }
     }
 
     const edits = EDITABLE_FIELDS.filter((f) => patch[f] !== undefined);
@@ -501,9 +549,7 @@ export function recordAction(
   return ctx.db.transaction(() => {
     const row = reload(ctx, itemId);
     if (!readable(scope, user, row)) throw forbidden('That work is not yours.');
-    // Recording work you did needs you to be doing it. A leader who can edit shared records may also act.
-    const mayAct = row.claimed_by === user.id || row.owner_id === user.id || (row.unit_id ? can(scope, PERMISSIONS.MANAGE_RECORDS, row.unit_id) : false);
-    if (!mayAct) throw forbidden('Pick this work up before recording what you did.');
+    if (!mayAct(scope, user, row)) throw forbidden('Pick this work up before recording what you did.');
 
     const at = now();
     let activityId: string | null = null;
@@ -534,6 +580,10 @@ export function recordAction(
       `INSERT INTO work_actions (id, work_item_id, user_id, unit_id, kind, note, occurred_at, quantity, unit_label, dollar_amount, dollar_type, activity_id, idempotency_key, created_at)
        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
     ).run(actionId, itemId, user.id, row.unit_id, kind, note, occurredAt, quantity, input.unit_label || null, dollarAmount, input.dollar_type || null, activityId, scopedKey, at);
+    appendEvent(ctx, {
+      item: row, actorId: user.id, kind: 'action_recorded', occurredAt: `${occurredAt}T12:00:00.000Z`,
+      body: { action_id: actionId, action: kind, text: note, quantity, unit_label: input.unit_label || null, drafted_record: Boolean(activityId) },
+    });
 
     if (input.resolve || kind === 'resolved') {
       // Recording what you did is not the same as declaring the case finished, and this path must
@@ -542,9 +592,19 @@ export function recordAction(
       if (!mayResolve(scope, user, row)) {
         throw forbidden('You can record what you did, but closing this case out is not yours to do.');
       }
-      ctx.db.prepare(`UPDATE work_items SET state = 'resolved', resolved_at = ?, version = version + 1, updated_at = ? WHERE id = ?`).run(at, at, itemId);
+      if (row.procedure_key) {
+        throw conflict('This work follows a procedure. Verify the original condition cleared, then resolve it from the case.', 'verification_required');
+      }
+      const fromStage = (row as WorkItemRow & { stage?: string | null }).stage || STATE_TO_STAGE[row.state];
+      ctx.db.prepare(`UPDATE work_items SET state = 'resolved', stage = 'resolved', waiting_category = NULL, waiting_since = NULL, resolved_at = ?, version = version + 1, updated_at = ? WHERE id = ?`).run(at, at, itemId);
+      if (fromStage !== 'resolved') {
+        appendEvent(ctx, { item: row, actorId: user.id, kind: 'stage_changed', body: { from: fromStage, to: 'resolved', reason: null } });
+        appendEvent(ctx, { item: row, actorId: user.id, kind: 'resolved', body: {} });
+      }
     } else {
-      ctx.db.prepare(`UPDATE work_items SET state = CASE WHEN state = 'open' THEN 'in_progress' ELSE state END, version = version + 1, updated_at = ? WHERE id = ?`).run(at, itemId);
+      ctx.db.prepare(`UPDATE work_items SET state = CASE WHEN state = 'open' THEN 'in_progress' ELSE state END,
+                             stage = CASE WHEN state = 'open' THEN 'researching' ELSE COALESCE(stage, 'researching') END,
+                             version = version + 1, updated_at = ? WHERE id = ?`).run(at, itemId);
     }
 
     const action = ctx.db.prepare('SELECT * FROM work_actions WHERE id = ?').get(actionId) as Record<string, unknown>;

@@ -1,18 +1,20 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
-  ArrowDown, ArrowUp, Bookmark, Check, ClipboardCopy, Filter, Hand, Inbox, Mail,
+  ArrowDown, ArrowUp, Bookmark, ClipboardCopy, Filter, Hand, Inbox, Mail,
   RefreshCw, Search, Upload, X,
 } from 'lucide-react';
-import { Button, Input, Select, Badge, EmptyState, Skeleton, Field, Textarea, NumberInput } from '@/components/ui/primitives';
+import { Button, Input, Select, Badge, EmptyState, Skeleton, Field } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { DateText, PageShell } from '@/components/common';
+import { StageBadge } from '@/components/work';
 import ImportWizard from '@/components/ImportWizard';
-import { useIdentity, useMetrics, useItemThreads, useThreads, invalidateCorrespondence } from '@/lib/queries';
+import { useIdentity, useItemThreads, useThreads, invalidateCorrespondence } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { formatDollars, formatNumber } from '../../shared/metrics';
-import { cn, todayIso, useMediaQuery } from '@/lib/utils';
+import { cn, useMediaQuery } from '@/lib/utils';
 import { track } from '@/lib/telemetry';
 
 /**
@@ -34,16 +36,13 @@ const STATES = [
 ];
 
 const STATE_LABEL: Record<string, string> = Object.fromEntries(STATES.filter((s) => s.value).map((s) => [s.value, s.label]));
-const STATE_TONE: Record<string, 'neutral' | 'accent' | 'warn' | 'good'> = {
-  open: 'neutral', in_progress: 'accent', waiting: 'warn', resolved: 'good', not_applicable: 'neutral',
-};
 
 const COLUMNS = [
-  { key: 'natural_key', label: 'Identifier', width: 'w-40' },
+  { key: 'reference', label: 'Document', width: 'w-36' },
   { key: 'title', label: 'What it is', width: '' },
-  { key: 'state', label: 'State', width: 'w-32' },
-  { key: 'due_date', label: 'Due', width: 'w-28' },
-  { key: 'amount', label: 'Value', width: 'w-32' },
+  { key: 'state', label: 'Stage', width: 'w-40' },
+  { key: 'due_date', label: 'Due', width: 'w-24' },
+  { key: 'amount', label: 'Amount', width: 'w-24' },
   { key: 'claimed', label: 'Held by', width: 'w-32' },
 ];
 
@@ -51,21 +50,22 @@ const ROW_HEIGHT = 44;
 const WINDOW_OVERSCAN = 8;
 
 interface Query {
-  state: string; claimed: string; q: string; sort: string; direction: 'asc' | 'desc'; unit_id: string; limit: number; offset: number;
+  state: string; active: boolean; claimed: string; q: string; sort: string; direction: 'asc' | 'desc'; unit_id: string; limit: number; offset: number;
 }
 
-const DEFAULT_QUERY: Query = { state: '', claimed: '', q: '', sort: 'due_date', direction: 'asc', unit_id: '', limit: 200, offset: 0 };
+const DEFAULT_QUERY: Query = { state: '', active: true, claimed: '', q: '', sort: 'due_date', direction: 'asc', unit_id: '', limit: 200, offset: 0 };
 
 export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const toast = useToast();
   const qc = useQueryClient();
-  const cfg = useMetrics();
   const { data: identity } = useIdentity();
-  const [query, setQuery] = useState<Query>(DEFAULT_QUERY);
+  const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
+  const [query, setQuery] = useState<Query>(() => ({ ...DEFAULT_QUERY, claimed: ['me', 'nobody', 'anyone'].includes(searchParams.get('claimed') || '') ? String(searchParams.get('claimed')) : '' }));
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [cursor, setCursor] = useState(0);
-  const [detailId, setDetailId] = useState<string | null>(null);
+  const openItem = useCallback((id: string) => navigate(`/work/items/${id}`), [navigate]);
   const [importing, setImporting] = useState(false);
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [viewName, setViewName] = useState('');
@@ -83,7 +83,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   }, [search]);
 
   const params = useMemo(() => ({
-    state: query.state || undefined, claimed: query.claimed || undefined, q: query.q || undefined,
+    state: query.state || undefined, active: query.active && !query.state ? '1' : undefined, claimed: query.claimed || undefined, q: query.q || undefined,
     unit_id: query.unit_id || undefined, sort: query.sort, direction: query.direction,
     limit: query.limit, offset: query.offset,
   }), [query]);
@@ -123,7 +123,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     if (!chosen.length) return;
     // Tab separated, so it pastes straight back into the spreadsheet it came from.
     const header = ['Identifier', 'What it is', 'State', 'Due', 'Value', 'Type'].join('\t');
-    const body = chosen.map((r) => [r.natural_key, r.title, STATE_LABEL[r.state] || r.state, r.due_date || '', r.amount ?? '', r.amount_type || ''].join('\t')).join('\n');
+    const body = chosen.map((r) => [r.reference || r.natural_key, r.title, STATE_LABEL[r.state] || r.state, r.due_date || '', r.amount ?? '', r.amount_type || ''].join('\t')).join('\n');
     try {
       await navigator.clipboard.writeText(`${header}\n${body}`);
       toast.success(`${chosen.length} ${chosen.length === 1 ? 'row' : 'rows'} copied.`);
@@ -131,21 +131,21 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   }, [selected, rows, cursor, toast]);
 
   const claim = useCallback(async (row: any) => {
-    try { await api.claimWorkItem(row.id, row.version); toast.success(`You picked up ${row.natural_key}.`); refresh(); }
+    try { await api.claimWorkItem(row.id, row.version); toast.success(`You picked up ${row.reference || row.natural_key}. It is on your assigned list now.`); refresh(); qc.invalidateQueries({ queryKey: ['record-assigned'] }); }
     catch (e) { toast.error(api.errorText(e)); refresh(); }
-  }, [toast, refresh]);
+  }, [toast, refresh, qc]);
 
   const release = useCallback(async (row: any) => {
-    try { await api.releaseWorkItem(row.id, row.version); toast.success(`${row.natural_key} is back in the queue.`); refresh(); }
+    try { await api.releaseWorkItem(row.id, row.version); toast.success(`${row.reference || row.natural_key} is back in the queue.`); refresh(); qc.invalidateQueries({ queryKey: ['record-assigned'] }); }
     catch (e) { toast.error(api.errorText(e)); refresh(); }
-  }, [toast, refresh]);
+  }, [toast, refresh, qc]);
 
   // Keyboard: j/k or arrows move, space selects, Enter opens, c claims, / focuses search.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
       const typing = ['INPUT', 'TEXTAREA', 'SELECT'].includes(target?.tagName) || target?.isContentEditable;
-      if (detailId || importing || saveViewOpen) return;
+      if (importing || saveViewOpen) return;
       if (typing) {
         if (event.key === 'Escape') (target as HTMLInputElement).blur();
         return;
@@ -170,13 +170,13 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
       if (event.key === 'j' || event.key === 'ArrowDown') move(1);
       else if (event.key === 'k' || event.key === 'ArrowUp') move(-1);
       else if (event.key === ' ') { event.preventDefault(); if (rows[cursor]) toggleSelected(rows[cursor].id); }
-      else if (event.key === 'Enter') { event.preventDefault(); if (rows[cursor]) setDetailId(rows[cursor].id); }
+      else if (event.key === 'Enter') { event.preventDefault(); if (rows[cursor]) openItem(rows[cursor].id); }
       else if (event.key === 'c') { event.preventDefault(); if (rows[cursor]) void claim(rows[cursor]); }
       else if (event.key === 'Escape') setSelected(new Set());
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [rows, cursor, selected, detailId, importing, saveViewOpen, toggleSelected, copySelection, claim]);
+  }, [rows, cursor, selected, importing, saveViewOpen, toggleSelected, copySelection, claim, openItem]);
 
   const first = Math.max(0, Math.floor(scrollTop / ROW_HEIGHT) - WINDOW_OVERSCAN);
   const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + WINDOW_OVERSCAN * 2;
@@ -199,14 +199,26 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   return (
     <PageShell
       embedded={embedded}
-      eyebrow="Workbench"
-      title="The queue."
-      lede={list.isPending ? 'Loading the queue.' : `${formatNumber(total)} ${total === 1 ? 'row' : 'rows'} match this view. You are holding ${heldByMe}.`}
+      eyebrow="Work"
+      title="Queue"
+      lede={list.isPending ? 'Loading the queue.' : `${formatNumber(total)} ${total === 1 ? 'item' : 'items'} in this view. You hold ${heldByMe}.`}
       actions={<>
         <Button onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import a spreadsheet</Button>
         <Button onClick={refresh} aria-label="Refresh the queue"><RefreshCw className={cn('h-4 w-4', list.isFetching && 'animate-spin')} />Refresh</Button>
       </>}
     >
+
+      <div className="mb-3 flex flex-wrap items-center gap-2" role="group" aria-label="Whose work">
+        {([
+          ['open', 'All open work', { active: true, claimed: '', state: '' }],
+          ['nobody', 'Open to claim', { active: true, claimed: 'nobody', state: '' }],
+          ['me', 'Mine', { active: true, claimed: 'me', state: '' }],
+          ['resolved', 'Resolved', { active: false, claimed: '', state: 'resolved' }],
+        ] as const).map(([key, label, patch]) => {
+          const on = query.active === patch.active && query.claimed === patch.claimed && query.state === patch.state;
+          return <Button key={key} size="sm" variant={on ? 'primary' : 'default'} aria-pressed={on} onClick={() => setQuery((q) => ({ ...q, ...patch, offset: 0 }))}>{label}</Button>;
+        })}
+      </div>
 
       <div className="card mb-3 flex flex-wrap items-center gap-2 p-3">
         <div className="relative min-w-[12rem] flex-1">
@@ -271,16 +283,16 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
           <ul className="space-y-2">
             {rows.map((row) => (
               <li key={row.id}>
-                <button type="button" onClick={() => setDetailId(row.id)} className="w-full rounded-lg border border-line bg-surface p-3 text-left transition-colors hover:border-line-strong">
+                <button type="button" onClick={() => openItem(row.id)} className="w-full rounded-lg border border-line bg-surface p-3 text-left transition-colors hover:border-line-strong">
                   <span className="flex items-center justify-between gap-2">
-                    <span className="fig text-xs font-semibold text-ink-2">{row.natural_key}</span>
-                    <Badge tone={STATE_TONE[row.state]}>{STATE_LABEL[row.state] || row.state}</Badge>
+                    <span className="fig text-xs font-semibold text-ink-2">{row.reference || row.natural_key}</span>
+                    <StageBadge stage={row.stage || row.state} waiting={row.waiting_category} />
                   </span>
                   <span className="mt-1 block text-sm text-ink">{row.title}</span>
                   <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
                     {row.due_date && <span>Due <DateText value={row.due_date} /></span>}
                     {row.amount != null && <span className="fig">{formatDollars(row.amount)}{row.amount_type ? ` ${row.amount_type}` : ''}</span>}
-                    {row.claimed_by && <span>{row.claimed_by === identity?.user.id ? 'You have this' : 'Someone has this'}</span>}
+                    {row.claimed_by && <span>{row.claimed_by === identity?.user.id ? 'You have this' : `${[row.holder_rank, row.holder_name].filter(Boolean).join(' ')} has this`}</span>}
                   </span>
                 </button>
               </li>
@@ -305,7 +317,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                       )}
                     </th>
                   ))}
-                  <th scope="col" className="w-24 px-3 py-2" />
+                  <th scope="col" className="w-20 px-3 py-2"><span className="sr-only">Actions</span></th>
                 </tr>
               </thead>
             </table>
@@ -322,24 +334,25 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                         <tr
                           key={row.id}
                           style={{ height: ROW_HEIGHT }}
-                          onClick={() => { setCursor(index); setDetailId(row.id); }}
+                          onClick={() => { setCursor(index); openItem(row.id); }}
                           className={cn('cursor-pointer border-b border-line transition-colors', isSelected && 'bg-accent/5', isCursor && 'outline outline-2 -outline-offset-2 outline-accent', !isSelected && 'hover:bg-surface-2')}
                         >
                           <td className="w-10 px-3" onClick={(e) => e.stopPropagation()}>
-                            <input type="checkbox" checked={isSelected} onChange={() => toggleSelected(row.id)} aria-label={`Select ${row.natural_key}`} />
+                            <input type="checkbox" checked={isSelected} onChange={() => toggleSelected(row.id)} aria-label={`Select ${row.reference || row.natural_key}`} />
                           </td>
-                          <td className="fig w-40 truncate px-3 text-xs font-semibold text-ink-2">{row.natural_key}</td>
-                          <td className="truncate px-3 text-ink">
+                          <td className="fig w-36 truncate px-3 text-xs font-semibold text-ink-2">{row.reference || row.natural_key}</td>
+                          <td className="truncate px-3 text-ink" title={row.title}>
                             {row.title}
                             {row.source_changed_at && <Badge tone="warn" className="ml-2">Source changed</Badge>}
                           </td>
-                          <td className="w-32 px-3"><Badge tone={STATE_TONE[row.state]}>{STATE_LABEL[row.state] || row.state}</Badge></td>
-                          <td className="w-28 px-3 text-xs text-ink-3"><DateText value={row.due_date} fallback="—" /></td>
-                          <td className="fig w-32 px-3 text-right text-xs">{row.amount == null ? '' : formatDollars(row.amount)}</td>
-                          <td className="w-32 truncate px-3 text-xs text-ink-3">{row.claimed_by ? (mine ? 'You' : 'Someone else') : '—'}</td>
-                          <td className="w-24 px-3 text-right" onClick={(e) => e.stopPropagation()}>
+                          <td className="w-40 truncate px-3"><StageBadge stage={row.stage || row.state} waiting={row.waiting_category} /></td>
+                          <td className="w-24 px-3 text-xs text-ink-3"><DateText value={row.due_date} fallback="—" /></td>
+                          <td className="fig w-24 px-3 text-right text-xs">{row.amount == null ? '' : formatDollars(row.amount)}</td>
+                          <td className="w-32 truncate px-3 text-xs text-ink-3">{row.claimed_by ? (mine ? 'You' : [row.holder_rank, row.holder_name].filter(Boolean).join(' ') || 'Someone else') : '—'}</td>
+                          <td className="w-20 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                             {row.claimed_by
                               ? (mine ? <Button size="sm" variant="ghost" onClick={() => release(row)}>Release</Button> : null)
+                              : ['resolved', 'not_applicable'].includes(row.state) ? null
                               : <Button size="sm" variant="ghost" onClick={() => claim(row)}><Hand className="h-3.5 w-3.5" />Claim</Button>}
                           </td>
                         </tr>
@@ -365,7 +378,6 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
       )}
 
       {importing && <ImportWizard onClose={() => setImporting(false)} onImported={() => { setImporting(false); refresh(); }} />}
-      {detailId && <WorkItemDetail id={detailId} onClose={() => setDetailId(null)} onChanged={refresh} currencyLabel={cfg.currency_label} />}
 
       <Dialog
         open={saveViewOpen} onOpenChange={setSaveViewOpen} title="Save this view" size="sm"
@@ -378,203 +390,11 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   );
 }
 
-function WorkItemDetail({ id, onClose, onChanged, currencyLabel }: { id: string; onClose: () => void; onChanged: () => void; currencyLabel: string }) {
-  const toast = useToast();
-  const cfg = useMetrics();
-  const { data: identity } = useIdentity();
-  const detail = useQuery({ queryKey: ['work-item', id], queryFn: () => api.workItem(id) });
-  const [note, setNote] = useState('');
-  const [kind, setKind] = useState('worked');
-  const [quantity, setQuantity] = useState('');
-  const [unitLabel, setUnitLabel] = useState('');
-  const [amount, setAmount] = useState('');
-  const [amountType, setAmountType] = useState('');
-  const [draftRecord, setDraftRecord] = useState(true);
-  const [resolve, setResolve] = useState(false);
-  const [busy, setBusy] = useState(false);
-  // One key per open dialog, so a double submit or a retry records the action once.
-  const [actionKey] = useState(() => `${id}-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
-
-  const item = detail.data?.item;
-  const mine = item?.claimed_by === identity?.user.id;
-
-  const submit = async () => {
-    setBusy(true);
-    try {
-      const res = await api.recordWorkAction(id, {
-        kind, note: note || null,
-        occurred_at: todayIso(),
-        quantity: quantity === '' ? null : Number(quantity),
-        unit_label: unitLabel || null,
-        dollar_amount: amount === '' ? null : Number(amount),
-        dollar_type: amount === '' ? null : amountType || null,
-        draft_record: draftRecord, resolve,
-      }, actionKey);
-      toast.success(res.activity_id ? 'Recorded, and added to your own record.' : 'Recorded.');
-      onChanged();
-      onClose();
-    } catch (e) { toast.error(api.errorText(e)); }
-    finally { setBusy(false); }
-  };
-
-  const acknowledge = async () => {
-    try { await api.patchWorkItem(id, { acknowledge_source_change: true, version: item.version }); toast.success('Noted.'); detail.refetch(); onChanged(); }
-    catch (e) { toast.error(api.errorText(e)); }
-  };
-
-  return (
-    <Dialog
-      open onOpenChange={(o) => { if (!o) onClose(); }}
-      title={item ? item.natural_key : 'Work item'}
-      description={item ? item.title : undefined}
-      size="lg"
-      footer={item && mine ? (
-        <>
-          <Button variant="ghost" onClick={onClose}>Close</Button>
-          <Button variant="primary" loading={busy} onClick={submit}><Check className="h-4 w-4" />Record what you did</Button>
-        </>
-      ) : <Button variant="ghost" onClick={onClose}>Close</Button>}
-    >
-      {detail.isPending ? <Skeleton className="h-40" /> : !item ? <EmptyState title="This work item is gone" /> : (
-        <div className="space-y-4">
-          {item.source_changed_at && (
-            <div className="rounded-md border border-warn/40 bg-warn/5 p-3 text-sm">
-              <p className="text-ink">The source spreadsheet changed after you picked this up. Check the values before you record anything.</p>
-              <Button size="sm" className="mt-2" onClick={acknowledge}>I have checked it</Button>
-            </div>
-          )}
-
-          <dl className="grid grid-cols-2 gap-2 text-sm sm:grid-cols-4">
-            {[
-              ['State', STATE_LABEL[item.state] || item.state],
-              ['Due', item.due_date || 'No date'],
-              [currencyLabel, item.amount == null ? '—' : `${formatDollars(item.amount)}${item.amount_type ? ` ${item.amount_type}` : ''}`],
-              ['Held by', item.claimed_by ? (mine ? 'You' : 'Someone else') : 'Nobody'],
-            ].map(([k, v]) => (
-              <div key={String(k)} className="rounded-md border border-line px-3 py-2">
-                <dt className="eyebrow">{k}</dt>
-                <dd className="mt-0.5 font-medium text-ink">{String(v)}</dd>
-              </div>
-            ))}
-          </dl>
-
-          {detail.data.source && (
-            <p className="text-xs text-ink-3">
-              From <span className="font-medium text-ink-2">{detail.data.source.filename}</span>, row {item.source_row}. The original file is kept unchanged.
-            </p>
-          )}
-
-          {Object.keys(item.data || {}).length > 0 && (
-            <details className="rounded-md border border-line">
-              <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-ink">Everything the source said</summary>
-              <dl className="grid grid-cols-1 gap-x-4 gap-y-1 px-3 pb-3 sm:grid-cols-2">
-                {Object.entries(item.data as Record<string, string>).map(([k, v]) => (
-                  <div key={k} className="flex justify-between gap-3 border-b border-line py-1 text-xs">
-                    <dt className="text-ink-3">{k}</dt>
-                    <dd className="truncate text-right text-ink">{v || '—'}</dd>
-                  </div>
-                ))}
-              </dl>
-            </details>
-          )}
-
-          {!mine && (
-            <p className="rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">
-              {item.claimed_by ? 'Someone else is holding this. Ask them before you work it.' : 'Pick this up before recording what you did, so nobody duplicates your work.'}
-            </p>
-          )}
-
-          {mine && (
-            <div className="space-y-3 rounded-md border border-line p-3">
-              <h3 className="text-md font-semibold text-ink">What did you do?</h3>
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field label="Kind">
-                  <Select
-                    value={kind} onValueChange={setKind}
-                    options={['worked', 'contacted', 'escalated', 'corrected', 'reconciled', 'validated', 'resolved', 'noted'].map((k) => ({ value: k, label: k[0].toUpperCase() + k.slice(1) }))}
-                  />
-                </Field>
-                <Field label="How many" hint="Leave blank if this action did not move a countable amount.">
-                  <NumberInput value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="30" />
-                </Field>
-                <Field label="Of what"><Input value={unitLabel} onChange={(e) => setUnitLabel(e.target.value)} placeholder={item.unit_label || 'ULOs'} list="workbench-units" /></Field>
-                <datalist id="workbench-units">{cfg.unit_suggestions.map((u) => <option key={u} value={u} />)}</datalist>
-                <Field label={`${currencyLabel} moved`}><NumberInput value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="1118.38" /></Field>
-                <Field label="Which kind of value" hint="An amount with no type cannot be counted toward anything.">
-                  <Select
-                    value={amountType} onValueChange={setAmountType} disabled={amount === ''}
-                    options={[{ value: '', label: 'Choose a type' }, ...cfg.value_types.map((t) => ({ value: t.key, label: t.summable ? t.label : `${t.label} (tracked separately)` }))]}
-                  />
-                </Field>
-              </div>
-              <Field label="What happened">
-                <Textarea rows={3} value={note} onChange={(e) => setNote(e.target.value)} placeholder="Confirmed the supporting document with the vendor and released the balance." />
-              </Field>
-              <div className="flex flex-wrap gap-4">
-                <label className="flex items-center gap-2 text-sm text-ink">
-                  <input type="checkbox" checked={draftRecord} onChange={(e) => setDraftRecord(e.target.checked)} />
-                  Also add this to my own record
-                </label>
-                <label className="flex items-center gap-2 text-sm text-ink">
-                  <input type="checkbox" checked={resolve} onChange={(e) => setResolve(e.target.checked)} />
-                  This closes it out
-                </label>
-              </div>
-            </div>
-          )}
-
-          <div>
-            <h3 className="mb-2 text-md font-semibold text-ink">Who moved this</h3>
-            {detail.data.contributors.length === 0 ? (
-              <p className="text-sm text-ink-3">Nobody has recorded anything against this yet.</p>
-            ) : (
-              <ul className="space-y-1 text-sm">
-                {detail.data.contributors.map((c: any) => (
-                  <li key={c.user_id} className="flex items-center justify-between gap-3 border-b border-line py-1">
-                    <span className="text-ink">{[c.rank_abbr, c.first_name, c.last_name].filter(Boolean).join(' ')}</span>
-                    <span className="text-xs text-ink-3">{c.actions} {c.actions === 1 ? 'action' : 'actions'}, last <DateText value={c.last_at} /></span>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          <ThreadsForItem itemId={id} />
-
-          {detail.data.actions.length > 0 && (
-            <div>
-              <h3 className="mb-2 text-md font-semibold text-ink">History</h3>
-              <ul className="space-y-2">
-                {detail.data.actions.map((a: any) => (
-                  <li key={a.id} className="rounded-md border border-line px-3 py-2 text-sm">
-                    <span className="flex items-center justify-between gap-2">
-                      <span className="font-medium text-ink">{a.kind[0].toUpperCase() + a.kind.slice(1)} by {[a.rank_abbr, a.first_name, a.last_name].filter(Boolean).join(' ')}</span>
-                      <span className="text-xs text-ink-3"><DateText value={a.occurred_at} /></span>
-                    </span>
-                    {a.note && <span className="mt-1 block text-ink-2">{a.note}</span>}
-                    {(a.quantity != null || a.dollar_amount != null) && (
-                      <span className="fig mt-1 block text-xs text-ink-3">
-                        {a.quantity != null ? `${formatNumber(a.quantity)} ${a.unit_label || ''}` : ''}
-                        {a.dollar_amount != null ? ` ${formatDollars(a.dollar_amount)} ${a.dollar_type || ''}` : ''}
-                      </span>
-                    )}
-                  </li>
-                ))}
-              </ul>
-            </div>
-          )}
-        </div>
-      )}
-    </Dialog>
-  );
-}
-
-
 /**
  * The correspondence about this row. One email can be about a hundred rows, so linking is a link:
  * the message is never copied per row, and never counted per row.
  */
-function ThreadsForItem({ itemId }: { itemId: string }) {
+export function ThreadsForItem({ itemId }: { itemId: string }) {
   const toast = useToast();
   const qc = useQueryClient();
   const linked = useItemThreads(itemId);

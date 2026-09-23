@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Plus, GraduationCap, Award as AwardIcon, MessageSquare, CheckCircle2, Paperclip } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, NumberInput, Stat } from '@/components/ui/primitives';
@@ -14,6 +14,10 @@ import * as api from '@/lib/api';
 import { TRAINING_TYPES, TRAINING_STATUS, AWARD_TYPES, AWARD_STATUS, AWARD_NAMES, COUNSELING_TYPES } from '../../shared/constants';
 import { formatNumber } from '../../shared/metrics';
 import { humanize, todayIso, fullName } from '@/lib/utils';
+import { Skeleton } from '@/components/ui/primitives';
+
+const CareerPlan = lazy(() => import('./CareerPlan'));
+const Readiness = lazy(() => import('./Readiness'));
 
 interface TrainingDraft { id?: string; version?: number; title: string; date: string; type: string; hours: number | string; provider: string; status: string; notes: string; visibility: 'private' | 'unit'; unit_id: string | null }
 interface AwardDraft { id?: string; version?: number; name: string; date: string; type: string; status: string; recommending_official: string; approving_authority: string; citation: string; notes: string; submitted_at: string; approved_at: string; presented_at: string; visibility: 'private' | 'unit'; unit_id: string | null }
@@ -84,7 +88,7 @@ export default function Career() {
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
   const prefs = usePrefs();
-  const [tab, setTab] = useParam('tab', 'training');
+  const [tab, setTab] = useParam('tab', 'plan');
   const [openId, setOpenId] = useParam('open');
   const { data: trainings } = useTrainings();
   const { data: awards } = useAwards();
@@ -111,21 +115,25 @@ export default function Career() {
 
   return (
     <div className="page">
-      <PageHeader eyebrow="Career" title="Training, awards, and counseling" lede="The parts of the record that are not day-to-day work but decide how the year is scored.">
+      <PageHeader eyebrow="Career" title="Career" lede="Where you stand, what you are working toward, and the training, awards, counseling and readiness that back it up.">
         {tab === 'training' && <Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}><Plus className="h-4 w-4" />Log training</Button>}
         {tab === 'awards' && <Button variant="primary" onClick={() => setAward(emptyAward(vis, unit))}><Plus className="h-4 w-4" />Track an award</Button>}
         {tab === 'counseling' && <Button variant="primary" onClick={() => setCounseling(emptyCounseling(vis, unit))}><Plus className="h-4 w-4" />Record counseling</Button>}
       </PageHeader>
-      <div className="mb-4 grid grid-cols-3 gap-3">
-        <Stat label="Training hours" value={formatNumber(hours)} hint={`${(trainings || []).length} entries`} />
-        <Stat label="Awards in progress" value={(awards || []).filter((a: any) => ['recommended', 'submitted', 'approved'].includes(a.status)).length} hint={`${(awards || []).filter((a: any) => a.status === 'presented').length} presented`} />
-        <Stat label="Counselings" value={(counselings || []).length} hint={(counselings || []).some((c: any) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'one awaits your acknowledgement' : 'up to date'} tone={(counselings || []).some((c: any) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'warn' : undefined} />
-      </div>
       <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[
+        { value: 'plan', label: 'Plan and next steps' },
         { value: 'training', label: 'Training', count: (trainings || []).length },
         { value: 'awards', label: 'Awards', count: (awards || []).length },
         { value: 'counseling', label: 'Counseling', count: (counselings || []).length },
+        { value: 'readiness', label: 'Readiness' },
       ]} />
+      {tab === 'plan' && <Suspense fallback={<Skeleton className="h-64" />}><CareerPlan /></Suspense>}
+      {tab === 'readiness' && <Suspense fallback={<Skeleton className="h-64" />}><Readiness embedded /></Suspense>}
+      {['training', 'awards', 'counseling'].includes(tab) && <div className="mb-4 grid grid-cols-3 gap-3">
+        <Stat label="Training hours" value={formatNumber(hours)} hint={`${(trainings || []).length} entries`} />
+        <Stat label="Awards in progress" value={(awards || []).filter((a: any) => ['recommended', 'submitted', 'approved'].includes(a.status)).length} hint={`${(awards || []).filter((a: any) => a.status === 'presented').length} presented`} />
+        <Stat label="Counselings" value={(counselings || []).length} hint={(counselings || []).some((c: any) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'one awaits your acknowledgement' : 'up to date'} tone={(counselings || []).some((c: any) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'warn' : undefined} />
+      </div>}
 
       {tab === 'training' && ((trainings || []).length === 0 ? <div className="card"><EmptyState icon={GraduationCap} title="No training logged" description="PME, MarineNet courses, certifications, college. Hours here feed training-hour goals and the evaluation package." action={<Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}>Log training</Button>} /></div> : (
         <div className="card" style={{ overflow: 'hidden' }}><Table head={<><th className="w-24">Date</th><th>Training</th><th className="w-28">Type</th><th className="w-20 text-right">Hours</th><th className="w-28">Status</th><th className="w-28"></th></>}>

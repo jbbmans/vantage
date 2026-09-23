@@ -30,7 +30,7 @@ test('core pages have no serious accessibility violations in light and dark them
   await loginAs(page, OPERATOR.username);
   for (const theme of ['light', 'dark']) {
     await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
-    for (const path of ['/', '/records', '/reports', '/reports?tab=analysis', '/settings?tab=security', '/team', '/career', '/work?tab=mail', '/work?tab=queue', '/work?tab=tasks', '/operator?tab=usage']) {
+    for (const path of ['/', '/record', '/record?tab=entries', '/record?tab=drafts', '/career?tab=readiness', '/team?tab=workload', '/reports', '/reports?tab=analysis', '/settings?tab=security', '/team', '/career', '/work?tab=mail', '/work?tab=queue', '/work?tab=tasks', '/operator?tab=usage']) {
       await page.goto(path);
       await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
       await expect(page.getByRole('heading', { level: 1 }).first()).toBeVisible();

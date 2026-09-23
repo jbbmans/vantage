@@ -1,14 +1,14 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Plus, Download, Upload, Search, LayoutList, LayoutGrid, Lock, Users, AlertTriangle, RotateCcw } from 'lucide-react';
-import { PageHeader, Panel, Button, Input, Select, Segmented, EmptyState, Badge, Skeleton, Tooltip } from '@/components/ui/primitives';
+import { Panel, Button, Input, Select, Segmented, EmptyState, Badge, Skeleton, Tooltip } from '@/components/ui/primitives';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
 import CsvImportDialog from '@/components/CsvImportDialog';
 import { ActivityFields, emptyActivity, toActivityDraft, activityPayload, type ActivityDraft } from '@/components/ActivityForm';
-import { PeriodSelect, DateText, CategoryDot, useParam, Table } from '@/components/common';
+import { PeriodSelect, DateText, CategoryDot, useParam, Table, PageShell } from '@/components/common';
 import { useActivities, useRecords, useDeleteRecord, useIdentity, usePrefs, useRestoreRecord, useSavePrefs, useTrack, unitName, useOrg, useMetrics } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { categoryNames } from '../../shared/constants';
@@ -20,7 +20,7 @@ import { cn } from '@/lib/utils';
 
 type Sort = 'date' | 'value' | 'strength' | 'updated';
 
-export default function Records() {
+export default function Records({ embedded }: { embedded?: boolean } = {}) {
   const cfg = useMetrics();
   const navigate = useNavigate();
   const toast = useToast();
@@ -95,17 +95,22 @@ export default function Records() {
   ];
 
   return (
-    <div className="page">
-      <PageHeader eyebrow="Records" title="Activities" lede="Every quantified accomplishment, in one place. Filter, fix, and export.">
+    <PageShell
+      embedded={embedded}
+      eyebrow="Record"
+      title={embedded ? 'Activities you recorded' : 'Activities'}
+      lede="Everything you logged yourself, in one place. Filter, fix, and export."
+      actions={<>
         <Button onClick={() => setImportOpen('1')}><Upload className="h-4 w-4" />Import CSV</Button>
         <Button onClick={exportCsv}><Download className="h-4 w-4" />Export CSV</Button>
         <Button variant="primary" onClick={() => setEditing(emptyActivity({ visibility: prefs.defaultVisibility || 'private', unit_id: identity?.primaryUnitId || null }))}><Plus className="h-4 w-4" />New entry</Button>
-      </PageHeader>
+      </>}
+    >
 
       <div className="card mb-3 p-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search records" className="pl-8" placeholder="Title, result, or system…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-          {from && to ? <Badge tone="accent">{from === to ? from : `${from} → ${to}`}<button type="button" className="ml-1 hover:text-ink" onClick={() => navigate('/records')} aria-label="Clear date filter">×</button></Badge> : <PeriodSelect value={period} onChange={(v) => { setPeriod(v); savePrefs.mutate({ reportPeriod: v }); }} className="w-40" />}
+          {from && to ? <Badge tone="accent">{from === to ? from : `${from} → ${to}`}<button type="button" className="ml-1 hover:text-ink" onClick={() => navigate('/record?tab=entries')} aria-label="Clear date filter">×</button></Badge> : <PeriodSelect value={period} onChange={(v) => { setPeriod(v); savePrefs.mutate({ reportPeriod: v }); }} className="w-40" />}
           <Select aria-label="Category" className="w-44" value={category} onValueChange={setCategory} options={[{ value: 'all', label: 'All categories' }, ...categoryNames(cfg).map((c) => ({ value: c, label: c }))]} />
           <Select aria-label={trackMeta(track).areaLabel} className="w-48" value={area} onValueChange={setArea} options={[{ value: 'all', label: `All ${trackMeta(track).areaLabel.toLowerCase()}s` }, ...areaOptions(track)]} />
           <Select aria-label="Quality filter" className="w-52" value={quality} onValueChange={setQuality} options={qualityOptions} />
@@ -180,7 +185,7 @@ export default function Records() {
       <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title="Delete this entry?" body={<>“{confirm?.title}” moves to the recycle bin for 30 days. You can undo right away.</>} onConfirm={() => del(confirm)} />
       <CsvImportDialog open={importOpen === '1'} onOpenChange={(o) => setImportOpen(o ? '1' : '')} />
       <RestoreHint />
-    </div>
+    </PageShell>
   );
 }
 
