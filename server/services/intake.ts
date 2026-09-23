@@ -8,6 +8,8 @@ import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/err
 import { newId, now } from '../lib/ids.ts';
 import { readWorkbook, readDelimited, sniffDelimiter, WorkbookError } from '../lib/workbook.ts';
 import { ZipError } from '../lib/zip.ts';
+import { appendEvent } from './cases.ts';
+import { STATE_TO_STAGE } from '../../shared/caseModel.ts';
 import type { Scanner } from './scanner.ts';
 
 /**
@@ -476,6 +478,7 @@ export function runImport(
                              title, reference, due_date, amount, amount_type, quantity, unit_label, state, data, version, created_at, updated_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`
   );
+  const setStage = ctx.db.prepare('UPDATE work_items SET stage = ? WHERE id = ?');
   const update = ctx.db.prepare(
     `UPDATE work_items
         SET row_hash = ?, source_row = ?, title = ?, reference = ?, due_date = ?, amount = ?, amount_type = ?,
@@ -488,8 +491,11 @@ export function runImport(
   try {
     ctx.db.transaction(() => {
       for (const row of preview.will_insert) {
-        insert.run(newId(), plan.unit_id, user.id, plan.visibility, sourceId, jobId, row.natural_key, row.row_hash, row.source_row,
+        const itemId = newId();
+        insert.run(itemId, plan.unit_id, user.id, plan.visibility, sourceId, jobId, row.natural_key, row.row_hash, row.source_row,
           row.title, row.reference, row.due_date, row.amount, row.amount_type, row.quantity, row.unit_label, row.state, JSON.stringify(row.data), at, at);
+        setStage.run(STATE_TO_STAGE[row.state] || 'not_started', itemId);
+        appendEvent(ctx, { item: { id: itemId, unit_id: plan.unit_id }, actorId: user.id, kind: 'created', body: { origin: 'import', import_job_id: jobId, source_row: row.source_row } });
       }
       for (const row of preview.will_update) {
         // A person's own state and claim survive a reimport. The source describes the work, not who is doing it.

@@ -18,6 +18,9 @@ import { meRouter } from './routes/me.ts';
 import { recordsRouter } from './routes/records.ts';
 import { workRouter } from './routes/work.ts';
 import { correspondenceRouter } from './routes/correspondence.ts';
+import { recordRouter } from './routes/record.ts';
+import { demoRouter, demoGuard } from './routes/demo.ts';
+import { assertDatabaseMatchesMode, purgeExpired } from './services/demo.ts';
 import { record } from './services/telemetry.ts';
 import { pruneEvents } from './services/usage.ts';
 import { pruneSources, reconcileInterruptedJobs } from './services/intake.ts';
@@ -39,6 +42,15 @@ export function createContext(config: AppConfig): AppContext {
   const db = openDatabase(config.databasePath);
   const runtime = loadRuntime(db, config);
   const ctx: AppContext = { db, config, mailer: createMailer(config, db), runtime, saveRuntime: () => metaSet(db, 'runtime', JSON.stringify(runtime)) };
+  // Refuses a demo database in accounts mode and a real database in demo mode, before anything else runs.
+  assertDatabaseMatchesMode(ctx);
+  if (config.accessMode === 'demo') {
+    // A visitor may not stand up units outside their own workspace, or register anybody.
+    runtime.selfServiceUnits = false;
+    runtime.selfRegistration = false;
+    runtime.aiEnabled = false;
+    runtime.maradminsEnabled = false;
+  }
   configureLimits({ mutations: config.limits.mutationsPer15Minutes, registrations: config.limits.registrationsPer15Minutes });
   configureAiLimits({ global: config.ai.requestsPerMinute, perUser: config.ai.perUserRequestsPerMinute });
   // Usernames named in VANTAGE_OPERATOR always hold operator authority.
@@ -68,8 +80,10 @@ export function createApp(ctx: AppContext) {
   const { config } = ctx;
   const app = express();
   const distDir = join(PROJECT_ROOT, 'dist');
-  const tagManagerOrigin = 'https://www.googletagmanager.com';
-  const scriptSrc = ["'self'", tagManagerOrigin, ...inlineScriptHashes(distDir)].join(' ');
+  // Every script, style, font and image is served from this origin. Nothing in the page reaches a
+  // third party: no tag manager, no analytics, no CDN. A restricted network that blocks public egress
+  // loses nothing it needs.
+  const scriptSrc = ["'self'", ...inlineScriptHashes(distDir)].join(' ');
   const build = String(process.env.RENDER_GIT_COMMIT || process.env.VANTAGE_BUILD_ID || VERSION).slice(0, 64);
 
   app.disable('x-powered-by');
@@ -81,7 +95,7 @@ export function createApp(ctx: AppContext) {
   try { aiOrigin = new URL(config.ai.baseUrl).origin; } catch {}
   app.use((req, res, next) => {
     res.setHeader('X-Vantage-Build', build);
-    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob: ${tagManagerOrigin}; font-src 'self'; connect-src 'self' ${aiOrigin} ${tagManagerOrigin}; frame-src ${tagManagerOrigin}; worker-src 'self'; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'`);
+    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ${aiOrigin}; frame-src 'none'; worker-src 'self'; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
@@ -95,7 +109,7 @@ export function createApp(ctx: AppContext) {
   app.get('/api/health', (req, res) => {
     try {
       ctx.db.prepare('SELECT 1').get();
-      res.json({ ok: true, version: VERSION, build, uptime: Math.round(process.uptime()), maintenance: ctx.runtime.maintenance });
+      res.json({ ok: true, version: VERSION, build, uptime: Math.round(process.uptime()), maintenance: ctx.runtime.maintenance, mode: ctx.config.accessMode });
     } catch (error) {
       console.error('Health check failed:', error);
       res.status(503).json({ ok: false, error: 'Database health check failed.' });
@@ -118,11 +132,16 @@ export function createApp(ctx: AppContext) {
   app.use((req, res, next) => (RAW_BODY_PATHS.test(req.path) ? next() : json(req, res, next)));
   app.use(cookieParser());
 
+  // In demo mode, anything that reaches past a visitor's own synthetic workspace is closed.
+  app.use(demoGuard);
+  app.use('/api/demo', demoRouter);
+
   app.get('/api/ranks', (_req, res) => res.json(ctx.db.prepare('SELECT id, grade, abbr, name, tier FROM ranks ORDER BY sort').all()));
   app.use('/api/auth', authRouter);
   app.use('/api/me', meRouter);
   app.use('/api/records', recordsRouter);
   app.use('/api/work', workRouter);
+  app.use('/api/record', recordRouter);
   app.use('/api/correspondence', correspondenceRouter);
   app.use('/api/org', orgRouter);
   app.use('/api/support', supportRouter);
@@ -141,7 +160,7 @@ export function createApp(ctx: AppContext) {
    */
   const routeFamily = (path: string): string => {
     const segment = path.replace(/^\/api\//, '').split('/')[0] || 'other';
-    const known = ['records', 'work', 'correspondence', 'studio', 'metrics', 'reports', 'org', 'auth', 'admin', 'ai'];
+    const known = ['records', 'record', 'work', 'correspondence', 'studio', 'metrics', 'reports', 'org', 'auth', 'admin', 'ai'];
     if (segment === 'imports') return 'imports';
     return known.includes(segment) ? segment : 'other';
   };
@@ -170,8 +189,6 @@ export function createApp(ctx: AppContext) {
     // notification points at. One segment 404s the second form.
     const recordRoute = /^\/(?:records|activities|team)(?:\/[^/]+){0,2}\/?$/;
     const indexHtml = readFileSync(join(distDir, 'index.html'), 'utf8');
-    const tagManagerHead = indexHtml.match(/<!-- Google Tag Manager -->[\s\S]*?<!-- End Google Tag Manager -->/)?.[0] || '';
-    const tagManagerBody = indexHtml.match(/<!-- Google Tag Manager \(noscript\) -->[\s\S]*?<!-- End Google Tag Manager \(noscript\) -->/)?.[0] || '';
     const shell = indexHtml
       .replace(/<meta name="robots"[^>]*>/, '<meta name="robots" content="noindex, nofollow" />')
       .replace(/<link rel="canonical"[^>]*>/, '')
@@ -212,7 +229,7 @@ export function createApp(ctx: AppContext) {
       }
       res.setHeader('X-Robots-Tag', 'noindex, nofollow');
       if (!publicRoutes.has(req.path) && !appRoute.test(req.path) && !recordRoute.test(req.path)) {
-        return res.status(404).type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8">${tagManagerHead}<meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Page not found | VANTAGE</title></head><body>${tagManagerBody}<main><h1>Page not found</h1><p>This address does not exist.</p><a href="/">Return to VANTAGE</a></main></body></html>`);
+        return res.status(404).type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Page not found | VANTAGE</title></head><body><main><h1>Page not found</h1><p>This address does not exist.</p><a href="/">Return to VANTAGE</a></main></body></html>`);
       }
       return res.type('html').send(shell);
     });
@@ -232,6 +249,8 @@ export function startSchedulers(ctx: AppContext) {
   every(24 * 60 * 60_000, () => { try { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); } catch (e) { console.warn(`Event prune failed: ${(e as Error).message}`); } });
   // Uploaded workbooks are evidence for as long as the retention policy says, and no longer.
   every(24 * 60 * 60_000, () => { try { const released = pruneSources(ctx); if (released) console.log(`${now()} released the bytes of ${released} source files past the retention window`); } catch (e) { console.warn(`Source prune failed: ${(e as Error).message}`); } });
+  // Expired demo workspaces are removed whole. A no-op on any instance not in demo mode.
+  if (ctx.config.accessMode === 'demo') every(10 * 60_000, () => { try { const n = purgeExpired(ctx); if (n) console.log(`${now()} removed ${n} expired demo workspaces`); } catch (e) { console.warn(`Demo purge failed: ${(e as Error).message}`); } });
   if (!ctx.config.test) {
     // Registered whether or not the feed is on: syncMaradmins is a no-op while the runtime switch is off, so enabling it later starts refreshes without a restart.
     const run = () => syncMaradmins(ctx).catch((e: Error) => console.warn(`MARADMIN refresh skipped: ${e.message}`));

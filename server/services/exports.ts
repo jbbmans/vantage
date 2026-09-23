@@ -14,7 +14,9 @@ const EXPORT_TABLES = [
   'ranks', 'users', 'readiness', 'units', 'unit_members', 'roles', 'member_roles', 'passkeys', 'recovery_codes',
   ...RECORD_TABLE_NAMES,
   // Work intake: the original workbook, the job that read it, the rows, and what people did to them.
-  'source_files', 'import_jobs', 'work_items', 'work_actions', 'work_views',
+  'source_files', 'import_jobs', 'work_items', 'work_actions', 'work_events', 'work_views',
+  // A person's own drafts and career plan move with the instance too.
+  'record_drafts', 'career_steps', 'career_profiles',
   // Report Studio: a draft and every revision it has been saved as.
   'report_drafts', 'report_revisions',
   // Correspondence: contacts before threads, threads before their messages and links.

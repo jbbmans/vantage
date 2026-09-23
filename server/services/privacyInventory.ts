@@ -47,7 +47,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       rank_id: 'employment', mos: 'employment', eas: 'employment',
       password_hash: 'authentication', totp_secret: 'authentication', totp_enabled: 'authentication',
       is_operator: 'employment', active: 'employment', must_change_password: 'authentication',
-      identity_source: 'employment', identity_synced_at: 'employment',
+      identity_source: 'employment', identity_synced_at: 'employment', demo_workspace_id: 'technical',
       prefs: 'none', digest_last_sent_at: 'technical', last_login_at: 'technical',
       created_at: 'technical', updated_at: 'technical',
     },
@@ -87,6 +87,41 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       acknowledged_at: 'performance', visibility: 'none', frozen_at: 'technical', deleted_at: 'technical',
       created_at: 'technical', updated_at: 'technical', version: 'technical',
     },
+  },
+  work_events: {
+    purpose: 'The attributed history of one piece of work: who claimed, researched, decided, submitted, verified or handed it on, when, and on what reference.',
+    authority: 'Operational work records of the unit that owns the work item. Append-only.',
+    access: 'People who can read the work item. A person keeps seeing the entries they authored.',
+    columns: {
+      id: 'technical', work_item_id: 'technical', unit_id: 'employment', actor_id: 'identifier', kind: 'performance', step: 'performance',
+      subject_id: 'identifier', body: 'performance', supersedes_id: 'technical', correlation_id: 'technical', idempotency_key: 'technical',
+      occurred_at: 'performance', created_at: 'technical',
+    },
+  },
+  record_drafts: {
+    purpose: 'A private accomplishment draft a person prepares from facts they recorded, before deciding whether to use it.',
+    authority: 'Voluntarily prepared by the person about their own work.',
+    access: 'The person only. No leader, reviewer or operator route reads it.',
+    columns: {
+      id: 'technical', user_id: 'identifier', work_item_id: 'technical', title: 'performance', facts: 'performance', wording: 'performance',
+      wording_source: 'technical', activity_id: 'technical', version: 'technical', deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',
+    },
+  },
+  career_steps: {
+    purpose: 'A person’s own development plan: next steps, where the guidance came from, and whether it was checked.',
+    authority: 'Voluntarily recorded by the person.',
+    access: 'The person only.',
+    columns: {
+      id: 'technical', user_id: 'identifier', title: 'employment', category: 'employment', status: 'employment', due_date: 'employment',
+      notes: 'employment', source_label: 'none', source_url: 'none', source_checked_on: 'technical', version: 'technical',
+      deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',
+    },
+  },
+  career_profiles: {
+    purpose: 'A person’s stated military goal and civilian interests, to organise their own next steps.',
+    authority: 'Voluntarily recorded by the person.',
+    access: 'The person only.',
+    columns: { user_id: 'identifier', military_goal: 'employment', civilian_interests: 'employment', updated_at: 'technical' },
   },
   audit_log: {
     purpose: 'Who did what, so access to somebody else’s record can be answered for. Hash-chained so an entry cannot be removed without detection.',

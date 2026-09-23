@@ -88,3 +88,38 @@ test('running the migration twice changes nothing the second time', () => {
     assert.equal(again, after, 'a second boot does not keep widening permissions');
   } finally { cleanup(); }
 });
+
+test('008 gives every work item a stage from its state and carries existing actions and claims into the history', () => {
+  const at = '2026-08-01T12:00:00.000Z';
+  const { path, cleanup } = atVersion(7, (db) => {
+    db.prepare('INSERT INTO units (id, code, name, created_at) VALUES (?, ?, ?, ?)').run('G8', 'G8', 'G-8', at);
+    db.prepare("INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u1', 'avery', 'x', 'Jordan', 'Avery', ?, ?)").run(at, at);
+    // A v7 work_items row has project_id (from 007) but no stage.
+    db.exec('ALTER TABLE work_items ADD COLUMN project_id TEXT REFERENCES projects(id)');
+    const item = db.prepare(`INSERT INTO work_items (id, unit_id, owner_id, natural_key, row_hash, title, state, claimed_by, claimed_at, created_at, updated_at)
+                             VALUES (?, 'G8', 'u1', ?, '', ?, ?, ?, ?, ?, ?)`);
+    item.run('w-open', 'k1', 'Open item', 'open', null, null, at, at);
+    item.run('w-held', 'k2', 'Held item', 'in_progress', 'u1', at, at, at);
+    item.run('w-done', 'k3', 'Done item', 'resolved', null, null, at, at);
+    db.prepare(`INSERT INTO work_actions (id, work_item_id, user_id, unit_id, kind, note, occurred_at, created_at) VALUES ('a1', 'w-done', 'u1', 'G8', 'reconciled', 'Cleared', '2026-07-30', ?)`).run(at);
+  });
+  try {
+    const db = openDatabase(path);
+    const stage = (id: string) => (db.prepare('SELECT stage FROM work_items WHERE id = ?').get(id) as { stage: string }).stage;
+    assert.equal(stage('w-open'), 'not_started');
+    assert.equal(stage('w-held'), 'researching');
+    assert.equal(stage('w-done'), 'resolved');
+    const events = db.prepare('SELECT work_item_id, actor_id, kind FROM work_events ORDER BY kind').all() as Array<{ work_item_id: string; actor_id: string; kind: string }>;
+    assert.deepEqual(events, [
+      { work_item_id: 'w-done', actor_id: 'u1', kind: 'action_recorded' },
+      { work_item_id: 'w-held', actor_id: 'u1', kind: 'claimed' },
+    ], 'a contribution made before the upgrade still counts after it');
+    const users = (db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map((c) => c.name);
+    assert.ok(users.includes('demo_workspace_id'));
+    db.close();
+    // A second boot adds nothing.
+    const again = openDatabase(path);
+    assert.equal((again.prepare('SELECT COUNT(*) AS n FROM work_events').get() as { n: number }).n, 2);
+    again.close();
+  } finally { cleanup(); }
+});

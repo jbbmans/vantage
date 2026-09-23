@@ -1,5 +1,4 @@
 import { test } from 'node:test';
-import { createHash } from 'node:crypto';
 import assert from 'node:assert/strict';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -17,13 +16,13 @@ test('public HTML exposes the product while private and missing routes cannot be
     assert.match(home.text, /"@type":\s*"WebSite"/);
     assert.equal(home.headers.get('x-robots-tag'), null);
     assert.match(home.headers.get('vary') || '', /Cookie/);
-    const gtm = home.text.match(/<script>((?:.|\n)*?GTM-T9N83KTQ(?:.|\n)*?)<\/script>/);
-    assert.ok(gtm, 'GTM bootstrap must be included in the public HTML');
-    assert.match(home.text, /<body>\s*<!-- Google Tag Manager \(noscript\) -->\s*<noscript><iframe src="https:\/\/www.googletagmanager.com\/ns.html\?id=GTM-T9N83KTQ"/);
+    // No tag manager, analytics or advertising script, on any page. The product must run on a
+    // network that blocks public egress, and usage telemetry never leaves the deployment.
+    assert.doesNotMatch(home.text, /googletagmanager|GTM-|google-analytics|gtag\(/);
     const csp = home.headers.get('content-security-policy') || '';
-    assert.ok(csp.includes(`'sha256-${createHash('sha256').update(gtm[1]).digest('base64')}'`), 'CSP must permit the exact GTM bootstrap');
-    assert.match(csp, /script-src[^;]*https:\/\/www.googletagmanager.com/);
-    assert.match(csp, /frame-src https:\/\/www.googletagmanager.com/);
+    assert.doesNotMatch(csp, /googletagmanager/);
+    assert.match(csp, /frame-src 'none'/);
+    assert.match(csp, /script-src 'self'/);
     assert.doesNotMatch(csp, /script-src[^;]*'unsafe-inline'/);
 
     for (const path of ['/login', '/register', '/setup', '/records', '/work', '/team/demo', '/studio']) {
@@ -33,7 +32,7 @@ test('public HTML exposes the product while private and missing routes cannot be
       assert.match(page.text, /<meta name="robots" content="noindex, nofollow"/);
       assert.doesNotMatch(page.text, /<link rel="canonical"/);
       assert.doesNotMatch(page.text, /application\/ld\+json/);
-      assert.match(page.text, /GTM-T9N83KTQ/, 'GTM must be present on app routes too');
+      assert.doesNotMatch(page.text, /googletagmanager|GTM-/, 'no tag manager on app routes');
     }
     for (const path of ['/no-such-page', '/videos/no-such-video.mp4']) {
       const missing = await app.call('GET', path);

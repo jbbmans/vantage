@@ -8,7 +8,7 @@ import type { CacError } from '../../server/auth/cac.ts';
 import type { CacConfig } from '../../server/config.ts';
 
 const fixture = (name: string) => readFileSync(resolve(import.meta.dirname, '../fixtures', name), 'utf8');
-const USER = fixture('cac-user.pem');        // CN BOLETZ.JOHN.B.1234567890, SAN 1234567890@mil
+const USER = fixture('cac-user.pem');        // CN AVERY.JORDAN.Q.1234567890, SAN 1234567890@mil (synthetic)
 const OTHER = fixture('other.pem');          // CN RIVERA.ANA.9998887770
 const EXPIRED = fixture('expired.pem');
 const MISMATCH = fixture('mismatch.pem');    // CN says …1234567890, SAN says 1111111111
@@ -31,7 +31,7 @@ const asProxy = (pem: string, extra: Record<string, string> = {}) => ({
 test('a DoD certificate yields its EDIPI, and the identity never comes from the name', () => {
   const id = identityFromPem(USER, base);
   assert.equal(id.edipi, '1234567890');
-  assert.equal(id.commonName, 'BOLETZ.JOHN.B.1234567890');
+  assert.equal(id.commonName, 'AVERY.JORDAN.Q.1234567890');
   assert.ok(id.policies.includes('2.16.840.1.101.3.2.1.3.13'), 'policy OIDs are read from the DER');
 });
 

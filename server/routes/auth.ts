@@ -45,7 +45,9 @@ function userCount(ctx: AppContext) { return (ctx.db.prepare('SELECT COUNT(*) AS
 authRouter.get('/setup', wrap((req, res) => {
   const ctx = req.ctx;
   res.json({
-    needsSetup: userCount(ctx) === 0,
+    // The synthetic demo has no sign-in and nothing to set up; the client starts a workspace instead.
+    accessMode: ctx.config.accessMode,
+    needsSetup: ctx.config.accessMode === 'demo' ? false : userCount(ctx) === 0,
     requiresSetupToken: ctx.config.production && userCount(ctx) === 0,
     // A card-only instance has no password path, so there is nothing for self-registration to create.
     selfRegistration: ctx.runtime.selfRegistration && !ctx.config.cac.exclusive,

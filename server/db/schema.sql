@@ -944,3 +944,106 @@ CREATE TABLE IF NOT EXISTS support_messages (
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_support_messages_ticket ON support_messages(ticket_id, created_at);
+
+-- Phase B: case history, record, career, demo ------------------------------------------------
+
+-- A disposable synthetic workspace for the click-through demonstration. Only a server started in
+-- demo mode ever writes here, and a production start refuses to run on a database that has rows.
+CREATE TABLE IF NOT EXISTS demo_workspaces (
+  id               TEXT PRIMARY KEY,
+  unit_id          TEXT NOT NULL REFERENCES units(id),
+  persona_user_id  TEXT NOT NULL REFERENCES users(id),
+  leader_user_id   TEXT NOT NULL REFERENCES users(id),
+  created_at       TEXT NOT NULL,
+  last_used_at     TEXT NOT NULL,
+  expires_at       TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_demo_workspaces_expiry ON demo_workspaces(expires_at);
+
+-- What happened to one work item, in order. Append-only: a correction is a new row that names the
+-- row it supersedes. The work item row says where the work stands; these say how it got there and
+-- who moved it, which is what survives a handoff or a stage change.
+CREATE TABLE IF NOT EXISTS work_events (
+  id              TEXT PRIMARY KEY,
+  work_item_id    TEXT NOT NULL REFERENCES work_items(id),
+  unit_id         TEXT REFERENCES units(id),
+  -- NULL only for something the system did on its own (an expired claim), never for a person.
+  actor_id        TEXT REFERENCES users(id),
+  kind            TEXT NOT NULL,
+  step            TEXT,
+  -- the other person an event is about: who work was handed to, who it was assigned to.
+  subject_id      TEXT REFERENCES users(id),
+  -- typed detail, validated per kind before it is written. Money is integer cents.
+  body            TEXT NOT NULL DEFAULT '{}',
+  supersedes_id   TEXT REFERENCES work_events(id),
+  correlation_id  TEXT,
+  idempotency_key TEXT UNIQUE,
+  occurred_at     TEXT NOT NULL,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_work_events_item ON work_events(work_item_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_work_events_actor ON work_events(actor_id, kind, occurred_at);
+CREATE INDEX IF NOT EXISTS idx_work_events_unit ON work_events(unit_id, kind, occurred_at);
+CREATE TRIGGER IF NOT EXISTS work_events_append_only_update
+BEFORE UPDATE ON work_events
+BEGIN
+  SELECT RAISE(ABORT, 'work_events is append-only; record a correction instead');
+END;
+-- Deletion is refused too, except in a database created for the synthetic demo, where whole
+-- disposable workspaces are removed when they expire. A database is marked as a demo database when it
+-- is created and the server refuses to run it any other way, so this cannot open on real records.
+CREATE TRIGGER IF NOT EXISTS work_events_append_only_delete
+BEFORE DELETE ON work_events
+FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1'
+BEGIN
+  SELECT RAISE(ABORT, 'work_events is append-only; record a correction instead');
+END;
+
+-- A private accomplishment draft a Marine prepares from their own recorded work. Owner-only, always:
+-- no leader, reviewer or operator path reads it. Facts are cited to the events they came from and
+-- kept apart from the wording, which the person edits.
+CREATE TABLE IF NOT EXISTS record_drafts (
+  id             TEXT PRIMARY KEY,
+  user_id        TEXT NOT NULL REFERENCES users(id),
+  work_item_id   TEXT REFERENCES work_items(id),
+  title          TEXT NOT NULL,
+  facts          TEXT NOT NULL DEFAULT '[]',
+  wording        TEXT NOT NULL DEFAULT '',
+  -- 'template' (assembled from the facts), 'ai' (a model draft, not accepted), or 'person'.
+  wording_source TEXT NOT NULL DEFAULT 'template' CHECK (wording_source IN ('template', 'ai', 'person')),
+  activity_id    TEXT REFERENCES activities(id),
+  version        INTEGER NOT NULL DEFAULT 1,
+  deleted_at     TEXT,
+  created_at     TEXT NOT NULL,
+  updated_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_record_drafts_user ON record_drafts(user_id, updated_at DESC);
+
+-- A Marine's own development plan: next steps they chose, with where the guidance came from and
+-- whether anybody has checked it. Owner-only; a leader's reach into operational work is not reach
+-- into somebody's career plan.
+CREATE TABLE IF NOT EXISTS career_steps (
+  id              TEXT PRIMARY KEY,
+  user_id         TEXT NOT NULL REFERENCES users(id),
+  title           TEXT NOT NULL,
+  category        TEXT NOT NULL DEFAULT 'military' CHECK (category IN ('pme', 'military', 'certification', 'education', 'skill', 'civilian', 'evaluation')),
+  status          TEXT NOT NULL DEFAULT 'planned' CHECK (status IN ('planned', 'in_progress', 'done', 'dropped')),
+  due_date        TEXT,
+  notes           TEXT,
+  source_label    TEXT,
+  source_url      TEXT,
+  -- when somebody last checked the source said what this step says. NULL means unverified.
+  source_checked_on TEXT,
+  version         INTEGER NOT NULL DEFAULT 1,
+  deleted_at      TEXT,
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_career_steps_user ON career_steps(user_id, status, due_date);
+
+CREATE TABLE IF NOT EXISTS career_profiles (
+  user_id            TEXT PRIMARY KEY REFERENCES users(id),
+  military_goal      TEXT,
+  civilian_interests TEXT,
+  updated_at         TEXT NOT NULL
+);

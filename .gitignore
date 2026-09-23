@@ -12,3 +12,6 @@ data/
 # Scratch directory for the walkthrough recorder; the finished files land in public/videos/.
 .video-work/
 .ssr-build/
+
+# Screenshots and other local QA output. Inspected, never committed.
+artifacts/

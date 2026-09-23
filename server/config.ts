@@ -4,9 +4,29 @@ import { randomBytes } from 'node:crypto';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
+/**
+ * How people reach this instance. Separate modes, never a fallback from one to another:
+ *
+ *   accounts  real, persisted accounts: passwords, passkeys, TOTP, and optionally CAC (CAC_MODE).
+ *             The default. This is the evaluation and operational mode.
+ *   demo      the click-through synthetic demonstration. No sign-in form: each visitor is given a
+ *             disposable workspace of synthetic people and records. Refused in production, refused
+ *             on a database that holds real accounts, and never entered because an auth call failed.
+ */
+export type AccessMode = 'accounts' | 'demo';
+
+export interface DemoConfig {
+  /** How long a visitor's workspace lasts before it is removed. */
+  ttlHours: number;
+  /** How many workspaces may exist at once. The demo says so plainly when it is full. */
+  maxWorkspaces: number;
+}
+
 export interface AppConfig {
   production: boolean;
   test: boolean;
+  accessMode: AccessMode;
+  demo: DemoConfig;
   port: number;
   databasePath: string;
   publicUrl: string;
@@ -150,9 +170,26 @@ export function loadConfig(env = process.env): AppConfig {
     throw new Error('VANTAGE_GENAI_BASE_URL must point at GenAI.mil in production.');
   }
 
+  const accessMode = String(env.VANTAGE_ACCESS_MODE || 'accounts').trim().toLowerCase();
+  if (accessMode !== 'accounts' && accessMode !== 'demo') throw new Error('VANTAGE_ACCESS_MODE must be accounts or demo.');
+  if (accessMode === 'demo') {
+    // The synthetic demo has no sign-in. That is only acceptable where nothing real can be reached,
+    // so every combination that could put it near real people, real mail or a real network is refused.
+    if (production) throw new Error('VANTAGE_ACCESS_MODE=demo is refused when NODE_ENV=production. The synthetic demo runs as its own non-production instance.');
+    if ((env.CAC_MODE || 'off').trim().toLowerCase() !== 'off') throw new Error('The synthetic demo cannot run with CAC sign-in enabled.');
+    if (!['', 'none', 'memory'].includes(String(env.VANTAGE_EMAIL_PROVIDER || '').trim().toLowerCase())) throw new Error('The synthetic demo sends no email. Set VANTAGE_EMAIL_PROVIDER=none.');
+    if (envBool(env, 'VANTAGE_AI_ENABLED', false)) throw new Error('The synthetic demo runs without AI. Set VANTAGE_AI_ENABLED=false.');
+    if (envBool(env, 'VANTAGE_MARADMIN_ENABLED', false)) throw new Error('The synthetic demo makes no outbound requests. Set VANTAGE_MARADMIN_ENABLED=false.');
+  }
+
   return {
     production,
     test,
+    accessMode: accessMode as AccessMode,
+    demo: {
+      ttlHours: Math.min(Math.max(envNumber(env, 'VANTAGE_DEMO_TTL_HOURS', 24), 1), 168),
+      maxWorkspaces: Math.min(Math.max(envNumber(env, 'VANTAGE_DEMO_MAX_WORKSPACES', 200), 1), 5000),
+    },
     port: envNumber(env, 'PORT', 8787),
     databasePath: dbPath === ':memory:' || isAbsolute(dbPath) ? dbPath : resolve(ROOT, dbPath),
     publicUrl,
@@ -210,11 +247,14 @@ export function loadConfig(env = process.env): AppConfig {
       smtpUrl: env.SMTP_URL || '',
     },
     maradmins: {
-      enabled: envBool(env, 'VANTAGE_MARADMIN_ENABLED', !test),
+      // Off unless an operator turns it on: it is the one feature that reaches a public host
+      // (marines.mil), and a restricted network must be able to run Vantage with that egress blocked.
+      enabled: envBool(env, 'VANTAGE_MARADMIN_ENABLED', false),
       refreshMinutes: envNumber(env, 'VANTAGE_MARADMIN_REFRESH_MINUTES', 30),
       source: env.VANTAGE_MARADMIN_SOURCE || 'https://www.marines.mil/DesktopModules/ArticleCS/RSS.ashx?ContentType=6&Site=481&category=14336&max=50',
     },
-    selfRegistration: envBool(env, 'VANTAGE_SELF_REGISTRATION', true),
+    // A demo visitor is handed a synthetic person; nobody registers.
+    selfRegistration: accessMode === 'demo' ? false : envBool(env, 'VANTAGE_SELF_REGISTRATION', true),
     cac: readCacConfig(env, production),
   };
 }

@@ -93,6 +93,12 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   const passkeys = listPasskeys(ctx, userId);
   const sessions = db.prepare('SELECT created_at, last_used_at, method, ip, user_agent FROM sessions WHERE user_id = ? ORDER BY last_used_at DESC').all(userId) as Row[];
 
+  // What this person did on shared work, their private drafts, and their career plan.
+  const contributions = db.prepare('SELECT id, work_item_id, unit_id, kind, step, subject_id, body, supersedes_id, occurred_at, created_at FROM work_events WHERE actor_id = ? ORDER BY created_at').all(userId) as Row[];
+  const drafts = db.prepare('SELECT * FROM record_drafts WHERE user_id = ? ORDER BY created_at').all(userId) as Row[];
+  const careerSteps = db.prepare('SELECT * FROM career_steps WHERE user_id = ? ORDER BY created_at').all(userId) as Row[];
+  const careerProfile = db.prepare('SELECT * FROM career_profiles WHERE user_id = ?').get(userId) as Row | undefined;
+
   const counts = Object.fromEntries(Object.entries(records).map(([t, rows]) => [t, rows.length]));
   return {
     format: 'vantage-personal/1', version: VERSION, exported_at: now(), instance: { display_name: ctx.runtime.displayName, organization: ctx.runtime.organizationName, metrics: ctx.runtime.metrics },
@@ -102,8 +108,9 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
     records,
     attachments: attachmentRows,
     notifications, comments: commentRows, audit_trail: auditTrail, ai_usage: aiUsage, email_log: emails, maradmin_state: maradminState,
+    contributions, drafts, career: { profile: careerProfile || null, steps: careerSteps },
     security: { passkeys, sessions, authenticator_enabled: Boolean(user.totp_enabled) },
-    counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, comments: commentRows.length, audit_trail: auditTrail.length },
+    counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, comments: commentRows.length, audit_trail: auditTrail.length, contributions: contributions.length, drafts: drafts.length, career_steps: careerSteps.length },
     _files: attachmentFiles,
   };
 }
@@ -140,6 +147,9 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string): { buffe
   entries.push({ name: 'audit-trail.csv', data: rowsToCsv(archive.audit_trail.map(flat)) });
   entries.push({ name: 'ai-usage.csv', data: rowsToCsv(archive.ai_usage.map(flat)) });
   entries.push({ name: 'email-log.csv', data: rowsToCsv(archive.email_log.map(flat)) });
+  entries.push({ name: 'contributions.csv', data: rowsToCsv(archive.contributions.map(flat)) });
+  entries.push({ name: 'drafts.csv', data: rowsToCsv(archive.drafts.map(flat)) });
+  entries.push({ name: 'career-steps.csv', data: rowsToCsv(archive.career.steps.map(flat)) });
   for (const f of _files) entries.push({ name: `attachments/${safeName(String(f.record_table))}-${String(f.id).slice(0, 8)}-${safeName(String(f.original_name))}`, data: f.content as Buffer, modified: new Date(String(f.created_at)) });
   return { buffer: buildZip(entries), filename: `vantage-${safeName(String(archive.profile.username))}-${stamp}.zip`, counts: archive.counts };
 }
