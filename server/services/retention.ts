@@ -23,6 +23,7 @@ import { audit } from './audit.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
 import { badRequest } from '../lib/errors.ts';
+import { holdState } from './holds.ts';
 
 export type Disposition = 'destroy' | 'anonymize' | 'review';
 
@@ -79,6 +80,9 @@ const IDENTIFYING: Record<string, string[]> = {
 
 export const RETAINABLE_TYPES = RECORD_TABLE_NAMES.filter((t) => CLOCK[t]);
 
+/** What a record-type hold can name: everything with a schedule, plus the evidence behind imported work. */
+export const HOLDABLE_TYPES = [...RECORD_TABLE_NAMES, 'work_items', 'source_files'] as const;
+
 export function listSchedules(ctx: AppContext): RetentionSchedule[] {
   return ctx.db.prepare('SELECT * FROM retention_schedules ORDER BY record_type').all() as RetentionSchedule[];
 }
@@ -118,6 +122,7 @@ export function placeHold(ctx: AppContext, input: { scope: LegalHold['scope']; s
   if (!input.reason?.trim()) throw badRequest('A hold needs a reason.');
   if (input.scope === 'user' && !input.subject_id) throw badRequest('A user hold needs the person it covers.');
   if (input.scope === 'record_type' && !input.record_type) throw badRequest('A record-type hold needs the record type it covers.');
+  if (input.scope === 'record_type' && !(HOLDABLE_TYPES as readonly string[]).includes(String(input.record_type))) throw badRequest(`A hold cannot name ${input.record_type}: nothing by that name is kept here.`);
   const id = newId(); const at = now();
   ctx.db.prepare(`INSERT INTO legal_holds (id, scope, subject_id, record_type, reason, placed_by, placed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
     .run(id, input.scope, input.subject_id ?? null, input.record_type ?? null, input.reason.trim().slice(0, 1000), actorId, at);
@@ -130,18 +135,6 @@ export function releaseHold(ctx: AppContext, id: string, actorId: string): void 
   if (!hold) throw badRequest('No open hold with that id.');
   ctx.db.prepare('UPDATE legal_holds SET released_by = ?, released_at = ? WHERE id = ?').run(actorId, now(), id);
   audit(ctx, { actor_id: actorId, action: 'legal_hold_released', entity: 'legal_holds', entity_id: id, subject_id: hold.subject_id, detail: hold.reason.slice(0, 200) });
-}
-
-interface HoldState { instance: boolean; types: Set<string>; users: Set<string> }
-
-function holdState(ctx: AppContext): HoldState {
-  const state: HoldState = { instance: false, types: new Set(), users: new Set() };
-  for (const hold of openHolds(ctx)) {
-    if (hold.scope === 'instance') state.instance = true;
-    else if (hold.scope === 'record_type' && hold.record_type) state.types.add(hold.record_type);
-    else if (hold.scope === 'user' && hold.subject_id) state.users.add(hold.subject_id);
-  }
-  return state;
 }
 
 // Disposition ------------------------------------------------------------

@@ -11,11 +11,12 @@ import { useToast } from '@/components/ui/toast';
 import { DateText, PageShell } from '@/components/common';
 import { StageBadge } from '@/components/work';
 import ImportWizard from '@/components/ImportWizard';
-import { useIdentity, useItemThreads, useThreads, invalidateCorrespondence } from '@/lib/queries';
+import { useIdentity, useItemThreads, useThreads, invalidateCorrespondence, invalidateWork } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { formatDollars, formatNumber } from '../../shared/metrics';
 import { cn, useMediaQuery } from '@/lib/utils';
 import { track } from '@/lib/telemetry';
+import { PROCEDURES, PROCEDURE_LIST } from '../../shared/procedures';
 
 /**
  * The workbench: the rows of work a team is holding, arranged so a person can move through them
@@ -50,10 +51,15 @@ const ROW_HEIGHT = 44;
 const WINDOW_OVERSCAN = 8;
 
 interface Query {
-  state: string; active: boolean; claimed: string; q: string; sort: string; direction: 'asc' | 'desc'; unit_id: string; limit: number; offset: number;
+  state: string; active: boolean; claimed: string; q: string; sort: string; direction: 'asc' | 'desc'; unit_id: string; procedure: string; limit: number; offset: number;
 }
 
-const DEFAULT_QUERY: Query = { state: '', active: true, claimed: '', q: '', sort: 'due_date', direction: 'asc', unit_id: '', limit: 200, offset: 0 };
+const DEFAULT_QUERY: Query = { state: '', active: true, claimed: '', q: '', sort: 'due_date', direction: 'asc', unit_id: '', procedure: '', limit: 200, offset: 0 };
+const PROCEDURE_FILTER = [
+  { value: '', label: 'Any procedure' },
+  ...PROCEDURE_LIST.map((p) => ({ value: p.key, label: p.short })),
+  { value: 'none', label: 'No procedure' },
+];
 
 export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const toast = useToast();
@@ -61,7 +67,11 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const { data: identity } = useIdentity();
   const navigate = useNavigate();
   const [searchParams] = useSearchParams();
-  const [query, setQuery] = useState<Query>(() => ({ ...DEFAULT_QUERY, claimed: ['me', 'nobody', 'anyone'].includes(searchParams.get('claimed') || '') ? String(searchParams.get('claimed')) : '' }));
+  const [query, setQuery] = useState<Query>(() => ({
+    ...DEFAULT_QUERY,
+    claimed: ['me', 'nobody', 'anyone'].includes(searchParams.get('claimed') || '') ? String(searchParams.get('claimed')) : '',
+    procedure: PROCEDURE_FILTER.some((o) => o.value && o.value === searchParams.get('procedure')) ? String(searchParams.get('procedure')) : '',
+  }));
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [cursor, setCursor] = useState(0);
@@ -84,7 +94,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
 
   const params = useMemo(() => ({
     state: query.state || undefined, active: query.active && !query.state ? '1' : undefined, claimed: query.claimed || undefined, q: query.q || undefined,
-    unit_id: query.unit_id || undefined, sort: query.sort, direction: query.direction,
+    unit_id: query.unit_id || undefined, procedure: query.procedure || undefined, sort: query.sort, direction: query.direction,
     limit: query.limit, offset: query.offset,
   }), [query]);
 
@@ -93,10 +103,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const rows: any[] = useMemo(() => list.data?.items || [], [list.data]);
   const total: number = list.data?.total ?? 0;
 
-  const refresh = useCallback(() => {
-    qc.invalidateQueries({ queryKey: ['work-items'] });
-    qc.invalidateQueries({ queryKey: ['metrics'] });
-  }, [qc]);
+  const refresh = useCallback(() => invalidateWork(qc), [qc]);
 
   useEffect(() => { setCursor(0); setSelected(new Set()); }, [query]);
 
@@ -131,14 +138,14 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   }, [selected, rows, cursor, toast]);
 
   const claim = useCallback(async (row: any) => {
-    try { await api.claimWorkItem(row.id, row.version); toast.success(`You picked up ${row.reference || row.natural_key}. It is on your assigned list now.`); refresh(); qc.invalidateQueries({ queryKey: ['record-assigned'] }); }
+    try { await api.claimWorkItem(row.id, row.version); toast.success(`You picked up ${row.reference || row.natural_key}. It is on your assigned list now.`); refresh(); }
     catch (e) { toast.error(api.errorText(e)); refresh(); }
-  }, [toast, refresh, qc]);
+  }, [toast, refresh]);
 
   const release = useCallback(async (row: any) => {
-    try { await api.releaseWorkItem(row.id, row.version); toast.success(`${row.reference || row.natural_key} is back in the queue.`); refresh(); qc.invalidateQueries({ queryKey: ['record-assigned'] }); }
+    try { await api.releaseWorkItem(row.id, row.version); toast.success(`${row.reference || row.natural_key} is back in the queue.`); refresh(); }
     catch (e) { toast.error(api.errorText(e)); refresh(); }
-  }, [toast, refresh, qc]);
+  }, [toast, refresh]);
 
   // Keyboard: j/k or arrows move, space selects, Enter opens, c claims, / focuses search.
   useEffect(() => {
@@ -186,8 +193,8 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
 
   const saveCurrentView = async () => {
     try {
-      await api.saveWorkView({ name: viewName, config: { state: query.state, claimed: query.claimed, q: query.q, sort: query.sort, direction: query.direction, unit_id: query.unit_id } });
-      track('work.view_saved', { filters: [query.state, query.claimed, query.q, query.unit_id].filter(Boolean).length });
+      await api.saveWorkView({ name: viewName, config: { state: query.state, claimed: query.claimed, q: query.q, sort: query.sort, direction: query.direction, unit_id: query.unit_id, procedure: query.procedure } });
+      track('work.view_saved', { filters: [query.state, query.claimed, query.q, query.unit_id, query.procedure].filter(Boolean).length });
       toast.success('View saved.');
       setSaveViewOpen(false); setViewName('');
       qc.invalidateQueries({ queryKey: ['work-views'] });
@@ -244,6 +251,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
             onValueChange={(v) => setQuery((q) => ({ ...q, claimed: v, offset: 0 }))}
             options={[{ value: '', label: 'Anyone or nobody' }, { value: 'me', label: 'Held by me' }, { value: 'nobody', label: 'Nobody has it' }, { value: 'anyone', label: 'Someone has it' }]}
           />
+          <Select aria-label="Procedure" className="w-40" value={query.procedure} onValueChange={(v) => setQuery((q) => ({ ...q, procedure: v, offset: 0 }))} options={PROCEDURE_FILTER} />
           {identity && identity.memberships.length > 0 && (
             <Select
               aria-label="Unit" className="w-44" value={query.unit_id}
@@ -269,9 +277,9 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
         <div className="card">
           <EmptyState
             icon={Inbox}
-            title={query.q || query.state || query.claimed ? 'Nothing matches this view' : 'No work has been brought in yet'}
-            description={query.q || query.state || query.claimed ? 'Clear the filters, or widen them.' : 'Import the spreadsheet your team works from. Vantage keeps the original and reads it again on every reimport.'}
-            action={query.q || query.state || query.claimed
+            title={query.q || query.state || query.claimed || query.procedure ? 'Nothing matches this view' : 'No work has been brought in yet'}
+            description={query.q || query.state || query.claimed || query.procedure ? 'Clear the filters, or widen them.' : 'Import the spreadsheet your team works from. Vantage keeps the original and reads it again on every reimport.'}
+            action={query.q || query.state || query.claimed || query.procedure
               ? <Button onClick={() => { setQuery(DEFAULT_QUERY); setSearch(''); }}>Clear the filters</Button>
               : <Button variant="primary" onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import a spreadsheet</Button>}
           />
@@ -342,6 +350,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                           </td>
                           <td className="fig w-36 truncate px-3 text-xs font-semibold text-ink-2">{row.reference || row.natural_key}</td>
                           <td className="truncate px-3 text-ink" title={row.title}>
+                            {row.procedure_key && PROCEDURES[row.procedure_key] && <Badge tone="accent" className="mr-2">{PROCEDURES[row.procedure_key].short}</Badge>}
                             {row.title}
                             {row.source_changed_at && <Badge tone="warn" className="ml-2">Source changed</Badge>}
                           </td>

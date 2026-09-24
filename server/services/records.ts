@@ -22,6 +22,7 @@ import { parse } from '../lib/http.ts';
 import { newId, now } from '../lib/ids.ts';
 import { record } from './telemetry.ts';
 import { audit } from './audit.ts';
+import { heldUsersClause, holdState, recordDispositionRun } from './holds.ts';
 import { notify } from './notifications.ts';
 import { statSync } from 'node:fs';
 
@@ -351,13 +352,33 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
 }
 
 /** Permanently remove records (and their attachments) that have sat in the recycle bin longer than `days`. */
-export function purgeDeleted(ctx: AppContext, days = 30): { records: number; attachments: number; comments: number } {
+export function purgeDeleted(ctx: AppContext, days = 30): { records: number; attachments: number; comments: number; held: number; blocked: boolean } {
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
-  let records = 0; let attachments = 0; let comments = 0;
+  let records = 0; let attachments = 0; let comments = 0; let heldTotal = 0;
+  // The same hold decision scheduled disposition uses, read at the moment of acting (F07).
+  const holds = holdState(ctx);
+  if (holds.instance) {
+    const waiting = RECORD_TABLE_NAMES.reduce((n, t) => n + (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE deleted_at IS NOT NULL AND deleted_at < ?`).get(cutoff) as { n: number }).n, 0);
+    if (waiting) recordDispositionRun(ctx, { actorId: null, recordType: '(recycle bin)', disposition: 'destroy', eligible: waiting, acted: 0, held: waiting, detail: 'recycle-bin purge skipped: an instance-wide legal hold is open' });
+    return { records: 0, attachments: 0, comments: 0, held: waiting, blocked: true };
+  }
+  const users = heldUsersClause(holds);
   ctx.db.transaction(() => {
     for (const table of RECORD_TABLE_NAMES) {
-      const gone = ctx.db.prepare(`SELECT id FROM ${table} WHERE deleted_at IS NOT NULL AND deleted_at < ?`).all(cutoff) as Array<{ id: string }>;
-      if (!gone.length) continue;
+      const past = `deleted_at IS NOT NULL AND deleted_at < ?`;
+      if (holds.types.has(table)) {
+        const held = (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${past}`).get(cutoff) as { n: number }).n;
+        if (held) recordDispositionRun(ctx, { actorId: null, recordType: table, disposition: 'destroy', eligible: 0, acted: 0, held, detail: `recycle-bin purge (${days} days): a hold covers this record type` });
+        heldTotal += held;
+        continue;
+      }
+      const held = users.params.length ? (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${past}${users.onlySql}`).get(cutoff, ...users.params) as { n: number }).n : 0;
+      heldTotal += held;
+      const gone = ctx.db.prepare(`SELECT id FROM ${table} WHERE ${past}${users.sql}`).all(cutoff, ...users.params) as Array<{ id: string }>;
+      if (!gone.length) {
+        if (held) recordDispositionRun(ctx, { actorId: null, recordType: table, disposition: 'destroy', eligible: 0, acted: 0, held, detail: `recycle-bin purge (${days} days): rows of people under hold kept` });
+        continue;
+      }
       for (const { id } of gone) {
         attachments += ctx.db.prepare('DELETE FROM attachments WHERE record_table = ? AND record_id = ?').run(table, id).changes;
         // A conversation cannot outlive the record it hangs on. Leaving it behind would keep the
@@ -372,10 +393,23 @@ export function purgeDeleted(ctx: AppContext, days = 30): { records: number; att
         // time it runs, until somebody clears the row by hand.
         ctx.db.prepare('UPDATE work_items SET project_id = NULL WHERE project_id = ?').run(id);
       }
-      records += ctx.db.prepare(`DELETE FROM ${table} WHERE deleted_at IS NOT NULL AND deleted_at < ?`).run(cutoff).changes;
+      const acted = ctx.db.prepare(`DELETE FROM ${table} WHERE ${past}${users.sql}`).run(cutoff, ...users.params).changes;
+      records += acted;
+      recordDispositionRun(ctx, { actorId: null, recordType: table, disposition: 'destroy', eligible: gone.length, acted, held, detail: `recycle-bin purge: deleted more than ${days} days ago` });
     }
-    attachments += ctx.db.prepare('DELETE FROM attachments WHERE deleted_at IS NOT NULL AND deleted_at < ?').run(cutoff).changes;
+    // Loose attachments deleted on their own. Kept when their record type is held, or when they
+    // belong to, or hang on a record of, somebody under hold.
+    const keep: string[] = [];
+    const keepParams: string[] = [];
+    for (const type of holds.types) { keep.push('record_table = ?'); keepParams.push(type); }
+    if (users.params.length) {
+      const list = users.params.map(() => '?').join(',');
+      keep.push(`uploaded_by IN (${list})`); keepParams.push(...users.params);
+      for (const table of RECORD_TABLE_NAMES) { keep.push(`(record_table = '${table}' AND record_id IN (SELECT id FROM ${table} WHERE user_id IN (${list})))`); keepParams.push(...users.params); }
+    }
+    const guard = keep.length ? ` AND NOT (${keep.join(' OR ')})` : '';
+    attachments += ctx.db.prepare(`DELETE FROM attachments WHERE deleted_at IS NOT NULL AND deleted_at < ?${guard}`).run(cutoff, ...keepParams).changes;
   })();
-  if (records || attachments || comments) audit(ctx, { actor_id: null, action: 'purge_deleted', entity: 'instance', detail: `${records} records, ${attachments} attachments, ${comments} comments older than ${days} days` });
-  return { records, attachments, comments };
+  if (records || attachments || comments) audit(ctx, { actor_id: null, action: 'purge_deleted', entity: 'instance', detail: `${records} records, ${attachments} attachments, ${comments} comments older than ${days} days${heldTotal ? `; ${heldTotal} kept under hold` : ''}` });
+  return { records, attachments, comments, held: heldTotal, blocked: false };
 }

@@ -5,12 +5,7 @@ import App from './App';
 import { queryClient } from './lib/queries';
 import ErrorBoundary from './components/ErrorBoundary';
 import './styles/index.css';
-import './styles/brand-2026.css';
-import './styles/experience-motion.css';
 import './styles/login-premium.css';
-import './styles/public-site.css';
-import './styles/public-showcase.css';
-import './styles/public-site-a11y.css';
 
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

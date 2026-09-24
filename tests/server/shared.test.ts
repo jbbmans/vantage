@@ -93,6 +93,7 @@ test('quick log parser extracts money, quantities, dates, systems', () => {
   assert.equal(p.date.getDate(), 2);
   assert.deepEqual(Q.primaryQuantity(p.quantities), { quantity: 30, unit: 'ULOs' });
   assert.ok(!p.title.includes('yesterday'));
+  assert.ok(p.inferred.includes('30 ULOs'), 'the chip says what was read, not how many things were');
   const k = Q.parseQuickLog('Saved $2.5k across 4 contracts');
   assert.equal(k.dollar_amount, 2500);
   assert.equal(k.dollar_type, 'saved');

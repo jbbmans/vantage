@@ -1,0 +1,45 @@
+/**
+ * The one answer to "may this be destroyed right now?", shared by every path that destroys records.
+ *
+ * Scheduled disposition, the recycle-bin purge and the release of uploaded source bytes used to
+ * decide this separately, and only the first one asked about legal holds. A hold cannot depend on
+ * which deletion path happens to run (F07), so each of them now reads the same hold state, at the
+ * moment it acts, and writes the same kind of disposition evidence afterwards.
+ *
+ * Kept free of other service imports so any of them can use it without an import cycle.
+ */
+import type { AppContext } from '../context.ts';
+import { newId, now } from '../lib/ids.ts';
+
+export interface HoldState { instance: boolean; types: Set<string>; users: Set<string> }
+
+/** Open holds, read now. Callers act inside the same synchronous stretch, so a hold cannot slip between. */
+export function holdState(ctx: AppContext): HoldState {
+  const state: HoldState = { instance: false, types: new Set(), users: new Set() };
+  const rows = ctx.db.prepare('SELECT scope, subject_id, record_type FROM legal_holds WHERE released_at IS NULL').all() as Array<{ scope: string; subject_id: string | null; record_type: string | null }>;
+  for (const hold of rows) {
+    if (hold.scope === 'instance') state.instance = true;
+    else if (hold.scope === 'record_type' && hold.record_type) state.types.add(hold.record_type);
+    else if (hold.scope === 'user' && hold.subject_id) state.users.add(hold.subject_id);
+  }
+  return state;
+}
+
+/**
+ * The SQL that keeps held people's rows out of a destructive statement, and the rows it kept out.
+ * Exclusion happens in the statement itself rather than as a filter afterwards, so there is no
+ * window in which a held row could be acted on.
+ */
+export function heldUsersClause(holds: HoldState, column = 'user_id'): { sql: string; params: string[]; onlySql: string } {
+  const users = [...holds.users];
+  if (!users.length) return { sql: '', params: [], onlySql: ' AND 0' };
+  const list = users.map(() => '?').join(',');
+  return { sql: ` AND (${column} IS NULL OR ${column} NOT IN (${list}))`, params: users, onlySql: ` AND ${column} IN (${list})` };
+}
+
+/** Disposition evidence: what a destructive path found, held back and did. Written for every path. */
+export function recordDispositionRun(ctx: AppContext, run: { actorId: string | null; recordType: string; disposition: string; eligible: number; acted: number; held: number; detail: string; dryRun?: boolean }) {
+  ctx.db.prepare(
+    `INSERT INTO disposition_runs (id, actor_id, dry_run, record_type, disposition, eligible, acted, held, detail, at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
+  ).run(newId(), run.actorId, run.dryRun ? 1 : 0, run.recordType, run.disposition, run.eligible, run.acted, run.held, run.detail.slice(0, 500), now());
+}

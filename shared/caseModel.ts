@@ -100,7 +100,7 @@ export type EntryKind = (typeof ENTRY_KINDS)[number];
 export const SYSTEM_KINDS = [
   'created', 'claimed', 'released', 'handed_off', 'assigned', 'claim_expired',
   'stage_changed', 'waiting_started', 'waiting_ended', 'calculation', 'resolved', 'reopened',
-  'action_recorded', 'procedure_applied',
+  'action_recorded', 'procedure_applied', 'source_revised',
 ] as const;
 export type SystemKind = (typeof SYSTEM_KINDS)[number];
 export type EventKind = EntryKind | SystemKind;
@@ -115,6 +115,7 @@ export const EVENT_LABEL: Record<EventKind, string> = {
   created: 'Created', claimed: 'Claimed', released: 'Released', handed_off: 'Handed off', assigned: 'Assigned',
   claim_expired: 'Claim expired', stage_changed: 'Stage changed', waiting_started: 'Waiting started', waiting_ended: 'Waiting ended',
   calculation: 'Calculation', resolved: 'Resolved', reopened: 'Reopened', action_recorded: 'Action recorded', procedure_applied: 'Procedure applied',
+  source_revised: 'Source revised',
 };
 
 const text = (max: number) => z.string().trim().max(max, `Keep it under ${max} characters.`);
@@ -142,6 +143,11 @@ export const entrySchema = z.discriminatedUnion('kind', [
     /** Money as typed. Parsed to cents on the server; never stored as a float. */
     amount: z.union([z.string().max(40), z.number()]).nullish(),
     value_text: optional(500),
+    /**
+     * The source shows no amount for this figure. A dash on a report is not a zero in the database,
+     * so "not shown" is its own recorded fact rather than an empty amount.
+     */
+    not_shown: z.boolean().nullish(),
     system: optional(60),
     reference: optional(160),
     observed_on: isoDate.nullish(),
@@ -230,6 +236,8 @@ export function describeEvent(kind: string, body: Record<string, unknown>): stri
     case 'waiting_started': return `Waiting on ${String(b.category || '').replace(/_/g, ' ')}`;
     case 'waiting_ended': return `Stopped waiting on ${String(b.category || '').replace(/_/g, ' ')}`;
     case 'stage_changed': return `Moved to ${STAGE_LABEL[b.to as Stage] || b.to}`;
+    case 'source_revised': return `The source changed: ${Array.isArray(b.changes) ? b.changes.map((c: { field: string }) => humanKey(c.field).toLowerCase()).join(', ') : 'values'}`;
+    case 'procedure_applied': return b.from_version ? `Moved to procedure version ${b.version} from ${b.from_version}` : `Procedure ${b.procedure} v${b.version} applied`;
     default: return b.text ? String(b.text) : EVENT_LABEL[kind as EventKind] || kind;
   }
 }

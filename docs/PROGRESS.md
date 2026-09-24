@@ -1,102 +1,104 @@
 # Progress
 
-_Updated 2026-09-23 · branch `claude/vantage-restore-enterprise-llq8d8` · base `main` @ `ac51ce9`_
+_Updated 2026-09-24 · branch `claude/vantage-redesign-overhaul-src4wq` · base `main` @ `dd76293`_
 
-## Phase
+## What this branch did
 
-- **A (recover and plan):** done.
-- **B (prove the experience):** built and tested on the real application. It now waits on the owner's
-  review of the running screens.
-- **C onward:** not started.
+**The FMRA knowledge, in the product.** The FMRAC reference (the 3451 Financial Management Resource
+Analyst course material) is encoded as a typed, cited knowledge base in `shared/fmra/`: the four
+lifecycle phases, the seven purchase methods with their supporting documents, the normal conditions
+(OCMT, UDOU, DOU, OTO) and their causes, abnormal conditions (feeder rejects, interface errors, invoice
+holds, UMTs and their error classes), roles and separation of duties, the data elements, the glossary,
+the discrepancies found in the source, and the answer format and "never" rules. Every statement is
+cited and labelled source, editorial or discrepancy. It powers:
 
-## What changed, in product terms
+- **Reference** (a new destination): the desk reference, searchable from ⌘K, and a balance diagnoser
+  that opens a case with the figures already recorded.
+- **Eight FMRA procedures** alongside the 2-Way UMT (now v0.2.0 with the NON-1081 match step), on a
+  generalized procedure engine: pinned versions with explicit, attributed migration; conditional
+  branches; evidence gates shown before they refuse; not-shown figures; stale calculations; resolution
+  only on a verified outcome.
+- **The case page**, rebuilt around that engine: a lifecycle reading with the method's supporting
+  documents, the procedure checklist, the current step's form, corrections that keep the original, the
+  history's seal status, and (where AI is enabled) a case brief in the reference's answer order.
+- **Imports** that apply a procedure (one, or chosen per row from the figures) and map the lifecycle
+  columns; a queue filter and chip by procedure; Today's count of open work by procedure.
+- **Tamper evidence**: every case history is sealed in a per-case HMAC chain with a signed head, and the
+  day's heads are anchored in the audit chain. The Owner console's integrity check covers both.
 
-- **The synthetic demo opens straight onto Today.** There is no sign-in form. One banner names the
-  synthetic persona and how long changes last. The visitor can view as the Marine or as the section
-  lead, or start over.
-- **Navigation is Today · Work · Record · Goals · Career**, with Team for leaders. Nothing was removed:
-  Readiness is under Career and activities are under Record, and old links still work.
-- **Today** shows your work with its next step, what is waiting on someone else, what is open to claim,
-  what changed, quick capture, and your goals and next career step. A leader's Today puts unassigned,
-  overdue, blocked and waiting work first, with who holds what.
-- **Work** shows document numbers, stages and holders by name, and defaults to open work. Each item has
-  its own page: the procedure checklist, a form for the current step, the candidate calculation with
-  every input cited, any kind of entry, an append-only history, and who worked it.
-- **2-Way UMT:** research, a candidate calculation in exact cents (the reference case gives +$2,775.00),
-  an explicit decision with its reason, and separate prepared, submitted, approved and posted
-  facts. A failed or missing funds check blocks submission. Resolution waits on verifying that the
-  condition cleared.
-- **Record** keeps three things apart: what you hold (not credit), what you contributed (from the work's
-  own history; one document counts once), and what you logged yourself. It also holds private drafts
-  built only from your own cited facts.
-- **Career** now has a plan and next steps. Each step says where its guidance came from, and is marked
-  "Not verified" until someone checks it.
-- **Team → Workload** shows section and per-person counts beside definitions and stated limits.
-- **Removed:** Google Tag Manager, and keystroke-derived "active editing" timing. The MARADMIN feed is
-  now off by default, so nothing leaves the server.
+**The interface, rebuilt on one design system.** Geist type, navy-tinted depth tokens, a navy rail,
+spring motion, restyled primitives, dialogs, toasts, menus and command palette (six overlapping
+stylesheets folded into one). A new public landing page and a split sign-in page. An update banner when
+a newer build is published. See `docs/design/DESIGN_SYSTEM.md`.
 
-## Verification (this branch, 2026-09-23)
+**All sixteen recorded defects (F01–F16) closed**, each with a test:
+
+| | Defect | Now |
+|---|---|---|
+| F01 | Legacy resolution bypassed the verification gate | Every path that resolves a procedure case answers to its resolution condition |
+| F06 | Correcting an input left the old calculation standing | A calculation is marked stale, with the reason, once an input is corrected or re-read |
+| F12 | Append-only history was not tamper evidence | Per-case HMAC chain with signed heads, anchored daily in the audit chain |
+| F13 | The stored procedure version did not select the definition run | A case runs the version it is pinned to; moving it is explicit and attributed |
+| F14 | Reimported source changes did not reach the case history | A `source_revised` event records what changed; seeded values are superseded, research is untouched |
+| F16 | The service worker's version was maintained by hand | The build stamps its own hash into the worker and `/api/health` |
+| F02 | Leaving a unit left claimed-work access | Access to shared work follows current membership only; leaving releases held work, with the reason in each case's history |
+| F03 | Private case activity in shared totals | Every unit total and member breakdown counts only live, unit-visible work of that unit |
+| F04 | Corrected verifications still counted | A verified outcome counts only while it stands and is not overtaken; verification actions are counted separately |
+| F05 | A claim alone could become an accomplishment | A draft needs substantive facts; an empty draft cannot be saved |
+| F07 | Automatic cleanup bypassed legal holds | The recycle-bin purge and source pruning read the same holds and write disposition evidence |
+| F08 | Mailbox sign-in stopped before a token | OAuth code flow with PKCE per national cloud, bound to the person and the mailbox, read-only enforced, tokens encrypted and renewed, failures visible, and an honest notice when unconfigured |
+| F09 | Case facts did not feed metrics | A saved draft links its case, cites each fact, counts once, and credits money only for a resolved outcome the person verified |
+| F10 | Mutations left views stale | One invalidation map by kind of change |
+| F11 | Failures looked like emptiness or denial | Offline, signed out, denied, missing and server errors are told apart, with retry |
+| F15 | A red commit could deploy | `autoDeployTrigger: checksPass`, and the browser suite passes |
+
+**The films, made in code** (`film/`, `npm run film`). A 90-second hero film for the public page and
+six narrated chapters for the field guide (Quick Log, working a case, reading a balance, the Record,
+Report Studio, leading a section), recorded on the real application in the synthetic demo. One script
+drives the narration (ElevenLabs, cached), the timing, the captions, the capture (Playwright on a
+virtual clock, synced to the narrator's words), the picture (Remotion) and an original synthesised
+score, mixed to −14 LUFS. A film is published to the landing page and field guide only when all its
+narration is recorded voice. Making them surfaced and fixed four product defects: the case history's
+doubled verbs, a doubled full stop in the figures' reading, "1 quantity" where Quick Log had read "30
+ULOs", and a case opened from the diagnoser that its opener did not hold.
+
+**Hardening.** CORP, Origin-Agent-Cluster and related headers; `upgrade-insecure-requests` in
+production; null-prototype registries for anything looked up by a request's key; every table declared
+in the privacy inventory; the financial answering rules on every AI prompt.
+
+## Verification (2026-09-24)
 
 | Check | Result |
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test`: server suite, in-memory SQLite | **363 / 363 pass**. Includes new `cases`, `record` and `demo` suites and the 008 migration test |
-| `npm run test:browser`: Playwright, Chromium, built client | **63 pass, 4 fail**. All 4 failures are the public-site checks below, and they fail identically on untouched `main` |
-| Flagship journey, demo mode, real server | Automated in `tests/browser/22-demo.spec.ts`: claim, research, calculate, decide, hand off, both contributors, private draft, quick capture, goal update, career step, leader workload |
-| Accessibility | axe finds no serious or critical violations in either theme on Today, Work, the item page, Record, Contributions, Career, Goals and Team → Workload, plus the existing page set |
-| Viewports | No sideways scrolling at 1440×900, 1280×800, 768×1024 and 390×844 on Today, Work, the item page, Record and Career (automated). Screens were captured and inspected at all four sizes in light, and at 1440 in dark |
+| `npm test` (server suite, in-memory SQLite) | **411 / 411 pass** |
+| `npm run test:browser` (Playwright, Chromium, built client) | **67 / 67 pass**, including the four public-site checks that failed on `main` |
+| Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference and the public page |
+| `npm audit` | 0 vulnerabilities |
 
-### Failing and incomplete checks
+### Not verified
 
-- **Pre-existing on `main`, not caused here:** `20-public-site` ("is fully visible before anybody
-  scrolls", "carries its substance in the first render", "every walkthrough offered … actually plays")
-  and `06-a11y` "public display page". They expect a "See the work" section and walkthrough videos that
-  the owner unpublished in `91566f1`/`ac51ce9`. Left for the owner to decide: restore the section, or
-  update the tests to the new public page.
-- **Not verified:**
-  - PostgreSQL. Not implemented (ADR-0003); nothing here claims PostgreSQL behavior.
-  - Windows Server.
-  - A real CAC.
-  - An MCEN or restricted-network host.
-  - Backup and restore drills.
-  - Clean install from an offline dependency bundle.
-  - Keyboard-only walkthrough of the new item page beyond axe and label checks.
-- **Not done:**
-  - An observed usability check with someone new to Vantage (contract §29).
-  - Field guide text for the new navigation.
+- A live Microsoft tenant. The mailbox flow is tested end to end against a local stand-in for Microsoft;
+  a real Entra registration in GCC High or DoD has not been exercised.
+- The FMRA procedures against a current SOP or an SME. They are labelled "formal training reference,
+  not verified against current policy", and screen paths are left undocumented until confirmed.
+- PostgreSQL, Windows Server, a real CAC, a restricted-network host, backup and restore drills.
 
-## Blockers
+## Owner decisions
 
-None blocks continued work. Two decisions are the owner's:
-
-1. **Confirm the reference product.** This work treats `jbbmans/vantage` `main` (Vantage 5.0.0) as the
-   "old Vantage" (PD-001). If a different commit, repository (`vantage-main`?) or set of screenshots
-   is the one the owner prefers, the parity check is re-run against it.
-2. **Review the new screens.** The visual identity is unchanged; the hierarchy on each screen is new.
-   It is not treated as approved until the owner has seen it.
-
-## Owner feedback needed (specific)
-
-1. Should Today put the leader's section block above the leader's own work, as it does now, or below?
-2. Is "Taskers and projects" the right name for the Work tab that holds projects, or does the shop say
-   something else?
-3. The 2-Way UMT page shows one step's form at a time, with the whole checklist on the right. Is that
-   the right balance for an experienced analyst, or should all remaining fields be on one form?
-4. In the Record, is "Documents researched / Research entries / Submitted / Verified outcomes /
-   Resolved" the right set of measures, with the right names?
-5. Keep the demo's 24-hour workspace lifetime, or shorten it for a public host?
-
-## Open questions
-
-- Financial: `docs/domain/SME_QUESTIONS.md` (Q-01 … Q-15).
-- Infrastructure: `docs/engineering/INFRASTRUCTURE_QUESTIONS.md` (I-01 … I-12).
+1. The FMRAC reference content is committed to this public repository at the owner's instruction,
+   although the source is marked for the DoD community. The public landing page describes the FMRA
+   features at feature level only; the reference itself is inside the signed-in application.
+2. The old walkthrough recordings stay unpublished (`91566f1`). They are replaced by the films above,
+   which publish only once narrated; until then the landing page shows no player, and its test checks
+   that no empty player is shown (and, once published, that every film loads).
 
 ## Next actions
 
-1. Walk through the demo with the owner (`docs/demo/BOARD_DEMO.md`) and adjust from their answers above.
-2. Run an observed usability check with a Marine new to Vantage, and fix what confuses them.
-3. Phase C: the data-access port and PostgreSQL adapter (ADR-0003, stages 1–4). A reviewer role.
-4. Phase D: a versioned UMT import recipe that applies the procedure at import; batch assignment;
-   load test with 500–1,000 rows.
-5. Update the Field guide once the navigation is accepted.
+1. Walk an FMRA through the diagnoser and one procedure of each family, and correct the step wording
+   and screen paths from what they say.
+2. Register a Microsoft Entra application in the target cloud and run one real mailbox sign-in.
+3. Add `ELEVENLABS_API_KEY` to the environment's settings, then run `npm run film` to voice, render
+   and publish the films (film/README.md). Drafts with music and estimated timing render without it.
+4. Protect `main` in GitHub with the three CI checks required (see `docs/deploy-render.md`).

@@ -307,6 +307,9 @@ export const listConnectors = () => api.get('/correspondence/connectors');
 export const createConnector = (body: Record<string, unknown>) => api.post('/correspondence/connectors', body);
 export const connectorAuthorization = (id: string) => api.get(`/correspondence/connectors/${encodeURIComponent(id)}/authorization`);
 export const deleteConnector = (id: string) => request('DELETE', `/correspondence/connectors/${encodeURIComponent(id)}`);
+export const authorizeConnector = (id: string) => api.post(`/correspondence/connectors/${encodeURIComponent(id)}/authorize`, {});
+export const disconnectConnector = (id: string) => api.post(`/correspondence/connectors/${encodeURIComponent(id)}/disconnect`, {});
+export const syncConnector = (id: string, body: Record<string, unknown> = {}) => api.post(`/correspondence/connectors/${encodeURIComponent(id)}/sync`, body);
 
 // Product events -------------------------------------------------------
 /** Fire-and-forget. keepalive lets a batch finish after the page is gone. */
@@ -322,8 +325,10 @@ export const recordEntry = (id: string, body: Record<string, unknown>, idempoten
   request('POST', `${itemPath(id)}/entries`, body, { headers: { 'idempotency-key': idempotencyKey } });
 export const changeStage = (id: string, body: Record<string, unknown>) => api.post(`${itemPath(id)}/stage`, body);
 export const handOffWork = (id: string, body: Record<string, unknown>) => api.post(`${itemPath(id)}/handoff`, body);
-export const calculateCase = (id: string) => api.post(`${itemPath(id)}/calculate`);
+export const calculateCase = (id: string, step?: string | null) => api.post(`${itemPath(id)}/calculate`, step ? { step } : {});
 export const applyProcedure = (id: string, key: string) => api.post(`${itemPath(id)}/procedure`, { key });
+export const procedureSuggestion = (id: string) => api.get(`${itemPath(id)}/suggestion`);
+export const listProcedures = () => api.get('/work/procedures');
 export const workload = (unitId: string, params: Record<string, string | undefined> = {}) => api.get(`/work/workload?${qs({ unit_id: unitId, ...params })}`);
 
 // The Record and Career ---------------------------------------------------------------------

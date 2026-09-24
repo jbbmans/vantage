@@ -54,7 +54,7 @@ export const EVENTS: Record<string, EventSpec> = {
   // because a form the person closed never reached the server at all. Nothing is raised twice.
   // Adoption ----------------------------------------------------------
   'session.started': { family: 'adoption', properties: { returning: bool, days_since_last: num } },
-  'surface.viewed': { family: 'adoption', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help') } },
+  'surface.viewed': { family: 'adoption', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help', 'reference', 'diagnose') } },
 
   // The capture funnel, and where it is abandoned ----------------------
   'capture.opened': { family: 'capture', properties: { surface: oneOf('quick_log', 'record_form', 'work_action', 'thread_message') } },
@@ -115,13 +115,13 @@ export const EVENTS: Record<string, EventSpec> = {
   'report.exported': { serverOnly: true, family: 'report', properties: { revision: num, format: oneOf('txt', 'pdf', 'csv') } },
 
   // AI --------------------------------------------------------------------
-  'ai.requested': { family: 'ai', properties: { workflow: oneOf('quick_log', 'writing', 'personal_review', 'record_quality', 'goal_draft', 'award_citation', 'counseling_prep', 'command_brief', 'maradmin_summary', 'report_narrative'), surface: oneOf('dashboard', 'records', 'record_detail', 'goals', 'career', 'team', 'studio', 'maradmins', 'reports', 'correspondence', 'quick_log') } },
-  'ai.answered': { family: 'ai', serverOnly: true, properties: { workflow: oneOf('quick_log', 'writing', 'personal_review', 'record_quality', 'goal_draft', 'award_citation', 'counseling_prep', 'command_brief', 'maradmin_summary', 'report_narrative'), tokens: num, ms: num, failed: bool, reason: oneOf('ok', 'unreachable', 'rejected', 'budget', 'invalid_output', 'disabled') } },
-  'ai.accepted': { family: 'ai', properties: { workflow: oneOf('quick_log', 'writing', 'personal_review', 'record_quality', 'goal_draft', 'award_citation', 'counseling_prep', 'command_brief', 'maradmin_summary', 'report_narrative'), edited: bool } },
+  'ai.requested': { family: 'ai', properties: { workflow: oneOf('quick_log', 'writing', 'personal_review', 'record_quality', 'goal_draft', 'award_citation', 'counseling_prep', 'command_brief', 'maradmin_summary', 'report_narrative', 'case_brief'), surface: oneOf('dashboard', 'records', 'record_detail', 'goals', 'career', 'team', 'studio', 'maradmins', 'reports', 'correspondence', 'quick_log', 'case') } },
+  'ai.answered': { family: 'ai', serverOnly: true, properties: { workflow: oneOf('quick_log', 'writing', 'personal_review', 'record_quality', 'goal_draft', 'award_citation', 'counseling_prep', 'command_brief', 'maradmin_summary', 'report_narrative', 'case_brief'), tokens: num, ms: num, failed: bool, reason: oneOf('ok', 'unreachable', 'rejected', 'budget', 'invalid_output', 'disabled') } },
+  'ai.accepted': { family: 'ai', properties: { workflow: oneOf('quick_log', 'writing', 'personal_review', 'record_quality', 'goal_draft', 'award_citation', 'counseling_prep', 'command_brief', 'maradmin_summary', 'report_narrative', 'case_brief'), edited: bool } },
 
   // Reliability -------------------------------------------------------------
   'reliability.request_failed': { family: 'reliability', serverOnly: true, properties: { status: num, ms: num, route: oneOf('records', 'work', 'imports', 'correspondence', 'studio', 'metrics', 'reports', 'org', 'auth', 'admin', 'ai', 'other') } },
-  'reliability.client_error': { family: 'reliability', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help'), recovered: bool } },
+  'reliability.client_error': { family: 'reliability', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help', 'reference', 'diagnose'), recovered: bool } },
   'reliability.offline_queue': { family: 'reliability', properties: { queued: num, replayed: num, failed: num } },
 
   // Security ------------------------------------------------------------------

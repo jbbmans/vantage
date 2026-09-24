@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppConfig } from './config.ts';
 import { PROJECT_ROOT } from './config.ts';
-import { openDatabase, metaSet } from './db/index.ts';
+import { openDatabase, metaSet, metaGet } from './db/index.ts';
 import type { AppContext } from './context.ts';
 import { createMailer } from './services/email.ts';
 import { attachContext } from './auth/middleware.ts';
@@ -35,6 +35,7 @@ import { runDigestTick } from './services/digest.ts';
 import { now } from './lib/ids.ts';
 import { purgeDeleted } from './services/records.ts';
 import { releaseStaleClaims } from './services/work.ts';
+import { sealBacklog, anchorCaseHeads } from './services/caseSeal.ts';
 import { loadRuntime } from './runtime.ts';
 export { loadRuntime };
 
@@ -62,6 +63,14 @@ export function createContext(config: AppConfig): AppContext {
   // left pending forever. Its apply ran in one transaction, so nothing is half-written.
   const interrupted = reconcileInterruptedJobs(ctx);
   if (interrupted) console.warn(`Marked ${interrupted} interrupted import job(s) as failed.`);
+  // Case histories written before sealing existed are sealed once, on the first boot of a build
+  // that seals. After that, a history with no chain is reported as unsealed rather than quietly
+  // sealed, so dropping a case's seals cannot be laundered by a restart.
+  if (!metaGet(db, 'case_seals_backfilled')) {
+    const sealed = sealBacklog(ctx);
+    metaSet(db, 'case_seals_backfilled', now());
+    if (sealed) console.log(`Sealed ${sealed} existing case-history entries.`);
+  }
   return ctx;
 }
 
@@ -84,7 +93,10 @@ export function createApp(ctx: AppContext) {
   // third party: no tag manager, no analytics, no CDN. A restricted network that blocks public egress
   // loses nothing it needs.
   const scriptSrc = ["'self'", ...inlineScriptHashes(distDir)].join(' ');
-  const build = String(process.env.RENDER_GIT_COMMIT || process.env.VANTAGE_BUILD_ID || VERSION).slice(0, 64);
+  // The client build this server is serving: the same hash the build stamps into sw.js, so an open
+  // tab can tell a new release from the one it loaded. A deploy-provided commit id is reported too.
+  const clientBuild = existsSync(join(distDir, 'index.html')) ? createHash('sha256').update(readFileSync(join(distDir, 'index.html'))).digest('hex').slice(0, 16) : null;
+  const build = String(process.env.RENDER_GIT_COMMIT || process.env.VANTAGE_BUILD_ID || clientBuild || VERSION).slice(0, 64);
 
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
@@ -95,12 +107,17 @@ export function createApp(ctx: AppContext) {
   try { aiOrigin = new URL(config.ai.baseUrl).origin; } catch {}
   app.use((req, res, next) => {
     res.setHeader('X-Vantage-Build', build);
-    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ${aiOrigin}; frame-src 'none'; worker-src 'self'; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'`);
+    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ${aiOrigin}; frame-src 'none'; worker-src 'self'; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'${config.production ? '; upgrade-insecure-requests' : ''}`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=(), interest-cohort=(), publickey-credentials-get=(self), publickey-credentials-create=(self)');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    // Nothing here is meant to be pulled into another site's page, except the few images a shared
+    // link or an email shows: the social card, the icons and the brand marks.
+    res.setHeader('Cross-Origin-Resource-Policy', /^\/(og\.png|favicon\.svg|mark\.svg|app-icon\.svg|icon-\d+\.png|brand\/)/.test(req.path) ? 'cross-origin' : 'same-origin');
+    res.setHeader('Origin-Agent-Cluster', '?1');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
     if (req.path.startsWith('/api/')) { res.setHeader('Cache-Control', 'no-store, max-age=0'); res.setHeader('Pragma', 'no-cache'); }
     if (config.production) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     next();
@@ -109,7 +126,7 @@ export function createApp(ctx: AppContext) {
   app.get('/api/health', (req, res) => {
     try {
       ctx.db.prepare('SELECT 1').get();
-      res.json({ ok: true, version: VERSION, build, uptime: Math.round(process.uptime()), maintenance: ctx.runtime.maintenance, mode: ctx.config.accessMode });
+      res.json({ ok: true, version: VERSION, build, client: clientBuild, uptime: Math.round(process.uptime()), maintenance: ctx.runtime.maintenance, mode: ctx.config.accessMode });
     } catch (error) {
       console.error('Health check failed:', error);
       res.status(503).json({ ok: false, error: 'Database health check failed.' });
@@ -183,7 +200,7 @@ export function createApp(ctx: AppContext) {
   if (existsSync(distDir)) {
     // Only public marketing routes are indexable, before any JavaScript runs.
     const publicRoutes = new Set(['/', '/display', '/about']);
-    const appRoute = /^\/(?:login|register|reset|invite|setup|work|record|goals|career|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
+    const appRoute = /^\/(?:login|register|reset|invite|setup|work|record|goals|career|reference|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
     // Two segments, not one: a record detail is /records/:id for an activity and
     // /records/:table/:id for a task, project or goal, which is the link shape a mention
     // notification points at. One segment 404s the second form.
@@ -245,6 +262,8 @@ export function startSchedulers(ctx: AppContext) {
   // A claim nobody has touched in three days goes back on the queue. Somebody claims a dozen rows
   // on a Friday and goes on leave; without this the work waits for a leader to notice.
   every(60 * 60_000, () => { try { const n = releaseStaleClaims(ctx); if (n) console.log(`${now()} released ${n} stale work claims`); } catch (e) { console.warn(`Stale claim sweep failed: ${(e as Error).message}`); } });
+  // The digest of every case-history head goes into the audit chain once a day.
+  every(24 * 60 * 60_000, () => { try { anchorCaseHeads(ctx); } catch (e) { console.warn(`Case history anchor failed: ${(e as Error).message}`); } });
   // Analytics steer a product; they are not a memory. Anything past the window goes on its own.
   every(24 * 60 * 60_000, () => { try { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); } catch (e) { console.warn(`Event prune failed: ${(e as Error).message}`); } });
   // Uploaded workbooks are evidence for as long as the retention policy says, and no longer.

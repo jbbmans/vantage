@@ -151,6 +151,20 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       db.exec('CREATE INDEX IF NOT EXISTS idx_users_demo_workspace ON users(demo_workspace_id) WHERE demo_workspace_id IS NOT NULL');
     },
   },
+  // A mailbox connection that actually signs in: encrypted tokens, their expiry, and the Microsoft
+  // account and directory the connection was bound to when it was authorized.
+  {
+    id: 9,
+    name: '009_mailbox_authorization',
+    run: (db) => {
+      const existing = new Set((db.prepare('PRAGMA table_info(connectors)').all() as Array<{ name: string }>).map((c) => c.name));
+      const columns: Array<[string, string]> = [
+        ['access_token_enc', 'TEXT'], ['refresh_token_enc', 'TEXT'], ['token_expires_at', 'TEXT'],
+        ['account_id', 'TEXT'], ['account_address', 'TEXT'], ['tenant_id', 'TEXT'], ['authorized_at', 'TEXT'],
+      ];
+      for (const [name, type] of columns) if (!existing.has(name)) db.exec(`ALTER TABLE connectors ADD COLUMN ${name} ${type}`);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 

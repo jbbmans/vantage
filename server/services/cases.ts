@@ -5,13 +5,15 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { notify } from './notifications.ts';
+import { sealEvent, caseIntegrity } from './caseSeal.ts';
 import {
   STAGE_TO_STATE, STATE_TO_STAGE, CLOSED_STAGES, RESEARCH_KINDS, entrySchema, stageChangeSchema, handoffSchema,
   type Stage, type EntryInput, type WaitingCategory,
 } from '../../shared/caseModel.ts';
 import {
-  procedureFor, progress, candidateAdjustment, latestFundsCheck, latestVerification, observationCents, UMT_FORMULA,
-  type CaseEvent,
+  pinnedProcedure, procedureFor, progress, latestFundsCheck, observationCents, stepApplies, isVerified, resolutionMet, resolutionChecks,
+  fieldsOf, calculationState, FORMULAS, PROCEDURES,
+  type CaseEvent, type Procedure, type ProcedureStep,
 } from '../../shared/procedures.ts';
 import { formatCents } from '../../shared/money.ts';
 import { parse } from '../lib/http.ts';
@@ -24,7 +26,8 @@ import {
  *
  * Every change to who holds the work or where it stands writes an event in the same transaction as
  * the change itself, so the history cannot drift from the row. Research, decisions, submissions,
- * system observations, funds checks and verifications are events too, each validated by kind.
+ * system observations, funds checks and verifications are events too, each validated by kind, and
+ * each sealed into the case's own HMAC chain so a changed or missing entry is detectable.
  */
 
 export interface EventRow {
@@ -46,7 +49,7 @@ export interface AppendInput {
   correlationId?: string | null;
 }
 
-/** Writes one event. Callers run it inside the same transaction as the change it describes. */
+/** Writes one event and seals it. Callers run it inside the same transaction as the change it describes. */
 export function appendEvent(ctx: AppContext, e: AppendInput): EventRow {
   const id = newId();
   const at = now();
@@ -55,13 +58,17 @@ export function appendEvent(ctx: AppContext, e: AppendInput): EventRow {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(id, e.item.id, e.item.unit_id, e.actorId, e.kind, e.step ?? null, e.subjectId ?? null, JSON.stringify(e.body ?? {}),
     e.supersedesId ?? null, e.correlationId ?? null, e.idempotencyKey ?? null, e.occurredAt || at, at);
-  return ctx.db.prepare('SELECT * FROM work_events WHERE id = ?').get(id) as EventRow;
+  const row = ctx.db.prepare('SELECT * FROM work_events WHERE id = ?').get(id) as EventRow;
+  sealEvent(ctx, row);
+  return row;
 }
 
-export const toCaseEvent = (r: EventRow): CaseEvent => ({
-  id: r.id, kind: r.kind, actor_id: r.actor_id, occurred_at: r.occurred_at, supersedes_id: r.supersedes_id,
+export const toCaseEvent = (r: EventRow, seq?: number): CaseEvent => ({
+  id: r.id, kind: r.kind, actor_id: r.actor_id, occurred_at: r.occurred_at, supersedes_id: r.supersedes_id, seq,
   body: { ...(JSON.parse(r.body || '{}') as Record<string, unknown>), step: r.step ?? undefined },
 });
+
+export const caseEventsOf = (rows: EventRow[]) => rows.map((r, i) => toCaseEvent(r, i));
 
 export function eventsFor(ctx: AppContext, itemId: string): EventRow[] {
   // Insertion order is the order things happened on the server. occurred_at can be backdated (an
@@ -72,26 +79,60 @@ export function eventsFor(ctx: AppContext, itemId: string): EventRow[] {
 export const stageOf = (row: Pick<WorkItemRow, 'state'> & { stage?: string | null }): Stage =>
   (row.stage as Stage) || STATE_TO_STAGE[row.state] || 'not_started';
 
+type CaseRow = WorkItemRow & { stage?: string | null; procedure_key?: string | null; procedure_version?: string | null; waiting_category?: string | null; waiting_since?: string | null; blocked_reason?: string | null };
+
+/** The procedure a row runs: its pinned version, never silently another one. */
+export const procedureOf = (row: Pick<CaseRow, 'procedure_key' | 'procedure_version'>) => pinnedProcedure(row.procedure_key, row.procedure_version);
+
+/**
+ * The one rule for closing work that follows a procedure, shared by every path that can close it.
+ * Following every step is not the same as the condition clearing: resolution waits on the
+ * verification the procedure names. A case pinned to a version this build lacks still needs its
+ * condition verified cleared.
+ */
+export function assertMayResolveCase(ctx: AppContext, row: CaseRow) {
+  if (!row.procedure_key) return;
+  const pinned = procedureOf(row);
+  const events = caseEventsOf(eventsFor(ctx, row.id));
+  const met = pinned.procedure ? resolutionMet(pinned.procedure, events) : { ok: isVerified(events, 'condition_cleared'), check: 'condition_cleared' };
+  if (!met.ok) {
+    const needed = resolutionChecks(pinned.procedure).map((r) => r.label.toLowerCase()).join(', or ');
+    throw conflict(`Verify the outcome before resolving this: ${needed}.`, 'verification_required');
+  }
+}
+
 /* ── Reading a case ────────────────────────────────────────────────────────────────────────── */
 
-export function caseView(ctx: AppContext, user: SessionUser, scope: Scope, row: WorkItemRow & { stage?: string | null; procedure_key?: string | null; procedure_version?: string | null; waiting_category?: string | null; waiting_since?: string | null; blocked_reason?: string | null }) {
+export function caseView(ctx: AppContext, user: SessionUser, scope: Scope, row: CaseRow) {
   const events = eventsFor(ctx, row.id);
   const people = peopleFor(ctx, [...events.flatMap((e) => [e.actor_id, e.subject_id]), row.claimed_by, row.owner_id]);
-  const procedure = procedureFor(row.procedure_key);
-  const caseEvents = events.map(toCaseEvent);
+  const pinned = procedureOf(row);
+  const procedure = pinned.procedure;
+  const caseEvents = caseEventsOf(events);
   const stage = stageOf(row);
   const prog = procedure ? progress(procedure, caseEvents, { reference: row.reference, stage }) : null;
-  const calc = caseEvents.filter((e) => e.kind === 'calculation').at(-1) || null;
+  const calcEvents = caseEvents.filter((e) => e.kind === 'calculation');
+  const calc = calcEvents.at(-1) || null;
   const funds = latestFundsCheck(caseEvents);
   const superseded = new Set(events.map((e) => e.supersedes_id).filter(Boolean));
+  const resolution = procedure || row.procedure_key ? {
+    checks: resolutionChecks(procedure),
+    met: resolutionMet(procedure, caseEvents),
+  } : null;
   return {
     stage,
     waiting: row.waiting_category ? { category: row.waiting_category, since: row.waiting_since } : null,
     blocked_reason: row.blocked_reason || null,
-    procedure: procedure ? { ...procedure, pinned_version: row.procedure_version || procedure.version } : null,
+    procedure: procedure ? { ...procedure, pinned_version: pinned.pinned, newer_version: pinned.newer } : null,
+    procedure_unavailable: pinned.unavailable ? { key: row.procedure_key, version: pinned.pinned, current: PROCEDURES[row.procedure_key!]?.version || null } : null,
     progress: prog,
-    latest_calculation: calc ? { id: calc.id, ...calc.body } : null,
+    // Every calculation is a snapshot of its inputs. One whose inputs have since been corrected or
+    // added to is shown as stale, so a figure never outlives the facts it was computed from.
+    latest_calculation: calc ? { id: calc.id, step: calc.body.step ?? null, ...calc.body, ...calculationState(calc, caseEvents) } : null,
+    calculations: calcEvents.map((c) => ({ id: c.id, formula: c.body.formula, step: c.body.step ?? null, ...calculationState(c, caseEvents) })),
     latest_funds_check: funds ? { id: funds.id, ...funds.body } : null,
+    resolution,
+    integrity: caseIntegrity(ctx, row.id, events),
     events: events.map((e) => ({
       id: e.id, kind: e.kind, step: e.step, actor_id: e.actor_id, subject_id: e.subject_id,
       body: JSON.parse(e.body || '{}'), supersedes_id: e.supersedes_id, superseded: superseded.has(e.id),
@@ -105,7 +146,8 @@ export function caseView(ctx: AppContext, user: SessionUser, scope: Scope, row: 
       progress: mayProgress(scope, user, row),
       resolve: mayResolve(scope, user, row),
       reassign: mayReassign(scope, user, row),
-      hand_off: row.claimed_by === user.id || mayReassign(scope, user, row),
+      hand_off: (row.claimed_by === user.id && readable(scope, user, row)) || mayReassign(scope, user, row),
+      apply_procedure: mayAct(scope, user, row) || (row.unit_id ? can(scope, PERMISSIONS.EDIT_WORK, row.unit_id) : false),
     },
   };
 }
@@ -121,9 +163,11 @@ function peopleFor(ctx: AppContext, ids: Array<string | null | undefined>) {
 
 /**
  * Each person's own contribution to this item. Four people touching one document credits each of
- * them with what they did, and never with each other's work.
+ * them with what they did, and never with each other's work. A verification later corrected away
+ * is still an action they took, but no longer a verified outcome.
  */
 function contributorsFromEvents(events: EventRow[], people: Record<string, { id: string; name: string; rank: string | null }>) {
+  const superseded = new Set(events.map((e) => e.supersedes_id).filter(Boolean));
   const by = new Map<string, { user_id: string; research: number; submitted: number; verified: number; handoffs: number; resolved: number; actions: number; first_at: string; last_at: string }>();
   for (const e of events) {
     if (!e.actor_id) continue;
@@ -131,10 +175,11 @@ function contributorsFromEvents(events: EventRow[], people: Record<string, { id:
     const body = JSON.parse(e.body || '{}');
     if (RESEARCH_KINDS.includes(e.kind as never)) c.research += 1;
     if (e.kind === 'action_submitted') c.submitted += 1;
-    if (e.kind === 'verification' && body.result === 'verified') c.verified += 1;
+    if (e.kind === 'verification' && body.result === 'verified' && !superseded.has(e.id)) c.verified += 1;
     if (e.kind === 'handed_off') c.handoffs += 1;
     if (e.kind === 'resolved') c.resolved += 1;
-    if (!['claimed', 'released', 'assigned', 'claim_expired', 'created', 'procedure_applied'].includes(e.kind)) c.actions += 1;
+    // Holding or moving the work is bookkeeping, not a contribution: it never puts somebody on this list.
+    if (!['claimed', 'released', 'assigned', 'claim_expired', 'created', 'procedure_applied', 'source_revised', 'stage_changed', 'waiting_started', 'waiting_ended', 'reopened'].includes(e.kind)) c.actions += 1;
     if (e.occurred_at < c.first_at) c.first_at = e.occurred_at;
     if (e.occurred_at > c.last_at) c.last_at = e.occurred_at;
     by.set(e.actor_id, c);
@@ -148,7 +193,7 @@ function contributorsFromEvents(events: EventRow[], people: Record<string, { id:
 /* ── Writing to a case ─────────────────────────────────────────────────────────────────────── */
 
 function load(ctx: AppContext, user: SessionUser, scope: Scope, id: string) {
-  const row = getItem(ctx, id) as (WorkItemRow & { stage?: string | null; procedure_key?: string | null; waiting_category?: string | null; waiting_since?: string | null }) | null;
+  const row = getItem(ctx, id) as CaseRow | null;
   if (!row) throw notFound('No such work item.');
   if (!readable(scope, user, row)) throw forbidden('That work is not yours to open.');
   return row;
@@ -157,6 +202,11 @@ function load(ctx: AppContext, user: SessionUser, scope: Scope, id: string) {
 const checkVersion = (row: { version: number }, expected: number | null | undefined) => {
   if (expected != null && row.version !== expected) throw conflict('This work changed while you were looking at it. Reload to see what changed, then try again.', 'version_conflict');
 };
+
+const stepFor = (procedure: Procedure | null, key: string | null | undefined): ProcedureStep | null => (procedure && key ? procedure.steps.find((s) => s.key === key) || null : null);
+
+/** Entries that need no procedure rule to be read safely. */
+const FREE_KINDS = new Set(['question', 'finding', 'note']);
 
 /** A research or execution entry. The person must be working the case (or be the leader who may). */
 export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id: string, body: unknown, idempotencyKey: string | null) {
@@ -172,10 +222,15 @@ export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id
     if (!mayAct(scope, user, row)) throw forbidden('Pick this work up before recording on it.');
     const stage = stageOf(row);
     if (CLOSED_STAGES.has(stage)) throw conflict('This work is closed. Reopen it before recording more.', 'closed');
-    const events = eventsFor(ctx, id).map(toCaseEvent);
-    const procedure = procedureFor(row.procedure_key);
+    const events = caseEventsOf(eventsFor(ctx, id));
+    const pinned = procedureOf(row);
+    if (pinned.unavailable && !FREE_KINDS.has(input.kind)) {
+      throw conflict(`This case is pinned to procedure version ${pinned.pinned}, which this build does not have. Move it to a current version before recording more.`, 'procedure_unavailable');
+    }
+    const procedure = pinned.procedure;
     const payload: Record<string, unknown> = { ...input };
     delete payload.kind; delete payload.supersedes; delete payload.step;
+    const step = stepFor(procedure, 'step' in input ? input.step : null);
 
     if (input.supersedes) {
       const target = events.find((e) => e.id === input.supersedes);
@@ -184,16 +239,37 @@ export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id
       if (events.some((e) => e.supersedes_id === input.supersedes)) throw conflict('That entry was already corrected. Correct the newer entry instead.');
     }
 
+    // Work on a step the recorded decision ruled out is refused rather than quietly recorded.
+    if (step && !FREE_KINDS.has(input.kind) && stepApplies(step, events) === false) {
+      throw conflict(`“${step.title}” does not apply under the decision recorded on this case.`, 'step_not_applicable');
+    }
+
     switch (input.kind) {
       case 'observation': {
-        const cents = observationCents(input.amount);
-        if (cents && !cents.ok) throw badRequest(cents.error, { fieldErrors: { amount: cents.error } });
-        const field = procedure?.steps.flatMap((s) => s.fields || []).find((f) => f.key === input.field);
-        if (field?.money && !cents) throw badRequest(`${field.label} needs an amount.`, { fieldErrors: { amount: 'Required.' } });
-        if (!cents && !input.value_text) throw badRequest('Record a value: an amount or what you saw.');
+        const field = fieldsOf(procedure).find((f) => f.key === input.field);
         delete payload.amount;
-        if (cents?.ok) { payload.amount_cents = cents.cents; payload.currency = 'USD'; payload.display = formatCents(cents.cents); }
-        else payload.display = input.value_text;
+        delete payload.not_shown;
+        if (input.not_shown) {
+          if (!field?.allowNotShown) throw badRequest(`${field?.label || 'This value'} cannot be recorded as not shown.`);
+          if (input.amount != null && input.amount !== '') throw badRequest('A figure is either an amount or not shown, not both.');
+          payload.not_shown = true;
+          payload.display = 'Not shown';
+          payload.value_text = null;
+        } else {
+          const cents = observationCents(input.amount);
+          if (cents && !cents.ok) throw badRequest(cents.error, { fieldErrors: { amount: cents.error } });
+          if (field?.money && !cents) throw badRequest(`${field.label} needs an amount${field.allowNotShown ? ', or record it as not shown' : ''}.`, { fieldErrors: { amount: 'Required.' } });
+          if (field?.options) {
+            const key = String(input.value_text || '');
+            if (!field.options.some((o) => o.key === key)) throw badRequest(`Choose one of: ${field.options.map((o) => o.label).join(', ')}.`, { fieldErrors: { value_text: 'Choose an option.' } });
+          }
+          if (field?.quantity && !/^\d+(\.\d+)?$/.test(String(input.value_text || '').replace(/,/g, ''))) {
+            throw badRequest(`${field.label} needs a count.`, { fieldErrors: { value_text: 'Enter a number.' } });
+          }
+          if (!cents && !input.value_text) throw badRequest('Record a value: an amount or what you saw.');
+          if (cents?.ok) { payload.amount_cents = cents.cents; payload.currency = 'USD'; payload.display = formatCents(cents.cents); }
+          else payload.display = field?.options?.find((o) => o.key === input.value_text)?.label || input.value_text;
+        }
         payload.label = input.label || field?.label || null;
         // A figure somebody read off DAI is a manual observation of an authoritative system. It is
         // not an authoritative integration, and it is never labelled as one.
@@ -205,11 +281,13 @@ export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id
         if (decisionStep && !decisionStep.decision!.choices.some((c) => c.key === input.choice)) {
           throw badRequest('That is not one of the choices for this decision.');
         }
+        if (decisionStep?.requires && !isVerified(events, decisionStep.requires.check)) {
+          throw conflict(decisionStep.requires.message, 'evidence_required');
+        }
         break;
       }
       case 'action_submitted': {
-        const step = procedure?.steps.find((s) => s.key === input.step);
-        if (step?.key === 'submit_modification') {
+        if (step?.gate === 'funds_check') {
           // A failed or inconclusive control cannot silently permit submission.
           const check = latestFundsCheck(events);
           const result = check?.body.result as string | undefined;
@@ -224,6 +302,11 @@ export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id
           }
           payload.funds_check_id = check.id;
           payload.funds_check_result = result;
+        }
+        if (step?.requires) {
+          if (!isVerified(events, step.requires.check)) throw conflict(step.requires.message, 'evidence_required');
+          const evidence = events.filter((e) => e.kind === 'verification' && e.body.check === step.requires!.check).at(-1);
+          payload.relied_on = { check: step.requires.check, event_id: evidence?.id ?? null };
         }
         delete payload.then_wait;
         break;
@@ -259,9 +342,9 @@ export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id
  * The one place a stage changes. Keeps state in step, opens and closes waiting intervals, and
  * writes the events that record each of those as its own fact.
  */
-function moveStage(
+export function moveStage(
   ctx: AppContext,
-  row: WorkItemRow & { stage?: string | null; waiting_category?: string | null; waiting_since?: string | null },
+  row: CaseRow,
   actorId: string | null,
   to: Stage,
   opts: { reason: string | null; category: WaitingCategory | null; expectedBy?: string | null; correlationId?: string | null },
@@ -312,17 +395,10 @@ export function changeStage(ctx: AppContext, user: SessionUser, scope: Scope, id
     }
     if (to === 'waiting' && !input.waiting_category) throw badRequest('Say what the work is waiting on.', { fieldErrors: { waiting_category: 'Required.' } });
     if (to === 'blocked' && !input.reason) throw badRequest('Say what is blocking it.', { fieldErrors: { reason: 'Required.' } });
-    if (to === 'resolved') {
-      const procedure = procedureFor(row.procedure_key);
-      if (procedure) {
-        // Following every step is not the same as the condition clearing. Resolution waits on the
-        // verification that says it did.
-        const cleared = latestVerification(eventsFor(ctx, id).map(toCaseEvent), 'condition_cleared');
-        if (!cleared || cleared.body.result !== 'verified') {
-          throw conflict('Verify the original condition cleared before resolving this.', 'verification_required');
-        }
-      }
-    }
+    // Declaring procedure work "does not apply" closes a financial condition without verifying it,
+    // so it has to say why.
+    if (to === 'not_applicable' && row.procedure_key && !input.reason) throw badRequest('Say why this does not apply.', { fieldErrors: { reason: 'Required.' } });
+    if (to === 'resolved') assertMayResolveCase(ctx, row);
     moveStage(ctx, row, user.id, to, { reason: input.reason ?? null, category: (input.waiting_category ?? null) as WaitingCategory | null, expectedBy: input.expected_by ?? null });
     if (closing || reopening) audit(ctx, { actor_id: user.id, action: closing ? 'work_closed' : 'work_reopened', entity: 'work_items', entity_id: id, unit_id: row.unit_id, detail: to });
     return getItem(ctx, id)!;
@@ -365,17 +441,36 @@ export function handOff(ctx: AppContext, user: SessionUser, scope: Scope, id: st
   })();
 }
 
-/** Runs the procedure's candidate calculation over what is on the record, and records it with its inputs. */
-export function calculate(ctx: AppContext, user: SessionUser, scope: Scope, id: string) {
+/**
+ * Runs a procedure calculation over what is on the record, and records it with every input it
+ * used. With no step named, the calculation step that applies and is next (or stale) runs.
+ */
+export function calculate(ctx: AppContext, user: SessionUser, scope: Scope, id: string, stepKey?: string | null) {
   return ctx.db.transaction(() => {
     const row = load(ctx, user, scope, id);
     if (!mayAct(scope, user, row)) throw forbidden('Pick this work up before calculating on it.');
-    if (!procedureFor(row.procedure_key)) throw badRequest('This work does not follow a procedure with a calculation.');
-    const result = candidateAdjustment(eventsFor(ctx, id).map(toCaseEvent));
+    if (CLOSED_STAGES.has(stageOf(row))) throw conflict('This work is closed. Reopen it before recording more.', 'closed');
+    const pinned = procedureOf(row);
+    if (!pinned.procedure) {
+      throw badRequest(pinned.unavailable ? `This case is pinned to procedure version ${pinned.pinned}, which this build does not have.` : 'This work does not follow a procedure with a calculation.');
+    }
+    const procedure = pinned.procedure;
+    const events = caseEventsOf(eventsFor(ctx, id));
+    const calcSteps = procedure.steps.filter((s) => s.kind === 'calculation' && stepApplies(s, events) !== false);
+    let step = stepKey ? calcSteps.find((s) => s.key === stepKey) || null : null;
+    if (stepKey && !step) throw badRequest('That calculation does not apply to this case.');
+    if (!step) {
+      const prog = progress(procedure, events, { reference: row.reference, stage: stageOf(row) });
+      step = calcSteps.find((s) => ['current', 'attention', 'upcoming'].includes(prog.steps.find((p) => p.key === s.key)?.status || '')) || calcSteps[0] || null;
+    }
+    if (!step) throw badRequest('Nothing on this case needs calculating yet.');
+    const formula = FORMULAS[step.formula || 'umt2way_award_adjustment'];
+    if (!formula) throw badRequest('That calculation is not available in this build.');
+    const result = formula.compute(events);
     if (!result.ok) throw badRequest(`Record the ${result.missing.join(', ')} first.`, { missing: result.missing });
     const event = appendEvent(ctx, {
-      item: row, actorId: user.id, kind: 'calculation', step: 'calculate',
-      body: { ...result, title: UMT_FORMULA.title, formula_text: UMT_FORMULA.text, applicability: UMT_FORMULA.applicability, source: 'calculated' },
+      item: row, actorId: user.id, kind: 'calculation', step: step.key,
+      body: { ...result, formula: formula.key, version: formula.version, title: formula.title, formula_text: formula.text, applicability: formula.applicability, source: 'calculated' },
     });
     if (stageOf(row) === 'not_started') moveStage(ctx, row, user.id, 'researching', { reason: null, category: null, correlationId: event.id });
     else ctx.db.prepare('UPDATE work_items SET version = version + 1, updated_at = ? WHERE id = ?').run(now(), id);
@@ -383,30 +478,81 @@ export function calculate(ctx: AppContext, user: SessionUser, scope: Scope, id: 
   })();
 }
 
+export interface Seed { field: string; amount?: string | number | null; value_text?: string | null; not_shown?: boolean }
+
 /**
- * Puts a work item under a procedure, pinned to the version current now. If the row came off a
- * sheet with an amount, that amount enters the case as a source-file observation, labelled as such,
- * so the calculation can cite it without anybody retyping it.
+ * Puts a work item under a procedure, pinned to the version current now.
+ *
+ * The first time, values the source already carries (the UMT amount on the sheet, the lifecycle
+ * figures an import mapped) enter the case as source-file observations, labelled as such, so the
+ * research can cite them without anybody retyping them.
+ *
+ * Applied again to the same procedure, this is a migration to the current version: explicit,
+ * attributed, and audited, because a case otherwise keeps running the exact definition it began
+ * under.
  */
-export function applyProcedure(ctx: AppContext, user: SessionUser | null, scope: Scope | null, id: string, key: string) {
+export function applyProcedure(ctx: AppContext, user: SessionUser | null, scope: Scope | null, id: string, key: string, seeds: Seed[] = [], opts: { audit?: boolean } = {}) {
   const procedure = procedureFor(key);
   if (!procedure) throw badRequest('No such procedure.');
   return ctx.db.transaction(() => {
-    const row = user && scope ? load(ctx, user, scope, id) : getItem(ctx, id);
+    const row = (user && scope ? load(ctx, user, scope, id) : getItem(ctx, id)) as CaseRow | null;
     if (!row) throw notFound('No such work item.');
     if (user && scope && !(mayAct(scope, user, row) || can(scope, PERMISSIONS.EDIT_WORK, row.unit_id))) throw forbidden('Applying a procedure to this work is not yours to do.');
+    if (CLOSED_STAGES.has(stageOf(row))) throw conflict('This work is closed. Reopen it before changing its procedure.', 'closed');
+    const migrating = row.procedure_key === procedure.key;
+    if (migrating && row.procedure_version === procedure.version) throw badRequest(`This work already follows ${procedure.title} v${procedure.version}.`);
     ctx.db.prepare('UPDATE work_items SET procedure_key = ?, procedure_version = ?, version = version + 1, updated_at = ? WHERE id = ?').run(procedure.key, procedure.version, now(), id);
-    appendEvent(ctx, { item: row, actorId: user?.id ?? null, kind: 'procedure_applied', body: { procedure: procedure.key, version: procedure.version, authority: procedure.authority } });
-    const cents = row.amount == null ? null : observationCents(String(row.amount));
-    const hasUmt = procedure.steps.some((s) => s.fields?.some((f) => f.key === 'umt_amount'));
-    if (hasUmt && cents?.ok) {
-      appendEvent(ctx, {
-        item: row, actorId: null, kind: 'observation', step: 'identify',
-        body: { field: 'umt_amount', label: 'UMT source amount', amount_cents: cents.cents, currency: 'USD', display: formatCents(cents.cents), source: 'source_file', system: row.source_file_id ? 'Imported sheet' : 'Entered with the work' },
+    appendEvent(ctx, {
+      item: row, actorId: user?.id ?? null, kind: 'procedure_applied',
+      body: {
+        procedure: procedure.key, version: procedure.version, authority: procedure.authority,
+        ...(migrating ? { from_version: row.procedure_version } : {}),
+        ...(row.procedure_key && !migrating ? { replaces: { procedure: row.procedure_key, version: row.procedure_version } } : {}),
+      },
+    });
+    if (user && opts.audit !== false) {
+      audit(ctx, {
+        actor_id: user.id, action: migrating ? 'procedure_migrated' : 'procedure_applied', entity: 'work_items', entity_id: id, unit_id: row.unit_id,
+        detail: migrating ? `${procedure.key} ${row.procedure_version} → ${procedure.version}` : `${procedure.key} ${procedure.version}`,
       });
     }
+    if (!migrating) seedFromSource(ctx, row, procedure, seeds);
     return getItem(ctx, id)!;
   })();
+}
+
+function seedFromSource(ctx: AppContext, row: CaseRow, procedure: Procedure, seeds: Seed[]) {
+  const all = [...seeds];
+  const hasUmt = fieldsOf(procedure).some((f) => f.key === 'umt_amount');
+  if (hasUmt && row.amount != null && !all.some((s) => s.field === 'umt_amount')) all.push({ field: 'umt_amount', amount: String(row.amount) });
+  for (const seed of all) {
+    const step = procedure.steps.find((s) => s.fields?.some((f) => f.key === seed.field));
+    const field = step?.fields?.find((f) => f.key === seed.field);
+    if (!step || !field) continue;
+    const body = seedBody(field, seed, Boolean(row.source_file_id));
+    if (body) appendEvent(ctx, { item: row, actorId: null, kind: 'observation', step: step.key, body });
+  }
+}
+
+/** A source-file observation for one seeded value, or null if the value cannot be read as that field. */
+export function seedBody(field: { key: string; label: string; money?: boolean; allowNotShown?: boolean; options?: Array<{ key: string; label: string }> }, seed: Seed, imported: boolean): Record<string, unknown> | null {
+  const system = imported ? 'Imported sheet' : 'Entered with the work';
+  const base = { field: field.key, label: field.label, source: 'source_file', system };
+  const raw = seed.amount ?? seed.value_text ?? null;
+  const blank = seed.not_shown || raw == null || String(raw).trim() === '' || /^[-–—]$/.test(String(raw).trim());
+  if (field.money) {
+    if (blank) return field.allowNotShown ? { ...base, not_shown: true, display: 'Not shown', value_text: null } : null;
+    const cents = observationCents(String(raw));
+    if (!cents?.ok) return null;
+    return { ...base, amount_cents: cents.cents, currency: 'USD', display: formatCents(cents.cents) };
+  }
+  if (blank) return null;
+  const text = String(raw).trim().slice(0, 500);
+  if (field.options) {
+    const match = field.options.find((o) => o.key === text.toLowerCase() || o.label.toLowerCase() === text.toLowerCase());
+    return match ? { ...base, value_text: match.key, display: match.label } : null;
+  }
+  return { ...base, value_text: text, display: text };
 }
 
 /**

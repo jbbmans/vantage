@@ -5,10 +5,10 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { RESEARCH_KINDS, describeEvent, humanKey, type Stage } from '../../shared/caseModel.ts';
-import { procedureFor, progress } from '../../shared/procedures.ts';
+import { PROCEDURES, progress, stepObject, actedOn } from '../../shared/procedures.ts';
 import { CONTRIBUTION_DEFINITIONS, WORKLOAD_LIMITATIONS, draftUpdateSchema } from '../../shared/record.ts';
 import { parse } from '../lib/http.ts';
-import { eventsFor, toCaseEvent, stageOf } from './cases.ts';
+import { eventsFor, caseEventsOf, stageOf, procedureOf } from './cases.ts';
 import { readable, type WorkItemRow } from './work.ts';
 
 /**
@@ -41,19 +41,45 @@ export function parseWindow(query: Record<string, unknown>, days = 90): Window {
   return { from, to };
 }
 
-/** One person's contribution counts over a window, from events they authored. */
+/**
+ * The predicates every contribution count shares, so a total and the list behind it can never
+ * disagree about what they include.
+ *
+ * SHARED   an event counts toward a unit only when its work item is a live, unit-visible row of that
+ *          unit. A private case that happens to carry a unit id stays private (F03).
+ * STANDING the event has not been corrected away by a later entry.
+ * CURRENT  a verified result is still the case's latest standing verification of that check. A
+ *          verification that was corrected, or overtaken by a later "not verified", is history,
+ *          not a current outcome (F04).
+ */
+const SHARED = `EXISTS (SELECT 1 FROM work_items wi WHERE wi.id = e.work_item_id AND wi.unit_id = ? AND wi.visibility = 'unit' AND wi.deleted_at IS NULL)`;
+const STANDING = 'NOT EXISTS (SELECT 1 FROM work_events s WHERE s.supersedes_id = e.id)';
+const CURRENT_VERIFIED = `e.kind = 'verification' AND json_extract(e.body, '$.result') = 'verified' AND ${STANDING}
+  AND NOT EXISTS (
+    SELECT 1 FROM work_events l
+     WHERE l.work_item_id = e.work_item_id AND l.kind = 'verification' AND l.id <> e.id
+       AND json_extract(l.body, '$.check') = json_extract(e.body, '$.check')
+       AND (l.occurred_at > e.occurred_at OR (l.occurred_at = e.occurred_at AND l.created_at > e.created_at))
+       AND NOT EXISTS (SELECT 1 FROM work_events s2 WHERE s2.supersedes_id = l.id))`;
+
+/**
+ * One person's contribution counts over a window, from events they authored. With a unit, only
+ * work shared in that unit counts; without one, it is the person's own view of everything they did.
+ */
 export function contributionCounts(ctx: AppContext, userId: string, w: Window, unitId: string | null = null) {
   const [lo, hi] = bounds(w);
-  const unitClause = unitId ? ' AND unit_id = ?' : '';
-  const p = (extra: unknown[] = []) => [userId, lo, hi, ...(unitId ? [unitId] : []), ...extra];
-  const one = (sql: string, extra: unknown[] = []) => (ctx.db.prepare(sql).get(...p(extra)) as { n: number }).n;
+  const unitClause = unitId ? ` AND ${SHARED}` : '';
+  const p = () => [userId, lo, hi, ...(unitId ? [unitId] : [])];
+  const one = (sql: string) => (ctx.db.prepare(sql).get(...p()) as { n: number }).n;
+  const from = 'FROM work_events e WHERE e.actor_id = ? AND e.occurred_at BETWEEN ? AND ?';
   return {
-    documents_researched: one(`SELECT COUNT(DISTINCT work_item_id) AS n FROM work_events WHERE actor_id = ? AND occurred_at BETWEEN ? AND ?${unitClause} AND kind IN (${RESEARCH})`),
-    research_actions: one(`SELECT COUNT(*) AS n FROM work_events WHERE actor_id = ? AND occurred_at BETWEEN ? AND ?${unitClause} AND kind IN (${RESEARCH})`),
-    submitted_actions: one(`SELECT COUNT(*) AS n FROM work_events WHERE actor_id = ? AND occurred_at BETWEEN ? AND ?${unitClause} AND kind = 'action_submitted'`),
-    verified_outcomes: one(`SELECT COUNT(DISTINCT work_item_id || ':' || json_extract(body, '$.check')) AS n FROM work_events WHERE actor_id = ? AND occurred_at BETWEEN ? AND ?${unitClause} AND kind = 'verification' AND json_extract(body, '$.result') = 'verified'`),
-    resolved_work: one(`SELECT COUNT(DISTINCT work_item_id) AS n FROM work_events WHERE actor_id = ? AND occurred_at BETWEEN ? AND ?${unitClause} AND kind = 'resolved'`),
-    handoffs: one(`SELECT COUNT(*) AS n FROM work_events WHERE actor_id = ? AND occurred_at BETWEEN ? AND ?${unitClause} AND kind = 'handed_off'`),
+    documents_researched: one(`SELECT COUNT(DISTINCT e.work_item_id) AS n ${from}${unitClause} AND e.kind IN (${RESEARCH})`),
+    research_actions: one(`SELECT COUNT(*) AS n ${from}${unitClause} AND e.kind IN (${RESEARCH})`),
+    submitted_actions: one(`SELECT COUNT(*) AS n ${from}${unitClause} AND e.kind = 'action_submitted'`),
+    verified_outcomes: one(`SELECT COUNT(DISTINCT e.work_item_id || ':' || json_extract(e.body, '$.check')) AS n ${from}${unitClause} AND ${CURRENT_VERIFIED}`),
+    verification_actions: one(`SELECT COUNT(*) AS n ${from}${unitClause} AND e.kind = 'verification'`),
+    resolved_work: one(`SELECT COUNT(DISTINCT e.work_item_id) AS n ${from}${unitClause} AND e.kind = 'resolved'`),
+    handoffs: one(`SELECT COUNT(*) AS n ${from}${unitClause} AND e.kind = 'handed_off'`),
   };
 }
 
@@ -64,6 +90,8 @@ export function assignedWork(ctx: AppContext, user: SessionUser) {
   const rows = ctx.db.prepare(
     `SELECT w.*, p.name AS project_name FROM work_items w LEFT JOIN projects p ON p.id = w.project_id AND p.deleted_at IS NULL
       WHERE w.claimed_by = ? AND w.deleted_at IS NULL AND COALESCE(w.stage, '') NOT IN ${OPEN} AND w.state NOT IN ${OPEN}
+        -- A shared row counts as held only while its holder is still in the unit.
+        AND (w.visibility <> 'unit' OR w.unit_id IS NULL OR EXISTS (SELECT 1 FROM unit_members m WHERE m.user_id = w.claimed_by AND m.unit_id = w.unit_id))
       ORDER BY (w.due_date IS NULL), w.due_date, w.claimed_at`
   ).all(user.id) as ItemRow[];
   return rows.map((row) => summarizeItem(ctx, row));
@@ -71,10 +99,10 @@ export function assignedWork(ctx: AppContext, user: SessionUser) {
 
 export function summarizeItem(ctx: AppContext, row: ItemRow) {
   const stage = stageOf(row);
-  const procedure = procedureFor(row.procedure_key);
+  const procedure = procedureOf(row).procedure;
   let nextStep: { key: string; title: string; status: string; note: string | null } | null = null;
   if (procedure) {
-    const prog = progress(procedure, eventsFor(ctx, row.id).map(toCaseEvent), { reference: row.reference, stage });
+    const prog = progress(procedure, caseEventsOf(eventsFor(ctx, row.id)), { reference: row.reference, stage });
     const step = prog.steps.find((s) => s.key === prog.next);
     const def = procedure.steps.find((s) => s.key === prog.next);
     if (step && def) nextStep = { key: def.key, title: def.title, status: step.status, note: step.note };
@@ -85,6 +113,7 @@ export function summarizeItem(ctx: AppContext, row: ItemRow) {
     blocked_reason: row.blocked_reason || null, claimed_at: row.claimed_at, unit_id: row.unit_id,
     project_id: row.project_id || null, project_name: row.project_name || null,
     amount: row.amount, amount_type: row.amount_type, procedure_key: row.procedure_key || null,
+    procedure_short: procedure?.short || null,
     next_step: nextStep, version: row.version,
   };
 }
@@ -127,6 +156,7 @@ export function contributionHistory(ctx: AppContext, user: SessionUser, scope: S
   const ids = [...byItem.keys()].slice(0, limit);
   if (!ids.length) return [];
   const items = new Map((ctx.db.prepare(`SELECT * FROM work_items WHERE id IN (${ids.map(() => '?').join(',')})`).all(...ids) as ItemRow[]).map((r) => [r.id, r]));
+  const corrected = new Set((ctx.db.prepare(`SELECT supersedes_id FROM work_events WHERE supersedes_id IS NOT NULL AND work_item_id IN (${ids.map(() => '?').join(',')})`).all(...ids) as Array<{ supersedes_id: string }>).map((r) => r.supersedes_id));
   return ids.map((id) => {
     const item = items.get(id);
     const list = byItem.get(id)!;
@@ -137,7 +167,7 @@ export function contributionHistory(ctx: AppContext, user: SessionUser, scope: S
       item: item ? { id, title: item.title, reference: item.reference, stage: stageOf(item), open: canOpen, procedure_key: item.procedure_key || null } : { id, title: 'Removed work item', reference: null, stage: 'not_applicable' as Stage, open: false, procedure_key: null },
       research: list.filter((e) => RESEARCH_KINDS.includes(e.kind as never)).length,
       submitted: list.filter((e) => e.kind === 'action_submitted').length,
-      verified: list.filter((e) => e.kind === 'verification' && JSON.parse(e.body).result === 'verified').length,
+      verified: list.filter((e) => e.kind === 'verification' && JSON.parse(e.body).result === 'verified' && !corrected.has(e.id)).length,
       resolved: list.some((e) => e.kind === 'resolved'),
       last_at: list[0].occurred_at,
       events: list.slice(0, 12).map((e) => ({ id: e.id, kind: e.kind, step: e.step, occurred_at: e.occurred_at, summary: describeEvent(e.kind, { ...JSON.parse(e.body), step: e.step }) })),
@@ -176,6 +206,23 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
   const stages: Record<string, number> = {};
   for (const i of open) stages[stageOf(i)] = (stages[stageOf(i)] || 0) + 1;
 
+  // Open work by the procedure it follows: how many OCMT, UDOU, DOU, OTO, UMT and so on the section
+  // is carrying, and how many of each nobody has picked up.
+  const byProcedure = new Map<string, { key: string; short: string; title: string; family: string | null; open: number; unassigned: number; blocked: number; overdue: number }>();
+  for (const i of open) {
+    const p = i.procedure_key ? PROCEDURES[i.procedure_key] : null;
+    const key = p ? p.key : i.procedure_key ? i.procedure_key : 'none';
+    const row = byProcedure.get(key) || { key, short: p?.short || (key === 'none' ? 'No procedure' : key), title: p?.title || (key === 'none' ? 'Work that follows no modelled procedure' : 'A procedure this build does not have'), family: p?.family || null, open: 0, unassigned: 0, blocked: 0, overdue: 0 };
+    row.open += 1;
+    if (!i.claimed_by) row.unassigned += 1;
+    if (stageOf(i) === 'blocked') row.blocked += 1;
+    if (i.due_date && i.due_date < today) row.overdue += 1;
+    byProcedure.set(key, row);
+  }
+
+  // The same predicate the queue uses: only live, unit-visible rows of this unit.
+  const sectionCount = (agg: string, where: string) =>
+    (ctx.db.prepare(`SELECT ${agg} AS n FROM work_events e WHERE e.occurred_at BETWEEN ? AND ? AND ${SHARED} AND ${where}`).get(lo, hi, unitId) as { n: number }).n;
   const section = {
     open: open.length,
     unassigned: open.filter((i) => !i.claimed_by).length,
@@ -190,11 +237,12 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
     },
     by_stage: stages,
     by_waiting: byWaiting,
+    by_procedure: [...byProcedure.values()].sort((a, b) => (a.key === 'none' ? 1 : b.key === 'none' ? -1 : b.open - a.open)),
     // Distinct documents, counted once for the section however many people touched them.
-    documents_researched: (ctx.db.prepare(`SELECT COUNT(DISTINCT work_item_id) AS n FROM work_events WHERE unit_id = ? AND actor_id IS NOT NULL AND occurred_at BETWEEN ? AND ? AND kind IN (${RESEARCH})`).get(unitId, lo, hi) as { n: number }).n,
-    resolved: (ctx.db.prepare(`SELECT COUNT(DISTINCT work_item_id) AS n FROM work_events WHERE unit_id = ? AND occurred_at BETWEEN ? AND ? AND kind = 'resolved'`).get(unitId, lo, hi) as { n: number }).n,
-    verified: (ctx.db.prepare(`SELECT COUNT(DISTINCT work_item_id || ':' || json_extract(body, '$.check')) AS n FROM work_events WHERE unit_id = ? AND occurred_at BETWEEN ? AND ? AND kind = 'verification' AND json_extract(body, '$.result') = 'verified'`).get(unitId, lo, hi) as { n: number }).n,
-    submitted: (ctx.db.prepare(`SELECT COUNT(*) AS n FROM work_events WHERE unit_id = ? AND occurred_at BETWEEN ? AND ? AND kind = 'action_submitted'`).get(unitId, lo, hi) as { n: number }).n,
+    documents_researched: sectionCount(`COUNT(DISTINCT e.work_item_id)`, `e.actor_id IS NOT NULL AND e.kind IN (${RESEARCH})`),
+    resolved: sectionCount('COUNT(DISTINCT e.work_item_id)', "e.kind = 'resolved'"),
+    verified: sectionCount(`COUNT(DISTINCT e.work_item_id || ':' || json_extract(e.body, '$.check'))`, CURRENT_VERIFIED),
+    submitted: sectionCount('COUNT(*)', "e.kind = 'action_submitted'"),
   };
 
   const unassigned = open.filter((i) => !i.claimed_by)
@@ -218,7 +266,7 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
         blocked: held.filter((i) => stageOf(i) === 'blocked').length,
         overdue: held.filter((i) => i.due_date && i.due_date < today).length,
         ...contributionCounts(ctx, m.id, w, unitId),
-        last_recorded_at: (ctx.db.prepare('SELECT MAX(occurred_at) AS at FROM work_events WHERE actor_id = ? AND unit_id = ?').get(m.id, unitId) as { at: string | null }).at,
+        last_recorded_at: (ctx.db.prepare(`SELECT MAX(e.occurred_at) AS at FROM work_events e WHERE e.actor_id = ? AND ${SHARED}`).get(m.id, unitId) as { at: string | null }).at,
       };
     });
     audit(ctx, { actor_id: user.id, action: 'view_team_workload', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${w.from}..${w.to}` });
@@ -259,24 +307,14 @@ export function draftFromWork(ctx: AppContext, user: SessionUser, _scope: Scope,
   const events = eventsFor(ctx, itemId);
   const mine = events.filter((e) => e.actor_id === user.id);
   if (!mine.length) throw forbidden('A draft is built from your own recorded work, and you have none on this item.');
-  const superseded = new Set(events.map((e) => e.supersedes_id).filter(Boolean));
-  const facts: Fact[] = [];
-  const mineStanding = mine.filter((e) => !superseded.has(e.id));
-  for (const e of mineStanding) {
-    const body = JSON.parse(e.body || '{}');
-    const date = e.occurred_at.slice(0, 10);
-    const cite = { kind: e.kind, event_id: e.id };
-    if (e.kind === 'observation') facts.push({ text: `Recorded ${String(body.label || humanKey(body.field)).toLowerCase()}: ${body.display}${body.system ? ` (${body.system})` : ''}`, date, source: cite });
-    else if (e.kind === 'calculation') facts.push({ text: `Calculated a candidate award adjustment of ${body.display}`, date, source: cite });
-    else if (e.kind === 'decision') facts.push({ text: `Decided ${humanKey(body.decision).toLowerCase()}: ${humanKey(body.choice).toLowerCase()}`, date, source: cite });
-    else if (e.kind === 'action_submitted') facts.push({ text: `Submitted ${humanKey(e.step).toLowerCase()}${body.reference ? ` (${body.reference})` : ''}`, date, source: cite });
-    else if (e.kind === 'verification' && body.result === 'verified') facts.push({ text: `Verified ${humanKey(body.check).toLowerCase()} (${body.reference})`, date, source: cite });
-    else if (e.kind === 'finding') facts.push({ text: `Finding: ${body.text}`, date, source: cite });
-    else if (e.kind === 'resolved') facts.push({ text: 'Resolved the work item', date, source: cite });
-    else if (e.kind === 'handed_off') facts.push({ text: `Handed the work on with a note`, date, source: cite });
+  const facts = factsFor(item, events, user.id);
+  // Claiming is assignment, not contribution; moving a stage is bookkeeping. A draft needs something
+  // the person actually found, decided, submitted, verified or closed (F05).
+  if (!facts.length) {
+    throw conflict('There is nothing of yours on this case to draft from yet. Holding or moving work is not a contribution; record research, a decision, a submission or a verification first.', 'nothing_to_draft');
   }
   // Collaborators are named because the work was shared; their contributions are not claimed.
-  const others = [...new Set(events.filter((e) => e.actor_id && e.actor_id !== user.id && !['claimed', 'released', 'created', 'procedure_applied'].includes(e.kind)).map((e) => e.actor_id!))];
+  const others = [...new Set(events.filter((e) => e.actor_id && e.actor_id !== user.id && !NOT_CONTRIBUTION.has(e.kind)).map((e) => e.actor_id!))];
   const names = others.length
     ? (ctx.db.prepare(`SELECT u.first_name, u.last_name, r.abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id IN (${others.map(() => '?').join(',')})`).all(...others) as Array<{ first_name: string; last_name: string; abbr: string | null }>)
       .map((p) => [p.abbr, p.first_name, p.last_name].filter(Boolean).join(' '))
@@ -292,13 +330,52 @@ export function draftFromWork(ctx: AppContext, user: SessionUser, _scope: Scope,
   return { ...draftRow(ctx, user.id, id), collaborators: names };
 }
 
+/** Kinds that record who held or moved the work, not what anybody did on it. */
+const NOT_CONTRIBUTION = new Set(['claimed', 'released', 'assigned', 'claim_expired', 'created', 'procedure_applied', 'source_revised', 'stage_changed', 'waiting_started', 'waiting_ended', 'reopened']);
+
+/**
+ * The person's standing, substantive entries on one case, in words the procedure itself uses. Each
+ * fact is cited to its event and never edited; entries later corrected are left out.
+ */
+function factsFor(item: ItemRow, events: ReturnType<typeof eventsFor>, userId: string): Fact[] {
+  const superseded = new Set(events.map((e) => e.supersedes_id).filter(Boolean));
+  const procedure = procedureOf(item).procedure;
+  const stepTitle = (key: string | null) => procedure?.steps.find((s) => s.key === key)?.title || humanKey(key);
+  const lower = (t: string) => (/^[A-Z][a-z]/.test(t) ? t.charAt(0).toLowerCase() + t.slice(1) : t);
+  const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
+  const facts: Fact[] = [];
+  for (const e of events) {
+    if (e.actor_id !== userId || superseded.has(e.id)) continue;
+    const body = JSON.parse(e.body || '{}');
+    const date = e.occurred_at.slice(0, 10);
+    const source = { kind: e.kind, event_id: e.id };
+    const push = (text: string) => facts.push({ text, date, source });
+    if (e.kind === 'observation') push(`Recorded ${String(body.label || humanKey(body.field)).toLowerCase()}: ${body.display}${body.system ? ` (${body.system})` : ''}`);
+    else if (e.kind === 'calculation') push(`Calculated ${lower(String(body.title || 'the candidate figure'))}: ${body.display}`);
+    else if (e.kind === 'decision') {
+      const choice = procedure?.steps.find((s) => s.decision?.key === body.decision)?.decision?.choices.find((c) => c.key === body.choice)?.label;
+      push(`Decided ${choice ? lower(choice) : `${humanKey(body.decision).toLowerCase()}: ${humanKey(body.choice).toLowerCase()}`}`);
+    } else if (e.kind === 'action_prepared') push(`${cap(actedOn('prepared', stepTitle(e.step)))}${body.reference ? ` (${body.reference})` : ''}`);
+    else if (e.kind === 'action_submitted') push(`${cap(actedOn('submitted', stepTitle(e.step)))}${body.reference ? ` (${body.reference})` : ''}`);
+    else if (e.kind === 'funds_check') push(`Recorded a funds check: ${body.result}`);
+    else if (e.kind === 'external_event') push(`Confirmed ${lower(stepObject(stepTitle(body.step || e.step)))} ${body.event}${body.system ? ` in ${body.system}` : ''}`);
+    else if (e.kind === 'verification' && body.result === 'verified') push(`Verified ${lower(stepTitle(e.step)).replace(/^verify (that )?/, '')} (${body.reference})`);
+    else if (e.kind === 'finding') push(`Finding: ${body.text}`);
+    else if (e.kind === 'action_recorded') push(`Recorded work: ${body.action}${body.text ? `, ${body.text}` : ''}`);
+    else if (e.kind === 'resolved') push('Resolved the work item');
+    else if (e.kind === 'handed_off') push('Handed the work on with a note');
+  }
+  return facts;
+}
+
 /** Assembled from the facts, not generated. Labelled as a suggestion the person edits. */
 function templateWording(item: ItemRow, facts: Fact[], collaborators: string[]): string {
   const has = (prefix: string) => facts.some((f) => f.text.startsWith(prefix));
   const verbs: string[] = [];
-  if (has('Recorded')) verbs.push('researched the award and invoice values');
+  if (has('Recorded') || has('Finding')) verbs.push('researched the values and evidence behind it');
   const calc = facts.find((f) => f.text.startsWith('Calculated'));
-  if (calc) verbs.push(`identified ${calc.text.replace('Calculated ', '')}`);
+  if (calc) verbs.push(calc.text.replace(/^Calculated /, 'calculated ').replace(/: .*/, ''));
+  if (has('Decided')) verbs.push('decided the correction the evidence supported');
   if (has('Submitted')) verbs.push('submitted the required actions');
   if (has('Verified')) verbs.push('verified the outcome in the system of record');
   if (has('Resolved')) verbs.push('closed the case');
@@ -319,19 +396,63 @@ export function updateDraft(ctx: AppContext, user: SessionUser, id: string, body
 }
 
 /** Keeps a draft as a private entry in the person's own record. Nothing is sent anywhere. */
+/**
+ * Puts a draft into the person's record as a completed activity (F09).
+ *
+ * The projection is deliberate about three things:
+ *   evidence  the activity links back to the case, and its notes cite each fact's event;
+ *   credit    one document is counted, and the case's amount is credited as reconciled only when
+ *             the case is resolved and this person recorded a verified outcome that still stands;
+ *   dedupe    one work-derived entry per person per case. A second draft from the same case is
+ *             refused, and an action already recorded into the record from the case keeps the
+ *             count and amount so they are never counted twice.
+ */
 export function saveDraftToRecord(ctx: AppContext, user: SessionUser, id: string) {
   const row = draftRow(ctx, user.id, id);
   if (row.activity_id) throw conflict('This draft is already in your record.');
+  if (!row.facts.length) throw conflict('This draft has no recorded facts behind it, so it cannot become a completed entry. Delete it, or draft again once you have recorded work on the case.', 'nothing_to_draft');
+  if (!row.wording.trim()) throw badRequest('Write the entry before saving it to your record.');
   const date = row.facts.map((f) => f.date).sort().at(-1) || now().slice(0, 10);
+  const item = row.work_item_id ? (ctx.db.prepare('SELECT * FROM work_items WHERE id = ?').get(row.work_item_id) as ItemRow | undefined) : undefined;
+  const fingerprint = row.work_item_id ? `case:${row.work_item_id}` : `draft:${id}`;
+  const existing = ctx.db.prepare('SELECT id FROM activities WHERE user_id = ? AND fingerprint = ? AND deleted_at IS NULL').get(user.id, fingerprint) as { id: string } | undefined;
+  if (existing) throw conflict('Your record already has an entry drawn from this case. Edit that entry instead of adding a second one.', 'already_recorded', { activity_id: existing.id });
+
+  let quantity: number | null = null;
+  let unitLabel: string | null = null;
+  let dollars: number | null = null;
+  let dollarType: string | null = null;
+  const credit: string[] = [];
+  if (item) {
+    const actionRecorded = ctx.db.prepare("SELECT 1 FROM activities WHERE user_id = ? AND fingerprint LIKE ? AND deleted_at IS NULL").get(user.id, `work:${item.id}:%`);
+    if (actionRecorded) credit.push('Count and amount are not repeated here: an action on this case is already in your record with its own.');
+    else {
+      const procedure = procedureOf(item).procedure;
+      quantity = 1;
+      unitLabel = procedure?.family === 'umt' ? 'UMTs' : item.unit_label || 'documents';
+      const events = eventsFor(ctx, item.id);
+      const corrected = new Set(events.map((e) => e.supersedes_id).filter(Boolean));
+      const verifiedByMe = events.some((e) => e.actor_id === user.id && e.kind === 'verification' && JSON.parse(e.body || '{}').result === 'verified' && !corrected.has(e.id));
+      const resolved = stageOf(item) === 'resolved';
+      if (item.amount != null && resolved && verifiedByMe) {
+        dollars = Math.round(Number(item.amount) * 100) / 100;
+        dollarType = 'reconciled';
+        credit.push(`Amount credited as reconciled: the case is resolved and you recorded its verified outcome.`);
+      } else if (item.amount != null) {
+        credit.push(resolved ? 'Amount not credited: the verified outcome on this case was recorded by somebody else.' : 'Amount not credited yet: the case is not resolved.');
+      }
+    }
+  }
+  const links = item ? [{ label: `Vantage case ${item.reference || item.natural_key}`, url: `/work/items/${item.id}` }] : [];
+  const notes = ['Facts from recorded work:', ...row.facts.map((f) => `- ${f.date}: ${f.text} [${f.source.kind} ${f.source.event_id}]`), ...(credit.length ? ['', ...credit] : [])].join('\n').slice(0, 8000);
+
   const activityId = newId();
   const at = now();
   ctx.db.transaction(() => {
     ctx.db.prepare(
-      `INSERT INTO activities (id, user_id, unit_id, visibility, date, title, category, result, status, notes, evidence_links, fingerprint, version, created_at, updated_at)
-       VALUES (?, ?, NULL, 'private', ?, ?, NULL, ?, 'completed', ?, '[]', ?, 1, ?, ?)`
-    ).run(activityId, user.id, date, row.title.slice(0, 300), row.wording.slice(0, 2000),
-      ['Facts from recorded work:', ...row.facts.map((f) => `- ${f.date}: ${f.text}`)].join('\n').slice(0, 8000),
-      `draft:${id}`, at, at);
+      `INSERT INTO activities (id, user_id, unit_id, visibility, date, title, category, quantity, unit_label, dollar_amount, dollar_type, result, status, notes, evidence_links, fingerprint, version, created_at, updated_at)
+       VALUES (?, ?, NULL, 'private', ?, ?, NULL, ?, ?, ?, ?, ?, 'completed', ?, ?, ?, 1, ?, ?)`
+    ).run(activityId, user.id, date, row.title.slice(0, 300), quantity, unitLabel, dollars, dollarType, row.wording.slice(0, 2000), notes, JSON.stringify(links), fingerprint, at, at);
     ctx.db.prepare('UPDATE record_drafts SET activity_id = ?, version = version + 1, updated_at = ? WHERE id = ?').run(activityId, at, id);
   })();
   return { draft: draftRow(ctx, user.id, id), activity_id: activityId };

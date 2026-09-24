@@ -54,7 +54,7 @@ The application continues to use Geist for interface text and JetBrains Mono onl
 
 ## Implementation
 
-`src/styles/brand-2026.css` is the brand override layer. It intentionally loads after `src/styles/index.css` so the existing component API and page code continue to work while the visual identity is refreshed globally.
+The brand lives in the tokens of `src/styles/index.css`, the single stylesheet the product loads (the former `brand-2026.css` override layer was folded into it). The public page and the sign-in page keep their own scoped stylesheets for the navy brand surfaces. See `docs/design/DESIGN_SYSTEM.md` for the tokens, depth, type and motion rules.
 
 When changing the primary mark, regenerate raster assets with:
 

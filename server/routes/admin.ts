@@ -22,8 +22,9 @@ import { RECORD_TABLE_NAMES } from '../services/records.ts';
 import { usageReport, pruneEvents, MIN_COHORT } from '../services/usage.ts';
 import { EVENTS } from '../services/telemetry.ts';
 import { parseRoster, planSync, applySync, divergence, rosterStats, isEdipi, SOURCED_FIELDS, type SyncPlan } from '../services/personnel.ts';
-import { listSchedules, saveSchedule, openHolds, placeHold, releaseHold, runDisposition, dispositionHistory, RETAINABLE_TYPES } from '../services/retention.ts';
+import { listSchedules, saveSchedule, openHolds, placeHold, releaseHold, runDisposition, dispositionHistory, RETAINABLE_TYPES, HOLDABLE_TYPES } from '../services/retention.ts';
 import { buildInventory, inventoryMarkdown } from '../services/privacyInventory.ts';
+import { verifyAllCases, anchorCaseHeads } from '../services/caseSeal.ts';
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireOperator, requireSudo);
@@ -173,6 +174,18 @@ adminRouter.get('/audit', wrap((req, res) => {
   res.json({ rows, chain: verifyAuditChain(req.ctx) });
 }));
 
+// Both tamper-evidence chains at once: the audit log, and every case history's seal.
+adminRouter.get('/integrity', wrap((req, res) => {
+  res.json({ audit: verifyAuditChain(req.ctx), cases: verifyAllCases(req.ctx) });
+}));
+
+// Writes the digest of every case head into the audit chain now, rather than waiting for the daily run.
+adminRouter.post('/integrity/anchor', wrap((req, res) => {
+  const anchored = anchorCaseHeads(req.ctx);
+  audit(req.ctx, { actor_id: req.user.id, action: 'case_history_anchor_requested', entity: 'work_event_heads', detail: `${anchored.cases} cases`, ip: clientIp(req) });
+  res.json(anchored);
+}));
+
 adminRouter.get('/backup', wrap(async (req, res) => {
   const ctx = req.ctx;
   if (ctx.db.name === ':memory:') throw badRequest('In-memory databases cannot be backed up.');
@@ -296,6 +309,7 @@ adminRouter.get('/retention', wrap((req, res) => {
   res.json({
     schedules: listSchedules(req.ctx),
     retainableTypes: RETAINABLE_TYPES,
+    holdableTypes: HOLDABLE_TYPES,
     holds: openHolds(req.ctx),
     history: dispositionHistory(req.ctx, 50),
   });

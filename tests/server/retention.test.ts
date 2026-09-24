@@ -3,6 +3,8 @@ import assert from 'node:assert/strict';
 import { startApp } from './helpers.ts';
 import { saveSchedule, placeHold, runDisposition, REDACTED } from '../../server/services/retention.ts';
 import { buildInventory, inventoryMarkdown, DECLARATIONS } from '../../server/services/privacyInventory.ts';
+import { purgeDeleted } from '../../server/services/records.ts';
+import { pruneSources } from '../../server/services/intake.ts';
 
 const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
 
@@ -187,5 +189,62 @@ test('every table the inventory declares still exists', async () => {
     for (const table of Object.keys(DECLARATIONS)) {
       assert.ok(live.has(table), `the inventory declares ${table}, which no longer exists`);
     }
+  } finally { await app.close(); }
+});
+
+/* F07: the recycle-bin purge and the source-byte pruning answer to the same holds as disposition. */
+
+const longAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
+
+test('the recycle-bin purge keeps what a hold covers, and leaves disposition evidence', async () => {
+  const { app, op } = await withOldRecords();
+  try {
+    app.ctx.db.prepare('UPDATE activities SET deleted_at = ?').run(longAgo(40));
+    const instance = placeHold(app.ctx, { scope: 'instance', reason: 'IG inquiry 2026-14' }, op.id);
+    const blocked = purgeDeleted(app.ctx);
+    assert.equal(blocked.blocked, true);
+    assert.equal(blocked.records, 0);
+    assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM activities').get() as { n: number }).n, 3, 'an instance hold stops the purge');
+    app.ctx.db.prepare('UPDATE legal_holds SET released_at = ?, released_by = ? WHERE id = ?').run(new Date().toISOString(), op.id, instance.id);
+
+    placeHold(app.ctx, { scope: 'record_type', record_type: 'activities', reason: 'Awards board review' }, op.id);
+    assert.equal(purgeDeleted(app.ctx).records, 0);
+    assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM activities').get() as { n: number }).n, 3, 'a record-type hold keeps that type');
+    app.ctx.db.prepare("UPDATE legal_holds SET released_at = ?, released_by = ? WHERE scope = 'record_type'").run(new Date().toISOString(), op.id);
+
+    placeHold(app.ctx, { scope: 'user', subject_id: op.id, reason: 'Personnel action' }, op.id);
+    const personHeld = purgeDeleted(app.ctx);
+    assert.equal(personHeld.records, 0, 'a person hold keeps that person’s rows');
+    assert.equal(personHeld.held, 3);
+    const evidence = app.ctx.db.prepare("SELECT record_type, held, acted, detail FROM disposition_runs WHERE detail LIKE 'recycle-bin purge%' OR record_type = '(recycle bin)'").all() as any[];
+    assert.ok(evidence.length >= 3, 'every held-back purge is recorded as disposition evidence');
+    assert.ok(evidence.every((r) => r.acted === 0));
+    app.ctx.db.prepare("UPDATE legal_holds SET released_at = ?, released_by = ? WHERE scope = 'user'").run(new Date().toISOString(), op.id);
+
+    const done = purgeDeleted(app.ctx);
+    assert.equal(done.records, 3, 'with every hold released, the purge proceeds');
+    const last = app.ctx.db.prepare("SELECT eligible, acted FROM disposition_runs WHERE record_type = 'activities' ORDER BY at DESC, rowid DESC LIMIT 1").get() as any;
+    assert.deepEqual({ ...last }, { eligible: 3, acted: 3 });
+  } finally { await app.close(); }
+});
+
+test('source bytes past the intake window are kept under a hold and released without one', async () => {
+  const app = await startApp({ VANTAGE_INTAKE_RETAIN_DAYS: '30' });
+  const op = await app.setupOperator();
+  try {
+    if (!app.ctx.config.intake.retainDays) app.ctx.config.intake.retainDays = 30;
+    const insert = app.ctx.db.prepare(`INSERT INTO source_files (id, user_id, unit_id, visibility, filename, content_type, kind, byte_size, sha256, scan_status, content, created_at) VALUES (?, ?, NULL, 'private', 'old.csv', 'text/csv', 'delimited', 3, 'x', 'clean', ?, ?)`);
+    insert.run('src-old', op.id, Buffer.from('a,b'), longAgo(60));
+    placeHold(app.ctx, { scope: 'record_type', record_type: 'work_items', reason: 'Audit of FY26 corrections' }, op.id);
+    assert.equal(pruneSources(app.ctx), 0);
+    assert.equal((app.ctx.db.prepare("SELECT byte_size FROM source_files WHERE id = 'src-old'").get() as any).byte_size, 3, 'a hold on imported work keeps its sources');
+    app.ctx.db.prepare('UPDATE legal_holds SET released_at = ?, released_by = ?').run(new Date().toISOString(), op.id);
+    placeHold(app.ctx, { scope: 'user', subject_id: op.id, reason: 'Personnel action' }, op.id);
+    assert.equal(pruneSources(app.ctx), 0, 'the uploader is under hold');
+    app.ctx.db.prepare('UPDATE legal_holds SET released_at = ?, released_by = ?').run(new Date().toISOString(), op.id);
+    assert.equal(pruneSources(app.ctx), 1);
+    const kinds = app.ctx.db.prepare("SELECT held, acted FROM disposition_runs WHERE record_type = 'source_files' ORDER BY rowid").all() as any[];
+    assert.deepEqual(kinds.map((k) => [k.held, k.acted]), [[1, 0], [1, 0], [0, 1]]);
+    assert.throws(() => placeHold(app.ctx, { scope: 'record_type', record_type: 'nonsense', reason: 'x' }, op.id), /cannot name/);
   } finally { await app.close(); }
 });

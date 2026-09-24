@@ -1,10 +1,11 @@
 /**
- * The walkthrough videos, and the single list both the public site and the in-app field guide read.
+ * The walkthrough films, and the single list both the public site and the in-app field guide read.
  *
- * Every entry is a placeholder until somebody sets `src`. That is deliberate and it is the whole
- * design of this file: the slots exist, they are named, they are laid out and they say plainly that
- * the recording is not made yet — so the page never shows an empty box, and nobody has to touch a
- * component to publish one. Drop the file in `public/videos/`, set `src`, and it plays.
+ * The slots are the library's plan: named, laid out, and honest that a film is not made yet, so the
+ * page never shows an empty box. A slot plays only once the film pipeline has published it: `npm run
+ * film` (film/README.md) records the real application in the synthetic demo, voices the script, scores
+ * and renders it, writes public/videos/films/<id>.{mp4,jpg,vtt}, and lists it in
+ * films.generated.json. Nothing is published while its narration is still an estimate.
  *
  * Two rules that matter more than they look:
  *
@@ -15,6 +16,8 @@
  *   2. `id` is the stable handle. It is what a deep link (`/help#video-quick-log`) and any future
  *      owner-console override key off, so renaming one breaks links — change `title` instead.
  */
+
+import films from './films.generated.json';
 
 export interface VideoSlot {
   /** Stable handle. Used in anchors and as the override key. Never rename casually. */
@@ -39,14 +42,10 @@ export interface VideoSlot {
 const VIDEO_SLOTS: VideoSlot[] = [
   {
     id: 'tour',
-    title: 'What Vantage is, start to finish',
-    description: 'Vantage end to end: what the dashboard reports, what a record holds, and what the same entries become in Reports.',
-    length: '34 sec',
+    title: 'Vantage, the film',
+    description: 'What Vantage keeps, and why: a sentence becomes a record, a case follows a cited procedure to a verified outcome, the history is sealed, the credit goes to whoever did the work, and the section lead sees it all at a glance.',
+    length: '90 sec',
     topic: 'getting-started',
-    src: '/videos/tour.webm',
-    poster: '/videos/tour.jpg',
-    captions: '/videos/tour.vtt',
-    published: '2026-09-15',
   },
   {
     id: 'first-week',
@@ -57,14 +56,10 @@ const VIDEO_SLOTS: VideoSlot[] = [
   },
   {
     id: 'quick-log',
-    title: 'Quick Log: writing a record in one sentence',
-    description: 'Type what you did in plain English. Vantage reads the date, the count, the value and the area out of the sentence, and shows you what it understood before it saves anything.',
-    length: '26 sec',
+    title: 'Quick Log: a record in one sentence',
+    description: 'Press N anywhere and write what you did the way you would say it. Vantage reads the count, the dollar value and its kind, the system and the date, shows you what it understood, and saves it to your record, even with no signal.',
+    length: '40 sec',
     topic: 'records',
-    src: '/videos/quick-log.webm',
-    poster: '/videos/quick-log.jpg',
-    captions: '/videos/quick-log.vtt',
-    published: '2026-09-15',
   },
   {
     id: 'visibility',
@@ -72,10 +67,6 @@ const VIDEO_SLOTS: VideoSlot[] = [
     description: 'Check the record audience, the intended unit, and the saved visibility setting.',
     length: '25 sec',
     topic: 'records',
-    src: '/videos/visibility.webm',
-    poster: '/videos/visibility.jpg',
-    captions: '/videos/visibility.vtt',
-    published: '2026-09-15',
   },
   {
     id: 'import',
@@ -86,21 +77,31 @@ const VIDEO_SLOTS: VideoSlot[] = [
   },
   {
     id: 'queue',
-    title: 'Working the queue',
-    description: 'Claim a row, work it, and record the outcome so it lands in your record once rather than being typed twice.',
-    length: '4 min',
+    title: 'Working a case',
+    description: 'Claim a case from the section’s queue, follow the procedure’s next step, record what you found, calculate the candidate from cited inputs, decide with a reason, and hand it on, with every entry signed into the history.',
+    length: '50 sec',
     topic: 'work',
   },
   {
+    id: 'reading-a-balance',
+    title: 'Reading a balance',
+    description: 'The FMRA desk reference inside Vantage. Enter a document’s commitment, obligation, delivered and paid figures, read the open condition, the causes to rule out and who can act, and open a case with the figures recorded as read.',
+    length: '40 sec',
+    topic: 'work',
+  },
+  {
+    id: 'record',
+    title: 'Your Record, and what counts',
+    description: 'What you hold, what you contributed and what you logged yourself, kept apart and counted honestly; and how a case you worked becomes a private draft built only from your own facts.',
+    length: '35 sec',
+    topic: 'records',
+  },
+  {
     id: 'report-studio',
-    title: 'Report Studio and where the facts come from',
-    description: 'Turning the record into a narrative and a bullet package, and why unlike units are never added together.',
-    length: '24 sec',
+    title: 'Report Studio',
+    description: 'Turn your record into JEPES or FITREP input: choose the period and the entries it cites, write against facts you can open and check, and save a revision locked to exactly what was reviewed.',
+    length: '25 sec',
     topic: 'reports',
-    src: '/videos/report-studio.webm',
-    poster: '/videos/report-studio.jpg',
-    captions: '/videos/report-studio.vtt',
-    published: '2026-09-15',
   },
   {
     id: 'analysis',
@@ -111,14 +112,10 @@ const VIDEO_SLOTS: VideoSlot[] = [
   },
   {
     id: 'unit-dashboard',
-    title: 'The unit picture for leaders',
-    description: 'What a section leader sees, built only from what people chose to share.',
-    length: '21 sec',
+    title: 'Leading a section',
+    description: 'Today as a section lead: what is unassigned, overdue, blocked and waiting, open balances by procedure, and the workload beside what each count can and cannot tell you.',
+    length: '30 sec',
     topic: 'team',
-    src: '/videos/unit-dashboard.webm',
-    poster: '/videos/unit-dashboard.jpg',
-    captions: '/videos/unit-dashboard.vtt',
-    published: '2026-09-15',
   },
   {
     id: 'counseling',
@@ -140,21 +137,18 @@ const VIDEO_SLOTS: VideoSlot[] = [
     description: 'Review retention scope, authority, holds, and a sample privacy inventory.',
     length: '27 sec',
     topic: 'admin',
-    src: '/videos/governance.webm',
-    poster: '/videos/governance.jpg',
-    captions: '/videos/governance.vtt',
-    published: '2026-09-15',
   },
 ];
 
-/** Video publishing is intentionally paused while the next capture set is rebuilt and verified. */
-export const VIDEOS: VideoSlot[] = VIDEO_SLOTS.map(slot => ({
-  ...slot,
-  src: undefined,
-  poster: undefined,
-  captions: undefined,
-  published: undefined,
-}));
+interface PublishedFilm { src: string; poster: string; captions: string; seconds: number; published: string }
+
+const length = (seconds: number) => (seconds < 60 ? `${seconds} sec` : `${Math.floor(seconds / 60)} min${seconds % 60 ? ` ${seconds % 60} sec` : ''}`);
+
+/** The slots, with a source only where the film pipeline has published a finished film. */
+export const VIDEOS: VideoSlot[] = VIDEO_SLOTS.map((slot) => {
+  const film = (films as Record<string, PublishedFilm>)[slot.id];
+  return film ? { ...slot, src: film.src, poster: film.poster, captions: film.captions, published: film.published, length: length(film.seconds) } : slot;
+});
 
 export const TOPIC_LABELS: Record<VideoSlot['topic'], string> = {
   'getting-started': 'Getting started',

@@ -4,11 +4,12 @@
 
 Vantage is a Marine Corps work, accountability, performance-record and career-development platform. A Marine claims work, researches and completes it, and keeps an attributed record of their part without retyping it. A leader sees workload, waiting and blockers without a roll call. The same Marine logs what happens outside a tasker, keeps goals, plans their career, and builds supported JEPES or FITREP input.
 
-Five destinations: **Today · Work · Record · Goals · Career**. Team appears for people who lead a unit.
+Five destinations: **Today · Work · Record · Goals · Career**, the **Reference**, and Team for people who lead a unit.
 
 - **Today**: your work with its next step, what is waiting on someone else, what is open to claim, what changed, quick capture, and your goals and next career step. Leaders see their section first: unassigned, overdue, blocked and waiting work, and who holds what.
 - **Work**: the queue of tasker items (open work, open to claim, mine), taskers and projects, tasks, and correspondence. Each item has its own page with an append-only history. Every claim, handoff, stage, wait, observation, decision, submission, funds check and verification is attributed and dated.
-- **2-Way UMT procedure** (first financial workflow, labelled an unvalidated SME walkthrough): research steps, a candidate calculation in exact cents citing every input, an explicit analyst decision, and controls that refuse submission after a failed or inconclusive funds check. Resolution waits on a verified condition.
+- **FMRA procedures**: the 2-Way UMT (v0.2.0, an unvalidated SME walkthrough) plus eight procedures from the FMRAC training reference (OCMT, UDOU, DOU, OTO, the four-stage UMT, invoice holds, feeder rejects, interface errors), each pinned per case, with cited steps, conditional branches, evidence gates shown before they refuse, calculations in exact cents that go stale when an input is corrected, and resolution only on a verified outcome.
+- **Reference**: the FMRA desk reference inside the app (lifecycle, purchase methods and their supporting documents, normal and abnormal conditions, roles and separation of duties, data elements, glossary, limits), every statement cited and labelled source, editorial or discrepancy, and a balance **diagnoser** that reads commitment, obligation, delivered and paid in the reference's order and opens a case with the figures already recorded.
 - **Record**: assigned work (claiming is not credit), contributions counted from the work's own history (one document counts once), your own entries, and private accomplishment drafts built only from your own cited facts.
 - **Goals** and **Career**: measurable goals; a private plan with next steps that record where their guidance came from and whether anyone checked it; training, awards, counseling and readiness.
 - **Team → Workload**: section totals and per-person counts beside definitions and stated limits. People are never labelled.
@@ -48,9 +49,9 @@ Nothing from the earlier product was removed. It moved: activities are under Rec
 - **Team.** Roster, unit dashboard built from shared entries only, roles with per-unit permissions, invitations by link or email, access log.
 - **CAC / PIV sign-in.** Optional certificate sign-in in either a direct-mTLS or behind-a-gateway shape, binding on the EDIPI alone and counting as both factors. Off by default; proxy mode refuses to start without a shared secret, because a forged header would otherwise be a sign-in as anybody. See `docs/cac-and-records.md`.
 - **Authoritative personnel.** A roster extract from an upstream personnel system becomes the source for rank, unit, MOS and EAS; those fields stop being self-editable, every change is audited field by field, a sync never deletes anybody, and an extract that would separate a large share of the roster stops and asks.
-- **Records management.** Retention schedules with their citation, legal holds that suspend disposition and always win, previews before anything acts, and an audited log of every run. Nothing disposes until somebody enables it.
-- **Privacy inventory.** A PIA data inventory generated from the live schema, so it cannot quietly stop being true; unclassified and stale columns are reported as the gaps they are.
-- **Security.** 15-character minimum passwords (scrypt), passkeys (WebAuthn), TOTP with recovery codes, step-up confirmation for sensitive settings, device session list, CSRF and rate limiting, HMAC-chained audit log. Private records are never readable by leaders or the owner through the app.
+- **Records management.** Retention schedules with their citation, legal holds that suspend every deletion path (scheduled disposition, the recycle-bin purge and source-file pruning alike) and always win, previews before anything acts, and disposition evidence for every run. Nothing disposes until somebody enables it.
+- **Privacy inventory.** A PIA data inventory generated from the live schema, with every table declared, so it cannot quietly stop being true; unclassified and stale columns are reported as the gaps they are.
+- **Security.** 15-character minimum passwords (scrypt), passkeys (WebAuthn), TOTP with recovery codes, step-up confirmation for sensitive settings, device session list, CSRF and rate limiting, HMAC-chained audit log, and a signed hash chain over every case history. Access to a unit's work follows current membership only. Private records are never readable by leaders or the owner through the app.
 - **Owner console.** Instance settings, AI model allowlist, accounts, units, audit chain check, SQLite backup download, and a JSON export/import that moves the whole instance to any host.
 
 ## Run it locally
@@ -107,6 +108,7 @@ Everything is an environment variable. `.env.example` lists them with defaults. 
 | `VANTAGE_ACCESS_MODE` | `accounts` (default) or `demo` (synthetic, no sign-in; never in production) |
 | `VANTAGE_DEMO_TTL_HOURS`, `VANTAGE_DEMO_MAX_WORKSPACES` | How long a demo workspace lasts, and how many may exist at once |
 | `VANTAGE_MARADMIN_ENABLED` | The MARADMIN feed from marines.mil. Off by default: it is the only outbound request |
+| `VANTAGE_M365_CLIENT_ID`, `VANTAGE_M365_CLIENT_SECRET`, `VANTAGE_M365_TENANT` | Microsoft Entra application for read-only mailbox sign-in (off until set). See `docs/deploy-render.md` |
 
 ## Status
 

@@ -133,9 +133,9 @@ orgRouter.delete('/units/:unitId/members/:userId', wrap((req, res) => {
   if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot remove members from that unit.');
   if (isUnitOwner(ctx, userId, unitId)) throw badRequest('That Marine leads this unit. Transfer ownership first.', { code: 'last_owner' });
   if (userId !== req.user.id && !isUnitOwner(ctx, req.user.id, unitId) && positionIn(scopeFor(ctx, { id: userId }), unitId) >= positionIn(scope, unitId)) throw forbidden('You cannot remove a Marine whose role is at or above your own.', 'hierarchy');
-  const removed = removeMember(ctx, userId, unitId);
+  const removed = removeMember(ctx, userId, unitId, req.user.id);
   const revoked = invalidateUserSessions(ctx, userId);
-  audit(ctx, { actor_id: req.user.id, action: 'remove_member', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, detail: `roles: ${removed.roles}; records frozen: ${removed.recordsFrozen}; sessions revoked: ${revoked}`, ip: clientIp(req) });
+  audit(ctx, { actor_id: req.user.id, action: 'remove_member', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, detail: `roles: ${removed.roles}; records frozen: ${removed.recordsFrozen}; work released: ${removed.claimsReleased}; sessions revoked: ${revoked}`, ip: clientIp(req) });
   res.json({ ok: true, ...removed, sessionsRevoked: revoked });
 }));
 

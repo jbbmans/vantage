@@ -1,6 +1,8 @@
 # Render Blueprint for Vantage. One Starter web service with a persistent disk; nothing else to pay for.
-# Auto-deploys every push to main. First deploy: open the site, enter the setup token from the
-# service's environment, create the owner account. See docs/deploy-render.md.
+# Deploys a push to main only once its GitHub checks pass: lint, typecheck, server tests, build,
+# browser tests and the Docker build (.github/workflows/ci.yml). A red commit is never released.
+# First deploy: open the site, enter the setup token from the service's environment, create the
+# owner account. See docs/deploy-render.md.
 services:
   - type: web
     name: vantage
@@ -8,7 +10,8 @@ services:
     plan: starter
     region: ohio
     branch: main
-    autoDeploy: true
+    # Not `autoDeploy: true`, which releases every commit whatever CI says about it (F15).
+    autoDeployTrigger: checksPass
     healthCheckPath: /api/health
     dockerfilePath: ./Dockerfile
     disk:
@@ -55,3 +58,13 @@ services:
         value: https://api.genai.mil/v1
       - key: VANTAGE_GENAI_MODELS
         value: gemini-2.5-flash,gemini-2.5-pro
+      # Microsoft 365 mailbox sign-in (optional). Register a web application in Microsoft Entra with
+      # the redirect URI https://vantageusmc.com/api/correspondence/connectors/callback and the
+      # delegated permissions User.Read, Mail.Read and offline_access; then set these in the
+      # dashboard. Until they are set, Correspondence says mailbox sign-in is not configured.
+      - key: VANTAGE_M365_CLIENT_ID
+        sync: false
+      - key: VANTAGE_M365_CLIENT_SECRET
+        sync: false
+      - key: VANTAGE_M365_TENANT
+        value: organizations

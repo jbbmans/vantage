@@ -9,6 +9,7 @@ import { useCareer, caseKeys } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { CAREER_CATEGORIES, CAREER_CATEGORY_LABEL, CAREER_STATUSES } from '../../shared/record';
 import { humanize } from '@/lib/utils';
+import { QueryFailure } from '@/components/QueryFailure';
 
 /**
  * Where a Marine stands and what they are doing next, in their own words.
@@ -30,6 +31,8 @@ export default function CareerPlan() {
   const refresh = () => qc.invalidateQueries({ queryKey: caseKeys.career });
 
   if (career.isPending) return <div className="grid gap-4 lg:grid-cols-3"><Skeleton className="h-48" /><Skeleton className="h-48 lg:col-span-2" /></div>;
+  // A failed read is said as such, never dereferenced as if it were a plan (F11).
+  if (career.isError || !career.data) return <QueryFailure error={career.error} what="Your career plan" onRetry={() => career.refetch()} />;
   const data = career.data;
   const p = data.profile;
   const open = data.steps.filter((s: any) => s.status === 'planned' || s.status === 'in_progress');

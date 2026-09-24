@@ -8,9 +8,14 @@ import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/err
 import { newId, now } from '../lib/ids.ts';
 import { readWorkbook, readDelimited, sniffDelimiter, WorkbookError } from '../lib/workbook.ts';
 import { ZipError } from '../lib/zip.ts';
-import { appendEvent } from './cases.ts';
+import { appendEvent, applyProcedure, caseEventsOf, eventsFor, procedureOf, seedBody, type Seed } from './cases.ts';
 import { STATE_TO_STAGE } from '../../shared/caseModel.ts';
+import { PROCEDURES, fieldsOf, standing, suggestProcedure } from '../../shared/procedures.ts';
+import { diagnose } from '../../shared/fmra/diagnose.ts';
+import { parseMoney } from '../../shared/money.ts';
+import { METHOD_KEYS, METHODS, type MethodKey } from '../../shared/fmra/methods.ts';
 import type { Scanner } from './scanner.ts';
+import { heldUsersClause, holdState, recordDispositionRun } from './holds.ts';
 
 /**
  * Bringing a spreadsheet of work into Vantage.
@@ -100,14 +105,32 @@ export function assertCapacity(ctx: AppContext, userId: string, incoming: number
  * Drops the bytes of sources past the retention window, keeping the row so the work they produced
  * still says where it came from. A workbook is evidence for as long as the policy says, not forever.
  */
+/**
+ * Releases the bytes of uploaded workbooks past the intake retention window. The row, its hash and
+ * everything imported from it stay; only the file's content goes. Held sources are kept (F07): an
+ * instance hold stops the run, a hold on source files or on imported work keeps them all, and a
+ * hold on a person keeps the files they uploaded.
+ */
 export function pruneSources(ctx: AppContext): number {
   const days = ctx.config.intake.retainDays;
   if (!days) return 0;
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+  const holds = holdState(ctx);
+  const due = (ctx.db.prepare('SELECT COUNT(*) AS n FROM source_files WHERE created_at < ? AND byte_size > 0').get(cutoff) as { n: number }).n;
+  if (!due) return 0;
+  const typeHeld = holds.types.has('source_files') || holds.types.has('work_items');
+  if (holds.instance || typeHeld) {
+    recordDispositionRun(ctx, { actorId: null, recordType: 'source_files', disposition: 'destroy', eligible: 0, acted: 0, held: due, detail: holds.instance ? 'source bytes kept: an instance-wide legal hold is open' : 'source bytes kept: a hold covers imported work' });
+    return 0;
+  }
+  const users = heldUsersClause(holds);
+  const held = users.params.length ? (ctx.db.prepare(`SELECT COUNT(*) AS n FROM source_files WHERE created_at < ? AND byte_size > 0${users.onlySql}`).get(cutoff, ...users.params) as { n: number }).n : 0;
   const result = ctx.db.prepare(
-    "UPDATE source_files SET content = zeroblob(0), byte_size = 0, deleted_at = COALESCE(deleted_at, ?), notes = COALESCE(notes, '') || ' Bytes released after the retention window.' WHERE created_at < ? AND byte_size > 0"
-  ).run(now(), cutoff);
-  return Number(result.changes || 0);
+    `UPDATE source_files SET content = zeroblob(0), byte_size = 0, deleted_at = COALESCE(deleted_at, ?), notes = COALESCE(notes, '') || ' Bytes released after the retention window.' WHERE created_at < ? AND byte_size > 0${users.sql}`
+  ).run(now(), cutoff, ...users.params);
+  const acted = Number(result.changes || 0);
+  recordDispositionRun(ctx, { actorId: null, recordType: 'source_files', disposition: 'destroy', eligible: due - held, acted, held, detail: `source bytes released after ${days} days; rows, hashes and imported work kept` });
+  return acted;
 }
 
 export async function uploadSource(
@@ -216,8 +239,19 @@ function sheetRows(ctx: AppContext, row: SourceFileRow, sheetName: string): stri
 }
 
 /** The fields an imported row can fill. Everything else is kept verbatim under `data`. */
-export const MAPPABLE_FIELDS = ['title', 'reference', 'due_date', 'amount', 'amount_type', 'quantity', 'unit_label', 'state'] as const;
+export const MAPPABLE_FIELDS = [
+  'title', 'reference', 'due_date', 'amount', 'amount_type', 'quantity', 'unit_label', 'state',
+  // Financial facts a report export carries. They stay in the row's source data verbatim, and seed
+  // the case as source-file observations when a procedure is applied.
+  'commitment', 'obligation', 'delivered', 'paid', 'purchase_method', 'error_text',
+] as const;
 export type MappableField = (typeof MAPPABLE_FIELDS)[number];
+
+/** Which procedure field each financial column seeds. */
+export const SEED_FIELDS: Partial<Record<MappableField, string>> = {
+  commitment: 'commitment_amount', obligation: 'obligation_amount', delivered: 'delivered_amount', paid: 'paid_amount',
+  purchase_method: 'purchase_method', error_text: 'error_text',
+};
 
 export interface Mapping { [column: string]: MappableField | 'ignore' | 'keep' }
 
@@ -229,6 +263,11 @@ export interface ImportPlan {
   mapping: Mapping;
   visibility: 'private' | 'unit';
   unit_id: string | null;
+  /**
+   * The procedure new rows are put under: one by key, 'auto' to choose per row from the figures
+   * and the text, or none. Applying a procedure is attributed to the person running the import.
+   */
+  procedure?: string | null;
 }
 
 export interface NormalizedRow {
@@ -379,7 +418,9 @@ export interface PreviewResult {
   sheet_name: string;
   total_rows: number;
   will_insert: NormalizedRow[];
-  will_update: Array<NormalizedRow & { existing_id: string; claimed_by: string | null; changes: string[] }>;
+  will_update: Array<NormalizedRow & { existing_id: string; claimed_by: string | null; changes: string[]; revisions: Array<{ field: string; from: string | null; to: string | null }> }>;
+  /** What applying the chosen procedure would do to the new rows, when one is chosen. */
+  procedures?: Record<string, number>;
   unchanged: number;
   rejections: Rejection[];
   notes: string[];
@@ -405,11 +446,11 @@ export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, 
   // of that, two people importing the same identifier overwrite each other's work.
   const existing = plan.visibility === 'private'
     ? ctx.db.prepare(
-      `SELECT id, natural_key, row_hash, title, reference, due_date, amount, amount_type, quantity, unit_label, state, claimed_by
+      `SELECT id, natural_key, row_hash, title, reference, due_date, amount, amount_type, quantity, unit_label, state, claimed_by, data
          FROM work_items WHERE owner_id = ? AND visibility = 'private' AND unit_id IS ? AND deleted_at IS NULL`
     ).all(user.id, plan.unit_id) as Array<Record<string, unknown>>
     : ctx.db.prepare(
-      `SELECT id, natural_key, row_hash, title, reference, due_date, amount, amount_type, quantity, unit_label, state, claimed_by
+      `SELECT id, natural_key, row_hash, title, reference, due_date, amount, amount_type, quantity, unit_label, state, claimed_by, data
          FROM work_items WHERE unit_id IS ? AND visibility = 'unit' AND deleted_at IS NULL`
     ).all(plan.unit_id) as Array<Record<string, unknown>>;
   const byKey = new Map(existing.map((e) => [String(e.natural_key), e]));
@@ -423,13 +464,24 @@ export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, 
     if (!match) { willInsert.push(row); continue; }
     if (match.row_hash === row.row_hash) { unchanged += 1; continue; }
     const changes = CHANGE_FIELDS.filter((f) => String(match[f] ?? '') !== String(row[f] ?? ''));
-    willUpdate.push({ ...row, existing_id: String(match.id), claimed_by: (match.claimed_by as string | null) ?? null, changes });
+    // Every column that changed, with what it said before and what it says now, so the case history
+    // can say exactly how the source moved under the work.
+    const before = JSON.parse(String(match.data || '{}')) as Record<string, string>;
+    const revisions: Array<{ field: string; from: string | null; to: string | null }> = changes.map((f) => ({ field: f, from: match[f] == null ? null : String(match[f]), to: row[f] == null ? null : String(row[f]) }));
+    for (const key of new Set([...Object.keys(before), ...Object.keys(row.data)])) {
+      if ((before[key] ?? null) !== (row.data[key] ?? null)) revisions.push({ field: key, from: before[key] ?? null, to: row.data[key] ?? null });
+    }
+    willUpdate.push({ ...row, existing_id: String(match.id), claimed_by: (match.claimed_by as string | null) ?? null, changes, revisions: revisions.slice(0, 60) });
   }
+
+  const procedures: Record<string, number> = {};
+  if (plan.procedure) for (const row of willInsert) { const key = procedureForRow(row, plan) || 'none'; procedures[key] = (procedures[key] || 0) + 1; }
 
   return {
     headers, sheet_name: plan.sheet_name, total_rows: rows.length,
     will_insert: willInsert, will_update: willUpdate, unchanged, rejections,
     notes: JSON.parse(source.notes || '[]'),
+    ...(plan.procedure ? { procedures } : {}),
   };
 }
 
@@ -488,6 +540,7 @@ export function runImport(
       WHERE id = ? AND deleted_at IS NULL AND unit_id IS ? AND visibility = ? AND (visibility = 'unit' OR owner_id = ?)`
   );
 
+  let applied = 0;
   try {
     ctx.db.transaction(() => {
       for (const row of preview.will_insert) {
@@ -496,14 +549,17 @@ export function runImport(
           row.title, row.reference, row.due_date, row.amount, row.amount_type, row.quantity, row.unit_label, row.state, JSON.stringify(row.data), at, at);
         setStage.run(STATE_TO_STAGE[row.state] || 'not_started', itemId);
         appendEvent(ctx, { item: { id: itemId, unit_id: plan.unit_id }, actorId: user.id, kind: 'created', body: { origin: 'import', import_job_id: jobId, source_row: row.source_row } });
+        const key = plan.procedure ? procedureForRow(row, plan) : null;
+        if (key) { applyProcedure(ctx, user, scope, itemId, key, seedsForRow(row, plan), { audit: false }); applied += 1; }
       }
       for (const row of preview.will_update) {
         // A person's own state and claim survive a reimport. The source describes the work, not who is doing it.
         // The same predicate the match was made under, restated at the write. A row that moved between
         // the preview and the commit is simply not updated rather than updated by the wrong person.
-        update.run(row.row_hash, row.source_row, row.title, row.reference, row.due_date, row.amount, row.amount_type,
+        const changed = update.run(row.row_hash, row.source_row, row.title, row.reference, row.due_date, row.amount, row.amount_type,
           row.quantity, row.unit_label, JSON.stringify(row.data), jobId, sourceId, at, at, row.existing_id,
-          plan.unit_id, plan.visibility, user.id);
+          plan.unit_id, plan.visibility, user.id).changes;
+        if (changed) reviseCase(ctx, user, row, plan, jobId);
       }
       ctx.db.prepare(
         `UPDATE import_jobs SET status = 'completed', processed_rows = ?, inserted_rows = ?, updated_rows = ?, unchanged_rows = ?, rejected_rows = ?, finished_at = ?, updated_at = ? WHERE id = ?`
@@ -523,7 +579,85 @@ export function runImport(
     // An import that changed nothing is the same spreadsheet again, which is worth telling apart.
     reimport: preview.will_insert.length === 0 && preview.total_rows > 0,
   }, { id: user.id });
-  return ctx.db.prepare('SELECT * FROM import_jobs WHERE id = ?').get(jobId) as ImportJobRow;
+  const job = ctx.db.prepare('SELECT * FROM import_jobs WHERE id = ?').get(jobId) as ImportJobRow;
+  return { ...job, procedures_applied: applied } as ImportJobRow;
+}
+
+/* ── Procedures at import ─────────────────────────────────────────────────────────────────── */
+
+const columnFor = (plan: ImportPlan, target: MappableField) => Object.entries(plan.mapping).find(([, t]) => t === target)?.[0] || null;
+const valueFor = (row: NormalizedRow, plan: ImportPlan, target: MappableField) => { const col = columnFor(plan, target); return col ? row.data[col] ?? null : null; };
+
+const methodKey = (text: string | null): MethodKey | null => {
+  const t = String(text || '').trim().toLowerCase();
+  if (!t) return null;
+  if ((METHOD_KEYS as readonly string[]).includes(t)) return t as MethodKey;
+  const hit = METHOD_KEYS.find((k) => METHODS[k].short.toLowerCase() === t || METHODS[k].name.toLowerCase() === t || (k === 'tdy' && /dts|travel|tdy/.test(t)) || (k === 'gcss' && /gcss/.test(t)) || (k === 'servmart' && /servmart/.test(t)));
+  return hit || null;
+};
+
+const centsOrNull = (text: string | null) => {
+  const t = String(text ?? '').trim();
+  if (!t || /^[-–—]$/.test(t)) return null;
+  const parsed = parseMoney(t);
+  return parsed.ok ? parsed.cents : null;
+};
+
+/** The procedure a new row goes under: the one chosen, or — for 'auto' — the one its figures or text point at. */
+export function procedureForRow(row: NormalizedRow, plan: ImportPlan): string | null {
+  if (!plan.procedure) return null;
+  if (plan.procedure !== 'auto') return PROCEDURES[plan.procedure] ? plan.procedure : null;
+  const figures = (['commitment', 'obligation', 'delivered', 'paid'] as const).map((t) => centsOrNull(valueFor(row, plan, t)));
+  if (figures.some((v) => v != null)) {
+    const d = diagnose({ method: methodKey(valueFor(row, plan, 'purchase_method')), commitment: figures[0], obligation: figures[1], delivered: figures[2], paid: figures[3] });
+    if (d.ok && d.procedure) return d.procedure;
+  }
+  return suggestProcedure(row.title, valueFor(row, plan, 'error_text'))?.key || null;
+}
+
+/** The mapped financial columns of a row, as seeds for the case's first observations. */
+export function seedsForRow(row: NormalizedRow, plan: ImportPlan): Seed[] {
+  const seeds: Seed[] = [];
+  for (const [target, field] of Object.entries(SEED_FIELDS) as Array<[MappableField, string]>) {
+    const col = columnFor(plan, target);
+    if (!col) continue;
+    const raw = row.data[col] ?? '';
+    if (target === 'purchase_method') { const m = methodKey(raw); if (m) seeds.push({ field, value_text: m }); continue; }
+    if (target === 'error_text') { if (raw.trim()) seeds.push({ field, value_text: raw }); continue; }
+    seeds.push({ field, amount: raw, not_shown: !raw.trim() || /^[-–—]$/.test(raw.trim()) });
+  }
+  if (row.amount != null) seeds.push({ field: 'hold_amount', amount: String(row.amount) });
+  return seeds;
+}
+
+/**
+ * The source changed under an existing case. The change goes into the case's history as its own
+ * attributed event, and a value that was seeded from the source is superseded by what the source
+ * says now — so a calculation built on the old value shows as stale. What people recorded
+ * themselves is never touched: a revised sheet is a reason to re-check research, not to rewrite it.
+ */
+function reviseCase(ctx: AppContext, user: SessionUser, row: NormalizedRow & { existing_id: string; revisions: Array<{ field: string; from: string | null; to: string | null }> }, plan: ImportPlan, jobId: string) {
+  const item = ctx.db.prepare('SELECT * FROM work_items WHERE id = ?').get(row.existing_id) as Parameters<typeof procedureOf>[0] & { id: string; unit_id: string | null; source_file_id: string | null; amount: number | null };
+  if (!row.revisions.length) return;
+  appendEvent(ctx, { item, actorId: user.id, kind: 'source_revised', body: { import_job_id: jobId, source_row: row.source_row, changes: row.revisions } });
+  const procedure = procedureOf(item).procedure;
+  if (!procedure) return;
+  const events = standing(caseEventsOf(eventsFor(ctx, item.id)));
+  const fields = fieldsOf(procedure);
+  const seeds = seedsForRow(row, plan);
+  const amountField = fields.find((f) => f.key === 'umt_amount' || f.key === 'hold_amount');
+  if (amountField && row.amount != null && !seeds.some((sd) => sd.field === amountField.key)) seeds.push({ field: amountField.key, amount: String(row.amount) });
+  for (const seed of seeds) {
+    const field = fields.find((f) => f.key === seed.field);
+    const step = procedure.steps.find((st) => st.fields?.some((f) => f.key === seed.field));
+    if (!field || !step) continue;
+    const prior = events.filter((e) => e.kind === 'observation' && e.body.field === seed.field && e.body.source === 'source_file').at(-1);
+    const next = seedBody(field, seed, true);
+    if (!next) continue;
+    const same = prior && (prior.body.amount_cents ?? null) === (next.amount_cents ?? null) && (prior.body.value_text ?? null) === (next.value_text ?? null) && Boolean(prior.body.not_shown) === Boolean(next.not_shown);
+    if (same) continue;
+    appendEvent(ctx, { item, actorId: null, kind: 'observation', step: step.key, body: { ...next, revised_by_import: jobId }, supersedesId: prior?.id ?? null });
+  }
 }
 
 /** Jobs left running by a restart are marked failed on boot, so no job sits pending forever. */

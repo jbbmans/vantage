@@ -179,6 +179,7 @@ export function RetentionConsole() {
   if (data.error) return <div className="card"><EmptyState icon={ShieldAlert} title="Could not load retention" description={api.errorText(data.error)} /></div>;
 
   const { schedules, retainableTypes, holds, history } = data.data;
+  const holdableTypes: string[] = data.data.holdableTypes || retainableTypes;
   const byType = new Map(schedules.map((s: any) => [s.record_type, s]));
   const pendingCount: number = (preview?.lines || []).reduce((n: number, l: any) => n + (l.disposition === 'review' ? 0 : l.eligible), 0);
   const wouldAct = Boolean(preview) && !preview.blocked && pendingCount > 0;
@@ -309,7 +310,7 @@ export function RetentionConsole() {
                   options={[{ value: 'instance', label: 'Everything on this instance' }, { value: 'record_type', label: 'One kind of record' }, { value: 'user', label: 'One person' }]} />
               </Field>
               {holdDraft.scope === 'record_type' && (
-                <Field label="Record type"><Select value={holdDraft.record_type} onValueChange={(v) => setHoldDraft({ ...holdDraft, record_type: v })} options={retainableTypes.map((t: string) => ({ value: t, label: humanize(t) }))} /></Field>
+                <Field label="Record type"><Select value={holdDraft.record_type} onValueChange={(v) => setHoldDraft({ ...holdDraft, record_type: v })} options={holdableTypes.map((t: string) => ({ value: t, label: humanize(t) }))} /></Field>
               )}
               {holdDraft.scope === 'user' && <Field label="Account id" hint="from the Accounts tab"><Input value={holdDraft.subject_id} onChange={(e) => setHoldDraft({ ...holdDraft, subject_id: e.target.value })} /></Field>}
               <Field label="Reason" required><Textarea rows={2} value={holdDraft.reason} onChange={(e) => setHoldDraft({ ...holdDraft, reason: e.target.value })} placeholder="IG inquiry 2026-14" /></Field>

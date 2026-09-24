@@ -279,7 +279,7 @@ test('syncing an unauthorized mailbox says so rather than reporting an empty inb
   const res = await app.call('POST', `/api/correspondence/connectors/${connector.id}/sync`, { token: op.token, body: {} });
   assert.equal(res.status, 409);
   assert.equal(res.body.code, 'connector_not_authorized');
-  assert.match(res.body.error, /no token for it/i);
+  assert.match(res.body.error, /no sign-in for it/i);
 });
 
 test('a sync threads on provider ids, imports each message once, and resumes where it stopped', async () => {

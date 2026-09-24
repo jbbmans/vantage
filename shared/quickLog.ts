@@ -91,7 +91,8 @@ export function parseQuickLog(text = '', now = new Date()): ParsedQuickLog {
     if (!byUnit[k] || q.value > byUnit[k].value) byUnit[k] = q;
   }
   const deduped = Object.values(byUnit);
-  if (deduped.length) inferred.push(`${deduped.length} quantit${deduped.length === 1 ? 'y' : 'ies'}`);
+  if (deduped.length === 1) inferred.push(`${deduped[0].value.toLocaleString('en-US')} ${deduped[0].unit}`);
+  else if (deduped.length > 1) inferred.push(`${deduped.length} quantities`);
 
   const system = SYSTEMS.find((s) => new RegExp(`\\b${s.replace(/[-/]/g, '[-/]')}\\b`, 'i').test(raw)) || null;
   if (system) inferred.push(`system: ${system}`);

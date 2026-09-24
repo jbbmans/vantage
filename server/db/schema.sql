@@ -722,6 +722,18 @@ CREATE TABLE IF NOT EXISTS connectors (
 );
 CREATE INDEX IF NOT EXISTS idx_connectors_user ON connectors(user_id, provider);
 
+-- One pending mailbox sign-in. The state value itself is never stored, only its hash; the PKCE
+-- verifier is encrypted. Single use, ten minutes, and bound to the person who started it.
+CREATE TABLE IF NOT EXISTS connector_auth_states (
+  state_hash    TEXT PRIMARY KEY,
+  connector_id  TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  verifier_enc  TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  expires_at    TEXT NOT NULL,
+  used_at       TEXT
+);
+
 -- Product analytics ----------------------------------------------------
 -- What people did with Vantage, in a shape that can be counted. This table holds names and numbers
 -- only. It never holds draft text, workbook cells, email bodies, keystrokes, or anything a person
@@ -984,6 +996,8 @@ CREATE TABLE IF NOT EXISTS work_events (
 CREATE INDEX IF NOT EXISTS idx_work_events_item ON work_events(work_item_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_work_events_actor ON work_events(actor_id, kind, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_work_events_unit ON work_events(unit_id, kind, occurred_at);
+-- Corrections are found by what they supersede; counting only standing entries asks this constantly.
+CREATE INDEX IF NOT EXISTS idx_work_events_supersedes ON work_events(supersedes_id) WHERE supersedes_id IS NOT NULL;
 CREATE TRIGGER IF NOT EXISTS work_events_append_only_update
 BEFORE UPDATE ON work_events
 BEGIN
@@ -998,6 +1012,38 @@ FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'),
 BEGIN
   SELECT RAISE(ABORT, 'work_events is append-only; record a correction instead');
 END;
+
+-- Each case event sealed into its work item's own HMAC chain. The events are append-only by
+-- trigger; the seal is what makes a changed body, a deleted entry or an inserted one detectable,
+-- even to someone who can write to the database file but does not hold the server secret.
+CREATE TABLE IF NOT EXISTS work_event_seals (
+  event_id      TEXT PRIMARY KEY REFERENCES work_events(id),
+  work_item_id  TEXT NOT NULL REFERENCES work_items(id),
+  seq           INTEGER NOT NULL,
+  prev_hash     TEXT,
+  entry_hash    TEXT NOT NULL,
+  sealed_at     TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_event_seals_item ON work_event_seals(work_item_id, seq);
+CREATE TRIGGER IF NOT EXISTS work_event_seals_append_only_update
+BEFORE UPDATE ON work_event_seals
+BEGIN
+  SELECT RAISE(ABORT, 'work_event_seals is append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS work_event_seals_append_only_delete
+BEFORE DELETE ON work_event_seals
+FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1'
+BEGIN
+  SELECT RAISE(ABORT, 'work_event_seals is append-only');
+END;
+-- The signed head of each case's chain: its last hash and how many events it covers.
+CREATE TABLE IF NOT EXISTS work_event_heads (
+  work_item_id  TEXT PRIMARY KEY REFERENCES work_items(id),
+  hash          TEXT NOT NULL,
+  count         INTEGER NOT NULL,
+  mac           TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
 
 -- A private accomplishment draft a Marine prepares from their own recorded work. Owner-only, always:
 -- no leader, reviewer or operator path reads it. Facts are cited to the events they came from and

@@ -1,4 +1,5 @@
-import { useMemo, useRef, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   Mail, MailPlus, Paperclip, Plug, Send, Upload, UserRound, ShieldAlert, Link2, ImageOff, Clock,
@@ -496,31 +497,68 @@ function Message({ message }: { message: Record<string, any> }) {
   );
 }
 
+const MAILBOX_RETURN: Record<string, string> = {
+  signed_out: 'Your Vantage session ended during the Microsoft sign-in. Sign in again and authorize the mailbox again.',
+  authorization_state_invalid: 'That Microsoft sign-in was not one you started, or it expired. Start it again from here.',
+  authorization_wrong_account: 'You signed in to Microsoft as a different account than this mailbox. Nothing was connected.',
+  authorization_too_broad: 'Microsoft granted more than read access, so Vantage refused it. Nothing was stored.',
+  authorization_declined: 'The sign-in was declined at Microsoft. Nothing was connected.',
+};
+
+const CONNECTOR_STATE: Record<string, { label: string; tone: Tone }> = {
+  connected: { label: 'Connected', tone: 'good' },
+  needs_authorization: { label: 'Needs authorization', tone: 'warn' },
+  error: { label: 'Sync failed', tone: 'bad' },
+  disconnected: { label: 'Disconnected', tone: 'neutral' },
+};
+
 function Mailboxes() {
   const toast = useToast();
   const qc = useQueryClient();
   const connectors = useConnectors();
+  const [params, setParams] = useSearchParams();
   const [cloud, setCloud] = useState('usgov');
   const [label, setLabel] = useState('');
-  const [busy, setBusy] = useState(false);
+  const [busy, setBusy] = useState<string | null>(null);
   const [plan, setPlan] = useState<{ id: string; plan: Record<string, any> } | null>(null);
+  const available = connectors.data?.availability?.available !== false;
+  const refresh = () => qc.invalidateQueries({ queryKey: correspondenceKeys.connectors });
+
+  // Coming back from Microsoft: say what happened once, then take it out of the address.
+  useEffect(() => {
+    const outcome = params.get('mailbox');
+    if (!outcome) return;
+    const reason = params.get('reason') || '';
+    if (outcome === 'connected') toast.success('Mailbox connected, read-only. Sync it to bring its mail in.');
+    else toast.error(MAILBOX_RETURN[outcome] || MAILBOX_RETURN[reason] || 'The mailbox was not connected. The reason is shown on it below.');
+    const next = new URLSearchParams(params);
+    for (const k of ['mailbox', 'reason', 'connector']) next.delete(k);
+    setParams(next, { replace: true });
+    refresh();
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- runs once per return from Microsoft
+  }, [params.get('mailbox')]);
+
+  const act = async (key: string, fn: () => Promise<unknown>, done?: string) => {
+    setBusy(key);
+    try { await fn(); if (done) toast.success(done); refresh(); }
+    catch (err) { toast.error(api.errorText(err)); refresh(); }
+    finally { setBusy(null); }
+  };
 
   const add = async () => {
-    if (!label.trim()) { toast.error('Name the mailbox so you can tell them apart.'); return; }
-    setBusy(true);
-    try {
-      await api.createConnector({ provider: 'microsoft365', cloud, account_label: label });
-      setLabel('');
-      qc.invalidateQueries({ queryKey: correspondenceKeys.connectors });
-      toast.success('Mailbox added. Nothing is read until it is authorized.');
-    } catch (err) { toast.error(api.errorText(err)); }
-    finally { setBusy(false); }
+    if (!label.trim()) { toast.error('Name the mailbox by its address, so the sign-in can be checked against it.'); return; }
+    await act('add', async () => { await api.createConnector({ provider: 'microsoft365', cloud, account_label: label }); setLabel(''); }, 'Mailbox added. Nothing is read until it is authorized.');
   };
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Connect a mailbox" subtitle="Read-only, and only after you authorize it">
         <div className="space-y-3">
+          {!available && (
+            <p className="flex items-start gap-2 rounded-xl bg-warn/[.07] px-3.5 py-2.5 text-sm text-ink ring-1 ring-inset ring-warn/25">
+              <ShieldAlert className="mt-0.5 h-4 w-4 shrink-0 text-warn" aria-hidden />{connectors.data?.availability?.reason}
+            </p>
+          )}
           <Field label="Which Microsoft cloud" hint="never guessed from your address">
             <Select
               value={cloud}
@@ -528,45 +566,74 @@ function Mailboxes() {
               options={(connectors.data?.clouds || []).map((c) => ({ value: c.value, label: c.label }))}
             />
           </Field>
-          <Field label="Mailbox name" required><Input value={label} onChange={(e) => setLabel(e.target.value)} placeholder="G-8 shared inbox" /></Field>
-          <Button variant="primary" size="sm" loading={busy} onClick={add}><Plug className="h-3.5 w-3.5" />Add mailbox</Button>
+          <Field label="Mailbox address" required hint="the sign-in must match it"><Input type="email" value={label} onChange={(e) => setLabel(e.target.value)} placeholder="g8.budget@usmc.mil" /></Field>
+          <Button variant="primary" size="sm" loading={busy === 'add'} onClick={add}><Plug className="h-3.5 w-3.5" />Add mailbox</Button>
           <p className="text-xs leading-relaxed text-ink-3">
-            Vantage asks for {(connectors.data?.scopes || []).join(', ') || 'read-only'} and nothing else. It never sends mail, never deletes
-            mail, and a message deleted in the mailbox does not delete the record of the work.
+            Vantage asks for {(connectors.data?.scopes || []).join(', ') || 'read-only'} and nothing else, and refuses a grant that is broader. It never
+            sends mail, never deletes mail, and a message deleted in the mailbox does not delete the record of the work.
           </p>
         </div>
       </Panel>
 
       <Panel title="Mailboxes">
-        {connectors.isPending ? <Skeleton className="h-20" /> : connectors.data?.connectors.length ? (
+        {connectors.isPending ? <Skeleton className="h-20" /> : connectors.isError ? (
+          <EmptyState icon={ShieldAlert} title="Mailboxes could not load" description={api.errorText(connectors.error)} action={<Button size="sm" onClick={() => connectors.refetch()}>Try again</Button>} />
+        ) : connectors.data?.connectors.length ? (
           <ul className="space-y-2">
-            {connectors.data.connectors.map((c: Record<string, any>) => (
-              <li key={String(c.id)} className="rounded-md border border-line p-3">
-                <div className="flex flex-wrap items-center justify-between gap-2">
-                  <div className="min-w-0">
-                    <p className="truncate text-md font-semibold text-ink">{String(c.account_label)}</p>
-                    <p className="text-xs text-ink-3">{String(c.cloud)} · {String(c.status)}</p>
+            {connectors.data.connectors.map((c: Record<string, any>) => {
+              const id = String(c.id);
+              const state = CONNECTOR_STATE[String(c.status)] || CONNECTOR_STATE.needs_authorization;
+              return (
+                <li key={id} className="rounded-xl p-3.5 ring-1 ring-inset ring-line">
+                  <div className="flex flex-wrap items-start justify-between gap-2">
+                    <div className="min-w-0">
+                      <p className="truncate text-md font-semibold text-ink">{String(c.account_label)}</p>
+                      <p className="mt-0.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-3">
+                        <Badge tone={state.tone}>{state.label}</Badge>
+                        <span>{String(c.cloud_label || c.cloud)}</span>
+                        {c.account_address && <span>· signed in as {String(c.account_address)}</span>}
+                        {c.last_sync_at && <span>· last synced <DateText value={String(c.last_sync_at)} /></span>}
+                      </p>
+                    </div>
+                    <div className="flex flex-wrap gap-1.5">
+                      {c.status === 'connected' ? (
+                        <>
+                          <Button size="xs" loading={busy === `sync:${id}`} onClick={() => act(`sync:${id}`, async () => {
+                            const r = await api.syncConnector(id, { visibility: 'private' });
+                            toast.success(`Synced: ${r.stored} new, ${r.skipped} already here.`);
+                          })}>Sync now</Button>
+                          <Button size="xs" variant="ghost" loading={busy === `off:${id}`} onClick={() => act(`off:${id}`, async () => {
+                            const r = await api.disconnectConnector(id);
+                            toast.success(`Disconnected; Vantage holds no sign-in for it now. To withdraw consent at Microsoft too, remove Vantage at ${r.revoke_consent_at}.`);
+                          })}>Disconnect</Button>
+                        </>
+                      ) : available ? (
+                        <Button size="xs" variant="primary" loading={busy === `auth:${id}`} onClick={() => act(`auth:${id}`, async () => {
+                          const r = await api.authorizeConnector(id);
+                          // Only ever off to a sign-in page over HTTPS (a local stand-in in development).
+                          const target = new URL(String(r.url));
+                          if (target.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(target.hostname)) throw new Error('The sign-in address was not secure, so Vantage did not follow it.');
+                          window.location.assign(target.toString());
+                        })}>Authorize at Microsoft</Button>
+                      ) : null}
+                      <Button size="xs" variant="ghost" onClick={async () => {
+                        try { const res = await api.connectorAuthorization(id); setPlan(plan?.id === id ? null : { id, plan: res.plan }); }
+                        catch (err) { toast.error(api.errorText(err)); }
+                      }}>What it would ask for</Button>
+                      <Button size="xs" variant="ghost" onClick={() => act(`rm:${id}`, () => api.deleteConnector(id), 'Mailbox removed. The correspondence it brought in stays.')}>Remove</Button>
+                    </div>
                   </div>
-                  <div className="flex gap-1.5">
-                    <Button size="xs" variant="ghost" onClick={async () => {
-                      try { const res = await api.connectorAuthorization(String(c.id)); setPlan({ id: String(c.id), plan: res.plan }); }
-                      catch (err) { toast.error(api.errorText(err)); }
-                    }}>What it would ask for</Button>
-                    <Button size="xs" variant="ghost" onClick={async () => {
-                      try { await api.deleteConnector(String(c.id)); qc.invalidateQueries({ queryKey: correspondenceKeys.connectors }); toast.success('Mailbox removed. The correspondence it brought in stays.'); }
-                      catch (err) { toast.error(api.errorText(err)); }
-                    }}>Remove</Button>
-                  </div>
-                </div>
-                {plan?.id === String(c.id) && (
-                  <dl className="mt-3 space-y-1 rounded-md border border-line bg-surface-2/50 p-3 text-2xs">
-                    <div><dt className="eyebrow">Sign in at</dt><dd className="break-all text-ink-2">{String(plan.plan.authorize_url || plan.plan.authority || '')}</dd></div>
-                    <div><dt className="eyebrow">Reads from</dt><dd className="break-all text-ink-2">{String(plan.plan.delta_url || plan.plan.graph_base || '')}</dd></div>
-                    <div><dt className="eyebrow">Permissions</dt><dd className="text-ink-2">{(plan.plan.scopes || []).join(', ')}</dd></div>
-                  </dl>
-                )}
-              </li>
-            ))}
+                  {c.last_error && <p className="mt-2 rounded-lg bg-bad/[.06] px-3 py-2 text-xs text-ink-2 ring-1 ring-inset ring-bad/20">{String(c.last_error)}</p>}
+                  {plan?.id === id && (
+                    <dl className="mt-3 space-y-1 rounded-lg bg-surface-2/60 p-3 text-2xs ring-1 ring-inset ring-line">
+                      <div><dt className="eyebrow">Sign in at</dt><dd className="break-all text-ink-2">{String(plan.plan.authorize_url || plan.plan.authority || '')}</dd></div>
+                      <div><dt className="eyebrow">Reads from</dt><dd className="break-all text-ink-2">{String(plan.plan.delta_url || plan.plan.graph_base || '')}</dd></div>
+                      <div><dt className="eyebrow">Permissions</dt><dd className="text-ink-2">{(plan.plan.scopes || []).join(', ')}</dd></div>
+                    </dl>
+                  )}
+                </li>
+              );
+            })}
           </ul>
         ) : (
           <EmptyState icon={Plug} title="No mailbox connected" description="Until one is, import .eml files by hand. Both end up in the same place." />

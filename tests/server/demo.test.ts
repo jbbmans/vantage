@@ -101,7 +101,7 @@ test('the synthetic section tells the intended story, and counts shared document
     const { token } = await start(app);
     const summary = (await app.call('GET', '/api/record/summary', { token })).body;
     assert.equal(summary.contributions.documents_researched, 39);
-    assert.equal(summary.assigned.total, 1, 'Avery holds one item in research');
+    assert.equal(summary.assigned.total, 2, 'Avery holds a 2-Way UMT and an open MIPR commitment, both in research');
 
     const leader = await app.call('POST', '/api/demo/persona', { token, headers: H, body: { persona: 'leader' } });
     assert.equal(leader.status, 200, JSON.stringify(leader.body));
@@ -115,9 +115,10 @@ test('the synthetic section tells the intended story, and counts shared document
     const counts = w.members.map((m: any) => m.documents_researched).sort((a: number, b: number) => a - b);
     assert.deepEqual(counts, [0, 0, 0, 27, 30, 39], 'Brooks and Nguyen record none; the lead researches none');
     assert.equal(w.section.documents_researched, 81);
-    assert.equal(w.section.unassigned, 12);
+    assert.equal(w.section.unassigned, 21, 'twelve 2-Way UMTs and nine open balances nobody holds');
     assert.equal(w.section.blocked, 1);
     assert.equal(w.section.by_waiting.posting.count, 2);
+    assert.equal(w.section.by_waiting.external_response.count, 1, 'Patel waits on the performing agency’s bill');
   } finally { await app.close(); }
 });
 
