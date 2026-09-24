@@ -1,0 +1,17 @@
+/**
+ * The FMRA knowledge base: what a 3451 Financial Management Resource Analyst needs to read a
+ * report, research a condition, and correct it with evidence. Drawn from the FMRAC reference; see
+ * source.ts for what that source is and is not.
+ */
+export * from './source.ts';
+export * from './lifecycle.ts';
+export * from './methods.ts';
+export * from './evidence.ts';
+export * from './roles.ts';
+export * from './data.ts';
+export * from './organization.ts';
+export * from './conditions.ts';
+export * from './diagnose.ts';
+export * from './glossary.ts';
+export * from './discrepancies.ts';
+export * from './reasoning.ts';

@@ -1,0 +1,81 @@
+/**
+ * The FMRAC retrieval glossary (ch. 14.2), with the meaning each term carries in this reference.
+ * Where a term means two things (receipt, acceptance), the entry says which to specify.
+ */
+
+export interface Term { term: string; meaning: string; see?: string[] }
+
+export const GLOSSARY: Term[] = [
+  { term: 'Acceptance', meaning: 'Confirmation of another agency’s MIPR acceptance, or acceptance of delivered goods or services. Say which.' },
+  { term: 'AO', meaning: 'Approving Official. Used in travel and card workflows.' },
+  { term: 'ARMS / SAAR', meaning: 'Access Request Management Service / System Authorization Access Request: how system access and responsibilities are requested.' },
+  { term: 'Award', meaning: 'The DAI obligation document. Distinguish the accounting record from the underlying contract or acceptance.' },
+  { term: 'BFS', meaning: 'Business Feeder System: captures operational activity and sends financial data into accounting.', see: ['GEX'] },
+  { term: 'GEX', meaning: 'Global Exchange: middleware that routes and translates financial data between feeder systems and DAI.' },
+  { term: 'BPN', meaning: 'Business Process Narrative: Block III’s written method walkthrough.' },
+  { term: 'P2P / O2C / CA / B2R', meaning: 'DAI modules: Procure to Pay, Order to Cash, Cost Accounting, Budget to Report.' },
+  { term: 'Commitment', meaning: 'A firm administrative reservation of funds. In DAI, a requisition.' },
+  { term: 'Obligation', meaning: 'A legally binding agreement between parties. In DAI, an award.' },
+  { term: 'Delivered', meaning: 'Goods or services received; how acceptance is recorded depends on the method.' },
+  { term: 'Paid', meaning: 'Payment or disbursement.' },
+  { term: 'CRO', meaning: 'Commodity Responsible Officer: validates requirements for a commodity area.' },
+  { term: 'SuppO', meaning: 'Supply Officer.' },
+  { term: 'Certifier', meaning: 'Performs funds certification on PR approval and approves a CLM award so it can post. An appointed funds manager, not just a system role.' },
+  { term: 'Proxy', meaning: 'A temporary, delegated assignment covering an unavailable member for a set period. Not a permanent transfer of authority.' },
+  { term: 'DAI', meaning: 'Defense Agencies Initiative: the enterprise financial system.' },
+  { term: 'GL', meaning: 'General Ledger: consolidates accounting transactions.' },
+  { term: 'DFAS', meaning: 'Defense Finance and Accounting Service: the payment and correction organization in the workflows.' },
+  { term: 'OCMT', meaning: 'Open / Outstanding Commitment: requisition amount not yet covered by an obligation.' },
+  { term: 'UDOU', meaning: 'Undelivered Order, Unpaid: obligation not yet followed by receipt and payment.' },
+  { term: 'DOU', meaning: 'Delivered Order, Unpaid: delivered amount without the posted disbursement.' },
+  { term: 'OTO', meaning: 'Outstanding Travel Order: DTS obligation without full posted disbursement.' },
+  { term: 'ULO', meaning: 'Unliquidated obligation, as the term is often used at work. The book teaches UDOU and DOU as distinct conditions instead.' },
+  { term: 'DTR', meaning: 'The book’s reconciliation-report label. Not expanded in the supplied material, so it is kept as printed.' },
+  { term: 'DTS / TDY', meaning: 'Defense Travel System / temporary duty.' },
+  { term: 'DD 1610', meaning: 'Travel authorization (with the DTS authorization).' },
+  { term: 'DD 1351-2', meaning: 'Travel voucher (with the DTS voucher).' },
+  { term: 'DD 448 / DD 448-2', meaning: 'MIPR request / the performing agency’s signed acceptance.' },
+  { term: 'DD 1348-1A', meaning: 'Issue release / receipt document signed when GCSS-MC items are issued.' },
+  { term: 'DD 1898', meaning: 'Fuel sale slip completed at the fuel farm, with the logbook.' },
+  { term: 'DD 250', meaning: 'Receiving report used for contracts, MIPRs and, in diagrams, GPC.' },
+  { term: 'SF 1034', meaning: 'Payment voucher supporting DFAS payment.' },
+  { term: 'SF 1449 / SF 30', meaning: 'Contract award / modification support.' },
+  { term: 'EPoS / PoS', meaning: 'Enterprise Point of Sale (fuel) / point of sale (ServMart).' },
+  { term: 'FCCCB', meaning: 'Fiscal Code Configuration Control Board. Its POET Load Sheet feeds DAI.' },
+  { term: 'FDE', meaning: 'Financial Data Element: a coded identifier used in budgeting, accounting or reporting.' },
+  { term: 'POET', meaning: 'Project, Organization, Expenditure Type, Task: classifies DAI activity.' },
+  { term: 'SLOA', meaning: 'Standard Line of Accounting: the standardized DoD accounting string (16 elements).' },
+  { term: 'LOA', meaning: 'Line of Accounting: the financial identity used in travel and correction workflows.' },
+  { term: 'FDM / FDTA', meaning: 'GCSS-MC / DTS setup-role labels used in the book.' },
+  { term: 'FMRA / FMRO', meaning: 'Financial Management Resource Analyst (3451) / Financial Management Resource Officer (3408).' },
+  { term: 'GCSS-MC', meaning: 'Global Combat Support System–Marine Corps.' },
+  { term: 'GPC / OPR / UPR', meaning: 'Government Purchase Card / Open Purchase Request / Universal Purchase Request.' },
+  { term: 'HQMC / MARFOR / MEF / MSC', meaning: 'Headquarters Marine Corps / Marine Forces / Marine Expeditionary Force / Major Subordinate Command. Funding levels L1–L4.' },
+  { term: 'IAA / IGT', meaning: 'Interagency agreement / intergovernmental transaction (and its DAI store).' },
+  { term: 'JON / CostJON', meaning: 'Method-specific accounting identifier used in mapping. Preserve the issued value; never regenerate it from its appearance.' },
+  { term: 'KO / RCO', meaning: 'Contracting Officer / Regional Contracting Office.' },
+  { term: 'KSD', meaning: 'Key Supporting Documentation connecting evidence to a financial event.' },
+  { term: 'MAGTF / CE / GCE / ACE / LCE', meaning: 'Marine Air-Ground Task Force and its command, ground, aviation and logistics elements.' },
+  { term: 'MIPR', meaning: 'Military Interdepartmental Purchase Request, supported by DD 448 and DD 448-2.' },
+  { term: 'NSN', meaning: 'National Stock Number.' },
+  { term: 'OAS / OBIEE', meaning: 'Oracle Analytics Server, reached through OBIEE Answers USMC: the reporting environment.' },
+  { term: 'Pending file', meaning: 'Manual, internal tracking of activity not yet reflected in accounting. Updated when the transaction posts so nothing counts twice.' },
+  { term: 'PR / PRDS', meaning: 'Purchase Request / the book’s name for the contract requisition store.' },
+  { term: 'Receipt', meaning: 'The actual receiving event, the supporting record, or the DAI transaction. Specify which.' },
+  { term: 'SMU / SoS', meaning: 'Supply Management Unit / Source of Supply.' },
+  { term: 'SoD', meaning: 'Segregation (or separation) of duties.' },
+  { term: 'SPS / WAWF', meaning: 'Standard Procurement System / Wide Area Workflow.' },
+  { term: 'TOT / ToP', meaning: 'Transportation of Things / Transportation of People. Recognized, not fully taught.' },
+  { term: 'UMT', meaning: 'Unmatched transaction: payment occurred but did not match or post to the intended record.' },
+  { term: 'NON-1081 / 1081', meaning: 'The two UMT correction routes: the FMRA matches the payment to the PO (NON-1081), or DFAS-Cleveland matches it to the PO and a different LOA (1081).' },
+  { term: 'Two-way / three-way match', meaning: 'PO and invoice / PO, receipt and invoice.' },
+  { term: 'UMX', meaning: 'User Management: the responsibility for account and responsibility approvers.' },
+  { term: 'VIL / QR', meaning: 'The fuel-key label used in the book / the quick-response code used at fuel issue.' },
+  { term: 'True available balance', meaning: 'What remains after valid execution, including pending transactions the displayed balance does not show yet. Use non-overlapping balances.' },
+];
+
+export function searchGlossary(q: string): Term[] {
+  const needle = q.trim().toLowerCase();
+  if (!needle) return GLOSSARY;
+  return GLOSSARY.filter((t) => t.term.toLowerCase().includes(needle) || t.meaning.toLowerCase().includes(needle));
+}
