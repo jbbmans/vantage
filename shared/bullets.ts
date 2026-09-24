@@ -174,8 +174,8 @@ export function strength(a: BulletSource = {}): number {
 
 export function weaknesses(a: BulletSource = {}): string[] {
   const gaps: string[] = [];
-  if (!a.result) gaps.push('no stated outcome: so what?');
-  if (!a.quantity) gaps.push('no quantity: how many?');
+  if (!a.result) gaps.push('no stated outcome (so what?)');
+  if (!a.quantity) gaps.push('no quantity (how many?)');
   if (!a.dollar_amount && a.category === 'Fiscal & Financial') gaps.push('no dollar figure');
   if (!a.eval_area || a.eval_area === 'Unassigned') gaps.push('not mapped to an evaluation area');
   return gaps;
