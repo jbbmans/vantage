@@ -1,12 +1,13 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { ArrowRight, BookOpenCheck, CheckCircle2, FileText, Info, Lock, PenLine, Plus, Trash2 } from 'lucide-react';
-import { Badge, Button, EmptyState, Field, Input, PageHeader, Panel, Segmented, Skeleton, Tabs, Textarea, Tooltip } from '@/components/ui/primitives';
+import { ArrowRight, BookOpenCheck, CheckCircle2, FileText, Lock, PenLine, Plus, Trash2 } from 'lucide-react';
+import { Badge, Button, EmptyState, Field, Input, PageHeader, Panel, Segmented, Skeleton, Tabs, Textarea } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { DateText, useParam } from '@/components/common';
 import { StageBadge, WorkList } from '@/components/work';
+import { StatStrip } from '@/components/StatStrip';
 import { useAssignedWork, useContributions, useRecordDrafts, useRecordSummary, caseKeys } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { cn, timeAgo } from '@/lib/utils';
@@ -59,7 +60,7 @@ export default function RecordHub() {
           <Segmented label="Reporting window" value={days as (typeof WINDOWS)[number]['value']} onChange={setDays} options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))} size="sm" />
         </div>
       )}
-      {tab === 'overview' && <Overview summary={summary.data} loading={summary.isPending} onTab={setTab} />}
+      {tab === 'overview' && <Overview summary={summary.data} loading={summary.isPending} />}
       {tab === 'contributions' && <Contributions params={params} />}
       {tab === 'entries' && <Suspense fallback={<Skeleton className="h-64" />}><Records embedded /></Suspense>}
       {tab === 'drafts' && <Drafts />}
@@ -67,21 +68,7 @@ export default function RecordHub() {
   );
 }
 
-function Figure({ label, value, definition, to }: { label: string; value: number | undefined; definition: string; to: string }) {
-  return (
-    <div className="card card-hover relative h-full p-4">
-      <p className="flex items-start justify-between gap-2 text-sm font-medium text-ink-2">
-        <Link to={to} className="after:absolute after:inset-0 after:content-['']">{label}</Link>
-        <Tooltip content={definition}>
-          <button type="button" className="relative z-10 -m-1 rounded p-1 text-ink-3 hover:text-ink" aria-label={`What counts as ${label.toLowerCase()}: ${definition}`}><Info className="h-3.5 w-3.5" /></button>
-        </Tooltip>
-      </p>
-      <p className="stat-value mt-3">{value ?? '–'}</p>
-    </div>
-  );
-}
-
-function Overview({ summary, loading, onTab }: { summary: any; loading: boolean; onTab: (t: string) => void }) {
+function Overview({ summary, loading }: { summary: any; loading: boolean }) {
   const assigned = useAssignedWork();
   if (loading || !summary) return <div className="grid gap-3 sm:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-28" />)}</div>;
   const c = summary.contributions;
@@ -91,13 +78,13 @@ function Overview({ summary, loading, onTab }: { summary: any; loading: boolean;
       <section aria-labelledby="contributed">
         <h2 id="contributed" className="mb-1 text-md font-semibold text-ink">What you contributed</h2>
         <p className="mb-3 text-xs text-ink-3">Read from the history of the work you did. One document counts once however many entries it has.</p>
-        <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-          <Figure label="Documents researched" value={c.documents_researched} definition={d.documents_researched} to="/record?tab=contributions" />
-          <Figure label="Research entries" value={c.research_actions} definition={d.research_actions} to="/record?tab=contributions" />
-          <Figure label="Submitted" value={c.submitted_actions} definition={d.submitted_actions} to="/record?tab=contributions" />
-          <Figure label="Verified outcomes" value={c.verified_outcomes} definition={d.verified_outcomes} to="/record?tab=contributions" />
-          <Figure label="Resolved" value={c.resolved_work} definition={d.resolved_work} to="/record?tab=contributions" />
-        </div>
+        <StatStrip label="What you contributed" className="grid-cols-2 md:grid-cols-3 xl:grid-cols-5" items={[
+          { label: 'Documents researched', value: c.documents_researched ?? '–', definition: d.documents_researched, to: '/record?tab=contributions' },
+          { label: 'Research entries', value: c.research_actions ?? '–', definition: d.research_actions, to: '/record?tab=contributions' },
+          { label: 'Submitted', value: c.submitted_actions ?? '–', definition: d.submitted_actions, to: '/record?tab=contributions' },
+          { label: 'Verified outcomes', value: c.verified_outcomes ?? '–', definition: d.verified_outcomes, to: '/record?tab=contributions' },
+          { label: 'Resolved', value: c.resolved_work ?? '–', definition: d.resolved_work, to: '/record?tab=contributions' },
+        ]} />
       </section>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
@@ -109,23 +96,11 @@ function Overview({ summary, loading, onTab }: { summary: any; loading: boolean;
         </Panel>
 
         <Panel title="What you recorded yourself" subtitle="PME, PT, volunteering, qualifications: anything that did not start as a tasker.">
-          <ul className="grid grid-cols-3 gap-3 text-sm">
-            <li>
-              <button type="button" onClick={() => onTab('entries')} className="block w-full rounded-md border border-line px-3 py-2 text-left hover:border-line-strong">
-                <span className="block text-xs text-ink-3">Activities</span><span className="fig mt-0.5 block text-lg font-semibold text-ink">{summary.personal.activities}</span>
-              </button>
-            </li>
-            <li>
-              <Link to="/career?tab=training" className="block rounded-md border border-line px-3 py-2 hover:border-line-strong">
-                <span className="block text-xs text-ink-3">Training</span><span className="fig mt-0.5 block text-lg font-semibold text-ink">{summary.personal.trainings}</span>
-              </Link>
-            </li>
-            <li>
-              <button type="button" onClick={() => onTab('drafts')} className="block w-full rounded-md border border-line px-3 py-2 text-left hover:border-line-strong">
-                <span className="block text-xs text-ink-3">Open drafts</span><span className="fig mt-0.5 block text-lg font-semibold text-ink">{summary.personal.open_drafts}</span>
-              </button>
-            </li>
-          </ul>
+          <StatStrip inset label="What you recorded yourself" className="grid-cols-3" items={[
+            { label: 'Activities', value: summary.personal.activities, to: '/record?tab=entries' },
+            { label: 'Training', value: summary.personal.trainings, to: '/career?tab=training' },
+            { label: 'Open drafts', value: summary.personal.open_drafts, to: '/record?tab=drafts' },
+          ]} />
           <div className="mt-4 flex flex-wrap gap-2">
             <Button size="sm" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
             <Button size="sm" variant="ghost" asChild><Link to="/reports"><FileText className="h-4 w-4" />Build JEPES or FITREP input</Link></Button>

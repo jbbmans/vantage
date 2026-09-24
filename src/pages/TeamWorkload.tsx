@@ -3,6 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowDown, ArrowUp, Info } from 'lucide-react';
 import { EmptyState, Panel, Segmented, Skeleton, Tooltip } from '@/components/ui/primitives';
 import { WorkList, StageBadge } from '@/components/work';
+import { StatStrip } from '@/components/StatStrip';
 import { useWorkload } from '@/lib/queries';
 import { STAGE_LABEL, WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
 import { cn } from '@/lib/utils';
@@ -52,40 +53,47 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
         <Segmented label="Window" value={days} onChange={setDays} options={WINDOWS.map((x) => ({ value: x.value, label: x.label }))} size="sm" />
       </div>
 
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-6">
-        {[
-          ['Open', s.open], ['Unassigned', s.unassigned], ['Overdue', s.overdue], ['Waiting', s.waiting], ['Blocked', s.blocked],
-          ['Documents researched', s.documents_researched],
-        ].map(([label, value]) => (
-          <div key={String(label)} className="card p-4"><p className="text-sm text-ink-2">{label}</p><p className="stat-value mt-2">{value as number}</p></div>
-        ))}
-      </div>
+      <StatStrip label="Section figures" className="grid-cols-2 md:grid-cols-3 xl:grid-cols-6" items={[
+        { label: 'Open', value: s.open },
+        { label: 'Unassigned', value: s.unassigned, tone: s.unassigned ? 'accent' : undefined },
+        { label: 'Overdue', value: s.overdue, tone: s.overdue ? 'bad' : undefined, live: true },
+        { label: 'Waiting', value: s.waiting },
+        { label: 'Blocked', value: s.blocked, tone: s.blocked ? 'warn' : undefined, live: true },
+        { label: 'Documents researched', value: s.documents_researched },
+      ]} />
 
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Panel title="Where open work stands">
-          <ul className="space-y-1.5 text-sm">
-            {Object.entries(s.by_stage as Record<string, number>).map(([stage, n]) => (
-              <li key={stage} className="flex items-center justify-between gap-2"><StageBadge stage={stage} /><span className="fig text-ink">{n}</span></li>
-            ))}
-          </ul>
-        </Panel>
-        <Panel title="What the section is waiting on" subtitle="Elapsed calendar time, never counted as work">
-          {Object.keys(s.by_waiting).length === 0 ? <p className="text-sm text-ink-3">Nothing is waiting.</p> : (
-            <ul className="space-y-1.5 text-sm">
-              {Object.entries(s.by_waiting as Record<string, { count: number; oldest_hours: number }>).map(([cat, v]) => (
-                <li key={cat} className="flex items-center justify-between gap-2"><span className="text-ink">{WAITING_LABEL[cat as WaitingCategory] || cat}</span><span className="text-xs text-ink-3">{v.count} · oldest {Math.round(v.oldest_hours / 24)} days</span></li>
+      {/* Three short breakdowns of the same open work, read side by side in one place. */}
+      <Panel title="Where the section stands" subtitle="Open work by stage, what it is waiting on, and how long it has been open" bodyClassName="p-0">
+        <div className="grid grid-cols-1 divide-y divide-line md:grid-cols-3 md:divide-x md:divide-y-0">
+          <section aria-labelledby="by-stage" className="p-4">
+            <h3 id="by-stage" className="eyebrow mb-3">By stage</h3>
+            <ul className="space-y-2 text-sm">
+              {Object.entries(s.by_stage as Record<string, number>).map(([stage, n]) => (
+                <li key={stage} className="flex items-center justify-between gap-2"><StageBadge stage={stage} /><span className="fig text-ink">{n}</span></li>
               ))}
             </ul>
-          )}
-        </Panel>
-        <Panel title="Age of open work">
-          <ul className="space-y-1.5 text-sm">
-            <li className="flex justify-between"><span className="text-ink">Under a week</span><span className="fig">{s.aging.under_7_days}</span></li>
-            <li className="flex justify-between"><span className="text-ink">One to four weeks</span><span className="fig">{s.aging.from_7_to_30_days}</span></li>
-            <li className="flex justify-between"><span className="text-ink">Over thirty days</span><span className="fig">{s.aging.over_30_days}</span></li>
-          </ul>
-        </Panel>
-      </div>
+          </section>
+          <section aria-labelledby="waiting-on" className="p-4">
+            <h3 id="waiting-on" className="eyebrow mb-3">Waiting on</h3>
+            {Object.keys(s.by_waiting).length === 0 ? <p className="text-sm text-ink-3">Nothing is waiting.</p> : (
+              <ul className="space-y-2 text-sm">
+                {Object.entries(s.by_waiting as Record<string, { count: number; oldest_hours: number }>).map(([cat, v]) => (
+                  <li key={cat} className="flex items-center justify-between gap-2"><span className="text-ink">{WAITING_LABEL[cat as WaitingCategory] || cat}</span><span className="text-xs text-ink-3">{v.count} · oldest {Math.round(v.oldest_hours / 24)} days</span></li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-3 text-xs text-ink-3">Elapsed calendar time, never counted as work.</p>
+          </section>
+          <section aria-labelledby="age" className="p-4">
+            <h3 id="age" className="eyebrow mb-3">Age of open work</h3>
+            <ul className="space-y-2 text-sm">
+              <li className="flex justify-between"><span className="text-ink">Under a week</span><span className="fig">{s.aging.under_7_days}</span></li>
+              <li className="flex justify-between"><span className="text-ink">One to four weeks</span><span className="fig">{s.aging.from_7_to_30_days}</span></li>
+              <li className="flex justify-between"><span className="text-ink">Over thirty days</span><span className="fig">{s.aging.over_30_days}</span></li>
+            </ul>
+          </section>
+        </div>
+      </Panel>
 
       {d.members_visible ? (
         <Panel title="By person" subtitle="Each person’s own recorded work in the window, beside what they hold now" padded={false}>

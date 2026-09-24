@@ -175,11 +175,12 @@
 }
 
 .app-shell .panel-head {
-  background: linear-gradient(180deg, rgb(var(--surface-2) / .55), transparent);
-  border-top-left-radius: inherit;
-  border-top-right-radius: inherit;
+  background: none;
+  border-bottom-color: rgb(var(--line) / .6);
+  /* Same left edge as the rows and fields below it. */
+  padding: 15px 16px 12px;
 }
-.app-shell .card > .panel-head:first-child { border-radius: 12px 12px 0 0; }
+.app-shell .panel-head h2 { font-size: 14.5px; letter-spacing: -0.012em; }
 
 /* ── Chrome: header ─────────────────────────────────────────────────────────────────────────── */
 
@@ -191,46 +192,157 @@
   box-shadow: 0 1px 0 var(--edge-light) inset, 0 10px 30px -24px rgb(var(--shadow-tint) / .35);
 }
 
-/* ── Chrome: rail ───────────────────────────────────────────────────────────────────────────── */
+/* ── Chrome: sidebar ────────────────────────────────────────────────────────────────────────── */
 
-.app-shell aside.bg-rail {
-  background:
-    radial-gradient(120% 40% at 0% 0%, rgb(20 184 166 / .16), transparent 60%),
-    radial-gradient(90% 50% at 100% 100%, rgb(37 99 235 / .22), transparent 60%),
-    linear-gradient(180deg, #0f3b75 0%, #0b2d5b 42%, #071f40 100%);
-  border-right-color: rgb(255 255 255 / .06);
-  box-shadow: inset -1px 0 0 rgb(255 255 255 / .04), 8px 0 30px -12px rgb(6 22 46 / .35);
+/*
+ * A light, frosted sidebar that belongs to the page rather than a navy slab beside it. Items are
+ * quiet until chosen; the chosen one sits on a white pill that slides between destinations. The
+ * unit you are filing against is at the top, and who you are is at the foot.
+ */
+.app-shell .sidebar {
+  background: rgb(var(--surface) / .6);
+  backdrop-filter: blur(20px) saturate(1.5);
+  -webkit-backdrop-filter: blur(20px) saturate(1.5);
+  border-right: 1px solid rgb(var(--line) / .75);
 }
-[data-theme='dark'] .app-shell aside.bg-rail {
-  background:
-    radial-gradient(120% 40% at 0% 0%, rgb(45 212 191 / .12), transparent 60%),
-    radial-gradient(90% 50% at 100% 100%, rgb(37 99 235 / .18), transparent 60%),
-    linear-gradient(180deg, #0a2448 0%, #071a35 50%, #051326 100%);
+[data-theme='dark'] .app-shell .sidebar { background: rgb(var(--canvas) / .78); border-right-color: rgb(var(--line) / .6); }
+.app-shell .sidebar-drawer { background: rgb(var(--surface)); }
+[data-theme='dark'] .app-shell .sidebar-drawer { background: rgb(var(--canvas)); }
+
+.sidebar .nav-item {
+  height: 34px;
+  padding: 0 10px;
+  gap: 10px;
+  border-radius: 8px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: rgb(var(--ink-2));
+  background: transparent;
+  box-shadow: none;
+  transition: color .15s ease, background-color .15s ease;
 }
-.app-shell aside.bg-rail .nav-item { transition: color .18s ease, background-color .18s ease; }
-/* The active destination's block is drawn by a moving pill (AppShell), so it can slide. */
-.app-shell aside.bg-rail .nav-item[aria-current='page'],
-.app-shell aside.bg-rail .nav-item[aria-current='page']:hover { background-color: transparent; box-shadow: none; }
+.sidebar .nav-item:hover { color: rgb(var(--ink)); background: rgb(var(--ink) / .05); }
+.sidebar .nav-item svg { color: rgb(var(--ink-3)); transition: color .15s ease; }
+.sidebar .nav-item:hover svg { color: rgb(var(--ink-2)); transform: none; }
+.sidebar .nav-item[aria-current='page'],
+.sidebar .nav-item[aria-current='page']:hover { color: rgb(var(--ink)); background: transparent; box-shadow: none; font-weight: 600; }
+.sidebar .nav-item[aria-current='page'] svg { color: rgb(var(--accent)); transform: none; }
+.sidebar .nav-item::after, .sidebar .nav-item::before { display: none !important; }
+.sidebar .nav-item > :not(.nav-pill) { position: relative; z-index: 1; }
+
 .nav-pill {
   position: absolute;
   inset: 0;
   z-index: 0;
   border-radius: 8px;
-  background: rgb(37 99 235);
-  box-shadow: 0 1px 2px rgb(3 12 28 / .35);
+  background: rgb(var(--surface));
+  box-shadow: 0 1px 2px rgb(var(--shadow-tint) / .08), 0 0 0 1px rgb(var(--line) / .9);
 }
-.nav-pill::before {
-  content: '';
+[data-theme='dark'] .nav-pill { background: rgb(var(--surface-2)); box-shadow: 0 0 0 1px rgb(var(--line)); }
+
+/* A count beside a destination, and the keyboard route to it on hover. Neither is part of the link. */
+.nav-count, .nav-keys {
   position: absolute;
-  left: -8px;
-  top: 7px;
-  bottom: 7px;
-  width: 3px;
-  border-radius: 3px;
-  background: #2dd4bf;
+  right: 8px;
+  top: 50%;
+  transform: translateY(-50%);
+  z-index: 2;
+  pointer-events: none;
 }
-.app-shell aside.bg-rail .nav-item[aria-current='page']::before { display: none; }
-.app-shell aside.bg-rail .nav-item > :not(.nav-pill) { position: relative; z-index: 1; }
+.nav-count {
+  min-width: 20px;
+  height: 18px;
+  padding: 0 6px;
+  border-radius: 99px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: rgb(var(--accent));
+  background: rgb(var(--accent) / .12);
+}
+.nav-keys { display: flex; gap: 3px; opacity: 0; transition: opacity .15s ease; }
+.nav-keys kbd {
+  min-width: 17px;
+  height: 17px;
+  padding: 0 4px;
+  border-radius: 4px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font: 600 10px/1 var(--display);
+  color: rgb(var(--ink-3));
+  background: rgb(var(--surface));
+  box-shadow: 0 0 0 1px rgb(var(--line));
+}
+.group:hover > .nav-keys { opacity: 1; }
+
+.sidebar-label {
+  padding: 0 10px 6px;
+  font-size: 11px;
+  font-weight: 600;
+  letter-spacing: .06em;
+  text-transform: uppercase;
+  color: rgb(var(--ink-3));
+}
+.sidebar-icon {
+  display: inline-flex;
+  width: 28px;
+  height: 28px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  color: rgb(var(--ink-3));
+  transition: color .15s ease, background-color .15s ease;
+}
+.sidebar-icon:hover { color: rgb(var(--ink)); background: rgb(var(--ink) / .06); }
+
+.unit-switch, .profile {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  padding: 7px 8px;
+  border-radius: 10px;
+  transition: background-color .15s ease, box-shadow .15s ease;
+}
+.unit-switch {
+  background: rgb(var(--surface) / .8);
+  box-shadow: 0 0 0 1px rgb(var(--line) / .9), 0 1px 2px rgb(var(--shadow-tint) / .05);
+}
+[data-theme='dark'] .unit-switch { background: rgb(var(--surface) / .7); box-shadow: 0 0 0 1px rgb(var(--line)); }
+.unit-switch:hover { box-shadow: 0 0 0 1px rgb(var(--line-strong)), 0 1px 2px rgb(var(--shadow-tint) / .08); }
+.profile:hover { background: rgb(var(--ink) / .05); }
+.unit-mark {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 8px;
+  font: 700 11px/1 var(--display);
+  letter-spacing: .02em;
+  color: #fff;
+  background: #0b2d5b;
+}
+[data-theme='dark'] .unit-mark { background: rgb(var(--accent)); color: rgb(var(--accent-ink)); }
+.avatar {
+  display: inline-flex;
+  width: 30px;
+  height: 30px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 99px;
+  font: 600 11px/1 var(--display);
+  color: #fff;
+  background: rgb(var(--accent));
+}
+[data-theme='dark'] .avatar { color: rgb(var(--accent-ink)); }
+.sidebar-foot { border-top: 1px solid rgb(var(--line) / .7); }
 
 /* Tab strips on the page sit on frosted glass rather than a band of flat canvas colour, which
    would show as a stripe across the ambient field. On a phone, where the strip can overflow, its
@@ -246,6 +358,17 @@
     -webkit-mask-image: linear-gradient(90deg, #000 82%, transparent);
   }
 }
+
+/* ── Grouped figures ────────────────────────────────────────────────────────────────────────── */
+
+/* One surface divided by single hairlines, instead of a row of separate boxes (StatStrip). Each
+   cell draws a 1px ring into a 1px gap, so seams never double and a short last row stays clean. */
+.cell-grid { display: grid; gap: 1px; overflow: hidden; }
+.cell-grid > .cell { padding: 14px 16px; box-shadow: 0 0 0 1px rgb(var(--line) / .75); transition: background-color .15s ease; }
+.cell-grid > .cell-link:hover { background: rgb(var(--accent) / .045); }
+.cell-grid-inset { border-radius: 10px; box-shadow: inset 0 0 0 1px rgb(var(--line) / .75); }
+.cell-grid-inset > .cell { padding: 10px 12px; }
+.cell-grid-inset .stat-value { font-size: 22px; margin-top: 4px; }
 
 /* ── Controls ───────────────────────────────────────────────────────────────────────────────── */
 

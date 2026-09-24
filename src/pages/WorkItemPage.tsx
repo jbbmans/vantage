@@ -131,9 +131,9 @@ export default function WorkItemPage() {
         <section aria-labelledby="synthetic-values" className="mb-4 rounded-lg border border-accent/30 bg-accent-soft/40 p-4">
           <h2 id="synthetic-values" className="flex items-center gap-2 text-sm font-semibold text-ink"><FlaskConical className="h-4 w-4 text-accent" aria-hidden />Synthetic system values for this walkthrough</h2>
           <p className="mt-1 text-xs text-ink-2">{flagship.note} {flagship.scenario}</p>
-          <dl className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-2 xl:grid-cols-4">
+          <dl className="cell-grid cell-grid-inset mt-3 grid-cols-1 bg-surface/70 sm:grid-cols-2 xl:grid-cols-4">
             {flagship.values.map((v) => (
-              <div key={v.label} className="rounded-md border border-line bg-surface px-3 py-2">
+              <div key={v.label} className="cell">
                 <dt className="text-xs text-ink-3">{v.label}</dt>
                 <dd className="fig mt-0.5 font-semibold text-ink">{v.display}</dd>
               </div>

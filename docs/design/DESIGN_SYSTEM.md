@@ -91,7 +91,7 @@ codebase on the brand palette. The public site and sign-in screens are untouched
 |---|---|---|
 | Ambient field | Two slow drifting lights (Cobalt, Summit Teal), a dot grid that fades out below the heading, and fine grain | Behind the whole app |
 | Glass chrome | Frosted header and tab strips; blurred dialog backdrops and menus | Header, tabs, overlays |
-| Lit rail | Navy gradient with teal and cobalt light; the active destination is a flat Cobalt pill that slides between items (Motion) | Sidebar |
+| Sidebar | Light and frosted (navy in dark mode). The unit switcher is at the top, then the destinations, then Leading, with More pinned low and your profile and account menu at the foot. The chosen destination sits on a white pill that slides between items (Motion). Counts (Work: items in your hands) and keyboard routes (G, then a letter, on hover) sit beside links, never inside them | Sidebar |
 | Surfaces | 12 px cards with a lit top edge and navy-tinted shadows; a border that lights under the cursor | Every card |
 | Buttons | Flat: one solid fill, a crisp edge, a faint shadow. Hover deepens the fill; no gloss, gradient, glow or sheen (owner feedback: the glossy version read as old Apple) | Every button |
 | Blur-in titles | Page titles arrive word by word out of a soft blur; screen readers get the phrase once | Every page header |
@@ -99,6 +99,15 @@ codebase on the brand palette. The public site and sign-in screens are untouched
 | Beam | Light travelling around the edge of the thing to do next | "Your work", the current procedure step |
 | Live dots | Waiting, blocked and verification-due stages breathe; toned figure tiles glow in their tone | Stage badges, leader tiles |
 | Entrances | Sections and cards cascade in out of a blur | Every page |
+
+**Organising boxes.** Figures that belong together share one surface split by hairlines
+(`StatStrip`), not a row of separate boxes: the section figures on Today and Team, Record's
+contributions, and the synthetic values on a work item. A box never sits inside a box; inside a
+panel, grouped figures use the inset strip. Short breakdowns of the same data (Team: by stage,
+waiting on, age) share one panel in columns rather than three half-empty cards. Panel headers are a
+title and a line, with no tinted band, aligned with the rows below them. Today reads as a hero (with
+quick capture folded in) over two columns: your work on the left, what changed and your record on
+the right.
 
 The functional motion rules above still hold: figures are exact on every frame, nothing waits on
 an animation, and reduced motion stops everything here too, including the ambient field, beams,

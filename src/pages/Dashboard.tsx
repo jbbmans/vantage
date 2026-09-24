@@ -10,6 +10,7 @@ import { MetricTotalsGrid } from '@/components/MetricTotals';
 import { WorkList, WorkRow } from '@/components/work';
 import { AnimatePresence } from 'motion/react';
 import { StatusDot } from '@/components/effects';
+import { StatStrip } from '@/components/StatStrip';
 import {
   useAssignedWork, useCareer, useGoals, useIdentity, useMetricsReport, useNotifications, usePrefs, useReadiness, useRecordSummary,
   useSavePrefs, useTasks, useTrack, useWorkload,
@@ -51,15 +52,16 @@ export default function Dashboard() {
   return (
     <div className="page">
       <PageHeader hero eyebrow={`${greeting}, ${first ?? ''}`} title="Today" lede={lede}
-        meta={<span className="chip bg-surface/80 text-ink-2"><StatusDot live className="text-good" />{new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</span>}>
+        meta={<span className="chip bg-surface/80 text-ink-2"><StatusDot live className="text-good" />{new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</span>}
+        footer={<QuickCapture />}>
         <Button onClick={() => navigate('/work')}><Inbox className="h-4 w-4" />Find work</Button>
         <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
       </PageHeader>
 
       {leadUnit && <SectionOverview unitId={leadUnit} />}
 
-      <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
-        <div className="space-y-4 xl:col-span-2">
+      <div className="grid grid-cols-1 gap-5 xl:grid-cols-12">
+        <div className="space-y-5 xl:col-span-8">
           <Panel beam={working.length > 0} title="Your work" subtitle="What you hold, and the next useful step on each" padded={false}
             action={<Link to="/record" className="text-xs text-accent hover:underline">Your record</Link>}>
             {assigned.isPending ? <Skeleton className="m-4 h-24" /> : working.length || myTasks.length ? (
@@ -89,8 +91,7 @@ export default function Dashboard() {
           {working.length > 0 && <AvailableWork compact />}
         </div>
 
-        <div className="space-y-4">
-          <QuickCapture />
+        <div className="space-y-5 xl:col-span-4">
           <Changes />
           <PersonalPanel summary={summary.data} />
         </div>
@@ -117,17 +118,19 @@ function AvailableWork({ compact = false }: { compact?: boolean }) {
   );
 }
 
+/** Anything that did not start as a tasker, captured in one line from the top of Today. */
 function QuickCapture() {
   const [text, setText] = useState('');
   const open = (seed: string) => { window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: seed })); setText(''); };
   return (
-    <Panel title="Quick capture" subtitle="PME, PT, volunteering, anything that did not start as a tasker">
-      <form onSubmit={(e) => { e.preventDefault(); open(text); }} className="flex gap-2">
-        <Input aria-label="What did you do?" placeholder="Volunteered 6 hours at the food pantry" value={text} onChange={(e) => setText(e.target.value)} />
+    <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-4">
+      <p className="shrink-0 text-sm font-medium text-ink">Quick capture</p>
+      <form onSubmit={(e) => { e.preventDefault(); open(text); }} className="flex min-w-0 flex-1 gap-2">
+        <Input aria-label="What did you do?" placeholder="PME, PT, volunteering: anything that did not start as a tasker" value={text} onChange={(e) => setText(e.target.value)} />
         <Button type="submit" variant="primary" aria-label="Capture it"><Plus className="h-4 w-4" /></Button>
       </form>
-      <p className="mt-2 text-xs text-ink-3">Work you do in Vantage is recorded for you. Use this for everything else. Press <kbd className="kbd">N</kbd> anywhere.</p>
-    </Panel>
+      <p className="shrink-0 text-xs text-ink-3">Work in Vantage is recorded for you. Press <kbd className="kbd">N</kbd> anywhere.</p>
+    </div>
   );
 }
 
@@ -169,11 +172,11 @@ function PersonalPanel({ summary }: { summary: any }) {
   return (
     <Panel title="Your record and development">
       {summary && (
-        <Link to="/record" className="mb-3 grid grid-cols-3 gap-2 rounded-md border border-line p-2 text-center hover:border-line-strong">
-          <span><span className="fig block text-lg font-semibold text-ink">{summary.contributions.documents_researched}</span><span className="text-2xs text-ink-3">documents researched</span></span>
-          <span><span className="fig block text-lg font-semibold text-ink">{summary.contributions.verified_outcomes}</span><span className="text-2xs text-ink-3">verified</span></span>
-          <span><span className="fig block text-lg font-semibold text-ink">{summary.personal.activities}</span><span className="text-2xs text-ink-3">own entries</span></span>
-        </Link>
+        <StatStrip inset label="Your record" className="mb-4 grid-cols-3" items={[
+          { label: 'Researched', value: summary.contributions.documents_researched, to: '/record' },
+          { label: 'Verified', value: summary.contributions.verified_outcomes, to: '/record?tab=contributions' },
+          { label: 'Own entries', value: summary.personal.activities, to: '/record?tab=entries' },
+        ]} />
       )}
       <ul className="space-y-3 text-sm">
         {active.map((g: any) => {
@@ -213,12 +216,12 @@ function SectionOverview({ unitId }: { unitId: string }) {
         <h2 id="section-heading" className="flex items-center gap-2 text-md font-semibold text-ink"><Users className="h-4 w-4 text-accent" aria-hidden />{unitLabel}</h2>
         <Link to="/team?tab=workload" className="text-xs text-accent hover:underline">Full workload</Link>
       </div>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
-        <Tile label="Unassigned" value={s.unassigned} hint="open to claim or assign" to="/work?claimed=nobody" tone={s.unassigned ? 'accent' : undefined} />
-        <Tile label="Overdue" value={s.overdue} hint="past due and still open" to="/team?tab=workload" tone={s.overdue ? 'bad' : undefined} />
-        <Tile label="Blocked" value={s.blocked} hint="something is in the way" to="/team?tab=workload" tone={s.blocked ? 'warn' : undefined} />
-        <Tile label="Waiting" value={s.waiting} hint={waitingBits.map(([k, v]) => `${v.count} ${WAITING_LABEL[k as WaitingCategory]?.toLowerCase() || k}`).join(', ') || 'on approvals or posting'} to="/team?tab=workload" />
-      </div>
+      <StatStrip label={`${unitLabel} figures`} className="grid-cols-2 md:grid-cols-4" items={[
+        { label: 'Unassigned', value: s.unassigned, hint: 'open to claim or assign', to: '/work?claimed=nobody', tone: s.unassigned ? 'accent' : undefined },
+        { label: 'Overdue', value: s.overdue, hint: 'past due and still open', to: '/team?tab=workload', tone: s.overdue ? 'bad' : undefined, live: true },
+        { label: 'Blocked', value: s.blocked, hint: 'something is in the way', to: '/team?tab=workload', tone: s.blocked ? 'warn' : undefined, live: true },
+        { label: 'Waiting', value: s.waiting, hint: waitingBits.map(([k, v]) => `${v.count} ${WAITING_LABEL[k as WaitingCategory]?.toLowerCase() || k}`).join(', ') || 'on approvals or posting', to: '/team?tab=workload' },
+      ]} />
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Needs a decision" subtitle="Blocked, overdue, or waiting on verification" padded={false}>
           {w.data.attention.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Nothing is stuck.</p> : (
@@ -236,18 +239,6 @@ function SectionOverview({ unitId }: { unitId: string }) {
         </Panel>
       </div>
     </section>
-  );
-}
-
-function Tile({ label, value, hint, to, tone }: { label: string; value: number; hint: string; to: string; tone?: 'accent' | 'bad' | 'warn' }) {
-  return (
-    <Link to={to} className="stat-tile card card-hover block p-4" data-tone={value ? tone : undefined}>
-      <p className={cn('flex items-center gap-2 text-sm font-medium text-ink-2', tone === 'accent' && 'text-accent', tone === 'bad' && 'text-bad', tone === 'warn' && 'text-warn')}>
-        {tone && value > 0 && <StatusDot live={tone !== 'accent'} />}<span className="text-ink-2">{label}</span>
-      </p>
-      <p className={cn('stat-value mt-2', tone === 'accent' && 'text-accent', tone === 'bad' && 'text-bad', tone === 'warn' && 'text-warn')}>{value}</p>
-      <p className="mt-1 truncate text-xs text-ink-3">{hint}</p>
-    </Link>
   );
 }
 

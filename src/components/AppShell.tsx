@@ -2,7 +2,7 @@ import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { installTelemetry, track } from '@/lib/telemetry';
 import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, Bell, ChevronDown, ChevronsLeft, ChevronsRight, CloudOff, FlaskConical, LogOut, Menu as MenuIcon, Moon, Plus, RefreshCw, Search, Sun, WifiOff, X } from 'lucide-react';
+import { AlertTriangle, Bell, ChevronsUpDown, CloudOff, PanelLeftClose, PanelLeftOpen, FlaskConical, LogOut, Menu as MenuIcon, Moon, Plus, RefreshCw, Search, Sun, WifiOff, X } from 'lucide-react';
 import { NAV, NAV_GROUPS } from '@/config/nav';
 import { m } from 'motion/react';
 import { Ambient } from '@/components/effects';
@@ -17,7 +17,7 @@ import CommandPalette from '@/components/CommandPalette';
 import ShortcutsDialog from '@/components/ShortcutsDialog';
 import SudoDialog, { type SudoRequest } from '@/components/SudoDialog';
 import ErrorBoundary from '@/components/ErrorBoundary';
-import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys } from '@/lib/queries';
+import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys, useAssignedWork } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { flushOutbox, onOutboxChange, outbox } from '@/lib/outbox';
@@ -210,27 +210,43 @@ export default function AppShell() {
   // Cards catch the cursor (src/lib/effects.ts). Installed once for the signed-in app.
   useEffect(() => installSpotlight(), []);
 
-  // "More" sinks to the bottom of the rail: settings and the field guide are always reachable but
-  // never compete with the destinations a person came here to open.
+  // How much each destination is holding for you, shown beside it. Work: the items in your hands.
+  const assigned = useAssignedWork();
+  const held = (assigned.data || []).filter((a: any) => !['resolved', 'not_applicable'].includes(a.stage)).length;
+  const counts: Record<string, { value: number; says: string }> = held ? { '/work': { value: held, says: `${held} in your hands` } } : {};
+  const unitName = primary ? primary.unit_short || primary.unit_name : 'No unit yet';
+  const unitMark = (primary?.unit_short || primary?.unit_name || 'V').replace(/[^A-Za-z0-9]/g, '').slice(0, 2).toUpperCase();
+
+  // Primary destinations first, then Leading, then everything else pinned to the bottom. A count or a
+  // shortcut sits beside each link rather than inside it, so a link's name stays its destination.
   const navList = (mobile: boolean) => (
-    <nav className="flex flex-1 flex-col overflow-y-auto px-2 py-2" aria-label="Primary">
+    <nav className="sidebar-nav flex flex-1 flex-col overflow-y-auto px-3 pb-2" aria-label="Primary">
       {NAV_GROUPS.map((group) => {
         const items = visibleNav.filter((i) => i.group === group);
         if (!items.length) return null;
         return (
-          <div key={group} className={cn('mb-1', group === 'More' && 'mt-auto pt-4', group === 'Primary' && 'pt-2')}>
-            {(!collapsed || mobile) && group === 'Leading' && <p className="nav-label pt-4">Leading</p>}
+          <div key={group} className={cn(group === 'More' && 'mt-auto pt-4', group === 'Leading' && 'pt-5')}>
+            {(!collapsed || mobile) && group === 'Leading' && <p className="sidebar-label">Leading</p>}
             <div className="space-y-0.5">
-              {items.map((item) => (
-                <Tooltip key={item.to} content={collapsed && !mobile ? item.label : null} side="right">
-                  <NavLink to={item.to} end={item.end} className={cn('nav-item', collapsed && !mobile && 'justify-center px-0')} aria-current={isActive(item) ? 'page' : undefined}>
-                    {/* The lit block slides from the last destination to this one. */}
-                    {isActive(item) && <m.span layoutId={mobile ? 'nav-pill-drawer' : 'nav-pill'} className="nav-pill" transition={{ type: 'spring', stiffness: 420, damping: 34 }} aria-hidden />}
-                    <item.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.8} />
-                    {(!collapsed || mobile) && <span className="truncate">{item.label}</span>}
-                  </NavLink>
-                </Tooltip>
-              ))}
+              {items.map((item) => {
+                const count = counts[item.to];
+                const describe = count ? `nav-count-${item.key}${mobile ? '-m' : ''}` : undefined;
+                return (
+                  <div key={item.to} className="group relative">
+                    <Tooltip content={collapsed && !mobile ? item.label : null} side="right">
+                      <NavLink to={item.to} end={item.end} aria-describedby={describe} className={cn('nav-item', collapsed && !mobile && 'justify-center px-0')} aria-current={isActive(item) ? 'page' : undefined}>
+                        {/* The selected pill slides from the last destination to this one. */}
+                        {isActive(item) && <m.span layoutId={mobile ? 'nav-pill-drawer' : 'nav-pill'} className="nav-pill" transition={{ type: 'spring', stiffness: 460, damping: 36 }} aria-hidden />}
+                        <item.icon className="h-[17px] w-[17px] shrink-0" strokeWidth={1.8} />
+                        {(!collapsed || mobile) && <span className="truncate">{item.label}</span>}
+                      </NavLink>
+                    </Tooltip>
+                    {(!collapsed || mobile) && (count
+                      ? <><span className="nav-count" aria-hidden>{count.value}</span><span id={describe} hidden>{count.says}</span></>
+                      : !mobile && <span className="nav-keys" aria-hidden><kbd>G</kbd><kbd>{item.key.toUpperCase()}</kbd></span>)}
+                  </div>
+                );
+              })}
             </div>
           </div>
         );
@@ -238,53 +254,89 @@ export default function AppShell() {
     </nav>
   );
 
-  const brand = (
-    <div className={cn('flex h-[52px] shrink-0 items-center gap-2 px-4', collapsed && 'justify-center px-0')}>
-      {collapsed ? <Mark size={26} /> : <Logo size={26} />}
-    </div>
-  );
-
-  /* Which workspace you are in, stated once, at the top, where a person looks to check they are
-     filing this against the right unit. */
-  const workspace = (
+  /* Which unit you are in, stated once at the top, where a person looks to check they are filing
+     this against the right one. */
+  const unitSwitch = (compact: boolean) => (
     <button
       type="button"
       onClick={() => navigate(identity?.canLead ? '/team?tab=units' : '/settings')}
-      className="mx-4 mb-1 mt-4 flex shrink-0 items-center justify-between gap-2 border-b border-line-strong pb-3 text-left"
+      className={cn('unit-switch', compact && 'justify-center px-0')}
+      aria-label={compact ? `Unit: ${unitName}` : undefined}
     >
-      <span className="min-w-0">
-        <span className="block text-xs leading-relaxed text-ink-3">{identity?.instance.organizationName || 'Workspace'}</span>
-        <span className="mt-0.5 block truncate text-base font-medium text-ink">{primary ? primary.unit_short || primary.unit_name : 'No unit yet'}</span>
-      </span>
-      <ChevronDown className="h-4 w-4 shrink-0 text-ink-3" aria-hidden />
+      <span className="unit-mark" aria-hidden>{unitMark}</span>
+      {!compact && (
+        <>
+          <span className="min-w-0 flex-1 text-left">
+            <span className="block truncate text-sm font-semibold text-ink">{unitName}</span>
+            <span className="block truncate text-xs text-ink-3">{identity?.instance.organizationName || 'Workspace'}</span>
+          </span>
+          <ChevronsUpDown className="h-4 w-4 shrink-0 text-ink-3" aria-hidden />
+        </>
+      )}
     </button>
   );
+
+  const accountMenu = (
+    <>
+      <div className="border-b border-line px-2.5 pb-2 pt-1">
+        <p className="truncate text-sm font-semibold text-ink">{user?.rank?.abbr} {user?.first_name} {user?.last_name}</p>
+        <p className="truncate text-xs text-ink-3">{primary ? `${primary.billet ? `${primary.billet} · ` : ''}${primary.unit_short || primary.unit_name}` : 'No unit yet'}</p>
+      </div>
+      <MenuItem onSelect={() => navigate('/settings')}>Settings</MenuItem>
+      {user?.is_operator ? <MenuItem onSelect={() => navigate('/operator')}>Owner console</MenuItem> : null}
+      <MenuItem onSelect={toggleTheme} icon={theme === 'dark' ? Sun : Moon}>{theme === 'dark' ? 'Light theme' : 'Dark theme'}</MenuItem>
+      <MenuItem onSelect={() => setShortcuts(true)}>Keyboard shortcuts</MenuItem>
+      <MenuSeparator />
+      {demo
+        ? <MenuItem icon={RefreshCw} onSelect={() => startOver()}>Start the demo over</MenuItem>
+        : <MenuItem danger icon={LogOut} onSelect={() => signOutEverywhere()}>Sign out</MenuItem>}
+    </>
+  );
+  const avatar = <span className="avatar" aria-hidden>{initials(user?.first_name, user?.last_name)}</span>;
 
   return (
     <OutboxContext.Provider value={{ pending, flush }}>
       <div className="app-shell flex min-h-screen">
         <Ambient />
         <a href="#main" className="skip-link">Skip to content</a>
-        <aside className={cn('no-print sticky top-0 hidden h-screen shrink-0 flex-col border-r border-line bg-rail transition-[width] duration-150 lg:flex', collapsed ? 'w-[68px]' : 'w-[225px]')}>
-          {brand}
-          {!collapsed && workspace}
+        <aside className={cn('sidebar no-print sticky top-0 hidden h-screen shrink-0 flex-col transition-[width] duration-200 lg:flex', collapsed ? 'w-[72px]' : 'w-[248px]')}>
+          <div className={cn('flex h-[60px] shrink-0 items-center gap-2 px-4', collapsed && 'justify-center px-0')}>
+            {collapsed ? <Mark size={24} reversed={theme === 'dark'} /> : <Logo size={24} reversed={theme === 'dark'} />}
+            {!collapsed && <button type="button" onClick={toggleRail} className="sidebar-icon ml-auto" aria-label="Collapse navigation"><PanelLeftClose className="h-4 w-4" /></button>}
+          </div>
+          <div className="px-3 pb-3">{unitSwitch(collapsed)}</div>
+          {collapsed && <div className="flex justify-center pb-2"><button type="button" onClick={toggleRail} className="sidebar-icon" aria-label="Expand navigation"><PanelLeftOpen className="h-4 w-4" /></button></div>}
           {navList(false)}
-          <div className="px-2 pb-2">
-            <button type="button" onClick={toggleRail} className="nav-item w-full justify-center text-ink-3" aria-label={collapsed ? 'Expand navigation' : 'Collapse navigation'}>
-              {collapsed ? <ChevronsRight className="h-4 w-4" /> : <><ChevronsLeft className="h-4 w-4" /><span className="text-xs">Collapse</span></>}
-            </button>
+          <div className="sidebar-foot px-3 pb-3 pt-2">
+            <Menu>
+              <MenuTrigger asChild>
+                <button type="button" className={cn('profile', collapsed && 'justify-center px-0')} aria-label="Account menu">
+                  {avatar}
+                  {!collapsed && (
+                    <>
+                      <span className="min-w-0 flex-1 text-left">
+                        <span className="block truncate text-sm font-medium text-ink">{[user?.rank?.abbr, user?.first_name, user?.last_name].filter(Boolean).join(' ')}</span>
+                        <span className="block truncate text-xs text-ink-3">{primary?.billet || (demo ? (demo.workspace?.persona === 'leader' ? 'Section lead' : 'Budget analyst') : unitName)}</span>
+                      </span>
+                      <ChevronsUpDown className="h-4 w-4 shrink-0 text-ink-3" aria-hidden />
+                    </>
+                  )}
+                </button>
+              </MenuTrigger>
+              <MenuContent side="top" align="start">{accountMenu}</MenuContent>
+            </Menu>
           </div>
         </aside>
 
         {drawer && (
           <div className="no-print fixed inset-0 z-50 lg:hidden">
             <button type="button" className="absolute inset-0 bg-ink/60 animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu" />
-            <aside className="absolute inset-y-0 left-0 flex w-[min(86vw,280px)] flex-col border-r border-line bg-rail animate-slide-in-left">
-              <div className="flex h-[52px] shrink-0 items-center gap-2 px-4">
-                <Logo size={26} />
-                <button type="button" onClick={() => setDrawer(false)} className="ml-auto rounded-md p-2 text-ink-3 hover:bg-surface-3 hover:text-ink" aria-label="Close menu"><X className="h-4 w-4" /></button>
+            <aside className="sidebar sidebar-drawer absolute inset-y-0 left-0 flex w-[min(86vw,288px)] flex-col animate-slide-in-left">
+              <div className="flex h-[60px] shrink-0 items-center gap-2 px-4">
+                <Logo size={24} reversed={theme === 'dark'} />
+                <button type="button" onClick={() => setDrawer(false)} className="sidebar-icon ml-auto" aria-label="Close menu"><X className="h-4 w-4" /></button>
               </div>
-              {workspace}
+              <div className="px-3 pb-3">{unitSwitch(false)}</div>
               {navList(true)}
             </aside>
           </div>
@@ -308,25 +360,15 @@ export default function AppShell() {
               </button>
               <Button variant="primary" onClick={() => openQuickLog('')} aria-label="Log activity"><Plus className="h-4 w-4" /><span className="hidden xl:inline">Log activity</span></Button>
               <NotificationBell onNavigate={(to) => navigate(to)} />
-              <Menu>
-                <MenuTrigger asChild>
-                  <button type="button" className="flex h-9 w-9 items-center justify-center rounded-full bg-rail-active text-xs font-semibold text-white" aria-label="Account menu">{initials(user?.first_name, user?.last_name)}</button>
-                </MenuTrigger>
-                <MenuContent>
-                  <div className="border-b border-line px-2.5 pb-2 pt-1">
-                    <p className="truncate text-sm font-semibold text-ink">{user?.rank?.abbr} {user?.first_name} {user?.last_name}</p>
-                    <p className="truncate text-xs text-ink-3">{primary ? `${primary.billet ? `${primary.billet} · ` : ''}${primary.unit_short || primary.unit_name}` : 'No unit yet'}</p>
-                  </div>
-                  <MenuItem onSelect={() => navigate('/settings')}>Settings</MenuItem>
-                  {user?.is_operator ? <MenuItem onSelect={() => navigate('/operator')}>Owner console</MenuItem> : null}
-                  <MenuItem onSelect={toggleTheme} icon={theme === 'dark' ? Sun : Moon}>{theme === 'dark' ? 'Light theme' : 'Dark theme'}</MenuItem>
-                  <MenuItem onSelect={() => setShortcuts(true)}>Keyboard shortcuts</MenuItem>
-                  <MenuSeparator />
-                  {demo
-                    ? <MenuItem icon={RefreshCw} onSelect={() => startOver()}>Start the demo over</MenuItem>
-                    : <MenuItem danger icon={LogOut} onSelect={() => signOutEverywhere()}>Sign out</MenuItem>}
-                </MenuContent>
-              </Menu>
+              {/* On a phone the account lives here; on a desktop it sits at the foot of the sidebar. */}
+              <div className="lg:hidden">
+                <Menu>
+                  <MenuTrigger asChild>
+                    <button type="button" className="flex h-9 w-9 items-center justify-center rounded-full" aria-label="Account menu">{avatar}</button>
+                  </MenuTrigger>
+                  <MenuContent>{accountMenu}</MenuContent>
+                </Menu>
+              </div>
             </div>
           </header>
 

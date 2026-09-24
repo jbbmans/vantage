@@ -4,10 +4,10 @@ import { cn } from '@/lib/utils';
 
 export const Menu = DropdownMenu.Root;
 export const MenuTrigger = DropdownMenu.Trigger;
-export function MenuContent({ children, align = 'end', className }: { children: React.ReactNode; align?: 'start' | 'end' | 'center'; className?: string }) {
+export function MenuContent({ children, align = 'end', side = 'bottom', className }: { children: React.ReactNode; align?: 'start' | 'end' | 'center'; side?: 'top' | 'bottom' | 'left' | 'right'; className?: string }) {
   return (
     <DropdownMenu.Portal>
-      <DropdownMenu.Content align={align} sideOffset={6} className={cn('z-50 min-w-[200px] rounded-md border border-line bg-surface p-1 shadow-pop animate-scale-in', className)}>{children}</DropdownMenu.Content>
+      <DropdownMenu.Content align={align} side={side} sideOffset={6} className={cn('z-50 min-w-[200px] rounded-md border border-line bg-surface p-1 shadow-pop animate-scale-in', className)}>{children}</DropdownMenu.Content>
     </DropdownMenu.Portal>
   );
 }

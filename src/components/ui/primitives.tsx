@@ -284,7 +284,7 @@ export const Kbd = ({ children }: { children: React.ReactNode }) => <kbd classNa
  * sets the header in its own lit band, for the one page a person starts from; `meta` sits under
  * the lede, for a date or a status.
  */
-export function PageHeader({ eyebrow, title, lede, children, hero = false, meta }: { eyebrow?: string; title: React.ReactNode; lede?: React.ReactNode; children?: React.ReactNode; hero?: boolean; meta?: React.ReactNode }) {
+export function PageHeader({ eyebrow, title, lede, children, hero = false, meta, footer }: { eyebrow?: string; title: React.ReactNode; lede?: React.ReactNode; children?: React.ReactNode; hero?: boolean; meta?: React.ReactNode; footer?: React.ReactNode }) {
   return (
     <div className={cn('mb-6', hero && 'hero px-5 py-6 sm:px-8 sm:py-8')}>
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
@@ -296,6 +296,8 @@ export function PageHeader({ eyebrow, title, lede, children, hero = false, meta 
         </div>
         {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
       </div>
+      {/* A row that belongs to the header, such as the quick capture on Today, under a hairline. */}
+      {footer && <div className="mt-5 border-t border-line/70 pt-4">{footer}</div>}
     </div>
   );
 }

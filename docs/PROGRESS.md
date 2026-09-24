@@ -67,6 +67,10 @@ DESIGN_SYSTEM → Premium layer):
 - flat, crisp buttons (the glossy first version was dropped on owner feedback), page titles that blur in, and a hero band on Today;
 - a beam around the next task, live status dots, and cascading entrances.
 
+- On owner feedback: flat buttons; a light, frosted sidebar with a unit switcher, counts,
+  keyboard routes and the profile menu; and fewer, calmer boxes, with grouped figures in one
+  strip, no boxes inside boxes, and quick capture folded into Today's hero.
+
 Reduced motion stops all of it. It was checked at four sizes in both themes. The component
 libraries the owner named were not added; PD-018 records why for each.
 
