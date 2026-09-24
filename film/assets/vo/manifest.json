@@ -1,0 +1,252 @@
+{
+ "open-1": {
+  "hash": "7ec2fc5162112fce",
+  "text": "Somewhere tonight, a Marine is finishing work that no one will ever see.",
+  "voiced": false
+ },
+ "detail-1": {
+  "hash": "473f3f022dea1916",
+  "text": "Thirty reconciliations. A funding gap, caught in time.",
+  "voiced": false
+ },
+ "scatter-1": {
+  "hash": "97ae686226d53ae3",
+  "text": "By morning, most of it is gone.",
+  "voiced": false
+ },
+ "scatter-2": {
+  "hash": "fbdf9a6c59fc0a8d",
+  "text": "Into a spreadsheet. An inbox. Somebody’s memory.",
+  "voiced": false
+ },
+ "title-1": {
+  "hash": "db1c44fb177222a3",
+  "text": "Vantage keeps it.",
+  "voiced": false
+ },
+ "capture-1": {
+  "hash": "50e7a55f6fa76fcd",
+  "text": "Say what you did, once. Vantage reads the numbers, and shows you before it saves.",
+  "voiced": false
+ },
+ "queue-1": {
+  "hash": "419d86e50225099c",
+  "text": "Your section’s work, in one queue. Claim it, and it’s yours.",
+  "voiced": false
+ },
+ "case-1": {
+  "hash": "023e635b75fa0456",
+  "text": "Cases follow cited procedures. Evidence before action. Resolved only when verified.",
+  "voiced": false
+ },
+ "balance-1": {
+  "hash": "913e3bbb7c4c713e",
+  "text": "Open commitments. Undelivered orders.",
+  "voiced": false
+ },
+ "balance-2": {
+  "hash": "9564978ae57f04b9",
+  "text": "Read in the order the money moves.",
+  "voiced": false
+ },
+ "sealed-1": {
+  "hash": "6578674162cd847d",
+  "text": "Every entry, signed into the history. Nothing important happens quietly.",
+  "voiced": false
+ },
+ "credit-1": {
+  "hash": "7297a2f6fa0797c1",
+  "text": "And the credit goes to the Marine who did the work.",
+  "voiced": false
+ },
+ "report-1": {
+  "hash": "0efad32bc227c037",
+  "text": "When evaluation season comes, the record is already written, and every line cites its source.",
+  "voiced": false
+ },
+ "lead-1": {
+  "hash": "df8b479a84fdf310",
+  "text": "Leaders see the whole section at a glance.",
+  "voiced": false
+ },
+ "trust-1": {
+  "hash": "2b5a8e733ee9a1f8",
+  "text": "Private by default. Built to run on your own network.",
+  "voiced": false
+ },
+ "end-1": {
+  "hash": "742f4b8dc18e2471",
+  "text": "Vantage. Give good work a lasting record.",
+  "voiced": false
+ },
+ "ql-0": {
+  "hash": "6f0512479b34d4a8",
+  "text": "Quick Log.",
+  "voiced": false
+ },
+ "ql-1": {
+  "hash": "8406df08631b4d17",
+  "text": "The fastest way to keep a record. Press N, anywhere in Vantage.",
+  "voiced": false
+ },
+ "ql-2": {
+  "hash": "07c25f7e1d3ee9bd",
+  "text": "Write it the way you’d say it out loud.",
+  "voiced": false
+ },
+ "ql-3": {
+  "hash": "a83d2bb9e3b70b97",
+  "text": "Vantage reads the count, the dollar value and what kind of value it is, the system, and the date.",
+  "voiced": false
+ },
+ "ql-4": {
+  "hash": "dc38959c7c8e5be8",
+  "text": "Check what it understood, then save. It lands in your record, dated, and yours.",
+  "voiced": false
+ },
+ "ql-5": {
+  "hash": "2632be43a258d5d6",
+  "text": "No signal? It waits on your device, and syncs when you’re back.",
+  "voiced": false
+ },
+ "q-0": {
+  "hash": "cbaa7c7bf25511a7",
+  "text": "Working a case.",
+  "voiced": false
+ },
+ "q-1": {
+  "hash": "5371e7b9f2241d7a",
+  "text": "Work arrives as a queue your whole section can see.",
+  "voiced": false
+ },
+ "q-2": {
+  "hash": "99a7f4a8f83ba655",
+  "text": "Claim a case, and it’s on your list at once. Claiming isn’t credit. The work is.",
+  "voiced": false
+ },
+ "q-3": {
+  "hash": "a514376e455dfaa2",
+  "text": "The procedure shows the next step, and the form asks only for what that step needs.",
+  "voiced": false
+ },
+ "q-4": {
+  "hash": "e7edf0ad90cf6062",
+  "text": "Record what you found, and Vantage calculates the candidate, citing every input.",
+  "voiced": false
+ },
+ "q-5": {
+  "hash": "d69ebe84d786fa3e",
+  "text": "Decide, with your reason. A step that needs evidence first says so, before it refuses.",
+  "voiced": false
+ },
+ "q-6": {
+  "hash": "2585c0bdc58bc49f",
+  "text": "Every entry is signed into the history. Hand it on, and each of you keeps exactly what you did.",
+  "voiced": false
+ },
+ "b-0": {
+  "hash": "0fd407b18cedfdb7",
+  "text": "Reading a balance.",
+  "voiced": false
+ },
+ "b-1": {
+  "hash": "691aef9aea06465f",
+  "text": "The Reference is the FMRA desk reference, inside Vantage, with every statement cited.",
+  "voiced": false
+ },
+ "b-2": {
+  "hash": "88f5f377bb883bb4",
+  "text": "Enter a document’s commitment, obligation, delivered, and paid.",
+  "voiced": false
+ },
+ "b-3": {
+  "hash": "23ed4f1d9431b31f",
+  "text": "Vantage names the open condition, the causes worth ruling out, who can act, and what would prove the fix.",
+  "voiced": false
+ },
+ "b-4": {
+  "hash": "a924d94a646dca0a",
+  "text": "A dash on a report isn’t a zero. Mark it not shown.",
+  "voiced": false
+ },
+ "b-5": {
+  "hash": "8dab2616e6413f65",
+  "text": "Open a case, and the figures come with it, labelled with where they came from.",
+  "voiced": false
+ },
+ "r-0": {
+  "hash": "547dca1ec5296cc3",
+  "text": "Your Record.",
+  "voiced": false
+ },
+ "r-1": {
+  "hash": "fcbb264a313e08e8",
+  "text": "It keeps three things apart. What you hold, which isn’t credit. What you contributed, counted from the work itself. And what you logged yourself.",
+  "voiced": false
+ },
+ "r-2": {
+  "hash": "43bcfd10040eb1f2",
+  "text": "One document counts once, however many entries it took.",
+  "voiced": false
+ },
+ "r-3": {
+  "hash": "1b8802a9c3592c95",
+  "text": "From any case you worked, prepare a private draft, built only from your own facts.",
+  "voiced": false
+ },
+ "r-4": {
+  "hash": "c06088aa81903a9c",
+  "text": "Keep it, and it lands in your record, with a link back to the case.",
+  "voiced": false
+ },
+ "s-0": {
+  "hash": "ec2da79071d34e20",
+  "text": "Report Studio.",
+  "voiced": false
+ },
+ "s-1": {
+  "hash": "36b4124b185e2296",
+  "text": "Report Studio turns your record into JEPES or FITREP input.",
+  "voiced": false
+ },
+ "s-2": {
+  "hash": "6a300499f8215eeb",
+  "text": "Choose the period, and the entries it should cite.",
+  "voiced": false
+ },
+ "s-3": {
+  "hash": "b3ab4f2d37a05bfb",
+  "text": "Write against facts you can open and check.",
+  "voiced": false
+ },
+ "s-4": {
+  "hash": "c42103b6799393e9",
+  "text": "Save, and the revision is locked to exactly what was reviewed.",
+  "voiced": false
+ },
+ "l-0": {
+  "hash": "402c7f479b660d24",
+  "text": "Leading a section.",
+  "voiced": false
+ },
+ "l-1": {
+  "hash": "b3e40ca46c16e14e",
+  "text": "As a section lead, Today puts your section first: what’s unassigned, overdue, blocked, and waiting, and on what.",
+  "voiced": false
+ },
+ "l-2": {
+  "hash": "6a1e514079509f73",
+  "text": "See how many open commitments, undelivered orders and UMTs you’re carrying.",
+  "voiced": false
+ },
+ "l-3": {
+  "hash": "91b265003d5dc333",
+  "text": "Workload shows who holds what, beside what each count means.",
+  "voiced": false
+ },
+ "l-4": {
+  "hash": "78aa4f7557179d45",
+  "text": "Counts never measure effort. And zero recorded is never zero work.",
+  "voiced": false
+ }
+}

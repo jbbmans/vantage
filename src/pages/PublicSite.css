@@ -323,11 +323,30 @@
 /* Video, when any is published. */
 .ps-video { margin-top: 40px; display: grid; gap: 16px; }
 @media (min-width: 960px) { .ps-video { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); } }
-.ps-video video { width: 100%; border-radius: 20px; background: var(--ps-navy); box-shadow: var(--ps-shadow); }
+.ps-video video { display: block; width: 100%; aspect-ratio: 16 / 9; background: var(--ps-navy); }
+.ps-video .ps-player .ps-bezel-core { background: var(--ps-navy); }
 .ps-video .mission-video-list { display: grid; gap: 6px; align-content: start; }
-.ps-video .mission-video-list button { display: flex; gap: 10px; align-items: center; text-align: left; padding: 12px 14px; border: 0; border-radius: 14px; background: #fff; box-shadow: inset 0 0 0 1px var(--ps-line); font: inherit; cursor: pointer; }
-.ps-video .mission-video-list button[aria-pressed='true'] { box-shadow: inset 0 0 0 1.5px var(--ps-cobalt); }
-.ps-video .mission-video-list small { display: block; color: var(--ps-ink-3); font-size: 12px; }
+.ps-video .mission-video-list button {
+  display: flex; gap: 14px; align-items: center; text-align: left; padding: 8px 14px 8px 8px; border: 0; border-radius: 16px; background: #fff;
+  box-shadow: inset 0 0 0 1px var(--ps-line); font: inherit; cursor: pointer; color: var(--ps-ink);
+  transition: box-shadow 0.4s var(--ps-ease), transform 0.4s var(--ps-ease);
+}
+.ps-video .mission-video-list button:hover { transform: translateX(2px); }
+.ps-video .mission-video-list button:active { transform: scale(0.99); }
+.ps-video .mission-video-list button[aria-pressed='true'] { box-shadow: inset 0 0 0 1.5px var(--ps-cobalt), 0 10px 24px -16px rgba(37, 99, 235, 0.55); }
+.ps-video .mission-video-list img { width: 96px; height: 54px; flex-shrink: 0; border-radius: 10px; object-fit: cover; background: var(--ps-navy); }
+.ps-video .mission-video-list strong { display: block; font-weight: 600; font-size: 14px; line-height: 1.3; }
+.ps-video .mission-video-list small { display: block; margin-top: 2px; color: var(--ps-ink-3); font-size: 12px; }
+
+/* "Watch the film", beside the hero's main call: a play mark in its own circle. */
+.ps-watch-cta { gap: 12px; padding: 8px 20px 8px 8px; }
+.ps-watch-cta small { margin-left: 2px; font-weight: 500; font-size: 13px; color: var(--ps-on-dark-3); }
+.ps-watch-dot {
+  display: inline-flex; align-items: center; justify-content: center; width: 34px; height: 34px; border-radius: 999px;
+  background: rgba(255, 255, 255, 0.1); transition: transform 0.4s var(--ps-ease), background-color 0.4s var(--ps-ease);
+}
+.ps-watch-dot svg { width: 14px; height: 14px; margin-left: 2px; fill: currentColor; }
+.ps-watch-cta:hover .ps-watch-dot { transform: scale(1.06); background: rgba(255, 255, 255, 0.16); }
 
 /* Assurance grid: three by two, generous. */
 .ps-assurance { list-style: none; margin: 56px 0 0; padding: 0; display: grid; gap: 1px; border-radius: 24px; overflow: hidden; background: var(--ps-line); box-shadow: 0 0 0 1px var(--ps-line); }

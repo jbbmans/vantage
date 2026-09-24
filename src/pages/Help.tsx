@@ -139,12 +139,11 @@ export default function Help() {
               {VIDEOS.map((slot) => <VideoSlotCard key={slot.id} slot={slot} />)}
             </div>
             <p className="mt-4 text-xs leading-relaxed text-ink-3">
-              Grouped as {Object.values(TOPIC_LABELS).join(', ').toLowerCase()}. To publish one, drop the file in
-              <code className="mx-1 rounded bg-surface-2 px-1 py-0.5">public/videos/</code> and set its
-              <code className="mx-1 rounded bg-surface-2 px-1 py-0.5">src</code> in
-              <code className="mx-1 rounded bg-surface-2 px-1 py-0.5">src/config/videos.ts</code>. Add captions at the
-              same time — a walkthrough without them is not finished, and half the people who need it most are the ones
-              who cannot use it without.
+              Grouped as {Object.values(TOPIC_LABELS).join(', ').toLowerCase()}. Each film is recorded on the real
+              application running the synthetic demo, narrated, captioned and scored by
+              <code className="mx-1 rounded bg-surface-2 px-1 py-0.5">npm run film</code>, which publishes it here and on the
+              public page. A film is published only with its narration and captions: a walkthrough without them is not
+              finished, and half the people who need it most are the ones who cannot use it without.
             </p>
           </Panel>
 

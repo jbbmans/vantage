@@ -168,6 +168,12 @@ export default function PublicSite() {
   const root = useRef<HTMLDivElement | null>(null);
   const [activeVideo, setActiveVideo] = useState('tour');
   const video = videos.find((item) => item.id === activeVideo) || videos[0];
+  const film = videos.find((item) => item.id === 'tour');
+  const player = useRef<HTMLVideoElement | null>(null);
+  const chosen = useRef(false);
+  // A film picked from the list starts playing: the click was the request. The first one never autoplays.
+  const choose = (id: string) => { chosen.current = true; setActiveVideo(id); };
+  useEffect(() => { if (chosen.current) player.current?.play().catch(() => undefined); }, [activeVideo]);
   useReveal(root);
   useEffect(() => {
     applySeo({ title: 'VANTAGE USMC | Marine Performance & Work Management', description: 'VANTAGE helps Marines and operational teams track work, performance records, readiness and goals, then build reports from traceable evidence.', canonicalPath: '/', indexable: true });
@@ -195,7 +201,11 @@ export default function PublicSite() {
             <p className="ps-lede">Vantage keeps the work, the evidence and the credit together, from a tasker’s first research note to the evaluation input it becomes. Built for Marines and the operational teams they serve in.</p>
             <div className="ps-actions">
               <PillLink href="#product">Explore the product</PillLink>
-              <a className="ps-ghost" href="#experience">Try Quick Log</a>
+              {film ? (
+                <a className="ps-ghost ps-watch-cta" href="#watch" onClick={() => setActiveVideo(film.id)}>
+                  <span className="ps-watch-dot" aria-hidden><Play strokeWidth={2} /></span>Watch the film<small>{film.length}</small>
+                </a>
+              ) : <a className="ps-ghost" href="#experience">Try Quick Log</a>}
             </div>
             <ul className="ps-proof" aria-label="At a glance">
               <li><WifiOff strokeWidth={1.75} aria-hidden />Self-hosted, no trackers</li>
@@ -206,6 +216,32 @@ export default function PublicSite() {
           <CaseMock />
         </main>
       </div>
+
+      {video && (
+        <section className="ps-section ps-container ps-watch" id="watch" aria-labelledby="ps-watch-title">
+          <div className="ps-section-head" data-reveal>
+            <p className="ps-eyebrow">{video.id === 'tour' ? 'The film' : 'Field guide'}</p>
+            <h2 id="ps-watch-title">{video.id === 'tour' ? 'Ninety seconds on what Vantage keeps.' : video.title}</h2>
+            <p className="ps-section-lede">Recorded on the real application, running the synthetic demo: every name and figure on screen is invented.</p>
+          </div>
+          <div className="mission-video-layout ps-video" data-reveal>
+            <div className="ps-bezel ps-player"><div className="ps-bezel-core">
+              <video ref={player} key={video.id} controls playsInline preload="metadata" poster={video.poster} aria-label={video.title}>
+                <source src={video.src} type="video/mp4" />
+                {video.captions && <track kind="captions" src={video.captions} srcLang="en" label="English" />}
+              </video>
+            </div></div>
+            <div className="mission-video-list" aria-label="Choose a film">
+              {videos.map((item) => (
+                <button type="button" key={item.id} aria-pressed={item.id === video.id} onClick={() => choose(item.id)}>
+                  {item.poster ? <img src={item.poster} alt="" loading="lazy" width="96" height="54" /> : <Play strokeWidth={1.75} aria-hidden />}
+                  <span><strong>{item.id === 'tour' ? 'The film' : item.title}</strong><small>{item.length}</small></span>
+                </button>
+              ))}
+            </div>
+          </div>
+        </section>
+      )}
 
       <section className="ps-section ps-container" id="product" aria-labelledby="ps-product-title">
         <div className="ps-section-head" data-reveal>
@@ -282,15 +318,6 @@ export default function PublicSite() {
         <div className="ps-bezel" data-reveal><div className="ps-bezel-core ps-parser"><LiveParser /></div></div>
       </section>
 
-      {video && (
-        <section className="ps-section ps-container" id="watch" aria-labelledby="ps-watch-title">
-          <div className="ps-section-head" data-reveal><p className="ps-eyebrow">Inside Vantage</p><h2 id="ps-watch-title">Watch the workflow.</h2></div>
-          <div className="mission-video-layout ps-video" data-reveal>
-            <video key={video.id} controls preload="none" poster={video.poster} aria-label={video.title}><source src={video.src} type="video/mp4" />{video.captions && <track kind="captions" src={video.captions} srcLang="en" label="English" />}</video>
-            <div className="mission-video-list" aria-label="Choose a guide">{videos.map((item) => <button type="button" key={item.id} aria-pressed={item.id === video.id} onClick={() => setActiveVideo(item.id)}><Play strokeWidth={1.75} aria-hidden /><span><strong>{item.title}</strong><small>{item.length}</small></span></button>)}</div>
-          </div>
-        </section>
-      )}
 
       <section className="ps-section ps-container" id="security" aria-labelledby="ps-security-title">
         <div className="ps-section-head" data-reveal>
