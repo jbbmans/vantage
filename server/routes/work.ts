@@ -18,7 +18,7 @@ import {
 import { recordEntry, changeStage, handOff, calculate, applyProcedure, handoffCandidates } from '../services/cases.ts';
 import { teamWorkload, parseWindow } from '../services/record.ts';
 import { forbidden } from '../lib/errors.ts';
-import { PROCEDURES } from '../../shared/procedures.ts';
+import { PROCEDURES, PROCEDURE_LIST, PROCEDURE_VERSIONS, suggestProcedure } from '../../shared/procedures.ts';
 import { STAGES } from '../../shared/caseModel.ts';
 
 export const workRouter = Router();
@@ -65,13 +65,14 @@ const planSchema = z.object({
   mapping: z.record(z.string().max(200), z.enum([...MAPPABLE_FIELDS, 'ignore', 'keep'])).default({}),
   unit_id: z.string().max(64).nullable().default(null),
   visibility: z.enum(['private', 'unit']).default('unit'),
+  procedure: z.string().max(60).nullable().optional().refine((v) => !v || v === 'auto' || Boolean(PROCEDURES[v]), 'No such procedure.'),
 });
 
 const planFrom = (body: unknown): { plan: ImportPlan; sourceId: string } => {
   const q = parse(planSchema, body);
   return {
     sourceId: q.source_file_id,
-    plan: { sheet_name: q.sheet_name, header_row: q.header_row, headers: [], key_columns: q.key_columns, mapping: q.mapping, unit_id: q.unit_id, visibility: q.visibility },
+    plan: { sheet_name: q.sheet_name, header_row: q.header_row, headers: [], key_columns: q.key_columns, mapping: q.mapping, unit_id: q.unit_id, visibility: q.visibility, procedure: q.procedure ?? null },
   };
 };
 
@@ -234,7 +235,26 @@ workRouter.get('/workload', wrap((req, res) => {
 }));
 
 workRouter.get('/procedures', wrap((_req, res) => {
-  res.json(Object.values(PROCEDURES).map((p) => ({ key: p.key, version: p.version, title: p.title, trigger: p.trigger, authority: p.authority })));
+  res.json(PROCEDURE_LIST.map((p) => ({
+    key: p.key, version: p.version, title: p.title, short: p.short, family: p.family, trigger: p.trigger, objective: p.objective,
+    authority: p.authority, references: p.references || [], steps: p.steps.length,
+    versions: Object.keys(PROCEDURE_VERSIONS[p.key] || {}),
+  })));
+}));
+
+// Every published version of one procedure, so a case pinned to an older one can be read in full.
+workRouter.get('/procedures/:key', wrap((req, res) => {
+  const versions = PROCEDURE_VERSIONS[String(req.params.key)];
+  if (!versions) throw badRequest('No such procedure.');
+  res.json({ current: PROCEDURES[String(req.params.key)], versions: Object.values(versions) });
+}));
+
+// A procedure that fits a work item's text. A suggestion; applying it is a separate, attributed act.
+workRouter.get('/items/:id/suggestion', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  const detail = itemDetail(req.ctx, req.user, scope, String(req.params.id));
+  const data = detail.item.data as Record<string, string>;
+  res.json(suggestProcedure(detail.item.title, detail.item.reference, ...Object.values(data || {})));
 }));
 
 workRouter.post('/items/:id/entries', wrap((req, res) => {
@@ -261,7 +281,8 @@ workRouter.post('/items/:id/handoff', wrap((req, res) => {
 
 workRouter.post('/items/:id/calculate', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
-  res.status(201).json(calculate(req.ctx, req.user, scope, String(req.params.id)));
+  const step = typeof req.body?.step === 'string' ? req.body.step.slice(0, 60) : null;
+  res.status(201).json(calculate(req.ctx, req.user, scope, String(req.params.id), step));
 }));
 
 workRouter.post('/items/:id/procedure', wrap((req, res) => {

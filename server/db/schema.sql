@@ -999,6 +999,38 @@ BEGIN
   SELECT RAISE(ABORT, 'work_events is append-only; record a correction instead');
 END;
 
+-- Each case event sealed into its work item's own HMAC chain. The events are append-only by
+-- trigger; the seal is what makes a changed body, a deleted entry or an inserted one detectable,
+-- even to someone who can write to the database file but does not hold the server secret.
+CREATE TABLE IF NOT EXISTS work_event_seals (
+  event_id      TEXT PRIMARY KEY REFERENCES work_events(id),
+  work_item_id  TEXT NOT NULL REFERENCES work_items(id),
+  seq           INTEGER NOT NULL,
+  prev_hash     TEXT,
+  entry_hash    TEXT NOT NULL,
+  sealed_at     TEXT NOT NULL
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_work_event_seals_item ON work_event_seals(work_item_id, seq);
+CREATE TRIGGER IF NOT EXISTS work_event_seals_append_only_update
+BEFORE UPDATE ON work_event_seals
+BEGIN
+  SELECT RAISE(ABORT, 'work_event_seals is append-only');
+END;
+CREATE TRIGGER IF NOT EXISTS work_event_seals_append_only_delete
+BEFORE DELETE ON work_event_seals
+FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1'
+BEGIN
+  SELECT RAISE(ABORT, 'work_event_seals is append-only');
+END;
+-- The signed head of each case's chain: its last hash and how many events it covers.
+CREATE TABLE IF NOT EXISTS work_event_heads (
+  work_item_id  TEXT PRIMARY KEY REFERENCES work_items(id),
+  hash          TEXT NOT NULL,
+  count         INTEGER NOT NULL,
+  mac           TEXT NOT NULL,
+  updated_at    TEXT NOT NULL
+);
+
 -- A private accomplishment draft a Marine prepares from their own recorded work. Owner-only, always:
 -- no leader, reviewer or operator path reads it. Facts are cited to the events they came from and
 -- kept apart from the wording, which the person edits.

@@ -7,7 +7,7 @@ import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
-import { appendEvent, caseView } from './cases.ts';
+import { appendEvent, caseView, assertMayResolveCase } from './cases.ts';
 import { STATE_TO_STAGE } from '../../shared/caseModel.ts';
 
 /**
@@ -434,6 +434,13 @@ export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
         }
       } else if (!mayProgress(scope, user, row)) {
         throw forbidden('Pick this work up before changing it.');
+      }
+      // This older path must answer to the same rules as the stage endpoint. Work under a procedure
+      // resolves only on its verification, and "does not apply" needs a reason this path cannot
+      // carry, so that goes through the case.
+      if (row.procedure_key && patch.state === 'resolved') assertMayResolveCase(ctx, row);
+      if (row.procedure_key && patch.state === 'not_applicable') {
+        throw conflict('This work follows a procedure. Mark it not applicable from the case, with the reason.', 'reason_required');
       }
       sets.push('state = ?'); params.push(patch.state);
       sets.push('resolved_at = ?'); params.push(patch.state === 'resolved' ? at : null);

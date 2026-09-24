@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppConfig } from './config.ts';
 import { PROJECT_ROOT } from './config.ts';
-import { openDatabase, metaSet } from './db/index.ts';
+import { openDatabase, metaSet, metaGet } from './db/index.ts';
 import type { AppContext } from './context.ts';
 import { createMailer } from './services/email.ts';
 import { attachContext } from './auth/middleware.ts';
@@ -35,6 +35,7 @@ import { runDigestTick } from './services/digest.ts';
 import { now } from './lib/ids.ts';
 import { purgeDeleted } from './services/records.ts';
 import { releaseStaleClaims } from './services/work.ts';
+import { sealBacklog, anchorCaseHeads } from './services/caseSeal.ts';
 import { loadRuntime } from './runtime.ts';
 export { loadRuntime };
 
@@ -62,6 +63,14 @@ export function createContext(config: AppConfig): AppContext {
   // left pending forever. Its apply ran in one transaction, so nothing is half-written.
   const interrupted = reconcileInterruptedJobs(ctx);
   if (interrupted) console.warn(`Marked ${interrupted} interrupted import job(s) as failed.`);
+  // Case histories written before sealing existed are sealed once, on the first boot of a build
+  // that seals. After that, a history with no chain is reported as unsealed rather than quietly
+  // sealed, so dropping a case's seals cannot be laundered by a restart.
+  if (!metaGet(db, 'case_seals_backfilled')) {
+    const sealed = sealBacklog(ctx);
+    metaSet(db, 'case_seals_backfilled', now());
+    if (sealed) console.log(`Sealed ${sealed} existing case-history entries.`);
+  }
   return ctx;
 }
 
@@ -245,6 +254,8 @@ export function startSchedulers(ctx: AppContext) {
   // A claim nobody has touched in three days goes back on the queue. Somebody claims a dozen rows
   // on a Friday and goes on leave; without this the work waits for a leader to notice.
   every(60 * 60_000, () => { try { const n = releaseStaleClaims(ctx); if (n) console.log(`${now()} released ${n} stale work claims`); } catch (e) { console.warn(`Stale claim sweep failed: ${(e as Error).message}`); } });
+  // The digest of every case-history head goes into the audit chain once a day.
+  every(24 * 60 * 60_000, () => { try { anchorCaseHeads(ctx); } catch (e) { console.warn(`Case history anchor failed: ${(e as Error).message}`); } });
   // Analytics steer a product; they are not a memory. Anything past the window goes on its own.
   every(24 * 60 * 60_000, () => { try { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); } catch (e) { console.warn(`Event prune failed: ${(e as Error).message}`); } });
   // Uploaded workbooks are evidence for as long as the retention policy says, and no longer.

@@ -5,10 +5,10 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { RESEARCH_KINDS, describeEvent, humanKey, type Stage } from '../../shared/caseModel.ts';
-import { procedureFor, progress } from '../../shared/procedures.ts';
+import { progress } from '../../shared/procedures.ts';
 import { CONTRIBUTION_DEFINITIONS, WORKLOAD_LIMITATIONS, draftUpdateSchema } from '../../shared/record.ts';
 import { parse } from '../lib/http.ts';
-import { eventsFor, toCaseEvent, stageOf } from './cases.ts';
+import { eventsFor, caseEventsOf, stageOf, procedureOf } from './cases.ts';
 import { readable, type WorkItemRow } from './work.ts';
 
 /**
@@ -71,10 +71,10 @@ export function assignedWork(ctx: AppContext, user: SessionUser) {
 
 export function summarizeItem(ctx: AppContext, row: ItemRow) {
   const stage = stageOf(row);
-  const procedure = procedureFor(row.procedure_key);
+  const procedure = procedureOf(row).procedure;
   let nextStep: { key: string; title: string; status: string; note: string | null } | null = null;
   if (procedure) {
-    const prog = progress(procedure, eventsFor(ctx, row.id).map(toCaseEvent), { reference: row.reference, stage });
+    const prog = progress(procedure, caseEventsOf(eventsFor(ctx, row.id)), { reference: row.reference, stage });
     const step = prog.steps.find((s) => s.key === prog.next);
     const def = procedure.steps.find((s) => s.key === prog.next);
     if (step && def) nextStep = { key: def.key, title: def.title, status: step.status, note: step.note };
@@ -85,6 +85,7 @@ export function summarizeItem(ctx: AppContext, row: ItemRow) {
     blocked_reason: row.blocked_reason || null, claimed_at: row.claimed_at, unit_id: row.unit_id,
     project_id: row.project_id || null, project_name: row.project_name || null,
     amount: row.amount, amount_type: row.amount_type, procedure_key: row.procedure_key || null,
+    procedure_short: procedure?.short || null,
     next_step: nextStep, version: row.version,
   };
 }
