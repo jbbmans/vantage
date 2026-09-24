@@ -1,11 +1,12 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowDown, ArrowUp, Info } from 'lucide-react';
-import { EmptyState, Panel, Segmented, Skeleton, Tooltip } from '@/components/ui/primitives';
+import { Panel, Segmented, Skeleton, Tooltip } from '@/components/ui/primitives';
 import { WorkRow, StageBadge } from '@/components/work';
 import { useWorkload } from '@/lib/queries';
 import { STAGE_LABEL, WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
 import { cn } from '@/lib/utils';
+import { QueryFailure } from '@/components/QueryFailure';
 
 /**
  * A leader's view of the section's work. Counts sit beside the context needed to read them —
@@ -26,7 +27,9 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'documents_researched', dir: 'desc' });
 
   if (w.isPending) return <Skeleton className="h-64" />;
-  if (w.isError || !w.data) return <div className="card"><EmptyState title="Workload is not available for this unit" description="It needs permission to view the unit’s shared records." /></div>;
+  if (w.isError || !w.data) {
+    return <QueryFailure error={w.error} what="The section’s workload" onRetry={() => w.refetch()} denied={{ title: 'Workload is not available for this unit', description: 'It needs permission to view the unit’s shared records.' }} />;
+  }
   const d = w.data;
   const s = d.section;
   const members = [...d.members].sort((a: any, b: any) => {

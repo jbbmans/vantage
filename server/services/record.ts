@@ -5,7 +5,7 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { RESEARCH_KINDS, describeEvent, humanKey, type Stage } from '../../shared/caseModel.ts';
-import { progress } from '../../shared/procedures.ts';
+import { PROCEDURES, progress } from '../../shared/procedures.ts';
 import { CONTRIBUTION_DEFINITIONS, WORKLOAD_LIMITATIONS, draftUpdateSchema } from '../../shared/record.ts';
 import { parse } from '../lib/http.ts';
 import { eventsFor, caseEventsOf, stageOf, procedureOf } from './cases.ts';
@@ -206,6 +206,20 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
   const stages: Record<string, number> = {};
   for (const i of open) stages[stageOf(i)] = (stages[stageOf(i)] || 0) + 1;
 
+  // Open work by the procedure it follows: how many OCMT, UDOU, DOU, OTO, UMT and so on the section
+  // is carrying, and how many of each nobody has picked up.
+  const byProcedure = new Map<string, { key: string; short: string; title: string; family: string | null; open: number; unassigned: number; blocked: number; overdue: number }>();
+  for (const i of open) {
+    const p = i.procedure_key ? PROCEDURES[i.procedure_key] : null;
+    const key = p ? p.key : i.procedure_key ? i.procedure_key : 'none';
+    const row = byProcedure.get(key) || { key, short: p?.short || (key === 'none' ? 'No procedure' : key), title: p?.title || (key === 'none' ? 'Work that follows no modelled procedure' : 'A procedure this build does not have'), family: p?.family || null, open: 0, unassigned: 0, blocked: 0, overdue: 0 };
+    row.open += 1;
+    if (!i.claimed_by) row.unassigned += 1;
+    if (stageOf(i) === 'blocked') row.blocked += 1;
+    if (i.due_date && i.due_date < today) row.overdue += 1;
+    byProcedure.set(key, row);
+  }
+
   // The same predicate the queue uses: only live, unit-visible rows of this unit.
   const sectionCount = (agg: string, where: string) =>
     (ctx.db.prepare(`SELECT ${agg} AS n FROM work_events e WHERE e.occurred_at BETWEEN ? AND ? AND ${SHARED} AND ${where}`).get(lo, hi, unitId) as { n: number }).n;
@@ -223,6 +237,7 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
     },
     by_stage: stages,
     by_waiting: byWaiting,
+    by_procedure: [...byProcedure.values()].sort((a, b) => (a.key === 'none' ? 1 : b.key === 'none' ? -1 : b.open - a.open)),
     // Distinct documents, counted once for the section however many people touched them.
     documents_researched: sectionCount(`COUNT(DISTINCT e.work_item_id)`, `e.actor_id IS NOT NULL AND e.kind IN (${RESEARCH})`),
     resolved: sectionCount('COUNT(DISTINCT e.work_item_id)', "e.kind = 'resolved'"),

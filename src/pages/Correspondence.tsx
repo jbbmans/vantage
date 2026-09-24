@@ -547,7 +547,7 @@ function Mailboxes() {
 
   const add = async () => {
     if (!label.trim()) { toast.error('Name the mailbox by its address, so the sign-in can be checked against it.'); return; }
-    await act('add', async () => { await api.createConnector({ provider: 'microsoft365', cloud, account_label: label }); setLabel(''); }, 'Mailbox added. Nothing is read until you authorize it.');
+    await act('add', async () => { await api.createConnector({ provider: 'microsoft365', cloud, account_label: label }); setLabel(''); }, 'Mailbox added. Nothing is read until it is authorized.');
   };
 
   return (
@@ -610,13 +610,16 @@ function Mailboxes() {
                       ) : available ? (
                         <Button size="xs" variant="primary" loading={busy === `auth:${id}`} onClick={() => act(`auth:${id}`, async () => {
                           const r = await api.authorizeConnector(id);
-                          window.location.assign(String(r.url));
+                          // Only ever off to a sign-in page over HTTPS (a local stand-in in development).
+                          const target = new URL(String(r.url));
+                          if (target.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(target.hostname)) throw new Error('The sign-in address was not secure, so Vantage did not follow it.');
+                          window.location.assign(target.toString());
                         })}>Authorize at Microsoft</Button>
                       ) : null}
                       <Button size="xs" variant="ghost" onClick={async () => {
                         try { const res = await api.connectorAuthorization(id); setPlan(plan?.id === id ? null : { id, plan: res.plan }); }
                         catch (err) { toast.error(api.errorText(err)); }
-                      }}>What it asks for</Button>
+                      }}>What it would ask for</Button>
                       <Button size="xs" variant="ghost" onClick={() => act(`rm:${id}`, () => api.deleteConnector(id), 'Mailbox removed. The correspondence it brought in stays.')}>Remove</Button>
                     </div>
                   </div>

@@ -88,13 +88,52 @@ export const useTrainings = () => useRecords('trainings');
 export const useAwards = () => useRecords('awards');
 export const useCounselings = () => useRecords('counselings');
 
+/**
+ * What each kind of change can make stale (F10).
+ *
+ * One map instead of a list at every call site, so a mutation refreshes every read model its change
+ * feeds — the figures, goal progress, the Record, Today — and a screen added later is wired in once.
+ * Keys are prefixes: ['records', 'goals'] refreshes every goals list, whatever its filters.
+ */
+export type Domain = 'activity' | 'training' | 'award' | 'counseling' | 'goal' | 'task' | 'project' | 'work' | 'draft' | 'career' | 'correspondence' | 'report';
+
+/** Everything computed from logged outcomes: headline figures, goal progress, reports, the team view. */
+const FIGURES: ReadonlyArray<readonly unknown[]> = [
+  ['report'], ['delta'], ['analysis'], ['dashboard'], ['metrics'], ['metric-contributors'],
+  ['goal-contributors'], ['records', 'goals'], ['record', 'goals'], ['record-summary'],
+];
+
+const AFFECTS: Record<Domain, ReadonlyArray<readonly unknown[]>> = {
+  activity: [['records', 'activities'], ['record', 'activities'], ...FIGURES],
+  training: [['records', 'trainings'], ['record', 'trainings'], ...FIGURES, ['career'], ['readiness']],
+  award: [['records', 'awards'], ['record', 'awards'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career']],
+  counseling: [['records', 'counselings'], ['record', 'counselings'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career']],
+  goal: [['records', 'goals'], ['record', 'goals'], ['goal-contributors'], ['dashboard'], ['report'], ['delta']],
+  task: [['records', 'tasks'], ['record', 'tasks'], ['dashboard'], ['project-work']],
+  project: [['records', 'projects'], ['record', 'projects'], ['records', 'tasks'], ['records', 'activities'], ['project-work'], ['work-items'], ['dashboard']],
+  work: [['work-items'], ['record-summary'], ['record-assigned'], ['record-contributions'], ['workload'], ['notifications'], ['project-work'], ['item-threads']],
+  draft: [['record-drafts']],
+  career: [['career']],
+  correspondence: [['threads'], ['item-threads'], ['connectors']],
+  report: [['report-drafts'], ['report-draft']],
+};
+
+export function invalidateDomains(qc: QueryClient, ...domains: Domain[]) {
+  const seen = new Set<string>();
+  for (const d of domains) for (const key of AFFECTS[d]) {
+    const id = JSON.stringify(key);
+    if (seen.has(id)) continue;
+    seen.add(id);
+    qc.invalidateQueries({ queryKey: key as unknown[] });
+  }
+}
+
+const STORE_DOMAIN: Record<Store, Domain> = {
+  activities: 'activity', trainings: 'training', awards: 'award', counselings: 'counseling', goals: 'goal', tasks: 'task', projects: 'project',
+};
+
 export function invalidateRecords(qc: QueryClient, store: Store) {
-  qc.invalidateQueries({ queryKey: ['records', store] });
-  qc.invalidateQueries({ queryKey: ['record', store] });
-  qc.invalidateQueries({ queryKey: ['report'] });
-  qc.invalidateQueries({ queryKey: ['delta'] });
-  qc.invalidateQueries({ queryKey: ['dashboard'] });
-  if (store === 'projects') { qc.invalidateQueries({ queryKey: ['records', 'tasks'] }); qc.invalidateQueries({ queryKey: ['records', 'activities'] }); }
+  invalidateDomains(qc, STORE_DOMAIN[store]);
 }
 
 export function useCreateRecord(store: Store) {
@@ -247,13 +286,11 @@ export const useWorkload = (unitId: string | null, params: Record<string, string
   useQuery<any>({ queryKey: caseKeys.workload(unitId || '', params), queryFn: () => api.workload(unitId!, params), enabled: Boolean(unitId), retry: false });
 export const useDemoStatus = (enabled = true) => useQuery<any>({ queryKey: caseKeys.demo, queryFn: api.demoStatus, enabled, staleTime: 60_000, retry: false });
 
-/** Everything that can change when work moves: the case, the queue, the Record, and Today. */
-export function invalidateWork(qc: QueryClient, itemId?: string) {
+/**
+ * Everything that can change when work moves: the case, the queue, the Record, and Today. Pass the
+ * other domains the change also fed — 'activity' when it put an entry in somebody's record.
+ */
+export function invalidateWork(qc: QueryClient, itemId?: string, ...also: Domain[]) {
   if (itemId) qc.invalidateQueries({ queryKey: caseKeys.item(itemId) });
-  qc.invalidateQueries({ queryKey: ['work-items'] });
-  qc.invalidateQueries({ queryKey: ['record-summary'] });
-  qc.invalidateQueries({ queryKey: caseKeys.assigned });
-  qc.invalidateQueries({ queryKey: ['record-contributions'] });
-  qc.invalidateQueries({ queryKey: ['workload'] });
-  qc.invalidateQueries({ queryKey: keys.notifications });
+  invalidateDomains(qc, 'work', ...also);
 }

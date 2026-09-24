@@ -8,6 +8,7 @@ import { useIdentity } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { formatNumber } from '../../shared/metrics';
 import { cn } from '@/lib/utils';
+import { PROCEDURES, PROCEDURE_LIST } from '../../shared/procedures';
 
 /**
  * Bringing a spreadsheet in, in four steps: choose the file, say which sheet and header row,
@@ -28,7 +29,21 @@ const FIELD_OPTIONS = [
   { value: 'quantity', label: 'How many' },
   { value: 'unit_label', label: 'Of what' },
   { value: 'state', label: 'State' },
+  // Figures a financial report carries. Kept verbatim with the row, and entered on the case, labelled
+  // as coming from the sheet, when the row is put under a procedure.
+  { value: 'commitment', label: 'Commitment amount' },
+  { value: 'obligation', label: 'Obligation amount' },
+  { value: 'delivered', label: 'Delivered (expensed) amount' },
+  { value: 'paid', label: 'Paid (disbursed) amount' },
+  { value: 'purchase_method', label: 'Purchase method' },
+  { value: 'error_text', label: 'Error or status text' },
   { value: 'ignore', label: 'Ignore this column' },
+];
+
+const PROCEDURE_OPTIONS = [
+  { value: 'none', label: 'None: import the rows as plain work' },
+  { value: 'auto', label: 'Choose per row from its figures and text' },
+  ...PROCEDURE_LIST.map((p) => ({ value: p.key, label: `${p.short}: ${p.title}` })),
 ];
 
 type Step = 'file' | 'sheet' | 'mapping' | 'preview' | 'done';
@@ -48,6 +63,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
   const [preview, setPreview] = useState<any>(null);
   const [job, setJob] = useState<any>(null);
   const [unitId, setUnitId] = useState(identity?.primaryUnitId || '');
+  const [procedure, setProcedure] = useState('none');
   const [runKey] = useState(() => `import-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const openedAt = useRef(0);
   const stepRef = useRef<Step>('file');
@@ -85,7 +101,13 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
     const guessed: Record<string, string> = {};
     for (const h of headers) {
       const l = h.toLowerCase();
-      if (/^(document|doc|id|number|no\.?|key|reference|ref)\b/.test(l)) guessed[h] = 'reference';
+      if (/commit/.test(l)) guessed[h] = 'commitment';
+      else if (/oblig/.test(l)) guessed[h] = 'obligation';
+      else if (/expens|deliver|receipt|accrual/.test(l)) guessed[h] = 'delivered';
+      else if (/disburs|paid|payment/.test(l)) guessed[h] = 'paid';
+      else if (/method|purchase type|vehicle/.test(l)) guessed[h] = 'purchase_method';
+      else if (/error|reject|message|reason/.test(l)) guessed[h] = 'error_text';
+      else if (/^(document|doc|id|number|no\.?|key|reference|ref)\b/.test(l)) guessed[h] = 'reference';
       else if (/desc|title|subject|summary|what/.test(l)) guessed[h] = 'title';
       else if (/due|deadline|suspense/.test(l)) guessed[h] = 'due_date';
       else if (/amount|value|dollar|cost|balance/.test(l)) guessed[h] = 'amount';
@@ -107,6 +129,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
     mapping,
     unit_id: unitId || null,
     visibility: unitId ? 'unit' : 'private',
+    procedure: procedure === 'none' ? null : procedure,
   });
 
   const runPreview = async () => {
@@ -242,6 +265,17 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
             </table>
           </div>
           <p className="text-xs text-ink-3">Anything you do not map is still kept with the row, so nothing in your spreadsheet is lost.</p>
+          <Field label="Put new rows under a procedure" hint="Optional. Each case is pinned to the procedure version current now, and you are recorded as having applied it.">
+            <Select value={procedure} onValueChange={setProcedure} options={PROCEDURE_OPTIONS} />
+          </Field>
+          {procedure !== 'none' && (
+            <p className="rounded-xl bg-surface-2/70 px-3.5 py-2.5 text-xs leading-relaxed text-ink-2 ring-1 ring-inset ring-line">
+              {procedure === 'auto'
+                ? 'Rows whose commitment, obligation, delivered and paid figures show an open condition get that condition’s research procedure; rows whose text names a UMT, hold or reject get that one. Rows nothing fits stay plain work.'
+                : `New rows follow ${PROCEDURES[procedure]?.title}.`}{' '}
+              Mapped figures enter each case labelled as coming from the sheet, so the research can cite them without retyping. The figures describe the sheet; they are never treated as proof of what caused a balance.
+            </p>
+          )}
         </div>
       )}
 
@@ -260,6 +294,17 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
               </div>
             ))}
           </div>
+
+          {preview.procedures && Object.keys(preview.procedures).length > 0 && (
+            <div className="rounded-xl px-3.5 py-2.5 ring-1 ring-inset ring-line">
+              <p className="eyebrow">Procedures for the new rows</p>
+              <ul className="mt-1.5 flex flex-wrap gap-1.5">
+                {Object.entries(preview.procedures as Record<string, number>).sort((a, b) => b[1] - a[1]).map(([key, n]) => (
+                  <li key={key} className="chip">{key === 'none' ? 'No procedure fits' : PROCEDURES[key]?.short || key} · {formatNumber(n)}</li>
+                ))}
+              </ul>
+            </div>
+          )}
 
           {preview.unchanged > 0 && preview.will_insert.length === 0 && preview.will_update.length === 0 && (
             <p className="rounded-md border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">
@@ -306,6 +351,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
       {step === 'done' && job && (
         <div className="space-y-3">
           <p className="flex items-center gap-2 text-sm text-good"><Check className="h-4 w-4" />{formatNumber(job.inserted_rows)} new, {formatNumber(job.updated_rows)} updated, {formatNumber(job.unchanged_rows)} already matched.</p>
+          {job.procedures_applied > 0 && <p className="text-sm text-ink-2">{formatNumber(job.procedures_applied)} new {job.procedures_applied === 1 ? 'case follows' : 'cases follow'} a procedure, with the sheet’s figures already on them.</p>}
           {job.rejected_rows > 0 && <p className="text-sm text-warn">{formatNumber(job.rejected_rows)} rows were refused. They are listed on this import in your history.</p>}
           <p className="text-xs text-ink-3">The original file is kept exactly as uploaded, so this import can be repeated or checked later.</p>
         </div>

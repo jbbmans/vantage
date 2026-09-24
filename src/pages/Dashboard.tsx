@@ -216,6 +216,7 @@ function SectionOverview({ unitId }: { unitId: string }) {
         <Tile label="Blocked" value={s.blocked} hint="something is in the way" to="/team?tab=workload" tone={s.blocked ? 'warn' : undefined} />
         <Tile label="Waiting" value={s.waiting} hint={waitingBits.map(([k, v]) => `${v.count} ${WAITING_LABEL[k as WaitingCategory]?.toLowerCase() || k}`).join(', ') || 'on approvals or posting'} to="/team?tab=workload" />
       </div>
+      {Array.isArray(s.by_procedure) && s.by_procedure.some((p: any) => p.key !== 'none') && <ProcedureLedger rows={s.by_procedure} />}
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Needs a decision" subtitle="Blocked, overdue, or waiting on verification" padded={false}>
           {w.data.attention.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Nothing is stuck.</p> : (
@@ -233,6 +234,35 @@ function SectionOverview({ unitId }: { unitId: string }) {
         </Panel>
       </div>
     </section>
+  );
+}
+
+/**
+ * Open work by the procedure it follows, so a section lead reads the balance of the queue in one
+ * line: how many open commitments, undelivered orders, unpaid deliveries and UMTs are being carried,
+ * and how many of each nobody has picked up. Each opens the queue filtered to it.
+ */
+function ProcedureLedger({ rows }: { rows: Array<{ key: string; short: string; title: string; open: number; unassigned: number; blocked: number; overdue: number }> }) {
+  return (
+    <div className="mt-4 card p-0">
+      <div className="flex items-center justify-between gap-2 border-b border-line px-5 py-3">
+        <h3 className="text-sm font-semibold text-ink">Open work by procedure</h3>
+        <Link to="/reference?tab=conditions" className="text-xs text-accent hover:underline">What each condition means</Link>
+      </div>
+      <ul className="grid grid-cols-2 divide-line sm:grid-cols-3 lg:grid-cols-6 [&>li]:border-b [&>li]:border-r [&>li]:border-line">
+        {rows.map((r) => (
+          <li key={r.key}>
+            <Link to={`/work?procedure=${encodeURIComponent(r.key)}`} title={r.title} className="group block h-full px-4 py-3 transition-colors hover:bg-surface-2">
+              <span className="block truncate text-xs font-semibold uppercase tracking-wider text-ink-3 group-hover:text-accent">{r.short}</span>
+              <span className="stat-value mt-1 block text-[26px]">{r.open}</span>
+              <span className="mt-0.5 block truncate text-2xs text-ink-3">
+                {[r.unassigned && `${r.unassigned} unclaimed`, r.blocked && `${r.blocked} blocked`, r.overdue && `${r.overdue} overdue`].filter(Boolean).join(' · ') || 'all in hand'}
+              </span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </div>
   );
 }
 

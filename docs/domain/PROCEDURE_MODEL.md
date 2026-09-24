@@ -78,3 +78,62 @@ This is covered by `tests/server/cases.test.ts` and `tests/browser/22-demo.spec.
 
 The demo scenario's decision to amend is the scenario, not a rule. The funding-sufficiency comparison
 is an open question (SME_QUESTIONS Q-01).
+
+## Versions, pinning and migration
+
+A case is pinned to the procedure version current when it was applied (`work_items.procedure_version`).
+A newer published version never silently changes a case in progress: the case page offers "Move this
+case to vX", and the move is an attributed `procedure_applied` event with `from_version`. A case pinned
+to a version the running build does not have is shown as such and refuses procedure writes (questions,
+findings and notes are still accepted) until somebody moves it on the record.
+
+The 2-Way UMT procedure is at **v0.2.0**, which adds "Match the payment to the award (NON-1081)" before
+the invoice verification, following the reference's rule that NON-1081 UMTs are the FMRA's to research
+and correct while 1081 UMTs belong to DFAS-Cleveland. v0.1.0 cases stay on v0.1.0 until moved.
+
+## Step mechanics added for the FMRA procedures
+
+- **Conditional steps.** `onlyWhen: { decision, choices }` keeps a branch out of the way until its
+  decision is made; the checklist shows it as "depends on a decision" rather than "to do".
+- **Evidence gates.** `requires: { check, message }` on a decision or action: the server answers 409
+  `evidence_required` until that check is verified, and the case page shows the gate, with a link to the
+  step that satisfies it, before anybody tries. `gate: 'funds_check'` does the same for a PASSED funds
+  check.
+- **Prepare-only actions.** `prepareOnly` actions are recorded as prepared; submission happens in the
+  authoritative system and is observed by a later external step.
+- **Observing several steps.** An external step can observe whichever of several prepared actions was
+  actually taken (`observes.steps`).
+- **Fields.** `options` (a closed list, validated on the server), `quantity`, `optional`, and
+  `allowNotShown`, which records "the report shows a dash" as its own fact rather than as zero.
+- **Responsibility.** Each step can name the role that performs it (P2P Inquiry, Funds Manager,
+  Financial Manager, …) from `shared/fmra/roles.ts`; research access never implies the authority to
+  create an award, a receipt or a payment correction.
+- **Resolution.** `resolvesOn` lists the verifications any one of which resolves the case; resolving
+  without one is refused.
+- **Formulas.** Calculations name their formula (`umt2way_award_adjustment`, `lifecycle_residual`,
+  `umt_award_shortfall`). A calculation is a snapshot: once an input is corrected or a newer reading of
+  one is recorded, the server marks it stale with the reason.
+
+## The FMRA procedures (v1.0.0, training reference)
+
+Authority level: the FMRAC training reference, recorded as `training_reference` and labelled "formal
+training reference, not verified against current policy" wherever it shows. Screen paths are left
+undocumented until an SME confirms them.
+
+| Key | Short | Trigger | Resolves on |
+|---|---|---|---|
+| `ocmt_research` | OCMT | Commitment exceeds obligation | condition cleared, or requirement shown valid |
+| `udou_research` | UDOU | Obligation exceeds delivered | condition cleared, or balance validated |
+| `dou_research` | DOU | Delivered exceeds paid | condition cleared, or balance validated |
+| `oto_research` | OTO | Travel obligated but not paid | condition cleared, or balance validated |
+| `umt_four_stage` | UMT | An unmatched transaction on the UMT report | transaction posted |
+| `invoice_hold` | Hold | An invoice held in a 2- or 3-way match | condition cleared |
+| `feeder_reject` | Reject | A BFS reject of a DTS or GCSS-MC transaction | condition cleared |
+| `interface_error` | Interface | A transaction that did not cross an interface | condition cleared |
+
+Each begins with research (the lifecycle figures, seeded from an import when mapped), a decision on the
+cause the evidence supports (with the reference's cause list as choices), the correction for that
+cause, and a verification with a reference. The decision on a DOU cause, for example, requires the
+payment evidence to have been reviewed first.
+
+Covered by `tests/server/fmraProcedures.test.ts` and `tests/server/fmra.test.ts`.

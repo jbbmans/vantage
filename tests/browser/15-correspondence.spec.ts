@@ -66,7 +66,7 @@ test('an imported email is stripped of what could run and of images loaded from 
 
 test('a mailbox is named with its cloud, and nothing is read until it is authorized', async ({ page }) => {
   await page.goto('/work?tab=mail&mail=mailboxes');
-  await page.getByLabel('Mailbox name').fill(unique('G-8 inbox '));
+  await page.getByLabel('Mailbox address').fill(unique('G-8 inbox '));
   await page.getByRole('button', { name: 'Add mailbox' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Nothing is read until it is authorized' })).toBeVisible();
 

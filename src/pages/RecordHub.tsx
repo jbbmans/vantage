@@ -7,9 +7,10 @@ import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { DateText, useParam } from '@/components/common';
 import { StageBadge, WorkRow } from '@/components/work';
-import { useAssignedWork, useContributions, useRecordDrafts, useRecordSummary, caseKeys } from '@/lib/queries';
+import { useAssignedWork, useContributions, useRecordDrafts, useRecordSummary, caseKeys, invalidateDomains } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { cn, timeAgo } from '@/lib/utils';
+import { QueryFailure } from '@/components/QueryFailure';
 
 const Records = lazy(() => import('./Records'));
 
@@ -59,7 +60,7 @@ export default function RecordHub() {
           <Segmented label="Reporting window" value={days as (typeof WINDOWS)[number]['value']} onChange={setDays} options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))} size="sm" />
         </div>
       )}
-      {tab === 'overview' && <Overview summary={summary.data} loading={summary.isPending} onTab={setTab} />}
+      {tab === 'overview' && (summary.isError ? <QueryFailure error={summary.error} what="Your Record" onRetry={() => summary.refetch()} /> : <Overview summary={summary.data} loading={summary.isPending} onTab={setTab} />)}
       {tab === 'contributions' && <Contributions params={params} />}
       {tab === 'entries' && <Suspense fallback={<Skeleton className="h-64" />}><Records embedded /></Suspense>}
       {tab === 'drafts' && <Drafts />}
@@ -103,7 +104,9 @@ function Overview({ summary, loading, onTab }: { summary: any; loading: boolean;
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Assigned to you" subtitle="Claimed work lands here at once. Holding work is not credit for it." padded={false}
           action={<Link to="/work" className="text-xs text-accent hover:underline">Find more work</Link>}>
-          {assigned.isPending ? <Skeleton className="m-4 h-20" /> : !assigned.data?.length ? (
+          {assigned.isPending ? <Skeleton className="m-4 h-20" /> : assigned.isError ? (
+            <QueryFailure className="" error={assigned.error} what="Your assigned work" onRetry={() => assigned.refetch()} />
+          ) : !assigned.data?.length ? (
             <EmptyState title="Nothing assigned" description="Claim an item from the queue and it appears here immediately." />
           ) : <ul className="divide-y divide-line">{assigned.data.map((item) => <WorkRow key={item.id} item={item} />)}</ul>}
         </Panel>
@@ -139,6 +142,7 @@ function Overview({ summary, loading, onTab }: { summary: any; loading: boolean;
 function Contributions({ params }: { params: { from: string; to: string } }) {
   const list = useContributions(params);
   if (list.isPending) return <Skeleton className="h-64" />;
+  if (list.isError) return <QueryFailure error={list.error} what="Your contributions" onRetry={() => list.refetch()} />;
   if (!list.data?.length) {
     return <div className="card"><EmptyState icon={BookOpenCheck} title="No recorded contributions in this window" description="Research, submissions and verifications you record on work show up here, attributed to you, even after the work moves on." action={<Button asChild><Link to="/work">Go to Work</Link></Button>} /></div>;
   }
@@ -178,6 +182,7 @@ function Drafts() {
   const open = (drafts.data || []).find((d) => d.id === openId) || null;
 
   if (drafts.isPending) return <Skeleton className="h-64" />;
+  if (drafts.isError) return <QueryFailure error={drafts.error} what="Your drafts" onRetry={() => drafts.refetch()} />;
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
       <div>
@@ -229,9 +234,8 @@ function DraftEditor({ draft, onChanged, onDelete }: { draft: any; onChanged: ()
       if (dirty) await api.updateDraft(draft.id, { title, wording, version: draft.version });
       await api.saveDraftToRecord(draft.id);
       toast.success('Kept in your record as a private entry.');
-      onChanged();
-      qc.invalidateQueries({ queryKey: ['records', 'activities'] });
-      qc.invalidateQueries({ queryKey: ['record-summary'] });
+      // The entry feeds the figures, goal progress and the Record, not just the activity list.
+      invalidateDomains(qc, 'draft', 'activity');
     } catch (e) { toast.error(api.errorText(e)); }
     finally { setBusy(false); }
   };

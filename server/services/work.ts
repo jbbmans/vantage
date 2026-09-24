@@ -121,6 +121,8 @@ export interface ListOptions {
   claimed?: 'me' | 'anyone' | 'nobody' | null;
   /** Narrow to one project, so a project's queue and its typed work read as one list. */
   projectId?: string | null;
+  /** Narrow to one procedure, or 'none' for work that follows none. */
+  procedure?: string | null;
   q?: string | null;
   dueBefore?: string | null;
   sort?: string | null;
@@ -153,6 +155,8 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
   if (opts.stage) { where.push('w.stage = ?'); params.push(opts.stage); }
   if (opts.active) where.push("w.state NOT IN ('resolved', 'not_applicable')");
   if (opts.projectId) { where.push('w.project_id = ?'); params.push(opts.projectId); }
+  if (opts.procedure === 'none') where.push('w.procedure_key IS NULL');
+  else if (opts.procedure) { where.push('w.procedure_key = ?'); params.push(opts.procedure); }
   if (opts.claimed === 'me') { where.push('w.claimed_by = ?'); params.push(user.id); }
   else if (opts.claimed === 'nobody') where.push('w.claimed_by IS NULL');
   else if (opts.claimed === 'anyone') where.push('w.claimed_by IS NOT NULL');

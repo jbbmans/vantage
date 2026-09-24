@@ -50,8 +50,36 @@ amendment step is its execution.
   fields where they are recorded. A total document value is never labelled savings, and credit is never
   multiplied by stage changes.
 
+## The four phases, as the FMRA reference teaches them
+
+The FMRAC training reference reads one document through four phases, each with its own general-ledger
+anchor, and names the gap between two adjacent phases (`shared/fmra/lifecycle.ts`, `conditions.ts`):
+
+| Gap | Condition | What is open |
+|---|---|---|
+| commitment − obligation | **OCMT**, open commitment | a requirement not yet covered by an award |
+| obligation − delivered | **UDOU**, undelivered order | an award whose goods or services are not yet received |
+| delivered − paid | **DOU**, delivered order unpaid | a receipt not yet paid |
+| travel obligation − paid | **OTO**, open travel obligation | a TDY obligation not yet liquidated |
+
+The diagnoser (`shared/fmra/diagnose.ts`, and Reference → Diagnose in the app) classifies the figures as
+the reference's eight classroom examples do (full or partial), flags abnormal shapes (a later phase
+larger than an earlier one, payment without delivery), and answers in the reference's order: observed
+condition, financial meaning, possible causes, research, responsible role, next action, wait and
+verification, references and limits. Causes are possibilities to research, never findings; the purchase
+method narrows them (a MIPR's open commitment points at the DD 448-2; GPC payments settle through the
+bank). The arithmetic is the reference's editorial example, not a rule for live balances, and the
+figures must share one document, line and scope.
+
+**Not shown is not zero.** A report cell with a dash is recorded as `not_shown`, drawn as an empty
+outline, and excluded from arithmetic that would otherwise treat it as nothing received or paid.
+
+The "true available balance" the reference describes (available funds less pending file items not yet
+posted) is shown as a teaching aid in the Reference, never computed against a live ledger.
+
 ## Not yet modeled
 
-ULO review and deobligation, partial liquidation, requisition-only work, award closeout, funding
-changes across fiscal years, and anything multi-line. Each needs its own procedure, modeled from an
-actual SOP (`PROCEDURE_MODEL.md`).
+ULO deobligation as its own procedure (the normal-condition procedures cover research, the correction
+decision and verification, but not the deobligation document itself), partial liquidation, award
+closeout, funding changes across fiscal years, and anything multi-line. Each needs its own procedure,
+modeled from an actual SOP (`PROCEDURE_MODEL.md`).

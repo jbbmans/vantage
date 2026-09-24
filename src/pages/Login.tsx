@@ -5,7 +5,6 @@ import { startAuthentication } from '@simplewebauthn/browser';
 import {
   ArrowLeft,
   ArrowRight,
-  BarChart3,
   Eye,
   EyeOff,
   Fingerprint,
@@ -14,7 +13,6 @@ import {
   Mail,
   Moon,
   ShieldCheck,
-  Sparkles,
   Sun,
   UserRound,
   WifiOff,
@@ -239,16 +237,27 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
 
   return (
     <div className="auth-page">
-      <div className="auth-grid" aria-hidden />
-      <div className="auth-aura auth-aura-one" aria-hidden />
-      <div className="auth-aura auth-aura-two" aria-hidden />
-      <div className="auth-mountains" aria-hidden>
-        <span className="mountain mountain-a" />
-        <span className="mountain mountain-b" />
-        <span className="mountain mountain-c" />
-        <span className="mountain mountain-d" />
-      </div>
+      {/* The brand side: the same navy and promise as the public page, so arriving here from it
+          reads as one product. Hidden below the large breakpoint, where the form is the whole job. */}
+      <aside className="auth-brand-panel" aria-label="About Vantage">
+        <div className="auth-brand-glow" aria-hidden />
+        <Link to="/" className="auth-panel-brand" aria-label="Vantage overview">
+          <img src="/brand/mark-reversed.svg" alt="" width="28" height="28" />
+          <span>VANTAGE</span>
+        </Link>
+        <div className="auth-panel-copy">
+          <p className="auth-panel-eyebrow">Performance and work management</p>
+          <p className="auth-panel-title">Every action.<br /><span>A clearer picture.</span></p>
+          <ul className="auth-panel-points">
+            <li><ShieldCheck strokeWidth={1.75} aria-hidden /><span><b>Answerable</b>Every case history is sealed, and every change to a record is attributed.</span></li>
+            <li><LockKeyhole strokeWidth={1.75} aria-hidden /><span><b>Private by default</b>Your record is yours; leaders see what you share, for their unit only.</span></li>
+            <li><Fingerprint strokeWidth={1.75} aria-hidden /><span><b>Sign in your way</b>Passkeys, authenticator codes and CAC, with sessions you can end.</span></li>
+          </ul>
+        </div>
+        <p className="auth-panel-foot">Independent software project. Not an official DoD or USMC system of record.</p>
+      </aside>
 
+      <div className="auth-side">
       <header className="auth-topbar">
         <Link to="/" className="auth-top-brand" aria-label="Vantage overview">
           <img src="/mark.svg" alt="" />
@@ -263,24 +272,11 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
       </header>
 
       <main className="auth-stage">
-        <div className="auth-float auth-float-one" aria-hidden>
-          <BarChart3 />
-          <span><b>Performance</b><small>Action-first metrics</small></span>
-        </div>
-        <div className="auth-float auth-float-two" aria-hidden>
-          <ShieldCheck />
-          <span><b>Traceable</b><small>Source-linked records</small></span>
-        </div>
-        <div className="auth-float auth-float-three" aria-hidden>
-          <Sparkles />
-          <span><b>Vantage Assist</b><small>AI where work happens</small></span>
-        </div>
-
         <section className="auth-shell" aria-labelledby="auth-heading">
           {/* An owner who sets an instance display name is told, in the owner console, that it shows
               on the sign-in page. Hard-coding the wordmark here quietly broke that promise for every
               custom-branded deployment, so the configured name wins and Vantage is the fallback. */}
-          <div className="auth-brand-lockup">
+          <div className={cn('auth-brand-lockup', !(status?.displayName && status.displayName !== 'Vantage') && 'auth-brand-lockup-default')}>
             <div className="auth-mark-wrap"><img src="/mark.svg" alt="" /></div>
             <p>{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'VANTAGE'}</p>
             <span>{status?.displayName && status.displayName !== 'Vantage' ? 'Powered by Vantage' : 'Performance · Productivity · Readiness'}</span>
@@ -391,6 +387,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
           </div>
         </section>
       </main>
+      </div>
     </div>
   );
 }

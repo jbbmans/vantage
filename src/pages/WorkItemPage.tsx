@@ -11,8 +11,9 @@ import { useToast } from '@/components/ui/toast';
 import { DateText } from '@/components/common';
 import { StageBadge, elapsed, personName } from '@/components/work';
 import LifecycleBars from '@/components/fmra/LifecycleBars';
+import { AiAction, AiResult, useAiModel } from '@/components/AiPanel';
 import { ThreadsForItem } from './Workbench';
-import { useIdentity, useMetrics, useWorkItem, invalidateWork } from '@/lib/queries';
+import { useIdentity, useMetrics, useWorkItem, invalidateWork, invalidateDomains } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { cn, timeAgo, todayIso } from '@/lib/utils';
 import {
@@ -130,7 +131,7 @@ export default function WorkItemPage() {
           <div className="text-ink-2"><dt className="inline text-ink-3">Held by </dt><dd className="inline font-medium text-ink">{holding ? 'You' : holder ? personName(holder) : 'Nobody yet'}</dd></div>
           {item.due_date && <div className="text-ink-2"><dt className="inline text-ink-3">Due </dt><dd className="inline"><DateText value={item.due_date} /></dd></div>}
           {item.amount != null && <div className="text-ink-2"><dt className="inline text-ink-3">Amount on the sheet </dt><dd className="fig inline font-medium text-ink">{formatCents(Math.round(Number(item.amount) * 100))}</dd></div>}
-          <IntegrityBadge integrity={c.integrity} />
+          {c.integrity?.count ? <div><dt className="sr-only">History</dt><dd><IntegrityBadge integrity={c.integrity} /></dd></div> : null}
         </dl>
       </header>
 
@@ -206,6 +207,8 @@ export default function WorkItemPage() {
 
           {c.latest_calculation && <CalculationPanel calc={c.latest_calculation} />}
 
+          {procedure && <CaseBrief itemId={id} />}
+
           {!procedure && holding && !closed && <ActionForm itemId={id} item={item} onDone={refresh} />}
 
           {c.permissions.act && !closed && <EntryComposer itemId={id} procedure={procedure} onDone={refresh} />}
@@ -241,7 +244,7 @@ export default function WorkItemPage() {
             )}
             {iContributed && (
               <Button size="sm" className="mt-4 w-full" onClick={async () => {
-                try { const d = await api.draftFromWork(id); toast.success('A private draft is ready in your Record.'); navigate(`/record?tab=drafts&open=${d.id}`); }
+                try { const d = await api.draftFromWork(id); invalidateDomains(qc, 'draft'); toast.success('A private draft is ready in your Record.'); navigate(`/record?tab=drafts&open=${d.id}`); }
                 catch (e) { toast.error(api.errorText(e)); }
               }}><PenLine className="h-4 w-4" />Prepare a private draft from my work</Button>
             )}
@@ -469,6 +472,12 @@ function StepHelp({ step }: { step: ProcedureStep }) {
   );
 }
 
+const CALCULATE_LABEL: Record<string, string> = {
+  umt2way_award_adjustment: 'Calculate the candidate',
+  umt_award_shortfall: 'Calculate the shortfall',
+  lifecycle_residual: 'Calculate the open residual',
+};
+
 /** A gate the step is waiting on, shown before the person tries and gets refused. */
 function GateNotice({ message, action }: { message: string; action?: React.ReactNode }) {
   return (
@@ -564,7 +573,7 @@ function StepPanel({ itemId, procedure, step, status, caseData, events, canAct, 
           try { await api.calculateCase(itemId, step.key); toast.success('Calculated.'); onDone(); }
           catch (e) { toast.error(api.errorText(e)); }
           finally { setBusy(false); }
-        }}><Calculator className="h-4 w-4" />{status?.status === 'attention' ? 'Calculate again' : 'Calculate'}</Button>
+        }}><Calculator className="h-4 w-4" />{status?.status === 'attention' ? 'Calculate again' : CALCULATE_LABEL[formula?.key || ''] || 'Calculate'}</Button>
       </div>
     );
   } else if (step.kind === 'decision' && step.decision) {
@@ -714,7 +723,7 @@ function ResearchField({ f, have, value, reference, notShown, onValue, onReferen
       )}
       {extra && setExtra && extra.map((inv, i) => (
         <div key={i} className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_12rem]">
-          <Field label={`${f.label} ${have.length + i + 2}`}><NumberInput value={inv.amount} onChange={(e) => setExtra((p) => p.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} placeholder="0.00" /></Field>
+          <Field label={`${f.label.replace(/ amount$/i, '')} ${have.length + i + 2}`}><NumberInput value={inv.amount} onChange={(e) => setExtra((p) => p.map((x, j) => (j === i ? { ...x, amount: e.target.value } : x)))} placeholder="0.00" /></Field>
           <Field label="Reference"><Input value={inv.reference} onChange={(e) => setExtra((p) => p.map((x, j) => (j === i ? { ...x, reference: e.target.value } : x)))} /></Field>
         </div>
       ))}
@@ -723,12 +732,29 @@ function ResearchField({ f, have, value, reference, notShown, onValue, onReferen
   );
 }
 
+/**
+ * An AI brief of the case in the reference's answer order: observed condition, meaning, possible
+ * causes, research, role, next action, verification, references. Built only from the standing
+ * entries and the reference's own reading of the figures; offered only where AI is switched on.
+ */
+function CaseBrief({ itemId }: { itemId: string }) {
+  const [, , , available] = useAiModel();
+  const [brief, setBrief] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
+  if (!available) return null;
+  return (
+    <Panel title="Case brief" subtitle="A draft reading in the reference’s answer order. Causes are possibilities to research, never findings."
+      action={<AiAction workflow="case_brief" surface="case" input={{ item_id: itemId }} label={brief ? 'Brief me again' : 'Brief me on this case'} onResult={(output, meta) => setBrief({ output, meta })} />}>
+      {brief ? <AiResult output={brief.output} meta={brief.meta} primaryKey="observed_condition" /> : <p className="text-sm text-ink-3">Reads only what stands on this case. Nothing is saved, and nothing it says changes the case.</p>}
+    </Panel>
+  );
+}
+
 /* ── The calculation ───────────────────────────────────────────────────────────────────────── */
 
 function CalculationPanel({ calc }: { calc: any }) {
   const badge = calc.stale ? <Badge tone="warn">Stale</Badge> : <Badge tone={calc.requires_review ? 'warn' : 'accent'}>{calc.requires_review ? 'Needs review' : 'Candidate'}</Badge>;
   return (
-    <Panel title={calc.title || 'Calculation'} subtitle={calc.formula_text} action={badge}>
+    <Panel title={calc.formula === 'lifecycle_residual' ? 'Open residual' : 'Candidate calculation'} subtitle={[calc.title, calc.formula_text].filter(Boolean).join(' · ')} action={badge}>
       {calc.stale && (
         <p className="mb-4 flex items-start gap-2 rounded-xl bg-warn/[.07] px-3.5 py-2.5 text-sm text-ink ring-1 ring-inset ring-warn/25"><RefreshCw className="mt-0.5 h-4 w-4 shrink-0 text-warn" aria-hidden />This figure no longer describes the case: {calc.reasons?.join('; ')}. Calculate again to include the current values.</p>
       )}
@@ -790,6 +816,7 @@ function Figure({ label, cents, signed = false, accent = false }: { label: strin
  */
 function ActionForm({ itemId, item, onDone }: { itemId: string; item: any; onDone: () => void }) {
   const toast = useToast();
+  const qc = useQueryClient();
   const cfg = useMetrics();
   const [kind, setKind] = useState('worked');
   const [quantity, setQuantity] = useState('');
@@ -812,6 +839,7 @@ function ActionForm({ itemId, item, onDone }: { itemId: string; item: any; onDon
       }, key);
       toast.success(res.activity_id ? 'Recorded, and added to your own record.' : 'Recorded.');
       setKey(newKey()); setNote(''); setQuantity(''); setAmount('');
+      if (res.activity_id) invalidateDomains(qc, 'activity');
       onDone();
     } catch (e) { toast.error(api.errorText(e)); }
     finally { setBusy(false); }

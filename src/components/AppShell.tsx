@@ -17,7 +17,7 @@ import CommandPalette from '@/components/CommandPalette';
 import ShortcutsDialog from '@/components/ShortcutsDialog';
 import SudoDialog, { type SudoRequest } from '@/components/SudoDialog';
 import ErrorBoundary from '@/components/ErrorBoundary';
-import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys } from '@/lib/queries';
+import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys, invalidateDomains } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { flushOutbox, onOutboxChange, outbox } from '@/lib/outbox';
@@ -160,7 +160,7 @@ export default function AppShell() {
     const result = await flushOutbox((payload) => api.createRecord('activities', payload), userId);
     if (result.sent) {
       // A synced entry changes every read model built from entries, not just the list.
-      for (const key of [['records'], ['metrics'], ['record-summary'], ['goals'], ['dashboard'], ['reports']]) qc.invalidateQueries({ queryKey: key });
+      invalidateDomains(qc, 'activity');
       toast.success(`${result.sent} queued ${result.sent === 1 ? 'entry' : 'entries'} synced.`);
     }
   }, [qc, toast, userId]);

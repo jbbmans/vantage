@@ -125,7 +125,7 @@ export default function Diagnoser() {
       <section className="card min-w-0 p-5 sm:p-6" aria-live="polite" aria-label="The reading">
         {!anyEntered || !result.ok ? (
           <div className="flex h-full min-h-[320px] flex-col items-center justify-center text-center">
-            <LifecycleBars figures={{ commitment: 100_000, obligation: 75_000, delivered: 40_000, paid: 25_000 }} className="w-full max-w-md opacity-40" />
+            <LifecycleBars decorative figures={{ commitment: 100_000, obligation: 75_000, delivered: 40_000, paid: 25_000 }} className="w-full max-w-sm" />
             <p className="mt-6 text-lg font-semibold tracking-[-0.015em] text-ink">What is the balance telling you?</p>
             <p className="mt-1.5 max-w-md text-sm leading-relaxed text-ink-3">{anyEntered && !result.ok ? result.error : 'Enter the figures, or load one of the reference’s examples. The reading follows the order the FMRAC teaches: condition and evidence first, then the supported next action.'}</p>
           </div>

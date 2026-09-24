@@ -11,7 +11,9 @@ The whole system is one web service with a persistent disk. Budget: the Starter 
 5. Visit the site. The setup page asks for that token, then creates the owner account and the first unit. This only works once; afterwards the token is inert.
 6. Sign in, open **Settings → Security**, add a passkey and an authenticator app.
 
-Auto-deploy is on: every push to `main` builds and replaces the running container after the health check at `/api/health` passes. Failed builds never replace the running version.
+Auto-deploy waits for CI: `render.yaml` sets `autoDeployTrigger: checksPass`, so a push to `main` is released only after every GitHub check on that commit passes (lint, typecheck, server tests, build, browser tests, Docker build), and then only once the health check at `/api/health` passes. A red commit is never released, and failed builds never replace the running version. `/api/health` reports the running commit and the built client's hash, so what is live can always be matched to a CI run.
+
+Protect `main` in GitHub too (**Settings → Branches → Add rule**): require a pull request, and require the `Lint, typecheck, server tests, build`, `Browser tests (Playwright)` and `Docker image builds` checks to pass. The blueprint cannot set this itself. If a check ever has to be bypassed, record why in the pull request; do not switch the trigger back to every commit.
 
 ## Custom domain
 
@@ -21,6 +23,7 @@ Auto-deploy is on: every push to `main` builds and replaces the running containe
 
 - **Email** (reset links, invitations, digests): set `VANTAGE_EMAIL_PROVIDER=resend` and `RESEND_API_KEY`, or `smtp` and `SMTP_URL`. See [email.md](email.md).
 - **AI drafting needs a DoD-network host.** GenAI.mil answers every API call from outside DoD networks with a 503 "Unauthorized Access" page, whatever key is sent. Render, like every commercial host, is outside those networks, so on Render the AI features stay unavailable and the Owner console explains why. To use AI, run Vantage on a host inside a DoD network (the same Docker image works anywhere) and then: add `VANTAGE_GENAI_API_KEY` (your GenAI.mil key) in the service's Environment tab and let Render redeploy. AI is on by default once a key exists; the owner console's AI tab shows the key fingerprint, discovers the models the key can reach, edits the allowlist in `VANTAGE_GENAI_MODELS`, and switches AI off without a redeploy. Without a key the AI pages explain what is missing.
+- **Microsoft 365 mailboxes** (Correspondence reads mail from a connected mailbox, read-only): register a web application in Microsoft Entra for the cloud your mailboxes are in (commercial, GCC High or DoD). Add the redirect URI `https://<your domain>/api/correspondence/connectors/callback`, grant the delegated permissions `User.Read`, `Mail.Read` and `offline_access` and nothing broader, create a client secret, and set `VANTAGE_M365_CLIENT_ID`, `VANTAGE_M365_CLIENT_SECRET`, and optionally `VANTAGE_M365_TENANT` (a tenant id pins sign-in to one directory; the default `organizations` accepts any work account). Each person then adds their mailbox by address and authorizes it; the sign-in must match the address, a grant broader than read is refused, tokens are stored encrypted with `VANTAGE_SECRET`, and a revoked or expired grant shows on the mailbox as needing authorization. Rotating `VANTAGE_SECRET` makes stored tokens unreadable, so every mailbox has to be authorized again.
 - **Self-registration**: `VANTAGE_SELF_REGISTRATION=true` lets anyone with the URL create an account. Default is off; leaders invite by link or email.
 
 ## Sizing

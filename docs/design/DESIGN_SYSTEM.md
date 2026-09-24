@@ -1,59 +1,115 @@
 # Design system
 
-The Vantage visual identity is kept from the reference product. This file documents what ships. The
-tokens are defined in `src/styles/index.css` and mapped in `tailwind.config.ts`; the brand rules are in
-`docs/brand-2026.md`. (The root `DESIGN.md` describes a different product's styling and is not the
-Vantage design system.)
+What ships. One stylesheet, `src/styles/index.css`, defines every token and shared component rule;
+`tailwind.config.ts` maps the tokens to utilities. The public page (`src/pages/PublicSite.css`) and the
+sign-in page (`src/styles/login-premium.css`) are the only other stylesheets, and both are scoped to
+their own root. The six overlapping stylesheets this replaced (`brand-2026.css`,
+`experience-motion.css`, `public-site.css`, `public-showcase.css`, `public-site-a11y.css`,
+`login-reference.css`) are gone. Brand rules are in `docs/brand-2026.md`. (The root `DESIGN.md`
+describes a different product's styling and is not the Vantage design system.)
 
 ## Palette
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `--canvas` | Glacier tint `#F4F7FB` | `#0B1729` | Page background, gaps between cards |
-| `--surface` | White | `#12243D` | Cards and panels |
-| `--surface-2` | Glacier `#EAF0F6` | `#1A3050` | Table heads, quiet fills, the rail |
-| `--ink` | Deep Navy `#0B2D5B` (13.6:1) | `#E2EAF4` | Primary text |
-| `--ink-2` / `--ink-3` | 7.9:1 / 5.7:1 on white | tuned for AA | Secondary and muted text |
-| `--accent` | Cobalt `#2563EB` | lifted Cobalt | The one primary action, selection, data emphasis |
-| `--good` `--warn` `--bad` `--info` | semantic, AA on both surfaces | same | Status only, never decoration |
+| `--canvas` | Paper `#F6F7F9` | `#060D18` | Page background, gaps between cards |
+| `--surface` | White | `#0C1626` | Cards and panels |
+| `--surface-2` / `--surface-3` | `#F3F5F8` / `#E9EDF3` | `#111E32` / `#192942` | Quiet fills, table heads; hover and tracks |
+| `--ink` | Deep Navy `#0A1B33` (16.9:1) | `#EAF0F8` (15.1:1) | Primary text |
+| `--ink-2` / `--ink-3` | 8.9:1 / 5.4:1 on white | 9.6:1 / 6.3:1 | Secondary and muted text |
+| `--accent` | Cobalt `#2563EB` | lifted Cobalt `#7AA2FF` | The one primary action, selection, data emphasis |
+| `--good` `--warn` `--bad` `--info` | semantic; `--info` is `#1D4ED8` so an info badge clears AA at 11px | same | Status only, never decoration |
+| `--rail` | Deep Navy `#08162A` in both themes | near-black navy | The navigation rail |
+| `--brand-teal` | `#14B8A6` | `#2DD4BF` | The mark and the rail's active marker only |
 
-The rail is Glacier in light mode and navy in dark mode. The active destination is a solid Deep Navy
-block in light mode and Cobalt in dark. Every muted tone clears WCAG AA on the darkest surface it can
-land on. Axe checks both themes (`tests/browser/06-a11y.spec.ts`, `22-demo.spec.ts`).
+Accent themes (cobalt, scarlet, olive, steel, ember) swap `--accent`, `--accent-ink`, `--accent-soft`
+and `--accent-2` together; `ocean` is kept as an alias of cobalt for stored preferences.
+
+Every muted tone clears WCAG AA on the darkest surface it can land on. Axe checks both themes on every
+core page, the case page, the Reference and the public page (`tests/browser/06-a11y.spec.ts`,
+`22-demo.spec.ts`).
+
+## Depth
+
+Shadows are tinted navy, never black, and come as tokens: `--shadow-hairline` (a 1px ring instead of a
+grey border), `--shadow-card`, `--shadow-lift`, `--shadow-pop` (menus, popovers) and `--shadow-modal`.
+Dark mode swaps them for deeper, black-based versions with a faint light ring. `--highlight` is the
+inset top light on raised controls.
 
 ## Type
 
-Inter for interface text, served locally from `public/fonts` (no remote fonts). JetBrains Mono is not
-used for body text. Figures use tabular numerals (`.fig`). Page titles are sentence case and bold.
-Eyebrows are small uppercase labels.
+Geist (variable, served from `public/fonts`, OFL) for everything, with Inter as the fallback while it
+loads. No remote fonts. Figures use tabular numerals (`.fig`, `.stat-value`). Headlines are tight
+(negative tracking), sentence case, semibold. Eyebrows are small uppercase labels, preceded by a short
+accent rule in page headers. JetBrains Mono appears only in code and identifiers that need it.
+
+## Shape and motion
+
+Radii step with size: 5 / 6 / 8 / 10 / 14 / 18 / 24px (`rounded-sm` … `rounded-3xl`); inner elements
+use a smaller radius than the container they sit in. Primary calls to action in the shell are pills.
+
+Motion uses one curve, `--ease-spring: cubic-bezier(.32,.72,0,1)`, and animates transform and opacity
+only. Pages rise in (`page-in`), sections stagger (`section-in`), menus pop (`pop-in`), drawers slide.
+`prefers-reduced-motion` turns all of it off. On the public page, reveal motion moves elements but
+never hides them: at rest everything is opaque (asserted by `20-public-site.spec.ts`).
+
+## Shell
+
+A navy rail (collapsible with `[`) holding the workspace chip, grouped destinations with their `G`
+shortcuts shown on hover, and the account. A translucent sticky header with the search pill (⌘K opens
+the command palette, which also searches the Reference) and the "Log activity" pill. One demo banner in
+the synthetic demo, with a segmented persona switch. An update banner appears when a newer build is
+published (the service worker and `/api/health` both carry the build's hash).
 
 ## Components
 
 `src/components/ui/primitives.tsx`: Button (one primary per screen), Input, NumberInput, Textarea,
 Field (label, hint and error wired to the control), Select (Radix), Badge, Panel, EmptyState, Stat,
-Segmented, Tabs, Progress, PageHeader, Switch, Tooltip. `Dialog` and `ConfirmDialog` are in
-`ui/Dialog.tsx`.
+Segmented, Tabs, Progress, PageHeader, Switch, Tooltip. `Dialog`/`ConfirmDialog`, `toast` and `Menu`
+are restyled on the same tokens.
 
-Case components (`src/components/work.tsx`):
-- `StageBadge`: stage colors come from `STAGE_TONE`. Waiting shows its category, for example "Waiting on posting".
-- `WorkRow`: a work item as it appears on Today, in Record and in Workload. It shows the document
-  number, stage, overdue flag, the next step (or the waiting time and blocked reason), and the due date.
+Case components (`src/components/work.tsx`): `StageBadge` (colours from `STAGE_TONE`; waiting shows its
+category) and `WorkRow` (document number, stage, overdue flag, next step or waiting time, due date).
+
+FMRA components (`src/components/fmra/`):
+- `LifecycleBars`: commitment, obligation, delivered and paid on one scale. The open residual is a
+  hatched segment labelled with its condition (OCMT, UDOU, DOU, OTO), so the gap never rests on colour.
+  A figure the source did not show is a dashed outline marked "Not shown", never a zero. It carries a
+  screen-reader table; `decorative` draws an unlabelled illustration for empty states.
+- `DiagnosisView`: the eight-part reading in the order the reference teaches.
+- `Diagnoser`: figures in, reading out, and "open a case" with the figures already recorded.
+
+`QueryFailure` (`src/components/QueryFailure.tsx`) tells offline, signed out, denied, missing and
+server error apart, with a retry where one can help.
 
 ## Patterns
 
 - **Cards** summarize something that opens: every figure links to the records behind it.
-- **Tables** are for comparing records: the queue, the workload by person, calculation inputs.
-- **Charts** only where shape matters: `BarList` for who holds what, `AreaChart` for outcomes over time.
+- **Tables** compare records: the queue, workload by person, calculation inputs.
+- **Charts** only where shape matters: `LifecycleBars`, `BarList` for who holds what, `AreaChart` for
+  outcomes over time.
+- **Gates are shown before they refuse.** A step waiting on evidence (a verification, a passed funds
+  check) says so in a warning strip with a link to the step that satisfies it, and its button is
+  disabled; the server enforces the same rule.
+- **Corrections are added, never edited.** An observation's "Correct" action supersedes it; the
+  original stays in the history marked "Corrected later", and any calculation that used it shows as
+  stale.
 - **Disclosure** holds secondary detail: "How to do this", "Everything the source said", procedure
-  source and limitations, "How to read these numbers". Record, Career, identifiers and routine actions
-  are never hidden behind one.
-- **One demo indicator.** In the synthetic demo, a single banner under the header names the persona
-  and offers the persona switch and a reset. Pages show no other demo labels, except the flagship
-  item's synthetic system values, which are labelled where they appear.
+  source and limitations, the causes the reference offers. Routine actions are never hidden behind one.
+- **One demo indicator.** Pages show no other demo labels, except the flagship item's synthetic system
+  values, labelled where they appear.
 - **Language.** Real names for real concepts: document, tasker, stage, waiting on posting, handed off,
-  verified. No table names, adapter names or revision numbers in the interface.
+  verified, not shown. No table names or adapter names in the interface.
+
+## Public page
+
+Its own fixed palette (it has no stored preference to follow): deep navy hero and footer around a cool
+paper body, brand teal as the accent on dark and cobalt on light. A floating glass navigation pill,
+double-bezel frames around product stills (drawn in HTML, so they are crisp and readable to crawlers),
+an asymmetric bento, pill calls to action with a nested icon. It is prerendered to static HTML at build
+time and must stay whole without JavaScript.
 
 ## Not used
 
 Streaks, gamification, tactical styling, purple gradients, AI branding, decorative KPI walls,
-arbitrary animation. Reduced motion is respected by the existing CSS.
+arbitrary animation, grey drop shadows, 1px grey borders on cards.

@@ -331,3 +331,16 @@ test('procedure progress never infers a decision', () => {
   assert.equal(p.next, 'observe_balances');
   assert.ok(p.steps.filter((s) => s.status === 'conditional').length >= 6);
 });
+
+test('a procedure key is looked up as a name, never as a property of Object', async () => {
+  for (const key of ['constructor', '__proto__', 'toString', 'hasOwnProperty']) {
+    assert.equal(procedureFor(key), null, key);
+    assert.equal(PROCEDURES[key], undefined, key);
+    assert.equal(PROCEDURE_VERSIONS[key], undefined, key);
+  }
+  const made = await app.call('POST', '/api/work/items', { token: op.token, body: { unit_id: 'G8', title: 'Prototype probe' } });
+  const applied = await app.call('POST', `/api/work/items/${made.body.id}/procedure`, { token: op.token, body: { key: 'constructor' } });
+  assert.ok([400, 404].includes(applied.status), `applying "constructor" is refused (${applied.status})`);
+  const detail = await app.call('GET', '/api/work/procedures/constructor', { token: op.token });
+  assert.ok([400, 404].includes(detail.status), `and it is not described (${detail.status})`);
+});

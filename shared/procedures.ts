@@ -228,15 +228,19 @@ export const UMT_2WAY: Procedure = (() => {
 const ALL: Procedure[] = [UMT_2WAY_V010, UMT_2WAY, ...FMRA_PROCEDURES];
 
 /** Every published version of every procedure, by key and version. Nothing is ever removed. */
-export const PROCEDURE_VERSIONS: Record<string, Record<string, Procedure>> = {};
-for (const p of ALL) (PROCEDURE_VERSIONS[p.key] ||= {})[p.version] = p;
+// Null-prototype registries: a key arriving from a request ("constructor", "__proto__") finds
+// nothing, instead of finding Object's own members and being taken for a procedure.
+const registry = <T,>(entries: Iterable<readonly [string, T]> = []): Record<string, T> => Object.assign(Object.create(null) as Record<string, T>, Object.fromEntries(entries));
+
+export const PROCEDURE_VERSIONS: Record<string, Record<string, Procedure>> = registry();
+for (const p of ALL) (PROCEDURE_VERSIONS[p.key] ||= registry<Procedure>())[p.version] = p;
 
 const semver = (v: string) => v.split('.').map((n) => Number(n) || 0);
 const newer = (a: string, b: string) => { const x = semver(a), y = semver(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return false; };
 
 /** The current (newest) version of each procedure: what a new case is started under. */
-export const PROCEDURES: Record<string, Procedure> = Object.fromEntries(
-  Object.entries(PROCEDURE_VERSIONS).map(([key, versions]) => [key, Object.values(versions).reduce((a, b) => (newer(b.version, a.version) ? b : a))]),
+export const PROCEDURES: Record<string, Procedure> = registry(
+  Object.entries(PROCEDURE_VERSIONS).map(([key, versions]) => [key, Object.values(versions).reduce((a, b) => (newer(b.version, a.version) ? b : a))] as const),
 );
 
 export const PROCEDURE_LIST: Procedure[] = Object.values(PROCEDURES);
@@ -619,7 +623,7 @@ export function awardShortfall(allEvents: CaseEvent[]) {
   };
 }
 
-export const FORMULAS: Record<string, Formula> = {
+export const FORMULAS: Record<string, Formula> = registry<Formula>(Object.entries({
   [UMT_FORMULA.key]: { ...UMT_FORMULA, inputs: ['current_award', 'invoice_amount', 'umt_amount'], compute: (e) => candidateAdjustment(e) as never },
   lifecycle_residual: {
     key: 'lifecycle_residual', version: '1.0.0', title: 'Open residual between lifecycle phases',
@@ -635,7 +639,7 @@ export const FORMULAS: Record<string, Formula> = {
     inputs: ['po_line_amount', 'billed_amount'],
     compute: (e) => awardShortfall(e) as never,
   },
-};
+}));
 
 /**
  * Whether a recorded calculation still reflects the case. A calculation is a snapshot: once an

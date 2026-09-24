@@ -111,6 +111,8 @@ const listSchema = z.object({
   claimed: z.enum(['me', 'anyone', 'nobody']).optional(),
   q: z.string().max(200).optional(),
   project_id: z.string().max(64).optional(),
+  // A procedure key, or 'none' for work that follows no procedure.
+  procedure: z.string().max(60).optional(),
   due_before: z.string().max(10).optional(),
   sort: z.string().max(40).optional(),
   direction: z.enum(['asc', 'desc']).optional(),
@@ -123,6 +125,7 @@ workRouter.get('/items', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   res.json(listItems(req.ctx, req.user, scope, {
     unitId: q.unit_id ?? null, state: q.state ?? null, stage: q.stage ?? null, active: Boolean(q.active), claimed: q.claimed ?? null, q: q.q ?? null, projectId: q.project_id ?? null,
+    procedure: q.procedure ?? null,
     dueBefore: q.due_before ?? null, sort: q.sort ?? null, direction: q.direction, limit: q.limit, offset: q.offset,
   }));
 }));

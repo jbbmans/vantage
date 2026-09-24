@@ -135,3 +135,30 @@ test('a review window keeps entries dated on a clock that runs ahead of the inst
     assert.ok(!sent.includes('Dated well into the future'), 'and work dated beyond that is still out of the window');
   } finally { await far.close(); }
 });
+
+test('a case brief reads only what stands on a case the person can open, under the financial rules', async () => {
+  const made = await app.call('POST', '/api/work/items', { token: op.token, body: { unit_id: 'G8', title: 'OCMT on a MIPR', reference: 'SYN-AI-OB-1' } });
+  const id = made.body.id as string;
+  await app.call('POST', `/api/work/items/${id}/procedure`, { token: op.token, body: { key: 'ocmt_research' } });
+  await app.call('POST', `/api/work/items/${id}/claim`, { token: op.token, body: {} });
+  const post = (body: unknown) => app.call('POST', `/api/work/items/${id}/entries`, { token: op.token, body });
+  await post({ kind: 'observation', field: 'purchase_method', value_text: 'mipr', system: 'OAS' });
+  const wrong = await post({ kind: 'observation', field: 'commitment_amount', amount: '99,999.00', system: 'OAS' });
+  await post({ kind: 'observation', field: 'commitment_amount', amount: '32,000.00', system: 'OAS', supersedes: wrong.body.event.id });
+  for (const field of ['obligation_amount', 'delivered_amount', 'paid_amount']) await post({ kind: 'observation', field, not_shown: true, system: 'OAS' });
+
+  const res = await app.call('POST', '/api/ai/assist', { token: op.token, body: { workflow: 'case_brief', input: { item_id: id } } });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  const sent = mock.calls.at(-1)!.body;
+  const evidence = JSON.parse(sent.messages[1].content).evidence;
+  assert.equal(evidence.case.reference, 'SYN-AI-OB-1');
+  assert.ok(!JSON.stringify(evidence).includes('99,999.00'), 'a corrected figure is not sent as if it stood');
+  assert.equal(evidence.reference_reading.findings[0].condition, 'OCMT', 'the reference’s own reading goes with the facts');
+  assert.ok(evidence.observed.some((o: any) => o.field === 'obligation_amount' && o.not_shown), 'not shown is sent as its own fact');
+  assert.match(sent.messages[0].content, /Never present a classroom example as a confirmed live balance/);
+  assert.match(sent.messages[0].content, /possible_causes/);
+
+  await app.register('outsider');
+  const denied = await app.call('POST', '/api/ai/assist', { token: (await app.login('outsider')).body.token, body: { workflow: 'case_brief', input: { item_id: id } } });
+  assert.equal(denied.status, 403, 'nobody is briefed on a case they could not open');
+});

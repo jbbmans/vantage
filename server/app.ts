@@ -107,12 +107,17 @@ export function createApp(ctx: AppContext) {
   try { aiOrigin = new URL(config.ai.baseUrl).origin; } catch {}
   app.use((req, res, next) => {
     res.setHeader('X-Vantage-Build', build);
-    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ${aiOrigin}; frame-src 'none'; worker-src 'self'; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'`);
+    res.setHeader('Content-Security-Policy', `default-src 'self'; script-src ${scriptSrc}; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self'; connect-src 'self' ${aiOrigin}; frame-src 'none'; worker-src 'self'; manifest-src 'self'; form-action 'self'; frame-ancestors 'none'; base-uri 'self'; object-src 'none'${config.production ? '; upgrade-insecure-requests' : ''}`);
     res.setHeader('X-Content-Type-Options', 'nosniff');
     res.setHeader('X-Frame-Options', 'DENY');
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=(), interest-cohort=(), publickey-credentials-get=(self), publickey-credentials-create=(self)');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
+    // Nothing here is meant to be pulled into another site's page, except the few images a shared
+    // link or an email shows: the social card, the icons and the brand marks.
+    res.setHeader('Cross-Origin-Resource-Policy', /^\/(og\.png|favicon\.svg|mark\.svg|app-icon\.svg|icon-\d+\.png|brand\/)/.test(req.path) ? 'cross-origin' : 'same-origin');
+    res.setHeader('Origin-Agent-Cluster', '?1');
+    res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
     if (req.path.startsWith('/api/')) { res.setHeader('Cache-Control', 'no-store, max-age=0'); res.setHeader('Pragma', 'no-cache'); }
     if (config.production) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
     next();

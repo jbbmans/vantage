@@ -19,7 +19,7 @@ const ROWS: Array<{ key: keyof Figures; label: string }> = [
   { key: 'paid', label: 'Paid' },
 ];
 
-export default function LifecycleBars({ figures, travel = false, compact = false, className }: { figures: Figures; travel?: boolean; compact?: boolean; className?: string }) {
+export default function LifecycleBars({ figures, travel = false, compact = false, decorative = false, className }: { figures: Figures; travel?: boolean; compact?: boolean; decorative?: boolean; className?: string }) {
   const values = ROWS.map((r) => figures[r.key]);
   const max = Math.max(1, ...values.map((v) => v ?? 0));
   const pct = (v: number) => `${Math.max(0, Math.min(100, (v / max) * 100))}%`;
@@ -38,6 +38,24 @@ export default function LifecycleBars({ figures, travel = false, compact = false
     return gap > 0 ? { cents: gap, label: ['', 'OCMT', 'UDOU', 'DOU'][i] } : null;
   };
   const summary = ROWS.map((r, i) => `${r.label} ${values[i] == null ? 'not shown' : formatCents(values[i]!)}`).join(', ');
+
+  // An illustration of the shape, with no figures to read: bars only, hidden from assistive tech.
+  if (decorative) {
+    return (
+      <div className={cn('space-y-2.5', className)} aria-hidden>
+        {ROWS.map((row, i) => {
+          const v = values[i] ?? 0;
+          const gap = gapOf(i);
+          return (
+            <div key={row.key} className="relative h-3.5 w-full overflow-hidden rounded-[5px] bg-surface-2">
+              <div className="absolute inset-y-0 left-0 rounded-[5px] bg-accent/45" style={{ width: pct(v) }} />
+              {gap && <div className="absolute inset-y-0 rounded-r-[5px] border border-warn/40 [background-image:repeating-linear-gradient(135deg,rgb(var(--warn)/.25)_0_3px,transparent_3px_7px)]" style={{ left: `calc(${pct(v)} + 2px)`, width: `calc(${pct(gap.cents)} - 2px)` }} />}
+            </div>
+          );
+        })}
+      </div>
+    );
+  }
 
   return (
     <figure className={cn('min-w-0', className)} aria-label={`Lifecycle figures: ${summary}`}>
