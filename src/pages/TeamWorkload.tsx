@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowDown, ArrowUp, Info } from 'lucide-react';
 import { EmptyState, Panel, Segmented, Skeleton, Tooltip } from '@/components/ui/primitives';
-import { WorkRow, StageBadge } from '@/components/work';
+import { WorkList, StageBadge } from '@/components/work';
 import { useWorkload } from '@/lib/queries';
 import { STAGE_LABEL, WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
 import { cn } from '@/lib/utils';
@@ -125,10 +125,10 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Unassigned" subtitle="Soonest due first" padded={false} action={<Link to="/work?claimed=nobody" className="text-xs text-accent hover:underline">All</Link>}>
-          {d.unassigned.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Everything open has someone on it.</p> : <ul className="divide-y divide-line">{d.unassigned.slice(0, 6).map((i: any) => <WorkRow key={i.id} item={i} showNext={false} />)}</ul>}
+          {d.unassigned.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Everything open has someone on it.</p> : <WorkList items={d.unassigned.slice(0, 6)} showNext={false} />}
         </Panel>
         <Panel title="Needs a decision" subtitle={`${STAGE_LABEL.blocked as string}, overdue, or waiting on verification`} padded={false}>
-          {d.attention.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Nothing is stuck.</p> : <ul className="divide-y divide-line">{d.attention.slice(0, 6).map((i: any) => <WorkRow key={i.id} item={i} />)}</ul>}
+          {d.attention.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Nothing is stuck.</p> : <WorkList items={d.attention.slice(0, 6)} />}
         </Panel>
       </div>
 

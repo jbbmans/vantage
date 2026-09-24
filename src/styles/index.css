@@ -202,6 +202,8 @@
   .tab-bar { @apply -mx-4 flex items-center gap-6 border-b border-line px-4 sm:-mx-6 sm:px-6 lg:-mx-8 lg:px-8; }
   .tab { @apply relative -mb-px border-b-2 border-transparent pb-2.5 pt-1 text-md font-medium text-ink-3 transition-colors hover:text-ink-2; }
   .tab[data-state='active'], .tab[aria-selected='true'] { @apply border-accent text-accent; }
+  /* Tabs drawn by the Tabs primitive carry their own underline, which moves between tabs. */
+  .tab.tab-indicated[aria-selected='true'] { border-bottom-color: transparent; }
 
   /*
    * Anything that scrolls sideways says so.

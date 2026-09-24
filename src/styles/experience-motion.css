@@ -62,6 +62,12 @@ header.sticky button:active { transform: translateY(0) scale(.98); }
   animation: vantage-figure-in 420ms var(--motion-spring) both;
 }
 
+/* The candidate adjustment's emphasis. GSAP moves --calc-glow from 0 to 1 and back when a fresh
+   calculation plays its arithmetic (src/pages/WorkItemPage.tsx); at rest it is 0 and draws nothing. */
+.calc-emphasis {
+  box-shadow: 0 0 0 calc(var(--calc-glow, 0) * 4px) rgb(var(--accent) / calc(var(--calc-glow, 0) * .28));
+}
+
 /* Inputs get a subtle response when they receive focus. */
 .field {
   transition: border-color var(--motion-base) ease, box-shadow var(--motion-base) ease, background-color var(--motion-base) ease, transform var(--motion-base) var(--motion-ease);

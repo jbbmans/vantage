@@ -3,7 +3,10 @@ import { Slot } from '@radix-ui/react-slot';
 import * as TooltipPrimitive from '@radix-ui/react-tooltip';
 import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown, Loader2 } from 'lucide-react';
+import { m } from 'motion/react';
+import { animated, useSpring } from '@react-spring/web';
 import { cn } from '@/lib/utils';
+import { DURATION, EASE } from '@/lib/motion';
 
 /* The primary action is the one thing on a screen filled with the signal colour, so there is never
    a question of what the screen wants you to do next. Everything else is a bordered white button. */
@@ -201,6 +204,7 @@ export function Stat({ label, value, hint, tone, to, icon: Icon }: { label: stri
 
 export function Segmented<T extends string>({ value, onChange, options, className, label, size = 'md' }: { value: T; onChange: (v: T) => void; options: Array<{ value: T; label: React.ReactNode; ariaLabel?: string }>; className?: string; label?: string; size?: 'sm' | 'md' }) {
   const refs = React.useRef<Array<HTMLButtonElement | null>>([]);
+  const group = useId();
   const move = (from: number, key: string) => {
     let next: number | null = null;
     if (key === 'ArrowRight' || key === 'ArrowDown') next = (from + 1) % options.length;
@@ -217,8 +221,10 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
         return (
           <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" aria-selected={active} aria-label={o.ariaLabel} tabIndex={active ? 0 : -1}
             onClick={() => onChange(o.value)} onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}
-            className={cn('shrink-0 whitespace-nowrap rounded font-medium transition-colors', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}>
-            {o.label}
+            className={cn('relative shrink-0 whitespace-nowrap rounded font-medium transition-colors', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'text-ink' : 'text-ink-3 hover:text-ink')}>
+            {/* The selected surface slides to the new choice rather than blinking across. */}
+            {active && <m.span layoutId={`${group}-segment`} className="absolute inset-0 rounded bg-surface shadow-card" transition={{ duration: DURATION.base, ease: EASE.spring }} aria-hidden />}
+            <span className="relative">{o.label}</span>
           </button>
         );
       })}
@@ -228,6 +234,7 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
 
 export function Tabs<T extends string>({ value, onChange, tabs, className }: { value: T; onChange: (v: T) => void; tabs: Array<{ value: T; label: React.ReactNode; count?: number }>; className?: string }) {
   const strip = React.useRef<HTMLDivElement | null>(null);
+  const group = useId();
   // On a phone the active tab is often past the right edge, which leaves a person looking at a
   // strip that does not contain where they are. Bring it into view whenever it changes.
   React.useEffect(() => {
@@ -237,25 +244,31 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
     el?.scrollIntoView({ block: 'nearest', inline: 'center' });
   }, [value]);
   return (
-    <div ref={strip} role="tablist" className={cn('tab-bar scroll-x scroll-x-canvas scroll-x-quiet', className)}>
+    <m.div ref={strip} role="tablist" layoutScroll className={cn('tab-bar scroll-x scroll-x-canvas scroll-x-quiet', className)}>
       {tabs.map((t) => {
         const active = t.value === value;
         return (
           <button key={t.value} type="button" role="tab" aria-selected={active} onClick={() => onChange(t.value)}
-            className={cn('tab flex shrink-0 items-center gap-1.5 whitespace-nowrap', active && 'border-accent text-accent')}>
+            className={cn('tab tab-indicated flex shrink-0 items-center gap-1.5 whitespace-nowrap', active && 'text-accent')}>
             {t.label}{t.count != null && <span className={cn('fig rounded-full px-1.5 py-0.5 text-2xs', active ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-ink-3')}>{t.count}</span>}
+            {/* The underline travels from the old tab to the new one, so the eye follows the change. */}
+            {active && <m.span layoutId={`${group}-tab`} className="absolute inset-x-0 -bottom-0.5 h-0.5 rounded-full bg-accent" transition={{ duration: DURATION.slow, ease: EASE.spring }} aria-hidden />}
           </button>
         );
       })}
-    </div>
+    </m.div>
   );
 }
 
 export function Progress({ value, max = 100, tone = 'accent', className, label = 'Progress' }: { value: number; max?: number; tone?: 'accent' | 'good' | 'warn' | 'bad'; className?: string; label?: string }) {
   const pct = max ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
+  // A spring, so a new reading settles like a physical gauge. With no `from`, the first render sits
+  // at the value: the bar moves when the reading changes, not because the page opened. The
+  // accessible value is exact from the first frame.
+  const fill = useSpring({ pct, config: { tension: 170, friction: 24 } });
   return (
     <div className={cn('h-1.5 w-full overflow-hidden rounded-full bg-surface-3', className)} role="progressbar" aria-label={label} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
-      <div className={cn('h-full rounded-full transition-[width] duration-300', tone === 'accent' && 'bg-accent', tone === 'good' && 'bg-good', tone === 'warn' && 'bg-warn', tone === 'bad' && 'bg-bad')} style={{ width: `${pct}%` }} />
+      <animated.div className={cn('h-full rounded-full', tone === 'accent' && 'bg-accent', tone === 'good' && 'bg-good', tone === 'warn' && 'bg-warn', tone === 'bad' && 'bg-bad')} style={{ width: fill.pct.to((p) => `${p}%`) }} />
     </div>
   );
 }

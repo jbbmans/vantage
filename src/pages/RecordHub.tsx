@@ -6,7 +6,7 @@ import { Badge, Button, EmptyState, Field, Input, PageHeader, Panel, Segmented, 
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { DateText, useParam } from '@/components/common';
-import { StageBadge, WorkRow } from '@/components/work';
+import { StageBadge, WorkList } from '@/components/work';
 import { useAssignedWork, useContributions, useRecordDrafts, useRecordSummary, caseKeys } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { cn, timeAgo } from '@/lib/utils';
@@ -105,7 +105,7 @@ function Overview({ summary, loading, onTab }: { summary: any; loading: boolean;
           action={<Link to="/work" className="text-xs text-accent hover:underline">Find more work</Link>}>
           {assigned.isPending ? <Skeleton className="m-4 h-20" /> : !assigned.data?.length ? (
             <EmptyState title="Nothing assigned" description="Claim an item from the queue and it appears here immediately." />
-          ) : <ul className="divide-y divide-line">{assigned.data.map((item) => <WorkRow key={item.id} item={item} />)}</ul>}
+          ) : <WorkList items={assigned.data} />}
         </Panel>
 
         <Panel title="What you recorded yourself" subtitle="PME, PT, volunteering, qualifications: anything that did not start as a tasker.">

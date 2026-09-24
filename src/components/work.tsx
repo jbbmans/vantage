@@ -1,7 +1,10 @@
 import { Link } from 'react-router-dom';
+import { AnimatePresence, m } from 'motion/react';
 import { ArrowRight, Clock, Hourglass, OctagonAlert } from 'lucide-react';
 import { Badge, type Tone } from '@/components/ui/primitives';
 import { DateText } from '@/components/common';
+import { usePulseOnChange } from '@/components/motion';
+import { DURATION, EASE } from '@/lib/motion';
 import { STAGE_LABEL, WAITING_LABEL, type Stage, type WaitingCategory } from '../../shared/caseModel';
 import { cn } from '@/lib/utils';
 
@@ -20,7 +23,9 @@ export const STAGE_TONE: Record<Stage, Tone> = {
 export function StageBadge({ stage, waiting, className }: { stage: string | null | undefined; waiting?: string | null; className?: string }) {
   const s = (stage || 'not_started') as Stage;
   const label = s === 'waiting' && waiting ? `Waiting on ${WAITING_LABEL[waiting as WaitingCategory]?.toLowerCase() || waiting.replace(/_/g, ' ')}` : STAGE_LABEL[s] || s;
-  return <Badge tone={STAGE_TONE[s] || 'neutral'} className={className}>{label}</Badge>;
+  // One pulse when the stage it names changes, so a move is noticed; nothing at rest.
+  const pulse = usePulseOnChange<HTMLSpanElement>(label);
+  return <span ref={pulse} data-stage-badge className="inline-flex"><Badge tone={STAGE_TONE[s] || 'neutral'} className={className}>{label}</Badge></span>;
 }
 
 /** "3 days", "5 hours": how long something has been sitting, never framed as time worked. */
@@ -36,13 +41,36 @@ export function elapsed(since: string | null | undefined): string {
 export const personName = (p: { name: string; rank?: string | null } | undefined | null) => (p ? [p.rank, p.name].filter(Boolean).join(' ') : 'Someone');
 
 /**
+ * A list of work rows. Rows that arrive after the list first rendered slide in, rows that leave fold
+ * away, and the rest close the gap, so claiming something visibly moves it off "Open to claim" and
+ * onto "Your work". What is already there when the page opens does not animate.
+ */
+export function WorkList({ items, showNext, trailing, className = 'divide-y divide-line' }: { items: any[]; showNext?: boolean; trailing?: (item: any) => React.ReactNode; className?: string }) {
+  return (
+    <ul className={className}>
+      <AnimatePresence initial={false}>
+        {items.map((item) => <WorkRow key={item.id} item={item} showNext={showNext} trailing={trailing?.(item)} />)}
+      </AnimatePresence>
+    </ul>
+  );
+}
+
+/**
  * One row of work in a list: what it is, where it stands, and the next thing to do. Used on Today,
  * in Record, and in a leader's workload, so a piece of work reads the same wherever it appears.
+ * Render it inside WorkList, or inside an AnimatePresence with initial={false}, so rows only move
+ * when the list changes.
  */
 export function WorkRow({ item, showNext = true, trailing }: { item: any; showNext?: boolean; trailing?: React.ReactNode }) {
   const overdue = item.due_date && item.due_date < new Date().toISOString().slice(0, 10) && !['resolved', 'not_applicable'].includes(item.stage);
   return (
-    <li>
+    <m.li
+      layout="position"
+      initial={{ opacity: 0, y: -6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0, height: 0, overflow: 'hidden' }}
+      transition={{ duration: DURATION.base, ease: EASE.standard }}
+    >
       <Link to={`/work/items/${item.id}`} className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-2">
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
@@ -66,6 +94,6 @@ export function WorkRow({ item, showNext = true, trailing }: { item: any; showNe
           {trailing}
         </span>
       </Link>
-    </li>
+    </m.li>
   );
 }

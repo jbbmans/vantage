@@ -1,16 +1,19 @@
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowLeft, BookOpen, Calculator, Check, CheckCircle2, ChevronDown, Circle, CircleDot, FileSpreadsheet, FlaskConical, Hand,
   History, Info, OctagonAlert, PenLine, Send, SkipForward, UserRoundPlus, Users,
 } from 'lucide-react';
-import { Badge, Button, EmptyState, Field, Input, NumberInput, Panel, Select, Skeleton, Textarea } from '@/components/ui/primitives';
+import { Badge, Button, EmptyState, Field, Input, NumberInput, Panel, Progress, Select, Skeleton, Textarea } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { DateText } from '@/components/common';
 import { StageBadge, elapsed, personName } from '@/components/work';
 import { ThreadsForItem } from './Workbench';
+import { AnimatePresence, m } from 'motion/react';
+import { useDrawOnComplete } from '@/components/motion';
+import { DURATION, EASE, loadGsap, markRunning, reducedMotion } from '@/lib/motion';
 import { useIdentity, useMetrics, useWorkItem, invalidateWork } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { cn, timeAgo, todayIso } from '@/lib/utils';
@@ -43,6 +46,9 @@ export default function WorkItemPage() {
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [stageOpen, setStageOpen] = useState<Stage | null>(null);
   const [busy, setBusy] = useState(false);
+  // The first step shown arrives with the page. Only later changes of step animate.
+  const [stepShown, setStepShown] = useState(false);
+  useEffect(() => { if (detail.data) setStepShown(true); }, [detail.data]);
 
   const refresh = () => invalidateWork(qc, id);
   const run = async (fn: () => Promise<unknown>, done?: string) => {
@@ -153,13 +159,14 @@ export default function WorkItemPage() {
               caseData={c}
               canAct={c.permissions.act && !closed}
               focused={Boolean(focusStep)}
+              enter={stepShown}
               onBackToNext={() => setFocusStep(null)}
               onDone={() => { setFocusStep(null); refresh(); }}
               onResolve={() => setStageOpen('resolved')}
             />
           )}
 
-          {c.latest_calculation && <CalculationPanel calc={c.latest_calculation} events={c.events} />}
+          {c.latest_calculation && <CalculationPanel itemId={id} calc={c.latest_calculation} events={c.events} />}
 
           {!procedure && holding && !closed && <ActionForm itemId={id} item={item} onDone={refresh} />}
 
@@ -235,18 +242,30 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
 const STATUS_TEXT: Record<string, string> = { done: 'done', current: 'next', attention: 'needs attention', skipped: 'not needed', upcoming: 'to do' };
 
 function ProcedurePanel({ procedure, progress, active, onPick }: { procedure: Procedure & { pinned_version: string }; progress: { steps: Array<{ key: string; status: string; note: string | null }>; next: string | null }; active: string | null; onPick: (key: string) => void }) {
+  const list = useRef<HTMLOListElement | null>(null);
+  const statuses = Object.fromEntries(progress.steps.map((s) => [s.key, s.status]));
+  // A step that has just been completed draws its own check mark (Anime.js).
+  useDrawOnComplete(list, statuses);
+  const applicable = progress.steps.filter((s) => s.status !== 'skipped');
+  const done = applicable.filter((s) => s.status === 'done').length;
   return (
     <Panel title="Procedure" subtitle={`${procedure.title} · v${procedure.pinned_version}`} bodyClassName="p-0">
-      <ol className="py-1">
+      <div className="border-b border-line px-4 py-2.5">
+        <p className="flex justify-between text-xs text-ink-3"><span>{done} of {applicable.length} steps done</span><span className="fig">{applicable.length ? Math.round((done / applicable.length) * 100) : 0}%</span></p>
+        <Progress value={done} max={applicable.length || 1} className="mt-1.5" tone={done === applicable.length && done > 0 ? 'good' : 'accent'} label="Procedure progress" />
+      </div>
+      <ol className="py-1" ref={list}>
         {procedure.steps.map((step) => {
           const st = progress.steps.find((s) => s.key === step.key);
           const status = st?.status || 'upcoming';
           return (
             <li key={step.key}>
               <button type="button" onClick={() => onPick(step.key)} aria-current={active === step.key ? 'step' : undefined}
-                className={cn('flex w-full items-start gap-2.5 px-4 py-2 text-left text-sm transition-colors hover:bg-surface-2', active === step.key && 'bg-accent-soft/50')}>
-                <span className="mt-0.5 shrink-0">{STATUS_ICON[status]}</span>
-                <span className="min-w-0 flex-1">
+                className="relative flex w-full items-start gap-2.5 px-4 py-2 text-left text-sm transition-colors hover:bg-surface-2">
+                {/* The highlight slides to the step being worked, so picking a step reads as moving to it. */}
+                {active === step.key && <m.span layoutId="procedure-active-step" className="absolute inset-0 bg-accent-soft/50" transition={{ duration: DURATION.base, ease: EASE.spring }} aria-hidden />}
+                <span className="relative mt-0.5 inline-flex shrink-0" data-step={step.key}>{STATUS_ICON[status]}</span>
+                <span className="relative min-w-0 flex-1">
                   <span className={cn('block text-ink', status === 'skipped' && 'text-ink-3 line-through')}>{step.title}</span>
                   {st?.note && status !== 'skipped' && <span className="block text-xs text-ink-3">{st.note}</span>}
                 </span>
@@ -282,8 +301,8 @@ function StepHelp({ step }: { step: ProcedureStep }) {
   );
 }
 
-function StepPanel({ itemId, step, status, caseData, canAct, focused, onBackToNext, onDone, onResolve }: {
-  itemId: string; step: ProcedureStep; status: { status: string; note: string | null } | null; caseData: any; canAct: boolean; focused: boolean;
+function StepPanel({ itemId, step, status, caseData, canAct, focused, enter, onBackToNext, onDone, onResolve }: {
+  itemId: string; step: ProcedureStep; status: { status: string; note: string | null } | null; caseData: any; canAct: boolean; focused: boolean; enter: boolean;
   onBackToNext: () => void; onDone: () => void; onResolve: () => void;
 }) {
   const toast = useToast();
@@ -369,7 +388,7 @@ function StepPanel({ itemId, step, status, caseData, canAct, focused, onBackToNe
         <p className="text-sm text-ink-2">Vantage adds the recorded invoices and the UMT amount, then compares that with the current award. Every input is shown with where it came from.</p>
         <Button variant="primary" loading={busy} onClick={async () => {
           setBusy(true);
-          try { await api.calculateCase(itemId); toast.success('Calculated.'); onDone(); }
+          try { await api.calculateCase(itemId); revealNextCalculation(itemId); toast.success('Calculated.'); onDone(); }
           catch (e) { toast.error(api.errorText(e)); }
           finally { setBusy(false); }
         }}><Calculator className="h-4 w-4" />Calculate the candidate</Button>
@@ -466,31 +485,77 @@ function StepPanel({ itemId, step, status, caseData, canAct, focused, onBackToNe
   }
 
   return (
-    <section className="card p-4 sm:p-5" aria-label={`Step: ${step.title}`}>
+    // When the case moves to its next step, the new step's form rises in where the last one was.
+    <m.section className="card p-4 sm:p-5" aria-label={`Step: ${step.title}`}
+      initial={enter ? { opacity: 0, y: 10 } : false} animate={{ opacity: 1, y: 0 }} transition={{ duration: DURATION.slow, ease: EASE.spring }}>
       {heading}
       <StepHelp step={step} />
       {form}
-    </section>
+    </m.section>
   );
 }
 
 /* ── The calculation ───────────────────────────────────────────────────────────────────────── */
 
-function CalculationPanel({ calc, events }: { calc: any; events: any[] }) {
+/**
+ * A calculation the person has just asked for plays its arithmetic once, in order (GSAP): each
+ * input, then the invoice total, the target award, and the adjustment last. Opening a case that
+ * already has a calculation shows it still; it is a record, not a show. Every figure is in its
+ * final, exact form from the first frame; only emphasis moves. Clicking the panel skips to the end.
+ */
+let calculationToReveal: string | null = null;
+function revealNextCalculation(itemId: string) { calculationToReveal = itemId; }
+
+function useCalculationTimeline(itemId: string, calcId: string) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+  const skip = useRef<() => void>(() => {});
+  useEffect(() => {
+    if (calculationToReveal !== itemId) return;
+    calculationToReveal = null;
+    const el = rootRef.current;
+    if (!el || reducedMotion()) return;
+    let cancelled = false;
+    let cleanup = () => {};
+    markRunning(el, true);
+    void loadGsap().then((gsap) => {
+      if (cancelled) { markRunning(el, false); return; }
+      const ctx = gsap.context(() => {
+        const tl = gsap.timeline({
+          defaults: { ease: 'power2.out' },
+          onComplete: () => markRunning(el, false),
+        });
+        tl.from('[data-calc="input"]', { opacity: 0.25, x: -8, duration: 0.24, stagger: 0.08 })
+          .from('[data-calc="total"]', { opacity: 0.35, y: 6, duration: 0.24, stagger: 0.16 }, '-=0.05')
+          // The adjustment is the figure a decision rests on, so it lands last and is marked.
+          .fromTo('[data-calc="adjustment"]', { '--calc-glow': 0 }, { '--calc-glow': 1, duration: 0.2, ease: 'power1.out' }, '-=0.05')
+          .to('[data-calc="adjustment"]', { '--calc-glow': 0, duration: 0.6, ease: 'power1.inOut' }, '+=0.35');
+        skip.current = () => tl.progress(1);
+      }, el);
+      cleanup = () => { ctx.revert(); markRunning(el, false); };
+    });
+    return () => { cancelled = true; skip.current = () => {}; cleanup(); };
+  }, [itemId, calcId]);
+  const skipToEnd = useCallback(() => skip.current(), []);
+  return [rootRef, skipToEnd] as const;
+}
+
+function CalculationPanel({ itemId, calc, events }: { itemId: string; calc: any; events: any[] }) {
   const stale = events.some((e) => e.kind === 'observation' && e.created_at > (events.find((x) => x.id === calc.id)?.created_at || ''));
+  const [calcRef, skipToEnd] = useCalculationTimeline(itemId, calc.id);
   return (
+    <div ref={calcRef} data-calc="panel" onClickCapture={skipToEnd}>
     <Panel title="Candidate calculation" subtitle={calc.formula_text} action={<Badge tone={calc.requires_review ? 'warn' : 'accent'}>{calc.requires_review ? 'Needs review' : 'Candidate'}</Badge>}>
       <dl className="grid grid-cols-1 gap-3 sm:grid-cols-3">
-        <div className="rounded-md border border-line px-3 py-2"><dt className="text-xs text-ink-3">Invoice total</dt><dd className="fig mt-0.5 text-lg font-semibold text-ink">{formatCents(calc.invoice_total_cents)}</dd></div>
-        <div className="rounded-md border border-line px-3 py-2"><dt className="text-xs text-ink-3">Target award</dt><dd className="fig mt-0.5 text-lg font-semibold text-ink">{formatCents(calc.target_award_cents)}</dd></div>
-        <div className="rounded-md border border-accent/40 bg-accent-soft/40 px-3 py-2"><dt className="text-xs text-ink-3">Award adjustment ({calc.direction})</dt><dd className="fig mt-0.5 text-lg font-semibold text-ink">{formatCents(calc.adjustment_cents, { signed: true })}</dd></div>
+        <div data-calc="total" className="rounded-md border border-line px-3 py-2"><dt className="text-xs text-ink-3">Invoice total</dt><dd className="fig mt-0.5 text-lg font-semibold text-ink">{formatCents(calc.invoice_total_cents)}</dd></div>
+        <div data-calc="total" className="rounded-md border border-line px-3 py-2"><dt className="text-xs text-ink-3">Target award</dt><dd className="fig mt-0.5 text-lg font-semibold text-ink">{formatCents(calc.target_award_cents)}</dd></div>
+        <div data-calc="adjustment" className="calc-emphasis rounded-md border border-accent/40 bg-accent-soft/40 px-3 py-2"><dt className="text-xs text-ink-3">Award adjustment ({calc.direction})</dt><dd className="fig mt-0.5 text-lg font-semibold text-ink">{formatCents(calc.adjustment_cents, { signed: true })}</dd></div>
       </dl>
       <table className="mt-3 w-full text-sm">
         <caption className="sr-only">Inputs to the calculation</caption>
         <thead><tr className="text-left text-xs text-ink-3"><th className="py-1 font-medium">Input</th><th className="py-1 font-medium">Source</th><th className="py-1 text-right font-medium">Amount</th></tr></thead>
         <tbody>
           {calc.inputs.map((i: any) => (
-            <tr key={i.event_id} className="border-t border-line">
+            <tr key={i.event_id} data-calc="input" className="border-t border-line">
               <td className="py-1.5 text-ink">{i.label}</td>
               <td className="py-1.5 text-xs text-ink-3">{VALUE_SOURCES[i.source as keyof typeof VALUE_SOURCES]}</td>
               <td className="fig py-1.5 text-right text-ink">{formatCents(i.cents)}</td>
@@ -501,6 +566,7 @@ function CalculationPanel({ calc, events }: { calc: any; events: any[] }) {
       <p className="mt-3 flex items-start gap-2 text-xs text-ink-3"><Info className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />{calc.applicability}</p>
       {stale && <p className="mt-2 text-xs text-warn">Values were recorded after this calculation. Calculate again to include them.</p>}
     </Panel>
+    </div>
   );
 }
 
@@ -643,8 +709,12 @@ function HistoryPanel({ events, people, procedure }: { events: any[]; people: Re
   return (
     <Panel title="History" subtitle="Every change, who made it, and where each value came from. Nothing here is edited; corrections are added." action={<History className="h-4 w-4 text-ink-3" aria-hidden />} bodyClassName="p-0">
       <ol className="divide-y divide-line">
+        {/* An entry added while the page is open slides in at the top; the rest make room. */}
+        <AnimatePresence initial={false}>
         {visible.map((e) => (
-          <li key={e.id} className={cn('flex gap-3 px-4 py-2.5 text-sm', e.superseded && 'opacity-60')}>
+          <m.li key={e.id} layout="position" initial={{ opacity: 0, y: -8 }} animate={{ opacity: e.superseded ? 0.6 : 1, y: 0 }} exit={{ opacity: 0 }}
+            transition={{ duration: DURATION.base, ease: EASE.standard }}
+            className="flex gap-3 px-4 py-2.5 text-sm">
             <span className="w-28 shrink-0 text-xs text-ink-3" title={new Date(e.created_at).toLocaleString()}>{timeAgo(e.created_at)}</span>
             <span className="min-w-0 flex-1">
               <span className="text-ink">
@@ -667,8 +737,9 @@ function HistoryPanel({ events, people, procedure }: { events: any[]; people: Re
                 {e.body.backfilled ? <span className="text-xs text-ink-3">(from before history was kept)</span> : null}
               </span>
             </span>
-          </li>
+          </m.li>
         ))}
+        </AnimatePresence>
       </ol>
       {(ordered.length > visible.length || showAll) && (
         <div className="border-t border-line px-4 py-2 text-right">

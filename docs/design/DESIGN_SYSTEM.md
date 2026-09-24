@@ -53,7 +53,35 @@ Case components (`src/components/work.tsx`):
 - **Language.** Real names for real concepts: document, tasker, stage, waiting on posting, handed off,
   verified. No table names, adapter names or revision numbers in the interface.
 
+## Motion
+
+Motion explains a change the person caused. It never decorates, never waits, and never moves a
+figure through wrong values. The policy and the tokens live in `src/lib/motion.ts`; each library has
+one job, so no two animate the same thing.
+
+| Layer | Job | Where |
+|---|---|---|
+| CSS (`experience-motion.css`) | Page entrances, hover and press feedback | Unchanged |
+| Motion (`motion/react`) | Layout: the tab underline and segmented selection slide to the new choice; work rows fold out of one list and into another when claimed; toasts make room; the next step's form rises in; a new history entry slides in; the procedure highlight moves to the picked step | `primitives.tsx`, `work.tsx`, `toast.tsx`, `WorkItemPage.tsx` |
+| React Spring | Progress meters spring to a new reading (goals, projects, the procedure) | `Progress` in `primitives.tsx` |
+| GSAP | One timeline: a calculation the person just asked for plays its arithmetic in order, inputs first and the adjustment last, then settles. Clicking skips it | `CalculationPanel` |
+| Anime.js | A completed step draws its own check mark; a stage badge pulses once when its stage changes | `components/motion.tsx` |
+
+Rules:
+
+- **Change, not arrival.** Lists, meters and the calculation are still when a page opens with the
+  state already there. Only a change made while the page is open animates.
+- **Figures are records.** Money and counts are exact from the first frame. Only position, opacity
+  and emphasis move.
+- **Nothing waits on motion.** Controls work mid-animation; no content is hidden until something ends.
+- **Reduced motion everywhere.** The operating-system setting stops all four libraries, not only the
+  CSS. Tested in `tests/browser/23-motion.spec.ts`.
+- **Durations** are the CSS tokens: 120, 190 and 320 ms, on the same two curves.
+- **Cost.** Motion's layout features, GSAP and Anime.js load on demand. The first download grew by
+  about 34 KB gzipped (Motion's core and React Spring), from 171 KB to 205 KB.
+
 ## Not used
 
 Streaks, gamification, tactical styling, purple gradients, AI branding, decorative KPI walls,
-arbitrary animation. Reduced motion is respected by the existing CSS.
+animation at rest, looping motion, number counters, scroll-triggered reveals (the public page must
+carry its substance in the first render).

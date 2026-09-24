@@ -7,7 +7,8 @@ import { BarList } from '@/components/charts';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, PeriodSelect } from '@/components/common';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
-import { WorkRow } from '@/components/work';
+import { WorkList, WorkRow } from '@/components/work';
+import { AnimatePresence } from 'motion/react';
 import {
   useAssignedWork, useCareer, useGoals, useIdentity, useMetricsReport, useNotifications, usePrefs, useReadiness, useRecordSummary,
   useSavePrefs, useTasks, useTrack, useWorkload,
@@ -61,7 +62,7 @@ export default function Dashboard() {
             action={<Link to="/record" className="text-xs text-accent hover:underline">Your record</Link>}>
             {assigned.isPending ? <Skeleton className="m-4 h-24" /> : working.length || myTasks.length ? (
               <ul className="divide-y divide-line">
-                {working.map((item) => <WorkRow key={item.id} item={item} />)}
+                <AnimatePresence initial={false}>{working.map((item) => <WorkRow key={item.id} item={item} />)}</AnimatePresence>
                 {myTasks.slice(0, 4).map((t: any) => (
                   <li key={t.id}>
                     <Link to={`/records/tasks/${t.id}`} className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-2">
@@ -79,7 +80,7 @@ export default function Dashboard() {
 
           {waiting.length > 0 && (
             <Panel title="Waiting on someone else" subtitle="Elapsed time, shown separately from work. Nothing here needs you until it moves." padded={false}>
-              <ul className="divide-y divide-line">{waiting.map((item) => <WorkRow key={item.id} item={item} />)}</ul>
+              <WorkList items={waiting} />
             </Panel>
           )}
 
@@ -103,7 +104,7 @@ function AvailableWork({ compact = false }: { compact?: boolean }) {
   const list = useQuery({ queryKey: ['work-items', { claimed: 'nobody', state: 'open', limit: 5 }], queryFn: () => api.listWorkItems({ claimed: 'nobody', state: 'open', sort: 'due_date', limit: 5 }), staleTime: 15_000 });
   const rows: any[] = list.data?.items || [];
   const body = list.isPending ? <Skeleton className="m-4 h-16" /> : rows.length ? (
-    <ul className="divide-y divide-line">{rows.map((r) => <WorkRow key={r.id} item={r} trailing={<span className="flex items-center gap-1 text-accent"><Hand className="h-3 w-3" aria-hidden />Open to claim</span>} />)}</ul>
+    <WorkList items={rows} trailing={() => <span className="flex items-center gap-1 text-accent"><Hand className="h-3 w-3" aria-hidden />Open to claim</span>} />
   ) : <EmptyState title="Nothing waiting to be claimed" description="When a leader brings in a tasker, its items appear here." />;
   if (compact) return <Panel title="Open to claim" subtitle="Unassigned work in your units, soonest due first" padded={false} action={<Link to="/work?claimed=nobody" className="text-xs text-accent hover:underline">All open work</Link>}>{body}</Panel>;
   return (
@@ -219,7 +220,7 @@ function SectionOverview({ unitId }: { unitId: string }) {
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Needs a decision" subtitle="Blocked, overdue, or waiting on verification" padded={false}>
           {w.data.attention.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Nothing is stuck.</p> : (
-            <ul className="divide-y divide-line">{w.data.attention.slice(0, 5).map((item: any) => <WorkRow key={item.id} item={item} />)}</ul>
+            <WorkList items={w.data.attention.slice(0, 5)} />
           )}
         </Panel>
         <Panel title="Who holds what" subtitle={`Open work held now, with documents researched since ${w.data.window.from}`}>

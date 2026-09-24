@@ -46,6 +46,8 @@ test('a Marine claims, researches, calculates, decides, hands off, and keeps a p
   await page.getByRole('button', { name: 'Open to claim', exact: true }).click();
   await page.getByText('SYN-26-P-0047').first().click();
   await expect(page).toHaveURL(/\/work\/items\//);
+  // The URL changes before the item page has rendered; wait for the page itself.
+  await expect(page.getByText('Who worked this')).toBeVisible();
   const itemUrl = page.url();
   await page.getByRole('button', { name: 'Claim', exact: true }).click();
   await expect(page.getByText(/It is on your assigned list now/)).toBeVisible();
