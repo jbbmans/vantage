@@ -46,6 +46,11 @@ export interface AppConfig {
   };
   email: { provider: 'none' | 'resend' | 'smtp' | 'memory'; from: string; resendApiKey: string; smtpUrl: string };
   maradmins: { enabled: boolean; refreshMinutes: number; source: string };
+  /**
+   * Forwarding of catalogued product events to PostHog. Synthetic demo only; null means off, which
+   * is the default. See server/services/posthog.ts for what is and is not sent.
+   */
+  posthog: { key: string; host: string } | null;
   selfRegistration: boolean;
   cac: CacConfig;
 }
@@ -179,7 +184,22 @@ export function loadConfig(env = process.env): AppConfig {
     if ((env.CAC_MODE || 'off').trim().toLowerCase() !== 'off') throw new Error('The synthetic demo cannot run with CAC sign-in enabled.');
     if (!['', 'none', 'memory'].includes(String(env.VANTAGE_EMAIL_PROVIDER || '').trim().toLowerCase())) throw new Error('The synthetic demo sends no email. Set VANTAGE_EMAIL_PROVIDER=none.');
     if (envBool(env, 'VANTAGE_AI_ENABLED', false)) throw new Error('The synthetic demo runs without AI. Set VANTAGE_AI_ENABLED=false.');
-    if (envBool(env, 'VANTAGE_MARADMIN_ENABLED', false)) throw new Error('The synthetic demo makes no outbound requests. Set VANTAGE_MARADMIN_ENABLED=false.');
+    if (envBool(env, 'VANTAGE_MARADMIN_ENABLED', false)) throw new Error('The synthetic demo fetches nothing from outside. Set VANTAGE_MARADMIN_ENABLED=false.');
+  }
+
+  // PostHog sees the synthetic demo or nothing. Real people's use of Vantage is measured on the
+  // server that holds their records and is never forwarded anywhere.
+  const posthogKey = String(env.VANTAGE_POSTHOG_KEY || '').trim();
+  let posthog: AppConfig['posthog'] = null;
+  if (posthogKey) {
+    if (accessMode !== 'demo') throw new Error('VANTAGE_POSTHOG_KEY is only accepted with VANTAGE_ACCESS_MODE=demo. Usage of a real instance is never forwarded to a third party.');
+    if (!/^[A-Za-z0-9_-]{8,200}$/.test(posthogKey)) throw new Error('VANTAGE_POSTHOG_KEY does not look like a PostHog project API key.');
+    const host = String(env.VANTAGE_POSTHOG_HOST || 'https://us.i.posthog.com').trim().replace(/\/+$/, '');
+    const local = /^http:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/i.test(host);
+    if (!/^https:\/\/[a-z0-9.-]+(:\d+)?(\/[\w.~/-]*)?$/i.test(host) && !(local && test)) {
+      throw new Error('VANTAGE_POSTHOG_HOST must be an https:// address, for example https://us.i.posthog.com or your own PostHog.');
+    }
+    posthog = { key: posthogKey, host };
   }
 
   return {
@@ -253,6 +273,7 @@ export function loadConfig(env = process.env): AppConfig {
       refreshMinutes: envNumber(env, 'VANTAGE_MARADMIN_REFRESH_MINUTES', 30),
       source: env.VANTAGE_MARADMIN_SOURCE || 'https://www.marines.mil/DesktopModules/ArticleCS/RSS.ashx?ContentType=6&Site=481&category=14336&max=50',
     },
+    posthog,
     // A demo visitor is handed a synthetic person; nobody registers.
     selfRegistration: accessMode === 'demo' ? false : envBool(env, 'VANTAGE_SELF_REGISTRATION', true),
     cac: readCacConfig(env, production),

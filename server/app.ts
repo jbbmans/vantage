@@ -21,6 +21,7 @@ import { correspondenceRouter } from './routes/correspondence.ts';
 import { recordRouter } from './routes/record.ts';
 import { demoRouter, demoGuard } from './routes/demo.ts';
 import { assertDatabaseMatchesMode, purgeExpired } from './services/demo.ts';
+import { startPostHogForwarding } from './services/posthog.ts';
 import { record } from './services/telemetry.ts';
 import { pruneEvents } from './services/usage.ts';
 import { pruneSources, reconcileInterruptedJobs } from './services/intake.ts';
@@ -251,6 +252,8 @@ export function startSchedulers(ctx: AppContext) {
   every(24 * 60 * 60_000, () => { try { const released = pruneSources(ctx); if (released) console.log(`${now()} released the bytes of ${released} source files past the retention window`); } catch (e) { console.warn(`Source prune failed: ${(e as Error).message}`); } });
   // Expired demo workspaces are removed whole. A no-op on any instance not in demo mode.
   if (ctx.config.accessMode === 'demo') every(10 * 60_000, () => { try { const n = purgeExpired(ctx); if (n) console.log(`${now()} removed ${n} expired demo workspaces`); } catch (e) { console.warn(`Demo purge failed: ${(e as Error).message}`); } });
+  // Catalogued demo events to PostHog, when VANTAGE_POSTHOG_KEY is set. Off otherwise.
+  const stopPostHog = startPostHogForwarding(ctx);
   if (!ctx.config.test) {
     // Registered whether or not the feed is on: syncMaradmins is a no-op while the runtime switch is off, so enabling it later starts refreshes without a restart.
     const run = () => syncMaradmins(ctx).catch((e: Error) => console.warn(`MARADMIN refresh skipped: ${e.message}`));
@@ -260,5 +263,5 @@ export function startSchedulers(ctx: AppContext) {
   if (!ctx.config.test) {
     every(60 * 60_000, () => { runDigestTick(ctx).then((r) => { if (r.sent) console.log(`${now()} digest: sent ${r.sent}`); }).catch((e: Error) => console.warn(`Digest tick failed: ${e.message}`)); });
   }
-  return () => timers.forEach((t) => clearInterval(t));
+  return () => { timers.forEach((t) => clearInterval(t)); stopPostHog?.(); };
 }

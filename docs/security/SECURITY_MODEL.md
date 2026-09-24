@@ -71,6 +71,10 @@ PIN is ever collected. See `docs/engineering/INFRASTRUCTURE_QUESTIONS.md`.
 - The page loads nothing from third parties. Google Tag Manager was removed, the CSP is
   `script-src 'self'` plus hashed inline bootstrap, `frame-src 'none'`, and fonts are local.
 - With AI and the MARADMIN feed off (the defaults), the server makes no outbound requests.
+- PostHog forwarding (`VANTAGE_POSTHOG_KEY`) is refused unless the instance is the synthetic demo.
+  When set there, the server posts catalogued, pseudonymous events to PostHog from the server side.
+  The browser still loads nothing from third parties and the CSP is unchanged. See PD-017 and
+  `server/services/posthog.ts`.
 - CSV exports neutralize formula injection (`shared/csv.ts`).
 - Telemetry accepts only declared events with scalar properties. It holds no free text, identifiers,
   document numbers or keystroke timing (PD-012).

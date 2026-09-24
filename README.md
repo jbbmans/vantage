@@ -106,7 +106,8 @@ Everything is an environment variable. `.env.example` lists them with defaults. 
 | `VANTAGE_AI_ENABLED`, `VANTAGE_GENAI_API_KEY`, `VANTAGE_GENAI_MODELS` | GenAI.mil drafting help and the model allowlist (off by default) |
 | `VANTAGE_ACCESS_MODE` | `accounts` (default) or `demo` (synthetic, no sign-in; never in production) |
 | `VANTAGE_DEMO_TTL_HOURS`, `VANTAGE_DEMO_MAX_WORKSPACES` | How long a demo workspace lasts, and how many may exist at once |
-| `VANTAGE_MARADMIN_ENABLED` | The MARADMIN feed from marines.mil. Off by default: it is the only outbound request |
+| `VANTAGE_MARADMIN_ENABLED` | The MARADMIN feed from marines.mil. Off by default: it is the only outbound request on an accounts instance |
+| `VANTAGE_POSTHOG_KEY`, `VANTAGE_POSTHOG_HOST` | Synthetic demo only. Forwards catalogued usage events (named screens and procedure steps, pseudonymous, nothing typed) to PostHog so the owner can see where demo visitors go and stop. Empty by default; refused in accounts mode |
 
 ## Status
 

@@ -124,6 +124,8 @@ export function demoStatus(ctx: AppContext, userId?: string | null) {
     workspace: ws ? { expires_at: ws.expires_at, persona: personaOf(ws, userId!) } : null,
     personas: PERSONAS,
     flagship: FLAGSHIP_SYSTEM_VALUES,
+    // Said to the visitor in the demo banner, so being measured is never a surprise.
+    measured_with: ctx.config.posthog ? 'posthog' as const : null,
   };
 }
 

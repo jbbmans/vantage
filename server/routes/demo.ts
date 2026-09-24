@@ -7,6 +7,7 @@ import { limiters } from '../auth/limiter.ts';
 import { resolveSession, destroySession, SESSION_COOKIE } from '../auth/sessions.ts';
 import { finishSignIn } from './auth.ts';
 import { audit } from '../services/audit.ts';
+import { record } from '../services/telemetry.ts';
 import { createWorkspace, demoStatus, workspaceOf, purgeWorkspace, sampleSheet, type Persona } from '../services/demo.ts';
 
 /**
@@ -32,6 +33,7 @@ demoRouter.post('/start', wrap((req, res) => {
   limiters.registerIp.bump(ip);
   const ws = createWorkspace(req.ctx);
   const user = req.ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(ws.persona_user_id) as { id: string; must_change_password: number };
+  record(req.ctx, 'demo.started', {}, { id: user.id });
   return finishSignIn(req, res, user, 'demo', 'demo_start');
 }));
 
@@ -47,6 +49,7 @@ demoRouter.post('/persona', requireAuth, wrap((req, res) => {
   if (!target) throw notFound('That persona is gone. Reset the demo.');
   destroySession(req.ctx, req.sessionId);
   audit(req.ctx, { actor_id: req.user.id, action: 'demo_persona', subject_id: target.id, unit_id: ws.unit_id, detail: persona });
+  record(req.ctx, 'demo.persona_switched', { to: persona }, { id: target.id });
   return finishSignIn(req, res, target, 'demo', 'demo_persona');
 }));
 
@@ -58,6 +61,7 @@ demoRouter.post('/reset', requireAuth, wrap((req, res) => {
   purgeWorkspace(req.ctx, ws.id);
   const fresh = createWorkspace(req.ctx);
   const user = req.ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(fresh.persona_user_id) as { id: string; must_change_password: number };
+  record(req.ctx, 'demo.reset', {}, { id: user.id });
   return finishSignIn(req, res, user, 'demo', 'demo_start');
 }));
 

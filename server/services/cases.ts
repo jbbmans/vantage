@@ -5,6 +5,8 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { notify } from './notifications.ts';
+import { record } from './telemetry.ts';
+import { HttpError } from '../lib/errors.ts';
 import {
   STAGE_TO_STATE, STATE_TO_STAGE, CLOSED_STAGES, RESEARCH_KINDS, entrySchema, stageChangeSchema, handoffSchema,
   type Stage, type EntryInput, type WaitingCategory,
@@ -55,6 +57,8 @@ export function appendEvent(ctx: AppContext, e: AppendInput): EventRow {
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`
   ).run(id, e.item.id, e.item.unit_id, e.actorId, e.kind, e.step ?? null, e.subjectId ?? null, JSON.stringify(e.body ?? {}),
     e.supersedesId ?? null, e.correlationId ?? null, e.idempotencyKey ?? null, e.occurredAt || at, at);
+  // Every stage move passes through here, whichever service made it, so this is where it is counted.
+  if (e.kind === 'stage_changed') record(ctx, 'case.stage_changed', { from: e.body?.from, to: e.body?.to }, { id: e.actorId });
   return ctx.db.prepare('SELECT * FROM work_events WHERE id = ?').get(id) as EventRow;
 }
 
@@ -167,6 +171,20 @@ export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id
     if (prior) return { event: prior, replayed: true };
   }
 
+  try {
+    return recordEntryOnce(ctx, user, scope, id, input, scopedKey);
+  } catch (e) {
+    // A submission the funds-check control refused is where a case most often stops. The refusal
+    // rolled the entry back, so it is counted here, after the fact, by its reason alone.
+    if (e instanceof HttpError && (e.code === 'control_not_passed' || e.code === 'control_warning')) {
+      const check = latestFundsCheck(eventsFor(ctx, id).map(toCaseEvent));
+      record(ctx, 'case.control_refused', { reason: e.code, result: (check?.body.result as string | undefined) ?? 'none' }, { id: user.id });
+    }
+    throw e;
+  }
+}
+
+function recordEntryOnce(ctx: AppContext, user: SessionUser, scope: Scope, id: string, input: EntryInput, scopedKey: string | null) {
   return ctx.db.transaction(() => {
     const row = load(ctx, user, scope, id);
     if (!mayAct(scope, user, row)) throw forbidden('Pick this work up before recording on it.');
@@ -242,6 +260,8 @@ export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id
       body: payload, supersedesId: input.supersedes ?? null, idempotencyKey: scopedKey,
       occurredAt: 'observed_on' in input && input.observed_on ? `${input.observed_on}T12:00:00.000Z` : null,
     });
+
+    record(ctx, 'case.entry_recorded', { kind: input.kind, step: ('step' in input && input.step) || 'none' }, { id: user.id });
 
     let next: Stage | null = null;
     if (stage === 'not_started') next = 'researching';
@@ -355,6 +375,7 @@ export function handOff(ctx: AppContext, user: SessionUser, scope: Scope, id: st
       `UPDATE work_items SET claimed_by = ?, claimed_at = ?, version = version + 1, updated_at = ? WHERE id = ?`
     ).run(target.id, at, at, id);
     appendEvent(ctx, { item: row, actorId: user.id, kind: 'handed_off', subjectId: target.id, body: { note: input.note, from: fromHolder } });
+    record(ctx, 'case.handed_off', {}, { id: user.id });
     if (stageOf(row) === 'not_started') moveStage(ctx, getItem(ctx, id)!, user.id, 'researching', { reason: null, category: null });
     audit(ctx, { actor_id: user.id, action: 'work_handed_off', entity: 'work_items', entity_id: id, subject_id: target.id, unit_id: row.unit_id });
     notify(ctx, target.id, {
@@ -377,6 +398,7 @@ export function calculate(ctx: AppContext, user: SessionUser, scope: Scope, id: 
       item: row, actorId: user.id, kind: 'calculation', step: 'calculate',
       body: { ...result, title: UMT_FORMULA.title, formula_text: UMT_FORMULA.text, applicability: UMT_FORMULA.applicability, source: 'calculated' },
     });
+    record(ctx, 'case.calculated', { direction: result.direction, requires_review: result.requires_review, inputs: result.inputs.length }, { id: user.id });
     if (stageOf(row) === 'not_started') moveStage(ctx, row, user.id, 'researching', { reason: null, category: null, correlationId: event.id });
     else ctx.db.prepare('UPDATE work_items SET version = version + 1, updated_at = ? WHERE id = ?').run(now(), id);
     return event;

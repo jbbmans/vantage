@@ -24,7 +24,7 @@ export interface Identity {
   roles: Array<{ unit_id: string; id: string; name: string; color: string | null; position: number; permissions: number }>;
   canLead: boolean; manageableUnits: string[]; counselUnits: string[]; exportUnits: string[];
   session: { id: string; method: string; sudoUntil: string | null };
-  demo: null | { mode: 'demo'; ttl_hours: number; workspace: { expires_at: string; persona: 'marine' | 'leader' | null } | null; personas: Record<string, { label: string; description: string }>; flagship: { reference: string; note: string; values: Array<{ field: string; label: string; display: string; reference?: string }>; scenario: string } };
+  demo: null | { mode: 'demo'; ttl_hours: number; workspace: { expires_at: string; persona: 'marine' | 'leader' | null } | null; personas: Record<string, { label: string; description: string }>; flagship: { reference: string; note: string; values: Array<{ field: string; label: string; display: string; reference?: string }>; scenario: string }; measured_with?: 'posthog' | null };
   instance: { accessMode?: 'accounts' | 'demo'; displayName: string; organizationName: string; announcement: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean; metrics: MetricsConfig };
 }
 

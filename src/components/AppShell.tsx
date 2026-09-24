@@ -103,7 +103,8 @@ function surfaceOf(pathname: string, search: string): string {
   const tab = new URLSearchParams(search).get('tab') || '';
   // Work and Reports are each one destination with several tabs. Reporting them as one surface
   // would hide which half of the screen people actually use, so the tab decides the name.
-  if (segment === 'work') return tab === 'mail' ? 'correspondence' : tab === 'tasks' || tab === 'projects' ? 'tasks' : 'queue';
+  if (segment === 'work') return pathname.split('/')[2] === 'items' ? 'work_item' : tab === 'mail' ? 'correspondence' : tab === 'tasks' || tab === 'projects' ? 'tasks' : 'queue';
+  if (segment === 'team' && (!tab || tab === 'workload')) return 'workload';
   if (segment === 'reports') return tab === 'analysis' ? 'reports' : 'studio';
   if (segment === 'career' && tab === 'readiness') return 'readiness';
   const map: Record<string, string> = {
@@ -325,6 +326,7 @@ export default function AppShell() {
               <span className="text-ink-2">
                 You are {user?.rank?.abbr} {user?.first_name} {user?.last_name}, {demo.workspace?.persona === 'leader' ? 'the section lead' : 'a budget analyst'}.
                 <span className="hidden md:inline"> Everything here is invented; changes are kept for {demo.ttl_hours} hours, then removed.</span>
+                {demo.measured_with === 'posthog' && <span className="hidden md:inline"> Screen and step names are measured with PostHog; nothing you type is sent.</span>}
               </span>
               <span className="flex items-center gap-1.5 md:ml-auto">
                 {demo.workspace?.persona === 'leader'

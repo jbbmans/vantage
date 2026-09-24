@@ -20,6 +20,8 @@
 
 import type { AppContext } from '../context.ts';
 import { newId, now } from '../lib/ids.ts';
+import { STAGES, ENTRY_KINDS, FUNDS_CHECK_RESULTS } from '../../shared/caseModel.ts';
+import { PROCEDURES } from '../../shared/procedures.ts';
 
 export type PropertyKind = 'number' | 'boolean' | 'enum';
 
@@ -43,6 +45,10 @@ const bool: PropertySpec = { kind: 'boolean' };
 const num: PropertySpec = { kind: 'number' };
 const oneOf = (...values: string[]): PropertySpec => ({ kind: 'enum', values });
 
+const SURFACES = ['dashboard', 'records', 'queue', 'work_item', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'workload', 'settings', 'operator', 'help'];
+/** Every step key of every procedure: the words a case event may name, and nothing typed. */
+const STEP_KEYS = [...new Set(Object.values(PROCEDURES).flatMap((p) => p.steps.map((s) => s.key))), 'none'];
+
 /**
  * The catalog. Adding a metric means adding a line here; there is no way to record something this
  * file does not name.
@@ -54,7 +60,11 @@ export const EVENTS: Record<string, EventSpec> = {
   // because a form the person closed never reached the server at all. Nothing is raised twice.
   // Adoption ----------------------------------------------------------
   'session.started': { family: 'adoption', properties: { returning: bool, days_since_last: num } },
-  'surface.viewed': { family: 'adoption', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help') } },
+  'surface.viewed': { family: 'adoption', properties: { surface: oneOf(...SURFACES) } },
+  // The synthetic demo: how visits start, and whether people look at it as a lead as well.
+  'demo.started': { serverOnly: true, family: 'adoption', properties: {} },
+  'demo.persona_switched': { serverOnly: true, family: 'adoption', properties: { to: oneOf('marine', 'leader') } },
+  'demo.reset': { serverOnly: true, family: 'adoption', properties: {} },
 
   // The capture funnel, and where it is abandoned ----------------------
   'capture.opened': { family: 'capture', properties: { surface: oneOf('quick_log', 'record_form', 'work_action', 'thread_message') } },
@@ -87,6 +97,17 @@ export const EVENTS: Record<string, EventSpec> = {
   'work.released': { serverOnly: true, family: 'work', properties: { held_hours: num } },
   'work.action_recorded': { serverOnly: true, family: 'work', properties: { kind: oneOf('note', 'progress', 'resolution', 'correction'), drafted_record: bool, resolved: bool }, times: ['confirmed_work_minutes'] },
   'work.view_saved': { family: 'work', properties: { filters: num } },
+  // Raised by work.ts all along, and silently dropped until they were declared here.
+  'work.created': { serverOnly: true, family: 'work', properties: { manual: bool, count: num } },
+  'work.assigned': { serverOnly: true, family: 'work', properties: { bulk: bool, count: num } },
+
+  // Cases under a procedure: which steps get done, and where people stop. The step and kind are
+  // words from the procedure, never what anybody wrote in the entry.
+  'case.entry_recorded': { serverOnly: true, family: 'work', properties: { kind: oneOf(...ENTRY_KINDS), step: oneOf(...STEP_KEYS) } },
+  'case.calculated': { serverOnly: true, family: 'work', properties: { direction: oneOf('upward', 'zero', 'downward'), requires_review: bool, inputs: num } },
+  'case.stage_changed': { serverOnly: true, family: 'work', properties: { from: oneOf(...STAGES), to: oneOf(...STAGES) } },
+  'case.handed_off': { serverOnly: true, family: 'work', properties: {} },
+  'case.control_refused': { serverOnly: true, family: 'work', properties: { reason: oneOf('control_not_passed', 'control_warning'), result: oneOf(...FUNDS_CHECK_RESULTS, 'none') } },
 
   // Import --------------------------------------------------------------
   'import.uploaded': { serverOnly: true, family: 'import', properties: { format: oneOf('xlsx', 'csv', 'other'), bytes: num, scan: oneOf('clean', 'infected', 'skipped', 'error') } },
@@ -121,7 +142,7 @@ export const EVENTS: Record<string, EventSpec> = {
 
   // Reliability -------------------------------------------------------------
   'reliability.request_failed': { family: 'reliability', serverOnly: true, properties: { status: num, ms: num, route: oneOf('records', 'work', 'imports', 'correspondence', 'studio', 'metrics', 'reports', 'org', 'auth', 'admin', 'ai', 'other') } },
-  'reliability.client_error': { family: 'reliability', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help'), recovered: bool } },
+  'reliability.client_error': { family: 'reliability', properties: { surface: oneOf(...SURFACES), recovered: bool } },
   'reliability.offline_queue': { family: 'reliability', properties: { queued: num, replayed: num, failed: num } },
 
   // Security ------------------------------------------------------------------

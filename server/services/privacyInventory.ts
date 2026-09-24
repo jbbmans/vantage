@@ -182,7 +182,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
   product_events: {
     purpose: 'Whether the product works: which screens get used and where people give up. Holds names and numbers only, never anything anybody typed.',
     authority: 'Operational measurement. Reported only in aggregate above a minimum cohort size.',
-    access: 'The owner, as counts. Never as one person’s row.',
+    access: 'The owner, as counts. Never as one person’s row. On a synthetic demo instance with VANTAGE_POSTHOG_KEY set, and nowhere else, event names and declared properties are also sent to PostHog under a keyed pseudonym of the demo workspace: no user, unit or session id leaves.',
     columns: {
       id: 'technical', name: 'none', user_id: 'identifier', unit_id: 'employment', session_id: 'technical',
       origin: 'none', properties: 'none', form_ms: 'none', active_editor_ms: 'none', confirmed_work_minutes: 'none',
