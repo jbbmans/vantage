@@ -1,6 +1,6 @@
 # Progress
 
-_Updated 2026-09-23 · branch `claude/vantage-restore-enterprise-llq8d8` · base `main` @ `ac51ce9`_
+_Updated 2026-09-24 · branch `claude/vantage-restore-enterprise-llq8d8` · base `main` @ `ac51ce9`_
 
 ## Phase
 
@@ -35,14 +35,37 @@ _Updated 2026-09-23 · branch `claude/vantage-restore-enterprise-llq8d8` · base
 - **Removed:** Google Tag Manager, and keystroke-derived "active editing" timing. The MARADMIN feed is
   now off by default, so nothing leaves the server.
 
-## Verification (this branch, 2026-09-23)
+## Owner-requested tooling (2026-09-24)
+
+- **Motion: GSAP, Anime.js, Motion and React Spring**, one job each (DESIGN_SYSTEM → Motion, PD-016).
+  Tabs and segmented controls slide their selection. Claimed work folds out of one list and into
+  another. Toasts make room. The next step's form rises in, and new history entries slide in. Progress
+  meters spring to new readings. A fresh calculation plays its arithmetic in order (GSAP), and a
+  completed step draws its check mark (Anime.js). Nothing moves at rest, no figure is ever tweened,
+  and reduced motion stops all four. The first download grew by about 34 KB gzipped; GSAP, Anime.js
+  and Motion's layout features load on demand.
+- **PostHog, demo only** (PD-017). `VANTAGE_POSTHOG_KEY` forwards the existing first-party event
+  catalog from a synthetic-demo instance: screens as page views, plus procedure steps, stage moves,
+  calculations, hand-offs and funds-check refusals as named events. Visitors are pseudonymous and the
+  demo banner discloses it. There is no browser SDK, autocapture or replay. The key is refused in
+  accounts mode. **Off until the owner supplies a key.**
+- **Graphify.** `graphify extract . --code-only` builds a local knowledge graph of the code (about
+  2,500 nodes, 15 s, no API key). `CLAUDE.md` tells agents to query it before reading files. The
+  output is generated, not committed. A session-start hook to rebuild it in every web session was
+  **not** installed, because changing Claude Code's hook settings is the owner's decision.
+- Fixed along the way: `work.created` and `work.assigned` were raised but missing from the event
+  catalog, so they were silently dropped. Two browser specs now wait for the item page itself
+  rather than its URL.
+
+## Verification (this branch, 2026-09-23, tooling slice re-run 2026-09-24)
 
 | Check | Result |
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test`: server suite, in-memory SQLite | **363 / 363 pass**. Includes new `cases`, `record` and `demo` suites and the 008 migration test |
-| `npm run test:browser`: Playwright, Chromium, built client | **63 pass, 4 fail**. All 4 failures are the public-site checks below, and they fail identically on untouched `main` |
+| `npm test`: server suite, in-memory SQLite | **366 / 366 pass**. Includes `cases`, `record`, `demo`, `posthog` and the 008 migration test |
+| `npm run test:browser`: Playwright, Chromium, built client | **66 pass, 4 fail**. All 4 failures are the public-site checks below, and they fail identically on untouched `main` |
+| Motion | `tests/browser/23-motion.spec.ts`: a fresh calculation animates with exact figures on every frame, a reopened case plays nothing, tabs and meters settle correctly, reduced motion stops everything, and axe passes on the settled page. Frames captured and inspected |
 | Flagship journey, demo mode, real server | Automated in `tests/browser/22-demo.spec.ts`: claim, research, calculate, decide, hand off, both contributors, private draft, quick capture, goal update, career step, leader workload |
 | Accessibility | axe finds no serious or critical violations in either theme on Today, Work, the item page, Record, Contributions, Career, Goals and Team → Workload, plus the existing page set |
 | Viewports | No sideways scrolling at 1440×900, 1280×800, 768×1024 and 390×844 on Today, Work, the item page, Record and Career (automated). Screens were captured and inspected at all four sizes in light, and at 1440 in dark |
@@ -86,6 +109,14 @@ None blocks continued work. Two decisions are the owner's:
 4. In the Record, is "Documents researched / Research entries / Submitted / Verified outcomes /
    Resolved" the right set of measures, with the right names?
 5. Keep the demo's 24-hour workspace lifetime, or shorten it for a public host?
+
+## Owner decisions from the tooling request
+
+6. **PostHog.** Supply a project key for the demo host, or leave it off. Anything wider (a browser SDK,
+   session replay, real instances) would change contract §24, not configuration. To let Claude read the
+   results, connect the PostHog connector at claude.ai.
+7. **Graphify session hook.** If agents should rebuild the graph at the start of every web session, add a
+   SessionStart hook (the command is in `CLAUDE.md`). Claude did not change hook settings itself.
 
 ## Open questions
 

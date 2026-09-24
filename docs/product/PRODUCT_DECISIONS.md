@@ -128,3 +128,31 @@ screens (`docs/demo/BOARD_DEMO.md`). This is not yet an approved visual directio
 See ADR-0003 and MIGRATION_PLAN.
 **Why.** Every service is written against a synchronous SQLite API. Moving to PostgreSQL is a rewrite
 of the data layer, and it should follow the owner accepting the experience rather than precede it.
+
+## PD-016 · Four animation libraries, one job each
+
+**Decision.** At the owner's request, Vantage uses GSAP, Anime.js, Motion and React Spring. Each has
+one job (see DESIGN_SYSTEM → Motion): Motion for layout, React Spring for meters, GSAP for the
+calculation timeline, Anime.js for check marks and stage pulses. They animate changes the person
+made, never figures, and all four stop under reduced motion.
+**Why.** The contract rules out excessive animation, so the libraries were given only the jobs that
+explain a change. **Licences.** Motion, React Spring and Anime.js are MIT. GSAP 3.15 is under the
+GreenSock "Standard No Charge" licence, which is free for commercial use but is not an OSI licence;
+an enterprise licence review should list it.
+
+## PD-017 · PostHog sees the synthetic demo only, and only the event catalog
+
+**Decision.** `VANTAGE_POSTHOG_KEY` forwards rows from the existing first-party event catalog to
+PostHog, from a demo instance only. Screen views become PostHog page views named by surface
+(`/work_item`, `/workload`); procedure steps, stage moves, calculations, hand-offs and funds-check
+refusals arrive as named events. Visitors are a keyed pseudonym of their demo workspace. Person
+profiles and GeoIP are off, and requests come from the server, so no visitor IP reaches PostHog.
+Config refuses the key in accounts mode. The demo banner tells visitors they are measured.
+**Not done.** No PostHog script in the browser: no autocapture, heatmaps, session replay or
+surveys. Contract §24 forbids replay and broad DOM telemetry, and keeps typed text, document
+numbers and records out of usage telemetry. "Where visitors click" is answered at the level of
+named screens and steps, not raw clicks.
+**Owner decision needed.** Turning it on is the owner's call: it needs a PostHog project key, and it
+sends demo usage to a third party. Anything beyond this scope (browser SDK, replay, real instances)
+would be a change to the contract, not a configuration.
+
