@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Check, ChevronDown, ChevronUp, CircleAlert, GraduationCap, ShieldCheck } from 'lucide-react';
 import { Badge, Button, PageHeader, Panel, Skeleton } from '@/components/ui/primitives';
 import { useIdentity, useSavePrefs } from '@/lib/queries';
