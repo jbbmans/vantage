@@ -64,7 +64,7 @@ DESIGN_SYSTEM → Premium layer):
 - an ambient light field and grain behind everything, and glass header, tabs and overlays;
 - a lit navy rail whose active pill slides between destinations;
 - cards with a lit edge and tinted shadows, and a border that follows the cursor;
-- primary buttons with a sheen, page titles that blur in, and a hero band on Today;
+- flat, crisp buttons (the glossy first version was dropped on owner feedback), page titles that blur in, and a hero band on Today;
 - a beam around the next task, live status dots, and cascading entrances.
 
 Reduced motion stops all of it. It was checked at four sizes in both themes. The component

@@ -161,7 +161,7 @@ would be a change to the contract, not a configuration.
 **Decision.** The owner asked for the app to look "extremely premium", with animation and effects
 throughout, naming shadcn, React UI, the ui-ux-pro-max skill, Animaster, Skiper UI and Vengeance UI.
 The result is an original premium layer (DESIGN_SYSTEM → Premium layer): an ambient light field,
-glass chrome, a lit rail with a sliding pill, spotlight borders, sheen on primary actions, blur-in
+glass chrome, a lit rail with a sliding pill, spotlight borders, flat buttons, blur-in
 titles, a hero on Today, beams on the next task, and live status dots. Brand palette, WCAG AA and
 reduced motion are kept.
 **What happened to each named source.**

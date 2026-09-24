@@ -10,7 +10,7 @@
  *   ambient   a fixed field of slow light (cobalt and teal), a dot grid that fades out, and grain
  *   surfaces  cards with a lit top edge, tinted shadows, and a border that catches the cursor
  *   chrome    a glass header, a lit navy rail, and an active destination that glows
- *   motion    staggered blur-in entrances, sheen on primary actions, beams on the current task
+ *   motion    staggered blur-in entrances and beams on the current task; buttons stay flat
  *
  * Figures stay records: nothing here changes a number, and no text is ever less than fully opaque
  * once its entrance has finished.
@@ -216,11 +216,8 @@
   inset: 0;
   z-index: 0;
   border-radius: 8px;
-  background: linear-gradient(180deg, #3b7cf2 0%, #2563eb 55%, #1d55d4 100%);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / .28),
-    0 8px 22px -8px rgb(37 99 235 / .85),
-    0 0 0 1px rgb(255 255 255 / .06);
+  background: rgb(37 99 235);
+  box-shadow: 0 1px 2px rgb(3 12 28 / .35);
 }
 .nav-pill::before {
   content: '';
@@ -231,7 +228,6 @@
   width: 3px;
   border-radius: 3px;
   background: #2dd4bf;
-  box-shadow: 0 0 12px 1px rgb(45 212 191 / .8);
 }
 .app-shell aside.bg-rail .nav-item[aria-current='page']::before { display: none; }
 .app-shell aside.bg-rail .nav-item > :not(.nav-pill) { position: relative; z-index: 1; }
@@ -253,33 +249,31 @@
 
 /* ── Controls ───────────────────────────────────────────────────────────────────────────────── */
 
-/* The primary action is lit from above and carries a sheen that passes when you point at it. */
-.app-shell .btn-primary , .dialog-surface .btn-primary {
-  position: relative;
-  overflow: hidden;
-  isolation: isolate;
-  background-image: linear-gradient(180deg, rgb(255 255 255 / .18) 0%, rgb(255 255 255 / 0) 55%);
-  box-shadow:
-    inset 0 1px 0 rgb(255 255 255 / .28),
-    0 1px 2px rgb(var(--shadow-tint) / .2),
-    0 8px 20px -10px rgb(var(--accent) / .85);
+/*
+ * Buttons are flat: one solid fill, a crisp 1px edge, and the faintest shadow to sit them on the
+ * surface. No gloss, gradient, inner highlight, glow or sheen. Hover deepens the fill toward the
+ * ink colour, which darkens Cobalt on the light theme and lightens it on the dark one, so the text
+ * gains contrast in both. Pressing still scales them down a touch (experience-motion.css).
+ */
+.app-shell .btn-primary, .dialog-surface .btn-primary,
+.app-shell .btn-default, .dialog-surface .btn-default {
+  border-radius: 8px;
+  letter-spacing: -0.005em;
+  transition: background-color .15s ease, border-color .15s ease, color .15s ease, box-shadow .15s ease, transform .12s ease;
 }
-.app-shell .btn-primary::after , .dialog-surface .btn-primary::after {
-  content: '';
-  position: absolute;
-  inset: 0;
-  z-index: -1;
-  pointer-events: none;
-  background: linear-gradient(105deg, transparent 30%, rgb(255 255 255 / .38) 48%, rgb(255 255 255 / .12) 56%, transparent 70%);
-  transform: translateX(-130%);
-  transition: transform .8s var(--motion-ease);
+.app-shell .btn-primary, .dialog-surface .btn-primary {
+  background-image: none;
+  box-shadow: 0 1px 2px rgb(var(--shadow-tint) / .12);
 }
-.app-shell .btn-primary:hover::after , .dialog-surface .btn-primary:hover::after { transform: translateX(130%); }
-.app-shell .btn-primary:hover , .dialog-surface .btn-primary:hover { box-shadow: inset 0 1px 0 rgb(255 255 255 / .32), 0 2px 4px rgb(var(--shadow-tint) / .2), 0 14px 30px -12px rgb(var(--accent) / .95); }
-
-.app-shell .btn-default , .dialog-surface .btn-default {
-  background-image: linear-gradient(180deg, rgb(var(--surface)) 0%, rgb(var(--surface-2) / .7) 100%);
-  box-shadow: inset 0 1px 0 var(--edge-light), 0 1px 2px rgb(var(--shadow-tint) / .06);
+.app-shell .btn-primary:hover, .dialog-surface .btn-primary:hover {
+  filter: none;
+  background-color: color-mix(in oklab, rgb(var(--accent)) 86%, rgb(var(--ink)));
+  border-color: color-mix(in oklab, rgb(var(--accent)) 86%, rgb(var(--ink)));
+  box-shadow: 0 1px 2px rgb(var(--shadow-tint) / .16);
+}
+.app-shell .btn-default, .dialog-surface .btn-default {
+  background-image: none;
+  box-shadow: 0 1px 2px rgb(var(--shadow-tint) / .05);
 }
 
 .app-shell .field , .dialog-surface .field {
@@ -312,9 +306,6 @@
 .app-shell .row { transition: background-color .18s ease, box-shadow .18s ease; }
 .app-shell .row:hover { background: linear-gradient(90deg, rgb(var(--accent) / .07), rgb(var(--accent) / .015) 45%, transparent); }
 
-/* Stat tiles: a figure with a soft floor of light. */
-.app-shell .stat-value { text-shadow: 0 1px 0 var(--edge-light); }
-[data-theme='dark'] .app-shell .stat-value { text-shadow: 0 0 24px rgb(var(--accent) / .25); }
 
 /* A figure tile carries a glow of its own tone in the corner, so a red number reads red from afar. */
 .app-shell .stat-tile { overflow: hidden; }
@@ -460,14 +451,13 @@
 /* ── Reduced motion ─────────────────────────────────────────────────────────────────────────── */
 
 /* Everything above that moves on its own stops. Hover light stays, because it follows the person
-   rather than moving by itself; the sheen does not pass. */
+   rather than moving by itself. */
 @media (prefers-reduced-motion: reduce) {
   .ambient::before, .ambient::after, .ambient-grid,
   .beam, .beam-glow, .shine-text, .hero::before, .hero::after,
   .status-dot[data-live]::after { animation: none !important; }
   .beam, .beam-glow { display: none; }
   .shine-text { color: rgb(var(--ink-3)); background: none; }
-  .app-shell .btn-primary::after , .dialog-surface .btn-primary::after { display: none; }
   .app-shell #main .animate-fade-up > .page > *,
   .app-shell #main .animate-fade-up .grid > .card,
   .app-shell #main .animate-fade-up .grid > div > .card { animation: none !important; opacity: 1 !important; transform: none !important; filter: none !important; }

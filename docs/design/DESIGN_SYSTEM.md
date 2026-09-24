@@ -91,9 +91,9 @@ codebase on the brand palette. The public site and sign-in screens are untouched
 |---|---|---|
 | Ambient field | Two slow drifting lights (Cobalt, Summit Teal), a dot grid that fades out below the heading, and fine grain | Behind the whole app |
 | Glass chrome | Frosted header and tab strips; blurred dialog backdrops and menus | Header, tabs, overlays |
-| Lit rail | Navy gradient with teal and cobalt light; the active destination is a glowing pill that slides between items (Motion) | Sidebar |
+| Lit rail | Navy gradient with teal and cobalt light; the active destination is a flat Cobalt pill that slides between items (Motion) | Sidebar |
 | Surfaces | 12 px cards with a lit top edge and navy-tinted shadows; a border that lights under the cursor | Every card |
-| Primary action | Lit from above, with a sheen that passes on hover | Every primary button |
+| Buttons | Flat: one solid fill, a crisp edge, a faint shadow. Hover deepens the fill; no gloss, gradient, glow or sheen (owner feedback: the glossy version read as old Apple) | Every button |
 | Blur-in titles | Page titles arrive word by word out of a soft blur; screen readers get the phrase once | Every page header |
 | Hero | Today's header sits in its own band with a panning grid and an orbiting light | Today |
 | Beam | Light travelling around the edge of the thing to do next | "Your work", the current procedure step |
@@ -102,7 +102,7 @@ codebase on the brand palette. The public site and sign-in screens are untouched
 
 The functional motion rules above still hold: figures are exact on every frame, nothing waits on
 an animation, and reduced motion stops everything here too, including the ambient field, beams,
-sheens, dots and entrances. Decorative layers are `aria-hidden` and never carry text. Browser tests
+dots and entrances. Decorative layers are `aria-hidden` and never carry text. Browser tests
 run axe once entrance animations have settled (`settled()` in `tests/browser/22-demo.spec.ts`).
 
 Display type is **Geist**, already bundled (`public/fonts/geist-normal.woff2`) and preloaded but
