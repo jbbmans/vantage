@@ -46,6 +46,11 @@ export interface AppConfig {
   };
   email: { provider: 'none' | 'resend' | 'smtp' | 'memory'; from: string; resendApiKey: string; smtpUrl: string };
   maradmins: { enabled: boolean; refreshMinutes: number; source: string };
+  /**
+   * The Microsoft Entra application mailbox connections sign in through. Empty client id means the
+   * feature is not configured, and the product says so rather than offering a button that cannot work.
+   */
+  m365: { clientId: string; clientSecret: string; tenant: string; redirectUri: string; endpointOverride: string | null };
   selfRegistration: boolean;
   cac: CacConfig;
 }
@@ -180,6 +185,7 @@ export function loadConfig(env = process.env): AppConfig {
     if (!['', 'none', 'memory'].includes(String(env.VANTAGE_EMAIL_PROVIDER || '').trim().toLowerCase())) throw new Error('The synthetic demo sends no email. Set VANTAGE_EMAIL_PROVIDER=none.');
     if (envBool(env, 'VANTAGE_AI_ENABLED', false)) throw new Error('The synthetic demo runs without AI. Set VANTAGE_AI_ENABLED=false.');
     if (envBool(env, 'VANTAGE_MARADMIN_ENABLED', false)) throw new Error('The synthetic demo makes no outbound requests. Set VANTAGE_MARADMIN_ENABLED=false.');
+    if (env.VANTAGE_M365_CLIENT_ID) throw new Error('The synthetic demo reads no mailboxes. Unset VANTAGE_M365_CLIENT_ID.');
   }
 
   return {
@@ -253,6 +259,7 @@ export function loadConfig(env = process.env): AppConfig {
       refreshMinutes: envNumber(env, 'VANTAGE_MARADMIN_REFRESH_MINUTES', 30),
       source: env.VANTAGE_MARADMIN_SOURCE || 'https://www.marines.mil/DesktopModules/ArticleCS/RSS.ashx?ContentType=6&Site=481&category=14336&max=50',
     },
+    m365: readM365Config(env, production, test, publicUrl),
     // A demo visitor is handed a synthetic person; nobody registers.
     selfRegistration: accessMode === 'demo' ? false : envBool(env, 'VANTAGE_SELF_REGISTRATION', true),
     cac: readCacConfig(env, production),
@@ -261,3 +268,18 @@ export function loadConfig(env = process.env): AppConfig {
 
 export const generatedSecret = () => randomBytes(32).toString('base64url');
 export const PROJECT_ROOT = ROOT;
+
+function readM365Config(env: NodeJS.ProcessEnv, production: boolean, test: boolean, publicUrl: string): AppConfig['m365'] {
+  const clientId = String(env.VANTAGE_M365_CLIENT_ID || '').trim();
+  const clientSecret = String(env.VANTAGE_M365_CLIENT_SECRET || '');
+  // 'organizations' accepts any work account; a tenant id pins sign-in to one directory.
+  const tenant = String(env.VANTAGE_M365_TENANT || 'organizations').trim();
+  if (clientId && !/^[0-9a-f-]{36}$/i.test(clientId)) throw new Error('VANTAGE_M365_CLIENT_ID must be the application (client) id, a GUID.');
+  if (clientId && !clientSecret) throw new Error('VANTAGE_M365_CLIENT_SECRET is required when VANTAGE_M365_CLIENT_ID is set.');
+  if (!/^(organizations|[0-9a-f-]{36}|[a-z0-9.-]+\.[a-z]{2,})$/i.test(tenant)) throw new Error('VANTAGE_M365_TENANT must be organizations, a tenant id, or a verified domain.');
+  // Tests point the flow at a local stand-in for Microsoft. Nothing else may: a real deployment only
+  // ever talks to the national cloud's own hosts.
+  const override = env.VANTAGE_M365_TEST_ENDPOINT ? String(env.VANTAGE_M365_TEST_ENDPOINT).replace(/\/$/, '') : null;
+  if (override && (production || !test)) throw new Error('VANTAGE_M365_TEST_ENDPOINT is for the test suite only.');
+  return { clientId, clientSecret, tenant, redirectUri: `${publicUrl}/api/correspondence/connectors/callback`, endpointOverride: override };
+}

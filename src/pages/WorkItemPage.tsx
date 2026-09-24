@@ -931,7 +931,7 @@ function HistoryPanel({ itemId, events, people, procedure, canCorrect, onDone, i
                 <span className="font-medium">{who(e.actor_id)}</span>{' '}
                 {e.kind === 'handed_off' ? <>handed this to <span className="font-medium">{who(e.subject_id)}</span></>
                   : e.kind === 'assigned' ? <>assigned this to <span className="font-medium">{who(e.subject_id)}</span></>
-                  : e.kind === 'claim_expired' ? <>released {who(e.subject_id)}’s claim after it sat untouched</>
+                  : e.kind === 'claim_expired' ? (e.body.reason === 'left_unit' ? <>released {who(e.subject_id)}’s claim when they left the unit</> : <>released {who(e.subject_id)}’s claim after it sat untouched</>)
                   : <span className={cn(e.superseded && 'line-through')}>{sentence(e)}</span>}
               </span>
               {e.kind === 'source_revised' && Array.isArray(e.body.changes) && (

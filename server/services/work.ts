@@ -42,10 +42,17 @@ export type WorkState = (typeof WORK_STATES)[number];
 
 const hydrate = (row: WorkItemRow) => ({ ...row, data: JSON.parse(row.data || '{}') as Record<string, string> });
 
+/**
+ * Whether a row belongs to a unit's shared queue. Access to those rows follows current membership
+ * and nothing else: a claim or authorship left over from before somebody left the unit is not a way
+ * back in. Their own contribution history stays theirs; the unit's work does not.
+ */
+const shared = (row: WorkItemRow) => row.visibility === 'unit' && Boolean(row.unit_id);
+const stillHere = (scope: Scope, row: WorkItemRow) => !shared(row) || isMember(scope, row.unit_id);
+
 export function readable(scope: Scope, user: SessionUser, row: WorkItemRow): boolean {
-  if (row.owner_id === user.id || row.claimed_by === user.id) return true;
-  if (row.visibility !== 'unit' || !row.unit_id) return false;
-  return isMember(scope, row.unit_id);
+  if (shared(row)) return isMember(scope, row.unit_id);
+  return row.owner_id === user.id || row.claimed_by === user.id;
 }
 
 /**
@@ -58,21 +65,21 @@ export function readable(scope: Scope, user: SessionUser, row: WorkItemRow): boo
  * Owning the row is always enough for all four: a person who typed a case in is not locked out of
  * their own work by a permission they were never given.
  */
-const mine = (user: SessionUser, row: WorkItemRow) => row.owner_id === user.id;
-const holder = (user: SessionUser, row: WorkItemRow) => row.claimed_by === user.id;
+const mine = (scope: Scope, user: SessionUser, row: WorkItemRow) => row.owner_id === user.id && stillHere(scope, row);
+const holder = (scope: Scope, user: SessionUser, row: WorkItemRow) => row.claimed_by === user.id && stillHere(scope, row);
 const bit = (scope: Scope, row: WorkItemRow, flag: number) => (row.unit_id ? can(scope, flag, row.unit_id) : false);
 
 /** Picking work up. Reading a queue is not the same as being cleared to work it. */
 export const mayClaim = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
-  mine(user, row) || bit(scope, row, PERMISSIONS.CLAIM_WORK);
+  mine(scope, user, row) || bit(scope, row, PERMISSIONS.CLAIM_WORK);
 
 /** Closing a case out, or reopening one that was closed too early. Not implied by holding it. */
 export const mayResolve = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
-  mine(user, row) || bit(scope, row, PERMISSIONS.RESOLVE_WORK);
+  mine(scope, user, row) || bit(scope, row, PERMISSIONS.RESOLVE_WORK);
 
 /** Handing a case to somebody, or freeing one somebody is sitting on. */
 export const mayReassign = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
-  mine(user, row) || bit(scope, row, PERMISSIONS.REASSIGN_WORK) || bit(scope, row, PERMISSIONS.MANAGE_RECORDS);
+  mine(scope, user, row) || bit(scope, row, PERMISSIONS.REASSIGN_WORK) || bit(scope, row, PERMISSIONS.MANAGE_RECORDS);
 
 /**
  * Changing a row's own fields.
@@ -83,16 +90,16 @@ export const mayReassign = (scope: Scope, user: SessionUser, row: WorkItemRow) =
  * fields are editable by whoever may edit work here.
  */
 export const mayEditFields = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
-  mine(user, row) || bit(scope, row, PERMISSIONS.EDIT_WORK);
+  mine(scope, user, row) || bit(scope, row, PERMISSIONS.EDIT_WORK);
 export const isImported = (row: WorkItemRow) => Boolean(row.source_file_id || row.import_job_id);
 
 /** Moving a row between open, in progress and waiting is execution: the holder's to do. */
 export const mayProgress = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
-  holder(user, row) || mine(user, row) || bit(scope, row, PERMISSIONS.MANAGE_RECORDS);
+  holder(scope, user, row) || mine(scope, user, row) || bit(scope, row, PERMISSIONS.MANAGE_RECORDS);
 
 /** Recording what you did needs you to be doing it. A leader who can edit shared records may also act. */
 export const mayAct = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
-  holder(user, row) || mine(user, row) || bit(scope, row, PERMISSIONS.MANAGE_RECORDS);
+  holder(scope, user, row) || mine(scope, user, row) || bit(scope, row, PERMISSIONS.MANAGE_RECORDS);
 
 export function getItem(ctx: AppContext, id: string): WorkItemRow | null {
   return (ctx.db.prepare('SELECT * FROM work_items WHERE id = ? AND deleted_at IS NULL').get(id) as WorkItemRow | undefined) || null;
@@ -133,9 +140,11 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
   const params: unknown[] = [];
 
   // Scope is decided here, from the session, never from anything the client sends.
+  // A shared row is visible through membership only; a private row through authorship or the claim.
+  const personal = "((w.visibility <> 'unit' OR w.unit_id IS NULL) AND (w.owner_id = ? OR w.claimed_by = ?))";
   const visibility = readableUnits.length
-    ? `(w.owner_id = ? OR w.claimed_by = ? OR (w.visibility = 'unit' AND w.unit_id IN (${readableUnits.map(() => '?').join(',')})))`
-    : '(w.owner_id = ? OR w.claimed_by = ?)';
+    ? `(${personal} OR (w.visibility = 'unit' AND w.unit_id IN (${readableUnits.map(() => '?').join(',')})))`
+    : personal;
   where.push(visibility);
   params.push(user.id, user.id, ...readableUnits);
 
@@ -243,7 +252,7 @@ export function releaseItem(ctx: AppContext, user: SessionUser, scope: Scope, id
     const row = reload(ctx, id);
     if (!readable(scope, user, row)) throw forbidden('That work is not yours.');
     if (expectedVersion != null && row.version !== expectedVersion) throw conflict('This row changed while you were looking at it. Reload and try again.');
-    if (!(holder(user, row) || mayReassign(scope, user, row))) {
+    if (!(holder(scope, user, row) || mayReassign(scope, user, row))) {
       throw forbidden('Only the person holding this work, or somebody who can reassign work here, can release it.');
     }
     const at = now();
@@ -390,6 +399,29 @@ export function releaseStaleClaims(ctx: AppContext, afterHours = 72): number {
     }
   })();
   return stale.length;
+}
+
+/**
+ * When somebody leaves a unit, the unit's work they were holding goes back to its queue at once,
+ * with the reason in each case's history. Waiting for the stale-claim sweep would leave the work
+ * invisible to the section for days and held by somebody who can no longer open it.
+ */
+export function releaseClaimsOnDeparture(ctx: AppContext, userId: string, unitId: string, actorId: string | null): number {
+  const held = ctx.db.prepare(
+    `SELECT * FROM work_items WHERE claimed_by = ? AND unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL`
+  ).all(userId, unitId) as WorkItemRow[];
+  const at = now();
+  for (const row of held) {
+    ctx.db.prepare(
+      `UPDATE work_items SET claimed_by = NULL, claimed_at = NULL,
+              stage = CASE WHEN state = 'in_progress' AND COALESCE(stage, 'researching') = 'researching' THEN 'not_started' ELSE stage END,
+              state = CASE WHEN state = 'in_progress' AND COALESCE(stage, 'researching') = 'researching' THEN 'open' ELSE state END,
+              version = version + 1, updated_at = ? WHERE id = ?`
+    ).run(at, row.id);
+    appendEvent(ctx, { item: row, actorId, kind: 'claim_expired', subjectId: userId, body: { reason: 'left_unit' } });
+    audit(ctx, { actor_id: actorId, action: 'work_claim_released_on_departure', entity: 'work_items', entity_id: row.id, subject_id: userId, unit_id: unitId });
+  }
+  return held.length;
 }
 
 export interface ItemPatch {

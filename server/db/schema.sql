@@ -722,6 +722,18 @@ CREATE TABLE IF NOT EXISTS connectors (
 );
 CREATE INDEX IF NOT EXISTS idx_connectors_user ON connectors(user_id, provider);
 
+-- One pending mailbox sign-in. The state value itself is never stored, only its hash; the PKCE
+-- verifier is encrypted. Single use, ten minutes, and bound to the person who started it.
+CREATE TABLE IF NOT EXISTS connector_auth_states (
+  state_hash    TEXT PRIMARY KEY,
+  connector_id  TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
+  user_id       TEXT NOT NULL REFERENCES users(id) ON DELETE CASCADE,
+  verifier_enc  TEXT NOT NULL,
+  created_at    TEXT NOT NULL,
+  expires_at    TEXT NOT NULL,
+  used_at       TEXT
+);
+
 -- Product analytics ----------------------------------------------------
 -- What people did with Vantage, in a shape that can be counted. This table holds names and numbers
 -- only. It never holds draft text, workbook cells, email bodies, keystrokes, or anything a person
@@ -984,6 +996,8 @@ CREATE TABLE IF NOT EXISTS work_events (
 CREATE INDEX IF NOT EXISTS idx_work_events_item ON work_events(work_item_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_work_events_actor ON work_events(actor_id, kind, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_work_events_unit ON work_events(unit_id, kind, occurred_at);
+-- Corrections are found by what they supersede; counting only standing entries asks this constantly.
+CREATE INDEX IF NOT EXISTS idx_work_events_supersedes ON work_events(supersedes_id) WHERE supersedes_id IS NOT NULL;
 CREATE TRIGGER IF NOT EXISTS work_events_append_only_update
 BEFORE UPDATE ON work_events
 BEGIN

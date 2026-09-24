@@ -216,7 +216,7 @@ export const useThread = (id: string | null) =>
 export const useItemThreads = (workItemId: string | null) =>
   useQuery<ThreadSummary[]>({ queryKey: correspondenceKeys.itemThreads(workItemId || ''), queryFn: () => api.threadsForItem(workItemId!), enabled: Boolean(workItemId) });
 export const useConnectors = (enabled = true) =>
-  useQuery<{ connectors: any[]; clouds: Array<{ value: string; label: string; graph: string; authority: string }>; scopes: string[] }>({ queryKey: correspondenceKeys.connectors, queryFn: api.listConnectors, staleTime: 60_000, enabled });
+  useQuery<{ connectors: any[]; clouds: Array<{ value: string; label: string; graph: string; authority: string }>; scopes: string[]; availability?: { available: boolean; reason: string | null } }>({ queryKey: correspondenceKeys.connectors, queryFn: api.listConnectors, staleTime: 60_000, enabled });
 
 /** Everything that could have changed when a thread moves. */
 export function invalidateCorrespondence(qc: QueryClient, threadId?: string) {

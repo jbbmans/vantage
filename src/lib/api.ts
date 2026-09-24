@@ -307,6 +307,9 @@ export const listConnectors = () => api.get('/correspondence/connectors');
 export const createConnector = (body: Record<string, unknown>) => api.post('/correspondence/connectors', body);
 export const connectorAuthorization = (id: string) => api.get(`/correspondence/connectors/${encodeURIComponent(id)}/authorization`);
 export const deleteConnector = (id: string) => request('DELETE', `/correspondence/connectors/${encodeURIComponent(id)}`);
+export const authorizeConnector = (id: string) => api.post(`/correspondence/connectors/${encodeURIComponent(id)}/authorize`, {});
+export const disconnectConnector = (id: string) => api.post(`/correspondence/connectors/${encodeURIComponent(id)}/disconnect`, {});
+export const syncConnector = (id: string, body: Record<string, unknown> = {}) => api.post(`/correspondence/connectors/${encodeURIComponent(id)}/sync`, body);
 
 // Product events -------------------------------------------------------
 /** Fire-and-forget. keepalive lets a batch finish after the page is gone. */

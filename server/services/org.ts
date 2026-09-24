@@ -7,6 +7,7 @@ import { audit } from './audit.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
 import { notify } from './notifications.ts';
+import { releaseClaimsOnDeparture } from './work.ts';
 
 export interface UnitRow { id: string; code: string; name: string; short_name: string | null; echelon: string; location: string | null; parent_id: string | null; owner_user_id: string | null; active: number; created_at: string }
 
@@ -61,7 +62,7 @@ export function addMember(ctx: AppContext, userId: string, unitId: string, { inv
   })();
 }
 
-export function removeMember(ctx: AppContext, userId: string, unitId: string) {
+export function removeMember(ctx: AppContext, userId: string, unitId: string, actorId: string | null = null) {
   return ctx.db.transaction(() => {
     const frozenAt = now();
     let recordsFrozen = 0;
@@ -71,13 +72,15 @@ export function removeMember(ctx: AppContext, userId: string, unitId: string) {
     const roles = ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND unit_id = ?').run(userId, unitId).changes;
     // Work assigned to the departing Marine inside this unit goes back to its author.
     for (const table of ['tasks', 'goals']) ctx.db.prepare(`UPDATE ${table} SET assignee_id = NULL, updated_at = ?, version = version + 1 WHERE assignee_id = ? AND unit_id = ? AND deleted_at IS NULL`).run(frozenAt, userId, unitId);
+    // And the unit's queue work they were holding goes back to the queue, with the reason on each case.
+    const claimsReleased = releaseClaimsOnDeparture(ctx, userId, unitId, actorId);
     const wasPrimary = ctx.db.prepare('SELECT is_primary FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, unitId) as { is_primary: number } | undefined;
     ctx.db.prepare('DELETE FROM unit_members WHERE user_id = ? AND unit_id = ?').run(userId, unitId);
     if (wasPrimary?.is_primary) {
       const next = ctx.db.prepare('SELECT unit_id FROM unit_members WHERE user_id = ? ORDER BY joined_at LIMIT 1').get(userId) as { unit_id: string } | undefined;
       if (next) ctx.db.prepare('UPDATE unit_members SET is_primary = 1 WHERE user_id = ? AND unit_id = ?').run(userId, next.unit_id);
     }
-    return { roles, recordsFrozen };
+    return { roles, recordsFrozen, claimsReleased };
   })();
 }
 
@@ -168,7 +171,7 @@ export function archiveUnit(ctx: AppContext, actor: SessionUser, scope: Scope, u
   const onlyOwner = members.length === 1 && members[0].user_id === actor.id && unit.owner_user_id === actor.id;
   if (members.length && !onlyOwner) throw badRequest('Marines still belong to that unit. Remove or transfer them first.');
   ctx.db.transaction(() => {
-    if (onlyOwner) removeMember(ctx, actor.id, unitId);
+    if (onlyOwner) removeMember(ctx, actor.id, unitId, actor.id);
     ctx.db.prepare('UPDATE units SET active = 0, owner_user_id = NULL WHERE id = ?').run(unitId);
   })();
   audit(ctx, { actor_id: actor.id, action: 'archive_unit', entity: 'unit', entity_id: unitId, unit_id: unitId, ip });

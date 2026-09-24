@@ -13,9 +13,33 @@ import {
 import {
   listConnectors, createConnector, ownedConnector, deleteConnector, authorizationPlan,
   publicView, syncMailbox, MICROSOFT_CLOUDS, READ_ONLY_SCOPES,
+  mailboxAvailability, startAuthorization, completeAuthorization, accessTokenFor, disconnectConnector, graphFetcher, graphHostFor,
 } from '../services/connectors.ts';
 
 export const correspondenceRouter = Router();
+
+/**
+ * Where Microsoft sends the browser back after a mailbox sign-in. A top-level navigation, so it
+ * answers with redirects into the app rather than JSON, and it is registered ahead of the router's
+ * own sign-in check so that a person whose session lapsed is sent somewhere sensible. The state it
+ * carries is only honoured for the person who started the sign-in (see completeAuthorization).
+ */
+correspondenceRouter.get('/connectors/callback', (req, res) => {
+  res.setHeader('Cache-Control', 'no-store');
+  res.setHeader('Referrer-Policy', 'no-referrer');
+  const back = (query: string) => res.redirect(303, `/correspondence?mail=mailboxes&${query}`);
+  requireAuth(req, res, (err?: unknown) => {
+    if (err) return back('mailbox=signed_out');
+    const q = req.query as Record<string, string | undefined>;
+    completeAuthorization(req.ctx, req.user, { code: q.code, state: q.state, error: q.error, error_description: q.error_description })
+      .then((connector) => {
+        audit(req.ctx, { actor_id: req.user.id, action: 'authorize_connector', entity: 'connectors', entity_id: connector.id, detail: `${connector.cloud}`, ip: clientIp(req) });
+        back(`mailbox=connected&connector=${encodeURIComponent(connector.id)}`);
+      })
+      .catch((e: { code?: string }) => back(`mailbox=failed&reason=${encodeURIComponent(String(e?.code || 'error').slice(0, 60))}`));
+  });
+});
+
 correspondenceRouter.use(requireAuth);
 
 // Contacts -------------------------------------------------------------
@@ -160,6 +184,7 @@ correspondenceRouter.get('/connectors', wrap((req, res) => {
     connectors: listConnectors(req.ctx, req.user),
     clouds: Object.entries(MICROSOFT_CLOUDS).map(([value, v]) => ({ value, label: v.label, graph: v.graph, authority: v.authority })),
     scopes: READ_ONLY_SCOPES,
+    availability: mailboxAvailability(req.ctx),
   });
 }));
 
@@ -179,7 +204,7 @@ correspondenceRouter.post('/connectors', wrap((req, res) => {
 /** The exact endpoints an authorization would use, so an operator can check them before consenting. */
 correspondenceRouter.get('/connectors/:id/authorization', wrap((req, res) => {
   const connector = ownedConnector(req.ctx, req.user, String(req.params.id));
-  res.json({ connector: publicView(connector), plan: authorizationPlan(connector) });
+  res.json({ connector: publicView(connector), plan: authorizationPlan(connector, req.ctx.config.m365.tenant), availability: mailboxAvailability(req.ctx) });
 }));
 
 correspondenceRouter.delete('/connectors/:id', wrap((req, res) => {
@@ -187,29 +212,51 @@ correspondenceRouter.delete('/connectors/:id', wrap((req, res) => {
   res.status(204).end();
 }));
 
+/** Starts a mailbox sign-in. The client sends the browser to the URL it returns. */
+correspondenceRouter.post('/connectors/:id/authorize', wrap((req, res) => {
+  const started = startAuthorization(req.ctx, req.user, String(req.params.id));
+  audit(req.ctx, { actor_id: req.user.id, action: 'start_connector_authorization', entity: 'connectors', entity_id: String(req.params.id), ip: clientIp(req) });
+  res.json(started);
+}));
+
+/** Destroys the stored tokens now, keeps the connector and what it brought in. */
+correspondenceRouter.post('/connectors/:id/disconnect', wrap((req, res) => {
+  const result = disconnectConnector(req.ctx, req.user, String(req.params.id));
+  audit(req.ctx, { actor_id: req.user.id, action: 'disconnect_connector', entity: 'connectors', entity_id: result.connector.id, ip: clientIp(req) });
+  res.json(result);
+}));
+
 /**
- * Runs a sync. Live syncing needs a token this build does not yet obtain, so this returns the plan
- * and says so plainly rather than pretending a mailbox was read.
+ * Runs a sync with the connection's own stored sign-in, renewed when needed. A token is never taken
+ * from the request: the only credentials a sync uses are the ones this connection was authorized with.
  */
 correspondenceRouter.post('/connectors/:id/sync', wrap(async (req, res) => {
   const connector = ownedConnector(req.ctx, req.user, String(req.params.id));
   if (connector.status !== 'connected') {
     res.status(409).json({
-      error: 'This mailbox is not authorized yet, so there is nothing to sync. Vantage has no token for it.',
+      error: 'This mailbox is not authorized yet, so there is nothing to sync. Vantage has no sign-in for it.',
       code: 'connector_not_authorized',
-      plan: authorizationPlan(connector),
+      plan: authorizationPlan(connector, req.ctx.config.m365.tenant),
+      availability: mailboxAvailability(req.ctx),
     });
     return;
   }
-  // A connected mailbox is synced through the same code path the tests drive; the fetcher is the
-  // only piece that differs between a live tenant and a recorded one.
-  const { graphFetcher } = await import('../services/connectors.ts');
-  const token = String(req.get('x-graph-access-token') || '');
-  if (!token) throw badRequest('No access token was supplied for this sync.');
-  const result = await syncMailbox(req.ctx, req.user, connector.id, graphFetcher(connector, token), {
-    unitId: req.body?.unit_id || null,
-    visibility: req.body?.visibility === 'unit' ? 'unit' : 'private',
-  });
-  audit(req.ctx, { actor_id: req.user.id, action: 'sync_mailbox', entity: 'connectors', entity_id: connector.id, detail: `${result.stored} stored, ${result.skipped} already held`, ip: clientIp(req) });
-  res.json(result);
+  const token = await accessTokenFor(req.ctx, connector);
+  try {
+    const result = await syncMailbox(req.ctx, req.user, connector.id, graphFetcher(connector, token, 20_000, graphHostFor(req.ctx, connector)), {
+      unitId: req.body?.unit_id || null,
+      visibility: req.body?.visibility === 'unit' ? 'unit' : 'private',
+      graphHost: graphHostFor(req.ctx, connector),
+    });
+    audit(req.ctx, { actor_id: req.user.id, action: 'sync_mailbox', entity: 'connectors', entity_id: connector.id, detail: `${result.stored} stored, ${result.skipped} already held`, ip: clientIp(req) });
+    res.json(result);
+  } catch (e) {
+    if ((e as { reauthorize?: boolean }).reauthorize) {
+      req.ctx.db.prepare("UPDATE connectors SET status = 'needs_authorization', access_token_enc = NULL, refresh_token_enc = NULL, token_expires_at = NULL, last_error = ?, updated_at = ? WHERE id = ?")
+        .run('Microsoft Graph stopped accepting this connection’s sign-in. Authorize it again.', new Date().toISOString(), connector.id);
+      res.status(409).json({ error: 'Microsoft stopped accepting this mailbox connection. Authorize it again.', code: 'connector_reauthorize' });
+      return;
+    }
+    throw e;
+  }
 }));

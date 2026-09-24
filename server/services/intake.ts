@@ -15,6 +15,7 @@ import { diagnose } from '../../shared/fmra/diagnose.ts';
 import { parseMoney } from '../../shared/money.ts';
 import { METHOD_KEYS, METHODS, type MethodKey } from '../../shared/fmra/methods.ts';
 import type { Scanner } from './scanner.ts';
+import { heldUsersClause, holdState, recordDispositionRun } from './holds.ts';
 
 /**
  * Bringing a spreadsheet of work into Vantage.
@@ -104,14 +105,32 @@ export function assertCapacity(ctx: AppContext, userId: string, incoming: number
  * Drops the bytes of sources past the retention window, keeping the row so the work they produced
  * still says where it came from. A workbook is evidence for as long as the policy says, not forever.
  */
+/**
+ * Releases the bytes of uploaded workbooks past the intake retention window. The row, its hash and
+ * everything imported from it stay; only the file's content goes. Held sources are kept (F07): an
+ * instance hold stops the run, a hold on source files or on imported work keeps them all, and a
+ * hold on a person keeps the files they uploaded.
+ */
 export function pruneSources(ctx: AppContext): number {
   const days = ctx.config.intake.retainDays;
   if (!days) return 0;
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+  const holds = holdState(ctx);
+  const due = (ctx.db.prepare('SELECT COUNT(*) AS n FROM source_files WHERE created_at < ? AND byte_size > 0').get(cutoff) as { n: number }).n;
+  if (!due) return 0;
+  const typeHeld = holds.types.has('source_files') || holds.types.has('work_items');
+  if (holds.instance || typeHeld) {
+    recordDispositionRun(ctx, { actorId: null, recordType: 'source_files', disposition: 'destroy', eligible: 0, acted: 0, held: due, detail: holds.instance ? 'source bytes kept: an instance-wide legal hold is open' : 'source bytes kept: a hold covers imported work' });
+    return 0;
+  }
+  const users = heldUsersClause(holds);
+  const held = users.params.length ? (ctx.db.prepare(`SELECT COUNT(*) AS n FROM source_files WHERE created_at < ? AND byte_size > 0${users.onlySql}`).get(cutoff, ...users.params) as { n: number }).n : 0;
   const result = ctx.db.prepare(
-    "UPDATE source_files SET content = zeroblob(0), byte_size = 0, deleted_at = COALESCE(deleted_at, ?), notes = COALESCE(notes, '') || ' Bytes released after the retention window.' WHERE created_at < ? AND byte_size > 0"
-  ).run(now(), cutoff);
-  return Number(result.changes || 0);
+    `UPDATE source_files SET content = zeroblob(0), byte_size = 0, deleted_at = COALESCE(deleted_at, ?), notes = COALESCE(notes, '') || ' Bytes released after the retention window.' WHERE created_at < ? AND byte_size > 0${users.sql}`
+  ).run(now(), cutoff, ...users.params);
+  const acted = Number(result.changes || 0);
+  recordDispositionRun(ctx, { actorId: null, recordType: 'source_files', disposition: 'destroy', eligible: due - held, acted, held, detail: `source bytes released after ${days} days; rows, hashes and imported work kept` });
+  return acted;
 }
 
 export async function uploadSource(

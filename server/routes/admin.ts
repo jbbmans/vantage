@@ -22,7 +22,7 @@ import { RECORD_TABLE_NAMES } from '../services/records.ts';
 import { usageReport, pruneEvents, MIN_COHORT } from '../services/usage.ts';
 import { EVENTS } from '../services/telemetry.ts';
 import { parseRoster, planSync, applySync, divergence, rosterStats, isEdipi, SOURCED_FIELDS, type SyncPlan } from '../services/personnel.ts';
-import { listSchedules, saveSchedule, openHolds, placeHold, releaseHold, runDisposition, dispositionHistory, RETAINABLE_TYPES } from '../services/retention.ts';
+import { listSchedules, saveSchedule, openHolds, placeHold, releaseHold, runDisposition, dispositionHistory, RETAINABLE_TYPES, HOLDABLE_TYPES } from '../services/retention.ts';
 import { buildInventory, inventoryMarkdown } from '../services/privacyInventory.ts';
 import { verifyAllCases, anchorCaseHeads } from '../services/caseSeal.ts';
 
@@ -309,6 +309,7 @@ adminRouter.get('/retention', wrap((req, res) => {
   res.json({
     schedules: listSchedules(req.ctx),
     retainableTypes: RETAINABLE_TYPES,
+    holdableTypes: HOLDABLE_TYPES,
     holds: openHolds(req.ctx),
     history: dispositionHistory(req.ctx, 50),
   });

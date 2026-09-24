@@ -178,7 +178,8 @@ function contributorsFromEvents(events: EventRow[], people: Record<string, { id:
     if (e.kind === 'verification' && body.result === 'verified' && !superseded.has(e.id)) c.verified += 1;
     if (e.kind === 'handed_off') c.handoffs += 1;
     if (e.kind === 'resolved') c.resolved += 1;
-    if (!['claimed', 'released', 'assigned', 'claim_expired', 'created', 'procedure_applied', 'source_revised'].includes(e.kind)) c.actions += 1;
+    // Holding or moving the work is bookkeeping, not a contribution: it never puts somebody on this list.
+    if (!['claimed', 'released', 'assigned', 'claim_expired', 'created', 'procedure_applied', 'source_revised', 'stage_changed', 'waiting_started', 'waiting_ended', 'reopened'].includes(e.kind)) c.actions += 1;
     if (e.occurred_at < c.first_at) c.first_at = e.occurred_at;
     if (e.occurred_at > c.last_at) c.last_at = e.occurred_at;
     by.set(e.actor_id, c);

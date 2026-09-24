@@ -8,7 +8,8 @@ export const CONTRIBUTION_DEFINITIONS = {
   documents_researched: 'Distinct work items on which you recorded research: a question, observation, finding, decision, note, calculation or action. One document counts once however many entries it has.',
   research_actions: 'Every research entry you recorded, including corrections.',
   submitted_actions: 'Actions you recorded as submitted in an authoritative system. Submitted is not approved.',
-  verified_outcomes: 'Distinct checks you recorded as verified, each with the reference you looked at.',
+  verified_outcomes: 'Distinct checks you recorded as verified that still stand: not corrected since, and not overtaken by a later check of the same thing. Each carries the reference you looked at.',
+  verification_actions: 'Every verification entry you recorded, including ones later corrected or overtaken. This is what you did, not what currently holds.',
   resolved_work: 'Distinct work items you resolved.',
   handoffs: 'Work you handed to somebody else, with a note saying why.',
 } as const;
