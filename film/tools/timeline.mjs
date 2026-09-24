@@ -67,18 +67,34 @@ const vttTime = (s) => {
   return `${String(Math.floor(ms / 3600000)).padStart(2, '0')}:${String(Math.floor((ms % 3600000) / 60000)).padStart(2, '0')}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}.${String(ms % 1000).padStart(3, '0')}`;
 };
 
-/** Captions from the spoken words, split so no cue runs past two short lines. */
+/**
+ * Captions from the spoken words: one sentence a cue, and a long sentence split where it breathes (a
+ * comma) or else near its middle, so no cue strands a single word.
+ */
 export function captionsFor(timeline) {
+  const MAX = 62;
   const cues = [];
-  for (const scene of timeline.scenes) for (const line of scene.lines) {
-    let chunk = [];
-    const flush = () => { if (!chunk.length) return; cues.push({ start: chunk[0].start, end: chunk[chunk.length - 1].end + 0.25, text: chunk.map((w) => w.word).join(' ') }); chunk = []; };
-    for (const w of line.words) {
-      chunk.push(w);
-      const text = chunk.map((x) => x.word).join(' ');
-      if (text.length > 62 || /[.?!]$/.test(w.word)) flush();
+  const push = (ws) => cues.push({ start: ws[0].start, end: ws[ws.length - 1].end + 0.25, text: ws.map((w) => w.word).join(' ') });
+  const split = (ws) => {
+    const text = ws.map((w) => w.word).join(' ');
+    if (text.length <= MAX || ws.length < 4) { push(ws); return; }
+    let best = 0; let bestScore = Infinity; let left = 0;
+    for (let i = 0; i < ws.length - 1; i++) {
+      left += ws[i].word.length + 1;
+      const pause = /[,;:—]$/.test(ws[i].word) ? 30 : 0;
+      const clause = /^(and|but|that|which|so|with|or|before|when)$/i.test(ws[i + 1].word) ? 12 : 0;
+      const score = Math.abs(left - (text.length - left)) - pause - clause;
+      if (score < bestScore) { bestScore = score; best = i; }
     }
-    flush();
+    split(ws.slice(0, best + 1)); split(ws.slice(best + 1));
+  };
+  for (const scene of timeline.scenes) for (const line of scene.lines) {
+    let sentence = [];
+    for (const w of line.words) {
+      sentence.push(w);
+      if (/[.?!]["”’]?$/.test(w.word)) { split(sentence); sentence = []; }
+    }
+    if (sentence.length) split(sentence);
   }
   for (let i = 0; i < cues.length - 1; i++) cues[i].end = Math.min(cues[i].end, cues[i + 1].start);
   return `WEBVTT\n\n${cues.map((c, i) => `${i + 1}\n${vttTime(c.start)} --> ${vttTime(c.end)}\n${c.text}\n`).join('\n')}`;
