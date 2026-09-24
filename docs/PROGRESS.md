@@ -52,6 +52,16 @@ a newer build is published. See `docs/design/DESIGN_SYSTEM.md`.
 | F11 | Failures looked like emptiness or denial | Offline, signed out, denied, missing and server errors are told apart, with retry |
 | F15 | A red commit could deploy | `autoDeployTrigger: checksPass`, and the browser suite passes |
 
+**The films, made in code** (`film/`, `npm run film`). A 90-second hero film for the public page and
+six narrated chapters for the field guide (Quick Log, working a case, reading a balance, the Record,
+Report Studio, leading a section), recorded on the real application in the synthetic demo. One script
+drives the narration (ElevenLabs, cached), the timing, the captions, the capture (Playwright on a
+virtual clock, synced to the narrator's words), the picture (Remotion) and an original synthesised
+score, mixed to −14 LUFS. A film is published to the landing page and field guide only when all its
+narration is recorded voice. Making them surfaced and fixed four product defects: the case history's
+doubled verbs, a doubled full stop in the figures' reading, "1 quantity" where Quick Log had read "30
+ULOs", and a case opened from the diagnoser that its opener did not hold.
+
 **Hardening.** CORP, Origin-Agent-Cluster and related headers; `upgrade-insecure-requests` in
 production; null-prototype registries for anything looked up by a request's key; every table declared
 in the privacy inventory; the financial answering rules on every AI prompt.
@@ -80,13 +90,15 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 1. The FMRAC reference content is committed to this public repository at the owner's instruction,
    although the source is marked for the DoD community. The public landing page describes the FMRA
    features at feature level only; the reference itself is inside the signed-in application.
-2. Walkthrough videos stay unpublished (`91566f1`); the landing page offers none until they are remade,
-   and its test now checks that no empty player is shown.
+2. The old walkthrough recordings stay unpublished (`91566f1`). They are replaced by the films above,
+   which publish only once narrated; until then the landing page shows no player, and its test checks
+   that no empty player is shown (and, once published, that every film loads).
 
 ## Next actions
 
 1. Walk an FMRA through the diagnoser and one procedure of each family, and correct the step wording
    and screen paths from what they say.
 2. Register a Microsoft Entra application in the target cloud and run one real mailbox sign-in.
-3. Remake the walkthrough videos on the new interface, then republish them.
+3. Add `ELEVENLABS_API_KEY` to the environment's settings, then run `npm run film` to voice, render
+   and publish the films (film/README.md). Drafts with music and estimated timing render without it.
 4. Protect `main` in GitHub with the three CI checks required (see `docs/deploy-render.md`).

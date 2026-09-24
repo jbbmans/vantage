@@ -25,7 +25,6 @@
     "recover-operator": "node scripts/recover-operator.ts",
     "factory-reset": "node scripts/factory-reset.ts",
     "icons": "node scripts/icons.mjs",
-    "video": "node scripts/video/record-all.mjs",
     "prerender": "node scripts/prerender.mjs"
   },
   "dependencies": {
