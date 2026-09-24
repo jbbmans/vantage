@@ -252,7 +252,7 @@ function ProcedurePanel({ procedure, progress, active, profile, onPick }: { proc
                 <span className="min-w-0 flex-1">
                   <span className={cn('block text-ink', status === 'skipped' && 'text-ink-3 line-through')}>{step.title}</span>
                   {st?.note && status !== 'skipped' && <span className="block text-xs text-ink-3">{st.note}</span>}
-                  {routedKeys.length > 0 && <span className="mt-1 flex flex-wrap gap-1"><span className="sr-only">Responsibility routing:</span>{routedKeys.map((key) => <Badge key={key} size="xs" tone={profileHasResponsibility(profile, key) ? 'good' : 'neutral'}>{fmraResponsibilityLabel(key)}</Badge>)}</span>}
+                  {routedKeys.length > 0 && <span className="mt-1 flex flex-wrap gap-1"><span className="sr-only">Responsibility routing:</span>{routedKeys.map((key) => <Badge key={key} tone={profileHasResponsibility(profile, key) ? 'good' : 'neutral'}>{fmraResponsibilityLabel(key)}</Badge>)}</span>}
                 </span>
                 <span className="sr-only">{STATUS_TEXT[status]}</span>
               </button>
