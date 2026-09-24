@@ -20,6 +20,7 @@ import {
 } from '../../shared/caseModel';
 import { AUTHORITY_LABEL, type Procedure, type ProcedureStep } from '../../shared/procedures';
 import { formatCents } from '../../shared/money';
+import { fmraResponsibilitiesForStep, fmraResponsibilityLabel, profileHasResponsibility, type FMRAProfileEntry } from '../../shared/fmra';
 
 /**
  * One piece of work, on its own page, with everything needed to decide and act.
@@ -170,7 +171,7 @@ export default function WorkItemPage() {
 
         <aside className="space-y-4" aria-label="About this work">
           {procedure && progress && (
-            <ProcedurePanel procedure={procedure} progress={progress} active={activeKey} onPick={(k) => setFocusStep(k === progress.next ? null : k)} />
+            <ProcedurePanel procedure={procedure} progress={progress} active={activeKey} profile={identity?.prefs.fmraResponsibilities || []} onPick={(k) => setFocusStep(k === progress.next ? null : k)} />
           )}
 
           <Panel title="Who worked this" subtitle="Each person’s own entries. Nobody is credited with anyone else’s.">
@@ -234,13 +235,15 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
 };
 const STATUS_TEXT: Record<string, string> = { done: 'done', current: 'next', attention: 'needs attention', skipped: 'not needed', upcoming: 'to do' };
 
-function ProcedurePanel({ procedure, progress, active, onPick }: { procedure: Procedure & { pinned_version: string }; progress: { steps: Array<{ key: string; status: string; note: string | null }>; next: string | null }; active: string | null; onPick: (key: string) => void }) {
+function ProcedurePanel({ procedure, progress, active, profile, onPick }: { procedure: Procedure & { pinned_version: string }; progress: { steps: Array<{ key: string; status: string; note: string | null }>; next: string | null }; active: string | null; profile: FMRAProfileEntry[]; onPick: (key: string) => void }) {
   return (
     <Panel title="Procedure" subtitle={`${procedure.title} · v${procedure.pinned_version}`} bodyClassName="p-0">
       <ol className="py-1">
         {procedure.steps.map((step) => {
           const st = progress.steps.find((s) => s.key === step.key);
           const status = st?.status || 'upcoming';
+          const route = fmraResponsibilitiesForStep(procedure.key, step.key);
+          const routedKeys = Array.from(new Set([...(route.perform || []), ...(route.approve || []), ...(route.verify || [])]));
           return (
             <li key={step.key}>
               <button type="button" onClick={() => onPick(step.key)} aria-current={active === step.key ? 'step' : undefined}
@@ -249,6 +252,7 @@ function ProcedurePanel({ procedure, progress, active, onPick }: { procedure: Pr
                 <span className="min-w-0 flex-1">
                   <span className={cn('block text-ink', status === 'skipped' && 'text-ink-3 line-through')}>{step.title}</span>
                   {st?.note && status !== 'skipped' && <span className="block text-xs text-ink-3">{st.note}</span>}
+                  {routedKeys.length > 0 && <span className="mt-1 flex flex-wrap gap-1"><span className="sr-only">Responsibility routing:</span>{routedKeys.map((key) => <Badge key={key} size="xs" tone={profileHasResponsibility(profile, key) ? 'good' : 'neutral'}>{fmraResponsibilityLabel(key)}</Badge>)}</span>}
                 </span>
                 <span className="sr-only">{STATUS_TEXT[status]}</span>
               </button>
