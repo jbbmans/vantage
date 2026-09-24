@@ -15,8 +15,18 @@ import * as api from '@/lib/api';
 import { composeBullet, strength, weaknesses, expandAcronyms, type BulletStyle } from '../../shared/bullets';
 import { formatDollars, formatNumber } from '../../shared/metrics';
 import { valueType } from '../../shared/constants';
+import { kindFor, type KindField } from '../../shared/recordKinds';
 import { mapAreaToTrack, trackMeta } from '../../shared/evaluation';
 import { copyToClipboard, cn } from '@/lib/utils';
+
+/** A kind's own answer, read from the column or detail it was saved to. */
+function kindValue(f: KindField, a: Record<string, any>): React.ReactNode {
+  if (f.name === 'quantity') return a.quantity != null ? `${formatNumber(a.quantity)} ${a.unit_label || ''}`.trim() : null;
+  if (f.name === 'organization' || f.name === 'result') return a[f.name] || null;
+  const v = a.details?.[f.name];
+  if (!v) return null;
+  return f.type === 'date' ? <DateText value={v} /> : v;
+}
 
 export default function RecordDetail() {
   const cfg = useMetrics();
@@ -57,6 +67,7 @@ export default function RecordDetail() {
   };
   const copy = async () => { if (await copyToClipboard(bullet)) toast.success('Bullet copied.'); else toast.error('Could not copy.'); };
   const dollarType = valueType(a.dollar_type, cfg);
+  const kind = kindFor(a.category);
 
   return (
     <div className="page max-w-5xl">
@@ -87,11 +98,16 @@ export default function RecordDetail() {
           </Panel>
 
           <Panel title="Details">
-            <DescriptionList items={[
+            <DescriptionList items={kind.work ? [
               ['Result', a.result], ['Quantity', a.quantity != null ? `${formatNumber(a.quantity)} ${a.unit_label || ''}` : null],
               ['Transaction value', a.dollar_amount != null ? `${formatDollars(a.dollar_amount)}${dollarType ? ` · ${dollarType.label}` : ''}` : null],
               [trackMeta(track).areaLabel, mapAreaToTrack(a.eval_area, track)], ['Organization', a.organization], ['System', a.system], ['Status', <StatusBadge value={a.status} />],
               ['Project', a.project_name ? <Link className="link" to="/work?tab=projects">{a.project_name}</Link> : null],
+              ['Notes', a.notes ? <span className="whitespace-pre-wrap">{a.notes}</span> : null],
+            ] : [
+              ['Kind', kind.label],
+              ...kind.fields.map((f): [string, React.ReactNode] => [f.label, kindValue(f, a)]),
+              [trackMeta(track).areaLabel, mapAreaToTrack(a.eval_area, track)], ['Status', <StatusBadge value={a.status} />],
               ['Notes', a.notes ? <span className="whitespace-pre-wrap">{a.notes}</span> : null],
             ]} />
             {(a.evidence_links || []).length > 0 && <div className="mt-4"><p className="eyebrow mb-1.5">Evidence</p><ul className="space-y-1">{a.evidence_links.map((l: any, i: number) => <li key={i} className="text-sm">{l.url ? <a href={l.url} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1">{l.label || l.url}<ExternalLink className="h-3 w-3" /></a> : <span className="text-ink-2">{l.label}</span>}</li>)}</ul></div>}

@@ -3,6 +3,8 @@ import { readFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RANKS } from './ranks.ts';
+import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
+import { CATEGORIES_ADDED_5_1, CATEGORY_COLORS } from '../../shared/constants.ts';
 
 export type Db = Database.Database;
 
@@ -149,6 +151,50 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       // Set only on the synthetic people of a demo workspace. A real account never carries it.
       if (!users.has('demo_workspace_id')) db.exec('ALTER TABLE users ADD COLUMN demo_workspace_id TEXT');
       db.exec('CREATE INDEX IF NOT EXISTS idx_users_demo_workspace ON users(demo_workspace_id) WHERE demo_workspace_id IS NOT NULL');
+    },
+  },
+  // Records for more than work, and the three access levels. Additive only: nothing existing is
+  // rewritten, and nobody's access changes.
+  {
+    id: 9,
+    name: '009_record_kinds_and_access_levels',
+    run: (db) => {
+      // Facts a kind of record carries that no column fits (shared/recordKinds.ts).
+      const activities = new Set((db.prepare('PRAGMA table_info(activities)').all() as Array<{ name: string }>).map((c) => c.name));
+      if (!activities.has('details')) db.exec("ALTER TABLE activities ADD COLUMN details TEXT NOT NULL DEFAULT '{}'");
+
+      // Every team that already has its system roles gains the roles behind the Team leader and
+      // Administrator access levels (shared/access.ts). They are granted to nobody here; an
+      // administrator grants them by setting someone's access level.
+      for (const key of ['team-leader', 'team-administrator']) {
+        const role = ROLE_TEMPLATE.find((r) => r.key === key)!;
+        db.prepare(
+          `INSERT OR IGNORE INTO roles (id, unit_id, key, name, description, color, position, permissions, is_default, is_system, created_at)
+           SELECT substr(u.id || ':' || ?, 1, 120), u.id, ?, ?, ?, ?, ?, ?, 0, 1, ?
+             FROM units u
+            WHERE EXISTS (SELECT 1 FROM roles r WHERE r.unit_id = u.id AND r.is_system = 1)
+              AND NOT EXISTS (SELECT 1 FROM roles r WHERE r.unit_id = u.id AND r.key = ?)`
+        ).run(key, key, role.name, role.description, role.color, role.position, role.permissions, new Date().toISOString(), key);
+      }
+
+      // An instance that saved its own category list keeps it, and gains the new kinds once. One
+      // removed later stays removed: this runs a single time.
+      const row = db.prepare("SELECT value FROM meta WHERE key = 'runtime'").get() as { value: string } | undefined;
+      if (row) {
+        try {
+          const runtime = JSON.parse(row.value) as { metrics?: { categories?: Array<{ name: string; color: string }> } };
+          const categories = runtime.metrics?.categories;
+          if (Array.isArray(categories)) {
+            const names = new Set(categories.map((c) => c.name));
+            const other = categories.findIndex((c) => c.name === 'Other');
+            const added = CATEGORIES_ADDED_5_1.filter((name) => !names.has(name)).map((name) => ({ name, color: CATEGORY_COLORS[name] }));
+            if (added.length) {
+              categories.splice(other >= 0 ? other : categories.length, 0, ...added);
+              db.prepare("UPDATE meta SET value = ? WHERE key = 'runtime'").run(JSON.stringify(runtime));
+            }
+          }
+        } catch { /* an unreadable runtime blob is left for loadRuntime to fall back from */ }
+      }
     },
   },
 ];

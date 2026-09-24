@@ -7,6 +7,7 @@ import type { Prefs } from '../../shared/schemas.ts';
 import { applyAccent, applyDensity, applyTheme } from './theme.ts';
 import { trackForGrade, type Track } from '../../shared/evaluation.ts';
 import type { MetricTotal } from '../../shared/metricEngine.ts';
+import type { AccessLevel } from '../../shared/access.ts';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -22,9 +23,9 @@ export interface Identity {
   primaryUnitId: string | null; unitIds: string[]; readableUnitIds: string[]; ownedUnitIds: string[];
   permissions: Record<string, number>; positions: Record<string, number>;
   roles: Array<{ unit_id: string; id: string; name: string; color: string | null; position: number; permissions: number }>;
-  canLead: boolean; manageableUnits: string[]; counselUnits: string[]; exportUnits: string[];
+  canLead: boolean; canManagePeople: boolean; accessLevel: AccessLevel; levels: Record<string, AccessLevel>; manageableUnits: string[]; counselUnits: string[]; exportUnits: string[];
   session: { id: string; method: string; sudoUntil: string | null };
-  demo: null | { mode: 'demo'; ttl_hours: number; workspace: { expires_at: string; persona: 'marine' | 'leader' | null } | null; personas: Record<string, { label: string; description: string }>; flagship: { reference: string; note: string; values: Array<{ field: string; label: string; display: string; reference?: string }>; scenario: string }; measured_with?: 'posthog' | null };
+  demo: null | { mode: 'demo'; ttl_hours: number; workspace: { expires_at: string; persona: 'marine' | 'leader' | 'admin' | null } | null; personas: Record<string, { label: string; description: string }>; flagship: { reference: string; note: string; values: Array<{ field: string; label: string; display: string; reference?: string }>; scenario: string }; measured_with?: 'posthog' | null };
   instance: { accessMode?: 'accounts' | 'demo'; displayName: string; organizationName: string; announcement: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean; metrics: MetricsConfig };
 }
 

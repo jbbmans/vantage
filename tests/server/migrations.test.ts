@@ -123,3 +123,46 @@ test('008 gives every work item a stage from its state and carries existing acti
     again.close();
   } finally { cleanup(); }
 });
+
+test('009 adds record details, gives every team the Team Leader and Team Administrator roles, and adds the new kinds to a saved category list', () => {
+  const at = '2026-08-01T12:00:00.000Z';
+  const { path, cleanup } = atVersion(8, (db) => {
+    // A v8 activities table has no details column.
+    db.exec('ALTER TABLE activities DROP COLUMN details');
+    db.prepare('INSERT INTO units (id, code, name, created_at) VALUES (?, ?, ?, ?)').run('G8', 'G8', 'G-8', at);
+    db.prepare('INSERT INTO units (id, code, name, created_at) VALUES (?, ?, ?, ?)').run('BARE', 'BARE', 'No roles yet', at);
+    db.prepare('INSERT INTO roles (id, unit_id, key, name, permissions, position, is_system, created_at) VALUES (?, ?, ?, ?, ?, 0, 1, ?)')
+      .run('G8:marine', 'G8', 'marine', 'Marine', PERMISSIONS.VIEW_UNIT, at);
+    db.prepare("INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u1', 'avery', 'x', 'Jordan', 'Avery', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO activities (id, user_id, title, date, created_at, updated_at) VALUES ('a1', 'u1', 'Reconciled 30 ULOs', '2026-07-30', ?, ?)").run(at, at);
+    // An instance that saved its own, shorter category list.
+    const runtime = { metrics: { categories: [{ name: 'Fiscal & Financial', color: '#1f9d6a' }, { name: 'Other', color: '#54627a' }] } };
+    db.prepare("INSERT INTO meta (key, value) VALUES ('runtime', ?)").run(JSON.stringify(runtime));
+  });
+  try {
+    const db = openDatabase(path);
+    assert.equal((db.prepare('SELECT details FROM activities WHERE id = ?').get('a1') as { details: string }).details, '{}', 'a record saved before this reads as having no details');
+    const leader = db.prepare("SELECT id, permissions, is_default, is_system FROM roles WHERE unit_id = 'G8' AND key = 'team-leader'").get() as { id: string; permissions: number; is_default: number; is_system: number };
+    assert.equal(leader.id, 'G8:team-leader');
+    assert.ok(leader.permissions & PERMISSIONS.VIEW_MEMBER_DETAIL);
+    assert.ok(leader.permissions & PERMISSIONS.MANAGE_MEMBERS);
+    assert.equal(leader.permissions & PERMISSIONS.ADMINISTRATOR, 0, 'a team leader is not an administrator');
+    assert.equal(leader.is_default, 0);
+    assert.equal(leader.is_system, 1);
+    const count = (d: Database.Database, sql: string) => (d.prepare(sql).get() as { n: number }).n;
+    const admin = db.prepare("SELECT id, permissions, position FROM roles WHERE unit_id = 'G8' AND key = 'team-administrator'").get() as { id: string; permissions: number; position: number };
+    assert.equal(admin.id, 'G8:team-administrator');
+    assert.equal(admin.permissions, PERMISSIONS.ADMINISTRATOR);
+    assert.ok(admin.position < 100, 'a team administrator sits below the team’s owner');
+    assert.equal(count(db, "SELECT COUNT(*) AS n FROM roles WHERE unit_id = 'BARE'"), 0, 'a team without system roles gets them when it is set up, not here');
+    assert.equal(count(db, 'SELECT COUNT(*) AS n FROM member_roles'), 0, 'nobody is granted the new role by an upgrade');
+    const names = JSON.parse((db.prepare("SELECT value FROM meta WHERE key = 'runtime'").get() as { value: string }).value).metrics.categories.map((c: { name: string }) => c.name);
+    assert.deepEqual(names, ['Fiscal & Financial', 'Education', 'Certifications & Licenses', 'Extracurricular', 'Physical Fitness', 'Other']);
+    db.close();
+    // A second boot adds nothing.
+    const again = openDatabase(path);
+    assert.equal(count(again, "SELECT COUNT(*) AS n FROM roles WHERE key IN ('team-leader', 'team-administrator')"), 2);
+    assert.equal(JSON.parse((again.prepare("SELECT value FROM meta WHERE key = 'runtime'").get() as { value: string }).value).metrics.categories.length, 6);
+    again.close();
+  } finally { cleanup(); }
+});

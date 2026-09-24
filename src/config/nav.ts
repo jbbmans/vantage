@@ -1,6 +1,6 @@
 import {
   Gauge, Target, GraduationCap, Users, Settings2, ShieldCheck, LifeBuoy, FileText, Briefcase, BookOpenCheck,
-  ScrollText,
+  ScrollText, UserCog,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -13,9 +13,10 @@ import {
  *   Goals   What am I working toward, and how far have I come?
  *   Career  Where am I professionally, and what are my next steps?
  *
- * Team appears for people who lead a unit, because a leader should not need an administration
- * console to see who is carrying what. Reports, MARADMINs and settings stay one click away under
- * More rather than competing with the five.
+ * Team follows them for everyone: every member sees their team, who is on it and its totals, and a
+ * team leader also sees who is carrying what. People, for team leaders and administrators, manages
+ * access levels and membership. Reports, MARADMINs and settings stay one click away under More
+ * rather than competing with the five.
  *
  * Nothing that used to exist was removed to get here. Readiness is now a tab of Career (it is part
  * of where you stand), activities are a tab of Record (they are what you did), and every old path
@@ -34,6 +35,8 @@ export interface NavItem {
   hint?: string;
   end?: boolean;
   requiresLead?: boolean;
+  /** Shown to team leaders and administrators, who manage people. */
+  requiresPeople?: boolean;
   requiresOperator?: boolean;
   requiresAi?: boolean;
   /** Hidden when the owner has not turned the MARADMIN feed on, so the rail never offers a dead end. */
@@ -45,11 +48,12 @@ export interface NavItem {
 
 export const NAV: NavItem[] = [
   { to: '/', label: 'Today', icon: Gauge, end: true, key: 'd', group: 'Primary', hint: 'What needs you now' },
-  { to: '/work', label: 'Work', icon: Briefcase, key: 'w', group: 'Primary', hint: 'Taskers, the queue, and what is yours' },
+  { to: '/work', label: 'Work', icon: Briefcase, key: 'w', group: 'Primary', hint: 'Projects, the queue, and what is yours' },
   { to: '/record', label: 'Record', icon: BookOpenCheck, key: 'r', group: 'Primary', hint: 'What you did and what backs it up' },
   { to: '/goals', label: 'Goals', icon: Target, key: 'g', group: 'Primary', hint: 'Targets and measurable progress' },
   { to: '/career', label: 'Career', icon: GraduationCap, key: 'c', group: 'Primary', hint: 'Next steps, training, readiness' },
-  { to: '/team', label: 'Team', icon: Users, key: 't', requiresLead: true, group: 'Leading', hint: 'Workload, people, and units' },
+  { to: '/team', label: 'Team', icon: Users, key: 't', group: 'Primary', hint: 'Your team, who is on it, and where it stands' },
+  { to: '/people', label: 'People', icon: UserCog, key: 'u', requiresPeople: true, group: 'Leading', hint: 'Access levels, teams and accounts' },
   { to: '/reports', label: 'Reports', icon: FileText, key: 'p', group: 'More', secondary: true, hint: 'JEPES and FITREP input from the facts' },
   { to: '/maradmins', label: 'MARADMINs', icon: ScrollText, key: 'm', group: 'More', secondary: true, hint: 'Messages that change a requirement', requiresMaradmins: true },
   { to: '/settings', label: 'Settings', icon: Settings2, key: 's', secondary: true, group: 'More' },

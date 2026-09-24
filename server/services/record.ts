@@ -154,7 +154,9 @@ export function contributionHistory(ctx: AppContext, user: SessionUser, scope: S
  * unit dashboard draws.
  */
 export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, unitId: string, w: Window) {
-  if (!can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('You cannot view workload for that unit.');
+  // The team's totals are open to everyone on the team: they are counts of work the team's queue
+  // already shows every member. Who is carrying what, person by person, is for a leader.
+  if (!can(scope, PERMISSIONS.VIEW_UNIT, unitId) && !can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('You cannot view workload for that unit.');
   const includeMembers = can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, unitId);
   const [lo, hi] = bounds(w);
   const today = new Date().toISOString().slice(0, 10);

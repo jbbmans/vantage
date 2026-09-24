@@ -14,8 +14,8 @@ The product never shows them to users.
 
 ## Work
 
-- **Tasker**: presented as a project (`projects`) that holds work items (`work_items.project_id`). The
-  UI says "Taskers and projects".
+- **Project** (what the shop called a tasker): a `projects` row that holds work items
+  (`work_items.project_id`). The UI says "Projects" (PD-022).
 - **Work item** (`work_items`): one unit of work. Carries document number (`reference`), natural key,
   title, due date, amount from the source, the source row, the holder (`claimed_by`), **stage**, waiting
   category and start, blocked reason, and the pinned procedure and version. The coarse `state` column

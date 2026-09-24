@@ -10,7 +10,9 @@ import { EVAL_AREAS, categoryNames, categoryColor, valueType } from '../../share
 import { formatDollarsExact } from '../../shared/metrics';
 import { strength, weaknesses, composeBullet } from '../../shared/bullets';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
+import { kindFor, shapeForKind } from '../../shared/recordKinds';
 import VisibilityPicker from '@/components/VisibilityPicker';
+import { KindFieldInput, KindPicker, categoryForKind, workCategories, type ActivityDraft } from '@/components/ActivityForm';
 import { AiAction, ModelPicker } from '@/components/AiPanel';
 import { useCreateRecord, useIdentity, usePrefs, useTrack, useMetrics } from '@/lib/queries';
 import { draftKey, readDraft, writeDraft } from '@/lib/drafts';
@@ -19,7 +21,7 @@ import { outbox } from '@/lib/outbox';
 import { OutboxContext } from '@/components/AppShell';
 import { cn } from '@/lib/utils';
 
-const EXAMPLES = ['Reconciled 30 ULOs totaling $1,118.38 in DAI for G-8', 'Led 22 Marines through 58.5 hours of instruction, 100% graduation', 'Processed 12 MIPRs, zero returns'];
+const EXAMPLES = ['Reconciled 30 ULOs totaling $1,118.38 in DAI for G-8', 'Led 22 Marines through 58.5 hours of instruction, 100% graduation', 'Processed 12 MIPRs, zero returns', 'Earned CompTIA Security+ certification', 'Volunteered 6 hours at the base food pantry'];
 
 export default function QuickLog({ open, onOpenChange, initialText = '' }: { open: boolean; onOpenChange: (o: boolean) => void; initialText?: string }) {
   const track = useTrack();
@@ -58,7 +60,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     const { quantity, unit } = primaryQuantity(parsed.quantities);
     return {
       title: parsed.title, date: format(parsed.date, 'yyyy-MM-dd'), category: parsed.category, eval_area: parsed.eval_area, quantity, unit_label: unit,
-      dollar_amount: parsed.dollar_amount, dollar_type: valueType(parsed.dollar_type, cfg) ? parsed.dollar_type : fallbackType, system: parsed.system || '', organization: '', result: '', notes: '', status: 'completed',
+      dollar_amount: parsed.dollar_amount, dollar_type: valueType(parsed.dollar_type, cfg) ? parsed.dollar_type : fallbackType, system: parsed.system || '', organization: '', result: '', notes: '', status: 'completed', details: {},
       visibility: prefs.defaultVisibility || 'private', unit_id: identity?.primaryUnitId || null,
       ...overrides,
     } as Record<string, any>;
@@ -67,10 +69,13 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
   const set = (k: string) => (v: unknown) => setOverrides((o) => ({ ...o, [k]: v }));
   const setEvent = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => set(k)(e.target.value);
 
-  const payload = () => record && ({
-    ...record,
-    quantity: record.quantity != null && record.quantity !== '' ? Number(record.quantity) : null,
-    dollar_amount: record.dollar_amount != null && record.dollar_amount !== '' ? Number(String(record.dollar_amount).replace(/[$,]/g, '')) : null,
+  // Only the answers the record's kind asks for: a course keeps its credits, never a transaction value.
+  const shaped = useMemo(() => (record ? shapeForKind(record.category, record) : null), [record]);
+  const kind = kindFor(record?.category);
+  const payload = () => shaped && ({
+    ...shaped,
+    quantity: shaped.quantity != null && shaped.quantity !== '' ? Number(shaped.quantity) : null,
+    dollar_amount: shaped.dollar_amount != null && shaped.dollar_amount !== '' ? Number(String(shaped.dollar_amount).replace(/[$,]/g, '')) : null,
   });
 
   const save = async () => {
@@ -122,8 +127,8 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     trackEvent('ai.accepted', { workflow: 'quick_log', edited: false });
   };
 
-  const s = record ? strength(record) : 0;
-  const gaps = record ? weaknesses(record) : [];
+  const s = shaped ? strength(shaped) : 0;
+  const gaps = shaped ? weaknesses(shaped) : [];
   const offline = typeof navigator !== 'undefined' && !navigator.onLine;
 
   return (
@@ -145,22 +150,31 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
               <span className="flex flex-wrap items-center gap-1.5"><Zap className="h-3.5 w-3.5 text-accent" />{parsed.inferred.map((chip) => <Badge key={chip} tone="accent">{chip}</Badge>)}</span>
               <span className="ml-auto flex items-center gap-2"><ModelPicker className="h-8 w-44 text-xs" /><AiAction workflow="quick_log" surface="quick_log" input={{ text }} label="Extract with AI" onResult={applyAi} /></span>
             </div>
-            <div className="card p-4">
-              <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-                <Field label="Date"><Input type="date" value={record!.date} onChange={setEvent('date')} /></Field>
-                <Field label="Category"><Select value={record!.category} onValueChange={set('category')} options={categoryNames(cfg).map((c) => ({ value: c, label: c }))} /></Field>
-                <Field label="Action amount" hint="how many"><NumberInput value={record!.quantity ?? ''} onChange={setEvent('quantity')} placeholder="30" /></Field>
-                <Field label="Action unit"><><Input list="quicklog-units" value={record!.unit_label ?? ''} onChange={setEvent('unit_label')} placeholder="ULOs" /><datalist id="quicklog-units">{cfg.unit_suggestions.map((u) => <option key={u} value={u} />)}</datalist></></Field>
-                <Field label="Transaction value" hint="dollars tied to the action"><NumberInput value={record!.dollar_amount ?? ''} onChange={setEvent('dollar_amount')} placeholder="1118.38" /></Field>
-                <Field label="Value type"><Select value={record!.dollar_type} onValueChange={set('dollar_type')} options={cfg.value_types.map((d) => ({ value: d.key, label: d.label }))} /></Field>
-                <Field label={trackMeta(track).areaLabel}><Select value={mapAreaToTrack(record!.eval_area, track)} onValueChange={set('eval_area')} options={areaOptions(track)} /></Field>
-                <Field label="Result" hint="the so-what"><Input value={record!.result} onChange={setEvent('result')} placeholder="cleared the aged backlog" /></Field>
-              </div>
-              <button type="button" onClick={() => setExpanded((v) => !v)} className="mt-3 flex items-center gap-1 text-xs text-ink-3 hover:text-ink"><ChevronDown className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-180')} />{expanded ? 'Fewer fields' : 'Organization, system, notes, visibility'}</button>
+            <div className="card space-y-3 p-4">
+              <KindPicker value={kind} onChange={(k) => set('category')(categoryForKind(k, record!.category, cfg))} />
+              {kind.work ? (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label="Date"><Input type="date" value={record!.date} onChange={setEvent('date')} /></Field>
+                  <Field label="Category"><Select value={record!.category} onValueChange={set('category')} options={workCategories(cfg).map((c) => ({ value: c, label: c }))} /></Field>
+                  <Field label="Action amount" hint="how many"><NumberInput value={record!.quantity ?? ''} onChange={setEvent('quantity')} placeholder="30" /></Field>
+                  <Field label="Action unit"><><Input list="quicklog-units" value={record!.unit_label ?? ''} onChange={setEvent('unit_label')} placeholder="ULOs" /><datalist id="quicklog-units">{cfg.unit_suggestions.map((u) => <option key={u} value={u} />)}</datalist></></Field>
+                  <Field label="Transaction value" hint="dollars tied to the action"><NumberInput value={record!.dollar_amount ?? ''} onChange={setEvent('dollar_amount')} placeholder="1118.38" /></Field>
+                  <Field label="Value type"><Select value={record!.dollar_type} onValueChange={set('dollar_type')} options={cfg.value_types.map((d) => ({ value: d.key, label: d.label }))} /></Field>
+                  <Field label={trackMeta(track).areaLabel}><Select value={mapAreaToTrack(record!.eval_area, track)} onValueChange={set('eval_area')} options={areaOptions(track)} /></Field>
+                  <Field label="Result" hint="the so-what"><Input value={record!.result} onChange={setEvent('result')} placeholder="cleared the aged backlog" /></Field>
+                </div>
+              ) : (
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  <Field label={kind.dateLabel}><Input type="date" value={record!.date} onChange={setEvent('date')} /></Field>
+                  <Field label={trackMeta(track).areaLabel}><Select value={mapAreaToTrack(record!.eval_area, track)} onValueChange={set('eval_area')} options={areaOptions(track)} /></Field>
+                  {kind.fields.map((f) => <KindFieldInput key={f.name} field={f} draft={record as ActivityDraft} set={(k, v) => set(k)(v)} errors={{}} />)}
+                </div>
+              )}
+              <button type="button" onClick={() => setExpanded((v) => !v)} className="flex items-center gap-1 text-xs text-ink-3 hover:text-ink"><ChevronDown className={cn('h-3.5 w-3.5 transition-transform', expanded && 'rotate-180')} />{expanded ? 'Fewer fields' : kind.work ? 'Organization, system, notes, visibility' : 'Notes, visibility'}</button>
               {expanded && (
-                <div className="mt-3 grid grid-cols-1 gap-3 sm:grid-cols-2">
-                  <Field label="Organization"><Input value={record!.organization} onChange={setEvent('organization')} placeholder="G-8" /></Field>
-                  <Field label="System"><Input value={record!.system} onChange={setEvent('system')} placeholder="DAI" /></Field>
+                <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+                  {kind.work && <Field label="Organization"><Input value={record!.organization} onChange={setEvent('organization')} placeholder="G-8" /></Field>}
+                  {kind.work && <Field label="System"><Input value={record!.system} onChange={setEvent('system')} placeholder="DAI" /></Field>}
                   <div className="sm:col-span-2"><Field label="Notes"><Textarea rows={2} value={record!.notes} onChange={setEvent('notes')} /></Field></div>
                   <div className="sm:col-span-2"><VisibilityPicker value={record!.visibility} unitId={record!.unit_id} onChange={(v) => setOverrides((o) => ({ ...o, ...v }))} /></div>
                 </div>
@@ -168,9 +182,9 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
             </div>
             <div className="card p-4">
               <div className="mb-2 flex items-center justify-between"><span className="eyebrow">Bullet preview</span><span className="flex items-center gap-1" aria-label={`Strength ${s} of 4`}>{[0, 1, 2, 3].map((i) => <span key={i} className={cn('h-1.5 w-5 rounded-full', i < s ? 'bg-accent' : 'bg-surface-3')} />)}<span className="fig ml-1 text-2xs text-ink-3">{s}/4</span></span></div>
-              <p className="flex items-start gap-2 text-base leading-relaxed text-ink"><Dot color={categoryColor(record!.category, cfg)} className="mt-2" /><span>{composeBullet(record!)}</span></p>
+              <p className="flex items-start gap-2 text-base leading-relaxed text-ink"><Dot color={categoryColor(record!.category, cfg)} className="mt-2" /><span>{composeBullet(shaped!)}</span></p>
               {gaps.length > 0 && <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-ink-3"><Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-accent" /><span>To strengthen: {gaps.join(' · ')}</span></p>}
-              {record!.dollar_amount ? <p className="fig mt-2 text-2xs text-ink-3">Recorded to the cent as {formatDollarsExact(Number(String(record!.dollar_amount).replace(/[$,]/g, '')) || 0)}</p> : null}
+              {shaped!.dollar_amount ? <p className="fig mt-2 text-2xs text-ink-3">Recorded to the cent as {formatDollarsExact(Number(String(shaped!.dollar_amount).replace(/[$,]/g, '')) || 0)}</p> : null}
             </div>
           </>
         )}

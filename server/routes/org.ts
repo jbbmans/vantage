@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth, requireOperator, requireSudo } from '../auth/middleware.ts';
-import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith } from '../authz/scope.ts';
+import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, rosterUnitIds, detailUnitsFor, unitsWith } from '../authz/scope.ts';
 import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, type RoleRow } from '../services/org.ts';
 import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
@@ -15,6 +15,7 @@ import { hydrate, withGoalProgress } from '../services/records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { unitDashboard } from '../services/dashboard.ts';
 import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
+import { levelFromBits } from '../../shared/access.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
 
 export const orgRouter = Router();
@@ -66,6 +67,22 @@ orgRouter.get('/units/:unitId/export', wrap((req, res) => {
   }
   audit(req.ctx, { actor_id: req.user.id, action: 'export', entity: 'unit', entity_id: unitId, unit_id: unitId, ip: clientIp(req) });
   res.json(out);
+}));
+
+// Teams directory -------------------------------------------------------
+// Every team in the organization is visible to everyone signed in: its name, where it sits, and how
+// many people are on it. Who those people are is the roster, which only the team's own members see.
+orgRouter.get('/teams', wrap((req, res) => {
+  const ctx = req.ctx;
+  const scope = scopeFor(ctx, req.user, req);
+  const mine = new Set(scope.unitIds);
+  // The demo holds many visitors' private workspaces in one database; each sees only its own.
+  const demo = ctx.config.accessMode === 'demo';
+  if (demo && !scope.unitIds.length) return res.json({ teams: [] });
+  const rows = ctx.db.prepare(`SELECT u.id, u.name, u.short_name, u.code, u.echelon, u.parent_id,
+      (SELECT COUNT(*) FROM unit_members um JOIN users x ON x.id = um.user_id WHERE um.unit_id = u.id AND x.active = 1) AS members
+      FROM units u WHERE u.active = 1 ${demo ? `AND u.id IN (${scope.unitIds.map(() => '?').join(',')})` : ''} ORDER BY u.name`).all(...(demo ? scope.unitIds : [])) as Array<{ id: string } & Record<string, unknown>>;
+  res.json({ teams: rows.map((t) => ({ ...t, is_member: mine.has(t.id), is_primary: t.id === scope.primaryUnitId })) });
 }));
 
 // Membership ------------------------------------------------------------
@@ -280,18 +297,26 @@ orgRouter.get('/team', wrap((req, res) => {
   const ctx = req.ctx;
   const scope = scopeFor(ctx, req.user, req);
   const ids = visibleUserIds(ctx, scope, req.user.id);
-  const allowed = new Set(scope.readableUnitIds);
+  const rosterUnits = rosterUnitIds(scope);
+  const allowed = new Set(rosterUnits);
   const people = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.middle_initial, u.mos, u.rank_id, r.abbr AS rank_abbr, r.grade AS rank_grade, r.sort AS rank_sort FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.active = 1 AND u.id IN (${ids.map(() => '?').join(',')}) ORDER BY r.sort DESC, u.last_name`).all(...ids) as Array<Record<string, unknown> & { id: string }>;
   const memberships = ctx.db.prepare(`SELECT um.user_id, um.unit_id, um.is_primary, um.billet, u.name AS unit_name, u.short_name AS unit_short FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id IN (${ids.map(() => '?').join(',')}) AND u.active = 1`).all(...ids) as Array<{ user_id: string; unit_id: string; is_primary: number; billet: string | null; unit_name: string; unit_short: string | null }>;
-  const roleRows = scope.readableUnitIds.length ? ctx.db.prepare(`SELECT mr.user_id, mr.unit_id, r.id, r.name, r.color, r.position, r.key FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id IN (${ids.map(() => '?').join(',')}) AND mr.unit_id IN (${scope.readableUnitIds.map(() => '?').join(',')}) ORDER BY r.position DESC`).all(...ids, ...scope.readableUnitIds) as Array<{ user_id: string; unit_id: string; id: string; name: string; color: string | null; position: number; key: string | null }> : [];
-  const roster = people.map((p) => ({
-    ...p,
-    memberships: memberships.filter((m) => m.user_id === p.id && (m.user_id === req.user.id || allowed.has(m.unit_id))),
-    roles: roleRows.filter((r) => r.user_id === p.id),
-    canOpen: p.id === req.user.id || detailUnitsFor(ctx, scope, p.id).length > 0,
-  }));
+  const roleRows = rosterUnits.length ? ctx.db.prepare(`SELECT mr.user_id, mr.unit_id, r.id, r.name, r.color, r.position, r.key, r.permissions FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id IN (${ids.map(() => '?').join(',')}) AND mr.unit_id IN (${rosterUnits.map(() => '?').join(',')}) ORDER BY r.position DESC`).all(...ids, ...rosterUnits) as Array<{ user_id: string; unit_id: string; id: string; name: string; color: string | null; position: number; key: string | null; permissions: number }> : [];
+  const ownerRows = rosterUnits.length ? ctx.db.prepare(`SELECT id, owner_user_id FROM units WHERE id IN (${rosterUnits.map(() => '?').join(',')})`).all(...rosterUnits) as Array<{ id: string; owner_user_id: string | null }> : [];
+  const owners = new Map(ownerRows.map((u) => [u.id, u.owner_user_id]));
+  const roster = people.map((p) => {
+    const mine = memberships.filter((m) => m.user_id === p.id && (m.user_id === req.user.id || allowed.has(m.unit_id)));
+    const held = roleRows.filter((r) => r.user_id === p.id);
+    return {
+      ...p,
+      // Each membership says what the person is in that team, in the three access levels.
+      memberships: mine.map((m) => ({ ...m, level: owners.get(m.unit_id) === p.id ? 'administrator' : levelFromBits(held.filter((r) => r.unit_id === m.unit_id).reduce((bits, r) => bits | r.permissions, 0)) })),
+      roles: held.map(({ permissions: _bits, ...r }) => r),
+      canOpen: p.id === req.user.id || detailUnitsFor(ctx, scope, p.id).length > 0,
+    };
+  });
   if (roster.length > 1) audit(ctx, { actor_id: req.user.id, action: 'view_roster', detail: `${roster.length} personnel`, ip: clientIp(req) });
-  res.json({ roster, readableUnitIds: scope.readableUnitIds, manageMembers: unitsWith(scope, PERMISSIONS.MANAGE_MEMBERS), manageRoles: unitsWith(scope, PERMISSIONS.MANAGE_ROLES), counsel: unitsWith(scope, PERMISSIONS.COUNSEL), exportUnits: unitsWith(scope, PERMISSIONS.EXPORT_DATA) });
+  res.json({ roster, readableUnitIds: scope.readableUnitIds, rosterUnitIds: rosterUnits, manageMembers: unitsWith(scope, PERMISSIONS.MANAGE_MEMBERS), manageRoles: unitsWith(scope, PERMISSIONS.MANAGE_ROLES), counsel: unitsWith(scope, PERMISSIONS.COUNSEL), exportUnits: unitsWith(scope, PERMISSIONS.EXPORT_DATA) });
 }));
 
 orgRouter.get('/team/:userId', wrap((req, res) => {

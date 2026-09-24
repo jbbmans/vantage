@@ -144,6 +144,11 @@ export const deleteComment = (store: Store, id: string, commentId: string) => ap
 
 // Org ----------------------------------------------------------------
 export const team = () => api.get('/org/team');
+export const teamsDirectory = () => api.get('/org/teams');
+export const people = () => api.get('/people');
+export const setPersonLevel = (userId: string, unitId: string, level: string) => api.put(`/people/${encodeURIComponent(userId)}/teams/${encodeURIComponent(unitId)}`, { level });
+export const addPersonToTeam = (userId: string, payload: { unit_id: string; level?: string; billet?: string | null }) => api.post(`/people/${encodeURIComponent(userId)}/teams`, payload);
+export const removePersonFromTeam = (userId: string, unitId: string) => api.del(`/people/${encodeURIComponent(userId)}/teams/${encodeURIComponent(unitId)}`);
 export const member = (id: string) => api.get(`/org/team/${encodeURIComponent(id)}`);
 export const updateMemberProfile = (id: string, payload: unknown) => api.put(`/org/team/${encodeURIComponent(id)}/profile`, payload);
 export const directory = (unitId: string, q: string) => api.get(`/org/directory?unit_id=${encodeURIComponent(unitId)}&q=${encodeURIComponent(q)}`);
@@ -344,6 +349,6 @@ export const deleteCareerStep = (id: string) => api.del(`/record/career/steps/${
 // The synthetic demo ------------------------------------------------------------------------
 export const demoStatus = () => api.get('/demo/status');
 export const demoStart = () => api.post('/demo/start').then((r) => { markSignedIn(); return r; });
-export const demoPersona = (persona: 'marine' | 'leader') => api.post('/demo/persona', { persona }).then((r) => { markSignedIn(); return r; });
+export const demoPersona = (persona: 'marine' | 'leader' | 'admin') => api.post('/demo/persona', { persona }).then((r) => { markSignedIn(); return r; });
 export const demoReset = () => api.post('/demo/reset').then((r) => { markSignedIn(); return r; });
 export const handoffCandidates = (id: string) => api.get(`${itemPath(id)}/handoff-candidates`);

@@ -64,12 +64,14 @@ test('a leader invites a Marine by link, sees their shared work on the unit dash
   await logout(page);
 });
 
-test('a plain member cannot open the team page or another Marine’s record', async ({ page, request }) => {
+test('someone on no team sees every team listed, and no one’s record', async ({ page, request }) => {
   await ensureSetup(request);
   const username = unique('lone');
   await page.request.post('/api/auth/register', { headers: { 'x-vantage-client': '1' }, data: { username, password: PASSWORD, first_name: 'Lone', last_name: 'Marine' } });
   await page.goto('/team');
-  await expect(page.getByText('No unit visibility yet')).toBeVisible();
+  await expect(page.getByText('You are not on a team yet')).toBeVisible();
+  await expect(page.getByRole('list', { name: 'All teams' })).toContainText('G-8 Comptroller');
+  await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: /People/ })).toHaveCount(0);
   const forbidden = await page.request.get('/api/org/team');
   expect(forbidden.ok()).toBeTruthy();
   const roster = await forbidden.json();

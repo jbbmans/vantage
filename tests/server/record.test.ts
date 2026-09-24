@@ -92,8 +92,13 @@ test('after a handoff each person keeps their own count; the section counts the 
   assert.ok(workload.body.limitations.some((l: string) => /not evidence of zero work/.test(l)));
 });
 
-test('workload needs VIEW_RECORDS, and names people only for those who may open member detail', async () => {
-  assert.equal((await get(avery.token, '/api/work/workload?unit_id=G8')).status, 403, 'a Marine does not see the section breakdown');
+test('workload totals are open to the team, and name people only for those who may open member detail', async () => {
+  // Teams are open to their members (PD-019): a Marine sees the section's totals, never who carries what.
+  const marineView = await get(avery.token, '/api/work/workload?unit_id=G8');
+  assert.equal(marineView.status, 200);
+  assert.equal(marineView.body.members_visible, false);
+  assert.deepEqual(marineView.body.members, [], 'a Marine does not see the per-person breakdown');
+  assert.equal((await get(avery.token, '/api/work/workload?unit_id=NOPE')).status, 403, 'nor anything for a team they are not on');
   const ncoView = await get(nco.token, '/api/work/workload?unit_id=G8');
   assert.equal(ncoView.status, 200);
   assert.equal(ncoView.body.members_visible, false);

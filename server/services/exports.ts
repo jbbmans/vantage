@@ -38,6 +38,14 @@ export function exportInstance(ctx: AppContext) {
   return { format: 'vantage-instance/1', version: VERSION, exported_at: now(), key_check: keyCheck(ctx.config.secret), tables };
 }
 
+/** A column default as SQLite reports it (`'{}'`, `0`, `NULL`), read back into a value. Expressions come back as null. */
+function literal(sql: string | null): string | number | null {
+  if (sql == null) return null;
+  if (/^'.*'$/s.test(sql)) return sql.slice(1, -1).replace(/''/g, "'");
+  if (/^-?\d+(\.\d+)?$/.test(sql)) return Number(sql);
+  return null;
+}
+
 export function importInstance(ctx: AppContext, archive: { format?: string; key_check?: string; tables?: Record<string, Array<Record<string, unknown>>> }, actorId: string) {
   if (archive?.format !== 'vantage-instance/1' || !archive.tables) throw new Error('That file is not a Vantage instance archive.');
   if (archive.key_check && archive.key_check !== keyCheck(ctx.config.secret)) throw new Error('This archive was exported under a different VANTAGE_SECRET. Set the same secret on this host before importing, or authenticator secrets and the audit chain will not verify.');
@@ -52,13 +60,17 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       for (const table of EXPORT_TABLES) {
         const rows = archive.tables![table] || [];
         if (!rows.length) { counts[table] = 0; continue; }
-        const columns = (ctx.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name);
+        const info = ctx.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string; dflt_value: string | null }>;
+        const columns = info.map((c) => c.name);
+        // An archive from an older version has no value for a column added since. It takes the
+        // column's declared default, as the row would have on an upgrade in place.
+        const defaults = new Map(info.map((c) => [c.name, literal(c.dflt_value)]));
         const insert = ctx.db.prepare(`INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`);
         for (const row of rows) {
           insert.run(...columns.map((c) => {
             const v = row[c];
             if (v && typeof v === 'object' && '$bytes' in (v as object)) return Buffer.from(String((v as { $bytes: string }).$bytes), 'base64');
-            return v === undefined ? null : v;
+            return v === undefined ? defaults.get(c) ?? null : v;
           }));
         }
         counts[table] = rows.length;

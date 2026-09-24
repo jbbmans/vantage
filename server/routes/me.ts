@@ -17,6 +17,8 @@ import { layout } from '../services/email.ts';
 import { newId, now } from '../lib/ids.ts';
 import { ancestorIds } from '../services/org.ts';
 import { PERMISSION_LIST } from '../../shared/permissions.ts';
+import { higherLevel, levelFromBits, type AccessLevel } from '../../shared/access.ts';
+import { managedUnitIds } from '../services/people.ts';
 import { composeDigest, sendDigest } from '../services/digest.ts';
 import { buildPersonalExport, buildPersonalExportZip } from '../services/personalExport.ts';
 import { demoStatus } from '../services/demo.ts';
@@ -29,6 +31,7 @@ meRouter.get('/', wrap((req, res) => {
   const scope = scopeFor(ctx, req.user, req);
   const rank = req.user.rank_id ? ctx.db.prepare('SELECT * FROM ranks WHERE id = ?').get(req.user.rank_id) : null;
   const passkeys = (ctx.db.prepare('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?').get(req.user.id) as { n: number }).n;
+  const teamLevels: Record<string, AccessLevel> = Object.fromEntries(scope.unitIds.map((id) => [id, scope.ownedUnitIds.includes(id) ? 'administrator' : levelFromBits(scope.permissions[id] || 0)]));
   let prefs = {};
   try { prefs = JSON.parse(req.user.prefs || '{}'); } catch {}
   const { prefs: _p, ...user } = req.user;
@@ -44,6 +47,11 @@ meRouter.get('/', wrap((req, res) => {
     positions: scope.positions,
     roles: scope.roles,
     canLead: scope.readableUnitIds.length > 0,
+    // Access levels (shared/access.ts): per team, and the highest across teams. An organization
+    // administrator is an administrator whatever their teams say.
+    levels: teamLevels,
+    accessLevel: Object.values(teamLevels).reduce<AccessLevel>((l, t) => higherLevel(l, t), req.user.is_operator ? 'administrator' : 'personal'),
+    canManagePeople: Boolean(req.user.is_operator) || managedUnitIds(ctx, req.user, scope).length > 0,
     manageableUnits: unitsWith(scope, PERMISSIONS.MANAGE_UNITS),
     counselUnits: unitsWith(scope, PERMISSIONS.COUNSEL),
     exportUnits: unitsWith(scope, PERMISSIONS.EXPORT_DATA),

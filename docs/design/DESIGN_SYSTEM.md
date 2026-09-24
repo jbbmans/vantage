@@ -39,6 +39,11 @@ Case components (`src/components/work.tsx`):
 - `WorkRow`: a work item as it appears on Today, in Record and in Workload. It shows the document
   number, stage, overdue flag, the next step (or the waiting time and blocked reason), and the due date.
 
+Access and record components:
+- `LevelBadge` (`src/components/AccessLevel.tsx`): each access level has one colour everywhere it appears. Personal is grey, Team leader the brand teal (`--accent-2`, 5.47:1), Administrator the accent.
+- `KindPicker` and `KindFieldInput` (`src/components/ActivityForm.tsx`): "Kind of record" is a radio group. Arrow keys move the choice and the fields below change to that kind's questions. The title field stays mounted and relabels, so focus is never taken from the picker. Work keeps its original labels (Title, Action amount, Transaction value, Value type).
+- **People** (`src/pages/People.tsx`): the three levels double as the filter strip at the top. It shows what each level means, how many hold it, and narrows the list on a click. A change of level is chosen in the row and confirmed in a dialog that says the person will be signed out.
+
 ## Patterns
 
 - **Cards** summarize something that opens: every figure links to the records behind it.
@@ -50,8 +55,8 @@ Case components (`src/components/work.tsx`):
 - **One demo indicator.** In the synthetic demo, a single banner under the header names the persona
   and offers the persona switch and a reset. Pages show no other demo labels, except the flagship
   item's synthetic system values, which are labelled where they appear.
-- **Language.** Real names for real concepts: document, tasker, stage, waiting on posting, handed off,
-  verified. No table names, adapter names or revision numbers in the interface.
+- **Language.** Real names for real concepts: document, project, stage, waiting on posting, handed off,
+  verified, and the three access levels by their names. No table names, adapter names or revision numbers in the interface.
 
 ## Motion
 

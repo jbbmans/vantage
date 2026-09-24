@@ -20,7 +20,7 @@ const Records = lazy(() => import('./Records'));
  * Three things, kept apart because they mean different things. Assigned work is what you hold
  * right now; it is not credit. Contributions are what you did, read from the history of the work
  * itself, so nobody retypes them. Your own entries are what you logged yourself: PME, PT,
- * volunteering, anything that did not start as a tasker.
+ * volunteering, anything that did not start as project work.
  */
 
 const WINDOWS = [
@@ -95,7 +95,7 @@ function Overview({ summary, loading }: { summary: any; loading: boolean }) {
           ) : <WorkList items={assigned.data} />}
         </Panel>
 
-        <Panel title="What you recorded yourself" subtitle="PME, PT, volunteering, qualifications: anything that did not start as a tasker.">
+        <Panel title="What you recorded yourself" subtitle="Education, training, volunteering, extracurriculars: anything outside project work.">
           <StatStrip inset label="What you recorded yourself" className="grid-cols-3" items={[
             { label: 'Activities', value: summary.personal.activities, to: '/record?tab=entries' },
             { label: 'Training', value: summary.personal.trainings, to: '/career?tab=training' },

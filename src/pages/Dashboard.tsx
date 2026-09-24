@@ -108,7 +108,7 @@ function AvailableWork({ compact = false }: { compact?: boolean }) {
   const rows: any[] = list.data?.items || [];
   const body = list.isPending ? <Skeleton className="m-4 h-16" /> : rows.length ? (
     <WorkList items={rows} trailing={() => <span className="flex items-center gap-1 text-accent"><Hand className="h-3 w-3" aria-hidden />Open to claim</span>} />
-  ) : <EmptyState title="Nothing waiting to be claimed" description="When a leader brings in a tasker, its items appear here." />;
+  ) : <EmptyState title="Nothing waiting to be claimed" description="When a leader brings in a project, its items appear here." />;
   if (compact) return <Panel title="Open to claim" subtitle="Unassigned work in your units, soonest due first" padded={false} action={<Link to="/work?claimed=nobody" className="text-xs text-accent hover:underline">All open work</Link>}>{body}</Panel>;
   return (
     <div>
@@ -118,7 +118,7 @@ function AvailableWork({ compact = false }: { compact?: boolean }) {
   );
 }
 
-/** Anything that did not start as a tasker, captured in one line from the top of Today. */
+/** Anything that did not start as project work, captured in one line from the top of Today. */
 function QuickCapture() {
   const [text, setText] = useState('');
   const open = (seed: string) => { window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: seed })); setText(''); };
@@ -126,7 +126,7 @@ function QuickCapture() {
     <div className="flex flex-col gap-2 lg:flex-row lg:items-center lg:gap-4">
       <p className="shrink-0 text-sm font-medium text-ink">Quick capture</p>
       <form onSubmit={(e) => { e.preventDefault(); open(text); }} className="flex min-w-0 flex-1 gap-2">
-        <Input aria-label="What did you do?" placeholder="PME, PT, volunteering: anything that did not start as a tasker" value={text} onChange={(e) => setText(e.target.value)} />
+        <Input aria-label="What did you do?" placeholder="Education, volunteering, PT: anything outside project work" value={text} onChange={(e) => setText(e.target.value)} />
         <Button type="submit" variant="primary" aria-label="Capture it"><Plus className="h-4 w-4" /></Button>
       </form>
       <p className="shrink-0 text-xs text-ink-3">Work in Vantage is recorded for you. Press <kbd className="kbd">N</kbd> anywhere.</p>

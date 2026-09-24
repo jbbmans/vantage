@@ -28,16 +28,22 @@ import { VERSION } from '@/lib/version';
 const TITLES: Array<[string, string, string]> = [
   ['/records', 'Record', 'An activity you recorded'],
   ['/record', 'Record', 'What you did and what backs it up'],
-  ['/work', 'Work', 'Taskers, the queue, and what is yours'],
+  ['/work', 'Work', 'Projects, the queue, and what is yours'],
   ['/goals', 'Goals', 'Targets and measurable progress'],
   ['/career', 'Career', 'Next steps, training, readiness'],
   ['/maradmins', 'MARADMINs', 'Messages that change a requirement'],
   ['/reports', 'Reports', 'JEPES and FITREP input from the facts'],
-  ['/team', 'Team', 'Workload, people, and units'],
+  ['/team', 'Team', 'Your team, who is on it, and where it stands'],
+  ['/people', 'People', 'Access levels, teams and accounts'],
   ['/settings', 'Settings', 'Your preferences'],
   ['/operator', 'Owner console', 'This deployment'],
   ['/help', 'Field guide', 'How Vantage works'],
 ];
+type DemoPersona = 'marine' | 'leader' | 'admin';
+/** One synthetic persona per access level. The button names are the ones visitors already know. */
+const PERSONA_AS: Record<DemoPersona, string> = { marine: 'a budget analyst with Personal access', leader: 'the section lead with Team leader access', admin: 'the section chief with Administrator access' };
+const PERSONA_BUTTON: Record<DemoPersona, string> = { marine: 'View as the Marine', leader: 'View as the section lead', admin: 'View as the administrator' };
+
 const entryFor = (p: string) => (p === '/' ? (['/', 'Today', 'Your next move'] as const) : TITLES.find(([path]) => p.startsWith(path)));
 const titleFor = (p: string) => entryFor(p)?.[1] || 'Vantage';
 
@@ -167,6 +173,7 @@ export default function AppShell() {
   const visibleNav = useMemo(() => NAV.filter((item) => {
     if (item.hideInDemo && identity?.demo) return false;
     if (item.requiresLead && !identity?.canLead) return false;
+    if (item.requiresPeople && !identity?.canManagePeople) return false;
     if (item.requiresOperator && !identity?.user.is_operator) return false;
     if (item.requiresAi && !identity?.instance.aiEnabled) return false;
     if (item.requiresMaradmins && !identity?.instance.maradminsEnabled) return false;
@@ -192,7 +199,7 @@ export default function AppShell() {
     return () => window.removeEventListener('keydown', onKey);
   }, [navigate, openQuickLog, visibleNav]);
 
-  const switchPersona = async (persona: 'marine' | 'leader') => {
+  const switchPersona = async (persona: DemoPersona) => {
     try { await api.demoPersona(persona); qc.clear(); navigate('/'); qc.invalidateQueries(); }
     catch (e) { toast.error(api.errorText(e)); }
   };
@@ -316,7 +323,7 @@ export default function AppShell() {
                     <>
                       <span className="min-w-0 flex-1 text-left">
                         <span className="block truncate text-sm font-medium text-ink">{[user?.rank?.abbr, user?.first_name, user?.last_name].filter(Boolean).join(' ')}</span>
-                        <span className="block truncate text-xs text-ink-3">{primary?.billet || (demo ? (demo.workspace?.persona === 'leader' ? 'Section lead' : 'Budget analyst') : unitName)}</span>
+                        <span className="block truncate text-xs text-ink-3">{primary?.billet || unitName}</span>
                       </span>
                       <ChevronsUpDown className="h-4 w-4 shrink-0 text-ink-3" aria-hidden />
                     </>
@@ -376,14 +383,14 @@ export default function AppShell() {
             <div role="region" aria-label="Synthetic demo" className="no-print flex flex-wrap items-center gap-x-4 gap-y-1.5 border-b border-line bg-accent-soft/60 px-4 py-2 text-sm text-ink sm:px-6 lg:px-8">
               <span className="flex items-center gap-2 font-medium"><FlaskConical className="h-4 w-4 text-accent" aria-hidden />Synthetic demo</span>
               <span className="text-ink-2">
-                You are {user?.rank?.abbr} {user?.first_name} {user?.last_name}, {demo.workspace?.persona === 'leader' ? 'the section lead' : 'a budget analyst'}.
+                You are {user?.rank?.abbr} {user?.first_name} {user?.last_name}, {PERSONA_AS[demo.workspace?.persona || 'marine']}.
                 <span className="hidden md:inline"> Everything here is invented; changes are kept for {demo.ttl_hours} hours, then removed.</span>
                 {demo.measured_with === 'posthog' && <span className="hidden md:inline"> Screen and step names are measured with PostHog; nothing you type is sent.</span>}
               </span>
               <span className="flex items-center gap-1.5 md:ml-auto">
-                {demo.workspace?.persona === 'leader'
-                  ? <Button size="sm" onClick={() => switchPersona('marine')}>View as the Marine</Button>
-                  : <Button size="sm" onClick={() => switchPersona('leader')}>View as the section lead</Button>}
+                {(['marine', 'leader', 'admin'] as const).filter((p) => p !== (demo.workspace?.persona || 'marine')).map((p) => (
+                  <Button key={p} size="sm" onClick={() => switchPersona(p)}>{PERSONA_BUTTON[p]}</Button>
+                ))}
                 <Button size="sm" variant="ghost" onClick={startOver}>Start over</Button>
               </span>
             </div>

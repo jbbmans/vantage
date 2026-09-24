@@ -81,14 +81,23 @@ export function isUnitOwner(ctx: AppContext, userId: string, unitId: string | nu
   return Boolean(row?.owner_user_id && row.owner_user_id === userId);
 }
 
-/** IDs of every active user visible to the caller: self plus members of units where the caller can read records. */
+/**
+ * Teams whose roster the caller sees: every team they belong to with View unit ("see the unit and
+ * its roster", which every member holds by default), plus any where they can read shared records.
+ * A roster is names, ranks, billets and roles. Opening a person's record is a separate gate
+ * (detailUnitsFor) and is logged.
+ */
+export const rosterUnitIds = (scope: Scope) => [...new Set([...unitsWith(scope, PERMISSIONS.VIEW_UNIT), ...scope.readableUnitIds])];
+
+/** IDs of every active user on a roster the caller can see, and the caller. */
 export function visibleUserIds(ctx: AppContext, scope: Scope, selfId: string): string[] {
   const ids = new Set([selfId]);
-  if (scope.readableUnitIds.length) {
+  const units = rosterUnitIds(scope);
+  if (units.length) {
     const rows = ctx.db.prepare(
       `SELECT DISTINCT um.user_id FROM unit_members um JOIN users u ON u.id = um.user_id
-        WHERE um.unit_id IN (${scope.readableUnitIds.map(() => '?').join(',')}) AND u.active = 1`
-    ).all(...scope.readableUnitIds) as Array<{ user_id: string }>;
+        WHERE um.unit_id IN (${units.map(() => '?').join(',')}) AND u.active = 1`
+    ).all(...units) as Array<{ user_id: string }>;
     for (const r of rows) ids.add(r.user_id);
   }
   return [...ids];

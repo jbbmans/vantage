@@ -63,7 +63,7 @@ export const EVENTS: Record<string, EventSpec> = {
   'surface.viewed': { family: 'adoption', properties: { surface: oneOf(...SURFACES) } },
   // The synthetic demo: how visits start, and whether people look at it as a lead as well.
   'demo.started': { serverOnly: true, family: 'adoption', properties: {} },
-  'demo.persona_switched': { serverOnly: true, family: 'adoption', properties: { to: oneOf('marine', 'leader') } },
+  'demo.persona_switched': { serverOnly: true, family: 'adoption', properties: { to: oneOf('marine', 'leader', 'admin') } },
   'demo.reset': { serverOnly: true, family: 'adoption', properties: {} },
 
   // The capture funnel, and where it is abandoned ----------------------

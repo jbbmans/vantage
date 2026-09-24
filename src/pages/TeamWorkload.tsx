@@ -9,7 +9,7 @@ import { STAGE_LABEL, WAITING_LABEL, type WaitingCategory } from '../../shared/c
 import { cn } from '@/lib/utils';
 
 /**
- * A leader's view of the section's work. Counts sit beside the context needed to read them —
+ * The section's work, for everyone on it; a leader also sees it person by person. Counts sit beside the context needed to read them —
  * the window, what each person holds, what is waiting or blocked — and no person is labelled.
  * The definitions and the limits of what was captured are on the page, not in a manual.
  */
@@ -27,7 +27,7 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'documents_researched', dir: 'desc' });
 
   if (w.isPending) return <Skeleton className="h-64" />;
-  if (w.isError || !w.data) return <div className="card"><EmptyState title="Workload is not available for this unit" description="It needs permission to view the unit’s shared records." /></div>;
+  if (w.isError || !w.data) return <div className="card"><EmptyState title="Workload is not available for this team" description="A team’s workload is open to the people on it." /></div>;
   const d = w.data;
   const s = d.section;
   const members = [...d.members].sort((a: any, b: any) => {
@@ -128,7 +128,7 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
           <p className="border-t border-line px-4 py-2 text-xs text-ink-3">Section total: {s.documents_researched} distinct documents researched. Individual counts add up to more when several people worked the same document.</p>
         </Panel>
       ) : (
-        <p className="text-sm text-ink-3">Your role shows section totals. The per-person breakdown needs permission to open member records.</p>
+        <p className="text-sm text-ink-3">These are the team’s totals. Who is carrying what, person by person, is for team leaders.</p>
       )}
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">

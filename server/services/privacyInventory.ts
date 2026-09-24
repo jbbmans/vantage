@@ -64,7 +64,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     },
   },
   activities: {
-    purpose: 'What the person did, quantified, so their evaluation input is built from a dated record rather than recollection.',
+    purpose: 'What the person did, at work and beyond it (education, certifications, training, volunteering, extracurriculars, fitness, recognition), so their evaluation input is built from a dated record rather than recollection.',
     authority: 'Voluntarily recorded by the person about their own work.',
     access: 'The person. Shared entries are visible to their unit only when the person marks them shared.',
     columns: {
@@ -72,7 +72,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       category: 'performance', eval_area: 'performance', quantity: 'performance', unit_label: 'performance',
       dollar_amount: 'performance', dollar_type: 'performance', result: 'performance', organization: 'employment',
       system: 'none', project_id: 'technical', status: 'performance', notes: 'performance', evidence_links: 'performance',
-      visibility: 'none', fingerprint: 'technical', frozen_at: 'technical', deleted_at: 'technical',
+      details: 'performance', visibility: 'none', fingerprint: 'technical', frozen_at: 'technical', deleted_at: 'technical',
       created_at: 'technical', updated_at: 'technical', version: 'technical',
     },
   },

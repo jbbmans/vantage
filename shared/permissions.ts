@@ -59,6 +59,8 @@ const NCO_BITS = fromKeys(['VIEW_UNIT', 'VIEW_RECORDS', 'CREATE_SHARED_WORK', 'C
 const FIRE_TEAM_LEADER_BITS = NCO_BITS | fromKeys(['VIEW_MEMBER_DETAIL', 'COUNSEL', 'EDIT_WORK']);
 const SNCO_BITS = FIRE_TEAM_LEADER_BITS | fromKeys(['MANAGE_RECORDS', 'VIEW_AUDIT', 'EXPORT_DATA', 'REASSIGN_WORK']);
 const SNCOIC_BITS = SNCO_BITS | fromKeys(['MANAGE_MEMBERS', 'MANAGE_ROLES', 'MANAGE_UNITS', 'VIEW_SUPPORT']);
+/** The Team leader access level: leads the team's work and people, and brings people onto the team. */
+export const TEAM_LEADER_BITS = SNCO_BITS | fromKeys(['MANAGE_MEMBERS']);
 const OWNER_BITS = PERMISSIONS.ADMINISTRATOR;
 
 export interface RoleTemplate { key: string; name: string; color: string; position: number; is_default: boolean; owner?: boolean; permissions: number; description: string }
@@ -67,6 +69,8 @@ export const ROLE_TEMPLATE: RoleTemplate[] = [
   { key: 'nco', name: 'NCO', color: '#1f9d6a', position: 20, is_default: false, permissions: NCO_BITS, description: 'Sees shared work and can post unit tasks and goals.' },
   { key: 'fire-team-leader', name: 'Fire Team Leader', color: '#149ca6', position: 30, is_default: false, permissions: FIRE_TEAM_LEADER_BITS, description: 'Adds member-record visibility and counseling to NCO tasking.' },
   { key: 'snco', name: 'SNCO', color: '#d98b1f', position: 40, is_default: false, permissions: SNCO_BITS, description: 'Can correct shared records, export, and review the unit access log.' },
+  { key: 'team-leader', name: 'Team Leader', color: '#0e7490', position: 50, is_default: false, permissions: TEAM_LEADER_BITS, description: 'The Team leader access level. Sees each member’s workload and shared records, assigns and reassigns work, posts goals, counsels, and brings people onto the team.' },
+  { key: 'team-administrator', name: 'Team Administrator', color: '#9333ea', position: 90, is_default: false, permissions: PERMISSIONS.ADMINISTRATOR, description: 'The Administrator access level for one team. Every permission inside the team, below its owner. Only the owner or an organization administrator grants it.' },
   { key: 'sncoic', name: 'SNCOIC', color: '#3b82f6', position: 60, is_default: false, permissions: SNCOIC_BITS, description: 'Runs unit administration: members, roles, sub-units, audit, and export.' },
   { key: 'unit-leader', name: 'Unit Leader', color: '#7c5cf0', position: 100, is_default: false, owner: true, permissions: OWNER_BITS, description: 'Every permission inside this unit. The unit owner receives this role.' },
 ];

@@ -104,8 +104,12 @@ test('roster visibility and member detail gates', async () => {
   const roster = await app.call('GET', '/api/org/team', { token: (await app.login('nco')).body.token });
   assert.ok(roster.body.roster.length >= 4);
   assert.ok(!roster.body.roster.some((p: any) => p.id === other.id));
+  // Teams are open to their members (PD-019): a Marine sees who is on G8, never anyone on no shared
+  // team, and opens no one's record but their own.
   const asMarine = await app.call('GET', '/api/org/team', { token: (await app.login('marine')).body.token });
-  assert.equal(asMarine.body.roster.length, 1);
+  assert.equal(asMarine.body.roster.length, roster.body.roster.length);
+  assert.ok(!asMarine.body.roster.some((p: any) => p.id === other.id));
+  assert.ok(asMarine.body.roster.every((p: any) => p.id === marine.id || !p.canOpen));
   const detail = await app.call('GET', `/api/org/team/${marine.id}`, { token: (await app.login('sncoic')).body.token });
   assert.equal(detail.status, 200);
   assert.ok(!('email' in detail.body.person));
@@ -241,6 +245,22 @@ test('instance import restores an archive into a fresh instance', async () => {
     assert.equal(login.status, 200);
     const list = await fresh.call('GET', '/api/records/activities', { token: login.body.token });
     assert.ok(list.body.length >= 1);
+  } finally { await fresh.close(); }
+});
+
+test('an archive from before a column existed imports with that column’s default', async () => {
+  const opToken = (await app.login('boletz')).body.token;
+  const archive = (await app.call('GET', '/api/admin/export', { token: opToken })).body;
+  // What a pre-009 export looks like: activities without `details`.
+  for (const row of archive.tables.activities) delete row.details;
+  assert.ok(archive.tables.activities.length >= 1);
+  const fresh = await startApp();
+  try {
+    const freshOp = await fresh.setupOperator();
+    const res = await fresh.call('POST', '/api/admin/import', { token: freshOp.token, body: archive });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const stored = fresh.ctx.db.prepare('SELECT DISTINCT details FROM activities').all() as Array<{ details: string }>;
+    assert.deepEqual(stored, [{ details: '{}' }]);
   } finally { await fresh.close(); }
 });
 

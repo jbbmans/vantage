@@ -17,7 +17,7 @@ with the reason.
 | Work item detail (dialog) | `/work/items/:id` | REIMPLEMENT | A page, so reload and back work, with the procedure, the attributed history, research entries, stages, waiting and handoff. The original "What did you do?" form is kept on the page for work without a procedure. | `13-workbench`, `22-demo`, `tests/server/cases.test.ts` |
 | Spreadsheet import (wizard, immutable source, idempotent reimport, mangled-identifier refusal) | Work → Queue → Import | KEEP | Imports now also write a `created` event per row. | `13-workbench`, `tests/server/intake.test.ts` |
 | Claim, release, assign, stale-claim release | Queue and item page | IMPROVE | Each now writes an event. Handoff added: the holder can pass work to a teammate with a note. | `cases.test.ts`, `workbench.test.ts` |
-| Tasks and projects | Work → Taskers and projects, Tasks | KEEP | Projects are presented as taskers and projects. | `02-records` |
+| Tasks and projects | Work → Projects, Tasks | KEEP | The owner chose "Projects" (PD-022). | `02-records` |
 | Correspondence (threads, .eml import, M365 connector) | Work → Correspondence, item page | KEEP | Connector routes are closed in the synthetic demo. | `15-correspondence`, `correspondence.test.ts` |
 | Records / activities (list, filters, CSV import/export, recycle bin, detail) | Record → Your entries; `/records/:id` | KEEP | Moved under Record. `/records` and `/activities` redirect with their query. | `02-records`, `17-navigation` |
 | Goals (typed, automatic or by hand) | `/goals` | KEEP | Unchanged. | `typedGoals.test.ts`, `22-demo` |
@@ -47,5 +47,4 @@ with the reason.
 
 - The Field guide (`/help`) still describes the old navigation in places. Updating its text is deferred
   until the new navigation is accepted.
-- "Projects" is presented as "Taskers and projects". If the shop calls these something else, the label
-  is one line in `src/pages/WorkHub.tsx`.
+- The Work tab is "Projects", the name the owner chose (PD-022).

@@ -8,7 +8,7 @@ import { resolveSession, destroySession, SESSION_COOKIE } from '../auth/sessions
 import { finishSignIn } from './auth.ts';
 import { audit } from '../services/audit.ts';
 import { record } from '../services/telemetry.ts';
-import { createWorkspace, demoStatus, workspaceOf, purgeWorkspace, sampleSheet, type Persona } from '../services/demo.ts';
+import { createWorkspace, demoStatus, workspaceOf, workspaceOwner, purgeWorkspace, sampleSheet, type Persona } from '../services/demo.ts';
 
 /**
  * The synthetic demo's entry points. They exist only when the server was started in demo mode;
@@ -37,14 +37,14 @@ demoRouter.post('/start', wrap((req, res) => {
   return finishSignIn(req, res, user, 'demo', 'demo_start');
 }));
 
-const personaSchema = z.object({ persona: z.enum(['marine', 'leader']) });
+const personaSchema = z.object({ persona: z.enum(['marine', 'leader', 'admin']) });
 
-/** Switch between the Marine and the section lead of the same workspace. Never into another workspace. */
+/** Switch between the three personas of the same workspace. Never into another workspace. */
 demoRouter.post('/persona', requireAuth, wrap((req, res) => {
   const { persona } = parse(personaSchema, req.body);
   const ws = workspaceOf(req.ctx, req.user.id);
   if (!ws) throw forbidden('Only a demo persona can switch personas.');
-  const targetId = (persona as Persona) === 'leader' ? ws.leader_user_id : ws.persona_user_id;
+  const targetId = (persona as Persona) === 'leader' ? ws.leader_user_id : (persona as Persona) === 'admin' ? workspaceOwner(req.ctx, ws) : ws.persona_user_id;
   const target = req.ctx.db.prepare('SELECT * FROM users WHERE id = ? AND demo_workspace_id = ?').get(targetId, ws.id) as { id: string; must_change_password: number } | undefined;
   if (!target) throw notFound('That persona is gone. Reset the demo.');
   destroySession(req.ctx, req.sessionId);
@@ -85,6 +85,9 @@ const DEMO_CLOSED: Array<[string, RegExp]> = [
   ['*', /^\/api\/org\/units\/[^/]+\/(members|invites|join-codes|owner)/],
   ['*', /^\/api\/org\/(join-codes|invites|directory)/],
   ['*', /^\/api\/org\/team\/[^/]+\/(deactivate|reactivate|reset-mfa|temporary-password|logout|operator)/],
+  // Access levels can be changed inside the synthetic section; membership stays as seeded.
+  ['POST', /^\/api\/people\/[^/]+\/teams$/],
+  ['DELETE', /^\/api\/people\/[^/]+\/teams\//],
   ['*', /^\/api\/correspondence\/connectors/],
   ['POST', /^\/api\/ai\//],
 ];

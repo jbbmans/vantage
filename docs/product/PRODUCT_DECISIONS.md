@@ -178,3 +178,58 @@ reduced motion are kept.
 approves adding third-party UI code, and each component goes through licence and security review
 before it lands.
 
+
+## PD-019 · Teams are open to their members
+
+**Decision.** The owner asked to "make teams public for everyone". Team is now a primary
+destination for every member, not only leaders:
+- **Every member of a team sees its roster** (names, ranks, billets, roles and access levels) and its workload totals: open, unassigned, overdue, waiting, blocked, and where the work stands. The View unit permission already said "see the unit and its roster"; the roster now does what the permission said.
+- **Every signed-in person sees the list of teams**: names, echelon and how many people are on each, so people can find a team to join.
+**What stays closed.**
+- **Rosters of other teams.** Nobody sees the people on a team they are not on.
+- **Per-person data is for team leaders.** Workload person by person, and opening anyone's record, still need Open member records. Every open is logged.
+- **Private entries, drafts and career plans** never appear.
+- **Demo isolation.** In the synthetic demo, each visitor sees only their own section.
+**Why "public" stops there.** Showing every team's roster to everyone would reduce privacy, and privacy reductions are the owner's to decide. If the owner wants rosters open across teams, it is a one-line change to `rosterUnitIds` and a change to this entry.
+**Tests changed with it.** Two assertions that encoded the old rule ("a Marine's roster lists only themselves", "a Marine gets no workload") now assert the new one. The privacy gates beside them are unchanged.
+
+## PD-020 · Three access levels: Personal, Team leader, Administrator
+
+**Decision.** The owner asked for "a way better user management system: personal, team leader and administrator". The three levels are now the product's vocabulary for access (`shared/access.ts`), and **People** (`/people`) is where they are managed.
+**How they are stored.** Levels are held per team and stored as system roles: Team Leader (position 50) and Team Administrator (90, below the owner's 100). A unit's custom roles keep working, and the level shown is always what the permissions add up to.
+**Who can change what.**
+- Nobody changes their own access.
+- Nobody grants at or above their own position.
+- Only a team's owner or an organization administrator makes a team administrator.
+- The owner changes only by ownership transfer.
+**Organization administrator.** This is the instance owner (`is_operator`). They manage every team from People after confirming their password, and alone suspend accounts or reset sign-ins.
+**After every change.** The person is signed out and the change is audited with the before and after levels.
+**Demo.** The demo has three personas, one per level. Morgan Diaz is now the Team leader, not the owner. Alex Reyes, the section chief, owns the section and is its Administrator.
+
+## PD-021 · Records come in kinds, and each kind saves its own answers
+
+**Decision.** The owner asked to add education, volunteer, extracurricular and more, and for saving to "save all records, not just financial".
+**Kinds and fields.** A record now has a kind:
+- work;
+- education;
+- certification;
+- training or PME;
+- volunteer;
+- extracurricular;
+- physical fitness;
+- award or recognition.
+
+Each kind asks its own questions: credits and grade, issuer, credential ID and expiry, hours and role. The kind is the record's category, so older records read as before.
+**What is stored.**
+- **Where answers live.** They use the existing columns where one fits. A small `details` object with a fixed list of keys holds the rest (migration 009).
+- **Money stays on work records.** Only work records carry money, a system of record or a project. The server drops fields a kind does not ask for, so a course never keeps a transaction value left over from a draft.
+**Other changes with it.**
+- Quick capture recognises the new kinds.
+- Bullets use fitting verbs.
+- The strength hint no longer asks a certification "how many?".
+
+## PD-022 · "Projects", not taskers
+
+**Decision.** The owner answered the open naming question: work that arrives as a batch is a
+**project**. The Work tab, page subtitles and empty states say Projects. The data model and API
+names are unchanged.

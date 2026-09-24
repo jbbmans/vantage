@@ -50,12 +50,15 @@ const PEOPLE: Person[] = [
   { key: 'patel', first: 'Sam', last: 'Patel', rank: 'LCpl', role: 'marine', billet: 'Budget analyst' },
   { key: 'nguyen', first: 'Taylor', last: 'Nguyen', rank: 'Cpl', role: 'marine', billet: 'Budget analyst' },
   { key: 'brooks', first: 'Casey', last: 'Brooks', rank: 'PFC', role: 'marine', billet: 'Budget analyst' },
-  { key: 'leader', first: 'Morgan', last: 'Diaz', rank: 'SSgt', role: 'sncoic', billet: 'Section SNCOIC' },
+  { key: 'leader', first: 'Morgan', last: 'Diaz', rank: 'SSgt', role: 'team-leader', billet: 'Section SNCOIC' },
+  { key: 'admin', first: 'Alex', last: 'Reyes', rank: 'GySgt', role: 'owner', billet: 'Section chief' },
 ];
 
+/** One persona for each access level (shared/access.ts): Personal, Team leader, Administrator. */
 export const PERSONAS = {
-  marine: { label: 'Marine', description: 'A budget analyst working the queue' },
-  leader: { label: 'Section lead', description: 'Sees the section’s workload and assigns work' },
+  marine: { label: 'Marine', description: 'A budget analyst working the queue', level: 'personal' },
+  leader: { label: 'Section lead', description: 'Sees the section’s workload and assigns work', level: 'leader' },
+  admin: { label: 'Administrator', description: 'Owns the section and manages people and access', level: 'administrator' },
 } as const;
 export type Persona = keyof typeof PERSONAS;
 
@@ -110,10 +113,16 @@ export function workspaceOf(ctx: AppContext, userId: string): WorkspaceRow | nul
   return (ctx.db.prepare('SELECT w.* FROM demo_workspaces w JOIN users u ON u.demo_workspace_id = w.id WHERE u.id = ?').get(userId) as WorkspaceRow | undefined) || null;
 }
 
-export function personaOf(ws: WorkspaceRow, userId: string): Persona | null {
+export function personaOf(ws: WorkspaceRow, userId: string, ownerId?: string | null): Persona | null {
   if (userId === ws.persona_user_id) return 'marine';
   if (userId === ws.leader_user_id) return 'leader';
+  if (ownerId && userId === ownerId) return 'admin';
   return null;
+}
+
+/** The administrator persona is the section's owner. */
+export function workspaceOwner(ctx: AppContext, ws: WorkspaceRow): string | null {
+  return (ctx.db.prepare('SELECT owner_user_id FROM units WHERE id = ?').get(ws.unit_id) as { owner_user_id: string | null } | undefined)?.owner_user_id ?? null;
 }
 
 export function demoStatus(ctx: AppContext, userId?: string | null) {
@@ -121,7 +130,7 @@ export function demoStatus(ctx: AppContext, userId?: string | null) {
   return {
     mode: 'demo' as const,
     ttl_hours: ctx.config.demo.ttlHours,
-    workspace: ws ? { expires_at: ws.expires_at, persona: personaOf(ws, userId!) } : null,
+    workspace: ws ? { expires_at: ws.expires_at, persona: personaOf(ws, userId!, workspaceOwner(ctx, ws)) } : null,
     personas: PERSONAS,
     flagship: FLAGSHIP_SYSTEM_VALUES,
     // Said to the visitor in the demo banner, so being measured is never a surprise.
@@ -156,11 +165,11 @@ export function createWorkspace(ctx: AppContext): WorkspaceRow {
     ctx.db.prepare('INSERT INTO demo_workspaces (id, unit_id, persona_user_id, leader_user_id, created_at, last_used_at, expires_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
       .run(wsId, unitId, ids.marine, ids.leader, at, at, expires);
     seedRoles(ctx, unitId);
-    ctx.db.prepare('UPDATE units SET owner_user_id = ? WHERE id = ?').run(ids.leader, unitId);
+    ctx.db.prepare('UPDATE units SET owner_user_id = ? WHERE id = ?').run(ids.admin, unitId);
     for (const p of PEOPLE) {
       addMember(ctx, ids[p.key], unitId, { primary: true, billet: p.billet });
-      const roleId = p.role === 'sncoic' ? ownerRoleId(unitId) : `${unitId}:${p.role}`;
-      if (p.role !== 'marine') ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(ids[p.key], roleId, unitId, ids.leader, at);
+      const roleId = p.role === 'owner' ? ownerRoleId(unitId) : `${unitId}:${p.role}`;
+      if (p.role !== 'marine') ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(ids[p.key], roleId, unitId, ids.admin, at);
     }
     seedWork(ctx, unitId, ids);
     seedPersonalRecord(ctx, unitId, ids);

@@ -113,7 +113,7 @@ test('the synthetic section tells the intended story, and counts shared document
     const unit = me.memberships[0].unit_id;
     const w = (await app.call('GET', `/api/work/workload?unit_id=${unit}`, { token: lead })).body;
     const counts = w.members.map((m: any) => m.documents_researched).sort((a: number, b: number) => a - b);
-    assert.deepEqual(counts, [0, 0, 0, 27, 30, 39], 'Brooks and Nguyen record none; the lead researches none');
+    assert.deepEqual(counts, [0, 0, 0, 0, 27, 30, 39], 'Brooks and Nguyen record none; the lead and the administrator research none');
     assert.equal(w.section.documents_researched, 81);
     assert.equal(w.section.unassigned, 12);
     assert.equal(w.section.blocked, 1);
@@ -223,5 +223,46 @@ test('the seeded history follows the procedure, and every seeded calculation mat
     const waitingOnVerification = (await app.call('GET', '/api/work/items?stage=verification_required', { token })).body.items[0];
     const detail = (await app.call('GET', `/api/work/items/${waitingOnVerification.id}`, { token })).body;
     assert.equal(detail.case.progress.next, 'verify_invoice');
+  } finally { await app.close(); }
+});
+
+test('three personas, one for each access level, and levels change only inside the synthetic section', async () => {
+  const app = await startApp(DEMO);
+  try {
+    const { token, me } = await start(app);
+    assert.equal(me.accessLevel, 'personal');
+    const unit = me.memberships[0].unit_id;
+    // Every member sees the section: the roster and its totals.
+    assert.equal((await app.call('GET', '/api/org/team', { token })).body.roster.length, 7);
+    assert.equal((await app.call('GET', `/api/work/workload?unit_id=${unit}`, { token })).body.members.length, 0);
+
+    const lead = (await app.call('POST', '/api/demo/persona', { token, headers: H, body: { persona: 'leader' } })).body.token as string;
+    const asLead = (await app.call('GET', '/api/me', { token: lead })).body;
+    assert.equal(asLead.accessLevel, 'leader');
+    assert.equal(asLead.demo.workspace.persona, 'leader');
+
+    const admin = (await app.call('POST', '/api/demo/persona', { token: lead, headers: H, body: { persona: 'admin' } })).body.token as string;
+    const asAdmin = (await app.call('GET', '/api/me', { token: admin })).body;
+    assert.equal(asAdmin.user.last_name, 'Reyes');
+    assert.equal(asAdmin.accessLevel, 'administrator');
+    assert.equal(asAdmin.demo.workspace.persona, 'admin');
+    assert.equal(Boolean(asAdmin.user.is_operator), false, 'a team administrator, never the instance owner');
+
+    const people = (await app.call('GET', '/api/people', { token: admin })).body;
+    assert.equal(people.people.length, 7);
+    assert.deepEqual([people.stats.personal, people.stats.leader, people.stats.administrator], [5, 1, 1]);
+    const chen = people.people.find((p: any) => p.last_name === 'Chen');
+    const up = await app.call('PUT', `/api/people/${chen.id}/teams/${unit}`, { token: admin, headers: H, body: { level: 'leader' } });
+    assert.equal(up.status, 200, JSON.stringify(up.body));
+    // Membership stays as seeded, and nothing reaches beyond the workspace.
+    const add = await app.call('POST', `/api/people/${chen.id}/teams`, { token: admin, headers: H, body: { unit_id: unit } });
+    assert.equal(add.status, 403);
+    assert.equal(add.body.code, 'demo_mode');
+    assert.equal((await app.call('DELETE', `/api/people/${chen.id}/teams/${unit}`, { token: admin, headers: H })).body.code, 'demo_mode');
+
+    const other = await start(app);
+    const theirs = (await app.call('GET', '/api/org/teams', { token: other.token })).body.teams;
+    assert.deepEqual(theirs.map((t: any) => t.id), [other.me.memberships[0].unit_id], 'a visitor sees their own section, not another visitor’s');
+    assert.equal((await app.call('PUT', `/api/people/${chen.id}/teams/${unit}`, { token: other.token, headers: H, body: { level: 'personal' } })).status, 403);
   } finally { await app.close(); }
 });

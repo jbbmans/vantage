@@ -24,6 +24,7 @@ const Career = lazy(() => import('@/pages/Career'));
 const Maradmins = lazy(() => import('@/pages/Maradmins'));
 const ReportsHub = lazy(() => import('@/pages/ReportsHub'));
 const Team = lazy(() => import('@/pages/Team'));
+const People = lazy(() => import('@/pages/People'));
 const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const Operator = lazy(() => import('@/pages/Operator'));
@@ -195,6 +196,7 @@ function AppRoutes() {
         <Route path="maradmins" element={<D><Maradmins /></D>} />
         <Route path="reports" element={<D><ReportsHub /></D>} />
         <Route path="team" element={<D><Team /></D>} />
+        <Route path="people" element={<D><People /></D>} />
         <Route path="team/:id" element={<D><MemberDetail /></D>} />
         <Route path="settings" element={<D><Settings /></D>} />
         <Route path="operator" element={<D><Operator /></D>} />

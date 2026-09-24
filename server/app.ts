@@ -5,7 +5,7 @@ import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import type { AppConfig } from './config.ts';
 import { PROJECT_ROOT } from './config.ts';
-import { openDatabase, metaSet } from './db/index.ts';
+import { openDatabase, metaSet, metaGet, SCHEMA_VERSION } from './db/index.ts';
 import type { AppContext } from './context.ts';
 import { createMailer } from './services/email.ts';
 import { attachContext } from './auth/middleware.ts';
@@ -26,6 +26,7 @@ import { record } from './services/telemetry.ts';
 import { pruneEvents } from './services/usage.ts';
 import { pruneSources, reconcileInterruptedJobs } from './services/intake.ts';
 import { orgRouter } from './routes/org.ts';
+import { peopleRouter } from './routes/people.ts';
 import { miscRouter } from './routes/misc.ts';
 import { adminRouter } from './routes/admin.ts';
 import { supportRouter, publicSupportRouter } from './routes/support.ts';
@@ -117,6 +118,21 @@ export function createApp(ctx: AppContext) {
     }
   });
 
+  // Probes for an orchestrator or load balancer. Live: the process is up and answering, nothing else
+  // (restart it if this fails). Ready: it can do its job, so send it traffic: the database answers and
+  // is at the schema this build expects. Neither says anything about who is signed in or what data exists.
+  app.get('/api/health/live', (_req, res) => res.json({ ok: true, uptime: Math.round(process.uptime()) }));
+  app.get('/api/health/ready', (_req, res) => {
+    const checks: Record<string, 'ok' | string> = {};
+    try { ctx.db.prepare('SELECT 1').get(); checks.database = 'ok'; } catch { checks.database = 'unreachable'; }
+    try {
+      const version = Number(metaGet(ctx.db, 'schema_version'));
+      checks.schema = version === SCHEMA_VERSION ? 'ok' : `at ${version}, expected ${SCHEMA_VERSION}`;
+    } catch { checks.schema = 'unreadable'; }
+    const ok = Object.values(checks).every((v) => v === 'ok');
+    res.status(ok ? 200 : 503).json({ ok, checks, version: VERSION, maintenance: ctx.runtime.maintenance });
+  });
+
   // In maintenance, sign-in stays open so owners can work, but nothing else under /auth may write (registration, resets, invitations, setup).
   // Signed-in non-owners are turned away in requireAuth.
   const MAINTENANCE_OPEN = new Set(['/auth/login', '/auth/login/mfa', '/auth/passkey/options', '/auth/passkey/verify', '/auth/logout', '/auth/sudo']);
@@ -145,6 +161,7 @@ export function createApp(ctx: AppContext) {
   app.use('/api/record', recordRouter);
   app.use('/api/correspondence', correspondenceRouter);
   app.use('/api/org', orgRouter);
+  app.use('/api/people', peopleRouter);
   app.use('/api/support', supportRouter);
   // Raising a ticket without signing in: the commonest reason to need help is that you cannot sign
   // in, and a queue you must sign in to reach is no use to that person. This has to mount ahead of
@@ -184,7 +201,7 @@ export function createApp(ctx: AppContext) {
   if (existsSync(distDir)) {
     // Only public marketing routes are indexable, before any JavaScript runs.
     const publicRoutes = new Set(['/', '/display', '/about']);
-    const appRoute = /^\/(?:login|register|reset|invite|setup|work|record|goals|career|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
+    const appRoute = /^\/(?:login|register|reset|invite|setup|work|record|goals|career|maradmins|readiness|reports|settings|operator|people|help|queue|correspondence|studio|assist)\/?$/;
     // Two segments, not one: a record detail is /records/:id for an activity and
     // /records/:table/:id for a task, project or goal, which is the link shape a mention
     // notification points at. One segment 404s the second form.

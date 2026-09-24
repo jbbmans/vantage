@@ -184,6 +184,8 @@ CREATE TABLE IF NOT EXISTS activities (
   status         TEXT NOT NULL DEFAULT 'completed',
   notes          TEXT,
   evidence_links TEXT NOT NULL DEFAULT '[]',
+  -- facts a kind of record carries that no column fits: level, role, credential_id, expires_on
+  details        TEXT NOT NULL DEFAULT '{}',
   fingerprint    TEXT,
   version        INTEGER NOT NULL DEFAULT 1,
   frozen_at      TEXT,

@@ -35,11 +35,11 @@ interface Row {
   rowid: number; name: string; user_id: string | null; properties: string;
   form_ms: number | null; confirmed_work_minutes: number | null; occurred_at: string;
 }
-interface Visitor { workspace: string; created_at: string; persona: 'marine' | 'leader' | null }
+interface Visitor { workspace: string; created_at: string; persona: 'marine' | 'leader' | 'admin' | null }
 
 export interface ForwardResult { sent: number; skipped: number; dropped: number; failed: boolean }
 
-/** A stable, unlinkable id for one demo workspace: the same visitor across both personas. */
+/** A stable, unlinkable id for one demo workspace: the same visitor across every persona. */
 export function pseudonym(secret: string, workspaceId: string): string {
   return `demo-${createHmac('sha256', secret).update(`posthog:visitor:${workspaceId}`).digest('base64url').slice(0, 24)}`;
 }
@@ -62,10 +62,10 @@ export function visitSessionId(secret: string, workspaceId: string, createdAt: s
 function visitorOf(ctx: AppContext, userId: string | null): Visitor | null {
   if (!userId) return null;
   const row = ctx.db.prepare(
-    `SELECT w.id, w.created_at, w.persona_user_id, w.leader_user_id FROM users u JOIN demo_workspaces w ON w.id = u.demo_workspace_id WHERE u.id = ?`
-  ).get(userId) as { id: string; created_at: string; persona_user_id: string; leader_user_id: string } | undefined;
+    `SELECT w.id, w.created_at, w.persona_user_id, w.leader_user_id, un.owner_user_id FROM users u JOIN demo_workspaces w ON w.id = u.demo_workspace_id LEFT JOIN units un ON un.id = w.unit_id WHERE u.id = ?`
+  ).get(userId) as { id: string; created_at: string; persona_user_id: string; leader_user_id: string; owner_user_id: string | null } | undefined;
   if (!row) return null;
-  return { workspace: row.id, created_at: row.created_at, persona: userId === row.persona_user_id ? 'marine' : userId === row.leader_user_id ? 'leader' : null };
+  return { workspace: row.id, created_at: row.created_at, persona: userId === row.persona_user_id ? 'marine' : userId === row.leader_user_id ? 'leader' : userId === row.owner_user_id ? 'admin' : null };
 }
 
 /** Maps one stored event to a PostHog event, or null when it is not a visitor's. */

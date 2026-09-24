@@ -57,6 +57,14 @@ export const activitySchema = z.object({
   status: optEnum(ACTIVITY_STATUS),
   notes: optText(8000),
   evidence_links: evidenceLinks,
+  // The few facts a kind of record carries that no column fits (shared/recordKinds.ts). Unknown
+  // keys are dropped by the object schema, so nothing outside this list is ever stored.
+  details: z.object({
+    level: optText(120),
+    role: optText(120),
+    credential_id: optText(120),
+    expires_on: optDate,
+  }).partial().nullish().transform((v) => (v === undefined ? undefined : Object.fromEntries(Object.entries(v || {}).filter(([, x]) => x != null && x !== '')))),
   visibility: visibilityField,
   unit_id: unitIdField,
   version: z.number().int().optional(),

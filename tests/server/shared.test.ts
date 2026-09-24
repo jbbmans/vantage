@@ -15,6 +15,7 @@ import { totpCode, verifyTotp, base32Encode, base32Decode, generateTotpSecret } 
 import { parseMaradminFeed } from '../../server/services/maradmins.ts';
 import { encryptSecret, decryptSecret, hashPassword, verifyPassword } from '../../server/lib/crypto.ts';
 import { comparePeriods } from '../../shared/delta.ts';
+import { suggestCategory } from '../../shared/constants.ts';
 import { localClock } from '../../server/services/digest.ts';
 
 test('fiscal year starts 1 October and quarters map correctly', () => {
@@ -262,4 +263,25 @@ test('csv formula protection is added on export and removed again on import', ()
   const parsed = C.parseCsvText(csv);
   const { records } = C.applyMapping(parsed.rows, C.guessMapping(parsed.columns));
   assert.equal(records[0].title, '-40 ULOs deobligated');
+});
+
+test('quick capture recognises the new kinds of record, and training others stays leadership', () => {
+  const cases: Array<[string, string]> = [
+    ['Earned CompTIA Security+ certification', 'Certifications & Licenses'],
+    ['Finished ACCT 201 at the community college, 3 credit hours', 'Education'],
+    ['Ran the PFT, 285 first class', 'Physical Fitness'],
+    ['Captained the intramural soccer team to the league title', 'Extracurricular'],
+    ['Volunteered 6 hours at the base food pantry', 'Volunteer Service'],
+    ['Completed the MarineNet course on travel', 'Training & PME'],
+    ['Trained 12 Marines on DTS vouchers', 'Leadership'],
+    ['Received a certificate of appreciation from the CO', 'Recognition'],
+    ['Reconciled 30 ULOs in DAI', 'Fiscal & Financial'],
+  ];
+  for (const [text, category] of cases) assert.equal(suggestCategory(text), category, text);
+});
+
+test('a kind with no count is never told it is missing one', () => {
+  assert.ok(!B.weaknesses({ title: 'Security+', category: 'Certifications & Licenses', result: 'passed', eval_area: 'Leadership' }).some((g) => g.includes('quantity')));
+  assert.ok(B.weaknesses({ title: 'Food pantry', category: 'Volunteer Service', result: 'fed families', eval_area: 'Leadership' }).some((g) => g.includes('quantity')));
+  assert.ok(B.weaknesses({ title: 'Reconciled ULOs', category: 'Fiscal & Financial' }).some((g) => g.includes('quantity')));
 });

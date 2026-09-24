@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Users, UserPlus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy } from 'lucide-react';
+import { Users, UserPlus, UserCog, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -17,6 +17,7 @@ import { formatDollars } from '../../shared/metrics';
 import { copyToClipboard, cn, humanize, fullName } from '@/lib/utils';
 
 const TeamWorkload = lazy(() => import('./TeamWorkload'));
+import { LevelBadge } from '@/components/AccessLevel';
 import { downloadText } from '@/lib/utils';
 
 export default function Team() {
@@ -24,36 +25,55 @@ export default function Team() {
   const { data: org } = useOrg();
   const { data: team, isPending } = useTeam();
   const [tab, setTab] = useParam('tab', 'workload');
-  const readable = identity?.readableUnitIds || [];
-  const [unit, setUnit] = useParam('unit', identity?.primaryUnitId && readable.includes(identity.primaryUnitId) ? identity.primaryUnitId : readable[0] || '');
+  // Every team you are on, not only the ones you lead: a team is open to its members.
+  const mine = identity?.unitIds || [];
+  const [unit, setUnit] = useParam('unit', identity?.primaryUnitId && mine.includes(identity.primaryUnitId) ? identity.primaryUnitId : mine[0] || '');
   const units: any[] = org?.units || [];
   const unitLabel = (id: string) => { const u = units.find((x) => x.id === id); return u ? u.short_name || u.name : id; };
   const manageMembers = unitsWith(identity, PERMISSIONS.MANAGE_MEMBERS);
   const manageRoles = unitsWith(identity, PERMISSIONS.MANAGE_ROLES);
   const manageUnits = unitsWith(identity, PERMISSIONS.MANAGE_UNITS);
   const viewAudit = unitsWith(identity, PERMISSIONS.VIEW_AUDIT);
-  const tabs = [{ value: 'workload', label: 'Workload' }, { value: 'roster', label: 'Roster', count: team?.roster?.length }, { value: 'dashboard', label: 'Unit dashboard' }];
+  const leads = Boolean(unit) && can(identity, PERMISSIONS.VIEW_MEMBER_DETAIL, unit);
+  const level = unit ? identity?.levels?.[unit] : undefined;
+  const tabs = [{ value: 'workload', label: 'Workload' }, { value: 'roster', label: 'Roster', count: team?.roster?.filter((p: any) => p.memberships.some((m: any) => m.unit_id === unit)).length }];
+  if (unit && can(identity, PERMISSIONS.VIEW_RECORDS, unit)) tabs.push({ value: 'dashboard', label: 'Unit dashboard' });
+  tabs.push({ value: 'teams', label: 'All teams' });
   if (manageMembers.length) tabs.push({ value: 'invites', label: 'Invitations' });
   if (manageRoles.length || manageUnits.length || identity?.user.is_operator) tabs.push({ value: 'roles', label: 'Roles' });
   if (manageUnits.length || identity?.user.is_operator) tabs.push({ value: 'units', label: 'Units' });
   if (viewAudit.length) tabs.push({ value: 'audit', label: 'Access log' });
 
-  if (!identity?.canLead) return <div className="page"><PageHeader eyebrow="Team" title="Team" /><div className="card"><EmptyState icon={Users} title="No unit visibility yet" description="Team shows the Marines and shared records of units where you hold a leadership role. Ask your unit leader for a role." /></div></div>;
+  if (identity && !mine.length) {
+    return (
+      <div className="page">
+        <PageHeader eyebrow="Team" title="Team" lede="Every team in the organization is listed here. Join one with a code from its leader, or ask a leader to add you." />
+        <div className="card mb-4"><EmptyState icon={Users} title="You are not on a team yet" description="Once you join, your team’s roster and where its work stands appear here." /></div>
+        <TeamsDirectory />
+      </div>
+    );
+  }
 
   return (
     <div className="page">
-      <PageHeader eyebrow="Team" title="Team" lede="The section’s work and people. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.">
-        {readable.length > 1 && <Select aria-label="Unit" className="w-56" value={unit} onValueChange={setUnit} options={readable.map((id) => ({ value: id, label: unitLabel(id) }))} />}
+      <PageHeader eyebrow="Team" title={unit ? unitLabel(unit) : 'Team'}
+        lede={leads
+          ? 'The team’s work and people. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.'
+          : 'Who is on your team and where its work stands. Each person’s own workload and records are for team leaders; your private entries never appear here.'}
+        meta={level ? <span className="flex items-center gap-2 text-sm text-ink-2">Your access here: <LevelBadge level={level} /></span> : undefined}>
+        {mine.length > 1 && <Select aria-label="Unit" className="w-56" value={unit} onValueChange={setUnit} options={mine.map((id) => ({ value: id, label: unitLabel(id) }))} />}
+        {identity?.canManagePeople && <Button asChild><Link to="/people"><UserCog className="h-4 w-4" />People</Link></Button>}
       </PageHeader>
       <Tabs value={tab} onChange={setTab} className="mb-4" tabs={tabs} />
       {isPending ? <Skeleton className="h-64" /> : (
         <>
           {tab === 'workload' && unit && <Suspense fallback={<Skeleton className="h-64" />}><TeamWorkload unitId={unit} /></Suspense>}
-          {tab === 'roster' && <Roster team={team} unit={unit} unitLabel={unitLabel} canManage={manageMembers.includes(unit)} />}
+          {tab === 'roster' && <Roster team={team} unit={unit} unitLabel={unitLabel} canManage={manageMembers.includes(unit)} leads={leads} />}
           {tab === 'dashboard' && unit && <UnitDashboard unitId={unit} unitLabel={unitLabel(unit)} canExport={can(identity, PERMISSIONS.EXPORT_DATA, unit)} canDetail={can(identity, PERMISSIONS.VIEW_MEMBER_DETAIL, unit)} />}
+          {tab === 'teams' && <TeamsDirectory onOpen={(id) => { setUnit(id); setTab('workload'); }} />}
           {tab === 'invites' && <Invites unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} />}
           {tab === 'roles' && <Roles unitId={unit} unitLabel={unitLabel} />}
-          {tab === 'units' && <Units units={units} manageUnits={manageUnits} isOperator={Boolean(identity.user.is_operator)} roster={team?.roster || []} />}
+          {tab === 'units' && <Units units={units} manageUnits={manageUnits} isOperator={Boolean(identity?.user.is_operator)} roster={team?.roster || []} />}
           {tab === 'audit' && <UnitAudit unitId={viewAudit.includes(unit) ? unit : viewAudit[0]} />}
         </>
       )}
@@ -61,7 +81,42 @@ export default function Team() {
   );
 }
 
-function Roster({ team, unit, unitLabel, canManage }: { team: any; unit: string; unitLabel: (id: string) => string; canManage: boolean }) {
+/** Every team in the organization, open to everyone signed in. Names and sizes; the people on a team are its roster. */
+function TeamsDirectory({ onOpen }: { onOpen?: (id: string) => void }) {
+  const { data, isPending } = useQuery({ queryKey: ['teams-directory'], queryFn: api.teamsDirectory });
+  const [q, setQ] = useState('');
+  if (isPending) return <Skeleton className="h-48" />;
+  const teams: any[] = (data?.teams || []).filter((t: any) => !q.trim() || `${t.name} ${t.short_name || ''} ${t.code || ''}`.toLowerCase().includes(q.trim().toLowerCase()));
+  return (
+    <>
+      <div className="mb-3 flex flex-wrap items-center gap-2">
+        <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" aria-hidden /><Input aria-label="Search teams" className="pl-8" placeholder="Team name or code…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <span className="text-xs text-ink-3">{teams.length} {teams.length === 1 ? 'team' : 'teams'}</span>
+      </div>
+      {teams.length === 0 ? <div className="card"><EmptyState icon={Building2} title="No teams match" description="Clear the search to see every team." /></div> : (
+        <ul className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3" aria-label="All teams">
+          {teams.map((t) => (
+            <li key={t.id} className="card flex flex-col gap-2 p-4">
+              <span className="flex items-start justify-between gap-2">
+                <span className="min-w-0">
+                  <span className="block truncate font-medium text-ink">{t.name}</span>
+                  <span className="block text-xs text-ink-3">{[t.short_name || t.code, t.echelon && humanize(t.echelon)].filter(Boolean).join(' · ')}</span>
+                </span>
+                {t.is_member && <Badge tone="accent">{t.is_primary ? 'Your team' : 'You are on it'}</Badge>}
+              </span>
+              <span className="fig text-sm text-ink-2">{t.members} {t.members === 1 ? 'person' : 'people'}</span>
+              {t.is_member && onOpen
+                ? <Button size="sm" className="mt-auto self-start" onClick={() => onOpen(t.id)}>Open</Button>
+                : !t.is_member && <span className="mt-auto text-xs text-ink-3">Join with a code from its leader.</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+    </>
+  );
+}
+
+function Roster({ team, unit, unitLabel, canManage, leads }: { team: any; unit: string; unitLabel: (id: string) => string; canManage: boolean; leads: boolean }) {
   const [q, setQ] = useState('');
   const [enroll, setEnroll] = useState(false);
   const roster: any[] = useMemo(() => (team?.roster || []).filter((p: any) => (!unit || p.memberships.some((m: any) => m.unit_id === unit)) && (!q.trim() || `${p.first_name} ${p.last_name} ${p.mos || ''} ${p.rank_abbr || ''}`.toLowerCase().includes(q.trim().toLowerCase()))), [team, unit, q]);
@@ -73,13 +128,14 @@ function Roster({ team, unit, unitLabel, canManage }: { team: any; unit: string;
       </div>
       {roster.length === 0 ? <div className="card"><EmptyState icon={Users} title="No members here yet" description={canManage ? 'Invite Marines from the Invitations tab, or enroll an account that already exists.' : 'Nobody has joined this unit yet.'} /></div> : (
         <div className="card" style={{ overflow: 'hidden' }}>
-          <Table head={<><th>Marine</th><th className="w-28">MOS</th><th>Billet</th><th>Roles</th><th className="w-24"></th></>}>
+          <Table head={<><th>Marine</th><th className="w-28">MOS</th><th>Billet</th><th className="w-36">Access</th><th>Roles</th><th className="w-24"><span className="sr-only">Record</span></th></>}>
             {roster.map((p) => { const m = p.memberships.find((x: any) => x.unit_id === unit) || p.memberships[0]; return (
               <tr key={p.id}>
                 <td><span className="flex items-center gap-2.5"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 text-xs font-bold text-ink">{(p.first_name[0] || '') + (p.last_name[0] || '')}</span><span className="min-w-0"><span className="block font-medium text-ink">{p.rank_abbr || ''} {p.last_name}, {p.first_name}</span><span className="block text-xs text-ink-3">{m ? `${m.unit_short || m.unit_name}${m.is_primary ? '' : ' (secondary)'}` : ''}</span></span></span></td>
                 <td className="fig text-xs">{p.mos || ''}</td><td className="text-xs text-ink-2">{m?.billet || ''}</td>
+                <td>{m?.level && <LevelBadge level={m.level} />}</td>
                 <td><span className="flex flex-wrap gap-1">{p.roles.filter((r: any) => r.unit_id === unit).map((r: any) => <RoleBadge key={r.id} color={r.color}>{r.name}</RoleBadge>)}</span></td>
-                <td className="text-right">{p.canOpen ? <Button size="xs" asChild><Link to={`/team/${p.id}`}>Open</Link></Button> : <span className="text-2xs text-ink-3">roster only</span>}</td>
+                <td className="text-right">{p.canOpen ? <Button size="xs" asChild><Link to={`/team/${p.id}`}>Open</Link></Button> : leads ? <span className="text-2xs text-ink-3">roster only</span> : null}</td>
               </tr>
             ); })}
           </Table>

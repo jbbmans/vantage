@@ -224,8 +224,8 @@ workRouter.post('/items/:id/actions', wrap((req, res) => {
 // The case: research, decisions, submissions, stage and waiting, handoffs --------------------
 // Each of these writes an append-only event in the same transaction as the change it describes.
 
-// A section's workload for a leader. Totals need VIEW_RECORDS; the per-person breakdown needs
-// VIEW_MEMBER_DETAIL, and opening it is logged.
+// A section's workload. Totals are open to every member of the team; the per-person breakdown
+// needs VIEW_MEMBER_DETAIL, and opening it is logged.
 workRouter.get('/workload', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   const unitId = String(req.query.unit_id || '');

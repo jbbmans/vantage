@@ -496,3 +496,53 @@ test('tasks, projects and goals take files, and the file is exactly as reachable
   // The owner still reaches their own.
   assert.equal((await app.call('GET', `/api/records/tasks/${secret.body.id}/attachments`, { token: rivera.token })).body.attachments.length, 1);
 });
+
+test('each kind of record saves its own answers, and none a different kind would ask', async () => {
+  const post = (body: Record<string, unknown>) => app.call('POST', '/api/records/activities', { token: rivera.token, body: { date: '2026-08-15', ...body } });
+  // A course sent with leftovers from a draft that started as work: the money, the system and the
+  // work unit do not survive, and only the details an education record asks for are kept.
+  const course = await post({ title: 'ACCT 201', category: 'Education', organization: 'Synthetic State College', quantity: 3, unit_label: 'ULOs', result: 'A', dollar_amount: 500, dollar_type: 'reconciled', system: 'DAI', details: { level: 'Single course', credential_id: 'not asked', role: '  ' } });
+  assert.equal(course.status, 201);
+  assert.equal(course.body.dollar_amount, null);
+  assert.equal(course.body.dollar_type, null);
+  assert.equal(course.body.system, null);
+  assert.equal(course.body.quantity, 3);
+  assert.equal(course.body.unit_label, 'credits');
+  assert.equal(course.body.organization, 'Synthetic State College');
+  assert.deepEqual(course.body.details, { level: 'Single course' });
+  assert.deepEqual((await app.call('GET', `/api/records/activities/${course.body.id}`, { token: rivera.token })).body.details, { level: 'Single course' });
+
+  const cert = await post({ title: 'Synthetic Security Cert', category: 'Certifications & Licenses', organization: 'Example Credentialing Body', quantity: 4, details: { credential_id: 'SYN-0001', expires_on: '2029-08-01' } });
+  assert.equal(cert.status, 201);
+  assert.equal(cert.body.quantity, null, 'a certification has no count');
+  assert.deepEqual(cert.body.details, { credential_id: 'SYN-0001', expires_on: '2029-08-01' });
+  const badDate = await post({ title: 'Bad expiry', category: 'Certifications & Licenses', details: { expires_on: '2029-13-40' } });
+  assert.equal(badDate.status, 400);
+  assert.ok(badDate.body.fieldErrors['details.expires_on']);
+
+  const volunteer = await post({ title: 'Food pantry', category: 'Volunteer Service', organization: 'Example food bank', quantity: 6, result: 'Served 120 families', details: { role: 'Shift lead' } });
+  assert.equal(volunteer.body.unit_label, 'hours');
+  assert.deepEqual(volunteer.body.details, { role: 'Shift lead' });
+
+  // Work keeps every field it always had, and carries no details.
+  const work = await post({ title: 'Reconciled 30 ULOs', category: 'Fiscal & Financial', quantity: 30, unit_label: 'ULOs', dollar_amount: 1118.38, dollar_type: 'reconciled', system: 'DAI', details: { level: 'x' } });
+  assert.equal(work.body.dollar_amount, 1118.38);
+  assert.equal(work.body.unit_label, 'ULOs');
+  assert.equal(work.body.system, 'DAI');
+  assert.deepEqual(work.body.details, {});
+
+  // An edit that does not touch the details leaves them alone.
+  const regrade = await app.call('PUT', `/api/records/activities/${course.body.id}`, { token: rivera.token, body: { result: 'A-', version: course.body.version } });
+  assert.equal(regrade.status, 200);
+  assert.deepEqual(regrade.body.details, { level: 'Single course' });
+  // Moving work to a kind reshapes what was stored: the count takes the kind's unit, the money goes.
+  const moved = await app.call('PUT', `/api/records/activities/${work.body.id}`, { token: rivera.token, body: { category: 'Training & PME', version: work.body.version } });
+  assert.equal(moved.status, 200);
+  assert.equal(moved.body.quantity, 30);
+  assert.equal(moved.body.unit_label, 'hours');
+  assert.equal(moved.body.dollar_amount, null);
+  assert.equal(moved.body.system, null);
+  // And a course moved back to work drops the details only an education record carries.
+  const back = await app.call('PUT', `/api/records/activities/${course.body.id}`, { token: rivera.token, body: { category: 'Administration', version: regrade.body.version } });
+  assert.deepEqual(back.body.details, {});
+});

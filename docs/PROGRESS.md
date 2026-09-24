@@ -14,8 +14,9 @@ _Updated 2026-09-24 · branch `claude/vantage-restore-enterprise-llq8d8` · base
 - **The synthetic demo opens straight onto Today.** There is no sign-in form. One banner names the
   synthetic persona and how long changes last. The visitor can view as the Marine or as the section
   lead, or start over.
-- **Navigation is Today · Work · Record · Goals · Career**, with Team for leaders. Nothing was removed:
-  Readiness is under Career and activities are under Record, and old links still work.
+- **Navigation is Today · Work · Record · Goals · Career · Team**, with People for team leaders and
+  administrators. Nothing was removed: Readiness is under Career and activities are under Record, and
+  old links still work.
 - **Today** shows your work with its next step, what is waiting on someone else, what is open to claim,
   what changed, quick capture, and your goals and next career step. A leader's Today puts unassigned,
   overdue, blocked and waiting work first, with who holds what.
@@ -74,6 +75,26 @@ DESIGN_SYSTEM → Premium layer):
 Reduced motion stops all of it. It was checked at four sizes in both themes. The component
 libraries the owner named were not added; PD-018 records why for each.
 
+## Enterprise slice (2026-09-24)
+
+On the owner's request ("make teams public for everyone", "projects", "add education, volunteer,
+extracurricular", "save all records, not just financial", "a way better user management system:
+personal, team leader and administrator", "make this enterprise ready"):
+- **Teams are open to their members** (PD-019). Team is a primary destination for everyone. Each member sees:
+  - the roster with each person's access level;
+  - the team's totals and where its work stands;
+  - a list of every team in the organization.
+
+  Per-person workload and opening records stay with team leaders, and each open is logged.
+- **Three access levels and a People page** (PD-020). Personal, Team leader and Administrator are held per team. People sets them, adds and removes members and invites at a level. An organization administrator also manages accounts: suspend, restore, reset two-step, temporary password, sign out everywhere. The demo has one persona per level.
+- **Records of every kind** (PD-021). Work, education, certification, training or PME, volunteer, extracurricular, physical fitness, and award. Each has its own fields, and the server saves exactly those (migration 009).
+- **"Projects"** replaces "Taskers and projects" (PD-022).
+- **Operations:**
+  - `/api/health/live` and `/api/health/ready`;
+  - `npm run backup`, a verified, fingerprinted, pruned backup, with the time shown in the owner console;
+  - importing an archive from an older version fills newer columns with their defaults.
+- **Readiness.** `docs/engineering/ENTERPRISE_READINESS.md` is an honest checklist of what an evaluator can rely on and what waits on the owner: single sign-on, PostgreSQL, off-host backups, audit export.
+
 ## Verification (this branch, 2026-09-23, tooling slice re-run 2026-09-24)
 
 | Check | Result |
@@ -99,7 +120,8 @@ libraries the owner named were not added; PD-018 records why for each.
   - Windows Server.
   - A real CAC.
   - An MCEN or restricted-network host.
-  - Backup and restore drills.
+  - A restore drill on a real host. The backup command itself is tested (`tests/server/enterprise.test.ts`).
+  - Single sign-on (not built; owner decision).
   - Clean install from an offline dependency bundle.
   - Keyboard-only walkthrough of the new item page beyond axe and label checks.
 - **Not done:**
@@ -119,8 +141,7 @@ None blocks continued work. Two decisions are the owner's:
 ## Owner feedback needed (specific)
 
 1. Should Today put the leader's section block above the leader's own work, as it does now, or below?
-2. Is "Taskers and projects" the right name for the Work tab that holds projects, or does the shop say
-   something else?
+2. ~~Is "Taskers and projects" the right name for the Work tab?~~ **Answered:** "Projects" (PD-022).
 3. The 2-Way UMT page shows one step's form at a time, with the whole checklist on the right. Is that
    the right balance for an experienced analyst, or should all remaining fields be on one form?
 4. In the Record, is "Documents researched / Research entries / Submitted / Verified outcomes /
@@ -137,6 +158,16 @@ None blocks continued work. Two decisions are the owner's:
 
 8. **Third-party UI components.** Approve (or not) adding code from Magic UI, Vengeance UI or
    similar registries. The current premium layer is written for Vantage and needs no such code.
+
+## Owner decisions from the enterprise request
+
+9. **Single sign-on.** Choose an identity provider (SAML or OIDC; for example Microsoft Entra ID or Okta), and
+   whether accounts should be provisioned from it (SCIM). Nothing is wired until the owner names one.
+10. **PostgreSQL** (ADR-0003): approve the staged move and its hosting cost, or keep SQLite on one host.
+11. **Where backups go.** `npm run backup` keeps verified copies on the same host. Choose an off-host destination.
+12. **Audit export.** Should the audit log feed a SIEM or log service, and which one?
+13. **Rosters across teams.** Teams are open to their own members (PD-019). Should every signed-in person
+    also see the people on teams they are not on? That is a privacy reduction, so it is the owner's call.
 
 ## Open questions
 

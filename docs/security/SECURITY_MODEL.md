@@ -64,7 +64,34 @@ PIN is ever collected. See `docs/engineering/INFRASTRUCTURE_QUESTIONS.md`.
   only the session's own data. Drafts and career steps answer 404, not 403, to anyone else, so they do
   not confirm that the record exists.
 - The per-person workload breakdown needs `VIEW_MEMBER_DETAIL` in the unit, and each view is audited
-  (`view_team_workload`). Section totals need `VIEW_RECORDS`.
+  (`view_team_workload`). Section totals are open to anyone on the team (`VIEW_UNIT` or `VIEW_RECORDS`),
+  since they count work the team's queue already shows every member (PD-019).
+- A record keeps only the fields its kind asks for (`shared/recordKinds.ts`). The server applies this on
+  create, update and import, so a non-work record never stores money, a system of record or detail keys
+  outside the fixed list.
+
+## Teams and access levels
+
+- **Roster.** A roster (names, ranks, billets, roles, access levels) is visible to members of that team:
+  `rosterUnitIds` is the teams where the caller holds `VIEW_UNIT` or `VIEW_RECORDS`. Nobody sees the
+  roster of a team they are not on. `GET /api/org/teams` lists every active team's name, echelon and
+  member count, and no people; in the demo it lists only the visitor's own section.
+- **Opening a record is separate.** Opening a person's record still needs `VIEW_MEMBER_DETAIL`, a shared
+  team and a higher position (`detailUnitsFor`), and each open is audited.
+- **Levels.** Personal, Team leader and Administrator (`shared/access.ts`) are read from the permission
+  bits in each team, and granted through the system roles `team-leader` (position 50) and
+  `team-administrator` (90). `server/services/people.ts` enforces who may set them:
+  - nobody changes their own access;
+  - `MANAGE_ROLES` sets only levels whose role sits below the caller's position, for people below it;
+  - a team's owner sets any level in their team, and the owner changes only by ownership transfer.
+- **Organization administrator.** The instance owner can act on every team from People. Outside the
+  teams they belong to, every such action, and the organization-wide list with its sign-in facts
+  (email, two-step status, last sign-in), needs step-up re-authentication (`sudo_required`).
+- **Applying and recording changes.** Every level or membership change revokes the person's sessions
+  and writes `set_access_level`, `add_member` or `remove_member` to the audit chain with the before
+  and after state.
+- **Demo.** Level changes work inside the synthetic section. Adding or removing members is closed, as
+  it already was for the unit membership routes.
 
 ## Browser and network
 

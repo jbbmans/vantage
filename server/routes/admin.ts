@@ -13,7 +13,7 @@ import { audit, verifyAuditChain } from '../services/audit.ts';
 import { aiStatus, discoverModels, unlockAi } from '../services/ai.ts';
 import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { exportInstance, importInstance } from '../services/exports.ts';
-import { metaSet, SCHEMA_VERSION } from '../db/index.ts';
+import { metaGet, metaSet, SCHEMA_VERSION } from '../db/index.ts';
 import { VERSION } from '../version.ts';
 import { newId, now } from '../lib/ids.ts';
 import { layout } from '../services/email.ts';
@@ -62,6 +62,7 @@ adminRouter.get('/overview', wrap((req, res) => {
   try { sizeBytes = db.name === ':memory:' ? null : statSync(db.name).size; } catch {}
   res.json({
     version: VERSION, schemaVersion: SCHEMA_VERSION, uptime: Math.round(process.uptime()), node: process.version,
+    lastBackupAt: metaGet(req.ctx.db, 'last_backup_at'),
     users: count('SELECT COUNT(*) AS n FROM users WHERE active = 1'), inactiveUsers: count('SELECT COUNT(*) AS n FROM users WHERE active = 0'),
     operators: count('SELECT COUNT(*) AS n FROM users WHERE is_operator = 1 AND active = 1'), units: count('SELECT COUNT(*) AS n FROM units WHERE active = 1'),
     records: RECORD_TABLE_NAMES.reduce((t, table) => t + count(`SELECT COUNT(*) AS n FROM ${table} WHERE deleted_at IS NULL`), 0),

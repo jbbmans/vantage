@@ -4,6 +4,26 @@
 
 Render disks are not backed up for you. From **Owner console → Backup and move → Download backup** you get a consistent copy of the SQLite file (uses SQLite's online backup API, safe while the app runs). Do it weekly and before every upgrade. Store it somewhere the data classification allows.
 
+On a server, schedule the command instead:
+
+```bash
+npm run backup -- --dir /var/backups/vantage --keep 14
+```
+
+It takes the same online copy, opens it and runs a full integrity check, writes `<file>.sha256` beside it, records the time (the owner console shows it), and keeps the newest 14. A copy that fails the check is deleted and the command exits non-zero, so the scheduler reports it. Defaults come from `VANTAGE_BACKUP_DIR` and `VANTAGE_BACKUP_KEEP`. A daily cron line:
+
+```cron
+15 2 * * * cd /app && VANTAGE_DB=/data/vantage.db npm run backup --silent >> /var/log/vantage-backup.log 2>&1
+```
+
+The copies sit on the same host until something moves them. Where they go next (another disk, object storage) is an owner decision; see `docs/engineering/ENTERPRISE_READINESS.md`.
+
+## Health probes
+
+- `GET /api/health/live`: the process is up. Restart it if this fails.
+- `GET /api/health/ready`: the database answers and is at this build's schema. Send traffic only when it returns 200; it returns 503 with the failing check otherwise.
+- `GET /api/health`: the original combined check, still used by the Dockerfile and `render.yaml`.
+
 Restoring a `.db` file: turn on maintenance mode, replace `/data/vantage.db` (a Render shell: `render ssh`, then `cp`), delete any `-wal` and `-shm` siblings, restart the service.
 
 ## Moving to another host

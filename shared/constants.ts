@@ -2,14 +2,20 @@ export const CATEGORIES = [
   'Fiscal & Financial',
   'Leadership',
   'Training & PME',
+  'Education',
+  'Certifications & Licenses',
   'Administration',
   'Operations',
   'Project Work',
   'Recognition',
   'Volunteer Service',
+  'Extracurricular',
+  'Physical Fitness',
   'Communications',
   'Other',
 ] as const;
+/** Kinds added in 5.1. Instances that saved their own category list before then get these appended once (migration 009). */
+export const CATEGORIES_ADDED_5_1 = ['Education', 'Certifications & Licenses', 'Extracurricular', 'Physical Fitness'] as const;
 export type Category = (typeof CATEGORIES)[number];
 
 export const CATEGORY_COLORS: Record<Category, string> = {
@@ -22,6 +28,10 @@ export const CATEGORY_COLORS: Record<Category, string> = {
   Recognition: '#e0506f',
   'Volunteer Service': '#7fb31d',
   Communications: '#9264e6',
+  Education: '#2f6fd6',
+  'Certifications & Licenses': '#0f8a8a',
+  Extracurricular: '#b8651b',
+  'Physical Fitness': '#c2413a',
   Other: '#54627a',
 };
 
@@ -178,8 +188,13 @@ export const FISCAL_YEAR_START_MONTH = 9;
 
 const CATEGORY_HINTS: Array<[RegExp, Category]> = [
   [/\bulo\b|\bumt\b|\bmipr\b|reconcil|obligat|deobligat|fiscal|budget|funds?\b|dai\b|advana|sabrs|audit|invoice|disburse|comptroller/i, 'Fiscal & Financial'],
-  [/\bloa\b|award|commendat|certificate|meritorious|recogni/i, 'Recognition'],
-  [/mentor|counsel|supervis|\bled\b|\bleading\b|\blead\b|billet|charge of|class leader|instruct/i, 'Leadership'],
+  [/\bloa\b|award|commendat|certificate of|meritorious|recogni/i, 'Recognition'],
+  [/certified|certification|\blicen[cs]e|comptia|security\+|\bpmp\b|\bcissp\b|\bcpa\b/i, 'Certifications & Licenses'],
+  [/college|universit|\bdegree|semester|credit hours?|\bclep\b|\bdsst\b|associate'?s|bachelor|master'?s|\bgpa\b|tuition/i, 'Education'],
+  [/\bpft\b|\bcft\b|marathon|half marathon|\b5k\b|\b10k\b|triathlon|\bruck\b|fitness test/i, 'Physical Fitness'],
+  [/intramural|\bclub\b|team captain|varsity|league|choir|\bband\b|debate|chess|rugby|soccer|basketball/i, 'Extracurricular'],
+  // Training other people is leadership; training you took is Training & PME, one line down.
+  [/mentor|counsel|supervis|\bled\b|\bleading\b|\blead\b|billet|charge of|class leader|instruct|\btrained\s+\d|\btaught\b/i, 'Leadership'],
   [/\bpme\b|course|seminar|school|certif|training|marinenet|belt\b|study|degree/i, 'Training & PME'],
   [/volunteer|community|color guard|funeral detail|charity/i, 'Volunteer Service'],
   [/brief|email|correspond|memo|present|deck\b|slide/i, 'Communications'],

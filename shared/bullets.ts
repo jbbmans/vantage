@@ -1,5 +1,6 @@
 import { formatDollarsExact, formatNumber, formatDTG, toDate } from './metrics.ts';
 import { JEPES_CORE, DEFAULT_METRICS, isSummable, type MetricsConfig } from './constants.ts';
+import { kindFor } from './recordKinds.ts';
 
 export type BulletStyle = 'jepes' | 'fitrep' | 'resume';
 
@@ -13,11 +14,13 @@ const VERB_BY_DOLLAR_TYPE: Record<string, string> = { reconciled: 'Reconciled', 
 const VERB_BY_CATEGORY: Record<string, string> = {
   'Fiscal & Financial': 'Executed', Leadership: 'Led', 'Training & PME': 'Completed', Administration: 'Processed', Operations: 'Executed',
   'Project Work': 'Developed', Recognition: 'Earned', 'Volunteer Service': 'Volunteered', Communications: 'Briefed', Other: 'Completed',
+  Education: 'Completed', 'Certifications & Licenses': 'Earned', Extracurricular: 'Contributed', 'Physical Fitness': 'Achieved',
 };
 const RESUME_VERB_BY_DOLLAR_TYPE: Record<string, string> = { reconciled: 'Reconciled', obligated: 'Committed', saved: 'Recovered', reviewed: 'Audited', impact: 'Managed' };
 const RESUME_VERB_BY_CATEGORY: Record<string, string> = {
   'Fiscal & Financial': 'Managed', Leadership: 'Led', 'Training & PME': 'Completed', Administration: 'Administered', Operations: 'Coordinated',
   'Project Work': 'Built', Recognition: 'Received', 'Volunteer Service': 'Volunteered', Communications: 'Presented', Other: 'Delivered',
+  Education: 'Completed', 'Certifications & Licenses': 'Earned', Extracurricular: 'Contributed', 'Physical Fitness': 'Achieved',
 };
 
 export const ACRONYM_GLOSS: Record<string, string> = {
@@ -174,8 +177,10 @@ export function strength(a: BulletSource = {}): number {
 
 export function weaknesses(a: BulletSource = {}): string[] {
   const gaps: string[] = [];
+  const kind = kindFor(a.category);
   if (!a.result) gaps.push('no stated outcome: so what?');
-  if (!a.quantity) gaps.push('no quantity: how many?');
+  // A certification or an award has no count to give; asking "how many?" of one is noise.
+  if (!a.quantity && (kind.work || kind.fields.some((f) => f.name === 'quantity'))) gaps.push('no quantity: how many?');
   if (!a.dollar_amount && a.category === 'Fiscal & Financial') gaps.push('no dollar figure');
   if (!a.eval_area || a.eval_area === 'Unassigned') gaps.push('not mapped to an evaluation area');
   return gaps;
