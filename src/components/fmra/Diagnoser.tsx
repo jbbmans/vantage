@@ -156,6 +156,8 @@ function OpenCase({ procedure, input, method }: { procedure: string; input: Bala
     try {
       const title = `${def.short}: ${reference.trim()}`;
       const item = await api.createWorkItem({ title, reference: reference.trim(), visibility: unit === 'private' ? 'private' : 'unit', unit_id: unit === 'private' ? null : unit });
+      // Whoever reads the balance and opens the case is working it: it starts in their hands.
+      await api.claimWorkItem(item.id, item.version);
       await api.applyProcedure(item.id, procedure);
       const key = `diag-${item.id}`;
       if (LIFECYCLE_PROCEDURES.has(procedure)) {
@@ -167,7 +169,7 @@ function OpenCase({ procedure, input, method }: { procedure: string; input: Bala
             : { kind: 'observation', field: FIELD_OF[p.key], amount: centsToInput(cents), step: 'observe_balances', system: 'OAS' }, `${key}-${p.key}`);
         }
       }
-      toast.success('The case is open, with the figures recorded as you read them.');
+      toast.success('The case is open and in your hands, with the figures recorded as you read them.');
       navigate(`/work/items/${item.id}`);
     } catch (e) { toast.error(api.errorText(e)); }
     finally { setBusy(false); }
@@ -176,7 +178,7 @@ function OpenCase({ procedure, input, method }: { procedure: string; input: Bala
   return (
     <div className="mt-6 rounded-2xl bg-surface-2/70 p-4 ring-1 ring-inset ring-line">
       <p className="text-sm font-semibold text-ink">Work it as a case</p>
-      <p className="mt-0.5 text-xs text-ink-3">Opens a case under <span className="font-medium text-ink-2">{def.title}</span>, with {LIFECYCLE_PROCEDURES.has(procedure) ? 'these figures recorded as read from OAS' : 'its steps ready'}. The procedure keeps the order; you decide.</p>
+      <p className="mt-0.5 text-xs text-ink-3">Opens a case under <span className="font-medium text-ink-2">{def.title}</span>, with {LIFECYCLE_PROCEDURES.has(procedure) ? 'these figures recorded as read from OAS' : 'its steps ready'}, in your hands. The procedure keeps the order; you decide.</p>
       <div className="mt-3 grid grid-cols-1 gap-2 sm:grid-cols-[1fr_12rem_auto] sm:items-end">
         <Field label="Document number"><Input value={reference} onChange={(e) => setReference(e.target.value)} placeholder="e.g. M67854-26-RC-00112" /></Field>
         <Field label="Where it goes">
