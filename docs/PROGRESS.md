@@ -95,6 +95,34 @@ personal, team leader and administrator", "make this enterprise ready"):
   - importing an archive from an older version fills newer columns with their defaults.
 - **Readiness.** `docs/engineering/ENTERPRISE_READINESS.md` is an honest checklist of what an evaluator can rely on and what waits on the owner: single sign-on, PostgreSQL, off-host backups, audit export.
 
+## Code audit (2026-09-24)
+
+On the owner's request to "scrub every single line of code, map where each line goes, and find
+discrepancies", then find what is weak security-wise:
+- **The map.** `docs/engineering/code-map.md` follows each request from page to API call to route (all 217) to service to the tables it reads and writes.
+- **The findings.** `docs/engineering/CODE_AUDIT.md` lists 22 security findings and 15 discrepancies, each marked fixed or open, and says how the review was done and what it did not cover.
+- **Fixed, each with a regression test that failed before the fix:**
+  - an archive that could expand past its limits;
+  - legal holds not stopping the recycle-bin purge;
+  - claims kept by people removed from a team;
+  - procedure verification skippable through the edit path;
+  - join codes granting roles without role authority;
+  - restarting authenticator setup switching MFA off;
+  - quote injection in the email sanitizer;
+  - authenticator code replay;
+  - unmetered password guessing from the change-password form;
+  - evidence link schemes;
+  - help requests filed into other teams;
+  - an unbounded feed download;
+  - drafted records bypassing the record limit;
+  - the instance export dropping ten tables;
+  - retention's destroy orphaning attachments and failing on projects;
+  - a saved view that could break the list.
+- **Open.** None of the open items lets a signed-in person reach data outside their permissions. They are:
+  - deployment configuration (`NODE_ENV`, `VANTAGE_OPERATOR`, self-registration);
+  - product decisions;
+  - features the server has and the interface does not: join codes, the help queue, certificate sign-in, mailbox connectors.
+
 ## Verification (this branch, 2026-09-23; tooling slice 2026-09-24; enterprise slice 2026-09-24)
 
 Enterprise slice:
@@ -179,6 +207,10 @@ None blocks continued work. Two decisions are the owner's:
 12. **Audit export.** Should the audit log feed a SIEM or log service, and which one?
 13. **Rosters across teams.** Teams are open to their own members (PD-019). Should every signed-in person
     also see the people on teams they are not on? That is a privacy reduction, so it is the owner's call.
+14. **Unfinished server features** (`CODE_AUDIT.md`, D1–D4). For each of join codes, the help queue, certificate
+    sign-in and mailbox connectors: build its screens, or remove it.
+15. **Production start-up** (S1). Should the server refuse to start on a non-local address unless it is
+    in production mode? That would change how development runs.
 
 ## Open questions
 

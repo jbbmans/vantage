@@ -68,7 +68,7 @@ says otherwise.
 
 - **Private by default.** Records are private unless shared with a team, and a leader never sees private entries or drafts.
 - **Record kinds.** Each kind (work, education, certification, training, volunteer, extracurricular, fitness, award) saves only the fields it asks for (`shared/recordKinds.ts`).
-- **Retention.** Retention schedules and legal holds are run from the owner console. Dispositions are logged.
+- **Retention.** Retention schedules and legal holds are run from the owner console. Dispositions are logged. An open hold also stops the scheduled recycle-bin purge, so nothing it covers is erased by any path.
 - **Inventory and export.** A privacy inventory lists every table holding personal data and its purpose. Each person can download their own export.
 - **Analytics.** There is no third-party analytics outside the synthetic demo. In the demo, PostHog receives only catalogued event names, and only when configured.
 
@@ -101,7 +101,7 @@ says otherwise.
 - **Automated checks.** The browser suite runs axe checks in light and dark themes on the main pages, the People page and the record form.
 - **Motion and input.** Reduced motion is honoured, and the product can be driven entirely by keyboard.
 - **Test suites.** The server suite covers permissions, privacy gates, migrations, the demo boundary, probes and backups. The browser suite covers the main journeys on desktop and a phone.
-- **Security testing.** No third-party penetration test has been done.
+- **Security testing.** An internal line-by-line code audit was done on 2026-09-24 (`CODE_AUDIT.md`, with the request map in `code-map.md`). Every high and medium code finding is fixed with a regression test, and the open items are listed there. No third-party penetration test has been done.
 
 ## Decisions for the owner
 
