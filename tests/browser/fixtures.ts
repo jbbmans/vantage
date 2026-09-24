@@ -50,3 +50,9 @@ export async function quickLog(page: Page, text: string) {
   await dialog.getByLabel('What did you do?').fill(text);
   return dialog;
 }
+
+/** Waits until every finite animation and transition has finished, so a check reads final colours rather than a frame of a fade. */
+export async function settled(page: Page) {
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running' || a.effect?.getComputedTiming().iterations === Infinity));
+  await expect(page.locator('[data-motion="running"]')).toHaveCount(0);
+}

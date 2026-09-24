@@ -387,7 +387,7 @@ export default function AppShell() {
                 <span className="hidden md:inline"> Everything here is invented; changes are kept for {demo.ttl_hours} hours, then removed.</span>
                 {demo.measured_with === 'posthog' && <span className="hidden md:inline"> Screen and step names are measured with PostHog; nothing you type is sent.</span>}
               </span>
-              <span className="flex items-center gap-1.5 md:ml-auto">
+              <span className="flex flex-wrap items-center gap-1.5 md:ml-auto">
                 {(['marine', 'leader', 'admin'] as const).filter((p) => p !== (demo.workspace?.persona || 'marine')).map((p) => (
                   <Button key={p} size="sm" onClick={() => switchPersona(p)}>{PERSONA_BUTTON[p]}</Button>
                 ))}

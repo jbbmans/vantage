@@ -1,6 +1,6 @@
 import { test, expect } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { ensureSetup, loginAs, registerAs, unique, OPERATOR } from './fixtures';
+import { ensureSetup, loginAs, registerAs, settled, unique, OPERATOR } from './fixtures';
 
 const H = { 'x-vantage-client': '1' };
 const serious = (violations: Array<{ impact?: string | null }>) => violations.filter((v) => v.impact === 'serious' || v.impact === 'critical');
@@ -22,6 +22,7 @@ test('a record of each kind asks its own questions and saves every answer', asyn
   await dialog.getByLabel('Level', { exact: true }).fill('Single course');
   await dialog.getByLabel('Credits').fill('3');
   await dialog.getByLabel('Grade or outcome').fill('A');
+  await settled(page);
   await expect(new AxeBuilder({ page }).include('[role="dialog"]').analyze().then((r) => serious(r.violations))).resolves.toEqual([]);
   await dialog.getByRole('button', { name: 'Add activity' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Activity added.' })).toBeVisible();
@@ -73,6 +74,7 @@ test('every member sees their team; People sets access levels, and the change sh
   await expect(admin.getByRole('status').filter({ hasText: 'Quinn Member is now Team leader in G8.' })).toBeVisible();
   for (const theme of ['light', 'dark']) {
     await admin.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
+    await settled(admin);
     const results = await new AxeBuilder({ page: admin }).exclude('[data-radix-popper-content-wrapper]').analyze();
     expect(serious(results.violations), `People in ${theme}`).toEqual([]);
   }

@@ -95,7 +95,18 @@ personal, team leader and administrator", "make this enterprise ready"):
   - importing an archive from an older version fills newer columns with their defaults.
 - **Readiness.** `docs/engineering/ENTERPRISE_READINESS.md` is an honest checklist of what an evaluator can rely on and what waits on the owner: single sign-on, PostgreSQL, off-host backups, audit export.
 
-## Verification (this branch, 2026-09-23, tooling slice re-run 2026-09-24)
+## Verification (this branch, 2026-09-23; tooling slice 2026-09-24; enterprise slice 2026-09-24)
+
+Enterprise slice:
+- `npm run lint` and `npm run typecheck`: clean.
+- `npm test`: **377 / 377 pass**. New coverage is `people`, `enterprise` (probes and backup), migration 009, record kinds, category hints, and archive import across versions.
+- `npm run test:browser`, full run: 66 passed and 6 failed.
+  - Two failures were new and are fixed: the demo banner overflowed a 390px phone once it held two persona buttons, and axe read the People page mid theme-fade.
+  - After the fixes, the demo, People, navigation, team and phone specs re-run clean: 14 / 14.
+  - The other four failures are the pre-existing public-site checks below.
+- Screens checked by eye in `artifacts/enterprise/`: Team as a member, the roster, record kinds, People in light and dark, and People on a phone.
+
+Earlier slices:
 
 | Check | Result |
 |---|---|
