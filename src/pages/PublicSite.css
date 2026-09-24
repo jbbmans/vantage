@@ -324,6 +324,7 @@
 .ps-video { margin-top: 40px; display: grid; gap: 16px; }
 @media (min-width: 960px) { .ps-video { grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr); } }
 .ps-video video { display: block; width: 100%; aspect-ratio: 16 / 9; background: var(--ps-navy); }
+.ps-video .ps-player { align-self: start; }
 .ps-video .ps-player .ps-bezel-core { background: var(--ps-navy); }
 .ps-video .mission-video-list { display: grid; gap: 6px; align-content: start; }
 .ps-video .mission-video-list button {

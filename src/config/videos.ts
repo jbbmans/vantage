@@ -62,13 +62,6 @@ const VIDEO_SLOTS: VideoSlot[] = [
     topic: 'records',
   },
   {
-    id: 'record',
-    title: 'Your Record, and what counts',
-    description: 'What you hold, what you contributed and what you logged yourself, kept apart and counted honestly; and how a case you worked becomes a private draft built only from your own facts.',
-    length: '35 sec',
-    topic: 'records',
-  },
-  {
     id: 'visibility',
     title: 'Private, unit, and who can see what',
     description: 'Check the record audience, the intended unit, and the saved visibility setting.',
@@ -95,6 +88,13 @@ const VIDEO_SLOTS: VideoSlot[] = [
     description: 'The FMRA desk reference inside Vantage. Enter a document’s commitment, obligation, delivered and paid figures, read the open condition, the causes to rule out and who can act, and open a case with the figures recorded as read.',
     length: '40 sec',
     topic: 'work',
+  },
+  {
+    id: 'record',
+    title: 'Your Record, and what counts',
+    description: 'What you hold, what you contributed and what you logged yourself, kept apart and counted honestly; and how a case you worked becomes a private draft built only from your own facts.',
+    length: '35 sec',
+    topic: 'records',
   },
   {
     id: 'report-studio',
