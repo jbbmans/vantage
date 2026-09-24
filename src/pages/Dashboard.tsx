@@ -9,6 +9,7 @@ import { DateText, PeriodSelect } from '@/components/common';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import { WorkList, WorkRow } from '@/components/work';
 import { AnimatePresence } from 'motion/react';
+import { StatusDot } from '@/components/effects';
 import {
   useAssignedWork, useCareer, useGoals, useIdentity, useMetricsReport, useNotifications, usePrefs, useReadiness, useRecordSummary,
   useSavePrefs, useTasks, useTrack, useWorkload,
@@ -49,7 +50,8 @@ export default function Dashboard() {
 
   return (
     <div className="page">
-      <PageHeader eyebrow={`${greeting}, ${first ?? ''}`} title="Today" lede={lede}>
+      <PageHeader hero eyebrow={`${greeting}, ${first ?? ''}`} title="Today" lede={lede}
+        meta={<span className="chip bg-surface/80 text-ink-2"><StatusDot live className="text-good" />{new Date().toLocaleDateString(undefined, { weekday: 'long', day: 'numeric', month: 'long' })}</span>}>
         <Button onClick={() => navigate('/work')}><Inbox className="h-4 w-4" />Find work</Button>
         <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
       </PageHeader>
@@ -58,7 +60,7 @@ export default function Dashboard() {
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="space-y-4 xl:col-span-2">
-          <Panel title="Your work" subtitle="What you hold, and the next useful step on each" padded={false}
+          <Panel beam={working.length > 0} title="Your work" subtitle="What you hold, and the next useful step on each" padded={false}
             action={<Link to="/record" className="text-xs text-accent hover:underline">Your record</Link>}>
             {assigned.isPending ? <Skeleton className="m-4 h-24" /> : working.length || myTasks.length ? (
               <ul className="divide-y divide-line">
@@ -239,8 +241,10 @@ function SectionOverview({ unitId }: { unitId: string }) {
 
 function Tile({ label, value, hint, to, tone }: { label: string; value: number; hint: string; to: string; tone?: 'accent' | 'bad' | 'warn' }) {
   return (
-    <Link to={to} className="card card-hover block p-4">
-      <p className="text-sm font-medium text-ink-2">{label}</p>
+    <Link to={to} className="stat-tile card card-hover block p-4" data-tone={value ? tone : undefined}>
+      <p className={cn('flex items-center gap-2 text-sm font-medium text-ink-2', tone === 'accent' && 'text-accent', tone === 'bad' && 'text-bad', tone === 'warn' && 'text-warn')}>
+        {tone && value > 0 && <StatusDot live={tone !== 'accent'} />}<span className="text-ink-2">{label}</span>
+      </p>
       <p className={cn('stat-value mt-2', tone === 'accent' && 'text-accent', tone === 'bad' && 'text-bad', tone === 'warn' && 'text-warn')}>{value}</p>
       <p className="mt-1 truncate text-xs text-ink-3">{hint}</p>
     </Link>

@@ -4,6 +4,9 @@ import { installTelemetry, track } from '@/lib/telemetry';
 import { useQueryClient } from '@tanstack/react-query';
 import { AlertTriangle, Bell, ChevronDown, ChevronsLeft, ChevronsRight, CloudOff, FlaskConical, LogOut, Menu as MenuIcon, Moon, Plus, RefreshCw, Search, Sun, WifiOff, X } from 'lucide-react';
 import { NAV, NAV_GROUPS } from '@/config/nav';
+import { m } from 'motion/react';
+import { Ambient } from '@/components/effects';
+import { installSpotlight } from '@/lib/effects';
 import { cn, initials, timeAgo } from '@/lib/utils';
 import { Button, Tooltip, Kbd } from '@/components/ui/primitives';
 import Logo, { Mark } from '@/components/Logo';
@@ -203,6 +206,10 @@ export default function AppShell() {
   const user = identity?.user;
   const primary = identity?.memberships.find((m) => m.is_primary) || identity?.memberships[0];
 
+  const isActive = (item: { to: string; end?: boolean }) => location.pathname === item.to || (!item.end && location.pathname.startsWith(item.to));
+  // Cards catch the cursor (src/lib/effects.ts). Installed once for the signed-in app.
+  useEffect(() => installSpotlight(), []);
+
   // "More" sinks to the bottom of the rail: settings and the field guide are always reachable but
   // never compete with the destinations a person came here to open.
   const navList = (mobile: boolean) => (
@@ -216,7 +223,9 @@ export default function AppShell() {
             <div className="space-y-0.5">
               {items.map((item) => (
                 <Tooltip key={item.to} content={collapsed && !mobile ? item.label : null} side="right">
-                  <NavLink to={item.to} end={item.end} className={cn('nav-item', collapsed && !mobile && 'justify-center px-0')} aria-current={location.pathname === item.to || (!item.end && location.pathname.startsWith(item.to)) ? 'page' : undefined}>
+                  <NavLink to={item.to} end={item.end} className={cn('nav-item', collapsed && !mobile && 'justify-center px-0')} aria-current={isActive(item) ? 'page' : undefined}>
+                    {/* The lit block slides from the last destination to this one. */}
+                    {isActive(item) && <m.span layoutId={mobile ? 'nav-pill-drawer' : 'nav-pill'} className="nav-pill" transition={{ type: 'spring', stiffness: 420, damping: 34 }} aria-hidden />}
                     <item.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.8} />
                     {(!collapsed || mobile) && <span className="truncate">{item.label}</span>}
                   </NavLink>
@@ -253,7 +262,8 @@ export default function AppShell() {
 
   return (
     <OutboxContext.Provider value={{ pending, flush }}>
-      <div className="flex min-h-screen bg-canvas">
+      <div className="app-shell flex min-h-screen">
+        <Ambient />
         <a href="#main" className="skip-link">Skip to content</a>
         <aside className={cn('no-print sticky top-0 hidden h-screen shrink-0 flex-col border-r border-line bg-rail transition-[width] duration-150 lg:flex', collapsed ? 'w-[68px]' : 'w-[225px]')}>
           {brand}

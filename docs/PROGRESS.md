@@ -57,6 +57,19 @@ _Updated 2026-09-24 · branch `claude/vantage-restore-enterprise-llq8d8` · base
   catalog, so they were silently dropped. Two browser specs now wait for the item page itself
   rather than its URL.
 
+## Premium visual layer (2026-09-24)
+
+The signed-in app now has depth, light and ambient motion on the existing brand (PD-018,
+DESIGN_SYSTEM → Premium layer):
+- an ambient light field and grain behind everything, and glass header, tabs and overlays;
+- a lit navy rail whose active pill slides between destinations;
+- cards with a lit edge and tinted shadows, and a border that follows the cursor;
+- primary buttons with a sheen, page titles that blur in, and a hero band on Today;
+- a beam around the next task, live status dots, and cascading entrances.
+
+Reduced motion stops all of it. It was checked at four sizes in both themes. The component
+libraries the owner named were not added; PD-018 records why for each.
+
 ## Verification (this branch, 2026-09-23, tooling slice re-run 2026-09-24)
 
 | Check | Result |
@@ -117,6 +130,9 @@ None blocks continued work. Two decisions are the owner's:
    results, connect the PostHog connector at claude.ai.
 7. **Graphify session hook.** If agents should rebuild the graph at the start of every web session, add a
    SessionStart hook (the command is in `CLAUDE.md`). Claude did not change hook settings itself.
+
+8. **Third-party UI components.** Approve (or not) adding code from Magic UI, Vengeance UI or
+   similar registries. The current premium layer is written for Vantage and needs no such code.
 
 ## Open questions
 

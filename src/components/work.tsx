@@ -4,6 +4,7 @@ import { ArrowRight, Clock, Hourglass, OctagonAlert } from 'lucide-react';
 import { Badge, type Tone } from '@/components/ui/primitives';
 import { DateText } from '@/components/common';
 import { usePulseOnChange } from '@/components/motion';
+import { StatusDot } from '@/components/effects';
 import { DURATION, EASE } from '@/lib/motion';
 import { STAGE_LABEL, WAITING_LABEL, type Stage, type WaitingCategory } from '../../shared/caseModel';
 import { cn } from '@/lib/utils';
@@ -25,7 +26,9 @@ export function StageBadge({ stage, waiting, className }: { stage: string | null
   const label = s === 'waiting' && waiting ? `Waiting on ${WAITING_LABEL[waiting as WaitingCategory]?.toLowerCase() || waiting.replace(/_/g, ' ')}` : STAGE_LABEL[s] || s;
   // One pulse when the stage it names changes, so a move is noticed; nothing at rest.
   const pulse = usePulseOnChange<HTMLSpanElement>(label);
-  return <span ref={pulse} data-stage-badge className="inline-flex"><Badge tone={STAGE_TONE[s] || 'neutral'} className={className}>{label}</Badge></span>;
+  // Work that is waiting on someone, stuck, or due a check breathes; the rest holds still.
+  const live = s === 'waiting' || s === 'blocked' || s === 'verification_required';
+  return <span ref={pulse} data-stage-badge className="inline-flex"><Badge tone={STAGE_TONE[s] || 'neutral'} className={className}><StatusDot live={live} />{label}</Badge></span>;
 }
 
 /** "3 days", "5 hours": how long something has been sitting, never framed as time worked. */

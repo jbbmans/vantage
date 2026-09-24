@@ -10,9 +10,9 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-ink/55 data-[state=open]:animate-fade-in" />
+        <DialogPrimitive.Overlay className="dialog-overlay fixed inset-0 z-40 bg-ink/55 data-[state=open]:animate-fade-in" />
         <DialogPrimitive.Content aria-describedby={description ? undefined : ''} className={cn(
-          'fixed z-50 flex flex-col overflow-hidden border border-line-strong bg-surface shadow-modal focus:outline-none',
+          'dialog-surface fixed z-50 flex flex-col overflow-hidden border border-line-strong bg-surface shadow-modal focus:outline-none',
           drawer
             ? 'inset-x-0 bottom-0 max-h-[92dvh] data-[state=open]:animate-slide-up sm:inset-y-0 sm:left-auto sm:right-0 sm:max-h-none sm:w-[min(46vw,580px)] sm:border-y-0 sm:border-r-0 sm:data-[state=open]:animate-slide-in-right'
             : cn('inset-x-0 bottom-0 max-h-[92dvh] data-[state=open]:animate-slide-up sm:inset-auto sm:left-1/2 sm:top-1/2 sm:max-h-[88vh] sm:w-[calc(100vw-2rem)] sm:-translate-x-1/2 sm:-translate-y-1/2 sm:data-[state=open]:animate-modal-in', widths[size]),

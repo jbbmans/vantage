@@ -27,6 +27,15 @@ test.beforeAll(async () => {
 test.afterAll(() => { server?.kill(); });
 
 const todayHeading = (page: Page) => page.getByRole('heading', { name: 'Today', exact: true });
+/**
+ * Waits for every entrance animation to finish, so axe measures the page a person reads rather than
+ * a frame of a fade. Ambient effects that loop forever (beams, live dots, the background light) are
+ * not waited for; they never carry text.
+ */
+const settled = async (page: Page) => {
+  await page.waitForFunction(() => document.getAnimations().every((a) => a.playState !== 'running' || a.effect?.getComputedTiming().iterations === Infinity));
+  await expect(page.locator('[data-motion="running"]')).toHaveCount(0);
+};
 const serious = (v: Array<{ id: string; impact?: string | null; nodes: unknown[] }>) => v.filter((x) => x.impact === 'serious' || x.impact === 'critical').map((x) => `${x.id} (${x.nodes.length})`);
 
 test('the demo opens on Today with no sign-in form and one clear synthetic indicator', async ({ page }) => {
@@ -160,6 +169,7 @@ test('demo pages have no serious accessibility violations in either theme', asyn
       await page.goto(path);
       await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
       await page.waitForLoadState('networkidle');
+      await settled(page);
       const results = await new AxeBuilder({ page }).exclude('[data-radix-popper-content-wrapper]').analyze();
       expect(serious(results.violations), `${path} in ${theme}`).toEqual([]);
     }

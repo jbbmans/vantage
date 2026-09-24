@@ -156,3 +156,25 @@ named screens and steps, not raw clicks.
 sends demo usage to a third party. Anything beyond this scope (browser SDK, replay, real instances)
 would be a change to the contract, not a configuration.
 
+## PD-018 · A premium visual layer, written for Vantage
+
+**Decision.** The owner asked for the app to look "extremely premium", with animation and effects
+throughout, naming shadcn, React UI, the ui-ux-pro-max skill, Animaster, Skiper UI and Vengeance UI.
+The result is an original premium layer (DESIGN_SYSTEM → Premium layer): an ambient light field,
+glass chrome, a lit rail with a sliding pill, spotlight borders, sheen on primary actions, blur-in
+titles, a hero on Today, beams on the next task, and live status dots. Brand palette, WCAG AA and
+reduced motion are kept.
+**What happened to each named source.**
+- *Animaster Lib*: paid only, delivered through a Google Drive download. Not purchased.
+- *Skiper UI*: its site refused connections from the build environment. Not used.
+- *Vengeance UI, Magic UI (via the shadcn CLI), and the ui-ux-pro-max skill*: reachable and MIT
+  licensed, but pulling their code into the repository or running their scripts was stopped by the
+  agent's safety policy as third-party code integration. Nothing from them is in the codebase. The
+  effects were written from scratch for this codebase instead.
+- *shadcn*: the existing primitives already follow its architecture (Radix, Tailwind, `cn`). No
+  `components.json` was added.
+- *"React UI"*: read as React Bits. Not used, for the same reason as the registries.
+**Owner decision needed.** If the owner wants any of those libraries' actual components, the owner
+approves adding third-party UI code, and each component goes through licence and security review
+before it lands.
+

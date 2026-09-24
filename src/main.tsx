@@ -13,6 +13,8 @@ import './styles/login-premium.css';
 import './styles/public-site.css';
 import './styles/public-showcase.css';
 import './styles/public-site-a11y.css';
+// Last, so the premium layer sits over the brand and motion layers. Scoped to the signed-in app.
+import './styles/premium.css';
 
 // One reduced-motion setting for every animation library, not just the CSS layer (src/lib/motion.ts).
 installMotionPolicy();

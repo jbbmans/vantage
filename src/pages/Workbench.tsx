@@ -40,7 +40,7 @@ const STATE_LABEL: Record<string, string> = Object.fromEntries(STATES.filter((s)
 const COLUMNS = [
   { key: 'reference', label: 'Document', width: 'w-36' },
   { key: 'title', label: 'What it is', width: '' },
-  { key: 'state', label: 'Stage', width: 'w-40' },
+  { key: 'state', label: 'Stage', width: 'w-48' },
   { key: 'due_date', label: 'Due', width: 'w-24' },
   { key: 'amount', label: 'Amount', width: 'w-24' },
   { key: 'claimed', label: 'Held by', width: 'w-32' },
@@ -345,7 +345,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                             {row.title}
                             {row.source_changed_at && <Badge tone="warn" className="ml-2">Source changed</Badge>}
                           </td>
-                          <td className="w-40 truncate px-3"><StageBadge stage={row.stage || row.state} waiting={row.waiting_category} /></td>
+                          <td className="w-48 truncate px-3"><StageBadge stage={row.stage || row.state} waiting={row.waiting_category} /></td>
                           <td className="w-24 px-3 text-xs text-ink-3"><DateText value={row.due_date} fallback="—" /></td>
                           <td className="fig w-24 px-3 text-right text-xs">{row.amount == null ? '' : formatDollars(row.amount)}</td>
                           <td className="w-32 truncate px-3 text-xs text-ink-3">{row.claimed_by ? (mine ? 'You' : [row.holder_rank, row.holder_name].filter(Boolean).join(' ') || 'Someone else') : '—'}</td>

@@ -7,12 +7,13 @@ import { m } from 'motion/react';
 import { animated, useSpring } from '@react-spring/web';
 import { cn } from '@/lib/utils';
 import { DURATION, EASE } from '@/lib/motion';
+import { BlurText, BorderBeam } from '@/components/effects';
 
 /* The primary action is the one thing on a screen filled with the signal colour, so there is never
    a question of what the screen wants you to do next. Everything else is a bordered white button. */
 const VARIANTS = {
-  primary: 'bg-accent text-accent-ink border-accent shadow-card hover:brightness-110 hover:shadow-pop',
-  default: 'bg-surface text-ink border-line-strong hover:bg-surface-2 hover:border-ink-3/50',
+  primary: 'btn-primary bg-accent text-accent-ink border-accent shadow-card hover:brightness-110 hover:shadow-pop',
+  default: 'btn-default bg-surface text-ink border-line-strong hover:bg-surface-2 hover:border-ink-3/50',
   soft: 'bg-surface-2 text-ink-2 border-transparent hover:bg-surface-3 hover:text-ink',
   ghost: 'bg-transparent border-transparent text-ink-2 hover:text-ink hover:bg-surface-2',
   danger: 'bg-surface border-line-strong text-bad hover:bg-bad/10 hover:border-bad/50',
@@ -160,9 +161,11 @@ export function Tooltip({ content, children, side = 'top' }: { content: React.Re
   );
 }
 
-export function Panel({ title, subtitle, action, children, className, bodyClassName, id, padded = true }: { title?: React.ReactNode; subtitle?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string; bodyClassName?: string; id?: string; padded?: boolean }) {
+export function Panel({ title, subtitle, action, children, className, bodyClassName, id, padded = true, beam = false }: { title?: React.ReactNode; subtitle?: React.ReactNode; action?: React.ReactNode; children: React.ReactNode; className?: string; bodyClassName?: string; id?: string; padded?: boolean; beam?: boolean }) {
   return (
     <section id={id} className={cn('card min-w-0 scroll-mt-24', className)}>
+      {/* Light around the edge of the panel that holds the next thing to do. */}
+      {beam && <BorderBeam />}
       {(title || action) && (
         <header className="panel-head flex items-center justify-between gap-3 px-4 py-3">
           <div className="min-w-0">
@@ -276,14 +279,20 @@ export function Progress({ value, max = 100, tone = 'accent', className, label =
 export const Skeleton = ({ className }: { className?: string }) => <div className={cn('skeleton', className)} aria-hidden />;
 export const Kbd = ({ children }: { children: React.ReactNode }) => <kbd className="kbd">{children}</kbd>;
 
-export function PageHeader({ eyebrow, title, lede, children }: { eyebrow?: string; title: React.ReactNode; lede?: React.ReactNode; children?: React.ReactNode }) {
+/**
+ * The top of a page. A plain-text title arrives word by word out of a soft blur (BlurText); `hero`
+ * sets the header in its own lit band, for the one page a person starts from; `meta` sits under
+ * the lede, for a date or a status.
+ */
+export function PageHeader({ eyebrow, title, lede, children, hero = false, meta }: { eyebrow?: string; title: React.ReactNode; lede?: React.ReactNode; children?: React.ReactNode; hero?: boolean; meta?: React.ReactNode }) {
   return (
-    <div className="mb-6">
+    <div className={cn('mb-6', hero && 'hero px-5 py-6 sm:px-8 sm:py-8')}>
       <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
         <div className="min-w-0 flex-1 basis-[22rem]">
-          {eyebrow && <p className="eyebrow mb-2">{eyebrow}</p>}
-          <h1 className="page-title">{title}</h1>
+          {eyebrow && <p className={cn('eyebrow mb-2', hero && 'shine-text')}>{eyebrow}</p>}
+          {typeof title === 'string' ? <BlurText text={title} className="page-title" /> : <h1 className="page-title">{title}</h1>}
           {lede && <p className="page-lede">{lede}</p>}
+          {meta && <div className="mt-3 flex flex-wrap items-center gap-2">{meta}</div>}
         </div>
         {children && <div className="flex flex-wrap items-center gap-2">{children}</div>}
       </div>

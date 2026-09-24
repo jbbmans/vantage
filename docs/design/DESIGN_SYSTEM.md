@@ -69,8 +69,9 @@ one job, so no two animate the same thing.
 
 Rules:
 
-- **Change, not arrival.** Lists, meters and the calculation are still when a page opens with the
-  state already there. Only a change made while the page is open animates.
+- **Change, not arrival** (functional motion). Lists, meters and the calculation are still when a
+  page opens with the state already there; only a change made while the page is open animates. The
+  ambient and decorative effects of the premium layer below are the deliberate exception.
 - **Figures are records.** Money and counts are exact from the first frame. Only position, opacity
   and emphasis move.
 - **Nothing waits on motion.** Controls work mid-animation; no content is hidden until something ends.
@@ -80,8 +81,36 @@ Rules:
 - **Cost.** Motion's layout features, GSAP and Anime.js load on demand. The first download grew by
   about 34 KB gzipped (Motion's core and React Spring), from 171 KB to 205 KB.
 
+## Premium layer (owner direction, 2026-09-24)
+
+At the owner's request the signed-in app carries depth, light and ambient motion. All of it lives in
+`src/styles/premium.css` and `src/components/effects.tsx`, scoped to `.app-shell`, written for this
+codebase on the brand palette. The public site and sign-in screens are untouched.
+
+| Effect | What it is | Where |
+|---|---|---|
+| Ambient field | Two slow drifting lights (Cobalt, Summit Teal), a dot grid that fades out below the heading, and fine grain | Behind the whole app |
+| Glass chrome | Frosted header and tab strips; blurred dialog backdrops and menus | Header, tabs, overlays |
+| Lit rail | Navy gradient with teal and cobalt light; the active destination is a glowing pill that slides between items (Motion) | Sidebar |
+| Surfaces | 12 px cards with a lit top edge and navy-tinted shadows; a border that lights under the cursor | Every card |
+| Primary action | Lit from above, with a sheen that passes on hover | Every primary button |
+| Blur-in titles | Page titles arrive word by word out of a soft blur; screen readers get the phrase once | Every page header |
+| Hero | Today's header sits in its own band with a panning grid and an orbiting light | Today |
+| Beam | Light travelling around the edge of the thing to do next | "Your work", the current procedure step |
+| Live dots | Waiting, blocked and verification-due stages breathe; toned figure tiles glow in their tone | Stage badges, leader tiles |
+| Entrances | Sections and cards cascade in out of a blur | Every page |
+
+The functional motion rules above still hold: figures are exact on every frame, nothing waits on
+an animation, and reduced motion stops everything here too, including the ambient field, beams,
+sheens, dots and entrances. Decorative layers are `aria-hidden` and never carry text. Browser tests
+run axe once entrance animations have settled (`settled()` in `tests/browser/22-demo.spec.ts`).
+
+Display type is **Geist**, already bundled (`public/fonts/geist-normal.woff2`) and preloaded but
+never declared until now; Inter stays the reading face. The Geist file has no OFL notice beside it
+in `public/fonts/`; one should be added alongside `OFL-Inter.txt`.
+
 ## Not used
 
 Streaks, gamification, tactical styling, purple gradients, AI branding, decorative KPI walls,
-animation at rest, looping motion, number counters, scroll-triggered reveals (the public page must
+number counters, custom cursors, scroll-jacking, scroll-triggered reveals (the public page must
 carry its substance in the first render).

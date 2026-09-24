@@ -1,0 +1,480 @@
+/*
+ * VANTAGE premium layer.
+ *
+ * Depth, light and motion over the existing brand: Deep Navy, Cobalt, Glacier and Summit Teal, with
+ * Inter for reading and Geist for display. Everything here is scoped to .app-shell, so the public
+ * site and the sign-in screens are untouched, and everything that moves stops under
+ * prefers-reduced-motion (bottom of this file).
+ *
+ * Layers, back to front:
+ *   ambient   a fixed field of slow light (cobalt and teal), a dot grid that fades out, and grain
+ *   surfaces  cards with a lit top edge, tinted shadows, and a border that catches the cursor
+ *   chrome    a glass header, a lit navy rail, and an active destination that glows
+ *   motion    staggered blur-in entrances, sheen on primary actions, beams on the current task
+ *
+ * Figures stay records: nothing here changes a number, and no text is ever less than fully opaque
+ * once its entrance has finished.
+ */
+
+/* ── Type ────────────────────────────────────────────────────────────────────────────────────── */
+
+/* Geist was already bundled and preloaded by index.html but never declared; it now sets display
+   type. Variable weight 100–900, Latin, SIL Open Font License. Inter stays the reading face. */
+@font-face { font-family: 'Geist'; src: url('/fonts/geist-normal.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+
+:root {
+  --display: 'Geist', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --glow-accent: rgb(var(--accent) / .55);
+  --edge-light: rgb(255 255 255 / .75);
+  --shadow-tint: 11 45 91;
+}
+[data-theme='dark'] {
+  --edge-light: rgb(255 255 255 / .07);
+  --shadow-tint: 0 8 20;
+}
+
+.app-shell .page-title {
+  font-family: var(--display);
+  font-weight: 650;
+  letter-spacing: -0.035em;
+  line-height: 1.02;
+}
+.app-shell .stat-value,
+.app-shell .display {
+  font-family: var(--display);
+  letter-spacing: -0.03em;
+}
+.app-shell h2 { letter-spacing: -0.012em; }
+.app-shell .eyebrow { letter-spacing: 0.12em; }
+
+/* ── Ambient field ──────────────────────────────────────────────────────────────────────────── */
+
+.app-shell { position: relative; isolation: isolate; background: transparent; }
+.app-shell main#main { background: transparent; }
+
+.ambient {
+  position: fixed;
+  inset: 0;
+  z-index: -1;
+  overflow: hidden;
+  pointer-events: none;
+  background: rgb(var(--canvas));
+}
+/* Two slow lights: cobalt from the upper left, teal from the upper right. */
+.ambient::before,
+.ambient::after {
+  content: '';
+  position: absolute;
+  width: 62vmax;
+  height: 62vmax;
+  border-radius: 50%;
+  filter: blur(80px);
+  opacity: .55;
+  will-change: transform;
+}
+.ambient::before {
+  top: -34vmax;
+  left: -12vmax;
+  background: radial-gradient(closest-side, rgb(var(--accent) / .22), transparent 70%);
+  animation: ambient-drift-a 26s ease-in-out infinite alternate;
+}
+.ambient::after {
+  top: -38vmax;
+  right: -18vmax;
+  background: radial-gradient(closest-side, rgb(var(--brand-teal) / .18), transparent 70%);
+  animation: ambient-drift-b 32s ease-in-out infinite alternate;
+}
+[data-theme='dark'] .ambient::before { opacity: .9; }
+[data-theme='dark'] .ambient::after { opacity: .75; }
+
+/* A dot grid that is strongest behind the page heading and fades out before the content. */
+.ambient-grid {
+  position: absolute;
+  inset: 0 0 auto 0;
+  height: 560px;
+  background-image: radial-gradient(rgb(var(--ink) / .16) 1px, transparent 1.2px);
+  background-size: 22px 22px;
+  mask-image: radial-gradient(ellipse 70% 90% at 40% 0%, #000 10%, transparent 70%);
+  -webkit-mask-image: radial-gradient(ellipse 70% 90% at 40% 0%, #000 10%, transparent 70%);
+  animation: grid-breathe 9s ease-in-out infinite;
+}
+[data-theme='dark'] .ambient-grid { background-image: radial-gradient(rgb(var(--ink) / .12) 1px, transparent 1.2px); }
+
+/* Grain, so large quiet areas read as material rather than flat colour. */
+.ambient-grain {
+  position: absolute;
+  inset: 0;
+  opacity: .05;
+  mix-blend-mode: multiply;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='160' height='160'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.85' numOctaves='3' stitchTiles='stitch'/%3E%3CfeColorMatrix values='0 0 0 0 0.05 0 0 0 0 0.18 0 0 0 0 0.36 0 0 0 .9 0'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
+}
+[data-theme='dark'] .ambient-grain { mix-blend-mode: screen; opacity: .06; }
+
+@keyframes ambient-drift-a { to { transform: translate3d(9vmax, 5vmax, 0) scale(1.08); } }
+@keyframes ambient-drift-b { to { transform: translate3d(-8vmax, 7vmax, 0) scale(1.12); } }
+@keyframes grid-breathe { 50% { opacity: .7; } }
+
+/* ── Surfaces ───────────────────────────────────────────────────────────────────────────────── */
+
+.app-shell .card {
+  position: relative;
+  border-radius: 12px;
+  border-color: rgb(var(--line) / .85);
+  background:
+    linear-gradient(180deg, rgb(var(--surface)) 0%, rgb(var(--surface)) 55%, rgb(var(--surface-2) / .6) 100%);
+  box-shadow:
+    inset 0 1px 0 var(--edge-light),
+    0 1px 2px rgb(var(--shadow-tint) / .05),
+    0 12px 32px -20px rgb(var(--shadow-tint) / .28);
+}
+[data-theme='dark'] .app-shell .card {
+  background:
+    linear-gradient(180deg, rgb(var(--surface) / .96) 0%, rgb(var(--surface) / .92) 100%);
+  box-shadow:
+    inset 0 1px 0 var(--edge-light),
+    0 1px 2px rgb(0 0 0 / .3),
+    0 18px 40px -24px rgb(0 0 0 / .7);
+}
+
+/* A border that catches the cursor. --mx/--my are set by installSpotlight() (src/lib/effects.ts). */
+.app-shell .card::before {
+  content: '';
+  position: absolute;
+  inset: -1px;
+  z-index: 1;
+  border-radius: inherit;
+  padding: 1px;
+  pointer-events: none;
+  background: radial-gradient(420px circle at var(--mx, 50%) var(--my, -200px), rgb(var(--accent) / .75), rgb(var(--brand-teal) / .35) 30%, transparent 60%);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  opacity: 0;
+  transition: opacity .35s var(--motion-ease);
+}
+/* And a faint wash of the same light on the surface itself, under the content. */
+.app-shell .card[data-spot] {
+  background:
+    radial-gradient(520px circle at var(--mx, 50%) var(--my, -200px), rgb(var(--accent) / .06), transparent 45%),
+    linear-gradient(180deg, rgb(var(--surface)) 0%, rgb(var(--surface)) 55%, rgb(var(--surface-2) / .6) 100%);
+}
+[data-theme='dark'] .app-shell .card[data-spot] {
+  background:
+    radial-gradient(520px circle at var(--mx, 50%) var(--my, -200px), rgb(var(--accent) / .09), transparent 45%),
+    linear-gradient(180deg, rgb(var(--surface) / .96) 0%, rgb(var(--surface) / .92) 100%);
+}
+.app-shell .card[data-spot]::before { opacity: 1; }
+
+.app-shell .card-hover:hover {
+  transform: translateY(-2px);
+  box-shadow:
+    inset 0 1px 0 var(--edge-light),
+    0 2px 4px rgb(var(--shadow-tint) / .06),
+    0 22px 44px -22px rgb(var(--shadow-tint) / .38);
+}
+
+.app-shell .panel-head {
+  background: linear-gradient(180deg, rgb(var(--surface-2) / .55), transparent);
+  border-top-left-radius: inherit;
+  border-top-right-radius: inherit;
+}
+.app-shell .card > .panel-head:first-child { border-radius: 12px 12px 0 0; }
+
+/* ── Chrome: header ─────────────────────────────────────────────────────────────────────────── */
+
+.app-shell header.sticky.bg-surface {
+  background: rgb(var(--surface) / .7);
+  backdrop-filter: saturate(1.7) blur(16px);
+  -webkit-backdrop-filter: saturate(1.7) blur(16px);
+  border-bottom-color: rgb(var(--line) / .7);
+  box-shadow: 0 1px 0 var(--edge-light) inset, 0 10px 30px -24px rgb(var(--shadow-tint) / .35);
+}
+
+/* ── Chrome: rail ───────────────────────────────────────────────────────────────────────────── */
+
+.app-shell aside.bg-rail {
+  background:
+    radial-gradient(120% 40% at 0% 0%, rgb(20 184 166 / .16), transparent 60%),
+    radial-gradient(90% 50% at 100% 100%, rgb(37 99 235 / .22), transparent 60%),
+    linear-gradient(180deg, #0f3b75 0%, #0b2d5b 42%, #071f40 100%);
+  border-right-color: rgb(255 255 255 / .06);
+  box-shadow: inset -1px 0 0 rgb(255 255 255 / .04), 8px 0 30px -12px rgb(6 22 46 / .35);
+}
+[data-theme='dark'] .app-shell aside.bg-rail {
+  background:
+    radial-gradient(120% 40% at 0% 0%, rgb(45 212 191 / .12), transparent 60%),
+    radial-gradient(90% 50% at 100% 100%, rgb(37 99 235 / .18), transparent 60%),
+    linear-gradient(180deg, #0a2448 0%, #071a35 50%, #051326 100%);
+}
+.app-shell aside.bg-rail .nav-item { transition: color .18s ease, background-color .18s ease; }
+/* The active destination's block is drawn by a moving pill (AppShell), so it can slide. */
+.app-shell aside.bg-rail .nav-item[aria-current='page'],
+.app-shell aside.bg-rail .nav-item[aria-current='page']:hover { background-color: transparent; box-shadow: none; }
+.nav-pill {
+  position: absolute;
+  inset: 0;
+  z-index: 0;
+  border-radius: 8px;
+  background: linear-gradient(180deg, #3b7cf2 0%, #2563eb 55%, #1d55d4 100%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / .28),
+    0 8px 22px -8px rgb(37 99 235 / .85),
+    0 0 0 1px rgb(255 255 255 / .06);
+}
+.nav-pill::before {
+  content: '';
+  position: absolute;
+  left: -8px;
+  top: 7px;
+  bottom: 7px;
+  width: 3px;
+  border-radius: 3px;
+  background: #2dd4bf;
+  box-shadow: 0 0 12px 1px rgb(45 212 191 / .8);
+}
+.app-shell aside.bg-rail .nav-item[aria-current='page']::before { display: none; }
+.app-shell aside.bg-rail .nav-item > :not(.nav-pill) { position: relative; z-index: 1; }
+
+/* Tab strips on the page sit on frosted glass rather than a band of flat canvas colour, which
+   would show as a stripe across the ambient field. On a phone, where the strip can overflow, its
+   right edge fades to say there is more. */
+.app-shell .tab-bar.scroll-x-canvas {
+  background: rgb(var(--surface) / .45);
+  backdrop-filter: blur(10px);
+  -webkit-backdrop-filter: blur(10px);
+}
+@media (max-width: 639px) {
+  .app-shell .tab-bar.scroll-x-canvas {
+    mask-image: linear-gradient(90deg, #000 82%, transparent);
+    -webkit-mask-image: linear-gradient(90deg, #000 82%, transparent);
+  }
+}
+
+/* ── Controls ───────────────────────────────────────────────────────────────────────────────── */
+
+/* The primary action is lit from above and carries a sheen that passes when you point at it. */
+.app-shell .btn-primary , .dialog-surface .btn-primary {
+  position: relative;
+  overflow: hidden;
+  isolation: isolate;
+  background-image: linear-gradient(180deg, rgb(255 255 255 / .18) 0%, rgb(255 255 255 / 0) 55%);
+  box-shadow:
+    inset 0 1px 0 rgb(255 255 255 / .28),
+    0 1px 2px rgb(var(--shadow-tint) / .2),
+    0 8px 20px -10px rgb(var(--accent) / .85);
+}
+.app-shell .btn-primary::after , .dialog-surface .btn-primary::after {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  pointer-events: none;
+  background: linear-gradient(105deg, transparent 30%, rgb(255 255 255 / .38) 48%, rgb(255 255 255 / .12) 56%, transparent 70%);
+  transform: translateX(-130%);
+  transition: transform .8s var(--motion-ease);
+}
+.app-shell .btn-primary:hover::after , .dialog-surface .btn-primary:hover::after { transform: translateX(130%); }
+.app-shell .btn-primary:hover , .dialog-surface .btn-primary:hover { box-shadow: inset 0 1px 0 rgb(255 255 255 / .32), 0 2px 4px rgb(var(--shadow-tint) / .2), 0 14px 30px -12px rgb(var(--accent) / .95); }
+
+.app-shell .btn-default , .dialog-surface .btn-default {
+  background-image: linear-gradient(180deg, rgb(var(--surface)) 0%, rgb(var(--surface-2) / .7) 100%);
+  box-shadow: inset 0 1px 0 var(--edge-light), 0 1px 2px rgb(var(--shadow-tint) / .06);
+}
+
+.app-shell .field , .dialog-surface .field {
+  background: rgb(var(--surface));
+  box-shadow: inset 0 1px 2px rgb(var(--shadow-tint) / .05);
+  border-radius: 8px;
+}
+.app-shell .field:focus , .dialog-surface .field:focus { box-shadow: 0 0 0 4px rgb(var(--accent) / .14), 0 0 20px -6px rgb(var(--accent) / .5); }
+
+/* Tabs: the moving underline carries a little light. */
+.app-shell .tab-indicated > span.bg-accent { box-shadow: 0 0 14px 1px var(--glow-accent); }
+
+/* A chip gets a hairline of its own colour. */
+.app-shell .chip { box-shadow: inset 0 0 0 1px color-mix(in srgb, currentColor 16%, transparent); border-radius: 6px; }
+
+/* A live status dot: work that is moving breathes, work that is stuck pulses. */
+.status-dot { position: relative; display: inline-block; width: 6px; height: 6px; border-radius: 99px; background: currentColor; flex-shrink: 0; }
+.status-dot[data-live]::after {
+  content: '';
+  position: absolute;
+  inset: -3px;
+  border-radius: inherit;
+  border: 1.5px solid currentColor;
+  opacity: 0;
+  animation: status-ring 2.4s cubic-bezier(.16, 1, .3, 1) infinite;
+}
+@keyframes status-ring { 0% { transform: scale(.6); opacity: .8; } 80%, 100% { transform: scale(1.9); opacity: 0; } }
+
+/* Rows light from the left on hover. */
+.app-shell .row { transition: background-color .18s ease, box-shadow .18s ease; }
+.app-shell .row:hover { background: linear-gradient(90deg, rgb(var(--accent) / .07), rgb(var(--accent) / .015) 45%, transparent); }
+
+/* Stat tiles: a figure with a soft floor of light. */
+.app-shell .stat-value { text-shadow: 0 1px 0 var(--edge-light); }
+[data-theme='dark'] .app-shell .stat-value { text-shadow: 0 0 24px rgb(var(--accent) / .25); }
+
+/* A figure tile carries a glow of its own tone in the corner, so a red number reads red from afar. */
+.app-shell .stat-tile { overflow: hidden; }
+.app-shell .stat-tile[data-tone] { background:
+    radial-gradient(160px 120px at 100% 0%, rgb(var(--tile-tone) / .14), transparent 70%),
+    linear-gradient(180deg, rgb(var(--surface)) 0%, rgb(var(--surface)) 55%, rgb(var(--surface-2) / .6) 100%); }
+.app-shell .stat-tile[data-tone='accent'] { --tile-tone: var(--accent); }
+.app-shell .stat-tile[data-tone='bad'] { --tile-tone: var(--bad); }
+.app-shell .stat-tile[data-tone='warn'] { --tile-tone: var(--warn); }
+[data-theme='dark'] .app-shell .stat-tile[data-tone] { background:
+    radial-gradient(160px 120px at 100% 0%, rgb(var(--tile-tone) / .2), transparent 70%),
+    linear-gradient(180deg, rgb(var(--surface) / .96) 0%, rgb(var(--surface) / .92) 100%); }
+
+/* ── Overlays ───────────────────────────────────────────────────────────────────────────────── */
+
+.dialog-overlay[data-state='open'] {
+  background: rgb(6 20 40 / .42);
+  backdrop-filter: blur(6px) saturate(1.2);
+  -webkit-backdrop-filter: blur(6px) saturate(1.2);
+}
+.dialog-surface {
+  border-radius: 14px;
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .4), 0 30px 80px -24px rgb(6 20 40 / .55), 0 0 0 1px rgb(var(--line) / .6);
+}
+[data-radix-popper-content-wrapper] > [role='menu'],
+[data-radix-popper-content-wrapper] > [role='listbox'] {
+  backdrop-filter: blur(14px) saturate(1.5);
+  -webkit-backdrop-filter: blur(14px) saturate(1.5);
+}
+
+/* ── Entrances ──────────────────────────────────────────────────────────────────────────────── */
+
+/* Page sections arrive out of a soft blur, one after another. */
+@keyframes premium-rise {
+  from { opacity: 0; transform: translateY(14px) scale(.995); filter: blur(6px); }
+  /* Ends on none, not blur(0): a leftover filter would trap a beam's halo inside its card. */
+  to { opacity: 1; transform: none; filter: none; }
+}
+.app-shell #main .animate-fade-up > .page > * { animation: premium-rise .55s cubic-bezier(.16, 1, .3, 1) both; }
+.app-shell #main .animate-fade-up > .page > *:nth-child(2) { animation-delay: 50ms; }
+.app-shell #main .animate-fade-up > .page > *:nth-child(3) { animation-delay: 100ms; }
+.app-shell #main .animate-fade-up > .page > *:nth-child(4) { animation-delay: 150ms; }
+.app-shell #main .animate-fade-up > .page > *:nth-child(5) { animation-delay: 200ms; }
+.app-shell #main .animate-fade-up > .page > *:nth-child(n + 6) { animation-delay: 240ms; }
+/* Cards inside a grid cascade too. */
+.app-shell #main .animate-fade-up .grid > .card,
+.app-shell #main .animate-fade-up .grid > div > .card { animation: premium-rise .6s cubic-bezier(.16, 1, .3, 1) both; }
+.app-shell #main .animate-fade-up .grid > :nth-child(2) > .card, .app-shell #main .animate-fade-up .grid > .card:nth-child(2) { animation-delay: 70ms; }
+.app-shell #main .animate-fade-up .grid > :nth-child(3) > .card, .app-shell #main .animate-fade-up .grid > .card:nth-child(3) { animation-delay: 140ms; }
+.app-shell #main .animate-fade-up .grid > :nth-child(4) > .card, .app-shell #main .animate-fade-up .grid > .card:nth-child(4) { animation-delay: 210ms; }
+
+/* ── Beam: light travelling around the thing to do next ─────────────────────────────────────── */
+
+@property --beam-angle { syntax: '<angle>'; inherits: false; initial-value: 0deg; }
+.beam {
+  position: absolute;
+  inset: -1px;
+  z-index: 2;
+  border-radius: inherit;
+  padding: 1.5px;
+  pointer-events: none;
+  background: conic-gradient(from var(--beam-angle), transparent 0deg 250deg, rgb(var(--brand-teal) / .0) 255deg, rgb(var(--brand-teal) / .95) 318deg, rgb(var(--accent)) 350deg, transparent 360deg);
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  animation: beam-turn 5.5s linear infinite;
+}
+.beam-glow {
+  position: absolute;
+  inset: -8px;
+  z-index: -1;
+  border-radius: calc(12px + 8px);
+  /* Masked to a band around the edge, so the halo never washes over the content inside. */
+  padding: 10px;
+  -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  -webkit-mask-composite: xor;
+  mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
+  mask-composite: exclude;
+  pointer-events: none;
+  background: conic-gradient(from var(--beam-angle), transparent 0deg 280deg, rgb(var(--brand-teal) / .35) 320deg, rgb(var(--accent) / .45) 350deg, transparent 360deg);
+  filter: blur(14px);
+  opacity: .55;
+  animation: beam-turn 5.5s linear infinite;
+}
+@keyframes beam-turn { to { --beam-angle: 360deg; } }
+
+/* Text lit by a slow pass of light. Used for short labels only; never for figures. */
+.shine-text {
+  background: linear-gradient(100deg, rgb(var(--ink-3)) 0%, rgb(var(--ink-3)) 40%, rgb(var(--accent)) 50%, rgb(var(--ink-3)) 60%, rgb(var(--ink-3)) 100%);
+  background-size: 250% 100%;
+  -webkit-background-clip: text;
+  background-clip: text;
+  color: transparent;
+  animation: shine-pass 5s ease-in-out infinite;
+}
+@keyframes shine-pass { 0% { background-position: 100% 0; } 60%, 100% { background-position: 0% 0; } }
+
+/* The page hero on Today: a lit band with its own light, behind the greeting. */
+.hero {
+  position: relative;
+  isolation: isolate;
+  overflow: hidden;
+  border-radius: 18px;
+  border: 1px solid rgb(var(--line) / .8);
+  background:
+    radial-gradient(60% 120% at 0% 0%, rgb(var(--accent) / .10), transparent 60%),
+    radial-gradient(50% 120% at 100% 0%, rgb(var(--brand-teal) / .10), transparent 60%),
+    linear-gradient(180deg, rgb(var(--surface) / .85), rgb(var(--surface) / .6));
+  box-shadow: inset 0 1px 0 var(--edge-light), 0 24px 60px -36px rgb(var(--shadow-tint) / .45);
+}
+.hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  z-index: -1;
+  background-image: linear-gradient(rgb(var(--ink) / .045) 1px, transparent 1px), linear-gradient(90deg, rgb(var(--ink) / .045) 1px, transparent 1px);
+  background-size: 34px 34px;
+  mask-image: radial-gradient(ellipse 80% 100% at 70% 0%, #000 20%, transparent 75%);
+  -webkit-mask-image: radial-gradient(ellipse 80% 100% at 70% 0%, #000 20%, transparent 75%);
+  animation: hero-grid-pan 30s linear infinite;
+}
+.hero::after {
+  content: '';
+  position: absolute;
+  z-index: -1;
+  width: 420px;
+  height: 420px;
+  right: -120px;
+  top: -220px;
+  border-radius: 50%;
+  background: conic-gradient(from 180deg, rgb(var(--accent) / .0), rgb(var(--accent) / .28), rgb(var(--brand-teal) / .3), rgb(var(--accent) / .0));
+  filter: blur(50px);
+  animation: hero-orbit 18s linear infinite;
+}
+[data-theme='dark'] .hero { background:
+    radial-gradient(60% 120% at 0% 0%, rgb(var(--accent) / .16), transparent 60%),
+    radial-gradient(50% 120% at 100% 0%, rgb(var(--brand-teal) / .12), transparent 60%),
+    linear-gradient(180deg, rgb(var(--surface) / .85), rgb(var(--surface) / .55)); }
+@keyframes hero-grid-pan { to { background-position: 34px 34px, 34px 34px; } }
+@keyframes hero-orbit { to { transform: rotate(360deg); } }
+
+/* ── Reduced motion ─────────────────────────────────────────────────────────────────────────── */
+
+/* Everything above that moves on its own stops. Hover light stays, because it follows the person
+   rather than moving by itself; the sheen does not pass. */
+@media (prefers-reduced-motion: reduce) {
+  .ambient::before, .ambient::after, .ambient-grid,
+  .beam, .beam-glow, .shine-text, .hero::before, .hero::after,
+  .status-dot[data-live]::after { animation: none !important; }
+  .beam, .beam-glow { display: none; }
+  .shine-text { color: rgb(var(--ink-3)); background: none; }
+  .app-shell .btn-primary::after , .dialog-surface .btn-primary::after { display: none; }
+  .app-shell #main .animate-fade-up > .page > *,
+  .app-shell #main .animate-fade-up .grid > .card,
+  .app-shell #main .animate-fade-up .grid > div > .card { animation: none !important; opacity: 1 !important; transform: none !important; filter: none !important; }
+  .app-shell .card-hover:hover { transform: none; }
+}
+
+@media print {
+  .ambient, .beam, .beam-glow { display: none !important; }
+  .app-shell .card::before { display: none !important; }
+}

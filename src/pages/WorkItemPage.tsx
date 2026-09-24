@@ -13,6 +13,7 @@ import { StageBadge, elapsed, personName } from '@/components/work';
 import { ThreadsForItem } from './Workbench';
 import { AnimatePresence, m } from 'motion/react';
 import { useDrawOnComplete } from '@/components/motion';
+import { BorderBeam } from '@/components/effects';
 import { DURATION, EASE, loadGsap, markRunning, reducedMotion } from '@/lib/motion';
 import { useIdentity, useMetrics, useWorkItem, invalidateWork } from '@/lib/queries';
 import * as api from '@/lib/api';
@@ -488,6 +489,8 @@ function StepPanel({ itemId, step, status, caseData, canAct, focused, enter, onB
     // When the case moves to its next step, the new step's form rises in where the last one was.
     <m.section className="card p-4 sm:p-5" aria-label={`Step: ${step.title}`}
       initial={enter ? { opacity: 0, y: 10 } : false} animate={{ opacity: 1, y: 0 }} transition={{ duration: DURATION.slow, ease: EASE.spring }}>
+      {/* The step to do now carries light around its edge. */}
+      {canAct && status?.status !== 'done' && <BorderBeam />}
       {heading}
       <StepHelp step={step} />
       {form}
