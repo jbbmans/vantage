@@ -248,6 +248,27 @@ test('instance import restores an archive into a fresh instance', async () => {
   } finally { await fresh.close(); }
 });
 
+test('an instance archive carries every table except the ones deliberately left behind', async () => {
+  const opToken = (await app.login('boletz')).body.token;
+  await app.call('POST', '/api/auth/sudo', { token: opToken, body: { password: PASSWORD } });
+  const { placeHold, releaseHold } = await import('../../server/services/retention.ts');
+  const hold = placeHold(app.ctx, { scope: 'user', subject_id: marine.id, reason: 'synthetic inquiry' }, op.id);
+  const archive = (await app.call('GET', '/api/admin/export', { token: opToken })).body;
+  // Sign-in state is not moved, and demo workspaces never leave the host they were made on.
+  const leftBehind = new Set(['sessions', 'tokens', 'demo_workspaces', 'sqlite_sequence']);
+  const tables = (app.ctx.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table'").all() as Array<{ name: string }>).map((t) => t.name);
+  assert.deepEqual(tables.filter((t) => !leftBehind.has(t) && !(t in archive.tables)), [], 'a table the move would lose');
+
+  const fresh = await startApp();
+  try {
+    const freshOp = await fresh.setupOperator();
+    const res = await fresh.call('POST', '/api/admin/import', { token: freshOp.token, body: archive });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    const held = fresh.ctx.db.prepare("SELECT subject_id FROM legal_holds WHERE released_at IS NULL").all() as Array<{ subject_id: string }>;
+    assert.ok(held.some((h) => h.subject_id === marine.id), 'a legal hold survives the move');
+  } finally { await fresh.close(); releaseHold(app.ctx, hold.id, op.id); }
+});
+
 test('an archive from before a column existed imports with that column’s default', async () => {
   const opToken = (await app.login('boletz')).body.token;
   const archive = (await app.call('GET', '/api/admin/export', { token: opToken })).body;
@@ -393,4 +414,31 @@ test('digest windows and AI dates follow the instance timezone', async () => {
   assert.equal(zonedDay('Pacific/Kiritimati', 0, at), '2026-09-05');
   assert.equal(zonedDay('America/New_York', -7, at), '2026-08-28');
   assert.equal(zonedDay('America/New_York', 14, at), '2026-09-18');
+});
+
+test('removing a member lets go of the team work they were holding, so the claim stops opening it', async () => {
+  const opToken = (await app.login('boletz')).body.token;
+  await app.call('POST', '/api/auth/sudo', { token: opToken, body: { password: PASSWORD } });
+  const departing = await app.register('departing');
+  await enroll(app, opToken, 'G8', departing.id);
+  const token = (await app.login('departing')).body.token;
+  const item = await app.call('POST', '/api/work/items', { token: opToken, body: { unit_id: 'G8', title: 'Held when they left', visibility: 'unit' } });
+  assert.equal(item.status, 201, JSON.stringify(item.body));
+  const claimed = await app.call('POST', `/api/work/items/${item.body.id}/claim`, { token, body: { version: item.body.version } });
+  assert.equal(claimed.status, 200, JSON.stringify(claimed.body));
+
+  const removed = await app.call('DELETE', `/api/org/units/G8/members/${departing.id}`, { token: opToken });
+  assert.equal(removed.status, 200);
+  assert.equal(removed.body.claimsReleased, 1);
+  const row = app.ctx.db.prepare('SELECT claimed_by, state FROM work_items WHERE id = ?').get(item.body.id) as { claimed_by: string | null; state: string };
+  assert.equal(row.claimed_by, null, 'the claim is released');
+  assert.notEqual(row.state, 'in_progress', 'and the work is back in the queue');
+  const event = app.ctx.db.prepare("SELECT subject_id, body FROM work_events WHERE work_item_id = ? AND kind = 'released'").get(item.body.id) as { subject_id: string; body: string };
+  assert.equal(event.subject_id, departing.id, 'the case history says who let it go, and why');
+  assert.match(event.body, /left_team/);
+
+  const again = (await app.login('departing')).body.token;
+  assert.equal((await app.call('GET', `/api/work/items/${item.body.id}`, { token: again })).status, 403, 'a former member cannot read it through an old claim');
+  const act = await app.call('POST', `/api/work/items/${item.body.id}/entries`, { token: again, body: { kind: 'note', body: 'still here' } });
+  assert.ok(act.status === 403 || act.status === 400, `nor act on it (${act.status})`);
 });

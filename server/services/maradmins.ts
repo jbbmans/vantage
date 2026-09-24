@@ -113,10 +113,26 @@ export function upsertMaradmins(ctx: AppContext, records: MaradminRecord[]) {
   return { updated: records.length, inserted: inserted.length, fetchedAt };
 }
 
+/** The feed is a few hundred kilobytes. Anything far past that is not the feed, and is not read into memory. */
+const FEED_MAX_BYTES = 8 * 1024 * 1024;
+export async function readCapped(response: Response, max: number): Promise<string> {
+  const declared = Number(response.headers.get('content-length') || 0);
+  if (declared > max) throw new Error('Official feed was larger than expected and was not read.');
+  if (!response.body) return '';
+  const chunks: Uint8Array[] = [];
+  let size = 0;
+  for await (const chunk of response.body as unknown as AsyncIterable<Uint8Array>) {
+    size += chunk.byteLength;
+    if (size > max) throw new Error('Official feed was larger than expected and was not read.');
+    chunks.push(chunk);
+  }
+  return Buffer.concat(chunks).toString('utf8');
+}
+
 async function refresh(ctx: AppContext) {
   const response = await fetch(ctx.config.maradmins.source, { headers: { accept: 'application/rss+xml, application/xml;q=0.9', 'user-agent': 'Vantage/5' }, signal: AbortSignal.timeout(12_000) });
   if (!response.ok) throw new Error(`Official feed returned ${response.status}.`);
-  const records = parseMaradminFeed(await response.text());
+  const records = parseMaradminFeed(await readCapped(response, FEED_MAX_BYTES));
   if (!records.length) throw new Error('Official feed contained no readable MARADMIN entries.');
   return upsertMaradmins(ctx, records);
 }

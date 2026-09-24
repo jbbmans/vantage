@@ -7,6 +7,7 @@ import { audit } from './audit.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
 import { notify } from './notifications.ts';
+import { appendEvent } from './cases.ts';
 
 export interface UnitRow { id: string; code: string; name: string; short_name: string | null; echelon: string; location: string | null; parent_id: string | null; owner_user_id: string | null; active: number; created_at: string }
 
@@ -71,13 +72,27 @@ export function removeMember(ctx: AppContext, userId: string, unitId: string) {
     const roles = ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND unit_id = ?').run(userId, unitId).changes;
     // Work assigned to the departing Marine inside this unit goes back to its author.
     for (const table of ['tasks', 'goals']) ctx.db.prepare(`UPDATE ${table} SET assignee_id = NULL, updated_at = ?, version = version + 1 WHERE assignee_id = ? AND unit_id = ? AND deleted_at IS NULL`).run(frozenAt, userId, unitId);
+    // So does the team's work they were holding. Holding a claim is enough to read and act on a row,
+    // so a claim left in place would keep a person who has left reading and working the team's cases.
+    const held = ctx.db.prepare("SELECT * FROM work_items WHERE claimed_by = ? AND unit_id = ? AND deleted_at IS NULL AND state NOT IN ('resolved', 'not_applicable')").all(userId, unitId) as Array<{ id: string; unit_id: string }>;
+    for (const row of held) {
+      ctx.db.prepare(
+        `UPDATE work_items SET claimed_by = NULL, claimed_at = NULL,
+                stage = CASE WHEN state = 'in_progress' AND COALESCE(stage, 'researching') = 'researching' THEN 'not_started' ELSE stage END,
+                state = CASE WHEN state = 'in_progress' AND COALESCE(stage, 'researching') = 'researching' THEN 'open' ELSE state END,
+                version = version + 1, updated_at = ? WHERE id = ?`
+      ).run(frozenAt, row.id);
+      appendEvent(ctx, { item: row, actorId: null, kind: 'released', subjectId: userId, body: { reason: 'left_team' } });
+    }
+    // A closed case keeps its holder: that is how the person's own record credits work they finished.
+    const claimsReleased = held.length;
     const wasPrimary = ctx.db.prepare('SELECT is_primary FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, unitId) as { is_primary: number } | undefined;
     ctx.db.prepare('DELETE FROM unit_members WHERE user_id = ? AND unit_id = ?').run(userId, unitId);
     if (wasPrimary?.is_primary) {
       const next = ctx.db.prepare('SELECT unit_id FROM unit_members WHERE user_id = ? ORDER BY joined_at LIMIT 1').get(userId) as { unit_id: string } | undefined;
       if (next) ctx.db.prepare('UPDATE unit_members SET is_primary = 1 WHERE user_id = ? AND unit_id = ?').run(userId, next.unit_id);
     }
-    return { roles, recordsFrozen };
+    return { roles, recordsFrozen, claimsReleased };
   })();
 }
 

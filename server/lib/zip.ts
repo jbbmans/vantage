@@ -106,13 +106,17 @@ export function readZip(buf: Buffer, limits: ZipLimits = {}): Map<string, Buffer
     const localExtraLen = buf.readUInt16LE(localOffset + 28);
     const start = localOffset + 30 + localNameLen + localExtraLen;
     const body = buf.subarray(start, start + compressed);
-    if (method === 0) out.set(name, Buffer.from(body));
+    let data: Buffer;
+    if (method === 0) data = Buffer.from(body);
     else if (method === 8) {
-      let inflated: Buffer;
-      try { inflated = inflateRawSync(body, { maxOutputLength: maxEntryBytes }); }
-      catch { throw new ZipError(`This workbook could not be read. The part "${name}" did not decompress.`); }
-      out.set(name, inflated);
+      // The sizes in the directory are the archive's claim, not a fact. Inflation is capped at what
+      // this part says it holds (and what is left of the whole budget), so an archive that lies about
+      // its sizes fails here instead of expanding to gigabytes.
+      try { data = inflateRawSync(body, { maxOutputLength: Math.max(1, Math.min(uncompressed, maxEntryBytes, maxTotalBytes - (total - uncompressed))) }); }
+      catch { throw new ZipError(`This workbook could not be read. The part "${name}" did not decompress to the size it declares.`); }
     } else throw new ZipError(`This workbook uses a compression method we do not read (${method}).`);
+    if (data.length !== uncompressed) throw new ZipError(`This workbook is damaged. The part "${name}" is not the size it declares.`);
+    out.set(name, data);
   }
   return out;
 }

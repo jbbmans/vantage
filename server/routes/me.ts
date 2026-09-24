@@ -2,7 +2,8 @@ import { Router } from 'express';
 import { z } from 'zod';
 import QRCode from 'qrcode';
 import { wrap, parse, clientIp } from '../lib/http.ts';
-import { badRequest, forbidden, notFound } from '../lib/errors.ts';
+import { badRequest, conflict, forbidden, notFound, tooMany } from '../lib/errors.ts';
+import { limiters } from '../auth/limiter.ts';
 import { requireAuth, requireSudo } from '../auth/middleware.ts';
 import { scopeFor, unitsWith, PERMISSIONS, can, detailUnitsFor } from '../authz/scope.ts';
 import { profileSchema, passwordField, readinessSchema, prefsSchema, emailField } from '../../shared/schemas.ts';
@@ -115,8 +116,15 @@ meRouter.put('/prefs', wrap((req, res) => {
 meRouter.post('/password', wrap((req, res) => {
   const ctx = req.ctx;
   const { current_password, new_password } = parse(z.object({ current_password: z.string().max(512), new_password: passwordField }), req.body);
+  // The same meter as sign-in and step-up: an open session must not become a way to guess the
+  // password without limit, and a wrong guess here counts against the account like any other.
+  const limited = limiters.loginUser.limited(req.user.username);
+  if (limited) throw tooMany('Too many incorrect passwords. Try again shortly.', limited.retryAfter);
   const stored = ctx.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id) as { password_hash: string };
-  if (!verifyPassword(current_password, stored.password_hash)) throw forbidden('Current password is incorrect.', 'bad_password');
+  if (!verifyPassword(current_password, stored.password_hash)) {
+    limiters.loginUser.bump(req.user.username);
+    throw forbidden('Current password is incorrect.', 'bad_password');
+  }
   if (current_password === new_password) throw badRequest('Choose a different password.', { fieldErrors: { new_password: 'Choose a different password.' } });
   ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?').run(hashPassword(new_password), now(), req.user.id);
   const revoked = invalidateUserSessions(ctx, req.user.id, req.sessionId);
@@ -161,6 +169,10 @@ meRouter.delete('/sessions/:sid', wrap((req, res) => {
 // MFA: authenticator app --------------------------------------------------
 meRouter.post('/mfa/totp/start', requireSudo, wrap(async (req, res) => {
   const ctx = req.ctx;
+  // Starting over must not quietly switch off the second step that is protecting the account now:
+  // an unfinished setup would leave it on a password alone. Replacing an authenticator is turning
+  // the old one off (confirmed and logged) and then setting up the new one.
+  if (req.user.totp_enabled) throw conflict('An authenticator app is already on. Turn it off first to set up a different one.', 'totp_enabled');
   const secret = generateTotpSecret();
   ctx.db.prepare('UPDATE users SET totp_secret = ?, totp_enabled = 0, updated_at = ? WHERE id = ?').run(encryptSecret(ctx.config.secret, secret), now(), req.user.id);
   const url = otpauthUrl(secret, req.user.username, ctx.runtime.displayName || 'Vantage');

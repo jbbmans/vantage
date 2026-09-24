@@ -4,10 +4,11 @@ import { can, isMember, scopeFor, PERMISSIONS } from '../authz/scope.ts';
 import { audit } from './audit.ts';
 import { notify } from './notifications.ts';
 import { record } from './telemetry.ts';
-import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
+import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
+import { capacityProblem } from './records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
-import { appendEvent, caseView } from './cases.ts';
+import { appendEvent, caseView, requireVerification } from './cases.ts';
 import { STATE_TO_STAGE } from '../../shared/caseModel.ts';
 
 /**
@@ -435,6 +436,7 @@ export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
       } else if (!mayProgress(scope, user, row)) {
         throw forbidden('Pick this work up before changing it.');
       }
+      if (patch.state === 'resolved' && row.state !== 'resolved') requireVerification(ctx, row);
       sets.push('state = ?'); params.push(patch.state);
       sets.push('resolved_at = ?'); params.push(patch.state === 'resolved' ? at : null);
       // The coarse state and the stage move together; the stage is read from the state here because
@@ -555,6 +557,9 @@ export function recordAction(
     let activityId: string | null = null;
 
     if (input.draft_record) {
+      // A drafted record counts against the same per-person limit as one typed in directly.
+      const capacity = capacityProblem(ctx, user.id);
+      if (capacity) throw new HttpError(507, capacity, 'record_quota');
       // The drafted record is the person's own, and starts private unless the work itself is shared.
       activityId = newId();
       const title = `${row.title}`.slice(0, 300);
@@ -620,7 +625,9 @@ export function listViews(ctx: AppContext, user: SessionUser, scope: Scope) {
   const rows = units.length
     ? ctx.db.prepare(`SELECT * FROM work_views WHERE user_id = ? OR (shared = 1 AND unit_id IN (${units.map(() => '?').join(',')})) ORDER BY name`).all(user.id, ...units)
     : ctx.db.prepare('SELECT * FROM work_views WHERE user_id = ? ORDER BY name').all(user.id);
-  return (rows as Array<Record<string, unknown>>).map((r) => ({ ...r, config: JSON.parse(String(r.config || '{}')) }));
+  // A view saved before the size check could hold a truncated config; it reads as empty, not as a 500.
+  const configOf = (raw: unknown) => { try { return JSON.parse(String(raw || '{}')); } catch { return {}; } };
+  return (rows as Array<Record<string, unknown>>).map((r) => ({ ...r, config: configOf(r.config) }));
 }
 
 export function saveView(ctx: AppContext, user: SessionUser, scope: Scope, input: { id?: string | null; name: string; unit_id?: string | null; shared?: boolean; config: unknown }) {
@@ -630,7 +637,10 @@ export function saveView(ctx: AppContext, user: SessionUser, scope: Scope, input
     if (!input.unit_id) throw badRequest('Choose the unit to share this view with.');
     if (!can(scope, PERMISSIONS.CREATE_SHARED_WORK, input.unit_id)) throw forbidden('You cannot share a view with that unit.');
   }
-  const config = JSON.stringify(input.config ?? {}).slice(0, 8000);
+  // Refused rather than cut: a JSON string cut short is not JSON, and one broken shared view would
+  // fail the list for everyone on the team.
+  const config = JSON.stringify(input.config ?? {});
+  if (config.length > 8000) throw badRequest('That view holds too many settings to save. Remove some filters or columns.');
   const at = now();
   if (input.id) {
     const existing = ctx.db.prepare('SELECT * FROM work_views WHERE id = ?').get(input.id) as { user_id: string } | undefined;

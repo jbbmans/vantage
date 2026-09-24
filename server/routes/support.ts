@@ -3,7 +3,7 @@ import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { forbidden } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
-import { scopeFor } from '../authz/scope.ts';
+import { isMember, scopeFor } from '../authz/scope.ts';
 import { limiters } from '../auth/limiter.ts';
 import {
   raiseTicket, listTickets, ticketDetail, replyToTicket, updateTicket, worksQueue,
@@ -67,6 +67,9 @@ supportRouter.get('/tickets', wrap((req, res) => {
 
 supportRouter.post('/tickets', wrap((req, res) => {
   const q = parse(raiseSchema, req.body);
+  // A ticket lands in its team's queue, so it may name only a team the person is on: otherwise
+  // anybody could fill a team they have nothing to do with with requests its leaders must read.
+  if (q.unit_id && !isMember(scopeFor(req.ctx, req.user, req), q.unit_id)) throw forbidden('You can raise a request only for a team you are on.');
   res.status(201).json(raiseTicket(req.ctx, { ...q, unit_id: q.unit_id ?? null }, req.user, clientIp(req)));
 }));
 

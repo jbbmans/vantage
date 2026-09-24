@@ -99,6 +99,22 @@ test('picking up work is not an accomplishment: a claim produces no measured out
   } finally { await fresh.close(); }
 });
 
+test('a record drafted from work counts against the same per-person limit as one typed in', async () => {
+  const fresh = await startApp();
+  try {
+    const owner = await fresh.setupOperator();
+    const item = await fresh.call('POST', '/api/work/items', { token: owner.token, body: { unit_id: 'G8', title: 'Quota check', visibility: 'unit' } });
+    assert.equal(item.status, 201, JSON.stringify(item.body));
+    const held = ['activities', 'projects', 'tasks', 'goals', 'trainings', 'awards', 'counselings'].reduce((n, t) => n + (fresh.ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE user_id = ?`).get(owner.id) as { n: number }).n, 0);
+    (fresh.ctx.config.limits as { maxRecordsPerUser: number }).maxRecordsPerUser = held;
+    const drafted = await fresh.call('POST', `/api/work/items/${item.body.id}/actions`, { token: owner.token, body: { kind: 'worked', note: 'Synthetic note', draft_record: true } });
+    assert.equal(drafted.status, 507);
+    assert.equal(drafted.body.code, 'record_quota');
+    const plain = await fresh.call('POST', `/api/work/items/${item.body.id}/actions`, { token: owner.token, body: { kind: 'worked', note: 'Synthetic note' } });
+    assert.equal(plain.status, 201, 'recording what you did without a record is unaffected');
+  } finally { await fresh.close(); }
+});
+
 test('a recorded action can draft the personal record of the work, once', async () => {
   const fresh = await startApp();
   try {
@@ -220,6 +236,15 @@ test('a saved view is personal unless the author has the authority to share it',
 
   const seenByOutsider = await app.call('GET', '/api/work/views', { token: outsider.token });
   assert.deepEqual(seenByOutsider.body, []);
+
+  // Too many settings is refused, never cut into something that is not JSON and then shared.
+  const huge = await app.call('POST', '/api/work/views', { token: op.token, body: { name: 'Everything', unit_id: 'G8', shared: true, config: { columns: Array.from({ length: 900 }, (_, i) => `column_${i}`) } } });
+  assert.equal(huge.status, 400);
+  // And a view stored broken by an older build does not take the list down for the team.
+  app.ctx.db.prepare("UPDATE work_views SET config = '{\"state\":\"op' WHERE name = 'Team queue'").run();
+  const stillListed = await app.call('GET', '/api/work/views', { token: alex.token });
+  assert.equal(stillListed.status, 200);
+  assert.deepEqual(stillListed.body.find((v: any) => v.name === 'Team queue').config, {});
 });
 
 test('a leader can take back work someone else is holding, and a peer cannot', async () => {

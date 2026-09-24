@@ -67,6 +67,19 @@ export const toCaseEvent = (r: EventRow): CaseEvent => ({
   body: { ...(JSON.parse(r.body || '{}') as Record<string, unknown>), step: r.step ?? undefined },
 });
 
+/**
+ * Following every step of a procedure is not the same as the condition clearing, so a case that
+ * follows one resolves only after the verification that says it did. Every path that can resolve
+ * work calls this, so none of them is the way around it.
+ */
+export function requireVerification(ctx: AppContext, row: Pick<WorkItemRow, 'id' | 'procedure_key'>): void {
+  if (!procedureFor(row.procedure_key)) return;
+  const cleared = latestVerification(eventsFor(ctx, row.id).map(toCaseEvent), 'condition_cleared');
+  if (!cleared || cleared.body.result !== 'verified') {
+    throw conflict('Verify the original condition cleared before resolving this.', 'verification_required');
+  }
+}
+
 export function eventsFor(ctx: AppContext, itemId: string): EventRow[] {
   // Insertion order is the order things happened on the server. occurred_at can be backdated (an
   // observation read yesterday), so it is shown but does not reorder the history.
@@ -332,17 +345,7 @@ export function changeStage(ctx: AppContext, user: SessionUser, scope: Scope, id
     }
     if (to === 'waiting' && !input.waiting_category) throw badRequest('Say what the work is waiting on.', { fieldErrors: { waiting_category: 'Required.' } });
     if (to === 'blocked' && !input.reason) throw badRequest('Say what is blocking it.', { fieldErrors: { reason: 'Required.' } });
-    if (to === 'resolved') {
-      const procedure = procedureFor(row.procedure_key);
-      if (procedure) {
-        // Following every step is not the same as the condition clearing. Resolution waits on the
-        // verification that says it did.
-        const cleared = latestVerification(eventsFor(ctx, id).map(toCaseEvent), 'condition_cleared');
-        if (!cleared || cleared.body.result !== 'verified') {
-          throw conflict('Verify the original condition cleared before resolving this.', 'verification_required');
-        }
-      }
-    }
+    if (to === 'resolved') requireVerification(ctx, row);
     moveStage(ctx, row, user.id, to, { reason: input.reason ?? null, category: (input.waiting_category ?? null) as WaitingCategory | null, expectedBy: input.expected_by ?? null });
     if (closing || reopening) audit(ctx, { actor_id: user.id, action: closing ? 'work_closed' : 'work_reopened', entity: 'work_items', entity_id: id, unit_id: row.unit_id, detail: to });
     return getItem(ctx, id)!;

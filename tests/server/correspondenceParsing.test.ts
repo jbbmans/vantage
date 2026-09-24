@@ -73,6 +73,15 @@ test('an inline style is dropped, so an email cannot repaint the page around it'
   assert.ok(out.html.includes('covering'));
 });
 
+test('a quote inside a single-quoted or bare value cannot close the attribute and open another', () => {
+  const titled = sanitizeEmailHtml(`<a href='https://example.test/a" style="position:fixed;inset:0' title='x" style="position:fixed;inset:0'>covering</a>`);
+  assert.doesNotMatch(titled.html, /\sstyle="/, 'no attribute was smuggled in');
+  assert.match(titled.html, /title="x&quot; style=&quot;position:fixed;inset:0"/, 'the quote is data inside the title');
+  const img = sanitizeEmailHtml(`<img src='data:image/png;base64,AAAA' alt='a" style="position:fixed'>`);
+  assert.doesNotMatch(img.html, /\sstyle="/);
+  assert.match(img.html, /alt="a&quot; style=&quot;position:fixed"/);
+});
+
 test('ordinary formatting an email actually uses is preserved', () => {
   const out = sanitizeEmailHtml('<p><strong>Subject:</strong> ULO review</p><table><tr><th scope="col">Doc</th><td colspan="2">ULO-1</td></tr></table><ul><li>one</li></ul>');
   assert.ok(out.html.includes('<strong>'));

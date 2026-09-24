@@ -247,6 +247,6 @@ export function removeFromTeam(ctx: AppContext, actor: SessionUser, userId: stri
   if (!removableFor(ctx, actor, scope, unitId, { id: userId, owner, position })) throw forbidden('You cannot remove that person from this team.', 'hierarchy');
   const removed = removeMember(ctx, userId, unitId);
   const revoked = invalidateUserSessions(ctx, userId);
-  audit(ctx, { actor_id: actor.id, action: 'remove_member', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, detail: `from People; roles: ${removed.roles}; records frozen: ${removed.recordsFrozen}; sessions revoked: ${revoked}`, ip: opts.ip });
+  audit(ctx, { actor_id: actor.id, action: 'remove_member', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, detail: `from People; roles: ${removed.roles}; records frozen: ${removed.recordsFrozen}; claims released: ${removed.claimsReleased}; sessions revoked: ${revoked}`, ip: opts.ip });
   return { ok: true, ...removed, sessionsRevoked: revoked };
 }

@@ -20,7 +20,8 @@
 import type { AppContext } from '../context.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
-import { RECORD_TABLE_NAMES } from './records.ts';
+import { RECORD_TABLE_NAMES, eraseRecords } from './records.ts';
+import { holdState } from './holds.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
 import { badRequest } from '../lib/errors.ts';
 
@@ -132,18 +133,6 @@ export function releaseHold(ctx: AppContext, id: string, actorId: string): void 
   audit(ctx, { actor_id: actorId, action: 'legal_hold_released', entity: 'legal_holds', entity_id: id, subject_id: hold.subject_id, detail: hold.reason.slice(0, 200) });
 }
 
-interface HoldState { instance: boolean; types: Set<string>; users: Set<string> }
-
-function holdState(ctx: AppContext): HoldState {
-  const state: HoldState = { instance: false, types: new Set(), users: new Set() };
-  for (const hold of openHolds(ctx)) {
-    if (hold.scope === 'instance') state.instance = true;
-    else if (hold.scope === 'record_type' && hold.record_type) state.types.add(hold.record_type);
-    else if (hold.scope === 'user' && hold.subject_id) state.users.add(hold.subject_id);
-  }
-  return state;
-}
-
 // Disposition ------------------------------------------------------------
 
 export interface DispositionLine {
@@ -204,7 +193,10 @@ export function runDisposition(ctx: AppContext, opts: { dryRun: boolean; actorId
     if (!opts.dryRun && schedule.disposition !== 'review' && eligible > 0) {
       ctx.db.transaction(() => {
         if (schedule.disposition === 'destroy') {
-          acted = ctx.db.prepare(`DELETE FROM ${schedule.record_type} WHERE ${clock} IS NOT NULL AND ${clock} < ?${exclusion}`).run(...params).changes;
+          // Through the same eraser as the recycle bin, so a destroyed record takes its attachments
+          // and comments with it, and a destroyed project releases the work that pointed at it.
+          const ids = (ctx.db.prepare(`SELECT id FROM ${schedule.record_type} WHERE ${clock} IS NOT NULL AND ${clock} < ?${exclusion}`).all(...params) as Array<{ id: string }>).map((r) => r.id);
+          acted = eraseRecords(ctx, schedule.record_type as RecordTable, ids).records;
         } else {
           const declared = IDENTIFYING[schedule.record_type] || [];
           // Only columns the table actually has: a schedule must not fail because the schema moved.

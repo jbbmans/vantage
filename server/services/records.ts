@@ -28,6 +28,7 @@ import { parse } from '../lib/http.ts';
 import { newId, now } from '../lib/ids.ts';
 import { record } from './telemetry.ts';
 import { audit } from './audit.ts';
+import { holdState, isHeld } from './holds.ts';
 import { notify } from './notifications.ts';
 import { statSync } from 'node:fs';
 
@@ -104,7 +105,7 @@ export function getRecord(ctx: AppContext, table: RecordTable, id: string, { inc
   return hydrate(row, table);
 }
 
-function capacityProblem(ctx: AppContext, userId: string, additional = 1): string | null {
+export function capacityProblem(ctx: AppContext, userId: string, additional = 1): string | null {
   const total = RECORD_TABLE_NAMES.reduce((sum, t) => sum + (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE user_id = ?`).get(userId) as { n: number }).n, 0);
   if (total + additional > ctx.config.limits.maxRecordsPerUser) return `This account has reached its ${ctx.config.limits.maxRecordsPerUser.toLocaleString()}-record limit. Contact the Instance Operator.`;
   try {
@@ -366,32 +367,60 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
   return { created, updated, duplicates: duplicates.length, duplicateRows: duplicates };
 }
 
-/** Permanently remove records (and their attachments) that have sat in the recycle bin longer than `days`. */
-export function purgeDeleted(ctx: AppContext, days = 30): { records: number; attachments: number; comments: number } {
-  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+/**
+ * Erase records for good, with everything that hangs on them: attachments, comments, and for a
+ * project the links other records keep to it. The one place rows leave a record table permanently,
+ * used by the recycle-bin purge and by retention's destroy.
+ */
+export function eraseRecords(ctx: AppContext, table: RecordTable, ids: string[]): { records: number; attachments: number; comments: number } {
   let records = 0; let attachments = 0; let comments = 0;
+  if (!ids.length) return { records, attachments, comments };
   ctx.db.transaction(() => {
-    for (const table of RECORD_TABLE_NAMES) {
-      const gone = ctx.db.prepare(`SELECT id FROM ${table} WHERE deleted_at IS NOT NULL AND deleted_at < ?`).all(cutoff) as Array<{ id: string }>;
-      if (!gone.length) continue;
-      for (const { id } of gone) {
-        attachments += ctx.db.prepare('DELETE FROM attachments WHERE record_table = ? AND record_id = ?').run(table, id).changes;
-        // A conversation cannot outlive the record it hangs on. Leaving it behind would keep the
-        // remarks — and the names in them — after the thing they were about is gone.
-        comments += ctx.db.prepare('DELETE FROM comments WHERE record_table = ? AND record_id = ?').run(table, id).changes;
-      }
-      if (table === 'projects') for (const { id } of gone) {
+    for (const id of ids) {
+      attachments += ctx.db.prepare('DELETE FROM attachments WHERE record_table = ? AND record_id = ?').run(table, id).changes;
+      // A conversation cannot outlive the record it hangs on. Leaving it behind would keep the
+      // remarks — and the names in them — after the thing they were about is gone.
+      comments += ctx.db.prepare('DELETE FROM comments WHERE record_table = ? AND record_id = ?').run(table, id).changes;
+      if (table === 'projects') {
         ctx.db.prepare('UPDATE tasks SET project_id = NULL WHERE project_id = ?').run(id);
         ctx.db.prepare('UPDATE activities SET project_id = NULL WHERE project_id = ?').run(id);
         // work_items.project_id is the one with a real foreign key, so missing it does not leave a
-        // dangling reference — it makes the DELETE below throw and roll back the whole purge, every
-        // time it runs, until somebody clears the row by hand.
+        // dangling reference — it makes the DELETE below throw and roll back the whole erase.
         ctx.db.prepare('UPDATE work_items SET project_id = NULL WHERE project_id = ?').run(id);
       }
-      records += ctx.db.prepare(`DELETE FROM ${table} WHERE deleted_at IS NOT NULL AND deleted_at < ?`).run(cutoff).changes;
+      records += ctx.db.prepare(`DELETE FROM ${table} WHERE id = ?`).run(id).changes;
     }
-    attachments += ctx.db.prepare('DELETE FROM attachments WHERE deleted_at IS NOT NULL AND deleted_at < ?').run(cutoff).changes;
   })();
-  if (records || attachments || comments) audit(ctx, { actor_id: null, action: 'purge_deleted', entity: 'instance', detail: `${records} records, ${attachments} attachments, ${comments} comments older than ${days} days` });
   return { records, attachments, comments };
+}
+
+/**
+ * Permanently remove records (and their attachments) that have sat in the recycle bin longer than
+ * `days`. Anything an open legal hold covers stays in the bin until the hold is released: deleting
+ * is a person's choice, but erasing what is held is not anyone's.
+ */
+export function purgeDeleted(ctx: AppContext, days = 30): { records: number; attachments: number; comments: number; held: number } {
+  const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
+  let records = 0; let attachments = 0; let comments = 0; let held = 0;
+  const holds = holdState(ctx);
+  ctx.db.transaction(() => {
+    for (const table of RECORD_TABLE_NAMES) {
+      const gone = ctx.db.prepare(`SELECT id, user_id FROM ${table} WHERE deleted_at IS NOT NULL AND deleted_at < ?`).all(cutoff) as Array<{ id: string; user_id: string | null }>;
+      const erasable = gone.filter((r) => !isHeld(holds, table, r.user_id));
+      held += gone.length - erasable.length;
+      const erased = eraseRecords(ctx, table, erasable.map((r) => r.id));
+      records += erased.records; attachments += erased.attachments; comments += erased.comments;
+    }
+    // Attachments removed from a record that is itself still live.
+    const loose = ctx.db.prepare('SELECT id, record_table, record_id FROM attachments WHERE deleted_at IS NOT NULL AND deleted_at < ?').all(cutoff) as Array<{ id: string; record_table: string; record_id: string }>;
+    for (const a of loose) {
+      const owner = (RECORD_TABLE_NAMES as readonly string[]).includes(a.record_table)
+        ? (ctx.db.prepare(`SELECT user_id FROM ${a.record_table} WHERE id = ?`).get(a.record_id) as { user_id: string | null } | undefined)?.user_id
+        : null;
+      if (isHeld(holds, a.record_table, owner)) { held += 1; continue; }
+      attachments += ctx.db.prepare('DELETE FROM attachments WHERE id = ?').run(a.id).changes;
+    }
+  })();
+  if (records || attachments || comments || held) audit(ctx, { actor_id: null, action: 'purge_deleted', entity: 'instance', detail: `${records} records, ${attachments} attachments, ${comments} comments older than ${days} days${held ? `; ${held} kept under legal hold` : ''}` });
+  return { records, attachments, comments, held };
 }

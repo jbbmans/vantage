@@ -61,6 +61,18 @@ test('every member sees their team, its levels and its totals, and still opens n
   assert.equal((await app.call('GET', '/api/me', { token: await token('boletz') })).body.accessLevel, 'administrator');
 });
 
+test('a join code grants a role only as the same authority that grants one by hand', async () => {
+  const codes = (t: string, body: Record<string, unknown>) => app.call('POST', '/api/org/units/G8/join-codes', { token: t, body });
+  const l = await token('lead');
+  assert.equal((await codes(l, { max_uses: 1 })).status, 201, 'a team leader brings people in');
+  const withRole = await codes(l, { max_uses: 1, role_id: 'G8:nco' });
+  assert.equal(withRole.status, 403, 'but does not decide what they may do: that is managing roles');
+  const sn = await token('sncoic');
+  assert.equal((await codes(sn, { max_uses: 1, role_id: 'G8:nco' })).status, 201, 'the SNCOIC manages roles below their own');
+  assert.equal((await codes(sn, { max_uses: 1, role_id: 'G8:team-administrator' })).status, 403, 'never at or above it');
+  assert.equal((await codes(await token('boletz'), { max_uses: 1, role_id: 'G8:unit-leader' })).status, 400, 'and ownership is transferred, not handed out');
+});
+
 test('a team leader manages who is on the team but no one’s level; levels follow the role hierarchy', async () => {
   const l = await token('lead');
   const people = await app.call('GET', '/api/people', { token: l });

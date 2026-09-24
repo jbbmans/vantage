@@ -76,6 +76,17 @@ test('password change, sudo, and session revocation', async () => {
   assert.ok(sessions.body.sessions.find((s: any) => s.current));
 });
 
+test('an open session cannot be used to guess the current password without limit', async () => {
+  const u = await app.register('guesser');
+  const guess = (current_password: string) => app.call('POST', '/api/me/password', { token: u.token, body: { current_password, new_password: 'another-strong-passphrase-77' } });
+  let last = 0;
+  for (let i = 0; i < 12 && last !== 429; i += 1) last = (await guess(`wrong-${i}`)).status;
+  assert.equal(last, 429, 'wrong guesses run into the same meter as sign-in');
+  assert.equal((await guess(PASSWORD)).status, 429, 'and the right one waits too, so the meter is not an oracle');
+  assert.equal((await app.login('guesser')).status, 429, 'the account is metered wherever the password is typed');
+  resetLimiters();
+});
+
 test('TOTP enrollment gates login and recovery codes work once', async () => {
   const u = await app.register('totp');
   const sudo = await app.call('POST', '/api/auth/sudo', { token: u.token, body: { password: PASSWORD } });
@@ -95,9 +106,15 @@ test('TOTP enrollment gates login and recovery codes work once', async () => {
   assert.ok(!login.body.token);
   const badCode = await app.call('POST', '/api/auth/login/mfa', { body: { challenge: login.body.challenge, code: '123456' } });
   assert.equal(badCode.status, 401);
-  const good = await app.call('POST', '/api/auth/login/mfa', { body: { challenge: login.body.challenge, code: totpCode(start.body.secret, Math.floor(Date.now() / 30000)) } });
+  const signInCode = totpCode(start.body.secret, Math.floor(Date.now() / 30000));
+  const good = await app.call('POST', '/api/auth/login/mfa', { body: { challenge: login.body.challenge, code: signInCode } });
   assert.equal(good.status, 200);
   assert.ok(good.body.token);
+  // The same code a second time is refused, even inside its window: a code signs somebody in once.
+  const replayLogin = await app.login('totp');
+  const replay = await app.call('POST', '/api/auth/login/mfa', { body: { challenge: replayLogin.body.challenge, code: signInCode } });
+  assert.equal(replay.status, 401);
+  assert.equal(replay.body.code, 'code_reused');
   const login2 = await app.login('totp');
   const rc = confirm.body.recoveryCodes[0];
   assert.equal((await app.call('POST', '/api/auth/login/mfa', { body: { challenge: login2.body.challenge, code: rc } })).status, 200);
@@ -105,6 +122,11 @@ test('TOTP enrollment gates login and recovery codes work once', async () => {
   assert.equal((await app.call('POST', '/api/auth/login/mfa', { body: { challenge: login3.body.challenge, code: rc } })).status, 401);
   const sessions = await app.call('GET', '/api/me/sessions', { token: good.body.token });
   assert.ok(sessions.body.sessions.some((s: any) => s.method === 'password+totp'));
+  // Starting setup again must not switch off the second step that is protecting the account now.
+  const restart = await app.call('POST', '/api/me/mfa/totp/start', { token: good.body.token });
+  assert.equal(restart.status, 409);
+  assert.equal(restart.body.code, 'totp_enabled');
+  assert.equal((await app.login('totp')).body.mfa, 'totp', 'sign-in still asks for the code');
   const disable = await app.call('POST', '/api/me/mfa/totp/disable', { token: good.body.token });
   assert.equal(disable.status, 200);
   assert.ok((await app.login('totp')).body.token);

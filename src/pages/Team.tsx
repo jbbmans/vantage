@@ -47,7 +47,7 @@ export default function Team() {
   if (identity && !mine.length) {
     return (
       <div className="page">
-        <PageHeader eyebrow="Team" title="Team" lede="Every team in the organization is listed here. Join one with a code from its leader, or ask a leader to add you." />
+        <PageHeader eyebrow="Team" title="Team" lede="Every team in the organization is listed here. To join one, ask its leader to add you or to send you an invitation." />
         <div className="card mb-4"><EmptyState icon={Users} title="You are not on a team yet" description="Once you join, your team’s roster and where its work stands appear here." /></div>
         <TeamsDirectory />
       </div>
@@ -107,7 +107,7 @@ function TeamsDirectory({ onOpen }: { onOpen?: (id: string) => void }) {
               <span className="fig text-sm text-ink-2">{t.members} {t.members === 1 ? 'person' : 'people'}</span>
               {t.is_member && onOpen
                 ? <Button size="sm" className="mt-auto self-start" onClick={() => onOpen(t.id)}>Open</Button>
-                : !t.is_member && <span className="mt-auto text-xs text-ink-3">Join with a code from its leader.</span>}
+                : !t.is_member && <span className="mt-auto text-xs text-ink-3">Ask its leader to add you.</span>}
             </li>
           ))}
         </ul>

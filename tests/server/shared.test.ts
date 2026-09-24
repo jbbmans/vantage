@@ -285,3 +285,13 @@ test('a kind with no count is never told it is missing one', () => {
   assert.ok(B.weaknesses({ title: 'Food pantry', category: 'Volunteer Service', result: 'fed families', eval_area: 'Leadership' }).some((g) => g.includes('quantity')));
   assert.ok(B.weaknesses({ title: 'Reconciled ULOs', category: 'Fiscal & Financial' }).some((g) => g.includes('quantity')));
 });
+
+test('an evidence link is allowed by its scheme, read the way a browser reads it', async () => {
+  const { isSafeLink, evidenceLink } = await import('../../shared/schemas.ts');
+  for (const ok of ['https://example.test/ticket/1', 'http://example.test', 'mailto:someone@example.test', '/records/activities/abc', 'shared-drive/folder']) assert.ok(isSafeLink(ok), ok);
+  // A tab, newline or control character inside the scheme is dropped by the browser before it reads it.
+  for (const bad of ['javascript:alert(1)', 'java\tscript:alert(1)', ' \njavascript:alert(1)', 'JaVaScRiPt:alert(1)', '\u0001javascript:alert(1)', 'data:text/html,<p>x</p>', 'vbscript:x', 'file:///etc/passwd', 'blob:https://x/y']) {
+    assert.ok(!isSafeLink(bad), JSON.stringify(bad));
+    assert.equal(evidenceLink.safeParse({ url: bad }).success, false, JSON.stringify(bad));
+  }
+});

@@ -199,6 +199,9 @@ test('approved is not posted, and following the steps is not verifying the condi
 
   const viaAction = await post(avery.token, `/api/work/items/${id}/actions`, { kind: 'resolved', note: 'done' });
   assert.equal(viaAction.status, 409, 'the older action path cannot skip the verification either');
+  const viaPatch = await app.call('PATCH', `/api/work/items/${id}`, { token: avery.token, body: { state: 'resolved' } });
+  assert.equal(viaPatch.status, 409, 'nor can setting the state directly');
+  assert.equal(viaPatch.body.code, 'verification_required');
 
   await entry(avery.token, id, { kind: 'verification', check: 'condition_cleared', result: 'verified', reference: 'UMT report 2026-09-20, line cleared' });
   const resolved = await post(avery.token, `/api/work/items/${id}/stage`, { stage: 'resolved', reason: 'Verified cleared.' });

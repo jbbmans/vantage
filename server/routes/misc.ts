@@ -275,7 +275,7 @@ miscRouter.post('/ai/assist', wrap(async (req, res) => {
     res.json(result);
   } catch (error) {
     if (error instanceof AiError) {
-      if (error.code === 'ai_key_locked') notifyOperators(ctx, { kind: 'system', title: 'GenAI.mil key needs unlock', message: 'AI assistance is paused until the GenAI.mil key lock is cleared in the Owner Console.', actionUrl: '/operator#ai', dedupeKey: `genai-lock:${now().slice(0, 13)}` });
+      if (error.code === 'ai_key_locked') notifyOperators(ctx, { kind: 'system', title: 'GenAI.mil key needs unlock', message: 'AI assistance is paused until the GenAI.mil key lock is cleared in the Owner Console.', actionUrl: '/operator?tab=ai', dedupeKey: `genai-lock:${now().slice(0, 13)}` });
       audit(ctx, { actor_id: req.user.id, action: 'ai_assist_failed', entity: 'ai_request', detail: `${workflow || 'unknown'}; ${error.code}`, ip: clientIp(req) });
     }
     throw error;

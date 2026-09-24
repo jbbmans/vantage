@@ -1,6 +1,6 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
-import { can, isMember, PERMISSIONS } from '../authz/scope.ts';
+import { can, isMember, isUnitOwner, PERMISSIONS } from '../authz/scope.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { randomBytes } from 'node:crypto';
 import { newId, now } from '../lib/ids.ts';
@@ -75,15 +75,19 @@ export function createInvite(
   if (!getUnit(ctx, unitId)) throw notFound('No such unit.');
   assertMayInvite(scope, unitId);
 
-  // A code may hand out a role, but never one that outranks the person writing the invite.
+  // A code may hand out a role, but only as the same authority that grants one by hand or by an
+  // emailed invitation: managing roles, and never at or above the person writing the code.
+  // Managing members alone lets somebody bring people in, not decide what they may do once there.
   let roleId: string | null = null;
   if (input.role_id) {
-    const role = ctx.db.prepare('SELECT id, unit_id, position, permissions FROM roles WHERE id = ? AND unit_id = ?')
-      .get(String(input.role_id), unitId) as { id: string; position: number; permissions: number } | undefined;
+    const role = ctx.db.prepare('SELECT id, key, unit_id, position, permissions FROM roles WHERE id = ? AND unit_id = ?')
+      .get(String(input.role_id), unitId) as { id: string; key: string; position: number; permissions: number } | undefined;
     if (!role) throw badRequest('No such role in that unit.');
+    if (role.key === 'unit-leader') throw badRequest('Unit Leader is granted by ownership transfer, not by a join code.');
     const myPosition = scope.positions[unitId] || 0;
-    if (!actor.is_operator && role.position >= myPosition) {
-      throw forbidden('An invite cannot grant a role at or above your own.');
+    if (!actor.is_operator && !isUnitOwner(ctx, actor.id, unitId)) {
+      if (!can(scope, PERMISSIONS.MANAGE_ROLES, unitId)) throw forbidden('A join code that grants a role needs authority to manage roles here.', 'hierarchy');
+      if (role.position >= myPosition) throw forbidden('An invite cannot grant a role at or above your own.', 'hierarchy');
     }
     roleId = role.id;
   }

@@ -31,10 +31,23 @@ const optNumber = (lo: number, hi: number, integer = false) =>
 const optEnum = <T extends readonly [string, ...string[]]>(values: T) =>
   z.enum(values).nullish().or(z.literal('')).transform((v) => (v === undefined ? undefined : v ? v : null));
 
-const badScheme = (s: string) => /^\s*(javascript|data|vbscript):/i.test(s);
+/**
+ * Whether a link somebody typed may be opened by the people who read it.
+ *
+ * An allowlist, not a denylist: a new dangerous scheme is refused without anyone having to name it.
+ * A browser drops tabs, newlines and control characters before it reads a scheme, so `java\tscript:`
+ * runs as `javascript:`; the check reads the link the way the browser will. A link with no scheme at
+ * all is a path, and stays inside the app.
+ */
+export function isSafeLink(url: string): boolean {
+  // Every code point up to and including the space, and DEL: the characters a browser strips.
+  const asRead = [...url].filter((c) => { const n = c.codePointAt(0)!; return n > 0x20 && n !== 0x7f; }).join('');
+  const scheme = /^([a-z][a-z0-9+.-]*):/i.exec(asRead);
+  return !scheme || ['http', 'https', 'mailto'].includes(scheme[1].toLowerCase());
+}
 export const evidenceLink = z.object({
   label: z.string().max(200).nullish(),
-  url: z.string().max(500).nullish().refine((u) => !u || !badScheme(u), 'That link scheme is not allowed.'),
+  url: z.string().max(500).nullish().refine((u) => !u || isSafeLink(u), 'Links must start with http://, https:// or mailto:.'),
 });
 const evidenceLinks = z.array(evidenceLink).max(20).optional();
 

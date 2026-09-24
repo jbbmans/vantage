@@ -8,7 +8,7 @@ import { limiters } from '../auth/limiter.ts';
 import { createSession, destroySession, invalidateUserSessions, SESSION_COOKIE, SIGNED_IN_COOKIE, grantSudo } from '../auth/sessions.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { issueToken, consumeToken, peekToken, revokeTokens } from '../auth/tokens.ts';
-import { verifyTotp } from '../auth/totp.ts';
+import { totpCounter, claimTotpStep } from '../auth/totp.ts';
 import { presentedCertificate, resolveAccount, CacError } from '../auth/cac.ts';
 import { authenticationOptions, completeAuthentication } from '../auth/passkeys.ts';
 import { record } from '../services/telemetry.ts';
@@ -157,8 +157,10 @@ authRouter.post('/login/mfa', wrap((req, res) => {
   if (accountLimit) throw tooMany('Too many second-factor failures for this account. Try again later.', accountLimit.retryAfter);
   const secret = row.totp_secret ? decryptSecret(ctx.config.secret, row.totp_secret) : null;
   const clean = code.replace(/\s+/g, '').toLowerCase();
-  let ok = Boolean(secret) && verifyTotp(secret!, clean);
-  if (!ok && /^[a-f0-9]{5}-?[a-f0-9]{5}$/.test(clean)) {
+  const counter = secret ? totpCounter(secret, clean) : null;
+  const reused = counter !== null && !claimTotpStep(row.id, counter);
+  let ok = counter !== null && !reused;
+  if (!ok && !reused && /^[a-f0-9]{5}-?[a-f0-9]{5}$/.test(clean)) {
     const normalized = clean.includes('-') ? clean : `${clean.slice(0, 5)}-${clean.slice(5)}`;
     const rc = ctx.db.prepare('SELECT id FROM recovery_codes WHERE user_id = ? AND code_hash = ? AND used_at IS NULL').get(row.id, sha256(`recovery:${normalized}`)) as { id: string } | undefined;
     if (rc) { ctx.db.prepare('UPDATE recovery_codes SET used_at = ? WHERE id = ?').run(now(), rc.id); ok = true; audit(ctx, { actor_id: row.id, action: 'recovery_code_used', ip }); }
@@ -168,6 +170,7 @@ authRouter.post('/login/mfa', wrap((req, res) => {
     limiters.loginIp.bump(ip);
     const e = limiters.mfaUser.bump(row.id);
     if (e.count === 10) audit(ctx, { actor_id: row.id, action: 'login_lockout', ip, detail: 'second-factor failure threshold reached' });
+    if (reused) throw unauthorized('That code has already been used. Wait for the next one.', 'code_reused');
     throw unauthorized('That code is not valid.', 'bad_code');
   }
   limiters.mfaUser.clear(row.id);

@@ -21,6 +21,14 @@ const EXPORT_TABLES = [
   'report_drafts', 'report_revisions',
   // Correspondence: contacts before threads, threads before their messages and links.
   'contacts', 'connectors', 'threads', 'thread_messages', 'thread_links',
+  // Remarks on records, and the help queue: tickets before their messages.
+  'comments', 'support_tickets', 'support_messages',
+  // Join codes before the uses recorded against them.
+  'unit_invites', 'unit_invite_uses',
+  // Records management: a move must not drop a legal hold, a schedule, or the history of what was disposed of.
+  'retention_schedules', 'legal_holds', 'disposition_runs',
+  // The authoritative roster feed and its runs.
+  'personnel_roster', 'personnel_sync_runs',
   'attachments', 'audit_log', 'notifications', 'maradmins', 'maradmin_user_state', 'ai_usage_daily', 'product_events', 'email_log', 'meta',
 ] as const;
 

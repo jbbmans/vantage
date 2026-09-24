@@ -1,7 +1,8 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp } from './helpers.ts';
-import { saveSchedule, placeHold, runDisposition, REDACTED } from '../../server/services/retention.ts';
+import { saveSchedule, placeHold, releaseHold, runDisposition, REDACTED } from '../../server/services/retention.ts';
+import { purgeDeleted } from '../../server/services/records.ts';
 import { buildInventory, inventoryMarkdown, DECLARATIONS } from '../../server/services/privacyInventory.ts';
 
 const daysAgo = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString().slice(0, 10);
@@ -80,6 +81,67 @@ test('a hold on one person spares their records and no one else’s', async () =
 
     const remaining = app.ctx.db.prepare('SELECT user_id FROM activities').all() as Array<{ user_id: string }>;
     assert.deepEqual(remaining.map((r) => r.user_id), [other.id], 'the held person keeps their record');
+  } finally { await app.close(); }
+});
+
+test('the recycle-bin purge keeps whatever a legal hold covers, until the hold is released', async () => {
+  const app = await startApp();
+  try {
+    const op = await app.setupOperator();
+    const other = await app.register('rivera');
+    const make = async (token: string, title: string) => {
+      const r = await app.call('POST', '/api/records/activities', { token, body: { title, date: daysAgo(40), category: 'Fiscal & Financial', eval_area: 'MOS / Mission Accomplishment' } });
+      assert.equal((await app.call('DELETE', `/api/records/activities/${r.body.id}`, { token })).status, 200);
+      return r.body.id as string;
+    };
+    const mine = await make(op.token, 'Operator deleted entry');
+    const theirs = await make(other.token, 'Rivera deleted entry');
+    const old = new Date(Date.now() - 60 * 86_400_000).toISOString();
+    app.ctx.db.prepare('UPDATE activities SET deleted_at = ?').run(old);
+    const left = () => (app.ctx.db.prepare('SELECT id FROM activities').all() as Array<{ id: string }>).map((r) => r.id).sort();
+
+    const hold = placeHold(app.ctx, { scope: 'user', subject_id: other.id, reason: 'pending board action' }, op.id);
+    const first = purgeDeleted(app.ctx, 30);
+    assert.equal(first.records, 1);
+    assert.equal(first.held, 1, 'the held record is counted, not silently skipped');
+    assert.deepEqual(left(), [theirs], 'a person under hold keeps even what they deleted');
+
+    const typeHold = placeHold(app.ctx, { scope: 'record_type', record_type: 'activities', reason: 'records review' }, op.id);
+    releaseHold(app.ctx, hold.id, op.id);
+    assert.equal(purgeDeleted(app.ctx, 30).records, 0, 'a record-type hold covers it as well');
+    releaseHold(app.ctx, typeHold.id, op.id);
+    placeHold(app.ctx, { scope: 'instance', reason: 'IG inquiry' }, op.id);
+    assert.equal(purgeDeleted(app.ctx, 30).records, 0, 'and so does an instance-wide one');
+    assert.deepEqual(left(), [theirs]);
+    assert.ok(mine);
+  } finally { await app.close(); }
+});
+
+test('a destroyed record takes its attachments and comments with it, and a destroyed project frees its work', async () => {
+  const app = await startApp();
+  try {
+    const op = await app.setupOperator();
+    const act = await app.call('POST', '/api/records/activities', { token: op.token, body: { title: 'Old shared entry', date: daysAgo(900), category: 'Fiscal & Financial', eval_area: 'MOS / Mission Accomplishment', visibility: 'unit', unit_id: 'G8' } });
+    assert.equal(act.status, 201, JSON.stringify(act.body));
+    const at = new Date().toISOString();
+    app.ctx.db.prepare(`INSERT INTO attachments (id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, content, created_at)
+                        VALUES ('att-1', 'activities', ?, ?, 'receipt.pdf', 'application/pdf', 4, 'abc', x'25504446', ?)`).run(act.body.id, op.id, at);
+    app.ctx.db.prepare(`INSERT INTO comments (id, record_table, record_id, author_id, unit_id, body, created_at) VALUES ('cm-1', 'activities', ?, ?, 'G8', 'Synthetic remark', ?)`).run(act.body.id, op.id, at);
+
+    const project = await app.call('POST', '/api/records/projects', { token: op.token, body: { name: 'Old project', visibility: 'unit' } });
+    const item = await app.call('POST', '/api/work/items', { token: op.token, body: { unit_id: 'G8', title: 'Filed under the old project', project_id: project.body.id, visibility: 'unit' } });
+    assert.equal(item.status, 201, JSON.stringify(item.body));
+    app.ctx.db.prepare('UPDATE projects SET updated_at = ? WHERE id = ?').run(`${daysAgo(900)}T00:00:00.000Z`, project.body.id);
+
+    saveSchedule(app.ctx, { record_type: 'activities', retain_days: 365, disposition: 'destroy', enabled: true }, op.id);
+    saveSchedule(app.ctx, { record_type: 'projects', retain_days: 365, disposition: 'destroy', enabled: true }, op.id);
+    const result = runDisposition(app.ctx, { dryRun: false, actorId: op.id });
+    assert.equal(result.lines.find((l) => l.record_type === 'activities')!.acted, 1);
+    assert.equal(result.lines.find((l) => l.record_type === 'projects')!.acted, 1, 'the work item’s foreign key does not stop the run');
+    assert.equal(app.ctx.db.prepare("SELECT 1 FROM attachments WHERE id = 'att-1'").get(), undefined, 'no orphaned file');
+    assert.equal(app.ctx.db.prepare("SELECT 1 FROM comments WHERE id = 'cm-1'").get(), undefined, 'no orphaned remarks');
+    const survivor = app.ctx.db.prepare('SELECT project_id FROM work_items WHERE id = ?').get(item.body.id) as { project_id: string | null };
+    assert.equal(survivor.project_id, null, 'the work survives, detached');
   } finally { await app.close(); }
 });
 

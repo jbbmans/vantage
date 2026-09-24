@@ -186,3 +186,12 @@ test('the anonymous route still refuses a request with no client header', async 
   });
   assert.equal(bare.status, 403);
 });
+
+test('a signed-in request names only a team its author is on', async () => {
+  const stranger = await app.register('stranger');
+  const elsewhere = await app.call('POST', '/api/support/tickets', { token: stranger.token, body: { subject: 'Look at me', body: 'Filed into a queue I am not part of.', category: 'other', unit_id: 'G8' } });
+  assert.equal(elsewhere.status, 403);
+  const own = await app.call('POST', '/api/support/tickets', { token: rivera.token, body: { subject: 'Team question', body: 'Filed into my own team.', category: 'other', unit_id: 'G8' } });
+  assert.equal(own.status, 201, JSON.stringify(own.body));
+  assert.equal((await app.call('POST', '/api/support/tickets', { token: stranger.token, body: { subject: 'General', body: 'No team named.', category: 'other' } })).status, 201);
+});

@@ -34,15 +34,35 @@ export function totpCode(secret: string, counter: number, digits = 6): string {
   return String(code % 10 ** digits).padStart(digits, '0');
 }
 
-export function verifyTotp(secret: string, code: string, { window = 1, step = 30, nowMs = Date.now() }: { window?: number; step?: number; nowMs?: number } = {}): boolean {
+/** The time step a code belongs to, within `window` steps of now, or null when it matches none. */
+export function totpCounter(secret: string, code: string, { window = 1, step = 30, nowMs = Date.now() }: { window?: number; step?: number; nowMs?: number } = {}): number | null {
   const supplied = String(code || '').replace(/\s+/g, '');
-  if (!/^\d{6}$/.test(supplied)) return false;
+  if (!/^\d{6}$/.test(supplied)) return null;
   const counter = Math.floor(nowMs / 1000 / step);
   for (let i = -window; i <= window; i += 1) {
     const expected = totpCode(secret, counter + i);
-    if (expected.length === supplied.length && timingSafeEqual(Buffer.from(expected), Buffer.from(supplied))) return true;
+    if (expected.length === supplied.length && timingSafeEqual(Buffer.from(expected), Buffer.from(supplied))) return counter + i;
   }
-  return false;
+  return null;
+}
+
+export function verifyTotp(secret: string, code: string, opts: { window?: number; step?: number; nowMs?: number } = {}): boolean {
+  return totpCounter(secret, code, opts) !== null;
+}
+
+/**
+ * A code signs somebody in once. Without this a code read over a shoulder, or out of a proxy log,
+ * stays good for the whole ±1 step window (up to ninety seconds) after its owner used it.
+ *
+ * Kept in memory: Vantage runs as one process, and a restart inside the window is the only gap.
+ */
+const usedSteps = new Map<string, { counter: number; at: number }>();
+export function claimTotpStep(userId: string, counter: number, nowMs = Date.now()): boolean {
+  for (const [k, v] of usedSteps) if (nowMs - v.at > 5 * 60_000) usedSteps.delete(k);
+  const previous = usedSteps.get(userId);
+  if (previous && counter <= previous.counter) return false;
+  usedSteps.set(userId, { counter, at: nowMs });
+  return true;
 }
 
 export function otpauthUrl(secret: string, account: string, issuer = 'Vantage'): string {

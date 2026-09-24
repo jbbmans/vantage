@@ -132,6 +132,26 @@ test('an archive part that escapes its directory is refused', () => {
   assert.throws(() => readZip(buf), (e: Error) => e instanceof ZipError && /unsafe/i.test(e.message));
 });
 
+test('an archive that understates what a part expands to is refused before it expands', () => {
+  // 8 MB of zeros deflates to a few KB. The directory then claims each part holds 10 bytes, so the
+  // declared-size checks pass and only the inflation cap stands between the archive and memory.
+  const bomb = buildZip([{ name: 'xl/a.xml', data: Buffer.alloc(8 * 1024 * 1024) }, { name: 'xl/b.xml', data: Buffer.alloc(8 * 1024 * 1024) }]);
+  const endIdx = bomb.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  let p = bomb.readUInt32LE(endIdx + 16);
+  for (let i = 0; i < 2; i += 1) {
+    bomb.writeUInt32LE(10, p + 24);
+    p += 46 + bomb.readUInt16LE(p + 28);
+  }
+  assert.throws(() => readZip(bomb), (e: Error) => e instanceof ZipError && /size it declares/i.test(e.message));
+  // And one that overstates is damaged, not quietly accepted.
+  const small = buildZip([{ name: 'xl/c.xml', data: 'x'.repeat(4096) }]);
+  const c = small.readUInt32LE(small.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06])) + 16);
+  small.writeUInt32LE(8192, c + 24);
+  assert.throws(() => readZip(small), (e: Error) => e instanceof ZipError);
+  // An honest archive still reads.
+  assert.equal(readZip(buildZip([{ name: 'xl/d.xml', data: 'y'.repeat(4096) }])).get('xl/d.xml')!.length, 4096);
+});
+
 test('a file that is not a workbook fails as a value, not a crash', () => {
   assert.throws(() => readWorkbook(Buffer.from('this is a plain text file, not a workbook')), (e: Error) => e instanceof ZipError || e instanceof WorkbookError);
   assert.throws(() => readWorkbook(buildZip([{ name: 'readme.txt', data: 'hello' }])), (e: Error) => e instanceof WorkbookError && /not an Excel workbook/i.test(e.message));
@@ -163,4 +183,11 @@ test('the delimiter is sniffed from the heading row', () => {
   assert.equal(sniffDelimiter('a;b;c\n1;2;3'), ';');
   assert.equal(sniffDelimiter('a,b,c'), ',');
   assert.equal(sniffDelimiter('single'), ',');
+});
+
+test('a remote feed is read only up to its cap, whether or not it declares its size', async () => {
+  const { readCapped } = await import('../../server/services/maradmins.ts');
+  assert.equal(await readCapped(new Response('<rss>small</rss>'), 1024), '<rss>small</rss>');
+  await assert.rejects(readCapped(new Response('x'.repeat(4096)), 1024), /larger than expected/);
+  await assert.rejects(readCapped(new Response('x', { headers: { 'content-length': String(10 * 1024 * 1024) } }), 1024), /larger than expected/);
 });
