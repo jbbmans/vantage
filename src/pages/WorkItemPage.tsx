@@ -21,7 +21,7 @@ import {
   describeEvent, type Stage,
 } from '../../shared/caseModel';
 import {
-  AUTHORITY_LABEL, PROCEDURE_LIST, PROCEDURES, observedStep, stepApplies, isVerified, FORMULAS,
+  AUTHORITY_LABEL, PROCEDURE_LIST, PROCEDURES, observedStep, stepApplies, isVerified, FORMULAS, stepObject, actedOn,
   type CaseEvent, type Procedure, type ProcedureField, type ProcedureStep,
 } from '../../shared/procedures';
 import { diagnose, METHODS, responsibilityName, type MethodKey } from '../../shared/fmra';
@@ -1013,9 +1013,9 @@ function historySentence(e: any, procedure: Procedure | null): string {
     case 'calculation': return `calculated ${lowerFirst(describeEvent(e.kind, b))}`;
     case 'funds_check': return `recorded a funds check: ${b.result}${b.system ? ` in ${b.system}` : ''}`;
     case 'verification': return `${b.result === 'verified' ? 'verified' : 'checked, and could not verify,'} ${step && step.kind === 'verification' ? stepName.replace(/^verify (that )?/, '') : lowerFirst(String(b.check || '').replace(/_/g, ' '))}`;
-    case 'external_event': return `saw ${stepName} ${b.event}${b.system ? ` in ${b.system}` : ''}`;
-    case 'action_prepared': return `prepared ${stepName}, not submitted yet`;
-    case 'action_submitted': return `submitted ${stepName}`;
+    case 'external_event': return `saw ${lowerFirst(stepObject(step?.title || String(b.step || e.step || 'the step').replace(/_/g, ' ')))} ${b.event}${b.system ? ` in ${b.system}` : ''}`;
+    case 'action_prepared': return `${actedOn('prepared', step?.title || stepName)}, not submitted yet`;
+    case 'action_submitted': return actedOn('submitted', step?.title || stepName);
     case 'question': return `asked: ${b.text || ''}`;
     case 'finding': return `found: ${b.text || ''}`;
     case 'note': return `noted: ${b.text || ''}`;

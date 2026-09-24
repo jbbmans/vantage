@@ -689,3 +689,21 @@ export function suggestProcedure(...texts: Array<string | null | undefined>): { 
   for (const s of SUGGESTIONS) if (s.test.test(text)) return { key: s.key, why: s.why };
   return null;
 }
+
+/**
+ * How a step reads inside a sentence about it. Step titles are imperatives ("Submit the
+ * modification"); a history line needs the thing acted on ("submitted the modification", "saw the
+ * modification posted"). Anything that does not start with the verb in question is quoted whole
+ * after a colon rather than bent into bad grammar.
+ */
+const LEADING_VERB = /^(submit|prepare|record|amend|verify|calculate|research|decide on|decide|match|identify|confirm|recoup|correct|validate|process|route|resolve)\s+/i;
+export function stepObject(title: string): string {
+  const rest = title.replace(LEADING_VERB, '');
+  return rest === title ? title : rest;
+}
+export function actedOn(verb: 'prepared' | 'submitted', title: string): string {
+  const expected = verb === 'prepared' ? /^prepare\s+/i : /^submit\s+/i;
+  const lower = (t: string) => (/^[A-Z][a-z]/.test(t) ? t.charAt(0).toLowerCase() + t.slice(1) : t);
+  return expected.test(title) ? `${verb} ${lower(title.replace(expected, ''))}` : `${verb}: ${lower(title)}`;
+}
+

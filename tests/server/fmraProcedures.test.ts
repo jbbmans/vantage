@@ -344,3 +344,12 @@ test('a procedure key is looked up as a name, never as a property of Object', as
   const detail = await app.call('GET', '/api/work/procedures/constructor', { token: op.token });
   assert.ok([400, 404].includes(detail.status), `and it is not described (${detail.status})`);
 });
+
+test('history sentences read naturally from imperative step titles', async () => {
+  const { stepObject, actedOn } = await import('../../shared/procedures.ts');
+  assert.equal(actedOn('submitted', 'Submit the modification'), 'submitted the modification');
+  assert.equal(actedOn('prepared', 'Prepare the award modification'), 'prepared the award modification');
+  assert.equal(actedOn('submitted', 'Match the payment to the award (NON-1081)'), 'submitted: match the payment to the award (NON-1081)');
+  assert.equal(stepObject('Submit the modification'), 'the modification');
+  assert.equal(stepObject('Amendment approved and effective'), 'Amendment approved and effective');
+});

@@ -5,7 +5,7 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { RESEARCH_KINDS, describeEvent, humanKey, type Stage } from '../../shared/caseModel.ts';
-import { PROCEDURES, progress } from '../../shared/procedures.ts';
+import { PROCEDURES, progress, stepObject, actedOn } from '../../shared/procedures.ts';
 import { CONTRIBUTION_DEFINITIONS, WORKLOAD_LIMITATIONS, draftUpdateSchema } from '../../shared/record.ts';
 import { parse } from '../lib/http.ts';
 import { eventsFor, caseEventsOf, stageOf, procedureOf } from './cases.ts';
@@ -342,6 +342,7 @@ function factsFor(item: ItemRow, events: ReturnType<typeof eventsFor>, userId: s
   const procedure = procedureOf(item).procedure;
   const stepTitle = (key: string | null) => procedure?.steps.find((s) => s.key === key)?.title || humanKey(key);
   const lower = (t: string) => (/^[A-Z][a-z]/.test(t) ? t.charAt(0).toLowerCase() + t.slice(1) : t);
+  const cap = (t: string) => t.charAt(0).toUpperCase() + t.slice(1);
   const facts: Fact[] = [];
   for (const e of events) {
     if (e.actor_id !== userId || superseded.has(e.id)) continue;
@@ -354,10 +355,10 @@ function factsFor(item: ItemRow, events: ReturnType<typeof eventsFor>, userId: s
     else if (e.kind === 'decision') {
       const choice = procedure?.steps.find((s) => s.decision?.key === body.decision)?.decision?.choices.find((c) => c.key === body.choice)?.label;
       push(`Decided ${choice ? lower(choice) : `${humanKey(body.decision).toLowerCase()}: ${humanKey(body.choice).toLowerCase()}`}`);
-    } else if (e.kind === 'action_prepared') push(`Prepared ${lower(stepTitle(e.step))}${body.reference ? ` (${body.reference})` : ''}`);
-    else if (e.kind === 'action_submitted') push(`Submitted ${lower(stepTitle(e.step))}${body.reference ? ` (${body.reference})` : ''}`);
+    } else if (e.kind === 'action_prepared') push(`${cap(actedOn('prepared', stepTitle(e.step)))}${body.reference ? ` (${body.reference})` : ''}`);
+    else if (e.kind === 'action_submitted') push(`${cap(actedOn('submitted', stepTitle(e.step)))}${body.reference ? ` (${body.reference})` : ''}`);
     else if (e.kind === 'funds_check') push(`Recorded a funds check: ${body.result}`);
-    else if (e.kind === 'external_event') push(`Confirmed ${lower(stepTitle(body.step || e.step))} ${body.event}${body.system ? ` in ${body.system}` : ''}`);
+    else if (e.kind === 'external_event') push(`Confirmed ${lower(stepObject(stepTitle(body.step || e.step)))} ${body.event}${body.system ? ` in ${body.system}` : ''}`);
     else if (e.kind === 'verification' && body.result === 'verified') push(`Verified ${lower(stepTitle(e.step)).replace(/^verify (that )?/, '')} (${body.reference})`);
     else if (e.kind === 'finding') push(`Finding: ${body.text}`);
     else if (e.kind === 'action_recorded') push(`Recorded work: ${body.action}${body.text ? `, ${body.text}` : ''}`);
