@@ -1,6 +1,6 @@
 import {
   Gauge, Target, GraduationCap, Users, Settings2, ShieldCheck, LifeBuoy, FileText, Briefcase, BookOpenCheck,
-  ScrollText,
+  ScrollText, ClipboardCheck,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -51,6 +51,7 @@ export const NAV: NavItem[] = [
   { to: '/career', label: 'Career', icon: GraduationCap, key: 'c', group: 'Primary', hint: 'Next steps, training, readiness' },
   { to: '/team', label: 'Team', icon: Users, key: 't', requiresLead: true, group: 'Leading', hint: 'Workload, people, and units' },
   { to: '/reports', label: 'Reports', icon: FileText, key: 'p', group: 'More', secondary: true, hint: 'JEPES and FITREP input from the facts' },
+  { to: '/responsibilities', label: 'Responsibilities', icon: ClipboardCheck, key: 'f', group: 'More', secondary: true, hint: 'DAI and system duties' },
   { to: '/maradmins', label: 'MARADMINs', icon: ScrollText, key: 'm', group: 'More', secondary: true, hint: 'Messages that change a requirement', requiresMaradmins: true },
   { to: '/settings', label: 'Settings', icon: Settings2, key: 's', secondary: true, group: 'More' },
   { to: '/operator', label: 'Owner console', icon: ShieldCheck, key: 'o', requiresOperator: true, secondary: true, group: 'More', hideInDemo: true },
