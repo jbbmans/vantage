@@ -16,7 +16,10 @@ export function Finish({ grain = 0.055, vignette = 0.55 }: { grain?: number; vig
   return (
     <AbsoluteFill style={{ pointerEvents: 'none' }}>
       <AbsoluteFill style={{ background: `radial-gradient(ellipse 75% 70% at 50% 48%, transparent 55%, rgba(0,0,0,${vignette}) 100%)` }} />
+      {/* Overlay gives the grain its texture in the light; a faint normal-blend layer carries it into the
+          dark, where overlay does nothing, and dithers the gradients there so they do not band. */}
       {grain > 0 && <AbsoluteFill style={{ backgroundImage: NOISE, backgroundPosition: `${ox}px ${oy}px`, opacity: grain, mixBlendMode: 'overlay' }} />}
+      {grain > 0 && <AbsoluteFill style={{ backgroundImage: NOISE, backgroundPosition: `${(ox + 211) % 512}px ${(oy + 97) % 512}px`, opacity: grain * 1.1 }} />}
     </AbsoluteFill>
   );
 }

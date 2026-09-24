@@ -32,7 +32,7 @@ export function Hero() {
           </Sequence>
         );
       })}
-      <Finish grain={0.035} vignette={0.5} />
+      <Finish grain={0.045} vignette={0.5} />
       <Mix id="hero" />
     </AbsoluteFill>
   );

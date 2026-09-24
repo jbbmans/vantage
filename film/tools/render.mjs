@@ -35,8 +35,17 @@ const log = (...m) => console.log('film:', ...m);
 
 /** Web encodes: the hero carries grain and fast motion; the chapters are mostly still product. */
 const ENCODE = {
-  hero: { crf: 20, encodingMaxRate: '7M', encodingBufferSize: '14M' },
+  hero: { crf: 17, encodingMaxRate: '8M', encodingBufferSize: '16M' },
   chapter: { crf: 21, encodingMaxRate: '3500k', encodingBufferSize: '7000k' },
+};
+
+/**
+ * Dark gradients band in 8 bits unless something dithers them. The film's grain does, if the encoder
+ * keeps it: x264's grain tuning stops it smoothing the grain away.
+ */
+const keepGrain = ({ args }) => {
+  const i = args.indexOf('libx264');
+  return i < 0 ? args : [...args.slice(0, i + 1), '-tune', 'grain', ...args.slice(i + 1)];
 };
 
 async function demoServer() {
@@ -104,7 +113,7 @@ async function main() {
     await renderMedia({
       serveUrl, composition, codec: 'h264', outputLocation: output, browserExecutable: BROWSER,
       audioCodec: 'aac', audioBitrate: '192k', x264Preset: 'slow', pixelFormat: 'yuv420p', colorSpace: 'bt709',
-      ...(id === 'hero' ? ENCODE.hero : ENCODE.chapter),
+      ...(id === 'hero' ? { ...ENCODE.hero, ffmpegOverride: keepGrain } : ENCODE.chapter),
       concurrency: Number(process.env.FILM_CONCURRENCY || 3),
       onProgress: ({ progress }) => { const p = Math.floor(progress * 10); if (p !== last) { last = p; process.stdout.write(`\rfilm: rendering ${id} ${p * 10}%   `); } },
     });

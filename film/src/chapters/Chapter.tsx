@@ -41,6 +41,8 @@ export function Chapter({ id }: { id: string }) {
   return (
     <AbsoluteFill style={{ background: C.ink, fontFamily: FONT }}>
       <Backdrop glow={0.9} contours={0.06} />
+      {/* Grain under the product only: it dithers the backdrop's gradients without touching the UI. */}
+      <Finish grain={0.035} vignette={0} />
       <Sequence from={titleScene.from} durationInFrames={titleScene.to - titleScene.from + 20} name="title">
         <TitleCard filmId={id} sceneId={titleScene.id} n={meta.n} lede={meta.lede} out={titleScene.to - titleScene.from - 16} />
       </Sequence>
