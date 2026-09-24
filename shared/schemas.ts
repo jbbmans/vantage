@@ -240,6 +240,13 @@ export const prefsSchema = z.object({
   dashboardLayout: z.object({ hidden: z.array(z.string()).max(20), order: z.array(z.string()).max(20) }).optional(),
   digest: z.object({ enabled: z.boolean(), weekday: z.number().int().min(0).max(6), hour: z.number().int().min(0).max(23) }).optional(),
   onboardingDone: z.boolean().optional(),
+  /** Personal FMRA / DAI responsibility profile; authority is verified separately by the unit. */
+  fmraResponsibilities: z.array(z.object({
+    key: z.string().max(80),
+    status: z.enum(['assigned', 'training', 'not_assigned']),
+    verified: z.boolean().optional(),
+    note: z.string().max(500).optional(),
+  })).max(100).optional(),
 });
 export type Prefs = z.infer<typeof prefsSchema>;
 
