@@ -166,7 +166,7 @@ export function diagnose(input: BalanceInput): DiagnosisResult {
   const research: string[] = [];
   const next: string[] = [];
   const verification: string[] = [];
-  const roles = new Set<string>(['P2P Inquiry (research)']);
+  const roles = new Set<string>(rolesFor(['research']));
   for (const f of findings) {
     const def = NORMAL_CONDITIONS[f.condition];
     research.push(`${def.abbr}: ${def.firstQuestion}`);

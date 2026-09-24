@@ -24,9 +24,9 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         {toasts.map((t) => {
           const Icon = t.kind === 'success' ? CheckCircle2 : t.kind === 'error' ? AlertCircle : Info;
           return (
-            <div key={t.id} role={t.kind === 'error' ? 'alert' : 'status'} className={cn('pointer-events-auto flex w-full max-w-sm items-start gap-2.5 rounded-lg border bg-surface px-3.5 py-2.5 text-sm shadow-pop animate-fade-up', t.kind === 'error' ? 'border-bad/40' : t.kind === 'success' ? 'border-good/40' : 'border-line')}>
-              <Icon className={cn('mt-0.5 h-4 w-4 shrink-0', t.kind === 'success' && 'text-good', t.kind === 'error' && 'text-bad', t.kind === 'info' && 'text-info')} />
-              <span className="min-w-0 flex-1 leading-snug text-ink">{t.message}</span>
+            <div key={t.id} role={t.kind === 'error' ? 'alert' : 'status'} className="pointer-events-auto flex w-full max-w-sm items-start gap-3 rounded-2xl bg-surface px-3.5 py-3 text-sm shadow-pop animate-scale-in">
+              <span className={cn('flex h-6 w-6 shrink-0 items-center justify-center rounded-lg', t.kind === 'success' && 'bg-good/10 text-good', t.kind === 'error' && 'bg-bad/10 text-bad', t.kind === 'info' && 'bg-info/10 text-info')}><Icon className="h-3.5 w-3.5" /></span>
+              <span className="min-w-0 flex-1 pt-0.5 leading-snug text-ink">{t.message}</span>
               {t.action && <button type="button" onClick={() => { t.action!.onClick(); setToasts((x) => x.filter((y) => y.id !== t.id)); }} className="shrink-0 text-xs font-semibold text-accent hover:underline">{t.action.label}</button>}
               <button type="button" onClick={() => setToasts((x) => x.filter((y) => y.id !== t.id))} className="shrink-0 rounded p-0.5 text-ink-3 hover:text-ink" aria-label="Dismiss"><X className="h-3.5 w-3.5" /></button>
             </div>

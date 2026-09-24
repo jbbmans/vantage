@@ -1,18 +1,15 @@
 /* Vantage service worker: offline app shell + cache-first hashed assets. API requests never touch the cache. */
 /*
- * Bump this on every release that changes the client bundle or the shell.
- *
- * It is what makes an installed copy notice there is a new version: the browser only fires
- * `updatefound` when this file's bytes differ, and main.tsx's update prompt hangs off that. Ship a
- * rebuilt client without touching this and everyone who keeps the app open stays on the old one
- * until they happen to hard-reload — which, for a PWA people leave open all day, is a long time.
+ * The build's identity, stamped in by the build (vite.config.ts, buildIdentity): the hash of the
+ * built index.html. Every client release changes these bytes, which is what makes the browser fire
+ * `updatefound` and an open copy offer the new version. Nobody has to remember to bump it.
  */
-const VERSION = 'v5-6-brand-and-video-recovery-20260917';
+const VERSION = '__VANTAGE_BUILD__';
 const SHELL = `vantage-shell-${VERSION}`;
 const ASSETS = `vantage-assets-${VERSION}`;
 const SHELL_URLS = [
   '/', '/manifest.webmanifest', '/mark.svg', '/favicon.svg', '/app-icon.svg', '/brand/mark-reversed.svg', '/brand/mark-monochrome.svg', '/icon-192.png', '/icon-512.png',
-  '/fonts/geist-normal.woff2', '/fonts/jetbrains-normal.woff2',
+  '/fonts/geist-normal.woff2', '/fonts/inter-normal.woff2', '/fonts/jetbrains-normal.woff2',
 ];
 
 self.addEventListener('install', (event) => {

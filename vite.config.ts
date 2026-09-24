@@ -3,6 +3,7 @@ import { defineConfig, type Plugin } from 'vite';
 import { fileURLToPath, URL } from 'node:url';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
+import { createHash } from 'node:crypto';
 
 /**
  * The public origin, written into everything that has to name it absolutely.
@@ -36,9 +37,32 @@ function publicOrigin(): Plugin {
   };
 }
 
+/**
+ * Stamps each build's identity into the service worker.
+ *
+ * The browser only notices a new service worker when sw.js's bytes change, and the update prompt
+ * hangs off that. A version string somebody had to remember to bump meant most releases never
+ * announced themselves. The identity is the hash of the built index.html, which names every hashed
+ * asset — so any change to the client changes it, and an identical rebuild does not. The server
+ * derives the same value from the same file and reports it from /api/health.
+ */
+function buildIdentity(): Plugin {
+  return {
+    name: 'vantage-build-identity',
+    closeBundle() {
+      const out = fileURLToPath(new URL('./dist', import.meta.url));
+      const index = join(out, 'index.html');
+      const sw = join(out, 'sw.js');
+      if (!existsSync(index) || !existsSync(sw)) return;
+      const id = createHash('sha256').update(readFileSync(index)).digest('hex').slice(0, 16);
+      writeFileSync(sw, readFileSync(sw, 'utf8').replaceAll('__VANTAGE_BUILD__', id));
+    },
+  };
+}
+
 export default defineConfig({
   define: { 'import.meta.env.VITE_PUBLIC_ORIGIN': JSON.stringify(PUBLIC_ORIGIN) },
-  plugins: [react(), publicOrigin()],
+  plugins: [react(), publicOrigin(), buildIdentity()],
   resolve: {
     alias: {
       '@': fileURLToPath(new URL('./src', import.meta.url)),

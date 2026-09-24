@@ -8,21 +8,21 @@ import { cn } from '@/lib/utils';
 /* The primary action is the one thing on a screen filled with the signal colour, so there is never
    a question of what the screen wants you to do next. Everything else is a bordered white button. */
 const VARIANTS = {
-  primary: 'bg-accent text-accent-ink border-accent shadow-card hover:brightness-110 hover:shadow-pop',
-  default: 'bg-surface text-ink border-line-strong hover:bg-surface-2 hover:border-ink-3/50',
+  primary: 'bg-accent text-accent-ink border-transparent shadow-[inset_0_1px_0_rgb(255_255_255/.18),0_1px_2px_rgb(var(--accent)/.3),0_6px_16px_-8px_rgb(var(--accent)/.55)] hover:brightness-[1.07]',
+  default: 'bg-surface text-ink border-transparent shadow-[0_0_0_1px_rgb(var(--line-strong)),0_1px_2px_rgb(10_27_51/.05)] hover:bg-surface-2 hover:shadow-[0_0_0_1px_rgb(var(--ink-3)/.45),0_1px_2px_rgb(10_27_51/.05)]',
   soft: 'bg-surface-2 text-ink-2 border-transparent hover:bg-surface-3 hover:text-ink',
   ghost: 'bg-transparent border-transparent text-ink-2 hover:text-ink hover:bg-surface-2',
-  danger: 'bg-surface border-line-strong text-bad hover:bg-bad/10 hover:border-bad/50',
+  danger: 'bg-surface border-transparent text-bad shadow-[0_0_0_1px_rgb(var(--line-strong))] hover:bg-bad/[.07] hover:shadow-[0_0_0_1px_rgb(var(--bad)/.45)]',
   outline: 'bg-transparent border-ink-3/40 text-ink hover:bg-surface-2',
 } as const;
-const SIZES = { xs: 'h-6 px-2 text-xs gap-1', sm: 'h-7 px-2.5 text-xs gap-1.5', md: 'h-9 px-3.5 text-base gap-2', lg: 'h-11 px-5 text-md gap-2', icon: 'h-9 w-9 justify-center', 'icon-sm': 'h-7 w-7 justify-center', 'icon-xs': 'h-6 w-6 justify-center' } as const;
+const SIZES = { xs: 'h-6 px-2 text-xs gap-1 rounded-md', sm: 'h-7 px-2.5 text-xs gap-1.5 rounded-lg', md: 'h-9 px-3.5 text-base gap-2 rounded-[9px]', lg: 'h-11 px-5 text-md gap-2 rounded-[11px]', icon: 'h-9 w-9 justify-center rounded-[9px]', 'icon-sm': 'h-7 w-7 justify-center rounded-lg', 'icon-xs': 'h-6 w-6 justify-center rounded-md' } as const;
 
 export interface ButtonProps extends React.ButtonHTMLAttributes<HTMLButtonElement> { variant?: keyof typeof VARIANTS; size?: keyof typeof SIZES; asChild?: boolean; loading?: boolean }
 export const Button = forwardRef<HTMLButtonElement, ButtonProps>(function Button({ className, variant = 'default', size = 'md', asChild = false, loading = false, children, disabled, ...props }, ref) {
   const Comp: any = asChild ? Slot : 'button';
   return (
     <Comp ref={ref} type={asChild ? undefined : (props.type || 'button')} disabled={disabled || loading}
-      className={cn('tap inline-flex shrink-0 items-center justify-center rounded-md border font-medium leading-none transition-[background-color,border-color,box-shadow,filter] duration-150 disabled:pointer-events-none disabled:opacity-45', VARIANTS[variant], SIZES[size], className)} {...props}>
+      className={cn('tap inline-flex shrink-0 items-center justify-center border font-medium leading-none tracking-[-0.005em] transition-[background-color,border-color,box-shadow,filter,transform] duration-150 disabled:pointer-events-none disabled:opacity-45', VARIANTS[variant], SIZES[size], className)} {...props}>
       {asChild ? children : <>{loading && <Loader2 className="h-3.5 w-3.5 animate-spin" aria-hidden />}{children}</>}
     </Comp>
   );
@@ -113,12 +113,12 @@ export function Select({ value, onValueChange, options, placeholder = 'Select…
         <SelectPrimitive.Icon><ChevronDown className="h-4 w-4 shrink-0 text-ink-3" /></SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>
-        <SelectPrimitive.Content position="popper" sideOffset={4} className="z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-lg border border-line bg-surface shadow-modal animate-scale-in">
-          <SelectPrimitive.Viewport className="p-1">
+        <SelectPrimitive.Content position="popper" sideOffset={6} className="z-50 max-h-72 min-w-[var(--radix-select-trigger-width)] overflow-hidden rounded-xl bg-surface shadow-pop animate-scale-in">
+          <SelectPrimitive.Viewport className="p-1.5">
             {options.map((opt) => {
               const o = typeof opt === 'string' ? { value: opt, label: opt } : opt;
               return (
-                <SelectPrimitive.Item key={o.value} value={o.value} disabled={o.disabled} className="relative flex cursor-pointer select-none items-center rounded px-2.5 py-1.5 pr-8 text-base text-ink-2 outline-none data-[highlighted]:bg-surface-2 data-[highlighted]:text-ink data-[disabled]:opacity-40">
+                <SelectPrimitive.Item key={o.value} value={o.value} disabled={o.disabled} className="relative flex cursor-pointer select-none items-center rounded-lg px-2.5 py-[7px] pr-8 text-base text-ink-2 outline-none data-[highlighted]:bg-surface-2 data-[highlighted]:text-ink data-[state=checked]:text-ink data-[disabled]:opacity-40">
                   <SelectPrimitive.ItemText>{o.label}</SelectPrimitive.ItemText>
                   <SelectPrimitive.ItemIndicator className="absolute right-2"><Check className="h-3.5 w-3.5 text-accent" /></SelectPrimitive.ItemIndicator>
                 </SelectPrimitive.Item>
@@ -131,7 +131,7 @@ export function Select({ value, onValueChange, options, placeholder = 'Select…
   );
 }
 
-const TONES = { neutral: 'bg-surface-2 text-ink-2', accent: 'bg-accent-soft text-accent', good: 'bg-good/12 text-good', warn: 'bg-warn/12 text-warn', bad: 'bg-bad/12 text-bad', info: 'bg-info/12 text-info' } as const;
+const TONES = { neutral: 'bg-surface-2 text-ink-2 ring-1 ring-inset ring-line', accent: 'bg-accent-soft text-accent ring-1 ring-inset ring-accent/15', good: 'bg-good/10 text-good ring-1 ring-inset ring-good/20', warn: 'bg-warn/10 text-warn ring-1 ring-inset ring-warn/20', bad: 'bg-bad/10 text-bad ring-1 ring-inset ring-bad/20', info: 'bg-info/10 text-info ring-1 ring-inset ring-info/20' } as const;
 export type Tone = keyof typeof TONES;
 export function Badge({ tone = 'neutral', className, children, ...props }: { tone?: Tone; className?: string; children: React.ReactNode } & React.HTMLAttributes<HTMLSpanElement>) {
   return <span className={cn('chip', TONES[tone], className)} {...props}>{children}</span>;
@@ -151,7 +151,7 @@ export function Tooltip({ content, children, side = 'top' }: { content: React.Re
     <TooltipPrimitive.Root>
       <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
-        <TooltipPrimitive.Content side={side} sideOffset={6} className="z-50 max-w-xs rounded-md bg-rail-active px-2.5 py-1.5 text-xs leading-snug text-white shadow-modal animate-scale-in">{content}</TooltipPrimitive.Content>
+        <TooltipPrimitive.Content side={side} sideOffset={7} className="z-50 max-w-xs rounded-lg bg-[#0A1B33] px-2.5 py-1.5 text-xs leading-snug text-white shadow-pop ring-1 ring-white/10 animate-scale-in">{content}</TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>
   );
@@ -161,24 +161,24 @@ export function Panel({ title, subtitle, action, children, className, bodyClassN
   return (
     <section id={id} className={cn('card min-w-0 scroll-mt-24', className)}>
       {(title || action) && (
-        <header className="panel-head flex items-center justify-between gap-3 px-4 py-3">
+        <header className="panel-head flex items-center justify-between gap-3 px-5 py-3.5">
           <div className="min-w-0">
-            {title && <h2 className="truncate text-md font-semibold text-ink">{title}</h2>}
+            {title && <h2 className="truncate text-md font-semibold tracking-[-0.012em] text-ink">{title}</h2>}
             {subtitle && <p className="mt-0.5 text-xs leading-relaxed text-ink-3">{subtitle}</p>}
           </div>
           {action && <div className="flex shrink-0 items-center gap-2">{action}</div>}
         </header>
       )}
-      <div className={cn('card-body', padded && 'p-4', bodyClassName)}>{children}</div>
+      <div className={cn('card-body', padded && 'p-5', bodyClassName)}>{children}</div>
     </section>
   );
 }
 
 export function EmptyState({ icon: Icon, title, description, action, className }: { icon?: React.ComponentType<{ className?: string }>; title: string; description?: React.ReactNode; action?: React.ReactNode; className?: string }) {
   return (
-    <div className={cn('flex flex-col items-center justify-center px-4 py-10 text-center', className)}>
-      {Icon && <div className="mb-3 flex h-10 w-10 items-center justify-center rounded-full bg-surface-2 text-ink-3"><Icon className="h-[18px] w-[18px]" /></div>}
-      <p className="text-lg font-semibold text-ink">{title}</p>
+    <div className={cn('flex flex-col items-center justify-center px-4 py-12 text-center', className)}>
+      {Icon && <div className="mb-4 flex h-11 w-11 items-center justify-center rounded-[13px] bg-surface-2 text-ink-3 shadow-[inset_0_0_0_1px_rgb(var(--line))]"><Icon className="h-[18px] w-[18px]" /></div>}
+      <p className="text-lg font-semibold tracking-[-0.015em] text-ink">{title}</p>
       {description && <p className="mt-1.5 max-w-sm text-base leading-relaxed text-ink-3">{description}</p>}
       {action && <div className="mt-4 flex flex-wrap justify-center gap-2">{action}</div>}
     </div>
@@ -187,12 +187,12 @@ export function EmptyState({ icon: Icon, title, description, action, className }
 
 export function Stat({ label, value, hint, tone, to, icon: Icon }: { label: string; value: React.ReactNode; hint?: React.ReactNode; tone?: 'accent' | 'good' | 'warn' | 'bad'; to?: string; icon?: React.ComponentType<{ className?: string }> }) {
   const body = (
-    <div className="card card-hover flex h-full min-w-0 flex-col justify-between p-4">
+    <div className="card card-hover flex h-full min-w-0 flex-col justify-between p-5">
       <div className="flex items-start justify-between gap-2">
-        <p className="truncate text-base font-medium text-ink-2">{label}</p>
-        {Icon && <Icon className="h-4 w-4 shrink-0 text-ink-3" />}
+        <p className="truncate text-sm font-medium text-ink-2">{label}</p>
+        {Icon && <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-2 text-ink-3"><Icon className="h-3.5 w-3.5 shrink-0" /></span>}
       </div>
-      <p className={cn('stat-value mt-4', tone === 'accent' && 'text-accent', tone === 'good' && 'text-good', tone === 'warn' && 'text-warn', tone === 'bad' && 'text-bad')}>{value}</p>
+      <p className={cn('stat-value mt-5', tone === 'accent' && 'text-accent', tone === 'good' && 'text-good', tone === 'warn' && 'text-warn', tone === 'bad' && 'text-bad')}>{value}</p>
       {hint && <p className="mt-1.5 truncate text-xs text-ink-3">{hint}</p>}
     </div>
   );
@@ -211,13 +211,13 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
     return true;
   };
   return (
-    <div role="tablist" aria-label={label} className={cn('inline-flex max-w-full shrink-0 rounded-md border border-line bg-surface-2 p-0.5 scroll-x scroll-x-quiet', className)}>
+    <div role="tablist" aria-label={label} className={cn('inline-flex max-w-full shrink-0 rounded-[10px] bg-surface-2 p-[3px] shadow-[inset_0_0_0_1px_rgb(var(--line))] scroll-x scroll-x-quiet', className)}>
       {options.map((o, i) => {
         const active = o.value === value;
         return (
           <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" aria-selected={active} aria-label={o.ariaLabel} tabIndex={active ? 0 : -1}
             onClick={() => onChange(o.value)} onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}
-            className={cn('shrink-0 whitespace-nowrap rounded font-medium transition-colors', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-card' : 'text-ink-3 hover:text-ink')}>
+            className={cn('shrink-0 whitespace-nowrap rounded-[7px] font-medium transition-[color,background-color,box-shadow] duration-200', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-[0_0_0_1px_rgb(var(--line)),0_1px_3px_rgb(10_27_51/.08)]' : 'text-ink-3 hover:text-ink')}>
             {o.label}
           </button>
         );
@@ -242,8 +242,8 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
         const active = t.value === value;
         return (
           <button key={t.value} type="button" role="tab" aria-selected={active} onClick={() => onChange(t.value)}
-            className={cn('tab flex shrink-0 items-center gap-1.5 whitespace-nowrap', active && 'border-accent text-accent')}>
-            {t.label}{t.count != null && <span className={cn('fig rounded-full px-1.5 py-0.5 text-2xs', active ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-ink-3')}>{t.count}</span>}
+            className={cn('tab flex shrink-0 items-center gap-1.5 whitespace-nowrap', active && 'border-accent text-ink')}>
+            {t.label}{t.count != null && <span className={cn('fig rounded-md px-1.5 py-0.5 text-2xs', active ? 'bg-accent-soft text-accent' : 'bg-surface-2 text-ink-3')}>{t.count}</span>}
           </button>
         );
       })}
@@ -255,7 +255,7 @@ export function Progress({ value, max = 100, tone = 'accent', className, label =
   const pct = max ? Math.min(100, Math.max(0, (value / max) * 100)) : 0;
   return (
     <div className={cn('h-1.5 w-full overflow-hidden rounded-full bg-surface-3', className)} role="progressbar" aria-label={label} aria-valuenow={Math.round(pct)} aria-valuemin={0} aria-valuemax={100}>
-      <div className={cn('h-full rounded-full transition-[width] duration-300', tone === 'accent' && 'bg-accent', tone === 'good' && 'bg-good', tone === 'warn' && 'bg-warn', tone === 'bad' && 'bg-bad')} style={{ width: `${pct}%` }} />
+      <div className={cn('h-full rounded-full transition-[width] duration-700 [transition-timing-function:var(--ease-spring)]', tone === 'accent' && 'bg-accent', tone === 'good' && 'bg-good', tone === 'warn' && 'bg-warn', tone === 'bad' && 'bg-bad')} style={{ width: `${pct}%` }} />
     </div>
   );
 }
@@ -265,10 +265,10 @@ export const Kbd = ({ children }: { children: React.ReactNode }) => <kbd classNa
 
 export function PageHeader({ eyebrow, title, lede, children }: { eyebrow?: string; title: React.ReactNode; lede?: React.ReactNode; children?: React.ReactNode }) {
   return (
-    <div className="mb-6">
-      <div className="flex flex-wrap items-end justify-between gap-x-4 gap-y-3">
+    <div className="mb-8">
+      <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div className="min-w-0 flex-1 basis-[22rem]">
-          {eyebrow && <p className="eyebrow mb-2">{eyebrow}</p>}
+          {eyebrow && <p className="eyebrow mb-3 flex items-center gap-2"><span className="h-px w-5 bg-accent" aria-hidden />{eyebrow}</p>}
           <h1 className="page-title">{title}</h1>
           {lede && <p className="page-lede">{lede}</p>}
         </div>

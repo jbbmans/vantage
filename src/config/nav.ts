@@ -1,6 +1,6 @@
 import {
   Gauge, Target, GraduationCap, Users, Settings2, ShieldCheck, LifeBuoy, FileText, Briefcase, BookOpenCheck,
-  ScrollText,
+  ScrollText, Library,
   type LucideIcon,
 } from 'lucide-react';
 
@@ -21,8 +21,8 @@ import {
  * of where you stand), activities are a tab of Record (they are what you did), and every old path
  * still lands on the tab that absorbed it.
  */
-export type NavGroup = 'Primary' | 'Leading' | 'More';
-export const NAV_GROUPS: NavGroup[] = ['Primary', 'Leading', 'More'];
+export type NavGroup = 'Primary' | 'Knowledge' | 'Leading' | 'More';
+export const NAV_GROUPS: NavGroup[] = ['Primary', 'Knowledge', 'Leading', 'More'];
 
 export interface NavItem {
   to: string;
@@ -49,6 +49,9 @@ export const NAV: NavItem[] = [
   { to: '/record', label: 'Record', icon: BookOpenCheck, key: 'r', group: 'Primary', hint: 'What you did and what backs it up' },
   { to: '/goals', label: 'Goals', icon: Target, key: 'g', group: 'Primary', hint: 'Targets and measurable progress' },
   { to: '/career', label: 'Career', icon: GraduationCap, key: 'c', group: 'Primary', hint: 'Next steps, training, readiness' },
+  // The FMRA desk reference: how money moves, how each purchase method is evidenced, and what an
+  // open balance or a UMT means — with a diagnoser that reads the four figures and says what to check.
+  { to: '/reference', label: 'Reference', icon: Library, key: 'f', group: 'Knowledge', hint: 'The FMRA desk reference and balance diagnoser' },
   { to: '/team', label: 'Team', icon: Users, key: 't', requiresLead: true, group: 'Leading', hint: 'Workload, people, and units' },
   { to: '/reports', label: 'Reports', icon: FileText, key: 'p', group: 'More', secondary: true, hint: 'JEPES and FITREP input from the facts' },
   { to: '/maradmins', label: 'MARADMINs', icon: ScrollText, key: 'm', group: 'More', secondary: true, hint: 'Messages that change a requirement', requiresMaradmins: true },

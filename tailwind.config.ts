@@ -35,7 +35,8 @@ export default {
         // Inter is the brand typeface, self-hosted. The fallbacks are real faces, not a bare
         // `sans-serif`: if the woff2 fails to load the page should still be set in something with
         // Inter's proportions rather than whatever the platform picks.
-        sans: ['Inter', 'ui-sans-serif', 'system-ui', '-apple-system', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'sans-serif'],
+        // Geist carries the interface; Inter covers glyphs Geist's subset lacks (arrows, checks).
+        sans: ['Geist', 'Inter', 'ui-sans-serif', 'system-ui', '-apple-system', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
         // Document surfaces only. A system serif, so a report draft costs no extra download.
         serif: ['Georgia', '"Iowan Old Style"', '"Times New Roman"', 'serif'],
@@ -52,13 +53,16 @@ export default {
         '3xl': ['34px', { lineHeight: '38px', letterSpacing: '-0.028em' }],
         '4xl': ['43px', { lineHeight: '46px', letterSpacing: '-0.033em' }],
       },
-      // 7px is the house radius: soft enough to read as a document, tight enough for dense tables.
-      borderRadius: { DEFAULT: '5px', none: '0px', sm: '4px', md: '6px', lg: '7px', xl: '10px', '2xl': '14px', '3xl': '20px', full: '9999px' },
+      // Radii are concentric: a control inside a card is tighter than the card around it.
+      borderRadius: { DEFAULT: '6px', none: '0px', sm: '5px', md: '8px', lg: '10px', xl: '14px', '2xl': '18px', '3xl': '24px', full: '9999px' },
       boxShadow: {
-        // A card rests on the sheet. The lift is a hairline, never a drop shadow.
-        card: '0 1px 2px rgb(11 45 91 / .05)',
-        pop: '0 1px 2px rgb(11 45 91 / .07), 0 4px 12px rgb(11 45 91 / .06)',
-        modal: '0 1px 3px rgb(11 45 91 / .11), 0 18px 48px -12px rgb(11 45 91 / .24)',
+        // Depth is tinted with the ink and defined per theme in index.css.
+        hairline: 'var(--shadow-hairline)',
+        card: 'var(--shadow-card)',
+        lift: 'var(--shadow-lift)',
+        pop: 'var(--shadow-pop)',
+        modal: 'var(--shadow-modal)',
+        highlight: 'var(--highlight)',
       },
       keyframes: {
         'fade-up': { from: { opacity: '0', transform: 'translateY(4px)' }, to: { opacity: '1', transform: 'translateY(0)' } },

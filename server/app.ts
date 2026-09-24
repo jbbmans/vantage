@@ -93,7 +93,10 @@ export function createApp(ctx: AppContext) {
   // third party: no tag manager, no analytics, no CDN. A restricted network that blocks public egress
   // loses nothing it needs.
   const scriptSrc = ["'self'", ...inlineScriptHashes(distDir)].join(' ');
-  const build = String(process.env.RENDER_GIT_COMMIT || process.env.VANTAGE_BUILD_ID || VERSION).slice(0, 64);
+  // The client build this server is serving: the same hash the build stamps into sw.js, so an open
+  // tab can tell a new release from the one it loaded. A deploy-provided commit id is reported too.
+  const clientBuild = existsSync(join(distDir, 'index.html')) ? createHash('sha256').update(readFileSync(join(distDir, 'index.html'))).digest('hex').slice(0, 16) : null;
+  const build = String(process.env.RENDER_GIT_COMMIT || process.env.VANTAGE_BUILD_ID || clientBuild || VERSION).slice(0, 64);
 
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
@@ -118,7 +121,7 @@ export function createApp(ctx: AppContext) {
   app.get('/api/health', (req, res) => {
     try {
       ctx.db.prepare('SELECT 1').get();
-      res.json({ ok: true, version: VERSION, build, uptime: Math.round(process.uptime()), maintenance: ctx.runtime.maintenance, mode: ctx.config.accessMode });
+      res.json({ ok: true, version: VERSION, build, client: clientBuild, uptime: Math.round(process.uptime()), maintenance: ctx.runtime.maintenance, mode: ctx.config.accessMode });
     } catch (error) {
       console.error('Health check failed:', error);
       res.status(503).json({ ok: false, error: 'Database health check failed.' });
@@ -192,7 +195,7 @@ export function createApp(ctx: AppContext) {
   if (existsSync(distDir)) {
     // Only public marketing routes are indexable, before any JavaScript runs.
     const publicRoutes = new Set(['/', '/display', '/about']);
-    const appRoute = /^\/(?:login|register|reset|invite|setup|work|record|goals|career|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
+    const appRoute = /^\/(?:login|register|reset|invite|setup|work|record|goals|career|reference|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
     // Two segments, not one: a record detail is /records/:id for an activity and
     // /records/:table/:id for a task, project or goal, which is the link shape a mention
     // notification points at. One segment 404s the second form.

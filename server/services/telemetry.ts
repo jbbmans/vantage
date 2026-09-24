@@ -54,7 +54,7 @@ export const EVENTS: Record<string, EventSpec> = {
   // because a form the person closed never reached the server at all. Nothing is raised twice.
   // Adoption ----------------------------------------------------------
   'session.started': { family: 'adoption', properties: { returning: bool, days_since_last: num } },
-  'surface.viewed': { family: 'adoption', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help') } },
+  'surface.viewed': { family: 'adoption', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help', 'reference', 'diagnose') } },
 
   // The capture funnel, and where it is abandoned ----------------------
   'capture.opened': { family: 'capture', properties: { surface: oneOf('quick_log', 'record_form', 'work_action', 'thread_message') } },
@@ -121,7 +121,7 @@ export const EVENTS: Record<string, EventSpec> = {
 
   // Reliability -------------------------------------------------------------
   'reliability.request_failed': { family: 'reliability', serverOnly: true, properties: { status: num, ms: num, route: oneOf('records', 'work', 'imports', 'correspondence', 'studio', 'metrics', 'reports', 'org', 'auth', 'admin', 'ai', 'other') } },
-  'reliability.client_error': { family: 'reliability', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help'), recovered: bool } },
+  'reliability.client_error': { family: 'reliability', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help', 'reference', 'diagnose'), recovered: bool } },
   'reliability.offline_queue': { family: 'reliability', properties: { queued: num, replayed: num, failed: num } },
 
   // Security ------------------------------------------------------------------

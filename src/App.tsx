@@ -28,6 +28,7 @@ const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const Operator = lazy(() => import('@/pages/Operator'));
 const Help = lazy(() => import('@/pages/Help'));
+const Reference = lazy(() => import('@/pages/Reference'));
 
 function Fallback() {
   return <div className="page space-y-3"><Skeleton className="h-8 w-56" /><Skeleton className="h-40" /><Skeleton className="h-64" /></div>;
@@ -192,6 +193,7 @@ function AppRoutes() {
         <Route path="work/items/:id" element={<D><WorkItemPage /></D>} />
         <Route path="goals" element={<D><Goals /></D>} />
         <Route path="career" element={<D><Career /></D>} />
+        <Route path="reference" element={<D><Reference /></D>} />
         <Route path="maradmins" element={<D><Maradmins /></D>} />
         <Route path="reports" element={<D><ReportsHub /></D>} />
         <Route path="team" element={<D><Team /></D>} />

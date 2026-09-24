@@ -322,8 +322,10 @@ export const recordEntry = (id: string, body: Record<string, unknown>, idempoten
   request('POST', `${itemPath(id)}/entries`, body, { headers: { 'idempotency-key': idempotencyKey } });
 export const changeStage = (id: string, body: Record<string, unknown>) => api.post(`${itemPath(id)}/stage`, body);
 export const handOffWork = (id: string, body: Record<string, unknown>) => api.post(`${itemPath(id)}/handoff`, body);
-export const calculateCase = (id: string) => api.post(`${itemPath(id)}/calculate`);
+export const calculateCase = (id: string, step?: string | null) => api.post(`${itemPath(id)}/calculate`, step ? { step } : {});
 export const applyProcedure = (id: string, key: string) => api.post(`${itemPath(id)}/procedure`, { key });
+export const procedureSuggestion = (id: string) => api.get(`${itemPath(id)}/suggestion`);
+export const listProcedures = () => api.get('/work/procedures');
 export const workload = (unitId: string, params: Record<string, string | undefined> = {}) => api.get(`/work/workload?${qs({ unit_id: unitId, ...params })}`);
 
 // The Record and Career ---------------------------------------------------------------------
