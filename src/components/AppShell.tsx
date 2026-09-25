@@ -290,7 +290,7 @@ export default function AppShell() {
     </div>
   ) : null;
 
-  const railBackground = 'bg-rail [background-image:radial-gradient(120%_60%_at_0%_0%,rgb(var(--accent)/.16),transparent_60%),radial-gradient(80%_40%_at_100%_100%,rgb(var(--brand-teal)/.08),transparent_70%)]';
+  const railBackground = 'bg-rail [background-image:radial-gradient(120%_60%_at_0%_0%,rgb(var(--accent)/.16),transparent_60%),radial-gradient(80%_40%_at_100%_100%,rgb(var(--marker)/.1),transparent_70%)]';
 
   return (
     <OutboxContext.Provider value={{ pending, flush }}>

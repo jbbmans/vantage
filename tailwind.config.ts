@@ -31,6 +31,8 @@ export default {
         deep: token('--deep'),
         'deep-2': token('--deep-2'),
         'accent-2': token('--accent-2'),
+        // The rail's active marker and its glows: the palette's brightest note.
+        marker: token('--marker'),
         // Summit Teal. The mark, and marks in charts. Never type — it is 2.49:1 on white.
         'brand-teal': token('--brand-teal'),
       },
