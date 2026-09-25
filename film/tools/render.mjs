@@ -5,6 +5,8 @@
  *   node tools/render.mjs hero queue       just these films
  *   node tools/render.mjs --draft          render to film/out only; publish nothing
  *   node tools/render.mjs --reuse-shots    keep the captured footage (skip the browser)
+ *   node tools/render.mjs --allow-unvoiced publish films whose narration is not recorded yet, with
+ *                                          the score and captions only (captions then play by default)
  *
  * 1. Voice: every script line through ElevenLabs, once (tools/voice.mjs; cached in assets/vo).
  * 2. Timeline: scene and word timings from the voice (tools/timeline.mjs), and captions from them.
@@ -12,7 +14,8 @@
  * 4. Score: music, sound and the voice, mixed and loudness-normalised (tools/score.mjs).
  * 5. Render: Remotion, H.264 + AAC, bitrate-capped for the web; a poster frame.
  * 6. Publish: public/videos/films/<slot>.{mp4,jpg,vtt} and src/config/films.generated.json, which
- *    src/config/videos.ts reads. A film whose narration is still estimated is never published.
+ *    src/config/videos.ts reads. A film whose narration is still estimated is published only with
+ *    --allow-unvoiced, and is marked so: its captions carry the script and play by default.
  */
 
 import { spawn, spawnSync } from 'node:child_process';
@@ -81,7 +84,7 @@ async function main() {
   if (!ids.length) throw new Error(`no such film: ${wanted.join(', ')}`);
   for (const id of ids) writeFileSync(join(OUT, `${id}.vtt`), captionsFor(timelines[id]));
   const unvoiced = ids.filter((id) => timelines[id].estimated > 0);
-  if (unvoiced.length) log(`narration still estimated for: ${unvoiced.join(', ')} — these render as drafts and are not published`);
+  if (unvoiced.length) log(`narration still estimated for: ${unvoiced.join(', ')} — ${flag('--allow-unvoiced') ? 'publishing with music and captions only, as asked' : 'these render as drafts and are not published'}`);
 
   // 3. Capture.
   if (!flag('--reuse-shots')) {
@@ -133,13 +136,14 @@ async function main() {
   const today = new Date().toISOString().slice(0, 10);
   for (const id of made) {
     const tl = timelines[id];
-    if (tl.estimated > 0) { log(`not publishing ${id}: ${tl.estimated} lines have no recorded voice`); continue; }
+    const voiced = tl.estimated === 0;
+    if (!voiced && !flag('--allow-unvoiced')) { log(`not publishing ${id}: ${tl.estimated} lines have no recorded voice`); continue; }
     const slot = tl.slot;
     const r = spawnSync(join(FF_DIR, 'ffmpeg'), ['-hide_banner', '-loglevel', 'error', '-y', '-i', join(OUT, `${id}.mp4`), '-c', 'copy', '-movflags', '+faststart', join(dest, `${slot}.mp4`)], { env: ENV, encoding: 'utf8' });
     if (r.status !== 0) throw new Error(`faststart ${id}: ${r.stderr}`);
     copyFileSync(join(OUT, `${id}.jpg`), join(dest, `${slot}.jpg`));
     copyFileSync(join(OUT, `${id}.vtt`), join(dest, `${slot}.vtt`));
-    index[slot] = { src: `/videos/films/${slot}.mp4`, poster: `/videos/films/${slot}.jpg`, captions: `/videos/films/${slot}.vtt`, seconds: Math.round(tl.seconds), published: today };
+    index[slot] = { src: `/videos/films/${slot}.mp4`, poster: `/videos/films/${slot}.jpg`, captions: `/videos/films/${slot}.vtt`, seconds: Math.round(tl.seconds), published: today, voiced };
     log(`published ${slot}`);
   }
   writeFileSync(indexPath, `${JSON.stringify(index, null, 2)}\n`);

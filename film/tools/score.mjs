@@ -567,9 +567,10 @@ export function score(id) {
   mkdirSync(join(ROOT, 'public', 'mix'), { recursive: true });
   const raw = join(ROOT, '.work', `mix-${id}.wav`);
   writeWav(raw, mix.L.subarray(0, n), mix.R.subarray(0, n));
-  // Without the voice this is a music preview: leave it quieter so it is not mistaken for a final mix.
+  // With the voice, −14 LUFS for the web. Music alone sits a little lower, at −16: it is a bed for
+  // the captions, and should not jump out louder than the narrated version will be.
   const out = join(ROOT, 'public', 'mix', `${id}.wav`);
-  const { measured } = loudnorm(raw, out, lines ? -14 : -18);
+  const { measured } = loudnorm(raw, out, lines ? -14 : -16);
   // Tell the compositions which films have a mix to play, and whether it carries the voice.
   const mediaPath = join(ROOT, 'src', 'generated', 'media.json');
   const media = existsSync(mediaPath) ? JSON.parse(readFileSync(mediaPath, 'utf8')) : { mixes: {} };

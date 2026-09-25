@@ -228,7 +228,7 @@ export default function PublicSite() {
             <div className="ps-bezel ps-player"><div className="ps-bezel-core">
               <video ref={player} key={video.id} controls playsInline preload="metadata" poster={video.poster} aria-label={video.title}>
                 <source src={video.src} type="video/mp4" />
-                {video.captions && <track kind="captions" src={video.captions} srcLang="en" label="English" />}
+                {video.captions && <track kind="captions" src={video.captions} srcLang="en" label="English" default={video.voiced === false} />}
               </video>
             </div></div>
             <div className="mission-video-list" aria-label="Choose a film">
