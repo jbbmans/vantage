@@ -1,17 +1,5 @@
 import { spawn } from 'node:child_process';
 
-/**
- * Malware scanning for uploaded files.
- *
- * An upload is quarantined the moment it arrives and is not parsed until a scanner has spoken.
- * Vantage never sends a file to a third party to be scanned: the workbooks people import here hold
- * contract numbers and funding lines, and uploading them to a public service would be a disclosure,
- * not a precaution. The only supported scanner is one the instance runs itself.
- *
- * With no scanner configured the verdict is "skipped", which is recorded honestly and shown to the
- * operator. Skipped is not clean, and the owner console says so.
- */
-
 export type Verdict = 'clean' | 'rejected' | 'skipped';
 
 export interface ScanResult {
@@ -25,7 +13,6 @@ export interface Scanner {
   scan(buffer: Buffer, filename: string): Promise<ScanResult>;
 }
 
-/** No scanner. Files are accepted, and the absence of a scan is stated rather than implied. */
 export class NoScanner implements Scanner {
   readonly name = 'none';
   async scan(): Promise<ScanResult> {
@@ -33,10 +20,6 @@ export class NoScanner implements Scanner {
   }
 }
 
-/**
- * clamd over its local UNIX socket or TCP port, via clamdscan. The file is streamed to a process
- * on this host; nothing leaves the machine.
- */
 export class ClamdScanner implements Scanner {
   readonly name = 'clamdscan';
   private readonly command: string;

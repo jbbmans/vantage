@@ -224,7 +224,6 @@ function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: st
   const to = new Date(now).toISOString().slice(0, 10);
   const from = new Date(now - (Number(days) - 1) * 86_400_000).toISOString().slice(0, 10);
   const { data, isPending } = useQuery({ queryKey: keys.dashboard(unitId, from, to), queryFn: () => api.unitDashboard(unitId, from, to) });
-  // The unit's figures come from the one metric layer, scoped server-side to this unit's shared work.
   const unitMetricParams = useMemo(() => ({ from, to, unit_id: unitId }), [from, to, unitId]);
   const unitMetrics = useMetricsReport(unitMetricParams);
   const [brief, setBrief] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);

@@ -23,7 +23,6 @@ export function StageBadge({ stage, waiting, className }: { stage: string | null
   return <Badge tone={STAGE_TONE[s] || 'neutral'} className={className}>{label}</Badge>;
 }
 
-/** "3 days", "5 hours": how long something has been sitting, never framed as time worked. */
 export function elapsed(since: string | null | undefined): string {
   if (!since) return '';
   const hours = Math.max(0, (Date.now() - Date.parse(since)) / 3_600_000);
@@ -35,10 +34,6 @@ export function elapsed(since: string | null | undefined): string {
 
 export const personName = (p: { name: string; rank?: string | null } | undefined | null) => (p ? [p.rank, p.name].filter(Boolean).join(' ') : 'Someone');
 
-/**
- * One row of work in a list: what it is, where it stands, and the next thing to do. Used on Today,
- * in Record, and in a leader's workload, so a piece of work reads the same wherever it appears.
- */
 export function WorkRow({ item, showNext = true, trailing }: { item: any; showNext?: boolean; trailing?: React.ReactNode }) {
   const overdue = item.due_date && item.due_date < new Date().toISOString().slice(0, 10) && !['resolved', 'not_applicable'].includes(item.stage);
   return (

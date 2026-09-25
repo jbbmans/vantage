@@ -9,19 +9,6 @@ import { isRecordTable, getRecord } from './records.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
 import { trackForGrade, type Track } from '../../shared/evaluation.ts';
 
-/**
- * Report Studio: a draft, its revisions, and the proof that the wording matches its sources.
- *
- * A report makes claims about someone's work, so the connection between a sentence and the record
- * it came from has to be more than a convention. Every save states which records the wording was
- * built from and which version of each one the author was looking at. The server re-reads those
- * records inside the same transaction that writes the revision and refuses if any of them has
- * moved. A client cannot skip that check, because the check is where the write happens.
- *
- * Revisions are immutable. Exporting reads a revision, not the live records, so a package handed
- * to a reporting senior is the package that was reviewed even if a source is edited an hour later.
- */
-
 export interface ReportDraft {
   id: string; user_id: string; subject_id: string; unit_id: string | null; visibility: string;
   title: string; period_start: string; period_end: string; track: string;
@@ -42,16 +29,6 @@ export interface StaleSource { table: string; id: string; title: string; expecte
 
 const SOURCE_TABLES = new Set(['activities', 'trainings', 'awards', 'counselings']);
 
-/**
- * Which instrument a Marine is written up under is a fact about their rank, not a preference of
- * whoever opens the editor. E-4 and below are JEPES; E-5 and above, warrants and officers are
- * FITREP. `buildReport` has always derived it this way and Report Studio did not, so a draft for
- * a Sergeant came out as JEPES unless the client happened to say otherwise.
- *
- * It follows the *subject*, never the author: a Gunny writing up a Lance Corporal is writing
- * JEPES, and the same Gunny writing their own is writing a FITREP. An explicit choice still wins,
- * because a rank can be mid-change and the person writing it knows which one they are filling in.
- */
 function defaultTrack(ctx: AppContext, subjectId: string): Track {
   const person = ctx.db.prepare(
     'SELECT r.grade AS rank_grade FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ?'
@@ -117,10 +94,6 @@ export function listDrafts(ctx: AppContext, user: SessionUser, scope: Scope) {
   return rows as ReportDraft[];
 }
 
-/**
- * The records a report may cite: those the caller can read, inside the report's period, belonging
- * to its subject. A report cannot cite something its author cannot see.
- */
 export function availableSources(ctx: AppContext, user: SessionUser, scope: Scope, draft: ReportDraft): SourceSnapshot[] {
   const out: SourceSnapshot[] = [];
   for (const table of ['activities', 'trainings', 'awards', 'counselings'] as RecordTable[]) {
@@ -154,10 +127,8 @@ export interface SaveRevisionInput {
   period_start?: string;
   period_end?: string;
   sections: Section[];
-  /** Which record, at which version, the author was looking at when they wrote this. */
   sources: SourceRef[];
   note?: string | null;
-  /** The revision the author started from, so two people cannot silently overwrite each other. */
   base_revision?: number | null;
 }
 
@@ -170,12 +141,6 @@ export class StaleSourceError extends Error {
   }
 }
 
-/**
- * Saves a new revision, or refuses.
- *
- * The re-read of every cited record and the write of the revision happen in one transaction, so
- * there is no window in which a source could change between the check and the save.
- */
 export function saveRevision(ctx: AppContext, user: SessionUser, scope: Scope, draftId: string, input: SaveRevisionInput) {
   const draft = readableDraft(ctx, user, scope, draftId);
   assertAuthor(draft, user);
@@ -207,7 +172,6 @@ export function saveRevision(ctx: AppContext, user: SessionUser, scope: Scope, d
       throw conflict(`This report is now at revision ${current.latest_revision}. Reload it before saving again.`);
     }
 
-    // Every cited record is re-read here, inside the transaction that writes the revision.
     const stale: StaleSource[] = [];
     const snapshots: SourceSnapshot[] = [];
     for (const ref of input.sources) {
@@ -226,7 +190,6 @@ export function saveRevision(ctx: AppContext, user: SessionUser, scope: Scope, d
       snapshots.push(snapshotOf(ref.table, row));
     }
     if (stale.length) {
-      // A refused save is the provenance rule doing its job, and worth counting as such.
       record(ctx, 'report.stale_source_rejected', { sources: input.sources.length, stale: stale.length }, { id: user.id });
       throw new StaleSourceError(stale);
     }
@@ -275,10 +238,6 @@ export function listRevisions(ctx: AppContext, reportId: string) {
   return rows;
 }
 
-/**
- * Whether a saved revision still matches the records it cites. This is what lets a screen say
- * "two sources have changed since revision 3" without pretending the revision itself changed.
- */
 export function revisionDrift(ctx: AppContext, reportId: string, revision: number): StaleSource[] {
   const saved = getRevision(ctx, reportId, revision);
   if (!saved) return [];
@@ -292,7 +251,6 @@ export function revisionDrift(ctx: AppContext, reportId: string, revision: numbe
   return drift;
 }
 
-/** The exported text of one revision, rendered from what was saved rather than from live records. */
 export function renderRevisionText(ctx: AppContext, reportId: string, revision: number): string {
   const saved = getRevision(ctx, reportId, revision);
   if (!saved) throw notFound('No such revision.');

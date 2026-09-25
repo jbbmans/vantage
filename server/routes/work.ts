@@ -24,8 +24,6 @@ import { STAGES } from '../../shared/caseModel.ts';
 export const workRouter = Router();
 workRouter.use(requireAuth);
 
-// Intake ---------------------------------------------------------------
-// The upload arrives as raw bytes; nothing about the body is trusted until it has been classified.
 const uploadBody: express.RequestHandler = (req, res, next) =>
   express.raw({ type: () => true, limit: req.ctx.config.intake.maxBytes })(req, res, next);
 
@@ -102,7 +100,6 @@ workRouter.get('/imports/:id', wrap((req, res) => {
   res.json(row);
 }));
 
-// Workbench ------------------------------------------------------------
 const listSchema = z.object({
   unit_id: z.string().max(64).optional(),
   state: z.enum(WORK_STATES).optional(),
@@ -130,8 +127,6 @@ workRouter.get('/items', wrap((req, res) => {
   }));
 }));
 
-// Work typed in by hand rather than imported. Every row used to come from a sheet, which is what
-// kept a project and a queue as two unrelated piles.
 const createSchema = z.object({
   unit_id: z.string().max(64).nullable().optional(),
   title: z.string().max(300),
@@ -171,8 +166,6 @@ workRouter.post('/items/:id/release', wrap((req, res) => {
   res.json(releaseItem(req.ctx, req.user, scope, String(req.params.id), versionOf(req.body)));
 }));
 
-// Handing a case to somebody, which the queue previously had no way to express: work could only
-// be taken, never given.
 workRouter.post('/items/:id/assign', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   const to = String(req.body?.user_id || '');
@@ -182,11 +175,9 @@ workRouter.post('/items/:id/assign', wrap((req, res) => {
 const patchSchema = z.object({
   state: z.enum(WORK_STATES).optional(),
   acknowledge_source_change: z.boolean().optional(),
-  // Accepted only for a row somebody typed in; the service refuses these on an imported row.
   title: z.string().max(300).optional(),
   reference: z.string().max(200).nullable().optional(),
   due_date: z.string().max(40).nullable().optional(),
-  // Accepted on any row, imported included: filing work under a project does not restate the sheet.
   project_id: z.string().max(64).nullable().optional(),
   version: z.coerce.number().int().optional(),
 });
@@ -225,11 +216,6 @@ workRouter.post('/items/:id/actions', wrap((req, res) => {
   res.status(result.replayed ? 200 : 201).json(result);
 }));
 
-// The case: research, decisions, submissions, stage and waiting, handoffs --------------------
-// Each of these writes an append-only event in the same transaction as the change it describes.
-
-// A section's workload for a leader. Totals need VIEW_RECORDS; the per-person breakdown needs
-// VIEW_MEMBER_DETAIL, and opening it is logged.
 workRouter.get('/workload', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   const unitId = String(req.query.unit_id || '');
@@ -245,14 +231,12 @@ workRouter.get('/procedures', wrap((_req, res) => {
   })));
 }));
 
-// Every published version of one procedure, so a case pinned to an older one can be read in full.
 workRouter.get('/procedures/:key', wrap((req, res) => {
   const versions = PROCEDURE_VERSIONS[String(req.params.key)];
   if (!versions) throw badRequest('No such procedure.');
   res.json({ current: PROCEDURES[String(req.params.key)], versions: Object.values(versions) });
 }));
 
-// A procedure that fits a work item's text. A suggestion; applying it is a separate, attributed act.
 workRouter.get('/items/:id/suggestion', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   const detail = itemDetail(req.ctx, req.user, scope, String(req.params.id));
@@ -294,7 +278,6 @@ workRouter.post('/items/:id/procedure', wrap((req, res) => {
   res.json(applyProcedure(req.ctx, req.user, scope, String(req.params.id), key));
 }));
 
-// Saved views ----------------------------------------------------------
 workRouter.get('/views', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   res.json(listViews(req.ctx, req.user, scope));

@@ -1,15 +1,3 @@
-/**
- * The data inventory behind a Privacy Impact Assessment.
- *
- * A PIA asks what personal information a system holds, why it is allowed to, who sees it, and how
- * long it is kept. Answering that in a document means the answer is correct on the day it is written
- * and slowly stops being true afterwards, because the schema keeps moving and the document does not.
- *
- * So the classification lives here as a declaration, and is checked against the live database every
- * time it is asked for. A column nobody has classified is reported as unclassified rather than
- * quietly omitted — that gap is the finding, and it is better surfaced by the tool than by an
- * assessor.
- */
 import type { AppContext } from '../context.ts';
 import { listSchedules } from './retention.ts';
 
@@ -24,7 +12,6 @@ export type PiiCategory =
 
 export interface TableDeclaration {
   purpose: string;
-  /** The legal basis for holding it. An instance edits these to match its own determination. */
   authority: string;
   /** Who can read it inside the app. */
   access: string;
@@ -32,10 +19,6 @@ export interface TableDeclaration {
   columns: Record<string, PiiCategory>;
 }
 
-/**
- * What each table is for. Written to be read by a records officer, not by a developer: it is the
- * text that goes into the PIA, so it says what the data is rather than how it is stored.
- */
 export const DECLARATIONS: Record<string, TableDeclaration> = {
   users: {
     purpose: 'Identifies the account holder and carries the service details their record is reported under.',
@@ -561,9 +544,7 @@ export interface InventoryTable {
   rows: number;
   retention: { retain_days: number; disposition: string; authority: string | null; enabled: boolean } | null;
   columns: Array<{ column: string; category: PiiCategory | 'unclassified' }>;
-  /** Columns present in the database that nobody has classified. These are the gaps a PIA must close. */
   unclassified: string[];
-  /** Columns the declaration names that no longer exist. These mean the declaration has gone stale. */
   stale: string[];
 }
 
@@ -576,7 +557,6 @@ export interface Inventory {
 
 const SENSITIVE: PiiCategory[] = ['identifier', 'contact', 'employment', 'performance', 'authentication'];
 
-/** Build the inventory from the live schema. Read-only; safe to call from a report. */
 export function buildInventory(ctx: AppContext): Inventory {
   const { db } = ctx;
   const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
@@ -626,7 +606,6 @@ export function buildInventory(ctx: AppContext): Inventory {
   };
 }
 
-/** The same inventory as Markdown, which is the form it goes into a PIA package in. */
 export function inventoryMarkdown(inv: Inventory): string {
   const lines: string[] = [];
   lines.push(`# Data inventory — ${inv.instance}`, '', `Generated ${inv.generatedAt} from the live schema.`, '');

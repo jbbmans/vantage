@@ -1,21 +1,3 @@
-/**
- * Where the financial-management knowledge in Vantage comes from, and how sure it is.
- *
- * Everything under shared/fmra/ is drawn from one training reference: the rewritten FMRAC
- * (Financial Management Resource Analyst Course) study guide for the 3451 FMRA. That book says
- * plainly what kind of source it is, and Vantage repeats it wherever the knowledge appears:
- *
- *   - It is a conceptual and workflow reference, not a screen-by-screen DAI manual.
- *   - Thresholds, permissions, routing and timing examples are what the book printed, not
- *     independently verified current requirements.
- *   - Where the book disagrees with itself, the disagreement is recorded (see discrepancies.ts)
- *     instead of quietly picking an answer.
- *
- * Each fact carries a citation to the original 118-page guide's page numbers and to the chapter of
- * the rewritten edition, and says whether it restates the source or is editorial guidance the
- * rewrite added to make a verification step explicit. A reader can always tell which is which.
- */
-
 export const FMRAC_SOURCE = {
   key: 'fmrac',
   title: 'FMRAC Financial Management Reference',
@@ -36,7 +18,6 @@ export const FMRAC_SOURCE = {
 export type StatementKind =
   /** Restates the supplied book. */
   | 'source'
-  /** Added by the rewrite to make a relationship or verification step explicit. */
   | 'editorial'
   /** The book conflicts with itself or is incomplete here. */
   | 'discrepancy';
@@ -47,7 +28,6 @@ export const STATEMENT_LABEL: Record<StatementKind, string> = {
   discrepancy: 'Source discrepancy',
 };
 
-/** A citation: original-guide pages, and the chapter of the rewritten reference. */
 export interface Cite {
   /** Pages of the original 118-page guide, e.g. "99-102". */
   pages?: string;

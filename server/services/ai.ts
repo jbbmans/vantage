@@ -34,7 +34,6 @@ export class AiError extends HttpError {
   constructor(message: string, status = 502, code = 'ai_error', extra: Record<string, unknown> = {}) { super(status, message, code, extra); }
 }
 
-/** GenAI.mil answers every call from outside DoD networks with a 503 HTML page, whatever the key. Treat that as a hosting problem, not a key problem. */
 export function networkBlocked(status: number, contentType: string | null, body: string): boolean {
   if (status !== 503 && status !== 403) return false;
   const html = /text\/html/i.test(contentType || '') || /^\s*<!doctype html/i.test(body);
@@ -45,8 +44,6 @@ const NETWORK_BLOCKED_MESSAGE = 'GenAI.mil refused this server: the gateway only
 const str = (v: unknown, max = 8000) => String(v ?? '').trim().slice(0, max);
 const int = (v: unknown, fallback: number, min: number, max: number) => { const n = Number(v); return Number.isInteger(n) && n >= min && n <= max ? n : fallback; };
 const date = (v: unknown, fallback: string | null) => { const t = str(v, 10); return DAY.test(t) ? t : fallback; };
-/** Window bounds run on the instance calendar. The upper bound reaches one day past it so an entry
- *  dated "today" by a member whose clock is ahead of the instance is never dropped from their own review. */
 const windowStart = (ctx: AppContext, days: number) => zonedDay(ctx.config.timezone, -days);
 const windowEnd = (ctx: AppContext) => zonedDay(ctx.config.timezone, 1);
 
@@ -69,8 +66,6 @@ function sharedActivities(ctx: AppContext, userId: string, unitId: string, from:
 
 function aggregate(ctx: AppContext, unitId: string, from: string, to: string) {
   const base = `FROM activities WHERE unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL AND date >= ? AND date <= ?`;
-  // Which value types roll into the headline is the instance's decision, not this file's. Reading it
-  // here keeps the brief agreeing with the dashboard after an owner changes the configuration.
   const headline = summableKeys(ctx.runtime.metrics);
   const headlineSum = headline.length
     ? `COALESCE(SUM(CASE WHEN dollar_type IN (${headline.map(() => '?').join(',')}) OR dollar_type IS NULL THEN dollar_amount ELSE 0 END), 0)`
@@ -111,7 +106,6 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
     case 'award_citation': {
       const from = date(safe.from, windowStart(ctx, 365));
       const to = date(safe.to, nowDay);
-      // An explicit end is honoured exactly; a defaulted one reaches past the instance day (see windowEnd).
       const queryTo = safe.to ? to! : queryEnd;
       const subjectId = str(safe.user_id, 64) || user.id;
       let activities;
@@ -161,9 +155,6 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
       return { ...row, tags: JSON.parse(row.tags || '[]'), audience: JSON.parse(row.audience || '[]') };
     }
     case 'case_brief': {
-      // The case the person could open anyway, reduced to what stands: corrected entries are left
-      // out, and every value says where it came from. The reference's own reading of the figures
-      // goes in beside them, so the model explains a diagnosis rather than inventing one.
       const item = readableItem(ctx, user, scope, str(safe.item_id, 64));
       const events = standing(caseEventsOf(eventsFor(ctx, item.id)));
       const procedure = procedureOf(item).procedure;
@@ -212,10 +203,6 @@ const INSTRUCTIONS: Record<string, string> = {
   case_brief: 'Return JSON with keys observed_condition, financial_meaning, possible_causes (array), required_research (array), responsible_role, next_action, wait_and_verification, references_and_limits (array), and missing_inputs (array). Use only the supplied case entries and reference_reading. Treat every cause as a possibility to research, never a finding. A figure marked not_shown is unknown, not zero. Do not state that anything is resolved unless a verification with a reference says so.',
 };
 
-/**
- * Said to the model on every request, because a figure, an obligation or a UMT can turn up in any
- * workflow's evidence: the same rules an analyst answering from the reference is held to.
- */
 const FINANCIAL_RULES = `When the evidence concerns funds, balances, obligations, invoices, UMTs or other financial conditions: ${AI_GUARDRAILS}`;
 
 function preflight(ctx: AppContext, userId: string) {
@@ -274,10 +261,6 @@ export function resolveModel(ctx: AppContext, requested: unknown): string {
   return allowed.includes(ctx.runtime.aiDefaultModel) ? ctx.runtime.aiDefaultModel : allowed[0];
 }
 
-/**
- * Maps a failure to one of the reasons the analytics catalog allows. The message itself is never
- * recorded: an upstream error can quote a request, and a request can quote a person's draft.
- */
 function failureReason(error: unknown): string {
   const code = (error as { code?: string })?.code;
   if (code === 'ai_network_blocked' || code === 'ai_unreachable' || code === 'ai_timeout') return 'unreachable';
@@ -292,7 +275,6 @@ export async function runAiWorkflow(ctx: AppContext, user: SessionUser, workflow
   const startedAt = Date.now();
   try {
     const result = await runAiWorkflowInner(ctx, user, workflow, input, requestedModel, reqKey);
-    // Counted where the outcome is actually known. The workflow and the cost, never the content.
     record(ctx, 'ai.answered', { workflow, tokens: result.usage?.total_tokens ?? 0, ms: Date.now() - startedAt, failed: false, reason: 'ok' }, { id: user.id });
     return result;
   } catch (error) {

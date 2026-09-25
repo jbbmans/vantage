@@ -114,9 +114,6 @@ test('the GenAI.mil network gate is reported as a hosting problem, for requests 
 });
 
 test('a review window keeps entries dated on a clock that runs ahead of the instance', async () => {
-  // Honolulu sits ten hours behind UTC, so a member almost anywhere else is on a later calendar day
-  // than the instance. The window reaches exactly one day past the instance day: far enough that
-  // nobody's "today" is dropped, not so far that genuinely future-dated work is counted.
   const far = await startApp({ VANTAGE_TIMEZONE: 'Pacific/Honolulu', VANTAGE_AI_ENABLED: 'true', VANTAGE_GENAI_API_KEY: 'test-key-123', VANTAGE_GENAI_BASE_URL: mock.url });
   try {
     const owner = await far.setupOperator();

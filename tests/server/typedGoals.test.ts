@@ -154,7 +154,6 @@ test('a filter narrows what counts, and the drill-down agrees with the figure', 
 
 test('a goal figure reads the same for the subject and for their leader', async () => {
   await activity(peer.token, { title: 'Shared work of theirs', quantity: 15, unit_label: 'checks' });
-  // A leader sets the goal for the Marine; it measures the Marine's shared work either way.
   const created = await app.call('POST', '/api/records/goals', {
     token: op.token,
     body: { title: 'Twenty checks', status: 'active', visibility: 'unit', unit_id: 'G8', assignee_id: peer.id, period_start: day(-30), period_end: day(30), metric_id: 'quantity:check', direction: 'increase', baseline_value: 0, target_value: 20, unit_label: 'checks' },

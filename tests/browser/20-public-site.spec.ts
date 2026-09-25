@@ -1,19 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ensureSetup, logout } from './fixtures';
 
-/**
- * The public page has to be whole before anybody scrolls.
- *
- * It was not. `[data-reveal] { opacity: 0 }` plus an IntersectionObserver left 28 of the page's 30
- * sections invisible until a human scrolled past them. On a desktop that looked like a working site
- * to whoever built it, because building it involves scrolling. Everyone else — a social preview, a
- * screenshot, a print, a person whose JavaScript failed, and most expensively a search engine
- * renderer that does not scroll — got a hero and then eleven thousand pixels of nothing.
- *
- * So this asserts the resting state, not the scrolled state: nothing is transparent, and the text a
- * crawler would read is actually present, before a single scroll event. A reveal animation is fine;
- * it just has to move things rather than hide them.
- */
 test.describe('the public site', () => {
   test('is fully visible before anybody scrolls', async ({ page }) => {
     await page.goto('/display', { waitUntil: 'networkidle' });
@@ -29,32 +16,17 @@ test.describe('the public site', () => {
 
   test('carries its substance in the first render, not after a scroll', async ({ page }) => {
     await page.goto('/display', { waitUntil: 'networkidle' });
-    // Rendered text, so a section hidden by CSS would not count even though it is in the DOM.
-    // The page root, not <main>: the redesign scopes <main> to the hero and leaves the demo, the
-    // walkthroughs and the FAQ as siblings, so measuring <main> measures the hero alone.
     const words = await page.locator('.mission-site, .public-site, main').first().innerText();
-    // A collapse detector, not an SEO budget. Recalibrated for the redesigned page: the hero on its
-    // own measures ~950 characters and the whole page ~2700, so 2000 still catches the failure this
-    // guards against — the page rendering its hero and nothing else — without encoding the old
-    // layout's length. innerText, so anything hidden by CSS (a closed FAQ answer) is not counted.
     expect(words.length, 'the page has far less readable text than it should').toBeGreaterThan(2000);
     for (const phrase of ['Quick Log', 'Report Studio']) {
       expect(words.toLowerCase(), `"${phrase}" should be readable without scrolling`).toContain(phrase.toLowerCase());
     }
 
-    // "readiness" is the weaker case and is asserted as such rather than dropped. The redesign moved
-    // it out of the visible copy and into an FAQ answer, which is collapsed until somebody opens it,
-    // so it is on the page but no longer something a reader meets on the way past. Worth a decision
-    // about the copy; this records where it actually is instead of pretending either way.
     const dom = await page.locator('.mission-site, .public-site, main').first().evaluate((el) => el.textContent || '');
     expect(dom.toLowerCase(), '"readiness" should at least appear somewhere on the page').toContain('readiness');
   });
 
   test('the live parser on the landing page runs the real parser', async ({ page }) => {
-    // The demo imports the product's own parseQuickLog rather than faking output. That is only
-    // worth doing if it stays wired: a demo that drifts into a hard-coded result is a lie told to
-    // somebody deciding whether to trust the product. So this types a sentence the page has never
-    // seen and checks the fields actually come out of it.
     await page.goto('/display', { waitUntil: 'networkidle' });
     const input = page.locator('#live-parser-input');
     await input.scrollIntoViewIfNeeded();
@@ -69,15 +41,10 @@ test.describe('the public site', () => {
   });
 
   test('every walkthrough offered on the landing page actually plays', async ({ page }) => {
-    // The landing grid shows only recorded videos, so a card with no source — or a source that
-    // 404s — means the page is advertising something that does not exist.
     await page.goto('/display', { waitUntil: 'networkidle' });
-    // One player and a list of choices, so every choice has to be selected to see what it loads.
     const choices = page.locator('.mission-video-list button');
     const count = await choices.count();
     if (count === 0) {
-      // Publishing is paused while the recordings are remade (src/config/videos.ts). Offering none
-      // is then the honest answer, and the page must not show an empty player in their place.
       await expect(page.locator('video'), 'no walkthroughs are published, so no player may be shown').toHaveCount(0);
       return;
     }
@@ -131,9 +98,6 @@ test.describe('the public site', () => {
   });
 
   test('the sign-in fields carry their own label and error association', async ({ page, request }) => {
-    // Field used to clone its direct child, which stopped working the moment an input was wrapped
-    // for an icon — the aria landed on a <div> and the error was never announced. The assertion is
-    // on the input itself for that reason: anything else passes while a screen reader gets nothing.
     await ensureSetup(request);
     await logout(page);
     await page.goto('/login', { waitUntil: 'networkidle' });
@@ -148,15 +112,6 @@ test.describe('the public site', () => {
   });
 
   test('hands a crawler the whole page without running any JavaScript', async ({ request }) => {
-    /*
-     * The point of the prerender. These are raw HTTP responses — no browser, no JavaScript — which
-     * is what Bing and the crawlers behind AI answers largely are. Before this the public page
-     * answered with an empty <div id="root">.
-     *
-     * The negative half matters as much: a signed-in request, and any route that is not the public
-     * page, must still get the plain shell. A prerendered marketing page served at /records, or to
-     * somebody on their way to their dashboard, would be a worse bug than the one this fixes.
-     */
     const readable = (html: string) => html
       .replace(/<script[\s\S]*?<\/script>/g, '')
       .replace(/<[^>]+>/g, ' ')
@@ -171,8 +126,6 @@ test.describe('the public site', () => {
       expect(words, `${path} returned ${words} words of readable HTML before JavaScript`).toBeGreaterThan(400);
       expect(html, `${path} should tell caches it varies by cookie`).toBeTruthy();
       expect(res.headers().vary || '', `${path} must send Vary: Cookie`).toContain('Cookie');
-      // A sentinel from the hero, so this fails if the prerender returns a shell or a stub rather
-      // than merely because mid-page marketing copy was reworded.
       expect(readable(html)).toContain('A clearer picture');
     }
 

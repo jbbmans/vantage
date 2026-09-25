@@ -9,29 +9,10 @@ import { formatCents } from '../../shared/money.ts';
 import { UMT_2WAY, UMT_FORMULA, PROCEDURES } from '../../shared/procedures.ts';
 import { sealBacklog } from './caseSeal.ts';
 
-/**
- * The synthetic demonstration.
- *
- * Every visitor gets their own disposable workspace: one synthetic section, six synthetic Marines,
- * and a few weeks of synthetic work history. Nobody signs in; the visitor is handed the persona of
- * one of those Marines and can switch to the section lead. Nothing here is real and nothing here
- * can reach something real:
- *
- *   - demo mode is refused in production and refused on a database that holds real accounts;
- *   - a database created for the demo is marked as one, and an accounts-mode server refuses it;
- *   - the people here have no password, no email, and no operator authority;
- *   - workspaces are isolated by membership, the same scope every other read goes through;
- *   - each workspace is removed whole when it expires.
- *
- * The names are neutral inventions. Document numbers start with SYN so nobody mistakes one for a
- * real award, and no DODAAC, contract number or dollar figure here belongs to anything real.
- */
-
 export const DEMO_UNIT_NAME = 'G-8 Budget Execution (synthetic)';
 export const DEMO_UNIT_SHORT = 'G-8 BE';
 export const FLAGSHIP_REFERENCE = 'SYN-26-P-0047';
 
-/** Values a Marine would read off DAI during the flagship walkthrough. Shown only in demo mode, labelled synthetic. */
 export const FLAGSHIP_SYSTEM_VALUES = {
   reference: FLAGSHIP_REFERENCE,
   note: 'In real work these are read from DAI.',
@@ -60,7 +41,6 @@ export const PERSONAS = {
 } as const;
 export type Persona = keyof typeof PERSONAS;
 
-/** A small seeded generator, so every workspace tells the same story and a board demo is repeatable. */
 function rng(seed: number) {
   let s = seed >>> 0;
   return () => { s = (s * 1664525 + 1013904223) >>> 0; return s / 2 ** 32; };
@@ -76,13 +56,6 @@ const dayOffset = (days: number) => new Date(Date.now() + days * DAY).toISOStrin
 const docNumber = (n: number) => `SYN-26-P-${String(n).padStart(4, '0')}`;
 const condition = (open: number) => `2WAY PO MATCH PO open Qty ${open} is less than the DCAS qty ${open + 1}`;
 
-/* ── Database guard ────────────────────────────────────────────────────────────────────────── */
-
-/**
- * Called at startup. A database is either a demo database or a real one, decided when it is first
- * used, and each mode refuses the other kind. This is what stops a misconfigured demo from opening
- * a real database without sign-in, and stops a real server from running on synthetic data.
- */
 export function assertDatabaseMatchesMode(ctx: AppContext) {
   const flagged = metaGet(ctx.db, 'demo_database') === '1';
   if (ctx.config.accessMode === 'demo') {
@@ -102,8 +75,6 @@ export function assertDatabaseMatchesMode(ctx: AppContext) {
 const assertDemo = (ctx: AppContext) => {
   if (ctx.config.accessMode !== 'demo' || metaGet(ctx.db, 'demo_database') !== '1') throw new Error('Demo operations only run on a demo database in demo mode.');
 };
-
-/* ── Workspaces ────────────────────────────────────────────────────────────────────────────── */
 
 export interface WorkspaceRow { id: string; unit_id: string; persona_user_id: string; leader_user_id: string; created_at: string; last_used_at: string; expires_at: string }
 
@@ -164,13 +135,10 @@ export function createWorkspace(ctx: AppContext): WorkspaceRow {
     const workIds = seedWork(ctx, unitId, ids);
     const balanceIds = seedOpenBalances(ctx, unitId, ids);
     seedPersonalRecord(ctx, unitId, ids);
-    // The seeded histories were written directly, so they are sealed here, as a whole, before anyone sees them.
     sealBacklog(ctx, [...workIds, ...balanceIds]);
   })();
   return ctx.db.prepare('SELECT * FROM demo_workspaces WHERE id = ?').get(wsId) as WorkspaceRow;
 }
-
-/* ── Synthetic work ────────────────────────────────────────────────────────────────────────── */
 
 interface SeedItem { n: number; open: number; umtCents: number; awardCents: number; invoices: number[]; due: string; createdAt: string }
 
@@ -197,7 +165,6 @@ function seedWork(ctx: AppContext, unitId: string, ids: Record<string, string>):
     const award = n === 47 ? 9_125_000 : cents(20_000, 150_000);
     const invoices = n === 47 ? [4_500_000, 4_472_500] : [cents(5_000, 60_000), ...(rand() > 0.5 ? [cents(2_000, 40_000)] : [])];
     const dueIn = n === 47 ? 5 : n <= 76 ? -Math.floor(rand() * 20) - 1 : Math.floor(rand() * 25) - 3;
-    // The second batch arrived last week, so the section has new work as well as old.
     items.push({ n, open: 1 + Math.floor(rand() * 9), umtCents: umt, awardCents: award, invoices, due: dayOffset(dueIn), createdAt: n >= 83 ? secondBatchAt : importedAt });
   }
   const header = ['Document Number', 'Condition', 'UMT Amount', 'Due Date', 'Office'];
@@ -227,7 +194,6 @@ function seedWork(ctx: AppContext, unitId: string, ids: Record<string, string>):
   );
   let tick = 0;
   const ev = (itemId: string, actor: string | null, kind: string, occurredAt: string, body: Record<string, unknown> = {}, step: string | null = null, subject: string | null = null) => {
-    // created_at orders the history; keep it in step with the synthetic timeline.
     tick += 1;
     const created = new Date(Date.parse(occurredAt) + (tick % 1000)).toISOString();
     const eventId = newId();
@@ -254,16 +220,11 @@ function seedWork(ctx: AppContext, unitId: string, ids: Record<string, string>):
     `UPDATE work_items SET claimed_by = ?, claimed_at = ?, state = ?, stage = ?, waiting_category = ?, waiting_since = ?, blocked_reason = ?, resolved_at = ?, updated_at = ?, version = version + 1 WHERE id = ?`
   );
 
-  /**
-   * One person's pass at an item, from claim to wherever they stopped. Each step is its own event,
-   * so the history distinguishes research, a submission, what the system reported, and verification.
-   */
   const research = new Map<number, { awardId: string; invoiceIds: string[] }>();
   const work = (n: number, who: string, daysAgo: number, until: 'researched' | 'submitted' | 'resolved', handFrom?: string) => {
     const id = itemIds.get(n)!;
     const i = items[n - 1];
     const t = (hours: number) => isoAt(Math.max(daysAgo - hours / 24, 0.02), 13 + (hours % 6));
-    // Someone taking over a handed-off item picks up where it was left; they do not re-read the award.
     let awardId = research.get(n)?.awardId;
     let invoiceIds = research.get(n)?.invoiceIds || [];
     if (!handFrom) {
@@ -304,9 +265,6 @@ function seedWork(ctx: AppContext, unitId: string, ids: Record<string, string>):
     return id;
   };
 
-  // Recorded research in the last four weeks: Avery 39 documents, Chen 30, Patel 27, Nguyen and
-  // Brooks none. Items 34-38 moved from Avery to Chen and 52-61 from Chen to Patel, so the section
-  // counts 81 distinct documents while the individual totals add up to 96.
   const handOn = (n: number, from: string, to: string, daysAgo: number, note: string) => {
     work(n, from, daysAgo, 'researched');
     ev(itemIds.get(n)!, from, 'handed_off', isoAt(daysAgo - 0.3, 16), { note, from }, null, to);
@@ -314,12 +272,10 @@ function seedWork(ctx: AppContext, unitId: string, ids: Record<string, string>):
   };
   for (let n = 1; n <= 33; n++) work(n, ids.marine, 27 - (n % 26), 'resolved');
   for (let n = 34; n <= 38; n++) handOn(n, ids.marine, ids.chen, 20 - (n % 12), 'Award and invoices recorded. Funding decision next.');
-  // Item 47 is the flagship: nobody has touched it, so the walkthrough starts from a clean case.
   for (let n = 39; n <= 51; n++) if (n !== 47) work(n, ids.chen, 26 - (n % 24), 'resolved');
   for (let n = 52; n <= 61; n++) handOn(n, ids.chen, ids.patel, 22 - (n % 18), 'Research done. Needs the modification submitted.');
   for (let n = 62; n <= 76; n++) work(n, ids.patel, 25 - (n % 22), 'resolved');
 
-  // Work still in flight, so the section has something waiting, blocked, and awaiting verification.
   const inFlight = (n: number, who: string, stage: 'waiting' | 'blocked' | 'verification_required' | 'researching', daysAgo: number, detail: { category?: string; reason?: string } = {}) => {
     const id = work(n, who, daysAgo, stage === 'researching' ? 'researched' : 'submitted');
     const since = isoAt(Math.max(daysAgo - 0.2, 0.05), 15);
@@ -359,19 +315,12 @@ function seedWork(ctx: AppContext, unitId: string, ids: Record<string, string>):
   return [...itemIds.values()];
 }
 
-/* ── Synthetic open balances: one of each FMRA condition ───────────────────────────────────── */
-
 interface BalanceSeed {
   n: number; condition: string; procedure: string; method: string | null;
   c: number | null; o: number | null; d: number | null; p: number | null;
   error?: string; umt?: number; due: number; holder?: string; stage?: 'researching' | 'waiting'; waitOn?: string;
 }
 
-/**
- * A second tasker: the quarter's open balances, one document per condition the FMRAC teaches, each
- * already under its procedure with the figures the sheet carried seeded as source-file facts. Nobody
- * has researched these yet, so the section's contribution counts are unchanged by them.
- */
 function seedOpenBalances(ctx: AppContext, unitId: string, ids: Record<string, string>): string[] {
   const at = now();
   const importedAt = isoAt(3, 10);
@@ -472,8 +421,6 @@ function seedOpenBalances(ctx: AppContext, unitId: string, ids: Record<string, s
   return out;
 }
 
-/* ── The persona's own record ──────────────────────────────────────────────────────────────── */
-
 function seedPersonalRecord(ctx: AppContext, unitId: string, ids: Record<string, string>) {
   const at = now();
   const me = ids.marine;
@@ -519,13 +466,6 @@ function seedPersonalRecord(ctx: AppContext, unitId: string, ids: Record<string,
   step.run(newId(), me, 'Look into the Certified Defense Financial Manager credential', 'certification', 'planned', null, 'Requirements and eligibility not checked yet.', 'American Society of Military Comptrollers', 'https://www.asmconline.org', at, at);
 }
 
-/* ── Removal ───────────────────────────────────────────────────────────────────────────────── */
-
-/**
- * Removes one workspace whole. Synthetic data only, and only on a demo database in demo mode.
- * Everything that hangs off the workspace's people and unit is found through the schema's own
- * foreign keys rather than a hand-kept list, so a table added later cannot be left behind.
- */
 export function purgeWorkspace(ctx: AppContext, wsId: string) {
   assertDemo(ctx);
   const ws = ctx.db.prepare('SELECT * FROM demo_workspaces WHERE id = ?').get(wsId) as WorkspaceRow | undefined;
@@ -542,7 +482,6 @@ export function purgeWorkspace(ctx: AppContext, wsId: string) {
       db.prepare('DELETE FROM demo_workspaces WHERE id = ?').run(wsId);
       db.prepare(`DELETE FROM users WHERE id IN (${list(users)})`).run(...users);
       db.prepare('DELETE FROM units WHERE id = ?').run(ws.unit_id);
-      // Then everything that now points at something missing, until nothing does.
       for (let pass = 0; pass < 25; pass++) {
         const orphans = db.pragma('foreign_key_check') as Array<{ table: string; rowid: number }>;
         if (!orphans.length) break;
@@ -571,7 +510,6 @@ export function purgeExpired(ctx: AppContext): number {
   return expired.length;
 }
 
-/** A small synthetic sheet a section lead can import during the demo, to see a tasker arrive. */
 export function sampleSheet(): string {
   const rows = [['Document Number', 'Condition', 'UMT Amount', 'Due Date', 'Office']];
   for (let n = 101; n <= 110; n++) {

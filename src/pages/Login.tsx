@@ -99,8 +99,6 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
   };
 
   useEffect(() => {
-    // The application is not content. Sign-in, reset and invite carry noindex, and the public
-    // page's FAQ/video structured data is dropped so it cannot follow a person in here.
     applySeo({
       title: 'Sign in | Vantage',
       description: 'Sign in to your Vantage deployment.',
@@ -237,8 +235,6 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
 
   return (
     <div className="auth-page">
-      {/* The brand side: the same navy and promise as the public page, so arriving here from it
-          reads as one product. Hidden below the large breakpoint, where the form is the whole job. */}
       <aside className="auth-brand-panel" aria-label="About Vantage">
         <div className="auth-brand-glow" aria-hidden />
         <Link to="/" className="auth-panel-brand" aria-label="Vantage overview">
@@ -273,9 +269,6 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
 
       <main className="auth-stage">
         <section className="auth-shell" aria-labelledby="auth-heading">
-          {/* An owner who sets an instance display name is told, in the owner console, that it shows
-              on the sign-in page. Hard-coding the wordmark here quietly broke that promise for every
-              custom-branded deployment, so the configured name wins and Vantage is the fallback. */}
           <div className={cn('auth-brand-lockup', !(status?.displayName && status.displayName !== 'Vantage') && 'auth-brand-lockup-default')}>
             <div className="auth-mark-wrap"><img src="/mark.svg" alt="" /></div>
             <p>{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'VANTAGE'}</p>

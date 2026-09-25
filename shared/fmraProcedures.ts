@@ -2,19 +2,6 @@ import type { Procedure, ProcedureField, ProcedureStep } from './procedureTypes.
 import { METHOD_LIST } from './fmra/methods.ts';
 import { NORMAL_CONDITIONS, UMT_ERRORS, UMT_INSUFFICIENT_FUNDS, INVOICE_HOLDS, INTERFACE_ERRORS, FEEDER_REJECTS, type NormalKey } from './fmra/conditions.ts';
 
-/**
- * The FMRA research-and-correction procedures, built from the FMRAC reference (ch. 8-11).
- *
- * Each one follows the book's research sequence — identify the condition, validate the
- * requirement and evidence, determine the cause, route the supported correction, verify the
- * posting, document the result — and encodes the book's "never without evidence" rules as controls
- * the server enforces: no receipt without evidence of delivery, no award change without a
- * validated bill, no recoup without confirmed invalidity.
- *
- * Authority is the training reference, labelled that way everywhere. No DAI screen path is
- * published: the book is not a screen-by-screen manual, and a guessed path looks authoritative.
- */
-
 const FMRAC = 'FMRAC Financial Management Reference (rewritten study guide, 24 Sep 2026), derived from the 118-page FMRAC Combined Study Guide.';
 const COMMON_LIMITS = [
   'A training reference, not current policy: thresholds, routing and timing are the book’s printed values.',
@@ -122,8 +109,6 @@ const resolveStep = (what: string): ProcedureStep => ({
   help: { objective: 'Close the case on the evidence.', what, done: 'The case is resolved.', path: null },
 });
 
-/* ── Open / outstanding commitment ────────────────────────────────────────────────────────── */
-
 const OCMT_SRC = 'FMRAC 9.2 · orig. pp. 103-104';
 const OCMT_CORRECTIVE = ['mipr_not_acknowledged', 'requirement_invalid', 'interface_error', 'final_price_lower', 'award_incomplete'];
 
@@ -155,8 +140,6 @@ export const OCMT_RESEARCH: Procedure = {
   ],
 };
 
-/* ── Undelivered order, unpaid ────────────────────────────────────────────────────────────── */
-
 const UDOU_SRC = 'FMRAC 9.3 · orig. pp. 104-105';
 const UDOU_CORRECTIVE = ['missing_receipt', 'erroneous_award', 'final_price_lower'];
 
@@ -187,8 +170,6 @@ export const UDOU_RESEARCH: Procedure = {
   ],
 };
 
-/* ── Delivered order, unpaid ──────────────────────────────────────────────────────────────── */
-
 const DOU_SRC = 'FMRAC 9.4 · orig. pp. 105-106';
 const DOU_CORRECTIVE = ['hold_or_umt', 'erroneous_receipt', 'excess_receipt'];
 
@@ -215,8 +196,6 @@ export const DOU_RESEARCH: Procedure = {
     resolveStep('Resolve once the payment is verified posted and matched, or the pending payment is validated.'),
   ],
 };
-
-/* ── Outstanding travel order ─────────────────────────────────────────────────────────────── */
 
 const OTO_SRC = 'FMRAC 9.5 · orig. pp. 106-107';
 
@@ -249,8 +228,6 @@ export const OTO_RESEARCH: Procedure = {
     resolveStep('Resolve once payment is verified posted against the travel order.'),
   ],
 };
-
-/* ── Unmatched transaction: the four-stage method ─────────────────────────────────────────── */
 
 const UMT_SRC = 'FMRAC 11.2 · orig. pp. 115-117';
 const NON1081 = ['no_matching_record', 'billed_exceeds_po_line', 'qty_not_received', 'award_not_approved', 'insufficient_project_funds'];
@@ -313,8 +290,6 @@ export const UMT_FOUR_STAGE: Procedure = {
   ],
 };
 
-/* ── Invoice on hold ──────────────────────────────────────────────────────────────────────── */
-
 const HOLD_SRC = 'FMRAC 10.6 · orig. pp. 109-113';
 
 export const INVOICE_HOLD: Procedure = {
@@ -360,8 +335,6 @@ export const INVOICE_HOLD: Procedure = {
   ],
 };
 
-/* ── Feeder-system reject (DTS or GCSS-MC) ────────────────────────────────────────────────── */
-
 const REJECT_SRC = 'FMRAC 10.3-10.4 · orig. pp. 109-113';
 
 export const FEEDER_REJECT: Procedure = {
@@ -398,8 +371,6 @@ export const FEEDER_REJECT: Procedure = {
     resolveStep('Resolve once the rejected transaction is verified posted.'),
   ],
 };
-
-/* ── Interface error (ServMart / fuel) ────────────────────────────────────────────────────── */
 
 const IFACE_SRC = 'FMRAC 10.5 · orig. pp. 109-113';
 

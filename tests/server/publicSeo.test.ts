@@ -16,8 +16,6 @@ test('public HTML exposes the product while private and missing routes cannot be
     assert.match(home.text, /"@type":\s*"WebSite"/);
     assert.equal(home.headers.get('x-robots-tag'), null);
     assert.match(home.headers.get('vary') || '', /Cookie/);
-    // No tag manager, analytics or advertising script, on any page. The product must run on a
-    // network that blocks public egress, and usage telemetry never leaves the deployment.
     assert.doesNotMatch(home.text, /googletagmanager|GTM-|google-analytics|gtag\(/);
     const csp = home.headers.get('content-security-policy') || '';
     assert.doesNotMatch(csp, /googletagmanager/);
@@ -64,7 +62,6 @@ test('responses carry the isolation headers, and only shareable images may be em
     assert.equal(api.headers.get('cross-origin-resource-policy'), 'same-origin');
     const card = await app.call('GET', '/og.png', { binary: true });
     assert.equal(card.headers.get('cross-origin-resource-policy'), 'cross-origin', 'a shared link’s image has to load wherever it is shared');
-    // Not in development: upgrade-insecure-requests would break plain-http local use.
     assert.doesNotMatch(page.headers.get('content-security-policy') || '', /upgrade-insecure-requests/);
   } finally { await app.close(); }
 });

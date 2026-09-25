@@ -1,26 +1,8 @@
-/**
- * The colour palettes, generated and checked.
- *
- *   node scripts/palettes.mjs            print the CSS and the contrast report
- *   node scripts/palettes.mjs --write    rewrite the palettes block in src/styles/index.css
- *
- * A palette is everything the colour setting changes: a signal colour family (--accent, its ink, its
- * soft fill, --accent-2), the rail's active marker and glows (--marker), and a family of neutrals in
- * its hue (page, cards, fills, lines, text, rail, deep panels, shadow tint).
- *
- * The neutrals are not picked by eye. Each keeps Cobalt's lightness role for role, carried to the
- * palette's hue in OKLCH with a little chroma, so a palette changes the colour of every surface
- * without changing how any of them reads. Every contrast pair a component relies on is checked, in
- * light and dark, and the script refuses to write a palette that fails one.
- */
-
 import { readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const CSS = join(dirname(fileURLToPath(import.meta.url)), '..', 'src', 'styles', 'index.css');
-
-/* ── colour maths ────────────────────────────────────────────────────────────────────────────── */
 
 const toLin = (c) => { c /= 255; return c <= 0.04045 ? c / 12.92 : ((c + 0.055) / 1.055) ** 2.4; };
 const fromLin = (c) => { const v = c <= 0.0031308 ? 12.92 * c : 1.055 * c ** (1 / 2.4) - 0.055; return Math.round(Math.min(1, Math.max(0, v)) * 255); };
@@ -46,18 +28,11 @@ function rgb(L, C, h) {
 const lum = ([r, g, b]) => 0.2126 * toLin(r) + 0.7152 * toLin(g) + 0.0722 * toLin(b);
 const contrast = (x, y) => { const [a, b] = [lum(x), lum(y)].sort((p, q) => q - p); return (a + 0.05) / (b + 0.05); };
 
-/* ── Cobalt's neutrals: the roles every palette keeps ─────────────────────────────────────────── */
-
 const LIGHT = { canvas: [246, 247, 249], surface: [255, 255, 255], 'surface-2': [243, 245, 248], 'surface-3': [233, 237, 243], line: [227, 232, 239], 'line-strong': [206, 214, 225], ink: [10, 27, 51], 'ink-2': [58, 76, 101], 'ink-3': [92, 108, 130], rail: [8, 22, 42], 'rail-ink': [190, 205, 226], 'rail-active': [18, 40, 70], deep: [10, 27, 51], 'deep-2': [18, 41, 74] };
 const DARK = { canvas: [11, 19, 32], surface: [17, 28, 46], 'surface-2': [23, 37, 59], 'surface-3': [32, 49, 76], line: [37, 55, 82], 'line-strong': [53, 74, 105], ink: [234, 240, 248], 'ink-2': [180, 196, 218], 'ink-3': [140, 158, 184], rail: [9, 17, 30], 'rail-ink': [176, 192, 216], 'rail-active': [36, 58, 92], deep: [9, 17, 30], 'deep-2': [21, 36, 60] };
 
-/** How much of its hue each role carries, at most enough to read as the palette, never enough to tire. */
 const TINT = { surface: 0.014, canvas: 0.009, 'surface-2': 0.012, 'surface-3': 0.016, line: 0.016, 'line-strong': 0.02, ink: 0.042, 'ink-2': 0.034, 'ink-3': 0.03, rail: 0.06, 'rail-ink': 0.03, 'rail-active': 0.07, deep: 0.055, 'deep-2': 0.065 };
 
-/* ── the palettes ─────────────────────────────────────────────────────────────────────────────── */
-
-// hue: the neutrals' hue; tint: how strongly they take it (0 = grey); light/dark: the signal family.
-// marker: the rail's active marker and its glow, bright enough to read on the rail.
 const PALETTES = {
   cobalt: { neutrals: null, light: { accent: [37, 99, 235], 'accent-ink': [255, 255, 255], 'accent-soft': [236, 242, 254], 'accent-2': [15, 118, 110], marker: [20, 184, 166] }, dark: { accent: [122, 162, 255], 'accent-ink': [6, 13, 24], 'accent-soft': [26, 45, 78], 'accent-2': [79, 209, 192], marker: [45, 212, 191] } },
   ocean: { hue: 222, tint: 1.25, light: { accent: [3, 105, 161], 'accent-ink': [255, 255, 255], 'accent-soft': [228, 243, 250], 'accent-2': [15, 118, 110], marker: [34, 211, 238] }, dark: { accent: [125, 200, 240], 'accent-ink': [3, 22, 30], 'accent-soft': [12, 52, 66], 'accent-2': [79, 209, 192], marker: [103, 232, 249] } },

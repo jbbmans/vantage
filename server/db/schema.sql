@@ -1,4 +1,3 @@
--- Vantage 5 schema. Fresh install; migrations extend this through server/db/migrations.ts.
 PRAGMA journal_mode = WAL;
 PRAGMA foreign_keys = ON;
 
@@ -193,11 +192,6 @@ CREATE TABLE IF NOT EXISTS activities (
 );
 CREATE INDEX IF NOT EXISTS idx_activities_user_date ON activities(user_id, date);
 CREATE INDEX IF NOT EXISTS idx_activities_unit ON activities(unit_id, visibility, date);
--- The unit rollups on the team dashboard aggregate every shared row in a unit, so an index that only
--- finds the rows still has to visit each one. This one carries the aggregated columns too, which
--- lets those queries be answered from the index alone: measured at 1.5M rows, composition-by-area
--- went from 402ms to 33ms. It costs roughly a fifth more disk, which is the right trade for a screen
--- a section leader opens every morning.
 CREATE INDEX IF NOT EXISTS idx_activities_unit_rollup
   ON activities(unit_id, visibility, date, user_id, dollar_amount, quantity, eval_area)
   WHERE deleted_at IS NULL;
@@ -440,9 +434,6 @@ CREATE TABLE IF NOT EXISTS email_log (
 );
 CREATE INDEX IF NOT EXISTS idx_email_log_created ON email_log(created_at DESC);
 
--- Phase 2: work intake ------------------------------------------------------
--- An uploaded workbook, kept exactly as it arrived. Nothing here is ever rewritten:
--- a reimport reads these bytes again rather than trusting a derived copy.
 CREATE TABLE IF NOT EXISTS source_files (
   id           TEXT PRIMARY KEY,
   user_id      TEXT NOT NULL REFERENCES users(id),
@@ -453,7 +444,6 @@ CREATE TABLE IF NOT EXISTS source_files (
   kind         TEXT NOT NULL CHECK (kind IN ('xlsx', 'delimited')),
   byte_size    INTEGER NOT NULL,
   sha256       TEXT NOT NULL,
-  -- quarantined until a scan clears it; nothing is parsed for import while quarantined.
   scan_status  TEXT NOT NULL DEFAULT 'quarantined' CHECK (scan_status IN ('quarantined', 'clean', 'rejected', 'skipped')),
   scan_detail  TEXT,
   scanner      TEXT,
@@ -467,7 +457,6 @@ CREATE INDEX IF NOT EXISTS idx_source_files_user ON source_files(user_id, create
 CREATE INDEX IF NOT EXISTS idx_source_files_unit ON source_files(unit_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_source_files_sha ON source_files(sha256);
 
--- One run of an import over one sheet of one source file. Survives a restart mid-run.
 CREATE TABLE IF NOT EXISTS import_jobs (
   id              TEXT PRIMARY KEY,
   source_file_id  TEXT NOT NULL REFERENCES source_files(id),
@@ -496,8 +485,6 @@ CREATE TABLE IF NOT EXISTS import_jobs (
 CREATE INDEX IF NOT EXISTS idx_import_jobs_user ON import_jobs(user_id, created_at DESC);
 CREATE INDEX IF NOT EXISTS idx_import_jobs_source ON import_jobs(source_file_id);
 
--- A normalized row of work. Its natural key comes verbatim from the source: never reconstructed,
--- never padded, never re-derived from a truncated display value.
 CREATE TABLE IF NOT EXISTS work_items (
   id              TEXT PRIMARY KEY,
   unit_id         TEXT REFERENCES units(id),
@@ -520,7 +507,6 @@ CREATE TABLE IF NOT EXISTS work_items (
   claimed_by      TEXT REFERENCES users(id),
   claimed_at      TEXT,
   resolved_at     TEXT,
-  -- set when a later import of the same key changed the source values under an in-flight claim
   source_changed_at TEXT,
   version         INTEGER NOT NULL DEFAULT 1,
   deleted_at      TEXT,
@@ -532,7 +518,6 @@ CREATE INDEX IF NOT EXISTS idx_work_items_unit_state ON work_items(unit_id, stat
 CREATE INDEX IF NOT EXISTS idx_work_items_claim ON work_items(claimed_by, state);
 CREATE INDEX IF NOT EXISTS idx_work_items_source ON work_items(source_file_id);
 
--- Something a person did about a work item. This is the bridge from doing the work to the record of it.
 CREATE TABLE IF NOT EXISTS work_actions (
   id              TEXT PRIMARY KEY,
   work_item_id    TEXT NOT NULL REFERENCES work_items(id),
@@ -568,12 +553,6 @@ CREATE TABLE IF NOT EXISTS work_views (
 CREATE INDEX IF NOT EXISTS idx_work_views_user ON work_views(user_id);
 CREATE INDEX IF NOT EXISTS idx_work_views_unit ON work_views(unit_id, shared);
 
--- Phase 3: typed goals and report revisions ---------------------------------
--- Goals gain a typed measure. Those columns are added by migration 003 rather than here, because
--- ALTER TABLE is not idempotent and this file is replayed on every boot. The legacy `metric` column
--- stays for rows created before this and is read through a compatibility path, never rewritten.
-
--- A report someone is building. The draft is a name and a period; its content lives in revisions.
 CREATE TABLE IF NOT EXISTS report_drafts (
   id           TEXT PRIMARY KEY,
   user_id      TEXT NOT NULL REFERENCES users(id),
@@ -592,9 +571,6 @@ CREATE TABLE IF NOT EXISTS report_drafts (
 );
 CREATE INDEX IF NOT EXISTS idx_report_drafts_user ON report_drafts(user_id, updated_at DESC);
 
--- One saved version of a report. Immutable once written: a later edit is a new revision.
--- source_snapshots records the exact version of every record the wording was built from, which is
--- what makes a later export provably the thing that was reviewed.
 CREATE TABLE IF NOT EXISTS report_revisions (
   id               TEXT PRIMARY KEY,
   report_id        TEXT NOT NULL REFERENCES report_drafts(id),
@@ -610,8 +586,6 @@ CREATE TABLE IF NOT EXISTS report_revisions (
 );
 CREATE UNIQUE INDEX IF NOT EXISTS idx_report_revisions_number ON report_revisions(report_id, revision);
 
--- Phase 4: correspondence ---------------------------------------------------
--- A person or office the unit deals with. Kept apart from users: a vendor is not an account.
 CREATE TABLE IF NOT EXISTS contacts (
   id           TEXT PRIMARY KEY,
   owner_id     TEXT NOT NULL REFERENCES users(id),
@@ -631,8 +605,6 @@ CREATE TABLE IF NOT EXISTS contacts (
 CREATE INDEX IF NOT EXISTS idx_contacts_unit ON contacts(unit_id, visibility);
 CREATE INDEX IF NOT EXISTS idx_contacts_email ON contacts(email);
 
--- One conversation. Its state is the thing a person actually wants to know: is anyone waiting on me,
--- am I waiting on them, did the document arrive, is this finished.
 CREATE TABLE IF NOT EXISTS threads (
   id             TEXT PRIMARY KEY,
   owner_id       TEXT NOT NULL REFERENCES users(id),
@@ -640,9 +612,6 @@ CREATE TABLE IF NOT EXISTS threads (
   visibility     TEXT NOT NULL DEFAULT 'unit' CHECK (visibility IN ('private', 'unit')),
   contact_id     TEXT REFERENCES contacts(id),
   subject        TEXT NOT NULL,
-  -- draft: written, not sent. sent: gone out. awaiting_reply: sent and nothing back yet.
-  -- response_received: they replied. ksd_received: the supporting document actually arrived.
-  -- resolved: the underlying question is closed. These are four different facts, not one.
   state          TEXT NOT NULL DEFAULT 'draft'
                  CHECK (state IN ('draft', 'sent', 'awaiting_reply', 'response_received', 'ksd_received', 'resolved')),
   follow_up_at   TEXT,
@@ -650,7 +619,6 @@ CREATE TABLE IF NOT EXISTS threads (
   response_at    TEXT,
   ksd_at         TEXT,
   resolved_at    TEXT,
-  -- set when the thread came from a connected mailbox rather than being written here
   provider       TEXT,
   provider_thread_id TEXT,
   connector_id   TEXT,
@@ -664,12 +632,10 @@ CREATE INDEX IF NOT EXISTS idx_threads_owner ON threads(owner_id, state);
 CREATE INDEX IF NOT EXISTS idx_threads_contact ON threads(contact_id);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_threads_provider ON threads(connector_id, provider_thread_id) WHERE provider_thread_id IS NOT NULL;
 
--- One message in a conversation. Bodies are stored sanitized; the raw HTML is never rendered.
 CREATE TABLE IF NOT EXISTS thread_messages (
   id            TEXT PRIMARY KEY,
   thread_id     TEXT NOT NULL REFERENCES threads(id),
   direction     TEXT NOT NULL CHECK (direction IN ('outbound', 'inbound')),
-  -- the provider's own id. Threading follows this, never a subject line, which anyone can copy.
   provider_message_id TEXT,
   connector_id  TEXT,
   source        TEXT NOT NULL DEFAULT 'manual' CHECK (source IN ('manual', 'eml', 'graph')),
@@ -690,8 +656,6 @@ CREATE TABLE IF NOT EXISTS thread_messages (
 CREATE INDEX IF NOT EXISTS idx_thread_messages_thread ON thread_messages(thread_id, sent_at);
 CREATE UNIQUE INDEX IF NOT EXISTS idx_thread_messages_provider ON thread_messages(connector_id, provider_message_id) WHERE provider_message_id IS NOT NULL;
 
--- One email can concern a hundred documents. It is still one email: the link lives here, so a
--- message is never copied per document and never counted per document.
 CREATE TABLE IF NOT EXISTS thread_links (
   id           TEXT PRIMARY KEY,
   thread_id    TEXT NOT NULL REFERENCES threads(id),
@@ -702,12 +666,10 @@ CREATE TABLE IF NOT EXISTS thread_links (
 CREATE UNIQUE INDEX IF NOT EXISTS idx_thread_links_pair ON thread_links(thread_id, work_item_id);
 CREATE INDEX IF NOT EXISTS idx_thread_links_item ON thread_links(work_item_id);
 
--- A mailbox connection. Read-only, and the national cloud is recorded rather than inferred.
 CREATE TABLE IF NOT EXISTS connectors (
   id             TEXT PRIMARY KEY,
   user_id        TEXT NOT NULL REFERENCES users(id),
   provider       TEXT NOT NULL,
-  -- global, usgov (GCC High), usgovdod (DoD). Chosen by the operator; never guessed from an address.
   cloud          TEXT NOT NULL DEFAULT 'global',
   account_label  TEXT NOT NULL,
   access         TEXT NOT NULL DEFAULT 'read_only' CHECK (access IN ('read_only', 'read_write')),
@@ -722,8 +684,6 @@ CREATE TABLE IF NOT EXISTS connectors (
 );
 CREATE INDEX IF NOT EXISTS idx_connectors_user ON connectors(user_id, provider);
 
--- One pending mailbox sign-in. The state value itself is never stored, only its hash; the PKCE
--- verifier is encrypted. Single use, ten minutes, and bound to the person who started it.
 CREATE TABLE IF NOT EXISTS connector_auth_states (
   state_hash    TEXT PRIMARY KEY,
   connector_id  TEXT NOT NULL REFERENCES connectors(id) ON DELETE CASCADE,
@@ -734,28 +694,18 @@ CREATE TABLE IF NOT EXISTS connector_auth_states (
   used_at       TEXT
 );
 
--- Product analytics ----------------------------------------------------
--- What people did with Vantage, in a shape that can be counted. This table holds names and numbers
--- only. It never holds draft text, workbook cells, email bodies, keystrokes, or anything a person
--- typed: a property whose value is not a declared scalar is refused before it reaches here.
 CREATE TABLE IF NOT EXISTS product_events (
   id           TEXT PRIMARY KEY,
   name         TEXT NOT NULL,
-  -- the actor, kept so adoption can be counted per person. Never joined into an exported analytic.
   user_id      TEXT REFERENCES users(id),
   unit_id      TEXT,
   session_id   TEXT,
   -- the surface the event came from: 'client' or 'server'.
   origin       TEXT NOT NULL DEFAULT 'client' CHECK (origin IN ('client', 'server')),
-  -- declared properties, already validated against the catalog. JSON object of scalars.
   properties   TEXT NOT NULL DEFAULT '{}',
-  -- The three time concepts are separate columns because they are separate facts and must never be
-  -- added together: how long a form was open, how long the editor judged the person to be actively
-  -- working, and how long the person said the work itself took.
   form_ms          INTEGER,
   active_editor_ms INTEGER,
   confirmed_work_minutes REAL,
-  -- when it happened on the client, and when the server received it. Both kept: a device clock lies.
   occurred_at  TEXT NOT NULL,
   received_at  TEXT NOT NULL
 );
@@ -763,14 +713,6 @@ CREATE INDEX IF NOT EXISTS idx_product_events_name ON product_events(name, occur
 CREATE INDEX IF NOT EXISTS idx_product_events_user ON product_events(user_id, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_product_events_received ON product_events(received_at);
 
--- Authoritative personnel ----------------------------------------------
--- The roster as an upstream system of record states it. Vantage does not invent rows here; every
--- row arrives from a named source with a sync stamp, and the EDIPI is the only join key, because
--- names collide, change on marriage, and are spelled inconsistently between systems.
---
--- This table is deliberately separate from users. A roster row can exist with no account (someone
--- who has not signed in yet) and an account can exist with no roster row (a local account on an
--- instance that has no feed). Keeping them apart is what makes the divergence report possible.
 CREATE TABLE IF NOT EXISTS personnel_roster (
   edipi          TEXT PRIMARY KEY,
   last_name      TEXT NOT NULL,
@@ -781,11 +723,8 @@ CREATE TABLE IF NOT EXISTS personnel_roster (
   eas            TEXT,
   unit_code      TEXT,
   billet         TEXT,
-  -- 'active' or 'separated'. A person who leaves is marked, never deleted: their record still has
-  -- to be answerable to them and to a records request.
   status         TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'separated')),
   source         TEXT NOT NULL,
-  -- hash of the upstream row, so an unchanged row costs nothing and an edit is detectable.
   row_hash       TEXT NOT NULL,
   synced_at      TEXT NOT NULL,
   created_at     TEXT NOT NULL,
@@ -794,8 +733,6 @@ CREATE TABLE IF NOT EXISTS personnel_roster (
 CREATE INDEX IF NOT EXISTS idx_roster_status ON personnel_roster(status, unit_code);
 CREATE INDEX IF NOT EXISTS idx_roster_name ON personnel_roster(last_name, first_name);
 
--- Every applied roster sync, and what it changed. Kept so a person can be shown why their rank
--- changed under them, and so an assessor can see the feed is not silently rewriting records.
 CREATE TABLE IF NOT EXISTS personnel_sync_runs (
   id          TEXT PRIMARY KEY,
   source      TEXT NOT NULL,
@@ -811,26 +748,18 @@ CREATE TABLE IF NOT EXISTS personnel_sync_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_sync_runs_at ON personnel_sync_runs(at);
 
--- Records management ----------------------------------------------------
--- What each kind of record is kept for, how long, and under whose authority. A retention schedule
--- with no citation is somebody's guess, so the citation is a column rather than a comment.
 CREATE TABLE IF NOT EXISTS retention_schedules (
   id           TEXT PRIMARY KEY,
   record_type  TEXT NOT NULL UNIQUE,
   retain_days  INTEGER NOT NULL CHECK (retain_days > 0),
-  -- 'destroy' removes the row. 'anonymize' keeps the countable facts and drops what identifies a
-  -- person. 'review' only ever reports: it never acts on its own.
   disposition  TEXT NOT NULL CHECK (disposition IN ('destroy', 'anonymize', 'review')),
   authority    TEXT,
   notes        TEXT,
-  -- off until somebody with the authority to say so turns it on. Nothing is ever deleted by default.
   enabled      INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
   created_at   TEXT NOT NULL,
   updated_at   TEXT NOT NULL
 );
 
--- A hold freezes disposition for what it covers. Holds always win over a schedule, and the whole
--- engine refuses to run while an instance-wide hold is open.
 CREATE TABLE IF NOT EXISTS legal_holds (
   id          TEXT PRIMARY KEY,
   scope       TEXT NOT NULL CHECK (scope IN ('instance', 'user', 'record_type')),
@@ -844,8 +773,6 @@ CREATE TABLE IF NOT EXISTS legal_holds (
 );
 CREATE INDEX IF NOT EXISTS idx_holds_open ON legal_holds(released_at, scope);
 
--- What disposition actually did, every time it ran. This is the evidence that retention was applied
--- as written, which is the thing an assessor asks for.
 CREATE TABLE IF NOT EXISTS disposition_runs (
   id          TEXT PRIMARY KEY,
   actor_id    TEXT REFERENCES users(id),
@@ -860,25 +787,13 @@ CREATE TABLE IF NOT EXISTS disposition_runs (
 );
 CREATE INDEX IF NOT EXISTS idx_disposition_at ON disposition_runs(at);
 
--- Phase 7: coherence rebuild -------------------------------------------------
--- A remark somebody made on a piece of work. Polymorphic on (record_table, record_id) exactly
--- like attachments, because the alternative is one comment table per record type and six copies
--- of the same permission bug.
---
--- There is deliberately no `visibility` column. A comment is exactly as visible as the thing it
--- hangs on, decided at read time by the host record's own rules. Storing a visibility here would
--- let a comment on a private counseling be marked 'unit' and leak the fact of it.
 CREATE TABLE IF NOT EXISTS comments (
   id           TEXT PRIMARY KEY,
   record_table TEXT NOT NULL,
   record_id    TEXT NOT NULL,
   author_id    TEXT NOT NULL REFERENCES users(id),
-  -- The unit the host belonged to when this was written. Copied rather than joined so the audit
-  -- trail stays true if the host is later moved.
   unit_id      TEXT REFERENCES units(id),
   body         TEXT NOT NULL,
-  -- user ids named with @ in the body, as a JSON array. Resolved when written, so a later rename
-  -- does not silently re-point a mention at somebody else.
   mentions     TEXT NOT NULL DEFAULT '[]',
   edited_at    TEXT,
   deleted_at   TEXT,
@@ -887,14 +802,10 @@ CREATE TABLE IF NOT EXISTS comments (
 CREATE INDEX IF NOT EXISTS idx_comments_record ON comments(record_table, record_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_comments_author ON comments(author_id, created_at DESC);
 
--- A reusable join code for a unit. The single-use `tokens` table cannot model this: an invite is
--- deliberately multi-use and long-lived. The code is stored only as a hash, the same way a reset
--- token is, so a copy of the database is not a pile of working invitations.
 CREATE TABLE IF NOT EXISTS unit_invites (
   id          TEXT PRIMARY KEY,
   unit_id     TEXT NOT NULL REFERENCES units(id),
   code_hash   TEXT NOT NULL UNIQUE,
-  -- first few characters, kept so the creator can tell two live invites apart in a list
   code_hint   TEXT NOT NULL,
   created_by  TEXT NOT NULL REFERENCES users(id),
   -- the role a joiner receives. NULL means the unit's default role.
@@ -908,8 +819,6 @@ CREATE TABLE IF NOT EXISTS unit_invites (
 );
 CREATE INDEX IF NOT EXISTS idx_unit_invites_unit ON unit_invites(unit_id, revoked_at);
 
--- Who joined on which invite. Kept separately from `uses` so revoking an invite never erases the
--- record that somebody came in through it.
 CREATE TABLE IF NOT EXISTS unit_invite_uses (
   id         TEXT PRIMARY KEY,
   invite_id  TEXT NOT NULL REFERENCES unit_invites(id),
@@ -918,13 +827,8 @@ CREATE TABLE IF NOT EXISTS unit_invite_uses (
 );
 CREATE INDEX IF NOT EXISTS idx_unit_invite_uses_invite ON unit_invite_uses(invite_id);
 
--- A request for help. This is the queue somebody works when a Marine cannot get in, not a window
--- onto anybody's mail: no message body of an outgoing email is ever copied in here. What a ticket
--- may show about a reset is the delivery fact from `email_log` — address, time, status — which
--- answers "did it reach them" without handing the reader a live link.
 CREATE TABLE IF NOT EXISTS support_tickets (
   id              TEXT PRIMARY KEY,
-  -- NULL when raised from the sign-in page by somebody who cannot get in; that is the whole point.
   requester_id    TEXT REFERENCES users(id),
   requester_email TEXT,
   requester_name  TEXT,
@@ -951,16 +855,11 @@ CREATE TABLE IF NOT EXISTS support_messages (
   ticket_id  TEXT NOT NULL REFERENCES support_tickets(id),
   author_id  TEXT REFERENCES users(id),
   body       TEXT NOT NULL,
-  -- a note between the people working the queue. Never rendered to the requester.
   internal   INTEGER NOT NULL DEFAULT 0,
   created_at TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_support_messages_ticket ON support_messages(ticket_id, created_at);
 
--- Phase B: case history, record, career, demo ------------------------------------------------
-
--- A disposable synthetic workspace for the click-through demonstration. Only a server started in
--- demo mode ever writes here, and a production start refuses to run on a database that has rows.
 CREATE TABLE IF NOT EXISTS demo_workspaces (
   id               TEXT PRIMARY KEY,
   unit_id          TEXT NOT NULL REFERENCES units(id),
@@ -972,20 +871,14 @@ CREATE TABLE IF NOT EXISTS demo_workspaces (
 );
 CREATE INDEX IF NOT EXISTS idx_demo_workspaces_expiry ON demo_workspaces(expires_at);
 
--- What happened to one work item, in order. Append-only: a correction is a new row that names the
--- row it supersedes. The work item row says where the work stands; these say how it got there and
--- who moved it, which is what survives a handoff or a stage change.
 CREATE TABLE IF NOT EXISTS work_events (
   id              TEXT PRIMARY KEY,
   work_item_id    TEXT NOT NULL REFERENCES work_items(id),
   unit_id         TEXT REFERENCES units(id),
-  -- NULL only for something the system did on its own (an expired claim), never for a person.
   actor_id        TEXT REFERENCES users(id),
   kind            TEXT NOT NULL,
   step            TEXT,
-  -- the other person an event is about: who work was handed to, who it was assigned to.
   subject_id      TEXT REFERENCES users(id),
-  -- typed detail, validated per kind before it is written. Money is integer cents.
   body            TEXT NOT NULL DEFAULT '{}',
   supersedes_id   TEXT REFERENCES work_events(id),
   correlation_id  TEXT,
@@ -996,16 +889,12 @@ CREATE TABLE IF NOT EXISTS work_events (
 CREATE INDEX IF NOT EXISTS idx_work_events_item ON work_events(work_item_id, created_at);
 CREATE INDEX IF NOT EXISTS idx_work_events_actor ON work_events(actor_id, kind, occurred_at);
 CREATE INDEX IF NOT EXISTS idx_work_events_unit ON work_events(unit_id, kind, occurred_at);
--- Corrections are found by what they supersede; counting only standing entries asks this constantly.
 CREATE INDEX IF NOT EXISTS idx_work_events_supersedes ON work_events(supersedes_id) WHERE supersedes_id IS NOT NULL;
 CREATE TRIGGER IF NOT EXISTS work_events_append_only_update
 BEFORE UPDATE ON work_events
 BEGIN
   SELECT RAISE(ABORT, 'work_events is append-only; record a correction instead');
 END;
--- Deletion is refused too, except in a database created for the synthetic demo, where whole
--- disposable workspaces are removed when they expire. A database is marked as a demo database when it
--- is created and the server refuses to run it any other way, so this cannot open on real records.
 CREATE TRIGGER IF NOT EXISTS work_events_append_only_delete
 BEFORE DELETE ON work_events
 FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1'
@@ -1013,9 +902,6 @@ BEGIN
   SELECT RAISE(ABORT, 'work_events is append-only; record a correction instead');
 END;
 
--- Each case event sealed into its work item's own HMAC chain. The events are append-only by
--- trigger; the seal is what makes a changed body, a deleted entry or an inserted one detectable,
--- even to someone who can write to the database file but does not hold the server secret.
 CREATE TABLE IF NOT EXISTS work_event_seals (
   event_id      TEXT PRIMARY KEY REFERENCES work_events(id),
   work_item_id  TEXT NOT NULL REFERENCES work_items(id),
@@ -1036,7 +922,6 @@ FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'),
 BEGIN
   SELECT RAISE(ABORT, 'work_event_seals is append-only');
 END;
--- The signed head of each case's chain: its last hash and how many events it covers.
 CREATE TABLE IF NOT EXISTS work_event_heads (
   work_item_id  TEXT PRIMARY KEY REFERENCES work_items(id),
   hash          TEXT NOT NULL,
@@ -1045,9 +930,6 @@ CREATE TABLE IF NOT EXISTS work_event_heads (
   updated_at    TEXT NOT NULL
 );
 
--- A private accomplishment draft a Marine prepares from their own recorded work. Owner-only, always:
--- no leader, reviewer or operator path reads it. Facts are cited to the events they came from and
--- kept apart from the wording, which the person edits.
 CREATE TABLE IF NOT EXISTS record_drafts (
   id             TEXT PRIMARY KEY,
   user_id        TEXT NOT NULL REFERENCES users(id),
@@ -1055,7 +937,6 @@ CREATE TABLE IF NOT EXISTS record_drafts (
   title          TEXT NOT NULL,
   facts          TEXT NOT NULL DEFAULT '[]',
   wording        TEXT NOT NULL DEFAULT '',
-  -- 'template' (assembled from the facts), 'ai' (a model draft, not accepted), or 'person'.
   wording_source TEXT NOT NULL DEFAULT 'template' CHECK (wording_source IN ('template', 'ai', 'person')),
   activity_id    TEXT REFERENCES activities(id),
   version        INTEGER NOT NULL DEFAULT 1,
@@ -1065,9 +946,6 @@ CREATE TABLE IF NOT EXISTS record_drafts (
 );
 CREATE INDEX IF NOT EXISTS idx_record_drafts_user ON record_drafts(user_id, updated_at DESC);
 
--- A Marine's own development plan: next steps they chose, with where the guidance came from and
--- whether anybody has checked it. Owner-only; a leader's reach into operational work is not reach
--- into somebody's career plan.
 CREATE TABLE IF NOT EXISTS career_steps (
   id              TEXT PRIMARY KEY,
   user_id         TEXT NOT NULL REFERENCES users(id),
@@ -1078,7 +956,6 @@ CREATE TABLE IF NOT EXISTS career_steps (
   notes           TEXT,
   source_label    TEXT,
   source_url      TEXT,
-  -- when somebody last checked the source said what this step says. NULL means unverified.
   source_checked_on TEXT,
   version         INTEGER NOT NULL DEFAULT 1,
   deleted_at      TEXT,

@@ -1,18 +1,3 @@
-/**
- * Voices every line in src/script.ts with ElevenLabs, once.
- *
- *   ELEVENLABS_API_KEY=… node tools/voice.mjs            voice anything not yet voiced
- *   node tools/voice.mjs --check                          report what is voiced and what is not
- *
- * Each line is cached under assets/vo/ by a hash of its text, voice, model and settings, so a
- * re-render never pays for a line twice and a changed line is the only one re-voiced. The cache is
- * committed: a render on a machine without the key still has the voice.
- *
- * The request uses the with-timestamps endpoint, so every character comes back with its start and
- * end. That drives the captions and the word-synced type. Neighbouring lines are sent as context
- * (previous_text / next_text), which keeps the delivery continuous across the cuts.
- */
-
 import { createHash } from 'node:crypto';
 import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -64,7 +49,6 @@ async function voiceLine(text, previous, next, key) {
     });
     if (res.ok) return res.json();
     const body = await res.text();
-    // Rate limits and transient errors are retried; anything else is a real refusal and stops the run.
     if ((res.status === 429 || res.status >= 500) && attempt < 4) { await new Promise((r) => setTimeout(r, 2000 * attempt)); continue; }
     throw new Error(`ElevenLabs answered ${res.status}: ${body.slice(0, 300)}`);
   }

@@ -192,7 +192,6 @@ export function previousRange(range: DateRange): DateRange {
 
 const nf = new Intl.NumberFormat('en-US');
 const exact2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-/** The money symbol is instance-wide, so it lives here rather than being threaded through every formatter call. */
 let currencySymbol = '$';
 export const setCurrencySymbol = (s: string) => { currencySymbol = s || '$'; };
 export const getCurrencySymbol = () => currencySymbol;

@@ -45,11 +45,9 @@ function userCount(ctx: AppContext) { return (ctx.db.prepare('SELECT COUNT(*) AS
 authRouter.get('/setup', wrap((req, res) => {
   const ctx = req.ctx;
   res.json({
-    // The synthetic demo has no sign-in and nothing to set up; the client starts a workspace instead.
     accessMode: ctx.config.accessMode,
     needsSetup: ctx.config.accessMode === 'demo' ? false : userCount(ctx) === 0,
     requiresSetupToken: ctx.config.production && userCount(ctx) === 0,
-    // A card-only instance has no password path, so there is nothing for self-registration to create.
     selfRegistration: ctx.runtime.selfRegistration && !ctx.config.cac.exclusive,
     cac: { enabled: ctx.config.cac.mode !== 'off', exclusive: ctx.config.cac.exclusive },
     emailEnabled: ctx.mailer.enabled,
@@ -211,8 +209,6 @@ authRouter.post('/logout', requireAuth, wrap((req, res) => {
 authRouter.post('/sudo', requireAuth, wrap((req, res) => {
   const ctx = req.ctx;
   const { password } = parse(z.object({ password: z.string().max(512) }), req.body);
-  // Guessing a password is guessing a password, whether or not a session is already open. This
-  // reads the same limiter it feeds, so step-up cannot be used as an unmetered oracle.
   const limited = limiters.loginUser.limited(req.user.username);
   if (limited) {
     record(ctx, 'security.step_up', { granted: false, method: 'password' }, { id: req.user.id });
@@ -224,7 +220,6 @@ authRouter.post('/sudo', requireAuth, wrap((req, res) => {
     record(ctx, 'security.step_up', { granted: false, method: 'password' }, { id: req.user.id });
     throw forbidden('Current password is incorrect.', 'bad_password');
   }
-  // Proving it is you clears the failures, so a mistyped confirmation cannot lock you out of login.
   limiters.loginUser.clear(req.user.username);
   const until = grantSudo(ctx, req.sessionId);
   record(ctx, 'security.step_up', { granted: true, method: 'password' }, { id: req.user.id });
@@ -247,7 +242,6 @@ authRouter.post('/forgot', wrap(async (req, res) => {
     const url = `${ctx.config.publicUrl}/reset?token=${encodeURIComponent(token)}`;
     const mail = layout({ title: 'Reset your Vantage password', intro: `${row.first_name}, someone asked to reset the password for ${row.username}. This link works for 30 minutes and only once. If that was not you, ignore this message.`, cta: { label: 'Choose a new password', url } });
     audit(ctx, { actor_id: row.id, action: 'password_reset_requested', subject_id: row.id, ip });
-    // Not awaited: the response must take the same time whether or not an account matched, so a slow provider cannot reveal one.
     void ctx.mailer.send({ to: row.email, subject: 'Reset your Vantage password', text: mail.text, html: mail.html, kind: 'reset', userId: row.id }).catch(() => undefined);
   }
   res.json({ ok: true, emailEnabled: ctx.mailer.enabled });
@@ -321,16 +315,6 @@ authRouter.post('/invite/accept', wrap((req, res) => {
 
 export function throwIfInactive(user: { active: number }) { if (!user.active) throw new HttpError(403, 'That account is deactivated.', 'inactive'); }
 
-/**
- * Sign in with a CAC or PIV certificate.
- *
- * There is no request body: the identity is the certificate the TLS layer already validated, and
- * anything the client could put in a body would be a claim rather than a proof.
- *
- * A certificate counts as both factors — the card is something you have and the PIN that unlocked
- * it is something you know — so an account with TOTP enabled is not challenged again. That is the
- * same reasoning that lets a passkey skip the second step.
- */
 authRouter.post('/cac', wrap((req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
@@ -351,8 +335,6 @@ authRouter.post('/cac', wrap((req, res) => {
     throw error;
   }
   if (!identity) {
-    // No certificate reached us at all. In proxy mode this is also what a forged header without the
-    // shared secret looks like, deliberately: the attempt should not be able to tell the difference.
     throw unauthorized('No card was presented. Check the card is in the reader, then try again.', 'cac_no_certificate');
   }
 

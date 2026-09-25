@@ -1,29 +1,14 @@
 import { cite, type Cite } from './source.ts';
 import type { WorkResponsibility } from './roles.ts';
 
-/**
- * Reading reports, and researching and correcting what they show (FMRAC ch. 8-11).
- *
- * A report identifies a condition, not its cause. An open balance may be perfectly valid while the
- * next lifecycle event is pending; the book calls these normal conditions and says they are
- * commonly valid. Age, amount, method, documents and system status decide whether a particular
- * item needs corrective action. An old balance deserves attention, but age alone never
- * establishes invalidity.
- *
- * Abnormal conditions are departures from the lifecycle, or failed DAI system checks, that leave a
- * transaction stuck until somebody intervenes.
- */
-
 export interface Cause {
   key: string;
   label: string;
-  /** Which of the book's two patterns the cause belongs to: nothing yet, or part of it. */
   pattern: 'full' | 'partial' | 'both';
   /** What distinguishes this cause from the others. */
   research: string;
   /** The supported correction or path. */
   correction: string;
-  /** The balance is legitimately open: retain it and monitor rather than correct it. */
   valid?: boolean;
   /** The responsibilities that can carry the correction out. */
   responsibility: WorkResponsibility[];
@@ -181,8 +166,6 @@ export const ANALYSIS_TYPES = {
   rootCause: 'Root-cause analysis explains why a pattern occurred and what prevents it recurring.',
 };
 
-/* ── Abnormal conditions ──────────────────────────────────────────────────────────────────── */
-
 export const ABNORMAL = {
   definition: 'A departure from the lifecycle, or a failed DAI system check, that leaves a transaction stuck and needing intervention.',
   triggers: ['Incorrect financial data', 'No matching record', 'Insufficient funds', 'A missing required transaction'],
@@ -258,8 +241,6 @@ export const INVOICE_HOLDS = {
   cite: cite('10.6', '109-113'),
 } as const;
 
-/* ── Unmatched transactions ───────────────────────────────────────────────────────────────── */
-
 export const UMT = {
   definition: 'Payment occurred but did not successfully match or post to the intended accounting record — a payment without a home.',
   objective: 'Validate the unmatched disbursement, correct the underlying condition, and use the proper posting route so the payment is accounted for correctly. The work is incomplete if the cause is fixed but the paid transaction remains unmatched.',
@@ -288,7 +269,6 @@ export interface UmtError {
   responsibility: WorkResponsibility[];
 }
 
-/** The five common error descriptions (Stage 1) and the p. 117 decision table (Stage 3). */
 export const UMT_ERRORS: UmtError[] = [
   { key: 'no_matching_record', label: 'No matching record (award)', correction: 'Post the supported award.', route: 'NON-1081', validate: '"No matching record" may be a mismatched identifier rather than a genuinely absent award. Search before posting anything.', responsibility: ['award'] },
   { key: 'billed_exceeds_po_line', label: 'Billed AMT is greater than PO line AMT', correction: 'Modify the award to the validated billed amount.', route: 'NON-1081', validate: 'Validate the billed amount before adjusting the award.', responsibility: ['award'] },
@@ -311,7 +291,6 @@ export const UMT_STAGES = [
   { stage: 4, title: 'Correct and verify', detail: 'Resolve the underlying condition through the authorized role; complete approval and posting; then perform the unmatched-transaction correction and verify the paid activity is applied to the intended record.' },
 ] as const;
 
-/** Editorial research fields that operationalize Stage 2. Not a source-provided database specification. */
 export const UMT_RESEARCH_FIELDS = [
   'Document / PO number', 'Line and accounting distribution, if relevant', 'Error text', 'Disbursement reference', 'Amount', 'Supplier',
   'POET / LOA', 'Award and receipt status', 'Supporting documents', 'What remains unknown',
@@ -334,11 +313,6 @@ export const ROUTES: Record<Route, { performer: string; purpose: string }> = {
 
 export const ROUTE_LIMIT = 'The book gives no form fields, supporting-package requirements, submission addresses, approvals or screen-by-screen steps for either route. Those stay local, current procedure inputs; no DFAS submission channel is invented and the study guide is not a delegation to post.';
 
-/**
- * Waiting states that keep distinct events distinct (ch. 11.4, editorial). Sending an email,
- * preparing a modification, obtaining approval and clearing the UMT are separate events;
- * "resolved" means the final accounting condition was checked.
- */
 export const CORRECTION_STATES = [
   { key: 'research_needed', label: 'Research needed' },
   { key: 'awaiting_ksd', label: 'Awaiting KSD' },

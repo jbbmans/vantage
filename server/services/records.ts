@@ -7,11 +7,8 @@ import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee,
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
 import { valueType } from '../../shared/constants.ts';
 
-/** Value types are defined per instance, so the schema accepts any key and the runtime list is the authority. */
 function checkValueType(ctx: AppContext, table: string, data: Record<string, unknown>) {
   if (table === 'goals') {
-    // A typed goal has to name a metric this instance actually measures, and a direction that says
-    // which way is better. Both are checked here so the rule holds for every way a goal is written.
     validateTypedGoal(ctx, data as never, data.target_value as number | null | undefined);
     return;
   }
@@ -80,15 +77,10 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   return table === 'goals' ? withGoalProgress(ctx, hydrated as never) : hydrated;
 }
 
-/**
- * Every consumer of a goal reads its progress from the one typed engine, so a figure means the
- * same thing on the Goals page, in a counseling brief, and in an export.
- */
 export function withGoalProgress<T extends Record<string, unknown>>(ctx: AppContext, goals: T[]): T[] {
   return withTypedProgress(ctx, goals as never) as unknown as T[];
 }
 
-/** What a write returns: the same shape a read returns, so a goal always carries its progress. */
 function readBack(ctx: AppContext, table: RecordTable, id: string) {
   const row = getRecord(ctx, table, id)!;
   return table === 'goals' ? withGoalProgress(ctx, [row as never])[0] : row;
@@ -128,7 +120,6 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (capacity) throw new HttpError(507, capacity, 'record_quota');
   const scope = scopeFor(ctx, user, reqKey);
 
-  // Counselings are written *about* a member by a counselor. The subject is user_id; the author is counselor_id.
   let ownerId = user.id;
   let counselorId: string | null = null;
   let onBehalf = false;
@@ -173,7 +164,6 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   }
   audit(ctx, { actor_id: user.id, action: 'create', entity: table, entity_id: id, subject_id: ownerId !== user.id ? ownerId : null, unit_id: unitId, ip });
   if (table === 'goals') {
-    // The shape of the goal, not its wording: whether it names a metric and can advance on its own.
     record(ctx, 'goal.created', {
       typed: Boolean(data.metric_id),
       direction: String(data.direction || 'increase'),
@@ -181,8 +171,6 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     }, { id: user.id });
   }
   if (table === 'activities') {
-    // Which part of a measurable outcome is missing, so entry quality can be steered without
-    // reading anybody's entries.
     if (data.quantity == null && data.dollar_amount == null) record(ctx, 'quality.record_missing_measure', { missing: 'quantity' }, { id: user.id });
     else if (!data.result) record(ctx, 'quality.record_missing_measure', { missing: 'outcome' }, { id: user.id });
     else if (!data.eval_area) record(ctx, 'quality.record_missing_measure', { missing: 'area' }, { id: user.id });
@@ -270,7 +258,6 @@ export function deleteRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   ctx.db.transaction(() => {
     ctx.db.prepare(`UPDATE ${table} SET deleted_at = ?, updated_at = ? WHERE id = ?`).run(now(), now(), id);
     if (table === 'projects') {
-      // Links stay in place while the project sits in the recycle bin, so a restore brings the project back whole. Purge unlinks.
       const tasks = (ctx.db.prepare('SELECT COUNT(*) AS n FROM tasks WHERE project_id = ?').get(id) as { n: number }).n;
       const acts = (ctx.db.prepare('SELECT COUNT(*) AS n FROM activities WHERE project_id = ?').get(id) as { n: number }).n;
       detail = `${tasks} tasks, ${acts} activities still linked`;
@@ -302,7 +289,6 @@ export function readableRecord(ctx: AppContext, user: SessionUser, table: Record
   return row;
 }
 
-/** Bulk import of activities: upsert by Vantage ID when the caller owns it, skip fingerprint duplicates. */
 export function importActivities(ctx: AppContext, user: SessionUser, rows: unknown[], reqKey: object, ip?: string) {
   if (!Array.isArray(rows) || !rows.length) throw badRequest('No rows to import.');
   if (rows.length > 1000) throw badRequest('Imports are limited to 1000 activities per request. Split the file and import in batches.');
@@ -351,11 +337,9 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
   return { created, updated, duplicates: duplicates.length, duplicateRows: duplicates };
 }
 
-/** Permanently remove records (and their attachments) that have sat in the recycle bin longer than `days`. */
 export function purgeDeleted(ctx: AppContext, days = 30): { records: number; attachments: number; comments: number; held: number; blocked: boolean } {
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
   let records = 0; let attachments = 0; let comments = 0; let heldTotal = 0;
-  // The same hold decision scheduled disposition uses, read at the moment of acting (F07).
   const holds = holdState(ctx);
   if (holds.instance) {
     const waiting = RECORD_TABLE_NAMES.reduce((n, t) => n + (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE deleted_at IS NOT NULL AND deleted_at < ?`).get(cutoff) as { n: number }).n, 0);
@@ -381,24 +365,17 @@ export function purgeDeleted(ctx: AppContext, days = 30): { records: number; att
       }
       for (const { id } of gone) {
         attachments += ctx.db.prepare('DELETE FROM attachments WHERE record_table = ? AND record_id = ?').run(table, id).changes;
-        // A conversation cannot outlive the record it hangs on. Leaving it behind would keep the
-        // remarks — and the names in them — after the thing they were about is gone.
         comments += ctx.db.prepare('DELETE FROM comments WHERE record_table = ? AND record_id = ?').run(table, id).changes;
       }
       if (table === 'projects') for (const { id } of gone) {
         ctx.db.prepare('UPDATE tasks SET project_id = NULL WHERE project_id = ?').run(id);
         ctx.db.prepare('UPDATE activities SET project_id = NULL WHERE project_id = ?').run(id);
-        // work_items.project_id is the one with a real foreign key, so missing it does not leave a
-        // dangling reference — it makes the DELETE below throw and roll back the whole purge, every
-        // time it runs, until somebody clears the row by hand.
         ctx.db.prepare('UPDATE work_items SET project_id = NULL WHERE project_id = ?').run(id);
       }
       const acted = ctx.db.prepare(`DELETE FROM ${table} WHERE ${past}${users.sql}`).run(cutoff, ...users.params).changes;
       records += acted;
       recordDispositionRun(ctx, { actorId: null, recordType: table, disposition: 'destroy', eligible: gone.length, acted, held, detail: `recycle-bin purge: deleted more than ${days} days ago` });
     }
-    // Loose attachments deleted on their own. Kept when their record type is held, or when they
-    // belong to, or hang on a record of, somebody under hold.
     const keep: string[] = [];
     const keepParams: string[] = [];
     for (const type of holds.types) { keep.push('record_table = ?'); keepParams.push(type); }

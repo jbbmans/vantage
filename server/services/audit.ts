@@ -52,11 +52,6 @@ export function verifyAuditChain(ctx: AppContext): { ok: boolean; count: number;
   return { ok: true, count: rows.length };
 }
 
-/**
- * Recomputes the chain after rows were removed. Only ever runs on a synthetic demo database, where
- * whole disposable workspaces — audit entries included — are deleted when they expire. On a real
- * database the chain is never rewritten: that would defeat the point of having one.
- */
 export function resealAuditChain(ctx: AppContext) {
   const { db, config } = ctx;
   if (config.accessMode !== 'demo' || metaGet(db, 'demo_database') !== '1') throw new Error('The audit chain is only resealed on a synthetic demo database.');

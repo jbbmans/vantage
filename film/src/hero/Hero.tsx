@@ -15,10 +15,6 @@ const SCENES: Record<string, Scene> = {
   balance: Balance, sealed: Sealed, credit: Credit, report: Report, lead: Lead, trust: Trust, end: End,
 };
 
-/**
- * The hero film. Every scene is laid on the timeline built from the voice, and cut hard on the
- * boundary: the edit is the voice's rhythm. Grain and vignette go over everything, last.
- */
 export function Hero() {
   const tl = film('hero');
   return (

@@ -130,8 +130,6 @@ test('retention is reachable only by an operator who has re-confirmed', async ()
   } finally { await app.close(); }
 });
 
-// The inventory ----------------------------------------------------------
-
 test('the inventory is built from the live schema and names its own gaps', async () => {
   const app = await startApp();
   try {
@@ -148,7 +146,6 @@ test('the inventory is built from the live schema and names its own gaps', async
     assert.equal(counselings.retention?.retain_days, 1825, 'the schedule shows up against the table it governs');
     assert.equal(counselings.retention?.authority, 'SSIC 1610');
 
-    // The property that makes this worth having: it notices what it has not been told about.
     assert.equal(users.stale.length, 0, 'the users declaration matches the live schema');
     assert.ok(Array.isArray(inv.summary.undeclared));
     assert.equal(typeof inv.summary.unclassifiedColumns, 'number');
@@ -174,9 +171,6 @@ test('no declared column has drifted away from the schema', async () => {
     await app.setupOperator();
     const inv = buildInventory(app.ctx);
     const drifted = inv.tables.filter((t) => t.stale.length).map((t) => `${t.table}: ${t.stale.join(', ')}`);
-    // The inventory reports drift for the instance operator; it should never be reporting our own.
-    // A declaration that names a column the database does not have is a privacy artifact that is
-    // simply wrong, which is worse than one that is incomplete.
     assert.deepEqual(drifted, [], `the shipped declaration names columns that do not exist:\n${drifted.join('\n')}`);
   } finally { await app.close(); }
 });
@@ -191,8 +185,6 @@ test('every table the inventory declares still exists', async () => {
     }
   } finally { await app.close(); }
 });
-
-/* F07: the recycle-bin purge and the source-byte pruning answer to the same holds as disposition. */
 
 const longAgo = (days: number) => new Date(Date.now() - days * 86_400_000).toISOString();
 

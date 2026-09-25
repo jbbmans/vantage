@@ -17,18 +17,6 @@ import { METHOD_KEYS, METHODS, type MethodKey } from '../../shared/fmra/methods.
 import type { Scanner } from './scanner.ts';
 import { heldUsersClause, holdState, recordDispositionRun } from './holds.ts';
 
-/**
- * Bringing a spreadsheet of work into Vantage.
- *
- * The shape of this is deliberate:
- *  - the uploaded bytes are stored once and never rewritten, so a reimport re-reads the original;
- *  - a file is quarantined until a scanner speaks, and is not parsed while quarantined;
- *  - a row's identity is the value in its key column, taken verbatim. Vantage never repairs an
- *    identifier that a spreadsheet mangled, because the repaired value would be a guess about
- *    someone's contract number;
- *  - importing the same file twice changes nothing, because each row carries a content hash.
- */
-
 export const SUPPORTED = {
   xlsx: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel.sheet.macroEnabled.12'],
   delimited: ['text/csv', 'text/plain', 'text/tab-separated-values', 'application/csv'],
@@ -45,7 +33,6 @@ export interface SourceFileRow {
 
 const OOXML_MAGIC = Buffer.from([0x50, 0x4b, 0x03, 0x04]);
 
-/** Legacy .xls is a different format entirely, and we do not read it. Naming it is kinder than "unsupported". */
 const OLE_MAGIC = Buffer.from([0xd0, 0xcf, 0x11, 0xe0]);
 
 export function classifyUpload(filename: string, contentType: string, buffer: Buffer): SourceKind {
@@ -71,21 +58,11 @@ function assertCanPlace(scope: Scope, unitId: string | null, visibility: string)
   if (!isMember(scope, unitId)) throw forbidden('You are not a member of that unit.');
 }
 
-
-/** How much of the file store one person is already holding. Soft-deleted sources still occupy it. */
 export function storedBytesFor(ctx: AppContext, userId: string): number {
   const row = ctx.db.prepare('SELECT COALESCE(SUM(byte_size), 0) AS n FROM source_files WHERE user_id = ?').get(userId) as { n: number };
   return Number(row.n) || 0;
 }
 
-/**
- * Refuses an upload that would take the instance past its safety threshold, or one person past
- * their share of the file store.
- *
- * The per-file limit alone bounds nothing: the same account can send the same 25 MB workbook all
- * day. The database threshold exists so an operator always has headroom to take a backup, and an
- * upload path that ignores it can spend that headroom on somebody's spreadsheets.
- */
 export function assertCapacity(ctx: AppContext, userId: string, incoming: number) {
   if (ctx.db.name !== ':memory:') {
     try {
@@ -101,16 +78,6 @@ export function assertCapacity(ctx: AppContext, userId: string, incoming: number
   }
 }
 
-/**
- * Drops the bytes of sources past the retention window, keeping the row so the work they produced
- * still says where it came from. A workbook is evidence for as long as the policy says, not forever.
- */
-/**
- * Releases the bytes of uploaded workbooks past the intake retention window. The row, its hash and
- * everything imported from it stay; only the file's content goes. Held sources are kept (F07): an
- * instance hold stops the run, a hold on source files or on imported work keeps them all, and a
- * hold on a person keeps the files they uploaded.
- */
 export function pruneSources(ctx: AppContext): number {
   const days = ctx.config.intake.retainDays;
   if (!days) return 0;
@@ -153,7 +120,6 @@ export async function uploadSource(
   const id = newId();
   const at = now();
 
-  // Stored quarantined first, so the bytes exist even if the scan or the process dies mid-way.
   ctx.db.prepare(
     `INSERT INTO source_files (id, user_id, unit_id, visibility, filename, content_type, kind, byte_size, sha256, scan_status, content, created_at)
      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'quarantined', ?, ?)`
@@ -163,7 +129,6 @@ export async function uploadSource(
   ctx.db.prepare('UPDATE source_files SET scan_status = ?, scan_detail = ?, scanner = ?, scanned_at = ? WHERE id = ?')
     .run(verdict.verdict, verdict.detail, verdict.scanner, now(), id);
 
-  // The shape of the file and what the scanner said. Never the filename, which can carry a case number.
   record(ctx, 'import.uploaded', {
     format: kind === 'xlsx' ? 'xlsx' : kind === 'delimited' ? 'csv' : 'other',
     bytes: input.buffer.length,
@@ -238,11 +203,8 @@ function sheetRows(ctx: AppContext, row: SourceFileRow, sheetName: string): stri
   return readDelimited(text, sniffDelimiter(text)).slice(0, limits.maxRows);
 }
 
-/** The fields an imported row can fill. Everything else is kept verbatim under `data`. */
 export const MAPPABLE_FIELDS = [
   'title', 'reference', 'due_date', 'amount', 'amount_type', 'quantity', 'unit_label', 'state',
-  // Financial facts a report export carries. They stay in the row's source data verbatim, and seed
-  // the case as source-file observations when a procedure is applied.
   'commitment', 'obligation', 'delivered', 'paid', 'purchase_method', 'error_text',
 ] as const;
 export type MappableField = (typeof MAPPABLE_FIELDS)[number];
@@ -263,10 +225,6 @@ export interface ImportPlan {
   mapping: Mapping;
   visibility: 'private' | 'unit';
   unit_id: string | null;
-  /**
-   * The procedure new rows are put under: one by key, 'auto' to choose per row from the figures
-   * and the text, or none. Applying a procedure is attributed to the person running the import.
-   */
   procedure?: string | null;
 }
 
@@ -287,11 +245,6 @@ export interface NormalizedRow {
 
 export interface Rejection { source_row: number; reason: string; value?: string }
 
-/**
- * A value that a spreadsheet has already destroyed. Excel silently converts a long document number
- * to a float and shows it as 1.23457E+14; the digits are gone. Reconstructing them would invent a
- * contract number, so an identifier in this shape is refused with instructions instead.
- */
 function damagedIdentifier(value: string): string | null {
   const text = value.trim();
   if (/^-?\d+(\.\d+)?[eE][+-]?\d+$/.test(text)) return 'the spreadsheet stored it in scientific notation, so its digits are no longer in the file';
@@ -317,7 +270,6 @@ function parseNumber(value: string): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-/** True only for a day that exists. "2026-99-99" is shaped like a date and is not one. */
 function realCalendarDay(iso: string): boolean {
   const [y, m, d] = iso.split('-').map(Number);
   const at = new Date(Date.UTC(y, m - 1, d));
@@ -331,9 +283,7 @@ function parseDate(value: string): string | null {
   if (slash) {
     const [, a, b, c] = slash;
     const year = c.length === 2 ? 2000 + Number(c) : Number(c);
-    // Month-first, matching how these workbooks are produced in this environment.
     const iso = `${year}-${String(Number(a)).padStart(2, '0')}-${String(Number(b)).padStart(2, '0')}`;
-    // Date.parse rolls 31 February forward to March rather than refusing it, so it cannot be the test.
     return realCalendarDay(iso) ? iso : null;
   }
   return null;
@@ -367,7 +317,6 @@ export function normalizeRows(rows: string[][], plan: ImportPlan): { rows: Norma
       });
       continue;
     }
-    // Verbatim, with a separator that cannot appear inside a cell value we trimmed.
     const naturalKey = keyParts.join('');
     const firstSeen = seen.get(naturalKey);
     if (firstSeen != null) { rejections.push({ source_row: sourceRow, value: keyParts.join(' / '), reason: `The same identifier is on row ${firstSeen} of this sheet. Vantage imports it once.` }); continue; }
@@ -380,7 +329,6 @@ export function normalizeRows(rows: string[][], plan: ImportPlan): { rows: Norma
       if (target === 'ignore') return;
       const raw = String(row[i] ?? '').trim();
       if (target && target !== 'keep') fields[target] = raw;
-      // Every retained column is kept verbatim, so nothing in the source is lost by mapping.
       data[header] = raw;
     });
 
@@ -405,7 +353,6 @@ export function normalizeRows(rows: string[][], plan: ImportPlan): { rows: Norma
       state,
       data,
     };
-    // The hash covers what the source said, so an identical reimport is recognised as identical.
     const row_hash = createHash('sha256').update(JSON.stringify([normalized.title, normalized.reference, normalized.due_date, normalized.amount, normalized.amount_type, normalized.quantity, normalized.unit_label, normalized.state, normalized.data])).digest('hex');
     out.push({ ...normalized, row_hash });
   }
@@ -419,7 +366,6 @@ export interface PreviewResult {
   total_rows: number;
   will_insert: NormalizedRow[];
   will_update: Array<NormalizedRow & { existing_id: string; claimed_by: string | null; changes: string[]; revisions: Array<{ field: string; from: string | null; to: string | null }> }>;
-  /** What applying the chosen procedure would do to the new rows, when one is chosen. */
   procedures?: Record<string, number>;
   unchanged: number;
   rejections: Rejection[];
@@ -431,7 +377,6 @@ const CHANGE_FIELDS: Array<keyof NormalizedRow> = ['title', 'reference', 'due_da
 export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, plan: ImportPlan, sourceId: string): PreviewResult {
   const source = readableSource(ctx, user, scope, sourceId);
   assertCanPlace(scope, plan.unit_id, plan.visibility);
-  // Bringing work in for a whole unit is posting tasking, so it needs that authority, not merely membership.
   if (plan.visibility === 'unit' && plan.unit_id && !can(scope, PERMISSIONS.CREATE_SHARED_WORK, plan.unit_id)) {
     throw forbidden('You cannot bring shared work into that unit.');
   }
@@ -441,9 +386,6 @@ export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, 
   const raw = sheetRows(ctx, source, plan.sheet_name);
   const { rows, rejections, headers } = normalizeRows(raw, plan);
 
-  // A row is "the same row" only within the place it was imported into. A private import matches the
-  // importer's own private rows; a unit import matches that unit's shared rows. Without both halves
-  // of that, two people importing the same identifier overwrite each other's work.
   const existing = plan.visibility === 'private'
     ? ctx.db.prepare(
       `SELECT id, natural_key, row_hash, title, reference, due_date, amount, amount_type, quantity, unit_label, state, claimed_by, data
@@ -464,8 +406,6 @@ export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, 
     if (!match) { willInsert.push(row); continue; }
     if (match.row_hash === row.row_hash) { unchanged += 1; continue; }
     const changes = CHANGE_FIELDS.filter((f) => String(match[f] ?? '') !== String(row[f] ?? ''));
-    // Every column that changed, with what it said before and what it says now, so the case history
-    // can say exactly how the source moved under the work.
     const before = JSON.parse(String(match.data || '{}')) as Record<string, string>;
     const revisions: Array<{ field: string; from: string | null; to: string | null }> = changes.map((f) => ({ field: f, from: match[f] == null ? null : String(match[f]), to: row[f] == null ? null : String(row[f]) }));
     for (const key of new Set([...Object.keys(before), ...Object.keys(row.data)])) {
@@ -493,12 +433,6 @@ export interface ImportJobRow {
   started_at: string | null; finished_at: string | null; created_at: string; updated_at: string;
 }
 
-/**
- * Runs an import as a recorded job. The whole apply happens in one transaction, so the job's
- * counters and the rows it created either both exist or neither does.
- *
- * An idempotency key makes a retried request return the original job rather than importing twice.
- */
 export function runImport(
   ctx: AppContext,
   user: SessionUser,
@@ -553,9 +487,6 @@ export function runImport(
         if (key) { applyProcedure(ctx, user, scope, itemId, key, seedsForRow(row, plan), { audit: false }); applied += 1; }
       }
       for (const row of preview.will_update) {
-        // A person's own state and claim survive a reimport. The source describes the work, not who is doing it.
-        // The same predicate the match was made under, restated at the write. A row that moved between
-        // the preview and the commit is simply not updated rather than updated by the wrong person.
         const changed = update.run(row.row_hash, row.source_row, row.title, row.reference, row.due_date, row.amount, row.amount_type,
           row.quantity, row.unit_label, JSON.stringify(row.data), jobId, sourceId, at, at, row.existing_id,
           plan.unit_id, plan.visibility, user.id).changes;
@@ -576,14 +507,11 @@ export function runImport(
     updated: preview.will_update.length,
     unchanged: preview.unchanged,
     rejected: preview.rejections.length,
-    // An import that changed nothing is the same spreadsheet again, which is worth telling apart.
     reimport: preview.will_insert.length === 0 && preview.total_rows > 0,
   }, { id: user.id });
   const job = ctx.db.prepare('SELECT * FROM import_jobs WHERE id = ?').get(jobId) as ImportJobRow;
   return { ...job, procedures_applied: applied } as ImportJobRow;
 }
-
-/* ── Procedures at import ─────────────────────────────────────────────────────────────────── */
 
 const columnFor = (plan: ImportPlan, target: MappableField) => Object.entries(plan.mapping).find(([, t]) => t === target)?.[0] || null;
 const valueFor = (row: NormalizedRow, plan: ImportPlan, target: MappableField) => { const col = columnFor(plan, target); return col ? row.data[col] ?? null : null; };
@@ -603,7 +531,6 @@ const centsOrNull = (text: string | null) => {
   return parsed.ok ? parsed.cents : null;
 };
 
-/** The procedure a new row goes under: the one chosen, or — for 'auto' — the one its figures or text point at. */
 export function procedureForRow(row: NormalizedRow, plan: ImportPlan): string | null {
   if (!plan.procedure) return null;
   if (plan.procedure !== 'auto') return PROCEDURES[plan.procedure] ? plan.procedure : null;
@@ -615,7 +542,6 @@ export function procedureForRow(row: NormalizedRow, plan: ImportPlan): string | 
   return suggestProcedure(row.title, valueFor(row, plan, 'error_text'))?.key || null;
 }
 
-/** The mapped financial columns of a row, as seeds for the case's first observations. */
 export function seedsForRow(row: NormalizedRow, plan: ImportPlan): Seed[] {
   const seeds: Seed[] = [];
   for (const [target, field] of Object.entries(SEED_FIELDS) as Array<[MappableField, string]>) {
@@ -630,12 +556,6 @@ export function seedsForRow(row: NormalizedRow, plan: ImportPlan): Seed[] {
   return seeds;
 }
 
-/**
- * The source changed under an existing case. The change goes into the case's history as its own
- * attributed event, and a value that was seeded from the source is superseded by what the source
- * says now — so a calculation built on the old value shows as stale. What people recorded
- * themselves is never touched: a revised sheet is a reason to re-check research, not to rewrite it.
- */
 function reviseCase(ctx: AppContext, user: SessionUser, row: NormalizedRow & { existing_id: string; revisions: Array<{ field: string; from: string | null; to: string | null }> }, plan: ImportPlan, jobId: string) {
   const item = ctx.db.prepare('SELECT * FROM work_items WHERE id = ?').get(row.existing_id) as Parameters<typeof procedureOf>[0] & { id: string; unit_id: string | null; source_file_id: string | null; amount: number | null };
   if (!row.revisions.length) return;
@@ -660,7 +580,6 @@ function reviseCase(ctx: AppContext, user: SessionUser, row: NormalizedRow & { e
   }
 }
 
-/** Jobs left running by a restart are marked failed on boot, so no job sits pending forever. */
 export function reconcileInterruptedJobs(ctx: AppContext): number {
   const result = ctx.db.prepare(
     `UPDATE import_jobs SET status = 'failed', error = 'This import was interrupted when the server restarted. Nothing was left half-applied; run it again.', finished_at = ?, updated_at = ? WHERE status IN ('pending', 'running')`

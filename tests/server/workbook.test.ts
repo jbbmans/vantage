@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { readWorkbook, readDelimited, sniffDelimiter, columnIndex, WorkbookError } from '../../server/lib/workbook.ts';
 import { buildZip, readZip, ZipError } from '../../server/lib/zip.ts';
 
-/** Builds a minimal but genuine .xlsx so the reader is exercised against the real shape of the format. */
 function xlsx(options: {
   sheets: Array<{ name: string; xml: string; hidden?: boolean }>;
   shared?: string[];
@@ -120,7 +119,6 @@ test('column letters map to positions past Z', () => {
 
 test('an encrypted archive is refused with a message a person can act on', () => {
   const buf = buildZip([{ name: 'xl/workbook.xml', data: '<workbook/>' }]);
-  // Flip the encryption bit in the central directory so the reader sees a protected entry.
   const endIdx = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
   const central = buf.readUInt32LE(endIdx + 16);
   buf.writeUInt16LE(0x0801, central + 8);

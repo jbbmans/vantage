@@ -32,7 +32,6 @@ export function Chapter({ id }: { id: string }) {
   const tl = film(id);
   const meta = CHAPTER_META[id];
   const [titleScene, ...shots] = tl.scenes;
-  // Each take starts where the last one left the camera, so the move is continuous across scenes.
   const starts: Cam[] = [];
   let cam: Cam = WIDE;
   for (const s of shots) { starts.push(cam); cam = endCamera(takeOf(`${id}/${s.id}`), cam); }
@@ -41,7 +40,6 @@ export function Chapter({ id }: { id: string }) {
   return (
     <AbsoluteFill style={{ background: C.ink, fontFamily: FONT }}>
       <Backdrop glow={0.9} contours={0.06} />
-      {/* Grain under the product only: it dithers the backdrop's gradients without touching the UI. */}
       <Finish grain={0.035} vignette={0} />
       <Sequence from={titleScene.from} durationInFrames={titleScene.to - titleScene.from + 20} name="title">
         <TitleCard filmId={id} sceneId={titleScene.id} n={meta.n} lede={meta.lede} out={titleScene.to - titleScene.from - 16} />

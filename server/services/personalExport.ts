@@ -1,9 +1,3 @@
-/**
- * Everything a Marine has put into Vantage, in one archive they can keep: profile, rank, units and roles, every record
- * (including what sits in the recycle bin), readiness figures, attachments, comments, notifications, preferences, the audit trail
- * of what happened to their record, and their AI usage. Secrets never leave: no password hash, authenticator secret,
- * passkey credential, session, or token.
- */
 import type { AppContext } from '../context.ts';
 import { RECORD_TABLE_NAMES, hydrate, withGoalProgress } from './records.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
@@ -42,8 +36,6 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   const recordIds = new Map<string, Set<string>>();
   for (const [table, rows] of Object.entries(records)) recordIds.set(table, new Set(rows.map((r) => String(r.id))));
 
-  // Every record in this archive, whoever attached the file. The export promises the whole account,
-  // and an award citation uploaded by a leader is still evidence about this Marine's own record.
   const attachedPairs: Array<[string, string]> = [];
   for (const [table, ids] of recordIds) for (const id of ids) attachedPairs.push([table, id]);
   const attachmentColumns = 'id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, created_at, deleted_at';
@@ -69,9 +61,6 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
 
   const notifications = db.prepare('SELECT id, kind, title, message, action_url, read_at, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC').all(userId) as Row[];
 
-  // Remarks this person wrote, and remarks other people wrote on their records. Both halves belong
-  // in an export that promises the whole account: what you said about somebody else's tasking is
-  // yours, and what a leader wrote on your counseling is about you.
   const commentColumns = 'id, record_table, record_id, author_id, body, mentions, edited_at, created_at, deleted_at';
   const ownComments = db.prepare(`SELECT ${commentColumns} FROM comments WHERE author_id = ?`).all(userId) as Row[];
   const onOwnRecords: Row[] = [];
@@ -93,7 +82,6 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   const passkeys = listPasskeys(ctx, userId);
   const sessions = db.prepare('SELECT created_at, last_used_at, method, ip, user_agent FROM sessions WHERE user_id = ? ORDER BY last_used_at DESC').all(userId) as Row[];
 
-  // What this person did on shared work, their private drafts, and their career plan.
   const contributions = db.prepare('SELECT id, work_item_id, unit_id, kind, step, subject_id, body, supersedes_id, occurred_at, created_at FROM work_events WHERE actor_id = ? ORDER BY created_at').all(userId) as Row[];
   const drafts = db.prepare('SELECT * FROM record_drafts WHERE user_id = ? ORDER BY created_at').all(userId) as Row[];
   const careerSteps = db.prepare('SELECT * FROM career_steps WHERE user_id = ? ORDER BY created_at').all(userId) as Row[];

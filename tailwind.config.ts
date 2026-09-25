@@ -33,17 +33,11 @@ export default {
         'accent-2': token('--accent-2'),
         // The rail's active marker and its glows: the palette's brightest note.
         marker: token('--marker'),
-        // Summit Teal. The mark, and marks in charts. Never type — it is 2.49:1 on white.
         'brand-teal': token('--brand-teal'),
       },
       fontFamily: {
-        // Inter is the brand typeface, self-hosted. The fallbacks are real faces, not a bare
-        // `sans-serif`: if the woff2 fails to load the page should still be set in something with
-        // Inter's proportions rather than whatever the platform picks.
-        // Geist carries the interface; Inter covers glyphs Geist's subset lacks (arrows, checks).
         sans: ['Geist', 'Inter', 'ui-sans-serif', 'system-ui', '-apple-system', '"Segoe UI"', 'Roboto', '"Helvetica Neue"', 'sans-serif'],
         mono: ['"JetBrains Mono"', 'ui-monospace', 'SFMono-Regular', 'Menlo', 'monospace'],
-        // Document surfaces only. A system serif, so a report draft costs no extra download.
         serif: ['Georgia', '"Iowan Old Style"', '"Times New Roman"', 'serif'],
       },
       fontSize: {
@@ -58,7 +52,6 @@ export default {
         '3xl': ['34px', { lineHeight: '38px', letterSpacing: '-0.028em' }],
         '4xl': ['43px', { lineHeight: '46px', letterSpacing: '-0.033em' }],
       },
-      // Radii are concentric: a control inside a card is tighter than the card around it.
       borderRadius: { DEFAULT: '6px', none: '0px', sm: '5px', md: '8px', lg: '10px', xl: '14px', '2xl': '18px', '3xl': '24px', full: '9999px' },
       boxShadow: {
         // Depth is tinted with the ink and defined per theme in index.css.
@@ -72,13 +65,7 @@ export default {
       keyframes: {
         'fade-up': { from: { opacity: '0', transform: 'translateY(4px)' }, to: { opacity: '1', transform: 'translateY(0)' } },
         'fade-in': { from: { opacity: '0' }, to: { opacity: '1' } },
-        // Safe only where nothing else owns `transform`. Radix popper content qualifies, because
-        // the popper transforms a wrapper. Anything centred by a translate of its own does not:
-        // an animation's transform replaces that translate outright and the element lands offset.
-        // Use 'modal-in' (both axes) or 'popover-in' (horizontal only) in those cases instead.
         'scale-in': { from: { opacity: '0', transform: 'scale(.97)' }, to: { opacity: '1', transform: 'scale(1)' } },
-        // The centered modal is positioned by a translate, and an animation's transform replaces it
-        // outright — so its entrance has to carry that translate through every frame.
         'modal-in': { from: { opacity: '0', transform: 'translate(-50%, -50%) scale(.97)' }, to: { opacity: '1', transform: 'translate(-50%, -50%) scale(1)' } },
         // Horizontally centred but vertically anchored, like the command palette.
         'popover-in': { from: { opacity: '0', transform: 'translateX(-50%) scale(.98)' }, to: { opacity: '1', transform: 'translateX(-50%) scale(1)' } },

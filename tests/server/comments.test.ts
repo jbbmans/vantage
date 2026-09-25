@@ -46,21 +46,15 @@ test('a comment on a private record is as private as the record', async () => {
   const secret = await app.call('POST', '/api/records/counselings', { token: rivera.token, body: { date: '2026-09-01', type: 'monthly', summary: 'Private note', visibility: 'private' } });
   assert.equal(secret.status, 201, JSON.stringify(secret.body));
   assert.equal((await say('counselings', secret.body.id, rivera.token, 'My own note.')).status, 201);
-  // Even the SNCO who reads every shared record in the unit cannot reach this one.
   assert.equal((await comments('counselings', secret.body.id, nguyen.token)).status, 403);
   assert.equal((await comments('counselings', secret.body.id, rivera.token)).body.comments.length, 1);
 });
 
-/**
- * The rule worth proving twice: a mention sends a notification, and a notification about a record
- * announces that the record exists. So naming somebody who cannot read the host must not reach them.
- */
 test('a mention never tells somebody about a record they cannot see', async () => {
   const secret = await app.call('POST', '/api/records/tasks', { token: rivera.token, body: { title: 'Private tasking', visibility: 'private' } });
   const posted = await say('tasks', secret.body.id, rivera.token, 'Asking @nguyen about this one.');
   assert.equal(posted.status, 201, JSON.stringify(posted.body));
 
-  // The text keeps the name; the mention list does not, because nguyen cannot read a private task.
   assert.match(posted.body.body, /@nguyen/);
   assert.deepEqual(posted.body.mentions, [], 'nobody is mentioned into a record they cannot read');
 
@@ -85,7 +79,6 @@ test('your words are yours: anyone may remove their own, only a record steward m
   const task = await app.call('POST', '/api/records/tasks', { token: nguyen.token, body: { title: 'Moderation', visibility: 'unit' } });
   const mine = await say('tasks', task.body.id, nguyen.token, 'First draft, badly worded.');
 
-  // Editing somebody else's remark is refused at every level, operator included.
   const edit = await app.call('PUT', `/api/records/tasks/${task.body.id}/comments/${mine.body.id}`, { token: op.token, body: { body: 'rewritten' } });
   assert.equal(edit.status, 403, 'nobody rewrites another person’s words');
 
@@ -95,7 +88,6 @@ test('your words are yours: anyone may remove their own, only a record steward m
   assert.equal(own.body.body, 'Second draft.');
   assert.ok(own.body.edited_at, 'an edit is visible as an edit');
 
-  // A steward of the unit may take it down, and that is a different audited action.
   const removed = await app.call('DELETE', `/api/records/tasks/${task.body.id}/comments/${mine.body.id}`, { token: op.token });
   assert.equal(removed.status, 200);
   assert.equal((await comments('tasks', task.body.id, nguyen.token)).body.comments.length, 0);
@@ -111,10 +103,6 @@ test('a record type that takes no comments says so', async () => {
   assert.equal((await say('nonsense', 'whatever', nguyen.token, 'hi')).status, 404);
 });
 
-/**
- * A mention added while editing is still a mention. Without this, whether somebody hears about being
- * named depends on whether the author got the name into the first draft.
- */
 test('naming somebody in an edit reaches them, and editing a typo does not ping again', async () => {
   const task = await app.call('POST', '/api/records/tasks', { token: nguyen.token, body: { title: 'Edited mentions', visibility: 'unit' } });
   const posted = await say('tasks', task.body.id, op.token, 'Starting on this.');

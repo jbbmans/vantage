@@ -3,12 +3,6 @@ import assert from 'node:assert/strict';
 import { readFileSync, readdirSync, statSync } from 'node:fs';
 import { join } from 'node:path';
 
-/**
- * Guards for the rules that are easy to break by accident and expensive to notice.
- * These read the source rather than the behaviour, on purpose: they are here to stop a
- * well-meaning change from quietly reintroducing something the product decided against.
- */
-
 const ROOTS = ['shared', 'server', 'src'];
 
 function walk(dir: string): string[] {
@@ -24,15 +18,6 @@ function walk(dir: string): string[] {
 const files = ROOTS.flatMap(walk).map((path) => ({ path, text: readFileSync(path, 'utf8') }));
 
 test('no streak survives anywhere in the product', () => {
-  /*
-   * The rule is that no streak exists, not that the word is unsayable. The field guide answers
-   * "does logging more make me look better?" and the honest answer uses the word — somebody who
-   * wants a streak searches for one, and the guide should meet them with a no rather than silence.
-   *
-   * So a sentence may carry the word only while denying it. Any sentence that uses it
-   * affirmatively — a label, a stat, a bit of encouragement — still fails, which is the thing this
-   * guard was written to catch.
-   */
   const denies = /\b(no|not|never|without|removed|abandoned|zero)\b/i;
   const offenders: string[] = [];
   for (const f of files) {
@@ -45,7 +30,6 @@ test('no streak survives anywhere in the product', () => {
 });
 
 test('nothing presents a count of entries as a headline figure', () => {
-  // A count of rows may appear as provenance ("3 outcomes"), never as the metric itself.
   const banned = [/label=["']Entries["']/, /label=["']Shared entries["']/, /entries this period/i];
   const offenders: string[] = [];
   for (const f of files) for (const pattern of banned) if (pattern.test(f.text)) offenders.push(`${f.path} matched ${pattern}`);
@@ -53,8 +37,6 @@ test('nothing presents a count of entries as a headline figure', () => {
 });
 
 test('every place that sums a financial amount first asks whether the type counts', () => {
-  // Adding dollar_amount into a running total without consulting isSummable blends a type the
-  // instance excluded from its headline into one it included.
   const offenders = files
     .filter((f) => /\+=\s*(Number\()?\s*[a-z]\.dollar_amount/i.test(f.text))
     .filter((f) => !/isSummable/.test(f.text))
@@ -71,13 +53,11 @@ test('the engine keeps each financial type in its own total', () => {
 
 test('the metric engine never adds across unit keys', () => {
   const engine = readFileSync('shared/metricEngine.ts', 'utf8');
-  // Grouping is by metricId, which embeds the unit. A group keyed on anything else could blend units.
   assert.match(engine, /groups\.get\(m\.metricId\)/, 'Totals must group by metric id, which carries the unit.');
   assert.ok(!/groups\.get\(m\.kind\)/.test(engine), 'Grouping by kind alone would add unlike units together.');
 });
 
 test('no client screen recomputes a total the server already computed', () => {
-  // The dashboard reads figures from the metrics endpoint; it must not aggregate rows itself.
   const dashboard = readFileSync('src/pages/Dashboard.tsx', 'utf8');
   assert.ok(!/aggregateMetrics/.test(dashboard), 'The dashboard must read totals from the metrics endpoint, not derive them from a page of rows.');
   assert.match(dashboard, /useMetricsReport/);

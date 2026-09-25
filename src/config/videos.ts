@@ -1,44 +1,19 @@
-/**
- * The walkthrough films, and the single list both the public site and the in-app field guide read.
- *
- * The slots are the library's plan: named, laid out, and honest that a film is not made yet, so the
- * page never shows an empty box. A slot plays only once the film pipeline has published it: `npm run
- * film` (film/README.md) records the real application in the synthetic demo, voices the script, scores
- * and renders it, writes public/videos/films/<id>.{mp4,jpg,vtt}, and lists it in
- * films.generated.json. A film published before its narration is recorded is marked `voiced: false`
- * and plays with its captions on.
- *
- * Two rules that matter more than they look:
- *
- *   1. A slot with no `src` is never described to a search engine. Schema.org VideoObject markup
- *      pointing at a video that does not exist is structured data that lies, and Google treats that
- *      as a reason to distrust the rest of the page. `publishedVideos()` is the only thing SEO
- *      code may read.
- *   2. `id` is the stable handle. It is what a deep link (`/help#video-quick-log`) and any future
- *      owner-console override key off, so renaming one breaks links — change `title` instead.
- */
-
 import films from './films.generated.json';
 
 export interface VideoSlot {
-  /** Stable handle. Used in anchors and as the override key. Never rename casually. */
   id: string;
   title: string;
-  /** What somebody learns by watching. Shown under the title and used as the schema description. */
   description: string;
   /** Roughly how long, for the person deciding whether to start it. */
   length: string;
-  /** Which part of the product this belongs to; groups the slots in the field guide. */
   topic: 'getting-started' | 'records' | 'work' | 'reports' | 'team' | 'admin';
   /** Set this to publish. Relative to the site root, or an absolute URL. */
   src?: string;
   /** Poster frame. Falls back to a drawn placeholder when absent. */
   poster?: string;
-  /** Captions. A video without them is not finished — see the note in the field guide. */
   captions?: string;
   /** ISO date, used only once the video is real. */
   published?: string;
-  /** False while a film is published without its narration: its captions carry the script, so they play by default. */
   voiced?: boolean;
 }
 
@@ -147,7 +122,6 @@ interface PublishedFilm { src: string; poster: string; captions: string; seconds
 
 const length = (seconds: number) => (seconds < 60 ? `${seconds} sec` : `${Math.floor(seconds / 60)} min${seconds % 60 ? ` ${seconds % 60} sec` : ''}`);
 
-/** The slots, with a source only where the film pipeline has published a finished film. */
 export const VIDEOS: VideoSlot[] = VIDEO_SLOTS.map((slot) => {
   const film = (films as Record<string, PublishedFilm>)[slot.id];
   return film ? { ...slot, src: film.src, poster: film.poster, captions: film.captions, published: film.published, length: length(film.seconds), voiced: film.voiced !== false } : slot;
@@ -162,7 +136,6 @@ export const TOPIC_LABELS: Record<VideoSlot['topic'], string> = {
   admin: 'Running a deployment',
 };
 
-/** Only videos that actually exist. The single source SEO and any index may read. */
 export const publishedVideos = () => VIDEOS.filter((v): v is VideoSlot & { src: string } => Boolean(v.src));
 
 export const videosByTopic = (topic: VideoSlot['topic']) => VIDEOS.filter((v) => v.topic === topic);

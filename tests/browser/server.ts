@@ -1,4 +1,3 @@
-/** Boots Vantage in test mode for Playwright: in-memory database, memory mailer, built client from dist/. */
 import { createServer } from 'node:http';
 import { existsSync } from 'node:fs';
 import { join } from 'node:path';
@@ -7,7 +6,6 @@ import { createApp, createContext } from '../../server/app.ts';
 
 const port = Number(process.env.VANTAGE_BROWSER_PORT || 8797);
 
-/** A stand-in for the GenAI.mil gateway so the browser suite can exercise every AI surface without a key. */
 const AI_ANSWERS: Record<string, unknown> = {
   quick_log: { title: 'Reconciled 30 ULOs in DAI', date: '2026-08-20', category: 'Fiscal & Financial', evaluation_area: 'MOS / Mission Accomplishment', action_amount: 30, action_unit: 'ULOs', transaction_value: 1118.38, dollar_type: 'reconciled', organization: 'G-8', system: 'DAI', result: 'cleared the aged backlog', status: 'completed', confidence: 0.9, warnings: [] },
   writing: { draft: 'Reconciled 30 unliquidated obligations totaling $1,118.38 in DAI, closing the fiscal year with zero unresolved items.', alternatives: [], facts_used: ['30 ULOs', '$1,118.38'], cautions: ['Verify the dollar figure against DAI.'] },

@@ -8,11 +8,6 @@ import { STAGE_LABEL, WAITING_LABEL, type WaitingCategory } from '../../shared/c
 import { cn } from '@/lib/utils';
 import { QueryFailure } from '@/components/QueryFailure';
 
-/**
- * A leader's view of the section's work. Counts sit beside the context needed to read them —
- * the window, what each person holds, what is waiting or blocked — and no person is labelled.
- * The definitions and the limits of what was captured are on the page, not in a manual.
- */
 const WINDOWS = [{ value: '30', label: '30 days' }, { value: '90', label: '90 days' }] as const;
 
 type SortKey = 'name' | 'assigned' | 'waiting' | 'blocked' | 'documents_researched' | 'research_actions' | 'submitted_actions' | 'verified_outcomes' | 'resolved_work';

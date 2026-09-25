@@ -1,12 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ensureSetup, loginAs, OPERATOR } from './fixtures';
 
-/**
- * Destinations have been merged and, in one case, un-merged. Anything a person saved a link to — a
- * bookmark, a link pasted into a message a year ago — has to land where that screen lives now,
- * never on a not-found page. That includes links to a tab that has since been promoted back out
- * into a destination of its own.
- */
 test('links to the destinations that were merged still land on the right tab', async ({ page, request }) => {
   await ensureSetup(request);
   await loginAs(page, OPERATOR.username);
@@ -19,7 +13,6 @@ test('links to the destinations that were merged still land on the right tab', a
     // Activities became a tab of Record, and Readiness a tab of Career.
     ['/records', '/record?tab=entries', 'Activities you recorded'],
     ['/readiness', '/career?tab=readiness', 'readiness'],
-    // MARADMINs went the other way: it was a tab under Career and is a destination again.
     ['/career?tab=messages', '/maradmins', 'MARADMIN'],
   ];
   for (const [from, to, visible] of moved) {

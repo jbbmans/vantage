@@ -2,13 +2,6 @@ import { CloudOff, KeyRound, Lock, SearchX, ServerCrash } from 'lucide-react';
 import { Button, EmptyState } from '@/components/ui/primitives';
 import { ApiError } from '@/lib/api';
 
-/**
- * Why a read failed, in words that say what to do about it (F11).
- *
- * A failed request used to render as an empty list, an endless skeleton, or "you do not have
- * permission", whichever the screen happened to assume. Those mean different things to the person
- * looking at them: offline is wait-and-retry, denied is ask-somebody, and a server error is neither.
- */
 export type FailureKind = 'offline' | 'signed_out' | 'denied' | 'missing' | 'server';
 
 export function failureOf(error: unknown): FailureKind {

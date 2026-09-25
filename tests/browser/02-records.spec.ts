@@ -77,7 +77,6 @@ test('tasks, goals, training and awards can be created and appear on the dashboa
   await award.getByRole('button', { name: 'Add award' }).click();
   await expect(page.getByRole('heading', { name: 'Navy and Marine Corps Achievement Medal' })).toBeVisible();
 
-  // Today shows the work in your hands, with the overdue task marked, beside your goals.
   await page.goto('/');
   await expect(page.getByText('Close out FY obligations').first()).toBeVisible();
   await page.goto('/goals');
@@ -94,7 +93,6 @@ test('appearance settings switch theme and accent and persist across reload', as
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(page.locator('html')).toHaveAttribute('data-accent', 'ocean');
   await page.getByRole('tab', { name: 'Light' }).click();
-  // The colour is the whole page's, not just the buttons': the page and the navigation rail change too.
   const paint = () => page.evaluate(() => ({
     page: getComputedStyle(document.body).backgroundColor,
     rail: getComputedStyle(document.querySelector('aside') || document.body).backgroundColor,

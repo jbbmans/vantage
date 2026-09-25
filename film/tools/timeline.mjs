@@ -1,12 +1,3 @@
-/**
- * Turns the script and the recorded voice into a timeline: where every scene and line starts and
- * ends, in seconds and frames. The composition, the score and the captions all read this file, so
- * the picture, the music and the words land together by construction.
- *
- * Lines without a recording are timed from an estimate and flagged, so a cut can be worked on
- * before the voice exists. The render refuses to publish a film with estimated lines.
- */
-
 import { writeFileSync, mkdirSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -53,7 +44,6 @@ export function buildTimelines(manifest) {
   return films;
 }
 
-/** Before a voice exists, words are spread across the line in proportion to their length. */
 function spreadWords(text, start, end) {
   const words = text.split(/\s+/).filter(Boolean);
   const weight = words.map((w) => w.length + 2);
@@ -67,10 +57,6 @@ const vttTime = (s) => {
   return `${String(Math.floor(ms / 3600000)).padStart(2, '0')}:${String(Math.floor((ms % 3600000) / 60000)).padStart(2, '0')}:${String(Math.floor((ms % 60000) / 1000)).padStart(2, '0')}.${String(ms % 1000).padStart(3, '0')}`;
 };
 
-/**
- * Captions from the spoken words: one sentence a cue, and a long sentence split where it breathes (a
- * comma) or else near its middle, so no cue strands a single word.
- */
 export function captionsFor(timeline) {
   const MAX = 62;
   const cues = [];

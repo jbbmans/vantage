@@ -1,15 +1,3 @@
-/**
- * Reads a saved email (.eml, RFC 5322 / MIME) into the pieces Vantage keeps.
- *
- * Only .eml is read. Outlook's .msg is a compound OLE document whose safe parsing needs a real
- * implementation of that container format; guessing at it would mean reading structured binary from
- * an untrusted file, which is exactly the shape of bug worth avoiding. A person can save any message
- * as .eml from Outlook, so the capability is not lost, only the risk.
- *
- * Attachments are read as metadata: name, type, size and a hash. Their bytes are not decoded here,
- * because nothing in the product needs them and decoding them would mean holding untrusted binary
- * in memory for no purpose.
- */
 import { createHash } from 'node:crypto';
 
 export class EmlError extends Error {
@@ -34,7 +22,6 @@ export interface ParsedEmail {
   attachments: EmlAttachment[];
 }
 
-/** Unfolds a header block: a continuation line starts with whitespace and belongs to the line above. */
 function headerLines(block: string): string[] {
   const out: string[] = [];
   for (const line of block.split(/\r?\n/)) {
@@ -57,7 +44,6 @@ function parseHeaders(block: string): Map<string, string[]> {
   return map;
 }
 
-/** RFC 2047 encoded words, so a subject in another language is not shown as gibberish. */
 function decodeWords(input: string): string {
   return input.replace(/=\?([^?]+)\?([bBqQ])\?([^?]*)\?=/g, (whole, charset: string, encoding: string, text: string) => {
     try {
@@ -148,7 +134,6 @@ function walk(part: Part, out: { text: string[]; html: string[]; attachments: Em
 
   const filename = paramOf(disposition, 'filename') || paramOf(contentType, 'name');
   if (/attachment/i.test(disposition) || (filename && !mime.startsWith('text/'))) {
-    // Metadata only. The bytes are hashed to identify the file, then discarded.
     const raw = Buffer.from(part.body.replace(/\s+/g, ''), (encoding || '').toLowerCase() === 'base64' ? 'base64' : 'binary');
     out.attachments.push({
       filename: decodeWords(filename || 'attachment').slice(0, 255),
@@ -198,7 +183,6 @@ export function parseEml(buffer: Buffer, limits: { maxBytes?: number } = {}): Pa
   };
 }
 
-/** Is this an Outlook .msg? Named specifically so the message can say what to do instead. */
 export function looksLikeOutlookMsg(buffer: Buffer): boolean {
   return buffer.subarray(0, 8).equals(Buffer.from([0xd0, 0xcf, 0x11, 0xe0, 0xa1, 0xb1, 0x1a, 0xe1]));
 }

@@ -65,7 +65,6 @@ export async function sendDigest(ctx: AppContext, user: DigestUser) {
   return result;
 }
 
-/** Called hourly. Sends digests to users whose configured weekday/hour matches the instance clock. */
 export async function runDigestTick(ctx: AppContext, at = new Date()) {
   if (!ctx.mailer.enabled) return { sent: 0, skipped: 'email disabled' };
   const clock = localClock(ctx.config.timezone, at);

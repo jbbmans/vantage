@@ -13,12 +13,6 @@ function useAdmin<T = any>(key: string, fn: () => Promise<T>) {
   return useQuery<T>({ queryKey: ['admin', key], queryFn: () => withSudo(fn), retry: false });
 }
 
-// Personnel ---------------------------------------------------------------
-
-/**
- * The roster feed. Planning is always offered before applying, and the plan is shown in full,
- * because the alternative is a button that silently rewrites a few thousand service records.
- */
 export function PersonnelConsole() {
   const toast = useToast();
   const qc = useQueryClient();
@@ -147,8 +141,6 @@ function GapList({ title, rows, render, empty }: { title: string; rows: any[]; r
   );
 }
 
-// Retention ---------------------------------------------------------------
-
 export function RetentionConsole() {
   const toast = useToast();
   const qc = useQueryClient();
@@ -213,9 +205,6 @@ export function RetentionConsole() {
         </div>
         <div className="mt-3 flex flex-wrap gap-2">
           <Button onClick={() => run(false)} loading={busy}><FileSearch className="h-4 w-4" />See what is eligible</Button>
-          {/* Live only when a fresh preview shows records a schedule would actually act on. A
-              destructive button that is clickable with nothing to do invites the click that has
-              something to do later, against a stale preview. */}
           <Button variant="danger" disabled={busy || !wouldAct} onClick={() => setConfirmRun(true)}><Play className="h-4 w-4" />Run disposition</Button>
         </div>
       </Panel>
@@ -328,8 +317,6 @@ export function RetentionConsole() {
     </div>
   );
 }
-
-// Privacy -----------------------------------------------------------------
 
 export function PrivacyConsole() {
   const inv = useAdmin('privacy-inventory', api.adminPrivacyInventory);

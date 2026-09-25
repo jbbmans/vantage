@@ -15,8 +15,6 @@ function Beat({ text, at, out, size = 76, color, gradient }: { text: string; at:
   return <Super words={text} at={at} out={out} size={size} weight={600} tracking={-0.04} lineHeight={1.04} color={color} gradient={gradient} stagger={2} />;
 }
 
-/* ── capture: say it once ────────────────────────────────────────────────────────────────────── */
-
 export function Capture({ c }: { c: Cues }) {
   const f = useCurrentFrame();
   const { fps, durationInFrames: d } = useVideoConfig();
@@ -46,8 +44,6 @@ export function Capture({ c }: { c: Cues }) {
   );
 }
 
-/* ── queue: one queue, claim it ──────────────────────────────────────────────────────────────── */
-
 export function Queue({ c }: { c: Cues }) {
   const f = useCurrentFrame();
   const { fps, durationInFrames: d } = useVideoConfig();
@@ -73,8 +69,6 @@ export function Queue({ c }: { c: Cues }) {
     </AbsoluteFill>
   );
 }
-
-/* ── case: cited, evidenced, verified ───────────────────────────────────────────────────────── */
 
 export function Case({ c }: { c: Cues }) {
   const f = useCurrentFrame();
@@ -130,8 +124,6 @@ function VerifiedChip({ at }: { at: number }) {
     </div>
   );
 }
-
-/* ── balance: read in the order the money moves ──────────────────────────────────────────────── */
 
 const PHASES = [
   { key: 'commitment', label: 'Commitment', sub: 'Requisition', v: 6_000_000 },

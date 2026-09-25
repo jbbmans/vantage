@@ -6,16 +6,6 @@ import { useToast } from '@/components/ui/toast';
 import { DateText, StatusBadge } from '@/components/common';
 import * as api from '@/lib/api';
 
-/**
- * The work under a project — typed and imported, in one list.
- *
- * This is the whole point of the exercise. A project and the case queue used to be unrelated piles
- * with no column joining them, so "the tasks in this project" and "the rows on that spreadsheet"
- * could never be the same thing. They can now, and the only difference the reader sees is a small
- * mark saying where a row came from, because that difference is real: a row off a sheet keeps its
- * values read-only, and a typed one does not.
- */
-
 interface WorkRow {
   id: string;
   title: string;
@@ -85,7 +75,6 @@ export function ProjectWork({ projectId, unitId, canAdd }: { projectId: string; 
                 <span className="min-w-0 flex-1">
                   <span className="block truncate text-sm text-ink">{row.title}</span>
                   <span className="flex flex-wrap items-center gap-x-2 text-xs text-ink-3">
-                    {/* Where a row came from decides what may be edited on it, so it is worth showing. */}
                     {row.source_file_id
                       ? <span className="flex items-center gap-1" title="Imported: its figures are what the sheet said"><FileSpreadsheet className="h-3 w-3" />From a sheet</span>
                       : <span className="flex items-center gap-1" title="Typed in here, so its own fields can be corrected"><PenLine className="h-3 w-3" />Typed in</span>}

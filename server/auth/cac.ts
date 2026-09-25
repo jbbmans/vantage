@@ -1,28 +1,3 @@
-/**
- * CAC / PIV certificate sign-in.
- *
- * Off unless an instance turns it on, because most deployments have no PKI in front of them and a
- * half-configured certificate path is worse than none.
- *
- * The identity is the EDIPI and nothing else. A DoD certificate carries it twice — in the subject
- * CN as the last dot-separated field, and in a subject alternative name as an `EDIPI@mil`
- * principal — and this module reads both and requires them to agree when both are present. Names
- * are never used to find an account: they collide, they change, and two Marines called
- * SMITH.JOHN.A would eventually sign in as each other.
- *
- * Two deployment shapes:
- *
- *   direct — this process terminates TLS with `requestCert`, and Node validates the chain against
- *            the configured CA bundle before any of this code runs. `socket.authorized` is the
- *            verdict and it is checked.
- *
- *   proxy  — something in front (nginx, Apache, a load balancer) did the mutual TLS and passes the
- *            certificate on in a header. That header is only worth what the channel carrying it is
- *            worth, so proxy mode refuses to start without a shared secret, compares it in constant
- *            time, and treats a request without it as an ordinary anonymous request. This is the
- *            single most important control in the file: without it, "I am EDIPI 1234567890" is a
- *            claim anybody who can reach the origin can make.
- */
 import { X509Certificate, timingSafeEqual } from 'node:crypto';
 import { newId, now } from '../lib/ids.ts';
 import type { Request } from 'express';
@@ -32,7 +7,6 @@ import { isEdipi } from '../services/personnel.ts';
 
 export interface CertIdentity {
   edipi: string;
-  /** Common name as presented, kept for the audit line only. Never used to resolve an account. */
   commonName: string | null;
   issuer: string | null;
   serial: string | null;
@@ -58,7 +32,6 @@ function secretMatches(presented: string, expected: string): boolean {
   return timingSafeEqual(a, b);
 }
 
-/** A header may arrive URL-escaped (nginx), base64, or as raw PEM. Normalize all three. */
 function normalizePem(raw: string): string {
   let text = raw.trim();
   if (text.includes('%')) { try { text = decodeURIComponent(text); } catch { /* leave as-is */ } }
@@ -77,14 +50,6 @@ function edipiFromCommonName(cn: string | null): string | null {
   return isEdipi(last) ? last : null;
 }
 
-/**
- * Pull the EDIPI out of a `1234567890@mil` principal name in the SAN.
- *
- * Node renders an other-name behind however many type labels it needs — `othername:UPN:…` is two —
- * so the principal is found by shape rather than by stripping a fixed number of prefixes. Getting
- * this wrong is not cosmetic: a parse that silently fails here falls back to the common name, and a
- * certificate whose SAN and CN name different people would then sign in as the wrong one.
- */
 function edipiFromSan(san: string | null): string | null {
   if (!san) return null;
   const upn = san.match(/(?:^|[,\s:])(\d{10})@/);
@@ -104,16 +69,11 @@ function fieldFromSubject(subject: string, key: string): string | null {
   return null;
 }
 
-/**
- * Read a certificate and decide who it says its holder is. Throws rather than returning null so the
- * reason reaches the audit log: "no certificate" and "certificate for nobody" are different events.
- */
 export function identityFromPem(pem: string, cac: CacConfig, at = new Date()): CertIdentity {
   let cert: X509Certificate;
   try { cert = new X509Certificate(normalizePem(pem)); }
   catch { throw new CacError('That client certificate could not be read.', 'cac_bad_certificate'); }
 
-  // Validity is checked here even in proxy mode, where we did not build the chain ourselves.
   const from = new Date(cert.validFrom); const to = new Date(cert.validTo);
   if (Number.isFinite(from.getTime()) && at < from) throw new CacError('That certificate is not valid yet.', 'cac_not_yet_valid');
   if (Number.isFinite(to.getTime()) && at > to) throw new CacError('That certificate has expired.', 'cac_expired');
@@ -128,8 +88,6 @@ export function identityFromPem(pem: string, cac: CacConfig, at = new Date()): C
 
   const policies = certificatePolicies(cert.raw);
   if (cac.requirePolicyOids.length) {
-    // Fails closed: a certificate whose policies could not be read does not satisfy a policy
-    // requirement. A control that passes when it cannot see is not a control.
     const ok = cac.requirePolicyOids.some((oid) => policies.includes(oid));
     if (!ok) throw new CacError('That certificate is not issued under an accepted policy.', 'cac_policy');
   }
@@ -144,11 +102,6 @@ export function identityFromPem(pem: string, cac: CacConfig, at = new Date()): C
   };
 }
 
-/**
- * Get the presented certificate for a request, or null when none was presented. Only throws when a
- * certificate was offered and is unusable — an ordinary request with no certificate is not an error,
- * because the sign-in page is reachable without one.
- */
 export function presentedCertificate(req: Request, cac: CacConfig): CertIdentity | null {
   if (cac.mode === 'off') return null;
 
@@ -157,8 +110,6 @@ export function presentedCertificate(req: Request, cac: CacConfig): CertIdentity
     if (typeof socket.getPeerCertificate !== 'function') return null;
     const peer = socket.getPeerCertificate();
     if (!peer || !peer.raw || !peer.raw.length) return null;
-    // Node validated the chain against the configured CA bundle. If it did not, nothing else here
-    // is worth doing.
     if (socket.authorized !== true) throw new CacError(`That certificate was not accepted: ${socket.authorizationError?.message || 'it does not chain to a trusted CA'}.`, 'cac_untrusted');
     return identityFromPem(`-----BEGIN CERTIFICATE-----\n${peer.raw.toString('base64').match(/.{1,64}/g)!.join('\n')}\n-----END CERTIFICATE-----\n`, cac);
   }
@@ -166,9 +117,6 @@ export function presentedCertificate(req: Request, cac: CacConfig): CertIdentity
   // proxy mode
   const header = req.get(cac.certHeader);
   if (!header) return null;
-  // Before the certificate is even parsed: prove the request came from the proxy. A request that
-  // fails this is treated as if it carried no certificate at all, so an attacker learns nothing
-  // about whether the header name was right.
   if (!secretMatches(req.get(cac.proxySecretHeader) || '', cac.proxySecret)) return null;
   const verdict = (req.get(cac.verifyHeader) || '').trim();
   if (verdict && verdict.toUpperCase() !== cac.verifySuccessValue.toUpperCase()) {
@@ -184,13 +132,6 @@ export interface CacResolution {
   provisioned: boolean;
 }
 
-/**
- * Turn a verified certificate into an account. Matching is on EDIPI alone.
- *
- * Auto-provisioning, when enabled, creates an account only for an EDIPI the personnel roster
- * already lists as active. A valid DoD certificate proves someone is in the Department; it does not
- * prove they belong to this command, and the roster is what says that.
- */
 export function resolveAccount(ctx: AppContext, identity: CertIdentity): CacResolution {
   const { db, config } = ctx;
   const existing = db.prepare('SELECT id, active FROM users WHERE edipi = ?').get(identity.edipi) as { id: string; active: number } | undefined;
@@ -207,20 +148,12 @@ export function resolveAccount(ctx: AppContext, identity: CertIdentity): CacReso
 
   const at = now();
   const id = newId();
-  // A username has to exist and be unique; the EDIPI is the one value guaranteed to be both.
   const username = `edipi-${identity.edipi}`;
   db.prepare(`INSERT INTO users (id, username, password_hash, first_name, last_name, middle_initial, rank_id, mos, eas, edipi, identity_source, identity_synced_at, active, created_at, updated_at)
               VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, 'roster', ?, 1, ?, ?)`)
     .run(id, username, roster.first_name, roster.last_name, roster.middle_initial, roster.rank_id, roster.mos, roster.eas, identity.edipi, at, at, at);
   return { identity, userId: id, provisioned: true };
 }
-
-// Certificate policies ---------------------------------------------------
-// Node's X509Certificate exposes subject, issuer and SANs, but not the certificatePolicies
-// extension, which is the one that separates a hardware PIV credential from a software certificate.
-// Reading it means going into the DER. The parse below is deliberately narrow: it locates the
-// extension by its OID and walks only the structure it expects, and anything it cannot make sense
-// of yields no policies, which fails the check rather than passing it.
 
 /** Decode a DER OID body into dotted-decimal form. */
 function decodeOid(bytes: Buffer): string {
@@ -235,7 +168,6 @@ function decodeOid(bytes: Buffer): string {
   return parts.join('.');
 }
 
-/** Read a DER length at `pos`, returning the length and where the content starts. */
 function readLength(der: Buffer, pos: number): { length: number; start: number } | null {
   if (pos >= der.length) return null;
   const first = der[pos];
@@ -247,9 +179,7 @@ function readLength(der: Buffer, pos: number): { length: number; start: number }
   return { length, start: pos + 1 + count };
 }
 
-/** Every policy OID asserted by the certificate, or an empty list if none could be read. */
 export function certificatePolicies(der: Buffer): string[] {
-  // OID 2.5.29.32 (certificatePolicies) encoded as an ASN.1 OBJECT IDENTIFIER.
   const marker = Buffer.from([0x06, 0x03, 0x55, 0x1d, 0x20]);
   let from = 0;
   for (;;) {

@@ -8,23 +8,18 @@ import { loadRuntime } from '../runtime.ts';
 
 const keyCheck = (secret: string) => hmac(secret, 'vantage-instance-key-check');
 
-// Ordered so a row's parents are always restored before it. Sessions and tokens are deliberately
-// excluded; everything a person made must be here, or "portable" is not a true word for the archive.
 const EXPORT_TABLES = [
   'ranks', 'users', 'readiness', 'units', 'unit_members', 'roles', 'member_roles', 'passkeys', 'recovery_codes',
   ...RECORD_TABLE_NAMES,
-  // Work intake: the original workbook, the job that read it, the rows, and what people did to them.
   'source_files', 'import_jobs', 'work_items', 'work_actions', 'work_events', 'work_views',
   // A person's own drafts and career plan move with the instance too.
   'record_drafts', 'career_steps', 'career_profiles',
   // Report Studio: a draft and every revision it has been saved as.
   'report_drafts', 'report_revisions',
-  // Correspondence: contacts before threads, threads before their messages and links.
   'contacts', 'connectors', 'threads', 'thread_messages', 'thread_links',
   'attachments', 'audit_log', 'notifications', 'maradmins', 'maradmin_user_state', 'ai_usage_daily', 'product_events', 'email_log', 'meta',
 ] as const;
 
-/** Full-instance JSON archive: everything needed to stand the instance up on another host. Sessions and tokens are deliberately excluded. */
 export function exportInstance(ctx: AppContext) {
   const tables: Record<string, unknown[]> = {};
   for (const table of EXPORT_TABLES) {
@@ -69,9 +64,7 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   } finally {
     ctx.db.pragma('foreign_keys = ON');
   }
-  // The archive brought its own runtime settings; the in-memory copy must follow or the next save would overwrite them.
   Object.assign(ctx.runtime, loadRuntime(ctx.db, ctx.config));
-  // The importing operator's own account was replaced by the archive, so the entry names it in detail rather than by foreign key.
   audit(ctx, { actor_id: null, action: 'instance_import', entity: 'instance', detail: `by ${actorId}; ${JSON.stringify(counts)}`.slice(0, 900) });
   return counts;
 }

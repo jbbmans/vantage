@@ -6,12 +6,6 @@ import { startApp, type TestApp } from './helpers.ts';
 import { loadConfig } from '../../server/config.ts';
 import { encryptSecret } from '../../server/lib/crypto.ts';
 
-/**
- * Mailbox sign-in (F08): a consent flow bound to the person and to the mailbox, tokens kept
- * encrypted and renewed, a refusal of anything broader than read access, and failures that show.
- * Microsoft is played by a local server; the flow is otherwise the one a deployment runs.
- */
-
 const CLIENT_ID = '00000000-1111-2222-3333-444444444444';
 let ms: { url: string; close: () => void; seen: Array<{ method: string; path: string; auth?: string; form?: URLSearchParams }> };
 let challenge = '';

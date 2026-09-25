@@ -5,14 +5,6 @@ import { Panel, Stat, Select, Skeleton, Badge, EmptyState, Progress } from '@/co
 import * as api from '@/lib/api';
 import { formatNumber } from '../../shared/metrics';
 
-/**
- * Usage and reliability, for the person who runs the instance.
- *
- * Everything here is a count across people. There is no way to open a figure and find a name,
- * because the figures were never built from names: a breakdown too few people produced is withheld
- * rather than shown, and the events behind them carry no content in the first place.
- */
-
 interface Distribution { count: number; median: number | null; p90: number | null; total: number }
 interface Bucket { key: string; events: number; people: number }
 

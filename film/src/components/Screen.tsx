@@ -3,14 +3,6 @@ import { AbsoluteFill, Img, staticFile, useCurrentFrame, useVideoConfig } from '
 import { cameraAt, cursorAt, framesAt, keysAt, takeOf, VH, VW, WIDE, type Cam } from '../lib/take';
 import { Keycap, Pointer, Ripple } from './Cursor';
 
-/**
- * The product, playing: a recorded take inside a glass plate, with the camera pushing in on what
- * matters and the pointer drawn over it. `width` is the plate's width on screen; everything inside
- * is laid out at the app's own 1440×810 and scaled.
- *
- * The camera moves the content inside the plate (the plate itself stays put), the way a good screen
- * film reads: the frame holds still, the eye is taken to the thing.
- */
 export function Screen({ take: key, width, offset = 0, startCam = WIDE, radius = 22, style, showKeys = true, chrome = true, lift = 0 }: {
   take: string; width: number; offset?: number; startCam?: Cam; radius?: number; style?: CSSProperties; showKeys?: boolean; chrome?: boolean; lift?: number;
 }) {

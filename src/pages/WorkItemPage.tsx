@@ -27,15 +27,6 @@ import {
 import { diagnose, METHODS, responsibilityName, type MethodKey } from '../../shared/fmra';
 import { formatCents } from '../../shared/money';
 
-/**
- * One piece of work, on its own page, with everything needed to decide and act.
- *
- * The procedure shows where the case stands and what comes next; the form below it asks only for
- * what the current step needs. Experienced analysts can go straight to any step, or add any kind of
- * entry, without a wizard in the way. Every entry lands in the history with who made it and where
- * the value came from, and the history carries its own seal.
- */
-
 const newKey = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const LIFECYCLE_FIELDS = ['commitment_amount', 'obligation_amount', 'delivered_amount', 'paid_amount'] as const;
 
@@ -276,8 +267,6 @@ export default function WorkItemPage() {
   );
 }
 
-/* ── Seal, procedure choice, and the balance reading ─────────────────────────────────────────── */
-
 function IntegrityBadge({ integrity }: { integrity: { status: string; count: number; reason?: string } | undefined }) {
   if (!integrity || !integrity.count) return null;
   const ok = integrity.status === 'verified';
@@ -323,7 +312,6 @@ function ApplyProcedure({ itemId, onDone }: { itemId: string; onDone: () => void
   );
 }
 
-/** Latest standing lifecycle figures on the case, read through the diagnoser. */
 function lifecycleFigures(events: CaseEvent[]) {
   const superseded = new Set(events.map((e) => e.supersedes_id).filter(Boolean));
   const standing = events.filter((e) => !superseded.has(e.id));
@@ -403,8 +391,6 @@ function EvidencePanel({ events }: { events: CaseEvent[] }) {
   );
 }
 
-/* ── The procedure checklist ───────────────────────────────────────────────────────────────── */
-
 const STATUS_ICON: Record<string, React.ReactNode> = {
   done: <CheckCircle2 className="h-4 w-4 text-good" aria-hidden />,
   current: <CircleDot className="h-4 w-4 text-accent" aria-hidden />,
@@ -453,8 +439,6 @@ function ProcedurePanel({ procedure, progress, active, resolution, onPick }: { p
   );
 }
 
-/* ── The current step ──────────────────────────────────────────────────────────────────────── */
-
 function StepHelp({ step }: { step: ProcedureStep }) {
   return (
     <details className="mt-4 rounded-xl bg-surface-2/60 text-sm ring-1 ring-inset ring-line">
@@ -478,7 +462,6 @@ const CALCULATE_LABEL: Record<string, string> = {
   lifecycle_residual: 'Calculate the open residual',
 };
 
-/** A gate the step is waiting on, shown before the person tries and gets refused. */
 function GateNotice({ message, action }: { message: string; action?: React.ReactNode }) {
   return (
     <div className="mt-4 flex flex-wrap items-start gap-2.5 rounded-xl bg-warn/[.07] px-3.5 py-2.5 text-sm text-ink ring-1 ring-inset ring-warn/25">
@@ -732,11 +715,6 @@ function ResearchField({ f, have, value, reference, notShown, onValue, onReferen
   );
 }
 
-/**
- * An AI brief of the case in the reference's answer order: observed condition, meaning, possible
- * causes, research, role, next action, verification, references. Built only from the standing
- * entries and the reference's own reading of the figures; offered only where AI is switched on.
- */
 function CaseBrief({ itemId }: { itemId: string }) {
   const [, , , available] = useAiModel();
   const [brief, setBrief] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
@@ -748,8 +726,6 @@ function CaseBrief({ itemId }: { itemId: string }) {
     </Panel>
   );
 }
-
-/* ── The calculation ───────────────────────────────────────────────────────────────────────── */
 
 function CalculationPanel({ calc }: { calc: any }) {
   const badge = calc.stale ? <Badge tone="warn">Stale</Badge> : <Badge tone={calc.requires_review ? 'warn' : 'accent'}>{calc.requires_review ? 'Needs review' : 'Candidate'}</Badge>;
@@ -808,12 +784,6 @@ function Figure({ label, cents, signed = false, accent = false }: { label: strin
   );
 }
 
-/* ── Work without a procedure: what you did, and optionally your record of it ─────────────────── */
-
-/**
- * The original way to record work on a queue row, kept for work that does not follow a modelled
- * procedure: what kind of thing you did, what it moved, and whether it also goes in your own record.
- */
 function ActionForm({ itemId, item, onDone }: { itemId: string; item: any; onDone: () => void }) {
   const toast = useToast();
   const qc = useQueryClient();
@@ -868,8 +838,6 @@ function ActionForm({ itemId, item, onDone }: { itemId: string; item: any; onDon
     </section>
   );
 }
-
-/* ── Adding any kind of entry ──────────────────────────────────────────────────────────────── */
 
 const FREE_KINDS = [
   { value: 'question', label: 'Question' },
@@ -934,8 +902,6 @@ function EntryComposer({ itemId, procedure, onDone }: { itemId: string; procedur
   );
 }
 
-/* ── History ───────────────────────────────────────────────────────────────────────────────── */
-
 const QUIET = new Set(['created', 'procedure_applied']);
 
 function HistoryPanel({ itemId, events, people, procedure, canCorrect, onDone, integrity }: { itemId: string; events: any[]; people: Record<string, { name: string; rank: string | null }>; procedure: Procedure | null; canCorrect: boolean; onDone: () => void; integrity: any }) {
@@ -995,10 +961,8 @@ function HistoryPanel({ itemId, events, people, procedure, canCorrect, onDone, i
   );
 }
 
-/** Lower-case a leading ordinary word, leaving acronyms (UMT, OCMT, DAI) as they are. */
 const lowerFirst = (text: string) => (/^[A-Z][a-z]/.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text);
 
-/** One plain sentence per entry, using the procedure's own names for its steps and choices. */
 function historySentence(e: any, procedure: Procedure | null): string {
   const b = e.body || {};
   const step = procedure?.steps.find((s) => s.key === (b.step || e.step));
@@ -1031,9 +995,6 @@ function historySentence(e: any, procedure: Procedure | null): string {
   }
 }
 
-/* ── Dialogs ───────────────────────────────────────────────────────────────────────────────── */
-
-/** A correction supersedes an observation. The original stays in the history, marked corrected. */
 function CorrectDialog({ itemId, entry, onClose, onDone }: { itemId: string; entry: any; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
   const money = Number.isSafeInteger(entry.body.amount_cents) || entry.body.not_shown;

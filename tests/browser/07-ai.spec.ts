@@ -14,7 +14,6 @@ test('quick log extracts fields with AI and the model picker offers the allowlis
 });
 
 test('AI is offered where the work happens, and there is no standalone destination', async ({ page }) => {
-  // The old page is gone; a bookmark to it lands on the dashboard rather than a dead end.
   await page.goto('/assist');
   await expect(page).toHaveURL(/\/$/);
   await expect(page.getByRole('link', { name: 'AI assist' })).toHaveCount(0);
@@ -22,7 +21,6 @@ test('AI is offered where the work happens, and there is no standalone destinati
   // The review reads your own record, from the dashboard.
   await page.getByRole('button', { name: 'Review my record' }).click();
   await expect(page.getByText('Steady fiscal work with measurable outcomes.')).toBeVisible();
-  // The day's budget is reported next to the result, so the cost is visible where it is spent.
   await expect(page.getByText(/today \d+ requests?, [\d,]+ of [\d,]+ tokens/)).toBeVisible();
 
   // Coaching on entry quality sits with the entries.
@@ -43,7 +41,6 @@ test('the owner console shows the gateway key, discovers models, and can switch 
   await page.getByRole('button', { name: 'Save' }).click();
   await confirmSudoIfAsked(page);
   await expect(page.getByText('AI settings saved.')).toBeVisible();
-  // With AI off, the contextual buttons are simply not there: nothing to press, nothing to explain.
   await page.goto('/');
   await expect(page.getByRole('button', { name: 'Review my record' })).toHaveCount(0);
 

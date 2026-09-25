@@ -26,8 +26,6 @@ const asProxy = (pem: string, extra: Record<string, string> = {}) => ({
   'x-client-cert': encodeURIComponent(pem), 'x-client-verify': 'SUCCESS', 'x-cac-proxy-secret': SECRET, ...extra,
 });
 
-// Certificate reading ----------------------------------------------------
-
 test('a DoD certificate yields its EDIPI, and the identity never comes from the name', () => {
   const id = identityFromPem(USER, base);
   assert.equal(id.edipi, '1234567890');
@@ -46,11 +44,8 @@ test('an expired certificate is refused even when the gateway accepted it', () =
 test('a policy requirement fails closed when the certificate does not assert it', () => {
   assert.doesNotThrow(() => identityFromPem(USER, { ...base, requirePolicyOids: ['2.16.840.1.101.3.2.1.3.13'] }));
   assert.throws(() => identityFromPem(USER, { ...base, requirePolicyOids: ['1.2.3.4.5'] }), (e: CacError) => e.code === 'cac_policy');
-  // OTHER asserts no policies at all, so any requirement must reject it rather than wave it through.
   assert.throws(() => identityFromPem(OTHER, { ...base, requirePolicyOids: ['2.16.840.1.101.3.2.1.3.13'] }), (e: CacError) => e.code === 'cac_policy');
 });
-
-// The proxy trust boundary ----------------------------------------------
 
 test('a forged certificate header without the proxy secret does not sign anyone in', async () => {
   const app = await startApp(proxyEnv);
@@ -94,8 +89,6 @@ test('a certificate the gateway did not verify is refused', async () => {
     assert.equal(missing.body.code, 'cac_untrusted');
   } finally { await app.close(); }
 });
-
-// Signing in -------------------------------------------------------------
 
 test('a linked card signs in, and an unlinked one does not', async () => {
   const app = await startApp(proxyEnv);
@@ -161,7 +154,6 @@ test('auto-provisioning creates an account only for someone the roster lists', a
     const ok = await app.call('POST', '/api/auth/cac', { headers: asProxy(USER) });
     assert.equal(ok.status, 200, 'on the roster: provisioned and signed in');
 
-    // The other card is a real DoD certificate for somebody not on this command's roster.
     const off = await app.call('POST', '/api/auth/cac', { headers: asProxy(OTHER) });
     assert.equal(off.status, 401);
     assert.equal(off.body.code, 'cac_not_on_roster');

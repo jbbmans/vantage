@@ -1,20 +1,5 @@
 import { z } from 'zod';
 
-/**
- * The case model: what happened to one piece of work, in order, and who did it.
- *
- * A work item's row says where it stands now. Its events say how it got there, and they are
- * append-only: a correction is a new event that names the one it supersedes, never an edit. That
- * is what lets the history answer "who did what, when, why, and on what reference" after the work
- * has changed hands and stages several times.
- *
- * Several distinctions here are deliberate and must not be collapsed:
- *   drafted ≠ submitted ≠ approved ≠ effective/posted;
- *   a funds check ≠ funds obligated; an expected invoice ≠ a posted invoice;
- *   following a procedure ≠ verifying the financial condition it was meant to fix.
- */
-
-/** Where the work stands. Only the stages a real workflow needs; not every internal state. */
 export const STAGES = [
   'not_started', 'researching', 'ready_for_action', 'submitted', 'waiting', 'blocked', 'verification_required', 'resolved', 'not_applicable',
 ] as const;
@@ -32,10 +17,6 @@ export const STAGE_LABEL: Record<Stage, string> = {
   not_applicable: 'Not applicable',
 };
 
-/**
- * The coarse state the queue has always filtered on. Kept in step with the stage so every existing
- * filter, saved view and report keeps meaning what it meant.
- */
 export const STAGE_TO_STATE: Record<Stage, 'open' | 'in_progress' | 'waiting' | 'resolved' | 'not_applicable'> = {
   not_started: 'open',
   researching: 'in_progress',
@@ -55,7 +36,6 @@ export const STATE_TO_STAGE: Record<string, Stage> = {
 
 export const CLOSED_STAGES = new Set<Stage>(['resolved', 'not_applicable']);
 
-/** What the work is waiting on. Waiting is elapsed time, never active labour. */
 export const WAITING_CATEGORIES = ['approval', 'posting', 'invoice', 'documentation', 'internal_action', 'external_response'] as const;
 export type WaitingCategory = (typeof WAITING_CATEGORIES)[number];
 export const WAITING_LABEL: Record<WaitingCategory, string> = {
@@ -67,18 +47,12 @@ export const WAITING_LABEL: Record<WaitingCategory, string> = {
   external_response: 'External response',
 };
 
-/** Every result a funds check can return. Only PASSED lets a submission through without a word. */
 export const FUNDS_CHECK_RESULTS = ['PASSED', 'FAILED', 'WARNING', 'NOT_RUN', 'UNKNOWN'] as const;
 export type FundsCheckResult = (typeof FUNDS_CHECK_RESULTS)[number];
 
-/** Something an authoritative system reported after a submission. Each is its own fact. */
 export const EXTERNAL_EVENTS = ['approved', 'effective', 'posted', 'rejected', 'returned'] as const;
 export type ExternalEvent = (typeof EXTERNAL_EVENTS)[number];
 
-/**
- * Where a value came from. A figure a Marine read off DAI and typed in is a manual observation of
- * an authoritative system, which is not the same thing as an authoritative integration.
- */
 export const VALUE_SOURCES = {
   source_file: 'From the imported source file',
   manual_observation: 'Read from an authoritative system and entered by hand',
@@ -90,7 +64,6 @@ export const VALUE_SOURCES = {
 } as const;
 export type ValueSource = keyof typeof VALUE_SOURCES;
 
-/** Events a person records directly. The server adds the rest (claims, handoffs, stages, calculations). */
 export const ENTRY_KINDS = [
   'question', 'observation', 'finding', 'decision', 'note',
   'action_prepared', 'action_submitted', 'external_event', 'funds_check', 'verification',
@@ -125,7 +98,6 @@ const isoDate = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'Use YYYY-MM-DD.');
 const key = z.string().trim().regex(/^[a-z][a-z0-9_]{0,59}$/, 'Use a short lowercase key.');
 
 const base = {
-  /** A correction names the entry it replaces. The original stays in the history. */
   supersedes: z.string().max(64).nullish(),
   /** Which procedure step this entry belongs to, when the work follows one. */
   step: key.nullish(),
@@ -143,10 +115,6 @@ export const entrySchema = z.discriminatedUnion('kind', [
     /** Money as typed. Parsed to cents on the server; never stored as a float. */
     amount: z.union([z.string().max(40), z.number()]).nullish(),
     value_text: optional(500),
-    /**
-     * The source shows no amount for this figure. A dash on a report is not a zero in the database,
-     * so "not shown" is its own recorded fact rather than an empty amount.
-     */
     not_shown: z.boolean().nullish(),
     system: optional(60),
     reference: optional(160),
@@ -157,7 +125,6 @@ export const entrySchema = z.discriminatedUnion('kind', [
     kind: z.literal('decision'),
     decision: key,
     choice: key,
-    /** A decision without a reason cannot be reviewed later, so one is required. */
     rationale: required(2000, 'Say why.'),
     ...base,
   }),
@@ -167,10 +134,6 @@ export const entrySchema = z.discriminatedUnion('kind', [
     step: key,
     reference: optional(160),
     text: optional(2000),
-    /**
-     * Required, and recorded, when the latest funds check was a WARNING. A FAILED, NOT_RUN or
-     * UNKNOWN check, or none at all, cannot be acknowledged past: the submission is refused.
-     */
     control_acknowledgement: optional(1000),
     /** Mark the work as waiting on this category in the same step. */
     then_wait: z.enum(WAITING_CATEGORIES).nullish(),
@@ -198,7 +161,6 @@ export const entrySchema = z.discriminatedUnion('kind', [
     kind: z.literal('verification'),
     check: key,
     result: z.enum(['verified', 'not_verified']),
-    /** What was looked at. Required for a verified result: a verification with no reference is a claim. */
     reference: optional(160),
     text: optional(2000),
     ...base,
@@ -216,12 +178,10 @@ export const stageChangeSchema = z.object({
 
 export const handoffSchema = z.object({
   to_user_id: z.string().min(1).max(64),
-  /** Why the work is moving. Handoffs without a reason make the history harder to trust. */
   note: required(1000, 'Say what the next person needs to know.'),
   version: z.number().int().nullish(),
 });
 
-/** A human-readable one-line summary of an event, for history lists and drafts. */
 export function describeEvent(kind: string, body: Record<string, unknown>): string {
   const b = body as Record<string, any>;
   switch (kind) {

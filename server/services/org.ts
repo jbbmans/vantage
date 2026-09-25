@@ -70,9 +70,7 @@ export function removeMember(ctx: AppContext, userId: string, unitId: string, ac
       recordsFrozen += ctx.db.prepare(`UPDATE ${table} SET frozen_at = ?, updated_at = ?, version = version + 1 WHERE user_id = ? AND unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL AND frozen_at IS NULL`).run(frozenAt, frozenAt, userId, unitId).changes;
     }
     const roles = ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND unit_id = ?').run(userId, unitId).changes;
-    // Work assigned to the departing Marine inside this unit goes back to its author.
     for (const table of ['tasks', 'goals']) ctx.db.prepare(`UPDATE ${table} SET assignee_id = NULL, updated_at = ?, version = version + 1 WHERE assignee_id = ? AND unit_id = ? AND deleted_at IS NULL`).run(frozenAt, userId, unitId);
-    // And the unit's queue work they were holding goes back to the queue, with the reason on each case.
     const claimsReleased = releaseClaimsOnDeparture(ctx, userId, unitId, actorId);
     const wasPrimary = ctx.db.prepare('SELECT is_primary FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, unitId) as { is_primary: number } | undefined;
     ctx.db.prepare('DELETE FROM unit_members WHERE user_id = ? AND unit_id = ?').run(userId, unitId);
@@ -108,10 +106,6 @@ export function createUnit(ctx: AppContext, actor: SessionUser, scope: Scope, bo
     if (!getUnit(ctx, parentId)) throw badRequest('No such parent unit.');
     if (!can(scope, PERMISSIONS.MANAGE_UNITS, parentId)) throw forbidden('You cannot create units under that parent.');
   } else if (!actor.is_operator) {
-    // Standing up a unit of your own, the way somebody makes a server in a chat app. A fire team
-    // leader who cannot make a fire team has to ask permission to organise their own people, which
-    // is the wrong shape for a tool people are meant to reach for. An enclave that wants one fixed
-    // hierarchy turns this off and gets the old behaviour back.
     if (!ctx.runtime.selfServiceUnits) throw forbidden('Only the Instance Operator can create a new top-level organization on this instance.', 'not_operator');
     const limit = ctx.runtime.selfServiceUnitLimit;
     const mine = (ctx.db.prepare(
@@ -198,8 +192,6 @@ export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: s
   notify(ctx, successor.id, { kind: 'unit', title: `You now lead ${unit.short_name || unit.name}`, message: 'Sign in again to pick up the new authority.', actionUrl: '/team', dedupeKey: `owner:${unitId}:${successor.id}` });
   return { ok: true, sessionsRevoked };
 }
-
-// Roles -----------------------------------------------------------------
 
 export interface RoleRow { id: string; unit_id: string; key: string | null; name: string; description: string | null; color: string | null; position: number; permissions: number; is_default: number; is_system: number }
 

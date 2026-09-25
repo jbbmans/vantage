@@ -11,13 +11,6 @@ import { CAREER_CATEGORIES, CAREER_CATEGORY_LABEL, CAREER_STATUSES } from '../..
 import { humanize } from '@/lib/utils';
 import { QueryFailure } from '@/components/QueryFailure';
 
-/**
- * Where a Marine stands and what they are doing next, in their own words.
- *
- * Vantage does not compute eligibility, promotion odds, or certification requirements. A step can
- * name where its guidance came from and when somebody last checked it; one that was never checked
- * says so, rather than looking authoritative.
- */
 interface StepDraft { id?: string; version?: number; title: string; category: string; status: string; due_date: string; notes: string; source_label: string; source_url: string; source_checked_on: string }
 const emptyStep = (): StepDraft => ({ title: '', category: 'pme', status: 'planned', due_date: '', notes: '', source_label: '', source_url: '', source_checked_on: '' });
 
@@ -31,7 +24,6 @@ export default function CareerPlan() {
   const refresh = () => qc.invalidateQueries({ queryKey: caseKeys.career });
 
   if (career.isPending) return <div className="grid gap-4 lg:grid-cols-3"><Skeleton className="h-48" /><Skeleton className="h-48 lg:col-span-2" /></div>;
-  // A failed read is said as such, never dereferenced as if it were a plan (F11).
   if (career.isError || !career.data) return <QueryFailure error={career.error} what="Your career plan" onRetry={() => career.refetch()} />;
   const data = career.data;
   const p = data.profile;

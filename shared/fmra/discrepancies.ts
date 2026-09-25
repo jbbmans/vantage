@@ -1,9 +1,3 @@
-/**
- * The discrepancy register (FMRAC ch. 13): where the source conflicts with itself or is incomplete,
- * and how Vantage treats it. Kept visible so a cleaner presentation never makes an uncertain
- * statement look more authoritative than the original.
- */
-
 export const DISCREPANCIES = [
   { pages: '3', issue: 'Marine Logistics Group abbreviated MIG; MARFOR/MEF chain expressed universally.', treatment: 'MLG for logistics, MIG for information. The hierarchy is the book’s model, not a universal routing rule.' },
   { pages: '14, 17-18', issue: 'Threshold values and the over/under diagram.', treatment: '$3,500 services, $10,000 goods and $25,000 training kept as printed values and marked as unverified current guidance. Vantage enforces none of them.' },
@@ -24,7 +18,6 @@ export const DISCREPANCIES = [
   { pages: '87-88', issue: 'Handwritten MIPR notes.', treatment: 'Clear learning points incorporated; informal cancellation and authority comments are not elevated to policy.' },
 ] as const;
 
-/** Procedures the book does not teach fully. Vantage does not fill these gaps with invented steps. */
 export const NOT_TAUGHT = [
   'The complete mandatory-source precedence',
   'SMU on-hand fulfillment for GCSS-MC',

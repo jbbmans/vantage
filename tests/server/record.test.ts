@@ -3,11 +3,6 @@ import assert from 'node:assert/strict';
 import { startApp, enroll, type TestApp } from './helpers.ts';
 import { UMT_2WAY } from '../../shared/procedures.ts';
 
-/**
- * The Record keeps assigned work, contribution history and personal documentation apart, counts
- * distinct documents correctly, and keeps drafts and career plans private to their owner.
- */
-
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
 let avery: { token: string; id: string };

@@ -2,15 +2,6 @@ import { test, expect, devices } from '@playwright/test';
 import type { Locator } from '@playwright/test';
 import { ensureSetup, loginAs, OPERATOR } from './fixtures';
 
-/**
- * Overlays have to stay inside the screen.
- *
- * Two of them did not, twice, for the same reason: an entrance animation that sets `transform`
- * replaces the translate that was centring the element, so it lands offset by half its own width.
- * It is invisible on a desktop, where there is room to be wrong in, and it puts half the panel off
- * a phone. A scrollWidth check does not catch it either, because a fixed element does not extend
- * the document. So the assertion has to be the geometry of the panel itself.
- */
 test.use({ ...devices['Pixel 7'] });
 
 async function assertOnScreen(locator: Locator, label: string) {

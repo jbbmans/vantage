@@ -45,7 +45,6 @@ export default function Help() {
 
   useEffect(() => { const t = setTimeout(() => setQ(query), 250); return () => clearTimeout(t); }, [query, setQ]);
 
-  // A deep link like /help#q-who-can-see should open the answer it names, not just scroll near it.
   useEffect(() => {
     const id = window.location.hash.slice(1);
     if (!id) return;

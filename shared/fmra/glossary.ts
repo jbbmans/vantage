@@ -1,8 +1,3 @@
-/**
- * The FMRAC retrieval glossary (ch. 14.2), with the meaning each term carries in this reference.
- * Where a term means two things (receipt, acceptance), the entry says which to specify.
- */
-
 export interface Term { term: string; meaning: string; see?: string[] }
 
 export const GLOSSARY: Term[] = [

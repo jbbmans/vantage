@@ -21,10 +21,6 @@ after(async () => { await app.close(); });
 
 const mkUnit = (token: string, name: string) => app.call('POST', '/api/org/units', { token, body: { name } });
 
-/**
- * Standing up a unit used to be the Instance Operator's alone, which meant a fire team leader had
- * to ask permission to organise their own fire team.
- */
 test('a member can stand up a unit of their own and owns it', async () => {
   const made = await mkUnit(rivera.token, 'Rivera Fire Team');
   assert.equal(made.status, 201, JSON.stringify(made.body));
@@ -70,7 +66,6 @@ test('an invite code lets somebody in, once, and only while it is live', async (
   const code = invite.body.code as string;
   assert.match(code, /^[A-Z2-9]{5}-[A-Z2-9]{5}$/, 'a code people can read off a screen');
 
-  // The full code is returned exactly once and is not recoverable from the listing.
   const listed = await app.call('GET', `/api/org/units/${unit.body.id}/join-codes`, { token: owner });
   assert.equal(listed.body.invites.length, 1);
   assert.equal(listed.body.invites[0].code, undefined, 'a stored invite cannot be read back as a working code');
@@ -115,7 +110,6 @@ test('an invite cannot hand out a role at or above the inviter’s own', async (
   const roles = await app.call('GET', `/api/org/roles?unit_id=${unit.body.id}`, { token: owner });
   assert.equal(roles.status, 200, JSON.stringify(roles.body));
 
-  // Enrol somebody as an ordinary member, then have them try to write an invite granting the top role.
   const invite = await app.call('POST', `/api/org/units/${unit.body.id}/join-codes`, { token: owner, body: { max_uses: 1 } });
   await app.call('POST', `/api/org/join-codes/${invite.body.code}/join`, { token: nguyen.token });
   const asMember = (await app.login('nguyen')).body.token;

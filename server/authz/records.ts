@@ -27,9 +27,7 @@ export function canRead(scope: Scope, userId: string, row: RecordRow): boolean {
 
 export function canEdit(scope: Scope, userId: string, row: RecordRow): boolean {
   if (row.frozen_at) return false;
-  // Once the counseled Marine has acknowledged a leader-recorded counseling, the text they acknowledged cannot change under them.
   if (row.counselor_id && row.counselor_id !== row.user_id && row.acknowledged_at) return false;
-  // A counseling recorded by a leader belongs to its author; the counseled Marine acknowledges it and nothing more.
   if (row.counselor_id && row.counselor_id !== row.user_id && row.user_id === userId) return false;
   if (row.user_id === userId) return row.visibility === 'private' || !row.unit_id || isMember(scope, row.unit_id);
   if (row.counselor_id && row.counselor_id === userId) return true;
@@ -37,7 +35,6 @@ export function canEdit(scope: Scope, userId: string, row: RecordRow): boolean {
   return can(scope, PERMISSIONS.MANAGE_RECORDS, row.unit_id);
 }
 
-/** Fields an assignee may change on work assigned to them: execution, never disclosure, ownership, or assignment. */
 export const ASSIGNEE_FIELDS: Record<string, readonly string[]> = { tasks: ['status', 'notes'], goals: ['status', 'current_value'] };
 export function isAssignee(scope: Scope, userId: string, row: RecordRow): boolean {
   return Boolean(row.assignee_id && row.assignee_id === userId && row.user_id !== userId && row.visibility === 'unit' && row.unit_id && isMember(scope, row.unit_id) && !row.frozen_at);
@@ -47,7 +44,5 @@ export function isAssignee(scope: Scope, userId: string, row: RecordRow): boolea
 export function canPlace(scope: Scope, visibility: string, unitId: string | null, shareFlag: number, personal = false): boolean {
   if (visibility === 'private') return !unitId || isMember(scope, unitId) || can(scope, shareFlag, unitId);
   if (!unitId) return false;
-  // Personal career records (activities, training, awards, counseling) may be shared by any member.
-  // Governed work (tasks, projects, goals) needs the unit's share permission.
   return personal ? isMember(scope, unitId) || can(scope, shareFlag, unitId) : can(scope, shareFlag, unitId);
 }

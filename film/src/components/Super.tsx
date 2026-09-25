@@ -3,10 +3,6 @@ import { useCurrentFrame } from 'remotion';
 import { easeOut, p } from '../lib/motion';
 import { FONT } from '../theme';
 
-/**
- * Kinetic type. Each word arrives from a little below, out of a soft blur, at the frame it is
- * given — usually the frame the narrator says it — and can leave together at `out`.
- */
 export function Super({ words, at, out, size = 96, weight = 600, color = '#fff', gradient, style, stagger = 3, rise = 26, lineHeight = 1.02, tracking = -0.045, align = 'left' }: {
   words: string[] | string; at: number | number[]; out?: number; size?: number; weight?: number; color?: string; gradient?: string;
   style?: CSSProperties; stagger?: number; rise?: number; lineHeight?: number; tracking?: number; align?: 'left' | 'center' | 'right';

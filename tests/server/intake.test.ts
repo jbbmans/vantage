@@ -48,7 +48,6 @@ async function importCsv(token: string, csv = CSV, planOverrides: Record<string,
 test('an upload is quarantined on arrival and the scan verdict is recorded honestly', async () => {
   const res = await upload(op.token, 'work.csv', CSV);
   assert.equal(res.status, 201, JSON.stringify(res.body));
-  // With no scanner configured the verdict is "skipped", not "clean". The absence of a scan is stated.
   assert.equal(res.body.scan_status, 'skipped');
   assert.match(res.body.scan_detail, /no malware scanner is configured/i);
   assert.equal(res.body.scanner, 'none');
@@ -86,7 +85,6 @@ test('an import creates work items, and importing the identical file again chang
     assert.equal(first.body.updated_rows, 0);
     assert.equal(first.body.rejected_rows, 0);
 
-    // The same bytes, uploaded again as a separate file: still the same three pieces of work.
     const again = await fresh.call('POST', '/api/work/sources', { token: owner.token, raw: Buffer.from(CSV), headers: H('work.csv', 'text/csv') });
     const second = await fresh.call('POST', '/api/work/imports', { token: owner.token, body: { ...plan, source_file_id: again.body.id } });
     assert.equal(second.body.inserted_rows, 0, 'an identical reimport creates no duplicate work');

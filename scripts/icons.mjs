@@ -1,4 +1,3 @@
-/** Regenerates every raster brand asset from public/mark.svg: PWA icons, the apple touch icon, the maskable icon, and the social card. Run: npm run icons */
 import { chromium } from '@playwright/test';
 import { readFileSync } from 'node:fs';
 const svg = readFileSync('public/mark.svg', 'utf8');
@@ -15,7 +14,6 @@ const mark = (size, pad = 0) => `<div style="width:${size}px;height:${size}px;di
 await shot(mark(512), 512, 512, 'public/icon-512.png');
 await shot(mark(192), 192, 192, 'public/icon-192.png');
 await shot(mark(180), 180, 180, 'public/apple-touch-icon.png');
-// maskable: the mark inside a solid Vantage navy square so the safe zone never clips the symbol
 await shot(`<div style="width:512px;height:512px;background:#0B2D5B;display:flex;align-items:center;justify-content:center">${mark(512, 72)}</div>`, 512, 512, 'public/icon-maskable-512.png');
 // preview sheet for review: large, small sizes, on light and dark
 const sheet = `<div style="display:flex;gap:40px;align-items:flex-end;padding:40px;background:#F5F8FC;font-family:Geist,system-ui,sans-serif">${mark(256)}${mark(96)}${mark(48)}${mark(32)}${mark(16)}<div style="background:#0B2D5B;padding:24px;display:flex;gap:24px;align-items:flex-end;border-radius:8px">${mark(96)}${mark(32)}</div></div>`;

@@ -35,7 +35,6 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const q = { period, style, track: track || undefined, limit, user_id: subjectId || undefined, unit_id: unitParam || undefined };
   const { data: report, isPending, error } = useQuery({ queryKey: keys.report(q), queryFn: () => api.report(q) });
   const { data: delta } = useQuery<Comparison>({ queryKey: keys.delta(q), queryFn: () => api.reportDelta(q), enabled: view === 'delta' });
-  // The figures come from the one metric layer, on the same period the narrative uses.
   const metricParams = useMemo(() => {
     const r = rangeForPeriod(period);
     return { from: dayKey(r.start), to: dayKey(r.end), user_id: subjectId || undefined, unit_id: unitParam || undefined, scope: subjectId || unitParam ? undefined : 'me' };

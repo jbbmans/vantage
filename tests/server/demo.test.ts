@@ -9,12 +9,6 @@ import { verifyAuditChain } from '../../server/services/audit.ts';
 import { purgeExpired } from '../../server/services/demo.ts';
 import { startApp, type TestApp } from './helpers.ts';
 
-/**
- * The synthetic demo opens without a sign-in form. These tests hold the lines that make that safe:
- * it cannot run in production or on real data, visitors cannot reach each other, protected APIs
- * still require a session, and a workspace is removed whole.
- */
-
 const DEMO = { VANTAGE_ACCESS_MODE: 'demo' };
 const H = { 'x-vantage-client': '1' };
 const baseEnv = { NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_SECRET: 'test-secret-test-secret-test-secret-1234', VANTAGE_EMAIL_PROVIDER: 'none' } as Record<string, string>;
@@ -88,7 +82,6 @@ test('a visitor lands on a synthetic Marine with no form, and sign-in routes are
     assert.equal((await app.call('POST', '/api/org/units', { token, body: { name: 'Escape' } })).status, 403);
     assert.equal((await app.call('GET', '/api/org/directory', { token })).status, 403);
 
-    // Removing the sign-in form did not remove authorization: no session, no data.
     assert.equal((await app.call('GET', '/api/work/items')).status, 401);
     assert.equal((await app.call('GET', '/api/record/summary')).status, 401);
     assert.equal((await app.call('GET', '/api/me')).status, 401);
@@ -219,7 +212,6 @@ test('the seeded history follows the procedure, and every seeded calculation mat
       assert.equal(stored.target_award_cents, fresh.target_award_cents);
       assert.deepEqual(stored.inputs.map((i: any) => i.event_id).sort(), fresh.inputs.map((i) => i.event_id).sort(), 'the seed cites the same events a recomputation would');
     }
-    // An item waiting on verification is next asked to verify, not to redo research.
     const token = (await app.call('POST', '/api/demo/start', { headers: H })).body.token;
     const waitingOnVerification = (await app.call('GET', '/api/work/items?stage=verification_required', { token })).body.items[0];
     const detail = (await app.call('GET', `/api/work/items/${waitingOnVerification.id}`, { token })).body;

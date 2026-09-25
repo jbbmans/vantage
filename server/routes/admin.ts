@@ -29,14 +29,8 @@ import { verifyAllCases, anchorCaseHeads } from '../services/caseSeal.ts';
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireOperator, requireSudo);
 
-// Usage and reliability --------------------------------------------------
 const usageQuery = z.object({ from: z.string().max(10).optional(), to: z.string().max(10).optional(), days: z.coerce.number().int().min(1).max(400).optional() });
 
-/**
- * What the product is doing, in aggregate. Owner is a role over an instance, not over the people in
- * it: this returns counts and distributions, never a person's row, and withholds any breakdown too
- * few people produced.
- */
 adminRouter.get('/usage', wrap((req, res) => {
   const q = parse(usageQuery, req.query);
   const days = q.days ?? 30;
@@ -49,7 +43,6 @@ adminRouter.get('/usage', wrap((req, res) => {
   });
 }));
 
-/** Trims events past the retention window. Analytics steer a product; they are not a memory. */
 adminRouter.post('/usage/prune', wrap((req, res) => {
   const removed = pruneEvents(req.ctx, Number(req.body?.older_than_days) || 400);
   audit(req.ctx, { actor_id: req.user.id, action: 'prune_events', entity: 'product_events', detail: `${removed} removed`, ip: clientIp(req) });
@@ -174,12 +167,10 @@ adminRouter.get('/audit', wrap((req, res) => {
   res.json({ rows, chain: verifyAuditChain(req.ctx) });
 }));
 
-// Both tamper-evidence chains at once: the audit log, and every case history's seal.
 adminRouter.get('/integrity', wrap((req, res) => {
   res.json({ audit: verifyAuditChain(req.ctx), cases: verifyAllCases(req.ctx) });
 }));
 
-// Writes the digest of every case head into the audit chain now, rather than waiting for the daily run.
 adminRouter.post('/integrity/anchor', wrap((req, res) => {
   const anchored = anchorCaseHeads(req.ctx);
   audit(req.ctx, { actor_id: req.user.id, action: 'case_history_anchor_requested', entity: 'work_event_heads', detail: `${anchored.cases} cases`, ip: clientIp(req) });
@@ -222,9 +213,6 @@ adminRouter.post('/maintenance', wrap((req, res) => {
 import { claimUnit as _claimUnit } from '../services/org.ts';
 function claimModule() { return { claimUnit: _claimUnit }; }
 
-// Authoritative personnel ------------------------------------------------
-// A roster arrives as text, not JSON, so the extract a personnel shop already has can be posted
-// without being reshaped first. 32 MB holds a very large command several times over.
 const rosterBody = express.text({ type: ['text/*', 'application/json'], limit: '32mb' });
 
 adminRouter.get('/personnel', wrap((req, res) => {
@@ -239,11 +227,6 @@ adminRouter.get('/personnel/runs', wrap((req, res) => {
   res.json(req.ctx.db.prepare('SELECT * FROM personnel_sync_runs ORDER BY at DESC LIMIT 50').all());
 }));
 
-/**
- * Plan a sync, or apply one. Planning is a read: it reports exactly what would change and touches
- * nothing. Applying requires the caller to have seen a plan, because `apply` is refused unless it
- * carries the same extract.
- */
 adminRouter.post('/personnel/sync', rosterBody, wrap((req, res) => {
   const ctx = req.ctx;
   const apply = String(req.query.apply || '') === '1';
@@ -251,7 +234,6 @@ adminRouter.post('/personnel/sync', rosterBody, wrap((req, res) => {
   const text = typeof req.body === 'string' ? req.body : '';
   if (!text.trim()) throw badRequest('Post the roster extract as the request body.');
 
-  // Confirming a mass separation is a deliberate, separate act: planning never sets it.
   const confirmSeparations = apply && String(req.query.confirm_separations || '') === '1';
   const parsed = parseRoster(text);
   const plan = planSync(ctx, parsed.rows, source, parsed.rejected, confirmSeparations);
@@ -270,7 +252,6 @@ adminRouter.post('/personnel/sync', rosterBody, wrap((req, res) => {
   res.json({ applied: true, runId, plan: summarize(plan) });
 }));
 
-/** The plan, trimmed for the wire: full lists would be tens of thousands of rows on a real command. */
 function summarize(plan: SyncPlan) {
   return {
     source: plan.source,
@@ -286,7 +267,6 @@ function summarize(plan: SyncPlan) {
   };
 }
 
-/** Attach an EDIPI to an account by hand, for an instance with no feed or a person the feed missed. */
 adminRouter.post('/personnel/link', wrap((req, res) => {
   const ctx = req.ctx;
   const { user_id, edipi } = parse(z.object({ user_id: z.string().max(64), edipi: z.string().max(32).nullable() }), req.body);
@@ -302,8 +282,6 @@ adminRouter.post('/personnel/link', wrap((req, res) => {
   audit(ctx, { actor_id: req.user.id, action: edipi ? 'personnel_link' : 'personnel_unlink', entity: 'users', entity_id: user_id, subject_id: user_id, detail: edipi ? `EDIPI ${edipi}` : 'EDIPI cleared', ip: clientIp(req) });
   res.json({ ok: true });
 }));
-
-// Records management -----------------------------------------------------
 
 adminRouter.get('/retention', wrap((req, res) => {
   res.json({
@@ -342,17 +320,11 @@ adminRouter.delete('/retention/holds/:id', wrap((req, res) => {
   res.json({ ok: true });
 }));
 
-/**
- * Disposition is a dry run unless the caller asks for the real thing. Acting is the exception and
- * has to be spelled out, because the operation is irreversible for whatever it touches.
- */
 adminRouter.post('/retention/run', wrap((req, res) => {
   const apply = String(req.query.apply || '') === '1';
   const result = runDisposition(req.ctx, { dryRun: !apply, actorId: req.user.id });
   res.json({ applied: apply && !result.blocked, ...result });
 }));
-
-// Privacy ----------------------------------------------------------------
 
 adminRouter.get('/privacy/inventory', wrap((req, res) => {
   const inventory = buildInventory(req.ctx);

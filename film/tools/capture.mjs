@@ -1,19 +1,3 @@
-/**
- * Captures the real product for the films: stills and deterministic footage.
- *
- * The app runs as the synthetic demo (every person and figure invented), in a 1440×810 window at
- * device scale 2, so every frame is 2880×1620 — sharp enough for the camera to push in 1.5× on a
- * 1080p master without softening.
- *
- * Footage is not a live screen recording. A live screencast at this resolution manages about ten
- * frames a second, which reads as stutter. Instead the recorder drives the app step by step on a
- * virtual clock: it acts, waits for the page to settle, and takes a frame whenever the screen
- * changes, stamped with the time it should appear. `assemble` turns those keyframes into an exact
- * 30 fps clip. Motion the viewer sees — the cursor, the camera, transitions — is drawn in the
- * composition from the event log, so it is perfectly smooth. The product itself runs with reduced
- * motion, so every captured frame is a settled state rather than a half-finished transition.
- */
-
 import { createRequire } from 'node:module';
 import { mkdirSync, rmSync, writeFileSync, existsSync, readdirSync, readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
@@ -32,7 +16,6 @@ const PUB = join(ROOT, 'public');
 const FF_DIR = join(ROOT, 'node_modules', '@remotion', 'compositor-linux-x64-gnu');
 const CHROME = process.env.PLAYWRIGHT_CHROMIUM_EXECUTABLE || '/opt/pw-browsers/chromium-1194/chrome-linux/chrome';
 
-/** What a film never shows: the demo's own banner (the film carries its own "synthetic data" mark) and scrollbars. */
 const FILM_CSS = `
   [aria-label="Synthetic demo"] { display: none !important; }
   ::-webkit-scrollbar { width: 0 !important; height: 0 !important; }
@@ -82,19 +65,8 @@ export async function still(page, name, opts = {}) {
   return { name, path, box };
 }
 
-/** Where the drawn cursor rests between takes, so consecutive scenes pick it up where it was. */
 let cursorAt = { x: VIEW.width * 0.62, y: VIEW.height * 0.9 };
 
-/**
- * A take: the recorder for one scene of footage.
- *
- * Time is virtual. `t` advances only when the take says so, and a frame is captured at each point
- * the screen may have changed, so the finished clip plays the action at exactly the pace written
- * here however long the browser took to produce it.
- *
- * Targets are CSS/Playwright selector strings or Playwright locators. A target below or above the
- * fold is scrolled to smoothly, on camera, before the cursor goes to it — never jumped to.
- */
 export function take(page, film, scene) {
   const dir = join(PUB, 'footage', film, scene);
   rmSync(dir, { recursive: true, force: true });
@@ -118,10 +90,8 @@ export function take(page, film, scene) {
   };
   const move = (x, y, dur) => { events.push({ t, type: 'move', x, y, dur }); cursorAt = { x, y }; t += dur; };
 
-  /** Smoothly scroll so the target sits comfortably in view; no-op when it already does. */
   const reveal = async (target, { anchor = 0.38, seconds } = {}) => {
     const box = await boxOf(target);
-    // Already on screen (including anything in a dialog or sheet, which does not scroll with the page).
     if (box.y >= 8 && box.y + Math.min(box.height, VIEW.height * 0.6) <= VIEW.height - 8) return;
     if (await loc(target).evaluate((el) => Boolean(el.closest('[role=dialog], [role=alertdialog]')))) return;
     const y0 = await page.evaluate(() => window.scrollY);
@@ -140,7 +110,6 @@ export function take(page, film, scene) {
     until(seconds) { if (seconds > t) t = seconds; },
     async start() { await settle(page); await snap(); },
     reveal,
-    /** The camera: frame this element (or rect) at this zoom, easing over `ease` seconds. */
     async focus(target, { zoom = 1.35, ease = 0.9, pad = 40, dx = 0, dy = 0 } = {}) {
       const box = typeof target === 'object' && 'width' in target && 'x' in target && !('first' in target) ? target : await boxOf(target);
       events.push({ t, type: 'focus', box: { x: box.x - pad + dx, y: box.y - pad + dy, width: box.width + pad * 2, height: box.height + pad * 2 }, zoom, ease });
@@ -166,7 +135,6 @@ export function take(page, film, scene) {
       const box = await boxOf(target);
       move(box.x + box.width / 2, box.y + box.height / 2, travel);
     },
-    /** Rest the cursor on something, for what shows on hover (a tooltip); the hover is real. */
     async hover(target, { travel = 0.55, after = 0.3, scroll = true } = {}) {
       if (scroll) await reveal(target);
       const box = await boxOf(target);
@@ -225,7 +193,6 @@ export function take(page, film, scene) {
       await settle(page, 300);
       await snap();
     },
-    /** A navigation the app makes itself after a click: mark the dissolve, then capture. */
     cut() { events.push({ t, type: 'cut' }); },
     /** Something the app does by itself (a toast, a reload): capture it now. */
     async capture(ms = 150) { await settle(page, ms); await snap(); },

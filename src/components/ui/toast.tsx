@@ -12,7 +12,6 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
   const counter = useRef(0);
   const push = useCallback((kind: Toast['kind'], message: string, action?: Toast['action']) => {
     const id = ++counter.current;
-    // Two at most: a stack of confirmations covers the form the person is still working in.
     setToasts((t) => [...t.slice(-1), { id, kind, message, action }]);
     setTimeout(() => setToasts((t) => t.filter((x) => x.id !== id)), kind === 'error' ? 7000 : action ? 6000 : 3800);
   }, []);

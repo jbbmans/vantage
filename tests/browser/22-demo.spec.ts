@@ -2,13 +2,6 @@ import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
 import { spawn, type ChildProcess } from 'node:child_process';
 
-/**
- * The flagship journey, in the synthetic demo, on the real application: open without a sign-in
- * form, claim a 2-Way UMT, research it, calculate, decide, hand it off, see both contributors, draft
- * a private accomplishment, capture a personal activity, move a goal, add a career step, and look at
- * the section as its lead.
- */
-
 const PORT = 8798;
 const BASE = `http://localhost:${PORT}`;
 let server: ChildProcess;
@@ -36,7 +29,6 @@ test('the demo opens on Today with no sign-in form and one clear synthetic indic
   const banner = page.getByRole('region', { name: 'Synthetic demo' });
   await expect(banner).toContainText('LCpl Jordan Avery');
   await expect(page.getByRole('link', { name: 'Owner console' })).toHaveCount(0);
-  // Reload keeps the same synthetic person rather than starting another workspace.
   await page.reload();
   await expect(banner).toContainText('LCpl Jordan Avery');
 });
@@ -87,7 +79,6 @@ test('a Marine claims, researches, calculates, decides, hands off, and keeps a p
   await expect(page.getByText('Handed off.')).toBeVisible();
   await expect(page.getByText(/handed this to/)).toBeVisible();
 
-  // The lead records the amendment; both people now show, each with their own work.
   await page.getByRole('button', { name: 'View as the section lead' }).click();
   await expect(todayHeading(page)).toBeVisible();
   await page.goto(itemUrl);
@@ -98,7 +89,6 @@ test('a Marine claims, researches, calculates, decides, hands off, and keeps a p
   await expect(who).toContainText('LCpl Jordan Avery');
   await expect(who).toContainText('You');
 
-  // Back as the Marine: the draft uses only her own facts, and stays private.
   await page.getByRole('button', { name: 'View as the Marine' }).click();
   await expect(todayHeading(page)).toBeVisible();
   await page.goto(itemUrl);

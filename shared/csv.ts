@@ -1,7 +1,6 @@
 export const MAX_IMPORT_ROWS = 1000;
 export const MAX_IMPORT_COLUMNS = 100;
 
-/** Undo the apostrophe safeCell adds so a round-tripped export does not grow one per pass. */
 export const unprotectCell = (text: string) => (/^'\s*[=+\-@]/u.test(text) ? text.slice(1) : text);
 
 export function safeCell(value: unknown): string {
@@ -58,7 +57,6 @@ export function parseDelimited(text: string, delimiter: ',' | '\t', { maxRows = 
   return matrix;
 }
 
-/** Canonical activity CSV columns. Export writes exactly these; import recognizes them exactly. */
 export const ACTIVITY_CSV_COLUMNS: Array<{ key: string; header: string; aliases?: string[] }> = [
   { key: 'id', header: 'Vantage ID' },
   { key: 'date', header: 'Date' },

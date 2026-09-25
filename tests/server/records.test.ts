@@ -239,7 +239,6 @@ test('preferences validate and persist; profile email change needs sudo', async 
   const email = await app.call('PUT', '/api/me/profile', { token: rivera.token, body: { email: 'rivera@example.mil' } });
   assert.equal(email.status, 403);
   await app.call('POST', '/api/auth/sudo', { token: rivera.token, body: { password: PASSWORD } });
-  // With email configured, an address only changes through its confirmation link; the profile endpoint refuses to short-cut it.
   const direct = await app.call('PUT', '/api/me/profile', { token: rivera.token, body: { email: 'rivera@example.mil', mos: '3451' } });
   assert.equal(direct.status, 400);
   assert.equal((await app.call('PUT', '/api/me/profile', { token: rivera.token, body: { mos: '3451' } })).status, 200);
@@ -349,7 +348,6 @@ test('shared goals count only unit-visible work; private goals see everything', 
   const mine = await app.call('POST', '/api/records/goals', { token: rivera.token, body: { title: 'All my ULOs', metric: 'activity_quantity', unit_label: 'ULOs', category: 'Fiscal & Financial', target_value: 100, period_start: '2026-08-01', period_end: '2026-08-31', visibility: 'private' } });
   assert.equal((await app.call('GET', `/api/records/goals/${mine.body.id}`, { token: rivera.token })).body.current_value, 10);
 
-  // A goal that never said what it counts does not quietly absorb a different unit, and says why.
   const unlabelled = await app.call('POST', '/api/records/goals', { token: rivera.token, body: { title: 'Some number of things', metric: 'activity_quantity', category: 'Fiscal & Financial', target_value: 100, period_start: '2026-08-01', period_end: '2026-08-31', visibility: 'private' } });
   const read = await app.call('GET', `/api/records/goals/${unlabelled.body.id}`, { token: rivera.token });
   assert.equal(read.body.current_value, 0);
@@ -364,7 +362,6 @@ test('the counseled Marine can acknowledge a leader-recorded counseling but not 
   const corrected = await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: nguyen.token, body: { summary: 'Corrected by the counselor before acknowledgement', version: c.body.version } });
   assert.equal(corrected.status, 200);
   assert.equal((await app.call('POST', `/api/records/counselings/${c.body.id}/acknowledge`, { token: rivera.token })).status, 200);
-  // Once acknowledged, the text the Marine signed off on is frozen for the counselor too.
   assert.equal((await app.call('PUT', `/api/records/counselings/${c.body.id}`, { token: nguyen.token, body: { summary: 'Rewritten after acknowledgement', version: corrected.body.version + 1 } })).status, 403);
   assert.equal((await app.call('DELETE', `/api/records/counselings/${c.body.id}`, { token: nguyen.token })).status, 403);
 });
@@ -445,16 +442,6 @@ test('exporting another Marine’s CSV needs the unit export permission, not jus
   assert.match(allowed.text, /Shared for export/);
 });
 
-/**
- * A file belongs on the tasking it supports. Tasks, projects and goals were excluded from
- * ATTACHABLE, so the useful case — here is the spreadsheet this task is about — was the one the
- * product refused.
- *
- * The permission half is the part worth proving, and it is proved by what stays hidden. Nothing in
- * the attachment code decides who may read a file; the host record does. So a plain member of the
- * same unit, who cannot read another member's shared task because they hold no VIEW_RECORDS, must
- * not be able to reach its attachment either. Hanging a file on a record is not a way to publish it.
- */
 test('tasks, projects and goals take files, and the file is exactly as reachable as its host', async () => {
   const png = Buffer.concat([Buffer.from('89504e470d0a1a0a0000000d49484452', 'hex'), Buffer.alloc(40, 2), Buffer.from('0000000049454e44ae426082', 'hex')]);
   const put = (table: string, id: string, token: string, name: string) =>
@@ -476,7 +463,6 @@ test('tasks, projects and goals take files, and the file is exactly as reachable
     assert.equal(reader.status, 200, `${table}: a reader of the record lists the file`);
     assert.equal(reader.body.attachments.length, 1, `${table}: and sees exactly the one file`);
 
-    // A plain member of the same unit cannot read the host, so the file is out of reach too.
     assert.equal((await app.call('GET', `/api/records/${table}/${rec.body.id}/attachments`, { token: rivera.token })).status, 403,
       `${table}: a file does not widen who can see the record`);
 
@@ -485,8 +471,6 @@ test('tasks, projects and goals take files, and the file is exactly as reachable
     assert.equal((await app.call('DELETE', `/api/records/${table}/${rec.body.id}/attachments/${up.body.id}`, { token: outsider.token })).status, 403);
   }
 
-  // The private case, from the other direction: a file on somebody's private task is unreachable
-  // even by the SNCO who can read every shared record in the unit.
   const secret = await app.call('POST', '/api/records/tasks', { token: rivera.token, body: { title: 'Private tasking', visibility: 'private' } });
   assert.equal(secret.status, 201, JSON.stringify(secret.body));
   const hidden = await put('tasks', secret.body.id, rivera.token, 'private.png');

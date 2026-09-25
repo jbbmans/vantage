@@ -142,7 +142,6 @@ test('a report written about somebody is theirs to read, not to rewrite', async 
   });
   expect(created.ok(), await created.text()).toBeTruthy();
 
-  // The subject can open it. Everything that would write is gone, rather than shown and refused.
   await logout(page);
   await loginAs(page, subjectName);
   await page.goto('/reports?tab=packages');

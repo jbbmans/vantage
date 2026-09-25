@@ -54,11 +54,6 @@ export const UNIT_SUGGESTIONS = [
   'hours', 'Marines', 'personnel', 'briefs', 'audits', 'accounts', 'tickets',
 ];
 
-/**
- * What an instance measures. The defaults are the G-8 comptroller set the app grew up with; an owner can rename the money
- * metric, redefine the value types (which ones roll into the headline total), and set the categories and unit suggestions
- * for any other shop. Records keep whatever key they were saved with, so retiring a type never rewrites history.
- */
 export interface MetricsConfig {
   currency_label: string;
   currency_symbol: string;
@@ -76,7 +71,6 @@ export const DEFAULT_METRICS: MetricsConfig = {
 export const CATEGORY_PALETTE = ['#1f9d6a', '#d98b1f', '#7c5cf0', '#6b7a8f', '#149ca6', '#c33fb8', '#e0506f', '#7fb31d', '#9264e6', '#54627a', '#2f6fd6', '#b8862b'];
 
 export const summableKeys = (cfg: MetricsConfig = DEFAULT_METRICS) => cfg.value_types.filter((d) => d.summable).map((d) => d.key);
-/** A missing type counts toward the headline (it always has); an unknown or non-summable type is tracked separately. */
 export const isSummable = (type: string | null | undefined, cfg: MetricsConfig = DEFAULT_METRICS) => !type || summableKeys(cfg).includes(type);
 export const valueType = (key: string | null | undefined, cfg: MetricsConfig = DEFAULT_METRICS) => cfg.value_types.find((d) => d.key === key) || null;
 export const categoryNames = (cfg: MetricsConfig = DEFAULT_METRICS) => cfg.categories.map((c) => c.name);
@@ -93,7 +87,6 @@ export function dollarSumRule(cfg: MetricsConfig = DEFAULT_METRICS): string {
   if (!out.length) return `Headline totals sum every ${label} type: ${inn.join(', ')}.`;
   return `Headline totals sum ${inn.join(', ')}. ${out.join(' and ')} ${out.length === 1 ? 'is' : 'are'} tracked separately: ${label} crossing your desk are not ${label} you moved.`;
 }
-/** Normalises anything an operator or an old archive hands us into a usable configuration. */
 export function normalizeMetrics(input: unknown): MetricsConfig {
   const raw = (input && typeof input === 'object' ? input : {}) as Record<string, unknown>;
   const str = (v: unknown, max: number, fallback: string) => { const s = String(v ?? '').trim().slice(0, max); return s || fallback; };

@@ -1,21 +1,11 @@
 import { cite } from './source.ts';
 
-/**
- * Financial data and pre-execution setup (FMRAC ch. 5).
- *
- * A Financial Data Element (FDE) is a coded identifier used in budgeting, accounting or reporting.
- * FDEs connect an event to the right resources; a mismatched fiscal year, appropriation, POET or
- * document identifier is one of the commonest reasons an interface fails or a payment goes
- * unmatched.
- */
-
 export const FDE = {
   definition: 'A coded identifier used in budgeting, accounting or reporting. FDEs connect an event to the correct resources.',
   why: 'Accurate data supports standardization, auditability, reporting and interfaces.',
   cite: cite('5.1', '65-68'),
 };
 
-/** POET: Project, Organization, Expenditure Type, Task. The examples are training specimens, not live funding data. */
 export const POET = [
   { element: 'Project', meaning: 'The activity or effort being funded; drives spending controls.', example: 'M12000_251106_HQBSLN' },
   { element: 'Organization', meaning: 'The executing command (shown as L4 in the example).', example: 'T_M12000.2D MARINE DIV' },
@@ -36,7 +26,6 @@ export const SLOA = {
   cite: cite('5.1', '67'),
 } as const;
 
-/** Method identifiers and what generates them. Preserve the issued identifier; never regenerate one from its appearance. */
 export const GENERATORS = [
   { methods: ['servmart'], identifier: 'ServMart JON', generator: 'GSA Alias Table load request', owner: 'HQMC (P&R), L1; FMRA prepares/validates the request' },
   { methods: ['fuel'], identifier: 'Fuel key combination', generator: 'Fuel Key Alias Table load request', owner: 'HQMC (P&R), L1; FMRA prepares/validates the request' },

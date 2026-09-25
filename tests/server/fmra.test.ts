@@ -5,12 +5,6 @@ import {
   NORMAL_CONDITIONS, UMT_ERRORS, ROUTES, GLOSSARY, searchGlossary, DISCREPANCIES, citeText, cite, PRINTED_THRESHOLDS,
 } from '../../shared/fmra/index.ts';
 
-/**
- * The FMRA knowledge base and diagnoser. The eight numerical examples in the reference are the
- * ground truth for the arithmetic; everything else checks that the knowledge keeps the
- * distinctions the book insists on.
- */
-
 test('the diagnoser classifies all eight of the reference’s numerical examples', () => {
   const examples = sourceExamples();
   assert.equal(examples.length, 8);

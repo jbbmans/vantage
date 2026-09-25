@@ -23,9 +23,6 @@ jobs:
       - run: npm ci
       - run: npm run lint
       - run: npm run typecheck
-      # Build before the tests, not after: publicSeo.test.ts reads dist/public.html, so running the
-      # suite first passes only on a machine with a stale dist/ lying around and fails on a clean
-      # checkout. `npm run check` is ordered the same way, but this job does not call it.
       - run: npm run build
       - run: npm test
       - uses: actions/upload-artifact@v4

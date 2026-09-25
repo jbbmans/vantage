@@ -21,15 +21,6 @@ import {
   getItem, mayClaim, mayReassign, mayResolve, mayProgress, mayAct, readable, type WorkItemRow,
 } from './work.ts';
 
-/**
- * The case: one work item's append-only history and the rules that keep its distinctions honest.
- *
- * Every change to who holds the work or where it stands writes an event in the same transaction as
- * the change itself, so the history cannot drift from the row. Research, decisions, submissions,
- * system observations, funds checks and verifications are events too, each validated by kind, and
- * each sealed into the case's own HMAC chain so a changed or missing entry is detectable.
- */
-
 export interface EventRow {
   id: string; work_item_id: string; unit_id: string | null; actor_id: string | null; kind: string; step: string | null;
   subject_id: string | null; body: string; supersedes_id: string | null; correlation_id: string | null;
@@ -49,7 +40,6 @@ export interface AppendInput {
   correlationId?: string | null;
 }
 
-/** Writes one event and seals it. Callers run it inside the same transaction as the change it describes. */
 export function appendEvent(ctx: AppContext, e: AppendInput): EventRow {
   const id = newId();
   const at = now();
@@ -71,8 +61,6 @@ export const toCaseEvent = (r: EventRow, seq?: number): CaseEvent => ({
 export const caseEventsOf = (rows: EventRow[]) => rows.map((r, i) => toCaseEvent(r, i));
 
 export function eventsFor(ctx: AppContext, itemId: string): EventRow[] {
-  // Insertion order is the order things happened on the server. occurred_at can be backdated (an
-  // observation read yesterday), so it is shown but does not reorder the history.
   return ctx.db.prepare('SELECT * FROM work_events WHERE work_item_id = ? ORDER BY created_at, rowid').all(itemId) as EventRow[];
 }
 
@@ -81,15 +69,8 @@ export const stageOf = (row: Pick<WorkItemRow, 'state'> & { stage?: string | nul
 
 type CaseRow = WorkItemRow & { stage?: string | null; procedure_key?: string | null; procedure_version?: string | null; waiting_category?: string | null; waiting_since?: string | null; blocked_reason?: string | null };
 
-/** The procedure a row runs: its pinned version, never silently another one. */
 export const procedureOf = (row: Pick<CaseRow, 'procedure_key' | 'procedure_version'>) => pinnedProcedure(row.procedure_key, row.procedure_version);
 
-/**
- * The one rule for closing work that follows a procedure, shared by every path that can close it.
- * Following every step is not the same as the condition clearing: resolution waits on the
- * verification the procedure names. A case pinned to a version this build lacks still needs its
- * condition verified cleared.
- */
 export function assertMayResolveCase(ctx: AppContext, row: CaseRow) {
   if (!row.procedure_key) return;
   const pinned = procedureOf(row);
@@ -100,8 +81,6 @@ export function assertMayResolveCase(ctx: AppContext, row: CaseRow) {
     throw conflict(`Verify the outcome before resolving this: ${needed}.`, 'verification_required');
   }
 }
-
-/* ── Reading a case ────────────────────────────────────────────────────────────────────────── */
 
 export function caseView(ctx: AppContext, user: SessionUser, scope: Scope, row: CaseRow) {
   const events = eventsFor(ctx, row.id);
@@ -126,8 +105,6 @@ export function caseView(ctx: AppContext, user: SessionUser, scope: Scope, row: 
     procedure: procedure ? { ...procedure, pinned_version: pinned.pinned, newer_version: pinned.newer } : null,
     procedure_unavailable: pinned.unavailable ? { key: row.procedure_key, version: pinned.pinned, current: PROCEDURES[row.procedure_key!]?.version || null } : null,
     progress: prog,
-    // Every calculation is a snapshot of its inputs. One whose inputs have since been corrected or
-    // added to is shown as stale, so a figure never outlives the facts it was computed from.
     latest_calculation: calc ? { id: calc.id, step: calc.body.step ?? null, ...calc.body, ...calculationState(calc, caseEvents) } : null,
     calculations: calcEvents.map((c) => ({ id: c.id, formula: c.body.formula, step: c.body.step ?? null, ...calculationState(c, caseEvents) })),
     latest_funds_check: funds ? { id: funds.id, ...funds.body } : null,
@@ -161,11 +138,6 @@ function peopleFor(ctx: AppContext, ids: Array<string | null | undefined>) {
   return Object.fromEntries(rows.map((p) => [p.id, { id: p.id, name: `${p.first_name} ${p.last_name}`, rank: p.rank }]));
 }
 
-/**
- * Each person's own contribution to this item. Four people touching one document credits each of
- * them with what they did, and never with each other's work. A verification later corrected away
- * is still an action they took, but no longer a verified outcome.
- */
 function contributorsFromEvents(events: EventRow[], people: Record<string, { id: string; name: string; rank: string | null }>) {
   const superseded = new Set(events.map((e) => e.supersedes_id).filter(Boolean));
   const by = new Map<string, { user_id: string; research: number; submitted: number; verified: number; handoffs: number; resolved: number; actions: number; first_at: string; last_at: string }>();
@@ -178,7 +150,6 @@ function contributorsFromEvents(events: EventRow[], people: Record<string, { id:
     if (e.kind === 'verification' && body.result === 'verified' && !superseded.has(e.id)) c.verified += 1;
     if (e.kind === 'handed_off') c.handoffs += 1;
     if (e.kind === 'resolved') c.resolved += 1;
-    // Holding or moving the work is bookkeeping, not a contribution: it never puts somebody on this list.
     if (!['claimed', 'released', 'assigned', 'claim_expired', 'created', 'procedure_applied', 'source_revised', 'stage_changed', 'waiting_started', 'waiting_ended', 'reopened'].includes(e.kind)) c.actions += 1;
     if (e.occurred_at < c.first_at) c.first_at = e.occurred_at;
     if (e.occurred_at > c.last_at) c.last_at = e.occurred_at;
@@ -189,8 +160,6 @@ function contributorsFromEvents(events: EventRow[], people: Record<string, { id:
     .map((c) => ({ ...c, name: people[c.user_id]?.name || 'Former member', rank: people[c.user_id]?.rank || null }))
     .sort((a, b) => b.actions - a.actions);
 }
-
-/* ── Writing to a case ─────────────────────────────────────────────────────────────────────── */
 
 function load(ctx: AppContext, user: SessionUser, scope: Scope, id: string) {
   const row = getItem(ctx, id) as CaseRow | null;
@@ -208,7 +177,6 @@ const stepFor = (procedure: Procedure | null, key: string | null | undefined): P
 /** Entries that need no procedure rule to be read safely. */
 const FREE_KINDS = new Set(['question', 'finding', 'note']);
 
-/** A research or execution entry. The person must be working the case (or be the leader who may). */
 export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id: string, body: unknown, idempotencyKey: string | null) {
   const input = parse(entrySchema, body) as EntryInput;
   const scopedKey = idempotencyKey ? `${user.id}:${id}:${idempotencyKey}` : null;
@@ -239,7 +207,6 @@ export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id
       if (events.some((e) => e.supersedes_id === input.supersedes)) throw conflict('That entry was already corrected. Correct the newer entry instead.');
     }
 
-    // Work on a step the recorded decision ruled out is refused rather than quietly recorded.
     if (step && !FREE_KINDS.has(input.kind) && stepApplies(step, events) === false) {
       throw conflict(`“${step.title}” does not apply under the decision recorded on this case.`, 'step_not_applicable');
     }
@@ -271,8 +238,6 @@ export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id
           else payload.display = field?.options?.find((o) => o.key === input.value_text)?.label || input.value_text;
         }
         payload.label = input.label || field?.label || null;
-        // A figure somebody read off DAI is a manual observation of an authoritative system. It is
-        // not an authoritative integration, and it is never labelled as one.
         payload.source = 'manual_observation';
         break;
       }
@@ -338,10 +303,6 @@ export function recordEntry(ctx: AppContext, user: SessionUser, scope: Scope, id
   })();
 }
 
-/**
- * The one place a stage changes. Keeps state in step, opens and closes waiting intervals, and
- * writes the events that record each of those as its own fact.
- */
 export function moveStage(
   ctx: AppContext,
   row: CaseRow,
@@ -395,8 +356,6 @@ export function changeStage(ctx: AppContext, user: SessionUser, scope: Scope, id
     }
     if (to === 'waiting' && !input.waiting_category) throw badRequest('Say what the work is waiting on.', { fieldErrors: { waiting_category: 'Required.' } });
     if (to === 'blocked' && !input.reason) throw badRequest('Say what is blocking it.', { fieldErrors: { reason: 'Required.' } });
-    // Declaring procedure work "does not apply" closes a financial condition without verifying it,
-    // so it has to say why.
     if (to === 'not_applicable' && row.procedure_key && !input.reason) throw badRequest('Say why this does not apply.', { fieldErrors: { reason: 'Required.' } });
     if (to === 'resolved') assertMayResolveCase(ctx, row);
     moveStage(ctx, row, user.id, to, { reason: input.reason ?? null, category: (input.waiting_category ?? null) as WaitingCategory | null, expectedBy: input.expected_by ?? null });
@@ -405,11 +364,6 @@ export function changeStage(ctx: AppContext, user: SessionUser, scope: Scope, id
   })();
 }
 
-/**
- * Handing work to a teammate. The person holding it may pass it on; a leader who can reassign may
- * move anybody's. Either way the receiver must be able to see the work and pick it up on their own
- * authority, and the history says who passed it, to whom, and what they said.
- */
 export function handOff(ctx: AppContext, user: SessionUser, scope: Scope, id: string, body: unknown) {
   const input = parse(handoffSchema, body);
   return ctx.db.transaction(() => {
@@ -441,10 +395,6 @@ export function handOff(ctx: AppContext, user: SessionUser, scope: Scope, id: st
   })();
 }
 
-/**
- * Runs a procedure calculation over what is on the record, and records it with every input it
- * used. With no step named, the calculation step that applies and is next (or stale) runs.
- */
 export function calculate(ctx: AppContext, user: SessionUser, scope: Scope, id: string, stepKey?: string | null) {
   return ctx.db.transaction(() => {
     const row = load(ctx, user, scope, id);
@@ -480,17 +430,6 @@ export function calculate(ctx: AppContext, user: SessionUser, scope: Scope, id: 
 
 export interface Seed { field: string; amount?: string | number | null; value_text?: string | null; not_shown?: boolean }
 
-/**
- * Puts a work item under a procedure, pinned to the version current now.
- *
- * The first time, values the source already carries (the UMT amount on the sheet, the lifecycle
- * figures an import mapped) enter the case as source-file observations, labelled as such, so the
- * research can cite them without anybody retyping them.
- *
- * Applied again to the same procedure, this is a migration to the current version: explicit,
- * attributed, and audited, because a case otherwise keeps running the exact definition it began
- * under.
- */
 export function applyProcedure(ctx: AppContext, user: SessionUser | null, scope: Scope | null, id: string, key: string, seeds: Seed[] = [], opts: { audit?: boolean } = {}) {
   const procedure = procedureFor(key);
   if (!procedure) throw badRequest('No such procedure.');
@@ -534,7 +473,6 @@ function seedFromSource(ctx: AppContext, row: CaseRow, procedure: Procedure, see
   }
 }
 
-/** A source-file observation for one seeded value, or null if the value cannot be read as that field. */
 export function seedBody(field: { key: string; label: string; money?: boolean; allowNotShown?: boolean; options?: Array<{ key: string; label: string }> }, seed: Seed, imported: boolean): Record<string, unknown> | null {
   const system = imported ? 'Imported sheet' : 'Entered with the work';
   const base = { field: field.key, label: field.label, source: 'source_file', system };
@@ -555,11 +493,6 @@ export function seedBody(field: { key: string; label: string; money?: boolean; a
   return { ...base, value_text: text, display: text };
 }
 
-/**
- * Who this work could be handed to: members of its unit who could see it and pick it up on their
- * own authority. Names and ranks only, and only for the person holding the work or a leader who can
- * reassign it, so this is not a roster by another route.
- */
 export function handoffCandidates(ctx: AppContext, user: SessionUser, scope: Scope, id: string) {
   const row = load(ctx, user, scope, id);
   if (row.claimed_by !== user.id && !mayReassign(scope, user, row)) throw forbidden('Only the person holding this work, or a leader who can reassign it, can hand it off.');

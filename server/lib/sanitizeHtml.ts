@@ -1,15 +1,3 @@
-/**
- * Turns an email's HTML into something safe to render.
- *
- * Email HTML is written by whoever sent it, which for an inbox connected to a real mailbox means
- * anyone on the internet. This works from an allowlist: a tag not named here does not survive, and
- * an attribute not named here does not survive. Deny-lists get out of date; allowlists fail closed.
- *
- * Remote images are removed rather than rewritten. A tracking pixel in a message body would tell
- * the sender exactly when a Marine opened their mail, from which network. The reader is told an
- * image was blocked instead.
- */
-
 const ALLOWED_TAGS = new Set([
   'p', 'br', 'div', 'span', 'a', 'strong', 'b', 'em', 'i', 'u', 's', 'sub', 'sup',
   'ul', 'ol', 'li', 'blockquote', 'pre', 'code',
@@ -34,9 +22,7 @@ const SAFE_SCHEME = /^(https?:|mailto:|tel:)/i;
 
 export interface SanitizeResult {
   html: string;
-  /** True when the original carried an image loaded from somewhere else. Shown to the reader. */
   blockedRemoteImages: boolean;
-  /** True when something was dropped that could have run: a script, a handler, a javascript: URL. */
   blockedActiveContent: boolean;
 }
 
@@ -64,7 +50,6 @@ export function sanitizeEmailHtml(input: string, limits: { maxBytes?: number } =
     if (lt === -1) { out += escapeText(source.slice(i)); break; }
     out += escapeText(source.slice(i, lt));
 
-    // A comment can hide a conditional block that some clients execute, so it never survives.
     if (source.startsWith('<!--', lt)) {
       const end = source.indexOf('-->', lt + 4);
       i = end === -1 ? source.length : end + 3;
@@ -97,7 +82,6 @@ export function sanitizeEmailHtml(input: string, limits: { maxBytes?: number } =
       if (!closing) {
         const attrs = parseAttributes(inner.slice(nameMatch[0].length));
         const src = attrs.find(([k]) => k === 'src')?.[1] || '';
-        // A data: image is inert bytes already in the message; anything fetched is a beacon.
         if (/^data:image\//i.test(src)) {
           const alt = attrs.find(([k]) => k === 'alt')?.[1] || '';
           out += `<img src="${escapeText(src)}" alt="${escapeText(alt)}">`;
@@ -111,7 +95,6 @@ export function sanitizeEmailHtml(input: string, limits: { maxBytes?: number } =
     }
 
     if (!ALLOWED_TAGS.has(tag)) {
-      // Unknown markup is dropped, but its text stays: an email should still read.
       i = gt + 1;
       continue;
     }
@@ -131,7 +114,6 @@ export function sanitizeEmailHtml(input: string, limits: { maxBytes?: number } =
       if (!ALLOWED_ATTRIBUTES[tag]?.has(key)) continue;
       if (key === 'href') {
         if (!SAFE_SCHEME.test(value.trim())) { blockedActiveContent = true; continue; }
-        // A link out of an email opens in a new context and never carries the referrer back.
         rendered += ` href="${escapeText(value.trim())}" rel="noopener noreferrer nofollow" target="_blank"`;
         continue;
       }
@@ -153,7 +135,6 @@ export function htmlToText(html: string): string {
   return String(html || '')
     .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
     .replace(/<br\s*\/?>/gi, '\n')
-    // A block close is a paragraph break; a line break inside one is a single newline.
     .replace(/<\/(p|div|h[1-6]|blockquote|table)>/gi, '\n\n')
     .replace(/<\/(tr|li)>/gi, '\n')
     .replace(/<[^>]+>/g, ' ')

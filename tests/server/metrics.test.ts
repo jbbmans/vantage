@@ -14,7 +14,6 @@ before(async () => {
   op = await app.setupOperator();
   peer = await app.register('peer');
   await enroll(app, op.token, 'G8', peer.id);
-  // Enrolment changes the account's authority, so its earlier session no longer stands.
   peer = { ...peer, token: (await app.login('peer')).body.token };
   outsider = await app.register('outsider');
 });
@@ -115,7 +114,6 @@ test('the period bounds the figures, and the prior period is reported alongside'
     await fresh.call('POST', '/api/records/activities', { token: owner.token, body: { title: 'Prior period', visibility: 'unit', date: '2026-04-15', quantity: 4, unit_label: 'files' } });
     const res = await fresh.call('GET', '/api/metrics?from=2026-05-01&to=2026-05-31', { token: owner.token });
     assert.equal(res.body.headline.find((t: any) => t.metricId === 'quantity:file').value, 10);
-    // The comparison window is the equal-length stretch immediately before the period, not "last month".
     assert.equal(res.body.prior.to, '2026-04-30');
     assert.equal(res.body.prior.from, '2026-03-31');
     assert.equal(res.body.priorHeadline.find((t: any) => t.metricId === 'quantity:file').value, 4);

@@ -95,7 +95,6 @@ function RuntimeSettings() {
   );
 }
 
-/** What this instance measures. Everything here used to be hard-coded for the G-8; now any shop can name its money metric and define its own value types and categories. */
 function MetricsSettings() {
   const { data, isPending, refetch } = useAdmin('overview', api.adminOverview);
   const toast = useToast(); const qc = useQueryClient();
@@ -170,7 +169,6 @@ function AiSettings() {
   if (isPending || !data || models == null) return <Skeleton className="h-64" />;
   const blocked = data.last_error_code === 'network_blocked';
   const lastError = data.last_error_code ? (blocked ? 'GenAI.mil refused the last call because this server is outside DoD networks.' : `The last call failed (${data.last_error_code}) ${timeAgo(data.last_error_at)}.`) : null;
-  /** Runs from the browser, not the server: shows whether GenAI.mil is reachable from wherever the operator is sitting. The key is used once and never stored. */
   const probeFromBrowser = async () => {
     setProbing(true); setProbe(null);
     try {

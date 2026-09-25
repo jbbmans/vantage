@@ -1,4 +1,3 @@
-// Grant operator authority and a temporary password from the shell. Requires VANTAGE_RECOVERY=1.
 import { loadConfig } from '../server/config.ts';
 import { createContext } from '../server/app.ts';
 import { hashPassword } from '../server/lib/crypto.ts';

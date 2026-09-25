@@ -1,7 +1,3 @@
-/**
- * The analyst's view of a record: what an evaluator, a board, or the Marine themself would want to know before writing a
- * word. Pure functions over logged data; the server gathers the rows and the client and the PDF both render this shape.
- */
 import { aggregateMetrics, formatDollars, formatNumber, toDate, dayKey, type MetricSource } from './metrics.ts';
 import { movement, type Movement } from './delta.ts';
 import { strength } from './bullets.ts';

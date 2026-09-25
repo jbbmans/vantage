@@ -8,28 +8,9 @@ import { parseEml, looksLikeOutlookMsg, EmlError, type ParsedEmail } from '../li
 import { sanitizeEmailHtml, htmlToText } from '../lib/sanitizeHtml.ts';
 import { readableItem } from './work.ts';
 
-/**
- * Correspondence: who was asked, what came back, and whether the thing actually arrived.
- *
- * The state machine is the point. "They replied", "the supporting document arrived" and "the
- * question is settled" are three different facts, and collapsing them is how a queue ends up full
- * of items everyone believes are finished. Each has its own state and its own timestamp.
- *
- * A message is linked to documents, never copied per document. One email about a hundred
- * obligations is one email: it appears on all hundred, and it is stored, counted and shown once.
- */
-
 export const THREAD_STATES = ['draft', 'sent', 'awaiting_reply', 'response_received', 'ksd_received', 'resolved'] as const;
 export type ThreadState = (typeof THREAD_STATES)[number];
 
-/**
- * Which moves are allowed, and why.
- *
- * A thread can be resolved from anywhere, because a question can stop mattering. But it cannot jump
- * from "sent" straight to "the document arrived" without someone saying the document arrived, and
- * receiving a reply never implies receiving the document: "we're looking into it" is a response and
- * nothing else.
- */
 const TRANSITIONS: Record<ThreadState, ThreadState[]> = {
   draft: ['sent', 'resolved'],
   sent: ['awaiting_reply', 'response_received', 'ksd_received', 'resolved'],
@@ -59,8 +40,6 @@ const readable = (scope: Scope, user: SessionUser, row: { owner_id: string; unit
 
 const writable = (scope: Scope, user: SessionUser, row: { owner_id: string; unit_id: string | null; visibility: string }) =>
   row.owner_id === user.id || (Boolean(row.unit_id) && can(scope, PERMISSIONS.MANAGE_RECORDS, row.unit_id!));
-
-// Contacts -------------------------------------------------------------
 
 export function listContacts(ctx: AppContext, user: SessionUser, scope: Scope) {
   const units = scope.unitIds;
@@ -94,8 +73,6 @@ export function saveContact(ctx: AppContext, user: SessionUser, scope: Scope, in
     .run(newContactId, user.id, unitId, visibility, ...fields, at, at);
   return ctx.db.prepare('SELECT * FROM contacts WHERE id = ?').get(newContactId);
 }
-
-// Threads --------------------------------------------------------------
 
 export interface ThreadFilters { state?: string | null; unitId?: string | null; contactId?: string | null; workItemId?: string | null; dueOnly?: boolean; q?: string | null }
 
@@ -171,12 +148,6 @@ export function threadDetail(ctx: AppContext, user: SessionUser, scope: Scope, i
 
 export interface StateChange { state: ThreadState; at?: string | null; follow_up_at?: string | null; version?: number | null }
 
-/**
- * Moves a thread's state, or refuses and explains.
- *
- * Each of the three "good news" states stamps its own time, so a report can say when the reply came
- * and when the document came, which are usually not the same day and sometimes weeks apart.
- */
 export function setThreadState(ctx: AppContext, user: SessionUser, scope: Scope, id: string, change: StateChange) {
   if (!THREAD_STATES.includes(change.state)) throw badRequest('That is not a state a thread can be in.');
   return ctx.db.transaction(() => {
@@ -206,7 +177,6 @@ export function setThreadState(ctx: AppContext, user: SessionUser, scope: Scope,
     for (const [key, value] of Object.entries(stamps)) { sets.push(`${key} = ?`); params.push(value); }
     if (change.follow_up_at !== undefined) { sets.push('follow_up_at = ?'); params.push(change.follow_up_at || null); }
     ctx.db.prepare(`UPDATE threads SET ${sets.join(', ')} WHERE id = ?`).run(...params, id);
-    // How long a request waited, counted from the message that went out rather than from the thread.
     const sentAt = thread.last_message_at;
     record(ctx, 'correspondence.state_changed', {
       to: change.state,
@@ -215,8 +185,6 @@ export function setThreadState(ctx: AppContext, user: SessionUser, scope: Scope,
     return getThread(ctx, id)!;
   })();
 }
-
-// Messages -------------------------------------------------------------
 
 export interface MessageInput {
   direction: 'outbound' | 'inbound';
@@ -252,7 +220,6 @@ export function addMessage(ctx: AppContext, user: SessionUser, scope: Scope, thr
   return ctx.db.prepare('SELECT * FROM thread_messages WHERE id = ?').get(id);
 }
 
-/** Stores a parsed email against a thread, sanitizing before anything is written. */
 export function storeParsedMessage(
   ctx: AppContext,
   threadId: string,
@@ -276,7 +243,6 @@ export function storeParsedMessage(
     JSON.stringify(parsed.attachments), meta.createdBy || null, at,
   );
   ctx.db.prepare('UPDATE threads SET last_message_at = ?, version = version + 1, updated_at = ? WHERE id = ?').run(parsed.date || at, at, threadId);
-  // What the sanitizer had to take out, and how many files came along. Never the subject or the body.
   record(ctx, 'correspondence.message_imported', {
     source: meta.source,
     duplicate: false,
@@ -289,12 +255,6 @@ export function storeParsedMessage(
 
 export interface ImportResult { thread: ThreadRow; message: Record<string, unknown>; created: boolean; replayed: boolean }
 
-/**
- * Brings a saved .eml into a thread.
- *
- * A message already stored under the same provider id is not stored twice: importing the same file
- * again is a no-op, which is what happens when someone forwards a folder of saved mail.
- */
 export function importEml(
   ctx: AppContext,
   user: SessionUser,
@@ -330,14 +290,12 @@ export function importEml(
       const existing = ctx.db.prepare('SELECT * FROM thread_messages WHERE thread_id = ? AND provider_message_id = ?').get(thread.id, parsed.messageId) as Record<string, unknown> | undefined;
       // The same saved message imported twice is the same message.
       if (existing) {
-        // The same email arriving again is worth counting as a duplicate, not as a second email.
         record(ctx, 'correspondence.message_imported', { source: 'eml', duplicate: true, attachments: 0 }, { id: user.id });
         return { thread: getThread(ctx, thread.id)!, message: existing, created, replayed: true };
       }
     }
 
     const message = storeParsedMessage(ctx, thread.id, parsed, { direction, source: 'eml', createdBy: user.id });
-    // Importing a reply is evidence that they replied, but it is not evidence that anything arrived.
     if (direction === 'inbound' && ['sent', 'awaiting_reply'].includes(thread.state)) {
       ctx.db.prepare("UPDATE threads SET state = 'response_received', response_at = COALESCE(response_at, ?), version = version + 1, updated_at = ? WHERE id = ?")
         .run(parsed.date || now(), now(), thread.id);
@@ -346,9 +304,6 @@ export function importEml(
   })();
 }
 
-// Links ----------------------------------------------------------------
-
-/** Links a thread to a piece of work. Repeating the link is a no-op, not a second link. */
 export function linkThread(ctx: AppContext, user: SessionUser, scope: Scope, threadId: string, workItemId: string) {
   const thread = readableThread(ctx, user, scope, threadId);
   if (!writable(scope, user, thread)) throw forbidden('That correspondence is not yours to link.');
@@ -366,19 +321,16 @@ export function unlinkThread(ctx: AppContext, user: SessionUser, scope: Scope, t
   ctx.db.prepare('DELETE FROM thread_links WHERE thread_id = ? AND work_item_id = ?').run(threadId, workItemId);
 }
 
-/** Links a thread to many pieces of work at once. Still one thread, one message, many links. */
 export function linkThreadMany(ctx: AppContext, user: SessionUser, scope: Scope, threadId: string, workItemIds: string[]) {
   const unique = [...new Set(workItemIds.map(String))].slice(0, 500);
   return ctx.db.transaction(() => {
     let linked = 0;
     for (const itemId of unique) if (linkThread(ctx, user, scope, threadId, itemId).linked) linked += 1;
-    // The count of links made, so the one-email-many-documents shape is visible in the figures.
     record(ctx, 'correspondence.linked', { items: linked }, { id: user.id });
     return { linked, requested: unique.length };
   })();
 }
 
-/** Threads touching one piece of work, for the workbench's correspondence panel. */
 export function threadsForItem(ctx: AppContext, user: SessionUser, scope: Scope, workItemId: string) {
   readableItem(ctx, user, scope, workItemId);
   return listThreads(ctx, user, scope, { workItemId });

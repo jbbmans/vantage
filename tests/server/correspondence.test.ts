@@ -34,8 +34,6 @@ const thread = async (token: string, body: Record<string, unknown> = {}) => {
 const move = (token: string, id: string, state: string, extra: Record<string, unknown> = {}) =>
   app.call('POST', `/api/correspondence/threads/${id}/state`, { token, body: { state, ...extra } });
 
-// The state machine ----------------------------------------------------
-
 test('a reply, a document and a resolution are three different facts, each with its own date', async () => {
   const t = await thread(op.token);
   assert.equal(t.state, 'draft');
@@ -87,8 +85,6 @@ test('a stale version is refused rather than overwriting a state someone else mo
   assert.equal(stale.status, 409);
   assert.match(stale.body.error, /changed while you were looking at it/i);
 });
-
-// Links ----------------------------------------------------------------
 
 async function seedWork(token: string, count: number) {
   const rows = ['Document,Description', ...Array.from({ length: count }, (_, i) => `LINK-${i + 1},Piece of work ${i + 1}`)].join('\n');
@@ -150,8 +146,6 @@ test('linking the same work twice adds one link, not two', async () => {
   assert.equal(detail.body.links.length, 1);
 });
 
-// Importing ------------------------------------------------------------
-
 test('a saved email imports into a thread and is sanitized before it is stored', async () => {
   const message = eml([
     'Message-ID: <import-1@vendor.example>',
@@ -204,8 +198,6 @@ test('an Outlook .msg is refused with the step that would fix it', async () => {
   assert.match(res.body.error, /Save As and choose the \.eml format/i);
 });
 
-// Authorization --------------------------------------------------------
-
 test('correspondence never reaches someone outside its unit', async () => {
   const t = await thread(op.token);
   assert.equal((await app.call('GET', `/api/correspondence/threads/${t.id}`, { token: outsider.token })).status, 403);
@@ -229,8 +221,6 @@ test('a member can read shared correspondence but not move someone else’s thre
   assert.equal(moved.status, 403);
   assert.match(moved.body.error, /owns this thread/i);
 });
-
-// Connectors -----------------------------------------------------------
 
 test('a mailbox connector must state which Microsoft cloud it is in', async () => {
   const guess = await app.call('POST', '/api/correspondence/connectors', { token: op.token, body: { cloud: '', account_label: 'analyst@example.mil' } });

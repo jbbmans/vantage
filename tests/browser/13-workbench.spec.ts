@@ -21,7 +21,6 @@ test('a spreadsheet is imported through the wizard, and the preview is shown bef
 
   await page.getByLabel('Spreadsheet to import').setInputFiles({ name: 'queue.csv', mimeType: 'text/csv', buffer: Buffer.from(CSV) });
 
-  // Step two: the file is scanned (or honestly reported as unscanned) and the sheet is previewed.
   await expect(dialog.getByText(/no malware scanner is configured/i)).toBeVisible();
   await expect(dialog.getByLabel('Heading row')).toHaveValue('1');
   await dialog.getByRole('button', { name: 'Next' }).click();
@@ -72,7 +71,6 @@ test('a row is claimed, worked and recorded, and the outcome reaches the dashboa
   await row.getByRole('button', { name: 'Claim' }).click();
   await expect(page.getByText(/You picked up WB-100/)).toBeVisible();
 
-  // The row opens onto its own page, where the whole history and the work form live.
   await page.getByText('Clear a long-standing obligation').first().click();
   await expect(page).toHaveURL(/\/work\/items\//);
   await expect(page.getByRole('heading', { name: 'Clear a long-standing obligation', level: 1 })).toBeVisible();
@@ -80,7 +78,6 @@ test('a row is claimed, worked and recorded, and the outcome reaches the dashboa
   const detail = page.getByRole('region', { name: 'What did you do?' });
 
   await detail.getByLabel('How many').fill('12');
-  // A unit label unique to this spec, so the figure cannot be confused with another spec's work.
   await detail.getByLabel('Of what').fill('workbench-ULOs');
   await detail.getByLabel(/moved$/).fill('1118.38');
   await detail.getByLabel('Which kind of value').click();
@@ -96,7 +93,6 @@ test('a row is claimed, worked and recorded, and the outcome reaches the dashboa
   await expect(ulos).toContainText('12');
   await expect(ulos).toContainText('1 outcome');
 
-  // The figure opens onto the record the work drafted, rather than being a number with no source.
   await ulos.click();
   const drill = page.getByRole('dialog', { name: /What counted toward workbench-ULOs/ });
   await expect(drill.getByText('Clear a long-standing obligation')).toBeVisible();

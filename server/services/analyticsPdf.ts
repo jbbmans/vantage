@@ -1,8 +1,3 @@
-/**
- * The analysis as a working paper: cover block, executive summary, trend, composition, concentration, consistency,
- * coverage, goals, career, narrative and bullets, and a full entry ledger as the appendix. Drawn with pdfkit primitives
- * so it needs no browser; every table repeats its header across page breaks and every page carries a running footer.
- */
 import PDFDocument from 'pdfkit';
 import type { AnalysisReport } from './analytics.ts';
 import type { Narrative } from '../../shared/narrative.ts';
@@ -190,7 +185,7 @@ export function renderAnalysisPdf(input: AnalysisPdfInput): Promise<Buffer> {
     const range = doc.bufferedPageRange();
     for (let i = range.start; i < range.start + range.count; i++) {
       doc.switchToPage(i);
-      doc.page.margins.bottom = 0; // footer text sits inside the margin; without this pdfkit would open a new page for it
+      doc.page.margins.bottom = 0;
       const y = doc.page.height - 40;
       doc.font('Helvetica').fontSize(7.5).fillColor(MUTED);
       doc.text(`${input.classification || 'Working paper'}  ·  ${r.subject}  ·  ${r.period.label}`, left, y, { width: width * 0.7, lineBreak: false });

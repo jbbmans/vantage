@@ -18,15 +18,6 @@ import { cn, useMediaQuery } from '@/lib/utils';
 import { track } from '@/lib/telemetry';
 import { PROCEDURES, PROCEDURE_LIST } from '../../shared/procedures';
 
-/**
- * The workbench: the rows of work a team is holding, arranged so a person can move through them
- * without lifting their hands off the keyboard.
- *
- * Rows are windowed rather than all rendered, so a queue of ten thousand stays responsive. Sorting,
- * filtering and paging happen on the server, because a total over one page is not a total.
- * On a phone this is a list of cards: a data grid on a 390px screen is a grid nobody can read.
- */
-
 const STATES = [
   { value: '', label: 'Any state' },
   { value: 'open', label: 'Open' },
@@ -86,7 +77,6 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   // One layout or the other, never both in the DOM at once.
   const wide = useMediaQuery('(min-width: 1024px)');
 
-  // The search box is debounced so a queue this size is not re-queried on every keystroke.
   useEffect(() => {
     const timer = window.setTimeout(() => setQuery((q) => (q.q === search ? q : { ...q, q: search, offset: 0 })), 250);
     return () => window.clearTimeout(timer);
@@ -128,7 +118,6 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const copySelection = useCallback(async () => {
     const chosen = selected.size ? rows.filter((r) => selected.has(r.id)) : rows.slice(cursor, cursor + 1);
     if (!chosen.length) return;
-    // Tab separated, so it pastes straight back into the spreadsheet it came from.
     const header = ['Identifier', 'What it is', 'State', 'Due', 'Value', 'Type'].join('\t');
     const body = chosen.map((r) => [r.reference || r.natural_key, r.title, STATE_LABEL[r.state] || r.state, r.due_date || '', r.amount ?? '', r.amount_type || ''].join('\t')).join('\n');
     try {
@@ -147,7 +136,6 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     catch (e) { toast.error(api.errorText(e)); refresh(); }
   }, [toast, refresh]);
 
-  // Keyboard: j/k or arrows move, space selects, Enter opens, c claims, / focuses search.
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
       const target = event.target as HTMLElement;
@@ -399,10 +387,6 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   );
 }
 
-/**
- * The correspondence about this row. One email can be about a hundred rows, so linking is a link:
- * the message is never copied per row, and never counted per row.
- */
 export function ThreadsForItem({ itemId }: { itemId: string }) {
   const toast = useToast();
   const qc = useQueryClient();

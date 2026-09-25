@@ -12,15 +12,6 @@ import * as api from '@/lib/api';
 import { formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
 import { cn } from '@/lib/utils';
 
-/**
- * Report Studio.
- *
- * A report makes claims about someone's work, so each section is written against records the author
- * picked, and the version of each record travels with the save. When a source changes between
- * writing and saving, the server refuses the save and names what moved. That refusal is a feature:
- * it is the only thing standing between a package and a sentence about facts that are no longer true.
- */
-
 interface Section { heading: string; body: string; source_ids: string[] }
 
 const BLANK_SECTIONS: Section[] = [
@@ -112,8 +103,6 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
 
 function Editor({ id, onBack }: { id: string; onBack: () => void }) {
   const { data: identity } = useIdentity();
-  // Two times, kept apart: how long the editor was open, and an estimate of active editing. Neither
-  // is time worked, and neither is ever added to the other.
   const clock = useRef(editorClock());
   const toast = useToast();
   const qc = useQueryClient();
@@ -132,7 +121,6 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
   const sources: any[] = useMemo(() => query.data?.sources || [], [query.data]);
   const drift: any[] = query.data?.drift || [];
 
-  // The versions the author is writing against. Refreshed only when they choose to look again.
   const [versions, setVersions] = useState<Record<string, number>>({});
 
   useEffect(() => {
@@ -150,7 +138,6 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
   const sourceById = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources]);
   const chosen = [...selected].map((sid) => sourceById.get(sid)).filter(Boolean);
   const [sectionAi, setSectionAi] = useState<Record<number, { output: Record<string, unknown>; meta: { model: string; tokens: number } }>>({});
-  /** Only the records this report cites are sent. Nothing the report is not built from leaves the server. */
   const citedFacts = useMemo(() => chosen.map((s: any) => [
     s.title,
     s.date,
@@ -171,9 +158,6 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
   });
 
   const acceptNewFacts = async () => {
-    // The author says they have read the changed record, so their view becomes the current one.
-    // The versions are taken from a fresh read: using the cached ones would resubmit the same
-    // stale numbers and be refused again, which looks like the button not working.
     const fresh = await query.refetch();
     const current: any[] = fresh.data?.sources || sources;
     setVersions((v) => {
@@ -200,7 +184,6 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
       setNote('');
       qc.invalidateQueries({ queryKey: ['report-draft', id] });
       qc.invalidateQueries({ queryKey: ['report-drafts'] });
-      // The server counts the revision itself. This carries the two times only it could know.
       track('editor.session', {
         surface: 'studio',
         sections: sections.length,
@@ -227,8 +210,6 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
   if (query.isPending) return <div className="page space-y-3"><Skeleton className="h-10 w-64" /><Skeleton className="h-64" /></div>;
   if (!draft) return <div className="page"><div className="card"><EmptyState title="Cannot open this report" action={<Button onClick={onBack}>Back</Button>} /></div></div>;
 
-  // A report shared with its subject is theirs to read, not to rewrite. This used to compare the
-  // draft with itself, so a subject was shown live controls and a Save the server always refused.
   const mine = draft.user_id === identity?.user.id;
 
   return (

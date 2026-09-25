@@ -31,7 +31,6 @@ export interface SudoRequest { confirm: () => void; cancel: () => void }
 const waiters: Array<{ resolve: () => void; reject: (e: Error) => void }> = [];
 const settle = (ok: boolean) => { const list = waiters.splice(0, waiters.length); for (const w of list) { if (ok) w.resolve(); else w.reject(new Error('Confirmation cancelled.')); } };
 
-/** Run an action; if the server demands step-up auth, open the sudo dialog (once, for every concurrent caller) and retry. */
 export async function withSudo<T>(action: () => Promise<T>): Promise<T> {
   try { return await action(); }
   catch (error) {

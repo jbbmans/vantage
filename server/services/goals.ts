@@ -3,22 +3,9 @@ import { badRequest } from '../lib/errors.ts';
 import { subjectMeasures, unitMeasures } from './metrics.ts';
 import { progress, totals, selectMeasures, moneyMetricId, quantityMetricId, durationMetricId, type Direction, type Aggregation, type ProgressResult } from '../../shared/metricEngine.ts';
 
-/**
- * Goals, measured by the same engine as everything else.
- *
- * A goal names a metric, a unit, where it starts, where it should end up, and which way is better.
- * "Increase" and "reduce" are different questions, and a goal that is met by a threshold is a
- * different question again, so each is stated rather than inferred from the numbers.
- *
- * Nothing here counts entries. A goal to log more things is a goal to type more, and the product
- * no longer offers it. Goals recorded before that decision are still read, and still shown, with
- * what they actually measure said plainly.
- */
-
 export const DIRECTIONS: Direction[] = ['increase', 'decrease', 'threshold', 'completion'];
 export const AGGREGATIONS: Aggregation[] = ['sum', 'max', 'min', 'average', 'latest', 'distinct'];
 
-/** Filters arrive either as stored JSON or already parsed by the row hydrator; both are accepted. */
 function parseFilters(value: unknown): Record<string, string | null> {
   if (value && typeof value === 'object' && !Array.isArray(value)) return value as Record<string, string | null>;
   try { return JSON.parse(String(value || '{}')) as Record<string, string | null>; } catch { return {}; }
@@ -34,10 +21,6 @@ export interface GoalRow {
   version: number; created_at: string; updated_at: string;
 }
 
-/**
- * The metric a goal recorded before typed goals existed. Kept so those rows keep working;
- * `activity_count` deliberately has no typed equivalent, because it counts entries.
- */
 export function legacyMetricId(goal: Pick<GoalRow, 'metric' | 'unit_label'>): string | null {
   switch (goal.metric) {
     case 'activity_dollars': return null; // spanned several value types, so it has no single typed metric
@@ -50,10 +33,8 @@ export function legacyMetricId(goal: Pick<GoalRow, 'metric' | 'unit_label'>): st
 export const countsEntries = (goal: Pick<GoalRow, 'metric' | 'metric_id'>) => !goal.metric_id && goal.metric === 'activity_count';
 
 export interface GoalProgress extends ProgressResult {
-  /** How this figure was arrived at, in words, so a member can check it rather than trust it. */
   basis: string;
   auto: boolean;
-  /** True when the goal measures how many entries someone made rather than what the work produced. */
   measuresEntries: boolean;
   metricId: string | null;
   unit: string | null;
@@ -67,17 +48,9 @@ interface GoalWindow { from: string; to: string }
 
 function goalWindow(goal: GoalRow): GoalWindow {
   const window = windowFor(goal);
-  // A goal without a period measures everything up to now rather than nothing.
   return { from: window.from || '1970-01-01', to: window.to || '9999-12-31' };
 }
 
-/**
- * The measures a goal is scored against.
- *
- * This deliberately does not depend on who is asking. A goal's figure is a fact about the subject's
- * work; it would be wrong for a Marine and their team lead to see different progress on the same
- * goal. A shared goal reads only what the subject actually published to the unit.
- */
 function measuresForGoal(ctx: AppContext, goal: GoalRow) {
   const window = goalWindow(goal);
   if (goal.measure_scope === 'unit' && goal.unit_id) return unitMeasures(ctx, goal.unit_id, window);
@@ -88,11 +61,8 @@ function measuresForGoal(ctx: AppContext, goal: GoalRow) {
   });
 }
 
-/** Progress for one goal, computed from the subject's own measures through the one engine. */
 export function goalProgressFor(ctx: AppContext, goal: GoalRow): GoalProgress {
   const manual = goal.metric === 'manual' && !goal.metric_id;
-  // A goal recorded before typed goals kept its narrowing in `category`. Honour it as a filter so
-  // those rows keep counting exactly what they always counted.
   const filters = { ...parseFilters(goal.filters), ...(goal.category && !goal.metric_id ? { category: goal.category } : {}) };
   const metricId = goal.metric_id || legacyMetricId(goal);
   const direction = (DIRECTIONS.includes(goal.direction as Direction) ? goal.direction : 'increase') as Direction;
@@ -140,9 +110,6 @@ export function goalProgressFor(ctx: AppContext, goal: GoalRow): GoalProgress {
     completed: Boolean(goal.completed_at),
   });
   const filterText = Object.entries(filters).filter(([, v]) => v !== undefined).map(([k, v]) => `${k} is ${v ?? 'unset'}`).join(', ');
-  // A goal that matches nothing while the subject clearly did measurable work in that period is
-  // almost always pointed at the wrong unit. Say which units are actually there rather than show a
-  // bare zero that looks like the person did nothing.
   let mismatch = '';
   if (result.outcomes === 0 && metricId.startsWith('quantity:')) {
     const present = [...new Set(totals(measures, { filters, from: opts.from, to: opts.to }).filter((t) => t.kind === 'quantity').map((t) => t.unit))];
@@ -165,10 +132,6 @@ export function withTypedProgress(ctx: AppContext, goals: GoalRow[]) {
 
 export interface GoalContributor { table: string; id: string; date: string; title: string; value: number; unit: string }
 
-/**
- * The outcomes behind a goal's figure, so "what counted?" is a question with an answer.
- * The rows come from the same set the figure was computed over, so the two can never disagree.
- */
 export function goalContributors(ctx: AppContext, goal: GoalRow): GoalContributor[] {
   const metricId = goal.metric_id || legacyMetricId(goal);
   if (!metricId) return [];
@@ -194,7 +157,6 @@ export interface TypedGoalInput {
   measure_scope?: string;
 }
 
-/** Validates the typed half of a goal. A goal that measures nothing measurable is refused. */
 export function validateTypedGoal(ctx: AppContext, input: TypedGoalInput, target: number | null | undefined) {
   const direction = input.direction || 'increase';
   if (!DIRECTIONS.includes(direction as Direction)) throw badRequest('That is not a direction a goal can have.');

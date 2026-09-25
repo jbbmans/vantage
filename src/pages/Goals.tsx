@@ -17,14 +17,6 @@ import { daysUntil } from '../../shared/evaluation';
 import { PERMISSIONS } from '../../shared/permissions';
 import { humanize, cn, todayIso } from '@/lib/utils';
 
-/**
- * Goals, stated in the units the work is actually measured in.
- *
- * A goal says which metric it tracks, which way is better, where it started and where it should
- * end up. Every automatic goal opens into the outcomes that counted toward it, so the number is
- * something a Marine can check rather than something they have to believe.
- */
-
 interface GoalDraft {
   id?: string; version?: number; title: string; description: string; type: string; category: string | null;
   metric: string; metric_id: string | null; direction: string; aggregation: string; measure_scope: string;
@@ -62,7 +54,6 @@ export default function Goals() {
   const [filter, setFilter] = useState<'active' | 'all'>('active');
   const me = identity?.user.id;
 
-  // The metrics this instance actually has data for, so a goal can only be set on something real.
   const yearParams = useMemo(() => { const r = rangeForPeriod('fiscalYear'); return { from: dayKey(r.start), to: dayKey(r.end), scope: 'me' }; }, []);
   const catalogQuery = useMetricsReport(yearParams);
   const metricOptions = useMemo(() => {
@@ -202,7 +193,6 @@ export default function Goals() {
                   onValueChange={(v) => {
                     const id = v === '__manual' ? null : v;
                     set('metric_id', id);
-                    // The legacy `metric` column stays "manual"; a metric id is what makes a goal automatic.
                     set('metric', 'manual');
                     if (id?.startsWith('quantity:') && !d.unit_label) set('unit_label', id.slice('quantity:'.length));
                   }}
@@ -277,7 +267,6 @@ function toDraft(g: any): GoalDraft {
 
 function WhatCounted({ goal, onClose }: { goal: any; onClose: () => void }) {
   const query = useGoalContributors(goal.id);
-  // Whether people open a goal to see what counted toward it. The count, never the outcomes.
   useEffect(() => { if (query.data) track('goal.inspected', { contributors: query.data.length }); }, [query.data]);
   const rows = query.data || [];
   const money = String(goal.metric_id || '').startsWith('money:');

@@ -12,15 +12,10 @@ export const PERMISSIONS = {
   EXPORT_DATA: 1 << 10,
   COUNSEL: 1 << 11,
   ADMINISTRATOR: 1 << 12,
-  // Work verbs, split apart. Claiming a case used to be the only gate, and holding a claim meant
-  // you could rewrite every field on it. These are four different decisions and a unit should be
-  // able to answer them differently.
   CLAIM_WORK: 1 << 13,
   EDIT_WORK: 1 << 14,
   RESOLVE_WORK: 1 << 15,
   REASSIGN_WORK: 1 << 16,
-  // The support queue. Separate from ADMINISTRATOR because the person who answers "I cannot log
-  // in" is usually not the person who runs the unit.
   VIEW_SUPPORT: 1 << 17,
 } as const;
 export type PermissionKey = keyof typeof PERMISSIONS;
@@ -51,9 +46,6 @@ export const has = (bits: number, flag: number) => Boolean(bits & PERMISSIONS.AD
 export const listPermissions = (bits: number): PermissionKey[] => PERMISSION_LIST.filter((p) => bits & PERMISSIONS[p.key]).map((p) => p.key);
 export const fromKeys = (keys: PermissionKey[] = []) => keys.reduce((bits, key) => bits | (PERMISSIONS[key] || 0), 0);
 
-// Claiming and resolving together, because that is what claiming already means today. The point of
-// splitting the verbs is that a unit can now take RESOLVE_WORK away from a role that should only
-// work cases, not that every instance silently becomes stricter the day it upgrades.
 const MARINE_BITS = fromKeys(['VIEW_UNIT', 'CLAIM_WORK', 'RESOLVE_WORK']);
 const NCO_BITS = fromKeys(['VIEW_UNIT', 'VIEW_RECORDS', 'CREATE_SHARED_WORK', 'CREATE_SHARED_GOALS', 'CLAIM_WORK', 'RESOLVE_WORK']);
 const FIRE_TEAM_LEADER_BITS = NCO_BITS | fromKeys(['VIEW_MEMBER_DETAIL', 'COUNSEL', 'EDIT_WORK']);

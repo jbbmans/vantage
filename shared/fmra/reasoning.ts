@@ -1,11 +1,3 @@
-/**
- * A consistent knowledge model for people and for AI (FMRAC ch. 12, editorial).
- *
- * Vantage's case model already keeps these apart — an observation is not a finding, a submission is
- * not an approval — and this is the vocabulary behind that. It is also the guardrail given to any
- * AI drafting help that touches financial work.
- */
-
 export const STATEMENT_TYPES = [
   { key: 'definition', label: 'Definition', meaning: 'What a term means.', example: 'DOU is delivered without full posted payment.' },
   { key: 'observation', label: 'Observation', meaning: 'What a particular record currently shows.', example: 'This award has $100 delivered and $50 paid.' },
@@ -16,7 +8,6 @@ export const STATEMENT_TYPES = [
 
 export const INFERENCE_RULE = 'A hold-report check supplies evidence. It is not optional merely because the arithmetic fits.';
 
-/** The case record the book recommends (ch. 12.2), mapped to where Vantage keeps each part. */
 export const CASE_RECORD = [
   { field: 'Identity', capture: 'Case ID, source system, report and date, document/requisition/award IDs; line and distribution where available.', vantage: 'The work item: document number, source file and row, imported fields.' },
   { field: 'Requirement', capture: 'What is being supported, purchase method, responsible using unit, and relevant performance or delivery period.', vantage: 'Observations on the case, including the purchase method.' },

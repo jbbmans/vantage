@@ -1,10 +1,6 @@
 import { AbsoluteFill, Img, staticFile, useCurrentFrame } from 'remotion';
 import { C } from '../theme';
 
-/**
- * The room the film happens in: deep navy, two slow light sources, the brand's contour texture a
- * breath above black. Everything moves, very slowly, so a held frame never feels frozen.
- */
 export function Backdrop({ glow = 1, contours = 0.07, hue = 'cool' }: { glow?: number; contours?: number; hue?: 'cool' | 'warm' | 'black' }) {
   const f = useCurrentFrame();
   const a = f / 300;

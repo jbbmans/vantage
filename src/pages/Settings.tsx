@@ -151,7 +151,6 @@ function Appearance() {
           return (
             <button key={a.id} type="button" aria-pressed={on} onClick={() => save.mutate({ accent: a.id })}
               className={cn('flex items-center gap-3 rounded-lg border p-2 pr-3 text-left transition-colors', on ? 'border-accent bg-accent-soft' : 'border-line hover:border-line-strong')}>
-              {/* A miniature of the palette in the current theme: rail, page, a card, the signal colour. */}
               <span data-accent={a.id} data-theme={resolved} className="flex h-11 w-16 shrink-0 overflow-hidden rounded-md ring-1 ring-inset ring-black/10" aria-hidden>
                 <span className="relative w-4 bg-rail"><span className="absolute left-0 top-3 h-2.5 w-[3px] rounded-r-sm bg-marker shadow-[0_0_6px_rgb(var(--marker)/.8)]" /></span>
                 <span className="flex flex-1 items-center justify-center bg-canvas">

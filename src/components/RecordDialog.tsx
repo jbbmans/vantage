@@ -7,10 +7,6 @@ import { errorText, type Store } from '@/lib/api';
 import { useCreateRecord, useUpdateRecord } from '@/lib/queries';
 import { ConflictDialog } from '@/components/ConflictDialog';
 
-/**
- * Generic create/edit dialog. `fields` renders the form given the draft and helpers; the dialog handles
- * saving, stale-version conflicts, field errors, and busy state.
- */
 export default function RecordDialog<T extends Record<string, any>>({ store, open, onOpenChange, initial, title, noun, fields, size = 'md', validate, onSaved }: {
   store: Store; open: boolean; onOpenChange: (o: boolean) => void; initial: T | null; title: string; noun: string; size?: 'sm' | 'md' | 'lg';
   fields: (draft: T, set: (k: keyof T & string, v: unknown) => void, errors: Record<string, string>) => React.ReactNode;
@@ -24,7 +20,6 @@ export default function RecordDialog<T extends Record<string, any>>({ store, ope
   const [conflict, setConflict] = useState<any>(null);
   const [saving, setSaving] = useState(false);
   useEffect(() => { if (open) { setDraft(initial); setErrors({}); setConflict(null); } }, [open, initial]);
-  // The funnel for the full forms, same shape as Quick Log: how it ended, never what was in it.
   const capture = useRef<ReturnType<typeof captureTimer> | null>(null);
   useEffect(() => {
     if (open) capture.current = captureTimer('record_form');

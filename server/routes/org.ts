@@ -20,7 +20,6 @@ import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } fro
 export const orgRouter = Router();
 orgRouter.use(requireAuth);
 
-// Units ----------------------------------------------------------------
 orgRouter.post('/units', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   res.status(201).json(createUnit(req.ctx, req.user, scope, req.body || {}, clientIp(req)));
@@ -68,7 +67,6 @@ orgRouter.get('/units/:unitId/export', wrap((req, res) => {
   res.json(out);
 }));
 
-// Membership ------------------------------------------------------------
 orgRouter.get('/directory', wrap((req, res) => {
   const unitId = String(req.query.unit_id || '');
   const q = String(req.query.q || '').trim().toLowerCase().slice(0, 40);
@@ -139,7 +137,6 @@ orgRouter.delete('/units/:unitId/members/:userId', wrap((req, res) => {
   res.json({ ok: true, ...removed, sessionsRevoked: revoked });
 }));
 
-// Invitations -----------------------------------------------------------
 orgRouter.post('/units/:unitId/invites', wrap(async (req, res) => {
   const ctx = req.ctx;
   const unitId = String(req.params.unitId);
@@ -183,7 +180,6 @@ orgRouter.delete('/invites/:id', wrap((req, res) => {
   res.json({ ok: true });
 }));
 
-// Roles -----------------------------------------------------------------
 orgRouter.get('/roles', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   const roles = scope.unitIds.length ? (req.ctx.db.prepare(`SELECT * FROM roles WHERE unit_id IN (${scope.unitIds.map(() => '?').join(',')}) ORDER BY unit_id, position DESC`).all(...scope.unitIds) as RoleRow[]) : [];
@@ -232,10 +228,6 @@ orgRouter.delete('/roles/:roleId', wrap((req, res) => {
   let revoked = 0;
   ctx.db.transaction(() => {
     for (const h of ctx.db.prepare('SELECT DISTINCT user_id FROM member_roles WHERE role_id = ?').all(role.id) as Array<{ user_id: string }>) revoked += invalidateUserSessions(ctx, h.user_id);
-    // A join code may hand out this role, and that reference is a real foreign key. Revoking a code
-    // only sets revoked_at, so the row stays and would block the delete below. Released rather than
-    // deleted: an invite somebody joined on is a record of how they got here. A code left pointing
-    // at nothing falls back to the unit's default role, which is the right outcome anyway.
     ctx.db.prepare('UPDATE unit_invites SET role_id = NULL WHERE role_id = ?').run(role.id);
     ctx.db.prepare('DELETE FROM roles WHERE id = ?').run(role.id);
   })();
@@ -275,7 +267,6 @@ orgRouter.delete('/team/:userId/roles/:roleId', wrap((req, res) => {
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
 
-// Team roster and member detail -----------------------------------------
 orgRouter.get('/team', wrap((req, res) => {
   const ctx = req.ctx;
   const scope = scopeFor(ctx, req.user, req);
@@ -346,7 +337,6 @@ orgRouter.put('/team/:userId/profile', wrap((req, res) => {
   res.json({ ok: true, changed: entries.map(([k]) => k) });
 }));
 
-// Operator-only account lifecycle -------------------------------------
 orgRouter.post('/team/:userId/deactivate', requireOperator, requireSudo, wrap((req, res) => {
   const ctx = req.ctx;
   const id = String(req.params.userId);
@@ -414,11 +404,6 @@ import { hashPassword as _hashPassword } from '../lib/crypto.ts';
 function await_import() { return { hashPassword: _hashPassword }; }
 export { conflict };
 
-// Join codes ------------------------------------------------------------
-// Distinct from the invitations above, which email one named person a single-use link. A join code
-// is shareable, reusable and revocable: the owner makes one, sends it to whoever, and people let
-// themselves in. Both exist because they answer different questions — "bring this person in" versus
-// "here is the door for my team".
 orgRouter.post('/units/:unitId/join-codes', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   res.status(201).json(createInvite(req.ctx, req.user, scope, String(req.params.unitId), {
@@ -438,7 +423,6 @@ orgRouter.delete('/units/:unitId/join-codes/:inviteId', wrap((req, res) => {
   res.json(revokeInvite(req.ctx, req.user, scope, String(req.params.unitId), String(req.params.inviteId), clientIp(req)));
 }));
 
-// Looking a code up says which unit it opens and nothing else about that unit.
 orgRouter.get('/join-codes/:code', wrap((req, res) => {
   const found = peekInvite(req.ctx, String(req.params.code));
   if (!found) throw notFound('That invite code is not valid.');

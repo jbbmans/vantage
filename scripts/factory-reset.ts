@@ -1,4 +1,3 @@
-// Destroys every record in the configured database. Requires VANTAGE_FACTORY_RESET=1 and a typed confirmation argument.
 import { unlinkSync, existsSync } from 'node:fs';
 import { loadConfig } from '../server/config.ts';
 

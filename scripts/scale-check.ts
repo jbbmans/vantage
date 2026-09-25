@@ -1,16 +1,3 @@
-/**
- * How big can one Vantage instance get before it stops feeling instant?
- *
- * "SQLite does not scale" is true of the wrong deployment and false of the right one, and the
- * difference is a number nobody had measured. This seeds a database the size of a real command and
- * times the queries that actually run on the hot paths, so the deployment model can be argued from
- * evidence instead of instinct.
- *
- *   npx tsx scripts/scale-check.ts            # a 250-person command, the common case
- *   USERS=2000 RECORDS=400 npx tsx scripts/scale-check.ts
- *
- * Run it against a scratch file, never a real database: it writes a lot of rows.
- */
 import { openDatabase } from '../server/db/index.ts';
 import { newId } from '../server/lib/ids.ts';
 import { rmSync } from 'node:fs';

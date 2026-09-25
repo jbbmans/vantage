@@ -17,7 +17,6 @@ export interface Scope {
 
 const cache = new WeakMap<object, Map<string, Scope>>();
 
-/** Resolve the caller's exact-unit authority. Cached per request object so repeated checks cost nothing. */
 export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object): Scope {
   if (reqKey) {
     const m = cache.get(reqKey);
@@ -81,7 +80,6 @@ export function isUnitOwner(ctx: AppContext, userId: string, unitId: string | nu
   return Boolean(row?.owner_user_id && row.owner_user_id === userId);
 }
 
-/** IDs of every active user visible to the caller: self plus members of units where the caller can read records. */
 export function visibleUserIds(ctx: AppContext, scope: Scope, selfId: string): string[] {
   const ids = new Set([selfId]);
   if (scope.readableUnitIds.length) {
@@ -94,7 +92,6 @@ export function visibleUserIds(ctx: AppContext, scope: Scope, selfId: string): s
   return [...ids];
 }
 
-/** Units where the actor can open a member's detailed record: shared unit, VIEW_MEMBER_DETAIL, and higher position. */
 export function detailUnitsFor(ctx: AppContext, actorScope: Scope, targetId: string): string[] {
   const targetScope = scopeFor(ctx, { id: targetId });
   return targetScope.unitIds

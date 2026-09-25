@@ -5,8 +5,6 @@ import * as SelectPrimitive from '@radix-ui/react-select';
 import { Check, ChevronDown, Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
-/* The primary action is the one thing on a screen filled with the signal colour, so there is never
-   a question of what the screen wants you to do next. Everything else is a bordered white button. */
 const VARIANTS = {
   primary: 'bg-accent text-accent-ink border-transparent shadow-[inset_0_1px_0_rgb(255_255_255/.18),0_1px_2px_rgb(var(--accent)/.3),0_6px_16px_-8px_rgb(var(--accent)/.55)] hover:brightness-[1.07]',
   default: 'bg-surface text-ink border-transparent shadow-[0_0_0_1px_rgb(var(--line-strong)),0_1px_2px_rgb(var(--shadow-rgb)/.05)] hover:bg-surface-2 hover:shadow-[0_0_0_1px_rgb(var(--ink-3)/.45),0_1px_2px_rgb(var(--shadow-rgb)/.05)]',
@@ -39,23 +37,10 @@ export const Textarea = forwardRef<HTMLTextAreaElement, React.TextareaHTMLAttrib
   return <textarea ref={ref} rows={rows} autoFocus={autoFocus && finePointer()} className={cn('field resize-y leading-relaxed', className)} {...props} />;
 });
 
-
-/**
- * Put the label, hint and error associations on the control itself.
- *
- * `Field` used to clone its direct child. That works while the child is the input, and silently
- * stops working the moment somebody wraps it — an icon beside the input, a show/hide button — at
- * which point `aria-describedby` and `aria-invalid` land on a `<div>` and the error stops being
- * announced. Nothing looks wrong, and the a11y test still passes if the input happens to carry its
- * own `aria-label`, so the failure is invisible from every direction except a screen reader.
- *
- * So instead of assuming shape, walk down to the first thing that is actually a form control.
- */
 const CONTROL_TYPES = new Set(['input', 'select', 'textarea']);
 
 function applyToControl(node: React.ReactElement<any>, extra: Record<string, unknown>): React.ReactNode {
   if (typeof node.type === 'string' && !CONTROL_TYPES.has(node.type)) {
-    // A plain wrapper element: recurse into its children and attach to the first control found.
     const kids = React.Children.toArray(node.props.children);
     let done = false;
     const next = kids.map((child) => {
@@ -91,9 +76,6 @@ export function Field({ label, hint, error, children, className, required }: { l
   if (error) extra['aria-invalid'] = true;
   return (
     <div className={cn('min-w-0', className)}>
-      {/* The hint sits beside the label when there is room and drops under it when there is not.
-          It used to truncate, which on a phone meant the sentence explaining the field was the part
-          that disappeared. */}
       <div className="mb-1.5 flex flex-wrap items-baseline justify-between gap-x-3 gap-y-0.5">
         <span className="text-base font-medium text-ink"><span id={labelId}>{label}</span>{required && <span className="ml-1 text-accent" aria-hidden>*</span>}</span>
         {hint && <span id={hintId} className="text-xs leading-snug text-ink-3">{hint}</span>}
@@ -136,7 +118,6 @@ export type Tone = keyof typeof TONES;
 export function Badge({ tone = 'neutral', className, children, ...props }: { tone?: Tone; className?: string; children: React.ReactNode } & React.HTMLAttributes<HTMLSpanElement>) {
   return <span className={cn('chip', TONES[tone], className)} {...props}>{children}</span>;
 }
-/** Role chip: the role colour is shown as a dot so the text keeps readable ink contrast whatever colour a leader picks. */
 export const RoleBadge = ({ color, children, className }: { color?: string | null; children: React.ReactNode; className?: string }) => (
   <Badge className={cn('gap-1.5 pl-1.5', className)}><Dot color={color || '#6b7a8f'} />{children}</Badge>
 );
@@ -228,12 +209,8 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
 
 export function Tabs<T extends string>({ value, onChange, tabs, className }: { value: T; onChange: (v: T) => void; tabs: Array<{ value: T; label: React.ReactNode; count?: number }>; className?: string }) {
   const strip = React.useRef<HTMLDivElement | null>(null);
-  // On a phone the active tab is often past the right edge, which leaves a person looking at a
-  // strip that does not contain where they are. Bring it into view whenever it changes.
   React.useEffect(() => {
     const el = strip.current?.querySelector<HTMLElement>('[aria-selected="true"]');
-    // Centred rather than nearest: 'nearest' parks the active tab flush against the edge fade,
-    // which is where it is hardest to read. When the strip fits, this is a no-op.
     el?.scrollIntoView({ block: 'nearest', inline: 'center' });
   }, [value]);
   return (

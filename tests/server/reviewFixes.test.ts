@@ -6,11 +6,6 @@ import { exportInstance } from '../../server/services/exports.ts';
 import { pruneSources, storedBytesFor } from '../../server/services/intake.ts';
 import { buildPersonalExport } from '../../server/services/personalExport.ts';
 
-/**
- * The findings from the review of this branch, each turned into a test that fails on the old
- * behaviour. A bug that was found once and fixed silently is a bug that comes back.
- */
-
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
 let peer: { token: string; id: string };
@@ -55,7 +50,6 @@ test('two people importing the same identifier privately each get their own row'
   const first = await importPrivately(op.token);
   assert.equal(first.inserted_rows, 1);
 
-  // The identifier is the same. The row is not: it belongs to somebody else, and is invisible here.
   const second = await importPrivately(peer.token, CSV, 'theirs.csv');
   assert.equal(second.inserted_rows, 1, "a second person's private import must create their own row, not edit the first person's");
   assert.equal(second.updated_rows, 0);
@@ -93,7 +87,6 @@ test('an upload is refused once one person is holding their share of the file st
   const before = storedBytesFor(app.ctx, op.id);
   assert.ok(before > 0, 'uploads are counted against the person who made them');
 
-  // Squeeze the quota down to what is already held; the next byte is one too many.
   const original = app.ctx.config.intake.maxBytesPerUser;
   app.ctx.config.intake.maxBytesPerUser = before;
   try {
@@ -133,7 +126,6 @@ test('a personal export carries attachments on every record it contains, not onl
   });
   assert.equal(training.status, 201, JSON.stringify(training.body));
 
-  // Uploaded by somebody else. It is still evidence about this Marine's own record.
   const at = new Date().toISOString();
   app.ctx.db.prepare(
     `INSERT INTO attachments (id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, content, created_at)
@@ -156,8 +148,6 @@ test('step-up refuses to be an unmetered password oracle, and success clears the
 });
 
 test('the app shell precaches fonts that actually ship', () => {
-  // The old list named two fonts this rewrite deleted. cache.addAll is all-or-nothing, so a single
-  // 404 left the whole shell uncached and the app with nothing to show offline.
   const sw = readFileSync(new URL('../../public/sw.js', import.meta.url), 'utf8');
   const urls = /const SHELL_URLS = \[([\s\S]*?)\];/.exec(sw)![1].match(/'([^']+)'/g)!.map((q) => q.slice(1, -1));
   assert.ok(urls.includes('/'));
@@ -174,9 +164,7 @@ test('the command brief counts the value types the instance actually configured'
     body: { title: 'Recovered expiring funds', date: new Date().toISOString().slice(0, 10), visibility: 'unit', unit_id: 'G8', dollar_amount: 4000, dollar_type: 'reviewed' },
   });
 
-  // "reviewed" is not summable by default, so it starts outside the headline figure.
   const before = briefTotal(await brief());
-  // The owner makes it summable. The brief must follow the instance, not a list frozen in the code.
   app.ctx.runtime.metrics = {
     ...app.ctx.runtime.metrics,
     value_types: app.ctx.runtime.metrics.value_types.map((v) => (v.key === 'reviewed' ? { ...v, summable: true } : v)),

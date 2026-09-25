@@ -4,7 +4,6 @@ export interface GoalLike { user_id?: string; assignee_id?: string | null; visib
 export interface ActivityLike { user_id?: string; date?: string | null; category?: string | null; quantity?: number | null; dollar_amount?: number | null; dollar_type?: string | null }
 export interface TrainingLike { user_id?: string; date?: string | null; hours?: number | null }
 
-/** Progress for a goal. Auto-tracked metrics derive from the subject's activities/trainings inside the goal window; manual goals use the stored value. */
 export function goalProgress(g: GoalLike, activities: ActivityLike[] = [], trainings: TrainingLike[] = [], cfg: MetricsConfig = DEFAULT_METRICS) {
   const subject = g.assignee_id || g.user_id;
   const inWindow = (d: string | null | undefined) => Boolean(d) && (!g.period_start || d! >= g.period_start) && (!g.period_end || d! <= g.period_end);

@@ -26,13 +26,9 @@ before(async () => {
 after(async () => { await app.close(); });
 
 test('a sub-unit needs authority over its parent; a unit of your own does not', async () => {
-  // Putting a unit *under* somebody else's still needs MANAGE_UNITS on that parent. Nothing about
-  // self-service loosens this: it is how you would reach into an existing hierarchy.
   const denied = await app.call('POST', '/api/org/units', { token: nco.token, body: { name: 'Sneaky', parent_id: 'G8' } });
   assert.equal(denied.status, 403);
 
-  // Standing up a unit of your own is no longer the Instance Operator's alone. It used to be, which
-  // meant a leader had to ask permission before they could organise their own people.
   const top = await app.call('POST', '/api/org/units', { token: sncoic.token, body: { name: 'Top level' } });
   assert.equal(top.status, 201, JSON.stringify(top.body));
   assert.equal(top.body.owner_user_id, sncoic.id, 'the person who made it owns it');
@@ -277,7 +273,6 @@ test('reassigning a unit leader from the owner console strips the former leader'
   assert.equal((await app.call('POST', `/api/admin/units/${unitId}/claim`, { token: opToken, body: { owner_user_id: sncoic.id } })).status, 200);
   const sncoicToken = (await app.login('sncoic')).body.token;
   assert.ok((await app.call('GET', '/api/me', { token: sncoicToken })).body.ownedUnitIds.includes(unitId));
-  // The operator was the unit's first leader, so the reassignment revoked their sessions too.
   const opAgain = (await app.login('boletz')).body.token;
   await app.call('POST', '/api/auth/sudo', { token: opAgain, body: { password: PASSWORD } });
   assert.equal((await app.call('POST', `/api/admin/units/${unitId}/claim`, { token: opAgain, body: { owner_user_id: nco.id } })).status, 200);
@@ -334,7 +329,6 @@ test('an owner can redefine the money metric, value types, and categories; forms
   const me = await app.call('GET', '/api/me', { token: opToken });
   assert.deepEqual(me.body.instance.metrics.value_types.map((t: { key: string }) => t.key), ['executed', 'reviewed']);
 
-  // Baseline after the switch: entries saved under retired types now sit outside the headline.
   const before = (await app.call('GET', '/api/org/units/G8/dashboard?from=2026-09-01&to=2026-09-30', { token: opToken })).body.totals;
 
   // Records accept the new keys and refuse retired ones.

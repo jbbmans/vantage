@@ -1,5 +1,4 @@
 import { track } from './telemetry.ts';
-/** Offline outbox: queued activity saves persisted in IndexedDB, replayed when the network returns. */
 const DB_NAME = 'vantage-outbox';
 const STORE = 'activities';
 
@@ -32,7 +31,6 @@ export const outbox = {
     notify();
     return item;
   },
-  /** Items queued by one account. Entries from other accounts on a shared device stay put until that account signs in. */
   async list(userId: string): Promise<OutboxItem[]> {
     try { return ((await tx('readonly', (s) => s.getAll())) as OutboxItem[]).filter((i) => i.userId === userId).sort((a, b) => a.createdAt.localeCompare(b.createdAt)); } catch { return []; }
   },
@@ -61,7 +59,6 @@ export async function flushOutbox(send: (payload: Record<string, unknown>) => Pr
       }
     }
   } finally { flushing = false; notify(); }
-  // Whether the offline path actually works for people is a reliability fact, and it is three counts.
   if (sent || failed) track('reliability.offline_queue', { queued: sent + failed, replayed: sent, failed });
   return { sent, failed };
 }
