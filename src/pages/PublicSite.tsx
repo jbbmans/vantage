@@ -164,7 +164,7 @@ export default function PublicSite() {
   }, []);
 
   return (
-    <div className="public-site" ref={root}>
+    <div className="public-site" data-theme="light" ref={root}>
       <a href="#ps-main" className="ps-skip">Skip to content</a>
 
       <div className="ps-hero-band">

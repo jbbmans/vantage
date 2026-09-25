@@ -8,6 +8,7 @@
 - Sessions are random 256-bit tokens stored only as SHA-256 digests, in an `HttpOnly`, `SameSite=Lax`, `Secure` cookie. Idle timeout 60 minutes, absolute 12 hours, at most 8 active per user.
 - Step-up: sensitive changes require the password again within a 10-minute window (`sudo_until` on the session).
 - Password change, role change, membership change, MFA reset, and deactivation revoke the affected user's other sessions.
+- Accounts can be created in bulk from a roster only by the Instance Operator, after re-entering their password. Temporary passwords in the roster must meet the password policy, and every imported account has to set its own password before it can do anything else.
 
 ## Authorization
 

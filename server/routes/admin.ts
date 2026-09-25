@@ -25,6 +25,7 @@ import { parseRoster, planSync, applySync, divergence, rosterStats, isEdipi, SOU
 import { listSchedules, saveSchedule, openHolds, placeHold, releaseHold, runDisposition, dispositionHistory, RETAINABLE_TYPES, HOLDABLE_TYPES } from '../services/retention.ts';
 import { buildInventory, inventoryMarkdown } from '../services/privacyInventory.ts';
 import { verifyAllCases, anchorCaseHeads } from '../services/caseSeal.ts';
+import { readRoster, planAccounts, applyAccounts } from '../services/accountImport.ts';
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireOperator, requireSudo);
@@ -141,6 +142,19 @@ adminRouter.get('/users', wrap((req, res) => {
     (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = u.id) AS passkeys, (SELECT COUNT(*) FROM unit_members um WHERE um.user_id = u.id) AS units
     FROM users u LEFT JOIN ranks r ON r.id = u.rank_id ORDER BY u.active DESC, u.last_name`).all();
   res.json({ users: rows });
+}));
+
+const accountRoster = express.raw({ type: () => true, limit: '5mb' });
+adminRouter.post('/accounts/import', accountRoster, wrap((req, res) => {
+  const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  if (!buffer.length) throw badRequest('Choose a roster file.');
+  let filename = String(req.get('x-vantage-filename') || 'roster.xlsx');
+  try { filename = decodeURIComponent(filename); } catch {}
+  const rows = readRoster(buffer, filename.slice(0, 200));
+  if (req.query.apply !== '1') return res.json(planAccounts(req.ctx, rows));
+  const result = applyAccounts(req.ctx, req.user, rows, clientIp(req));
+  audit(req.ctx, { actor_id: req.user.id, action: 'accounts_imported', entity: 'instance', detail: `${result.created} created; ${result.counts.exists} already existed; ${result.counts.error} skipped; ${result.counts.new_units} new units`, ip: clientIp(req) });
+  res.json(result);
 }));
 
 adminRouter.get('/units', wrap((req, res) => {

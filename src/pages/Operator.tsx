@@ -9,6 +9,7 @@ import { Table, useParam } from '@/components/common';
 import { keys, useIdentity, signOutEverywhere } from '@/lib/queries';
 import * as api from '@/lib/api';
 import UsageConsole from '@/components/UsageConsole';
+import AccountImport from '@/components/AccountImport';
 import { PersonnelConsole, RetentionConsole, PrivacyConsole } from '@/components/GovernanceConsole';
 import { copyToClipboard, downloadText, humanize, timeAgo } from '@/lib/utils';
 import { DEFAULT_METRICS, CATEGORY_PALETTE, type MetricsConfig } from '../../shared/constants';
@@ -230,7 +231,7 @@ function Accounts() {
   };
   return (
     <>
-      <div className="mb-3 flex items-center gap-2"><Input aria-label="Search accounts" placeholder="Search accounts…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" /><span className="text-xs text-ink-3">{users.length} shown</span></div>
+      <div className="mb-3 flex flex-wrap items-center gap-2"><Input aria-label="Search accounts" placeholder="Search accounts…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" /><span className="text-xs text-ink-3">{users.length} shown</span><span className="ml-auto"><AccountImport onDone={() => refetch()} /></span></div>
       <div className="card" style={{ overflow: 'hidden' }}>
         <Table minWidth={860} head={<><th>Account</th><th className="w-32">Security</th><th className="w-20 text-center">Units</th><th className="w-28">Last sign-in</th><th className="w-24">Status</th><th className="w-64"></th></>}>
           {users.map((u) => (

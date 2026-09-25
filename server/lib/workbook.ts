@@ -134,6 +134,12 @@ function parseSheet(xml: string, strings: string[], dateStyleIndexes: Set<number
   return { name, rows, truncated };
 }
 
+/**
+ * Workbooks written by the OpenXML SDK (SharePoint, Power Automate, many .NET exports) prefix every element,
+ * as in <x:row>. Element names are all this reader matches on, so the prefix is dropped.
+ */
+const unprefixed = (xml: string) => xml.replace(/<(\/?)[A-Za-z_][\w.-]*:(?=[A-Za-z_])/g, '<$1');
+
 export function readWorkbook(buf: Buffer, limits: WorkbookLimits = {}): Workbook {
   const bounds: Required<WorkbookLimits> = {
     maxRows: limits.maxRows ?? 50_000,
@@ -141,7 +147,7 @@ export function readWorkbook(buf: Buffer, limits: WorkbookLimits = {}): Workbook
     maxCells: limits.maxCells ?? 1_000_000,
   };
   const parts = readZip(buf);
-  const text = (name: string) => { const b = parts.get(name); return b ? b.toString('utf8') : undefined; };
+  const text = (name: string) => { const b = parts.get(name); return b ? unprefixed(b.toString('utf8')) : undefined; };
 
   const notes: string[] = [];
   if ([...parts.keys()].some((n) => /vbaProject\.bin$/i.test(n))) notes.push('This workbook contains macros. Vantage read its cell values and did not open the macro code.');

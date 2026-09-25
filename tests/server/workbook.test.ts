@@ -162,3 +162,15 @@ test('the delimiter is sniffed from the heading row', () => {
   assert.equal(sniffDelimiter('a,b,c'), ',');
   assert.equal(sniffDelimiter('single'), ',');
 });
+
+test('reads a workbook written with prefixed elements and absolute part paths, as SharePoint and .NET exports are', () => {
+  const ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const wb = readWorkbook(buildZip([
+    { name: '[Content_Types].xml', data: '<?xml version="1.0"?><Types/>' },
+    { name: 'xl/workbook.xml', data: `<?xml version="1.0" encoding="utf-8"?><x:workbook xmlns:x="${ns}"><x:sheets><x:sheet name="Roster" sheetId="1" r:id="R1" xmlns:r="rel" /></x:sheets></x:workbook>` },
+    { name: 'xl/_rels/workbook.xml.rels', data: '﻿<?xml version="1.0"?><Relationships><Relationship Type="worksheet" Target="/xl/worksheets/sheet1.xml" Id="R1" /></Relationships>' },
+    { name: 'xl/sharedStrings.xml', data: `<?xml version="1.0"?><x:sst xmlns:x="${ns}"><x:si><x:t>Username</x:t></x:si><x:si><x:t>jane.doe</x:t></x:si></x:sst>` },
+    { name: 'xl/worksheets/sheet1.xml', data: `<?xml version="1.0"?><x:worksheet xmlns:x="${ns}"><x:sheetData><x:row r="1"><x:c r="A1" t="s"><x:v>0</x:v></x:c><x:c r="B1" t="inlineStr"><x:is><x:t>Rank</x:t></x:is></x:c></x:row><x:row r="2"><x:c r="A2" t="s"><x:v>1</x:v></x:c><x:c r="B2" t="inlineStr"><x:is><x:t>Cpl</x:t></x:is></x:c></x:row></x:sheetData></x:worksheet>` },
+  ]));
+  assert.deepEqual(wb.sheets[0].rows, [['Username', 'Rank'], ['jane.doe', 'Cpl']]);
+});

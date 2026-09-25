@@ -149,6 +149,16 @@ test.describe('the public site', () => {
     }
   });
 
+  test('keeps its own light palette when the app itself is set to dark', async ({ page }) => {
+    await page.addInitScript(() => { try { localStorage.setItem('vantage.theme', 'dark'); } catch { /* ignore */ } });
+    await page.goto('/display', { waitUntil: 'networkidle' });
+    for (const name of [/See the work behind/, /Nothing important/, /Clear from/]) {
+      const color = await page.getByRole('heading', { name }).evaluate((el) => getComputedStyle(el).color);
+      const [r, g, b] = color.match(/\d+/g)!.map(Number);
+      expect((0.2126 * r + 0.7152 * g + 0.0722 * b) / 255, `${name} is ${color}`).toBeLessThan(0.3);
+    }
+  });
+
   test('keeps the signed-in application out of the index', async ({ page }) => {
     await page.goto('/login', { waitUntil: 'networkidle' });
     const robots = await page.evaluate(() => document.querySelector('meta[name="robots"]')?.getAttribute('content') || '');

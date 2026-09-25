@@ -125,6 +125,8 @@ export const restoreRecord = (store: Store, id: string) => api.post(`/records/${
 export const importActivities = (rows: unknown[]) => api.post('/records/activities/import', { rows });
 export const acknowledgeCounseling = (id: string) => api.post(`/records/counselings/${encodeURIComponent(id)}/acknowledge`);
 export const attachments = (store: Store, id: string) => api.get(`/records/${store}/${encodeURIComponent(id)}/attachments`);
+export const adminImportAccounts = (file: File, apply: boolean) =>
+  request('POST', `/admin/accounts/import${apply ? '?apply=1' : ''}`, file, { headers: { 'content-type': file.type || 'application/octet-stream', 'x-vantage-filename': encodeURIComponent(file.name) } });
 export const uploadAttachment = (store: Store, id: string, file: File) => request('POST', `/records/${store}/${encodeURIComponent(id)}/attachments`, file, { headers: { 'content-type': file.type || 'application/octet-stream', 'x-vantage-filename': encodeURIComponent(file.name) } });
 export const deleteAttachment = (store: Store, id: string, attachmentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`);
 export const attachmentUrl = (store: Store, id: string, attachmentId: string) => `/api/records/${store}/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`;
