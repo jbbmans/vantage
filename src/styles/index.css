@@ -247,6 +247,40 @@
 #main .animate-fade-up > .page > *:nth-child(5) { animation-delay: 160ms; }
 #main .animate-fade-up > .page > *:nth-child(n + 6) { animation-delay: 190ms; }
 
+/* Lists and grids arrive one item after another; --i sets the order when the markup knows it. */
+.stagger > * { animation: rise-in 460ms var(--ease-spring) both; animation-delay: calc(min(var(--i, 0), 14) * 36ms + 40ms); }
+.stagger > :nth-child(1) { --i: 0; } .stagger > :nth-child(2) { --i: 1; } .stagger > :nth-child(3) { --i: 2; } .stagger > :nth-child(4) { --i: 3; }
+.stagger > :nth-child(5) { --i: 4; } .stagger > :nth-child(6) { --i: 5; } .stagger > :nth-child(7) { --i: 6; }
+.stagger > :nth-child(8) { --i: 7; } .stagger > :nth-child(n + 9) { --i: 8; }
+
+.bar-grow { transform-origin: left center; animation: bar-grow 900ms var(--ease-spring) both; animation-delay: calc(min(var(--i, 0), 14) * 36ms + 160ms); transition: width 700ms var(--ease-spring); }
+
+.lift { transition: transform var(--dur-base) var(--ease-spring), box-shadow var(--dur-base) var(--ease-out); }
+@media (hover: hover) {
+  .lift:hover { transform: translateY(-2px); box-shadow: var(--shadow-lift); }
+  .nav-item:hover svg { transform: translateX(1px) scale(1.06); }
+}
+
+.view-badge { animation: view-swap 520ms var(--ease-spring) both; }
+.view-label { animation: rise-in 380ms var(--ease-spring) both; animation-delay: 40ms; }
+.nav-item[aria-current='page']::before { animation: marker-in 420ms var(--ease-spring) both; transform-origin: center; }
+.check-pop[data-done] { animation: check-pop 520ms var(--ease-spring) both; animation-delay: calc(var(--i, 0) * 36ms + 120ms); }
+
+.tab-ink {
+  position: absolute; left: 0; bottom: 0; height: 2px; width: 100px; border-radius: 2px 2px 0 0; pointer-events: none;
+  background: rgb(var(--accent)); transform-origin: left center;
+  transition: transform 420ms var(--ease-spring), opacity var(--dur-fast) ease;
+}
+.tab-bar[data-ink] .tab[aria-selected='true'] { border-color: transparent; }
+
+.activity-bar {
+  position: fixed; inset: 0 0 auto 0; z-index: 50; height: 2px; pointer-events: none; transform-origin: left center;
+  background: linear-gradient(90deg, rgb(var(--accent) / .4), rgb(var(--accent)) 60%, rgb(var(--marker)));
+  box-shadow: 0 0 10px rgb(var(--accent) / .45); transform: scaleX(0); opacity: 0;
+}
+.activity-bar[data-state='busy'] { transform: scaleX(.88); opacity: 1; transition: transform 9s cubic-bezier(.08, .7, .1, 1), opacity 160ms ease; }
+.activity-bar[data-state='done'] { transform: scaleX(1); opacity: 0; transition: transform 220ms var(--ease-out), opacity 320ms ease 180ms; }
+
 button, a[role='button'] { transition-property: transform, background-color, border-color, color, opacity, box-shadow, filter; transition-duration: var(--dur-fast); transition-timing-function: var(--ease-out); }
 button:active:not(:disabled), a[role='button']:active { transform: scale(.98); }
 
@@ -261,6 +295,11 @@ button:active:not(:disabled), a[role='button']:active { transform: scale(.98); }
 @keyframes drawer-in { from { transform: translateX(-100%); } to { transform: none; } }
 @keyframes fade-in { from { opacity: 0; } to { opacity: 1; } }
 @keyframes shimmer { 60%, 100% { transform: translateX(110%); } }
+@keyframes rise-in { from { opacity: 0; transform: translateY(10px) scale(.985); } to { opacity: 1; transform: none; } }
+@keyframes bar-grow { from { transform: scaleX(0); } to { transform: scaleX(1); } }
+@keyframes view-swap { 0% { opacity: 0; transform: scale(.72) rotate(-10deg); } 60% { opacity: 1; transform: scale(1.06) rotate(2deg); } 100% { transform: none; } }
+@keyframes marker-in { from { transform: scaleY(0); opacity: 0; } to { transform: none; opacity: 1; } }
+@keyframes check-pop { 0% { transform: scale(.6); } 55% { transform: scale(1.14); } 100% { transform: none; } }
 
 [data-density='compact'] .card > .card-body { padding: .625rem .75rem; }
 [data-density='compact'] .row { min-height: 2.25rem; }
@@ -278,6 +317,8 @@ button:active:not(:disabled), a[role='button']:active { transform: scale(.98); }
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important; }
   #main .animate-fade-up, #main .animate-fade-up > .page > * { opacity: 1 !important; transform: none !important; }
+  .stagger > *, .bar-grow, .view-badge, .view-label, .check-pop { opacity: 1 !important; transform: none !important; }
+  .activity-bar { display: none; }
 }
 @media print {
   :root { --canvas: 255 255 255; --surface: 255 255 255; --surface-2: 255 255 255; --surface-3: 255 255 255; --line: 190 190 190; --line-strong: 140 140 140; --ink: 0 0 0; --ink-2: 40 40 40; --ink-3: 90 90 90; }

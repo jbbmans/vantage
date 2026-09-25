@@ -3,7 +3,7 @@ import { Kbd } from '@/components/ui/primitives';
 import { NAV } from '@/config/nav';
 
 export default function ShortcutsDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
-  const rows: Array<[string, string[]]> = [['Log activity', ['N']], ['Search and jump', ['/', '⌘K']], ['This list', ['?']], ...NAV.map((n) => [`Go to ${n.label}`, ['G', n.key.toUpperCase()]] as [string, string[]])];
+  const rows: Array<[string, string[]]> = [['Log activity', ['N']], ['Search and jump', ['/', '⌘K']], ['Switch view', ['V']], ['Collapse the menu', ['[']], ['This list', ['?']], ...NAV.map((n) => [`Go to ${n.label}`, ['G', n.key.toUpperCase()]] as [string, string[]])];
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title="Keyboard shortcuts" size="sm">
       <ul className="divide-y divide-line">

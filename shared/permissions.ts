@@ -37,8 +37,8 @@ export const PERMISSION_LIST: Array<{ key: PermissionKey; label: string; hint: s
   { key: 'VIEW_SUPPORT', label: 'Work the support queue', hint: 'Read and answer help requests, including sign-in trouble. Never shows the contents of anyone’s email.', group: 'Administration' },
   { key: 'MANAGE_MEMBERS', label: 'Manage members', hint: 'Invite Marines, enroll existing accounts, and move them between units.', group: 'Administration' },
   { key: 'MANAGE_ROLES', label: 'Manage roles', hint: 'Create roles and assign them. Only roles below your own.', group: 'Administration' },
-  { key: 'MANAGE_UNITS', label: 'Manage units', hint: 'Rename this unit and manage its sub-units. Does not grant reach into them.', group: 'Administration' },
-  { key: 'ADMINISTRATOR', label: 'Administrator', hint: 'Every permission inside this unit. Confers nothing in any other unit.', group: 'Administration', dangerous: true },
+  { key: 'MANAGE_UNITS', label: 'Manage units', hint: 'Rename this unit and create or archive the units beneath it.', group: 'Administration' },
+  { key: 'ADMINISTRATOR', label: 'Administrator', hint: 'Every permission in this unit and the units beneath it. Confers nothing in the units above it.', group: 'Administration', dangerous: true },
 ];
 
 export const ALL_PERMISSIONS = Object.values(PERMISSIONS).reduce((a, b) => a | b, 0);

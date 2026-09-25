@@ -14,7 +14,9 @@
 
 - A user always reads and writes their own records.
 - Records have `visibility` of `private` or `unit`, and a `unit_id`. Only `unit` records in a unit where the reader holds `VIEW_RECORDS` are visible to others; `VIEW_MEMBER_DETAIL` opens a Marine's page; `MANAGE_RECORDS` edits shared entries; `COUNSEL` records counselings and award recommendations.
-- Permissions are a bitmask on roles; roles belong to one unit; nothing inherits across the unit tree. The unit owner holds `ADMINISTRATOR` in that unit only.
+- Permissions are a bitmask on roles, and roles belong to one unit. Authority flows down the unit tree, never up: a role in a command carries into every team beneath it, one position above that team's own role of the same rank, so a command leader outranks a team leader in the team. A role in a team confers nothing in the command above it.
+- Members see an overview of their own team and of each command above it: the roster, the goals, and aggregate totals. Totals built from fewer than three contributors are withheld, so an overview never reveals one person's entries. Shared records, member pages and dashboards still need `VIEW_RECORDS` or `VIEW_MEMBER_DETAIL` in that unit or a unit above it.
+- Moving a Marine between teams needs `MANAGE_MEMBERS` in both teams and a higher position than the Marine in each. It runs as one transaction, is audited as `move_member`, revokes the Marine's sessions, and carries a role only where the mover may grant it.
 - A role is granted, invited or put on a join code only by someone who could have defined it: it sits below their own position and carries no permission they lack. Unit Leader moves only by ownership transfer.
 - Enrolling an existing account skips that person's consent, so it is limited to Marines the leader already leads (below them in a unit where they manage members) and to the Instance Operator. Everyone else joins with an invitation or join code they accept themselves, and the directory offers only people the searcher could enroll.
 - The instance owner (operator) manages accounts and settings but has no read access to private records.

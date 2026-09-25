@@ -15,11 +15,14 @@ export const queryClient = new QueryClient({
   },
 });
 
+export interface UnitView { id: string; name: string; short_name: string | null; parent_id: string | null; depth: number; level: 'full' | 'overview'; member: boolean; teams: number }
+
 export interface Identity {
   user: { id: string; username: string; email: string | null; first_name: string; last_name: string; middle_initial: string | null; rank_id: string | null; mos: string | null; eas: string | null; is_operator: number; totp_enabled: number; must_change_password: number; last_login_at: string | null; created_at: string; passkeys: number; rank: { id: string; grade: string; abbr: string; name: string } | null };
   prefs: Prefs;
   memberships: Array<{ unit_id: string; is_primary: number; billet: string | null; joined_at: string; unit_name: string; unit_short: string | null; unit_code: string; parent_id: string | null }>;
-  primaryUnitId: string | null; unitIds: string[]; readableUnitIds: string[]; ownedUnitIds: string[];
+  primaryUnitId: string | null; unitIds: string[]; readableUnitIds: string[]; ownedUnitIds: string[]; viewableUnitIds: string[];
+  views: UnitView[]; defaultViewId: string | null;
   permissions: Record<string, number>; positions: Record<string, number>;
   roles: Array<{ unit_id: string; id: string; name: string; color: string | null; position: number; permissions: number }>;
   canLead: boolean; manageableUnits: string[]; counselUnits: string[]; exportUnits: string[];

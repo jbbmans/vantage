@@ -3,8 +3,8 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { installTelemetry, track } from '@/lib/telemetry';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle, Bell, ChevronsLeft, ChevronsRight, ChevronsUpDown, CloudOff, FlaskConical, Keyboard, LogOut, Menu as MenuIcon, Moon,
-  Plus, RefreshCw, Search, Settings2, Sun, WifiOff, X,
+  AlertTriangle, Bell, Building2, Check, ChevronsLeft, ChevronsRight, ChevronsUpDown, CloudOff, FlaskConical, Keyboard, LogOut, Menu as MenuIcon, Moon,
+  Plus, RefreshCw, Search, Settings2, Sun, Users, WifiOff, X,
 } from 'lucide-react';
 import { NAV, NAV_GROUPS } from '@/config/nav';
 import { cn, initials, timeAgo } from '@/lib/utils';
@@ -15,6 +15,7 @@ import * as Popover from '@radix-ui/react-popover';
 import QuickLog from '@/components/QuickLog';
 import CommandPalette from '@/components/CommandPalette';
 import ShortcutsDialog from '@/components/ShortcutsDialog';
+import { ActivityBar } from '@/components/ui/motion';
 import SudoDialog, { type SudoRequest } from '@/components/SudoDialog';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys, invalidateDomains } from '@/lib/queries';
@@ -24,6 +25,7 @@ import { flushOutbox, onOutboxChange, outbox } from '@/lib/outbox';
 import { resolveTheme, storedTheme } from '@/lib/theme';
 import { VERSION } from '@/lib/version';
 import { useBuildWatch } from '@/lib/build';
+import { useView, roleLine, viewLabel } from '@/lib/view';
 
 const TITLES: Array<[string, string, string]> = [
   ['/records', 'Record', 'An activity you recorded'],
@@ -34,7 +36,7 @@ const TITLES: Array<[string, string, string]> = [
   ['/reference', 'Reference', 'The FMRA desk reference'],
   ['/maradmins', 'MARADMINs', 'Messages that change a requirement'],
   ['/reports', 'Reports', 'JEPES and FITREP input from the facts'],
-  ['/team', 'Team', 'Workload, people, and units'],
+  ['/team', 'Team', 'Your team and the command above it'],
   ['/settings', 'Settings', 'Your preferences'],
   ['/operator', 'Owner console', 'This deployment'],
   ['/help', 'Field guide', 'How Vantage works'],
@@ -56,6 +58,85 @@ function useOutboxCount(userId: string | undefined) {
   const [count, setCount] = useState(0);
   useEffect(() => { if (!userId) { setCount(0); return; } const refresh = () => outbox.count(userId).then(setCount); refresh(); return onOutboxChange(refresh); }, [userId]);
   return count;
+}
+
+function ViewSwitcher({ mobile }: { mobile: boolean }) {
+  const { data: identity } = useIdentity();
+  const { view, views, setView } = useView(identity);
+  const [open, setOpen] = useState(false);
+  const trigger = React.useRef<HTMLButtonElement>(null);
+  const list = React.useRef<HTMLUListElement>(null);
+  const step = (e: React.KeyboardEvent) => {
+    if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
+    e.preventDefault();
+    const items = [...(list.current?.querySelectorAll<HTMLButtonElement>('[role="option"]') || [])];
+    const at = items.indexOf(document.activeElement as HTMLButtonElement);
+    items[(at + (e.key === 'ArrowDown' ? 1 : -1) + items.length) % items.length]?.focus();
+  };
+  const navigate = useNavigate();
+  useEffect(() => {
+    const show = () => { if (trigger.current?.offsetParent) setOpen(true); };
+    window.addEventListener('vantage:open-views', show);
+    return () => window.removeEventListener('vantage:open-views', show);
+  }, []);
+  const childCount = (id: string) => views.find((v) => v.id === id)?.teams || 0;
+  const parent = view?.parent_id ? views.find((v) => v.id === view.parent_id) : null;
+  const caption = !view ? identity?.instance.organizationName || 'Workspace' : childCount(view.id) ? `Command · ${childCount(view.id)} ${childCount(view.id) === 1 ? 'team' : 'teams'}` : parent ? viewLabel(parent) : identity?.instance.organizationName || 'Workspace';
+  const badge = (viewLabel(view) || identity?.instance.organizationName || 'V').replace(/^the\s+/i, '').slice(0, 3).toUpperCase();
+  if (!views.length) {
+    return (
+      <div className="mx-3 mb-2 mt-1 rounded-[14px] bg-white/[.04] p-1 ring-1 ring-white/[.07]">
+        <button type="button" onClick={() => navigate('/settings')} className="flex w-full items-center gap-2.5 rounded-[10px] bg-white/[.05] px-2.5 py-2 text-left hover:bg-white/[.08]">
+          <span className="min-w-0 flex-1"><span className="block truncate text-[11px] leading-tight text-white/55">{identity?.instance.organizationName || 'Workspace'}</span><span className="block truncate text-sm font-medium leading-tight text-white">No unit yet</span></span>
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div className="mx-3 mb-2 mt-1 rounded-[14px] bg-white/[.04] p-1 ring-1 ring-white/[.07]">
+      <Popover.Root open={open} onOpenChange={setOpen}>
+        <Popover.Trigger asChild>
+          <button ref={trigger} type="button" aria-label={`Viewing ${viewLabel(view)}. Switch view`} aria-keyshortcuts="v" data-testid="view-switcher"
+            className="group flex w-full items-center gap-2.5 rounded-[10px] bg-white/[.05] px-2.5 py-2 text-left shadow-[inset_0_1px_0_rgb(255_255_255/.06)] transition-colors hover:bg-white/[.08]">
+            <span key={view?.id} className="view-badge flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rail-active [background-image:linear-gradient(to_bottom,rgb(255_255_255/.14),rgb(255_255_255/0))] text-2xs font-semibold tracking-wide text-white ring-1 ring-white/10">{badge}</span>
+            <span key={`${view?.id}-label`} className="view-label min-w-0 flex-1">
+              <span className="block truncate text-[11px] leading-tight text-white/55">{caption}</span>
+              <span className="block truncate text-sm font-medium leading-tight text-white">{viewLabel(view)}</span>
+            </span>
+            <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-white/40 transition-transform duration-300 group-hover:scale-110" aria-hidden />
+          </button>
+        </Popover.Trigger>
+        <Popover.Portal>
+          <Popover.Content side={mobile ? 'bottom' : 'right'} align="start" sideOffset={mobile ? 6 : 14} collisionPadding={12} onOpenAutoFocus={(e) => { e.preventDefault(); list.current?.querySelector<HTMLButtonElement>('[aria-selected="true"]')?.focus(); }}
+            className="z-50 w-[min(20rem,calc(100vw-2rem))] rounded-xl border border-line bg-surface p-1.5 shadow-modal animate-scale-in focus:outline-none">
+            <p className="px-2.5 pb-1.5 pt-1 text-2xs font-semibold uppercase tracking-[0.14em] text-ink-3">Views</p>
+            <ul ref={list} onKeyDown={step} className="stagger max-h-[60vh] space-y-0.5 overflow-y-auto p-0.5" role="listbox" aria-label="Views">
+              {views.map((v, i) => {
+                const kids = childCount(v.id);
+                const selected = v.id === view?.id;
+                return (
+                  <li key={v.id} style={{ '--i': i } as React.CSSProperties}>
+                    <button type="button" role="option" aria-selected={selected} onClick={() => { setView(v.id); setOpen(false); track('view.switched', { depth: Math.min(v.depth, 3), whole: kids > 0 }); }}
+                      className={cn('flex w-full items-center gap-2.5 rounded-lg py-2 pr-2.5 text-left text-sm transition-colors hover:bg-surface-2 focus-visible:bg-surface-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/40', selected && 'bg-accent-soft')}
+                      style={{ paddingLeft: `${10 + v.depth * 18}px` }}>
+                      <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-md', kids ? 'bg-deep text-white' : 'bg-surface-3 text-ink-2')}>
+                        {kids ? <Building2 className="h-3.5 w-3.5" aria-hidden /> : <Users className="h-3.5 w-3.5" aria-hidden />}
+                      </span>
+                      <span className="min-w-0 flex-1">
+                        <span className="block truncate font-medium text-ink">{v.short_name || v.name}</span>
+                        <span className="block truncate text-2xs text-ink-3">{kids ? `Whole command · ${kids} ${kids === 1 ? 'team' : 'teams'}` : v.member ? 'Your team' : 'Team'}{v.level === 'full' ? ' · leading' : ''}</span>
+                      </span>
+                      {selected && <Check className="h-4 w-4 shrink-0 text-accent" aria-hidden />}
+                    </button>
+                  </li>
+                );
+              })}
+            </ul>
+          </Popover.Content>
+        </Popover.Portal>
+      </Popover.Root>
+    </div>
+  );
 }
 
 export const OutboxContext = React.createContext<{ pending: number; flush: () => Promise<void> }>({ pending: 0, flush: async () => {} });
@@ -172,6 +253,7 @@ export default function AppShell() {
   const visibleNav = useMemo(() => NAV.filter((item) => {
     if (item.hideInDemo && identity?.demo) return false;
     if (item.requiresLead && !identity?.canLead) return false;
+    if (item.requiresUnit && !identity?.views?.length) return false;
     if (item.requiresOperator && !identity?.user.is_operator) return false;
     if (item.requiresAi && !identity?.instance.aiEnabled) return false;
     if (item.requiresMaradmins && !identity?.instance.maradminsEnabled) return false;
@@ -188,6 +270,12 @@ export default function AppShell() {
       else if (event.key === '/') { event.preventDefault(); setPalette(true); }
       else if (event.key === '?') { event.preventDefault(); setShortcuts((v) => !v); }
       else if (event.key === '[') { event.preventDefault(); toggleRail(); }
+      else if (event.key === 'v' && identity?.views && identity.views.length > 1) {
+        event.preventDefault();
+        if (!window.matchMedia('(min-width: 1024px)').matches) setDrawer(true);
+        else if (collapsed) toggleRail();
+        window.setTimeout(() => window.dispatchEvent(new Event('vantage:open-views')), 80);
+      }
       else if (event.key === 'g') {
         const second = (next: KeyboardEvent) => { const hit = visibleNav.find((i) => i.key === next.key); if (hit) { next.preventDefault(); navigate(hit.to); } window.removeEventListener('keydown', second, true); };
         window.addEventListener('keydown', second, true);
@@ -196,7 +284,7 @@ export default function AppShell() {
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [navigate, openQuickLog, visibleNav]);
+  }, [navigate, openQuickLog, visibleNav, identity?.views, collapsed]);
 
   const switchPersona = async (persona: 'marine' | 'leader') => {
     try { await api.demoPersona(persona); qc.clear(); navigate('/'); qc.invalidateQueries(); }
@@ -210,7 +298,7 @@ export default function AppShell() {
   const toggleTheme = () => { const next = theme === 'dark' ? 'light' : 'dark'; setTheme(next); savePrefs.mutate({ theme: next }); };
   function toggleRail() { setCollapsed((c) => { const n = !c; try { localStorage.setItem('vantage.rail', n ? 'collapsed' : 'open'); } catch {} return n; }); }
   const user = identity?.user;
-  const primary = identity?.memberships.find((m) => m.is_primary) || identity?.memberships[0];
+  const { view } = useView(identity);
   const who = [user?.rank?.abbr, user?.first_name, user?.last_name].filter(Boolean).join(' ');
 
   const accountMenu = (trigger: React.ReactNode) => (
@@ -221,7 +309,7 @@ export default function AppShell() {
           <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] bg-rail-active text-xs font-semibold text-white">{initials(user?.first_name, user?.last_name)}</span>
           <span className="min-w-0">
             <span className="block truncate text-sm font-semibold text-ink">{who}</span>
-            <span className="block truncate text-xs text-ink-3">{primary ? `${primary.billet ? `${primary.billet} · ` : ''}${primary.unit_short || primary.unit_name}` : 'No unit yet'}</span>
+            <span className="block truncate text-xs text-ink-3">{view ? `${roleLine(identity, view)} · ${viewLabel(view)}` : 'No unit yet'}</span>
           </span>
         </div>
         <MenuItem icon={Settings2} onSelect={() => navigate('/settings')}>Settings</MenuItem>
@@ -265,19 +353,7 @@ export default function AppShell() {
     );
   };
 
-  const workspace = (wide: boolean) => wide ? (
-    <div className="mx-3 mb-2 mt-1 rounded-[14px] bg-white/[.04] p-1 ring-1 ring-white/[.07]">
-      <button type="button" onClick={() => navigate(identity?.canLead ? '/team?tab=units' : '/settings')}
-        className="flex w-full items-center gap-2.5 rounded-[10px] bg-white/[.05] px-2.5 py-2 text-left shadow-[inset_0_1px_0_rgb(255_255_255/.06)] transition-colors hover:bg-white/[.08]">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rail-active [background-image:linear-gradient(to_bottom,rgb(255_255_255/.14),rgb(255_255_255/0))] text-2xs font-semibold tracking-wide text-white ring-1 ring-white/10">{(primary?.unit_short || primary?.unit_name || '·').slice(0, 3).toUpperCase()}</span>
-        <span className="min-w-0 flex-1">
-          <span className="block truncate text-[11px] leading-tight text-white/55">{identity?.instance.organizationName || 'Workspace'}</span>
-          <span className="block truncate text-sm font-medium leading-tight text-white">{primary ? primary.unit_short || primary.unit_name : 'No unit yet'}</span>
-        </span>
-        <ChevronsUpDown className="h-3.5 w-3.5 shrink-0 text-white/40" aria-hidden />
-      </button>
-    </div>
-  ) : null;
+  const workspace = (wide: boolean, mobile = false) => wide ? <ViewSwitcher mobile={mobile} /> : null;
 
   const railBackground = 'bg-rail [background-image:radial-gradient(120%_60%_at_0%_0%,rgb(var(--accent)/.16),transparent_60%),radial-gradient(80%_40%_at_100%_100%,rgb(var(--marker)/.1),transparent_70%)]';
 
@@ -285,6 +361,7 @@ export default function AppShell() {
     <OutboxContext.Provider value={{ pending, flush }}>
       <div className="flex min-h-[100dvh] bg-canvas">
         <a href="#main" className="skip-link">Skip to content</a>
+        <ActivityBar />
         <aside className={cn('no-print sticky top-0 hidden h-[100dvh] shrink-0 flex-col border-r border-white/[.06] transition-[width] duration-300 [transition-timing-function:var(--ease-spring)] lg:flex', railBackground, collapsed ? 'w-[72px]' : 'w-[248px]')}>
           <div className={cn('flex h-[60px] shrink-0 items-center px-5', collapsed && 'justify-center px-0')}>
             {collapsed ? <Mark size={26} reversed /> : <Logo size={24} reversed />}
@@ -299,7 +376,7 @@ export default function AppShell() {
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-white/10 text-2xs font-semibold text-white ring-1 ring-white/10">{initials(user?.first_name, user?.last_name)}</span>
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium text-white">{who}</span>
-                      <span className="block truncate text-2xs text-white/50">{primary?.billet || 'Marine'}</span>
+                      <span className="block truncate text-2xs text-white/50">{roleLine(identity, view)}</span>
                     </span>
                   </button>,
                 )}
@@ -323,7 +400,7 @@ export default function AppShell() {
                 <Logo size={24} reversed />
                 <button type="button" onClick={() => setDrawer(false)} className="ml-auto rounded-lg p-2 text-white/60 hover:bg-white/10 hover:text-white" aria-label="Close menu"><X className="h-4 w-4" /></button>
               </div>
-              {workspace(true)}
+              {workspace(true, true)}
               {navList(true)}
             </aside>
           </div>

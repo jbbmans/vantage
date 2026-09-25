@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Users, UserPlus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy } from 'lucide-react';
+import { Users, UserPlus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -18,53 +18,69 @@ import { copyToClipboard, cn, humanize, fullName } from '@/lib/utils';
 
 const TeamWorkload = lazy(() => import('./TeamWorkload'));
 import { downloadText } from '@/lib/utils';
+import { useView, subtreeOf, viewLabel } from '@/lib/view';
+import { UnitOverviewPanel } from '@/components/UnitOverview';
+import { markTeamSeen } from '@/components/GettingStarted';
 
 export default function Team() {
   const { data: identity } = useIdentity();
   const { data: org } = useOrg();
   const { data: team, isPending } = useTeam();
-  const [tab, setTab] = useParam('tab', 'workload');
-  const readable = identity?.readableUnitIds || [];
-  const [unit, setUnit] = useParam('unit', identity?.primaryUnitId && readable.includes(identity.primaryUnitId) ? identity.primaryUnitId : readable[0] || '');
+  const [tab, setTab] = useParam('tab', 'overview');
+  const { view, views, setView } = useView(identity);
+  const [linked, setLinked] = useParam('unit', '');
+  useEffect(() => { if (linked && views.some((v) => v.id === linked)) { setView(linked); setLinked(''); } }, [linked, views]); // eslint-disable-line react-hooks/exhaustive-deps
+  const unit = view?.id || '';
+  const full = view?.level === 'full';
+  const subtree = useMemo(() => (unit ? subtreeOf(views, unit) : []), [views, unit]);
+  useEffect(() => { markTeamSeen(identity?.user.id); }, [identity?.user.id]);
   const units: any[] = org?.units || [];
   const unitLabel = (id: string) => { const u = units.find((x) => x.id === id); return u ? u.short_name || u.name : id; };
   const manageMembers = unitsWith(identity, PERMISSIONS.MANAGE_MEMBERS);
   const manageRoles = unitsWith(identity, PERMISSIONS.MANAGE_ROLES);
   const manageUnits = unitsWith(identity, PERMISSIONS.MANAGE_UNITS);
   const viewAudit = unitsWith(identity, PERMISSIONS.VIEW_AUDIT);
-  const tabs = [{ value: 'workload', label: 'Workload' }, { value: 'roster', label: 'Roster', count: team?.roster?.length }, { value: 'dashboard', label: 'Unit dashboard' }];
+  const rosterCount = (team?.roster || []).filter((p: any) => p.memberships.some((m: any) => subtree.includes(m.unit_id))).length;
+  const tabs: Array<{ value: string; label: string; count?: number }> = [{ value: 'overview', label: 'Overview' }];
+  if (full) tabs.push({ value: 'workload', label: 'Workload' }, { value: 'roster', label: 'Roster', count: rosterCount }, { value: 'dashboard', label: 'Unit dashboard' });
   if (manageMembers.length) tabs.push({ value: 'invites', label: 'Invitations' });
   if (manageRoles.length || manageUnits.length || identity?.user.is_operator) tabs.push({ value: 'roles', label: 'Roles' });
   if (manageUnits.length || identity?.user.is_operator) tabs.push({ value: 'units', label: 'Units' });
   if (viewAudit.length) tabs.push({ value: 'audit', label: 'Access log' });
 
-  if (!identity?.canLead) return <div className="page"><PageHeader eyebrow="Team" title="Team" /><div className="card"><EmptyState icon={Users} title="No unit visibility yet" description="Team shows the Marines and shared records of units where you hold a leadership role. Ask your unit leader for a role." /></div></div>;
+  const shown = tabs.some((t) => t.value === tab) ? tab : 'overview';
+  if (!views.length) return <div className="page"><PageHeader eyebrow="Team" title="Team" /><div className="card"><EmptyState icon={Users} title="No unit visibility yet" description="Team shows the Marines and shared records of units where you hold a leadership role. Ask your unit leader for a role." /></div></div>;
 
   return (
     <div className="page">
-      <PageHeader eyebrow="Team" title="Team" lede="The section’s work and people. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.">
-        {readable.length > 1 && <Select aria-label="Unit" className="w-56" value={unit} onValueChange={setUnit} options={readable.map((id) => ({ value: id, label: unitLabel(id) }))} />}
+      <PageHeader eyebrow={view && subtree.length > 1 ? 'Whole command' : 'Team'} title={viewLabel(view) || 'Team'} lede={full ? 'The work and people of this view. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.' : 'Who is in this view, how its teams are doing, and the goals it is working toward. Figures built from fewer than three people are not shown.'}>
+        {views.length > 1 && <Select aria-label="View" className="w-64" value={unit} onValueChange={setView} options={views.map((v) => ({ value: v.id, label: `${'\u2003'.repeat(v.depth)}${v.short_name || v.name}${v.teams ? ' (whole command)' : ''}` }))} />}
       </PageHeader>
-      <Tabs value={tab} onChange={setTab} className="mb-4" tabs={tabs} />
+      <Tabs value={shown} onChange={setTab} className="mb-4" tabs={tabs} />
       {isPending ? <Skeleton className="h-64" /> : (
         <>
-          {tab === 'workload' && unit && <Suspense fallback={<Skeleton className="h-64" />}><TeamWorkload unitId={unit} /></Suspense>}
-          {tab === 'roster' && <Roster team={team} unit={unit} unitLabel={unitLabel} canManage={manageMembers.includes(unit)} />}
-          {tab === 'dashboard' && unit && <UnitDashboard unitId={unit} unitLabel={unitLabel(unit)} canExport={can(identity, PERMISSIONS.EXPORT_DATA, unit)} canDetail={can(identity, PERMISSIONS.VIEW_MEMBER_DETAIL, unit)} />}
-          {tab === 'invites' && <Invites unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} />}
-          {tab === 'roles' && <Roles unitId={unit} unitLabel={unitLabel} />}
-          {tab === 'units' && <Units units={units} manageUnits={manageUnits} isOperator={Boolean(identity.user.is_operator)} roster={team?.roster || []} />}
-          {tab === 'audit' && <UnitAudit unitId={viewAudit.includes(unit) ? unit : viewAudit[0]} />}
+          {shown === 'overview' && unit && <UnitOverviewPanel key={unit} unitId={unit} />}
+          {shown === 'workload' && unit && <Suspense fallback={<Skeleton className="h-64" />}><TeamWorkload unitId={unit} /></Suspense>}
+          {shown === 'roster' && <Roster team={team} unit={unit} subtree={subtree} unitLabel={unitLabel} canManage={manageMembers.includes(unit)} moveTargets={views.filter((v) => manageMembers.includes(v.id)).map((v) => ({ id: v.id, depth: v.depth, label: v.teams ? `${v.short_name || v.name} (command element)` : v.short_name || v.name }))} />}
+          {shown === 'dashboard' && unit && <UnitDashboard unitId={unit} unitLabel={unitLabel(unit)} canExport={can(identity, PERMISSIONS.EXPORT_DATA, unit)} canDetail={can(identity, PERMISSIONS.VIEW_MEMBER_DETAIL, unit)} />}
+          {shown === 'invites' && <Invites unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} />}
+          {shown === 'roles' && <Roles unitId={unit} unitLabel={unitLabel} />}
+          {shown === 'units' && <Units units={units} manageUnits={manageUnits} isOperator={Boolean(identity?.user.is_operator)} roster={team?.roster || []} />}
+          {shown === 'audit' && <UnitAudit unitId={viewAudit.includes(unit) ? unit : viewAudit[0]} />}
         </>
       )}
     </div>
   );
 }
 
-function Roster({ team, unit, unitLabel, canManage }: { team: any; unit: string; unitLabel: (id: string) => string; canManage: boolean }) {
+function Roster({ team, unit, subtree, unitLabel, canManage, moveTargets }: { team: any; unit: string; subtree: string[]; unitLabel: (id: string) => string; canManage: boolean; moveTargets: Array<{ id: string; depth: number; label: string }> }) {
   const [q, setQ] = useState('');
   const [enroll, setEnroll] = useState(false);
-  const roster: any[] = useMemo(() => (team?.roster || []).filter((p: any) => (!unit || p.memberships.some((m: any) => m.unit_id === unit)) && (!q.trim() || `${p.first_name} ${p.last_name} ${p.mos || ''} ${p.rank_abbr || ''}`.toLowerCase().includes(q.trim().toLowerCase()))), [team, unit, q]);
+  const [moving, setMoving] = useState<{ person: any; from: string } | null>(null);
+  const { data: identity } = useIdentity();
+  const rollup = subtree.length > 1;
+  const roster: any[] = useMemo(() => (team?.roster || []).filter((p: any) => (!unit || p.memberships.some((m: any) => subtree.includes(m.unit_id))) && (!q.trim() || `${p.first_name} ${p.last_name} ${p.mos || ''} ${p.rank_abbr || ''}`.toLowerCase().includes(q.trim().toLowerCase()))), [team, unit, subtree, q]);
+  const teamOf = (p: any) => (p.memberships.find((m: any) => m.unit_id !== unit && subtree.includes(m.unit_id)) || p.memberships.find((m: any) => m.unit_id === unit) || p.memberships[0]);
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center gap-2">
@@ -73,20 +89,50 @@ function Roster({ team, unit, unitLabel, canManage }: { team: any; unit: string;
       </div>
       {roster.length === 0 ? <div className="card"><EmptyState icon={Users} title="No members here yet" description={canManage ? 'Invite Marines from the Invitations tab, or enroll an account that already exists.' : 'Nobody has joined this unit yet.'} /></div> : (
         <div className="card" style={{ overflow: 'hidden' }}>
-          <Table head={<><th>Marine</th><th className="w-28">MOS</th><th>Billet</th><th>Roles</th><th className="w-24"></th></>}>
-            {roster.map((p) => { const m = p.memberships.find((x: any) => x.unit_id === unit) || p.memberships[0]; return (
+          <Table head={<><th>Marine</th>{rollup && <th className="w-44">Team</th>}<th className="w-28">MOS</th><th>Billet</th><th>Roles</th><th className="w-24"></th></>}>
+            {roster.map((p) => { const m = teamOf(p); return (
               <tr key={p.id}>
                 <td><span className="flex items-center gap-2.5"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 text-xs font-bold text-ink">{(p.first_name[0] || '') + (p.last_name[0] || '')}</span><span className="min-w-0"><span className="block font-medium text-ink">{p.rank_abbr || ''} {p.last_name}, {p.first_name}</span><span className="block text-xs text-ink-3">{m ? `${m.unit_short || m.unit_name}${m.is_primary ? '' : ' (secondary)'}` : ''}</span></span></span></td>
+                {rollup && <td className="text-xs text-ink-2">{m ? unitLabel(m.unit_id) : ''}</td>}
                 <td className="fig text-xs">{p.mos || ''}</td><td className="text-xs text-ink-2">{m?.billet || ''}</td>
-                <td><span className="flex flex-wrap gap-1">{p.roles.filter((r: any) => r.unit_id === unit).map((r: any) => <RoleBadge key={r.id} color={r.color}>{r.name}</RoleBadge>)}</span></td>
-                <td className="text-right">{p.canOpen ? <Button size="xs" asChild><Link to={`/team/${p.id}`}>Open</Link></Button> : <span className="text-2xs text-ink-3">roster only</span>}</td>
+                <td><span className="flex flex-wrap gap-1">{p.roles.filter((r: any) => r.unit_id === (m?.unit_id || unit)).map((r: any) => <RoleBadge key={r.id} color={r.color}>{r.name}</RoleBadge>)}</span></td>
+                <td className="text-right"><span className="inline-flex items-center gap-1">{m && p.id !== identity?.user.id && moveTargets.some((t) => t.id === m.unit_id) && moveTargets.some((t) => t.id !== m.unit_id && !p.memberships.some((x: any) => x.unit_id === t.id)) && <Button size="xs" variant="ghost" onClick={() => setMoving({ person: p, from: m.unit_id })} aria-label={`Move ${p.last_name} to another team`}><ArrowRightLeft className="h-3.5 w-3.5" /></Button>}{p.canOpen ? <Button size="xs" asChild><Link to={`/team/${p.id}`}>Open</Link></Button> : <span className="text-2xs text-ink-3">roster only</span>}</span></td>
               </tr>
             ); })}
           </Table>
         </div>
       )}
       <EnrollDialog open={enroll} onOpenChange={setEnroll} unitId={unit} unitLabel={unitLabel(unit)} />
+      <MoveDialog move={moving} onClose={() => setMoving(null)} targets={moveTargets} unitLabel={unitLabel} />
     </>
+  );
+}
+
+function MoveDialog({ move, onClose, targets, unitLabel }: { move: { person: any; from: string } | null; onClose: () => void; targets: Array<{ id: string; depth: number; label: string }>; unitLabel: (id: string) => string }) {
+  const toast = useToast(); const qc = useQueryClient();
+  const [to, setTo] = useState(''); const [carry, setCarry] = useState(false); const [busy, setBusy] = useState(false);
+  const options = move ? targets.filter((t) => t.id !== move.from && !move.person.memberships.some((m: any) => m.unit_id === t.id)).sort((x, y) => y.depth - x.depth) : [];
+  useEffect(() => { setTo(options[0]?.id || ''); setCarry(false); }, [move]); // eslint-disable-line react-hooks/exhaustive-deps
+  const name = move ? `${move.person.rank_abbr || ''} ${move.person.last_name}`.trim() : '';
+  const submit = async () => {
+    if (!move || !to) return;
+    setBusy(true);
+    try {
+      const r = await api.moveMember(move.from, move.person.id, { to, entries: carry ? 'move' : 'stay' });
+      qc.invalidateQueries({ queryKey: keys.team }); qc.invalidateQueries({ queryKey: ['unit-overview'] });
+      toast.success(`${name} moved to ${unitLabel(to)}.${r.rolesSkipped?.length ? ` Not carried over: ${r.rolesSkipped.join(', ')}.` : ''}`);
+      onClose();
+    } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }
+  };
+  return (
+    <Dialog open={Boolean(move)} onOpenChange={(o) => { if (!o) onClose(); }} title={`Move ${name}`} description={move ? `From ${unitLabel(move.from)}. Their account, private entries and history stay with them. They sign in again to see the new team.` : ''} size="sm"
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" onClick={submit} loading={busy} disabled={!to}>Move</Button></>}>
+      <div className="space-y-3">
+        <Field label="New team"><Select value={to} onValueChange={setTo} options={options.map((t) => ({ value: t.id, label: t.label }))} /></Field>
+        <Switch checked={carry} onChange={setCarry} label="Take their shared entries with them" description={carry ? `Activities and training they shared with ${move ? unitLabel(move.from) : 'the old team'} move to the new team and stay editable. Team tasks, goals and projects stay behind.` : `Entries stay with ${move ? unitLabel(move.from) : 'the old team'}, where the work was done, and become read-only. They still count toward the command.`} />
+        <p className="text-xs text-ink-3">Roles move with them when the new team has the same role and you may grant it. Open work they had claimed on the old team is released.</p>
+      </div>
+    </Dialog>
   );
 }
 
@@ -197,7 +243,7 @@ function Units({ units, manageUnits, isOperator, roster }: { units: any[]; manag
   const orphans = units.filter((u) => u.parent_id && !units.some((p) => p.id === u.parent_id)).map((u) => ({ ...u, depth: 0 }));
   return (
     <>
-      <div className="mb-3 flex items-center justify-between gap-2"><p className="text-sm text-ink-2">Units you can manage. Sub-units inherit nothing upward: leading a parent grants no reach into a child.</p><Button variant="primary" onClick={() => setEditing({ name: '', short_name: '', echelon: 'section', location: '', parent_id: manageUnits[0] || '' })} disabled={!manageUnits.length && !isOperator}><Building2 className="h-4 w-4" />New unit</Button></div>
+      <div className="mb-3 flex items-center justify-between gap-2"><p className="text-sm text-ink-2">Units you can manage. Authority flows down: leading a command reaches every team beneath it, and leading a team reaches nothing above it.</p><Button variant="primary" onClick={() => setEditing({ name: '', short_name: '', echelon: 'section', location: '', parent_id: manageUnits[0] || '' })} disabled={!manageUnits.length && !isOperator}><Building2 className="h-4 w-4" />New unit</Button></div>
       <div className="card" style={{ overflow: 'hidden' }}>
         <Table head={<><th>Unit</th><th className="w-36">Echelon</th><th className="w-40">Leader</th><th className="w-40"></th></>}>
           {[...rows, ...orphans].map((u) => { const owner = roster.find((p) => p.id === u.owner_user_id); const canManage = manageUnits.includes(u.id) || isOperator; return (
@@ -270,7 +316,7 @@ function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: st
         <Panel className="lg:col-span-2" title="Members" subtitle={canDetail ? 'open a Marine to see their shared record' : 'member detail requires the Open member records permission'} padded={false}>
           {!data.members.length ? <EmptyState title={canDetail ? 'No members' : 'Member breakdown hidden'} /> : (
             <Table head={<><th>Marine</th><th className="w-28 text-right">{cfg.currency_label}</th><th className="w-24 text-right">With a result</th><th className="w-24 text-right" title="How many outcomes they shared. Provenance for the figures, not a score.">Shared</th><th className="w-24">Last shared</th><th className="w-28">Counseling</th></>}>
-              {data.members.map((m: any) => <tr key={m.id}><td><Link to={`/team/${m.id}`} className="font-medium text-ink hover:underline">{m.rank_abbr || ''} {m.name}</Link>{m.billet && <span className="block text-xs text-ink-3">{m.billet}</span>}</td><td className="fig text-right text-xs">{m.dollars ? formatDollars(m.dollars) : ''}</td><td className={cn('fig text-right text-xs', m.completeness != null && m.completeness < 60 && 'text-warn')}>{m.completeness == null ? '—' : `${m.completeness}%`}</td><td className="fig text-right text-xs text-ink-3">{m.entries}</td><td className="text-xs"><DateText value={m.last_entry} fallback="none" /></td><td>{m.counseling_due ? <Badge tone="warn">Due</Badge> : <span className="text-xs text-ink-3"><DateText value={m.last_counseling} fallback="" /></span>}</td></tr>)}
+              {data.members.map((m: any) => <tr key={m.id}><td><Link to={`/team/${m.id}`} className="font-medium text-ink hover:underline">{m.rank_abbr || ''} {m.name}</Link>{(m.team || m.billet) && <span className="block text-xs text-ink-3">{[m.team, m.billet].filter(Boolean).join(' · ')}</span>}</td><td className="fig text-right text-xs">{m.dollars ? formatDollars(m.dollars) : ''}</td><td className={cn('fig text-right text-xs', m.completeness != null && m.completeness < 60 && 'text-warn')}>{m.completeness == null ? '—' : `${m.completeness}%`}</td><td className="fig text-right text-xs text-ink-3">{m.entries}</td><td className="text-xs"><DateText value={m.last_entry} fallback="none" /></td><td>{m.counseling_due ? <Badge tone="warn">Due</Badge> : <span className="text-xs text-ink-3"><DateText value={m.last_counseling} fallback="" /></span>}</td></tr>)}
             </Table>
           )}
         </Panel>

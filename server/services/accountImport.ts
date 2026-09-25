@@ -6,7 +6,8 @@ import { hashPassword } from '../lib/crypto.ts';
 import { newId, now, slug } from '../lib/ids.ts';
 import { passwordProblem } from '../../shared/password.ts';
 import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
-import { addMember, claimUnit } from './org.ts';
+import { addMember, claimUnit, seedRoles } from './org.ts';
+import { can, scopeFor, PERMISSIONS } from '../authz/scope.ts';
 import { audit } from './audit.ts';
 
 export const MAX_ACCOUNT_ROWS = 500;
@@ -226,7 +227,9 @@ export function applyAccounts(ctx: AppContext, actor: SessionUser, rows: RosterR
       const short = name.length <= 16 ? name : null;
       ctx.db.prepare('INSERT INTO units (id, code, name, short_name, echelon, parent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
         .run(id, id, name.slice(0, 120), short, parentId ? 'section' : 'command', parentId, now());
-      claimUnit(ctx, id, actor.id);
+      // A team under a command the importer already leads is governed from above; only a new command gets an owner.
+      if (parentId && can(scopeFor(ctx, actor), PERMISSIONS.ADMINISTRATOR, parentId)) seedRoles(ctx, id);
+      else claimUnit(ctx, id, actor.id);
       audit(ctx, { actor_id: actor.id, action: 'create_unit', entity: 'unit', entity_id: id, unit_id: id, detail: `${name}; account import`, ip });
     }
     unitIds.set(cacheKey, id);

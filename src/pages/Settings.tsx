@@ -212,6 +212,21 @@ function DataTab() {
         <Button variant="primary" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4" />Import CSV</Button>
         <p className="mt-3 text-xs leading-relaxed text-ink-3">Up to 1000 rows per file. Likely duplicates are screened before anything is written.</p>
       </Panel>
+      <Panel title="Changing teams, PCS or EAS" subtitle="What happens to your record when you move on" className="lg:col-span-2">
+        <ol className="stagger grid grid-cols-1 gap-3 md:grid-cols-3">
+          {[
+            ['Take a copy', 'Download everything above before your last day. The ZIP opens without Vantage.'],
+            ['Hand off open work', 'Close or reassign what you have claimed. Anything still claimed is released to the team when you leave it.'],
+            ['Moving within the command', 'Your leader moves you between teams in one step. Roles carry over where the new team has them, and your shared entries can travel with you.'],
+          ].map(([title, text], i) => (
+            <li key={title} className="rounded-xl bg-surface-2/60 p-3 ring-1 ring-inset ring-line" style={{ '--i': i } as React.CSSProperties}>
+              <span className="flex items-center gap-2 text-sm font-medium text-ink"><span className="fig flex h-5 w-5 items-center justify-center rounded-full bg-accent/10 text-2xs text-accent">{i + 1}</span>{title}</span>
+              <p className="mt-1.5 text-xs leading-relaxed text-ink-2">{text}</p>
+            </li>
+          ))}
+        </ol>
+        <p className="mt-3 text-xs leading-relaxed text-ink-3">When you leave a unit, entries you shared with it stay there, read-only, as the record of work done for that unit. Private entries, drafts and career plans are never shared and stay yours. When your account is deactivated at EAS, you can no longer sign in; nothing is deleted, and the instance owner can reactivate it.</p>
+      </Panel>
       <Panel title="Sign out everywhere" className="lg:col-span-2"><div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-ink-2">Ends this session and every other one, on every device.</p><Button variant="danger" onClick={() => signOutEverywhere()}><LogOut className="h-4 w-4" />Sign out</Button></div></Panel>
       <CsvImportDialog open={importOpen} onOpenChange={setImportOpen} />
     </div>

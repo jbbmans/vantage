@@ -12,7 +12,42 @@ export interface Scope {
   ownedUnitIds: string[];
   roles: Array<{ unit_id: string; id: string; name: string; color: string | null; position: number; permissions: number }>;
   readableUnitIds: string[];
+  /** Units this person may open as a view: every unit they hold a permission in, plus the commands above their own units. */
+  viewableUnitIds: string[];
   topPosition: number;
+}
+
+interface UnitNode { id: string; parent_id: string | null }
+
+/** Parent to children, for active units. */
+export function unitTree(ctx: AppContext): { children: Map<string, string[]>; parent: Map<string, string | null> } {
+  const rows = ctx.db.prepare('SELECT id, parent_id FROM units WHERE active = 1').all() as UnitNode[];
+  const children = new Map<string, string[]>();
+  const parent = new Map<string, string | null>();
+  for (const r of rows) parent.set(r.id, r.parent_id);
+  for (const r of rows) if (r.parent_id && parent.has(r.parent_id)) children.set(r.parent_id, [...(children.get(r.parent_id) || []), r.id]);
+  return { children, parent };
+}
+
+/** A unit and every active unit beneath it. */
+export function subtreeIds(ctx: AppContext, unitId: string, tree = unitTree(ctx)): string[] {
+  if (!tree.parent.has(unitId)) return [];
+  const out: string[] = [];
+  const queue = [unitId];
+  while (queue.length && out.length < 5000) {
+    const id = queue.shift()!;
+    if (out.includes(id)) continue;
+    out.push(id);
+    queue.push(...(tree.children.get(id) || []));
+  }
+  return out;
+}
+
+function ancestorsOf(tree: ReturnType<typeof unitTree>, unitId: string): string[] {
+  const out: string[] = [];
+  let current = tree.parent.get(unitId) ?? null;
+  while (current && !out.includes(current) && out.length < 50) { out.push(current); current = tree.parent.get(current) ?? null; }
+  return out;
 }
 
 const cache = new WeakMap<object, Map<string, Scope>>();
@@ -46,6 +81,19 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
     permissions[id] = ALL_PERMISSIONS;
     positions[id] = Math.max(positions[id] || 0, 100);
   }
+
+  // Authority held in a unit reaches every unit beneath it, and outranks anyone whose role sits only in the lower unit.
+  const tree = unitTree(ctx);
+  for (const [unitId, bits] of Object.entries({ ...permissions })) {
+    const rank = positions[unitId] || 0;
+    for (const below of subtreeIds(ctx, unitId, tree).slice(1)) {
+      permissions[below] = (permissions[below] || 0) | bits;
+      positions[below] = Math.max(positions[below] || 0, rank ? rank + 1 : 0);
+    }
+  }
+  const viewable = new Set(Object.keys(permissions).filter((id) => tree.parent.has(id)));
+  for (const m of memberships) { viewable.add(m.unit_id); for (const a of ancestorsOf(tree, m.unit_id)) viewable.add(a); }
+
   const scope: Scope = {
     memberships,
     unitIds: memberships.map((m) => m.unit_id),
@@ -55,6 +103,7 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
     ownedUnitIds: owned,
     roles,
     readableUnitIds: Object.entries(permissions).filter(([, bits]) => has(bits, PERMISSIONS.VIEW_RECORDS)).map(([id]) => id),
+    viewableUnitIds: [...viewable],
     topPosition: Object.values(positions).reduce((a, b) => Math.max(a, b), 0),
   };
   if (reqKey) {
@@ -97,4 +146,26 @@ export function detailUnitsFor(ctx: AppContext, actorScope: Scope, targetId: str
   return targetScope.unitIds
     .filter((unitId) => can(actorScope, PERMISSIONS.VIEW_MEMBER_DETAIL, unitId))
     .filter((unitId) => positionIn(actorScope, unitId) > positionIn(targetScope, unitId));
+}
+
+export interface UnitMember {
+  id: string; first_name: string; last_name: string; mos: string | null; billet: string | null; is_primary: number;
+  unit_id: string; team: string; rank_abbr: string | null; rank_sort: number | null;
+}
+
+/** Everyone active in any of these units, once each, labelled with their own team rather than the command above it. */
+export function membersAcross(ctx: AppContext, unitIds: string[]): UnitMember[] {
+  if (!unitIds.length) return [];
+  const rows = ctx.db.prepare(
+    `SELECT u.id, u.first_name, u.last_name, u.mos, um.billet, um.is_primary, um.unit_id, COALESCE(un.short_name, un.name) AS team, r.abbr AS rank_abbr, r.sort AS rank_sort
+       FROM unit_members um JOIN users u ON u.id = um.user_id JOIN units un ON un.id = um.unit_id LEFT JOIN ranks r ON r.id = u.rank_id
+      WHERE um.unit_id IN (SELECT value FROM json_each(?)) AND u.active = 1 ORDER BY r.sort DESC, u.last_name, u.first_name`
+  ).all(JSON.stringify(unitIds)) as UnitMember[];
+  const root = unitIds[0];
+  const byUser = new Map<string, UnitMember>();
+  for (const r of rows) {
+    const current = byUser.get(r.id);
+    if (!current || (current.unit_id === root && r.unit_id !== root)) byUser.set(r.id, r);
+  }
+  return [...byUser.values()];
 }

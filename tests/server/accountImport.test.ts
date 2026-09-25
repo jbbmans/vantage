@@ -2,6 +2,7 @@ import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, enroll, PASSWORD, type TestApp } from './helpers.ts';
 import { buildZip } from '../../server/lib/zip.ts';
+import { PERMISSIONS } from '../../shared/permissions.ts';
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
@@ -50,8 +51,11 @@ test('applying creates the accounts, their units, ranks, roles and billets, all 
   assert.deepEqual(avery, { rank_id: 'SSgt', email: 'avery.stone@example.mil', must_change_password: 1, unit_id: 'ALPHA-CELL', billet: 'Section chief', parent_id: 'TEST-COMMAND' });
   const roles = app.ctx.db.prepare(`SELECT r.key FROM member_roles mr JOIN roles r ON r.id = mr.role_id JOIN users u ON u.id = mr.user_id WHERE u.username = 'avery.stone' ORDER BY r.key`).all().map((x) => (x as { key: string }).key);
   assert.deepEqual(roles, ['fire-team-leader', 'marine']);
-  const owners = app.ctx.db.prepare(`SELECT owner_user_id FROM units WHERE id IN ('TEST-COMMAND', 'ALPHA-CELL', 'BRAVO-CELL')`).all() as Array<{ owner_user_id: string }>;
-  assert.deepEqual(owners.map((o) => o.owner_user_id), [op.id, op.id, op.id], 'the importer leads every unit it creates');
+  const owners = Object.fromEntries((app.ctx.db.prepare(`SELECT id, owner_user_id FROM units WHERE id IN ('TEST-COMMAND', 'ALPHA-CELL', 'BRAVO-CELL')`).all() as Array<{ id: string; owner_user_id: string | null }>).map((o) => [o.id, o.owner_user_id]));
+  assert.deepEqual(owners, { 'TEST-COMMAND': op.id, 'ALPHA-CELL': null, 'BRAVO-CELL': null }, 'the importer leads the command it creates, and governs its teams from there');
+  const me = await app.call('GET', '/api/me', { token: op.token });
+  assert.ok(me.body.permissions['ALPHA-CELL'] & PERMISSIONS.ADMINISTRATOR);
+  assert.ok(!me.body.unitIds.includes('ALPHA-CELL'), 'without joining the team roster');
 
   const login = await app.login('avery.stone', 'QuartzHarborLane4!');
   assert.equal(login.status, 200);

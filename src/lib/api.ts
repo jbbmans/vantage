@@ -142,6 +142,7 @@ export const updateMemberProfile = (id: string, payload: unknown) => api.put(`/o
 export const directory = (unitId: string, q: string) => api.get(`/org/directory?unit_id=${encodeURIComponent(unitId)}&q=${encodeURIComponent(q)}`);
 export const addMember = (unitId: string, payload: unknown) => api.post(`/org/units/${encodeURIComponent(unitId)}/members`, payload);
 export const updateMembership = (unitId: string, userId: string, payload: unknown) => api.put(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}`, payload);
+export const moveMember = (unitId: string, userId: string, payload: { to: string; entries?: 'stay' | 'move' }) => api.post(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}/move`, payload);
 export const removeMember = (unitId: string, userId: string) => api.del(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}`);
 export const createInvite = (unitId: string, payload: unknown) => api.post(`/org/units/${encodeURIComponent(unitId)}/invites`, payload);
 export const listInvites = (unitId: string) => api.get(`/org/units/${encodeURIComponent(unitId)}/invites`);
@@ -156,6 +157,7 @@ export const createUnit = (payload: unknown) => api.post('/org/units', payload);
 export const updateUnit = (id: string, payload: unknown) => api.put(`/org/units/${encodeURIComponent(id)}`, payload);
 export const archiveUnit = (id: string) => api.del(`/org/units/${encodeURIComponent(id)}`);
 export const transferOwnership = (id: string, userId: string) => api.post(`/org/units/${encodeURIComponent(id)}/owner`, { user_id: userId });
+export const unitOverview = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/overview`);
 export const unitDashboard = (id: string, from?: string, to?: string) => api.get(`/org/units/${encodeURIComponent(id)}/dashboard${from && to ? `?from=${from}&to=${to}` : ''}`);
 export const unitAudit = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/audit`);
 export const unitExport = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/export`);

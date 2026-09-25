@@ -56,7 +56,8 @@ test('starting over from the shell erases everything in place, then creates the 
     assert.equal(admin.status, 200);
     const me = await app.call('GET', '/api/me', { token: admin.body.token });
     assert.equal(me.body.user.is_operator, 1);
-    assert.deepEqual(me.body.ownedUnitIds.sort(), ['ALPHA-CELL', 'TESTCMD']);
+    assert.deepEqual(me.body.ownedUnitIds, ['TESTCMD']);
+    assert.deepEqual(me.body.views.map((v: { id: string; level: string }) => `${v.id}:${v.level}`), ['TESTCMD:full', 'ALPHA-CELL:full'], 'the whole command and its team, both led from the top');
     assert.equal((await app.call('GET', '/api/records/activities', { token: admin.body.token })).body.length, 0);
 
     const avery = await app.login('avery.stone', 'QuartzHarborLane4!');

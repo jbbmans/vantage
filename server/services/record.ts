@@ -1,6 +1,6 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
-import { can, PERMISSIONS } from '../authz/scope.ts';
+import { can, PERMISSIONS, subtreeIds, membersAcross } from '../authz/scope.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
@@ -31,7 +31,7 @@ export function parseWindow(query: Record<string, unknown>, days = 90): Window {
   return { from, to };
 }
 
-const SHARED = `EXISTS (SELECT 1 FROM work_items wi WHERE wi.id = e.work_item_id AND wi.unit_id = ? AND wi.visibility = 'unit' AND wi.deleted_at IS NULL)`;
+const SHARED = `EXISTS (SELECT 1 FROM work_items wi WHERE wi.id = e.work_item_id AND wi.unit_id IN (SELECT value FROM json_each(?)) AND wi.visibility = 'unit' AND wi.deleted_at IS NULL)`;
 const STANDING = 'NOT EXISTS (SELECT 1 FROM work_events s WHERE s.supersedes_id = e.id)';
 const CURRENT_VERIFIED = `e.kind = 'verification' AND json_extract(e.body, '$.result') = 'verified' AND ${STANDING}
   AND NOT EXISTS (
@@ -41,10 +41,11 @@ const CURRENT_VERIFIED = `e.kind = 'verification' AND json_extract(e.body, '$.re
        AND (l.occurred_at > e.occurred_at OR (l.occurred_at = e.occurred_at AND l.created_at > e.created_at))
        AND NOT EXISTS (SELECT 1 FROM work_events s2 WHERE s2.supersedes_id = l.id))`;
 
-export function contributionCounts(ctx: AppContext, userId: string, w: Window, unitId: string | null = null) {
+export function contributionCounts(ctx: AppContext, userId: string, w: Window, unitId: string | string[] | null = null) {
   const [lo, hi] = bounds(w);
-  const unitClause = unitId ? ` AND ${SHARED}` : '';
-  const p = () => [userId, lo, hi, ...(unitId ? [unitId] : [])];
+  const units = unitId == null ? null : JSON.stringify(Array.isArray(unitId) ? unitId : [unitId]);
+  const unitClause = units ? ` AND ${SHARED}` : '';
+  const p = () => [userId, lo, hi, ...(units ? [units] : [])];
   const one = (sql: string) => (ctx.db.prepare(sql).get(...p()) as { n: number }).n;
   const from = 'FROM work_events e WHERE e.actor_id = ? AND e.occurred_at BETWEEN ? AND ?';
   return {
@@ -145,12 +146,14 @@ export function contributionHistory(ctx: AppContext, user: SessionUser, scope: S
 export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, unitId: string, w: Window) {
   if (!can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('You cannot view workload for that unit.');
   const includeMembers = can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, unitId);
+  const unitIds = subtreeIds(ctx, unitId);
+  const units = JSON.stringify(unitIds);
   const [lo, hi] = bounds(w);
   const today = new Date().toISOString().slice(0, 10);
   const items = ctx.db.prepare(
     `SELECT w.*, p.name AS project_name FROM work_items w LEFT JOIN projects p ON p.id = w.project_id AND p.deleted_at IS NULL
-      WHERE w.unit_id = ? AND w.visibility = 'unit' AND w.deleted_at IS NULL`
-  ).all(unitId) as ItemRow[];
+      WHERE w.unit_id IN (SELECT value FROM json_each(?)) AND w.visibility = 'unit' AND w.deleted_at IS NULL`
+  ).all(units) as ItemRow[];
   const open = items.filter((i) => !['resolved', 'not_applicable'].includes(stageOf(i)));
   const ageDays = (i: ItemRow) => Math.floor((Date.now() - Date.parse(i.created_at)) / 86_400_000);
   const waitingHours = (i: ItemRow) => (i.waiting_since ? Math.max(0, (Date.now() - Date.parse(i.waiting_since)) / 3_600_000) : 0);
@@ -178,7 +181,7 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
   }
 
   const sectionCount = (agg: string, where: string) =>
-    (ctx.db.prepare(`SELECT ${agg} AS n FROM work_events e WHERE e.occurred_at BETWEEN ? AND ? AND ${SHARED} AND ${where}`).get(lo, hi, unitId) as { n: number }).n;
+    (ctx.db.prepare(`SELECT ${agg} AS n FROM work_events e WHERE e.occurred_at BETWEEN ? AND ? AND ${SHARED} AND ${where}`).get(lo, hi, units) as { n: number }).n;
   const section = {
     open: open.length,
     unassigned: open.filter((i) => !i.claimed_by).length,
@@ -208,20 +211,17 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
 
   let members: Array<Record<string, unknown>> = [];
   if (includeMembers) {
-    const people = ctx.db.prepare(
-      `SELECT u.id, u.first_name, u.last_name, r.abbr AS rank_abbr, um.billet FROM unit_members um JOIN users u ON u.id = um.user_id
-         LEFT JOIN ranks r ON r.id = u.rank_id WHERE um.unit_id = ? AND u.active = 1 ORDER BY r.sort DESC, u.last_name`
-    ).all(unitId) as Array<{ id: string; first_name: string; last_name: string; rank_abbr: string | null; billet: string | null }>;
+    const people = membersAcross(ctx, unitIds);
     members = people.map((m) => {
       const held = open.filter((i) => i.claimed_by === m.id);
       return {
-        id: m.id, name: `${m.first_name} ${m.last_name}`, rank_abbr: m.rank_abbr, billet: m.billet,
+        id: m.id, name: `${m.first_name} ${m.last_name}`, rank_abbr: m.rank_abbr, billet: m.billet, team: unitIds.length > 1 ? m.team : null,
         assigned: held.length,
         waiting: held.filter((i) => stageOf(i) === 'waiting').length,
         blocked: held.filter((i) => stageOf(i) === 'blocked').length,
         overdue: held.filter((i) => i.due_date && i.due_date < today).length,
-        ...contributionCounts(ctx, m.id, w, unitId),
-        last_recorded_at: (ctx.db.prepare(`SELECT MAX(e.occurred_at) AS at FROM work_events e WHERE e.actor_id = ? AND ${SHARED}`).get(m.id, unitId) as { at: string | null }).at,
+        ...contributionCounts(ctx, m.id, w, unitIds),
+        last_recorded_at: (ctx.db.prepare(`SELECT MAX(e.occurred_at) AS at FROM work_events e WHERE e.actor_id = ? AND ${SHARED}`).get(m.id, units) as { at: string | null }).at,
       };
     });
     audit(ctx, { actor_id: user.id, action: 'view_team_workload', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${w.from}..${w.to}` });
@@ -229,7 +229,7 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
 
   const unit = ctx.db.prepare('SELECT name, short_name FROM units WHERE id = ?').get(unitId) as { name: string; short_name: string | null } | undefined;
   return {
-    unit_id: unitId, unit_name: unit ? unit.short_name || unit.name : null, window: w, section, unassigned, attention, members, members_visible: includeMembers,
+    unit_id: unitId, unit_name: unit ? unit.short_name || unit.name : null, rolls_up: unitIds.length - 1, window: w, section, unassigned, attention, members, members_visible: includeMembers,
     definitions: CONTRIBUTION_DEFINITIONS, limitations: WORKLOAD_LIMITATIONS,
   };
 }
