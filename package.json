@@ -59,7 +59,7 @@
     "@types/better-sqlite3": "^7.6.13",
     "@types/cookie-parser": "^1.4.10",
     "@types/express": "^5.0.6",
-    "@types/node": "^22.19.0",
+    "@types/node": "^26.6.2",
     "@types/nodemailer": "^7.0.6",
     "@types/pdfkit": "^0.17.6",
     "@types/qrcode": "^1.5.6",
