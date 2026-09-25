@@ -1,8 +1,6 @@
 import React, { useId, useState } from 'react';
 import { cn } from '@/lib/utils';
 
-/** Small, theme-aware SVG charts. No runtime dependency; colors come from CSS variables. */
-
 export interface Point { label: string; value: number; secondary?: number }
 
 export function AreaChart({ data, height = 220, format = (v) => String(v), secondaryLabel, className, ariaLabel }: { data: Point[]; height?: number; format?: (v: number) => string; secondaryLabel?: string; className?: string; ariaLabel: string }) {

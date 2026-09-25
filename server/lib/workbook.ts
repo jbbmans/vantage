@@ -1,15 +1,3 @@
-/**
- * Reads the cell values out of an .xlsx workbook, and nothing else.
- *
- * The design rule here is that a workbook is data, never a program. This reader:
- *  - never opens vbaProject.bin, so a macro is bytes we ignore rather than code we run;
- *  - never evaluates a formula, and reports the cached result Excel already stored;
- *  - never follows an external link or a DDE reference;
- *  - never resolves an XML entity, so an entity-expansion document cannot be used against us.
- *
- * It is intentionally small. A workbook feature we do not understand is reported as unread,
- * not guessed at.
- */
 import { readZip, ZipError } from './zip.ts';
 
 export { ZipError };
@@ -21,7 +9,6 @@ export class WorkbookError extends Error {
 export interface Sheet { name: string; rows: string[][]; truncated: boolean }
 export interface Workbook {
   sheets: Sheet[];
-  /** Features present in the file that we deliberately did not read. Shown to the person importing. */
   notes: string[];
 }
 
@@ -30,7 +17,6 @@ export interface WorkbookLimits { maxRows?: number; maxColumns?: number; maxCell
 const XML_DECL_ENTITY = /<!(DOCTYPE|ENTITY)\b/i;
 
 function assertNoEntities(xml: string, part: string) {
-  // A DOCTYPE is not used by the spreadsheet format, and is the vehicle for entity expansion.
   if (XML_DECL_ENTITY.test(xml)) throw new WorkbookError(`The part "${part}" declares an XML entity. Vantage does not open workbooks that do.`);
 }
 
@@ -42,7 +28,6 @@ function decode(text: string): string {
       const code = body[1] === 'x' || body[1] === 'X' ? parseInt(body.slice(2), 16) : parseInt(body.slice(1), 10);
       return Number.isFinite(code) && code > 0 && code <= 0x10ffff ? String.fromCodePoint(code) : '';
     }
-    // Only the five predefined entities exist here; anything else is not something we expand.
     return Object.prototype.hasOwnProperty.call(ENTITIES, body) ? ENTITIES[body] : whole;
   });
 }
@@ -61,7 +46,6 @@ export function columnIndex(ref: string): number {
 function sharedStrings(xml: string): string[] {
   assertNoEntities(xml, 'sharedStrings.xml');
   const out: string[] = [];
-  // Each <si> may hold one <t> or several inside <r> runs; the string is the runs joined.
   for (const si of xml.split('<si>').slice(1)) {
     const body = si.split('</si>')[0];
     let text = '';
@@ -71,7 +55,6 @@ function sharedStrings(xml: string): string[] {
   return out;
 }
 
-/** Excel stores a date as a serial number. 1900-based, with the famous non-existent 29 Feb 1900. */
 function serialToIso(serial: number): string | null {
   if (!Number.isFinite(serial) || serial <= 0 || serial > 2_958_465) return null;
   const days = Math.floor(serial) - (serial >= 61 ? 1 : 0);
@@ -80,7 +63,6 @@ function serialToIso(serial: number): string | null {
   return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
 }
 
-/** Number-format ids and codes Excel uses for dates, so a date does not arrive as 45678. */
 const BUILTIN_DATE_FORMATS = new Set([14, 15, 16, 17, 22, 27, 30, 36, 45, 46, 47, 50, 57]);
 
 function dateStyles(stylesXml: string | undefined): Set<number> {
@@ -90,7 +72,6 @@ function dateStyles(stylesXml: string | undefined): Set<number> {
   const customDateFormats = new Set<number>();
   for (const m of stylesXml.matchAll(/<numFmt\b[^>]*numFmtId="(\d+)"[^>]*formatCode="([^"]*)"/g)) {
     const code = decode(m[2]);
-    // A format containing a date or time token, outside quoted literal text, means a date cell.
     if (/[dmyhs]/i.test(code.replace(/"[^"]*"/g, '')) && !/^[#0.,%\s]+$/.test(code)) customDateFormats.add(Number(m[1]));
   }
   const cellXfs = stylesXml.split('<cellXfs')[1]?.split('</cellXfs>')[0] || '';
@@ -112,7 +93,6 @@ function parseSheet(xml: string, strings: string[], dateStyleIndexes: Set<number
   for (const rowMatch of xml.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/g)) {
     if (rows.length >= limits.maxRows) { truncated = true; break; }
     const declared = Number(/\br="(\d+)"/.exec(rowMatch[1])?.[1] ?? 0);
-    // A sparse sheet skips empty rows; keep the alignment so row 40 stays row 40.
     while (declared > 0 && rows.length < declared - 1 && rows.length < limits.maxRows) rows.push([]);
     const row: string[] = [];
     for (const cellMatch of rowMatch[2].matchAll(/<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
@@ -130,7 +110,6 @@ function parseSheet(xml: string, strings: string[], dateStyleIndexes: Set<number
       if (type === 'inlineStr') {
         for (const t of body.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)) value += decode(t[1]);
       } else {
-        // <v> is the cached value. When the cell is a formula we read this and never the <f>.
         const v = /<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(body)?.[1];
         if (v == null) value = '';
         else if (type === 's') value = strings[Number(v)] ?? '';
@@ -155,6 +134,12 @@ function parseSheet(xml: string, strings: string[], dateStyleIndexes: Set<number
   return { name, rows, truncated };
 }
 
+/**
+ * Workbooks written by the OpenXML SDK (SharePoint, Power Automate, many .NET exports) prefix every element,
+ * as in <x:row>. Element names are all this reader matches on, so the prefix is dropped.
+ */
+const unprefixed = (xml: string) => xml.replace(/<(\/?)[A-Za-z_][\w.-]*:(?=[A-Za-z_])/g, '<$1');
+
 export function readWorkbook(buf: Buffer, limits: WorkbookLimits = {}): Workbook {
   const bounds: Required<WorkbookLimits> = {
     maxRows: limits.maxRows ?? 50_000,
@@ -162,7 +147,7 @@ export function readWorkbook(buf: Buffer, limits: WorkbookLimits = {}): Workbook
     maxCells: limits.maxCells ?? 1_000_000,
   };
   const parts = readZip(buf);
-  const text = (name: string) => { const b = parts.get(name); return b ? b.toString('utf8') : undefined; };
+  const text = (name: string) => { const b = parts.get(name); return b ? unprefixed(b.toString('utf8')) : undefined; };
 
   const notes: string[] = [];
   if ([...parts.keys()].some((n) => /vbaProject\.bin$/i.test(n))) notes.push('This workbook contains macros. Vantage read its cell values and did not open the macro code.');
@@ -198,7 +183,6 @@ export function readWorkbook(buf: Buffer, limits: WorkbookLimits = {}): Workbook
   return { sheets, notes };
 }
 
-/** Splits delimited text into rows. Handles quoted fields, embedded newlines, and a BOM. */
 export function readDelimited(text: string, delimiter = ','): string[][] {
   const body = text.charCodeAt(0) === 0xfeff ? text.slice(1) : text;
   const rows: string[][] = [];
@@ -225,7 +209,6 @@ export function readDelimited(text: string, delimiter = ','): string[][] {
   return rows;
 }
 
-/** Guesses the delimiter from the first line, so a tab- or semicolon-separated export still works. */
 export function sniffDelimiter(text: string): string {
   const firstLine = text.split(/\r?\n/, 1)[0] || '';
   const counts = [',', '\t', ';', '|'].map((d) => [d, firstLine.split(d).length - 1] as const);

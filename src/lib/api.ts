@@ -38,9 +38,6 @@ async function request<T = any>(method: string, path: string, body?: unknown, in
   let res: Response;
   try {
     res = await fetch(`/api${path}`, {
-      // The caller's options come first, so the pieces below always win. Spreading init last used to
-      // replace the merged headers wholesale, which quietly dropped the client header this server
-      // requires on every write.
       ...init,
       method,
       credentials: 'same-origin',
@@ -71,7 +68,6 @@ export const api = {
   del: <T = any>(p: string) => request<T>('DELETE', p),
 };
 
-// Auth ---------------------------------------------------------------
 export const setupStatus = () => api.get('/auth/setup');
 export const runSetup = (payload: unknown) => api.post('/auth/setup', payload).then((r) => { markSignedIn(); return r; });
 export const register = (payload: unknown) => api.post('/auth/register', payload).then((r) => { markSignedIn(); return r; });
@@ -87,7 +83,6 @@ export const resetPassword = (token: string, password: string) => api.post('/aut
 export const inviteStatus = (token: string) => api.get(`/auth/invite?token=${encodeURIComponent(token)}`);
 export const acceptInvite = (payload: unknown) => api.post('/auth/invite/accept', payload).then((r) => { markSignedIn(); return r; });
 
-// Me -----------------------------------------------------------------
 export const me = () => api.get('/me');
 export const org = () => api.get('/me/org');
 export const updateProfile = (payload: unknown) => api.put('/me/profile', payload);
@@ -116,7 +111,6 @@ export const digestSendNow = () => api.post('/me/digest/send-now');
 export const emailVerify = (email: string) => api.post('/me/email/verify', { email });
 export const emailConfirm = (token: string) => api.post('/me/email/confirm', { token });
 
-// Records --------------------------------------------------------------
 export const STORES = ['activities', 'projects', 'tasks', 'goals', 'trainings', 'awards', 'counselings'] as const;
 export type Store = (typeof STORES)[number];
 export const listRecords = (store: Store, params: Record<string, string | undefined> = {}) => {
@@ -131,18 +125,17 @@ export const restoreRecord = (store: Store, id: string) => api.post(`/records/${
 export const importActivities = (rows: unknown[]) => api.post('/records/activities/import', { rows });
 export const acknowledgeCounseling = (id: string) => api.post(`/records/counselings/${encodeURIComponent(id)}/acknowledge`);
 export const attachments = (store: Store, id: string) => api.get(`/records/${store}/${encodeURIComponent(id)}/attachments`);
+export const adminImportAccounts = (file: File, apply: boolean) =>
+  request('POST', `/admin/accounts/import${apply ? '?apply=1' : ''}`, file, { headers: { 'content-type': file.type || 'application/octet-stream', 'x-vantage-filename': encodeURIComponent(file.name) } });
 export const uploadAttachment = (store: Store, id: string, file: File) => request('POST', `/records/${store}/${encodeURIComponent(id)}/attachments`, file, { headers: { 'content-type': file.type || 'application/octet-stream', 'x-vantage-filename': encodeURIComponent(file.name) } });
 export const deleteAttachment = (store: Store, id: string, attachmentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`);
 export const attachmentUrl = (store: Store, id: string, attachmentId: string) => `/api/records/${store}/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`;
 
-// Comments. Every one of these is gated server-side by the host record's own visibility, so there
-// is no client-side notion of who may read a thread — ask, and a 403 is the answer.
 export const comments = (store: Store, id: string) => api.get(`/records/${store}/${encodeURIComponent(id)}/comments`);
 export const addComment = (store: Store, id: string, body: string) => api.post(`/records/${store}/${encodeURIComponent(id)}/comments`, { body });
 export const editComment = (store: Store, id: string, commentId: string, body: string) => api.put(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`, { body });
 export const deleteComment = (store: Store, id: string, commentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`);
 
-// Org ----------------------------------------------------------------
 export const team = () => api.get('/org/team');
 export const member = (id: string) => api.get(`/org/team/${encodeURIComponent(id)}`);
 export const updateMemberProfile = (id: string, payload: unknown) => api.put(`/org/team/${encodeURIComponent(id)}/profile`, payload);
@@ -173,9 +166,7 @@ export const temporaryPassword = (id: string) => api.post(`/org/team/${encodeURI
 export const forceLogout = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/logout`);
 export const setOperator = (id: string, grant: boolean) => api.post(`/org/team/${encodeURIComponent(id)}/operator`, { grant });
 
-// Reports, AI, MARADMINs, search --------------------------------------
 const qs = (params: Record<string, string | number | undefined | null>) => Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
-// Typed goals and Report Studio ---------------------------------------
 export const goalContributors = (id: string) => api.get(`/records/goals/${encodeURIComponent(id)}/contributors`);
 export const listReportDrafts = () => api.get('/studio/reports');
 export const createReportDraft = (body: Record<string, unknown>) => api.post('/studio/reports', body);
@@ -184,7 +175,6 @@ export const saveReportRevision = (id: string, body: Record<string, unknown>) =>
 export const reportRevision = (id: string, revision: number) => api.get(`/studio/reports/${encodeURIComponent(id)}/revisions/${revision}`);
 export const reportRevisionExportUrl = (id: string, revision: number) => `/api/studio/reports/${encodeURIComponent(id)}/revisions/${revision}/export.txt`;
 
-// Work intake and the workbench ---------------------------------------
 export const uploadSource = (file: File, opts: { unitId: string | null; visibility: 'private' | 'unit' }) =>
   request('POST', '/work/sources', file, {
     headers: {
@@ -227,7 +217,6 @@ export const maradmins = (wait = false) => api.get(`/maradmins${wait ? '?wait=1'
 export const maradminState = (id: string, payload: unknown) => api.put(`/maradmins/${encodeURIComponent(id)}/state`, payload);
 export const search = (q: string) => api.get(`/search?q=${encodeURIComponent(q)}`);
 
-// Operator -----------------------------------------------------------
 export const adminOverview = () => api.get('/admin/overview');
 export const adminRuntime = (patch: unknown) => api.put('/admin/runtime', patch);
 export const adminAi = () => api.get('/admin/ai');
@@ -245,10 +234,7 @@ export const adminAudit = (limit = 200) => api.get(`/admin/audit?limit=${limit}`
 export const adminPersonnel = () => api.get('/admin/personnel');
 export const adminPersonnelDivergence = () => api.get('/admin/personnel/divergence');
 export const adminPersonnelRuns = () => api.get('/admin/personnel/runs');
-/** The roster travels as text so a personnel extract can be posted exactly as it was exported. */
 export const adminPersonnelSync = (text: string, source: string, opts: { apply?: boolean; confirmSeparations?: boolean } = {}) =>
-  // A Blob rather than a string: the request helper JSON-encodes anything else, which would wrap the
-  // extract in quotes and hand the parser a single escaped line.
   request<any>('POST', `/admin/personnel/sync?source=${encodeURIComponent(source)}${opts.apply ? '&apply=1' : ''}${opts.confirmSeparations ? '&confirm_separations=1' : ''}`,
     new Blob([text], { type: 'text/plain' }), { headers: { 'content-type': 'text/plain' } });
 export const adminPersonnelLink = (userId: string, edipi: string | null) => api.post('/admin/personnel/link', { user_id: userId, edipi });
@@ -279,7 +265,6 @@ export async function downloadFile(url: string, fallbackName: string) {
   return name;
 }
 
-// Correspondence -------------------------------------------------------
 export const listContacts = () => api.get('/correspondence/contacts');
 export const createContact = (body: Record<string, unknown>) => api.post('/correspondence/contacts', body);
 export const updateContact = (id: string, body: Record<string, unknown>) => api.put(`/correspondence/contacts/${encodeURIComponent(id)}`, body);
@@ -291,7 +276,6 @@ export const addThreadMessage = (id: string, body: Record<string, unknown>) => a
 export const linkThreadWork = (id: string, workItemIds: string[]) => api.post(`/correspondence/threads/${encodeURIComponent(id)}/links`, { work_item_ids: workItemIds });
 export const unlinkThreadWork = (id: string, workItemId: string) => request('DELETE', `/correspondence/threads/${encodeURIComponent(id)}/links/${encodeURIComponent(workItemId)}`);
 export const threadsForItem = (workItemId: string) => api.get(`/correspondence/items/${encodeURIComponent(workItemId)}/threads`);
-/** Sends the raw .eml bytes; placement travels in headers so the body stays the file itself. */
 export const importEmail = (file: File, opts: { threadId?: string | null; unitId: string | null; visibility: 'private' | 'unit'; contactId?: string | null; direction?: 'inbound' | 'outbound' }) =>
   request('POST', '/correspondence/messages/import', file, {
     headers: {
@@ -311,7 +295,6 @@ export const authorizeConnector = (id: string) => api.post(`/correspondence/conn
 export const disconnectConnector = (id: string) => api.post(`/correspondence/connectors/${encodeURIComponent(id)}/disconnect`, {});
 export const syncConnector = (id: string, body: Record<string, unknown> = {}) => api.post(`/correspondence/connectors/${encodeURIComponent(id)}/sync`, body);
 
-// Product events -------------------------------------------------------
 /** Fire-and-forget. keepalive lets a batch finish after the page is gone. */
 export const sendEvents = (events: unknown[], keepalive = false) =>
   request('POST', '/events', { events }, keepalive ? { keepalive: true } : {});
@@ -319,7 +302,6 @@ export const eventCatalog = () => api.get('/events/catalog');
 export const adminUsage = (params: Record<string, string | number | undefined | null>) => api.get(`/admin/usage?${qs(params)}`);
 export const adminPruneEvents = (olderThanDays: number) => api.post('/admin/usage/prune', { older_than_days: olderThanDays });
 
-// The case: research, stages, handoffs -------------------------------------------------------
 const itemPath = (id: string) => `/work/items/${encodeURIComponent(id)}`;
 export const recordEntry = (id: string, body: Record<string, unknown>, idempotencyKey: string) =>
   request('POST', `${itemPath(id)}/entries`, body, { headers: { 'idempotency-key': idempotencyKey } });
@@ -331,7 +313,6 @@ export const procedureSuggestion = (id: string) => api.get(`${itemPath(id)}/sugg
 export const listProcedures = () => api.get('/work/procedures');
 export const workload = (unitId: string, params: Record<string, string | undefined> = {}) => api.get(`/work/workload?${qs({ unit_id: unitId, ...params })}`);
 
-// The Record and Career ---------------------------------------------------------------------
 export const recordSummary = (params: Record<string, string | undefined> = {}) => api.get(`/record/summary?${qs(params)}`);
 export const assignedWork = () => api.get('/record/assigned');
 export const contributions = (params: Record<string, string | undefined> = {}) => api.get(`/record/contributions?${qs(params)}`);
@@ -346,7 +327,6 @@ export const createCareerStep = (body: Record<string, unknown>) => api.post('/re
 export const updateCareerStep = (id: string, body: Record<string, unknown>) => api.put(`/record/career/steps/${encodeURIComponent(id)}`, body);
 export const deleteCareerStep = (id: string) => api.del(`/record/career/steps/${encodeURIComponent(id)}`);
 
-// The synthetic demo ------------------------------------------------------------------------
 export const demoStatus = () => api.get('/demo/status');
 export const demoStart = () => api.post('/demo/start').then((r) => { markSignedIn(); return r; });
 export const demoPersona = (persona: 'marine' | 'leader') => api.post('/demo/persona', { persona }).then((r) => { markSignedIn(); return r; });

@@ -11,16 +11,6 @@ import { parse } from '../lib/http.ts';
 import { eventsFor, caseEventsOf, stageOf, procedureOf } from './cases.ts';
 import { readable, type WorkItemRow } from './work.ts';
 
-/**
- * The Record: three things kept apart on purpose.
- *
- *   Assigned work         what a Marine holds right now. Claiming puts work here at once.
- *   Contribution history  what they actually did, read from the case events they authored.
- *   Personal documentation what they wrote themselves: activities, training, private drafts.
- *
- * Claiming is not credit. Moving one document through five stages is one document, not five.
- */
-
 const RESEARCH = RESEARCH_KINDS.map((k) => `'${k}'`).join(',');
 const OPEN = "('resolved','not_applicable')";
 
@@ -41,17 +31,6 @@ export function parseWindow(query: Record<string, unknown>, days = 90): Window {
   return { from, to };
 }
 
-/**
- * The predicates every contribution count shares, so a total and the list behind it can never
- * disagree about what they include.
- *
- * SHARED   an event counts toward a unit only when its work item is a live, unit-visible row of that
- *          unit. A private case that happens to carry a unit id stays private (F03).
- * STANDING the event has not been corrected away by a later entry.
- * CURRENT  a verified result is still the case's latest standing verification of that check. A
- *          verification that was corrected, or overtaken by a later "not verified", is history,
- *          not a current outcome (F04).
- */
 const SHARED = `EXISTS (SELECT 1 FROM work_items wi WHERE wi.id = e.work_item_id AND wi.unit_id = ? AND wi.visibility = 'unit' AND wi.deleted_at IS NULL)`;
 const STANDING = 'NOT EXISTS (SELECT 1 FROM work_events s WHERE s.supersedes_id = e.id)';
 const CURRENT_VERIFIED = `e.kind = 'verification' AND json_extract(e.body, '$.result') = 'verified' AND ${STANDING}
@@ -62,10 +41,6 @@ const CURRENT_VERIFIED = `e.kind = 'verification' AND json_extract(e.body, '$.re
        AND (l.occurred_at > e.occurred_at OR (l.occurred_at = e.occurred_at AND l.created_at > e.created_at))
        AND NOT EXISTS (SELECT 1 FROM work_events s2 WHERE s2.supersedes_id = l.id))`;
 
-/**
- * One person's contribution counts over a window, from events they authored. With a unit, only
- * work shared in that unit counts; without one, it is the person's own view of everything they did.
- */
 export function contributionCounts(ctx: AppContext, userId: string, w: Window, unitId: string | null = null) {
   const [lo, hi] = bounds(w);
   const unitClause = unitId ? ` AND ${SHARED}` : '';
@@ -85,7 +60,6 @@ export function contributionCounts(ctx: AppContext, userId: string, w: Window, u
 
 type ItemRow = WorkItemRow & { project_name?: string | null };
 
-/** What the person holds right now, with where each stands and what comes next. */
 export function assignedWork(ctx: AppContext, user: SessionUser) {
   const rows = ctx.db.prepare(
     `SELECT w.*, p.name AS project_name FROM work_items w LEFT JOIN projects p ON p.id = w.project_id AND p.deleted_at IS NULL
@@ -118,7 +92,6 @@ export function summarizeItem(ctx: AppContext, row: ItemRow) {
   };
 }
 
-/** The Record's summary: assigned work and contribution counts side by side, never blended. */
 export function recordSummary(ctx: AppContext, user: SessionUser, w: Window) {
   const assigned = assignedWork(ctx, user);
   const personal = (table: string, col: string) => (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE user_id = ? AND deleted_at IS NULL AND ${col} BETWEEN ? AND ?`).get(user.id, w.from, w.to) as { n: number }).n;
@@ -136,10 +109,6 @@ export function recordSummary(ctx: AppContext, user: SessionUser, w: Window) {
   };
 }
 
-/**
- * The person's own events, grouped by the work they were on. A Marine keeps the record of what
- * they did after the work moves on: to another stage, another person, or closed.
- */
 export function contributionHistory(ctx: AppContext, user: SessionUser, scope: Scope, w: Window, limit = 60) {
   const [lo, hi] = bounds(w);
   const events = ctx.db.prepare(
@@ -160,8 +129,6 @@ export function contributionHistory(ctx: AppContext, user: SessionUser, scope: S
   return ids.map((id) => {
     const item = items.get(id);
     const list = byItem.get(id)!;
-    // They did this work, so they keep seeing that they did. Whether they can still open the item
-    // itself is decided the ordinary way.
     const canOpen = item ? readable(scope, user, item) : false;
     return {
       item: item ? { id, title: item.title, reference: item.reference, stage: stageOf(item), open: canOpen, procedure_key: item.procedure_key || null } : { id, title: 'Removed work item', reference: null, stage: 'not_applicable' as Stage, open: false, procedure_key: null },
@@ -175,14 +142,6 @@ export function contributionHistory(ctx: AppContext, user: SessionUser, scope: S
   });
 }
 
-/* ── Leader workload ───────────────────────────────────────────────────────────────────────── */
-
-/**
- * The section's work: what is unassigned, waiting, blocked, aging and overdue, and who has done
- * what in the window. People are never labelled; counts sit beside the context needed to read them.
- * Totals need VIEW_RECORDS. The per-person breakdown needs VIEW_MEMBER_DETAIL, the same line the
- * unit dashboard draws.
- */
 export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, unitId: string, w: Window) {
   if (!can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('You cannot view workload for that unit.');
   const includeMembers = can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, unitId);
@@ -206,8 +165,6 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
   const stages: Record<string, number> = {};
   for (const i of open) stages[stageOf(i)] = (stages[stageOf(i)] || 0) + 1;
 
-  // Open work by the procedure it follows: how many OCMT, UDOU, DOU, OTO, UMT and so on the section
-  // is carrying, and how many of each nobody has picked up.
   const byProcedure = new Map<string, { key: string; short: string; title: string; family: string | null; open: number; unassigned: number; blocked: number; overdue: number }>();
   for (const i of open) {
     const p = i.procedure_key ? PROCEDURES[i.procedure_key] : null;
@@ -220,7 +177,6 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
     byProcedure.set(key, row);
   }
 
-  // The same predicate the queue uses: only live, unit-visible rows of this unit.
   const sectionCount = (agg: string, where: string) =>
     (ctx.db.prepare(`SELECT ${agg} AS n FROM work_events e WHERE e.occurred_at BETWEEN ? AND ? AND ${SHARED} AND ${where}`).get(lo, hi, unitId) as { n: number }).n;
   const section = {
@@ -238,7 +194,6 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
     by_stage: stages,
     by_waiting: byWaiting,
     by_procedure: [...byProcedure.values()].sort((a, b) => (a.key === 'none' ? 1 : b.key === 'none' ? -1 : b.open - a.open)),
-    // Distinct documents, counted once for the section however many people touched them.
     documents_researched: sectionCount(`COUNT(DISTINCT e.work_item_id)`, `e.actor_id IS NOT NULL AND e.kind IN (${RESEARCH})`),
     resolved: sectionCount('COUNT(DISTINCT e.work_item_id)', "e.kind = 'resolved'"),
     verified: sectionCount(`COUNT(DISTINCT e.work_item_id || ':' || json_extract(e.body, '$.check'))`, CURRENT_VERIFIED),
@@ -279,15 +234,12 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
   };
 }
 
-/* ── Private accomplishment drafts ─────────────────────────────────────────────────────────── */
-
 interface Fact { text: string; date: string; source: { kind: string; event_id: string } }
 
 interface DraftRow { id: string; user_id: string; work_item_id: string | null; title: string; facts: string; wording: string; wording_source: string; activity_id: string | null; version: number; created_at: string; updated_at: string }
 
 const draftRow = (ctx: AppContext, userId: string, id: string) => {
   const row = ctx.db.prepare('SELECT * FROM record_drafts WHERE id = ? AND deleted_at IS NULL').get(id) as DraftRow | undefined;
-  // Owner-only. A draft that is not yours does not exist, whatever your role.
   if (!row || row.user_id !== userId) throw notFound('No such draft.');
   return { ...row, facts: JSON.parse(row.facts || '[]') as Fact[] };
 };
@@ -297,10 +249,6 @@ export function listDrafts(ctx: AppContext, user: SessionUser) {
     .map((r) => ({ ...r, facts: JSON.parse(r.facts || '[]') }));
 }
 
-/**
- * Builds a draft from the facts on one work item that this person recorded themselves. The facts
- * are cited to their events and never edited; the wording is a starting point the person owns.
- */
 export function draftFromWork(ctx: AppContext, user: SessionUser, _scope: Scope, itemId: string) {
   const item = ctx.db.prepare('SELECT * FROM work_items WHERE id = ? AND deleted_at IS NULL').get(itemId) as ItemRow | undefined;
   if (!item) throw notFound('No such work item.');
@@ -308,12 +256,9 @@ export function draftFromWork(ctx: AppContext, user: SessionUser, _scope: Scope,
   const mine = events.filter((e) => e.actor_id === user.id);
   if (!mine.length) throw forbidden('A draft is built from your own recorded work, and you have none on this item.');
   const facts = factsFor(item, events, user.id);
-  // Claiming is assignment, not contribution; moving a stage is bookkeeping. A draft needs something
-  // the person actually found, decided, submitted, verified or closed (F05).
   if (!facts.length) {
     throw conflict('There is nothing of yours on this case to draft from yet. Holding or moving work is not a contribution; record research, a decision, a submission or a verification first.', 'nothing_to_draft');
   }
-  // Collaborators are named because the work was shared; their contributions are not claimed.
   const others = [...new Set(events.filter((e) => e.actor_id && e.actor_id !== user.id && !NOT_CONTRIBUTION.has(e.kind)).map((e) => e.actor_id!))];
   const names = others.length
     ? (ctx.db.prepare(`SELECT u.first_name, u.last_name, r.abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id IN (${others.map(() => '?').join(',')})`).all(...others) as Array<{ first_name: string; last_name: string; abbr: string | null }>)
@@ -330,13 +275,8 @@ export function draftFromWork(ctx: AppContext, user: SessionUser, _scope: Scope,
   return { ...draftRow(ctx, user.id, id), collaborators: names };
 }
 
-/** Kinds that record who held or moved the work, not what anybody did on it. */
 const NOT_CONTRIBUTION = new Set(['claimed', 'released', 'assigned', 'claim_expired', 'created', 'procedure_applied', 'source_revised', 'stage_changed', 'waiting_started', 'waiting_ended', 'reopened']);
 
-/**
- * The person's standing, substantive entries on one case, in words the procedure itself uses. Each
- * fact is cited to its event and never edited; entries later corrected are left out.
- */
 function factsFor(item: ItemRow, events: ReturnType<typeof eventsFor>, userId: string): Fact[] {
   const superseded = new Set(events.map((e) => e.supersedes_id).filter(Boolean));
   const procedure = procedureOf(item).procedure;
@@ -368,7 +308,6 @@ function factsFor(item: ItemRow, events: ReturnType<typeof eventsFor>, userId: s
   return facts;
 }
 
-/** Assembled from the facts, not generated. Labelled as a suggestion the person edits. */
 function templateWording(item: ItemRow, facts: Fact[], collaborators: string[]): string {
   const has = (prefix: string) => facts.some((f) => f.text.startsWith(prefix));
   const verbs: string[] = [];
@@ -395,18 +334,6 @@ export function updateDraft(ctx: AppContext, user: SessionUser, id: string, body
   return draftRow(ctx, user.id, id);
 }
 
-/** Keeps a draft as a private entry in the person's own record. Nothing is sent anywhere. */
-/**
- * Puts a draft into the person's record as a completed activity (F09).
- *
- * The projection is deliberate about three things:
- *   evidence  the activity links back to the case, and its notes cite each fact's event;
- *   credit    one document is counted, and the case's amount is credited as reconciled only when
- *             the case is resolved and this person recorded a verified outcome that still stands;
- *   dedupe    one work-derived entry per person per case. A second draft from the same case is
- *             refused, and an action already recorded into the record from the case keeps the
- *             count and amount so they are never counted twice.
- */
 export function saveDraftToRecord(ctx: AppContext, user: SessionUser, id: string) {
   const row = draftRow(ctx, user.id, id);
   if (row.activity_id) throw conflict('This draft is already in your record.');
@@ -462,8 +389,6 @@ export function deleteDraft(ctx: AppContext, user: SessionUser, id: string) {
   draftRow(ctx, user.id, id);
   ctx.db.prepare('UPDATE record_drafts SET deleted_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), id);
 }
-
-/* ── Career ────────────────────────────────────────────────────────────────────────────────── */
 
 export function careerOverview(ctx: AppContext, user: SessionUser) {
   const profile = ctx.db.prepare(

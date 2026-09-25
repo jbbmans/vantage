@@ -16,7 +16,6 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav }: 
   const [active, setActive] = useState(0);
 
   useEffect(() => { if (open) { setQuery(''); setResults([]); setReference([]); setActive(0); } }, [open]);
-  // The reference index loads on first search, so its text never weighs on the first paint.
   useEffect(() => {
     const q = query.trim();
     if (q.length < 2) { setReference([]); return; }

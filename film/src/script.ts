@@ -1,22 +1,6 @@
-/**
- * The films, as data.
- *
- * One source for everything that has to agree: the words ElevenLabs speaks, the captions, the
- * length of every scene, and where the score lands its hits. Change a line here and the voice,
- * the cut, the captions and the music all follow on the next render — nothing is timed by hand.
- *
- * Scene timing: a scene lasts `lead` seconds of air, then each of its lines (with `gap` after it),
- * then `tail`, and never less than `min`. Line durations come from the recorded voice; before a
- * voice exists they are estimated from the word count so the cut can be worked on.
- *
- * Every claim in these scripts has to be true of the product as it ships. The films run on the
- * synthetic demo, so every name and figure on screen is invented.
- */
-
 export interface Line {
   id: string;
   text: string;
-  /** Seconds of silence after the line, before the next one in the same scene. */
   gap?: number;
 }
 
@@ -39,11 +23,9 @@ export interface Film {
   /** Published slot in src/config/videos.ts. */
   slot: string;
   scenes: Scene[];
-  /** The score's key and tempo; chapters share the hero's palette at lower intensity. */
   score: { key: 'D' | 'F' | 'A'; bpm: number; intensity: number };
 }
 
-/** The narrator: Brian, "deep, resonant and comforting", on ElevenLabs' highest-fidelity model. */
 export const VOICE = {
   voiceId: 'nPczCjzI2devNBz1zQrb',
   name: 'Brian',
@@ -104,10 +86,6 @@ export const HERO: Film = {
   ],
 };
 
-/**
- * The chapters: how-to films for the field guide, recorded on the real application and cut in the
- * hero's style. `steps` pair each line with what the browser does while it is spoken.
- */
 export const CHAPTERS: Film[] = [
   {
     id: 'quick-log', title: 'Quick Log: a record in one sentence', slot: 'quick-log',

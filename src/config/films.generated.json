@@ -1,56 +1,56 @@
 {
   "tour": {
-    "src": "/videos/films/tour.mp4",
-    "poster": "/videos/films/tour.jpg",
-    "captions": "/videos/films/tour.vtt",
+    "src": "/videos/films/tour.mp4?v=ba817d627f",
+    "poster": "/videos/films/tour.jpg?v=ebe8c25217",
+    "captions": "/videos/films/tour.vtt?v=a8fd02f918",
     "seconds": 87,
     "published": "2026-09-25",
     "voiced": false
   },
   "quick-log": {
-    "src": "/videos/films/quick-log.mp4",
-    "poster": "/videos/films/quick-log.jpg",
-    "captions": "/videos/films/quick-log.vtt",
+    "src": "/videos/films/quick-log.mp4?v=054d354af0",
+    "poster": "/videos/films/quick-log.jpg?v=d646d7358b",
+    "captions": "/videos/films/quick-log.vtt?v=2feabbe712",
     "seconds": 39,
     "published": "2026-09-25",
     "voiced": false
   },
   "queue": {
-    "src": "/videos/films/queue.mp4",
-    "poster": "/videos/films/queue.jpg",
-    "captions": "/videos/films/queue.vtt",
+    "src": "/videos/films/queue.mp4?v=4ab0cc0df3",
+    "poster": "/videos/films/queue.jpg?v=a7c45a1d8d",
+    "captions": "/videos/films/queue.vtt?v=90aa7137b3",
     "seconds": 49,
     "published": "2026-09-25",
     "voiced": false
   },
   "reading-a-balance": {
-    "src": "/videos/films/reading-a-balance.mp4",
-    "poster": "/videos/films/reading-a-balance.jpg",
-    "captions": "/videos/films/reading-a-balance.vtt",
+    "src": "/videos/films/reading-a-balance.mp4?v=32cee39f60",
+    "poster": "/videos/films/reading-a-balance.jpg?v=a96bb72496",
+    "captions": "/videos/films/reading-a-balance.vtt?v=a246e4610f",
     "seconds": 39,
     "published": "2026-09-25",
     "voiced": false
   },
   "record": {
-    "src": "/videos/films/record.mp4",
-    "poster": "/videos/films/record.jpg",
-    "captions": "/videos/films/record.vtt",
+    "src": "/videos/films/record.mp4?v=74c9582eaa",
+    "poster": "/videos/films/record.jpg?v=d561454c5d",
+    "captions": "/videos/films/record.vtt?v=7d220fc0b9",
     "seconds": 36,
     "published": "2026-09-25",
     "voiced": false
   },
   "report-studio": {
-    "src": "/videos/films/report-studio.mp4",
-    "poster": "/videos/films/report-studio.jpg",
-    "captions": "/videos/films/report-studio.vtt",
+    "src": "/videos/films/report-studio.mp4?v=3c595c4102",
+    "poster": "/videos/films/report-studio.jpg?v=fcbd5652df",
+    "captions": "/videos/films/report-studio.vtt?v=3a3ff8e9a5",
     "seconds": 25,
     "published": "2026-09-25",
     "voiced": false
   },
   "unit-dashboard": {
-    "src": "/videos/films/unit-dashboard.mp4",
-    "poster": "/videos/films/unit-dashboard.jpg",
-    "captions": "/videos/films/unit-dashboard.vtt",
+    "src": "/videos/films/unit-dashboard.mp4?v=de90e6060c",
+    "poster": "/videos/films/unit-dashboard.jpg?v=744a375220",
+    "captions": "/videos/films/unit-dashboard.vtt?v=24b562b6b4",
     "seconds": 31,
     "published": "2026-09-25",
     "voiced": false

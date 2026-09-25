@@ -1,13 +1,5 @@
 import { useEffect, useState } from 'react';
 
-/**
- * Whether a newer build of Vantage is being served than the one this tab loaded.
- *
- * Two signals, because either can miss: the service worker reporting an installed update, and the
- * server's own report of the client build it serves (the hash of its index.html, the same value the
- * build stamps into sw.js). The second is checked when the tab regains focus and every 15 minutes,
- * so a copy left open all day still learns a release happened.
- */
 export function useBuildWatch(): boolean {
   const [ready, setReady] = useState(false);
   useEffect(() => {

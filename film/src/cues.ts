@@ -1,9 +1,5 @@
 import { scene as sceneOf, type TScene } from './timeline';
 
-/**
- * A scene's clock, in frames from the start of the scene: when each word is spoken, when each line
- * starts. Everything visual keys off the voice through this, so a new recording re-times the picture.
- */
 export function cues(filmId: string, sceneId: string, fps = 30) {
   const s: TScene = sceneOf(filmId, sceneId);
   const f = (sec: number) => Math.round((sec - s.start) * fps);
@@ -12,7 +8,6 @@ export function cues(filmId: string, sceneId: string, fps = 30) {
   return {
     scene: s,
     dur: s.to - s.from,
-    /** Frame the word starts (or ends) being spoken. Falls back to the scene's first line. */
     w(word: string, { nth = 0, end = false }: { nth?: number; end?: boolean } = {}) {
       const hits = words.filter((x) => norm(x.word) === norm(word));
       const hit = hits[nth] ?? hits[0];

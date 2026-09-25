@@ -6,7 +6,6 @@ import { keys, queryClient, signOutEverywhere, useIdentity } from '@/lib/queries
 import * as api from '@/lib/api';
 import { passwordProblem, MIN_PASSWORD_LENGTH } from '../../shared/password';
 
-/** Shown instead of the app while a temporary password is in force: the only thing the server allows is choosing a real one. */
 export default function ForcePasswordChange() {
   const { data: identity } = useIdentity();
   const toast = useToast();

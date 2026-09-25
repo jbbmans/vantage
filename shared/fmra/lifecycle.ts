@@ -1,18 +1,5 @@
 import { cite, type Cite } from './source.ts';
 
-/**
- * The financial transaction lifecycle, as the FMRAC teaches it.
- *
- * Procurement acquires a good or service; the requisitioning process moves a requirement through
- * validation, approval, ordering and delivery. The financial lifecycle records what those events
- * mean in money, in four phases. An invoice or an approval can be a necessary step inside a method
- * without being a fifth phase.
- *
- * The phases are separate facts. A real-world event, the feeder-system entry, the approved
- * transaction and the DAI posting can all happen at different times: a physical receipt does not
- * prove the DAI receipt posted, and a vendor payment does not prove it matched the intended award.
- */
-
 export const PHASES = ['commitment', 'obligation', 'delivered', 'paid'] as const;
 export type Phase = (typeof PHASES)[number];
 
@@ -22,7 +9,6 @@ export interface PhaseInfo {
   meaning: string;
   /** How the book says DAI represents the phase. */
   dai: string;
-  /** The book's illustrative general-ledger account. Not a posting specification. */
   gl: { account: string; title: string };
   cite: Cite;
 }
@@ -73,19 +59,9 @@ export const PENDING_FILE = {
   cite: cite('2.3', '27-32'),
 };
 
-/**
- * True available balance: what is left after valid execution, including pending transactions the
- * displayed balance does not yet show.
- *
- * The book describes subtracting pending and posted activity from budget authority. The rewrite
- * adds the rule that makes that safe: use non-overlapping balances. A purchase that has reached
- * obligation is not subtracted again for its commitment, delivery and payment, and a pending item
- * is subtracted only until it posts.
- */
 export function trueAvailableBalance(input: {
   /** The balance the accounting system currently displays, in cents. */
   displayedAvailableCents: number;
-  /** Valid transactions still pending and NOT already reflected in the displayed balance. */
   pendingNotReflected: Array<{ label: string; cents: number; posted?: boolean }>;
 }): { adjustedCents: number; subtracted: Array<{ label: string; cents: number }>; ignored: Array<{ label: string; reason: string }> } {
   const subtracted: Array<{ label: string; cents: number }> = [];
@@ -105,7 +81,6 @@ export const TRUE_AVAILABLE_EXAMPLE = {
   cite: cite('2.3', '27-32', 'editorial'),
 };
 
-/** The book's simplified budget sequence. Classroom timing labels, not guaranteed enactment dates. */
 export const BUDGET_SEQUENCE = [
   { step: 'Federal agencies submit budget requests to the Office of Management and Budget (OMB).', timing: 'Before January' },
   { step: 'OMB consolidates the requests for presidential review.', timing: 'January' },
@@ -147,7 +122,6 @@ export const DAI = {
   cite: cite('4.1', '59-64'),
 } as const;
 
-/** Business feeder systems: where each method's data originates and how it posts. */
 export const FEEDERS = [
   { method: 'servmart', source: 'ServMart point of sale (PoS)', tool: 'ServMart card', posting: 'Usually a daily transmission. Block III shows award and delivered arriving through the GSA Alias Table mapping.' },
   { method: 'fuel', source: 'Enterprise Point of Sale (EPoS)', tool: 'Fuel key (VIL) or QR code', posting: 'Usually a daily transmission. The Fuel Key Alias Table connects the fuel identifier to DAI.' },

@@ -46,7 +46,6 @@ test('no property can carry content: free text is dropped, not stored', () => {
     body: '<p>hello</p>',
   });
   assert.deepEqual(kept, { surface: 'quick_log', state: 'typed_then_left', fields_filled: 3 });
-  // And there is no property anywhere in the catalog that could hold free text in the first place.
   for (const [name, s] of Object.entries(EVENTS)) {
     for (const [key, p] of Object.entries(s.properties)) {
       assert.ok(['number', 'boolean', 'enum'].includes(p.kind), `${name}.${key} is not a scalar`);
@@ -72,7 +71,6 @@ test('the three times stay three: an event only carries the durations it declare
     name: 'capture.completed',
     properties: { surface: 'quick_log', had_measure: true },
     form_ms: 42_000,
-    // editor.session declares this one; capture.completed does not, so it must not be stored here.
     active_editor_ms: 30_000,
     confirmed_work_minutes: 25,
   }]);
@@ -123,7 +121,6 @@ test('the report reports the three times separately and never adds them', async 
   const res = await usage(op.token);
   const times = res.body.report.capture.times;
   assert.ok('formOpen' in times && 'activeEditorEstimate' in times && 'confirmedWorkMinutes' in times);
-  // There is no combined figure anywhere in the payload for someone to mistake for time worked.
   const text = JSON.stringify(res.body.report);
   assert.ok(!/totalTime|timeSpent|combinedTime/.test(text));
 });

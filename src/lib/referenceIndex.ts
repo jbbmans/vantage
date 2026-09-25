@@ -1,9 +1,5 @@
 import { GLOSSARY, METHOD_LIST, NORMAL_LIST, UMT_ERRORS, INVOICE_HOLDS, DAI_RESPONSIBILITIES } from '../../shared/fmra';
 
-/**
- * A flat search index over the FMRA reference, loaded only when somebody searches, so the
- * reference text never weighs on the first paint.
- */
 export interface ReferenceHit { id: string; title: string; subtitle: string; to: string }
 
 const entries: Array<ReferenceHit & { text: string }> = [

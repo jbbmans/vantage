@@ -2,14 +2,6 @@ import { Play, Video as VideoIcon } from 'lucide-react';
 import type { VideoSlot as Slot } from '@/config/videos';
 import { cn } from '@/lib/utils';
 
-/**
- * One walkthrough video, or the honest absence of one.
- *
- * An unfilled slot is not an empty box and not a fake play button. It says what the video will
- * cover and that it has not been recorded, because a play control that does nothing when clicked
- * is worse than no control: the person assumes the page is broken rather than that the library is
- * unfinished. The copy is written for that reader, not as a `TODO`.
- */
 export default function VideoSlotCard({ slot, className }: { slot: Slot; className?: string }) {
   const headingId = `video-${slot.id}-title`;
 
@@ -29,8 +21,6 @@ export default function VideoSlotCard({ slot, className }: { slot: Slot; classNa
             Your browser cannot play this video. <a href={slot.src}>Download it instead.</a>
           </video>
         ) : (
-          /* Not a button. There is nothing to press yet, and pretending otherwise wastes a click
-             and a little trust. */
           <div className="flex h-full w-full flex-col items-center justify-center gap-2 px-6 text-center">
             <span className="flex h-11 w-11 items-center justify-center rounded-full border border-line-strong bg-surface text-ink-3">
               <VideoIcon className="h-5 w-5" aria-hidden />

@@ -1,4 +1,3 @@
-/** A minimal ZIP writer (deflate, no encryption) so exports can bundle many files without another dependency. */
 import { deflateRawSync, inflateRawSync, crc32 } from 'node:zlib';
 
 export interface ZipEntry { name: string; data: Buffer | string; modified?: Date }
@@ -38,7 +37,6 @@ export function buildZip(entries: ZipEntry[]): Buffer {
   return Buffer.concat([...parts, ...central, end]);
 }
 
-/** Names of the entries in a zip produced by buildZip (reads the central directory). Used by tests. */
 export function listZip(buf: Buffer): string[] {
   const names: string[] = [];
   const endIdx = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
@@ -56,18 +54,12 @@ export function listZip(buf: Buffer): string[] {
 
 export interface ZipRead { name: string; data: Buffer }
 
-/** Caps that keep a hostile archive from exhausting memory before we have looked at anything. */
 export interface ZipLimits { maxEntries?: number; maxEntryBytes?: number; maxTotalBytes?: number }
 
 export class ZipError extends Error {
   constructor(message: string) { super(message); this.name = 'ZipError'; }
 }
 
-/**
- * Reads a ZIP container. Deliberately minimal: it walks the central directory, refuses anything
- * encrypted or oversized, and never writes to disk, so a malformed archive fails as a value
- * rather than as a side effect.
- */
 export function readZip(buf: Buffer, limits: ZipLimits = {}): Map<string, Buffer> {
   const maxEntries = limits.maxEntries ?? 512;
   const maxEntryBytes = limits.maxEntryBytes ?? 64 * 1024 * 1024;
@@ -98,7 +90,6 @@ export function readZip(buf: Buffer, limits: ZipLimits = {}): Map<string, Buffer
     if (uncompressed > maxEntryBytes) throw new ZipError(`One part of this workbook expands to ${uncompressed} bytes, past the limit we will read.`);
     total += uncompressed;
     if (total > maxTotalBytes) throw new ZipError('This workbook expands past the size limit we will read.');
-    // A part naming a parent directory is never legitimate here and is the classic archive escape.
     if (name.includes('..') || name.startsWith('/')) throw new ZipError(`This workbook contains an unsafe part name: ${name}`);
 
     if (localOffset + 30 > buf.length || buf.readUInt32LE(localOffset) !== 0x04034b50) throw new ZipError('This workbook is damaged. A part header is missing.');

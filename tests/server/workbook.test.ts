@@ -3,7 +3,6 @@ import assert from 'node:assert/strict';
 import { readWorkbook, readDelimited, sniffDelimiter, columnIndex, WorkbookError } from '../../server/lib/workbook.ts';
 import { buildZip, readZip, ZipError } from '../../server/lib/zip.ts';
 
-/** Builds a minimal but genuine .xlsx so the reader is exercised against the real shape of the format. */
 function xlsx(options: {
   sheets: Array<{ name: string; xml: string; hidden?: boolean }>;
   shared?: string[];
@@ -120,7 +119,6 @@ test('column letters map to positions past Z', () => {
 
 test('an encrypted archive is refused with a message a person can act on', () => {
   const buf = buildZip([{ name: 'xl/workbook.xml', data: '<workbook/>' }]);
-  // Flip the encryption bit in the central directory so the reader sees a protected entry.
   const endIdx = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
   const central = buf.readUInt32LE(endIdx + 16);
   buf.writeUInt16LE(0x0801, central + 8);
@@ -163,4 +161,16 @@ test('the delimiter is sniffed from the heading row', () => {
   assert.equal(sniffDelimiter('a;b;c\n1;2;3'), ';');
   assert.equal(sniffDelimiter('a,b,c'), ',');
   assert.equal(sniffDelimiter('single'), ',');
+});
+
+test('reads a workbook written with prefixed elements and absolute part paths, as SharePoint and .NET exports are', () => {
+  const ns = 'http://schemas.openxmlformats.org/spreadsheetml/2006/main';
+  const wb = readWorkbook(buildZip([
+    { name: '[Content_Types].xml', data: '<?xml version="1.0"?><Types/>' },
+    { name: 'xl/workbook.xml', data: `<?xml version="1.0" encoding="utf-8"?><x:workbook xmlns:x="${ns}"><x:sheets><x:sheet name="Roster" sheetId="1" r:id="R1" xmlns:r="rel" /></x:sheets></x:workbook>` },
+    { name: 'xl/_rels/workbook.xml.rels', data: '﻿<?xml version="1.0"?><Relationships><Relationship Type="worksheet" Target="/xl/worksheets/sheet1.xml" Id="R1" /></Relationships>' },
+    { name: 'xl/sharedStrings.xml', data: `<?xml version="1.0"?><x:sst xmlns:x="${ns}"><x:si><x:t>Username</x:t></x:si><x:si><x:t>jane.doe</x:t></x:si></x:sst>` },
+    { name: 'xl/worksheets/sheet1.xml', data: `<?xml version="1.0"?><x:worksheet xmlns:x="${ns}"><x:sheetData><x:row r="1"><x:c r="A1" t="s"><x:v>0</x:v></x:c><x:c r="B1" t="inlineStr"><x:is><x:t>Rank</x:t></x:is></x:c></x:row><x:row r="2"><x:c r="A2" t="s"><x:v>1</x:v></x:c><x:c r="B2" t="inlineStr"><x:is><x:t>Cpl</x:t></x:is></x:c></x:row></x:sheetData></x:worksheet>` },
+  ]));
+  assert.deepEqual(wb.sheets[0].rows, [['Username', 'Rank'], ['jane.doe', 'Cpl']]);
 });

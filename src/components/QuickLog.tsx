@@ -33,8 +33,6 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
   const [saving, setSaving] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, unknown>>({});
   const [aiUsed, setAiUsed] = useState(false);
-  // One timer per opening. How a capture ended is the most useful thing this app can learn about
-  // itself, and it is a state, never the words the person had typed.
   const capture = useRef<ReturnType<typeof captureTimer> | null>(null);
   useEffect(() => {
     if (open) { capture.current = captureTimer('quick_log'); setAiUsed(false); }

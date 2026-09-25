@@ -109,8 +109,6 @@ export default function Career() {
   const canEditRow = (r: any) => r.user_id === me ? !r.frozen_at : Boolean(r.unit_id && identity && ((identity.permissions[r.unit_id] || 0) & ((1 << 12) | (1 << 3))));
   const acknowledge = async (c: any) => { try { await api.acknowledgeCounseling(c.id); invalidateRecords(qc, 'counselings'); toast.success('Acknowledged.'); setView(null); } catch (e) { toast.error(api.errorText(e)); } };
 
-  // MARADMINs used to be a tab here. Anything anyone bookmarked or pasted into a message still
-  // works and lands on the destination that absorbed it.
   if (tab === 'messages') return <Navigate to="/maradmins" replace />;
 
   return (

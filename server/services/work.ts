@@ -10,20 +10,6 @@ import { zonedDay } from '../lib/clock.ts';
 import { appendEvent, caseView, assertMayResolveCase } from './cases.ts';
 import { STATE_TO_STAGE } from '../../shared/caseModel.ts';
 
-/**
- * The workbench: rows of work, who has picked them up, and what they did about them.
- *
- * Two rules matter more than the rest here.
- *
- * Claiming is decided by the server. A claim is how a team of people avoids two of them working
- * the same case, so a client that hides a button has decided nothing. Every claim, release and
- * state change re-reads the row inside a transaction and refuses if someone got there first.
- *
- * Picking up work is not an accomplishment. Claiming a row, opening it, or editing a cell records
- * activity, never credit. Credit comes from a work action: something a person did that changed the
- * state of the world, with the outcome they can name.
- */
-
 export interface WorkItemRow {
   id: string; unit_id: string | null; owner_id: string; visibility: string;
   source_file_id: string | null; import_job_id: string | null;
@@ -42,11 +28,6 @@ export type WorkState = (typeof WORK_STATES)[number];
 
 const hydrate = (row: WorkItemRow) => ({ ...row, data: JSON.parse(row.data || '{}') as Record<string, string> });
 
-/**
- * Whether a row belongs to a unit's shared queue. Access to those rows follows current membership
- * and nothing else: a claim or authorship left over from before somebody left the unit is not a way
- * back in. Their own contribution history stays theirs; the unit's work does not.
- */
 const shared = (row: WorkItemRow) => row.visibility === 'unit' && Boolean(row.unit_id);
 const stillHere = (scope: Scope, row: WorkItemRow) => !shared(row) || isMember(scope, row.unit_id);
 
@@ -55,25 +36,13 @@ export function readable(scope: Scope, user: SessionUser, row: WorkItemRow): boo
   return row.owner_id === user.id || row.claimed_by === user.id;
 }
 
-/**
- * The four things a person can do to a row, each decided separately.
- *
- * These used to be one question — do you hold the claim — which meant that letting somebody work a
- * case also let them declare it finished, and that nobody could hand a case to anybody. They are
- * different decisions and a unit should be able to answer them differently.
- *
- * Owning the row is always enough for all four: a person who typed a case in is not locked out of
- * their own work by a permission they were never given.
- */
 const mine = (scope: Scope, user: SessionUser, row: WorkItemRow) => row.owner_id === user.id && stillHere(scope, row);
 const holder = (scope: Scope, user: SessionUser, row: WorkItemRow) => row.claimed_by === user.id && stillHere(scope, row);
 const bit = (scope: Scope, row: WorkItemRow, flag: number) => (row.unit_id ? can(scope, flag, row.unit_id) : false);
 
-/** Picking work up. Reading a queue is not the same as being cleared to work it. */
 export const mayClaim = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
   mine(scope, user, row) || bit(scope, row, PERMISSIONS.CLAIM_WORK);
 
-/** Closing a case out, or reopening one that was closed too early. Not implied by holding it. */
 export const mayResolve = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
   mine(scope, user, row) || bit(scope, row, PERMISSIONS.RESOLVE_WORK);
 
@@ -81,23 +50,13 @@ export const mayResolve = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
 export const mayReassign = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
   mine(scope, user, row) || bit(scope, row, PERMISSIONS.REASSIGN_WORK) || bit(scope, row, PERMISSIONS.MANAGE_RECORDS);
 
-/**
- * Changing a row's own fields.
- *
- * A row that came off a spreadsheet keeps its source-derived values read-only for everyone, at
- * every permission level, because those values are a fact about the sheet. Disagreeing with one is
- * a work action, not an edit. A row somebody typed in has no source to contradict, so its own
- * fields are editable by whoever may edit work here.
- */
 export const mayEditFields = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
   mine(scope, user, row) || bit(scope, row, PERMISSIONS.EDIT_WORK);
 export const isImported = (row: WorkItemRow) => Boolean(row.source_file_id || row.import_job_id);
 
-/** Moving a row between open, in progress and waiting is execution: the holder's to do. */
 export const mayProgress = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
   holder(scope, user, row) || mine(scope, user, row) || bit(scope, row, PERMISSIONS.MANAGE_RECORDS);
 
-/** Recording what you did needs you to be doing it. A leader who can edit shared records may also act. */
 export const mayAct = (scope: Scope, user: SessionUser, row: WorkItemRow) =>
   holder(scope, user, row) || mine(scope, user, row) || bit(scope, row, PERMISSIONS.MANAGE_RECORDS);
 
@@ -116,10 +75,8 @@ export interface ListOptions {
   unitId?: string | null;
   state?: string | null;
   stage?: string | null;
-  /** Only work that is not closed: the default view of a queue somebody is working from. */
   active?: boolean;
   claimed?: 'me' | 'anyone' | 'nobody' | null;
-  /** Narrow to one project, so a project's queue and its typed work read as one list. */
   projectId?: string | null;
   /** Narrow to one procedure, or 'none' for work that follows none. */
   procedure?: string | null;
@@ -141,8 +98,6 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
   const where: string[] = ['w.deleted_at IS NULL'];
   const params: unknown[] = [];
 
-  // Scope is decided here, from the session, never from anything the client sends.
-  // A shared row is visible through membership only; a private row through authorship or the claim.
   const personal = "((w.visibility <> 'unit' OR w.unit_id IS NULL) AND (w.owner_id = ? OR w.claimed_by = ?))";
   const visibility = readableUnits.length
     ? `(${personal} OR (w.visibility = 'unit' AND w.unit_id IN (${readableUnits.map(() => '?').join(',')})))`
@@ -175,9 +130,6 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
   const clause = where.join(' AND ');
   const total = (ctx.db.prepare(`SELECT COUNT(*) AS n FROM work_items w WHERE ${clause}`).get(...params) as { n: number }).n;
   const rows = ctx.db.prepare(
-    // Nulls last, so rows with no due date do not crowd the top of a due-date sort. The holder's
-    // name is shown to people who can already read the row: who is working a case is the whole
-    // point of a shared queue.
     `SELECT w.*, h.first_name || ' ' || h.last_name AS holder_name, hr.abbr AS holder_rank, p.name AS project_name
        FROM work_items w LEFT JOIN users h ON h.id = w.claimed_by LEFT JOIN ranks hr ON hr.id = h.rank_id
        LEFT JOIN projects p ON p.id = w.project_id AND p.deleted_at IS NULL
@@ -187,7 +139,6 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
   return { total, limit, offset, items: rows.map(hydrate) };
 }
 
-/** Everything a person needs to decide whether to pick a row up, in one read. */
 export function itemDetail(ctx: AppContext, user: SessionUser, scope: Scope, id: string) {
   const row = readableItem(ctx, user, scope, id);
   const actions = ctx.db.prepare(
@@ -201,16 +152,9 @@ export function itemDetail(ctx: AppContext, user: SessionUser, scope: Scope, id:
   const project = row.project_id
     ? ctx.db.prepare('SELECT id, name, target_date FROM projects WHERE id = ? AND deleted_at IS NULL').get(row.project_id) ?? null
     : null;
-  // `contributors` keeps its original shape for older clients; `case` carries the attributed history.
   return { item: hydrate(row), actions, source, project, contributors: contributors(ctx, id), case: caseView(ctx, user, scope, row) };
 }
 
-/**
- * Who moved this work, and what each of them produced.
- *
- * A contribution is measured by what a person's actions delivered, so a row that four people
- * touched credits each of them with their own outcome and never with each other's.
- */
 export function contributors(ctx: AppContext, itemId: string) {
   const rows = ctx.db.prepare(
     `SELECT a.user_id, u.first_name, u.last_name, r.abbr AS rank_abbr,
@@ -227,7 +171,6 @@ function reload(ctx: AppContext, id: string): WorkItemRow {
   return row;
 }
 
-/** Claims a row for the caller. Refuses if someone else holds it, or if the row moved under them. */
 export function claimItem(ctx: AppContext, user: SessionUser, scope: Scope, id: string, expectedVersion: number | null) {
   return ctx.db.transaction(() => {
     const row = reload(ctx, id);
@@ -244,7 +187,6 @@ export function claimItem(ctx: AppContext, user: SessionUser, scope: Scope, id: 
       `UPDATE work_items SET claimed_by = ?, claimed_at = ?, state = CASE WHEN state = 'open' THEN 'in_progress' ELSE state END,
               stage = CASE WHEN state = 'open' THEN 'researching' ELSE COALESCE(stage, 'researching') END, version = version + 1, updated_at = ? WHERE id = ?`
     ).run(user.id, at, at, id);
-    // Claiming puts the work on the person's assigned list at once. It is not credit for anything.
     appendEvent(ctx, { item: row, actorId: user.id, kind: 'claimed' });
     record(ctx, 'work.claimed', { bulk: false, count: 1 }, { id: user.id });
     return hydrate(reload(ctx, id));
@@ -272,17 +214,6 @@ export function releaseItem(ctx: AppContext, user: SessionUser, scope: Scope, id
   })();
 }
 
-/**
- * Creates a piece of work by hand.
- *
- * Until now every row in the queue arrived from an imported sheet, which is why a project and a
- * queue were two unrelated piles: there was no way to put a case into the queue that somebody had
- * simply been told about. It also left EDIT_WORK with nothing it could ever apply to, since a
- * sheet's values are read-only and there was no other kind of row.
- *
- * A hand-entered row carries no source_file_id, so it is the one kind whose own fields may be
- * corrected — there is no sheet for it to contradict.
- */
 export function createItem(
   ctx: AppContext,
   user: SessionUser,
@@ -297,13 +228,11 @@ export function createItem(
   const visibility = input.visibility === 'private' ? 'private' : 'unit';
   if (visibility === 'unit') {
     if (!unitId) throw badRequest('Choose the unit this work belongs to.');
-    // Same gate as posting a shared task: putting work on a unit's queue is tasking that unit.
     if (!can(scope, PERMISSIONS.CREATE_SHARED_WORK, unitId)) throw forbidden('You cannot put work on that unit’s queue.');
   } else if (unitId && !isMember(scope, unitId)) {
     throw forbidden('You are not a member of that unit.');
   }
 
-  // A project is a container for work, so a row may name one — but only one the caller can reach.
   let projectId: string | null = null;
   if (input.project_id) {
     const project = ctx.db.prepare('SELECT id, user_id, unit_id, visibility FROM projects WHERE id = ? AND deleted_at IS NULL')
@@ -329,17 +258,6 @@ export function createItem(
   return hydrate(reload(ctx, id));
 }
 
-/**
- * Hands a case to somebody else.
- *
- * This did not exist: work could only be taken, never given, so a leader looking at an unbalanced
- * queue had no move to make. Assigning sets the claim on that person's behalf rather than inventing
- * a second notion of ownership, so everything downstream that already asks "who holds this" keeps
- * working unchanged.
- *
- * The person receiving it must be able to read the row on their own authority. Assigning is not a
- * way to show somebody a case they were not cleared to see.
- */
 export function assignItem(ctx: AppContext, user: SessionUser, scope: Scope, id: string, toUserId: string, expectedVersion: number | null) {
   return ctx.db.transaction(() => {
     const row = reload(ctx, id);
@@ -374,13 +292,6 @@ export function assignItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
   })();
 }
 
-/**
- * Releases claims nobody has touched in a while.
- *
- * Somebody claims a dozen rows on Friday and goes on leave; without this they stay held until a
- * leader notices. A stale release is not a judgement about the person — it puts the row back on
- * the queue so the work can move, and says in the audit trail that the system did it, not a person.
- */
 export function releaseStaleClaims(ctx: AppContext, afterHours = 72): number {
   const cutoff = new Date(Date.now() - afterHours * 3_600_000).toISOString();
   const stale = ctx.db.prepare(
@@ -405,11 +316,6 @@ export function releaseStaleClaims(ctx: AppContext, afterHours = 72): number {
   return stale.length;
 }
 
-/**
- * When somebody leaves a unit, the unit's work they were holding goes back to its queue at once,
- * with the reason in each case's history. Waiting for the stale-claim sweep would leave the work
- * invisible to the section for days and held by somebody who can no longer open it.
- */
 export function releaseClaimsOnDeparture(ctx: AppContext, userId: string, unitId: string, actorId: string | null): number {
   const held = ctx.db.prepare(
     `SELECT * FROM work_items WHERE claimed_by = ? AND unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL`
@@ -431,21 +337,13 @@ export function releaseClaimsOnDeparture(ctx: AppContext, userId: string, unitId
 export interface ItemPatch {
   state?: WorkState;
   acknowledge_source_change?: boolean;
-  /** Only ever accepted for a row somebody typed in. A sheet's values are the sheet's. */
   title?: string;
   reference?: string | null;
   due_date?: string | null;
-  /**
-   * Which project this work sits under. Unlike the fields above this is accepted on an imported row
-   * too: filing a case under a project says nothing about what the sheet reported, so it is
-   * organisation rather than a rewrite of provenance.
-   */
   project_id?: string | null;
 }
 
-/** States that mean the case is finished. Reaching or leaving one of these needs RESOLVE_WORK. */
 const CLOSED_STATES = new Set<string>(['resolved', 'not_applicable']);
-/** Fields that belong to the row itself rather than to the sheet it came from. */
 const EDITABLE_FIELDS = ['title', 'reference', 'due_date'] as const;
 
 export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id: string, patch: ItemPatch, expectedVersion: number | null) {
@@ -459,7 +357,6 @@ export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
 
     if (patch.state) {
       if (!WORK_STATES.includes(patch.state)) throw badRequest('That is not a state a work item can be in.');
-      // Declaring a case finished — or undoing that — is its own authority. Working it is not.
       const closing = CLOSED_STATES.has(patch.state);
       const reopening = CLOSED_STATES.has(row.state) && !closing;
       if (closing || reopening) {
@@ -471,17 +368,12 @@ export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
       } else if (!mayProgress(scope, user, row)) {
         throw forbidden('Pick this work up before changing it.');
       }
-      // This older path must answer to the same rules as the stage endpoint. Work under a procedure
-      // resolves only on its verification, and "does not apply" needs a reason this path cannot
-      // carry, so that goes through the case.
       if (row.procedure_key && patch.state === 'resolved') assertMayResolveCase(ctx, row);
       if (row.procedure_key && patch.state === 'not_applicable') {
         throw conflict('This work follows a procedure. Mark it not applicable from the case, with the reason.', 'reason_required');
       }
       sets.push('state = ?'); params.push(patch.state);
       sets.push('resolved_at = ?'); params.push(patch.state === 'resolved' ? at : null);
-      // The coarse state and the stage move together; the stage is read from the state here because
-      // this older path only knows the five states.
       const toStage = STATE_TO_STAGE[patch.state];
       sets.push('stage = ?'); params.push(toStage);
       if (patch.state !== 'waiting') { sets.push('waiting_category = NULL', 'waiting_since = NULL'); }
@@ -495,8 +387,6 @@ export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
 
     const edits = EDITABLE_FIELDS.filter((f) => patch[f] !== undefined);
     if (edits.length) {
-      // A value that came off a sheet is a fact about the sheet, and stays read-only for everyone.
-      // Disagreeing with one is a work action, not an edit.
       if (isImported(row)) {
         throw forbidden('This row came from an imported sheet. Its values are what the sheet said — record an action instead of rewriting them.');
       }
@@ -547,7 +437,6 @@ export interface ActionInput {
   unit_label?: string | null;
   dollar_amount?: number | null;
   dollar_type?: string | null;
-  /** Also write this action into the person's own record, so doing the work builds the record of it. */
   draft_record?: boolean;
   /** Resolve the item in the same breath. */
   resolve?: boolean;
@@ -557,11 +446,6 @@ export interface ActionInput {
 
 export const ACTION_KINDS = ['worked', 'contacted', 'escalated', 'corrected', 'reconciled', 'validated', 'resolved', 'noted'] as const;
 
-/**
- * Records something a person did about a work item, and optionally the personal record that
- * follows from it. This is the join the whole product exists for: using Vantage to do the work
- * produces the record of the work, without anyone retyping it.
- */
 export function recordAction(
   ctx: AppContext,
   user: SessionUser,
@@ -573,7 +457,6 @@ export function recordAction(
   const scopedKey = idempotencyKey ? `${user.id}:${itemId}:${idempotencyKey}` : null;
   if (scopedKey) {
     const prior = ctx.db.prepare('SELECT * FROM work_actions WHERE idempotency_key = ?').get(scopedKey) as Record<string, unknown> | undefined;
-    // A retried request returns what the first one did rather than counting the work twice.
     if (prior) return { action: prior, item: hydrate(reload(ctx, itemId)), activity_id: prior.activity_id as string | null, replayed: true };
   }
 
@@ -598,7 +481,6 @@ export function recordAction(
     let activityId: string | null = null;
 
     if (input.draft_record) {
-      // The drafted record is the person's own, and starts private unless the work itself is shared.
       activityId = newId();
       const title = `${row.title}`.slice(0, 300);
       const result = note ? note.slice(0, 2000) : null;
@@ -612,7 +494,6 @@ export function recordAction(
         input.category || null, input.eval_area || null,
         quantity, input.unit_label || row.unit_label || null,
         dollarAmount, input.dollar_type || null, result,
-        // The fingerprint ties the record to the work item, so the same action cannot draft two records.
         `work:${itemId}:${scopedKey || newId()}`,
         at, at,
       );
@@ -629,9 +510,6 @@ export function recordAction(
     });
 
     if (input.resolve || kind === 'resolved') {
-      // Recording what you did is not the same as declaring the case finished, and this path must
-      // answer to the same authority as PATCH. Without it a claimant with no RESOLVE_WORK closes
-      // work by posting an action with resolve:true — the split permission with a door left open.
       if (!mayResolve(scope, user, row)) {
         throw forbidden('You can record what you did, but closing this case out is not yours to do.');
       }
@@ -651,13 +529,11 @@ export function recordAction(
     }
 
     const action = ctx.db.prepare('SELECT * FROM work_actions WHERE id = ?').get(actionId) as Record<string, unknown>;
-    // A replayed action returns above without reaching here, so retries never count twice.
     record(ctx, 'work.action_recorded', { kind, drafted_record: Boolean(activityId), resolved: Boolean(input.resolve || kind === 'resolved') }, { id: user.id });
     return { action, item: hydrate(reload(ctx, itemId)), activity_id: activityId, replayed: false };
   })();
 }
 
-/** Saved arrangements of the workbench. A shared view needs the authority to post work to that unit. */
 export function listViews(ctx: AppContext, user: SessionUser, scope: Scope) {
   const units = scope.unitIds;
   const rows = units.length

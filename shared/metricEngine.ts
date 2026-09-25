@@ -1,22 +1,3 @@
-/**
- * The one authoritative metric layer.
- *
- * Everything that reports a number - the dashboard, goals, reports, exports, the owner console -
- * reads it from here, so a figure means the same thing wherever it appears.
- *
- * Three rules are structural rather than conventional, because they are the ones that get broken
- * accidentally when each screen does its own arithmetic:
- *
- *  1. A measure carries its own unit. Totals are keyed by unit, so two measures in different units
- *     can never land in the same sum. There is no "total" that spans dollars and hours.
- *  2. A financial type that the instance marks as not counting toward the headline is reported on
- *     its own. Reviewed money and obligated money are different claims about the world.
- *  3. One outcome counts once. Measures are deduplicated by (outcome, metric) before aggregation,
- *     so re-saving a record, importing the same workbook twice, or reading the same row through two
- *     screens cannot inflate a figure.
- *
- * A record count is deliberately not a metric here. Counting entries measures typing, not work.
- */
 import { DEFAULT_METRICS, isSummable, type MetricsConfig } from './constants.ts';
 
 export type MetricKind = 'money' | 'quantity' | 'duration';
@@ -25,14 +6,12 @@ export type Direction = 'increase' | 'decrease' | 'threshold' | 'completion';
 
 /** A single typed measurement produced by one outcome. */
 export interface Measure {
-  /** The outcome this came from. Two measures sharing an outcome and metric are the same measurement. */
   outcomeId: string;
   metricId: string;
   metricLabel: string;
   kind: MetricKind;
   /** Display unit, e.g. the money label, "ULOs", "hours". */
   unit: string;
-  /** Normalized unit used for compatibility checks. Measures whose unitKey differs never combine. */
   unitKey: string;
   value: number;
   date: string;
@@ -50,17 +29,13 @@ export interface MetricTotal {
   unitKey: string;
   aggregation: Aggregation;
   value: number;
-  /** How many distinct outcomes produced this figure. Shown as provenance, never as productivity. */
   outcomes: number;
   headline: boolean;
   /** Outcome ids behind the figure, so every total can be opened. */
   contributors: string[];
 }
 
-/** Normalizes a unit for compatibility. Case and a trailing plural do not make two units different. */
 export function unitKeyOf(unit: string | null | undefined): string {
-  // A missing unit is "items", and then normalizes like any other word, so an unlabelled quantity
-  // and one labelled "items" are the same metric rather than two that never add up.
   const text = (String(unit ?? '').trim() || 'items').toLowerCase();
   return text.endsWith('s') && text.length > 3 ? text.slice(0, -1) : text;
 }
@@ -92,7 +67,6 @@ const num = (v: unknown): number | null => {
   return Number.isFinite(n) ? n : null;
 };
 
-/** Turns one outcome into its typed measures. An outcome with no measurable result produces none. */
 export function measuresOf(row: OutcomeRow, cfg: MetricsConfig = DEFAULT_METRICS): Measure[] {
   const out: Measure[] = [];
   const date = String(row.date || '').slice(0, 10);
@@ -143,7 +117,6 @@ export function measuresOfAll(rows: OutcomeRow[], cfg: MetricsConfig = DEFAULT_M
   return rows.flatMap((r) => measuresOf(r, cfg));
 }
 
-/** Drops repeat measurements of the same outcome under the same metric. The first one wins. */
 export function dedupe(measures: Measure[]): Measure[] {
   const seen = new Set<string>();
   const out: Measure[] = [];
@@ -173,7 +146,6 @@ function apply(aggregation: Aggregation, values: number[]): number {
 
 export interface AggregateOptions {
   aggregation?: Aggregation;
-  /** Keep only measures whose dimensions match every entry. A null value matches a missing dimension. */
   filters?: Record<string, string | null | undefined>;
   from?: string | null;
   to?: string | null;
@@ -198,10 +170,6 @@ export function selectMeasures(measures: Measure[], opts: AggregateOptions = {})
   });
 }
 
-/**
- * Totals by metric. Measures in different units land in different totals by construction:
- * there is no code path here that adds across unitKey.
- */
 export function totals(measures: Measure[], opts: AggregateOptions = {}): MetricTotal[] {
   const aggregation = opts.aggregation || 'sum';
   const groups = new Map<string, Measure[]>();
@@ -224,16 +192,10 @@ export function totals(measures: Measure[], opts: AggregateOptions = {}): Metric
   return out.sort((a, b) => Number(b.headline) - Number(a.headline) || Math.abs(b.value) - Math.abs(a.value));
 }
 
-/** One total, by metric id. Returns null rather than a zero, so "no data" reads differently from "zero". */
 export function totalFor(measures: Measure[], metricId: string, opts: AggregateOptions = {}): MetricTotal | null {
   return totals(measures, opts).find((t) => t.metricId === metricId) || null;
 }
 
-/**
- * The headline figures for a period: one line per metric, never a single blended number.
- * Types the instance excludes from the headline come back separately, so a screen cannot
- * render them as the total by accident.
- */
 export function headline(measures: Measure[], opts: AggregateOptions = {}): { headline: MetricTotal[]; tracked: MetricTotal[] } {
   const all = totals(measures, opts);
   return { headline: all.filter((t) => t.headline), tracked: all.filter((t) => !t.headline) };
@@ -241,7 +203,6 @@ export function headline(measures: Measure[], opts: AggregateOptions = {}): { he
 
 export interface Bucket { key: string; from: string; to: string; label: string }
 
-/** Buckets one metric over time for a chart, using the same aggregation as the total. */
 export function series(measures: Measure[], metricId: string, buckets: Bucket[], opts: AggregateOptions = {}) {
   const selected = selectMeasures(measures, opts).filter((m) => m.metricId === metricId);
   return buckets.map((b) => {
@@ -303,7 +264,6 @@ const clampPercent = (n: number) => (Number.isFinite(n) ? Math.max(0, Math.min(1
 
 export interface CatalogEntry { metricId: string; metricLabel: string; kind: MetricKind; unit: string; headline: boolean }
 
-/** Every metric present in a set of outcomes, for pickers and settings screens. */
 export function catalog(measures: Measure[]): CatalogEntry[] {
   const seen = new Map<string, CatalogEntry>();
   for (const m of measures) if (!seen.has(m.metricId)) seen.set(m.metricId, { metricId: m.metricId, metricLabel: m.metricLabel, kind: m.kind, unit: m.unit, headline: m.headline });

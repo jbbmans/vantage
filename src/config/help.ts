@@ -1,23 +1,9 @@
 import type { VideoSlot } from './videos';
 
-/**
- * The field guide's content, kept as data rather than markup.
- *
- * Written as questions somebody actually types, not as feature headings. "Who can see my records"
- * is a question; "Visibility model" is a filing label, and nobody searches for a filing label.
- *
- * Every answer here has to be true of the build it ships in. An answer that describes behaviour the
- * product no longer has is worse than no answer, because a person will act on it — so when you
- * change a rule, the answer that describes the rule is part of the change, not follow-up work.
- */
-
 export interface Answer {
-  /** Stable handle for deep links: /help#q-who-can-see. Renaming breaks links; edit `q` instead. */
   id: string;
   q: string;
-  /** Plain paragraphs. Kept as strings so the whole guide stays searchable as text. */
   a: string[];
-  /** Extra words somebody might search for that do not appear in the question. */
   also?: string[];
 }
 
@@ -72,8 +58,6 @@ export const HELP: HelpSection[] = [
           'No, and Vantage will not tell you it does. Record count is never reported as productivity anywhere in the product, and there are no streaks.',
           'Twelve entries with numbers and outcomes beat ninety without. The dashboard reports what the work produced, not how many rows you typed.',
         ],
-        // No 'streak' synonym needed: the answer body says "there are no streaks", which the search
-        // already matches on. Adding it bare would also trip the invariant guard, correctly.
         also: ['how many', 'gamification'],
       },
     ],
@@ -377,7 +361,7 @@ export const HELP: HelpSection[] = [
           'It is off unless the owner enables it, and it runs against the GenAI.mil gateway rather than a commercial provider.',
           'Nothing generated is authoritative. It drafts; a person reviews and decides. Where AI is offered it sits on the page you are already working on rather than in a destination of its own.',
         ],
-        also: ['genai', 'assist', 'llm', 'chatgpt'],
+        also: ['genai', 'assist', 'llm'],
       },
       {
         id: 'system-of-record',
@@ -401,8 +385,6 @@ export function searchHelp(query: string) {
   return ALL_ANSWERS
     .map((entry) => {
       const hay = `${entry.q} ${entry.a.join(' ')} ${(entry.also || []).join(' ')} ${entry.section}`.toLowerCase();
-      // A question-title hit is worth more than a body hit; somebody searching "passkey" wants the
-      // question about passkeys, not the four answers that mention one in passing.
       const score = terms.reduce((n, t) => n + (entry.q.toLowerCase().includes(t) ? 3 : 0) + (hay.includes(t) ? 1 : 0), 0);
       return { entry, score, matchedAll: terms.every((t) => hay.includes(t)) };
     })

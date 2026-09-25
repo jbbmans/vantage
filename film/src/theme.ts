@@ -1,4 +1,3 @@
-/** The film's palette and type. Deeper than the app's navy: this is a screen in a dark room. */
 export const C = {
   ink: '#050d1b',
   navy: '#07152a',

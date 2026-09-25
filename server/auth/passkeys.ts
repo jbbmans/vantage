@@ -7,7 +7,6 @@ import { now } from '../lib/ids.ts';
 
 const challenges = new Map<string, { challenge: string; userId: string | null; expires: number }>();
 const CHALLENGE_TTL = 5 * 60_000;
-/** Hard ceiling on outstanding challenges; beyond it the oldest are dropped so a flood of option requests cannot grow memory. */
 export const MAX_CHALLENGES = 2000;
 let sweptAt = 0;
 

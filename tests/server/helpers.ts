@@ -60,7 +60,6 @@ export async function startApp(env: Record<string, string> = {}): Promise<TestAp
   };
 }
 
-/** Enroll an existing user into a unit as a leader with a given template role key. */
 export async function enroll(app: TestApp, operatorToken: string, unitId: string, userId: string, roleKey?: string) {
   const res = await app.call('POST', `/api/org/units/${unitId}/members`, { token: operatorToken, body: { user_id: userId, role_id: roleKey ? `${unitId}:${roleKey}` : null } });
   if (res.status !== 201) throw new Error(`enroll failed: ${res.status} ${JSON.stringify(res.body)}`);

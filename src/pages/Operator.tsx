@@ -9,6 +9,7 @@ import { Table, useParam } from '@/components/common';
 import { keys, useIdentity, signOutEverywhere } from '@/lib/queries';
 import * as api from '@/lib/api';
 import UsageConsole from '@/components/UsageConsole';
+import AccountImport from '@/components/AccountImport';
 import { PersonnelConsole, RetentionConsole, PrivacyConsole } from '@/components/GovernanceConsole';
 import { copyToClipboard, downloadText, humanize, timeAgo } from '@/lib/utils';
 import { DEFAULT_METRICS, CATEGORY_PALETTE, type MetricsConfig } from '../../shared/constants';
@@ -95,7 +96,6 @@ function RuntimeSettings() {
   );
 }
 
-/** What this instance measures. Everything here used to be hard-coded for the G-8; now any shop can name its money metric and define its own value types and categories. */
 function MetricsSettings() {
   const { data, isPending, refetch } = useAdmin('overview', api.adminOverview);
   const toast = useToast(); const qc = useQueryClient();
@@ -170,7 +170,6 @@ function AiSettings() {
   if (isPending || !data || models == null) return <Skeleton className="h-64" />;
   const blocked = data.last_error_code === 'network_blocked';
   const lastError = data.last_error_code ? (blocked ? 'GenAI.mil refused the last call because this server is outside DoD networks.' : `The last call failed (${data.last_error_code}) ${timeAgo(data.last_error_at)}.`) : null;
-  /** Runs from the browser, not the server: shows whether GenAI.mil is reachable from wherever the operator is sitting. The key is used once and never stored. */
   const probeFromBrowser = async () => {
     setProbing(true); setProbe(null);
     try {
@@ -232,7 +231,7 @@ function Accounts() {
   };
   return (
     <>
-      <div className="mb-3 flex items-center gap-2"><Input aria-label="Search accounts" placeholder="Search accounts…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" /><span className="text-xs text-ink-3">{users.length} shown</span></div>
+      <div className="mb-3 flex flex-wrap items-center gap-2"><Input aria-label="Search accounts" placeholder="Search accounts…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" /><span className="text-xs text-ink-3">{users.length} shown</span><span className="ml-auto"><AccountImport onDone={() => refetch()} /></span></div>
       <div className="card" style={{ overflow: 'hidden' }}>
         <Table minWidth={860} head={<><th>Account</th><th className="w-32">Security</th><th className="w-20 text-center">Units</th><th className="w-28">Last sign-in</th><th className="w-24">Status</th><th className="w-64"></th></>}>
           {users.map((u) => (

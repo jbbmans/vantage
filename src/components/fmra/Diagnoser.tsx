@@ -25,11 +25,6 @@ const LIFECYCLE_PROCEDURES = new Set(['ocmt_research', 'udou_research', 'dou_res
 interface State { method: MethodKey | ''; values: Record<Phase, string>; shown: Record<Phase, boolean>; age: string; error: string }
 const EMPTY: State = { method: '', values: { commitment: '', obligation: '', delivered: '', paid: '' }, shown: { commitment: true, obligation: true, delivered: true, paid: true }, age: '', error: '' };
 
-/**
- * The balance diagnoser: four figures in, the reference's reasoning out. Everything runs in the
- * browser from the shared knowledge base; nothing is sent anywhere until the person chooses to open
- * a case from it.
- */
 export default function Diagnoser() {
   const [s, setS] = useState<State>(EMPTY);
   const [example, setExample] = useState<string | null>(null);
@@ -141,7 +136,6 @@ export default function Diagnoser() {
   );
 }
 
-/** Turns a reading into a case under the fitting procedure, with the figures recorded as read. */
 function OpenCase({ procedure, input, method }: { procedure: string; input: BalanceInput; method: MethodKey | '' }) {
   const navigate = useNavigate();
   const toast = useToast();
@@ -156,7 +150,6 @@ function OpenCase({ procedure, input, method }: { procedure: string; input: Bala
     try {
       const title = `${def.short}: ${reference.trim()}`;
       const item = await api.createWorkItem({ title, reference: reference.trim(), visibility: unit === 'private' ? 'private' : 'unit', unit_id: unit === 'private' ? null : unit });
-      // Whoever reads the balance and opens the case is working it: it starts in their hands.
       await api.claimWorkItem(item.id, item.version);
       await api.applyProcedure(item.id, procedure);
       const key = `diag-${item.id}`;

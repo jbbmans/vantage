@@ -1,14 +1,4 @@
 #!/usr/bin/env bash
-# Regenerates the synthetic CAC test certificates.
-#
-# The first set of fixtures was issued with a two-day validity window, so the CAC suite started
-# failing on its own two days later. These are issued for twenty years instead. The identities are
-# synthetic: the DoD IDs are not real EDIPIs and the names belong to nobody.
-#
-# expired.pem is deliberately left alone: it is expired by construction (notAfter before notBefore)
-# and exists to prove an expired card is refused, which it keeps doing forever.
-#
-# Usage: bash tests/fixtures/make-cac-fixtures.sh   (needs openssl 3)
 set -euo pipefail
 cd "$(dirname "$0")"
 work=$(mktemp -d)

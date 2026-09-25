@@ -68,7 +68,7 @@ export function resolveSession(ctx: AppContext, token: string | undefined): { us
   const row = db.prepare(
     `SELECT s.expires_at, s.absolute_expires_at, s.last_used_at, s.sudo_until, s.method, u.*
        FROM sessions s JOIN users u ON u.id = s.user_id WHERE s.id = ? AND u.active = 1`
-  ).get(id) as (SessionUser & { password_hash: string; totp_secret: string | null; expires_at: string; absolute_expires_at: string; last_used_at: string; sudo_until: string | null; method: string }) | undefined;
+  ).get(id) as (SessionUser & { password_hash: string; totp_secret: string | null; totp_pending: string | null; totp_last_step: number | null; expires_at: string; absolute_expires_at: string; last_used_at: string; sudo_until: string | null; method: string }) | undefined;
   if (!row) return null;
   const nowMs = Date.now();
   if (new Date(row.expires_at).getTime() < nowMs || new Date(row.absolute_expires_at).getTime() < nowMs) {
@@ -82,6 +82,6 @@ export function resolveSession(ctx: AppContext, token: string | undefined): { us
       id
     );
   }
-  const { password_hash: _p, totp_secret: _t, expires_at: _e, absolute_expires_at: _a, last_used_at: _l, sudo_until, method, ...user } = row;
+  const { password_hash: _p, totp_secret: _t, totp_pending: _tp, totp_last_step: _ts, expires_at: _e, absolute_expires_at: _a, last_used_at: _l, sudo_until, method, ...user } = row;
   return { user: user as SessionUser, session: { id, sudo_until, method } };
 }

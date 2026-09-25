@@ -1,6 +1,5 @@
 import { continueRender, delayRender, staticFile } from 'remotion';
 
-/** Geist (variable) and JetBrains Mono, from the product's own font files. Rendering waits for them. */
 let started = false;
 export function loadFonts() {
   if (started || typeof document === 'undefined') return;

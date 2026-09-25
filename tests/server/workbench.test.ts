@@ -232,15 +232,6 @@ test('a leader can take back work someone else is holding, and a peer cannot', a
   assert.equal(leader.body.claimed_by, null);
 });
 
-/**
- * Claiming used to be the only decision the system made, which meant one gate answered four
- * different questions. These prove each one separately.
- */
-
-/**
- * A row of its own, so these do not inherit whatever state an earlier test left ULO-1 in.
- * Each import carries a natural key nothing else uses.
- */
 let seq = 0;
 async function freshRow(token: string, title = 'Clear a fresh obligation') {
   const key = `FRESH-${Date.now()}-${seq++}`;
@@ -256,15 +247,10 @@ async function freshRow(token: string, title = 'Clear a fresh obligation') {
 }
 
 test('a unit can let somebody work cases without letting them close one', async () => {
-  // The default keeps claiming and resolving together, because that is what claiming already meant.
-  // What the split buys is this: a unit can now take RESOLVE_WORK off a role and the holder still
-  // works the queue. So the test takes it off rather than relying on a default.
   const stripped = await app.call('PUT', '/api/org/roles/G8:marine', {
     token: op.token, body: { permissions: PERMISSIONS.VIEW_UNIT | PERMISSIONS.CLAIM_WORK },
   });
   assert.equal(stripped.status, 200, JSON.stringify(stripped.body));
-  // Editing a role revokes every holder's session so the new authority is re-read — and the
-  // operator holds the default role too, so both tokens have to be taken again.
   const worker = (await app.login('alex')).body.token;
   const leader = (await app.login('boletz')).body.token;
 
@@ -282,8 +268,6 @@ test('a unit can let somebody work cases without letting them close one', async 
     assert.equal(close.status, 403, 'holding a case is not authority to close it');
     assert.match(close.body.error, /closing one out is not yours/i);
 
-    // And the action path is not a way around it, which is where the split was previously open:
-    // recordAction wrote state='resolved' after checking only that the caller held the claim.
     const viaAction = await app.call('POST', `/api/work/items/${row.id}/actions`, {
       token: worker, body: { kind: 'resolved', note: 'Closing it out the back way.' },
     });
@@ -296,8 +280,6 @@ test('a unit can let somebody work cases without letting them close one', async 
     assert.equal(byLeader.status, 200, JSON.stringify(byLeader.body));
     assert.equal(byLeader.body.state, 'resolved');
   } finally {
-    // Put the role back so later tests see the shipped default, then take fresh tokens again for
-    // the same reason: restoring it revokes the sessions a second time.
     await app.call('PUT', '/api/org/roles/G8:marine', {
       token: (await app.login('boletz')).body.token,
       body: { permissions: PERMISSIONS.VIEW_UNIT | PERMISSIONS.CLAIM_WORK | PERMISSIONS.RESOLVE_WORK },
@@ -319,7 +301,6 @@ test('work can be handed to somebody, and only to somebody who can already see i
   const inbox = await app.call('GET', '/api/me/notifications', { token: bree.token });
   assert.ok((inbox.body.rows as Array<{ kind: string }>).some((n) => n.kind === 'work_assigned'), 'the recipient hears about it');
 
-  // Somebody outside the unit cannot be handed work they could not otherwise see.
   const toStranger = await app.call('POST', `/api/work/items/${current.id}/assign`, { token: op.token, body: { user_id: outsider.id, version: handed.body.version } });
   assert.equal(toStranger.status, 400);
   assert.match(toStranger.body.error, /cannot see this work/i);
@@ -329,10 +310,6 @@ test('work can be handed to somebody, and only to somebody who can already see i
   assert.equal(byMember.status, 403);
 });
 
-/**
- * The provenance rule, now stated by the server rather than kept by accident because no route
- * happened to offer the write.
- */
 test('a value that came off an imported sheet is read-only, at every level', async () => {
   const row = await freshRow(op.token, 'Reconcile the imported figure');
   for (const [field, value] of [['title', 'Rewritten title'], ['reference', 'ULO-999'], ['due_date', '2027-01-01']] as const) {
@@ -360,18 +337,12 @@ test('a row somebody typed in is theirs to correct, unlike one off a sheet', asy
   assert.equal(fixed.status, 200, JSON.stringify(fixed.body));
   assert.match(fixed.body.title, /2nd endorsement/);
 
-  // Somebody with no EDIT_WORK here cannot rewrite it either — typed does not mean unguarded.
   const byMember = await app.call('PATCH', `/api/work/items/${made.body.id}`, {
     token: alex.token, body: { title: 'Something else entirely', version: fixed.body.version },
   });
   assert.equal(byMember.status, 403);
 });
 
-/**
- * The point of the whole exercise: a project holds the work under it, whether somebody typed that
- * work in or it arrived on a spreadsheet. Before this a project and the queue were two unrelated
- * piles with no column joining them.
- */
 test('a project holds typed work and imported work in one list', async () => {
   const project = await app.call('POST', '/api/records/projects', {
     token: op.token, body: { name: 'October reconciliation', visibility: 'unit' },
@@ -390,7 +361,6 @@ test('a project holds typed work and imported work in one list', async () => {
   const filed = await app.call('PATCH', `/api/work/items/${imported.id}`, {
     token: op.token, body: { project_id: project.body.id, version: imported.version },
   });
-  // Filing an imported row under a project is not rewriting what the sheet said, so it is allowed.
   assert.equal(filed.status, 200, JSON.stringify(filed.body));
 
   const listed = await app.call('GET', `/api/work/items?unit_id=G8&project_id=${project.body.id}`, { token: op.token });
@@ -419,10 +389,6 @@ test('a claim nobody touches goes back on the queue by itself', async () => {
   // Nothing is stale yet, so a sweep leaves it alone.
   assert.equal(releaseStaleClaims(app.ctx, 72), 0, 'a fresh claim is not stale');
 
-  // Age the claim rather than shrinking the window to zero. A zero-hour window puts the cutoff at
-  // the same millisecond the claim was made, so `claimed_at < cutoff` is a coin flip decided by how
-  // fast the machine is — it passed here and failed in CI. Backdating exercises the real condition:
-  // a claim nobody has touched for days.
   const old = new Date(Date.now() - 100 * 3_600_000).toISOString();
   app.ctx.db.prepare('UPDATE work_items SET claimed_at = ?, updated_at = ? WHERE id = ?').run(old, old, free.id);
 
@@ -432,11 +398,6 @@ test('a claim nobody touches goes back on the queue by itself', async () => {
   assert.equal(after.state, 'open');
 });
 
-/**
- * work_items.project_id is the only one of the three project links with a real foreign key, so
- * forgetting it in the purge does not leave a dangling row — it makes the purge throw and roll back,
- * every time it runs, until somebody clears the reference by hand.
- */
 test('purging a project detaches the work filed under it instead of failing forever', async () => {
   const { purgeDeleted } = await import('../../server/services/records.ts');
   const project = await app.call('POST', '/api/records/projects', { token: op.token, body: { name: 'Doomed project', visibility: 'unit' } });
@@ -452,12 +413,10 @@ test('purging a project detaches the work filed under it instead of failing fore
   const old = new Date(Date.now() - 60 * 86_400_000).toISOString();
   app.ctx.db.prepare('UPDATE projects SET deleted_at = ? WHERE id = ?').run(old, project.body.id);
 
-  // Without the detach this throws a foreign-key error and takes the whole transaction with it.
   const result = purgeDeleted(app.ctx, 30);
   assert.ok(result.records >= 1, 'the project was actually purged');
   assert.equal(app.ctx.db.prepare('SELECT 1 FROM projects WHERE id = ?').get(project.body.id), undefined);
 
-  // The work survives, detached rather than deleted: it is somebody's record of what they did.
   const survivor = app.ctx.db.prepare('SELECT project_id FROM work_items WHERE id = ?').get(item.body.id) as { project_id: string | null } | undefined;
   assert.ok(survivor, 'the work item is still there');
   assert.equal(survivor!.project_id, null, 'and no longer points at a project that is gone');

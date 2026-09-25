@@ -26,21 +26,12 @@ import { zonedNow } from '../lib/clock.ts';
 export const miscRouter = Router();
 miscRouter.use(requireAuth);
 
-// Product events --------------------------------------------------------
-/**
- * A batch of product events from the client. The actor is taken from the session, never from the
- * body: a client that could name its own user could name somebody else's.
- *
- * A rejected event is not a failed request. Telemetry must never stand between a person and their
- * work, so the response reports what was dropped and why, and the caller carries on regardless.
- */
 miscRouter.post('/events', wrap((req, res) => {
   const events = Array.isArray(req.body?.events) ? req.body.events : [];
   const result = ingest(req.ctx, { id: req.user.id, sessionId: req.sessionId ?? null }, events, 'client');
   res.status(202).json(result);
 }));
 
-/** The catalog, so a client can tell what it may send and an operator can see what is measured. */
 miscRouter.get('/events/catalog', wrap((_req, res) => {
   res.json({
     events: Object.entries(EVENTS).map(([name, spec]) => ({
@@ -51,7 +42,6 @@ miscRouter.get('/events/catalog', wrap((_req, res) => {
   });
 }));
 
-// Reports ---------------------------------------------------------------
 const reportQuery = z.object({
   period: z.string().max(20).default('fiscalYear'), from: z.string().max(10).optional(), to: z.string().max(10).optional(),
   user_id: z.string().max(64).optional(), unit_id: z.string().max(64).optional(), style: z.enum(['jepes', 'fitrep', 'resume']).optional(),
@@ -73,7 +63,6 @@ function reportTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
   return { q, userId, unitId };
 }
 
-// Report Studio -------------------------------------------------------
 const draftSchema = z.object({
   title: z.string().max(200),
   period_start: z.string().max(10),
@@ -104,7 +93,6 @@ miscRouter.get('/studio/reports/:id', wrap((req, res) => {
   res.json({
     draft, revisions, latest,
     sources: availableSources(req.ctx, req.user, scope, draft),
-    // Which of the cited records have moved since the last save, without pretending the save moved.
     drift: draft.latest_revision ? revisionDrift(req.ctx, draft.id, draft.latest_revision) : [],
   });
 }));
@@ -127,7 +115,6 @@ miscRouter.post('/studio/reports/:id/revisions', wrap((req, res) => {
     audit(req.ctx, { actor_id: req.user.id, action: 'save_report_revision', entity: 'report_revisions', entity_id: result.revision.id, subject_id: result.draft.subject_id, unit_id: result.draft.unit_id, detail: `revision ${result.revision.revision}`, ip: clientIp(req) });
     res.status(201).json(result);
   } catch (e) {
-    // A stale source is not a server error: it is the check doing its job, and the client needs the list.
     if (e instanceof StaleSourceError) throw conflict(e.message, 'stale_sources', { stale: e.stale });
     throw e;
   }
@@ -145,8 +132,6 @@ miscRouter.get('/studio/reports/:id/revisions/:revision/export.txt', wrap((req, 
   const scope = scopeFor(req.ctx, req.user, req);
   const draft = readableDraft(req.ctx, req.user, scope, String(req.params.id));
   const revision = Number(req.params.revision);
-  // Rendered from the saved revision, never from the live records, so the export is the thing
-  // that was reviewed even if a source has been edited since.
   const text = renderRevisionText(req.ctx, draft.id, revision);
   audit(req.ctx, { actor_id: req.user.id, action: 'export_report_revision', entity: 'report_revisions', entity_id: `${draft.id}:${revision}`, subject_id: draft.subject_id, unit_id: draft.unit_id, ip: clientIp(req) });
   res.setHeader('content-type', 'text/plain; charset=utf-8');
@@ -155,8 +140,6 @@ miscRouter.get('/studio/reports/:id/revisions/:revision/export.txt', wrap((req, 
   res.send(text);
 }));
 
-// Metrics -------------------------------------------------------------
-// Every figure the product shows is computed here, over rows the caller may actually read.
 const metricsQuery = z.object({
   from: z.string().max(10).optional(), to: z.string().max(10).optional(),
   unit_id: z.string().max(64).optional(), user_id: z.string().max(64).optional(),
@@ -263,7 +246,6 @@ miscRouter.get('/reports/csv', wrap((req, res) => {
   res.send(`\uFEFF${rowsToCsv(rows.map(activityToCsvRow), ACTIVITY_CSV_COLUMNS.map((c) => c.header))}`);
 }));
 
-// AI --------------------------------------------------------------------
 miscRouter.get('/ai/status', wrap((req, res) => res.json(aiStatus(req.ctx, { userId: req.user.id }))));
 
 miscRouter.post('/ai/assist', wrap(async (req, res) => {
@@ -282,7 +264,6 @@ miscRouter.post('/ai/assist', wrap(async (req, res) => {
   }
 }));
 
-// MARADMINs -------------------------------------------------------------
 miscRouter.get('/maradmins', wrap(async (req, res) => {
   const ctx = req.ctx;
   let syncError: string | null = null;
@@ -307,7 +288,6 @@ miscRouter.put('/maradmins/:id/state', wrap((req, res) => {
   res.json({ ok: true, read_at: readAt, saved_at: savedAt });
 }));
 
-// Global search ----------------------------------------------------------
 miscRouter.get('/search', wrap((req, res) => {
   const q = String(req.query.q || '').trim().slice(0, 80);
   if (q.length < 2) return res.json({ results: [] });

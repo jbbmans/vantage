@@ -10,13 +10,6 @@ import {
   TICKET_STATES, TICKET_CATEGORIES, TICKET_PRIORITIES,
 } from '../services/support.ts';
 
-/**
- * The help queue.
- *
- * Raising a ticket is split in two on purpose. The signed-in route is the ordinary case. The
- * anonymous one exists because the single most common reason to need help is that you cannot sign
- * in, and a queue you must sign in to reach is no use to the person who cannot.
- */
 export const supportRouter = Router();
 
 const raiseSchema = z.object({
@@ -26,17 +19,12 @@ const raiseSchema = z.object({
   unit_id: z.string().max(64).nullable().optional(),
 });
 
-/** Open to somebody who cannot get in. Rate-limited, and it never says whether an account exists. */
 export const publicSupportRouter = Router();
 publicSupportRouter.post('/tickets', wrap((req, res) => {
   const q = parse(raiseSchema.extend({
     requester_email: z.string().max(200).optional(),
     requester_name: z.string().max(120).optional(),
   }), req.body);
-  // The client-header check lives inside requireAuth, which this route deliberately skips, so it
-  // has to be asked for here. It is not authority — there is none to borrow on an anonymous
-  // endpoint — but it stops a drive-by form POST from another origin filing tickets, since a custom
-  // header cannot be set cross-origin without a preflight the browser will refuse.
   if (!req.get('x-vantage-client')) throw forbidden('Request rejected: missing client header.', 'csrf');
 
   const ip = clientIp(req);
@@ -47,8 +35,6 @@ publicSupportRouter.post('/tickets', wrap((req, res) => {
     subject: q.subject, body: q.body, category: q.category,
     requester_email: q.requester_email ?? null, requester_name: q.requester_name ?? null,
   }, null, ip);
-  // Deliberately thin: the person is not signed in, so they get an acknowledgement and an id and
-  // nothing that could confirm whether an account exists behind the address they typed.
   return res.status(201).json({ ok: true, id: ticket.id });
 }));
 

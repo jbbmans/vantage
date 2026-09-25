@@ -9,9 +9,11 @@ import { profileSchema, passwordField, readinessSchema, prefsSchema, emailField 
 import { sourcedFieldsFor } from '../services/personnel.ts';
 import { hashPassword, verifyPassword, encryptSecret, decryptSecret, sha256 } from '../lib/crypto.ts';
 import { invalidateUserSessions, listSessions, revokeSessionByPrefix, SESSION_COOKIE, SIGNED_IN_COOKIE } from '../auth/sessions.ts';
-import { generateTotpSecret, otpauthUrl, verifyTotp, generateRecoveryCodes } from '../auth/totp.ts';
+import { generateTotpSecret, otpauthUrl, matchTotp, generateRecoveryCodes } from '../auth/totp.ts';
 import { registrationOptions, completeRegistration, listPasskeys, deletePasskey } from '../auth/passkeys.ts';
 import { issueToken, consumeToken } from '../auth/tokens.ts';
+import { limiters, mailAllowance } from '../auth/limiter.ts';
+import { tooMany } from '../lib/errors.ts';
 import { audit } from '../services/audit.ts';
 import { layout } from '../services/email.ts';
 import { newId, now } from '../lib/ids.ts';
@@ -48,7 +50,6 @@ meRouter.get('/', wrap((req, res) => {
     counselUnits: unitsWith(scope, PERMISSIONS.COUNSEL),
     exportUnits: unitsWith(scope, PERMISSIONS.EXPORT_DATA),
     session: { id: req.sessionId.slice(0, 12), method: req.sessionRow.method, sudoUntil: req.sessionRow.sudo_until },
-    // Present only on the synthetic demo: which persona this is, and when the workspace goes away.
     demo: ctx.config.accessMode === 'demo' ? demoStatus(ctx, req.user.id) : null,
     instance: { accessMode: ctx.config.accessMode, displayName: ctx.runtime.displayName, organizationName: ctx.runtime.organizationName, announcement: ctx.runtime.announcement, emailEnabled: ctx.mailer.enabled, attachmentsEnabled: ctx.runtime.attachmentsEnabled, aiEnabled: ctx.runtime.aiEnabled && Boolean(ctx.config.ai.apiKey), maradminsEnabled: ctx.runtime.maradminsEnabled, selfServiceUnits: ctx.runtime.selfServiceUnits, metrics: ctx.runtime.metrics },
   });
@@ -72,8 +73,6 @@ meRouter.put('/profile', wrap((req, res) => {
     if (body.email && ctx.db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id <> ?').get(body.email, req.user.id)) throw badRequest('That email is already in use.', { fieldErrors: { email: 'Already in use.' } });
   }
   if (body.rank_id && !ctx.db.prepare('SELECT 1 FROM ranks WHERE id = ?').get(body.rank_id)) throw badRequest('No such rank.', { fieldErrors: { rank_id: 'No such rank.' } });
-  // Where a personnel feed owns this account, the fields it owns are not the person's to edit.
-  // Refused here rather than hidden in the client, because a hidden field is not a control.
   const owned = sourcedFieldsFor(ctx, req.user.id);
   if (owned.length) {
     const attempted = owned.filter((f) => (body as Record<string, unknown>)[f] !== undefined && (body as Record<string, unknown>)[f] !== (req.user as unknown as Record<string, unknown>)[f]);
@@ -107,8 +106,11 @@ meRouter.put('/prefs', wrap((req, res) => {
 meRouter.post('/password', wrap((req, res) => {
   const ctx = req.ctx;
   const { current_password, new_password } = parse(z.object({ current_password: z.string().max(512), new_password: passwordField }), req.body);
+  const limited = limiters.loginUser.limited(req.user.username);
+  if (limited) throw tooMany('Too many failed attempts. Try again later.', limited.retryAfter);
   const stored = ctx.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id) as { password_hash: string };
-  if (!verifyPassword(current_password, stored.password_hash)) throw forbidden('Current password is incorrect.', 'bad_password');
+  if (!verifyPassword(current_password, stored.password_hash)) { limiters.loginUser.bump(req.user.username); throw forbidden('Current password is incorrect.', 'bad_password'); }
+  limiters.loginUser.clear(req.user.username);
   if (current_password === new_password) throw badRequest('Choose a different password.', { fieldErrors: { new_password: 'Choose a different password.' } });
   ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?').run(hashPassword(new_password), now(), req.user.id);
   const revoked = invalidateUserSessions(ctx, req.user.id, req.sessionId);
@@ -116,7 +118,6 @@ meRouter.post('/password', wrap((req, res) => {
   res.json({ ok: true, otherSessionsRevoked: revoked });
 }));
 
-/** Everything the signed-in Marine owns, as one JSON archive or a zip of JSON + CSVs + attachments. Step-up required: it is the whole record. */
 meRouter.get('/export', requireSudo, wrap((req, res) => {
   const ctx = req.ctx;
   const format = req.query.format === 'json' ? 'json' : 'zip';
@@ -150,11 +151,10 @@ meRouter.delete('/sessions/:sid', wrap((req, res) => {
   res.json({ ok: true, current: isCurrent });
 }));
 
-// MFA: authenticator app --------------------------------------------------
 meRouter.post('/mfa/totp/start', requireSudo, wrap(async (req, res) => {
   const ctx = req.ctx;
   const secret = generateTotpSecret();
-  ctx.db.prepare('UPDATE users SET totp_secret = ?, totp_enabled = 0, updated_at = ? WHERE id = ?').run(encryptSecret(ctx.config.secret, secret), now(), req.user.id);
+  ctx.db.prepare('UPDATE users SET totp_pending = ?, updated_at = ? WHERE id = ?').run(encryptSecret(ctx.config.secret, secret), now(), req.user.id);
   const url = otpauthUrl(secret, req.user.username, ctx.runtime.displayName || 'Vantage');
   const qr = await QRCode.toDataURL(url, { margin: 1, width: 220 });
   res.json({ secret, otpauth: url, qr });
@@ -163,13 +163,14 @@ meRouter.post('/mfa/totp/start', requireSudo, wrap(async (req, res) => {
 meRouter.post('/mfa/totp/confirm', requireSudo, wrap((req, res) => {
   const ctx = req.ctx;
   const { code } = parse(z.object({ code: z.string().max(12) }), req.body);
-  const row = ctx.db.prepare('SELECT totp_secret FROM users WHERE id = ?').get(req.user.id) as { totp_secret: string | null };
-  const secret = row.totp_secret ? decryptSecret(ctx.config.secret, row.totp_secret) : null;
+  const row = ctx.db.prepare('SELECT totp_pending FROM users WHERE id = ?').get(req.user.id) as { totp_pending: string | null };
+  const secret = row.totp_pending ? decryptSecret(ctx.config.secret, row.totp_pending) : null;
   if (!secret) throw badRequest('Start authenticator setup first.');
-  if (!verifyTotp(secret, code)) throw badRequest('That code did not match. Check the time on your device and try again.', { fieldErrors: { code: 'Incorrect code.' } });
+  const step = matchTotp(secret, code);
+  if (step === null) throw badRequest('That code did not match. Check the time on your device and try again.', { fieldErrors: { code: 'Incorrect code.' } });
   const codes = generateRecoveryCodes();
   ctx.db.transaction(() => {
-    ctx.db.prepare('UPDATE users SET totp_enabled = 1, updated_at = ? WHERE id = ?').run(now(), req.user.id);
+    ctx.db.prepare('UPDATE users SET totp_secret = totp_pending, totp_pending = NULL, totp_enabled = 1, totp_last_step = ?, updated_at = ? WHERE id = ?').run(step, now(), req.user.id);
     ctx.db.prepare('DELETE FROM recovery_codes WHERE user_id = ?').run(req.user.id);
     for (const c of codes) ctx.db.prepare('INSERT INTO recovery_codes (id, user_id, code_hash) VALUES (?, ?, ?)').run(newId(), req.user.id, sha256(`recovery:${c}`));
   })();
@@ -180,7 +181,7 @@ meRouter.post('/mfa/totp/confirm', requireSudo, wrap((req, res) => {
 meRouter.post('/mfa/totp/disable', requireSudo, wrap((req, res) => {
   const ctx = req.ctx;
   ctx.db.transaction(() => {
-    ctx.db.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL, updated_at = ? WHERE id = ?').run(now(), req.user.id);
+    ctx.db.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL, totp_pending = NULL, totp_last_step = NULL, updated_at = ? WHERE id = ?').run(now(), req.user.id);
     ctx.db.prepare('DELETE FROM recovery_codes WHERE user_id = ?').run(req.user.id);
   })();
   audit(ctx, { actor_id: req.user.id, action: 'mfa_disabled', detail: 'totp', ip: clientIp(req) });
@@ -199,7 +200,6 @@ meRouter.post('/mfa/recovery/regenerate', requireSudo, wrap((req, res) => {
   res.json({ ok: true, recoveryCodes: codes });
 }));
 
-// Passkeys -------------------------------------------------------------
 meRouter.get('/passkeys', wrap((req, res) => res.json({ passkeys: listPasskeys(req.ctx, req.user.id), rpId: req.ctx.config.rpId })));
 meRouter.post('/passkeys/options', requireSudo, wrap(async (req, res) => res.json(await registrationOptions(req.ctx, req.user))));
 meRouter.post('/passkeys', requireSudo, wrap(async (req, res) => {
@@ -217,7 +217,6 @@ meRouter.delete('/passkeys/:id', requireSudo, wrap((req, res) => {
   res.json({ ok: true, passkeys: listPasskeys(req.ctx, req.user.id) });
 }));
 
-// Readiness ------------------------------------------------------------
 const READINESS_SELECT = `SELECT r.pft_score, r.cft_score, r.rifle_qual, r.mcmap_belt, r.ceus, r.college_credits, r.degree, r.pme_complete, r.cmd_character, r.cmd_mos, r.cmd_leadership, r.fitrep_period_end, rk.grade AS rank_grade, rk.abbr AS rank_abbr
   FROM users u LEFT JOIN readiness r ON r.user_id = u.id LEFT JOIN ranks rk ON rk.id = u.rank_id WHERE u.id = ?`;
 
@@ -242,7 +241,6 @@ meRouter.get('/readiness/:id', wrap((req, res) => {
   res.json(ctx.db.prepare(READINESS_SELECT).get(id) || {});
 }));
 
-// Notifications --------------------------------------------------------
 meRouter.get('/notifications', wrap((req, res) => {
   const limit = Math.min(Math.max(Number(req.query.limit) || 40, 1), 100);
   const rows = req.ctx.db.prepare('SELECT id, kind, title, message, action_url, read_at, created_at FROM notifications WHERE user_id = ? ORDER BY created_at DESC LIMIT ?').all(req.user.id, limit);
@@ -259,31 +257,30 @@ meRouter.post('/notifications/read-all', wrap((req, res) => {
   res.json({ ok: true, updated: r.changes });
 }));
 
-// Audit trail about me ------------------------------------------------
 meRouter.get('/audit', wrap((req, res) => {
   const rows = req.ctx.db.prepare(`SELECT al.id, al.action, al.entity, al.entity_id, al.detail, al.at, u.first_name, u.last_name, r.abbr AS rank_abbr FROM audit_log al LEFT JOIN users u ON u.id = al.actor_id LEFT JOIN ranks r ON r.id = u.rank_id WHERE al.subject_id = ? AND al.actor_id <> ? ORDER BY al.seq DESC LIMIT 100`).all(req.user.id, req.user.id);
   res.json(rows);
 }));
 
-// Digest ----------------------------------------------------------------
 meRouter.get('/digest/preview', wrap((req, res) => {
   const digest = composeDigest(req.ctx, { id: req.user.id, email: req.user.email, first_name: req.user.first_name, last_name: req.user.last_name, prefs: req.user.prefs, digest_last_sent_at: null });
   res.json({ subject: digest.subject, text: digest.text, stats: digest.stats, emailEnabled: req.ctx.mailer.enabled, hasEmail: Boolean(req.user.email) });
 }));
 meRouter.post('/digest/send-now', wrap(async (req, res) => {
   if (!req.ctx.mailer.enabled) throw badRequest('Email is not configured on this server.');
+  mailAllowance(req.user.id);
   if (!req.user.email) throw badRequest('Add an email address to your profile first.');
   const result = await sendDigest(req.ctx, { id: req.user.id, email: req.user.email, first_name: req.user.first_name, last_name: req.user.last_name, prefs: req.user.prefs, digest_last_sent_at: null });
   if (!result.ok) throw badRequest(result.error || 'The digest could not be sent.');
   res.json({ ok: true });
 }));
 
-// Email verification for a changed address --------------------------------
 meRouter.post('/email/verify', requireSudo, wrap(async (req, res) => {
   const ctx = req.ctx;
   const { email } = parse(z.object({ email: emailField }), req.body);
   if (!ctx.mailer.enabled) throw badRequest('Email is not configured on this server.');
   if (ctx.db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id <> ?').get(email, req.user.id)) throw badRequest('That email is already in use.', { fieldErrors: { email: 'Already in use.' } });
+  mailAllowance(req.user.id);
   const { token } = issueToken(ctx, 'email_change', { userId: req.user.id, email, ttlMinutes: 60 });
   const url = `${ctx.config.publicUrl}/settings?verify=${encodeURIComponent(token)}`;
   const mail = layout({ title: 'Confirm your email for Vantage', intro: `Confirm that ${email} belongs to ${req.user.username}. The link works for one hour.`, cta: { label: 'Confirm email', url } });

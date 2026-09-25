@@ -17,7 +17,6 @@ test('a measure carries its unit, and unlike units never combine into one total'
   const t = totals(measuresOfAll(rows));
   const ulos = t.find((x) => x.metricId === quantityMetricId('ULOs'))!;
   const hours = t.find((x) => x.metricId === quantityMetricId('hours'))!;
-  // "ULOs" and "ULO" are the same unit, so they add. "hours" is a different unit and stays apart.
   assert.equal(ulos.value, 42);
   assert.equal(hours.value, 4);
   assert.equal(t.length, 2);
@@ -28,7 +27,6 @@ test('unit normalization folds case and a trailing plural but nothing else', () 
   assert.equal(unitKeyOf('ULOs'), unitKeyOf('ulo'));
   assert.equal(unitKeyOf('Invoices'), 'invoice');
   assert.notEqual(unitKeyOf('miles'), unitKeyOf('minutes'));
-  // A missing unit and an explicit "items" are the same metric, so an unlabelled quantity adds up.
   assert.equal(unitKeyOf(''), 'item');
   assert.equal(unitKeyOf(''), unitKeyOf('items'));
   // Three letters or fewer keep their s, so "OPS" does not become "OP".

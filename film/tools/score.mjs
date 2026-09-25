@@ -1,18 +1,3 @@
-/**
- * The score and the sound, made in code, and the final mix with the narration.
- *
- *   node tools/score.mjs            every film
- *   node tools/score.mjs hero       one
- *
- * Everything is synthesised here — pads, a felt piano, plucked arpeggios, sub bass, a kick, impacts,
- * risers, whooshes and the interface's own clicks — and arranged against the same timeline as the
- * picture: the hit lands on the title, the music lifts where the script says "lift", and every
- * click in the footage has its tick. Nothing is sampled, so nothing is licensed.
- *
- * The narration (assets/vo, from tools/voice.mjs) sits on top; the music ducks under it. The mix is
- * loudness-normalised to −14 LUFS, −1.5 dBTP, for the web, and written to public/mix/<film>.wav.
- */
-
 import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -25,8 +10,6 @@ const ENV = { ...process.env, LD_LIBRARY_PATH: FF_DIR };
 const SR = 48000;
 const TL = JSON.parse(readFileSync(join(ROOT, 'src', 'generated', 'timelines.json'), 'utf8'));
 const TAKES = existsSync(join(ROOT, 'src', 'generated', 'takes.json')) ? JSON.parse(readFileSync(join(ROOT, 'src', 'generated', 'takes.json'), 'utf8')) : {};
-
-/* ── primitives ──────────────────────────────────────────────────────────────────────────────── */
 
 function rng(seed) {
   let a = seed >>> 0;
@@ -57,7 +40,6 @@ function polyblep(t, dt) {
   return 0;
 }
 
-/** RBJ biquad, processed in place; `fc` may be a function of the sample index (updated every 32). */
 function biquad(x, type, fc, q = 0.707, gainDb = 0) {
   let b0, b1, b2, a1, a2;
   let x1 = 0, x2 = 0, y1 = 0, y2 = 0;
@@ -80,7 +62,6 @@ function biquad(x, type, fc, q = 0.707, gainDb = 0) {
   return x;
 }
 
-/** Freeverb: eight combs and four allpasses a side, with a little pre-delay. */
 function reverb(bus, { room = 0.86, damp = 0.32, pre = 0.02, width = 1 } = {}) {
   const k = SR / 44100;
   const combs = [1116, 1188, 1277, 1356, 1422, 1491, 1557, 1617].map((x) => Math.round(x * k));
@@ -119,9 +100,6 @@ function pingpong(bus, time, fb = 0.34, mix = 0.28) {
   }
 }
 
-/* ── instruments ─────────────────────────────────────────────────────────────────────────────── */
-
-/** A pad: three detuned saws a note, a slow filter, a soft attack and a long release. */
 function pad(bus, t, dur, notes, { amp = 0.05, attack = 1.4, release = 2.2, cut = [900, 900], q = 0.8, seed = 1, spread = 0.7 } = {}) {
   const r = rng(seed * 7919);
   const n = Math.ceil((dur + release) * SR);
@@ -148,7 +126,6 @@ function pad(bus, t, dur, notes, { amp = 0.05, attack = 1.4, release = 2.2, cut 
   bus.stereo(t, L, R, amp / Math.sqrt(notes.length));
 }
 
-/** A felt piano: inharmonic partials with their own decays, a soft hammer, darker when quiet. */
 function felt(bus, t, m, { vel = 0.6, dur = 5, pan = 0 } = {}) {
   const f = mtof(m); const n = Math.ceil(dur * SR); const s = new Float32Array(n);
   const B = 0.00035;
@@ -230,7 +207,6 @@ function impact(bus, t, { amp = 0.8, size = 1 } = {}) {
   bus.mono(t, noise, amp * 0.5, -0.25); bus.mono(t + 0.011, noise, amp * 0.5, 0.25);
 }
 
-/** A build into a moment: noise opening upward, and a tone climbing under it. */
 function riser(bus, t, dur, { amp = 0.25 } = {}) {
   const n = Math.ceil(dur * SR); const s = new Float32Array(n); const r = rng(Math.round(t * 131));
   for (let i = 0; i < n; i++) { const k = i / n; s[i] = (r() * 2 - 1) * k ** 2.2; }
@@ -251,7 +227,6 @@ function whoosh(bus, t, { dur = 0.8, amp = 0.16, from = -0.7, to = 0.7, lo = 350
   bus.stereo(t, L, R, amp);
 }
 
-/** The interface: a soft tick for a click, a rounder one for a key, a whisper for each character. */
 function tick(bus, t, { amp = 0.12, pitch = 2300, pan = 0 } = {}) {
   const n = Math.ceil(0.05 * SR); const s = new Float32Array(n); const r = rng(Math.round(t * 5003));
   for (let i = 0; i < n; i++) { const tt = i / SR; s[i] = Math.sin(2 * Math.PI * pitch * tt * (1 - tt * 4)) * Math.exp(-tt / 0.009) + (i < 70 ? (r() * 2 - 1) * 0.5 * (1 - i / 70) : 0); }
@@ -271,7 +246,6 @@ function keystroke(bus, t, seed, { amp = 0.045 } = {}) {
   bus.mono(t, s, amp * (0.7 + r() * 0.6), (r() - 0.5) * 0.3);
 }
 
-/** A small bright bell: two sines a fifth apart. For things that come right. */
 function chime(bus, t, m = 81, { amp = 0.12, pan = 0 } = {}) {
   const n = Math.ceil(2.4 * SR); const s = new Float32Array(n);
   for (let i = 0; i < n; i++) { const tt = i / SR; s[i] = (Math.sin(2 * Math.PI * mtof(m) * tt) + 0.5 * Math.sin(2 * Math.PI * mtof(m + 7) * tt) + 0.2 * Math.sin(2 * Math.PI * mtof(m) * 2.76 * tt) * Math.exp(-tt / 0.2)) * Math.exp(-tt / 0.6) * Math.min(1, tt / 0.003); }
@@ -292,8 +266,6 @@ function shimmer(bus, t, dur, notes, { amp = 0.03 } = {}) {
   bus.stereo(t, L, R, amp / notes.length);
 }
 
-/* ── harmony ─────────────────────────────────────────────────────────────────────────────────── */
-
 const CHORDS = {
   Dm: { root: 38, pad: [57, 62, 65, 69, 76], arp: [62, 65, 69, 74, 76, 81] },
   Bb: { root: 34, pad: [58, 62, 65, 69, 74], arp: [58, 62, 65, 69, 74, 77] },
@@ -303,8 +275,6 @@ const CHORDS = {
 };
 const PROG = ['Dm', 'Bb', 'F', 'C'];
 const ARP = [0, 2, 1, 3, 2, 4, 3, 5];
-
-/* ── the films ───────────────────────────────────────────────────────────────────────────────── */
 
 function clock(tl) {
   const sc = (id) => tl.scenes.find((s) => s.id === id);
@@ -316,7 +286,6 @@ function clock(tl) {
   };
 }
 
-/** Ticks as a counter rolls from 0 to `to` over `dur`, eased out: fast, then slowing. */
 function counterTicks(bus, t0, dur, to, amp = 0.05) {
   let last = -1; let lastT = -1;
   for (let i = 0; i <= dur * 200; i++) {
@@ -346,7 +315,6 @@ function heroScore(tl) {
   const title = c.start('title'); const cap = c.start('capture'); const trust = c.start('trust'); const end = c.start('end');
   const beat = 60 / tl.score.bpm; const bar = beat * 4; const chordLen = bar * 2;
 
-  // Before the title: one low chord in the dark, opening a little, closing again when the work is lost.
   const gone = c.w('scatter', 'gone');
   pad(music, 0, title - 0.2, [50, 53, 57, 62, 69], { amp: 0.1, attack: 3.5, release: 1.2, cut: [500, 1100], seed: 3 });
   pad(music, 0, title - 0.2, [50, 57], { amp: 0.03, attack: 4, release: 1, cut: [300, 380], seed: 4 });
@@ -442,7 +410,6 @@ function chapterScore(tl, id) {
   impact(fx, t0, { amp: 0.22, size: 0.7 });
   [50, 57, 62, 65, 69].forEach((m, i) => felt(music, t0 + i * 0.05, m, { vel: 0.5, dur: 5, pan: (i - 2) / 4 }));
   shimmer(music, t0, 3, [81, 86], { amp: 0.03 });
-  // The bed: the hero's progression, quieter and darker, with a gentle arpeggio.
   const start = shots[0].start;
   let k = 0;
   for (let t = start; t < endAt; t += chordLen, k++) {
@@ -466,9 +433,6 @@ function chapterScore(tl, id) {
   return { music, drums, fx, arpBus, T, c };
 }
 
-/* ── narration, ducking, mix ─────────────────────────────────────────────────────────────────── */
-
-/** Any audio file → mono float samples at SR (through a 24-bit WAV: this ffmpeg has no raw or float PCM output). */
 export function decode(file) {
   const r = spawnSync(FFMPEG, ['-v', 'error', '-i', file, '-ac', '1', '-ar', String(SR), '-c:a', 'pcm_s24le', '-f', 'wav', '-'], { env: ENV, maxBuffer: 1 << 30 });
   if (r.status !== 0) throw new Error(`decode ${file}: ${r.stderr}`);
@@ -500,7 +464,6 @@ function voiceBus(tl, T) {
   return { vo, lines };
 }
 
-/** How much to pull the music down at each sample: follows the voice with a fast attack, slow release. */
 function duckCurve(vo, depthDb = -7) {
   const g = new Float32Array(vo.n);
   const a = Math.exp(-1 / (0.012 * SR)); const r = Math.exp(-1 / (0.45 * SR));
@@ -544,7 +507,6 @@ export function score(id) {
   const { vo, lines } = voiceBus(tl, T);
   const duck = lines ? duckCurve(vo, id === 'hero' ? -7 : -9) : null;
 
-  // Room: the music and the effects share one hall; the arpeggio gets its own brighter send.
   const send = new Bus(T);
   for (let i = 0; i < send.n; i++) {
     send.L[i] = music.L[i] * 0.55 + fx.L[i] * 0.45 + arpBus.L[i] * 0.4 + drums.L[i] * 0.12;
@@ -559,7 +521,6 @@ export function score(id) {
     let l = (music.L[i] + arpBus.L[i] + drums.L[i] + hall.L[i] * 0.9) * d + fx.L[i] * dFx + vo.L[i] * 0.9;
     let r = (music.R[i] + arpBus.R[i] + drums.R[i] + hall.R[i] * 0.9) * d + fx.R[i] * dFx + vo.R[i] * 0.9;
     const g = Math.min(1, i / fadeIn) * (i > fadeOutFrom ? Math.max(0, 1 - (i - fadeOutFrom) / (0.25 * SR)) : 1);
-    // A soft ceiling before the loudness pass: gentle saturation instead of hard clipping.
     mix.L[i] = Math.tanh(l * g * 1.1) / 1.1; mix.R[i] = Math.tanh(r * g * 1.1) / 1.1;
   }
   const n = Math.round(tl.seconds * SR);
@@ -567,11 +528,8 @@ export function score(id) {
   mkdirSync(join(ROOT, 'public', 'mix'), { recursive: true });
   const raw = join(ROOT, '.work', `mix-${id}.wav`);
   writeWav(raw, mix.L.subarray(0, n), mix.R.subarray(0, n));
-  // With the voice, −14 LUFS for the web. Music alone sits a little lower, at −16: it is a bed for
-  // the captions, and should not jump out louder than the narrated version will be.
   const out = join(ROOT, 'public', 'mix', `${id}.wav`);
   const { measured } = loudnorm(raw, out, lines ? -14 : -16);
-  // Tell the compositions which films have a mix to play, and whether it carries the voice.
   const mediaPath = join(ROOT, 'src', 'generated', 'media.json');
   const media = existsSync(mediaPath) ? JSON.parse(readFileSync(mediaPath, 'utf8')) : { mixes: {} };
   media.mixes[id] = { file: `mix/${id}.wav`, voiced: lines };

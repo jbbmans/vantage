@@ -7,26 +7,6 @@ import {
 } from './conditions.ts';
 import { WORK_RESPONSIBILITY, responsibilityName, type WorkResponsibility } from './roles.ts';
 
-/**
- * The diagnoser: reads the four lifecycle figures for one document and answers the way the FMRAC
- * says an analyst (or an AI) should — condition and evidence first, then the supported next action:
- *
- *   1. Observed condition      what the figures actually show
- *   2. Financial meaning       which phase or gap they represent
- *   3. Possible causes         which source-supported explanations remain plausible
- *   4. Required research       what evidence tells those causes apart
- *   5. Responsible role        who can research, prepare, approve or post
- *   6. Next action             the supported correction or follow-up
- *   7. Wait / verification     what has to happen next, and what proves resolution
- *   8. References and limits   where it comes from, and what is missing
- *
- * It never presents a classroom example as a live balance, a printed threshold as current policy,
- * a requested action as an executed change, or a likely cause as a proven fact. The arithmetic is
- * the book's editorial arithmetic for its examples; it narrows the question, it does not answer it.
- *
- * Amounts are whole cents. `null` means the figure is not shown — which is not the same as zero.
- */
-
 export interface BalanceInput {
   method?: MethodKey | null;
   commitment?: number | null;
@@ -84,7 +64,6 @@ export interface Diagnosis {
   error: { label: string; correction: string; route: string | null; validate: string | null } | null;
   references: string[];
   limits: string[];
-  /** The Vantage procedure that fits best, if any. The analyst decides whether to use it. */
   procedure: string | null;
 }
 
@@ -121,8 +100,6 @@ export function diagnose(input: BalanceInput): DiagnosisResult {
   };
 
   if (travel) {
-    // A travel obligation is read against payment directly. The book's OTO examples deliberately
-    // show no commitment, so a blank commitment is not an error here.
     if (shown(o) && o > z(p)) add('oto', o - z(p), z(p) > 0 || z(d) > 0 ? 'partial' : 'full', `obligation ${amt(o)} − paid ${amt(shown(p) ? p : 0)}`);
     if (shown(c)) limits.push('A commitment is shown on travel. The book’s OTO examples carry none; read it against the actual DTS configuration rather than as an extra phase.');
     if (shown(p) && shown(o) && p > o) anomalies.push({ key: 'paid_exceeds_obligation', title: 'Paid exceeds the travel obligation', detail: `${amt(p)} paid against ${amt(o)} obligated.`, research: 'Check the voucher, any automatic DAI award adjustment to the receipt amount, and the interface status. Voucher costs can differ from the estimate.', procedure: 'oto_research' });
@@ -153,7 +130,6 @@ export function diagnose(input: BalanceInput): DiagnosisResult {
 
   const complete = findings.length === 0 && anomalies.length === 0 && figures.some((v) => shown(v) && v > 0);
 
-  // Causes, filtered to the pattern each finding shows and to the method when it rules one out.
   const causes: CauseOption[] = [];
   for (const f of findings) {
     for (const cause of NORMAL_CONDITIONS[f.condition].causes) {
@@ -315,7 +291,6 @@ export const ERROR_OPTIONS: Array<{ kind: ErrorKind; report: string; options: Ar
 
 const dedupe = (xs: string[]) => [...new Set(xs)];
 
-/** The FMRAC's eight numerical examples, for teaching and for tests. Amounts in whole dollars. */
 export function sourceExamples(): Array<{ id: string; condition: NormalKey; pattern: 'full' | 'partial'; input: BalanceInput; residualCents: number; explanation: string; cite: Cite }> {
   const toCents = (v: number | null) => (v == null ? null : v * 100);
   const out = [];

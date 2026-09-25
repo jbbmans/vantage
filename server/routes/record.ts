@@ -8,11 +8,6 @@ import {
 } from '../services/record.ts';
 import { careerProfileSchema, careerStepSchema } from '../../shared/record.ts';
 
-/**
- * The Record and Career: a person's own history and plans. Every route here reads or writes only
- * the signed-in person's rows. There is no parameter that names somebody else, so there is no way
- * to ask for another person's drafts or career plan, whatever role the caller holds.
- */
 export const recordRouter = Router();
 recordRouter.use(requireAuth);
 

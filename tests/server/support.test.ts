@@ -21,14 +21,11 @@ after(async () => { await app.close(); });
 
 test('somebody who cannot sign in can still raise a ticket', async () => {
   const raised = await app.call('POST', '/api/public-support/tickets', {
-    // The client header, which the real client always sends. It is not authority — there is none to
-    // borrow here — but it keeps a cross-origin form POST from filing tickets.
     headers: { 'x-vantage-client': '1' },
     body: { subject: 'Cannot sign in', body: 'My password reset never arrives.', category: 'sign_in', requester_email: 'locked@example.mil', requester_name: 'Locked Out' },
   });
   assert.equal(raised.status, 201, JSON.stringify(raised.body));
   assert.ok(raised.body.id);
-  // Deliberately thin: nothing here confirms whether an account exists behind that address.
   assert.deepEqual(Object.keys(raised.body).sort(), ['id', 'ok']);
 });
 
@@ -52,14 +49,6 @@ test('a ticket belongs to the person who raised it and to the queue, nobody else
   assert.equal((await app.call('GET', `/api/support/tickets/${mine.body.id}`, { token: nguyen.token })).status, 403);
 });
 
-/**
- * The line this whole feature is drawn around.
- *
- * A reset email carries a live single-use link, so anybody who could read one is a click from
- * taking the account. The queue is given the delivery *fact* instead — address, time, status — which
- * is what actually answers "why can this Marine not get in", and which email_log stores without any
- * body at all.
- */
 test('the queue can see that a reset was sent, and never what it said', async () => {
   // Ask for a reset so there is something in the delivery log.
   const asked = await app.call('POST', '/api/auth/forgot', { body: { identifier: 'rivera@example.mil' } });
@@ -83,8 +72,6 @@ test('the queue can see that a reset was sent, and never what it said', async ()
     assert.equal(row[forbidden], undefined, `delivery must not carry ${forbidden}`);
   }
 
-  // And the requester themselves is not shown the delivery log either — it is a diagnostic for the
-  // people working the queue, not a second place to read your own mail.
   const asRequester = await app.call('GET', `/api/support/tickets/${ticket.body.id}`, { token: rivera.token });
   assert.deepEqual(asRequester.body.delivery, []);
 });
@@ -129,14 +116,6 @@ test('a ticket needs something to say', async () => {
   assert.equal((await app.call('POST', '/api/support/tickets', { token: rivera.token, body: { subject: 'Real', body: '   ' } })).status, 400);
 });
 
-/**
- * The escalation that nearly shipped.
- *
- * Anybody may stand up a unit of their own and owns it, and an owner holds every permission inside
- * it — VIEW_SUPPORT included. Treating "holds VIEW_SUPPORT anywhere" as authority over the whole
- * queue therefore meant any signed-in person could create a throwaway unit and read every ticket on
- * the instance, with the email-delivery diagnostics attached. Two features that are each fine alone.
- */
 test('creating your own unit does not hand you everybody else’s tickets', async () => {
   // A ticket that belongs to nobody's unit: raised from the sign-in page.
   const anonymous = await app.call('POST', '/api/public-support/tickets', {
@@ -149,7 +128,6 @@ test('creating your own unit does not hand you everybody else’s tickets', asyn
   const theirs = await app.call('POST', '/api/support/tickets', { token: rivera.token, body: { subject: 'Private trouble', body: 'Something personal.', category: 'other' } });
   assert.equal(theirs.status, 201, JSON.stringify(theirs.body));
 
-  // Now somebody makes a unit of their own, which makes them its owner and its administrator.
   const outsider = await app.register('opportunist');
   const made = await app.call('POST', '/api/org/units', { token: outsider.token, body: { name: 'Opportunist Team' } });
   assert.equal(made.status, 201, JSON.stringify(made.body));
@@ -162,7 +140,6 @@ test('creating your own unit does not hand you everybody else’s tickets', asyn
   assert.ok(!ids.includes(anonymous.body.id), 'a sign-in ticket is not theirs to read');
   assert.ok(!ids.includes(theirs.body.id), 'another unit’s ticket is not theirs to read');
 
-  // And asking for one directly is refused rather than merely filtered out of a list.
   assert.equal((await app.call('GET', `/api/support/tickets/${theirs.body.id}`, { token })).status, 403);
   assert.equal((await app.call('PATCH', `/api/support/tickets/${theirs.body.id}`, { token, body: { state: 'closed' } })).status, 403);
 

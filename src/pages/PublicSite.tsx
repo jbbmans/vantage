@@ -9,17 +9,6 @@ import { publishedVideos } from '@/config/videos';
 import LiveParser from '@/components/public/LiveParser';
 import './PublicSite.css';
 
-/**
- * The public page.
- *
- * Whole before anybody scrolls: every section is in the first render, and the reveal motion only
- * moves things, never hides them (see tests/browser/20-public-site.spec.ts). The page is also
- * prerendered to static HTML at build time, so nothing here may touch `window` outside an effect.
- *
- * What the financial-management side of the product does is described here only at the level of
- * a feature list. The desk reference itself stays inside the signed-in application.
- */
-
 const faqs = [
   ['What is Vantage?', 'Vantage is a self-hosted performance, productivity, readiness, work-management, reporting and decision-support platform. It turns day-to-day operational work into clear, traceable records, and those records into the views and reports a Marine and their leaders actually use.'],
   ['Who is Vantage for?', 'Individual Marines, NCOs and team leaders, staff sections such as a comptroller’s budget and execution shop, command teams, and the people who run a deployment. Each sees the part of the picture their role allows.'],
@@ -29,8 +18,6 @@ const faqs = [
   ['Can it support Marine Corps performance documentation?', 'Vantage organises source records and drafts material that can help prepare JEPES or FITREP input. Official submissions still belong in the authoritative systems and processes.'],
   ['How does Vantage handle accountability?', 'Every case keeps an append-only history that is sealed and signed, access follows current unit membership, and important changes are attributable in a hash-chained audit log. Outputs can be traced back to the facts used to make them.'],
   ['Does Vantage use AI?', 'Only when the deployment owner enables it, and only through GenAI.mil. AI sits inside the workflows where it helps, never as a separate destination, and everything it drafts is something a person reviews.'],
-  // `as const` so each entry stays a [question, answer] pair. The FAQ schema is generated from this
-  // exact array, so a malformed row would become malformed structured data.
 ] as const satisfies ReadonlyArray<readonly [string, string]>;
 
 const samples = [
@@ -41,7 +28,6 @@ const samples = [
 
 const videos = publishedVideos();
 
-/** The reveal: once JavaScript is running, sections drift up into place as they arrive. Never hidden. */
 function useReveal(root: React.RefObject<HTMLDivElement | null>) {
   useEffect(() => {
     const el = root.current;
@@ -52,7 +38,6 @@ function useReveal(root: React.RefObject<HTMLDivElement | null>) {
       for (const e of entries) if (e.isIntersecting) { e.target.classList.add('in'); io.unobserve(e.target); }
     }, { rootMargin: '0px 0px -8% 0px', threshold: 0.08 });
     el.querySelectorAll('[data-reveal]').forEach((n) => {
-      // Anything already on screen is simply in place; only what is below the fold moves.
       if (n.getBoundingClientRect().top < window.innerHeight) n.classList.add('in');
       else io.observe(n);
     });
@@ -66,7 +51,6 @@ function PillLink({ href, to, children, tone = 'light' }: { href?: string; to?: 
   return to ? <Link to={to} className={className}>{inner}</Link> : <a href={href} className={className}>{inner}</a>;
 }
 
-/** A still of a real case, drawn in HTML so it is crisp at any size and readable to a crawler. */
 function CaseMock() {
   const steps: Array<[string, 'done' | 'current' | 'todo' | 'branch']> = [
     ['Record the lifecycle figures', 'done'],
@@ -171,7 +155,6 @@ export default function PublicSite() {
   const film = videos.find((item) => item.id === 'tour');
   const player = useRef<HTMLVideoElement | null>(null);
   const chosen = useRef(false);
-  // A film picked from the list starts playing: the click was the request. The first one never autoplays.
   const choose = (id: string) => { chosen.current = true; setActiveVideo(id); };
   useEffect(() => { if (chosen.current) player.current?.play().catch(() => undefined); }, [activeVideo]);
   useReveal(root);
@@ -181,7 +164,7 @@ export default function PublicSite() {
   }, []);
 
   return (
-    <div className="public-site" ref={root}>
+    <div className="public-site" data-theme="light" ref={root}>
       <a href="#ps-main" className="ps-skip">Skip to content</a>
 
       <div className="ps-hero-band">
@@ -317,7 +300,6 @@ export default function PublicSite() {
         </div>
         <div className="ps-bezel" data-reveal><div className="ps-bezel-core ps-parser"><LiveParser /></div></div>
       </section>
-
 
       <section className="ps-section ps-container" id="security" aria-labelledby="ps-security-title">
         <div className="ps-section-head" data-reveal>

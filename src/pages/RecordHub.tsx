@@ -14,15 +14,6 @@ import { QueryFailure } from '@/components/QueryFailure';
 
 const Records = lazy(() => import('./Records'));
 
-/**
- * The Record: what a Marine has actually done, and what backs it up.
- *
- * Three things, kept apart because they mean different things. Assigned work is what you hold
- * right now; it is not credit. Contributions are what you did, read from the history of the work
- * itself, so nobody retypes them. Your own entries are what you logged yourself: PME, PT,
- * volunteering, anything that did not start as a tasker.
- */
-
 const WINDOWS = [
   { value: '30', label: '30 days' },
   { value: '90', label: '90 days' },
@@ -234,7 +225,6 @@ function DraftEditor({ draft, onChanged, onDelete }: { draft: any; onChanged: ()
       if (dirty) await api.updateDraft(draft.id, { title, wording, version: draft.version });
       await api.saveDraftToRecord(draft.id);
       toast.success('Kept in your record as a private entry.');
-      // The entry feeds the figures, goal progress and the Record, not just the activity list.
       invalidateDomains(qc, 'draft', 'activity');
     } catch (e) { toast.error(api.errorText(e)); }
     finally { setBusy(false); }

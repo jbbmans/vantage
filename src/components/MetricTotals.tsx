@@ -9,7 +9,6 @@ import { formatDollars, formatNumber, formatDollarsExact } from '../../shared/me
 import type { MetricTotal } from '../../shared/metricEngine';
 import { cn } from '@/lib/utils';
 
-/** How a typed figure reads. Money gets the money symbol; everything else keeps its own unit word. */
 export function formatMetric(total: Pick<MetricTotal, 'kind' | 'value' | 'unit'>, exact = false): string {
   if (total.kind === 'money') return exact ? formatDollarsExact(total.value) : formatDollars(total.value);
   if (total.kind === 'duration') return `${formatNumber(total.value)} hrs`;
@@ -34,7 +33,6 @@ function deltaLabel(current: number, prior: number | null): string | null {
 export interface MetricCardProps {
   total: MetricTotal;
   prior?: MetricTotal | null;
-  /** Query parameters that produced the figure, so the drill-down asks for exactly the same thing. */
   params: Record<string, string | undefined>;
   tone?: 'headline' | 'tracked';
 }
@@ -119,7 +117,6 @@ function ContributorsDialog({ total, params, onClose }: { total: MetricTotal; pa
   );
 }
 
-/** A row of typed figures. Headline metrics come first; anything the instance tracks apart is labelled as such. */
 export function MetricTotalsGrid({ headline, tracked, prior, params, emptyTitle, emptyDescription, emptyAction }: {
   headline: MetricTotal[];
   tracked: MetricTotal[];

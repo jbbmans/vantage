@@ -19,7 +19,6 @@ export const scene = (filmId: string, sceneId: string) => {
   return s;
 };
 
-/** Frame (film-absolute) at which a word of a line begins; matches loosely, ignoring punctuation. */
 export const wordFrame = (s: TScene, lineIndex: number, word: string, fps = 30, nth = 0) => {
   const line = s.lines[lineIndex];
   const norm = (w: string) => w.toLowerCase().replace(/[^a-z0-9$]/g, '');

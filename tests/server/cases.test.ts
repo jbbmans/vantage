@@ -4,12 +4,6 @@ import { startApp, enroll, type TestApp } from './helpers.ts';
 import { parseMoney, formatCents, sumCents } from '../../shared/money.ts';
 import { UMT_2WAY, progress } from '../../shared/procedures.ts';
 
-/**
- * The case model: an append-only history per work item, the 2-Way UMT reference procedure, and the
- * financial distinctions that must not collapse (drafted/submitted/approved/posted, funds checked
- * vs. obligated, procedure followed vs. condition verified).
- */
-
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
 let avery: { token: string; id: string };
@@ -55,8 +49,6 @@ async function researchReferenceValues(token: string, id: string) {
   }
 }
 
-// Money --------------------------------------------------------------------------------------
-
 test('money is parsed to exact cents from text, never through a float', () => {
   assert.deepEqual(parseMoney('$91,250.00'), { ok: true, cents: 9_125_000 });
   assert.deepEqual(parseMoney('0.1'), { ok: true, cents: 10 });
@@ -71,8 +63,6 @@ test('money is parsed to exact cents from text, never through a float', () => {
   assert.equal(formatCents(277_500, { signed: true }), '+$2,775.00');
   assert.equal(formatCents(-100), '−$1.00');
 });
-
-// History and claiming -----------------------------------------------------------------------
 
 test('claiming puts the work on the Marine’s list at once and records who claimed it, but credits nothing', async () => {
   const id = await umtCase();
@@ -152,8 +142,6 @@ test('the history is append-only at the database', async () => {
   assert.throws(() => db.prepare("UPDATE work_events SET kind = 'note' WHERE id = ?").run(one.id), /append-only/);
   assert.throws(() => db.prepare('DELETE FROM work_events WHERE id = ?').run(one.id), /append-only/);
 });
-
-// Controls and distinctions ------------------------------------------------------------------
 
 test('a failed, missing, or inconclusive funds check stops submission; a warning needs a stated reason', async () => {
   const id = await umtCase();
@@ -237,8 +225,6 @@ test('waiting needs a category, blocked needs a reason, and each maps to the que
   assert.equal(ended.body.category, 'documentation');
   assert.equal(typeof ended.body.elapsed_hours, 'number');
 });
-
-// Handoff and attribution --------------------------------------------------------------------
 
 test('a handoff keeps each person’s own contribution, and says who passed it, to whom, and why', async () => {
   const id = await umtCase();

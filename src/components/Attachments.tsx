@@ -6,13 +6,6 @@ import { useToast } from '@/components/ui/toast';
 import { useIdentity } from '@/lib/queries';
 import * as api from '@/lib/api';
 
-/**
- * Files hanging on a record. Lifted out of the activity page so a task or a project can carry the
- * spreadsheet it is about — which is the case people actually have, and the one the product used to
- * refuse because tasks were missing from the server's ATTACHABLE list.
- *
- * Like the discussion panel, this decides nothing about access: the host record does, server-side.
- */
 export function Attachments({ table, id, canEdit }: { table: api.Store; id: string; canEdit: boolean }) {
   const toast = useToast();
   const { data: identity } = useIdentity();

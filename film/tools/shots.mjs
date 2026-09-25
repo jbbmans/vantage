@@ -1,18 +1,3 @@
-/**
- * The shot lists: what the real application does on camera in every scene, paced by the timeline.
- *
- *   node tools/shots.mjs                 every film
- *   node tools/shots.mjs queue record    just these
- *
- * Needs the synthetic demo on VANTAGE_DEMO_URL (default http://localhost:8798). Each film starts in
- * a fresh synthetic workspace. Setup that is not the point of a scene happens off camera, between
- * takes, through the same interface.
- *
- * Actions are timed from the narration: `at(scene, 'word')` is when the narrator says that word, so
- * the camera arrives as the voice does. The timeline is rebuilt from the recorded voice, so re-run
- * this after voicing and every move lands on the real delivery.
- */
-
 import { readFileSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -22,7 +7,6 @@ const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const BASE = process.env.VANTAGE_DEMO_URL || 'http://localhost:8798';
 const TL = JSON.parse(readFileSync(join(ROOT, 'src', 'generated', 'timelines.json'), 'utf8'));
 
-/** Scene length, and when a word is spoken, in seconds from the scene's start. */
 function cue(filmId, sceneId) {
   const s = TL[filmId].scenes.find((x) => x.id === sceneId);
   if (!s) throw new Error(`no scene ${filmId}/${sceneId}`);
@@ -41,8 +25,6 @@ function cue(filmId, sceneId) {
 
 const role = (page, r, name, exact = true) => page.getByRole(r, { name, exact });
 const itemId = async (page, ref) => (await (await page.request.get(`/api/work/items?q=${encodeURIComponent(ref)}`)).json()).items[0].id;
-
-/* ── Hero: the two moments filmed live; the rest are stills ─────────────────────────────────── */
 
 async function hero(browser) {
   const { context, page } = await openDemo(browser, BASE);
@@ -109,7 +91,6 @@ async function hero(browser) {
   await lead.context.close();
 }
 
-/** Off camera: research, calculate and decide the 2-Way UMT, as the flagship journey does. */
 async function workUmt(page, id, { claim = true, decide = true } = {}) {
   await page.goto(`/work/items/${id}`, { waitUntil: 'networkidle' });
   if (claim && await role(page, 'button', 'Claim').count()) { await role(page, 'button', 'Claim').click(); await settle(page); }
@@ -130,8 +111,6 @@ async function workUmt(page, id, { claim = true, decide = true } = {}) {
   await role(page, 'button', 'Record the decision').click();
   await settle(page);
 }
-
-/* ── Quick Log ──────────────────────────────────────────────────────────────────────────────── */
 
 async function quickLog(browser) {
   const F = 'quick-log';
@@ -214,8 +193,6 @@ async function quickLog(browser) {
   await context.close();
 }
 
-/* ── Working a case ─────────────────────────────────────────────────────────────────────────── */
-
 async function queue(browser) {
   const F = 'queue';
   const { context, page } = await openDemo(browser, BASE);
@@ -289,7 +266,6 @@ async function queue(browser) {
     await tk.click(page.getByLabel('Amend the requisition first'), { travel: 0.5, after: 0.1 });
     await tk.type(page.getByLabel('Why'), 'Requisition shows $1,500.00 against +$2,775.00.', { cps: 34 });
     await tk.click(role(page, 'button', 'Record the decision'), { travel: 0.45, after: 0.1 });
-    // "A step that needs evidence first says so": open the submission step before its funds check.
     tk.until(c.at('evidence') - 0.7);
     const checklist = page.locator('section', { hasText: 'applicable steps done' }).first();
     await tk.click(checklist.getByText('Submit the modification'), { travel: 0.55, after: 0.1 });
@@ -337,8 +313,6 @@ async function queue(browser) {
   }
   await context.close();
 }
-
-/* ── Reading a balance ──────────────────────────────────────────────────────────────────────── */
 
 async function balance(browser) {
   const F = 'reading-a-balance';
@@ -421,8 +395,6 @@ async function balance(browser) {
   await context.close();
 }
 
-/* ── Your Record ────────────────────────────────────────────────────────────────────────────── */
-
 async function record(browser) {
   const F = 'record';
   const { context, page } = await openDemo(browser, BASE);
@@ -487,12 +459,9 @@ async function record(browser) {
   await context.close();
 }
 
-/* ── Report Studio ──────────────────────────────────────────────────────────────────────────── */
-
 async function studio(browser) {
   const F = 'report-studio';
   const { context, page } = await openDemo(browser, BASE);
-  // Off camera: the two entries the report is written against (the first is the one Quick Log saves).
   const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
   const week = new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10);
   for (const data of [
@@ -560,8 +529,6 @@ async function studio(browser) {
   await still(page, 's-saved');
   await context.close();
 }
-
-/* ── Leading a section ──────────────────────────────────────────────────────────────────────── */
 
 async function leading(browser) {
   const F = 'unit-dashboard';

@@ -9,7 +9,6 @@ import { C, FONT, MONO } from '../theme';
 
 type Cues = ReturnType<typeof cues>;
 
-/** Words of a line, with a line break before the word at `breakAt`, for Super. */
 export function lineWords(c: Cues, line: number, breakAt?: number, lead = 3) {
   const ws = c.wordsOf(line);
   const words: string[] = []; const at: number[] = [];
@@ -17,13 +16,10 @@ export function lineWords(c: Cues, line: number, breakAt?: number, lead = 3) {
   return { words, at };
 }
 
-/* ── open: somewhere tonight ─────────────────────────────────────────────────────────────────── */
-
 export function Open({ c }: { c: Cues }) {
   const f = useCurrentFrame();
   const { durationInFrames: d } = useVideoConfig();
   const glow = p(f, 0, 90, easeInOut);
-  // "Somewhere tonight, a Marine / is finishing work / that no one will ever see."
   const { words, at } = lineWords(c, 0, 4);
   const dimFrom = words.indexOf('that');
   const unseen = c.w('see', { end: true });
@@ -59,8 +55,6 @@ export function Open({ c }: { c: Cues }) {
   );
 }
 
-/* ── detail: thirty reconciliations, a gap caught ────────────────────────────────────────────── */
-
 export function Detail({ c }: { c: Cues }) {
   const f = useCurrentFrame();
   const thirty = c.w('thirty');
@@ -81,7 +75,6 @@ export function Detail({ c }: { c: Cues }) {
   );
 }
 
-/** Requisition funding against the candidate increase: the gap, and the moment it is caught. */
 export function FundingGap({ at, caught, style }: { at: number; caught: number; style?: React.CSSProperties }) {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -122,8 +115,6 @@ export function FundingGap({ at, caught, style }: { at: number; caught: number; 
     </div>
   );
 }
-
-/* ── scatter: by morning it is gone ──────────────────────────────────────────────────────────── */
 
 export function Scatter({ c }: { c: Cues }) {
   const f = useCurrentFrame();
@@ -177,7 +168,6 @@ function Embers({ from }: { from: number }) {
   );
 }
 
-/** One place work goes to be lost: it arrives out of the dark, and falls back into it. */
 function Fragment({ at, next, x, y, rz, children }: { at: number; next: number; x: number; y: number; rz: number; children: React.ReactNode }) {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -246,8 +236,6 @@ function Sticky() {
     </div>
   );
 }
-
-/* ── title: Vantage keeps it ─────────────────────────────────────────────────────────────────── */
 
 export function Title({ c }: { c: Cues }) {
   const f = useCurrentFrame();

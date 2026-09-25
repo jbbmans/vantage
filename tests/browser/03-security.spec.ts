@@ -3,6 +3,7 @@ import { ensureSetup, loginAs, logout, registerAs, unique, confirmSudoIfAsked, P
 import { totpCode } from '../../server/auth/totp.ts';
 
 const code = (secret: string) => totpCode(secret, Math.floor(Date.now() / 1000 / 30));
+const nextCode = (secret: string) => totpCode(secret, Math.floor(Date.now() / 1000 / 30) + 1);
 
 test('authenticator enrolment adds a second step to sign-in and recovery codes work once', async ({ page, request }) => {
   await ensureSetup(request);
@@ -44,7 +45,7 @@ test('authenticator enrolment adds a second step to sign-in and recovery codes w
   await page.getByLabel('Code').fill(recovery[0]);
   await page.getByRole('button', { name: 'Verify' }).click();
   await expect(page.getByRole('alert')).toContainText('not valid');
-  await page.getByLabel('Code').fill(code(secret));
+  await page.getByLabel('Code').fill(nextCode(secret));
   await page.getByRole('button', { name: 'Verify' }).click();
   await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
 });

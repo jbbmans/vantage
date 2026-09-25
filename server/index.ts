@@ -12,13 +12,6 @@ const stopSchedulers = startSchedulers(ctx);
 const banner = (scheme: string, extra = '') =>
   `Vantage v${VERSION} listening on ${scheme}://0.0.0.0:${config.port} (${config.production ? 'production' : 'development'}) db=${config.databasePath}${extra}`;
 
-/**
- * Direct CAC mode is the only reason this process terminates TLS itself: asking the client for a
- * certificate has to happen during the handshake, which a plain HTTP listener never performs.
- * `requestCert` with `rejectUnauthorized: false` is deliberate — the sign-in page has to stay
- * reachable without a card, so an unusable certificate is refused later by the route, with a reason,
- * rather than by dropping the connection with none.
- */
 const server = config.cac.mode === 'direct'
   ? createHttpsServer(
       {

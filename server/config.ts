@@ -4,21 +4,11 @@ import { randomBytes } from 'node:crypto';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
-/**
- * How people reach this instance. Separate modes, never a fallback from one to another:
- *
- *   accounts  real, persisted accounts: passwords, passkeys, TOTP, and optionally CAC (CAC_MODE).
- *             The default. This is the evaluation and operational mode.
- *   demo      the click-through synthetic demonstration. No sign-in form: each visitor is given a
- *             disposable workspace of synthetic people and records. Refused in production, refused
- *             on a database that holds real accounts, and never entered because an auth call failed.
- */
 export type AccessMode = 'accounts' | 'demo';
 
 export interface DemoConfig {
   /** How long a visitor's workspace lasts before it is removed. */
   ttlHours: number;
-  /** How many workspaces may exist at once. The demo says so plainly when it is full. */
   maxWorkspaces: number;
 }
 
@@ -46,40 +36,21 @@ export interface AppConfig {
   };
   email: { provider: 'none' | 'resend' | 'smtp' | 'memory'; from: string; resendApiKey: string; smtpUrl: string };
   maradmins: { enabled: boolean; refreshMinutes: number; source: string };
-  /**
-   * The Microsoft Entra application mailbox connections sign in through. Empty client id means the
-   * feature is not configured, and the product says so rather than offering a button that cannot work.
-   */
   m365: { clientId: string; clientSecret: string; tenant: string; redirectUri: string; endpointOverride: string | null };
   selfRegistration: boolean;
   cac: CacConfig;
 }
 
 export interface CacConfig {
-  /**
-   * 'off'    — no certificate sign-in. The default, and what every existing deployment stays on.
-   * 'direct' — this process terminates TLS and asks for a client certificate itself.
-   * 'proxy'  — something in front terminates TLS and forwards the certificate in a header.
-   */
   mode: 'off' | 'direct' | 'proxy';
-  /** When true, passwords stop being accepted and a certificate is the only way in. */
   exclusive: boolean;
-  /** PEM bundle of the CAs a client certificate must chain to. Required in direct mode. */
   caBundlePath: string;
-  /** Header carrying the URL-encoded or base64 PEM (nginx: ssl_client_escaped_cert). */
   certHeader: string;
-  /** Header carrying the proxy's own verdict, and the value that means it verified the chain. */
   verifyHeader: string;
   verifySuccessValue: string;
-  /**
-   * Shared secret the proxy must present. Proxy mode refuses to start without one: any client that
-   * can reach this process directly could otherwise set the certificate header and become anybody.
-   */
   proxySecretHeader: string;
   proxySecret: string;
-  /** Certificate policy OIDs to require, if the deployment wants to insist on hardware-backed certs. */
   requirePolicyOids: string[];
-  /** Create an account on first sign-in, but only for an EDIPI the personnel roster already lists. */
   autoProvisionFromRoster: boolean;
 }
 
@@ -99,8 +70,6 @@ function readCacConfig(env: NodeJS.ProcessEnv, production: boolean): CacConfig {
     autoProvisionFromRoster: envBool(env, 'CAC_AUTO_PROVISION', false),
   };
   if (cfg.mode === 'proxy') {
-    // The whole security of proxy mode rests on this. Without it, a forged header is a sign-in as
-    // any EDIPI the attacker names, so the process refuses to start rather than start insecurely.
     if (cfg.proxySecret.length < 32) {
       throw new Error('CAC_MODE=proxy requires CAC_PROXY_SECRET of at least 32 characters. Without it, anyone who can reach this server directly could forge a certificate header.');
     }
@@ -178,8 +147,6 @@ export function loadConfig(env = process.env): AppConfig {
   const accessMode = String(env.VANTAGE_ACCESS_MODE || 'accounts').trim().toLowerCase();
   if (accessMode !== 'accounts' && accessMode !== 'demo') throw new Error('VANTAGE_ACCESS_MODE must be accounts or demo.');
   if (accessMode === 'demo') {
-    // The synthetic demo has no sign-in. That is only acceptable where nothing real can be reached,
-    // so every combination that could put it near real people, real mail or a real network is refused.
     if (production) throw new Error('VANTAGE_ACCESS_MODE=demo is refused when NODE_ENV=production. The synthetic demo runs as its own non-production instance.');
     if ((env.CAC_MODE || 'off').trim().toLowerCase() !== 'off') throw new Error('The synthetic demo cannot run with CAC sign-in enabled.');
     if (!['', 'none', 'memory'].includes(String(env.VANTAGE_EMAIL_PROVIDER || '').trim().toLowerCase())) throw new Error('The synthetic demo sends no email. Set VANTAGE_EMAIL_PROVIDER=none.');
@@ -230,7 +197,6 @@ export function loadConfig(env = process.env): AppConfig {
       maxColumns: envNumber(env, 'VANTAGE_INTAKE_MAX_COLUMNS', 128),
       maxBytesPerUser: envNumber(env, 'VANTAGE_INTAKE_MAX_BYTES_PER_USER', 250 * 1024 * 1024),
       retainDays: envNumber(env, 'VANTAGE_INTAKE_RETAIN_DAYS', 400),
-      // A local scanner only. Vantage never uploads a file elsewhere to have it scanned.
       scannerCommand: env.VANTAGE_SCANNER_COMMAND ? String(env.VANTAGE_SCANNER_COMMAND) : null,
     },
     ai: {
@@ -253,8 +219,6 @@ export function loadConfig(env = process.env): AppConfig {
       smtpUrl: env.SMTP_URL || '',
     },
     maradmins: {
-      // Off unless an operator turns it on: it is the one feature that reaches a public host
-      // (marines.mil), and a restricted network must be able to run Vantage with that egress blocked.
       enabled: envBool(env, 'VANTAGE_MARADMIN_ENABLED', false),
       refreshMinutes: envNumber(env, 'VANTAGE_MARADMIN_REFRESH_MINUTES', 30),
       source: env.VANTAGE_MARADMIN_SOURCE || 'https://www.marines.mil/DesktopModules/ArticleCS/RSS.ashx?ContentType=6&Site=481&category=14336&max=50',
@@ -272,13 +236,10 @@ export const PROJECT_ROOT = ROOT;
 function readM365Config(env: NodeJS.ProcessEnv, production: boolean, test: boolean, publicUrl: string): AppConfig['m365'] {
   const clientId = String(env.VANTAGE_M365_CLIENT_ID || '').trim();
   const clientSecret = String(env.VANTAGE_M365_CLIENT_SECRET || '');
-  // 'organizations' accepts any work account; a tenant id pins sign-in to one directory.
   const tenant = String(env.VANTAGE_M365_TENANT || 'organizations').trim();
   if (clientId && !/^[0-9a-f-]{36}$/i.test(clientId)) throw new Error('VANTAGE_M365_CLIENT_ID must be the application (client) id, a GUID.');
   if (clientId && !clientSecret) throw new Error('VANTAGE_M365_CLIENT_SECRET is required when VANTAGE_M365_CLIENT_ID is set.');
   if (!/^(organizations|[0-9a-f-]{36}|[a-z0-9.-]+\.[a-z]{2,})$/i.test(tenant)) throw new Error('VANTAGE_M365_TENANT must be organizations, a tenant id, or a verified domain.');
-  // Tests point the flow at a local stand-in for Microsoft. Nothing else may: a real deployment only
-  // ever talks to the national cloud's own hosts.
   const override = env.VANTAGE_M365_TEST_ENDPOINT ? String(env.VANTAGE_M365_TEST_ENDPOINT).replace(/\/$/, '') : null;
   if (override && (production || !test)) throw new Error('VANTAGE_M365_TEST_ENDPOINT is for the test suite only.');
   return { clientId, clientSecret, tenant, redirectUri: `${publicUrl}/api/correspondence/connectors/callback`, endpointOverride: override };

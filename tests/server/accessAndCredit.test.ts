@@ -3,16 +3,6 @@ import assert from 'node:assert/strict';
 import { startApp, enroll, type TestApp } from './helpers.ts';
 import { UMT_2WAY } from '../../shared/procedures.ts';
 
-/**
- * Who can reach a unit's work, and what counts as credit for it.
- *
- *   F02  leaving a unit ends access to its work, and releases what the person held
- *   F03  private work never enters a unit's shared totals
- *   F04  a corrected or overtaken verification is history, not a current verified outcome
- *   F05  holding or moving work is not a contribution, so it cannot become a record entry
- *   F09  a saved draft carries its evidence, counts once, and credits money only when earned
- */
-
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
 let avery: { token: string; id: string };
@@ -40,7 +30,6 @@ const get = (token: string, path: string) => app.call('GET', path, { token });
 async function umt(reference: string, extra: Record<string, unknown> = {}, token = op.token) {
   const made = await post(token, '/api/work/items', { unit_id: 'G8', title: '2-Way UMT', reference, ...extra });
   assert.equal(made.status, 201, JSON.stringify(made.body));
-  // The amount a sheet would have carried; typed-in work has no source amount of its own.
   app.ctx.db.prepare('UPDATE work_items SET amount = 1527.81 WHERE id = ?').run(made.body.id);
   await post(token, `/api/work/items/${made.body.id}/procedure`, { key: UMT_2WAY.key });
   return made.body.id as string;
@@ -83,7 +72,6 @@ test('F04: a verification corrected away, or overtaken by a later check, stops c
   let now = (await get(avery.token, '/api/record/summary')).body.contributions;
   assert.equal(now.verified_outcomes, before.verified_outcomes + 1);
 
-  // Corrected: the same check re-recorded as not verified, superseding the first.
   await post(avery.token, `/api/work/items/${id}/entries`, { kind: 'verification', check: 'condition_cleared', result: 'not_verified', reference: 'Read the wrong line', supersedes: v.body.event.id });
   now = (await get(avery.token, '/api/record/summary')).body.contributions;
   assert.equal(now.verified_outcomes, before.verified_outcomes, 'the corrected verification is no longer a verified outcome');
@@ -91,7 +79,6 @@ test('F04: a verification corrected away, or overtaken by a later check, stops c
   const row = (await get(avery.token, '/api/record/contributions')).body.find((h: any) => h.item.id === id);
   assert.equal(row.verified, 0);
 
-  // Overtaken: verified by Avery, then a later not-verified by Chen after a handoff.
   const id2 = await umt('SYN-AC-3');
   await post(avery.token, `/api/work/items/${id2}/claim`);
   await post(avery.token, `/api/work/items/${id2}/entries`, { kind: 'verification', check: 'condition_cleared', result: 'verified', reference: 'UMT report 09-21' });

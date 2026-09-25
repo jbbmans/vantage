@@ -31,10 +31,13 @@ const optNumber = (lo: number, hi: number, integer = false) =>
 const optEnum = <T extends readonly [string, ...string[]]>(values: T) =>
   z.enum(values).nullish().or(z.literal('')).transform((v) => (v === undefined ? undefined : v ? v : null));
 
-const badScheme = (s: string) => /^\s*(javascript|data|vbscript):/i.test(s);
+/** A browser ignores control characters and whitespace when it reads a scheme, so the check does too. */
+const printable = (s: string) => Array.from(s).filter((c) => c.charCodeAt(0) > 0x20 && c.charCodeAt(0) !== 0x7f).join('');
+const linkScheme = (s: string) => /^([a-z][a-z0-9+.-]*):/i.exec(printable(s))?.[1].toLowerCase() ?? null;
+export const safeLink = (s: string) => { const scheme = linkScheme(s); return scheme === null || scheme === 'http' || scheme === 'https' || scheme === 'mailto'; };
 export const evidenceLink = z.object({
   label: z.string().max(200).nullish(),
-  url: z.string().max(500).nullish().refine((u) => !u || !badScheme(u), 'That link scheme is not allowed.'),
+  url: z.string().max(500).nullish().refine((u) => !u || safeLink(u), 'Use a web address (http or https) or a mailto link.'),
 });
 const evidenceLinks = z.array(evidenceLink).max(20).optional();
 
@@ -105,7 +108,6 @@ export const goalSchema = z.object({
   visibility: visibilityField,
   unit_id: unitIdField,
   version: z.number().int().optional(),
-  // The typed half of a goal: what it measures, which way is better, and where it started.
   metric_id: optText(120),
   direction: z.enum(['increase', 'decrease', 'threshold', 'completion']).optional(),
   baseline_value: optNumber(-1_000_000_000, 1_000_000_000_000),

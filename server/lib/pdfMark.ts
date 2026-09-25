@@ -1,4 +1,3 @@
-/** The flat Vantage mark drawn with PDF primitives so generated reports match public/mark.svg. */
 export function drawMark(doc: PDFKit.PDFDocument, x: number, y: number, size: number) {
   const s = size / 120;
   const path = (points: string, color: string) => {

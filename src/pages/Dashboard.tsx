@@ -18,12 +18,6 @@ import { rangeForPeriod, dayKey, formatNumber } from '../../shared/metrics';
 import { todayActions } from '../../shared/health';
 import { cn, timeAgo } from '@/lib/utils';
 
-/**
- * Today answers, in order: what do I need to do, what am I waiting on, what changed, and what can I
- * quickly record. A leader sees their section first, because unassigned and blocked work is the
- * decision waiting on them. Every figure opens onto the records behind it, and nothing here counts
- * how often somebody opened a form.
- */
 export default function Dashboard() {
   const navigate = useNavigate();
   const { data: identity } = useIdentity();
@@ -153,7 +147,6 @@ function Changes() {
   );
 }
 
-/** A short, personal reminder: the record, a goal, and a concrete career step. */
 function PersonalPanel({ summary }: { summary: any }) {
   const { data: goals } = useGoals();
   const career = useCareer();
@@ -196,7 +189,6 @@ function PersonalPanel({ summary }: { summary: any }) {
   );
 }
 
-/** The leader's view: unassigned and blocked work, what the section is waiting on, and who holds what. */
 function SectionOverview({ unitId }: { unitId: string }) {
   const w = useWorkload(unitId);
   if (w.isPending) return <Skeleton className="mb-6 h-40" />;
@@ -237,11 +229,6 @@ function SectionOverview({ unitId }: { unitId: string }) {
   );
 }
 
-/**
- * Open work by the procedure it follows, so a section lead reads the balance of the queue in one
- * line: how many open commitments, undelivered orders, unpaid deliveries and UMTs are being carried,
- * and how many of each nobody has picked up. Each opens the queue filtered to it.
- */
 function ProcedureLedger({ rows }: { rows: Array<{ key: string; short: string; title: string; open: number; unassigned: number; blocked: number; overdue: number }> }) {
   return (
     <div className="card mt-4 overflow-hidden p-0">
@@ -276,11 +263,6 @@ function Tile({ label, value, hint, to, tone }: { label: string; value: number; 
   );
 }
 
-/**
- * The measured outcomes a person logged themselves, kept from the earlier Today: the same figures,
- * read from the metrics endpoint, lower on the page because they answer "how is the year going"
- * rather than "what do I do now".
- */
 function Outcomes() {
   const prefs = usePrefs();
   const savePrefs = useSavePrefs();

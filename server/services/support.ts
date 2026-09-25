@@ -6,24 +6,6 @@ import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { notify } from './notifications.ts';
 
-/**
- * The help queue.
- *
- * This is the thing somebody works when a Marine cannot get in. It is deliberately *not* a window
- * onto anybody's mail, and the distinction is the whole design:
- *
- * A password reset email carries a live, single-use link. Anyone who can read that email is one
- * click from taking the account, so letting a support queue show it would turn "help me sign in"
- * into account takeover with extra steps, and would defeat the reset flow's own security model.
- * No message body of any outgoing email is ever copied in here.
- *
- * What actually answers "why can this Marine not get in" is the *delivery* fact — which address it
- * went to, when, and whether it sent, failed, bounced or was skipped because email is switched off
- * on this instance. `email_log` already stores exactly that and deliberately stores no body. So a
- * ticket raised by a named person can show their recent delivery attempts, and that is enough to
- * diagnose almost every real case without handing anybody a key.
- */
-
 export const TICKET_STATES = ['open', 'in_progress', 'waiting_on_requester', 'resolved', 'closed'] as const;
 export const TICKET_CATEGORIES = ['sign_in', 'account', 'data', 'bug', 'request', 'other'] as const;
 export const TICKET_PRIORITIES = ['low', 'normal', 'high', 'urgent'] as const;
@@ -35,26 +17,8 @@ export interface TicketRow {
   version: number; deleted_at: string | null; created_at: string; updated_at: string;
 }
 
-/**
- * Who works the queue, and over which tickets.
- *
- * This is unit-scoped rather than instance-wide, and it has to be. Anybody may stand up a unit of
- * their own and owns it, and an owner holds every permission inside it — including VIEW_SUPPORT.
- * So "holds VIEW_SUPPORT somewhere" would mean anyone could create a throwaway unit and read every
- * ticket on the instance, and the email-delivery diagnostics with them. Two features that are each
- * fine on their own, composing into an escalation.
- *
- * So: the Instance Operator sees everything. Everybody else sees the tickets belonging to a unit
- * where they actually hold VIEW_SUPPORT, and their own.
- *
- * A ticket with no unit — every ticket raised from the sign-in page, and any a member files without
- * naming one — is the Operator's alone. That is the conservative direction on purpose: a request
- * for help can be about the person's own chain of command, and routing it to them by default would
- * be the wrong failure.
- */
 const supportUnits = (scope: Scope) => unitsWith(scope, PERMISSIONS.VIEW_SUPPORT);
 
-/** Whether this person works any queue at all. Says nothing about which tickets. */
 export const worksQueue = (user: SessionUser, scope: Scope) =>
   Boolean(user.is_operator) || supportUnits(scope).length > 0;
 
@@ -62,10 +26,6 @@ export const worksQueue = (user: SessionUser, scope: Scope) =>
 export const worksTicket = (user: SessionUser, scope: Scope, row: Pick<TicketRow, 'unit_id'>) =>
   Boolean(user.is_operator) || (Boolean(row.unit_id) && supportUnits(scope).includes(row.unit_id!));
 
-/**
- * Raised by somebody signed in, or from the sign-in page by somebody who cannot get in — which is
- * the case that matters most and the reason requester_id is nullable.
- */
 export function raiseTicket(
   ctx: AppContext,
   input: { subject: string; body: string; category?: string; requester_email?: string | null; requester_name?: string | null; unit_id?: string | null },
@@ -80,6 +40,9 @@ export function raiseTicket(
   if (body.length > 8000) throw badRequest('Keep the description under 8000 characters.');
 
   const category = (TICKET_CATEGORIES as readonly string[]).includes(String(input.category)) ? String(input.category) : 'other';
+  if (input.unit_id && !(user && ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(user.id, input.unit_id))) {
+    throw badRequest('Send the request to a unit you belong to.', { fieldErrors: { unit_id: 'Not one of your units.' } });
+  }
   const email = user?.email || (input.requester_email ? String(input.requester_email).trim().slice(0, 200) : null);
   const name = user ? `${user.first_name} ${user.last_name}`.trim() : (input.requester_name ? String(input.requester_name).trim().slice(0, 120) : null);
 
@@ -104,7 +67,6 @@ export function raiseTicket(
 export const getTicket = (ctx: AppContext, id: string) =>
   (ctx.db.prepare('SELECT * FROM support_tickets WHERE id = ? AND deleted_at IS NULL').get(id) as TicketRow | undefined) || null;
 
-/** A person always sees their own ticket. Otherwise it has to be a queue they actually work. */
 function readable(user: SessionUser, scope: Scope, row: TicketRow) {
   return row.requester_id === user.id || worksTicket(user, scope, row);
 }
@@ -144,13 +106,6 @@ export function ticketDetail(ctx: AppContext, user: SessionUser, scope: Scope, i
   return { ticket: row, messages, delivery: staff ? deliveryFor(ctx, row) : [] };
 }
 
-/**
- * Recent delivery attempts for the person who raised the ticket.
- *
- * Address, kind, status, time and the provider's error. `email_log` holds no body, so there is
- * nothing here that could carry a reset link even by accident — which is exactly why this is the
- * thing the queue is allowed to see.
- */
 function deliveryFor(ctx: AppContext, row: TicketRow) {
   if (!row.requester_id && !row.requester_email) return [];
   const clauses: string[] = [];
@@ -168,7 +123,6 @@ export function replyToTicket(ctx: AppContext, user: SessionUser, scope: Scope, 
   if (!row) throw notFound('No such ticket.');
   if (!readable(user, scope, row)) throw forbidden('That ticket is not yours.');
   const staff = worksTicket(user, scope, row);
-  // A note between the people working the queue is never something the requester can write.
   if (internal && !staff) throw forbidden('Only somebody working the queue can leave an internal note.');
   const text = String(body || '').trim();
   if (!text) throw badRequest('Write something first.', { fieldErrors: { body: 'Required.' } });
@@ -177,7 +131,6 @@ export function replyToTicket(ctx: AppContext, user: SessionUser, scope: Scope, 
   const at = now();
   ctx.db.prepare('INSERT INTO support_messages (id, ticket_id, author_id, body, internal, created_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run(newId(), id, user.id, text, internal ? 1 : 0, at);
-  // A reply from the queue puts the ball back with the requester, and the other way round.
   const nextState = row.state === 'resolved' || row.state === 'closed' ? row.state
     : staff && !internal ? 'waiting_on_requester'
       : row.requester_id === user.id ? 'in_progress' : row.state;
@@ -220,8 +173,6 @@ export function updateTicket(
     if (patch.assigned_to) {
       const who = ctx.db.prepare('SELECT id, is_operator FROM users WHERE id = ? AND active = 1').get(patch.assigned_to) as { id: string; is_operator: number } | undefined;
       if (!who) throw badRequest('No such person.');
-      // Checked with their authority, not the assigner's. Otherwise a ticket lands with somebody
-      // who cannot open it: readable() would refuse them, and it would sit assigned and unworkable.
       if (!worksTicket({ ...who, id: who.id } as SessionUser, scopeFor(ctx, { id: who.id }), row)) {
         throw badRequest('That person cannot work this queue, so the ticket cannot be assigned to them.');
       }

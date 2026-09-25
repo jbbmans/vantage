@@ -1,4 +1,3 @@
-/** The pointer: a clean arrow with a soft shadow, and a ring where it clicks. Drawn, never captured. */
 export function Pointer({ x, y, size, press, opacity }: { x: number; y: number; size: number; press: number; opacity: number }) {
   if (opacity <= 0.001) return null;
   const s = size * (1 - press * 0.12);

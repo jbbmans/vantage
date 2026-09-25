@@ -7,18 +7,9 @@ import {
   type Measure, type MetricTotal, type Bucket, type Aggregation, type AggregateOptions,
 } from '../../shared/metricEngine.ts';
 
-/**
- * The server side of the one metric layer.
- *
- * Every figure a client shows comes from here, computed over rows the caller is actually allowed to
- * read. The client never decides scope, and it never re-derives a total from a page of rows: a page
- * is a page, and a total over a page is a lie.
- */
-
 export interface MetricScopeOptions {
   from: string;
   to: string;
-  /** Restrict to one unit's shared work. Omitted means everything the caller can read. */
   unitId?: string | null;
   /** Restrict to one person. Omitted means everyone in scope. */
   subjectId?: string | null;
@@ -38,7 +29,6 @@ interface SourceRow {
 const ACTIVITY_COLUMNS = `t.id, t.user_id, t.unit_id, t.date, t.title, t.category, t.eval_area, t.quantity, t.unit_label,
   t.dollar_amount, t.dollar_type, t.organization, t.system, t.result, NULL AS hours`;
 
-/** Training hours are measured work too, so duration comes from the same place as everything else. */
 const TRAINING_COLUMNS = `t.id, t.user_id, t.unit_id, t.date, t.title, NULL AS category, NULL AS eval_area,
   NULL AS quantity, NULL AS unit_label, NULL AS dollar_amount, NULL AS dollar_type, NULL AS organization,
   NULL AS system, NULL AS result, t.hours`;
@@ -46,7 +36,6 @@ const TRAINING_COLUMNS = `t.id, t.user_id, t.unit_id, t.date, t.title, NULL AS c
 type RowLoader = (table: 'activities' | 'trainings', columns: string) => SourceRow[];
 
 function collectRows(load: RowLoader): SourceRow[] {
-  // Ids are namespaced so an activity and a training that share a rowid can never be treated as one outcome.
   return [
     ...load('activities', ACTIVITY_COLUMNS).map((r) => ({ ...r, id: `activities:${r.id}` })),
     ...load('trainings', TRAINING_COLUMNS).map((r) => ({ ...r, id: `trainings:${r.id}` })),
@@ -65,13 +54,6 @@ function sourceRows(ctx: AppContext, user: SessionUser, scope: Scope, opts: Metr
   });
 }
 
-/**
- * Measures for one person's own work, independent of who is asking.
- *
- * Goal progress uses this: a goal's figure is a fact about the subject's work, so it must read the
- * same whether the subject, their team lead, or a nightly job is looking. Sharing is respected by
- * `sharedOnly`, which limits it to what the subject actually published to the unit.
- */
 export function subjectMeasures(ctx: AppContext, subjectId: string, opts: { from: string; to: string; unitId?: string | null; sharedOnly?: boolean }): Measure[] {
   const rows = collectRows((table, columns) => {
     const where = ['t.deleted_at IS NULL', 't.user_id = ?', 't.date >= ?', 't.date <= ?'];
@@ -82,7 +64,6 @@ export function subjectMeasures(ctx: AppContext, subjectId: string, opts: { from
   return measuresOfAll(rows as never, ctx.runtime.metrics);
 }
 
-/** Measures for everything a unit's members shared with it, independent of who is asking. */
 export function unitMeasures(ctx: AppContext, unitId: string, opts: { from: string; to: string }): Measure[] {
   const rows = collectRows((table, columns) => ctx.db.prepare(
     `SELECT ${columns} FROM ${table} t WHERE t.deleted_at IS NULL AND t.visibility = 'unit' AND t.unit_id = ? AND t.date >= ? AND t.date <= ?`
@@ -94,7 +75,6 @@ export function measuresFor(ctx: AppContext, user: SessionUser, scope: Scope, op
   return measuresOfAll(sourceRows(ctx, user, scope, opts) as never, ctx.runtime.metrics);
 }
 
-/** Calendar-month buckets across the period, so a chart and its total always agree. */
 export function monthlyBuckets(from: string, to: string): Bucket[] {
   const out: Bucket[] = [];
   const [fy, fm] = from.split('-').map(Number);
@@ -138,7 +118,6 @@ export interface MetricsReport {
   byCategory: MetricBreakdown[];
   byArea: MetricBreakdown[];
   catalog: ReturnType<typeof catalog>;
-  /** Outcomes that produced at least one measure. Provenance, never a productivity score. */
   outcomesWithMeasures: number;
 }
 
@@ -181,10 +160,6 @@ export interface Contributor {
   user_id: string; unit_id: string | null; value: number; unit: string;
 }
 
-/**
- * The rows behind one figure. Every total in the product opens into this, so a number a member
- * cannot explain is a bug rather than a fact of life.
- */
 export function metricContributors(ctx: AppContext, user: SessionUser, scope: Scope, opts: MetricScopeOptions & { metricId: string }): Contributor[] {
   const rows = sourceRows(ctx, user, scope, opts);
   const byId = new Map(rows.map((r) => [r.id, r]));
@@ -197,7 +172,6 @@ export function metricContributors(ctx: AppContext, user: SessionUser, scope: Sc
   }).sort((a, b) => b.date.localeCompare(a.date) || Math.abs(b.value) - Math.abs(a.value));
 }
 
-/** The default reporting period: the current fiscal year to date, on the instance calendar. */
 export function defaultPeriod(ctx: AppContext): { from: string; to: string } {
   const today = zonedDay(ctx.config.timezone);
   const [year, month] = today.split('-').map(Number);

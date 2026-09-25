@@ -4,20 +4,6 @@ import { hmac, safeEqual } from '../lib/crypto.ts';
 import { now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 
-/**
- * Tamper evidence for case histories.
- *
- * work_events is append-only by database trigger, which stops the application — and anyone using
- * it — from rewriting history. It does not stop someone with write access to the database file from
- * dropping the trigger. So every event is also sealed into its work item's own chain: an HMAC over
- * the complete event (body included) and the previous seal, keyed by the server secret, plus a
- * signed head recording how many events the chain covers.
- *
- * A changed body, a deleted entry, an inserted entry, or a truncated tail all break the chain, and
- * none can be re-sealed without the secret. Once a day the digest of every head is written into the
- * separately chained audit log, anchoring the case histories there too.
- */
-
 interface SealableEvent {
   id: string; work_item_id: string; unit_id: string | null; actor_id: string | null; kind: string; step: string | null;
   subject_id: string | null; body: string; supersedes_id: string | null; correlation_id: string | null;
@@ -31,7 +17,6 @@ const canonical = (e: SealableEvent, prev: string | null) => JSON.stringify([
 
 const headMac = (secret: string, itemId: string, hash: string, count: number) => hmac(secret, `case-head:${itemId}:${hash}:${count}`);
 
-/** Seals one newly written event onto the end of its case's chain. Runs inside the writer's transaction. */
 export function sealEvent(ctx: AppContext, e: SealableEvent) {
   const { db, config } = ctx;
   const head = db.prepare('SELECT hash, count FROM work_event_heads WHERE work_item_id = ?').get(e.work_item_id) as { hash: string; count: number } | undefined;
@@ -47,11 +32,6 @@ export function sealEvent(ctx: AppContext, e: SealableEvent) {
   ).run(e.work_item_id, hash, count, headMac(config.secret, e.work_item_id, hash, count), at);
 }
 
-/**
- * Seals the history of every case that has events but no chain yet: histories written before
- * sealing existed, and the synthetic demo's seeded cases. A case that already has a chain is never
- * resealed; an unsealed event inside a sealed case is reported, not absorbed.
- */
 export function sealBacklog(ctx: AppContext, itemIds?: string[]): number {
   const { db } = ctx;
   const items = itemIds?.length
@@ -75,7 +55,6 @@ export interface CaseIntegrity {
   reason?: string;
 }
 
-/** Recomputes one case's chain from its events and checks it against the signed head. */
 export function caseIntegrity(ctx: AppContext, itemId: string, rows?: SealableEvent[]): CaseIntegrity {
   const { db, config } = ctx;
   const events = rows || (db.prepare('SELECT * FROM work_events WHERE work_item_id = ? ORDER BY created_at, rowid').all(itemId) as SealableEvent[]);

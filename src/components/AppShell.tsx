@@ -25,7 +25,6 @@ import { resolveTheme, storedTheme } from '@/lib/theme';
 import { VERSION } from '@/lib/version';
 import { useBuildWatch } from '@/lib/build';
 
-/** Destination name, and the one-line subtitle the breadcrumb shows beside it. */
 const TITLES: Array<[string, string, string]> = [
   ['/records', 'Record', 'An activity you recorded'],
   ['/record', 'Record', 'What you did and what backs it up'],
@@ -68,7 +67,6 @@ function NotificationBell({ onNavigate }: { onNavigate: (to: string) => void }) 
   const rows: Array<{ id: string; kind: string; title: string; message: string | null; action_url: string | null; read_at: string | null; created_at: string }> = data?.rows || [];
   const open = async (n: typeof rows[number]) => {
     if (!n.read_at) { await api.markRead(n.id).catch(() => undefined); qc.invalidateQueries({ queryKey: keys.notifications }); }
-    // Notification links are always in-app paths. Anything else is ignored rather than followed.
     if (n.action_url && n.action_url.startsWith('/') && !n.action_url.startsWith('//')) onNavigate(n.action_url);
   };
   return (
@@ -109,12 +107,9 @@ function NotificationBell({ onNavigate }: { onNavigate: (to: string) => void }) 
   );
 }
 
-/** Which destination a path belongs to, as one of the words the event catalog allows. */
 function surfaceOf(pathname: string, search: string): string {
   const segment = pathname.split('/')[1] || '';
   const tab = new URLSearchParams(search).get('tab') || '';
-  // Work and Reports are each one destination with several tabs. Reporting them as one surface
-  // would hide which half of the screen people actually use, so the tab decides the name.
   if (segment === 'work') return tab === 'mail' ? 'correspondence' : tab === 'tasks' || tab === 'projects' ? 'tasks' : 'queue';
   if (segment === 'reports') return tab === 'analysis' ? 'reports' : 'studio';
   if (segment === 'career' && tab === 'readiness') return 'readiness';
@@ -133,7 +128,6 @@ export default function AppShell() {
   const savePrefs = useSavePrefs();
   const location = useLocation();
 
-  // Which destinations get used, and whether people come back. Paths only, never their ids.
   useEffect(() => { installTelemetry(); track('session.started', { returning: document.referrer.includes(window.location.host) }); }, []);
   useEffect(() => { track('surface.viewed', { surface: surfaceOf(location.pathname, location.search) }); }, [location.pathname, location.search]);
   const navigate = useNavigate();
@@ -159,7 +153,6 @@ export default function AppShell() {
     if (!userId) return;
     const result = await flushOutbox((payload) => api.createRecord('activities', payload), userId);
     if (result.sent) {
-      // A synced entry changes every read model built from entries, not just the list.
       invalidateDomains(qc, 'activity');
       toast.success(`${result.sent} queued ${result.sent === 1 ? 'entry' : 'entries'} synced.`);
     }
@@ -243,8 +236,6 @@ export default function AppShell() {
     </Menu>
   );
 
-  // "More" sinks to the bottom of the rail: settings and the field guide are always reachable but
-  // never compete with the destinations a person came here to open.
   const navList = (mobile: boolean) => {
     const wide = !collapsed || mobile;
     return (
@@ -274,8 +265,6 @@ export default function AppShell() {
     );
   };
 
-  /* Which workspace you are in, stated once at the top — where a person looks to check they are
-     filing this against the right unit. A tray with a plate in it, so it reads as a control. */
   const workspace = (wide: boolean) => wide ? (
     <div className="mx-3 mb-2 mt-1 rounded-[14px] bg-white/[.04] p-1 ring-1 ring-white/[.07]">
       <button type="button" onClick={() => navigate(identity?.canLead ? '/team?tab=units' : '/settings')}
@@ -343,7 +332,6 @@ export default function AppShell() {
         <div className="flex min-w-0 flex-1 flex-col">
           <header className="no-print sticky top-0 z-30 flex h-[60px] items-center gap-3 border-b border-line/80 bg-surface/80 px-3 backdrop-blur-xl backdrop-saturate-150 sm:px-5 lg:px-8">
             <button type="button" className="rounded-lg p-1.5 text-ink-2 hover:bg-surface-2 lg:hidden" onClick={() => setDrawer(true)} aria-label="Open menu"><MenuIcon className="h-5 w-5" /></button>
-            {/* Where you are, and what this screen is. Not a heading: every page carries its own h1. */}
             <p className="flex min-w-0 items-baseline gap-2">
               <span className="truncate text-[15px] font-semibold tracking-[-0.01em] text-ink">{titleFor(location.pathname)}</span>
               <span className="hidden shrink-0 text-line-strong sm:inline" aria-hidden>/</span>

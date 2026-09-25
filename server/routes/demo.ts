@@ -9,10 +9,6 @@ import { finishSignIn } from './auth.ts';
 import { audit } from '../services/audit.ts';
 import { createWorkspace, demoStatus, workspaceOf, purgeWorkspace, sampleSheet, type Persona } from '../services/demo.ts';
 
-/**
- * The synthetic demo's entry points. They exist only when the server was started in demo mode;
- * on any other instance every path here is a 404, so there is nothing to probe.
- */
 export const demoRouter = Router();
 
 demoRouter.use((req, _res, next) => (req.ctx.config.accessMode === 'demo' ? next() : next(notFound('No such API route.'))));
@@ -22,11 +18,9 @@ demoRouter.get('/status', wrap((req, res) => {
   res.json(demoStatus(req.ctx, session?.user.id ?? null));
 }));
 
-/** A fresh workspace for this visitor, and a session as its Marine. No form, no password. */
 demoRouter.post('/start', wrap((req, res) => {
   if (!req.get('x-vantage-client')) throw forbidden('Request rejected: missing client header.', 'csrf');
   const ip = clientIp(req);
-  // Bounded per connection: each start writes a workspace, and the demo is a shared host.
   const limited = limiters.registerIp.limited(ip);
   if (limited) throw tooMany('Too many demo workspaces from this connection. Try again shortly.', limited.retryAfter, 'demo_throttled');
   limiters.registerIp.bump(ip);
@@ -37,7 +31,6 @@ demoRouter.post('/start', wrap((req, res) => {
 
 const personaSchema = z.object({ persona: z.enum(['marine', 'leader']) });
 
-/** Switch between the Marine and the section lead of the same workspace. Never into another workspace. */
 demoRouter.post('/persona', requireAuth, wrap((req, res) => {
   const { persona } = parse(personaSchema, req.body);
   const ws = workspaceOf(req.ctx, req.user.id);
@@ -68,10 +61,6 @@ demoRouter.get('/sample.csv', requireAuth, wrap((_req, res) => {
   res.send(sampleSheet());
 }));
 
-/**
- * In demo mode, the parts of the product that would let a visitor reach beyond their own synthetic
- * workspace, or that manage real credentials, answer with a plain explanation instead.
- */
 const DEMO_CLOSED: Array<[string, RegExp]> = [
   ['POST', /^\/api\/auth\/(login|login\/mfa|register|setup|forgot|reset|invite\/accept|cac|passkey\/options|passkey\/verify|sudo)$/],
   ['*', /^\/api\/me\/(password|mfa|passkeys|email)/],
@@ -87,7 +76,7 @@ const DEMO_CLOSED: Array<[string, RegExp]> = [
 
 export function demoGuard(req: Request, _res: Response, next: NextFunction) {
   if (req.ctx.config.accessMode !== 'demo') return next();
-  const path = req.path;
+  const path = req.path.toLowerCase().replace(/\/+$/, '');
   for (const [method, pattern] of DEMO_CLOSED) {
     if ((method === '*' || method === req.method) && pattern.test(path)) {
       return next(new HttpError(403, 'That is not part of the synthetic demo. Sign-in, accounts and administration are evaluated on an accounts-mode instance.', 'demo_mode'));

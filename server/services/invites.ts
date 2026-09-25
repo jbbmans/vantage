@@ -6,33 +6,10 @@ import { randomBytes } from 'node:crypto';
 import { newId, now } from '../lib/ids.ts';
 import { sha256 } from '../lib/crypto.ts';
 import { audit } from './audit.ts';
-import { addMember, getUnit } from './org.ts';
-
-/**
- * Join codes for a unit.
- *
- * Members used to arrive one way only: somebody with MANAGE_MEMBERS enrolled them by hand, which
- * means every unit needs an administrator awake before anybody can join it. A code is the other
- * half — the owner makes one, sends it, and people let themselves in.
- *
- * The code is stored only as a hash, the same way a password reset token is, so a copy of the
- * database is not a pile of working invitations. A short hint is kept in the clear so the person
- * who made three of them can tell which is which; a hint identifies an invite but does not open it.
- *
- * `tokens` could not be reused for this: those are single-use and short-lived by construction, and
- * an invite is deliberately neither.
- */
+import { addMember, assertMayGrantRole, getUnit, type RoleRow } from './org.ts';
 
 const HASH = (code: string) => sha256(`unit_invite:${code.trim().toUpperCase()}`);
 
-/**
- * Unambiguous alphabet: no O or 0, no I, 1 or L. People read these off a screen and type them in.
- *
- * Drawn from raw random bytes rather than from randomToken(), which returns base64url — the first
- * version of this parsed those characters as hex and produced a code reading "undefinedundefined".
- * Bytes are rejected above the largest exact multiple of the alphabet length so the modulo does not
- * quietly favour the first few letters.
- */
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 function freshCode(): string {
   const limit = 256 - (256 % ALPHABET.length);
@@ -59,7 +36,6 @@ const publicView = (row: InviteRow) => ({
   created_at: row.created_at, role_id: row.role_id,
 });
 
-/** Inviting people into a unit is the same authority as enrolling them by hand. */
 function assertMayInvite(scope: Scope, unitId: string) {
   if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot invite people into that unit.');
 }
@@ -75,16 +51,11 @@ export function createInvite(
   if (!getUnit(ctx, unitId)) throw notFound('No such unit.');
   assertMayInvite(scope, unitId);
 
-  // A code may hand out a role, but never one that outranks the person writing the invite.
   let roleId: string | null = null;
   if (input.role_id) {
-    const role = ctx.db.prepare('SELECT id, unit_id, position, permissions FROM roles WHERE id = ? AND unit_id = ?')
-      .get(String(input.role_id), unitId) as { id: string; position: number; permissions: number } | undefined;
+    const role = ctx.db.prepare('SELECT * FROM roles WHERE id = ? AND unit_id = ?').get(String(input.role_id), unitId) as RoleRow | undefined;
     if (!role) throw badRequest('No such role in that unit.');
-    const myPosition = scope.positions[unitId] || 0;
-    if (!actor.is_operator && role.position >= myPosition) {
-      throw forbidden('An invite cannot grant a role at or above your own.');
-    }
+    assertMayGrantRole(ctx, actor, scope, role, unitId);
     roleId = role.id;
   }
 
@@ -98,7 +69,6 @@ export function createInvite(
         maxUses, hours ? new Date(Date.now() + hours * 3_600_000).toISOString() : null, now());
   audit(ctx, { actor_id: actor.id, action: 'unit_invite_created', entity: 'unit', entity_id: unitId, unit_id: unitId, ip });
 
-  // The only time the full code is ever returned. It is not recoverable afterwards.
   return { ...publicView(ctx.db.prepare('SELECT * FROM unit_invites WHERE id = ?').get(id) as InviteRow), code };
 }
 
@@ -116,7 +86,6 @@ export function revokeInvite(ctx: AppContext, actor: SessionUser, scope: Scope, 
   return { ok: true };
 }
 
-/** What a code points at, without joining. Shows the unit's name and nothing else about it. */
 export function peekInvite(ctx: AppContext, code: string) {
   const row = ctx.db.prepare('SELECT * FROM unit_invites WHERE code_hash = ?').get(HASH(String(code || ''))) as InviteRow | undefined;
   if (!row) return null;
@@ -130,8 +99,6 @@ export function peekInvite(ctx: AppContext, code: string) {
 export function redeemInvite(ctx: AppContext, user: SessionUser, code: string, ip?: string) {
   return ctx.db.transaction(() => {
     const row = ctx.db.prepare('SELECT * FROM unit_invites WHERE code_hash = ?').get(HASH(String(code || ''))) as InviteRow | undefined;
-    // One message for every way a code can fail, so a wrong guess learns nothing about which codes
-    // exist, which are spent, and which have merely expired.
     const dead = !row
       || Boolean(row.revoked_at)
       || Boolean(row.expires_at && Date.parse(row.expires_at) < Date.now())
@@ -149,7 +116,6 @@ export function redeemInvite(ctx: AppContext, user: SessionUser, code: string, i
         .run(user.id, row.role_id, row.unit_id, row.created_by, now());
     }
     ctx.db.prepare('UPDATE unit_invites SET uses = uses + 1 WHERE id = ?').run(row.id);
-    // Kept separately from `uses` so revoking an invite never erases that somebody came in on it.
     ctx.db.prepare('INSERT INTO unit_invite_uses (id, invite_id, user_id, created_at) VALUES (?, ?, ?, ?)')
       .run(newId(), row.id, user.id, now());
     audit(ctx, { actor_id: user.id, action: 'unit_invite_redeemed', entity: 'unit', entity_id: row.unit_id, subject_id: user.id, unit_id: row.unit_id, ip });

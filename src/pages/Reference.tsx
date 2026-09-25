@@ -22,15 +22,6 @@ import {
 import { formatCents, parseMoney } from '../../shared/money';
 import { PROCEDURE_LIST, AUTHORITY_LABEL } from '../../shared/procedures';
 
-/**
- * The FMRA desk reference.
- *
- * What a 3451 needs within reach while working a queue: how a dollar moves, how each purchase method
- * is evidenced, what an open balance or a UMT means and what to check first, who can act, and where
- * the book itself is uncertain. Every section cites the reference it came from and says whether it
- * is source or editorial, because a clean screen must never look more authoritative than its source.
- */
-
 type Tab = 'diagnose' | 'lifecycle' | 'methods' | 'conditions' | 'abnormal' | 'roles' | 'data' | 'glossary' | 'limits';
 const TABS: Array<{ value: Tab; label: string }> = [
   { value: 'diagnose', label: 'Diagnose' },
@@ -72,8 +63,6 @@ export default function Reference() {
     </div>
   );
 }
-
-/* ── Shared pieces ─────────────────────────────────────────────────────────────────────────── */
 
 function SourceBadge() {
   return (
@@ -145,8 +134,6 @@ function DataTable({ head, rows, minWidth = 560 }: { head: string[]; rows: React
   );
 }
 
-/* ── Diagnose ──────────────────────────────────────────────────────────────────────────────── */
-
 function DiagnoseTab() {
   return (
     <div className="space-y-5">
@@ -169,8 +156,6 @@ function DiagnoseTab() {
     </div>
   );
 }
-
-/* ── Lifecycle ─────────────────────────────────────────────────────────────────────────────── */
 
 function LifecycleTab() {
   return (
@@ -280,8 +265,6 @@ function TrueBalance() {
     </Section>
   );
 }
-
-/* ── Methods ───────────────────────────────────────────────────────────────────────────────── */
 
 function MethodsTab() {
   const [key, setKey] = useParam('method', 'servmart');
@@ -428,8 +411,6 @@ function Router() {
   );
 }
 
-/* ── Open balances ─────────────────────────────────────────────────────────────────────────── */
-
 function ConditionsTab() {
   return (
     <div className="space-y-5">
@@ -496,8 +477,6 @@ function ConditionsTab() {
     </div>
   );
 }
-
-/* ── Abnormal conditions and UMTs ──────────────────────────────────────────────────────────── */
 
 function AbnormalTab() {
   return (
@@ -577,8 +556,6 @@ const RouteChip = ({ route }: { route: string }) => (
   <span className={cn('inline-flex items-center rounded-md px-2 py-0.5 font-mono text-2xs font-semibold ring-1 ring-inset', route === '1081' ? 'bg-warn/10 text-warn ring-warn/25' : 'bg-accent-soft text-accent ring-accent/20')}>{route}</span>
 );
 
-/* ── Roles ─────────────────────────────────────────────────────────────────────────────────── */
-
 function RolesTab() {
   return (
     <div className="space-y-5">
@@ -631,8 +608,6 @@ function RolesTab() {
   );
 }
 
-/* ── Financial data ────────────────────────────────────────────────────────────────────────── */
-
 function DataTab() {
   return (
     <div className="space-y-5">
@@ -662,8 +637,6 @@ function DataTab() {
   );
 }
 
-/* ── Glossary ──────────────────────────────────────────────────────────────────────────────── */
-
 function GlossaryTab() {
   const [q, setQ] = useParam('q', '');
   const terms = useMemo(() => searchGlossary(q), [q]);
@@ -686,8 +659,6 @@ function GlossaryTab() {
     </div>
   );
 }
-
-/* ── Source and limits ─────────────────────────────────────────────────────────────────────── */
 
 function LimitsTab() {
   return (

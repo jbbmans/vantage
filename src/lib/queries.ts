@@ -69,7 +69,6 @@ export const keys = {
 export function useIdentity() {
   return useQuery<Identity>({ queryKey: keys.me, queryFn: async () => { const id = await api.me() as Identity; setCurrencySymbol(id.instance?.metrics?.currency_symbol || '$'); return id; }, staleTime: 60_000, enabled: api.hasSession(), retry: false });
 }
-/** The instance's metric configuration: money label and symbol, value types, categories, unit suggestions. */
 export function useMetrics(): MetricsConfig {
   const { data } = useIdentity();
   return data?.instance.metrics || DEFAULT_METRICS;
@@ -88,16 +87,8 @@ export const useTrainings = () => useRecords('trainings');
 export const useAwards = () => useRecords('awards');
 export const useCounselings = () => useRecords('counselings');
 
-/**
- * What each kind of change can make stale (F10).
- *
- * One map instead of a list at every call site, so a mutation refreshes every read model its change
- * feeds — the figures, goal progress, the Record, Today — and a screen added later is wired in once.
- * Keys are prefixes: ['records', 'goals'] refreshes every goals list, whatever its filters.
- */
 export type Domain = 'activity' | 'training' | 'award' | 'counseling' | 'goal' | 'task' | 'project' | 'work' | 'draft' | 'career' | 'correspondence' | 'report';
 
-/** Everything computed from logged outcomes: headline figures, goal progress, reports, the team view. */
 const FIGURES: ReadonlyArray<readonly unknown[]> = [
   ['report'], ['delta'], ['analysis'], ['dashboard'], ['metrics'], ['metric-contributors'],
   ['goal-contributors'], ['records', 'goals'], ['record', 'goals'], ['record-summary'],
@@ -181,7 +172,6 @@ export function useTrack(): Track {
   return trackForGrade(data?.user.rank?.grade);
 }
 
-/** The authoritative figures for a period. The client never re-derives a total from a page of rows. */
 export function useMetricsReport(params: Record<string, string | undefined>, enabled = true) {
   return useQuery<MetricsReport>({ queryKey: keys.metrics(params), queryFn: () => api.metrics(params) as Promise<MetricsReport>, enabled, staleTime: 30_000 });
 }
@@ -215,8 +205,6 @@ export const unitsWith = (identity: Identity | undefined, flag: number) => ident
 
 export function unitName(identity: Identity | undefined, unitId?: string | null, org?: { units?: Array<{ id: string; name: string; short_name: string | null }> }) {
   if (!unitId) return '';
-  // The optional chain has to carry through to the call: an identity that is still loading, or a
-  // caller who passed the wrong object, otherwise throws here rather than falling back to the org.
   const m = identity?.memberships?.find((x) => x.unit_id === unitId);
   if (m) return m.unit_short || m.unit_name;
   const u = org?.units?.find((x) => x.id === unitId);
@@ -230,7 +218,6 @@ export async function signOutEverywhere() {
   window.dispatchEvent(new CustomEvent('vantage:signed-out'));
 }
 
-// Correspondence -------------------------------------------------------
 export interface ThreadSummary {
   id: string; subject: string; state: string; unit_id: string | null; visibility: string;
   contact_id: string | null; contact_name: string | null; contact_organization: string | null;
@@ -264,7 +251,6 @@ export function invalidateCorrespondence(qc: QueryClient, threadId?: string) {
   if (threadId) qc.invalidateQueries({ queryKey: correspondenceKeys.thread(threadId) });
 }
 
-// The case, the Record, and Career --------------------------------------------------------------
 export const caseKeys = {
   item: (id: string) => ['work-item', id] as const,
   summary: (params: Record<string, unknown>) => ['record-summary', params] as const,
@@ -286,10 +272,6 @@ export const useWorkload = (unitId: string | null, params: Record<string, string
   useQuery<any>({ queryKey: caseKeys.workload(unitId || '', params), queryFn: () => api.workload(unitId!, params), enabled: Boolean(unitId), retry: false });
 export const useDemoStatus = (enabled = true) => useQuery<any>({ queryKey: caseKeys.demo, queryFn: api.demoStatus, enabled, staleTime: 60_000, retry: false });
 
-/**
- * Everything that can change when work moves: the case, the queue, the Record, and Today. Pass the
- * other domains the change also fed — 'activity' when it put an entry in somebody's record.
- */
 export function invalidateWork(qc: QueryClient, itemId?: string, ...also: Domain[]) {
   if (itemId) qc.invalidateQueries({ queryKey: caseKeys.item(itemId) });
   invalidateDomains(qc, 'work', ...also);

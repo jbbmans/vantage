@@ -37,7 +37,6 @@ export default function MemberDetail() {
   const person = data?.person;
   const track = person ? trackForGrade(person.rank_grade) : myTrack;
   const metrics = useMemo(() => aggregateMetrics(data?.activities || [], cfg), [data, cfg]);
-  // Figures for another Marine come from the server, scoped to what they actually shared with us.
   const memberParams = useMemo(() => { const r = rangeForPeriod('fiscalYear'); return { from: dayKey(r.start), to: dayKey(r.end), user_id: id }; }, [id]);
   const memberMetrics = useMetricsReport(memberParams, Boolean(data));
   const est = useMemo(() => (readiness ? estimate(readiness) : null), [readiness]);

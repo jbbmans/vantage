@@ -1,9 +1,5 @@
 import { z } from 'zod';
 
-/**
- * Definitions for what the Record counts. Shown beside every figure, because a count without its
- * definition is a number people argue about instead of a fact they can check.
- */
 export const CONTRIBUTION_DEFINITIONS = {
   documents_researched: 'Distinct work items on which you recorded research: a question, observation, finding, decision, note, calculation or action. One document counts once however many entries it has.',
   research_actions: 'Every research entry you recorded, including corrections.',

@@ -1,16 +1,5 @@
 import { cite, type Cite } from './source.ts';
 
-/**
- * The seven purchase methods the FMRAC teaches, each integrated from the book's three teaching
- * blocks (operational routing, supporting documents and interfaces, and the FMRA/DAI view).
- *
- * The steps are the source process. The verification paragraph of each method is editorial
- * guidance the rewrite derived from that method's expected outputs, and is labelled that way.
- * Payment timing of "30-45 days after receipt or acceptance" (the ServMart diagram says business
- * days) is a classroom expectation, never a universal deadline or a reason to ignore an error in
- * the meantime.
- */
-
 export const METHOD_KEYS = ['servmart', 'gcss', 'gpc', 'contract', 'fuel', 'tdy', 'mipr'] as const;
 export type MethodKey = (typeof METHOD_KEYS)[number];
 
@@ -41,7 +30,6 @@ export interface PurchaseMethod {
   use: string;
   systems: string[];
   tool: string;
-  /** The accounting link that has to exist for the method's transactions to find their funding. */
   keyLink: string;
   identifier: { id: string; generator: string; owner: string };
   /** What this method adds to the shared POET setup. */
@@ -52,7 +40,6 @@ export interface PurchaseMethod {
   ksd: KsdSet;
   /** The distinction that most often goes wrong with this method. */
   critical?: string;
-  /** What the book does not teach for this method. Recorded rather than filled in. */
   limits?: string[];
   discrepancies: Array<{ text: string; cite: Cite }>;
   cite: Cite;
@@ -346,8 +333,6 @@ export const PAYMENT_TIMING = {
   cite: cite('7', '70-76, 80, 89', 'discrepancy'),
 };
 
-/* ── Choosing the method ──────────────────────────────────────────────────────────────────── */
-
 /** A useful requirement states these four things (ch. 3.1). */
 export const REQUIREMENT_ELEMENTS = [
   'What is needed',
@@ -356,7 +341,6 @@ export const REQUIREMENT_ELEMENTS = [
   'The mission or end item it supports',
 ] as const;
 
-/** The book's teaching router. Not a claim that NSN existence alone resolves every procurement decision. */
 export const ROUTING = [
   { requirement: 'Item with an NSN — office supplies', methods: ['servmart'] as MethodKey[], condition: 'Authorized item and appropriate government source.' },
   { requirement: 'Item with an NSN — maintenance parts', methods: ['gcss'] as MethodKey[], condition: 'Logistics requisition and stock/source review.' },
@@ -373,10 +357,6 @@ export const ROUTING_NOTES = [
   { text: 'Contractual procurement is also described as suitable for complex requirements. An amount below a threshold does not by itself establish authority for a card purchase.', cite: cite('3.3', '14, 17-18') },
 ] as const;
 
-/**
- * Thresholds as the book printed them. Kept for fidelity to the source and deliberately labelled:
- * they are not verified current purchasing limits and no routing decision in Vantage enforces them.
- */
 export const PRINTED_THRESHOLDS = [
   { category: 'Services', cents: 350_000 },
   { category: 'Goods', cents: 1_000_000 },
@@ -391,10 +371,6 @@ export type RoutingAnswer = {
   cautions: string[];
 };
 
-/**
- * Walks the book's teaching router. It narrows the candidates and says why; it never decides.
- * Printed thresholds only ever produce a caution, because they are not verified current limits.
- */
 export function routeRequirement(input: {
   kind: 'good' | 'service' | 'fuel' | 'travel';
   hasNsn?: boolean;
@@ -433,7 +409,6 @@ export function routeRequirement(input: {
   return { methods: ['gpc', 'contract'], reasons, cautions };
 }
 
-/** Most methods share one approval chain (ch. 3.4). Travel uses its own DTS routing and AO. */
 export const APPROVAL_CHAIN = [
   { who: 'End user', does: 'Identifies the requirement.' },
   { who: 'CRO', does: 'Validates it.' },

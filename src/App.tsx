@@ -64,12 +64,6 @@ function SignedOutHome({ serverError, onRetry }: { serverError: string | null; o
   return <PublicSite />;
 }
 
-/**
- * The synthetic demo has no sign-in form. A visitor without a session is given a fresh synthetic
- * workspace and lands on Today. This only ever happens when the server itself says it is a demo
- * instance; an accounts instance never offers it, and a failed sign-in never falls back to it.
- */
-// One start per page load, however many times React runs the effect (StrictMode runs it twice).
 let demoStarting: { attempt: number; promise: Promise<unknown> } | null = null;
 
 function DemoEntry() {
@@ -79,7 +73,6 @@ function DemoEntry() {
     let live = true;
     setError(null);
     if (!demoStarting || demoStarting.attempt !== attempt) {
-      // Cleared once settled, so a workspace that later expires starts a fresh one rather than reusing this.
       const promise: Promise<unknown> = demoStart().finally(() => { if (demoStarting?.promise === promise) demoStarting = null; });
       demoStarting = { attempt, promise };
     }
@@ -94,7 +87,6 @@ function DemoEntry() {
   );
 }
 
-/** Asks the server which kind of instance this is before choosing what a signed-out visitor sees. */
 function useAccessMode(enabled: boolean) {
   const [mode, setMode] = useState<'accounts' | 'demo' | null>(null);
   useEffect(() => {
@@ -122,9 +114,6 @@ function AppRoutes() {
     const onSignedOut = () => {
       qc.removeQueries({ queryKey: keys.me });
       qc.clear();
-      // /display and /about are for anyone. A stale session marker whose /me comes back 401 used to
-      // fire this and bounce a visitor reading the public page over to sign-in, which is the one
-      // thing those routes promise will not happen.
       if (!isPublicRoute(window.location.pathname)) navigate('/login', { replace: true });
       rerender();
     };
@@ -143,8 +132,6 @@ function AppRoutes() {
   const signedOut = !hasSession() || (identity.isError && (identity.error as { status?: number })?.status === 401);
   const publicStandalone = isPublicRoute(location.pathname);
   const accessMode = useAccessMode(signedOut && !publicStandalone);
-  // A session that failed for any reason other than "not signed in" is an outage, not a sign-out.
-  // Showing the marketing page to somebody who was working would look like their account vanished.
   const identityBroken = identity.isError && (identity.error as { status?: number })?.status !== 401;
   if (!publicStandalone && !signedOut && identity.isPending) return <AppLoader />;
 
@@ -154,8 +141,6 @@ function AppRoutes() {
     return <Routes><Route path="*" element={<PublicSite />} /></Routes>;
   }
 
-  // An identity call that failed for a reason other than 401 goes to the sign-in screen carrying the
-  // error and its retry, rather than falling through to the marketing page with no explanation.
   if (identityBroken) {
     return <Routes><Route path="*" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} /></Routes>;
   }
@@ -186,10 +171,8 @@ function AppRoutes() {
         <Route index element={<Dashboard />} />
         <Route path="record" element={<D><RecordHub /></D>} />
         <Route path="records/:id" element={<D><RecordDetail /></D>} />
-        {/* One task, project or goal on its own page — the surface a file and a conversation hang on. */}
         <Route path="records/:table/:id" element={<D><WorkDetail /></D>} />
         <Route path="work" element={<D><WorkHub /></D>} />
-        {/* One piece of work on its own page: its history, its research, and what comes next. */}
         <Route path="work/items/:id" element={<D><WorkItemPage /></D>} />
         <Route path="goals" element={<D><Goals /></D>} />
         <Route path="career" element={<D><Career /></D>} />
@@ -227,7 +210,6 @@ export default function App() {
   );
 }
 
-/** A retired path lands on its new home with whatever filters the old link carried. */
 function RedirectKeepingQuery({ to }: { to: string }) {
   const location = useLocation();
   const [path, query = ''] = to.split('?');

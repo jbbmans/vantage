@@ -1,10 +1,5 @@
 import { cite } from './source.ts';
 
-/**
- * The FMRA's operating environment (FMRAC ch. 1). Organizational context for reading a
- * requirement, not a current command directory or a universal routing rule.
- */
-
 export const MISSION = 'Financial management supports a unit’s ability to equip, train, deploy and sustain its forces. A requirement begins with a mission need: the using unit requests the good or service, supply and procurement arrange it, and the comptroller organization manages and accounts for the resources.';
 
 export const MAGTF = [

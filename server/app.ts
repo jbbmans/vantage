@@ -43,10 +43,8 @@ export function createContext(config: AppConfig): AppContext {
   const db = openDatabase(config.databasePath);
   const runtime = loadRuntime(db, config);
   const ctx: AppContext = { db, config, mailer: createMailer(config, db), runtime, saveRuntime: () => metaSet(db, 'runtime', JSON.stringify(runtime)) };
-  // Refuses a demo database in accounts mode and a real database in demo mode, before anything else runs.
   assertDatabaseMatchesMode(ctx);
   if (config.accessMode === 'demo') {
-    // A visitor may not stand up units outside their own workspace, or register anybody.
     runtime.selfServiceUnits = false;
     runtime.selfRegistration = false;
     runtime.aiEnabled = false;
@@ -59,13 +57,8 @@ export function createContext(config: AppConfig): AppContext {
     db.prepare(`UPDATE users SET is_operator = 1 WHERE lower(username) IN (${config.operatorUsernames.map(() => '?').join(',')})`).run(...config.operatorUsernames);
   }
   pruneSessions(ctx);
-  // An import that was mid-flight when the process stopped is closed out honestly rather than
-  // left pending forever. Its apply ran in one transaction, so nothing is half-written.
   const interrupted = reconcileInterruptedJobs(ctx);
   if (interrupted) console.warn(`Marked ${interrupted} interrupted import job(s) as failed.`);
-  // Case histories written before sealing existed are sealed once, on the first boot of a build
-  // that seals. After that, a history with no chain is reported as unsealed rather than quietly
-  // sealed, so dropping a case's seals cannot be laundered by a restart.
   if (!metaGet(db, 'case_seals_backfilled')) {
     const sealed = sealBacklog(ctx);
     metaSet(db, 'case_seals_backfilled', now());
@@ -89,12 +82,7 @@ export function createApp(ctx: AppContext) {
   const { config } = ctx;
   const app = express();
   const distDir = join(PROJECT_ROOT, 'dist');
-  // Every script, style, font and image is served from this origin. Nothing in the page reaches a
-  // third party: no tag manager, no analytics, no CDN. A restricted network that blocks public egress
-  // loses nothing it needs.
   const scriptSrc = ["'self'", ...inlineScriptHashes(distDir)].join(' ');
-  // The client build this server is serving: the same hash the build stamps into sw.js, so an open
-  // tab can tell a new release from the one it loaded. A deploy-provided commit id is reported too.
   const clientBuild = existsSync(join(distDir, 'index.html')) ? createHash('sha256').update(readFileSync(join(distDir, 'index.html'))).digest('hex').slice(0, 16) : null;
   const build = String(process.env.RENDER_GIT_COMMIT || process.env.VANTAGE_BUILD_ID || clientBuild || VERSION).slice(0, 64);
 
@@ -113,13 +101,11 @@ export function createApp(ctx: AppContext) {
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=(), interest-cohort=(), publickey-credentials-get=(self), publickey-credentials-create=(self)');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-    // Nothing here is meant to be pulled into another site's page, except the few images a shared
-    // link or an email shows: the social card, the icons and the brand marks.
     res.setHeader('Cross-Origin-Resource-Policy', /^\/(og\.png|favicon\.svg|mark\.svg|app-icon\.svg|icon-\d+\.png|brand\/)/.test(req.path) ? 'cross-origin' : 'same-origin');
     res.setHeader('Origin-Agent-Cluster', '?1');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
     if (req.path.startsWith('/api/')) { res.setHeader('Cache-Control', 'no-store, max-age=0'); res.setHeader('Pragma', 'no-cache'); }
-    if (config.production) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    if (config.production) res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
     next();
   });
 
@@ -133,11 +119,10 @@ export function createApp(ctx: AppContext) {
     }
   });
 
-  // In maintenance, sign-in stays open so owners can work, but nothing else under /auth may write (registration, resets, invitations, setup).
-  // Signed-in non-owners are turned away in requireAuth.
   const MAINTENANCE_OPEN = new Set(['/auth/login', '/auth/login/mfa', '/auth/passkey/options', '/auth/passkey/verify', '/auth/logout', '/auth/sudo']);
   app.use('/api', (req, res, next) => {
-    if (ctx.runtime.maintenance && req.path.startsWith('/auth') && !MAINTENANCE_OPEN.has(req.path) && req.method !== 'GET') {
+    const path = req.path.toLowerCase().replace(/\/+$/, '');
+    if (ctx.runtime.maintenance && path.startsWith('/auth') && !MAINTENANCE_OPEN.has(path) && req.method !== 'GET') {
       res.setHeader('Cache-Control', 'no-store');
       return res.status(503).json({ error: 'Vantage is in scheduled maintenance. Try again shortly.', code: 'maintenance' });
     }
@@ -149,7 +134,6 @@ export function createApp(ctx: AppContext) {
   app.use((req, res, next) => (RAW_BODY_PATHS.test(req.path) ? next() : json(req, res, next)));
   app.use(cookieParser());
 
-  // In demo mode, anything that reaches past a visitor's own synthetic workspace is closed.
   app.use(demoGuard);
   app.use('/api/demo', demoRouter);
 
@@ -162,19 +146,12 @@ export function createApp(ctx: AppContext) {
   app.use('/api/correspondence', correspondenceRouter);
   app.use('/api/org', orgRouter);
   app.use('/api/support', supportRouter);
-  // Raising a ticket without signing in: the commonest reason to need help is that you cannot sign
-  // in, and a queue you must sign in to reach is no use to that person. This has to mount ahead of
-  // miscRouter, which is mounted at bare '/api' and applies requireAuth to everything after it.
   app.use('/api/public-support', publicSupportRouter);
   app.use('/api', miscRouter);
   app.use('/api/admin', adminRouter);
 
   app.use('/api', (_req, res) => res.status(404).json({ error: 'No such API route.', code: 'not_found' }));
 
-  /**
-   * Which part of the API a path belongs to, for reliability reporting. A fixed set of words rather
-   * than the path itself: a path can carry an id, and an id is not something analytics may hold.
-   */
   const routeFamily = (path: string): string => {
     const segment = path.replace(/^\/api\//, '').split('/')[0] || 'other';
     const known = ['records', 'record', 'work', 'correspondence', 'studio', 'metrics', 'reports', 'org', 'auth', 'admin', 'ai'];
@@ -184,7 +161,6 @@ export function createApp(ctx: AppContext) {
 
   app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
     if (err instanceof HttpError) {
-      // A refusal is a security fact worth counting: which surface, never who or what they asked for.
       if (err.status === 403) record(ctx, 'security.authorization_denied', { route: routeFamily(req.path) });
       if (err.status >= 500) record(ctx, 'reliability.request_failed', { status: err.status, route: routeFamily(req.path) });
       return sendError(res, err);
@@ -201,9 +177,6 @@ export function createApp(ctx: AppContext) {
     // Only public marketing routes are indexable, before any JavaScript runs.
     const publicRoutes = new Set(['/', '/display', '/about']);
     const appRoute = /^\/(?:login|register|reset|invite|setup|work|record|goals|career|reference|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
-    // Two segments, not one: a record detail is /records/:id for an activity and
-    // /records/:table/:id for a task, project or goal, which is the link shape a mention
-    // notification points at. One segment 404s the second form.
     const recordRoute = /^\/(?:records|activities|team)(?:\/[^/]+){0,2}\/?$|^\/work\/items\/[^/]+\/?$/;
     const indexHtml = readFileSync(join(distDir, 'index.html'), 'utf8');
     const shell = indexHtml
@@ -217,31 +190,21 @@ export function createApp(ctx: AppContext) {
       next();
     });
     app.use('/assets', express.static(join(distDir, 'assets'), { immutable: true, maxAge: '1y', index: false }));
-    app.use(express.static(distDir, { index: false, maxAge: '1h', setHeaders: (res, path) => { if (path.endsWith('sw.js')) res.setHeader('Cache-Control', 'no-cache'); } }));
+    app.use(express.static(distDir, { index: false, maxAge: '1h', setHeaders: (res, path) => {
+      const req = (res as unknown as { req: Request }).req;
+      if (path.endsWith('sw.js')) { res.setHeader('Cache-Control', 'no-cache'); res.setHeader('CDN-Cache-Control', 'no-store'); }
+      else if (req.path.startsWith('/videos/')) res.setHeader('Cache-Control', req.query.v ? 'public, max-age=31536000, immutable' : 'public, max-age=86400');
+      else if (req.path.startsWith('/fonts/')) res.setHeader('Cache-Control', 'public, max-age=2592000, stale-while-revalidate=86400');
+      else if (req.path.startsWith('/brand/')) res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+    } }));
 
-    /*
-     * The public page is served with its markup already in it, to requests that are not signed in.
-     *
-     * Vantage is client-rendered, so the plain shell hands a crawler an empty <div id="root"> and
-     * asks it to run JavaScript to find out what this site is. Google usually will. The engines
-     * behind the other half of the traffic — Bing, and the crawlers feeding AI answers — largely
-     * will not, and "usually" is a poor foundation for the one page that has to rank.
-     *
-     * Only requests with no session cookie get it, which covers every crawler and every first-time
-     * visitor while making sure somebody who is signed in never sees a flash of the marketing page
-     * on their way to the dashboard. And only for the three routes that actually render it: a
-     * prerendered public page served at /records would be worse than nothing.
-     *
-     * Falls back to the shell whenever dist/public.html is absent, so a build that skipped the
-     * prerender step degrades to the previous behaviour instead of failing.
-     */
     const prerendered = join(distDir, 'public.html');
     app.get(/^(?!\/api\/).*/, (req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('CDN-Cache-Control', 'no-store');
       res.vary('Cookie');
       const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
       if ((!signedIn || req.path !== '/') && publicRoutes.has(req.path) && existsSync(prerendered)) {
-        // Crawlers and shared caches must not be handed one visitor's variant of this URL.
         return res.sendFile(prerendered);
       }
       res.setHeader('X-Robots-Tag', 'noindex, nofollow');
@@ -259,19 +222,12 @@ export function startSchedulers(ctx: AppContext) {
   const every = (ms: number, fn: () => void) => { const t = setInterval(fn, ms); t.unref?.(); timers.push(t); };
   every(15 * 60_000, () => { pruneLimiters(); try { pruneSessions(ctx); } catch {} });
   every(6 * 60 * 60_000, () => { try { const r = purgeDeleted(ctx); if (r.records) console.log(`${now()} purged ${r.records} records from the recycle bin`); } catch (e) { console.warn(`Purge failed: ${(e as Error).message}`); } });
-  // A claim nobody has touched in three days goes back on the queue. Somebody claims a dozen rows
-  // on a Friday and goes on leave; without this the work waits for a leader to notice.
   every(60 * 60_000, () => { try { const n = releaseStaleClaims(ctx); if (n) console.log(`${now()} released ${n} stale work claims`); } catch (e) { console.warn(`Stale claim sweep failed: ${(e as Error).message}`); } });
-  // The digest of every case-history head goes into the audit chain once a day.
   every(24 * 60 * 60_000, () => { try { anchorCaseHeads(ctx); } catch (e) { console.warn(`Case history anchor failed: ${(e as Error).message}`); } });
-  // Analytics steer a product; they are not a memory. Anything past the window goes on its own.
   every(24 * 60 * 60_000, () => { try { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); } catch (e) { console.warn(`Event prune failed: ${(e as Error).message}`); } });
-  // Uploaded workbooks are evidence for as long as the retention policy says, and no longer.
   every(24 * 60 * 60_000, () => { try { const released = pruneSources(ctx); if (released) console.log(`${now()} released the bytes of ${released} source files past the retention window`); } catch (e) { console.warn(`Source prune failed: ${(e as Error).message}`); } });
-  // Expired demo workspaces are removed whole. A no-op on any instance not in demo mode.
   if (ctx.config.accessMode === 'demo') every(10 * 60_000, () => { try { const n = purgeExpired(ctx); if (n) console.log(`${now()} removed ${n} expired demo workspaces`); } catch (e) { console.warn(`Demo purge failed: ${(e as Error).message}`); } });
   if (!ctx.config.test) {
-    // Registered whether or not the feed is on: syncMaradmins is a no-op while the runtime switch is off, so enabling it later starts refreshes without a restart.
     const run = () => syncMaradmins(ctx).catch((e: Error) => console.warn(`MARADMIN refresh skipped: ${e.message}`));
     const first = setTimeout(run, 3_000); first.unref?.(); timers.push(first);
     every(5 * 60_000, run);

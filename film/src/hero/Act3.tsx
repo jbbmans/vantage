@@ -11,8 +11,6 @@ import { lineWords } from './Act1';
 
 type Cues = ReturnType<typeof cues>;
 
-/* ── sealed: every entry signed into the history ─────────────────────────────────────────────── */
-
 const ENTRIES = [
   { who: 'You', text: 'recorded current award amount: $91,250.00 (DAI)', chip: 'Read by hand', hash: '9c41·e07a' },
   { who: 'You', text: 'recorded invoice amount: $45,000.00 (DAI)', chip: 'Read by hand', hash: '3f9a·c1d2' },
@@ -72,8 +70,6 @@ export function Sealed({ c }: { c: Cues }) {
   );
 }
 
-/* ── credit: to the Marine who did the work ──────────────────────────────────────────────────── */
-
 export function Credit({ c }: { c: Cues }) {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();
@@ -109,8 +105,6 @@ export function Credit({ c }: { c: Cues }) {
     </AbsoluteFill>
   );
 }
-
-/* ── report: the record, already written ─────────────────────────────────────────────────────── */
 
 const SENTENCE = [
   { t: 'Reconciled 30 ULOs worth $41,806.12', cite: 1 },
@@ -188,8 +182,6 @@ export function Report({ c }: { c: Cues }) {
   );
 }
 
-/* ── lead: the whole section at a glance ─────────────────────────────────────────────────────── */
-
 export function Lead({ c }: { c: Cues }) {
   const f = useCurrentFrame();
   const { durationInFrames: d, fps } = useVideoConfig();
@@ -217,8 +209,6 @@ export function Lead({ c }: { c: Cues }) {
     </AbsoluteFill>
   );
 }
-
-/* ── trust: private by default, your network ─────────────────────────────────────────────────── */
 
 export function Trust({ c }: { c: Cues }) {
   const f = useCurrentFrame();
@@ -257,8 +247,6 @@ export function Trust({ c }: { c: Cues }) {
     </AbsoluteFill>
   );
 }
-
-/* ── end: give good work a lasting record ────────────────────────────────────────────────────── */
 
 export function End({ c }: { c: Cues }) {
   const f = useCurrentFrame();

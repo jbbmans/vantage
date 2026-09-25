@@ -1,13 +1,5 @@
 import { cite } from './source.ts';
 
-/**
- * Evidence, reconciliation and audit readiness (FMRAC ch. 6).
- *
- * Key Supporting Documentation (KSD) supports and validates a financial transaction. Evidence
- * belongs to its event: an approved request proves authorization, not delivery or payment. A local
- * form may differ between commands and still support the same event.
- */
-
 export const KSD_GROUPS = [
   { key: 'request', label: 'Request and order', proves: 'Authorization and the order.' },
   { key: 'receipt', label: 'Receipt and acceptance', proves: 'That the goods or services were actually received and accepted.' },
@@ -32,10 +24,6 @@ export const RECONCILIATION_CHECKPOINTS = [
   'Retain the correction and the verification record.',
 ] as const;
 
-/**
- * The states a complete work note keeps apart. Collapsing them into one "done" removes exactly the
- * evidence needed to explain an open balance.
- */
 export const RECEIPT_STATES = [
   { key: 'physical_receipt', label: 'Physical receipt', meaning: 'The goods or services actually arrived.' },
   { key: 'receipt_document', label: 'Supporting receipt document', meaning: 'The signed receiving record exists (e.g. DD 250, DD 1348-1A, vendor receipt).' },

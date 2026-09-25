@@ -1,0 +1,16 @@
+* text=auto eol=lf
+
+*.mp4 binary
+*.mp3 binary
+*.wav binary
+*.jpg binary
+*.png binary
+*.webp binary
+*.ico binary
+*.woff2 binary
+*.pdf binary
+*.db binary
+
+package-lock.json linguist-generated=true
+src/config/films.generated.json linguist-generated=true
+docs/** linguist-documentation

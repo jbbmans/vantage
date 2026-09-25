@@ -10,15 +10,6 @@ import { formatNumber } from '../../shared/metrics';
 import { cn } from '@/lib/utils';
 import { PROCEDURES, PROCEDURE_LIST } from '../../shared/procedures';
 
-/**
- * Bringing a spreadsheet in, in four steps: choose the file, say which sheet and header row,
- * say what each column means, then look at exactly what will happen before it happens.
- *
- * The preview is the point. Nothing is written until someone has seen the counts, and the rows
- * Vantage refused are shown with the reason, so a mangled document number is a decision the
- * person makes rather than a guess the software makes.
- */
-
 const FIELD_OPTIONS = [
   { value: 'keep', label: 'Keep as a column' },
   { value: 'title', label: 'What the work is' },
@@ -29,8 +20,6 @@ const FIELD_OPTIONS = [
   { value: 'quantity', label: 'How many' },
   { value: 'unit_label', label: 'Of what' },
   { value: 'state', label: 'State' },
-  // Figures a financial report carries. Kept verbatim with the row, and entered on the case, labelled
-  // as coming from the sheet, when the row is put under a procedure.
   { value: 'commitment', label: 'Commitment amount' },
   { value: 'obligation', label: 'Obligation amount' },
   { value: 'delivered', label: 'Delivered (expensed) amount' },
@@ -70,7 +59,6 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
   const finished = useRef(false);
   useEffect(() => { openedAt.current = Date.now(); }, []);
   useEffect(() => { stepRef.current = step; }, [step]);
-  // Where people give up on an import is the whole point of measuring it. The step, never the file.
   useEffect(() => () => {
     if (finished.current || stepRef.current === 'done') return;
     const where = stepRef.current === 'file' ? 'at_upload' : stepRef.current === 'sheet' || stepRef.current === 'mapping' ? 'at_mapping' : 'at_preview';
@@ -97,7 +85,6 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
   };
 
   const toMapping = () => {
-    // A sensible first guess from the header names, which the person then corrects.
     const guessed: Record<string, string> = {};
     for (const h of headers) {
       const l = h.toLowerCase();

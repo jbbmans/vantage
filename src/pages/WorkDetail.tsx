@@ -10,14 +10,6 @@ import { ProjectWork } from '@/components/ProjectWork';
 import { keys, useIdentity, unitName, useOrg } from '@/lib/queries';
 import * as api from '@/lib/api';
 
-/**
- * One task, project or goal, opened on its own.
- *
- * Until now these existed only as rows in a list, which is why there was nowhere to hang a file or
- * hold a conversation: the product had no surface for "this piece of work" as a thing. Everything
- * here is the same record the list shows, plus the two panels that needed a home.
- */
-
 const KINDS = {
   tasks: { label: 'Task', back: '/work?tab=tasks', title: (r: Record<string, string>) => r.title },
   projects: { label: 'Project', back: '/work?tab=projects', title: (r: Record<string, string>) => r.name },
@@ -45,8 +37,6 @@ export default function WorkDetail() {
   const heading = row && kind ? kind.title(row) : '';
   useEffect(() => { if (heading) document.title = `${heading} · Vantage`; }, [heading]);
 
-  // An activity has its own far richer page; this route just forwards to it so one link shape works
-  // for every kind of record, including the one a mention notification points at.
   if (table === 'activities') return <Navigate to={`/records/${id}`} replace />;
 
   if (!valid) {
@@ -70,8 +60,6 @@ export default function WorkDetail() {
     );
   }
 
-  // Editing rights decide whether files may be added, and whether a remark may be moderated away.
-  // The server decides both again on every call; this only chooses what is worth offering.
   const bits = row.unit_id ? (identity?.permissions?.[row.unit_id] || 0) : 0;
   const ADMINISTRATOR = 1 << 12, MANAGE_RECORDS = 1 << 3;
   const steward = Boolean(bits & (ADMINISTRATOR | MANAGE_RECORDS));
@@ -109,7 +97,6 @@ export default function WorkDetail() {
         />
       </Panel>
 
-      {/* A project is a container for work, so its work is the first thing it should show. */}
       {table === 'projects' && <ProjectWork projectId={id} unitId={row.unit_id ?? null} canAdd={canEdit} />}
 
       <Attachments table={table as api.Store} id={id} canEdit={canEdit} />

@@ -6,15 +6,6 @@ import * as api from '@/lib/api';
 import { useIdentity } from '@/lib/queries';
 import { useToast } from '@/components/ui/toast';
 
-/**
- * The conversation on a record.
- *
- * This component knows nothing about who may read what, deliberately. The server decides from the
- * host record, so the component asks and renders whatever comes back — a 403 means there is nothing
- * to show, not that the component should have hidden a button. That keeps one rule in one place
- * instead of two that can disagree.
- */
-
 interface Comment {
   id: string;
   author_id: string;
@@ -40,7 +31,6 @@ const when = (iso: string) => {
 const displayName = (c: Comment) =>
   [c.author_rank, `${c.author_first_name} ${c.author_last_name}`.trim() || c.author_username].filter(Boolean).join(' ');
 
-/** Renders @name in the accent so a mention reads as one, without turning the body into HTML. */
 function Body({ text }: { text: string }) {
   return (
     <p className="whitespace-pre-wrap break-words text-sm text-ink-2">

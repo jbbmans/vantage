@@ -4,11 +4,6 @@ import { formatCents } from '../../../shared/money';
 import { PROCEDURES } from '../../../shared/procedures';
 import { cn } from '@/lib/utils';
 
-/**
- * A diagnosis, laid out the way the FMRAC says an answer should be: what the record shows and what
- * it means first, then causes, research, who can act, what to do, and what proves it — with the
- * references and limits last, and never dropped.
- */
 export default function DiagnosisView({ d, compact = false }: { d: Diagnosis; compact?: boolean }) {
   const procedure = d.procedure ? PROCEDURES[d.procedure] : null;
   return (

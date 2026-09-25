@@ -8,41 +8,16 @@ import { parseAddresses, type ParsedEmail } from '../lib/eml.ts';
 import { htmlToText } from '../lib/sanitizeHtml.ts';
 import { storeParsedMessage, getThread } from './correspondence.ts';
 
-/**
- * Reading mail from a connected mailbox.
- *
- * Three decisions are load-bearing here.
- *
- * The national cloud is configuration, never inference. A GCC High or DoD tenant is reached at
- * different hostnames from the commercial one, and an address ending in .mil says nothing reliable
- * about which tenant it lives in: plenty of .mil mail is commercial, and plenty of commercial-looking
- * addresses are in GCC High. Guessing wrong means sending a token to the wrong Microsoft. So the
- * cloud is chosen by whoever sets the connector up, and is stored on it.
- *
- * Sync is incremental and keyed on the provider's own message id. Matching on subject would merge
- * two unrelated conversations the moment somebody replies to the wrong mail, and subjects are
- * trivially forged. A provider id is not.
- *
- * Access is read-only. Nothing here sends mail, deletes mail, or marks anything read. Sending would
- * mean Vantage acting as a Marine in front of people outside the unit, and that is a bigger decision
- * than an import feature gets to make on its own.
- */
-
 export type Cloud = 'global' | 'usgov' | 'usgovdod';
 
 export interface CloudEndpoints { label: string; authority: string; graph: string; scopeHost: string }
 
-/**
- * Microsoft's national clouds. These hostnames are the whole reason the cloud has to be declared:
- * a token minted for one is worthless at another, and sending one to the wrong host is a disclosure.
- */
 export const MICROSOFT_CLOUDS: Record<Cloud, CloudEndpoints> = {
   global: { label: 'Commercial (worldwide)', authority: 'https://login.microsoftonline.com', graph: 'https://graph.microsoft.com', scopeHost: 'graph.microsoft.com' },
   usgov: { label: 'GCC High (US Government)', authority: 'https://login.microsoftonline.us', graph: 'https://graph.microsoft.us', scopeHost: 'graph.microsoft.us' },
   usgovdod: { label: 'DoD (US Government)', authority: 'https://login.microsoftonline.us', graph: 'https://dod-graph.microsoft.us', scopeHost: 'dod-graph.microsoft.us' },
 };
 
-/** Read-only, and narrow. Vantage never asks for permission to send or to change anything. */
 export const READ_ONLY_SCOPES = ['offline_access', 'User.Read', 'Mail.Read'];
 
 export interface ConnectorRow {
@@ -53,7 +28,6 @@ export interface ConnectorRow {
   account_id?: string | null; account_address?: string | null; tenant_id?: string | null; authorized_at?: string | null;
 }
 
-/** What a connector looks like from outside. No token, no delta cursor: neither is anyone's business. */
 export function publicView(row: ConnectorRow) {
   const endpoints = MICROSOFT_CLOUDS[row.cloud] || MICROSOFT_CLOUDS.global;
   return {
@@ -97,7 +71,6 @@ export function createConnector(ctx: AppContext, user: SessionUser, input: { pro
 export function ownedConnector(ctx: AppContext, user: SessionUser, id: string): ConnectorRow {
   const row = ctx.db.prepare('SELECT * FROM connectors WHERE id = ?').get(id) as ConnectorRow | undefined;
   if (!row) throw notFound('No such connector.');
-  // A mailbox connection is personal. An operator can see that one exists, never read through it.
   if (row.user_id !== user.id) throw forbidden('That mailbox connection belongs to someone else.');
   return row;
 }
@@ -105,13 +78,11 @@ export function ownedConnector(ctx: AppContext, user: SessionUser, id: string): 
 export function deleteConnector(ctx: AppContext, user: SessionUser, id: string) {
   const row = ownedConnector(ctx, user, id);
   ctx.db.transaction(() => {
-    // Messages already imported stay: they are a record of work. Only the connection goes.
     ctx.db.prepare('UPDATE threads SET connector_id = NULL, provider = NULL, provider_thread_id = NULL WHERE connector_id = ?').run(row.id);
     ctx.db.prepare('DELETE FROM connectors WHERE id = ?').run(row.id);
   })();
 }
 
-/** The exact URLs an authorization would use. Shown to an operator so it can be checked before use. */
 export function authorizationPlan(row: ConnectorRow, tenant = 'organizations') {
   const endpoints = MICROSOFT_CLOUDS[row.cloud] || MICROSOFT_CLOUDS.global;
   const scopes = JSON.parse(row.scopes || '[]') as string[];
@@ -127,27 +98,6 @@ export function authorizationPlan(row: ConnectorRow, tenant = 'organizations') {
   };
 }
 
-// Authorization -------------------------------------------------------
-
-/**
- * Signing a mailbox in (F08).
- *
- * The flow is OAuth 2.0 authorization code with PKCE, against the connector's own national cloud,
- * as a confidential client. Four things keep it honest:
- *
- *   Bound to the person. The sign-in is started by a signed-in Vantage user and can only be
- *   completed by the same user, once, within ten minutes. Anybody else arriving with the state
- *   value is refused, which is what stops a link from binding somebody else's mailbox to yours.
- *
- *   Bound to the mailbox. The connector names the mailbox it is for. If Microsoft signs in a
- *   different account, the tokens are thrown away and nothing is connected.
- *
- *   Read-only, checked. If Microsoft grants more than read access, Vantage refuses the grant.
- *
- *   Visible. Every failure lands on the connector as a plain sentence, and a connection Microsoft
- *   stops honouring goes back to needing authorization instead of failing quietly.
- */
-
 export const mailboxConfigured = (ctx: AppContext) => Boolean(ctx.config.m365.clientId && ctx.config.m365.clientSecret);
 
 export function mailboxAvailability(ctx: AppContext) {
@@ -158,7 +108,6 @@ export function mailboxAvailability(ctx: AppContext) {
 
 interface TokenResponse { access_token?: string; refresh_token?: string; expires_in?: number; id_token?: string; scope?: string; error?: string; error_description?: string }
 
-/** The hosts a connector talks to. Only the test suite may point these anywhere else. */
 function hostsFor(ctx: AppContext, cloud: Cloud) {
   const base = MICROSOFT_CLOUDS[cloud] || MICROSOFT_CLOUDS.global;
   const override = ctx.config.m365.endpointOverride;
@@ -219,7 +168,6 @@ async function postForm(url: string, form: Record<string, string>, timeoutMs = 2
   } finally { clearTimeout(timer); }
 }
 
-/** Claims in an id token Microsoft just handed us over TLS. Read for the directory id only; never trusted for identity. */
 function idTokenTenant(idToken: string | undefined): string | null {
   try { return idToken ? String(JSON.parse(Buffer.from(idToken.split('.')[1], 'base64url').toString('utf8')).tid || '') || null : null; }
   catch { return null; }
@@ -232,13 +180,11 @@ function failAuthorization(ctx: AppContext, row: ConnectorRow, message: string, 
   throw conflict(message, code);
 }
 
-/** Finishes a sign-in: exchanges the code, checks what was granted and who signed in, stores the tokens. */
 export async function completeAuthorization(ctx: AppContext, user: SessionUser, input: { code?: string; state?: string; error?: string; error_description?: string }) {
   const state = String(input.state || '');
   if (!state) throw badRequest('This sign-in did not come back with its state value, so it cannot be matched to anything.');
   const pending = ctx.db.prepare('SELECT * FROM connector_auth_states WHERE state_hash = ?').get(sha256(state)) as
     { state_hash: string; connector_id: string; user_id: string; verifier_enc: string; expires_at: string; used_at: string | null } | undefined;
-  // Unknown, used, expired, or started by somebody else: all refused the same way.
   if (!pending || pending.used_at || pending.expires_at < new Date().toISOString() || pending.user_id !== user.id) {
     throw forbidden('This mailbox sign-in is not one you started, or it has expired. Start it again from Correspondence.', 'authorization_state_invalid');
   }
@@ -261,7 +207,6 @@ export async function completeAuthorization(ctx: AppContext, user: SessionUser, 
   if (BROADER_THAN_READ.test(granted)) failAuthorization(ctx, row, 'Microsoft granted more than read access to this mailbox. Vantage refuses a grant broader than it asked for; nothing was stored.', 'authorization_too_broad');
   if (!/Mail\.Read(\s|$)/i.test(granted) && granted) failAuthorization(ctx, row, 'Microsoft did not grant read access to mail, so there is nothing Vantage could read.', 'authorization_insufficient');
 
-  // Who actually signed in. The connector names a mailbox; a different one is not connected.
   const me = await fetch(ep.me, { headers: { authorization: `Bearer ${token.body.access_token}`, accept: 'application/json' }, redirect: 'error' })
     .then(async (r) => (r.ok ? ((await r.json()) as { id?: string; mail?: string; userPrincipalName?: string }) : null))
     .catch(() => null);
@@ -273,7 +218,6 @@ export async function completeAuthorization(ctx: AppContext, user: SessionUser, 
   }
   const at = now();
   const expires = new Date(Date.now() + Math.max(60, Number(token.body.expires_in) || 3600) * 1000).toISOString();
-  // A different mailbox than last time starts from scratch rather than resuming another account's cursor.
   const reset = row.account_id && row.account_id !== me!.id;
   ctx.db.prepare(
     `UPDATE connectors SET status = 'connected', last_error = NULL, access_token_enc = ?, refresh_token_enc = ?, token_expires_at = ?,
@@ -287,11 +231,6 @@ export async function completeAuthorization(ctx: AppContext, user: SessionUser, 
   return publicView(ctx.db.prepare('SELECT * FROM connectors WHERE id = ?').get(row.id) as ConnectorRow);
 }
 
-/**
- * A usable access token for a connected mailbox, refreshed when it is close to expiring. A refresh
- * Microsoft refuses (revoked consent, a password change, an expired grant) takes the connection back
- * to needing authorization, with the reason on it, and forgets the tokens.
- */
 export async function accessTokenFor(ctx: AppContext, row: ConnectorRow): Promise<string> {
   if (row.status !== 'connected') throw conflict('This mailbox is not connected. Authorize it first.', 'connector_not_authorized');
   const current = row.access_token_enc ? decryptSecret(ctx.config.secret, row.access_token_enc) : null;
@@ -324,10 +263,6 @@ function forgetTokens(ctx: AppContext, row: ConnectorRow, reason: string) {
     .run(reason.slice(0, 500), now(), row.id);
 }
 
-/**
- * Disconnects without removing: the tokens are destroyed here at once. Microsoft keeps the consent
- * record until the person removes the app from their account, which the response tells them how to do.
- */
 export function disconnectConnector(ctx: AppContext, user: SessionUser, id: string) {
   const row = ownedConnector(ctx, user, id);
   ctx.db.prepare("UPDATE connectors SET status = 'disconnected', access_token_enc = NULL, refresh_token_enc = NULL, token_expires_at = NULL, delta_token = NULL, last_error = NULL, updated_at = ? WHERE id = ?").run(now(), row.id);
@@ -336,13 +271,6 @@ export function disconnectConnector(ctx: AppContext, user: SessionUser, id: stri
   return { connector: publicView(ctx.db.prepare('SELECT * FROM connectors WHERE id = ?').get(row.id) as ConnectorRow), revoke_consent_at: portal };
 }
 
-// Sync ----------------------------------------------------------------
-
-/**
- * One message as Microsoft Graph returns it, narrowed to the fields Vantage reads.
- * Kept as an interface so a sync can be driven from a live Graph response or from a recorded one
- * without the storing code knowing which it got.
- */
 export interface GraphMessage {
   id: string;
   conversationId?: string;
@@ -361,7 +289,6 @@ export interface GraphMessage {
 
 export interface DeltaPage { value: GraphMessage[]; '@odata.nextLink'?: string; '@odata.deltaLink'?: string }
 
-/** How a page of messages is fetched. Injected so a sync can be tested without a live tenant. */
 export type GraphFetcher = (url: string) => Promise<DeltaPage>;
 
 const addressOf = (entry: { emailAddress?: { name?: string; address?: string } } | undefined) =>
@@ -381,7 +308,6 @@ function toParsed(message: GraphMessage): ParsedEmail {
     date: message.receivedDateTime || message.sentDateTime || null,
     text: isHtml ? htmlToText(content) : content,
     html: isHtml ? content : '',
-    // Attachment bytes are never pulled: only the fact that some exist reaches the record.
     attachments: message.hasAttachments ? [{ filename: 'attachments in the original message', contentType: 'unknown', sizeBytes: 0, sha256: '' }] : [],
   };
 }
@@ -396,13 +322,6 @@ export interface SyncResult {
   pages: number;
 }
 
-/**
- * Pulls new mail into threads.
- *
- * Everything is keyed on Graph's own ids: the conversation id groups a thread, the message id
- * identifies a message. A message already stored is skipped rather than duplicated, so running a
- * sync twice, or resuming after a crash, changes nothing.
- */
 export async function syncMailbox(
   ctx: AppContext,
   user: SessionUser,
@@ -428,7 +347,6 @@ export async function syncMailbox(
       for (const message of body.value || []) {
         result.fetched += 1;
         if (message['@removed'] !== undefined) {
-          // A message deleted upstream is not deleted here: it is a record of work that happened.
           result.removed += 1;
           continue;
         }
@@ -447,7 +365,6 @@ export async function syncMailbox(
     throw e;
   }
 
-  // The cursor is only advanced once a run finished, so an interrupted sync repeats rather than skips.
   if (deltaLink) {
     ctx.db.prepare("UPDATE connectors SET delta_token = ?, last_sync_at = ?, last_error = NULL, status = 'connected', updated_at = ? WHERE id = ?")
       .run(deltaLink, now(), now(), connector.id);
@@ -455,7 +372,6 @@ export async function syncMailbox(
   } else {
     ctx.db.prepare('UPDATE connectors SET last_sync_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), connector.id);
   }
-  // How much a mailbox brought in, and from which cloud. No subject, no address, no body.
   record(ctx, 'correspondence.sync', { cloud: connector.cloud, stored: result.stored, skipped: result.skipped, pages: result.pages, failed: false }, { id: user.id });
   return result;
 }
@@ -488,7 +404,6 @@ function storeGraphMessage(
     }
 
     storeParsedMessage(ctx, thread.id, toParsed(message), {
-      // A message from the account's own mailbox that they sent is outbound; anything else came in.
       direction: 'inbound',
       source: 'graph',
       connectorId: connector.id,
@@ -499,11 +414,8 @@ function storeGraphMessage(
   })();
 }
 
-/** Builds a Graph fetcher over a bearer token. The token never leaves this function's closure. */
 export function graphFetcher(connector: ConnectorRow, accessToken: string, timeoutMs = 20_000, graphHost: string = MICROSOFT_CLOUDS[connector.cloud].graph): GraphFetcher {
   return async (url: string) => {
-    // A URL that is not on this cloud's Graph host is never called: a redirect must not walk a
-    // government token onto a commercial endpoint, or anywhere else.
     if (!url.startsWith(`${graphHost}/`)) {
       throw new Error(`Refusing to call ${new URL(url).host}: this connector reads only from ${new URL(graphHost).host}.`);
     }

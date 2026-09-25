@@ -4,7 +4,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth, requireOperator, requireSudo } from '../auth/middleware.ts';
 import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith } from '../authz/scope.ts';
-import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, type RoleRow } from '../services/org.ts';
+import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, type RoleRow } from '../services/org.ts';
 import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
@@ -16,11 +16,11 @@ import { newId, now } from '../lib/ids.ts';
 import { unitDashboard } from '../services/dashboard.ts';
 import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
+import { mailAllowance } from '../auth/limiter.ts';
 
 export const orgRouter = Router();
 orgRouter.use(requireAuth);
 
-// Units ----------------------------------------------------------------
 orgRouter.post('/units', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   res.status(201).json(createUnit(req.ctx, req.user, scope, req.body || {}, clientIp(req)));
@@ -68,7 +68,6 @@ orgRouter.get('/units/:unitId/export', wrap((req, res) => {
   res.json(out);
 }));
 
-// Membership ------------------------------------------------------------
 orgRouter.get('/directory', wrap((req, res) => {
   const unitId = String(req.query.unit_id || '');
   const q = String(req.query.q || '').trim().toLowerCase().slice(0, 40);
@@ -77,10 +76,12 @@ orgRouter.get('/directory', wrap((req, res) => {
   if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot enroll members in that unit.');
   if (q.length < 2) throw badRequest('Enter at least two characters.', { fieldErrors: { q: 'Enter at least two characters.' } });
   const pattern = `${q.replace(/[\\%_]/g, '\\$&')}%`;
+  const managed = unitsWith(scope, PERMISSIONS.MANAGE_MEMBERS);
+  const led = req.user.is_operator ? '' : `AND EXISTS (SELECT 1 FROM unit_members lm WHERE lm.user_id = u.id AND lm.unit_id IN (${managed.map(() => '?').join(',')}))`;
   const rows = req.ctx.db.prepare(`SELECT u.id, u.username, u.first_name, u.last_name, r.abbr AS rank_abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id
-    WHERE u.active = 1 AND (u.username LIKE ? ESCAPE '\\' OR u.last_name LIKE ? ESCAPE '\\' COLLATE NOCASE OR u.email LIKE ? ESCAPE '\\')
-      AND NOT EXISTS (SELECT 1 FROM unit_members um WHERE um.user_id = u.id AND um.unit_id = ?) ORDER BY u.last_name, u.first_name LIMIT 10`).all(pattern, pattern, pattern, unitId);
-  res.json({ results: rows });
+    WHERE u.active = 1 AND (u.username LIKE ? ESCAPE '\\' OR u.last_name LIKE ? ESCAPE '\\' COLLATE NOCASE) ${led}
+      AND NOT EXISTS (SELECT 1 FROM unit_members um WHERE um.user_id = u.id AND um.unit_id = ?) ORDER BY u.last_name, u.first_name LIMIT 50`).all(pattern, pattern, ...(req.user.is_operator ? [] : managed), unitId) as Array<{ id: string }>;
+  res.json({ results: rows.filter((r) => mayEnrollDirectly(req.ctx, req.user, scope, r.id)).slice(0, 10) });
 }));
 
 orgRouter.post('/units/:unitId/members', wrap((req, res) => {
@@ -93,6 +94,7 @@ orgRouter.post('/units/:unitId/members', wrap((req, res) => {
   if (user_id === req.user.id) throw forbidden('A second authorized person must change your own membership.', 'self_membership_change');
   const target = ctx.db.prepare('SELECT id, first_name, last_name FROM users WHERE id = ? AND active = 1').get(user_id) as { id: string; first_name: string; last_name: string } | undefined;
   if (!target) throw badRequest('No such active account.', { fieldErrors: { user_id: 'No such active account.' } });
+  if (!mayEnrollDirectly(ctx, req.user, scope, user_id)) throw forbidden('You can enroll directly only Marines you already lead. Send this Marine an invitation or a join code instead; they accept it themselves.', 'invite_required');
   const role = role_id ? (ctx.db.prepare('SELECT * FROM roles WHERE id = ?').get(role_id) as RoleRow | undefined) : undefined;
   ctx.db.transaction(() => {
     addMember(ctx, user_id, unitId, { invitedBy: req.user.id, primary: Boolean(primary), billet: billet || null });
@@ -115,6 +117,7 @@ orgRouter.put('/units/:unitId/members/:userId', wrap((req, res) => {
   const body = parse(z.object({ billet: z.string().max(80).nullish(), primary: z.boolean().optional() }), req.body);
   if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot manage members in that unit.');
   if (!ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, unitId)) throw notFound('That Marine is not a member of this unit.');
+  if (userId !== req.user.id && !isUnitOwner(ctx, req.user.id, unitId) && positionIn(scopeFor(ctx, { id: userId }), unitId) >= positionIn(scope, unitId)) throw forbidden('You cannot change the membership of a Marine at or above your own position.', 'hierarchy');
   ctx.db.transaction(() => {
     if (body.billet !== undefined) ctx.db.prepare('UPDATE unit_members SET billet = ? WHERE user_id = ? AND unit_id = ?').run(body.billet || null, userId, unitId);
     if (body.primary) { ctx.db.prepare('UPDATE unit_members SET is_primary = 0 WHERE user_id = ?').run(userId); ctx.db.prepare('UPDATE unit_members SET is_primary = 1 WHERE user_id = ? AND unit_id = ?').run(userId, unitId); }
@@ -139,7 +142,6 @@ orgRouter.delete('/units/:unitId/members/:userId', wrap((req, res) => {
   res.json({ ok: true, ...removed, sessionsRevoked: revoked });
 }));
 
-// Invitations -----------------------------------------------------------
 orgRouter.post('/units/:unitId/invites', wrap(async (req, res) => {
   const ctx = req.ctx;
   const unitId = String(req.params.unitId);
@@ -152,13 +154,13 @@ orgRouter.post('/units/:unitId/invites', wrap(async (req, res) => {
   if (body.role_id) {
     const role = ctx.db.prepare('SELECT * FROM roles WHERE id = ?').get(body.role_id) as RoleRow | undefined;
     if (!role || role.unit_id !== unitId) throw badRequest('No such role in this unit.');
-    if (role.key === 'unit-leader') throw badRequest('Unit Leader is granted by ownership transfer, not invitation.');
-    if (!isUnitOwner(ctx, req.user.id, unitId) && (!can(scope, PERMISSIONS.MANAGE_ROLES, unitId) || role.position >= positionIn(scope, unitId))) throw forbidden('You cannot grant that role.', 'hierarchy');
+    assertMayGrantRole(ctx, req.user, scope, role, unitId);
   }
   const { token, id } = issueToken(ctx, 'invite', { email: body.email || null, ttlMinutes: 7 * 24 * 60, createdBy: req.user.id, payload: { unit_id: unitId, role_id: body.role_id || null, billet: body.billet || null, first_name: body.first_name || null, last_name: body.last_name || null, rank_id: body.rank_id || null } });
   const url = `${ctx.config.publicUrl}/invite?token=${encodeURIComponent(token)}`;
   let emailed = false;
   if (body.email && ctx.mailer.enabled) {
+    mailAllowance(req.user.id);
     const mail = layout({ title: `You are invited to ${unit.short_name || unit.name} on Vantage`, intro: `${req.user.first_name} ${req.user.last_name} invited you to join ${unit.name}. Create your account with the link below. The invitation works for seven days.`, cta: { label: 'Accept invitation', url } });
     emailed = (await ctx.mailer.send({ to: body.email, subject: `Invitation to ${unit.short_name || unit.name} on Vantage`, text: mail.text, html: mail.html, kind: 'invite' })).ok;
   }
@@ -183,7 +185,6 @@ orgRouter.delete('/invites/:id', wrap((req, res) => {
   res.json({ ok: true });
 }));
 
-// Roles -----------------------------------------------------------------
 orgRouter.get('/roles', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   const roles = scope.unitIds.length ? (req.ctx.db.prepare(`SELECT * FROM roles WHERE unit_id IN (${scope.unitIds.map(() => '?').join(',')}) ORDER BY unit_id, position DESC`).all(...scope.unitIds) as RoleRow[]) : [];
@@ -232,10 +233,6 @@ orgRouter.delete('/roles/:roleId', wrap((req, res) => {
   let revoked = 0;
   ctx.db.transaction(() => {
     for (const h of ctx.db.prepare('SELECT DISTINCT user_id FROM member_roles WHERE role_id = ?').all(role.id) as Array<{ user_id: string }>) revoked += invalidateUserSessions(ctx, h.user_id);
-    // A join code may hand out this role, and that reference is a real foreign key. Revoking a code
-    // only sets revoked_at, so the row stays and would block the delete below. Released rather than
-    // deleted: an invite somebody joined on is a record of how they got here. A code left pointing
-    // at nothing falls back to the unit's default role, which is the right outcome anyway.
     ctx.db.prepare('UPDATE unit_invites SET role_id = NULL WHERE role_id = ?').run(role.id);
     ctx.db.prepare('DELETE FROM roles WHERE id = ?').run(role.id);
   })();
@@ -275,7 +272,6 @@ orgRouter.delete('/team/:userId/roles/:roleId', wrap((req, res) => {
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
 
-// Team roster and member detail -----------------------------------------
 orgRouter.get('/team', wrap((req, res) => {
   const ctx = req.ctx;
   const scope = scopeFor(ctx, req.user, req);
@@ -346,7 +342,6 @@ orgRouter.put('/team/:userId/profile', wrap((req, res) => {
   res.json({ ok: true, changed: entries.map(([k]) => k) });
 }));
 
-// Operator-only account lifecycle -------------------------------------
 orgRouter.post('/team/:userId/deactivate', requireOperator, requireSudo, wrap((req, res) => {
   const ctx = req.ctx;
   const id = String(req.params.userId);
@@ -372,7 +367,7 @@ orgRouter.post('/team/:userId/reset-mfa', requireOperator, requireSudo, wrap((re
   const id = String(req.params.userId);
   if (!ctx.db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) throw notFound('No such Marine.');
   ctx.db.transaction(() => {
-    ctx.db.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL, updated_at = ? WHERE id = ?').run(now(), id);
+    ctx.db.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL, totp_pending = NULL, totp_last_step = NULL, updated_at = ? WHERE id = ?').run(now(), id);
     ctx.db.prepare('DELETE FROM recovery_codes WHERE user_id = ?').run(id);
     ctx.db.prepare('DELETE FROM passkeys WHERE user_id = ?').run(id);
   })();
@@ -414,11 +409,6 @@ import { hashPassword as _hashPassword } from '../lib/crypto.ts';
 function await_import() { return { hashPassword: _hashPassword }; }
 export { conflict };
 
-// Join codes ------------------------------------------------------------
-// Distinct from the invitations above, which email one named person a single-use link. A join code
-// is shareable, reusable and revocable: the owner makes one, sends it to whoever, and people let
-// themselves in. Both exist because they answer different questions — "bring this person in" versus
-// "here is the door for my team".
 orgRouter.post('/units/:unitId/join-codes', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   res.status(201).json(createInvite(req.ctx, req.user, scope, String(req.params.unitId), {
@@ -438,7 +428,6 @@ orgRouter.delete('/units/:unitId/join-codes/:inviteId', wrap((req, res) => {
   res.json(revokeInvite(req.ctx, req.user, scope, String(req.params.unitId), String(req.params.inviteId), clientIp(req)));
 }));
 
-// Looking a code up says which unit it opens and nothing else about that unit.
 orgRouter.get('/join-codes/:code', wrap((req, res) => {
   const found = peekInvite(req.ctx, String(req.params.code));
   if (!found) throw notFound('That invite code is not valid.');

@@ -1,24 +1,5 @@
-/**
- * Makes the films, end to end, and publishes them to the site.
- *
- *   node tools/render.mjs                  everything: voice, timeline, capture, score, render, publish
- *   node tools/render.mjs hero queue       just these films
- *   node tools/render.mjs --draft          render to film/out only; publish nothing
- *   node tools/render.mjs --reuse-shots    keep the captured footage (skip the browser)
- *   node tools/render.mjs --allow-unvoiced publish films whose narration is not recorded yet, with
- *                                          the score and captions only (captions then play by default)
- *
- * 1. Voice: every script line through ElevenLabs, once (tools/voice.mjs; cached in assets/vo).
- * 2. Timeline: scene and word timings from the voice (tools/timeline.mjs), and captions from them.
- * 3. Capture: the real application, in the synthetic demo, on a virtual clock (tools/shots.mjs).
- * 4. Score: music, sound and the voice, mixed and loudness-normalised (tools/score.mjs).
- * 5. Render: Remotion, H.264 + AAC, bitrate-capped for the web; a poster frame.
- * 6. Publish: public/videos/films/<slot>.{mp4,jpg,vtt} and src/config/films.generated.json, which
- *    src/config/videos.ts reads. A film whose narration is still estimated is published only with
- *    --allow-unvoiced, and is marked so: its captions carry the script and play by default.
- */
-
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -36,16 +17,11 @@ const flag = (f) => args.includes(f);
 const wanted = args.filter((a) => !a.startsWith('--'));
 const log = (...m) => console.log('film:', ...m);
 
-/** Web encodes: the hero carries grain and fast motion; the chapters are mostly still product. */
 const ENCODE = {
   hero: { crf: 17, encodingMaxRate: '8M', encodingBufferSize: '16M' },
   chapter: { crf: 21, encodingMaxRate: '3500k', encodingBufferSize: '7000k' },
 };
 
-/**
- * Dark gradients band in 8 bits unless something dithers them. The film's grain does, if the encoder
- * keeps it: x264's grain tuning stops it smoothing the grain away.
- */
 const keepGrain = ({ args }) => {
   const i = args.indexOf('libx264');
   return i < 0 ? args : [...args.slice(0, i + 1), '-tune', 'grain', ...args.slice(i + 1)];
@@ -134,6 +110,7 @@ async function main() {
   const indexPath = join(REPO, 'src', 'config', 'films.generated.json');
   const index = existsSync(indexPath) ? JSON.parse(readFileSync(indexPath, 'utf8')) : {};
   const today = new Date().toISOString().slice(0, 10);
+  const url = (file) => `/videos/films/${file}?v=${createHash('sha256').update(readFileSync(join(dest, file))).digest('hex').slice(0, 10)}`;
   for (const id of made) {
     const tl = timelines[id];
     const voiced = tl.estimated === 0;
@@ -143,7 +120,7 @@ async function main() {
     if (r.status !== 0) throw new Error(`faststart ${id}: ${r.stderr}`);
     copyFileSync(join(OUT, `${id}.jpg`), join(dest, `${slot}.jpg`));
     copyFileSync(join(OUT, `${id}.vtt`), join(dest, `${slot}.vtt`));
-    index[slot] = { src: `/videos/films/${slot}.mp4`, poster: `/videos/films/${slot}.jpg`, captions: `/videos/films/${slot}.vtt`, seconds: Math.round(tl.seconds), published: today, voiced };
+    index[slot] = { src: url(`${slot}.mp4`), poster: url(`${slot}.jpg`), captions: url(`${slot}.vtt`), seconds: Math.round(tl.seconds), published: today, voiced };
     log(`published ${slot}`);
   }
   writeFileSync(indexPath, `${JSON.stringify(index, null, 2)}\n`);

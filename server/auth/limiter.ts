@@ -1,3 +1,5 @@
+import { tooMany } from '../lib/errors.ts';
+
 const WINDOW_MS = 15 * 60 * 1000;
 
 interface Entry { count: number; start: number }
@@ -35,16 +37,12 @@ export const limiters = {
   loginUser: new Window(10),
   registerIp: new Window(20),
   resetIp: new Window(10),
-  /**
-   * Anonymous help requests, kept separate from resetIp on purpose: sharing that window would let
-   * a flood of support requests exhaust somebody's password-reset budget, which is the one thing
-   * the person needing help is most likely to be trying next.
-   */
   supportIp: new Window(10),
   mfaToken: new Window(6),
-  /** Failed second-factor attempts per account, across every challenge issued in the window. */
   mfaUser: new Window(10),
   mutations: new Window(300),
+  resetUser: new Window(3, 60 * 60_000),
+  mailUser: new Window(10),
   aiGlobal: new Window(100, 60_000),
   aiUser: new Window(12, 60_000),
 };
@@ -57,6 +55,13 @@ export function configureLimits({ mutations, registrations }: { mutations: numbe
 export function configureAiLimits({ global, perUser }: { global: number; perUser: number }) {
   limiters.aiGlobal = new Window(global, 60_000);
   limiters.aiUser = new Window(perUser, 60_000);
+}
+
+/** Mail this server sends on a person's say-so, capped so an account cannot be used to flood an inbox. */
+export function mailAllowance(userId: string) {
+  const limited = limiters.mailUser.limited(userId);
+  if (limited) throw tooMany('Too many emails sent from this account in a short period. Try again later.', limited.retryAfter);
+  limiters.mailUser.bump(userId);
 }
 
 export function pruneLimiters() { for (const w of Object.values(limiters)) w.prune(); }

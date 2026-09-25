@@ -1,29 +1,9 @@
-/**
- * The authoritative personnel feed.
- *
- * Rank, unit, MOS and EAS are facts an upstream system owns. When a person types them in
- * themselves the record drifts from the truth, and the tool loses every argument with the official
- * one. This module lets an instance take those fields from a roster extract instead.
- *
- * Three rules shape everything here:
- *
- *   The EDIPI is the only join key. Names collide, change on marriage, and are spelled
- *   inconsistently between systems, so matching on them would eventually merge two Marines.
- *
- *   A sync never destroys. Someone who leaves the roster is marked separated and their account is
- *   deactivated; the record survives, because it still has to be answerable to them and to a
- *   records request.
- *
- *   Every applied change is auditable per field. A person whose rank changed under them is owed an
- *   answer about who changed it and where it came from, and an assessor will ask for the same thing.
- */
 import type { AppContext } from '../context.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { badRequest } from '../lib/errors.ts';
 import { createHash } from 'node:crypto';
 
-/** Fields the feed owns. Anything not on this list stays the person's own to edit. */
 export const SOURCED_FIELDS = ['first_name', 'last_name', 'middle_initial', 'rank_id', 'mos', 'eas'] as const;
 export type SourcedField = (typeof SOURCED_FIELDS)[number];
 
@@ -40,7 +20,6 @@ export interface RosterRow {
   status: 'active' | 'separated';
 }
 
-/** An EDIPI is exactly ten digits. Anything else is a different kind of identifier. */
 export const isEdipi = (v: unknown): v is string => typeof v === 'string' && /^\d{10}$/.test(v);
 
 const clean = (v: unknown, max = 120): string | null => {
@@ -50,7 +29,6 @@ const clean = (v: unknown, max = 120): string | null => {
 const rowHash = (row: RosterRow) =>
   createHash('sha256').update(JSON.stringify([row.edipi, row.last_name, row.first_name, row.middle_initial, row.rank_id, row.mos, row.eas, row.unit_code, row.billet, row.status])).digest('hex').slice(0, 32);
 
-/** Column names accepted for each field, so an extract does not have to be renamed by hand first. */
 const ALIASES: Record<string, string[]> = {
   edipi: ['edipi', 'dodid', 'dod_id', 'dod id', 'edi_pi', 'person_id'],
   last_name: ['last_name', 'last', 'surname', 'lastname'],
@@ -93,11 +71,6 @@ function splitLine(line: string, delimiter: string): string[] {
 
 export interface ParseResult { rows: RosterRow[]; rejected: Array<{ line: number; reason: string }> }
 
-/**
- * Parse a roster extract. Accepts CSV, TSV, or a JSON array. A row without a valid EDIPI is
- * rejected with its line number rather than guessed at: a roster entry nobody can identify is worse
- * than a missing one.
- */
 export function parseRoster(text: string, maxRows = 200_000): ParseResult {
   const rows: RosterRow[] = [];
   const rejected: Array<{ line: number; reason: string }> = [];
@@ -156,24 +129,17 @@ export interface FieldChange { field: string; from: string | null; to: string | 
 export interface SyncPlan {
   source: string;
   rowsSeen: number;
-  /** Set when the extract would separate a large share of the roster, so the caller must confirm. */
   massSeparation?: { count: number; activeBefore: number; share: number };
   rejected: Array<{ line: number; reason: string }>;
   creates: RosterRow[];
   updates: Array<{ edipi: string; name: string; changes: FieldChange[] }>;
   separations: Array<{ edipi: string; name: string; hasAccount: boolean }>;
-  /** Two accounts already claim one EDIPI, or an account's EDIPI is not in the feed. Never auto-resolved. */
   conflicts: Array<{ edipi: string; reason: string }>;
   unchanged: number;
 }
 
 interface RosterDbRow extends RosterRow { row_hash: string }
 
-/**
- * Work out what a sync would do, without doing any of it. The Owner console shows this first, every
- * time: a feed that silently rewrites a few thousand personnel records is not one anybody should
- * trust on first run.
- */
 export const MASS_SEPARATION_SHARE = 0.2;
 
 export function planSync(
@@ -206,13 +172,6 @@ export function planSync(
     else plan.unchanged += 1;
   }
 
-  // Anyone on the roster the extract no longer lists has left.
-  //
-  // A truncated or wrongly-filtered extract looks exactly like a mass separation, and the cost of
-  // believing one is deactivating accounts across a command. So the guard is proportional to the
-  // damage rather than to the file size: separating a few people is routine and applies, separating
-  // a large share of the roster stops and asks. A percentage catches the small-roster case a
-  // row-count heuristic misses, where one row can still be "half the file".
   const activeBefore = [...existing.values()].filter((r) => r.status === 'active').length;
   const missing: Array<{ edipi: string; name: string; hasAccount: boolean }> = [];
   for (const [edipi, prior] of existing) {
@@ -228,14 +187,12 @@ export function planSync(
     plan.separations.push(...missing);
   }
 
-  // An account whose EDIPI two people claim is a data problem a person has to look at.
   for (const dup of db.prepare('SELECT edipi, COUNT(*) AS n FROM users WHERE edipi IS NOT NULL GROUP BY edipi HAVING n > 1').all() as Array<{ edipi: string; n: number }>) {
     plan.conflicts.push({ edipi: dup.edipi, reason: `${dup.n} accounts claim this EDIPI` });
   }
   return plan;
 }
 
-/** Apply a plan. Everything happens in one transaction: a half-applied roster is worse than none. */
 export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | null): { runId: string } {
   const { db } = ctx;
   const at = now();
@@ -293,7 +250,6 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
 
     for (const sep of plan.separations) {
       db.prepare("UPDATE personnel_roster SET status = 'separated', synced_at = ?, updated_at = ? WHERE edipi = ?").run(at, at, sep.edipi);
-      // The account is deactivated, never deleted. Their record still belongs to them.
       const account = db.prepare('SELECT id FROM users WHERE edipi = ?').get(sep.edipi) as { id: string } | undefined;
       if (account) db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ?').run(at, account.id);
       audit(ctx, {
@@ -312,7 +268,6 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
   return { runId };
 }
 
-/** Accounts and roster rows that do not line up. This is the report a records owner actually needs. */
 export function divergence(ctx: AppContext) {
   const { db } = ctx;
   return {
@@ -341,16 +296,10 @@ export function rosterStats(ctx: AppContext) {
   };
 }
 
-/**
- * Which of this account's fields the feed owns. Empty for a local account, which is every account
- * on an instance with no feed configured — so this costs nothing until somebody turns one on.
- */
 export function sourcedFieldsFor(ctx: AppContext, userId: string): SourcedField[] {
   const row = ctx.db.prepare('SELECT identity_source, edipi FROM users WHERE id = ?').get(userId) as { identity_source?: string; edipi?: string | null } | undefined;
   if (!row || row.identity_source !== 'roster' || !row.edipi) return [];
   const roster = ctx.db.prepare('SELECT * FROM personnel_roster WHERE edipi = ?').get(row.edipi) as Record<string, unknown> | undefined;
   if (!roster) return [];
-  // Only fields the roster actually carries a value for. A blank upstream column should not freeze
-  // a field the person is the only source for.
   return SOURCED_FIELDS.filter((f) => roster[f] != null && roster[f] !== '');
 }

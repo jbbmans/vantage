@@ -5,22 +5,17 @@ import { Button } from '@/components/ui/primitives';
 
 interface State { error: Error | null }
 
-/** Keeps one broken page from taking the whole app down. Resets when `resetKey` changes (route navigation). */
 export default class ErrorBoundary extends React.Component<{ children: React.ReactNode; resetKey?: string; full?: boolean }, State> {
   state: State = { error: null };
   static getDerivedStateFromError(error: Error): State { return { error }; }
   componentDidUpdate(prev: { resetKey?: string }) { if (prev.resetKey !== this.props.resetKey && this.state.error) this.setState({ error: null }); }
   componentDidCatch(error: Error, info: React.ErrorInfo) {
     console.error('Vantage page error', error, info.componentStack);
-    // Which surface broke and whether the person could carry on. Never the message: a React error
-    // can quote the props that produced it, and props can hold somebody's record.
     track('reliability.client_error', { surface: surfaceOf(window.location.pathname), recovered: false });
   }
   render() {
     if (!this.state.error) return this.props.children;
     const message = this.state.error.message || String(this.state.error);
-    // A lazily loaded screen whose file is gone: the app was redeployed under an open tab. That is
-    // not a fault in the page, and reloading is the whole fix, so it is said that way.
     const stale = /dynamically imported module|Loading chunk|Importing a module script failed|error loading dynamically/i.test(message);
     return (
       <div className={this.props.full ? 'flex min-h-screen items-center justify-center bg-canvas p-6' : 'page'}>
@@ -40,7 +35,6 @@ export default class ErrorBoundary extends React.Component<{ children: React.Rea
   }
 }
 
-/** Kept here rather than imported, so the boundary never depends on a module that might be broken. */
 function surfaceOf(pathname: string): string {
   const segment = pathname.split('/')[1] || '';
   const known = ['records', 'queue', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'team', 'settings', 'operator', 'help', 'reference'];

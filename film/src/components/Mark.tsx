@@ -1,10 +1,6 @@
 import { useCurrentFrame, useVideoConfig } from 'remotion';
 import { land, p } from '../lib/motion';
 
-/**
- * The Vantage mark, assembled: the chevron rises, the crown settles onto it, the diamonds open in
- * the middle. Four pieces, the same four paths as public/brand/mark-reversed.svg.
- */
 export function Mark({ size = 220, at = 0, still = false }: { size?: number; at?: number; still?: boolean }) {
   const f = useCurrentFrame();
   const { fps } = useVideoConfig();

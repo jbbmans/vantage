@@ -7,12 +7,6 @@ const Workbench = lazy(() => import('./Workbench'));
 const Work = lazy(() => import('./Work'));
 const Correspondence = lazy(() => import('./Correspondence'));
 
-/**
- * Everything with a next action lives here. The queue of tasker items, the taskers and projects
- * they roll up to, the tasks you set yourself, and the email the work is actually about were four
- * destinations. They are four tabs because each answers the same question: what work exists, what
- * is mine, and where does it stand? One item opens on its own page, at /work/items/:id.
- */
 export default function WorkHub() {
   const [tab, setTab] = useParam('tab', 'queue');
   const { data: tasks } = useTasks();

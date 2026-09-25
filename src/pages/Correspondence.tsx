@@ -18,18 +18,6 @@ import {
 import * as api from '@/lib/api';
 import { cn, todayIso } from '@/lib/utils';
 
-/**
- * Correspondence: the emails behind the work, kept next to the work.
- *
- * A thread carries three separate facts, never one: when a reply came back, when the knowledge the
- * request was for arrived, and when the matter was closed. A reply that answers nothing still moves
- * the thread to "response received" and no further, because that is what happened.
- *
- * Message bodies are sanitized on the server before they are stored. Remote images are stripped
- * rather than loaded: a tracking pixel in a message body would tell the sender when a Marine opened
- * their mail, from which network.
- */
-
 const STATES = ['draft', 'sent', 'awaiting_reply', 'response_received', 'ksd_received', 'resolved'] as const;
 type State = (typeof STATES)[number];
 
@@ -45,7 +33,6 @@ const STATE_TONE: Record<State, Tone> = {
   draft: 'neutral', sent: 'info', awaiting_reply: 'warn',
   response_received: 'accent', ksd_received: 'good', resolved: 'good',
 };
-/** What each state actually asserts, spelled out so nobody reads "response" as "answer". */
 const STATE_MEANING: Record<State, string> = {
   draft: 'Written, not sent.',
   sent: 'It went out.',
@@ -524,7 +511,6 @@ function Mailboxes() {
   const available = connectors.data?.availability?.available !== false;
   const refresh = () => qc.invalidateQueries({ queryKey: correspondenceKeys.connectors });
 
-  // Coming back from Microsoft: say what happened once, then take it out of the address.
   useEffect(() => {
     const outcome = params.get('mailbox');
     if (!outcome) return;
@@ -610,7 +596,6 @@ function Mailboxes() {
                       ) : available ? (
                         <Button size="xs" variant="primary" loading={busy === `auth:${id}`} onClick={() => act(`auth:${id}`, async () => {
                           const r = await api.authorizeConnector(id);
-                          // Only ever off to a sign-in page over HTTPS (a local stand-in in development).
                           const target = new URL(String(r.url));
                           if (target.protocol !== 'https:' && !['localhost', '127.0.0.1'].includes(target.hostname)) throw new Error('The sign-in address was not secure, so Vantage did not follow it.');
                           window.location.assign(target.toString());

@@ -4,7 +4,6 @@ export const PASSWORD = 'cobalt-orbit-velvet-anchor-927';
 export const OPERATOR = { username: 'boletz', first_name: 'John', last_name: 'Boletz', unit_name: 'G-8 Comptroller', unit_short_name: 'G8' };
 const H = { 'x-vantage-client': '1' };
 
-/** Idempotent: creates the owner account through the API if the instance is still empty. */
 export async function ensureSetup(request: APIRequestContext) {
   const status = await (await request.get('/api/auth/setup')).json();
   if (!status.needsSetup) return;
@@ -33,7 +32,6 @@ export async function logout(page: Page) {
   await page.context().clearCookies();
 }
 
-/** Step-up auth is only demanded once the sign-in grace period has passed; answer it if it appears. */
 export async function confirmSudoIfAsked(page: Page) {
   const sudo = page.getByRole('dialog', { name: 'Confirm it is you' });
   try { await sudo.waitFor({ state: 'visible', timeout: 1500 }); } catch { return; }

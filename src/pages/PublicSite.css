@@ -1,13 +1,3 @@
-/*
- * The public page. Its own palette, fixed rather than themed: it is read by people who have not
- * signed in and have no preference stored, and it has to look the same in a screenshot, a print and
- * a social preview as it does in a browser.
- *
- * Deep navy bookends (hero and footer) around a cool paper body. One accent on dark (the brand
- * teal) and one on light (the product cobalt). Shadows are tinted navy, never black. Motion moves
- * things and never hides them: at rest, every element is fully opaque.
- */
-
 .public-site {
   --ps-navy: #07152a;
   --ps-navy-2: #0b2142;
@@ -36,9 +26,9 @@
   min-height: 100dvh;
   overflow-x: clip;
 }
-/* Resets at zero specificity (:where), so every component rule below wins without !important. */
 .public-site :where(*, *::before, *::after) { box-sizing: border-box; }
 .public-site :where(h1, h2, h3, p) { margin: 0; }
+.public-site :where(h1, h2, h3, h4) { color: inherit; }
 .public-site :where(a) { color: inherit; text-decoration: none; }
 .public-site :where(svg) { width: 1em; height: 1em; flex-shrink: 0; }
 .public-site :focus-visible { outline: 2px solid var(--ps-teal); outline-offset: 3px; border-radius: 8px; }
@@ -57,8 +47,6 @@
   color: var(--ps-cobalt); background: rgba(31, 85, 214, 0.07); box-shadow: inset 0 0 0 1px rgba(31, 85, 214, 0.14);
 }
 .ps-eyebrow-dark { color: var(--ps-teal); background: rgba(63, 208, 189, 0.08); box-shadow: inset 0 0 0 1px rgba(63, 208, 189, 0.22); }
-
-/* ── Hero ──────────────────────────────────────────────────────────────────────────────────── */
 
 .ps-hero-band {
   position: relative; isolation: isolate;
@@ -141,13 +129,11 @@
 .ps-proof li { display: inline-flex; align-items: center; gap: 8px; }
 .ps-proof svg { color: var(--ps-teal); font-size: 15px; }
 
-/* The double bezel: an outer tray with a hairline, an inner plate with its own highlight. */
 .ps-bezel { position: relative; padding: 7px; border-radius: 28px; background: rgba(255, 255, 255, 0.05); box-shadow: 0 0 0 1px rgba(255, 255, 255, 0.09) inset; }
 .ps-bezel-core { border-radius: 21px; overflow: hidden; background: var(--ps-card); box-shadow: 0 1px 0 rgba(255, 255, 255, 0.9) inset, var(--ps-shadow-dark); }
 .ps-section .ps-bezel, .ps-try .ps-bezel { background: rgba(11, 21, 38, 0.035); box-shadow: 0 0 0 1px var(--ps-line) inset; }
 .ps-section .ps-bezel-core, .ps-try .ps-bezel-core { box-shadow: 0 1px 0 #fff inset, var(--ps-shadow); }
 
-/* The case mock. Fixed colours: this is a picture of the product, not a themed surface. */
 .ps-case { color: var(--ps-ink); }
 .ps-window-bar { display: flex; align-items: center; gap: 6px; padding: 12px 16px; border-bottom: 1px solid var(--ps-line); background: #f8fafc; }
 .ps-window-bar i { width: 9px; height: 9px; border-radius: 999px; background: #d7dde6; }
@@ -197,8 +183,6 @@
   .ps-float-a { left: -34px; bottom: -22px; transform: rotate(-2deg); }
   .ps-float-b { right: 28px; top: -20px; transform: rotate(2deg); }
 }
-
-/* ── Sections ──────────────────────────────────────────────────────────────────────────────── */
 
 .ps-section { padding-top: 112px; padding-bottom: 24px; }
 @media (min-width: 768px) { .ps-section { padding-top: 144px; } }
@@ -339,7 +323,6 @@
 .ps-video .mission-video-list strong { display: block; font-weight: 600; font-size: 14px; line-height: 1.3; }
 .ps-video .mission-video-list small { display: block; margin-top: 2px; color: var(--ps-ink-3); font-size: 12px; }
 
-/* "Watch the film", beside the hero's main call: a play mark in its own circle. */
 .ps-watch-cta { gap: 12px; padding: 8px 20px 8px 8px; }
 .ps-watch-cta small { margin-left: 2px; font-weight: 500; font-size: 13px; color: var(--ps-on-dark-3); }
 .ps-watch-dot {
@@ -381,9 +364,6 @@
 .ps-footer-bottom a { display: inline-flex; align-items: center; gap: 6px; color: var(--ps-on-dark); }
 .ps-footer-bottom a:hover { color: var(--ps-teal); }
 
-/* ── Motion ────────────────────────────────────────────────────────────────────────────────── */
-
-/* The hero settles in on load. Transform only: at rest nothing is ever transparent. */
 @keyframes ps-rise { from { transform: translateY(18px); } to { transform: none; } }
 .ps-hero-copy > * { animation: ps-rise 0.9s var(--ps-ease) both; }
 .ps-hero-copy > *:nth-child(2) { animation-delay: 0.05s; }
@@ -392,7 +372,6 @@
 .ps-hero-copy > *:nth-child(5) { animation-delay: 0.2s; }
 .ps-case { animation: ps-rise 1.1s var(--ps-ease) 0.12s both; }
 
-/* Below the fold, sections drift up into place as they arrive, once JavaScript has taken over. */
 .ps-motion [data-reveal] { transition: transform 0.9s var(--ps-ease); }
 .ps-motion [data-reveal]:not(.in) { transform: translateY(28px); }
 

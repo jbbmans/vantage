@@ -15,7 +15,6 @@ export function Glass({ children, style, radius = 28, pad = 36 }: { children?: R
   );
 }
 
-/** A still of the product (an element or a screen) as a physical plate. `src` in public/screens. */
 export function Shot({ src, width, natural, radius = 20, style, glow }: { src: string; width: number; natural: [number, number]; radius?: number; style?: CSSProperties; glow?: number }) {
   const h = (width * natural[1]) / natural[0];
   return (

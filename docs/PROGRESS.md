@@ -1,8 +1,8 @@
 # Progress
 
-_Updated 2026-09-24 · branch `claude/vantage-redesign-overhaul-src4wq` · base `main` @ `dd76293`_
+_Updated 2026-09-25_
 
-## What this branch did
+## What changed
 
 **The FMRA knowledge, in the product.** The FMRAC reference (the 3451 Financial Management Resource
 Analyst course material) is encoded as a typed, cited knowledge base in `shared/fmra/`: the four

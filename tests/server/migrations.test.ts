@@ -7,12 +7,6 @@ import Database from 'better-sqlite3';
 import { openDatabase, SCHEMA_VERSION } from '../../server/db/index.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
 
-/**
- * Migrations are the one piece of this codebase that only ever runs against data somebody already
- * has. A `:memory:` test opens an empty database and every migration is a no-op on no rows, which
- * is exactly the case that cannot go wrong. So these build a database that looks like a real
- * instance stopped at the previous version, then open it for real.
- */
 function atVersion(version: number, seed: (db: Database.Database) => void) {
   const dir = mkdtempSync(join(tmpdir(), 'vantage-migrate-'));
   const path = join(dir, 'vantage.db');
@@ -42,16 +36,11 @@ test('007 grants the split work verbs to roles that could already do that work',
     const db = openDatabase(path);
     const bits = (id: string) => (db.prepare('SELECT permissions FROM roles WHERE id = ?').get(id) as { permissions: number }).permissions;
 
-    // Holding a claim already let you both work a case and close it, so both verbs go to everyone.
-    // Granting RESOLVE_WORK only to record-correctors would take closing away from every plain
-    // member on deploy, which is the regression this backfill exists to prevent.
     for (const verb of ['CLAIM_WORK', 'RESOLVE_WORK'] as const) {
       assert.ok(bits('r-marine') & PERMISSIONS[verb], `a Marine keeps ${verb}`);
       assert.ok(bits('r-snco') & PERMISSIONS[verb], `an SNCO keeps ${verb}`);
     }
 
-    // The genuinely new verbs — nothing could edit a row's own fields or hand a case over before —
-    // go only to whoever could already correct records.
     for (const verb of ['EDIT_WORK', 'REASSIGN_WORK'] as const) {
       assert.ok(bits('r-snco') & PERMISSIONS[verb], `SNCO gains ${verb}`);
       assert.equal(bits('r-marine') & PERMISSIONS[verb], 0, `a Marine does not silently gain ${verb}`);

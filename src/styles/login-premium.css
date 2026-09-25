@@ -1,9 +1,3 @@
-/*
- * Sign-in, setup, invitation and reset. One layout for all of them: a navy brand panel beside the
- * form on large screens, the form alone on anything smaller. The brand panel keeps its own fixed
- * palette (it is the same navy as the public page); the form side follows the person's theme.
- */
-
 .auth-page {
   --auth-navy: #07152a;
   --auth-navy-2: #0b2142;
@@ -17,8 +11,6 @@
   color: rgb(var(--ink));
 }
 @media (min-width: 1100px) { .auth-page { grid-template-columns: minmax(420px, 0.92fr) minmax(0, 1.08fr); } }
-
-/* ── Brand panel ─────────────────────────────────────────────────────────────────────────────── */
 
 .auth-brand-panel {
   position: relative; isolation: isolate; overflow: hidden;
@@ -56,8 +48,6 @@
 .auth-panel-points b { display: block; margin-bottom: 2px; font-size: 15px; font-weight: 600; color: #fff; }
 .auth-panel-foot { margin: 0; font-size: 12px; line-height: 1.6; color: #8e9cb4; max-width: 28rem; }
 
-/* ── Form side ───────────────────────────────────────────────────────────────────────────────── */
-
 .auth-side {
   position: relative; display: flex; flex-direction: column; min-height: 100dvh;
   background:
@@ -86,8 +76,6 @@
 .auth-stage { flex: 1; display: grid; place-items: center; padding: 24px 20px 64px; }
 .auth-shell { position: relative; width: min(100%, 480px); animation: auth-shell-in 0.8s var(--auth-ease) both; }
 
-/* The brand lockup above the card appears only for an instance with its own name; otherwise the
-   top bar (small screens) or the brand panel (large ones) already carries the wordmark. */
 .auth-brand-lockup { display: grid; justify-items: center; margin-bottom: 24px; text-align: center; }
 .auth-brand-lockup-default { display: none; }
 .auth-mark-wrap { display: grid; place-items: center; width: 64px; height: 64px; border-radius: 20px; background: rgb(var(--surface)); box-shadow: var(--shadow-card); }

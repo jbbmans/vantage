@@ -1,15 +1,6 @@
 import { formatCents } from '../../../shared/money';
 import { cn } from '@/lib/utils';
 
-/**
- * The four lifecycle figures for one document, drawn so the gap reads at a glance.
- *
- * One row per phase, all on one scale. The filled bar is the amount the phase reached; the hatched
- * segment after it is what is still open from the phase before — labelled with its condition, so
- * the gap is never carried by colour alone. A figure the source did not show is drawn as an empty
- * outline and says so: a dash on a report is not a zero.
- */
-
 export interface Figures { commitment: number | null; obligation: number | null; delivered: number | null; paid: number | null }
 
 const ROWS: Array<{ key: keyof Figures; label: string }> = [
@@ -39,7 +30,6 @@ export default function LifecycleBars({ figures, travel = false, compact = false
   };
   const summary = ROWS.map((r, i) => `${r.label} ${values[i] == null ? 'not shown' : formatCents(values[i]!)}`).join(', ');
 
-  // An illustration of the shape, with no figures to read: bars only, hidden from assistive tech.
   if (decorative) {
     return (
       <div className={cn('space-y-2.5', className)} aria-hidden>

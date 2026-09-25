@@ -1,4 +1,3 @@
-/** Boots Vantage in synthetic demo mode for the demo journey spec: in-memory database, built client. */
 import { createServer } from 'node:http';
 import { loadConfig } from '../../server/config.ts';
 import { createApp, createContext } from '../../server/app.ts';

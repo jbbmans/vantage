@@ -4,12 +4,6 @@ import { startApp, enroll, type TestApp } from './helpers.ts';
 import { PROCEDURES, PROCEDURE_VERSIONS, UMT_2WAY, UMT_2WAY_V010, progress, suggestProcedure, procedureFor } from '../../shared/procedures.ts';
 import { caseIntegrity } from '../../server/services/caseSeal.ts';
 
-/**
- * The FMRA procedures and the engine changes they needed: pinned versions and explicit migration,
- * decisions and submissions gated on evidence, calculations that go stale, sealed case histories,
- * and procedures applied — and revised — through an import.
- */
-
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
 let avery: { token: string; id: string };
@@ -43,8 +37,6 @@ const balances = async (id: string, figures: Record<string, string | null>, meth
     assert.equal(r.status, 201, JSON.stringify(r.body));
   }
 };
-
-// The registry ---------------------------------------------------------------------------------
 
 test('every version stays published, and a pinned version is run exactly or not at all', () => {
   assert.equal(PROCEDURES.umt_2way_po_qty.version, '0.2.0');
@@ -95,8 +87,6 @@ test('a case pinned to a version this build lacks refuses procedure writes but s
   assert.equal(r.body.code, 'verification_required');
 });
 
-// F01: every path that closes work answers to the same rule ------------------------------------
-
 test('the older PATCH path cannot resolve procedure work without its verification', async () => {
   const id = await caseUnder('umt_2way_po_qty', '2-Way UMT', 'SYN-PATCH-1');
   const patched = await app.call('PATCH', `/api/work/items/${id}`, { token: op.token, body: { state: 'resolved' } });
@@ -107,8 +97,6 @@ test('the older PATCH path cannot resolve procedure work without its verificatio
   assert.equal((await post(op.token, `/api/work/items/${id}/stage`, { stage: 'not_applicable' })).status, 400, 'the stage path asks for the reason');
   assert.equal((await post(op.token, `/api/work/items/${id}/stage`, { stage: 'not_applicable', reason: 'Duplicate of SYN-PATCH-2.' })).status, 200);
 });
-
-// The lifecycle procedures ---------------------------------------------------------------------
 
 test('an open commitment: not-shown is its own fact, the residual is calculated, and conditional steps wait on the decision', async () => {
   const id = await caseUnder('ocmt_research');
@@ -181,8 +169,6 @@ test('a DOU cause cannot be chosen before the payment evidence is reviewed', asy
   assert.equal((await entry(avery.token, id, { kind: 'decision', decision: 'dou_cause', choice: 'payment_pending', rationale: 'Internal checks clean; payment scheduled.' })).status, 201);
 });
 
-// The UMT four-stage method ----------------------------------------------------------------------
-
 test('a UMT billed above its PO line: shortfall calculated, award change gated on a validated bill, NON-1081 before clearing', async () => {
   const id = await caseUnder('umt_four_stage', 'UMT: Billed AMT is greater than PO line AMT');
   await entry(avery.token, id, { kind: 'observation', field: 'error_text', value_text: 'Billed AMT is greater than PO line AMT', step: 'identify' });
@@ -204,8 +190,6 @@ test('a UMT billed above its PO line: shortfall calculated, award change gated o
   d = await detail(avery.token, id);
   assert.equal(d.case.progress.next, 'non1081', 'fixing the cause is not done while the payment is unmatched');
 });
-
-// F06: calculations go stale -------------------------------------------------------------------
 
 test('a calculation goes stale when an input is corrected or a newer reading arrives, until it is run again', async () => {
   const id = await caseUnder('umt_2way_po_qty', '2-Way UMT', 'SYN-STALE-1');
@@ -233,8 +217,6 @@ test('a calculation goes stale when an input is corrected or a newer reading arr
   assert.equal(d.case.calculations[0].stale, true);
 });
 
-// F12: sealed histories ------------------------------------------------------------------------
-
 test('a case history is sealed, and a changed, removed or inserted entry breaks the seal', async () => {
   const id = await caseUnder('ocmt_research');
   await balances(id, { commitment_amount: '10', obligation_amount: null, delivered_amount: null, paid_amount: null });
@@ -260,8 +242,6 @@ test('a case history is sealed, and a changed, removed or inserted entry breaks 
   assert.equal(audit.body.cases.ok, false);
   assert.ok(audit.body.cases.broken.length >= 2);
 });
-
-// Imports that apply procedures, and reimports that revise them -------------------------------
 
 test('an import can apply procedures by condition, seed the figures, and a revised sheet supersedes only the source’s own values', async () => {
   const csv = [
@@ -294,7 +274,6 @@ test('an import can apply procedures by condition, seed the figures, and a revis
   d = await detail(op.token, byRef['OB-1'].id);
   assert.equal(d.case.events.find((e: any) => e.body.field === 'obligation_amount').body.not_shown, true, 'a dash is recorded as not shown');
 
-  // Someone works OB-2, then the export is refreshed with a new delivered figure.
   const ob2 = byRef['OB-2'].id;
   await post(avery.token, `/api/work/items/${ob2}/claim`);
   await entry(avery.token, ob2, { kind: 'observation', field: 'ksd_receipt', value_text: 'DD 1348-1A for half the items', step: 'research' });

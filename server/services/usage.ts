@@ -1,24 +1,6 @@
-/**
- * Usage and reliability reporting for the Owner Console.
- *
- * This answers "is the product working" — is anyone using it, does capture succeed, do imports
- * finish, are requests failing. It deliberately cannot answer "how productive is this Marine".
- *
- * Two rules shape every figure here:
- *
- *  1. Aggregate only. Figures are counts and distributions across people, never a person's row.
- *     The Owner role grants no privilege over privacy: an owner reading this sees the same shape
- *     anyone would, and no breakdown is emitted where too few people contributed to it, because a
- *     cohort of one is a name.
- *  2. Three times, never added. Time a form was open, an estimate of active editing, and the
- *     duration a person confirmed the work took are reported side by side and separately labelled.
- *     Adding them would invent a number nobody measured.
- */
-
 import type { AppContext } from '../context.ts';
 import { EVENTS } from './telemetry.ts';
 
-/** A breakdown with fewer contributors than this is withheld rather than shown. */
 export const MIN_COHORT = 3;
 
 export interface Bucket { key: string; events: number; people: number }
@@ -40,7 +22,6 @@ function distribution(values: number[]): Distribution {
   };
 }
 
-/** Hides a breakdown row that too few people produced, so a small cohort is not a name. */
 const withheld = (buckets: Bucket[]): { shown: Bucket[]; withheld: number } => ({
   shown: buckets.filter((b) => b.people >= MIN_COHORT),
   withheld: buckets.filter((b) => b.people < MIN_COHORT).length,
@@ -90,7 +71,6 @@ const countWhere = (rows: Loaded[], key: string, value: unknown) => rows.filter(
 export interface UsageReport {
   period: { from: string; to: string };
   events: number;
-  /** Which event names arrived, so a family showing nothing can be told apart from one not wired up. */
   coverage: Array<{ name: string; family: string; events: number; instrumented: boolean }>;
   adoption: { people: number; sessions: number; returning: number; activeDays: Array<{ day: string; people: number }>; surfaces: Bucket[]; surfacesWithheld: number };
   capture: {
@@ -120,7 +100,6 @@ export function usageReport(ctx: AppContext, period: { from: string; to: string 
     name, family: spec.family, events: seen.get(name) || 0, instrumented: (seen.get(name) || 0) > 0,
   }));
 
-  // Adoption ----------------------------------------------------------
   const sessions = byName(rows, 'session.started');
   const dayMap = new Map<string, Set<string>>();
   for (const row of rows) {
@@ -132,48 +111,39 @@ export function usageReport(ctx: AppContext, period: { from: string; to: string 
   }
   const surfaces = withheld(bucketBy(byName(rows, 'surface.viewed'), 'surface'));
 
-  // Capture -----------------------------------------------------------
   const opened = byName(rows, 'capture.opened');
   const completed = byName(rows, 'capture.completed');
   const abandoned = byName(rows, 'capture.abandoned');
   const abandonment = withheld(bucketBy(abandoned, 'state'));
 
-  // Work ---------------------------------------------------------------
   const claimed = byName(rows, 'work.claimed');
   const actions = byName(rows, 'work.action_recorded');
 
-  // Import ---------------------------------------------------------------
   const uploaded = byName(rows, 'import.uploaded');
   const previewed = byName(rows, 'import.previewed');
   const committed = byName(rows, 'import.committed');
   const importAbandoned = byName(rows, 'import.abandoned');
   const importAbandonment = withheld(bucketBy(importAbandoned, 'state'));
 
-  // Editor ----------------------------------------------------------------
   const editorSessions = byName(rows, 'editor.session');
 
-  // Correspondence ----------------------------------------------------------
   const threads = byName(rows, 'correspondence.thread_created');
   const messages = byName(rows, 'correspondence.message_imported');
   const stateChanges = byName(rows, 'correspondence.state_changed');
   const states = withheld(bucketBy(stateChanges, 'to'));
 
-  // Goals and reports ---------------------------------------------------------
   const goals = byName(rows, 'goal.created');
   const revisions = byName(rows, 'report.revision_saved');
 
-  // AI ---------------------------------------------------------------------------
   const aiRequested = byName(rows, 'ai.requested');
   const aiAnswered = byName(rows, 'ai.answered');
   const aiAccepted = byName(rows, 'ai.accepted');
   const aiWorkflows = withheld(bucketBy(aiRequested, 'workflow'));
 
-  // Reliability ------------------------------------------------------------------
   const failed = byName(rows, 'reliability.request_failed');
   const clientErrors = byName(rows, 'reliability.client_error');
   const offline = byName(rows, 'reliability.offline_queue');
 
-  // Security ---------------------------------------------------------------------
   const stepUps = byName(rows, 'security.step_up');
   const denied = byName(rows, 'security.authorization_denied');
 
@@ -222,8 +192,6 @@ export function usageReport(ctx: AppContext, period: { from: string; to: string 
       abandoned: importAbandoned.length,
       conversion: rate(committed.length, uploaded.length),
       scanVerdicts: bucketBy(uploaded, 'scan'),
-      // Where people gave up is behaviour, so a cohort of one is withheld. Scan verdicts are not:
-      // an owner needs to see one infected upload, and "infected" names a file, not a person.
       abandonmentStates: importAbandonment.shown,
       abandonmentWithheld: importAbandonment.withheld,
       rowsInserted: sumProp(committed, 'inserted'),
@@ -297,7 +265,6 @@ export function usageReport(ctx: AppContext, period: { from: string; to: string 
   };
 }
 
-/** Trims events older than the retention window. Analytics are for steering a product, not a memory. */
 export function pruneEvents(ctx: AppContext, olderThanDays = 400): number {
   const cutoff = new Date(Date.now() - olderThanDays * 24 * 60 * 60 * 1000).toISOString();
   const result = ctx.db.prepare('DELETE FROM product_events WHERE received_at < ?').run(cutoff);

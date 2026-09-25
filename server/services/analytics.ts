@@ -13,7 +13,6 @@ export interface AnalysisReport extends Analysis {
   track: Track; generatedAt: string; label: string; metricsConfig: AppContext['runtime']['metrics'];
 }
 
-/** The full analytical package for one Marine over one period, scoped to shared records when a leader asks. */
 export function buildAnalysisReport(ctx: AppContext, opts: { userId: string; unitId?: string | null; period: string; from?: string | null; to?: string | null; track?: Track | null }): AnalysisReport {
   const bounds = periodBounds(opts.period, opts.from, opts.to, ctx.config.timezone);
   const cur = { start: new Date(`${bounds.from}T00:00:00`), end: new Date(`${bounds.to}T23:59:59`) };

@@ -1,13 +1,5 @@
 import takesData from '../generated/takes.json';
 
-/**
- * Playing back a take: which captured frame is on screen, where the camera is, where the cursor is.
- *
- * A take is the product recorded on a virtual clock (tools/capture.mjs): keyframes stamped with the
- * second they belong at, and an event log of camera moves, pointer moves, clicks, keys and cuts.
- * Everything here is a pure function of the take and a time, so any frame renders identically.
- */
-
 export interface TakeFrame { src: string; t: number }
 export interface Box { x: number; y: number; width: number; height: number }
 export type TakeEvent =
@@ -33,7 +25,6 @@ const DISSOLVE = 0.32;
 
 const smooth = (x: number) => { const t = Math.min(1, Math.max(0, x)); return t < 0.5 ? 4 * t * t * t : 1 - (-2 * t + 2) ** 3 / 2; };
 
-/** The frame on screen at time t, and during a cut, the frame being dissolved away from. */
 export function framesAt(take: Take, t: number) {
   let i = 0;
   for (let k = 0; k < take.frames.length; k++) if (take.frames[k].t <= t + 1e-6) i = k;
@@ -67,7 +58,6 @@ const mixCam = (a: Cam, b: Cam, k: number): Cam => ({
   cy: a.cy + (b.cy - a.cy) * k,
 });
 
-/** Camera at time t: each focus eases from wherever the camera was when it was called. */
 export function cameraAt(take: Take, t: number, start: Cam = WIDE): Cam {
   const evs = take.events.filter((e) => e.type === 'focus' || e.type === 'wide') as Array<Extract<TakeEvent, { type: 'focus' | 'wide' }>>;
   let from = start;

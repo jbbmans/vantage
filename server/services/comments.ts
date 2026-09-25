@@ -9,21 +9,6 @@ import { notify } from './notifications.ts';
 import { getRecord, isRecordTable } from './records.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
 
-/**
- * Remarks people leave on a record.
- *
- * The whole design rests on one rule: a comment is exactly as visible as the thing it hangs on, and
- * there is no way to say otherwise. `comments` has no visibility column, so there is nothing to set
- * wrong. Every read and every write resolves the host record first and asks the host's own
- * permission functions. Move the host, and its conversation moves with it.
- *
- * The corollary is the part that is easy to get wrong: a mention is a notification, and a
- * notification about a record is a disclosure that the record exists. So a name is only resolved to
- * a mention if that person could already read the host on their own. Naming somebody who cannot see
- * a private counseling does not tell them it is there; the text keeps their name and nothing is
- * sent.
- */
-
 export const COMMENTABLE = new Set<string>(['activities', 'awards', 'counselings', 'trainings', 'tasks', 'projects', 'goals']);
 
 const MAX_BODY = 4000;
@@ -33,7 +18,6 @@ export interface CommentRow {
   body: string; mentions: string; edited_at: string | null; deleted_at: string | null; created_at: string;
 }
 
-/** The host record, and the caller's standing on it. Throws rather than returning a partial answer. */
 function host(ctx: AppContext, user: SessionUser, scope: Scope, table: string, id: string) {
   if (!isRecordTable(table) || !COMMENTABLE.has(table)) throw notFound('That record type does not take comments.');
   const row = getRecord(ctx, table as RecordTable, id) as RecordRow | undefined;
@@ -42,17 +26,11 @@ function host(ctx: AppContext, user: SessionUser, scope: Scope, table: string, i
   return { table: table as RecordTable, row };
 }
 
-/** Whoever can read a record may discuss it. Reading and commenting are the same gate on purpose. */
 function assertCanPost(ctx: AppContext, user: SessionUser, scope: Scope, table: string, id: string) {
   return host(ctx, user, scope, table, id);
 }
 
-/**
- * Turn `@name` into user ids, keeping only people who can already read the host.
- * Matches username, or first/last name with no space, case-insensitively.
- */
 function resolveMentions(ctx: AppContext, body: string, hostRow: RecordRow): string[] {
-  // Trailing punctuation belongs to the sentence, not the name: "@nguyen." is a mention of nguyen.
   const names = [...new Set(
     (body.match(/@([A-Za-z0-9_.-]{2,64})/g) || [])
       .map((m) => m.slice(1).replace(/[.-]+$/, '').toLowerCase())
@@ -66,8 +44,6 @@ function resolveMentions(ctx: AppContext, body: string, hostRow: RecordRow): str
      )`
   ).all(...names, ...names) as Array<{ id: string; username: string; first_name: string; last_name: string }>;
 
-  // A mention must not become a disclosure. Each candidate is checked against the host with their
-  // own authority, not the author's: scopeFor builds the permissions that person actually holds.
   return found
     .filter((u) => (u.id === hostRow.user_id ? true : canRead(scopeFor(ctx, { id: u.id }), u.id, hostRow)))
     .map((u) => u.id);
@@ -103,7 +79,6 @@ export function addComment(ctx: AppContext, user: SessionUser, scope: Scope, tab
 
   const who = `${user.first_name} ${user.last_name}`.trim() || user.username;
   notifyMentions(ctx, { targets: mentions, exclude: user.id, who, body, table, id, commentId });
-  // The owner of the record hears about a remark on it, unless they wrote it or were already named.
   if (row.user_id !== user.id && !mentions.includes(row.user_id)) {
     notify(ctx, row.user_id, {
       kind: 'comment_added',
@@ -118,11 +93,6 @@ export function addComment(ctx: AppContext, user: SessionUser, scope: Scope, tab
   return getComment(ctx, commentId)!;
 }
 
-/**
- * Tell people they were named. Shared by adding and editing, because a mention added while editing
- * is still a mention — the alternative is that whether somebody hears about it depends on whether
- * the author got the name into the first draft.
- */
 function notifyMentions(
   ctx: AppContext,
   opts: { targets: string[]; exclude: string; who: string; body: string; table: string; id: string; commentId: string },
@@ -134,21 +104,11 @@ function notifyMentions(
       title: `${opts.who} mentioned you`,
       message: opts.body.slice(0, 160),
       actionUrl: recordUrl(opts.table, opts.id),
-      // Namespaced by kind as well as by comment and person. Sharing one key with the owner
-      // notification below meant that being both the record's owner and named in it got you the
-      // first of the two and silently dropped the second.
       dedupeKey: `comment-mention:${opts.commentId}:${target}`,
     });
   }
 }
 
-/**
- * Where a notification about a record should send somebody.
- *
- * Only tasks, projects and goals have a page of their own at /records/:table/:id. The career
- * records — awards, counselings, training — live under their tab on the Career screen, so a link to
- * the detail route would land them on "nothing to open here".
- */
 function recordUrl(table: string, id: string) {
   if (table === 'activities') return `/records/${id}`;
   if (table === 'awards') return `/career?tab=awards#${id}`;
@@ -168,7 +128,6 @@ export function getComment(ctx: AppContext, id: string) {
   return row ? { ...row, mentions: JSON.parse(String(row.mentions || '[]')) as string[] } : null;
 }
 
-/** Your own words are yours to change. Nobody edits somebody else's remark, at any permission level. */
 export function editComment(ctx: AppContext, user: SessionUser, scope: Scope, table: string, id: string, commentId: string, rawBody: string, ip?: string) {
   const { row } = host(ctx, user, scope, table, id);
   const existing = ctx.db.prepare('SELECT * FROM comments WHERE id = ? AND record_table = ? AND record_id = ? AND deleted_at IS NULL').get(commentId, table, id) as CommentRow | undefined;
@@ -181,7 +140,6 @@ export function editComment(ctx: AppContext, user: SessionUser, scope: Scope, ta
   const after = resolveMentions(ctx, body, row);
   ctx.db.prepare('UPDATE comments SET body = ?, mentions = ?, edited_at = ? WHERE id = ?')
     .run(body, JSON.stringify(after), now(), commentId);
-  // Only the people who were not already named: editing a typo should not re-ping the thread.
   notifyMentions(ctx, {
     targets: after.filter((t) => !before.has(t)), exclude: user.id,
     who: `${user.first_name} ${user.last_name}`.trim() || user.username,
@@ -191,11 +149,6 @@ export function editComment(ctx: AppContext, user: SessionUser, scope: Scope, ta
   return getComment(ctx, commentId)!;
 }
 
-/**
- * Remove a remark. The author always may. Somebody who can correct records in the host's unit may
- * too, because a conversation attached to a record needs a way to take down what should not be
- * there — and that removal is audited under their name.
- */
 export function deleteComment(ctx: AppContext, user: SessionUser, scope: Scope, table: string, id: string, commentId: string, ip?: string) {
   const { row } = host(ctx, user, scope, table, id);
   const existing = ctx.db.prepare('SELECT * FROM comments WHERE id = ? AND record_table = ? AND record_id = ? AND deleted_at IS NULL').get(commentId, table, id) as CommentRow | undefined;

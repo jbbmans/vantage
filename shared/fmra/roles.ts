@@ -1,20 +1,5 @@
 import { cite } from './source.ts';
 
-/**
- * People, billets, system responsibilities and authority (FMRAC ch. 1.3-1.4, 4, 12.3).
- *
- * Four facts that look alike and must be kept apart, by a person and by any tool:
- *
- *   billet        organizational work a person is assigned to do;
- *   MOS           an occupational field;
- *   DAI responsibility  a system capability;
- *   appointment / delegation  an individual's actual authority.
- *
- * A job title does not establish every permission a transaction needs, possessing a system role
- * does not prove an appointment, and research access never confers permission to create an award,
- * a receipt or a payment correction.
- */
-
 export const AUTHORITY_FACTS = [
   { key: 'billet', label: 'Billet', meaning: 'Organizational work a person is assigned.' },
   { key: 'mos', label: 'MOS', meaning: 'Occupational field. Associated with billets, not a grant of authority.' },
@@ -68,7 +53,6 @@ export interface Responsibility {
   note?: string;
 }
 
-/** The book's role labels and typical users. Not a determination of any individual's access. */
 export const DAI_RESPONSIBILITIES: Responsibility[] = [
   { key: 'p2p_inquiry', name: 'P2P Inquiry', capability: 'View and research P2P records without updating them.', typical: 'Personnel involved in procurement', writes: false },
   { key: 'p2p_procurement_analyst', name: 'P2P Procurement Analyst', capability: 'Create and modify award (obligation) documents.', typical: 'FMRA, 3451', writes: true },
@@ -115,7 +99,6 @@ export const ROLE_RECORD_FIELDS = [
   'System', 'Exact responsibility', 'Individual', 'Organizational scope', 'Effective dates', 'Whether access is confirmed', 'Appointment or proxy limitations',
 ] as const;
 
-/** Who typically performs each kind of correction work, by the responsibility it needs. */
 export const WORK_RESPONSIBILITY = {
   research: ['p2p_inquiry'],
   award: ['p2p_procurement_analyst', 'p2p_procurement_officer'],

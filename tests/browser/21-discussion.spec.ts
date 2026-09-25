@@ -1,14 +1,8 @@
 import { test, expect } from '@playwright/test';
 import { ensureSetup, loginAs, OPERATOR, PASSWORD } from './fixtures';
 
-// Mutations require the client header; a bare fetch is refused, which is the point of it.
 const H = { 'content-type': 'application/json', 'x-vantage-client': '1' };
 
-/**
- * A task and a project had no page of their own, which is why there was nowhere to hang a file or
- * ask a question. These drive the real thing: make a task, open it, talk on it, and confirm the
- * conversation is still there after a reload rather than living in component state.
- */
 test('a task opens onto its own page and carries a conversation', async ({ page, request }) => {
   await ensureSetup(request);
   await loginAs(page, OPERATOR.username);
@@ -22,7 +16,6 @@ test('a task opens onto its own page and carries a conversation', async ({ page,
   await dialog.getByRole('button', { name: /save|create|add/i }).first().click();
   await dialog.waitFor({ state: 'hidden' });
 
-  // The title is a link to the task's own page now, not a shortcut into an edit dialog.
   await page.getByRole('link', { name: title }).click();
   await expect(page).toHaveURL(/\/records\/tasks\/[^/]+$/);
   await expect(page.getByRole('heading', { name: title })).toBeVisible();
@@ -41,11 +34,6 @@ test('a task opens onto its own page and carries a conversation', async ({ page,
   await expect(page.getByText(remark)).toBeVisible();
 });
 
-/**
- * The rule the whole comment design rests on. A remark is exactly as visible as its host record, so
- * a second person who cannot open the record cannot read its conversation either — the API refuses
- * rather than the page merely hiding it.
- */
 test('a conversation is refused to somebody who cannot read the record itself', async ({ page, browser, request }) => {
   await ensureSetup(request);
   await loginAs(page, OPERATOR.username);
@@ -61,8 +49,6 @@ test('a conversation is refused to somebody who cannot read the record itself', 
     headers: H, data: { body: 'A private note.' },
   })).status()).toBe(201);
 
-  // A separate account, in its own cookie jar, gets 403 from the API itself — not a filtered list,
-  // and not merely a page that declines to render the panel.
   const stranger = await browser.newContext();
   const username = `peer${Date.now()}`;
   await stranger.request.post('/api/auth/register', {
@@ -76,11 +62,6 @@ test('a conversation is refused to somebody who cannot read the record itself', 
   await stranger.close();
 });
 
-/**
- * Item one, made visible: a project holds its work whether somebody typed it in or it arrived on a
- * spreadsheet. Before this the two were unrelated piles with no column joining them, so a project
- * page could not have shown a queue even if somebody had built one.
- */
 test('a project page holds typed work and says where each row came from', async ({ page, request }) => {
   await ensureSetup(request);
   await loginAs(page, OPERATOR.username);
@@ -102,7 +83,6 @@ test('a project page holds typed work and says where each row came from', async 
   await work.getByRole('button', { name: 'Add', exact: true }).click();
 
   await expect(work.getByText('Ring the comptroller about the mismatch')).toBeVisible();
-  // And it is marked as hand-entered, because that is what decides whether its fields can be edited.
   await expect(work.getByText('Typed in').first()).toBeVisible();
 
   // It is on the server, not in the page.

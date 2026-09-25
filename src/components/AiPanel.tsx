@@ -23,7 +23,6 @@ export function ModelPicker({ className }: { className?: string }) {
   return <Select aria-label="AI model" className={className} value={model} onValueChange={setModel} options={models.map((m) => ({ value: m, label: m }))} />;
 }
 
-/** Inline AI action: one button that runs a workflow with the user's chosen model and hands back parsed output. */
 export function AiAction({ workflow, input, label = 'Draft with AI', onResult, size = 'sm', disabled, surface }: { workflow: string; input: unknown; label?: string; onResult: (output: Record<string, any>, meta: { model: string; tokens: number }) => void; size?: 'xs' | 'sm' | 'md'; disabled?: boolean; surface?: string }) {
   const [model, , , available] = useAiModel();
   const [busy, setBusy] = useState(false);
@@ -32,12 +31,10 @@ export function AiAction({ workflow, input, label = 'Draft with AI', onResult, s
   if (!available) return null;
   const run = async () => {
     setBusy(true);
-    // Which workflow was asked for, and from where. The prompt itself is never recorded.
     track('ai.requested', { workflow, surface: surface || 'dashboard' });
     try {
       const res = await api.aiAssist(workflow, input, model);
       onResult(res.output || {}, { model: res.model, tokens: res.usage?.total_tokens || 0 });
-      // The day's usage just moved, so the figure shown next to the result is refetched rather than cached.
       qc.invalidateQueries({ queryKey: keys.aiStatus });
       toast.success(`Drafted with ${res.model}. Verify every fact before saving.`);
     } catch (err) { toast.error(api.errorText(err)); }
@@ -55,8 +52,6 @@ export function AiResultValue({ value }: { value: unknown }) {
 
 export function AiResult({ output, meta, primaryKey }: { output: Record<string, unknown>; meta?: { model: string; tokens: number }; primaryKey?: string }) {
   const toast = useToast();
-  // The day's budget is shown where the cost is incurred, so nobody has to go to the owner console
-  // to find out why a request started failing.
   const { data: status } = useAiStatus();
   const daily = status?.daily;
   const preferred = primaryKey && output[primaryKey] ? output[primaryKey] : output.draft || output.narrative || output.citation || output.executive_summary || output.summary || output.plain_language;

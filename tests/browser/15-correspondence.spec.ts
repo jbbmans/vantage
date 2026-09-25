@@ -8,7 +8,6 @@ const EML = [
   'To: boletz@example.mil',
   'Subject: RE: Aged obligation review',
   'Date: Mon, 12 May 2025 09:14:00 -0400',
-  // Threading and de-duplication follow this id, never the subject line, which anyone can retype.
   'Message-ID: <8f31c0e4-review@dfas.mil>',
   'Content-Type: text/html; charset=utf-8',
   '',
@@ -32,7 +31,6 @@ test('a thread records a reply, the knowledge, and the close as three separate f
   await drawer.getByRole('button', { name: 'Response received' }).click();
   await expect(drawer.getByText('Somebody replied. It may not have answered anything.')).toBeVisible();
 
-  // A reply is not the knowledge, and the knowledge is not a closed matter: each gets its own date.
   await expect(drawer.getByRole('term').filter({ hasText: 'Response received' })).toBeVisible();
   await expect(drawer.getByRole('definition').filter({ hasText: 'Not yet' })).toHaveCount(2);
 
@@ -71,7 +69,6 @@ test('a mailbox is named with its cloud, and nothing is read until it is authori
   await expect(page.getByRole('status').filter({ hasText: 'Nothing is read until it is authorized' })).toBeVisible();
 
   await page.getByRole('button', { name: 'What it would ask for' }).first().click();
-  // The US-Gov cloud is its own tenant with its own endpoints, never the commercial ones.
   await expect(page.getByText('https://login.microsoftonline.us/organizations/oauth2/v2.0/authorize')).toBeVisible();
   await expect(page.getByText('https://graph.microsoft.us/v1.0/me/messages/delta')).toBeVisible();
   await expect(page.getByText('https://graph.microsoft.us/Mail.Read', { exact: false })).toBeVisible();

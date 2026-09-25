@@ -13,6 +13,38 @@ Restoring a `.db` file: turn on maintenance mode, replace `/data/vantage.db` (a 
 3. Complete setup on the new host with any throwaway owner account, then **Import** the JSON. The import replaces everything, including that throwaway account, and resets every session.
 4. Point DNS at the new host.
 
+## Adding people from a roster
+
+**Owner console → Accounts → Import accounts** takes an `.xlsx` or `.csv` with a header row. `Username`, `First Name` and `Last Name` are required; `Rank`, `L2 Command` (or `Command`), `Fire Team` (or `Team`, `Unit`, `Section`), `Email`, `Temporary Password`, `Role` and `Billet` are used when present. The file is read and every row is shown first: what will be created, what already exists, and what is skipped and why. Nothing is written until you confirm.
+
+- Each command and team is matched to an existing unit by name or short name, or created, with the team placed under its command. Units the import creates are led by the owner who ran it.
+- Roles are the unit's role names (`Marine`, `NCO`, `Fire Team Leader`, `SNCO`, `SNCOIC`). Unit Leader goes with ownership and cannot be imported.
+- Every account starts on its temporary password and must choose its own at first sign-in. A row with no temporary password gets one, shown once after the import with a download.
+- A username that already exists is left as it is, so the same roster can be imported again safely.
+
+The roster holds names, email addresses and passwords. Keep it out of the repository and delete it once everyone has signed in.
+
+## Starting over
+
+`scripts/start-over.ts` erases every account, unit and record, creates the owner account and its first unit, and optionally imports a roster, in one run. It first saves a copy of the database beside it (`/data/vantage-before-start-over-<time>.db`). It empties the tables in place, so the running server carries on without a restart, and everyone who was signed in is signed out.
+
+On Render, open the `vantage` service → **Shell**:
+
+```sh
+cd /app
+cat > /tmp/roster.csv <<'ROSTER'
+Rank,First Name,Last Name,L2 Command,Fire Team,Username,Email,Temporary Password,Role,Billet
+...one line per person...
+ROSTER
+VANTAGE_START_OVER=1 VANTAGE_ADMIN_PASSWORD='<owner password>' node scripts/start-over.ts ERASE-EVERYTHING \
+  --unit "Marine Forces Reserve" --short MARFORRES --roster /tmp/roster.csv
+rm /tmp/roster.csv
+```
+
+The owner account is `vantage.admin` (`--admin` to change it), named Vantage Admin (`--first`, `--last`). Name the unit what the roster calls its command, so the import files people under it. Nothing is erased if the password is too weak, the arguments are wrong, or the roster cannot be read. Once the new setup is confirmed, delete the backup: `rm /data/vantage-before-start-over-*.db`.
+
+Without a shell, the same result takes three steps: `VANTAGE_FACTORY_RESET=1 node scripts/factory-reset.ts ERASE-EVERYTHING` and **Manual Deploy → Restart service**; first-run setup on the site, which asks for the **Deployment setup token** (Render → Environment → `VANTAGE_SETUP_TOKEN`); then **Import accounts** as above.
+
 ## Recovering owner access
 
 If every owner is locked out: `VANTAGE_RECOVERY=1 npm run recover-operator -- <username>` on the server grants owner authority, clears that account's authenticator, and prints a temporary password. On Render use `render ssh vantage` then `cd /app && VANTAGE_RECOVERY=1 node scripts/recover-operator.ts <username>`. Sessions for that user are reset; sign in with the temporary password and set a new one.

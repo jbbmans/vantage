@@ -29,7 +29,6 @@ recordsRouter.get('/:table', wrap((req, res) => {
     unitId: req.query.unit_id ? String(req.query.unit_id) : null, from: req.query.from ? String(req.query.from) : null, to: req.query.to ? String(req.query.to) : null,
     limit: Number(req.query.limit) || undefined, offset: Number(req.query.offset) || undefined, deleted: req.query.deleted === '1',
   });
-  // Cross-person reads are audited once per subject per 5 minutes so leaders see they are accountable without flooding the log.
   const foreign = new Map<string, { subject: string; unit: string | null; count: number }>();
   for (const r of rows) {
     if (r.user_id === req.user.id) continue;
@@ -45,10 +44,6 @@ recordsRouter.get('/:table', wrap((req, res) => {
   res.json(rows);
 }));
 
-/**
- * The outcomes behind one goal's figure. Every automatic goal opens into this, so a member can
- * check the number rather than take it on faith.
- */
 recordsRouter.get('/goals/:id/contributors', wrap((req, res) => {
   const raw = readableRecord(req.ctx, req.user, 'goals', String(req.params.id), req) as Record<string, unknown>;
   res.json(goalContributors(req.ctx, raw as never));
@@ -95,17 +90,6 @@ recordsRouter.post('/counselings/:id/acknowledge', wrap((req, res) => {
   res.json(getRecord(req.ctx, 'counselings', row.id));
 }));
 
-// Attachments ----------------------------------------------------------
-/**
- * Which records take a file. Tasks, projects and goals were left off the original list, which meant
- * the one place people actually needed to hang a document — the tasking it supports — was the one
- * place that refused it.
- *
- * Nothing else had to change to allow them: every entry here is a row in TABLES, so canRead and
- * canEdit already decide access from the host record's own visibility, unit and assignee. A file on
- * a private task stays private; a file on a task assigned to somebody is reachable by the assignee
- * exactly as the task itself is.
- */
 const ATTACHABLE = new Set(['activities', 'awards', 'counselings', 'trainings', 'tasks', 'projects', 'goals']);
 const attachmentBody = (req: express.Request, res: express.Response, next: express.NextFunction) =>
   express.raw({ type: () => true, limit: req.ctx.config.attachments.maxBytes })(req, res, next);
@@ -171,9 +155,6 @@ recordsRouter.delete('/:table/:id/attachments/:attachmentId', wrap((req, res) =>
   res.json({ ok: true });
 }));
 
-// Comments ---------------------------------------------------------------
-// Every one of these resolves the host record first and asks the host's own permission rules.
-// There is no comment-level visibility to get wrong: see the record, see its conversation.
 const commentArgs = (req: express.Request) => [
   req.ctx, req.user, scopeFor(req.ctx, req.user, req), String(req.params.table), String(req.params.id),
 ] as const;

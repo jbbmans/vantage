@@ -6,29 +6,6 @@ import { FMRA_PROCEDURES, RESOLVES_CLEARED } from './fmraProcedures.ts';
 
 export * from './procedureTypes.ts';
 
-/**
- * Procedures: how a kind of work is done, kept apart from what actually happened on one case.
- *
- *   Action     a reusable operational mechanism ("amend a requisition").
- *   Procedure  a versioned method: when it applies, its steps, the evidence each needs, and what
- *              counts as resolved.
- *   Case       one work item's events: what was observed, decided, submitted, waited on, verified.
- *
- * A procedure never decides a case. It reads the case's events and says which steps have evidence,
- * which is next, and which were skipped by an explicit decision. The person decides; the procedure
- * keeps the order and the distinctions honest.
- *
- * Every published version stays in the registry. A case is pinned to the version it was started
- * under and keeps running that exact definition; moving it to a newer one is an explicit, attributed
- * migration, never a side effect of a deploy.
- *
- * Authority matters, and each procedure says where it comes from: the 2-Way UMT from one SME
- * walkthrough of a synthetic case, the FMRA procedures from the FMRAC training reference. Questions
- * neither source answers are listed in docs/domain/SME_QUESTIONS.md rather than guessed at in code.
- */
-
-/* ── The 2-Way UMT reference procedure ─────────────────────────────────────────────────────── */
-
 const umt2wayBase = (version: string): Procedure => ({
   key: 'umt_2way_po_qty',
   version,
@@ -190,16 +167,8 @@ const umt2wayBase = (version: string): Procedure => ({
   ],
 });
 
-/** v0.1.0 as it was first published. Cases started under it keep running exactly this. */
 export const UMT_2WAY_V010: Procedure = umt2wayBase('0.1.0');
 
-/**
- * v0.2.0: cross-checked against the FMRAC training reference. A two-way match compares PO and
- * invoice; "PO open qty below DCAS qty" is the book's "billed amount greater than PO line amount",
- * corrected by modifying the award and then matching the payment on the NON-1081 route. The book
- * is explicit that fixing the cause while the payment stays unmatched is not done, so the match is
- * now its own step.
- */
 export const UMT_2WAY: Procedure = (() => {
   const base = umt2wayBase('0.2.0');
   const steps = [...base.steps];
@@ -223,13 +192,8 @@ export const UMT_2WAY: Procedure = (() => {
   };
 })();
 
-/* ── The registry ──────────────────────────────────────────────────────────────────────────── */
-
 const ALL: Procedure[] = [UMT_2WAY_V010, UMT_2WAY, ...FMRA_PROCEDURES];
 
-/** Every published version of every procedure, by key and version. Nothing is ever removed. */
-// Null-prototype registries: a key arriving from a request ("constructor", "__proto__") finds
-// nothing, instead of finding Object's own members and being taken for a procedure.
 const registry = <T,>(entries: Iterable<readonly [string, T]> = []): Record<string, T> => Object.assign(Object.create(null) as Record<string, T>, Object.fromEntries(entries));
 
 export const PROCEDURE_VERSIONS: Record<string, Record<string, Procedure>> = registry();
@@ -238,17 +202,12 @@ for (const p of ALL) (PROCEDURE_VERSIONS[p.key] ||= registry<Procedure>())[p.ver
 const semver = (v: string) => v.split('.').map((n) => Number(n) || 0);
 const newer = (a: string, b: string) => { const x = semver(a), y = semver(b); for (let i = 0; i < 3; i++) if (x[i] !== y[i]) return x[i] > y[i]; return false; };
 
-/** The current (newest) version of each procedure: what a new case is started under. */
 export const PROCEDURES: Record<string, Procedure> = registry(
   Object.entries(PROCEDURE_VERSIONS).map(([key, versions]) => [key, Object.values(versions).reduce((a, b) => (newer(b.version, a.version) ? b : a))] as const),
 );
 
 export const PROCEDURE_LIST: Procedure[] = Object.values(PROCEDURES);
 
-/**
- * The definition a case runs. With a version, that exact version or nothing: a case pinned to a
- * version this build does not have is never silently run under a different one.
- */
 export function procedureFor(key: string | null | undefined, version?: string | null): Procedure | null {
   if (!key) return null;
   if (version) return PROCEDURE_VERSIONS[key]?.[version] || null;
@@ -283,8 +242,6 @@ export const resolutionChecks = (p: Procedure | null) => (p?.resolvesOn?.length 
 
 /** Every observation field a procedure asks for, across its steps. */
 export const fieldsOf = (p: Procedure | null) => (p ? p.steps.flatMap((s) => s.fields || []) : []);
-
-/* ── Reading a case against its procedure ──────────────────────────────────────────────────── */
 
 export interface CaseEvent {
   id: string;
@@ -332,7 +289,6 @@ export function latestVerification(events: CaseEvent[], check: string): CaseEven
 
 export const isVerified = (events: CaseEvent[], check: string) => latestVerification(events, check)?.body.result === 'verified';
 
-/** Whether a step applies: true, false (a recorded decision excluded it), or null (its decision is not made yet). */
 export function stepApplies(step: ProcedureStep, events: CaseEvent[]): boolean | null {
   if (!step.onlyWhen) return true;
   const d = decisionOf(events, step.onlyWhen.decision);
@@ -340,7 +296,6 @@ export function stepApplies(step: ProcedureStep, events: CaseEvent[]): boolean |
   return step.onlyWhen.choices.includes(String(d.body.choice));
 }
 
-/** For an external step, the action step it observes under the recorded decision. */
 export function observedStep(procedure: Procedure, step: ProcedureStep, events: CaseEvent[]): string | null {
   const keys = step.observes?.steps || (step.observes?.step ? [step.observes.step] : []);
   for (const key of keys) {
@@ -350,13 +305,11 @@ export function observedStep(procedure: Procedure, step: ProcedureStep, events: 
   return keys[0] || null;
 }
 
-/** Whether the case meets its procedure's resolution rule, and on which check. */
 export function resolutionMet(procedure: Procedure | null, events: CaseEvent[]): { ok: boolean; check: string | null } {
   for (const r of resolutionChecks(procedure)) if (isVerified(events, r.check)) return { ok: true, check: r.check };
   return { ok: false, check: null };
 }
 
-/** Says, for each step, whether the case has the evidence for it. Never infers a decision. */
 export function progress(procedure: Procedure, allEvents: CaseEvent[], item: { reference?: string | null; stage?: string | null }): { steps: StepProgress[]; next: string | null } {
   const events = standing(order(allEvents));
   const obs = (field: string) => events.filter((e) => e.kind === 'observation' && e.body.field === field);
@@ -466,8 +419,6 @@ export function progress(procedure: Procedure, allEvents: CaseEvent[], item: { r
   return { steps: out, next };
 }
 
-/* ── Calculations ─────────────────────────────────────────────────────────────────────────── */
-
 export interface CalcInput { event_id: string; field: string; label: string; cents: number | null; source: 'manual_observation' | 'source_file' | 'user_entry'; not_shown?: boolean }
 
 export interface Formula {
@@ -476,7 +427,6 @@ export interface Formula {
   title: string;
   text: string;
   applicability: string;
-  /** The observation fields the formula reads. A newer standing reading of any makes a result stale. */
   inputs: string[];
   compute: (events: CaseEvent[]) => ({ ok: true; inputs: CalcInput[]; display: string; requires_review: boolean } & Record<string, unknown>) | { ok: false; missing: string[] };
 }
@@ -508,16 +458,10 @@ export interface CandidateCalculation {
 
 const sourceOf = (e: CaseEvent): CalcInput['source'] => (e.body.source === 'source_file' ? 'source_file' : e.body.source === 'user_entry' ? 'user_entry' : 'manual_observation');
 
-/**
- * Computes the candidate figures from the observations standing on the case. Every input is named
- * by the event it came from, so the result can be traced back to what somebody read and where.
- */
 export function candidateAdjustment(allEvents: CaseEvent[]): CandidateCalculation | { ok: false; missing: string[] } {
   const events = standing(allEvents);
   const obs = (field: string) => events.filter((e) => e.kind === 'observation' && e.body.field === field && Number.isSafeInteger(e.body.amount_cents));
   const latestOf = (field: string) => latest(obs(field));
-  // The same invoice observed twice (a second analyst re-reading it, say) is one invoice, not two.
-  // Observations that name the same invoice reference collapse to the latest; unreferenced ones each count.
   const byReference = new Map<string, CaseEvent>();
   const unreferenced: CaseEvent[] = [];
   for (const e of obs('invoice_amount')) {
@@ -566,7 +510,6 @@ const LIFECYCLE = [
   ['commitment_amount', 'Commitment'], ['obligation_amount', 'Obligation'], ['delivered_amount', 'Delivered'], ['paid_amount', 'Paid'],
 ] as const;
 
-/** The open residual between lifecycle phases, read through the FMRA diagnoser. */
 export function lifecycleResidual(allEvents: CaseEvent[]) {
   const events = standing(order(allEvents));
   const latestOf = (field: string) => latestBySeq(events.filter((e) => e.kind === 'observation' && e.body.field === field));
@@ -599,7 +542,6 @@ export function lifecycleResidual(allEvents: CaseEvent[]) {
   };
 }
 
-/** How far a billed amount exceeds its PO line. A candidate: the bill is validated separately. */
 export function awardShortfall(allEvents: CaseEvent[]) {
   const events = standing(order(allEvents));
   const latestOf = (field: string) => latestBySeq(events.filter((e) => e.kind === 'observation' && e.body.field === field && Number.isSafeInteger(e.body.amount_cents)));
@@ -641,11 +583,6 @@ export const FORMULAS: Record<string, Formula> = registry<Formula>(Object.entrie
   },
 }));
 
-/**
- * Whether a recorded calculation still reflects the case. A calculation is a snapshot: once an
- * input it used is corrected, or a newer reading of one of its inputs is recorded, it no longer
- * describes the case and is marked stale until somebody calculates again.
- */
 export function calculationState(calc: CaseEvent, allEvents: CaseEvent[]): { stale: boolean; reasons: string[] } {
   const events = order(allEvents);
   const calcSeq = events.find((e) => e.id === calc.id)?.seq ?? calc.seq ?? Infinity;
@@ -662,13 +599,10 @@ export function calculationState(calc: CaseEvent, allEvents: CaseEvent[]): { sta
   return { stale: reasons.length > 0, reasons };
 }
 
-/** Parses an observation amount for storage. Exposed so server and tests share one rule. */
 export function observationCents(amount: unknown): { ok: true; cents: number } | { ok: false; error: string } | null {
   if (amount === null || amount === undefined || amount === '') return null;
   return parseMoney(amount);
 }
-
-/* ── Suggesting a procedure ───────────────────────────────────────────────────────────────── */
 
 const SUGGESTIONS: Array<{ key: string; test: RegExp; why: string }> = [
   { key: 'umt_2way_po_qty', test: /2\s*-?\s*WAY\s+PO\s+MATCH.*open\s+qty.*less\s+than.*DCAS\s+qty/i, why: 'The trigger text is the 2-Way UMT: PO open quantity below DCAS quantity.' },
@@ -682,7 +616,6 @@ const SUGGESTIONS: Array<{ key: string; test: RegExp; why: string }> = [
   { key: 'ocmt_research', test: /\bOCMT\b|open commitment|outstanding commitment|mipr acknowledg/i, why: 'The text names an open commitment.' },
 ];
 
-/** A procedure that fits the text of a work item, with why. A suggestion; a person applies it. */
 export function suggestProcedure(...texts: Array<string | null | undefined>): { key: string; why: string } | null {
   const text = texts.filter(Boolean).join(' \n ');
   if (!text.trim()) return null;
@@ -690,12 +623,6 @@ export function suggestProcedure(...texts: Array<string | null | undefined>): { 
   return null;
 }
 
-/**
- * How a step reads inside a sentence about it. Step titles are imperatives ("Submit the
- * modification"); a history line needs the thing acted on ("submitted the modification", "saw the
- * modification posted"). Anything that does not start with the verb in question is quoted whole
- * after a colon rather than bent into bad grammar.
- */
 const LEADING_VERB = /^(submit|prepare|record|amend|verify|calculate|research|decide on|decide|match|identify|confirm|recoup|correct|validate|process|route|resolve)\s+/i;
 export function stepObject(title: string): string {
   const rest = title.replace(LEADING_VERB, '');

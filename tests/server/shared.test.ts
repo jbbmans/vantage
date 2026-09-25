@@ -276,7 +276,6 @@ test('every colour choice has a palette for light and dark, and every palette is
     inCss.delete(a.id);
   }
   assert.deepEqual([...inCss], [], 'a palette in the stylesheet that the setting does not offer');
-  // Every palette sets the marker, so the rail's active item never falls back to another palette's.
   for (const a of ACCENTS) {
     const block = css.split(`[data-accent='${a.id}']`)[1]?.split('}')[0] ?? '';
     assert.match(block, /--marker:/, `${a.id} sets no marker`);

@@ -18,12 +18,6 @@ import {
 
 export const correspondenceRouter = Router();
 
-/**
- * Where Microsoft sends the browser back after a mailbox sign-in. A top-level navigation, so it
- * answers with redirects into the app rather than JSON, and it is registered ahead of the router's
- * own sign-in check so that a person whose session lapsed is sent somewhere sensible. The state it
- * carries is only honoured for the person who started the sign-in (see completeAuthorization).
- */
 correspondenceRouter.get('/connectors/callback', (req, res) => {
   res.setHeader('Cache-Control', 'no-store');
   res.setHeader('Referrer-Policy', 'no-referrer');
@@ -42,7 +36,6 @@ correspondenceRouter.get('/connectors/callback', (req, res) => {
 
 correspondenceRouter.use(requireAuth);
 
-// Contacts -------------------------------------------------------------
 const contactSchema = z.object({
   name: z.string().max(200),
   email: z.string().max(255).nullable().optional(),
@@ -68,7 +61,6 @@ correspondenceRouter.put('/contacts/:id', wrap((req, res) => {
   res.json(saveContact(req.ctx, req.user, scopeFor(req.ctx, req.user, req), q as never, String(req.params.id)));
 }));
 
-// Threads --------------------------------------------------------------
 const listSchema = z.object({
   state: z.enum(THREAD_STATES).optional(),
   unit_id: z.string().max(64).optional(),
@@ -157,7 +149,6 @@ correspondenceRouter.get('/items/:id/threads', wrap((req, res) => {
   res.json(threadsForItem(req.ctx, req.user, scopeFor(req.ctx, req.user, req), String(req.params.id)));
 }));
 
-// EML import -----------------------------------------------------------
 const emlBody: express.RequestHandler = (req, res, next) =>
   express.raw({ type: () => true, limit: req.ctx.config.intake.maxBytes })(req, res, next);
 
@@ -178,7 +169,6 @@ correspondenceRouter.post('/messages/import', emlBody, wrap((req, res) => {
   res.status(result.replayed ? 200 : 201).json(result);
 }));
 
-// Connectors -----------------------------------------------------------
 correspondenceRouter.get('/connectors', wrap((req, res) => {
   res.json({
     connectors: listConnectors(req.ctx, req.user),
@@ -201,7 +191,6 @@ correspondenceRouter.post('/connectors', wrap((req, res) => {
   res.status(201).json(connector);
 }));
 
-/** The exact endpoints an authorization would use, so an operator can check them before consenting. */
 correspondenceRouter.get('/connectors/:id/authorization', wrap((req, res) => {
   const connector = ownedConnector(req.ctx, req.user, String(req.params.id));
   res.json({ connector: publicView(connector), plan: authorizationPlan(connector, req.ctx.config.m365.tenant), availability: mailboxAvailability(req.ctx) });
@@ -212,24 +201,18 @@ correspondenceRouter.delete('/connectors/:id', wrap((req, res) => {
   res.status(204).end();
 }));
 
-/** Starts a mailbox sign-in. The client sends the browser to the URL it returns. */
 correspondenceRouter.post('/connectors/:id/authorize', wrap((req, res) => {
   const started = startAuthorization(req.ctx, req.user, String(req.params.id));
   audit(req.ctx, { actor_id: req.user.id, action: 'start_connector_authorization', entity: 'connectors', entity_id: String(req.params.id), ip: clientIp(req) });
   res.json(started);
 }));
 
-/** Destroys the stored tokens now, keeps the connector and what it brought in. */
 correspondenceRouter.post('/connectors/:id/disconnect', wrap((req, res) => {
   const result = disconnectConnector(req.ctx, req.user, String(req.params.id));
   audit(req.ctx, { actor_id: req.user.id, action: 'disconnect_connector', entity: 'connectors', entity_id: result.connector.id, ip: clientIp(req) });
   res.json(result);
 }));
 
-/**
- * Runs a sync with the connection's own stored sign-in, renewed when needed. A token is never taken
- * from the request: the only credentials a sync uses are the ones this connection was authorized with.
- */
 correspondenceRouter.post('/connectors/:id/sync', wrap(async (req, res) => {
   const connector = ownedConnector(req.ctx, req.user, String(req.params.id));
   if (connector.status !== 'connected') {
