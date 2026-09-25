@@ -5,7 +5,8 @@
  * page never shows an empty box. A slot plays only once the film pipeline has published it: `npm run
  * film` (film/README.md) records the real application in the synthetic demo, voices the script, scores
  * and renders it, writes public/videos/films/<id>.{mp4,jpg,vtt}, and lists it in
- * films.generated.json. Nothing is published while its narration is still an estimate.
+ * films.generated.json. A film published before its narration is recorded is marked `voiced: false`
+ * and plays with its captions on.
  *
  * Two rules that matter more than they look:
  *
@@ -37,6 +38,8 @@ export interface VideoSlot {
   captions?: string;
   /** ISO date, used only once the video is real. */
   published?: string;
+  /** False while a film is published without its narration: its captions carry the script, so they play by default. */
+  voiced?: boolean;
 }
 
 const VIDEO_SLOTS: VideoSlot[] = [
@@ -140,14 +143,14 @@ const VIDEO_SLOTS: VideoSlot[] = [
   },
 ];
 
-interface PublishedFilm { src: string; poster: string; captions: string; seconds: number; published: string }
+interface PublishedFilm { src: string; poster: string; captions: string; seconds: number; published: string; voiced?: boolean }
 
 const length = (seconds: number) => (seconds < 60 ? `${seconds} sec` : `${Math.floor(seconds / 60)} min${seconds % 60 ? ` ${seconds % 60} sec` : ''}`);
 
 /** The slots, with a source only where the film pipeline has published a finished film. */
 export const VIDEOS: VideoSlot[] = VIDEO_SLOTS.map((slot) => {
   const film = (films as Record<string, PublishedFilm>)[slot.id];
-  return film ? { ...slot, src: film.src, poster: film.poster, captions: film.captions, published: film.published, length: length(film.seconds) } : slot;
+  return film ? { ...slot, src: film.src, poster: film.poster, captions: film.captions, published: film.published, length: length(film.seconds), voiced: film.voiced !== false } : slot;
 });
 
 export const TOPIC_LABELS: Record<VideoSlot['topic'], string> = {

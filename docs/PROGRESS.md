@@ -99,6 +99,8 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 1. Walk an FMRA through the diagnoser and one procedure of each family, and correct the step wording
    and screen paths from what they say.
 2. Register a Microsoft Entra application in the target cloud and run one real mailbox sign-in.
-3. Add `ELEVENLABS_API_KEY` to the environment's settings, then run `npm run film` to voice, render
-   and publish the films (film/README.md). Drafts with music and estimated timing render without it.
+3. The films are published without narration, at the owner's request (score, sound and captions,
+   which play by default; `voiced: false` in `src/config/films.generated.json`). To add the voice: put
+   `ELEVENLABS_API_KEY` in the environment's settings and run `npm run film`, which voices the script,
+   re-times and re-captures every scene to the real delivery, and republishes (film/README.md).
 4. Protect `main` in GitHub with the three CI checks required (see `docs/deploy-render.md`).

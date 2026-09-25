@@ -204,12 +204,18 @@ export function suggestEvalArea(text = '', category = ''): string {
 
 /** The first entry is the default for an account that has never chosen one. */
 export const ACCENTS = [
-  { id: 'cobalt', label: 'Cobalt', hint: 'The VANTAGE brand accent — the default' },
-  { id: 'ocean', label: 'Ocean', hint: 'A deeper signal blue' },
-  { id: 'scarlet', label: 'Scarlet & Gold', hint: 'Marine Corps colors' },
+  { id: 'cobalt', label: 'Cobalt', hint: 'The VANTAGE navy and blue, the default' },
+  { id: 'ocean', label: 'Ocean', hint: 'Sea blue on deep teal' },
+  { id: 'teal', label: 'Teal', hint: 'Summit teal, from the mark' },
+  { id: 'forest', label: 'Forest', hint: 'Deep green' },
   { id: 'olive', label: 'Olive', hint: 'Woodland green' },
+  { id: 'coyote', label: 'Coyote', hint: 'Coyote brown, like the gear' },
+  { id: 'desert', label: 'Desert', hint: 'Sand and khaki' },
+  { id: 'ember', label: 'Ember', hint: 'Warm amber on dark brown' },
+  { id: 'scarlet', label: 'Scarlet & Gold', hint: 'Marine Corps colors' },
+  { id: 'rose', label: 'Rose', hint: 'Deep rose' },
+  { id: 'violet', label: 'Violet', hint: 'Violet on midnight' },
   { id: 'steel', label: 'Steel', hint: 'Neutral graphite' },
-  { id: 'ember', label: 'Ember', hint: 'Warm amber' },
 ] as const;
 export type AccentId = (typeof ACCENTS)[number]['id'];
 export const DEFAULT_ACCENT: AccentId = ACCENTS[0].id;

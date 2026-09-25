@@ -78,7 +78,7 @@ export default function Reference() {
 function SourceBadge() {
   return (
     <Link to="/reference?tab=limits" className="group flex max-w-sm items-center gap-3 rounded-2xl bg-surface p-2 pr-4 shadow-card transition-shadow hover:shadow-lift">
-      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-[#12294A] to-[#0A1B33] text-white shadow-[inset_0_1px_0_rgb(255_255_255/.12)]"><BookOpen className="h-4 w-4" /></span>
+      <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-deep-2 to-deep text-white shadow-[inset_0_1px_0_rgb(255_255_255/.12)]"><BookOpen className="h-4 w-4" /></span>
       <span className="min-w-0">
         <span className="block truncate text-sm font-semibold text-ink">{FMRAC_SOURCE.title}</span>
         <span className="block truncate text-xs text-ink-3">Training reference · not current policy</span>
@@ -642,7 +642,7 @@ function DataTab() {
       </Section>
       <Section title="Standard Line of Accounting" lede={SLOA.definition} cite={SLOA.cite}>
         <div className="flex flex-wrap gap-1.5">{SLOA.namedFields.map((f) => <span key={f} className="chip">{f}</span>)}</div>
-        <p className="mt-4 break-all rounded-xl bg-[#0A1B33] px-4 py-3 font-mono text-xs leading-relaxed text-[#bcd0ec]">{SLOA.specimen}</p>
+        <p className="mt-4 break-all rounded-xl bg-deep px-4 py-3 font-mono text-xs leading-relaxed text-white/75">{SLOA.specimen}</p>
         <div className="mt-3 space-y-2"><Note tone="warn">{SLOA.limit}</Note><Note>{SLOA.translation}</Note></div>
       </Section>
       <Section title="Identifiers and what generates them" lede={JON} cite={{ chapter: '5.2', pages: '65-68, 78' }}>
@@ -693,8 +693,8 @@ function LimitsTab() {
   return (
     <div className="space-y-5">
       <section className="card overflow-hidden">
-        <div className="relative bg-[#0A1B33] px-6 py-7 text-white">
-          <div className="pointer-events-none absolute inset-0 [background:radial-gradient(80%_120%_at_100%_0%,rgb(37_99_235/.35),transparent_60%)]" aria-hidden />
+        <div className="relative bg-deep px-6 py-7 text-white">
+          <div className="pointer-events-none absolute inset-0 [background:radial-gradient(80%_120%_at_100%_0%,rgb(var(--accent)/.35),transparent_60%)]" aria-hidden />
           <p className="relative text-2xs font-semibold uppercase tracking-[0.14em] text-white/60">Source</p>
           <h2 className="relative mt-2 text-2xl font-semibold tracking-[-0.025em]">{FMRAC_SOURCE.title}</h2>
           <p className="relative mt-1 text-sm text-white/70">{FMRAC_SOURCE.subtitle}. {FMRAC_SOURCE.basis} {FMRAC_SOURCE.edition}.</p>

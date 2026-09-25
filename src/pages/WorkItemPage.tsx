@@ -306,7 +306,7 @@ function ApplyProcedure({ itemId, onDone }: { itemId: string; onDone: () => void
   return (
     <section className="card overflow-hidden" aria-label="Put this under a procedure">
       <div className="flex flex-wrap items-start gap-4 p-5">
-        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-[#12294A] to-[#0A1B33] text-white"><Wand2 className="h-4 w-4" /></span>
+        <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-deep-2 to-deep text-white"><Wand2 className="h-4 w-4" /></span>
         <div className="min-w-0 flex-1">
           <h2 className="text-md font-semibold text-ink">Work this under a procedure</h2>
           <p className="mt-0.5 text-sm text-ink-3">A procedure keeps the order and the evidence honest: its steps, its controls, and what counts as resolved. You still decide every step.</p>

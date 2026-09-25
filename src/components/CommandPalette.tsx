@@ -51,7 +51,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav }: 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[#050b16]/45 backdrop-blur-[3px] animate-fade-in" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-deep/45 backdrop-blur-[3px] animate-fade-in" />
         <DialogPrimitive.Content aria-describedby="" className="fixed left-1/2 top-[12vh] z-50 w-[calc(100vw-1.5rem)] max-w-2xl -translate-x-1/2 overflow-hidden rounded-2xl bg-surface shadow-modal animate-popover-in focus:outline-none">
           <DialogPrimitive.Title className="sr-only">Search and jump</DialogPrimitive.Title>
           <div className="flex items-center gap-3 border-b border-line px-5">
@@ -62,7 +62,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav }: 
           <ul id="palette-list" role="listbox" className="max-h-[52vh] overflow-y-auto p-2">
             {items.map((item, i) => (
               <li key={item.id} id={item.id} role="option" aria-selected={i === active} onMouseEnter={() => setActive(i)} onClick={() => choose(item)} className={cn('flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors', i === active ? 'bg-surface-2 text-ink' : 'text-ink-2')}>
-                <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', item.kind === 'action' ? 'bg-accent/10 text-accent' : item.kind === 'reference' ? 'bg-[rgb(var(--brand-teal)/.12)] text-accent-2' : 'bg-surface-2 text-ink-3')}>
+                <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', item.kind === 'action' ? 'bg-accent/10 text-accent' : item.kind === 'reference' ? 'bg-accent-2/10 text-accent-2' : 'bg-surface-2 text-ink-3')}>
                   {item.kind === 'action' ? <Plus className="h-3.5 w-3.5" /> : item.kind === 'reference' ? <BookOpen className="h-3.5 w-3.5" /> : <ArrowRight className="h-3.5 w-3.5" />}
                 </span>
                 <span className="min-w-0 flex-1">

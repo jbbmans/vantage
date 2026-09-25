@@ -264,3 +264,21 @@ test('csv formula protection is added on export and removed again on import', ()
   const { records } = C.applyMapping(parsed.rows, C.guessMapping(parsed.columns));
   assert.equal(records[0].title, '-40 ULOs deobligated');
 });
+
+test('every colour choice has a palette for light and dark, and every palette is offered', async () => {
+  const { readFileSync } = await import('node:fs');
+  const { ACCENTS } = await import('../../shared/constants.ts');
+  const css = readFileSync(new URL('../../src/styles/index.css', import.meta.url), 'utf8');
+  const inCss = new Set([...css.matchAll(/\[data-accent='([a-z]+)'\]/g)].map((m) => m[1]));
+  for (const a of ACCENTS) {
+    assert.ok(css.includes(`[data-accent='${a.id}'] {`) || css.includes(`[data-accent='${a.id}']`), `${a.id} has no light palette`);
+    assert.ok(css.includes(`[data-theme='dark'][data-accent='${a.id}']`), `${a.id} has no dark palette`);
+    inCss.delete(a.id);
+  }
+  assert.deepEqual([...inCss], [], 'a palette in the stylesheet that the setting does not offer');
+  // Every palette sets the marker, so the rail's active item never falls back to another palette's.
+  for (const a of ACCENTS) {
+    const block = css.split(`[data-accent='${a.id}']`)[1]?.split('}')[0] ?? '';
+    assert.match(block, /--marker:/, `${a.id} sets no marker`);
+  }
+});

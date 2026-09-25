@@ -9,7 +9,7 @@ import { cn } from '@/lib/utils';
    a question of what the screen wants you to do next. Everything else is a bordered white button. */
 const VARIANTS = {
   primary: 'bg-accent text-accent-ink border-transparent shadow-[inset_0_1px_0_rgb(255_255_255/.18),0_1px_2px_rgb(var(--accent)/.3),0_6px_16px_-8px_rgb(var(--accent)/.55)] hover:brightness-[1.07]',
-  default: 'bg-surface text-ink border-transparent shadow-[0_0_0_1px_rgb(var(--line-strong)),0_1px_2px_rgb(10_27_51/.05)] hover:bg-surface-2 hover:shadow-[0_0_0_1px_rgb(var(--ink-3)/.45),0_1px_2px_rgb(10_27_51/.05)]',
+  default: 'bg-surface text-ink border-transparent shadow-[0_0_0_1px_rgb(var(--line-strong)),0_1px_2px_rgb(var(--shadow-rgb)/.05)] hover:bg-surface-2 hover:shadow-[0_0_0_1px_rgb(var(--ink-3)/.45),0_1px_2px_rgb(var(--shadow-rgb)/.05)]',
   soft: 'bg-surface-2 text-ink-2 border-transparent hover:bg-surface-3 hover:text-ink',
   ghost: 'bg-transparent border-transparent text-ink-2 hover:text-ink hover:bg-surface-2',
   danger: 'bg-surface border-transparent text-bad shadow-[0_0_0_1px_rgb(var(--line-strong))] hover:bg-bad/[.07] hover:shadow-[0_0_0_1px_rgb(var(--bad)/.45)]',
@@ -151,7 +151,7 @@ export function Tooltip({ content, children, side = 'top' }: { content: React.Re
     <TooltipPrimitive.Root>
       <TooltipPrimitive.Trigger asChild>{children}</TooltipPrimitive.Trigger>
       <TooltipPrimitive.Portal>
-        <TooltipPrimitive.Content side={side} sideOffset={7} className="z-50 max-w-xs rounded-lg bg-[#0A1B33] px-2.5 py-1.5 text-xs leading-snug text-white shadow-pop ring-1 ring-white/10 animate-scale-in">{content}</TooltipPrimitive.Content>
+        <TooltipPrimitive.Content side={side} sideOffset={7} className="z-50 max-w-xs rounded-lg bg-deep px-2.5 py-1.5 text-xs leading-snug text-white shadow-pop ring-1 ring-white/10 animate-scale-in">{content}</TooltipPrimitive.Content>
       </TooltipPrimitive.Portal>
     </TooltipPrimitive.Root>
   );
@@ -217,7 +217,7 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
         return (
           <button key={o.value} ref={(el) => { refs.current[i] = el; }} type="button" role="tab" aria-selected={active} aria-label={o.ariaLabel} tabIndex={active ? 0 : -1}
             onClick={() => onChange(o.value)} onKeyDown={(e) => { if (move(i, e.key)) e.preventDefault(); }}
-            className={cn('shrink-0 whitespace-nowrap rounded-[7px] font-medium transition-[color,background-color,box-shadow] duration-200', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-[0_0_0_1px_rgb(var(--line)),0_1px_3px_rgb(10_27_51/.08)]' : 'text-ink-3 hover:text-ink')}>
+            className={cn('shrink-0 whitespace-nowrap rounded-[7px] font-medium transition-[color,background-color,box-shadow] duration-200', size === 'sm' ? 'px-2 py-1 text-xs' : 'px-3 py-1.5 text-base', active ? 'bg-surface text-ink shadow-[0_0_0_1px_rgb(var(--line)),0_1px_3px_rgb(var(--shadow-rgb)/.08)]' : 'text-ink-3 hover:text-ink')}>
             {o.label}
           </button>
         );

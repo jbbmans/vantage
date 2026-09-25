@@ -280,7 +280,7 @@ export default function AppShell() {
     <div className="mx-3 mb-2 mt-1 rounded-[14px] bg-white/[.04] p-1 ring-1 ring-white/[.07]">
       <button type="button" onClick={() => navigate(identity?.canLead ? '/team?tab=units' : '/settings')}
         className="flex w-full items-center gap-2.5 rounded-[10px] bg-white/[.05] px-2.5 py-2 text-left shadow-[inset_0_1px_0_rgb(255_255_255/.06)] transition-colors hover:bg-white/[.08]">
-        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-gradient-to-b from-[#1E3A66] to-[#132848] text-2xs font-semibold tracking-wide text-white ring-1 ring-white/10">{(primary?.unit_short || primary?.unit_name || '·').slice(0, 3).toUpperCase()}</span>
+        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-rail-active [background-image:linear-gradient(to_bottom,rgb(255_255_255/.14),rgb(255_255_255/0))] text-2xs font-semibold tracking-wide text-white ring-1 ring-white/10">{(primary?.unit_short || primary?.unit_name || '·').slice(0, 3).toUpperCase()}</span>
         <span className="min-w-0 flex-1">
           <span className="block truncate text-[11px] leading-tight text-white/55">{identity?.instance.organizationName || 'Workspace'}</span>
           <span className="block truncate text-sm font-medium leading-tight text-white">{primary ? primary.unit_short || primary.unit_name : 'No unit yet'}</span>
@@ -290,7 +290,7 @@ export default function AppShell() {
     </div>
   ) : null;
 
-  const railBackground = 'bg-rail [background-image:radial-gradient(120%_60%_at_0%_0%,rgb(37_99_235/.16),transparent_60%),radial-gradient(80%_40%_at_100%_100%,rgb(20_184_166/.08),transparent_70%)]';
+  const railBackground = 'bg-rail [background-image:radial-gradient(120%_60%_at_0%_0%,rgb(var(--accent)/.16),transparent_60%),radial-gradient(80%_40%_at_100%_100%,rgb(var(--marker)/.1),transparent_70%)]';
 
   return (
     <OutboxContext.Provider value={{ pending, flush }}>
@@ -328,7 +328,7 @@ export default function AppShell() {
 
         {drawer && (
           <div className="no-print fixed inset-0 z-50 lg:hidden">
-            <button type="button" className="absolute inset-0 bg-[#050b16]/60 backdrop-blur-sm animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu" />
+            <button type="button" className="absolute inset-0 bg-deep/60 backdrop-blur-sm animate-fade-in" onClick={() => setDrawer(false)} aria-label="Close menu" />
             <aside className={cn('absolute inset-y-0 left-0 flex w-[min(86vw,292px)] flex-col shadow-modal animate-slide-in-left', railBackground)}>
               <div className="flex h-[60px] shrink-0 items-center gap-2 px-5">
                 <Logo size={24} reversed />
@@ -356,7 +356,7 @@ export default function AppShell() {
                 <Search className="h-4 w-4 shrink-0" aria-hidden /><span className="hidden md:inline">Search work, records, reference…</span><span className="ml-auto hidden lg:inline"><Kbd>⌘K</Kbd></span>
               </button>
               <button type="button" onClick={() => openQuickLog('')} aria-label="Log activity"
-                className="group flex h-9 items-center gap-2 rounded-full bg-accent pl-3 pr-1 text-sm font-medium text-accent-ink shadow-[inset_0_1px_0_rgb(255_255_255/.2),0_1px_2px_rgb(37_99_235/.35),0_6px_16px_-6px_rgb(37_99_235/.55)] transition-[filter,transform] hover:brightness-[1.06] xl:pl-4">
+                className="group flex h-9 items-center gap-2 rounded-full bg-accent pl-3 pr-1 text-sm font-medium text-accent-ink shadow-[inset_0_1px_0_rgb(255_255_255/.2),0_1px_2px_rgb(var(--accent)/.35),0_6px_16px_-6px_rgb(var(--accent)/.55)] transition-[filter,transform] hover:brightness-[1.06] xl:pl-4">
                 <span className="hidden xl:inline">Log activity</span>
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 transition-transform duration-200 group-hover:rotate-90"><Plus className="h-4 w-4" /></span>
               </button>
