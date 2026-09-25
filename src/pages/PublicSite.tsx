@@ -351,7 +351,6 @@ export default function PublicSite() {
           <div className="ps-footer-bottom">
             <span className="ps-brand"><img src="/brand/mark-reversed.svg" alt="" width="22" height="22" /><span>VANTAGE</span></span>
             <p>Independent software project. Not an official Department of Defense or U.S. Marine Corps system of record.</p>
-            <a href="https://github.com/jbbmans/vantage">Project source <ArrowUpRight strokeWidth={1.75} aria-hidden /></a>
           </div>
         </div>
       </footer>

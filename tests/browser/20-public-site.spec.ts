@@ -95,6 +95,14 @@ test.describe('the public site', () => {
     expect(seen.size, 'every walkthrough in the list points at the same file').toBe(count);
   });
 
+  test('does not point to the source repository, in a link or in structured data', async ({ page, request }) => {
+    await page.goto('/display', { waitUntil: 'networkidle' });
+    expect(await page.locator('a[href*="github.com"]').count(), 'a link to the repository').toBe(0);
+    const ld = await page.evaluate(() => [...document.querySelectorAll('script[type="application/ld+json"]')].map((s) => s.textContent || '').join('\n'));
+    expect(ld, 'structured data names the repository').not.toContain('github.com');
+    expect(await (await request.get('/llms.txt')).text(), 'llms.txt names the repository').not.toContain('github.com/jbbmans');
+  });
+
   test('tells search engines what it is, and keeps the private side out of the index', async ({ page }) => {
     await page.goto('/display', { waitUntil: 'networkidle' });
     const meta = await page.evaluate(() => ({
