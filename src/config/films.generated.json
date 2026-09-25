@@ -1,1 +1,58 @@
-{}
+{
+  "tour": {
+    "src": "/videos/films/tour.mp4",
+    "poster": "/videos/films/tour.jpg",
+    "captions": "/videos/films/tour.vtt",
+    "seconds": 87,
+    "published": "2026-09-25",
+    "voiced": false
+  },
+  "quick-log": {
+    "src": "/videos/films/quick-log.mp4",
+    "poster": "/videos/films/quick-log.jpg",
+    "captions": "/videos/films/quick-log.vtt",
+    "seconds": 39,
+    "published": "2026-09-25",
+    "voiced": false
+  },
+  "queue": {
+    "src": "/videos/films/queue.mp4",
+    "poster": "/videos/films/queue.jpg",
+    "captions": "/videos/films/queue.vtt",
+    "seconds": 49,
+    "published": "2026-09-25",
+    "voiced": false
+  },
+  "reading-a-balance": {
+    "src": "/videos/films/reading-a-balance.mp4",
+    "poster": "/videos/films/reading-a-balance.jpg",
+    "captions": "/videos/films/reading-a-balance.vtt",
+    "seconds": 39,
+    "published": "2026-09-25",
+    "voiced": false
+  },
+  "record": {
+    "src": "/videos/films/record.mp4",
+    "poster": "/videos/films/record.jpg",
+    "captions": "/videos/films/record.vtt",
+    "seconds": 36,
+    "published": "2026-09-25",
+    "voiced": false
+  },
+  "report-studio": {
+    "src": "/videos/films/report-studio.mp4",
+    "poster": "/videos/films/report-studio.jpg",
+    "captions": "/videos/films/report-studio.vtt",
+    "seconds": 25,
+    "published": "2026-09-25",
+    "voiced": false
+  },
+  "unit-dashboard": {
+    "src": "/videos/films/unit-dashboard.mp4",
+    "poster": "/videos/films/unit-dashboard.jpg",
+    "captions": "/videos/films/unit-dashboard.vtt",
+    "seconds": 31,
+    "published": "2026-09-25",
+    "voiced": false
+  }
+}
