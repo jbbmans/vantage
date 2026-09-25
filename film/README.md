@@ -29,9 +29,8 @@ renders as a draft in `film/out/`.
 
 ## Requirements
 
-- **`ELEVENLABS_API_KEY`**, for step 2. In a Claude Code cloud environment, add it under the
-  environment's settings (environment variables); a new session picks it up. Never paste it into a
-  chat or commit it. Without it, the cached voice is used, and lines not yet voiced stay estimated.
+- **`ELEVENLABS_API_KEY`**, for step 2. Set it as an environment variable where the render runs;
+  never commit it. Without it, the cached voice is used, and lines not yet voiced stay estimated.
 - **Chromium's headless shell** for Remotion (`REMOTION_BROWSER`, default
   `/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell`), and Playwright's
   Chromium for the capture.

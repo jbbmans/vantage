@@ -25,7 +25,7 @@ function startMockGenAi(): Promise<string> {
     req.on('end', () => {
       res.setHeader('content-type', 'application/json');
       if (req.headers.authorization !== 'Bearer browser-test-genai-key') { res.statusCode = 401; res.end(JSON.stringify({ error: { message: 'bad key' } })); return; }
-      if (req.url?.startsWith('/v1/models')) { res.end(JSON.stringify({ data: [{ id: 'gemini-2.5-flash' }, { id: 'gemini-2.5-pro' }, { id: 'grok-3' }, { id: 'gpt-4o' }] })); return; }
+      if (req.url?.startsWith('/v1/models')) { res.end(JSON.stringify({ data: [{ id: 'model-fast' }, { id: 'model-pro' }, { id: 'model-alt' }, { id: 'model-large' }] })); return; }
       const body = data ? JSON.parse(data) : {};
       const workflow = String(JSON.parse(body.messages?.[1]?.content || '{}').workflow || '');
       const answer = AI_ANSWERS[workflow] || { summary: `mock answer for ${workflow}`, cautions: [] };
@@ -42,7 +42,7 @@ if (!existsSync(join(PROJECT_ROOT, 'dist', 'index.html'))) {
 const config = loadConfig({
   ...process.env, NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_DB: ':memory:', VANTAGE_EMAIL_PROVIDER: 'memory', VANTAGE_MARADMIN_ENABLED: 'false',
   VANTAGE_SECRET: 'browser-test-secret-browser-test-secret-1234', VANTAGE_PUBLIC_URL: `http://localhost:${port}`, VANTAGE_OPERATOR: '', VANTAGE_SELF_REGISTRATION: 'true',
-  VANTAGE_AI_ENABLED: 'true', VANTAGE_GENAI_API_KEY: 'browser-test-genai-key', VANTAGE_GENAI_BASE_URL: aiBaseUrl, VANTAGE_GENAI_MODELS: 'gemini-2.5-flash,gemini-2.5-pro,grok-3',
+  VANTAGE_AI_ENABLED: 'true', VANTAGE_GENAI_API_KEY: 'browser-test-genai-key', VANTAGE_GENAI_BASE_URL: aiBaseUrl, VANTAGE_GENAI_MODELS: 'model-fast,model-pro,model-alt',
 } as NodeJS.ProcessEnv);
 const ctx = createContext(config);
 const app = createApp(ctx);

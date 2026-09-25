@@ -7,7 +7,7 @@ test('quick log extracts fields with AI and the model picker offers the allowlis
   const dialog = await quickLog(page, 'Reconciled 30 ULOs totaling $1,118.38 in DAI for G-8 on 20 Aug');
   await expect(dialog.getByLabel('AI model')).toBeVisible();
   await dialog.getByRole('button', { name: 'Extract with AI' }).click();
-  await expect(page.getByText(/Drafted with gemini-2.5-flash/)).toBeVisible();
+  await expect(page.getByText(/Drafted with model-fast/)).toBeVisible();
   await expect(dialog.getByLabel('Action amount')).toHaveValue('30');
   await expect(dialog.getByLabel('Result')).toHaveValue('cleared the aged backlog');
   await expect(dialog.getByLabel('System')).toHaveValue('DAI');
@@ -36,8 +36,8 @@ test('the owner console shows the gateway key, discovers models, and can switch 
   await expect(page.getByText(/key [0-9a-f]{10}/)).toBeVisible();
   await page.getByRole('button', { name: 'Discover' }).click();
   await confirmSudoIfAsked(page);
-  await expect(page.getByRole('button', { name: '+ gpt-4o' })).toBeVisible();
-  await page.getByRole('button', { name: '+ gpt-4o' }).click();
+  await expect(page.getByRole('button', { name: '+ model-large' })).toBeVisible();
+  await page.getByRole('button', { name: '+ model-large' }).click();
 
   await page.getByRole('switch', { name: 'AI assistance on' }).click();
   await page.getByRole('button', { name: 'Save' }).click();

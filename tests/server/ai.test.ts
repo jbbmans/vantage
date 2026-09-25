@@ -16,7 +16,7 @@ before(async () => {
     if (mode === 'garbage') return { json: { choices: [{ message: { content: 'not json at all' } }], usage: { prompt_tokens: 5, completion_tokens: 1 } } };
     return { json: { model: body.model, choices: [{ message: { content: '```json\n{"title":"Reconciled 30 ULOs","action_amount":30,"action_unit":"ULOs","transaction_value":1118.38,"dollar_type":"reconciled","category":"Fiscal & Financial","evaluation_area":"MOS / Mission Accomplishment","confidence":0.9,"warnings":[]}\n```' } }], usage: { prompt_tokens: 120, completion_tokens: 60, total_tokens: 180 } } };
   });
-  app = await startApp({ VANTAGE_AI_ENABLED: 'true', VANTAGE_GENAI_API_KEY: 'test-key-123', VANTAGE_GENAI_BASE_URL: mock.url, VANTAGE_GENAI_MODELS: 'gemini-2.5-flash,gpt-4o,grok-3' });
+  app = await startApp({ VANTAGE_AI_ENABLED: 'true', VANTAGE_GENAI_API_KEY: 'test-key-123', VANTAGE_GENAI_BASE_URL: mock.url, VANTAGE_GENAI_MODELS: 'model-fast,model-large,model-alt' });
   op = await app.setupOperator();
 });
 after(async () => { await app.close(); mock.close(); });
@@ -24,23 +24,23 @@ after(async () => { await app.close(); mock.close(); });
 test('status exposes models and availability without the key', async () => {
   const s = await app.call('GET', '/api/ai/status', { token: op.token });
   assert.equal(s.body.available, true);
-  assert.deepEqual(s.body.models, ['gemini-2.5-flash', 'gpt-4o', 'grok-3']);
+  assert.deepEqual(s.body.models, ['model-fast', 'model-large', 'model-alt']);
   assert.ok(!JSON.stringify(s.body).includes('test-key-123'));
 });
 
 test('quick log extraction sends only the text, honors model choice, and returns parsed JSON', async () => {
-  const res = await app.call('POST', '/api/ai/assist', { token: op.token, body: { workflow: 'quick_log', input: { text: 'Reconciled 30 ULOs totaling $1,118.38 in DAI' }, model: 'grok-3' } });
+  const res = await app.call('POST', '/api/ai/assist', { token: op.token, body: { workflow: 'quick_log', input: { text: 'Reconciled 30 ULOs totaling $1,118.38 in DAI' }, model: 'model-alt' } });
   assert.equal(res.status, 200, JSON.stringify(res.body));
-  assert.equal(res.body.model, 'grok-3');
+  assert.equal(res.body.model, 'model-alt');
   assert.equal(res.body.output.action_amount, 30);
   assert.equal(res.body.usage.total_tokens, 180);
   const call = mock.calls.at(-1)!;
   assert.equal(call.auth, 'Bearer test-key-123');
-  assert.equal(call.body.model, 'grok-3');
+  assert.equal(call.body.model, 'model-alt');
   assert.ok(JSON.stringify(call.body.messages[1]).includes('Reconciled 30 ULOs'));
   assert.ok(!JSON.stringify(call.body).includes('boletz'));
   const unknownModel = await app.call('POST', '/api/ai/assist', { token: op.token, body: { workflow: 'quick_log', input: { text: 'x' }, model: 'not-allowed' } });
-  assert.equal(unknownModel.body.model, 'gemini-2.5-flash');
+  assert.equal(unknownModel.body.model, 'model-fast');
 });
 
 test('record-driven workflows exclude names and private fields; command brief needs EXPORT_DATA', async () => {
@@ -87,7 +87,7 @@ test('upstream failures are translated and the key lock is operator-visible', as
 
 test('disabling AI at runtime blocks requests and usage is recorded per model', async () => {
   const usage = app.ctx.db.prepare('SELECT model, SUM(requests) AS n FROM ai_usage_daily GROUP BY model').all() as Array<{ model: string; n: number }>;
-  assert.ok(usage.find((u) => u.model === 'grok-3')?.n === 1);
+  assert.ok(usage.find((u) => u.model === 'model-alt')?.n === 1);
   await app.call('PUT', '/api/admin/runtime', { token: op.token, body: { aiEnabled: false } });
   const res = await app.call('POST', '/api/ai/assist', { token: op.token, body: { workflow: 'writing', input: { source: 'facts' } } });
   assert.equal(res.status, 503);

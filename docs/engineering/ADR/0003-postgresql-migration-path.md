@@ -16,7 +16,7 @@ specifics:
 - `rowid` ordering;
 - BLOB content.
 
-An earlier attempt (`codex/vantage-postgresql-migration-path`) was closed unmerged.
+An earlier attempt on a separate branch was closed unmerged.
 
 ## Decision
 

@@ -377,7 +377,7 @@ export const HELP: HelpSection[] = [
           'It is off unless the owner enables it, and it runs against the GenAI.mil gateway rather than a commercial provider.',
           'Nothing generated is authoritative. It drafts; a person reviews and decides. Where AI is offered it sits on the page you are already working on rather than in a destination of its own.',
         ],
-        also: ['genai', 'assist', 'llm', 'chatgpt'],
+        also: ['genai', 'assist', 'llm'],
       },
       {
         id: 'system-of-record',

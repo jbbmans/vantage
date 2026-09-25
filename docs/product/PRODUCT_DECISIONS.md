@@ -10,9 +10,8 @@ the complexity is worth the adoption cost (investor), and the verdict (judge).
 **Decision.** The product to restore and improve is this repository at `ac51ce9` (Vantage 5.0.0).
 **Why.** The restore brief names "old Vantage" as the reference and warns against the newest prototype.
 The only repositories available are `jbbmans/vantage` and a private `jbbmans/vantage-main`. This one
-holds the full Today/Work/Records/Goals/Career product the brief describes. The branch
-`chatgpt-vantage-unified-preview` is a September 9 demo bundle built from v4.0. It was not used as a
-reference. The rejected greenfield prototype is not in this repository.
+holds the full Today/Work/Records/Goals/Career product the brief describes. A September 9 demo bundle built from v4.0
+was not used as a reference. The rejected greenfield prototype is not in this repository.
 **Open.** The owner has not yet confirmed this reference. If a different commit, repository or set of
 screenshots is the preferred product, the parity checklist is re-run against it.
 

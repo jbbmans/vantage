@@ -18,7 +18,7 @@ let ai: Awaited<ReturnType<typeof mockGenAi>>;
 
 before(async () => {
   ai = await mockGenAi((body) => ({ json: { model: body.model, choices: [{ message: { content: '{"executive_summary":"ok"}' } }], usage: { total_tokens: 10 } } }));
-  app = await startApp({ VANTAGE_AI_ENABLED: 'true', VANTAGE_GENAI_API_KEY: 'test-key-123', VANTAGE_GENAI_BASE_URL: ai.url, VANTAGE_GENAI_MODELS: 'gemini-2.5-flash' });
+  app = await startApp({ VANTAGE_AI_ENABLED: 'true', VANTAGE_GENAI_API_KEY: 'test-key-123', VANTAGE_GENAI_BASE_URL: ai.url, VANTAGE_GENAI_MODELS: 'model-fast' });
   op = await app.setupOperator();
   peer = await app.register('analyst');
   await enroll(app, op.token, 'G8', peer.id);

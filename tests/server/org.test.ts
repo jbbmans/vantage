@@ -188,9 +188,9 @@ test('operator console: runtime settings, users, lifecycle, export/import, backu
   const overview = await app.call('GET', '/api/admin/overview', { token: opToken });
   assert.equal(overview.status, 200);
   assert.ok(overview.body.users >= 5);
-  const rt = await app.call('PUT', '/api/admin/runtime', { token: opToken, body: { announcement: 'Drill weekend', aiModels: ['gemini-2.5-flash', 'gpt-4o'], aiDefaultModel: 'gpt-4o' } });
+  const rt = await app.call('PUT', '/api/admin/runtime', { token: opToken, body: { announcement: 'Drill weekend', aiModels: ['model-fast', 'model-large'], aiDefaultModel: 'model-large' } });
   assert.equal(rt.status, 200);
-  assert.equal(rt.body.aiDefaultModel, 'gpt-4o');
+  assert.equal(rt.body.aiDefaultModel, 'model-large');
   assert.equal((await app.call('GET', '/api/auth/setup')).body.announcement, 'Drill weekend');
   assert.equal((await app.call('PUT', '/api/admin/runtime', { token: opToken, body: { aiModels: ['bad model!'] } })).status, 400);
   const users = await app.call('GET', '/api/admin/users', { token: opToken });
