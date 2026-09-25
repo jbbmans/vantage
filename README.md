@@ -86,7 +86,7 @@ The core application needs only a Node 22 process, a local volume, and a reverse
 The public site at https://vantageusmc.com runs on a Render web service (`render.yaml`, `Dockerfile`). That is an optional demonstration host, not a dependency.
 
 - [Render deployment](docs/deploy-render.md)
-- [Namecheap DNS](docs/dns-namecheap.md)
+- [DNS: Namecheap and Cloudflare](docs/dns-namecheap.md)
 - [Email (Resend or SMTP)](docs/email.md)
 - [Operations: backups, restore, moving hosts](docs/operations.md)
 - [Security model](docs/security.md)

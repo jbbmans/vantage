@@ -4,6 +4,10 @@ on:
   push:
     branches: [main]
   pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
 
 concurrency:
   group: ci-${{ github.ref }}
@@ -25,11 +29,6 @@ jobs:
       - run: npm run typecheck
       - run: npm run build
       - run: npm test
-      - uses: actions/upload-artifact@v4
-        with:
-          name: dist
-          path: dist
-          retention-days: 3
 
   browser:
     name: Browser tests (Playwright)
@@ -43,7 +42,17 @@ jobs:
           node-version: 22
           cache: npm
       - run: npm ci
-      - run: npx playwright install --with-deps chromium
+      - id: pw
+        run: echo "version=$(node -p "require('@playwright/test/package.json').version")" >> "$GITHUB_OUTPUT"
+      - id: pw-cache
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/ms-playwright
+          key: playwright-${{ runner.os }}-${{ steps.pw.outputs.version }}
+      - if: steps.pw-cache.outputs.cache-hit != 'true'
+        run: npx playwright install --with-deps chromium
+      - if: steps.pw-cache.outputs.cache-hit == 'true'
+        run: npx playwright install-deps chromium
       - run: npm run test:browser
       - uses: actions/upload-artifact@v4
         if: failure()
@@ -64,6 +73,17 @@ jobs:
         with:
           context: .
           push: false
+          load: true
           tags: vantage:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
+      - name: Image boots and serves the site
+        run: |
+          docker run -d --name vantage -p 8787:8787 \
+            -e VANTAGE_SECRET="$(openssl rand -hex 32)" -e VANTAGE_SETUP_TOKEN="$(openssl rand -hex 16)" \
+            -e VANTAGE_PUBLIC_URL=https://vantageusmc.com vantage:ci
+          for i in $(seq 30); do curl -fsS http://127.0.0.1:8787/api/health && break; sleep 1; done
+          curl -fsS -o /dev/null http://127.0.0.1:8787/
+          curl -fsS -o /dev/null http://127.0.0.1:8787/og.png
+      - if: failure()
+        run: docker logs vantage

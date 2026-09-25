@@ -8,6 +8,13 @@ services:
     autoDeployTrigger: checksPass
     healthCheckPath: /api/health
     dockerfilePath: ./Dockerfile
+    buildFilter:
+      ignoredPaths:
+        - docs/**
+        - film/**
+        - tests/**
+        - .github/**
+        - "**/*.md"
     disk:
       name: vantage-data
       mountPath: /data

@@ -4,7 +4,7 @@ The whole system is one web service with a persistent disk. Budget: the Starter 
 
 ## First deploy
 
-1. The code lives at https://github.com/jbbmans/vantage-main (`main` is the deploy branch).
+1. `main` is the deploy branch.
 2. In Render, choose **New → Blueprint**, pick the repository, and accept `render.yaml`. Render creates the `vantage` service, the `vantage-data` disk mounted at `/data`, and generates `VANTAGE_SECRET` and `VANTAGE_SETUP_TOKEN`.
 3. Wait for the first build (5 to 8 minutes; it compiles `better-sqlite3` and the client).
 4. Open the service's **Environment** tab and copy the value of `VANTAGE_SETUP_TOKEN`.
@@ -15,9 +15,32 @@ Auto-deploy waits for CI: `render.yaml` sets `autoDeployTrigger: checksPass`, so
 
 Protect `main` in GitHub too (**Settings → Branches → Add rule**): require a pull request, and require the `Lint, typecheck, server tests, build`, `Browser tests (Playwright)` and `Docker image builds` checks to pass. The blueprint cannot set this itself. If a check ever has to be bypassed, record why in the pull request; do not switch the trigger back to every commit.
 
+Changes only to `docs/`, `film/`, `tests/`, `.github/` or Markdown files do not redeploy (`buildFilter` in `render.yaml`).
+
+## Caching
+
+Turn on Render's edge cache: **Settings → Edge Caching → Common static files**. The application already
+labels everything:
+
+| Path | Cache-Control |
+| --- | --- |
+| `/assets/*` (content-hashed) | one year, immutable |
+| `/videos/*?v=<hash>` | one year, immutable; the version is the file's hash, written by the film pipeline |
+| `/fonts/*` | 30 days |
+| `/brand/*` | 7 days |
+| other static files | 1 hour |
+| pages, `/sw.js` | `no-cache`, plus `CDN-Cache-Control: no-store` so the edge never holds them |
+| `/api/*` | `no-store` |
+
+A deploy purges the edge cache. To check, request a file under `/assets/` twice: the second response
+should carry `cf-cache-status: HIT`.
+
+A service with a persistent disk cannot deploy with zero downtime; Render stops the old instance before
+starting the new one, so a deploy is a gap of a few seconds.
+
 ## Custom domain
 
-`render.yaml` lists `vantageusmc.com` and `www.vantageusmc.com`. Render issues and renews the TLS certificate once DNS points at it; see [dns-namecheap.md](dns-namecheap.md). Keep `VANTAGE_PUBLIC_URL` equal to the canonical origin. Passkeys are bound to that hostname, so changing it later invalidates every registered passkey.
+`render.yaml` lists `vantageusmc.com` and `www.vantageusmc.com`. Render issues and renews the TLS certificate once DNS points at it; see [dns-namecheap.md](dns-namecheap.md), which also covers Cloudflare, email records and DNSSEC. Keep `VANTAGE_PUBLIC_URL` equal to the canonical origin. Passkeys are bound to that hostname, so changing it later invalidates every registered passkey.
 
 ## Optional services
 

@@ -1,4 +1,5 @@
 import { spawn, spawnSync } from 'node:child_process';
+import { createHash } from 'node:crypto';
 import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -109,6 +110,7 @@ async function main() {
   const indexPath = join(REPO, 'src', 'config', 'films.generated.json');
   const index = existsSync(indexPath) ? JSON.parse(readFileSync(indexPath, 'utf8')) : {};
   const today = new Date().toISOString().slice(0, 10);
+  const url = (file) => `/videos/films/${file}?v=${createHash('sha256').update(readFileSync(join(dest, file))).digest('hex').slice(0, 10)}`;
   for (const id of made) {
     const tl = timelines[id];
     const voiced = tl.estimated === 0;
@@ -118,7 +120,7 @@ async function main() {
     if (r.status !== 0) throw new Error(`faststart ${id}: ${r.stderr}`);
     copyFileSync(join(OUT, `${id}.jpg`), join(dest, `${slot}.jpg`));
     copyFileSync(join(OUT, `${id}.vtt`), join(dest, `${slot}.vtt`));
-    index[slot] = { src: `/videos/films/${slot}.mp4`, poster: `/videos/films/${slot}.jpg`, captions: `/videos/films/${slot}.vtt`, seconds: Math.round(tl.seconds), published: today, voiced };
+    index[slot] = { src: url(`${slot}.mp4`), poster: url(`${slot}.jpg`), captions: url(`${slot}.vtt`), seconds: Math.round(tl.seconds), published: today, voiced };
     log(`published ${slot}`);
   }
   writeFileSync(indexPath, `${JSON.stringify(index, null, 2)}\n`);

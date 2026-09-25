@@ -1,5 +1,6 @@
 import { test, expect } from '@playwright/test';
 import { ensureSetup, logout } from './fixtures';
+import { readFileSync } from 'node:fs';
 
 test.describe('the public site', () => {
   test('is fully visible before anybody scrolls', async ({ page }) => {
@@ -132,6 +133,20 @@ test.describe('the public site', () => {
     // An application route is not content and must keep getting the shell.
     const app = await request.get('/records');
     expect(readable(await app.text()).length, '/records should not be prerendered').toBeLessThan(200);
+  });
+
+  test('tells browsers and the edge how long each kind of file may be kept', async ({ request }) => {
+    const cache = async (path: string) => (await request.get(path)).headers();
+    const films: Record<string, { src: string; poster: string }> = JSON.parse(readFileSync('src/config/films.generated.json', 'utf8'));
+    const film = Object.values(films)[0];
+    expect(film.src, 'published films are addressed by content hash').toMatch(/\?v=[0-9a-f]{10}$/);
+    expect((await cache(film.poster))['cache-control']).toBe('public, max-age=31536000, immutable');
+    expect((await cache(film.poster.split('?')[0]))['cache-control']).toBe('public, max-age=86400');
+    for (const path of ['/', '/records', '/sw.js']) {
+      const headers = await cache(path);
+      expect(headers['cache-control'], path).toBe('no-cache');
+      expect(headers['cdn-cache-control'], `${path} must never be held at the edge`).toBe('no-store');
+    }
   });
 
   test('keeps the signed-in application out of the index', async ({ page }) => {

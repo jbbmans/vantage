@@ -105,7 +105,7 @@ export function createApp(ctx: AppContext) {
     res.setHeader('Origin-Agent-Cluster', '?1');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
     if (req.path.startsWith('/api/')) { res.setHeader('Cache-Control', 'no-store, max-age=0'); res.setHeader('Pragma', 'no-cache'); }
-    if (config.production) res.setHeader('Strict-Transport-Security', 'max-age=31536000; includeSubDomains');
+    if (config.production) res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
     next();
   });
 
@@ -189,11 +189,18 @@ export function createApp(ctx: AppContext) {
       next();
     });
     app.use('/assets', express.static(join(distDir, 'assets'), { immutable: true, maxAge: '1y', index: false }));
-    app.use(express.static(distDir, { index: false, maxAge: '1h', setHeaders: (res, path) => { if (path.endsWith('sw.js')) res.setHeader('Cache-Control', 'no-cache'); } }));
+    app.use(express.static(distDir, { index: false, maxAge: '1h', setHeaders: (res, path) => {
+      const req = (res as unknown as { req: Request }).req;
+      if (path.endsWith('sw.js')) { res.setHeader('Cache-Control', 'no-cache'); res.setHeader('CDN-Cache-Control', 'no-store'); }
+      else if (req.path.startsWith('/videos/')) res.setHeader('Cache-Control', req.query.v ? 'public, max-age=31536000, immutable' : 'public, max-age=86400');
+      else if (req.path.startsWith('/fonts/')) res.setHeader('Cache-Control', 'public, max-age=2592000, stale-while-revalidate=86400');
+      else if (req.path.startsWith('/brand/')) res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
+    } }));
 
     const prerendered = join(distDir, 'public.html');
     app.get(/^(?!\/api\/).*/, (req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
+      res.setHeader('CDN-Cache-Control', 'no-store');
       res.vary('Cookie');
       const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
       if ((!signedIn || req.path !== '/') && publicRoutes.has(req.path) && existsSync(prerendered)) {
