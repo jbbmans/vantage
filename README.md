@@ -76,6 +76,7 @@ Scripts:
 | `npm start` | production server (`node server/index.ts`), serves `dist/` |
 | `VANTAGE_RECOVERY=1 npm run recover-operator -- <username>` | grant owner authority and a temporary password from the shell |
 | `VANTAGE_FACTORY_RESET=1 npm run factory-reset -- ERASE-EVERYTHING` | delete the database; the next start runs first-time setup |
+| `VANTAGE_START_OVER=1 VANTAGE_ADMIN_PASSWORD=… node scripts/start-over.ts ERASE-EVERYTHING --unit … [--roster file]` | erase everything in place, create the owner and first unit, and import a roster; see [operations.md](docs/operations.md#starting-over) |
 
 Requirements: Node 22.18 or newer. No build step for the server; Node runs the TypeScript directly.
 

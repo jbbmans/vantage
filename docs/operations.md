@@ -26,13 +26,24 @@ The roster holds names, email addresses and passwords. Keep it out of the reposi
 
 ## Starting over
 
-This erases every account, unit and record. Download a backup first if anything might be needed later.
+`scripts/start-over.ts` erases every account, unit and record, creates the owner account and its first unit, and optionally imports a roster, in one run. It first saves a copy of the database beside it (`/data/vantage-before-start-over-<time>.db`). It empties the tables in place, so the running server carries on without a restart, and everyone who was signed in is signed out.
 
-1. Render → the `vantage` service → **Shell**, then run
-   `cd /app && VANTAGE_FACTORY_RESET=1 node scripts/factory-reset.ts ERASE-EVERYTHING`
-2. Render → **Manual Deploy → Restart service**. The new instance starts on an empty database.
-3. Open the site. It shows first-run setup, which asks for the **Deployment setup token** (Render → Environment → `VANTAGE_SETUP_TOKEN`). The account created here is the Instance Operator and leads the first unit; name that unit what the roster calls its command so the import files people under it.
-4. Import the roster as above.
+On Render, open the `vantage` service → **Shell**:
+
+```sh
+cd /app
+cat > /tmp/roster.csv <<'ROSTER'
+Rank,First Name,Last Name,L2 Command,Fire Team,Username,Email,Temporary Password,Role,Billet
+...one line per person...
+ROSTER
+VANTAGE_START_OVER=1 VANTAGE_ADMIN_PASSWORD='<owner password>' node scripts/start-over.ts ERASE-EVERYTHING \
+  --unit "Marine Forces Reserve" --short MARFORRES --roster /tmp/roster.csv
+rm /tmp/roster.csv
+```
+
+The owner account is `vantage.admin` (`--admin` to change it), named Vantage Admin (`--first`, `--last`). Name the unit what the roster calls its command, so the import files people under it. Nothing is erased if the password is too weak, the arguments are wrong, or the roster cannot be read. Once the new setup is confirmed, delete the backup: `rm /data/vantage-before-start-over-*.db`.
+
+Without a shell, the same result takes three steps: `VANTAGE_FACTORY_RESET=1 node scripts/factory-reset.ts ERASE-EVERYTHING` and **Manual Deploy → Restart service**; first-run setup on the site, which asks for the **Deployment setup token** (Render → Environment → `VANTAGE_SETUP_TOKEN`); then **Import accounts** as above.
 
 ## Recovering owner access
 
