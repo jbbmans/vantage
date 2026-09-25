@@ -13,6 +13,7 @@ import * as api from '@/lib/api';
 import { ACCENTS, DEFAULT_ACCENT, VISIBILITIES } from '../../shared/constants';
 import { passwordProblem, passwordStrength } from '../../shared/password';
 import { copyToClipboard, downloadText, timeAgo, humanize, cn } from '@/lib/utils';
+import { resolveTheme, type ThemeMode } from '@/lib/theme';
 
 export default function Settings() {
   const { data: identity } = useIdentity();
@@ -135,14 +136,31 @@ function describeAgent(ua?: string | null) { if (!ua) return 'Unknown device'; c
 function Appearance() {
   const prefs = usePrefs(); const save = useSavePrefs();
   const theme = prefs.theme || 'light';
+  const resolved = resolveTheme(theme as ThemeMode);
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Theme">
         <Segmented label="Theme" value={theme} onChange={(v) => save.mutate({ theme: v })} options={[{ value: 'light', label: <span className="flex items-center gap-1.5"><Sun className="h-4 w-4" />Light</span> }, { value: 'dark', label: <span className="flex items-center gap-1.5"><Moon className="h-4 w-4" />Dark</span> }, { value: 'system', label: <span className="flex items-center gap-1.5"><Monitor className="h-4 w-4" />System</span> }]} />
         <div className="mt-5"><p className="mb-2 text-xs font-semibold text-ink-2">Density</p><Segmented label="Density" value={prefs.density || 'comfortable'} onChange={(v) => save.mutate({ density: v })} options={[{ value: 'comfortable', label: 'Comfortable' }, { value: 'compact', label: 'Compact' }]} /></div>
       </Panel>
-      <Panel title="Accent color" subtitle="Pre-set palettes tuned for both themes">
-        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{ACCENTS.map((a) => <button key={a.id} type="button" onClick={() => save.mutate({ accent: a.id })} className={cn('flex items-center gap-3 rounded-md border px-3 py-2 text-left transition-colors', (prefs.accent || DEFAULT_ACCENT) === a.id ? 'border-accent bg-accent-soft' : 'border-line hover:border-line-strong')}><span className="flex h-8 w-8 items-center justify-center rounded-full border border-line" data-accent={a.id} style={{ backgroundColor: 'rgb(var(--accent))' }}>{(prefs.accent || DEFAULT_ACCENT) === a.id && <Check className="h-4 w-4" style={{ color: 'rgb(var(--accent-ink))' }} />}</span><span><span className="block text-sm font-medium text-ink">{a.label}</span><span className="block text-xs text-ink-3">{a.hint}</span></span></button>)}</div>
+      <Panel title="Color" subtitle="A palette for the whole app: the page, cards, navigation and buttons, tuned for light and dark.">
+        <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">{ACCENTS.map((a) => {
+          const on = (prefs.accent || DEFAULT_ACCENT) === a.id;
+          return (
+            <button key={a.id} type="button" aria-pressed={on} onClick={() => save.mutate({ accent: a.id })}
+              className={cn('flex items-center gap-3 rounded-lg border p-2 pr-3 text-left transition-colors', on ? 'border-accent bg-accent-soft' : 'border-line hover:border-line-strong')}>
+              {/* A miniature of the palette in the current theme: rail, page, a card, the signal colour. */}
+              <span data-accent={a.id} data-theme={resolved} className="flex h-11 w-16 shrink-0 overflow-hidden rounded-md ring-1 ring-inset ring-black/10" aria-hidden>
+                <span className="w-4 bg-rail" />
+                <span className="flex flex-1 items-center justify-center bg-canvas">
+                  <span className="flex h-6 w-8 items-center justify-center rounded bg-surface shadow-card"><span className="h-1.5 w-4 rounded-full bg-accent" /></span>
+                </span>
+              </span>
+              <span className="min-w-0 flex-1"><span className="block text-sm font-medium text-ink">{a.label}</span><span className="block text-xs text-ink-3">{a.hint}</span></span>
+              {on && <Check className="h-4 w-4 shrink-0 text-accent" aria-hidden />}
+            </button>
+          );
+        })}</div>
       </Panel>
       <Panel title="Defaults" className="lg:col-span-2">
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">

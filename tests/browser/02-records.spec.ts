@@ -94,6 +94,15 @@ test('appearance settings switch theme and accent and persist across reload', as
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'dark');
   await expect(page.locator('html')).toHaveAttribute('data-accent', 'ocean');
   await page.getByRole('tab', { name: 'Light' }).click();
+  // The colour is the whole page's, not just the buttons': the page and the navigation rail change too.
+  const paint = () => page.evaluate(() => ({
+    page: getComputedStyle(document.body).backgroundColor,
+    rail: getComputedStyle(document.querySelector('aside') || document.body).backgroundColor,
+  }));
+  const before = await paint();
   await page.getByRole('button', { name: /Scarlet/ }).click();
   await expect(page.locator('html')).toHaveAttribute('data-theme', 'light');
+  await expect(page.locator('html')).toHaveAttribute('data-accent', 'scarlet');
+  await expect.poll(async () => (await paint()).page).not.toBe(before.page);
+  expect((await paint()).rail).not.toBe(before.rail);
 });

@@ -27,6 +27,9 @@ export default {
         rail: token('--rail'),
         'rail-ink': token('--rail-ink'),
         'rail-active': token('--rail-active'),
+        // The palette's deepest shade: tooltips, icon tiles, specimen blocks.
+        deep: token('--deep'),
+        'deep-2': token('--deep-2'),
         'accent-2': token('--accent-2'),
         // Summit Teal. The mark, and marks in charts. Never type — it is 2.49:1 on white.
         'brand-teal': token('--brand-teal'),

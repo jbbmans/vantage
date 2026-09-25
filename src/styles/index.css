@@ -49,34 +49,41 @@
     --rail: 8 22 42;            /* the rail is Deep Navy in both themes */
     --rail-ink: 190 205 226;
     --rail-active: 18 40 70;    /* tooltips and the avatar: a navy that reads on paper */
+    --deep: 10 27 51;           /* a panel in the brand's deepest shade: tooltips, icon tiles, specimens */
+    --deep-2: 18 41 74;
     --brand-teal: 20 184 166;
     /* Depth, tinted with the ink so it never reads as grey smudge. One light source, above. */
-    --shadow-hairline: 0 0 0 1px rgb(10 27 51 / .055);
-    --shadow-card: 0 0 0 1px rgb(10 27 51 / .055), 0 1px 2px rgb(10 27 51 / .04), 0 6px 18px -10px rgb(10 27 51 / .10);
-    --shadow-lift: 0 0 0 1px rgb(10 27 51 / .07), 0 2px 4px rgb(10 27 51 / .04), 0 16px 32px -14px rgb(10 27 51 / .18);
-    --shadow-pop: 0 0 0 1px rgb(10 27 51 / .07), 0 10px 30px -10px rgb(10 27 51 / .22);
-    --shadow-modal: 0 0 0 1px rgb(10 27 51 / .08), 0 32px 72px -20px rgb(10 27 51 / .38);
+    --shadow-rgb: 10 27 51;
+    --shadow-hairline: 0 0 0 1px rgb(var(--shadow-rgb) / .055);
+    --shadow-card: 0 0 0 1px rgb(var(--shadow-rgb) / .055), 0 1px 2px rgb(var(--shadow-rgb) / .04), 0 6px 18px -10px rgb(var(--shadow-rgb) / .10);
+    --shadow-lift: 0 0 0 1px rgb(var(--shadow-rgb) / .07), 0 2px 4px rgb(var(--shadow-rgb) / .04), 0 16px 32px -14px rgb(var(--shadow-rgb) / .18);
+    --shadow-pop: 0 0 0 1px rgb(var(--shadow-rgb) / .07), 0 10px 30px -10px rgb(var(--shadow-rgb) / .22);
+    --shadow-modal: 0 0 0 1px rgb(var(--shadow-rgb) / .08), 0 32px 72px -20px rgb(var(--shadow-rgb) / .38);
     --highlight: inset 0 1px 0 rgb(255 255 255 / .7);
     color-scheme: light;
   }
-  /* Dark is the brand navy taken all the way down, not a neutral grey. */
+  /* Dark is the brand navy taken down, not a neutral grey: deep enough to rest the eyes, light enough
+     that cards still lift off the page. */
   [data-theme='dark'] {
-    --canvas: 6 13 24;
-    --surface: 12 22 38;
-    --surface-2: 17 30 50;
-    --surface-3: 25 41 66;
-    --line: 29 45 70;
-    --line-strong: 44 63 92;
-    --ink: 234 240 248;         /* 15.1:1 on surface */
-    --ink-2: 176 192 214;       /* 9.6:1 */
-    --ink-3: 134 152 178;       /* 6.3:1 */
+    --canvas: 11 19 32;
+    --surface: 17 28 46;
+    --surface-2: 23 37 59;
+    --surface-3: 32 49 76;
+    --line: 37 55 82;
+    --line-strong: 53 74 105;
+    --ink: 234 240 248;         /* 14.5:1 on surface */
+    --ink-2: 180 196 218;       /* 9.3:1 */
+    --ink-3: 140 158 184;       /* 5.9:1 on surface-2 */
     --good: 110 205 165;
     --warn: 232 186 102;
     --bad: 255 140 134;
     --info: 128 168 255;
-    --rail: 4 10 20;
-    --rail-ink: 170 187 212;
-    --rail-active: 32 52 84;
+    --rail: 9 17 30;
+    --rail-ink: 176 192 216;
+    --rail-active: 36 58 92;
+    --deep: 9 17 30;
+    --deep-2: 21 36 60;
+    --shadow-rgb: 0 0 0;
     --brand-teal: 45 212 191;
     --shadow-hairline: 0 0 0 1px rgb(255 255 255 / .06);
     --shadow-card: 0 0 0 1px rgb(255 255 255 / .06), 0 1px 2px rgb(0 0 0 / .3), 0 8px 24px -12px rgb(0 0 0 / .5);
@@ -88,13 +95,20 @@
   }
 
   /*
-   * One signal colour at a time, for three things only: the active marker, the primary action, and
-   * a figure that must be noticed. `cobalt` is the brand and the default; the rest stay available for
-   * a command that adopts Vantage under its own colours. Changing the accent never changes the mark.
-   * --accent-2 is the brand teal darkened until it can carry a word (5.47:1).
+   * The colour setting picks a palette, not just a button colour. Each carries a signal colour for
+   * three things only (the active marker, the primary action, a figure that must be noticed) and a
+   * family of neutrals in its hue: the page, cards, lines, text, shadows and the navigation rail.
+   * Cobalt is the brand and the default. The rest serve a command that adopts Vantage under its
+   * own colours. Changing the palette never changes the mark.
+   *
+   * The neutrals keep cobalt's lightness role for role, carried to each hue in OKLCH, so every
+   * contrast pair holds: ink on cards 14:1 or better, the quietest text 4.5:1 or better on every
+   * fill, in both themes. --accent-2 is a second colour that can carry a word.
    */
-  :root, [data-accent='cobalt'], [data-accent='ocean'] { --accent: 37 99 235; --accent-ink: 255 255 255; --accent-soft: 236 242 254; --accent-2: 15 118 110; }
-  [data-theme='dark'][data-accent='cobalt'], [data-theme='dark'][data-accent='ocean'], [data-theme='dark']:not([data-accent]) { --accent: 122 162 255; --accent-ink: 6 13 24; --accent-soft: 22 40 72; --accent-2: 79 209 192; }
+  :root, [data-accent='cobalt'] { --accent: 37 99 235; --accent-ink: 255 255 255; --accent-soft: 236 242 254; --accent-2: 15 118 110; }
+  [data-theme='dark'][data-accent='cobalt'], [data-theme='dark']:not([data-accent]) { --accent: 122 162 255; --accent-ink: 6 13 24; --accent-soft: 26 45 78; --accent-2: 79 209 192; }
+  [data-accent='ocean'] { --accent: 3 105 161; --accent-ink: 255 255 255; --accent-soft: 228 243 250; --accent-2: 15 118 110; }
+  [data-theme='dark'][data-accent='ocean'] { --accent: 125 200 240; --accent-ink: 3 22 30; --accent-soft: 12 52 66; --accent-2: 79 209 192; }
   [data-accent='scarlet'] { --accent: 182 26 26; --accent-ink: 255 255 255; --accent-soft: 253 235 234; --accent-2: 146 91 4; }
   [data-theme='dark'][data-accent='scarlet'] { --accent: 255 138 138; --accent-ink: 46 8 8; --accent-soft: 62 27 27; --accent-2: 225 182 110; }
   [data-accent='olive'] { --accent: 56 94 56; --accent-ink: 255 255 255; --accent-soft: 233 243 233; --accent-2: 146 91 4; }
@@ -103,6 +117,18 @@
   [data-theme='dark'][data-accent='steel'] { --accent: 165 187 214; --accent-ink: 14 26 42; --accent-soft: 36 52 72; --accent-2: 143 160 182; }
   [data-accent='ember'] { --accent: 175 72 12; --accent-ink: 255 255 255; --accent-soft: 253 238 228; --accent-2: 146 91 4; }
   [data-theme='dark'][data-accent='ember'] { --accent: 255 162 106; --accent-ink: 44 16 2; --accent-soft: 66 34 18; --accent-2: 225 182 110; }
+
+  /* Each palette's neutrals (generated from cobalt's roles; see the note above). */
+  [data-accent='ocean'] { --canvas: 241 249 251; --surface: 255 255 255; --surface-2: 237 247 251; --surface-3: 225 240 245; --line: 220 234 240; --line-strong: 198 217 224; --ink: 0 31 41; --ink-2: 50 80 91; --ink-3: 85 112 121; --rail: 0 26 35; --rail-ink: 180 209 220; --rail-active: 0 45 58; --deep: 0 31 41; --deep-2: 0 47 60; --shadow-rgb: 0 31 41; }
+  [data-theme='dark'][data-accent='ocean'] { --canvas: 6 21 26; --surface: 9 31 38; --surface-2: 14 41 50; --surface-3: 20 54 64; --line: 27 60 70; --line-strong: 42 79 92; --ink: 218 245 255; --ink-2: 157 203 220; --ink-3: 125 164 178; --rail: 0 20 28; --rail-ink: 158 198 213; --rail-active: 0 65 82; --deep: 0 20 28; --deep-2: 0 41 53; --shadow-rgb: 0 0 0; }
+  [data-accent='scarlet'] { --canvas: 252 245 245; --surface: 255 255 255; --surface-2: 252 242 242; --surface-3: 247 233 232; --line: 242 228 227; --line-strong: 226 208 207; --ink: 45 18 17; --ink-2: 93 68 66; --ink-3: 123 100 99; --rail: 47 4 7; --rail-ink: 223 196 195; --rail-active: 72 19 21; --deep: 50 13 14; --deep-2: 72 23 24; --shadow-rgb: 45 18 17; }
+  [data-theme='dark'][data-accent='scarlet'] { --canvas: 24 17 17; --surface: 36 25 24; --surface-2: 44 34 34; --surface-3: 59 45 44; --line: 65 51 50; --line-strong: 87 68 67; --ink: 255 234 233; --ink-2: 224 183 181; --ink-3: 181 147 145; --rail: 42 0 2; --rail-ink: 216 181 179; --rail-active: 103 27 31; --deep: 42 0 3; --deep-2: 74 2 11; --shadow-rgb: 0 0 0; }
+  [data-accent='olive'] { --canvas: 245 248 242; --surface: 255 255 255; --surface-2: 242 247 238; --surface-3: 234 239 228; --line: 228 234 223; --line-strong: 209 216 202; --ink: 22 30 12; --ink-2: 70 78 61; --ink-3: 102 110 93; --rail: 17 25 5; --rail-ink: 198 208 187; --rail-active: 33 44 16; --deep: 22 31 9; --deep-2: 34 46 17; --shadow-rgb: 22 30 12; }
+  [data-theme='dark'][data-accent='olive'] { --canvas: 17 20 15; --surface: 26 30 21; --surface-2: 35 38 30; --surface-3: 46 51 39; --line: 51 57 45; --line-strong: 69 76 61; --ink: 230 246 213; --ink-2: 187 200 172; --ink-3: 150 161 137; --rail: 10 21 0; --rail-ink: 183 196 169; --rail-active: 48 64 23; --deep: 10 21 0; --deep-2: 26 42 0; --shadow-rgb: 0 0 0; }
+  [data-accent='steel'] { --canvas: 246 247 248; --surface: 255 255 255; --surface-2: 243 245 248; --surface-3: 234 237 241; --line: 229 232 235; --line-strong: 209 214 218; --ink: 22 28 34; --ink-2: 69 76 83; --ink-3: 100 108 115; --rail: 18 23 27; --rail-ink: 198 204 211; --rail-active: 34 41 48; --deep: 23 28 33; --deep-2: 35 42 49; --shadow-rgb: 22 28 34; }
+  [data-theme='dark'][data-accent='steel'] { --canvas: 18 19 20; --surface: 25 28 32; --surface-2: 35 37 39; --surface-3: 46 49 53; --line: 51 55 59; --line-strong: 69 74 79; --ink: 230 241 253; --ink-2: 185 196 207; --ink-3: 147 158 169; --rail: 12 18 24; --rail-ink: 183 192 201; --rail-active: 50 59 69; --deep: 12 18 24; --deep-2: 28 37 46; --shadow-rgb: 0 0 0; }
+  [data-accent='ember'] { --canvas: 252 246 242; --surface: 255 255 255; --surface-2: 252 243 237; --surface-3: 246 234 226; --line: 241 229 222; --line-strong: 224 210 201; --ink: 41 22 8; --ink-2: 89 70 58; --ink-3: 121 103 91; --rail: 39 14 0; --rail-ink: 220 199 186; --rail-active: 62 31 6; --deep: 44 20 2; --deep-2: 63 32 7; --shadow-rgb: 41 22 8; }
+  [data-theme='dark'][data-accent='ember'] { --canvas: 23 18 14; --surface: 35 26 20; --surface-2: 43 35 29; --surface-3: 58 46 38; --line: 64 52 44; --line-strong: 85 70 59; --ink: 254 235 223; --ink-2: 218 188 168; --ink-3: 177 151 133; --rail: 33 9 0; --rail-ink: 212 185 167; --rail-active: 89 44 6; --deep: 33 9 0; --deep-2: 60 25 0; --shadow-rgb: 0 0 0; }
 
   :root {
     /* Motion with mass: quick to respond, slow to settle. */
@@ -159,7 +185,7 @@
 
   .field {
     @apply w-full min-w-0 rounded-[9px] border border-line-strong bg-surface px-3 py-2 text-base text-ink placeholder:text-ink-3;
-    box-shadow: 0 1px 1px rgb(10 27 51 / .03);
+    box-shadow: 0 1px 1px rgb(var(--shadow-rgb) / .03);
     transition: border-color var(--dur-fast) ease, box-shadow var(--dur-base) var(--ease-out), background-color var(--dur-fast) ease;
   }
   .field:hover { border-color: rgb(var(--ink-3) / .55); }

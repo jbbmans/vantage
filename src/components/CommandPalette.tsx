@@ -51,7 +51,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav }: 
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[#050b16]/45 backdrop-blur-[3px] animate-fade-in" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-deep/45 backdrop-blur-[3px] animate-fade-in" />
         <DialogPrimitive.Content aria-describedby="" className="fixed left-1/2 top-[12vh] z-50 w-[calc(100vw-1.5rem)] max-w-2xl -translate-x-1/2 overflow-hidden rounded-2xl bg-surface shadow-modal animate-popover-in focus:outline-none">
           <DialogPrimitive.Title className="sr-only">Search and jump</DialogPrimitive.Title>
           <div className="flex items-center gap-3 border-b border-line px-5">

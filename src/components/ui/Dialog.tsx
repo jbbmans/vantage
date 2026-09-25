@@ -10,7 +10,7 @@ export function Dialog({ open, onOpenChange, title, description, children, foote
   return (
     <DialogPrimitive.Root open={open} onOpenChange={onOpenChange}>
       <DialogPrimitive.Portal>
-        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-[#050b16]/55 backdrop-blur-[3px] data-[state=open]:animate-fade-in" />
+        <DialogPrimitive.Overlay className="fixed inset-0 z-40 bg-deep/55 backdrop-blur-[3px] data-[state=open]:animate-fade-in" />
         <DialogPrimitive.Content aria-describedby={description ? undefined : ''} className={cn(
           'fixed z-50 flex flex-col overflow-hidden bg-surface shadow-modal focus:outline-none',
           drawer

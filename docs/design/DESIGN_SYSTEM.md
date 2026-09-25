@@ -12,18 +12,24 @@ describes a different product's styling and is not the Vantage design system.)
 
 | Token | Light | Dark | Use |
 |---|---|---|---|
-| `--canvas` | Paper `#F6F7F9` | `#060D18` | Page background, gaps between cards |
-| `--surface` | White | `#0C1626` | Cards and panels |
-| `--surface-2` / `--surface-3` | `#F3F5F8` / `#E9EDF3` | `#111E32` / `#192942` | Quiet fills, table heads; hover and tracks |
-| `--ink` | Deep Navy `#0A1B33` (16.9:1) | `#EAF0F8` (15.1:1) | Primary text |
-| `--ink-2` / `--ink-3` | 8.9:1 / 5.4:1 on white | 9.6:1 / 6.3:1 | Secondary and muted text |
+| `--canvas` | Paper `#F6F7F9` | `#0B1320` | Page background, gaps between cards |
+| `--surface` | White | `#111C2E` | Cards and panels |
+| `--surface-2` / `--surface-3` | `#F3F5F8` / `#E9EDF3` | `#17253B` / `#20314C` | Quiet fills, table heads; hover and tracks |
+| `--ink` | Deep Navy `#0A1B33` (16.9:1) | `#EAF0F8` (14.5:1) | Primary text |
+| `--ink-2` / `--ink-3` | 8.9:1 / 5.4:1 on white | 9.3:1 / 5.9:1 | Secondary and muted text |
 | `--accent` | Cobalt `#2563EB` | lifted Cobalt `#7AA2FF` | The one primary action, selection, data emphasis |
 | `--good` `--warn` `--bad` `--info` | semantic; `--info` is `#1D4ED8` so an info badge clears AA at 11px | same | Status only, never decoration |
-| `--rail` | Deep Navy `#08162A` in both themes | near-black navy | The navigation rail |
+| `--rail` | Deep Navy `#08162A` | `#09111E` | The navigation rail |
+| `--deep` / `--deep-2` | `#0A1B33` / `#12294A` | the rail's shade | Tooltips, icon tiles, specimen blocks, modal scrims |
 | `--brand-teal` | `#14B8A6` | `#2DD4BF` | The mark and the rail's active marker only |
 
-Accent themes (cobalt, scarlet, olive, steel, ember) swap `--accent`, `--accent-ink`, `--accent-soft`
-and `--accent-2` together; `ocean` is kept as an alias of cobalt for stored preferences.
+The colour setting (Settings → Appearance) picks a whole palette, not only the signal colour: Cobalt
+(the brand, above), Ocean, Scarlet & Gold, Olive, Steel and Ember. Each sets its own `--accent` family
+and a family of neutrals in its hue (canvas, surfaces, lines, ink, rail, deep, and the shadow tint
+`--shadow-rgb`), in light and dark. The neutrals keep Cobalt's lightness role for role, carried to each
+hue in OKLCH, so every contrast pair holds in every palette. Nothing in a component may name a colour:
+tooltips, icon tiles, scrims and glows read these tokens, so a palette reaches every pixel of the app.
+The public site keeps the brand palette.
 
 Every muted tone clears WCAG AA on the darkest surface it can land on. Axe checks both themes on every
 core page, the case page, the Reference and the public page (`tests/browser/06-a11y.spec.ts`,
@@ -33,7 +39,8 @@ core page, the case page, the Reference and the public page (`tests/browser/06-a
 
 Shadows are tinted navy, never black, and come as tokens: `--shadow-hairline` (a 1px ring instead of a
 grey border), `--shadow-card`, `--shadow-lift`, `--shadow-pop` (menus, popovers) and `--shadow-modal`.
-Dark mode swaps them for deeper, black-based versions with a faint light ring. `--highlight` is the
+All of them read `--shadow-rgb`, the palette's ink. Dark mode swaps them for deeper, black-based versions
+with a faint light ring. `--highlight` is the
 inset top light on raised controls.
 
 ## Type
