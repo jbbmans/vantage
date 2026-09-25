@@ -239,13 +239,15 @@ export function applyAccounts(ctx: AppContext, actor: SessionUser, rows: RosterR
       if (a.status !== 'create') continue;
       const v = byLine.get(a.line)!;
       const commandId = a.command ? ensureUnit(a.command, null) : null;
-      const unitId = a.team ? ensureUnit(a.team, commandId) : commandId;
+      const teamId = a.team ? ensureUnit(a.team, commandId) : null;
+      const unitId = teamId || commandId;
       const id = newId();
       ctx.db.prepare(`INSERT INTO users (id, username, email, password_hash, first_name, last_name, rank_id, must_change_password, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
         .run(id, a.username, a.email, hashes.get(a.line), v.first_name, v.last_name, a.rank_id, now(), now());
+      if (commandId) addMember(ctx, id, commandId, { invitedBy: actor.id, primary: true, billet: teamId ? null : a.billet });
+      if (teamId) addMember(ctx, id, teamId, { invitedBy: actor.id, primary: !commandId, billet: a.billet });
       if (unitId) {
-        addMember(ctx, id, unitId, { invitedBy: actor.id, primary: true, billet: a.billet });
         const role = roleFor(v.role);
         if (role && role.key !== 'marine') {
           ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)')
