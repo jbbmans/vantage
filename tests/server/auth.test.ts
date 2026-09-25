@@ -95,7 +95,7 @@ test('TOTP enrollment gates login and recovery codes work once', async () => {
   assert.ok(!login.body.token);
   const badCode = await app.call('POST', '/api/auth/login/mfa', { body: { challenge: login.body.challenge, code: '123456' } });
   assert.equal(badCode.status, 401);
-  const good = await app.call('POST', '/api/auth/login/mfa', { body: { challenge: login.body.challenge, code: totpCode(start.body.secret, Math.floor(Date.now() / 30000)) } });
+  const good = await app.call('POST', '/api/auth/login/mfa', { body: { challenge: login.body.challenge, code: totpCode(start.body.secret, Math.floor(Date.now() / 30000) + 1) } });
   assert.equal(good.status, 200);
   assert.ok(good.body.token);
   const login2 = await app.login('totp');
@@ -200,7 +200,7 @@ test('a password reset on an MFA-enabled account still asks for the second facto
     assert.equal(reset.status, 200);
     assert.equal(reset.body.ok, false);
     assert.equal(reset.body.mfa, 'totp');
-    const done = await m.call('POST', '/api/auth/login/mfa', { body: { challenge: reset.body.challenge, code: totpCode(start.body.secret, Math.floor(Date.now() / 30000)) } });
+    const done = await m.call('POST', '/api/auth/login/mfa', { body: { challenge: reset.body.challenge, code: totpCode(start.body.secret, Math.floor(Date.now() / 30000) + 1) } });
     assert.equal(done.status, 200);
     assert.equal(done.body.ok, true);
   } finally { await m.close(); }

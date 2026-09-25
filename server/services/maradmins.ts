@@ -77,7 +77,7 @@ export function parseMaradminFeed(xml: string): MaradminRecord[] {
     const description = field(item, 'description');
     const number = description.match(/MARADMIN(?:\s+CANCELLATION)?\s+(\d{3}\/\d{2})/i)?.[1] || title.match(/\b(\d{3}\/\d{2})\b/)?.[1];
     const published = new Date(field(item, 'pubDate'));
-    if (!number || !title || !url || Number.isNaN(published.getTime())) continue;
+    if (!number || !title || !/^https:\/\/[^\s"<>]+$/i.test(url) || Number.isNaN(published.getTime())) continue;
     records.push({
       id: `maradmin-${number.replace('/', '-')}`, number, title, summary: summaryFor(title), url, tags: tagsFor(title), audience: audienceFor(title),
       published_at: published.toISOString(), source_hash: createHash('sha256').update([number, title, url, description].join('\0')).digest('hex'),

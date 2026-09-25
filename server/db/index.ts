@@ -114,6 +114,15 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       for (const [name, type] of columns) if (!existing.has(name)) db.exec(`ALTER TABLE connectors ADD COLUMN ${name} ${type}`);
     },
   },
+  {
+    id: 10,
+    name: '010_totp_replay',
+    run: (db) => {
+      const existing = new Set((db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map((c) => c.name));
+      if (!existing.has('totp_pending')) db.exec('ALTER TABLE users ADD COLUMN totp_pending TEXT');
+      if (!existing.has('totp_last_step')) db.exec('ALTER TABLE users ADD COLUMN totp_last_step INTEGER');
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 

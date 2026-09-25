@@ -220,6 +220,9 @@ export function addMessage(ctx: AppContext, user: SessionUser, scope: Scope, thr
   return ctx.db.prepare('SELECT * FROM thread_messages WHERE id = ?').get(id);
 }
 
+/** Cut stored HTML at a tag boundary, never inside a tag or attribute. */
+const clip = (html: string, max: number) => (html.length <= max ? html : html.slice(0, Math.max(0, html.lastIndexOf('<', max))));
+
 export function storeParsedMessage(
   ctx: AppContext,
   threadId: string,
@@ -238,7 +241,7 @@ export function storeParsedMessage(
     id, threadId, meta.direction, meta.providerMessageId || parsed.messageId, meta.connectorId || null, meta.source,
     parsed.from?.name || null, parsed.from?.email || null,
     JSON.stringify(parsed.to.map((a) => a.email)), JSON.stringify(parsed.cc.map((a) => a.email)),
-    parsed.date || at, parsed.subject, text.slice(0, 100_000), safe.html.slice(0, 200_000),
+    parsed.date || at, parsed.subject, text.slice(0, 100_000), clip(safe.html, 200_000),
     safe.blockedRemoteImages ? 1 : 0, safe.blockedActiveContent ? 1 : 0,
     JSON.stringify(parsed.attachments), meta.createdBy || null, at,
   );

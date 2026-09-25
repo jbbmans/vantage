@@ -40,6 +40,9 @@ export function raiseTicket(
   if (body.length > 8000) throw badRequest('Keep the description under 8000 characters.');
 
   const category = (TICKET_CATEGORIES as readonly string[]).includes(String(input.category)) ? String(input.category) : 'other';
+  if (input.unit_id && !(user && ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(user.id, input.unit_id))) {
+    throw badRequest('Send the request to a unit you belong to.', { fieldErrors: { unit_id: 'Not one of your units.' } });
+  }
   const email = user?.email || (input.requester_email ? String(input.requester_email).trim().slice(0, 200) : null);
   const name = user ? `${user.first_name} ${user.last_name}`.trim() : (input.requester_name ? String(input.requester_name).trim().slice(0, 120) : null);
 

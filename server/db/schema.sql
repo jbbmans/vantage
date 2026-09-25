@@ -31,6 +31,8 @@ CREATE TABLE IF NOT EXISTS users (
   must_change_password INTEGER NOT NULL DEFAULT 0 CHECK (must_change_password IN (0, 1)),
   totp_secret          TEXT,
   totp_enabled         INTEGER NOT NULL DEFAULT 0 CHECK (totp_enabled IN (0, 1)),
+  totp_pending         TEXT,
+  totp_last_step       INTEGER,
   prefs                TEXT NOT NULL DEFAULT '{}',
   digest_last_sent_at  TEXT,
   last_login_at        TEXT,

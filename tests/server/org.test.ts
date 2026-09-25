@@ -119,7 +119,9 @@ test('membership management respects hierarchy and freezes records on removal', 
   assert.equal((await app.call('DELETE', `/api/org/units/G8/members/${op.id}`, { token: sn })).status, 400);
   const dir = await app.call('GET', '/api/org/directory?unit_id=G8&q=oth', { token: sn });
   assert.equal(dir.status, 200);
-  assert.ok(dir.body.results.some((r: any) => r.id === other.id));
+  assert.ok(!dir.body.results.some((r: any) => r.id === other.id), 'an account the SNCOIC does not lead joins by invitation');
+  const opDir = await app.call('GET', '/api/org/directory?unit_id=G8&q=oth', { token: (await app.login('boletz')).body.token });
+  assert.ok(opDir.body.results.some((r: any) => r.id === other.id), 'the Instance Operator can still enroll any account');
   assert.equal((await app.call('GET', '/api/org/directory?unit_id=G8&q=oth', { token: m })).status, 403);
   const billet = await app.call('PUT', `/api/org/units/G8/members/${marine.id}`, { token: sn, body: { billet: 'Fiscal Clerk' } });
   assert.equal(billet.status, 200);

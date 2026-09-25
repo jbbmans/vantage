@@ -27,6 +27,7 @@ export interface SanitizeResult {
 }
 
 const escapeText = (text: string) => text.replace(/&(?!(#\d+|#x[0-9a-fA-F]+|[a-zA-Z]+);)/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+const escapeAttr = (value: string) => escapeText(value).replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
 function parseAttributes(raw: string): Array<[string, string]> {
   const out: Array<[string, string]> = [];
@@ -84,7 +85,7 @@ export function sanitizeEmailHtml(input: string, limits: { maxBytes?: number } =
         const src = attrs.find(([k]) => k === 'src')?.[1] || '';
         if (/^data:image\//i.test(src)) {
           const alt = attrs.find(([k]) => k === 'alt')?.[1] || '';
-          out += `<img src="${escapeText(src)}" alt="${escapeText(alt)}">`;
+          out += `<img src="${escapeAttr(src)}" alt="${escapeAttr(alt)}">`;
         } else {
           blockedRemoteImages = true;
           out += '<span class="blocked-image">[image blocked]</span>';
@@ -114,10 +115,10 @@ export function sanitizeEmailHtml(input: string, limits: { maxBytes?: number } =
       if (!ALLOWED_ATTRIBUTES[tag]?.has(key)) continue;
       if (key === 'href') {
         if (!SAFE_SCHEME.test(value.trim())) { blockedActiveContent = true; continue; }
-        rendered += ` href="${escapeText(value.trim())}" rel="noopener noreferrer nofollow" target="_blank"`;
+        rendered += ` href="${escapeAttr(value.trim())}" rel="noopener noreferrer nofollow" target="_blank"`;
         continue;
       }
-      rendered += ` ${key}="${escapeText(value)}"`;
+      rendered += ` ${key}="${escapeAttr(value)}"`;
     }
     if (SELF_CLOSING.has(tag)) { out += `${rendered}>`; i = gt + 1; continue; }
     rendered += '>';

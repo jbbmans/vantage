@@ -6,7 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { newId, now } from '../lib/ids.ts';
 import { sha256 } from '../lib/crypto.ts';
 import { audit } from './audit.ts';
-import { addMember, getUnit } from './org.ts';
+import { addMember, assertMayGrantRole, getUnit, type RoleRow } from './org.ts';
 
 const HASH = (code: string) => sha256(`unit_invite:${code.trim().toUpperCase()}`);
 
@@ -53,13 +53,9 @@ export function createInvite(
 
   let roleId: string | null = null;
   if (input.role_id) {
-    const role = ctx.db.prepare('SELECT id, unit_id, position, permissions FROM roles WHERE id = ? AND unit_id = ?')
-      .get(String(input.role_id), unitId) as { id: string; position: number; permissions: number } | undefined;
+    const role = ctx.db.prepare('SELECT * FROM roles WHERE id = ? AND unit_id = ?').get(String(input.role_id), unitId) as RoleRow | undefined;
     if (!role) throw badRequest('No such role in that unit.');
-    const myPosition = scope.positions[unitId] || 0;
-    if (!actor.is_operator && role.position >= myPosition) {
-      throw forbidden('An invite cannot grant a role at or above your own.');
-    }
+    assertMayGrantRole(ctx, actor, scope, role, unitId);
     roleId = role.id;
   }
 

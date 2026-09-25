@@ -121,7 +121,8 @@ export function createApp(ctx: AppContext) {
 
   const MAINTENANCE_OPEN = new Set(['/auth/login', '/auth/login/mfa', '/auth/passkey/options', '/auth/passkey/verify', '/auth/logout', '/auth/sudo']);
   app.use('/api', (req, res, next) => {
-    if (ctx.runtime.maintenance && req.path.startsWith('/auth') && !MAINTENANCE_OPEN.has(req.path) && req.method !== 'GET') {
+    const path = req.path.toLowerCase().replace(/\/+$/, '');
+    if (ctx.runtime.maintenance && path.startsWith('/auth') && !MAINTENANCE_OPEN.has(path) && req.method !== 'GET') {
       res.setHeader('Cache-Control', 'no-store');
       return res.status(503).json({ error: 'Vantage is in scheduled maintenance. Try again shortly.', code: 'maintenance' });
     }

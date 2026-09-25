@@ -220,6 +220,27 @@ export function validateRoleDefinition(ctx: AppContext, actor: SessionUser, scop
   return { name };
 }
 
+/**
+ * Enrolling an existing account directly skips that person's consent, so it is limited to people the actor
+ * already leads: someone below them in a unit where they manage members. Everyone else joins by invitation.
+ */
+export function mayEnrollDirectly(ctx: AppContext, actor: SessionUser, scope: Scope, targetId: string): boolean {
+  if (actor.is_operator) return true;
+  const target = scopeFor(ctx, { id: targetId });
+  return target.unitIds.some((u) => can(scope, PERMISSIONS.MANAGE_MEMBERS, u) && positionIn(scope, u) > positionIn(target, u));
+}
+
+/** A role may be handed out only by someone who could have defined it: below their position, within their own permissions. */
+export function assertMayGrantRole(ctx: AppContext, actor: SessionUser, scope: Scope, role: RoleRow, unitId: string) {
+  if (role.unit_id !== unitId) throw forbidden('That role belongs to another unit.', 'scope');
+  if (role.key === 'unit-leader') throw badRequest('Unit Leader is granted by ownership transfer, not by invitation.');
+  if (isUnitOwner(ctx, actor.id, unitId)) return;
+  if (!can(scope, PERMISSIONS.MANAGE_ROLES, unitId)) throw forbidden('You cannot grant roles in that unit.');
+  if (role.position >= positionIn(scope, unitId)) throw forbidden('You cannot grant a role at or above your own.', 'hierarchy');
+  const mine = scope.permissions[unitId] || 0;
+  if (!has(mine, PERMISSIONS.ADMINISTRATOR) && (role.permissions & ~mine) !== 0) throw forbidden('That role carries permissions you do not hold yourself.', 'delegation');
+}
+
 export function validateRoleGrant(ctx: AppContext, actor: SessionUser, scope: Scope, role: RoleRow | undefined, unitId: string, targetId: string) {
   if (!role) throw notFound('No such role.');
   if (role.unit_id !== unitId) throw forbidden('That role belongs to another unit.', 'scope');
@@ -229,5 +250,7 @@ export function validateRoleGrant(ctx: AppContext, actor: SessionUser, scope: Sc
   if (isUnitOwner(ctx, actor.id, unitId)) return;
   if (!can(scope, PERMISSIONS.MANAGE_ROLES, unitId)) throw forbidden('You cannot manage roles in that unit.');
   if (role.position >= positionIn(scope, unitId)) throw forbidden('You cannot grant a role at or above your own.', 'hierarchy');
+  const mine = scope.permissions[unitId] || 0;
+  if (!has(mine, PERMISSIONS.ADMINISTRATOR) && (role.permissions & ~mine) !== 0) throw forbidden('That role carries permissions you do not hold yourself.', 'delegation');
   if (targetId !== actor.id && positionIn(targetScope, unitId) >= positionIn(scope, unitId)) throw forbidden('You cannot change roles for a Marine at or above your position.', 'hierarchy');
 }

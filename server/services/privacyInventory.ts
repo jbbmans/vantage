@@ -28,7 +28,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       id: 'identifier', username: 'identifier', email: 'contact', edipi: 'identifier',
       first_name: 'identifier', last_name: 'identifier', middle_initial: 'identifier',
       rank_id: 'employment', mos: 'employment', eas: 'employment',
-      password_hash: 'authentication', totp_secret: 'authentication', totp_enabled: 'authentication',
+      password_hash: 'authentication', totp_secret: 'authentication', totp_enabled: 'authentication', totp_pending: 'authentication', totp_last_step: 'authentication',
       is_operator: 'employment', active: 'employment', must_change_password: 'authentication',
       identity_source: 'employment', identity_synced_at: 'employment', demo_workspace_id: 'technical',
       prefs: 'none', digest_last_sent_at: 'technical', last_login_at: 'technical',

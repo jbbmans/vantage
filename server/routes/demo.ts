@@ -76,7 +76,7 @@ const DEMO_CLOSED: Array<[string, RegExp]> = [
 
 export function demoGuard(req: Request, _res: Response, next: NextFunction) {
   if (req.ctx.config.accessMode !== 'demo') return next();
-  const path = req.path;
+  const path = req.path.toLowerCase().replace(/\/+$/, '');
   for (const [method, pattern] of DEMO_CLOSED) {
     if ((method === '*' || method === req.method) && pattern.test(path)) {
       return next(new HttpError(403, 'That is not part of the synthetic demo. Sign-in, accounts and administration are evaluated on an accounts-mode instance.', 'demo_mode'));
