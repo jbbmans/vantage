@@ -21,3 +21,11 @@ export function useRememberVisit(userId: string | undefined, item: RecentItem | 
     } catch { /* private mode */ }
   }, [userId, to, title, kind]);
 }
+
+/** Drops something this person can no longer open (deleted, or their access changed). */
+export function useForgetVisit(userId: string | undefined, to: string, gone: boolean) {
+  useEffect(() => {
+    if (!userId || !gone) return;
+    try { localStorage.setItem(keyFor(userId), JSON.stringify(recentVisits(userId).filter((r) => r.to !== to))); } catch { /* private mode */ }
+  }, [userId, to, gone]);
+}

@@ -16,7 +16,7 @@ import { ThreadsForItem } from './Workbench';
 import { useIdentity, useMetrics, useWorkItem, invalidateWork, invalidateDomains } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { cn, timeAgo, todayIso } from '@/lib/utils';
-import { useRememberVisit } from '@/lib/recent';
+import { useForgetVisit, useRememberVisit } from '@/lib/recent';
 import {
   STAGE_LABEL, WAITING_CATEGORIES, WAITING_LABEL, FUNDS_CHECK_RESULTS, EXTERNAL_EVENTS, VALUE_SOURCES,
   describeEvent, type Stage,
@@ -41,6 +41,7 @@ export default function WorkItemPage() {
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
   const detail = useWorkItem(id);
+  useForgetVisit(identity?.user.id, `/work/items/${id}`, detail.isError);
   useRememberVisit(identity?.user.id, detail.data ? { to: `/work/items/${id}`, title: [detail.data.item.reference, detail.data.item.title].filter(Boolean).join(' · '), kind: 'case' } : null);
   const [focusStep, setFocusStep] = useState<string | null>(null);
   const [handoffOpen, setHandoffOpen] = useState(false);

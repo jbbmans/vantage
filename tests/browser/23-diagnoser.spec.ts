@@ -30,7 +30,10 @@ test('reading it yourself first hides the reading until you commit to one, then 
   await loginAs(page, OPERATOR.username);
   await page.goto('/reference?tab=diagnose');
   const figures = page.locator('section[aria-label="The figures"]');
+  await expect(figures.getByRole('button', { name: 'OCMT full' })).toBeVisible();
   await figures.getByRole('switch', { name: /Read it yourself first/ }).click();
+  await expect(figures.getByRole('button', { name: 'OCMT full' })).toHaveCount(0);
+  await expect(figures.getByRole('button', { name: 'Example 1', exact: true })).toBeVisible();
   await figures.getByLabel('Commitment', { exact: true }).fill('50,000.00');
   await figures.getByLabel('Obligation', { exact: true }).fill('50,000.00');
   await figures.getByLabel('Delivered', { exact: true }).fill('30,000.00');

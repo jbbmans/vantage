@@ -12,7 +12,7 @@ import { DescriptionList, DateText, StatusBadge, CategoryDot } from '@/component
 import { Comments } from '@/components/Comments';
 import { keys, useDeleteRecord, useIdentity, useRestoreRecord, useTrack, unitName, useOrg, useMetrics } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { useRememberVisit } from '@/lib/recent';
+import { useForgetVisit, useRememberVisit } from '@/lib/recent';
 import { composeBullet, strength, weaknesses, expandAcronyms, type BulletStyle } from '../../shared/bullets';
 import { formatDollars, formatNumber } from '../../shared/metrics';
 import { valueType } from '../../shared/constants';
@@ -32,6 +32,7 @@ export default function RecordDetail() {
   const { data: files, refetch: refetchFiles } = useQuery({ queryKey: ['attachments', 'activities', id], queryFn: () => api.attachments('activities', id), enabled: Boolean(a) && Boolean(identity?.instance.attachmentsEnabled) });
   const remove = useDeleteRecord('activities');
   useRememberVisit(identity?.user.id, a && !a.deleted_at ? { to: `/records/${id}`, title: a.title, kind: 'entry' } : null);
+  useForgetVisit(identity?.user.id, `/records/${id}`, Boolean(error) || Boolean(a?.deleted_at));
   const restore = useRestoreRecord('activities');
   const [style, setStyle] = useState<BulletStyle>(track === 'fitrep' ? 'fitrep' : 'jepes');
   const [editing, setEditing] = useState<ActivityDraft | null>(null);

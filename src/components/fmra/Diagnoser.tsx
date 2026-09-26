@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { ArrowUpRight, CheckCircle2, CircleHelp, Eye, FlaskConical, RotateCcw, Stethoscope } from 'lucide-react';
 import { diagnose, sourceExamples, ERROR_OPTIONS, METHOD_LIST, NORMAL_LIST, type BalanceInput, type ErrorKind, type MethodKey, type NormalKey } from '../../../shared/fmra';
@@ -26,6 +26,7 @@ interface State { method: MethodKey | ''; values: Record<Phase, string>; shown: 
 const EMPTY: State = { method: '', values: { commitment: '', obligation: '', delivered: '', paid: '' }, shown: { commitment: true, obligation: true, delivered: true, paid: true }, age: '', error: '' };
 
 type Read = NormalKey | 'none';
+const hash = (text: string) => [...text].reduce((h, c) => (h * 31 + c.charCodeAt(0)) % 9973, 7);
 const PRACTICE_KEY = 'vantage.diagnose.practice';
 const TALLY_KEY = 'vantage.diagnose.tally';
 const readStore = <T,>(key: string, fallback: T): T => { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) as T : fallback; } catch { return fallback; } };
@@ -39,7 +40,11 @@ export default function Diagnoser() {
   const [guess, setGuess] = useState<Read[]>([]);
   const [revealed, setRevealed] = useState(false);
   const [tally, setTally] = useState(() => readStore(TALLY_KEY, { read: 0, matched: 0 }));
+  const verdictRef = useRef<HTMLDivElement>(null);
   useEffect(() => { setGuess([]); setRevealed(false); }, [s]);
+  useEffect(() => { if (revealed) verdictRef.current?.scrollIntoView({ block: 'nearest', behavior: 'smooth' }); }, [revealed]);
+  // In practice the examples are unnamed and shuffled, so choosing one does not give its answer away.
+  const shown = useMemo(() => (practice ? [...examples].sort((a, b) => hash(a.id) - hash(b.id)) : examples), [examples, practice]);
 
   const input = useMemo<BalanceInput & { invalid: string[] }>(() => {
     const invalid: string[] = [];
@@ -132,13 +137,13 @@ export default function Diagnoser() {
         <div className="mt-5 border-t border-line pt-4">
           <p className="eyebrow mb-2 flex items-center gap-1.5"><FlaskConical className="h-3 w-3" aria-hidden />The reference’s eight examples</p>
           <div className="flex flex-wrap gap-1.5">
-            {examples.map((ex) => (
+            {shown.map((ex, i) => (
               <button key={ex.id} type="button" onClick={() => load(ex.id)} className="rounded-lg bg-surface-2 px-2.5 py-1 text-xs font-medium text-ink-2 ring-1 ring-inset ring-line transition-colors hover:bg-surface-3 hover:text-ink">
-                {ex.condition.toUpperCase()} {ex.pattern}
+                {practice ? `Example ${i + 1}` : `${ex.condition.toUpperCase()} ${ex.pattern}`}
               </button>
             ))}
           </div>
-          {example && <p className="mt-2 text-xs text-ink-3">Classroom example, not a live balance: {example}</p>}
+          {example && !hidden && <p className="mt-2 text-xs text-ink-3">Classroom example, not a live balance: {example}</p>}
         </div>
       </section>
 
@@ -154,7 +159,7 @@ export default function Diagnoser() {
             <LifecycleBars figures={{ commitment: input.commitment ?? null, obligation: input.obligation ?? null, delivered: input.delivered ?? null, paid: input.paid ?? null }} travel={s.method === 'tdy'} quiz={hidden} />
             {hidden ? <YourRead guess={guess} setGuess={setGuess} onReveal={reveal} /> : (
               <>
-                {practice && <Verdict matched={matched} guess={guess} truth={truth} />}
+                {practice && <div ref={verdictRef} className="scroll-mt-24"><Verdict matched={matched} guess={guess} truth={truth} /></div>}
                 <div className="mt-6"><DiagnosisView d={result} /></div>
                 {result.procedure && <OpenCase procedure={result.procedure} input={input} method={s.method} />}
               </>

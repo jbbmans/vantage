@@ -130,8 +130,6 @@ function Overview({ summary, loading, onTab }: { summary: any; loading: boolean;
           ) : <ul className="divide-y divide-line">{assigned.data.map((item) => <WorkRow key={item.id} item={item} />)}</ul>}
         </Panel>
 
-        <Practiced />
-
         <Panel title="What you recorded yourself" subtitle="PME, PT, volunteering, qualifications: anything that did not start as a tasker.">
           <ul className="grid grid-cols-3 gap-3 text-sm">
             <li>
@@ -156,6 +154,8 @@ function Overview({ summary, loading, onTab }: { summary: any; loading: boolean;
           </div>
         </Panel>
       </div>
+
+      <Practiced />
     </div>
   );
 }
