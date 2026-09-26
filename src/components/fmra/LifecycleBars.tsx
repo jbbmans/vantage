@@ -10,7 +10,8 @@ const ROWS: Array<{ key: keyof Figures; label: string }> = [
   { key: 'paid', label: 'Paid' },
 ];
 
-export default function LifecycleBars({ figures, travel = false, compact = false, decorative = false, className }: { figures: Figures; travel?: boolean; compact?: boolean; decorative?: boolean; className?: string }) {
+/** `quiz` draws the figures without naming or marking what is open, so a reader can work it out first. */
+export default function LifecycleBars({ figures, travel = false, compact = false, decorative = false, quiz = false, className }: { figures: Figures; travel?: boolean; compact?: boolean; decorative?: boolean; quiz?: boolean; className?: string }) {
   const values = ROWS.map((r) => figures[r.key]);
   const max = Math.max(1, ...values.map((v) => v ?? 0));
   const pct = (v: number) => `${Math.max(0, Math.min(100, (v / max) * 100))}%`;
@@ -28,6 +29,7 @@ export default function LifecycleBars({ figures, travel = false, compact = false
     const gap = prev - v;
     return gap > 0 ? { cents: gap, label: ['', 'OCMT', 'UDOU', 'DOU'][i] } : null;
   };
+  const shownGap = (i: number) => (quiz ? null : gapOf(i));
   const summary = ROWS.map((r, i) => `${r.label} ${values[i] == null ? 'not shown' : formatCents(values[i]!)}`).join(', ');
 
   if (decorative) {
@@ -52,7 +54,7 @@ export default function LifecycleBars({ figures, travel = false, compact = false
       <div className={cn('space-y-2.5', compact && 'space-y-1.5')} aria-hidden>
         {ROWS.map((row, i) => {
           const v = values[i];
-          const gap = gapOf(i);
+          const gap = shownGap(i);
           const reach = travel && i === 3 ? values[1] : i > 0 ? values[i - 1] : null;
           return (
             <div key={row.key} className="grid grid-cols-[5.5rem_minmax(0,1fr)_6.5rem] items-center gap-3">
@@ -82,7 +84,7 @@ export default function LifecycleBars({ figures, travel = false, compact = false
         <caption>Lifecycle figures</caption>
         <thead><tr><th>Phase</th><th>Amount</th><th>Open from the phase before</th></tr></thead>
         <tbody>
-          {ROWS.map((r, i) => { const g = gapOf(i); return <tr key={r.key}><td>{r.label}</td><td>{values[i] == null ? 'Not shown' : formatCents(values[i]!)}</td><td>{g ? `${g.label} ${formatCents(g.cents)}` : '—'}</td></tr>; })}
+          {ROWS.map((r, i) => { const g = shownGap(i); return <tr key={r.key}><td>{r.label}</td><td>{values[i] == null ? 'Not shown' : formatCents(values[i]!)}</td><td>{g ? `${g.label} ${formatCents(g.cents)}` : '—'}</td></tr>; })}
         </tbody>
       </table>
     </figure>

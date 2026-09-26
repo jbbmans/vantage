@@ -17,6 +17,7 @@ export interface NavItem {
   hint?: string;
   end?: boolean;
   requiresLead?: boolean;
+  requiresUnit?: boolean;
   requiresOperator?: boolean;
   requiresAi?: boolean;
   requiresMaradmins?: boolean;
@@ -31,7 +32,7 @@ export const NAV: NavItem[] = [
   { to: '/goals', label: 'Goals', icon: Target, key: 'g', group: 'Primary', hint: 'Targets and measurable progress' },
   { to: '/career', label: 'Career', icon: GraduationCap, key: 'c', group: 'Primary', hint: 'Next steps, training, readiness' },
   { to: '/reference', label: 'Reference', icon: Library, key: 'f', group: 'Knowledge', hint: 'The FMRA desk reference and balance diagnoser' },
-  { to: '/team', label: 'Team', icon: Users, key: 't', requiresLead: true, group: 'Leading', hint: 'Workload, people, and units' },
+  { to: '/team', label: 'Team', icon: Users, key: 't', requiresUnit: true, group: 'Primary', hint: 'Your team and the command above it' },
   { to: '/reports', label: 'Reports', icon: FileText, key: 'p', group: 'More', secondary: true, hint: 'JEPES and FITREP input from the facts' },
   { to: '/maradmins', label: 'MARADMINs', icon: ScrollText, key: 'm', group: 'More', secondary: true, hint: 'Messages that change a requirement', requiresMaradmins: true },
   { to: '/settings', label: 'Settings', icon: Settings2, key: 's', secondary: true, group: 'More' },

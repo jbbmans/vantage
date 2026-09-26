@@ -1,9 +1,12 @@
 import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
-import { ArrowRight, BookOpen, CornerDownLeft, Plus, Search } from 'lucide-react';
+import { ArrowRight, BookOpen, Building2, CornerDownLeft, History, Plus, Search } from 'lucide-react';
 import type { NavItem } from '@/config/nav';
 import * as api from '@/lib/api';
+import { useIdentity } from '@/lib/queries';
+import { useView, viewLabel } from '@/lib/view';
+import { recentVisits } from '@/lib/recent';
 import { cn } from '@/lib/utils';
 
 interface Item { id: string; title: string; subtitle?: string | null; kind: string; to?: string; run?: () => void }
@@ -14,6 +17,8 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav }: 
   const [results, setResults] = useState<Item[]>([]);
   const [reference, setReference] = useState<Item[]>([]);
   const [active, setActive] = useState(0);
+  const { data: identity } = useIdentity();
+  const { view, views, setView } = useView(identity);
 
   useEffect(() => { if (open) { setQuery(''); setResults([]); setReference([]); setActive(0); } }, [open]);
   useEffect(() => {
@@ -35,8 +40,12 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav }: 
     const q = query.trim().toLowerCase();
     const actions: Item[] = [{ id: 'act-log', title: q && !/^(go|open|nav)/.test(q) && q.length > 6 ? `Log activity: “${query.trim()}”` : 'Log activity', subtitle: 'Press N anywhere', kind: 'action', run: () => onQuickLog(q.length > 6 ? query.trim() : '') }];
     const pages = nav.filter((n) => !q || n.label.toLowerCase().includes(q)).map((n) => ({ id: `nav-${n.to}`, title: n.label, subtitle: `G then ${n.key.toUpperCase()}`, kind: 'page', to: n.to }));
-    return [...(q ? results : []), ...(q ? reference : []), ...actions, ...pages];
-  }, [query, results, reference, nav, onQuickLog]);
+    const switches = views.length > 1 ? views.filter((v) => v.id !== view?.id && (!q || `view ${viewLabel(v)} ${v.name}`.toLowerCase().includes(q))).map((v) => ({ id: `view-${v.id}`, title: `View ${viewLabel(v)}`, subtitle: v.teams ? `Whole command · ${v.teams} ${v.teams === 1 ? 'team' : 'teams'}` : v.level === 'full' ? 'Team' : 'Team overview', kind: 'view', run: () => setView(v.id) })) : [];
+    const recent = recentVisits(identity?.user.id).slice(0, 5).map((r) => ({ id: `recent-${r.to}`, title: r.title, subtitle: r.kind === 'case' ? 'Case you opened' : r.kind === 'marine' ? 'Marine you opened' : 'Entry you opened', kind: 'recent', to: r.to }));
+    if (!q) return [...recent, ...actions, ...pages, ...switches.slice(0, 3)];
+    return /^(view|switch)/.test(q) ? [...switches, ...actions, ...pages, ...results, ...reference] : [...results, ...reference, ...actions, ...switches, ...pages];
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [query, results, reference, nav, onQuickLog, views, view, setView, open, identity?.user.id]);
 
   useEffect(() => { setActive(0); }, [items.length]);
 
@@ -62,7 +71,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav }: 
             {items.map((item, i) => (
               <li key={item.id} id={item.id} role="option" aria-selected={i === active} onMouseEnter={() => setActive(i)} onClick={() => choose(item)} className={cn('flex cursor-pointer items-center gap-3 rounded-xl px-3 py-2.5 text-sm transition-colors', i === active ? 'bg-surface-2 text-ink' : 'text-ink-2')}>
                 <span className={cn('flex h-7 w-7 shrink-0 items-center justify-center rounded-lg', item.kind === 'action' ? 'bg-accent/10 text-accent' : item.kind === 'reference' ? 'bg-accent-2/10 text-accent-2' : 'bg-surface-2 text-ink-3')}>
-                  {item.kind === 'action' ? <Plus className="h-3.5 w-3.5" /> : item.kind === 'reference' ? <BookOpen className="h-3.5 w-3.5" /> : <ArrowRight className="h-3.5 w-3.5" />}
+                  {item.kind === 'action' ? <Plus className="h-3.5 w-3.5" /> : item.kind === 'reference' ? <BookOpen className="h-3.5 w-3.5" /> : item.kind === 'view' ? <Building2 className="h-3.5 w-3.5" /> : item.kind === 'recent' ? <History className="h-3.5 w-3.5" /> : <ArrowRight className="h-3.5 w-3.5" />}
                 </span>
                 <span className="min-w-0 flex-1">
                   <span className="block truncate font-medium text-ink">{item.title}</span>

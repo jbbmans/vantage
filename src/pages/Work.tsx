@@ -51,8 +51,8 @@ export default function Work({ embedded }: { embedded?: boolean } = {}) {
     try { await updateTask.mutateAsync({ id: t.id, patch: { status: t.status === 'completed' ? 'active' : 'completed', version: t.version } }); }
     catch (e) { toast.error(api.errorText(e)); }
   };
-  const newTask = (extra: Partial<TaskDraft> = {}) => setTaskDraft({ title: '', notes: '', status: 'planned', priority: 'medium', due_date: '', project_id: projectFilter !== 'all' ? projectFilter : null, assignee_id: null, visibility: prefs.defaultVisibility || 'private', unit_id: identity?.primaryUnitId || null, ...extra });
-  const newProject = () => setProjectDraft({ name: '', description: '', status: 'active', priority: 'medium', progress: 0, start_date: today, target_date: '', organization: '', visibility: prefs.defaultVisibility || 'private', unit_id: identity?.primaryUnitId || null });
+  const newTask = (extra: Partial<TaskDraft> = {}) => setTaskDraft({ title: '', notes: '', status: 'planned', priority: 'medium', due_date: '', project_id: projectFilter !== 'all' ? projectFilter : null, assignee_id: null, visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null, ...extra });
+  const newProject = () => setProjectDraft({ name: '', description: '', status: 'active', priority: 'medium', progress: 0, start_date: today, target_date: '', organization: '', visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null });
   const canAssign = Boolean(identity && Object.values(identity.permissions).some((b) => b & ((1 << 12) | (1 << 4))));
   const canEditRow = (r: any) => r.user_id === me || Boolean(r.unit_id && identity && ((identity.permissions[r.unit_id] || 0) & ((1 << 12) | (1 << 3))));
   const canToggleRow = (r: any) => canEditRow(r) || (r.assignee_id === me && r.visibility === 'unit');

@@ -22,6 +22,7 @@ const oneOf = (...values: string[]): PropertySpec => ({ kind: 'enum', values });
 
 export const EVENTS: Record<string, EventSpec> = {
   'session.started': { family: 'adoption', properties: { returning: bool, days_since_last: num } },
+  'view.switched': { family: 'adoption', properties: { depth: num, whole: bool } },
   'surface.viewed': { family: 'adoption', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help', 'reference', 'diagnose') } },
 
   'capture.opened': { family: 'capture', properties: { surface: oneOf('quick_log', 'record_form', 'work_action', 'thread_message') } },

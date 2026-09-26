@@ -1,10 +1,10 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
-import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
+import { badRequest, conflict, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth, requireOperator, requireSudo } from '../auth/middleware.ts';
-import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith } from '../authz/scope.ts';
-import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, type RoleRow } from '../services/org.ts';
+import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross } from '../authz/scope.ts';
+import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, type RoleRow } from '../services/org.ts';
 import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
@@ -13,10 +13,11 @@ import { layout } from '../services/email.ts';
 import { emailField, profileSchema } from '../../shared/schemas.ts';
 import { hydrate, withGoalProgress } from '../services/records.ts';
 import { newId, now } from '../lib/ids.ts';
-import { unitDashboard } from '../services/dashboard.ts';
+import { unitDashboard, unitOverview } from '../services/dashboard.ts';
 import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
-import { mailAllowance } from '../auth/limiter.ts';
+import { mailAllowance, limiters } from '../auth/limiter.ts';
+import { sendTeamMessage, teamAudience } from '../services/teamMail.ts';
 
 export const orgRouter = Router();
 orgRouter.use(requireAuth);
@@ -42,6 +43,18 @@ orgRouter.get('/units/:unitId/dashboard', wrap((req, res) => {
   res.json(unitDashboard(req.ctx, unitId, from, to, { includeMembers }));
 }));
 
+orgRouter.get('/units/:unitId/overview', wrap((req, res) => {
+  const unitId = String(req.params.unitId);
+  const scope = scopeFor(req.ctx, req.user, req);
+  if (!getUnit(req.ctx, unitId)) throw notFound('No such unit.');
+  if (!req.user.is_operator && !scope.viewableUnitIds.includes(unitId)) throw forbidden('That unit is outside your chain of command.');
+  const to = String(req.query.to || new Date().toISOString().slice(0, 10));
+  const from = String(req.query.from || new Date(Date.now() - 89 * 86_400_000).toISOString().slice(0, 10));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw badRequest('Use a valid from/to window.');
+  const goalUnits = [...new Set([...scope.readableUnitIds, ...scope.unitIds, ...ancestorIds(req.ctx, scope.unitIds)])];
+  res.json(unitOverview(req.ctx, unitId, { from, to, full: can(scope, PERMISSIONS.VIEW_RECORDS, unitId), goalUnits }));
+}));
+
 orgRouter.get('/units/:unitId/audit', wrap((req, res) => {
   const unitId = String(req.params.unitId);
   const scope = scopeFor(req.ctx, req.user, req);
@@ -59,10 +72,11 @@ orgRouter.get('/units/:unitId/export', wrap((req, res) => {
   const unit = getUnit(req.ctx, unitId);
   if (!unit) throw notFound('No such unit.');
   if (!can(scope, PERMISSIONS.EXPORT_DATA, unitId)) throw forbidden('You cannot export that unit.');
-  const members = req.ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.mos, um.billet, r.abbr AS rank_abbr FROM users u JOIN unit_members um ON um.user_id = u.id LEFT JOIN ranks r ON r.id = u.rank_id WHERE um.unit_id = ? AND u.active = 1`).all(unitId);
-  const out: Record<string, unknown> = { unit: { id: unit.id, name: unit.name }, generated_at: now(), members };
+  const unitIds = subtreeIds(req.ctx, unitId);
+  const members = membersAcross(req.ctx, unitIds).map((m) => ({ id: m.id, first_name: m.first_name, last_name: m.last_name, mos: m.mos, billet: m.billet, rank_abbr: m.rank_abbr, unit_id: m.unit_id, team: m.team }));
+  const out: Record<string, unknown> = { unit: { id: unit.id, name: unit.name }, units: unitIds, generated_at: now(), members };
   for (const table of ['activities', 'projects', 'tasks', 'goals', 'trainings', 'awards'] as const) {
-    out[table] = (req.ctx.db.prepare(`SELECT * FROM ${table} WHERE deleted_at IS NULL AND visibility = 'unit' AND unit_id = ? ORDER BY created_at DESC`).all(unitId) as Array<Record<string, unknown>>).map((r) => hydrate(r, table));
+    out[table] = (req.ctx.db.prepare(`SELECT * FROM ${table} WHERE deleted_at IS NULL AND visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?)) ORDER BY created_at DESC`).all(JSON.stringify(unitIds)) as Array<Record<string, unknown>>).map((r) => hydrate(r, table));
   }
   audit(req.ctx, { actor_id: req.user.id, action: 'export', entity: 'unit', entity_id: unitId, unit_id: unitId, ip: clientIp(req) });
   res.json(out);
@@ -124,6 +138,40 @@ orgRouter.put('/units/:unitId/members/:userId', wrap((req, res) => {
   })();
   audit(ctx, { actor_id: req.user.id, action: 'edit_membership', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, ip: clientIp(req) });
   res.json({ ok: true });
+}));
+
+orgRouter.get('/units/:unitId/message', wrap((req, res) => {
+  const unitId = String(req.params.unitId);
+  if (!getUnit(req.ctx, unitId)) throw notFound('No such unit.');
+  if (!can(scopeFor(req.ctx, req.user, req), PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('Only a leader who manages this unit’s members can message it.');
+  res.json(teamAudience(req.ctx, unitId, req.user.id));
+}));
+
+orgRouter.post('/units/:unitId/message', wrap(async (req, res) => {
+  const ctx = req.ctx;
+  const unitId = String(req.params.unitId);
+  const body = parse(z.object({ subject: z.string().trim().min(1).max(120), body: z.string().trim().min(1).max(5000) }), req.body);
+  if (!getUnit(ctx, unitId)) throw notFound('No such unit.');
+  if (!can(scopeFor(ctx, req.user, req), PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('Only a leader who manages this unit’s members can message it.');
+  const limited = limiters.teamMail.limited(req.user.id);
+  if (limited) throw tooMany('You have sent five team messages in the last hour. Try again later.', limited.retryAfter);
+  limiters.teamMail.bump(req.user.id);
+  const result = await sendTeamMessage(ctx, req.user, unitId, body);
+  audit(ctx, { actor_id: req.user.id, action: 'team_message', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${result.recipients} recipients: ${result.emailed} emailed, ${result.queued} queued, ${result.failed} failed, ${result.appOnly} in Vantage only; subject: ${body.subject.slice(0, 80)}`, ip: clientIp(req) });
+  res.json(result);
+}));
+
+orgRouter.post('/units/:unitId/members/:userId/move', wrap((req, res) => {
+  const ctx = req.ctx;
+  const unitId = String(req.params.unitId);
+  const userId = String(req.params.userId);
+  const body = parse(z.object({ to: z.string().max(64), entries: z.enum(['stay', 'move']).optional(), billet: z.string().max(80).nullish() }), req.body);
+  const moved = moveMember(ctx, req.user, scopeFor(ctx, req.user, req), userId, unitId, body.to, { entries: body.entries, billet: body.billet });
+  const from = getUnit(ctx, unitId)!;
+  const to = getUnit(ctx, body.to)!;
+  audit(ctx, { actor_id: req.user.id, action: 'move_member', entity: 'unit', entity_id: body.to, subject_id: userId, unit_id: unitId, detail: `from ${from.short_name || from.name} to ${to.short_name || to.name}; roles kept: ${moved.roles.join(', ') || 'none'}; not carried: ${moved.rolesSkipped.join(', ') || 'none'}; entries ${body.entries === 'move' ? `moved: ${moved.entriesMoved}` : `stayed (frozen: ${moved.recordsFrozen})`}; sessions revoked: ${moved.sessionsRevoked}`, ip: clientIp(req) });
+  notify(ctx, userId, { kind: 'unit', title: 'Moved to a new team', message: `${req.user.first_name} ${req.user.last_name} moved you from ${from.name} to ${to.name}. Sign in again to see it.`, actionUrl: '/team', dedupeKey: `move:${body.to}:${userId}` });
+  res.json({ ok: true, ...moved });
 }));
 
 orgRouter.delete('/units/:unitId/members/:userId', wrap((req, res) => {

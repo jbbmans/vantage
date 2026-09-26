@@ -47,6 +47,8 @@ services:
         value: resend
       - key: VANTAGE_EMAIL_FROM
         value: "Vantage <no-reply@vantageusmc.com>"
+      - key: VANTAGE_EMAIL_REPLY_TO
+        sync: false
       - key: RESEND_API_KEY
         sync: false
       - key: VANTAGE_AI_ENABLED

@@ -436,6 +436,21 @@ CREATE TABLE IF NOT EXISTS email_log (
 );
 CREATE INDEX IF NOT EXISTS idx_email_log_created ON email_log(created_at DESC);
 
+-- Direct delivery a receiver asked to retry later. The message is encrypted and removed once delivered or given up.
+CREATE TABLE IF NOT EXISTS email_queue (
+  id              TEXT PRIMARY KEY,
+  log_id          TEXT REFERENCES email_log(id) ON DELETE SET NULL,
+  to_address      TEXT NOT NULL,
+  kind            TEXT NOT NULL,
+  payload         TEXT NOT NULL,
+  attempts        INTEGER NOT NULL DEFAULT 1,
+  last_error      TEXT,
+  next_attempt_at TEXT NOT NULL,
+  expires_at      TEXT NOT NULL,
+  created_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_email_queue_due ON email_queue(next_attempt_at);
+
 CREATE TABLE IF NOT EXISTS source_files (
   id           TEXT PRIMARY KEY,
   user_id      TEXT NOT NULL REFERENCES users(id),

@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, CalendarClock, CheckCircle2, GraduationCap, Hand, Inbox, Plus, Sparkles, Target, TrendingUp, Users } from 'lucide-react';
+import { Bell, Building2, CalendarClock, CheckCircle2, GraduationCap, Hand, History, Inbox, Plus, Sparkles, Target, TrendingUp, Users } from 'lucide-react';
 import { Badge, Button, EmptyState, Input, PageHeader, Panel, Progress, Skeleton } from '@/components/ui/primitives';
 import { BarList } from '@/components/charts';
 import { AiAction, AiResult } from '@/components/AiPanel';
@@ -17,11 +17,16 @@ import { WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
 import { rangeForPeriod, dayKey, formatNumber } from '../../shared/metrics';
 import { todayActions } from '../../shared/health';
 import { cn, timeAgo } from '@/lib/utils';
+import { useView } from '@/lib/view';
+import { UnitPulse, TeamStrip, useUnitOverview } from '@/components/UnitOverview';
+import GettingStarted from '@/components/GettingStarted';
+import { CountUp } from '@/components/ui/motion';
+import { recentVisits } from '@/lib/recent';
 
 export default function Dashboard() {
   const navigate = useNavigate();
   const { data: identity } = useIdentity();
-  const leadUnit = identity?.canLead ? identity.readableUnitIds[0] : null;
+  const { view } = useView(identity);
   const first = identity?.user.first_name;
   const hour = new Date().getHours();
   const greeting = hour < 12 ? 'Good morning' : hour < 17 ? 'Good afternoon' : 'Good evening';
@@ -47,7 +52,9 @@ export default function Dashboard() {
         <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
       </PageHeader>
 
-      {leadUnit && <SectionOverview unitId={leadUnit} />}
+      <GettingStarted />
+
+      {view && (view.level === 'full' ? <SectionOverview key={view.id} unitId={view.id} /> : <UnitPulse key={view.id} unitId={view.id} />)}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="space-y-4 xl:col-span-2">
@@ -82,6 +89,7 @@ export default function Dashboard() {
 
         <div className="space-y-4">
           <QuickCapture />
+          <PickUp />
           <Changes />
           <PersonalPanel summary={summary.data} />
         </div>
@@ -105,6 +113,28 @@ function AvailableWork({ compact = false }: { compact?: boolean }) {
       <p className="border-b border-line px-4 py-3 text-sm text-ink-2">You are not holding anything. These are open to claim; claiming puts one on your list at once.</p>
       {body}
     </div>
+  );
+}
+
+/** Where this person left off, on this device: the last few entries, cases and Marines they opened. */
+function PickUp() {
+  const { data: identity } = useIdentity();
+  const items = recentVisits(identity?.user.id).slice(0, 4);
+  if (!items.length) return null;
+  return (
+    <Panel title="Pick up where you left off" padded={false}>
+      <ul className="stagger divide-y divide-line">
+        {items.map((r, i) => (
+          <li key={r.to} style={{ '--i': i } as React.CSSProperties}>
+            <Link to={r.to} className="group flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors hover:bg-surface-2">
+              <History className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />
+              <span className="min-w-0 flex-1 truncate text-ink">{r.title}</span>
+              <span className="shrink-0 text-2xs text-ink-3">{r.kind === 'case' ? 'case' : r.kind === 'marine' ? 'Marine' : 'entry'}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Panel>
   );
 }
 
@@ -195,20 +225,22 @@ function SectionOverview({ unitId }: { unitId: string }) {
   if (w.isError || !w.data) return null;
   const s = w.data.section;
   const unitLabel: string = w.data.unit_name || 'Your section';
+  const teams: number = w.data.rolls_up || 0;
   const waitingBits = Object.entries(s.by_waiting as Record<string, { count: number; oldest_hours: number }>);
   return (
     <section aria-labelledby="section-heading" className="mb-6">
       <div className="mb-2 flex items-center justify-between gap-2">
-        <h2 id="section-heading" className="flex items-center gap-2 text-md font-semibold text-ink"><Users className="h-4 w-4 text-accent" aria-hidden />{unitLabel}</h2>
+        <h2 id="section-heading" className="flex items-center gap-2 text-md font-semibold text-ink">{teams ? <Building2 className="h-4 w-4 text-accent" aria-hidden /> : <Users className="h-4 w-4 text-accent" aria-hidden />}{unitLabel}{teams ? <span className="text-sm font-normal text-ink-3">· whole command, {teams} {teams === 1 ? 'team' : 'teams'}</span> : null}</h2>
         <Link to="/team?tab=workload" className="text-xs text-accent hover:underline">Full workload</Link>
       </div>
-      <div className="grid grid-cols-2 gap-3 md:grid-cols-4">
+      <div className="stagger grid grid-cols-2 gap-3 md:grid-cols-4">
         <Tile label="Unassigned" value={s.unassigned} hint="open to claim or assign" to="/work?claimed=nobody" tone={s.unassigned ? 'accent' : undefined} />
         <Tile label="Overdue" value={s.overdue} hint="past due and still open" to="/team?tab=workload" tone={s.overdue ? 'bad' : undefined} />
         <Tile label="Blocked" value={s.blocked} hint="something is in the way" to="/team?tab=workload" tone={s.blocked ? 'warn' : undefined} />
         <Tile label="Waiting" value={s.waiting} hint={waitingBits.map(([k, v]) => `${v.count} ${WAITING_LABEL[k as WaitingCategory]?.toLowerCase() || k}`).join(', ') || 'on approvals or posting'} to="/team?tab=workload" />
       </div>
       {Array.isArray(s.by_procedure) && s.by_procedure.some((p: any) => p.key !== 'none') && <ProcedureLedger rows={s.by_procedure} />}
+      {teams > 0 && <CommandTeams unitId={unitId} />}
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Needs a decision" subtitle="Blocked, overdue, or waiting on verification" padded={false}>
           {w.data.attention.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Nothing is stuck.</p> : (
@@ -229,6 +261,12 @@ function SectionOverview({ unitId }: { unitId: string }) {
   );
 }
 
+function CommandTeams({ unitId }: { unitId: string }) {
+  const { data } = useUnitOverview(unitId);
+  if (!data?.teams.length) return null;
+  return <div className="mt-4"><TeamStrip data={data} /></div>;
+}
+
 function ProcedureLedger({ rows }: { rows: Array<{ key: string; short: string; title: string; open: number; unassigned: number; blocked: number; overdue: number }> }) {
   return (
     <div className="card mt-4 overflow-hidden p-0">
@@ -241,7 +279,7 @@ function ProcedureLedger({ rows }: { rows: Array<{ key: string; short: string; t
           <li key={r.key}>
             <Link to={`/work?procedure=${encodeURIComponent(r.key)}`} title={r.title} className="group block h-full px-4 py-3 transition-colors hover:bg-surface-2">
               <span className="block truncate text-xs font-semibold uppercase tracking-wider text-ink-3 group-hover:text-accent">{r.short}</span>
-              <span className="stat-value mt-1 block text-[26px]">{r.open}</span>
+              <span className="stat-value mt-1 block text-[26px]"><CountUp value={r.open} /></span>
               <span className="mt-0.5 block text-2xs leading-snug text-ink-3">
                 {[r.unassigned && `${r.unassigned} unclaimed`, r.blocked && `${r.blocked} blocked`, r.overdue && `${r.overdue} overdue`].filter(Boolean).join(' · ') || 'all in hand'}
               </span>
@@ -255,9 +293,9 @@ function ProcedureLedger({ rows }: { rows: Array<{ key: string; short: string; t
 
 function Tile({ label, value, hint, to, tone }: { label: string; value: number; hint: string; to: string; tone?: 'accent' | 'bad' | 'warn' }) {
   return (
-    <Link to={to} className="card card-hover block p-4">
+    <Link to={to} className="card card-hover lift block p-4">
       <p className="text-sm font-medium text-ink-2">{label}</p>
-      <p className={cn('stat-value mt-2', tone === 'accent' && 'text-accent', tone === 'bad' && 'text-bad', tone === 'warn' && 'text-warn')}>{value}</p>
+      <p className={cn('stat-value mt-2', tone === 'accent' && 'text-accent', tone === 'bad' && 'text-bad', tone === 'warn' && 'text-warn')}><CountUp value={value} /></p>
       <p className="mt-1 truncate text-xs text-ink-3">{hint}</p>
     </Link>
   );

@@ -2,6 +2,7 @@ import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, enroll, PASSWORD, type TestApp } from './helpers.ts';
 import { buildZip } from '../../server/lib/zip.ts';
+import { PERMISSIONS } from '../../shared/permissions.ts';
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
@@ -46,12 +47,20 @@ test('applying creates the accounts, their units, ranks, roles and billets, all 
   assert.equal(r.body.created, 4);
   assert.deepEqual(r.body.generated.map((g: { username: string }) => g.username), ['casey.north']);
 
-  const avery = app.ctx.db.prepare(`SELECT u.rank_id, u.email, u.must_change_password, m.unit_id, m.billet, un.parent_id FROM users u JOIN unit_members m ON m.user_id = u.id JOIN units un ON un.id = m.unit_id WHERE u.username = 'avery.stone'`).get() as Record<string, unknown>;
-  assert.deepEqual(avery, { rank_id: 'SSgt', email: 'avery.stone@example.mil', must_change_password: 1, unit_id: 'ALPHA-CELL', billet: 'Section chief', parent_id: 'TEST-COMMAND' });
-  const roles = app.ctx.db.prepare(`SELECT r.key FROM member_roles mr JOIN roles r ON r.id = mr.role_id JOIN users u ON u.id = mr.user_id WHERE u.username = 'avery.stone' ORDER BY r.key`).all().map((x) => (x as { key: string }).key);
-  assert.deepEqual(roles, ['fire-team-leader', 'marine']);
-  const owners = app.ctx.db.prepare(`SELECT owner_user_id FROM units WHERE id IN ('TEST-COMMAND', 'ALPHA-CELL', 'BRAVO-CELL')`).all() as Array<{ owner_user_id: string }>;
-  assert.deepEqual(owners.map((o) => o.owner_user_id), [op.id, op.id, op.id], 'the importer leads every unit it creates');
+  const avery = app.ctx.db.prepare(`SELECT u.rank_id, u.email, u.must_change_password FROM users u WHERE u.username = 'avery.stone'`).get() as Record<string, unknown>;
+  assert.deepEqual(avery, { rank_id: 'SSgt', email: 'avery.stone@example.mil', must_change_password: 1 });
+  const memberships = app.ctx.db.prepare(`SELECT m.unit_id, m.is_primary, m.billet, un.parent_id FROM unit_members m JOIN units un ON un.id = m.unit_id JOIN users u ON u.id = m.user_id WHERE u.username = 'avery.stone' ORDER BY m.is_primary DESC`).all();
+  assert.deepEqual(memberships, [
+    { unit_id: 'TEST-COMMAND', is_primary: 1, billet: null, parent_id: null },
+    { unit_id: 'ALPHA-CELL', is_primary: 0, billet: 'Section chief', parent_id: 'TEST-COMMAND' },
+  ], 'the command is their primary unit; the team carries their billet');
+  const roles = app.ctx.db.prepare(`SELECT mr.unit_id || ':' || r.key AS k FROM member_roles mr JOIN roles r ON r.id = mr.role_id JOIN users u ON u.id = mr.user_id WHERE u.username = 'avery.stone' ORDER BY k`).all().map((x) => (x as { k: string }).k);
+  assert.deepEqual(roles, ['ALPHA-CELL:fire-team-leader', 'ALPHA-CELL:marine', 'TEST-COMMAND:marine'], 'a leader role sits on the team they lead, not the whole command');
+  const owners = Object.fromEntries((app.ctx.db.prepare(`SELECT id, owner_user_id FROM units WHERE id IN ('TEST-COMMAND', 'ALPHA-CELL', 'BRAVO-CELL')`).all() as Array<{ id: string; owner_user_id: string | null }>).map((o) => [o.id, o.owner_user_id]));
+  assert.deepEqual(owners, { 'TEST-COMMAND': op.id, 'ALPHA-CELL': null, 'BRAVO-CELL': null }, 'the importer leads the command it creates, and governs its teams from there');
+  const me = await app.call('GET', '/api/me', { token: op.token });
+  assert.ok(me.body.permissions['ALPHA-CELL'] & PERMISSIONS.ADMINISTRATOR);
+  assert.ok(!me.body.unitIds.includes('ALPHA-CELL'), 'without joining the team roster');
 
   const login = await app.login('avery.stone', 'QuartzHarborLane4!');
   assert.equal(login.status, 200);
