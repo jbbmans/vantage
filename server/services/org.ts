@@ -330,5 +330,7 @@ export function viewsFor(ctx: AppContext, scope: Scope, isOperator: boolean): { 
   };
   walk(null, 0);
   const led = views.filter((v) => v.level === 'full').sort((a, b) => a.depth - b.depth)[0];
-  return { views, defaultViewId: led?.id ?? (scope.primaryUnitId && allowed.has(scope.primaryUnitId) ? scope.primaryUnitId : views[0]?.id ?? null) };
+  // Someone who leads nothing starts on their own team, the deepest unit they belong to, even when the command is their primary unit.
+  const own = views.filter((v) => v.member).sort((a, b) => b.depth - a.depth)[0];
+  return { views, defaultViewId: led?.id ?? own?.id ?? (scope.primaryUnitId && allowed.has(scope.primaryUnitId) ? scope.primaryUnitId : views[0]?.id ?? null) };
 }

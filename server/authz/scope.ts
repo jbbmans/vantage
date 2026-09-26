@@ -7,6 +7,8 @@ export interface Scope {
   memberships: Array<{ unit_id: string; is_primary: number; billet: string | null; joined_at: string; unit_name: string; unit_short: string | null; unit_code: string; parent_id: string | null }>;
   unitIds: string[];
   primaryUnitId: string | null;
+  /** The deepest unit they belong to: their own team, where what they share is seen by everyone in their chain of command. */
+  homeUnitId: string | null;
   permissions: Record<string, number>;
   positions: Record<string, number>;
   ownedUnitIds: string[];
@@ -73,22 +75,26 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
 
   const permissions: Record<string, number> = {};
   const positions: Record<string, number> = {};
+  const authority: Record<string, number> = {};
   for (const g of roles) {
     permissions[g.unit_id] = (permissions[g.unit_id] || 0) | g.permissions;
     positions[g.unit_id] = Math.max(positions[g.unit_id] || 0, g.position);
+    if (g.position > 0) authority[g.unit_id] = (authority[g.unit_id] || 0) | g.permissions;
   }
   for (const id of owned) {
     permissions[id] = ALL_PERMISSIONS;
     positions[id] = Math.max(positions[id] || 0, 100);
+    authority[id] = ALL_PERMISSIONS;
   }
 
   // Authority held in a unit reaches every unit beneath it, and outranks anyone whose role sits only in the lower unit.
+  // Plain membership does not: a Marine who belongs to the command sees the command and their own team, not every team.
   const tree = unitTree(ctx);
-  for (const [unitId, bits] of Object.entries({ ...permissions })) {
+  for (const [unitId, bits] of Object.entries(authority)) {
     const rank = positions[unitId] || 0;
     for (const below of subtreeIds(ctx, unitId, tree).slice(1)) {
       permissions[below] = (permissions[below] || 0) | bits;
-      positions[below] = Math.max(positions[below] || 0, rank ? rank + 1 : 0);
+      positions[below] = Math.max(positions[below] || 0, rank + 1);
     }
   }
   const viewable = new Set(Object.keys(permissions).filter((id) => tree.parent.has(id)));
@@ -98,6 +104,7 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
     memberships,
     unitIds: memberships.map((m) => m.unit_id),
     primaryUnitId: memberships.find((m) => m.is_primary)?.unit_id || memberships[0]?.unit_id || null,
+    homeUnitId: memberships.reduce<{ id: string | null; depth: number }>((best, m) => { const depth = ancestorsOf(tree, m.unit_id).length; return depth > best.depth ? { id: m.unit_id, depth } : best; }, { id: null, depth: -1 }).id,
     permissions,
     positions,
     ownedUnitIds: owned,

@@ -39,6 +39,7 @@ meRouter.get('/', wrap((req, res) => {
     prefs,
     memberships: scope.memberships,
     primaryUnitId: scope.primaryUnitId,
+    homeUnitId: scope.homeUnitId,
     unitIds: scope.unitIds,
     readableUnitIds: scope.readableUnitIds,
     viewableUnitIds: scope.viewableUnitIds,

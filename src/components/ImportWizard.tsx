@@ -51,7 +51,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
   const [mapping, setMapping] = useState<Record<string, string>>({});
   const [preview, setPreview] = useState<any>(null);
   const [job, setJob] = useState<any>(null);
-  const [unitId, setUnitId] = useState(identity?.primaryUnitId || '');
+  const [unitId, setUnitId] = useState(identity?.homeUnitId || '');
   const [procedure, setProcedure] = useState('none');
   const [runKey] = useState(() => `import-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
   const openedAt = useRef(0);

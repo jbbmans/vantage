@@ -102,7 +102,7 @@ export default function Career() {
   const [citationOut, setCitationOut] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const me = identity?.user.id;
   const vis = prefs.defaultVisibility || 'private';
-  const unit = identity?.primaryUnitId || null;
+  const unit = identity?.homeUnitId || null;
   useEffect(() => { if (openId && counselings) { const c = counselings.find((x: any) => x.id === openId); if (c) { setView({ kind: 'counseling', row: c }); setTab('counseling'); } } }, [openId, counselings, setTab]);
 
   const hours = useMemo(() => (trainings || []).reduce((n: number, t: any) => n + (Number(t.hours) || 0), 0), [trainings]);

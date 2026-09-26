@@ -45,7 +45,7 @@ export default function EmailConsole() {
     setSending(true);
     try {
       const r = await withSudo(() => api.adminEmailTest(to || undefined));
-      toast.success(r.queued ? 'The receiving server asked to try again later. It is queued and retried automatically.' : 'Delivered to the receiving server.');
+      toast.success(r.queued ? 'The receiving server asked to try again later. It is queued and retried automatically.' : view?.provider === 'direct' ? 'Delivered to the receiving server.' : `Handed to ${view?.provider}.`);
       qc.invalidateQueries({ queryKey: ['admin', 'email'] });
     } catch (e) { toast.error(api.errorText(e)); }
     finally { setSending(false); }
@@ -54,18 +54,41 @@ export default function EmailConsole() {
   if (isPending) return <Skeleton className="h-64" />;
   if (error || !view) return <div className="card"><EmptyState title="Could not load email settings" description={api.errorText(error)} /></div>;
 
-  if (view.provider !== 'direct') {
+  const direct = view.provider === 'direct';
+  const testPanel = (
+    <Panel title="Send a test" subtitle={direct ? 'Delivered straight to the receiving server' : `Sent through ${view.provider}, from ${view.from}`}>
+      <div className="flex flex-wrap items-end gap-2">
+        <Field label="To" hint="blank sends to your own address" className="min-w-[14rem] flex-1"><Input type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="you@example.com" /></Field>
+        <Button variant="primary" onClick={test} loading={sending}><Mail className="h-4 w-4" />Send test</Button>
+      </div>
+      {direct && <p className="mt-3 flex items-start gap-2 text-2xs leading-relaxed text-ink-3"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />A receiver that says “try later” is retried automatically for up to two days (30 minutes for a reset link). A refusal is final, and its exact reason is logged below.</p>}
+      <ul className="mt-3 space-y-1.5 text-xs">
+        {view.recent.slice(0, 8).map((m, i) => (
+          <li key={i} className="flex items-start justify-between gap-2">
+            <span className="min-w-0 truncate text-ink">{m.kind} → {m.to_address}</span>
+            <span className={cn('shrink-0 text-right', m.status === 'sent' ? 'text-good' : m.status === 'queued' ? 'text-warn' : 'text-bad')} title={m.error || undefined}>{m.status}</span>
+          </li>
+        ))}
+        {!view.recent.length && <li className="text-ink-3">Nothing sent yet.</li>}
+      </ul>
+    </Panel>
+  );
+
+  if (!direct) {
     return (
-      <Panel title="Send from your own domain" subtitle={view.provider === 'none' ? 'Email is off' : `Currently sending through ${view.provider}`}>
-        <div className="space-y-3 text-sm leading-relaxed text-ink-2">
-          <p>Vantage can deliver its own mail, straight to each recipient’s mail server, signed for your domain. No email service, account or API key is involved.</p>
-          <ol className="list-decimal space-y-1 pl-5">
-            <li>On the host, set <code className="cite">VANTAGE_EMAIL_PROVIDER=direct</code> and <code className="cite">VANTAGE_EMAIL_FROM=&quot;Vantage &lt;no-reply@yourdomain&gt;&quot;</code>, then redeploy.</li>
-            <li>Come back to this tab. It shows the three DNS records to publish, and checks them for you.</li>
-          </ol>
-          <p className="text-xs text-ink-3">The host must allow outbound connections on port 25. Render blocks it on free instances; paid instances allow it.</p>
-        </div>
-      </Panel>
+      <div className="space-y-4">
+        {view.provider !== 'none' && testPanel}
+        <Panel title="Send from your own domain" subtitle={view.provider === 'none' ? 'Email is off' : `Currently sending through ${view.provider}. This is optional.`}>
+          <div className="space-y-3 text-sm leading-relaxed text-ink-2">
+            <p>Vantage can deliver its own mail, straight to each recipient’s mail server, signed for your domain. No email service, account or API key is involved.</p>
+            <ol className="list-decimal space-y-1 pl-5">
+              <li>On the host, set <code className="cite">VANTAGE_EMAIL_PROVIDER=direct</code> and <code className="cite">VANTAGE_EMAIL_FROM=&quot;Vantage &lt;no-reply@yourdomain&gt;&quot;</code>, then redeploy.</li>
+              <li>Come back to this tab. It shows the three DNS records to publish, and checks them for you.</li>
+            </ol>
+            <p className="text-xs text-ink-3">The host must allow outbound connections on port 25. Render blocks it on free instances; paid instances allow it.</p>
+          </div>
+        </Panel>
+      </div>
     );
   }
 
@@ -123,22 +146,7 @@ export default function EmailConsole() {
           </dl>
           <p className="mt-3 flex items-start gap-2 text-2xs leading-relaxed text-ink-3"><Server className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />A host may send from more than one address. Put every outbound address it lists in the SPF record. Receivers also check that the address’s reverse name points back to it, which only the host can set.</p>
         </Panel>
-        <Panel title="Send a test" subtitle="Delivered straight to the receiving server">
-          <div className="flex flex-wrap items-end gap-2">
-            <Field label="To" hint="blank sends to your own address" className="min-w-[14rem] flex-1"><Input type="email" value={to} onChange={(e) => setTo(e.target.value)} placeholder="you@example.com" /></Field>
-            <Button variant="primary" onClick={test} loading={sending}><Mail className="h-4 w-4" />Send test</Button>
-          </div>
-          <p className="mt-3 flex items-start gap-2 text-2xs leading-relaxed text-ink-3"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />A receiver that says “try later” is retried automatically for up to two days (30 minutes for a reset link). A refusal is final, and its exact reason is logged below.</p>
-          <ul className="mt-3 space-y-1.5 text-xs">
-            {view.recent.slice(0, 8).map((m, i) => (
-              <li key={i} className="flex items-start justify-between gap-2">
-                <span className="min-w-0 truncate text-ink">{m.kind} → {m.to_address}</span>
-                <span className={cn('shrink-0 text-right', m.status === 'sent' ? 'text-good' : m.status === 'queued' ? 'text-warn' : 'text-bad')} title={m.error || undefined}>{m.status}</span>
-              </li>
-            ))}
-            {!view.recent.length && <li className="text-ink-3">Nothing sent yet.</li>}
-          </ul>
-        </Panel>
+        {testPanel}
       </div>
     </div>
   );

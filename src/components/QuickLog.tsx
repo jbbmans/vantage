@@ -57,10 +57,10 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     return {
       title: parsed.title, date: format(parsed.date, 'yyyy-MM-dd'), category: parsed.category, eval_area: parsed.eval_area, quantity, unit_label: unit,
       dollar_amount: parsed.dollar_amount, dollar_type: valueType(parsed.dollar_type, cfg) ? parsed.dollar_type : fallbackType, system: parsed.system || '', organization: '', result: '', notes: '', status: 'completed',
-      visibility: prefs.defaultVisibility || 'private', unit_id: identity?.primaryUnitId || null,
+      visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null,
       ...overrides,
     } as Record<string, any>;
-  }, [parsed, overrides, prefs.defaultVisibility, identity?.primaryUnitId, cfg, fallbackType]);
+  }, [parsed, overrides, prefs.defaultVisibility, identity?.homeUnitId, cfg, fallbackType]);
 
   const set = (k: string) => (v: unknown) => setOverrides((o) => ({ ...o, [k]: v }));
   const setEvent = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => set(k)(e.target.value);

@@ -123,8 +123,51 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       if (!existing.has('totp_last_step')) db.exec('ALTER TABLE users ADD COLUMN totp_last_step INTEGER');
     },
   },
+  {
+    id: 11,
+    name: '011_marforres_primary_membership',
+    run: (db) => {
+      const command = db.prepare(`
+        SELECT id, owner_user_id
+          FROM units
+         WHERE active = 1
+           AND parent_id IS NULL
+           AND (
+             lower(COALESCE(short_name, '')) = 'marforres'
+             OR lower(COALESCE(code, '')) = 'marforres'
+             OR lower(name) = 'marine forces reserve'
+           )
+         ORDER BY CASE WHEN lower(COALESCE(short_name, '')) = 'marforres' THEN 0 ELSE 1 END, created_at
+         LIMIT 1
+      `).get() as { id: string; owner_user_id: string | null } | undefined;
+      if (!command) return;
+
+      const at = new Date().toISOString();
+      const defaultRole = db.prepare('SELECT id FROM roles WHERE unit_id = ? AND is_default = 1 LIMIT 1').get(command.id) as { id: string } | undefined;
+      const people = db.prepare('SELECT id FROM users WHERE active = 1').all() as Array<{ id: string }>;
+
+      for (const person of people) {
+        const hasMembership = db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? LIMIT 1').get(person.id);
+        if (!hasMembership) continue;
+
+        db.prepare(`
+          INSERT INTO unit_members (user_id, unit_id, is_primary, billet, joined_at, invited_by)
+          VALUES (?, ?, 0, NULL, ?, ?)
+          ON CONFLICT(user_id, unit_id) DO NOTHING
+        `).run(person.id, command.id, at, command.owner_user_id);
+
+        db.prepare('UPDATE unit_members SET is_primary = CASE WHEN unit_id = ? THEN 1 ELSE 0 END WHERE user_id = ?')
+          .run(command.id, person.id);
+
+        if (defaultRole) {
+          db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)')
+            .run(person.id, defaultRole.id, command.id, command.owner_user_id, at);
+        }
+      }
+    },
+  },
   // The email_queue table comes from schema.sql, which is safe to replay.
-  { id: 11, name: '011_email_queue', run: () => {} },
+  { id: 12, name: '012_email_queue', run: () => {} },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 

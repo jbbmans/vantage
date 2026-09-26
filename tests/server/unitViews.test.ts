@@ -131,3 +131,26 @@ test('moving a Marine between teams needs authority over both, respects rank, an
   const audit = app.ctx.db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'move_member'").get() as { n: number };
   assert.equal(audit.n, 3);
 });
+
+test('a Marine whose primary unit is the command, as an imported roster makes it, still sees only the command and their own team', async () => {
+  const account = await app.register('cmdmarine');
+  people.cmdmarine = { id: account.id, token: '' };
+  await enroll(app, op.token, 'G8', account.id);
+  await enroll(app, op.token, 'ALPHA', account.id);
+  await relogin('cmdmarine');
+  const primary = app.ctx.db.prepare('SELECT unit_id FROM unit_members WHERE user_id = ? AND is_primary = 1').get(account.id) as { unit_id: string };
+  assert.equal(primary.unit_id, 'G8');
+
+  assert.deepEqual(await viewsOf('cmdmarine'), { list: ['G8:overview', 'ALPHA:overview'], defaultViewId: 'ALPHA' });
+  assert.equal((await app.call('GET', '/api/org/units/BRAVO/overview', { token: as('cmdmarine') })).status, 403, 'belonging to the command does not open every team');
+  assert.equal((await app.call('GET', '/api/org/units/ALPHA/overview', { token: as('cmdmarine') })).status, 200);
+  const shared = await app.call('POST', '/api/records/activities', { token: as('cmdmarine'), body: { title: 'Shared by default', date: today, visibility: 'unit' } });
+  assert.equal(shared.status, 201, JSON.stringify(shared.body));
+  assert.equal(shared.body.unit_id, 'ALPHA', 'sharing without naming a unit reaches their own team, so their team leader sees it');
+  assert.equal((await app.call('GET', '/api/me', { token: as('cmdmarine') })).body.homeUnitId, 'ALPHA');
+
+  const moved = await app.call('POST', `/api/org/units/ALPHA/members/${account.id}/move`, { token: as('g8sn'), body: { to: 'BRAVO' } });
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  const after = app.ctx.db.prepare('SELECT unit_id, is_primary FROM unit_members WHERE user_id = ? ORDER BY unit_id').all(account.id) as Array<{ unit_id: string; is_primary: number }>;
+  assert.deepEqual(after, [{ unit_id: 'BRAVO', is_primary: 0 }, { unit_id: 'G8', is_primary: 1 }], 'a move between teams leaves the command as their primary unit');
+});

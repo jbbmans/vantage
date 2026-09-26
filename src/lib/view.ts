@@ -32,8 +32,8 @@ export const viewLabel = (v: UnitView | null | undefined) => (v ? v.short_name |
 export function roleLine(identity: Identity | undefined, view: UnitView | null) {
   if (!identity) return '';
   const pick = (unitId: string | null | undefined) => (unitId ? identity.roles.filter((r) => r.unit_id === unitId).sort((a, b) => b.position - a.position)[0] : undefined);
-  const role = pick(view?.id) || pick(identity.primaryUnitId) || [...identity.roles].sort((a, b) => b.position - a.position)[0];
-  const billet = identity.memberships.find((m) => m.unit_id === (view?.id || identity.primaryUnitId))?.billet;
+  const role = pick(view?.id) || pick(identity.homeUnitId) || [...identity.roles].sort((a, b) => b.position - a.position)[0];
+  const billet = identity.memberships.find((m) => m.unit_id === (view?.id || identity.homeUnitId))?.billet;
   if (role && role.position > 0) return role.name;
   if (billet) return billet;
   if (identity.user.is_operator) return 'Instance owner';
