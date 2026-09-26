@@ -315,6 +315,7 @@ export const procedureSuggestion = (id: string) => api.get(`${itemPath(id)}/sugg
 export const listProcedures = () => api.get('/work/procedures');
 export const workload = (unitId: string, params: Record<string, string | undefined> = {}) => api.get(`/work/workload?${qs({ unit_id: unitId, ...params })}`);
 
+export const recordPractice = () => api.get('/record/practice');
 export const recordSummary = (params: Record<string, string | undefined> = {}) => api.get(`/record/summary?${qs(params)}`);
 export const assignedWork = () => api.get('/record/assigned');
 export const contributions = (params: Record<string, string | undefined> = {}) => api.get(`/record/contributions?${qs(params)}`);

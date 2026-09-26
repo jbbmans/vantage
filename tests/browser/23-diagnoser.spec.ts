@@ -24,3 +24,30 @@ test('a balance read in the diagnoser opens as a case in the reader’s hands, f
   await expect(page.getByRole('button', { name: 'Claim', exact: true })).toHaveCount(0);
   await expect(page.getByText('What the figures show')).toBeVisible();
 });
+
+test('reading it yourself first hides the reading until you commit to one, then says whether you matched', async ({ page, request }) => {
+  await ensureSetup(request);
+  await loginAs(page, OPERATOR.username);
+  await page.goto('/reference?tab=diagnose');
+  const figures = page.locator('section[aria-label="The figures"]');
+  await figures.getByRole('switch', { name: /Read it yourself first/ }).click();
+  await figures.getByLabel('Commitment', { exact: true }).fill('50,000.00');
+  await figures.getByLabel('Obligation', { exact: true }).fill('50,000.00');
+  await figures.getByLabel('Delivered', { exact: true }).fill('30,000.00');
+  await figures.getByLabel('Paid', { exact: true }).fill('30,000.00');
+  const reading = page.locator('section[aria-label="The reading"]');
+  await expect(reading.getByText('Your read first')).toBeVisible();
+  await expect(reading).not.toContainText('$20,000.00');
+  await expect(reading.getByRole('button', { name: /Show the reference/ })).toBeDisabled();
+  await reading.getByRole('button', { name: 'OCMT' }).click();
+  await reading.getByRole('button', { name: /Show the reference/ }).click();
+  await expect(reading.getByRole('status')).toContainText('the reference reads UDOU');
+  await expect(reading).toContainText('$20,000.00');
+
+  await figures.getByLabel('Paid', { exact: true }).fill('30,000.01');
+  await figures.getByLabel('Paid', { exact: true }).fill('30,000.00');
+  await reading.getByRole('button', { name: 'UDOU' }).click();
+  await reading.getByRole('button', { name: /Show the reference/ }).click();
+  await expect(reading.getByRole('status')).toContainText('Your read matches the reference: UDOU');
+  await expect(figures).toContainText('You have read 2 balances on this device and matched the reference on 1.');
+});

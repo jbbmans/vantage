@@ -110,6 +110,24 @@ export function recordSummary(ctx: AppContext, user: SessionUser, w: Window) {
   };
 }
 
+const BOOKKEEPING = "('claimed','released','assigned','claim_expired','created','procedure_applied','stage_changed','waiting_started','waiting_ended','handed_off')";
+
+/**
+ * The procedures a person has actually worked, from the case histories: how many cases they acted on, and how many
+ * of those reached a verified outcome. Evidence of what they can do, which belongs to them and not to the tool.
+ */
+export function proceduresPracticed(ctx: AppContext, userId: string) {
+  const verified = CURRENT_VERIFIED.replace(/\be\./g, 'v.');
+  const rows = ctx.db.prepare(
+    `SELECT w.procedure_key AS key, COUNT(DISTINCT w.id) AS worked, MAX(e.occurred_at) AS last,
+            COUNT(DISTINCT CASE WHEN EXISTS (SELECT 1 FROM work_events v WHERE v.work_item_id = w.id AND ${verified}) THEN w.id END) AS verified
+       FROM work_events e JOIN work_items w ON w.id = e.work_item_id
+      WHERE e.actor_id = ? AND e.kind NOT IN ${BOOKKEEPING} AND w.procedure_key IS NOT NULL AND w.deleted_at IS NULL
+      GROUP BY w.procedure_key ORDER BY worked DESC, last DESC`
+  ).all(userId) as Array<{ key: string; worked: number; verified: number; last: string }>;
+  return rows.filter((r) => PROCEDURES[r.key]).map((r) => ({ ...r, title: PROCEDURES[r.key].title, short: PROCEDURES[r.key].short }));
+}
+
 export function contributionHistory(ctx: AppContext, user: SessionUser, scope: Scope, w: Window, limit = 60) {
   const [lo, hi] = bounds(w);
   const events = ctx.db.prepare(

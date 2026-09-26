@@ -4,7 +4,7 @@ import { readableClause } from '../authz/records.ts';
 import { subtreeIds } from '../authz/scope.ts';
 import { zonedDay } from '../lib/clock.ts';
 import {
-  measuresOfAll, totals, headline, series, catalog, selectMeasures,
+  measuresOfAll, totals, headline, series, catalog, selectMeasures, canonicalMetricId,
   type Measure, type MetricTotal, type Bucket, type Aggregation, type AggregateOptions,
 } from '../../shared/metricEngine.ts';
 
@@ -165,7 +165,7 @@ export function metricContributors(ctx: AppContext, user: SessionUser, scope: Sc
   const rows = sourceRows(ctx, user, scope, opts);
   const byId = new Map(rows.map((r) => [r.id, r]));
   const measures = measuresOfAll(rows as never, ctx.runtime.metrics);
-  const selected = selectMeasures(measures, { aggregation: opts.aggregation, filters: opts.filters }).filter((m) => m.metricId === opts.metricId);
+  const selected = selectMeasures(measures, { aggregation: opts.aggregation, filters: opts.filters }).filter((m) => m.metricId === canonicalMetricId(opts.metricId));
   return selected.map((m) => {
     const row = byId.get(m.outcomeId)!;
     const [table, id] = m.outcomeId.split(':') as ['activities' | 'trainings', string];

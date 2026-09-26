@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Copy, Paperclip, Trash2, RotateCcw, ExternalLink, Lock, Users, Pencil, Sparkles } from 'lucide-react';
+import { ArrowLeft, Copy, Paperclip, Trash2, RotateCcw, ExternalLink, Lock, Users, Pencil, Sparkles, CopyPlus } from 'lucide-react';
 import { Button, Badge, Panel, EmptyState, Skeleton, Segmented, Tooltip } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -12,6 +12,7 @@ import { DescriptionList, DateText, StatusBadge, CategoryDot } from '@/component
 import { Comments } from '@/components/Comments';
 import { keys, useDeleteRecord, useIdentity, useRestoreRecord, useTrack, unitName, useOrg, useMetrics } from '@/lib/queries';
 import * as api from '@/lib/api';
+import { useRememberVisit } from '@/lib/recent';
 import { composeBullet, strength, weaknesses, expandAcronyms, type BulletStyle } from '../../shared/bullets';
 import { formatDollars, formatNumber } from '../../shared/metrics';
 import { valueType } from '../../shared/constants';
@@ -30,6 +31,7 @@ export default function RecordDetail() {
   const { data: a, isPending, error } = useQuery({ queryKey: keys.record('activities', id), queryFn: () => api.getRecord('activities', id), retry: false });
   const { data: files, refetch: refetchFiles } = useQuery({ queryKey: ['attachments', 'activities', id], queryFn: () => api.attachments('activities', id), enabled: Boolean(a) && Boolean(identity?.instance.attachmentsEnabled) });
   const remove = useDeleteRecord('activities');
+  useRememberVisit(identity?.user.id, a && !a.deleted_at ? { to: `/records/${id}`, title: a.title, kind: 'entry' } : null);
   const restore = useRestoreRecord('activities');
   const [style, setStyle] = useState<BulletStyle>(track === 'fitrep' ? 'fitrep' : 'jepes');
   const [editing, setEditing] = useState<ActivityDraft | null>(null);
@@ -69,6 +71,7 @@ export default function RecordDetail() {
           <h1 className="page-title text-xl sm:text-2xl">{a.title}</h1>
         </div>
         <div className="flex flex-wrap gap-2">
+          {mine && !a.deleted_at && <Button variant="ghost" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: a.title }))} title="Opens Quick Log with this entry's words, ready to change"><CopyPlus className="h-4 w-4" />Log another like this</Button>}
           {canEdit && !a.deleted_at && <Button onClick={() => setEditing(toActivityDraft(a))}><Pencil className="h-4 w-4" />Edit</Button>}
           {canEdit && !a.deleted_at && <Button variant="danger" onClick={() => setConfirm(true)}><Trash2 className="h-4 w-4" />Delete</Button>}
         </div>

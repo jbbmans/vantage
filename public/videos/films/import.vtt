@@ -1,0 +1,45 @@
+WEBVTT
+
+1
+00:00:00.600 --> 00:00:02.444
+Importing a spreadsheet.
+
+2
+00:00:03.200 --> 00:00:06.874
+Bring in the sheet your section already works from.
+
+3
+00:00:06.874 --> 00:00:09.774
+Vantage keeps the original, unchanged.
+
+4
+00:00:10.324 --> 00:00:14.748
+It reads the headings, and guesses what each column means.
+
+5
+00:00:14.748 --> 00:00:17.307
+Correct anything it got wrong.
+
+6
+00:00:17.857 --> 00:00:20.033
+Before anything is written,
+
+7
+00:00:20.033 --> 00:00:24.023
+you see exactly what will happen, row by row.
+
+8
+00:00:24.573 --> 00:00:28.843
+Import, and every row becomes work in the queue,
+
+9
+00:00:28.843 --> 00:00:31.963
+traced to the row it came from.
+
+10
+00:00:32.513 --> 00:00:36.683
+Bring the same file in again, and nothing changes.
+
+11
+00:00:36.683 --> 00:00:39.088
+That is the right answer.

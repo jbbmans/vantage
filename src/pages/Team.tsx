@@ -205,7 +205,7 @@ function Roles({ unitId, unitLabel }: { unitId: string; unitLabel: (id: string) 
   const groups = [...new Set(PERMISSION_LIST.map((p) => p.group))];
   return (
     <>
-      <div className="mb-3 flex items-center justify-between gap-2"><p className="text-sm text-ink-2">Roles in <strong className="text-ink">{unitLabel(unitId)}</strong>. Permissions apply in this unit only. You can only manage roles below your own position ({myPosition}).</p><Button variant="primary" onClick={() => setEditing({ name: '', description: '', color: '#6b7a8f', position: Math.max(0, myPosition - 10), permissions: ROLE_TEMPLATE[1].permissions })}><Shield className="h-4 w-4" />New role</Button></div>
+      <div className="mb-3 flex items-center justify-between gap-2"><p className="text-sm text-ink-2">Roles in <strong className="text-ink">{unitLabel(unitId)}</strong>. Permissions apply in this unit and the units beneath it, never above it. You can only manage roles below your own position ({myPosition}).</p><Button variant="primary" onClick={() => setEditing({ name: '', description: '', color: '#6b7a8f', position: Math.max(0, myPosition - 10), permissions: ROLE_TEMPLATE[1].permissions })}><Shield className="h-4 w-4" />New role</Button></div>
       {isPending ? <Skeleton className="h-40" /> : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {roles.map((r) => (

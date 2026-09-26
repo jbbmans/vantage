@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
-import { Bell, Building2, CalendarClock, CheckCircle2, GraduationCap, Hand, Inbox, Plus, Sparkles, Target, TrendingUp, Users } from 'lucide-react';
+import { Bell, Building2, CalendarClock, CheckCircle2, GraduationCap, Hand, History, Inbox, Plus, Sparkles, Target, TrendingUp, Users } from 'lucide-react';
 import { Badge, Button, EmptyState, Input, PageHeader, Panel, Progress, Skeleton } from '@/components/ui/primitives';
 import { BarList } from '@/components/charts';
 import { AiAction, AiResult } from '@/components/AiPanel';
@@ -21,6 +21,7 @@ import { useView } from '@/lib/view';
 import { UnitPulse, TeamStrip, useUnitOverview } from '@/components/UnitOverview';
 import GettingStarted from '@/components/GettingStarted';
 import { CountUp } from '@/components/ui/motion';
+import { recentVisits } from '@/lib/recent';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -88,6 +89,7 @@ export default function Dashboard() {
 
         <div className="space-y-4">
           <QuickCapture />
+          <PickUp />
           <Changes />
           <PersonalPanel summary={summary.data} />
         </div>
@@ -111,6 +113,28 @@ function AvailableWork({ compact = false }: { compact?: boolean }) {
       <p className="border-b border-line px-4 py-3 text-sm text-ink-2">You are not holding anything. These are open to claim; claiming puts one on your list at once.</p>
       {body}
     </div>
+  );
+}
+
+/** Where this person left off, on this device: the last few entries, cases and Marines they opened. */
+function PickUp() {
+  const { data: identity } = useIdentity();
+  const items = recentVisits(identity?.user.id).slice(0, 4);
+  if (!items.length) return null;
+  return (
+    <Panel title="Pick up where you left off" padded={false}>
+      <ul className="stagger divide-y divide-line">
+        {items.map((r, i) => (
+          <li key={r.to} style={{ '--i': i } as React.CSSProperties}>
+            <Link to={r.to} className="group flex items-center gap-2.5 px-4 py-2.5 text-sm transition-colors hover:bg-surface-2">
+              <History className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />
+              <span className="min-w-0 flex-1 truncate text-ink">{r.title}</span>
+              <span className="shrink-0 text-2xs text-ink-3">{r.kind === 'case' ? 'case' : r.kind === 'marine' ? 'Marine' : 'entry'}</span>
+            </Link>
+          </li>
+        ))}
+      </ul>
+    </Panel>
   );
 }
 

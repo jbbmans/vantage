@@ -1,6 +1,6 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { useQueryClient } from '@tanstack/react-query';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, BookOpenCheck, CheckCircle2, FileText, Info, Lock, PenLine, Plus, Trash2 } from 'lucide-react';
 import { Badge, Button, EmptyState, Field, Input, PageHeader, Panel, Segmented, Skeleton, Tabs, Textarea, Tooltip } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/Dialog';
@@ -73,6 +73,34 @@ function Figure({ label, value, definition, to }: { label: string; value: number
   );
 }
 
+/** Evidence of what the Marine can do, read from the cases they worked. It stays true without Vantage in the room. */
+function Practiced() {
+  const { data, isPending } = useQuery({ queryKey: ['record', 'practice'], queryFn: api.recordPractice, staleTime: 60_000 });
+  const rows: Array<{ key: string; title: string; short: string; worked: number; verified: number; last: string }> = data?.procedures || [];
+  return (
+    <Panel title="What you can do" subtitle="Procedures you have worked, from the case histories. Yours to cite, and to keep practising." padded={false}
+      action={<Link to="/reference?tab=diagnose" className="text-xs text-accent hover:underline">Practise reading balances</Link>}>
+      {isPending ? <Skeleton className="m-4 h-20" /> : !rows.length ? (
+        <EmptyState title="No procedures worked yet" description="Work a case through its procedure and it is counted here: how many you acted on, and how many reached a verified outcome." />
+      ) : (
+        <ul className="stagger divide-y divide-line">
+          {rows.map((r, i) => (
+            <li key={r.key} className="flex items-center gap-3 px-4 py-3" style={{ '--i': i } as React.CSSProperties}>
+              <span className="chip shrink-0">{r.short}</span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-sm font-medium text-ink">{r.title}</span>
+                <span className="block text-2xs text-ink-3">last worked {timeAgo(r.last)}</span>
+              </span>
+              <span className="text-right"><span className="fig block text-sm font-semibold text-ink">{r.worked}</span><span className="block text-2xs text-ink-3">worked</span></span>
+              <span className="w-16 text-right"><span className="fig block text-sm font-semibold text-good">{r.verified}</span><span className="block text-2xs text-ink-3">verified</span></span>
+            </li>
+          ))}
+        </ul>
+      )}
+    </Panel>
+  );
+}
+
 function Overview({ summary, loading, onTab }: { summary: any; loading: boolean; onTab: (t: string) => void }) {
   const assigned = useAssignedWork();
   if (loading || !summary) return <div className="grid gap-3 sm:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-28" />)}</div>;
@@ -101,6 +129,8 @@ function Overview({ summary, loading, onTab }: { summary: any; loading: boolean;
             <EmptyState title="Nothing assigned" description="Claim an item from the queue and it appears here immediately." />
           ) : <ul className="divide-y divide-line">{assigned.data.map((item) => <WorkRow key={item.id} item={item} />)}</ul>}
         </Panel>
+
+        <Practiced />
 
         <Panel title="What you recorded yourself" subtitle="PME, PT, volunteering, qualifications: anything that did not start as a tasker.">
           <ul className="grid grid-cols-3 gap-3 text-sm">

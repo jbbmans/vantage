@@ -202,3 +202,18 @@ test('an unrecognized financial type is tracked separately rather than silently 
   assert.equal(tracked.length, 1);
   assert.equal(tracked[0].value, 500);
 });
+
+test('hours typed as a count are the same measure as hours logged, and old saved ids still find them', () => {
+  const rows = [
+    row({ id: 'h1', quantity: 6, unit_label: 'hours' }),
+    row({ id: 'h2', hours: 12 }),
+    row({ id: 'h3', quantity: 2, unit_label: 'hrs', hours: 3 }),
+    row({ id: 'k1', quantity: 10, unit_label: 'km' }),
+  ];
+  const t = totals(measuresOfAll(rows));
+  assert.deepEqual(t.filter((x) => x.kind === 'duration').map((x) => [x.metricId, x.value, x.outcomes]), [['duration:hours', 21, 3]], 'the hours field wins when both are given, so nothing counts twice');
+  assert.ok(!t.some((x) => x.metricId.startsWith('quantity:hour') || x.metricId === 'quantity:hrs'));
+  assert.equal(t.find((x) => x.metricId === quantityMetricId('km'))!.value, 10);
+  assert.equal(quantityMetricId('Hours'), 'duration:hours');
+  assert.equal(totalFor(measuresOfAll(rows), 'quantity:hour')!.value, 21, 'a goal saved against the old id keeps its figure');
+});

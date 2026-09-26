@@ -1,10 +1,10 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { ArrowUpRight, FlaskConical, RotateCcw, Stethoscope } from 'lucide-react';
-import { diagnose, sourceExamples, ERROR_OPTIONS, METHOD_LIST, type BalanceInput, type ErrorKind, type MethodKey } from '../../../shared/fmra';
+import { ArrowUpRight, CheckCircle2, CircleHelp, Eye, FlaskConical, RotateCcw, Stethoscope } from 'lucide-react';
+import { diagnose, sourceExamples, ERROR_OPTIONS, METHOD_LIST, NORMAL_LIST, type BalanceInput, type ErrorKind, type MethodKey, type NormalKey } from '../../../shared/fmra';
 import { parseMoney, centsToInput } from '../../../shared/money';
 import { PROCEDURES } from '../../../shared/procedures';
-import { Button, Field, Input, NumberInput, Select } from '@/components/ui/primitives';
+import { Button, Field, Input, NumberInput, Select, Switch } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { useIdentity } from '@/lib/queries';
 import * as api from '@/lib/api';
@@ -25,10 +25,21 @@ const LIFECYCLE_PROCEDURES = new Set(['ocmt_research', 'udou_research', 'dou_res
 interface State { method: MethodKey | ''; values: Record<Phase, string>; shown: Record<Phase, boolean>; age: string; error: string }
 const EMPTY: State = { method: '', values: { commitment: '', obligation: '', delivered: '', paid: '' }, shown: { commitment: true, obligation: true, delivered: true, paid: true }, age: '', error: '' };
 
+type Read = NormalKey | 'none';
+const PRACTICE_KEY = 'vantage.diagnose.practice';
+const TALLY_KEY = 'vantage.diagnose.tally';
+const readStore = <T,>(key: string, fallback: T): T => { try { const v = localStorage.getItem(key); return v ? JSON.parse(v) as T : fallback; } catch { return fallback; } };
+const writeStore = (key: string, value: unknown) => { try { localStorage.setItem(key, JSON.stringify(value)); } catch { /* private mode */ } };
+
 export default function Diagnoser() {
   const [s, setS] = useState<State>(EMPTY);
   const [example, setExample] = useState<string | null>(null);
   const examples = useMemo(() => sourceExamples(), []);
+  const [practice, setPractice] = useState(() => readStore(PRACTICE_KEY, false));
+  const [guess, setGuess] = useState<Read[]>([]);
+  const [revealed, setRevealed] = useState(false);
+  const [tally, setTally] = useState(() => readStore(TALLY_KEY, { read: 0, matched: 0 }));
+  useEffect(() => { setGuess([]); setRevealed(false); }, [s]);
 
   const input = useMemo<BalanceInput & { invalid: string[] }>(() => {
     const invalid: string[] = [];
@@ -51,6 +62,18 @@ export default function Diagnoser() {
   }, [s]);
   const result = useMemo(() => diagnose(input), [input]);
   const anyEntered = PHASES.some((p) => s.values[p.key].trim() || !s.shown[p.key]) || Boolean(s.error);
+  const truth = useMemo<Read[]>(() => {
+    if (!result.ok) return [];
+    const open = [...new Set(result.findings.map((f) => f.condition))];
+    return open.length ? open : ['none'];
+  }, [result]);
+  const matched = revealed && guess.length === truth.length && guess.every((g) => truth.includes(g));
+  const reveal = () => {
+    const ok = guess.length === truth.length && guess.every((g) => truth.includes(g));
+    const next = { read: tally.read + 1, matched: tally.matched + (ok ? 1 : 0) };
+    setTally(next); writeStore(TALLY_KEY, next); setRevealed(true);
+  };
+  const hidden = practice && !revealed;
 
   const load = (id: string) => {
     const ex = examples.find((e) => e.id === id);
@@ -102,6 +125,8 @@ export default function Diagnoser() {
             <Field label="Age (days)"><NumberInput value={s.age} onChange={(e) => setS((p) => ({ ...p, age: e.target.value.replace(/[^\d]/g, '') }))} placeholder="—" /></Field>
           </div>
           {input.invalid.length > 0 && <p className="text-xs text-bad" role="alert">{input.invalid.join(' ')}</p>}
+          <Switch checked={practice} onChange={(v) => { setPractice(v); writeStore(PRACTICE_KEY, v); setRevealed(false); setGuess([]); }}
+            label="Read it yourself first" description={tally.read ? `You have read ${tally.read} ${tally.read === 1 ? 'balance' : 'balances'} on this device and matched the reference on ${tally.matched}.` : 'Name the open condition before Vantage shows its reading. It is how the pattern sticks.'} />
         </div>
 
         <div className="mt-5 border-t border-line pt-4">
@@ -126,12 +151,48 @@ export default function Diagnoser() {
           </div>
         ) : (
           <>
-            <LifecycleBars figures={{ commitment: input.commitment ?? null, obligation: input.obligation ?? null, delivered: input.delivered ?? null, paid: input.paid ?? null }} travel={s.method === 'tdy'} />
-            <div className="mt-6"><DiagnosisView d={result} /></div>
-            {result.procedure && <OpenCase procedure={result.procedure} input={input} method={s.method} />}
+            <LifecycleBars figures={{ commitment: input.commitment ?? null, obligation: input.obligation ?? null, delivered: input.delivered ?? null, paid: input.paid ?? null }} travel={s.method === 'tdy'} quiz={hidden} />
+            {hidden ? <YourRead guess={guess} setGuess={setGuess} onReveal={reveal} /> : (
+              <>
+                {practice && <Verdict matched={matched} guess={guess} truth={truth} />}
+                <div className="mt-6"><DiagnosisView d={result} /></div>
+                {result.procedure && <OpenCase procedure={result.procedure} input={input} method={s.method} />}
+              </>
+            )}
           </>
         )}
       </section>
+    </div>
+  );
+}
+
+const readLabel = (r: Read) => (r === 'none' ? 'nothing open' : NORMAL_LIST.find((c) => c.key === r)?.abbr || r);
+
+function YourRead({ guess, setGuess, onReveal }: { guess: Read[]; setGuess: (g: Read[]) => void; onReveal: () => void }) {
+  const toggle = (r: Read) => setGuess(r === 'none' ? (guess.includes('none') ? [] : ['none']) : guess.includes(r) ? guess.filter((g) => g !== r) : [...guess.filter((g) => g !== 'none'), r]);
+  return (
+    <div className="mt-6 animate-fade-in rounded-2xl bg-surface-2/70 p-5 ring-1 ring-inset ring-line">
+      <p className="flex items-center gap-2 text-md font-semibold text-ink"><CircleHelp className="h-4 w-4 text-accent" aria-hidden />Your read first</p>
+      <p className="mt-1 text-sm leading-relaxed text-ink-2">Which conditions are open on this document? Pick every one that applies, then compare with the reference.</p>
+      <div className="mt-4 flex flex-wrap gap-2" role="group" aria-label="Your read">
+        {[...NORMAL_LIST.map((c) => ({ key: c.key as Read, label: c.abbr, title: c.name })), { key: 'none' as Read, label: 'Nothing open', title: 'The figures close' }].map((o) => (
+          <button key={o.key} type="button" title={o.title} aria-pressed={guess.includes(o.key)} onClick={() => toggle(o.key)}
+            className={cn('rounded-lg px-3 py-1.5 text-sm font-medium ring-1 ring-inset transition-colors', guess.includes(o.key) ? 'bg-accent text-accent-ink ring-accent' : 'bg-surface text-ink-2 ring-line hover:bg-surface-3 hover:text-ink')}>{o.label}</button>
+        ))}
+      </div>
+      <Button className="mt-4" variant="primary" disabled={!guess.length} onClick={onReveal}><Eye className="h-4 w-4" />Show the reference’s reading</Button>
+    </div>
+  );
+}
+
+function Verdict({ matched, guess, truth }: { matched: boolean; guess: Read[]; truth: Read[] }) {
+  if (!guess.length) return null;
+  return (
+    <div role="status" className={cn('mt-6 flex items-start gap-2.5 rounded-xl p-3.5 text-sm ring-1 ring-inset', matched ? 'bg-good/10 text-ink ring-good/30' : 'bg-warn/10 text-ink ring-warn/30')}>
+      <CheckCircle2 className={cn('mt-0.5 h-4 w-4 shrink-0', matched ? 'text-good' : 'text-warn')} aria-hidden />
+      <span>{matched
+        ? <>Your read matches the reference: <strong>{truth.map(readLabel).join(' and ')}</strong>.</>
+        : <>You read <strong>{guess.map(readLabel).join(' and ')}</strong>; the reference reads <strong>{truth.map(readLabel).join(' and ')}</strong>. The arithmetic below shows where the difference sits.</>}</span>
     </div>
   );
 }

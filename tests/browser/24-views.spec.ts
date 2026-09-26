@@ -46,3 +46,13 @@ test('a new Marine gets a first-week list that ticks itself off and can be put a
   await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
   await expect(page.getByRole('region', { name: 'Your first week' })).toHaveCount(0);
 });
+
+test('every Field guide walkthrough is recorded and captioned', async ({ page, request }) => {
+  await ensureSetup(request);
+  await loginAs(page, OPERATOR.username);
+  await page.goto('/help');
+  await expect(page.getByText(/^All \d+ recorded, each with captions\.$/)).toBeVisible();
+  await expect(page.getByText('Not recorded yet')).toHaveCount(0);
+  const tracks = await page.locator('video track[kind="captions"]').count();
+  expect(tracks).toBeGreaterThanOrEqual(14);
+});
