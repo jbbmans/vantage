@@ -34,7 +34,7 @@ services:
       - key: TRUST_PROXY
         value: "true"
       - key: VANTAGE_TIMEZONE
-        value: America/New_York
+        value: America/Chicago
       - key: VANTAGE_SECRET
         generateValue: true
       - key: VANTAGE_SETUP_TOKEN
@@ -44,7 +44,7 @@ services:
       - key: VANTAGE_MARADMIN_ENABLED
         value: "true"
       - key: VANTAGE_EMAIL_PROVIDER
-        value: none
+        value: resend
       - key: VANTAGE_EMAIL_FROM
         value: "Vantage <no-reply@vantageusmc.com>"
       - key: RESEND_API_KEY
