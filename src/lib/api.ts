@@ -142,6 +142,8 @@ export const updateMemberProfile = (id: string, payload: unknown) => api.put(`/o
 export const directory = (unitId: string, q: string) => api.get(`/org/directory?unit_id=${encodeURIComponent(unitId)}&q=${encodeURIComponent(q)}`);
 export const addMember = (unitId: string, payload: unknown) => api.post(`/org/units/${encodeURIComponent(unitId)}/members`, payload);
 export const updateMembership = (unitId: string, userId: string, payload: unknown) => api.put(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}`, payload);
+export const teamAudience = (unitId: string) => api.get(`/org/units/${encodeURIComponent(unitId)}/message`);
+export const messageTeam = (unitId: string, payload: { subject: string; body: string }) => api.post(`/org/units/${encodeURIComponent(unitId)}/message`, payload);
 export const moveMember = (unitId: string, userId: string, payload: { to: string; entries?: 'stay' | 'move' }) => api.post(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}/move`, payload);
 export const removeMember = (unitId: string, userId: string) => api.del(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}`);
 export const createInvite = (unitId: string, payload: unknown) => api.post(`/org/units/${encodeURIComponent(unitId)}/invites`, payload);
@@ -226,6 +228,8 @@ export const adminAiDiscover = () => api.post('/admin/ai/discover');
 export const adminAiUnlock = () => api.post('/admin/ai/unlock');
 export const adminSyncMaradmins = () => api.post('/admin/maradmins/sync');
 export const adminEmailTest = (to?: string) => api.post('/admin/email/test', { to });
+export const adminEmail = () => api.get('/admin/email');
+export const adminEmailCheck = () => api.post('/admin/email/check', {});
 export const adminDigestRun = () => api.post('/admin/digest/run');
 export const adminUsers = () => api.get('/admin/users');
 export const adminUnits = () => api.get('/admin/units');

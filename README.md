@@ -49,7 +49,8 @@ Nothing from the earlier product was removed. It moved: activities are under Rec
 - **Usage and reliability.** The Owner console reports whether the product is working: adoption, where captures are abandoned, import conversion, failures. It reports counts across people, never a person's row, and it cannot hold anything anyone typed.
 - **Goals and Career.** Goals that update themselves from the log; training hours, the award pipeline from recommendation to presentation, counselings with acknowledgement, and the MARADMINs that change what any of it requires.
 - **Readiness.** JEPES pillars or FITREP attribute coverage, plus ranked coaching on where the points are, with citations to the governing orders.
-- **Team.** Roster, unit dashboard built from shared entries only and rolled up from the teams beneath a command, roles with per-unit permissions that flow down the chain of command, moving a Marine between teams in one audited step, invitations by link or email, access log.
+- **Team.** Roster, unit dashboard built from shared entries only and rolled up from the teams beneath a command, roles with per-unit permissions that flow down the chain of command, moving a Marine between teams in one audited step, emailing the whole team from the deployment's own domain, invitations by link or email, access log.
+- **Email from your own domain.** Vantage can deliver its own mail straight to each recipient's mail server, DKIM-signed with a key it generates, with no email service. The Owner console's Email tab shows the DNS records to publish, checks them, tests the path out, and retries mail a receiver asks to resend later.
 - **CAC / PIV sign-in.** Optional certificate sign-in in either a direct-mTLS or behind-a-gateway shape, binding on the EDIPI alone and counting as both factors. Off by default; proxy mode refuses to start without a shared secret, because a forged header would otherwise be a sign-in as anybody. See `docs/cac-and-records.md`.
 - **Authoritative personnel.** A roster extract from an upstream personnel system becomes the source for rank, unit, MOS and EAS; those fields stop being self-editable, every change is audited field by field, a sync never deletes anybody, and an extract that would separate a large share of the roster stops and asks.
 - **Records management.** Retention schedules with their citation, legal holds that suspend every deletion path (scheduled disposition, the recycle-bin purge and source-file pruning alike) and always win, previews before anything acts, and disposition evidence for every run. Nothing disposes until somebody enables it.
@@ -107,7 +108,7 @@ Everything is an environment variable. `.env.example` lists them with defaults. 
 | `VANTAGE_SETUP_TOKEN` | 24+ characters; required once, to create the owner account |
 | `VANTAGE_DB` | SQLite path on the persistent disk |
 | `TRUST_PROXY` | `true` behind Render or any reverse proxy |
-| `VANTAGE_EMAIL_PROVIDER` | `none`, `resend`, or `smtp` |
+| `VANTAGE_EMAIL_PROVIDER` | `none`, `direct` (send from your own domain with no email service; see `docs/email.md`), `resend`, or `smtp` |
 | `VANTAGE_AI_ENABLED`, `VANTAGE_GENAI_API_KEY`, `VANTAGE_GENAI_MODELS` | GenAI.mil drafting help and the model allowlist (off by default) |
 | `VANTAGE_ACCESS_MODE` | `accounts` (default) or `demo` (synthetic, no sign-in; never in production) |
 | `VANTAGE_DEMO_TTL_HOURS`, `VANTAGE_DEMO_MAX_WORKSPACES` | How long a demo workspace lasts, and how many may exist at once |

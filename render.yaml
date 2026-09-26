@@ -44,9 +44,11 @@ services:
       - key: VANTAGE_MARADMIN_ENABLED
         value: "true"
       - key: VANTAGE_EMAIL_PROVIDER
-        value: none
+        value: direct
       - key: VANTAGE_EMAIL_FROM
         value: "Vantage <no-reply@vantageusmc.com>"
+      - key: VANTAGE_EMAIL_REPLY_TO
+        sync: false
       - key: RESEND_API_KEY
         sync: false
       - key: VANTAGE_AI_ENABLED

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Users, UserPlus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft } from 'lucide-react';
+import { Users, UserPlus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -49,11 +49,13 @@ export default function Team() {
   if (viewAudit.length) tabs.push({ value: 'audit', label: 'Access log' });
 
   const shown = tabs.some((t) => t.value === tab) ? tab : 'overview';
+  const [messaging, setMessaging] = useState(false);
   if (!views.length) return <div className="page"><PageHeader eyebrow="Team" title="Team" /><div className="card"><EmptyState icon={Users} title="No unit visibility yet" description="Team shows the Marines and shared records of units where you hold a leadership role. Ask your unit leader for a role." /></div></div>;
 
   return (
     <div className="page">
       <PageHeader eyebrow={view && subtree.length > 1 ? 'Whole command' : 'Team'} title={viewLabel(view) || 'Team'} lede={full ? 'The work and people of this view. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.' : 'Who is in this view, how its teams are doing, and the goals it is working toward. Figures built from fewer than three people are not shown.'}>
+        {manageMembers.includes(unit) && <Button onClick={() => setMessaging(true)}><Send className="h-4 w-4" />Email the team</Button>}
         {views.length > 1 && <Select aria-label="View" className="w-64" value={unit} onValueChange={setView} options={views.map((v) => ({ value: v.id, label: `${'\u2003'.repeat(v.depth)}${v.short_name || v.name}${v.teams ? ' (whole command)' : ''}` }))} />}
       </PageHeader>
       <Tabs value={shown} onChange={setTab} className="mb-4" tabs={tabs} />
@@ -69,6 +71,7 @@ export default function Team() {
           {shown === 'audit' && <UnitAudit unitId={viewAudit.includes(unit) ? unit : viewAudit[0]} />}
         </>
       )}
+      {unit && <MessageDialog open={messaging} onOpenChange={setMessaging} unitId={unit} unitLabel={viewLabel(view) || unitLabel(unit)} />}
     </div>
   );
 }
@@ -105,6 +108,36 @@ function Roster({ team, unit, subtree, unitLabel, canManage, moveTargets }: { te
       <EnrollDialog open={enroll} onOpenChange={setEnroll} unitId={unit} unitLabel={unitLabel(unit)} />
       <MoveDialog move={moving} onClose={() => setMoving(null)} targets={moveTargets} unitLabel={unitLabel} />
     </>
+  );
+}
+
+function MessageDialog({ open, onOpenChange, unitId, unitLabel }: { open: boolean; onOpenChange: (o: boolean) => void; unitId: string; unitLabel: string }) {
+  const toast = useToast();
+  const { data: identity } = useIdentity();
+  const { data: audience } = useQuery({ queryKey: ['team-audience', unitId], queryFn: () => api.teamAudience(unitId), enabled: open });
+  const [subject, setSubject] = useState(''); const [body, setBody] = useState(''); const [busy, setBusy] = useState(false);
+  useEffect(() => { if (!open) { setSubject(''); setBody(''); } }, [open]);
+  const send = async () => {
+    setBusy(true);
+    try {
+      const r = await api.messageTeam(unitId, { subject, body });
+      const parts = [r.emailed && `${r.emailed} by email`, r.queued && `${r.queued} waiting on their mail server`, r.failed && `${r.failed} undeliverable`].filter(Boolean);
+      toast.success(`Sent to ${r.recipients} ${r.recipients === 1 ? 'Marine' : 'Marines'} in Vantage${parts.length ? `; ${parts.join(', ')}` : ''}.`);
+      onOpenChange(false);
+    } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }
+  };
+  const reach = !audience ? 'Counting…' : !audience.members ? 'Nobody else is on this roster yet.'
+    : audience.emailEnabled ? `${audience.members} ${audience.members === 1 ? 'Marine' : 'Marines'}: ${audience.withEmail} by email and in Vantage${audience.appOnly ? `, ${audience.appOnly} in Vantage only (no email on file)` : ''}.`
+      : `${audience.members} ${audience.members === 1 ? 'Marine' : 'Marines'}, in Vantage. Email is off on this deployment.`;
+  return (
+    <Dialog open={open} onOpenChange={onOpenChange} title={`Email ${unitLabel}`} description={reach} size="md"
+      footer={<><span className="mr-auto text-2xs text-ink-3">{identity?.user.email ? `Replies go to ${identity.user.email}.` : 'Add an email to your profile so replies reach you.'}</span><Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button><Button variant="primary" onClick={send} loading={busy} disabled={!subject.trim() || !body.trim() || !audience?.members}><Send className="h-4 w-4" />Send</Button></>}>
+      <div className="space-y-3">
+        <Field label="Subject"><Input autoFocus value={subject} maxLength={120} onChange={(e) => setSubject(e.target.value)} placeholder="Q4 close-out: what is due Friday" /></Field>
+        <Field label="Message" hint={`${body.length} / 5000`}><Textarea rows={8} value={body} maxLength={5000} onChange={(e) => setBody(e.target.value)} placeholder="Plain words. Each Marine gets their own copy; no one sees anyone else’s address." /></Field>
+        <p className="text-2xs leading-relaxed text-ink-3">It goes to everyone in {unitLabel}{' '}and the teams beneath it, from this deployment’s own address, and is recorded in the unit’s access log. Five messages an hour at most.</p>
+      </div>
+    </Dialog>
   );
 }
 

@@ -43,6 +43,7 @@ export const limiters = {
   mutations: new Window(300),
   resetUser: new Window(3, 60 * 60_000),
   mailUser: new Window(10),
+  teamMail: new Window(5, 60 * 60_000),
   aiGlobal: new Window(100, 60_000),
   aiUser: new Window(12, 60_000),
 };

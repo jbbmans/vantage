@@ -56,3 +56,18 @@ test('every Field guide walkthrough is recorded and captioned', async ({ page, r
   const tracks = await page.locator('video track[kind="captions"]').count();
   expect(tracks).toBeGreaterThanOrEqual(14);
 });
+
+test('the owner console explains sending from your own domain, and a leader can open a team message', async ({ page, request }) => {
+  await ensureSetup(request);
+  await loginAs(page, OPERATOR.username);
+  await page.goto('/operator?tab=email');
+  await expect(page.getByRole('heading', { name: 'Send from your own domain' })).toBeVisible();
+  await expect(page.getByText('VANTAGE_EMAIL_PROVIDER=direct')).toBeVisible();
+
+  await page.goto('/team?unit=G8');
+  await page.getByRole('button', { name: 'Email the team' }).click();
+  const dialog = page.getByRole('dialog', { name: /^Email / });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByText(/Marines?:|Nobody else is on this roster yet/)).toBeVisible();
+  await expect(dialog.getByRole('button', { name: 'Send' })).toBeDisabled();
+});

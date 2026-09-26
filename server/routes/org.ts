@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
-import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
+import { badRequest, conflict, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth, requireOperator, requireSudo } from '../auth/middleware.ts';
 import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross } from '../authz/scope.ts';
 import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, type RoleRow } from '../services/org.ts';
@@ -16,7 +16,8 @@ import { newId, now } from '../lib/ids.ts';
 import { unitDashboard, unitOverview } from '../services/dashboard.ts';
 import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
-import { mailAllowance } from '../auth/limiter.ts';
+import { mailAllowance, limiters } from '../auth/limiter.ts';
+import { sendTeamMessage, teamAudience } from '../services/teamMail.ts';
 
 export const orgRouter = Router();
 orgRouter.use(requireAuth);
@@ -137,6 +138,27 @@ orgRouter.put('/units/:unitId/members/:userId', wrap((req, res) => {
   })();
   audit(ctx, { actor_id: req.user.id, action: 'edit_membership', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, ip: clientIp(req) });
   res.json({ ok: true });
+}));
+
+orgRouter.get('/units/:unitId/message', wrap((req, res) => {
+  const unitId = String(req.params.unitId);
+  if (!getUnit(req.ctx, unitId)) throw notFound('No such unit.');
+  if (!can(scopeFor(req.ctx, req.user, req), PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('Only a leader who manages this unit’s members can message it.');
+  res.json(teamAudience(req.ctx, unitId, req.user.id));
+}));
+
+orgRouter.post('/units/:unitId/message', wrap(async (req, res) => {
+  const ctx = req.ctx;
+  const unitId = String(req.params.unitId);
+  const body = parse(z.object({ subject: z.string().trim().min(1).max(120), body: z.string().trim().min(1).max(5000) }), req.body);
+  if (!getUnit(ctx, unitId)) throw notFound('No such unit.');
+  if (!can(scopeFor(ctx, req.user, req), PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('Only a leader who manages this unit’s members can message it.');
+  const limited = limiters.teamMail.limited(req.user.id);
+  if (limited) throw tooMany('You have sent five team messages in the last hour. Try again later.', limited.retryAfter);
+  limiters.teamMail.bump(req.user.id);
+  const result = await sendTeamMessage(ctx, req.user, unitId, body);
+  audit(ctx, { actor_id: req.user.id, action: 'team_message', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${result.recipients} recipients: ${result.emailed} emailed, ${result.queued} queued, ${result.failed} failed, ${result.appOnly} in Vantage only; subject: ${body.subject.slice(0, 80)}`, ip: clientIp(req) });
+  res.json(result);
 }));
 
 orgRouter.post('/units/:unitId/members/:userId/move', wrap((req, res) => {

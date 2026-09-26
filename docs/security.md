@@ -49,6 +49,14 @@
 - Mailbox connectors are read-only (`offline_access`, `User.Read`, `Mail.Read`) and name their national cloud explicitly. Delta sync keys on the provider's message ids, and a message deleted upstream never deletes the local record of the work.
 - Live syncing is not wired to a token flow in this build. The authorization plan is shown before anything is authorized, and an unauthorized sync says so rather than reporting an empty mailbox.
 
+## Outbound email
+
+- In direct mode Vantage signs every message with DKIM. The private key is generated on the server, stored in `meta` encrypted with `VANTAGE_SECRET` (AES-256-GCM), and never leaves the instance; only the public key is shown, for DNS.
+- Mail a receiver asks to retry is queued in `email_queue` encrypted with the same secret, and deleted once delivered or given up: 30 minutes for a reset link, two days at most otherwise.
+- Delivery uses opportunistic STARTTLS, as mail servers do between themselves; a receiver that offers no TLS still gets the message in the clear, which is the norm for server-to-server mail.
+- The Owner console's email checks are operator-only behind step-up confirmation, and each run is audited (`email_setup_checked`).
+- Team messages need `MANAGE_MEMBERS` in the unit, go to each member separately so no address is shared, set Reply-To to the sender, are limited to five an hour per sender, and are audited (`team_message`). Subjects are flattened to one line, so typed text cannot add mail headers.
+
 ## Product analytics
 
 - The event catalog is closed. A client can only send names and properties declared in `server/services/telemetry.ts`; anything else is dropped with a reason.

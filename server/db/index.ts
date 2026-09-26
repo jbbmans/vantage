@@ -123,6 +123,8 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       if (!existing.has('totp_last_step')) db.exec('ALTER TABLE users ADD COLUMN totp_last_step INTEGER');
     },
   },
+  // The email_queue table comes from schema.sql, which is safe to replay.
+  { id: 11, name: '011_email_queue', run: () => {} },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 
