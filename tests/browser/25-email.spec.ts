@@ -39,3 +39,31 @@ test('email checks retain DNS results while test sends refresh the queue and vis
   await expect(recent.first()).toContainText('failed');
   await expect(recent.first()).toContainText('550 no such user');
 });
+
+test('canceling a test email password confirmation does not reopen the dialog', async ({ page, request }) => {
+  await ensureSetup(request);
+  await loginAs(page, OPERATOR.username);
+  let needsSudo = false;
+  let settingsReads = 0;
+  const sudoRequired = { status: 403, json: { error: 'Confirm your password to continue.', code: 'sudo_required' } };
+  await page.route('**/api/admin/email', async (route) => {
+    settingsReads++;
+    await route.fulfill(needsSudo ? sudoRequired : { json: {
+      provider: 'memory', from: 'Vantage <no-reply@example.test>', domain: 'example.test', replyTo: null,
+      helo: null, records: [], path: null, queue: { waiting: 0, oldest: null }, recent: [],
+    } });
+  });
+  await page.route('**/api/admin/email/test', (route) => route.fulfill(sudoRequired));
+  await page.goto('/operator?tab=email');
+  const send = page.getByRole('button', { name: 'Send test', exact: true });
+  await expect(send).toBeVisible();
+  const readsBeforeCancel = settingsReads;
+  needsSudo = true;
+  await send.click();
+  const dialog = page.getByRole('dialog', { name: 'Confirm it is you' });
+  await expect(dialog).toBeVisible();
+  await dialog.getByRole('button', { name: 'Cancel', exact: true }).click();
+  await expect(send).toBeEnabled();
+  await expect(dialog).toHaveCount(0);
+  expect(settingsReads).toBe(readsBeforeCancel);
+});

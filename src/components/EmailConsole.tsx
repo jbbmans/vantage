@@ -50,12 +50,18 @@ export default function EmailConsole() {
   };
   const test = async () => {
     setSending(true);
+    let refresh = false;
     try {
       const r = await withSudo(() => api.adminEmailTest(to || undefined));
+      refresh = true;
       toast.success(r.queued ? 'The receiving server asked to try again later. It is queued and retried automatically.' : view?.provider === 'direct' ? 'Delivered to the receiving server.' : `Handed to ${view?.provider}.`);
-    } catch (e) { toast.error(api.errorText(e)); }
+    } catch (e) {
+      // A canceled password confirmation never sent mail. Refreshing would open it again.
+      refresh = e instanceof api.ApiError && e.status !== 401 && e.code !== 'sudo_required';
+      toast.error(api.errorText(e));
+    }
     finally {
-      await qc.invalidateQueries({ queryKey: ['admin', 'email'] });
+      if (refresh) await qc.invalidateQueries({ queryKey: ['admin', 'email'] });
       setSending(false);
     }
   };
