@@ -37,7 +37,7 @@ Vantage sends; it does not receive. A Render web service cannot accept mail on p
 
 ## Resend
 
-This is what `render.yaml` ships with. Resend's records sit on their own names (`resend._domainkey`, and an MX and SPF on `send`), so they never collide with the direct-mode records above.
+Resend's records sit on their own names (`resend._domainkey`, and an MX and SPF on `send`), so they never collide with the direct-mode records above.
 
 1. Create a Resend account, add `vantageusmc.com` as a domain, and copy the DNS records it gives you into Cloudflare (see [dns-namecheap.md](dns-namecheap.md)).
 2. Create an API key with sending permission.
