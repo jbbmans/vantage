@@ -199,16 +199,38 @@ function smtpHello(host: string, port: number, name: string): Promise<string> {
   return new Promise((resolve, reject) => {
     const socket = connect({ host, port });
     let buffer = '';
+    let transcript = '';
     let stage = 0;
-    const done = (error?: Error) => { clearTimeout(timer); socket.destroy(); if (error) reject(error); else resolve(buffer); };
-    const timer = setTimeout(() => done(new Error(`No answer from ${host}:${port} within 10 seconds. Outbound port ${port} is probably blocked by the host.`)), 10_000);
+    let settled = false;
+    const done = (error?: Error) => {
+      if (settled) return;
+      settled = true;
+      clearTimeout(timer);
+      socket.destroy();
+      if (error) reject(error); else resolve(transcript);
+    };
+    const timer = setTimeout(() => done(new Error(`SMTP check timed out after 10 seconds at ${host}:${port}. The host or receiver may be blocking the connection.`)), 10_000);
     socket.on('error', (e) => done(e));
+    socket.on('close', () => done(new Error(`${host}:${port} closed the connection before completing the SMTP greeting.`)));
     socket.on('data', (chunk) => {
       buffer += chunk.toString('utf8');
-      const complete = /(^|\r\n)\d{3} [^\r\n]*\r\n$/.test(buffer);
-      if (!complete) return;
-      if (stage === 0) { stage = 1; socket.write(`EHLO ${name}\r\n`); }
-      else if (stage === 1) { stage = 2; socket.write('QUIT\r\n'); done(); }
+      transcript += chunk.toString('utf8');
+      if (transcript.length > 65_536) { done(new Error(`${host}:${port} sent an oversized SMTP greeting.`)); return; }
+      while (!settled) {
+        const end = buffer.indexOf('\r\n');
+        if (end < 0) return;
+        const line = buffer.slice(0, end);
+        buffer = buffer.slice(end + 2);
+        const reply = line.match(/^(\d{3})([ -])/);
+        const expected = stage === 0 ? '220' : '250';
+        if (!reply || reply[1] !== expected) {
+          done(new Error(`${host}:${port} rejected the SMTP ${stage === 0 ? 'greeting' : 'EHLO'}: ${line.slice(0, 300)}`));
+          return;
+        }
+        if (reply[2] === '-') continue;
+        if (stage === 0) { stage = 1; socket.write(`EHLO ${name}\r\n`); }
+        else { socket.write('QUIT\r\n'); done(); }
+      }
     });
   });
 }

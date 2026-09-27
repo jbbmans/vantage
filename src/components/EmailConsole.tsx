@@ -33,11 +33,18 @@ export default function EmailConsole() {
   const [checking, setChecking] = useState(false);
   const [to, setTo] = useState('');
   const [sending, setSending] = useState(false);
-  const view = checked || data;
+  // Keep the latest mail log and queue while retaining the DNS results from the last explicit check.
+  const view = data && checked?.provider === data.provider && checked.domain === data.domain
+    ? { ...data, records: checked.records, dnsHost: checked.dnsHost }
+    : data;
 
   const check = async () => {
     setChecking(true);
-    try { setChecked(await withSudo(api.adminEmailCheck)); qc.invalidateQueries({ queryKey: ['admin', 'email'] }); }
+    try {
+      const result = await withSudo(api.adminEmailCheck);
+      setChecked(result);
+      qc.setQueryData(['admin', 'email'], result);
+    }
     catch (e) { toast.error(api.errorText(e)); }
     finally { setChecking(false); }
   };
@@ -46,9 +53,11 @@ export default function EmailConsole() {
     try {
       const r = await withSudo(() => api.adminEmailTest(to || undefined));
       toast.success(r.queued ? 'The receiving server asked to try again later. It is queued and retried automatically.' : view?.provider === 'direct' ? 'Delivered to the receiving server.' : `Handed to ${view?.provider}.`);
-      qc.invalidateQueries({ queryKey: ['admin', 'email'] });
     } catch (e) { toast.error(api.errorText(e)); }
-    finally { setSending(false); }
+    finally {
+      await qc.invalidateQueries({ queryKey: ['admin', 'email'] });
+      setSending(false);
+    }
   };
 
   if (isPending) return <Skeleton className="h-64" />;
@@ -64,9 +73,12 @@ export default function EmailConsole() {
       {direct && <p className="mt-3 flex items-start gap-2 text-2xs leading-relaxed text-ink-3"><ShieldCheck className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />A receiver that says “try later” is retried automatically for up to two days (30 minutes for a reset link). A refusal is final, and its exact reason is logged below.</p>}
       <ul className="mt-3 space-y-1.5 text-xs">
         {view.recent.slice(0, 8).map((m, i) => (
-          <li key={i} className="flex items-start justify-between gap-2">
-            <span className="min-w-0 truncate text-ink">{m.kind} → {m.to_address}</span>
-            <span className={cn('shrink-0 text-right', m.status === 'sent' ? 'text-good' : m.status === 'queued' ? 'text-warn' : 'text-bad')} title={m.error || undefined}>{m.status}</span>
+          <li key={i}>
+            <div className="flex items-start justify-between gap-2">
+              <span className="min-w-0 truncate text-ink">{m.kind} → {m.to_address}</span>
+              <span className={cn('shrink-0 text-right', m.status === 'sent' ? 'text-good' : m.status === 'queued' ? 'text-warn' : 'text-bad')}>{m.status}</span>
+            </div>
+            {m.error && <p className="mt-1 break-words text-2xs text-ink-3">{m.error}</p>}
           </li>
         ))}
         {!view.recent.length && <li className="text-ink-3">Nothing sent yet.</li>}
@@ -100,12 +112,12 @@ export default function EmailConsole() {
         <p className="text-sm leading-relaxed text-ink-2">Vantage delivers each message itself, to the recipient’s own mail server, and signs it with a key it made for <strong className="text-ink">{view.domain}</strong>. Nothing passes through an email service.</p>
         <ol className="stagger mt-4 grid grid-cols-1 gap-3 md:grid-cols-3">
           <Step n={1} title="Reach mail servers" state={!path ? 'unknown' : path.open ? 'ok' : 'bad'}>
-            {!path ? 'Not checked yet. Check everything to test it.' : path.open ? <>Port 25 is open. This server sends from <span className="fig text-ink">{path.ip || 'an unknown address'}</span>.</> : <>Port 25 is blocked: {path.error}</>}
+            {!path ? 'Not checked yet. Check everything to test it.' : path.open ? <>Port 25 is open. This server sends from <span className="fig text-ink">{path.ip || 'an unknown address'}</span>.</> : <>SMTP check failed: {path.error}</>}
           </Step>
           <Step n={2} title="Publish three records" state={view.records.every((r) => r.status === 'ok') ? 'ok' : view.records.some((r) => r.status) ? 'bad' : 'unknown'}>
             {view.records.some((r) => r.status) ? `${view.records.filter((r) => r.status === 'ok').length} of 3 published correctly.` : 'Add them where your DNS is hosted, then check.'}
           </Step>
-          <Step n={3} title="Send a test" state={view.recent.some((m) => m.kind === 'test' && m.status === 'sent') ? 'ok' : 'unknown'}>
+          <Step n={3} title="Confirm delivery" state="unknown">
             Send one to an address you can read, and look for “DKIM: pass” in its headers.
           </Step>
         </ol>
@@ -138,7 +150,7 @@ export default function EmailConsole() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="The sending server" subtitle={path ? `checked ${timeAgo(path.checkedAt)}` : 'not checked yet'}>
           <dl className="grid grid-cols-[9rem_minmax(0,1fr)] gap-y-2 text-sm">
-            <dt className="text-ink-3">Port 25</dt><dd>{!path ? '—' : path.open ? <Badge tone="good">Open</Badge> : <Badge tone="bad">Blocked</Badge>}</dd>
+            <dt className="text-ink-3">Port 25</dt><dd>{!path ? '—' : path.open ? <Badge tone="good">Open</Badge> : <Badge tone="bad">Unavailable</Badge>}</dd>
             <dt className="text-ink-3">Sends from</dt><dd className="fig text-ink">{path?.ip || '—'}</dd>
             <dt className="text-ink-3">Reverse name</dt><dd className="break-all text-ink">{path?.ptr || '—'}{path?.ptr && <span className="ml-1 text-2xs text-ink-3">{path.forwardConfirmed ? '(confirmed both ways)' : '(does not point back)'}</span>}</dd>
             <dt className="text-ink-3">Greets as</dt><dd className="break-all text-ink">{view.helo || '—'}</dd>

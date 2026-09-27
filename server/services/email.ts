@@ -63,7 +63,7 @@ export function createMailer(config: AppConfig, db: Db): Mailer {
     transport = async (mail) => { outbox.push(mail); };
   }
 
-  const retryQueued: Mailer['retryQueued'] = async () => {
+  const retryBatch: Mailer['retryQueued'] = async () => {
     const counts = { sent: 0, failed: 0, waiting: 0 };
     if (provider !== 'direct') return counts;
     const due = db.prepare('SELECT * FROM email_queue WHERE next_attempt_at <= ? ORDER BY next_attempt_at LIMIT 25').all(now()) as Array<{ id: string; log_id: string | null; to_address: string; kind: string; payload: string; attempts: number; expires_at: string }>;
@@ -72,6 +72,11 @@ export function createMailer(config: AppConfig, db: Db): Mailer {
         db.prepare('DELETE FROM email_queue WHERE id = ?').run(row.id);
         if (row.log_id) db.prepare('UPDATE email_log SET status = ?, error = ? WHERE id = ?').run(status, error?.slice(0, 500) ?? null, row.log_id);
       };
+      if (row.expires_at <= now()) {
+        finish('failed', 'The queued message expired before it could be delivered.');
+        counts.failed++;
+        continue;
+      }
       const plain = decryptSecret(config.secret, row.payload);
       if (!plain) { finish('failed', 'The queued message could not be read with this instance secret.'); counts.failed++; continue; }
       const body = JSON.parse(plain) as { subject: string; text: string; html: string; replyTo: string | null };
@@ -87,6 +92,12 @@ export function createMailer(config: AppConfig, db: Db): Mailer {
       }
     }
     return counts;
+  };
+  // A batch can outlast the scheduler's interval. Share it instead of sending the same rows twice.
+  let retryInFlight: ReturnType<Mailer['retryQueued']> | null = null;
+  const retryQueued: Mailer['retryQueued'] = () => {
+    retryInFlight ??= retryBatch().finally(() => { retryInFlight = null; });
+    return retryInFlight;
   };
 
   return {
