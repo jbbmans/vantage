@@ -136,7 +136,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   delete data.user_id;
 
   const visibility = (data.visibility as string) || 'private';
-  const unitId = (data.unit_id as string | null | undefined) ?? scope.primaryUnitId ?? null;
+  const unitId = (data.unit_id as string | null | undefined) ?? scope.homeUnitId ?? null;
   if (unitId && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(unitId)) throw badRequest('No such unit.', { fieldErrors: { unit_id: 'No such unit.' } });
   if (visibility === 'unit' && !unitId) throw badRequest('Choose a unit before sharing this record.', { fieldErrors: { unit_id: 'Required to share.' } });
   if (!onBehalf && !canPlace(scope, visibility, unitId, spec.shareFlag, Boolean(spec.personal))) throw forbidden('You cannot place a record in that unit.');
@@ -303,7 +303,7 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
     if (data.dollar_type && !valueType(String(data.dollar_type), ctx.runtime.metrics)) throw badRequest(`Row ${i + 1}: unknown value type “${String(data.dollar_type)}”. This instance uses: ${ctx.runtime.metrics.value_types.map((t) => t.key).join(', ')}.`, { row: i });
     const existing = typeof id === 'string' && id ? (ctx.db.prepare('SELECT unit_id, visibility FROM activities WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(id, user.id) as { unit_id: string | null; visibility: string } | undefined) : undefined;
     const visibility = (data.visibility as string | undefined) ?? existing?.visibility ?? 'private';
-    const unitId = data.unit_id !== undefined ? ((data.unit_id as string | null) || null) : existing ? existing.unit_id : (scope.primaryUnitId ?? null);
+    const unitId = data.unit_id !== undefined ? ((data.unit_id as string | null) || null) : existing ? existing.unit_id : (scope.homeUnitId ?? null);
     if (visibility === 'unit' && !unitId) throw badRequest(`Row ${i + 1}: shared activities need a unit.`, { row: i });
     if (!canPlace(scope, visibility, unitId, PERMISSIONS.CREATE_SHARED_WORK, true)) throw forbidden(`Row ${i + 1}: you cannot import into that unit.`);
     planned.push({ id: typeof id === 'string' && id ? id : undefined, exists: Boolean(existing), data, visibility, unitId });

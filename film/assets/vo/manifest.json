@@ -248,5 +248,215 @@
   "hash": "78aa4f7557179d45",
   "text": "Counts never measure effort. And zero recorded is never zero work.",
   "voiced": false
+ },
+ "fw-0": {
+  "hash": "30b9875e4e52311b",
+  "text": "Your first week.",
+  "voiced": false
+ },
+ "fw-1": {
+  "hash": "ea34ea0ff450288a",
+  "text": "Day one starts with an invitation from your leader. Choose a username, and a password of your own.",
+  "voiced": false
+ },
+ "fw-2": {
+  "hash": "3bdf285ffd5776e3",
+  "text": "Today opens with a short list for the week. Each step ticks itself off as you do it.",
+  "voiced": false
+ },
+ "fw-3": {
+  "hash": "c90a6597e3f3aa55",
+  "text": "First, protect your sign-in with a passkey or an authenticator app, so a password alone is never enough.",
+  "voiced": false
+ },
+ "fw-4": {
+  "hash": "90e43a19dbe2c837",
+  "text": "Check your profile. Your rank decides whether you build JEPES or FITREP input.",
+  "voiced": false
+ },
+ "fw-5": {
+  "hash": "efa9de27a8d461d5",
+  "text": "Then log something you did. One sentence is enough.",
+  "voiced": false
+ },
+ "fw-6": {
+  "hash": "bab3128aa11936f3",
+  "text": "By Friday, open Team: who you work with, the command above you, and the goals you share.",
+  "voiced": false
+ },
+ "v-0": {
+  "hash": "64ec3c34759fcf6b",
+  "text": "Who can see what.",
+  "voiced": false
+ },
+ "v-1": {
+  "hash": "0e93f27813d6c1da",
+  "text": "Every entry has an audience, and you choose it when you save.",
+  "voiced": false
+ },
+ "v-2": {
+  "hash": "f2b859b5cc1cc20f",
+  "text": "Only me means exactly that. No leader can open it, and neither can the instance owner.",
+  "voiced": false
+ },
+ "v-3": {
+  "hash": "1a67f473256f28b7",
+  "text": "Share it with your unit, and it counts on the unit dashboard, for leaders who can read that unit’s records.",
+  "voiced": false
+ },
+ "v-4": {
+  "hash": "9bb324533738abfa",
+  "text": "Every entry says who can see it, in plain words, at the top.",
+  "voiced": false
+ },
+ "v-5": {
+  "hash": "b9c9fe056c7cb82d",
+  "text": "Drafts and career plans are never shared. And every time a leader opens your record, it is logged.",
+  "voiced": false
+ },
+ "i-0": {
+  "hash": "b19697d1df1baadb",
+  "text": "Importing a spreadsheet.",
+  "voiced": false
+ },
+ "i-1": {
+  "hash": "21d3a47872173735",
+  "text": "Bring in the sheet your section already works from. Vantage keeps the original, unchanged.",
+  "voiced": false
+ },
+ "i-2": {
+  "hash": "a5383247044425f8",
+  "text": "It reads the headings, and guesses what each column means. Correct anything it got wrong.",
+  "voiced": false
+ },
+ "i-3": {
+  "hash": "3a583c5d71c388ad",
+  "text": "Before anything is written, you see exactly what will happen, row by row.",
+  "voiced": false
+ },
+ "i-4": {
+  "hash": "b9f100760613ccdb",
+  "text": "Import, and every row becomes work in the queue, traced to the row it came from.",
+  "voiced": false
+ },
+ "i-5": {
+  "hash": "97eb86b16dd9b5d9",
+  "text": "Bring the same file in again, and nothing changes. That is the right answer.",
+  "voiced": false
+ },
+ "a-0": {
+  "hash": "13d99c7960e7126e",
+  "text": "Reading the analysis.",
+  "voiced": false
+ },
+ "a-1": {
+  "hash": "7fda6845a4ef4b4c",
+  "text": "Before you claim anything, see what your record actually shows.",
+  "voiced": false
+ },
+ "a-2": {
+  "hash": "6f05dfac608676d2",
+  "text": "Figures are grouped by what they measure. Hours, kilometres and dollars are never added together.",
+  "voiced": false
+ },
+ "a-3": {
+  "hash": "f8173d946a7f9b3c",
+  "text": "The summary says it plainly: how often you logged, your longest gap, and where this pace will leave you.",
+  "voiced": false
+ },
+ "a-4": {
+  "hash": "cad7337f418b3153",
+  "text": "Coverage shows which entries are thin, so you can strengthen them before a report cites them.",
+  "voiced": false
+ },
+ "a-5": {
+  "hash": "0d2dc8efaa88208e",
+  "text": "And a figure on Today opens into the entries behind it.",
+  "voiced": false
+ },
+ "c-0": {
+  "hash": "e9717529ad300376",
+  "text": "Counseling.",
+  "voiced": false
+ },
+ "c-1": {
+  "hash": "7fd6d525f0df9d9c",
+  "text": "From a Marine’s page, record the counseling: what went well, what to improve, and the goals you set.",
+  "voiced": false
+ },
+ "c-2": {
+  "hash": "f0c631ee34f16757",
+  "text": "Save it, and it is on their record, dated, with you as the counselor.",
+  "voiced": false
+ },
+ "c-3": {
+  "hash": "c87ae96c3a9c02b8",
+  "text": "They open it from Career, and acknowledge it. That confirms they read it, not that they agree.",
+  "voiced": false
+ },
+ "c-4": {
+  "hash": "a23a93de93b01aae",
+  "text": "Both of you hold the same dated record, and it shows as acknowledged.",
+  "voiced": false
+ },
+ "su-0": {
+  "hash": "b15ced06193505fe",
+  "text": "Standing up a deployment.",
+  "voiced": false
+ },
+ "su-1": {
+  "hash": "1af532c982f30b9d",
+  "text": "The first launch asks for one thing: the owner account, and the first unit you will lead.",
+  "voiced": false
+ },
+ "su-2": {
+  "hash": "09341d5e6608d240",
+  "text": "The Owner console runs the deployment: settings, accounts, units, retention and backups.",
+  "voiced": false
+ },
+ "su-3": {
+  "hash": "9850aa1db0119ad1",
+  "text": "Decide the settings before anyone else signs in, starting with whether people may register themselves.",
+  "voiced": false
+ },
+ "su-4": {
+  "hash": "cded9ba5825061b5",
+  "text": "Build the chain of command. Teams sit under their command, and authority flows down, never up.",
+  "voiced": false
+ },
+ "su-5": {
+  "hash": "d0ed370d3e3e0b1f",
+  "text": "Then bring people in: an invitation they accept themselves, or accounts imported from a roster.",
+  "voiced": false
+ },
+ "g-0": {
+  "hash": "598728d1a57fcd92",
+  "text": "Retention and privacy.",
+  "voiced": false
+ },
+ "g-1": {
+  "hash": "4c0465413a8db5cc",
+  "text": "Retention is off until you turn it on, one kind of record at a time, and every schedule names its authority.",
+  "voiced": false
+ },
+ "g-2": {
+  "hash": "8a61e79ccc68e4b8",
+  "text": "See what is eligible before anything runs.",
+  "voiced": false
+ },
+ "g-3": {
+  "hash": "de529c7c93084c89",
+  "text": "A legal hold stops every deletion it covers, and always wins over a schedule.",
+  "voiced": false
+ },
+ "g-4": {
+  "hash": "b30a00ccc644b3b0",
+  "text": "The privacy inventory is built from the live database each time it opens, so it cannot quietly stop being true.",
+  "voiced": false
+ },
+ "g-5": {
+  "hash": "333b79f84d956201",
+  "text": "Export it for the privacy impact assessment.",
+  "voiced": false
  }
 }

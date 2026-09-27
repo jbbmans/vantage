@@ -20,6 +20,13 @@ export const CHAPTER_META: Record<string, { n: number; lede: string }> = {
   record: { n: 4, lede: 'What counts, and what never does.' },
   'report-studio': { n: 5, lede: 'JEPES and FITREP input, written from the facts.' },
   'unit-dashboard': { n: 6, lede: 'The section at a glance, and what the numbers cannot say.' },
+  'first-week': { n: 7, lede: 'Day one to Friday.' },
+  visibility: { n: 8, lede: 'Private by default, shared on purpose.' },
+  import: { n: 9, lede: 'The sheet you already have, brought in once.' },
+  analysis: { n: 10, lede: 'What your record shows, before you claim it.' },
+  counseling: { n: 11, lede: 'Recorded, read, and acknowledged.' },
+  setup: { n: 12, lede: 'The owner account, the chain of command, the people.' },
+  governance: { n: 13, lede: 'How long records are kept, and what is held.' },
 };
 
 const PLATE_W = 1640;

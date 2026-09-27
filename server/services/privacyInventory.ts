@@ -333,6 +333,15 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       completion_tokens: 'none', total_tokens: 'none', failures: 'none',
     },
   },
+  email_queue: {
+    purpose: 'Email a receiving server asked this instance to retry later, when it delivers mail itself. The message, which can hold a reset link, is encrypted with the instance secret and deleted once delivered or given up: after 30 minutes for a reset link, two days at most for anything else.',
+    authority: 'Operational delivery of mail the instance already decided to send.',
+    access: 'Nobody through the app; the delivery job alone.',
+    columns: {
+      id: 'technical', log_id: 'technical', to_address: 'contact', kind: 'none', payload: 'authentication', attempts: 'technical', last_error: 'technical',
+      next_attempt_at: 'technical', expires_at: 'technical', created_at: 'technical',
+    },
+  },
   email_log: {
     purpose: 'Which emails the instance sent, to whom, and whether delivery failed. Never the body.',
     authority: 'Operational accountability for outbound mail.',

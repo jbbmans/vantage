@@ -12,6 +12,7 @@ import { CounselingFields, AwardFields, emptyCounseling, emptyAward } from '@/pa
 import { keys, useIdentity, useOrg, useRoles, useTrack, useMetrics, useMetricsReport } from '@/lib/queries';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
+import { useForgetVisit, useRememberVisit } from '@/lib/recent';
 import { aggregateMetrics, formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
 import { trackForGrade, trackMeta, mapAreaToTrack } from '../../shared/evaluation';
 import { estimate } from '../../shared/jepes';
@@ -35,6 +36,8 @@ export default function MemberDetail() {
   const [prep, setPrep] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const myTrack = useTrack();
   const person = data?.person;
+  useForgetVisit(identity?.user.id, `/team/${id}`, Boolean(error));
+  useRememberVisit(identity?.user.id, person && id !== identity?.user.id ? { to: `/team/${id}`, title: `${person.rank_abbr ? `${person.rank_abbr} ` : ''}${person.last_name}, ${person.first_name}`, kind: 'marine' } : null);
   const track = person ? trackForGrade(person.rank_grade) : myTrack;
   const metrics = useMemo(() => aggregateMetrics(data?.activities || [], cfg), [data, cfg]);
   const memberParams = useMemo(() => { const r = rangeForPeriod('fiscalYear'); return { from: dayKey(r.start), to: dayKey(r.end), user_id: id }; }, [id]);

@@ -11,6 +11,9 @@ const FF_DIR = join(ROOT, 'node_modules', '@remotion', 'compositor-linux-x64-gnu
 const ENV = { ...process.env, LD_LIBRARY_PATH: FF_DIR };
 const BROWSER = process.env.REMOTION_BROWSER || '/opt/pw-browsers/chromium_headless_shell-1194/chrome-linux/headless_shell';
 const DEMO = process.env.VANTAGE_DEMO_URL || 'http://localhost:8798';
+const INSTANCE = process.env.VANTAGE_FILM_INSTANCE_URL || 'http://localhost:8799';
+/** Films shot on a fresh accounts-mode instance, in the order they must run: setup needs it empty. */
+const ON_INSTANCE = ['setup', 'governance', 'first-week'];
 
 const args = process.argv.slice(2);
 const flag = (f) => args.includes(f);
@@ -42,6 +45,17 @@ async function demoServer() {
   throw new Error('the demo server did not start');
 }
 
+/** Always a fresh instance: the setup film begins from an empty one. */
+async function instanceServer() {
+  const up = async () => { try { return (await fetch(`${INSTANCE}/api/health`)).ok; } catch { return false; } };
+  if (await up()) throw new Error(`something is already listening on ${INSTANCE}; stop it so the setup film can start from an empty instance`);
+  log('starting a fresh film instance');
+  const child = spawn(process.execPath, ['film/tools/instance.ts'], { cwd: REPO, env: { ...process.env, VANTAGE_FILM_INSTANCE_PORT: new URL(INSTANCE).port || '8799' }, stdio: 'ignore' });
+  for (let i = 0; i < 120; i++) { if (await up()) return child; await new Promise((r) => setTimeout(r, 250)); }
+  child.kill();
+  throw new Error('the film instance did not start');
+}
+
 function posterFrame(tl) {
   if (tl.id === 'hero') { const s = tl.scenes.find((x) => x.id === 'title'); return Math.round(s.from + (s.to - s.from) * 0.8); }
   const s = tl.scenes[2] ?? tl.scenes[1];
@@ -65,14 +79,16 @@ async function main() {
   // 3. Capture.
   if (!flag('--reuse-shots')) {
     const server = await demoServer();
+    const instance = ids.some((id) => ON_INSTANCE.includes(id)) ? await instanceServer() : null;
     try {
       const { FILMS } = await import(`./shots.mjs?${Date.now()}`);
       const { launch, collectTakes } = await import('./capture.mjs');
       const browser = await launch();
-      for (const id of ids) { log(`capturing ${id}`); await FILMS[id](browser); }
+      const order = [...ids].sort((a, b) => (ON_INSTANCE.indexOf(a) + 1 || 99) - (ON_INSTANCE.indexOf(b) + 1 || 99));
+      for (const id of order) { log(`capturing ${id}`); await FILMS[id](browser); }
       await browser.close();
       collectTakes();
-    } finally { server?.kill(); }
+    } finally { server?.kill(); instance?.kill(); }
   }
 
   // 4. Score and mix.

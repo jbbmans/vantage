@@ -42,14 +42,14 @@ export default function CsvImportDialog({ open, onOpenChange }: { open: boolean;
     const withVisibility = records.map((r) => {
       const prior = r.id ? byId.get(r.id) : null;
       const vis = visibility !== 'keep' ? visibility : r.visibility === 'unit' || r.visibility === 'private' ? r.visibility : prior?.visibility || 'private';
-      return { ...r, visibility: vis, unit_id: prior ? prior.unit_id : identity?.primaryUnitId || null };
+      return { ...r, visibility: vis, unit_id: prior ? prior.unit_id : identity?.homeUnitId || null };
     });
     const updates = withVisibility.filter((r) => r.id && (existing || []).some((e: any) => e.id === r.id));
     const fresh = withVisibility.filter((r) => !updates.includes(r));
     const screened = screenImport(fresh, existing || []);
     const near = screened.near.map((n) => n.row);
     return { records: withVisibility, problems, updates, fresh, duplicates: [...screened.exact, ...near], clean: screened.fresh };
-  }, [parsed, mapping, visibility, existing, identity?.primaryUnitId]);
+  }, [parsed, mapping, visibility, existing, identity?.homeUnitId]);
 
   const run = async () => {
     if (!preview) return;
@@ -91,7 +91,7 @@ export default function CsvImportDialog({ open, onOpenChange }: { open: boolean;
           </div>
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <label className="text-sm"><span className="mb-1 block text-xs font-semibold text-ink-2">Visibility for imported rows</span>
-              <Select value={visibility} onValueChange={(v) => setVisibility(v as typeof visibility)} options={[{ value: 'keep', label: 'Use the file’s Visibility column (default private)' }, { value: 'private', label: 'Only me' }, { value: 'unit', label: 'Share with my unit', disabled: !identity?.primaryUnitId }]} /></label>
+              <Select value={visibility} onValueChange={(v) => setVisibility(v as typeof visibility)} options={[{ value: 'keep', label: 'Use the file’s Visibility column (default private)' }, { value: 'private', label: 'Only me' }, { value: 'unit', label: 'Share with my unit', disabled: !identity?.homeUnitId }]} /></label>
             <label className="flex items-start gap-2 pt-5 text-sm text-ink-2"><input type="checkbox" checked={skipDupes} onChange={(e) => setSkipDupes(e.target.checked)} className="mt-1" />Skip rows that look like entries already logged</label>
           </div>
           {preview && preview.problems.length > 0 && (

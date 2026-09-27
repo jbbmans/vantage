@@ -103,7 +103,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
       actions={<>
         <Button onClick={() => setImportOpen('1')}><Upload className="h-4 w-4" />Import CSV</Button>
         <Button onClick={exportCsv}><Download className="h-4 w-4" />Export CSV</Button>
-        <Button variant="primary" onClick={() => setEditing(emptyActivity({ visibility: prefs.defaultVisibility || 'private', unit_id: identity?.primaryUnitId || null }))}><Plus className="h-4 w-4" />New entry</Button>
+        <Button variant="primary" onClick={() => setEditing(emptyActivity({ visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null }))}><Plus className="h-4 w-4" />New entry</Button>
       </>}
     >
 

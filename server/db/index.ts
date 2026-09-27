@@ -166,6 +166,8 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       }
     },
   },
+  // The email_queue table comes from schema.sql, which is safe to replay.
+  { id: 12, name: '012_email_queue', run: () => {} },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 

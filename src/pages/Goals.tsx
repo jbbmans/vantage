@@ -78,7 +78,7 @@ export default function Goals() {
     metric: 'manual', metric_id: null, direction: 'increase', aggregation: 'sum', measure_scope: 'subject',
     baseline_value: 0, current_value: 0, target_value: '', unit_label: '',
     status: 'active', period_start: todayIso(), period_end: '',
-    visibility: prefs.defaultVisibility || 'private', unit_id: identity?.primaryUnitId || null,
+    visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null,
   });
 
   const canEditRow = (r: any) => r.user_id === me || Boolean(r.unit_id && identity && ((identity.permissions[r.unit_id] || 0) & ((1 << 12) | (1 << 3))));

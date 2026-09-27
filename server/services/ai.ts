@@ -3,7 +3,7 @@ import { createHash, randomUUID } from 'node:crypto';
 import { summableKeys } from '../../shared/constants.ts';
 import { record } from './telemetry.ts';
 import type { AppContext, SessionUser } from '../context.ts';
-import { PERMISSIONS, can, scopeFor, detailUnitsFor } from '../authz/scope.ts';
+import { PERMISSIONS, can, scopeFor, detailUnitsFor, subtreeIds } from '../authz/scope.ts';
 import { HttpError } from '../lib/errors.ts';
 import { limiters } from '../auth/limiter.ts';
 import { zonedDay } from '../lib/clock.ts';
@@ -65,16 +65,17 @@ function sharedActivities(ctx: AppContext, userId: string, unitId: string, from:
 }
 
 function aggregate(ctx: AppContext, unitId: string, from: string, to: string) {
-  const base = `FROM activities WHERE unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL AND date >= ? AND date <= ?`;
+  const base = `FROM activities WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL AND date >= ? AND date <= ?`;
+  const units = JSON.stringify(subtreeIds(ctx, unitId));
   const headline = summableKeys(ctx.runtime.metrics);
   const headlineSum = headline.length
     ? `COALESCE(SUM(CASE WHEN dollar_type IN (${headline.map(() => '?').join(',')}) OR dollar_type IS NULL THEN dollar_amount ELSE 0 END), 0)`
     : '0';
   return {
     from, to,
-    categories: ctx.db.prepare(`SELECT COALESCE(category, 'Uncategorized') AS category, COUNT(*) AS entries, COALESCE(SUM(quantity), 0) AS action_amount, ${headlineSum} AS headline_transaction_value, SUM(CASE WHEN NULLIF(trim(result), '') IS NOT NULL THEN 1 ELSE 0 END) AS with_result ${base} GROUP BY 1 ORDER BY entries DESC`).all(...headline, unitId, from, to),
-    dollar_types: ctx.db.prepare(`SELECT COALESCE(dollar_type, 'unclassified') AS dollar_type, COUNT(*) AS entries, COALESCE(SUM(dollar_amount), 0) AS transaction_value ${base} AND dollar_amount IS NOT NULL GROUP BY 1 ORDER BY transaction_value DESC`).all(unitId, from, to),
-    contributors: (ctx.db.prepare(`SELECT COUNT(DISTINCT user_id) AS n ${base}`).get(unitId, from, to) as { n: number }).n,
+    categories: ctx.db.prepare(`SELECT COALESCE(category, 'Uncategorized') AS category, COUNT(*) AS entries, COALESCE(SUM(quantity), 0) AS action_amount, ${headlineSum} AS headline_transaction_value, SUM(CASE WHEN NULLIF(trim(result), '') IS NOT NULL THEN 1 ELSE 0 END) AS with_result ${base} GROUP BY 1 ORDER BY entries DESC`).all(...headline, units, from, to),
+    dollar_types: ctx.db.prepare(`SELECT COALESCE(dollar_type, 'unclassified') AS dollar_type, COUNT(*) AS entries, COALESCE(SUM(dollar_amount), 0) AS transaction_value ${base} AND dollar_amount IS NOT NULL GROUP BY 1 ORDER BY transaction_value DESC`).all(units, from, to),
+    contributors: (ctx.db.prepare(`SELECT COUNT(DISTINCT user_id) AS n ${base}`).get(units, from, to) as { n: number }).n,
   };
 }
 

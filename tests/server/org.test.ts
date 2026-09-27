@@ -51,14 +51,25 @@ test('a sub-unit needs authority over its parent; a unit of your own does not', 
   assert.equal(rename.body.name, 'Accounting Branch');
 });
 
-test('parent authority never cascades into the child unit', async () => {
-  // op owns G8 but was never enrolled in ACCT; sncoic owns ACCT.
+test('authority in a unit reaches the units beneath it, never the ones above', async () => {
+  // op owns G8 but was never enrolled in ACCT, which sits under G8; sncoic owns ACCT.
   const me = await app.call('GET', '/api/me', { token: op.token });
-  assert.ok(!('ACCT' in me.body.permissions));
+  assert.ok(me.body.permissions.ACCT & PERMISSIONS.VIEW_RECORDS, 'G8 authority reaches ACCT');
+  assert.ok(me.body.positions.ACCT > 100, 'and outranks ACCT’s own leader there');
   const rec = await app.call('POST', '/api/records/activities', { token: (await app.login('sncoic')).body.token, body: { title: 'ACCT only', visibility: 'unit', unit_id: 'ACCT' } });
   assert.equal(rec.status, 201);
-  assert.equal((await app.call('GET', `/api/records/activities/${rec.body.id}`, { token: op.token })).status, 403);
-  assert.equal((await app.call('GET', '/api/org/units/ACCT/dashboard', { token: op.token })).status, 403);
+  assert.equal((await app.call('GET', `/api/records/activities/${rec.body.id}`, { token: op.token })).status, 200);
+  assert.equal((await app.call('GET', '/api/org/units/ACCT/dashboard', { token: op.token })).status, 200);
+
+  const lone = await app.register('acctonly');
+  await enroll(app, op.token, 'ACCT', lone.id, 'sncoic');
+  const token = (await app.login('acctonly')).body.token;
+  const theirs = await app.call('GET', '/api/me', { token });
+  assert.equal(theirs.body.permissions.G8, undefined, 'a role in ACCT confers nothing in G8');
+  assert.ok(theirs.body.viewableUnitIds.includes('G8'), 'though they can open G8 as the command above them');
+  const g8 = await app.call('POST', '/api/records/activities', { token: op.token, body: { title: 'G8 only', visibility: 'unit', unit_id: 'G8' } });
+  assert.equal((await app.call('GET', `/api/records/activities/${g8.body.id}`, { token })).status, 403);
+  assert.equal((await app.call('GET', '/api/org/units/G8/dashboard', { token })).status, 403);
 });
 
 test('role hierarchy: cannot create, grant, or edit at or above own position, nor delegate unheld bits', async () => {

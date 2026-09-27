@@ -14,7 +14,9 @@
 
 - A user always reads and writes their own records.
 - Records have `visibility` of `private` or `unit`, and a `unit_id`. Only `unit` records in a unit where the reader holds `VIEW_RECORDS` are visible to others; `VIEW_MEMBER_DETAIL` opens a Marine's page; `MANAGE_RECORDS` edits shared entries; `COUNSEL` records counselings and award recommendations.
-- Permissions are a bitmask on roles; roles belong to one unit; nothing inherits across the unit tree. The unit owner holds `ADMINISTRATOR` in that unit only.
+- Permissions are a bitmask on roles, and roles belong to one unit. Authority flows down the unit tree, never up: a role in a command carries into every team beneath it, one position above that team's own role of the same rank, so a command leader outranks a team leader in the team. A role in a team confers nothing in the command above it.
+- Members see an overview of their own team and of each command above it: the roster, the goals, and aggregate totals. Totals built from fewer than three contributors are withheld, so an overview never reveals one person's entries. Shared records, member pages and dashboards still need `VIEW_RECORDS` or `VIEW_MEMBER_DETAIL` in that unit or a unit above it.
+- Moving a Marine between teams needs `MANAGE_MEMBERS` in both teams and a higher position than the Marine in each. It runs as one transaction, is audited as `move_member`, revokes the Marine's sessions, and carries a role only where the mover may grant it.
 - A role is granted, invited or put on a join code only by someone who could have defined it: it sits below their own position and carries no permission they lack. Unit Leader moves only by ownership transfer.
 - Enrolling an existing account skips that person's consent, so it is limited to Marines the leader already leads (below them in a unit where they manage members) and to the Instance Operator. Everyone else joins with an invitation or join code they accept themselves, and the directory offers only people the searcher could enroll.
 - The instance owner (operator) manages accounts and settings but has no read access to private records.
@@ -46,6 +48,14 @@
 - Remote images are stripped rather than proxied. A tracking pixel would otherwise report when a Marine opened their mail, and from which network.
 - Mailbox connectors are read-only (`offline_access`, `User.Read`, `Mail.Read`) and name their national cloud explicitly. Delta sync keys on the provider's message ids, and a message deleted upstream never deletes the local record of the work.
 - Live syncing is not wired to a token flow in this build. The authorization plan is shown before anything is authorized, and an unauthorized sync says so rather than reporting an empty mailbox.
+
+## Outbound email
+
+- In direct mode Vantage signs every message with DKIM. The private key is generated on the server, stored in `meta` encrypted with `VANTAGE_SECRET` (AES-256-GCM), and never leaves the instance; only the public key is shown, for DNS.
+- Mail a receiver asks to retry is queued in `email_queue` encrypted with the same secret, and deleted once delivered or given up: 30 minutes for a reset link, two days at most otherwise.
+- Delivery uses opportunistic STARTTLS, as mail servers do between themselves; a receiver that offers no TLS still gets the message in the clear, which is the norm for server-to-server mail.
+- The Owner console's email checks are operator-only behind step-up confirmation, and each run is audited (`email_setup_checked`).
+- Team messages need `MANAGE_MEMBERS` in the unit, go to each member separately so no address is shared, set Reply-To to the sender, are limited to five an hour per sender, and are audited (`team_message`). Subjects are flattened to one line, so typed text cannot add mail headers.
 
 ## Product analytics
 

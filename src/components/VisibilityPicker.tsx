@@ -25,7 +25,7 @@ export default function VisibilityPicker({ value, unitId, onChange, compact = fa
         ))}
       </div>
       {value === 'unit' && memberships.length > 1 && (
-        <div className="mt-2"><Select aria-label="Unit" value={unitId || identity?.primaryUnitId || ''} onValueChange={(u) => onChange({ visibility: 'unit', unit_id: u })} options={memberships.map((m) => ({ value: m.unit_id, label: m.unit_short || m.unit_name }))} /></div>
+        <div className="mt-2"><Select aria-label="Unit" value={unitId || identity?.homeUnitId || ''} onValueChange={(u) => onChange({ visibility: 'unit', unit_id: u })} options={memberships.map((m) => ({ value: m.unit_id, label: m.unit_short || m.unit_name }))} /></div>
       )}
     </div>
   );

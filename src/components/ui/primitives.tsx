@@ -89,7 +89,8 @@ export function Field({ label, hint, error, children, className, required }: { l
 export interface SelectOption { value: string; label: string; disabled?: boolean }
 export function Select({ value, onValueChange, options, placeholder = 'Select…', className, disabled, ...rest }: { value?: string | null; onValueChange: (v: string) => void; options: Array<SelectOption | string>; placeholder?: string; className?: string; disabled?: boolean; 'aria-label'?: string; 'aria-labelledby'?: string; id?: string }) {
   return (
-    <SelectPrimitive.Root value={value || undefined} onValueChange={onValueChange} disabled={disabled}>
+    // Keyed on the option count: Radix shows nothing for a value whose option arrives after it, as ranks do.
+    <SelectPrimitive.Root key={options.length} value={value || undefined} onValueChange={onValueChange} disabled={disabled}>
       <SelectPrimitive.Trigger {...rest} aria-label={rest['aria-label'] ?? (rest['aria-labelledby'] ? undefined : placeholder)} className={cn('field flex h-9 items-center justify-between gap-2 py-0 text-left data-[placeholder]:text-ink-3', className)}>
         <span className="truncate"><SelectPrimitive.Value placeholder={placeholder} /></span>
         <SelectPrimitive.Icon><ChevronDown className="h-4 w-4 shrink-0 text-ink-3" /></SelectPrimitive.Icon>
@@ -209,12 +210,34 @@ export function Segmented<T extends string>({ value, onChange, options, classNam
 
 export function Tabs<T extends string>({ value, onChange, tabs, className }: { value: T; onChange: (v: T) => void; tabs: Array<{ value: T; label: React.ReactNode; count?: number }>; className?: string }) {
   const strip = React.useRef<HTMLDivElement | null>(null);
+  const ink = React.useRef<HTMLSpanElement | null>(null);
+  const [measured, setMeasured] = React.useState(false);
   React.useEffect(() => {
     const el = strip.current?.querySelector<HTMLElement>('[aria-selected="true"]');
     el?.scrollIntoView({ block: 'nearest', inline: 'center' });
   }, [value]);
+  React.useLayoutEffect(() => {
+    const bar = strip.current;
+    if (!bar) return;
+    const place = () => {
+      const el = bar.querySelector<HTMLElement>('[aria-selected="true"]');
+      const line = ink.current;
+      if (!el || !line) { setMeasured(false); return; }
+      const first = !line.dataset.placed;
+      if (first) line.style.transition = 'none';
+      line.style.transform = `translateX(${el.offsetLeft}px) scaleX(${el.offsetWidth / 100})`;
+      if (first) { void line.offsetWidth; line.style.transition = ''; line.dataset.placed = '1'; }
+      setMeasured(true);
+    };
+    place();
+    const watch = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    watch?.observe(bar);
+    bar.querySelectorAll('[role="tab"]').forEach((t) => watch?.observe(t));
+    return () => watch?.disconnect();
+  }, [value, tabs.length]);
   return (
-    <div ref={strip} role="tablist" className={cn('tab-bar scroll-x scroll-x-canvas scroll-x-quiet', className)}>
+    <div ref={strip} role="tablist" data-ink={measured || undefined} className={cn('tab-bar relative scroll-x scroll-x-canvas scroll-x-quiet', className)}>
+      <span ref={ink} className="tab-ink" style={{ opacity: measured ? 1 : 0 }} aria-hidden />
       {tabs.map((t) => {
         const active = t.value === value;
         return (

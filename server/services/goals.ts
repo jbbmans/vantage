@@ -1,7 +1,7 @@
 import type { AppContext } from '../context.ts';
 import { badRequest } from '../lib/errors.ts';
 import { subjectMeasures, unitMeasures } from './metrics.ts';
-import { progress, totals, selectMeasures, moneyMetricId, quantityMetricId, durationMetricId, type Direction, type Aggregation, type ProgressResult } from '../../shared/metricEngine.ts';
+import { progress, totals, selectMeasures, moneyMetricId, quantityMetricId, durationMetricId, canonicalMetricId, type Direction, type Aggregation, type ProgressResult } from '../../shared/metricEngine.ts';
 
 export const DIRECTIONS: Direction[] = ['increase', 'decrease', 'threshold', 'completion'];
 export const AGGREGATIONS: Aggregation[] = ['sum', 'max', 'min', 'average', 'latest', 'distinct'];
@@ -64,7 +64,8 @@ function measuresForGoal(ctx: AppContext, goal: GoalRow) {
 export function goalProgressFor(ctx: AppContext, goal: GoalRow): GoalProgress {
   const manual = goal.metric === 'manual' && !goal.metric_id;
   const filters = { ...parseFilters(goal.filters), ...(goal.category && !goal.metric_id ? { category: goal.category } : {}) };
-  const metricId = goal.metric_id || legacyMetricId(goal);
+  const saved = goal.metric_id || legacyMetricId(goal);
+  const metricId = saved ? canonicalMetricId(saved) : saved;
   const direction = (DIRECTIONS.includes(goal.direction as Direction) ? goal.direction : 'increase') as Direction;
   const aggregation = (AGGREGATIONS.includes(goal.aggregation as Aggregation) ? goal.aggregation : 'sum') as Aggregation;
   const target = goal.target_value == null ? null : Number(goal.target_value);
@@ -133,7 +134,8 @@ export function withTypedProgress(ctx: AppContext, goals: GoalRow[]) {
 export interface GoalContributor { table: string; id: string; date: string; title: string; value: number; unit: string }
 
 export function goalContributors(ctx: AppContext, goal: GoalRow): GoalContributor[] {
-  const metricId = goal.metric_id || legacyMetricId(goal);
+  const saved = goal.metric_id || legacyMetricId(goal);
+  const metricId = saved ? canonicalMetricId(saved) : saved;
   if (!metricId) return [];
   const filters = { ...parseFilters(goal.filters), ...(goal.category && !goal.metric_id ? { category: goal.category } : {}) };
   const window = goalWindow(goal);

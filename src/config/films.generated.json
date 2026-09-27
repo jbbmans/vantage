@@ -54,5 +54,61 @@
     "seconds": 31,
     "published": "2026-09-25",
     "voiced": false
+  },
+  "first-week": {
+    "src": "/videos/films/first-week.mp4?v=1aac89f948",
+    "poster": "/videos/films/first-week.jpg?v=cf8a0b9c42",
+    "captions": "/videos/films/first-week.vtt?v=f55b8e8104",
+    "seconds": 52,
+    "published": "2026-09-25",
+    "voiced": false
+  },
+  "visibility": {
+    "src": "/videos/films/visibility.mp4?v=0c5ba036a3",
+    "poster": "/videos/films/visibility.jpg?v=59267aac47",
+    "captions": "/videos/films/visibility.vtt?v=a67310ca8f",
+    "seconds": 44,
+    "published": "2026-09-25",
+    "voiced": false
+  },
+  "import": {
+    "src": "/videos/films/import.mp4?v=8afc52b180",
+    "poster": "/videos/films/import.jpg?v=e5bba6cfff",
+    "captions": "/videos/films/import.vtt?v=4075997335",
+    "seconds": 41,
+    "published": "2026-09-25",
+    "voiced": false
+  },
+  "analysis": {
+    "src": "/videos/films/analysis.mp4?v=35a85f0ed6",
+    "poster": "/videos/films/analysis.jpg?v=4f11ccfefb",
+    "captions": "/videos/films/analysis.vtt?v=7618da5e53",
+    "seconds": 40,
+    "published": "2026-09-25",
+    "voiced": false
+  },
+  "counseling": {
+    "src": "/videos/films/counseling.mp4?v=35559cc4ae",
+    "poster": "/videos/films/counseling.jpg?v=af845e303a",
+    "captions": "/videos/films/counseling.vtt?v=914338bbd9",
+    "seconds": 36,
+    "published": "2026-09-25",
+    "voiced": false
+  },
+  "setup": {
+    "src": "/videos/films/setup.mp4?v=71a3a4bae8",
+    "poster": "/videos/films/setup.jpg?v=67218961b0",
+    "captions": "/videos/films/setup.vtt?v=c631444d3f",
+    "seconds": 43,
+    "published": "2026-09-25",
+    "voiced": false
+  },
+  "governance": {
+    "src": "/videos/films/governance.mp4?v=eb96d24bf2",
+    "poster": "/videos/films/governance.jpg?v=360c33862c",
+    "captions": "/videos/films/governance.vtt?v=bddb2bd627",
+    "seconds": 39,
+    "published": "2026-09-25",
+    "voiced": false
   }
 }

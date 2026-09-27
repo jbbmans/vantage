@@ -47,6 +47,24 @@ export async function openDemo(browser, base, { persona = 'marine', theme = 'lig
   return { context, page };
 }
 
+/** A signed-in (or signed-out) page on the accounts-mode film instance, dressed like the demo. */
+export async function openInstance(browser, base, login = null) {
+  const context = await browser.newContext({ baseURL: base, viewport: VIEW, deviceScaleFactor: SCALE, reducedMotion: 'reduce', colorScheme: 'light' });
+  await context.addInitScript(({ css }) => {
+    try { localStorage.setItem('vantage.theme', 'light'); } catch { /* private mode */ }
+    const add = () => { const s = document.createElement('style'); s.dataset.film = '1'; s.textContent = css; document.documentElement.appendChild(s); };
+    if (document.documentElement) add(); else document.addEventListener('DOMContentLoaded', add);
+  }, { css: FILM_CSS });
+  const page = await context.newPage();
+  if (login) {
+    const res = await page.request.post('/api/auth/login', { data: login, headers: { 'x-vantage-client': '1' } });
+    if (!res.ok()) throw new Error(`film instance sign-in as ${login.username}: ${res.status()} ${await res.text()}`);
+    await page.goto('/', { waitUntil: 'networkidle' });
+  }
+  await page.mouse.move(VIEW.width - 2, VIEW.height - 2);
+  return { context, page };
+}
+
 export async function settle(page, ms = 250) {
   await page.waitForLoadState('networkidle').catch(() => {});
   await page.evaluate(() => document.fonts?.ready).catch(() => {});

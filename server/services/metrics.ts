@@ -1,9 +1,10 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
 import { readableClause } from '../authz/records.ts';
+import { subtreeIds } from '../authz/scope.ts';
 import { zonedDay } from '../lib/clock.ts';
 import {
-  measuresOfAll, totals, headline, series, catalog, selectMeasures,
+  measuresOfAll, totals, headline, series, catalog, selectMeasures, canonicalMetricId,
   type Measure, type MetricTotal, type Bucket, type Aggregation, type AggregateOptions,
 } from '../../shared/metricEngine.ts';
 
@@ -47,7 +48,7 @@ function sourceRows(ctx: AppContext, user: SessionUser, scope: Scope, opts: Metr
     const { clause, params } = readableClause(ctx, scope, user.id, 't');
     const where = ['t.deleted_at IS NULL', clause, 't.date >= ?', 't.date <= ?'];
     params.push(opts.from, opts.to);
-    if (opts.unitId) { where.push("t.unit_id = ? AND t.visibility = 'unit'"); params.push(opts.unitId); }
+    if (opts.unitId) { where.push("t.unit_id IN (SELECT value FROM json_each(?)) AND t.visibility = 'unit'"); params.push(JSON.stringify(subtreeIds(ctx, opts.unitId))); }
     if (opts.subjectId) { where.push('t.user_id = ?'); params.push(opts.subjectId); }
     if (opts.mineOnly) { where.push('t.user_id = ?'); params.push(user.id); }
     return ctx.db.prepare(`SELECT ${columns} FROM ${table} t WHERE ${where.join(' AND ')}`).all(...params) as SourceRow[];
@@ -58,7 +59,7 @@ export function subjectMeasures(ctx: AppContext, subjectId: string, opts: { from
   const rows = collectRows((table, columns) => {
     const where = ['t.deleted_at IS NULL', 't.user_id = ?', 't.date >= ?', 't.date <= ?'];
     const params: unknown[] = [subjectId, opts.from, opts.to];
-    if (opts.sharedOnly && opts.unitId) { where.push("t.visibility = 'unit' AND t.unit_id = ?"); params.push(opts.unitId); }
+    if (opts.sharedOnly && opts.unitId) { where.push("t.visibility = 'unit' AND t.unit_id IN (SELECT value FROM json_each(?))"); params.push(JSON.stringify(subtreeIds(ctx, opts.unitId))); }
     return ctx.db.prepare(`SELECT ${columns} FROM ${table} t WHERE ${where.join(' AND ')}`).all(...params) as SourceRow[];
   });
   return measuresOfAll(rows as never, ctx.runtime.metrics);
@@ -66,8 +67,8 @@ export function subjectMeasures(ctx: AppContext, subjectId: string, opts: { from
 
 export function unitMeasures(ctx: AppContext, unitId: string, opts: { from: string; to: string }): Measure[] {
   const rows = collectRows((table, columns) => ctx.db.prepare(
-    `SELECT ${columns} FROM ${table} t WHERE t.deleted_at IS NULL AND t.visibility = 'unit' AND t.unit_id = ? AND t.date >= ? AND t.date <= ?`
-  ).all(unitId, opts.from, opts.to) as SourceRow[]);
+    `SELECT ${columns} FROM ${table} t WHERE t.deleted_at IS NULL AND t.visibility = 'unit' AND t.unit_id IN (SELECT value FROM json_each(?)) AND t.date >= ? AND t.date <= ?`
+  ).all(JSON.stringify(subtreeIds(ctx, unitId)), opts.from, opts.to) as SourceRow[]);
   return measuresOfAll(rows as never, ctx.runtime.metrics);
 }
 
@@ -164,7 +165,7 @@ export function metricContributors(ctx: AppContext, user: SessionUser, scope: Sc
   const rows = sourceRows(ctx, user, scope, opts);
   const byId = new Map(rows.map((r) => [r.id, r]));
   const measures = measuresOfAll(rows as never, ctx.runtime.metrics);
-  const selected = selectMeasures(measures, { aggregation: opts.aggregation, filters: opts.filters }).filter((m) => m.metricId === opts.metricId);
+  const selected = selectMeasures(measures, { aggregation: opts.aggregation, filters: opts.filters }).filter((m) => m.metricId === canonicalMetricId(opts.metricId));
   return selected.map((m) => {
     const row = byId.get(m.outcomeId)!;
     const [table, id] = m.outcomeId.split(':') as ['activities' | 'trainings', string];

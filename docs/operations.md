@@ -17,7 +17,7 @@ Restoring a `.db` file: turn on maintenance mode, replace `/data/vantage.db` (a 
 
 **Owner console → Accounts → Import accounts** takes an `.xlsx` or `.csv` with a header row. `Username`, `First Name` and `Last Name` are required; `Rank`, `L2 Command` (or `Command`), `Fire Team` (or `Team`, `Unit`, `Section`), `Email`, `Temporary Password`, `Role` and `Billet` are used when present. The file is read and every row is shown first: what will be created, what already exists, and what is skipped and why. Nothing is written until you confirm.
 
-- Each command and team is matched to an existing unit by name or short name, or created, with the team placed under its command. Units the import creates are led by the owner who ran it.
+- Each command and team is matched to an existing unit by name or short name, or created, with the team placed under its command. Units the import creates are led by the owner who ran it: a new command directly, and a new team through the command above it, so the owner is not listed as a member of every team.
 - Roles are the unit's role names (`Marine`, `NCO`, `Fire Team Leader`, `SNCO`, `SNCOIC`). Unit Leader goes with ownership and cannot be imported.
 - Every account starts on its temporary password and must choose its own at first sign-in. A row with no temporary password gets one, shown once after the import with a download.
 - A username that already exists is left as it is, so the same roster can be imported again safely.

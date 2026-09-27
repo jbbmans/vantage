@@ -66,7 +66,7 @@ export default function Correspondence({ embedded }: { embedded?: boolean } = {}
   const threads = useThreads(params);
   const contacts = useContacts();
   const rows = threads.data || [];
-  const primaryUnit = identity?.primaryUnitId || '';
+  const primaryUnit = identity?.homeUnitId || '';
 
   const due = rows.filter((t) => t.follow_up_at && t.follow_up_at <= todayIso() && t.state !== 'resolved' && t.state !== 'ksd_received');
 

@@ -132,6 +132,14 @@ test('a draft is built only from the person’s own facts, cites them, and is in
   assert.equal(activity.visibility, 'private');
   assert.equal(activity.user_id, avery.id);
   assert.equal((await post(avery.token, `/api/record/drafts/${draft.body.id}/save`)).status, 409, 'saved once');
+
+  const practice = await get(avery.token, '/api/record/practice');
+  assert.equal(practice.status, 200);
+  const umt = practice.body.procedures.find((p: any) => p.key === UMT_2WAY.key);
+  assert.ok(umt && umt.worked >= 1 && umt.verified >= 1, 'the procedure she worked, and that it reached a verified outcome');
+  assert.equal(umt.short, UMT_2WAY.short);
+  const newcomer = await app.register('practicenew');
+  assert.deepEqual((await get(newcomer.token, '/api/record/practice')).body.procedures, [], 'read from the caller’s own case history alone');
 });
 
 test('career steps and plans belong to their owner alone', async () => {

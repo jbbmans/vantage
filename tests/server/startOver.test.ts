@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { spawnSync } from 'node:child_process';
+import { spawn } from 'node:child_process';
 import { mkdtempSync, readdirSync, writeFileSync, rmSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -14,13 +14,19 @@ const ROSTER = [
   'Cpl,Casey,Bad,TESTCMD,Alpha Cell,casey bad,,CedarMeadowRun7#,Marine',
 ].join('\n');
 
-function run(dir: string, db: string, args: string[], env: Record<string, string> = {}) {
-  return spawnSync(process.execPath, ['scripts/start-over.ts', ...args], {
-    encoding: 'utf8',
-    env: {
-      ...process.env, NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_DB: db, VANTAGE_EMAIL_PROVIDER: 'memory', VANTAGE_MARADMIN_ENABLED: 'false',
-      VANTAGE_SECRET: 'test-secret-test-secret-test-secret-1234', VANTAGE_PUBLIC_URL: 'http://localhost:5173', ...env,
-    },
+// Asynchronous on purpose: the server under test runs in this process and must keep serving while the script runs.
+function run(_dir: string, db: string, args: string[], env: Record<string, string> = {}): Promise<{ status: number | null; stdout: string; stderr: string }> {
+  return new Promise((resolve) => {
+    const child = spawn(process.execPath, ['scripts/start-over.ts', ...args], {
+      env: {
+        ...process.env, NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_DB: db, VANTAGE_EMAIL_PROVIDER: 'memory', VANTAGE_MARADMIN_ENABLED: 'false',
+        VANTAGE_SECRET: 'test-secret-test-secret-test-secret-1234', VANTAGE_PUBLIC_URL: 'http://localhost:5173', ...env,
+      },
+    });
+    let stdout = ''; let stderr = '';
+    child.stdout.on('data', (d) => { stdout += d; });
+    child.stderr.on('data', (d) => { stderr += d; });
+    child.on('close', (status) => resolve({ status, stdout, stderr }));
   });
 }
 
@@ -35,14 +41,14 @@ test('starting over from the shell erases everything in place, then creates the 
     const old = await app.register('oldmarine');
     assert.equal((await app.call('POST', '/api/records/activities', { token: old.token, body: { title: 'Before the reset', date: '2026-09-01' } })).status, 201);
 
-    const refused = run(dir, db, ['ERASE-EVERYTHING', '--unit', 'Test Command'], { VANTAGE_ADMIN_PASSWORD: ADMIN_PASSWORD });
+    const refused = await run(dir, db, ['ERASE-EVERYTHING', '--unit', 'Test Command'], { VANTAGE_ADMIN_PASSWORD: ADMIN_PASSWORD });
     assert.notEqual(refused.status, 0, 'the confirmation variable is required');
-    const weak = run(dir, db, ['ERASE-EVERYTHING', '--unit', 'Test Command'], { VANTAGE_START_OVER: '1', VANTAGE_ADMIN_PASSWORD: 'short' });
+    const weak = await run(dir, db, ['ERASE-EVERYTHING', '--unit', 'Test Command'], { VANTAGE_START_OVER: '1', VANTAGE_ADMIN_PASSWORD: 'short' });
     assert.notEqual(weak.status, 0);
     assert.match(weak.stderr, /VANTAGE_ADMIN_PASSWORD/);
     assert.equal((await app.call('GET', '/api/me', { token: op.token })).status, 200, 'a refused run changes nothing');
 
-    const done = run(dir, db, ['ERASE-EVERYTHING', '--unit', 'Test Command', '--short', 'TESTCMD', '--roster', roster], { VANTAGE_START_OVER: '1', VANTAGE_ADMIN_PASSWORD: ADMIN_PASSWORD });
+    const done = await run(dir, db, ['ERASE-EVERYTHING', '--unit', 'Test Command', '--short', 'TESTCMD', '--roster', roster], { VANTAGE_START_OVER: '1', VANTAGE_ADMIN_PASSWORD: ADMIN_PASSWORD });
     assert.equal(done.status, 0, done.stderr);
     assert.match(done.stdout, /Backed up the current database/);
     assert.match(done.stdout, /Imported 2 accounts/);
@@ -56,7 +62,8 @@ test('starting over from the shell erases everything in place, then creates the 
     assert.equal(admin.status, 200);
     const me = await app.call('GET', '/api/me', { token: admin.body.token });
     assert.equal(me.body.user.is_operator, 1);
-    assert.deepEqual(me.body.ownedUnitIds.sort(), ['ALPHA-CELL', 'TESTCMD']);
+    assert.deepEqual(me.body.ownedUnitIds, ['TESTCMD']);
+    assert.deepEqual(me.body.views.map((v: { id: string; level: string }) => `${v.id}:${v.level}`), ['TESTCMD:full', 'ALPHA-CELL:full'], 'the whole command and its team, both led from the top');
     assert.equal((await app.call('GET', '/api/records/activities', { token: admin.body.token })).body.length, 0);
 
     const avery = await app.login('avery.stone', 'QuartzHarborLane4!');

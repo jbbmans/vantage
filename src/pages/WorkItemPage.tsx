@@ -16,6 +16,7 @@ import { ThreadsForItem } from './Workbench';
 import { useIdentity, useMetrics, useWorkItem, invalidateWork, invalidateDomains } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { cn, timeAgo, todayIso } from '@/lib/utils';
+import { useForgetVisit, useRememberVisit } from '@/lib/recent';
 import {
   STAGE_LABEL, WAITING_CATEGORIES, WAITING_LABEL, FUNDS_CHECK_RESULTS, EXTERNAL_EVENTS, VALUE_SOURCES,
   describeEvent, type Stage,
@@ -25,7 +26,7 @@ import {
   type CaseEvent, type Procedure, type ProcedureField, type ProcedureStep,
 } from '../../shared/procedures';
 import { diagnose, METHODS, responsibilityName, type MethodKey } from '../../shared/fmra';
-import { formatCents } from '../../shared/money';
+import { formatCents, parseMoney } from '../../shared/money';
 
 const newKey = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const LIFECYCLE_FIELDS = ['commitment_amount', 'obligation_amount', 'delivered_amount', 'paid_amount'] as const;
@@ -40,6 +41,8 @@ export default function WorkItemPage() {
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
   const detail = useWorkItem(id);
+  useForgetVisit(identity?.user.id, `/work/items/${id}`, detail.isError);
+  useRememberVisit(identity?.user.id, detail.data ? { to: `/work/items/${id}`, title: [detail.data.item.reference, detail.data.item.title].filter(Boolean).join(' · '), kind: 'case' } : null);
   const [focusStep, setFocusStep] = useState<string | null>(null);
   const [handoffOpen, setHandoffOpen] = useState(false);
   const [stageOpen, setStageOpen] = useState<Stage | null>(null);
@@ -456,6 +459,13 @@ function StepHelp({ step }: { step: ProcedureStep }) {
   );
 }
 
+/** The one figure each calculation produces, so a Marine's own answer can be checked against it. */
+const HEADLINE_FIGURE: Record<string, (body: Record<string, any>) => number | null> = {
+  umt2way_award_adjustment: (b) => b.adjustment_cents ?? null,
+  umt_award_shortfall: (b) => b.shortfall_cents ?? null,
+  lifecycle_residual: (b) => b.findings?.[0]?.residual_cents ?? null,
+};
+
 const CALCULATE_LABEL: Record<string, string> = {
   umt2way_award_adjustment: 'Calculate the candidate',
   umt_award_shortfall: 'Calculate the shortfall',
@@ -545,15 +555,29 @@ function StepPanel({ itemId, procedure, step, status, caseData, events, canAct, 
     );
   } else if (step.kind === 'calculation') {
     const formula = FORMULAS[step.formula || 'umt2way_award_adjustment'];
+    const mine = values.mine?.trim() ? parseMoney(values.mine) : null;
     form = (
-      <div className="mt-5 flex flex-wrap items-center justify-between gap-3">
+      <div className="mt-5 flex flex-wrap items-end justify-between gap-3">
         <div className="min-w-0 max-w-xl">
           <p className="text-sm text-ink-2">{formula?.text}</p>
           <p className="mt-1 text-xs text-ink-3">Every input is cited with where it came from. {formula?.applicability}</p>
+          {formula && HEADLINE_FIGURE[formula.key] && (
+            <Field label="Your figure first" hint="optional; work it out before Vantage does" error={mine && !mine.ok ? mine.error : undefined} className="mt-3 max-w-[16rem]">
+              <NumberInput value={values.mine || ''} onChange={(e) => set('mine', e.target.value)} placeholder="0.00" />
+            </Field>
+          )}
         </div>
         <Button variant="primary" loading={busy} onClick={async () => {
           setBusy(true);
-          try { await api.calculateCase(itemId, step.key); toast.success('Calculated.'); onDone(); }
+          try {
+            const event = await api.calculateCase(itemId, step.key) as { body?: Record<string, any> };
+            const figure = formula && event?.body ? HEADLINE_FIGURE[formula.key]?.(event.body) ?? null : null;
+            if (mine?.ok && figure != null) {
+              if (mine.cents === figure) toast.success(`Calculated. Your figure matched: ${formatCents(figure)}.`);
+              else toast.info(`Calculated: ${formatCents(figure)}. You had ${formatCents(mine.cents)}; the cited inputs below show the difference.`);
+            } else toast.success('Calculated.');
+            onDone();
+          }
           catch (e) { toast.error(api.errorText(e)); }
           finally { setBusy(false); }
         }}><Calculator className="h-4 w-4" />{status?.status === 'attention' ? 'Calculate again' : CALCULATE_LABEL[formula?.key || ''] || 'Calculate'}</Button>

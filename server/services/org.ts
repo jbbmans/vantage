@@ -254,3 +254,83 @@ export function validateRoleGrant(ctx: AppContext, actor: SessionUser, scope: Sc
   if (!has(mine, PERMISSIONS.ADMINISTRATOR) && (role.permissions & ~mine) !== 0) throw forbidden('That role carries permissions you do not hold yourself.', 'delegation');
   if (targetId !== actor.id && positionIn(targetScope, unitId) >= positionIn(scope, unitId)) throw forbidden('You cannot change roles for a Marine at or above your position.', 'hierarchy');
 }
+
+/** The entries a Marine logs about their own work. Team tasks, projects and goals stay with the team; awards and counselings are written by leaders. */
+const OWN_ENTRY_TABLES = ['activities', 'trainings'] as const;
+
+export interface MoveResult { roles: string[]; rolesSkipped: string[]; entriesMoved: number; recordsFrozen: number; claimsReleased: number; sessionsRevoked: number }
+
+/**
+ * Moving a Marine between teams is a removal and an enrollment in one step: the actor must manage members of
+ * both teams and outrank the Marine in each. Shared entries stay with the team the work was done for (frozen,
+ * as on any departure) unless the actor asks for them to move too. Roles carry over where the new team has a
+ * role with the same key that the actor may grant.
+ */
+export function moveMember(ctx: AppContext, actor: SessionUser, scope: Scope, userId: string, fromId: string, toId: string, { entries = 'stay', billet }: { entries?: 'stay' | 'move'; billet?: string | null } = {}): MoveResult {
+  if (fromId === toId) throw badRequest('Pick a different team.');
+  if (!getUnit(ctx, fromId) || !getUnit(ctx, toId)) throw notFound('No such unit.');
+  if (userId === actor.id) throw forbidden('A second authorized person must change your own membership.', 'self_membership_change');
+  if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, fromId) || !can(scope, PERMISSIONS.MANAGE_MEMBERS, toId)) throw forbidden('You need to manage members of both teams to move a Marine between them.');
+  const membership = ctx.db.prepare('SELECT is_primary, billet FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, fromId) as { is_primary: number; billet: string | null } | undefined;
+  if (!membership) throw notFound('That Marine is not a member of this unit.');
+  if (ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, toId)) throw conflict('That Marine is already on the other team.', 'already_member');
+  if (isUnitOwner(ctx, userId, fromId)) throw badRequest('That Marine leads this unit. Transfer ownership first.', { code: 'last_owner' });
+  const target = scopeFor(ctx, { id: userId });
+  for (const unit of [fromId, toId]) {
+    if (!isUnitOwner(ctx, actor.id, unit) && positionIn(target, unit) >= positionIn(scope, unit)) throw forbidden('You cannot move a Marine at or above your own position.', 'hierarchy');
+  }
+  const held = ctx.db.prepare('SELECT r.key, r.name FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id = ? AND mr.unit_id = ? AND r.is_default = 0').all(userId, fromId) as Array<{ key: string; name: string }>;
+  const roles: string[] = [];
+  const rolesSkipped: string[] = [];
+  const result = ctx.db.transaction(() => {
+    let entriesMoved = 0;
+    if (entries === 'move') {
+      const at = now();
+      for (const table of OWN_ENTRY_TABLES) {
+        entriesMoved += ctx.db.prepare(`UPDATE ${table} SET unit_id = ?, updated_at = ?, version = version + 1 WHERE user_id = ? AND unit_id = ? AND deleted_at IS NULL AND frozen_at IS NULL`).run(toId, at, userId, fromId).changes;
+      }
+    }
+    const removed = removeMember(ctx, userId, fromId, actor.id);
+    addMember(ctx, userId, toId, { invitedBy: actor.id, primary: Boolean(membership.is_primary), billet: billet === undefined ? membership.billet : billet });
+    for (const h of held) {
+      const role = ctx.db.prepare('SELECT * FROM roles WHERE unit_id = ? AND key = ?').get(toId, h.key) as RoleRow | undefined;
+      try {
+        if (!role) throw notFound('No such role.');
+        assertMayGrantRole(ctx, actor, scope, role, toId);
+        ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(userId, role.id, toId, actor.id, now());
+        roles.push(role.name);
+      } catch { rolesSkipped.push(h.name); }
+    }
+    return { entriesMoved, recordsFrozen: removed.recordsFrozen, claimsReleased: removed.claimsReleased };
+  })();
+  return { roles, rolesSkipped, ...result, sessionsRevoked: invalidateUserSessions(ctx, userId) };
+}
+
+export interface UnitView { id: string; name: string; short_name: string | null; parent_id: string | null; depth: number; level: 'full' | 'overview'; member: boolean; teams: number }
+
+/**
+ * The views a person can switch between, in tree order: a command, then the teams beneath it. "full" means they
+ * can read the unit's shared records; "overview" is the roster, goals and aggregate totals a member sees.
+ */
+export function viewsFor(ctx: AppContext, scope: Scope, isOperator: boolean): { views: UnitView[]; defaultViewId: string | null } {
+  const all = ctx.db.prepare('SELECT id, name, short_name, parent_id FROM units WHERE active = 1 ORDER BY name').all() as Array<{ id: string; name: string; short_name: string | null; parent_id: string | null }>;
+  const allowed = new Set(isOperator ? all.map((u) => u.id) : scope.viewableUnitIds);
+  const byParent = new Map<string | null, typeof all>();
+  const known = new Set(all.map((u) => u.id));
+  for (const u of all) {
+    const key = u.parent_id && known.has(u.parent_id) ? u.parent_id : null;
+    byParent.set(key, [...(byParent.get(key) || []), u]);
+  }
+  const views: UnitView[] = [];
+  const walk = (parentId: string | null, depth: number) => {
+    for (const u of byParent.get(parentId) || []) {
+      if (allowed.has(u.id)) views.push({ id: u.id, name: u.name, short_name: u.short_name, parent_id: u.parent_id, depth, level: can(scope, PERMISSIONS.VIEW_RECORDS, u.id) ? 'full' : 'overview', member: scope.unitIds.includes(u.id), teams: (byParent.get(u.id) || []).length });
+      walk(u.id, allowed.has(u.id) ? depth + 1 : depth);
+    }
+  };
+  walk(null, 0);
+  const led = views.filter((v) => v.level === 'full').sort((a, b) => a.depth - b.depth)[0];
+  // Someone who leads nothing starts on their own team, the deepest unit they belong to, even when the command is their primary unit.
+  const own = views.filter((v) => v.member).sort((a, b) => b.depth - a.depth)[0];
+  return { views, defaultViewId: led?.id ?? own?.id ?? (scope.primaryUnitId && allowed.has(scope.primaryUnitId) ? scope.primaryUnitId : views[0]?.id ?? null) };
+}

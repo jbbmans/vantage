@@ -40,9 +40,15 @@ export function unitKeyOf(unit: string | null | undefined): string {
   return text.endsWith('s') && text.length > 3 ? text.slice(0, -1) : text;
 }
 
-export const moneyMetricId = (type: string | null | undefined) => `money:${String(type ?? '').trim().toLowerCase() || 'unclassified'}`;
-export const quantityMetricId = (unit: string | null | undefined) => `quantity:${unitKeyOf(unit)}`;
+/** Hours typed as a count ("volunteered 6 hours") are the same measure as hours logged, so they total together. */
+const TIME_UNIT_KEYS = new Set(['hour', 'hr', 'hrs', 'h']);
+export const isTimeUnit = (unit: string | null | undefined) => TIME_UNIT_KEYS.has(unitKeyOf(unit));
+
 export const durationMetricId = () => 'duration:hours';
+export const moneyMetricId = (type: string | null | undefined) => `money:${String(type ?? '').trim().toLowerCase() || 'unclassified'}`;
+export const quantityMetricId = (unit: string | null | undefined) => (isTimeUnit(unit) ? durationMetricId() : `quantity:${unitKeyOf(unit)}`);
+/** Metric ids saved before hours were merged (a goal, a link) still find their figure. */
+export const canonicalMetricId = (id: string) => (/^quantity:/.test(id) && isTimeUnit(id.slice('quantity:'.length)) ? durationMetricId() : id);
 
 export interface OutcomeRow {
   id: string;
@@ -92,8 +98,10 @@ export function measuresOf(row: OutcomeRow, cfg: MetricsConfig = DEFAULT_METRICS
   }
 
   const quantity = num(row.quantity);
-  if (quantity != null && quantity !== 0) {
-    const unit = (row.unit_label || 'items').trim();
+  const unit = (row.unit_label || 'items').trim();
+  const hoursField = num(row.hours);
+  const hours = hoursField != null && hoursField !== 0 ? hoursField : quantity != null && quantity !== 0 && isTimeUnit(unit) ? quantity : null;
+  if (quantity != null && quantity !== 0 && !isTimeUnit(unit)) {
     out.push({
       outcomeId: row.id, metricId: quantityMetricId(unit), metricLabel: unit,
       kind: 'quantity', unit, unitKey: unitKeyOf(unit),
@@ -101,8 +109,7 @@ export function measuresOf(row: OutcomeRow, cfg: MetricsConfig = DEFAULT_METRICS
     });
   }
 
-  const hours = num(row.hours);
-  if (hours != null && hours !== 0) {
+  if (hours != null) {
     out.push({
       outcomeId: row.id, metricId: durationMetricId(), metricLabel: 'Hours',
       kind: 'duration', unit: 'hours', unitKey: 'hour',
@@ -193,7 +200,8 @@ export function totals(measures: Measure[], opts: AggregateOptions = {}): Metric
 }
 
 export function totalFor(measures: Measure[], metricId: string, opts: AggregateOptions = {}): MetricTotal | null {
-  return totals(measures, opts).find((t) => t.metricId === metricId) || null;
+  const id = canonicalMetricId(metricId);
+  return totals(measures, opts).find((t) => t.metricId === id) || null;
 }
 
 export function headline(measures: Measure[], opts: AggregateOptions = {}): { headline: MetricTotal[]; tracked: MetricTotal[] } {
@@ -204,7 +212,8 @@ export function headline(measures: Measure[], opts: AggregateOptions = {}): { he
 export interface Bucket { key: string; from: string; to: string; label: string }
 
 export function series(measures: Measure[], metricId: string, buckets: Bucket[], opts: AggregateOptions = {}) {
-  const selected = selectMeasures(measures, opts).filter((m) => m.metricId === metricId);
+  const id = canonicalMetricId(metricId);
+  const selected = selectMeasures(measures, opts).filter((m) => m.metricId === id);
   return buckets.map((b) => {
     const inBucket = selected.filter((m) => m.date >= b.from && m.date <= b.to);
     return {

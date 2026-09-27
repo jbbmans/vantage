@@ -10,6 +10,7 @@ import { keys, useIdentity, signOutEverywhere } from '@/lib/queries';
 import * as api from '@/lib/api';
 import UsageConsole from '@/components/UsageConsole';
 import AccountImport from '@/components/AccountImport';
+import EmailConsole from '@/components/EmailConsole';
 import { PersonnelConsole, RetentionConsole, PrivacyConsole } from '@/components/GovernanceConsole';
 import { copyToClipboard, downloadText, humanize, timeAgo } from '@/lib/utils';
 import { DEFAULT_METRICS, CATEGORY_PALETTE, type MetricsConfig } from '../../shared/constants';
@@ -21,13 +22,14 @@ export default function Operator() {
   return (
     <div className="page">
       <PageHeader eyebrow="Owner console" title="Run this deployment" lede="Instance-wide settings, accounts, and data. Everything here asks for your password again." />
-      <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[{ value: 'overview', label: 'Overview' }, { value: 'settings', label: 'Settings' }, { value: 'ai', label: 'AI' }, { value: 'metrics', label: 'Metrics' }, { value: 'users', label: 'Accounts' }, { value: 'units', label: 'Units' }, { value: 'personnel', label: 'Personnel' }, { value: 'retention', label: 'Retention' }, { value: 'privacy', label: 'Privacy' }, { value: 'usage', label: 'Usage and reliability' }, { value: 'audit', label: 'Audit log' }, { value: 'data', label: 'Backup and move' }]} />
+      <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[{ value: 'overview', label: 'Overview' }, { value: 'settings', label: 'Settings' }, { value: 'ai', label: 'AI' }, { value: 'metrics', label: 'Metrics' }, { value: 'users', label: 'Accounts' }, { value: 'units', label: 'Units' }, { value: 'email', label: 'Email' }, { value: 'personnel', label: 'Personnel' }, { value: 'retention', label: 'Retention' }, { value: 'privacy', label: 'Privacy' }, { value: 'usage', label: 'Usage and reliability' }, { value: 'audit', label: 'Audit log' }, { value: 'data', label: 'Backup and move' }]} />
       {tab === 'overview' && <Overview />}
       {tab === 'settings' && <RuntimeSettings />}
       {tab === 'ai' && <AiSettings />}
       {tab === 'metrics' && <MetricsSettings />}
       {tab === 'users' && <Accounts />}
       {tab === 'units' && <UnitsAdmin />}
+      {tab === 'email' && <EmailConsole />}
       {tab === 'personnel' && <PersonnelConsole />}
       {tab === 'retention' && <RetentionConsole />}
       {tab === 'privacy' && <PrivacyConsole />}
@@ -57,7 +59,7 @@ function Overview() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Panel title="Instance"><dl className="space-y-1.5 text-sm">{[['Version', `${data.version} · schema ${data.schemaVersion}`], ['Node', data.node], ['Uptime', `${Math.round(data.uptime / 3600)} h`], ['Public URL', data.publicUrl], ['Passkey domain', data.rpId], ['Time zone', data.timezone], ['Sessions open', data.sessions], ['MFA users', `${data.mfaUsers} authenticator · ${data.passkeyUsers} passkey`]].map(([k, v]) => <div key={String(k)} className="flex justify-between gap-3"><dt className="text-ink-3">{k}</dt><dd className="fig truncate text-right text-ink">{String(v)}</dd></div>)}</dl></Panel>
         <Panel title="Email" subtitle={data.email.enabled ? `${data.email.provider} · from ${data.email.from}` : 'not configured'} action={data.email.enabled ? <Button size="sm" onClick={async () => { try { await withSudo(() => api.adminEmailTest()); toast.success('Test email sent to you.'); } catch (e) { toast.error(api.errorText(e)); } }}><Mail className="h-3.5 w-3.5" />Send test</Button> : undefined}>
-          {!data.email.enabled ? <p className="text-sm text-ink-2">Set VANTAGE_EMAIL_PROVIDER to resend or smtp with its credentials to enable reset links, invitations, and digests.</p> : !data.email.recent.length ? <p className="text-sm text-ink-3">No email sent yet.</p> : <ul className="space-y-1 text-xs">{data.email.recent.map((m: any, i: number) => <li key={i} className="flex justify-between gap-2"><span className="truncate text-ink">{m.kind} → {m.to_address}</span><span className={m.status === 'sent' ? 'text-good' : 'text-bad'}>{m.status}{m.error ? `: ${m.error}` : ''}</span></li>)}</ul>}
+          {!data.email.enabled ? <p className="text-sm text-ink-2">Turn email on to send reset links, invitations and digests. The Email tab shows how to send from your own domain with no email service.</p> : !data.email.recent.length ? <p className="text-sm text-ink-3">No email sent yet.</p> : <ul className="space-y-1 text-xs">{data.email.recent.map((m: any, i: number) => <li key={i} className="flex justify-between gap-2"><span className="truncate text-ink">{m.kind} → {m.to_address}</span><span className={m.status === 'sent' ? 'text-good' : 'text-bad'}>{m.status}{m.error ? `: ${m.error}` : ''}</span></li>)}</ul>}
         </Panel>
         <Panel title="Audit chain" subtitle="Tamper-evident log">
           <p className="text-sm"><Badge tone={data.audit.ok ? 'good' : 'bad'}>{data.audit.ok ? 'Intact' : 'Broken'}</Badge> <span className="fig text-ink-2">{data.audit.count} entries</span></p>

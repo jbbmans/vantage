@@ -232,6 +232,7 @@ export function startSchedulers(ctx: AppContext) {
     const first = setTimeout(run, 3_000); first.unref?.(); timers.push(first);
     every(5 * 60_000, run);
   }
+  if (ctx.mailer.provider === 'direct') every(60_000, () => { ctx.mailer.retryQueued().then((r) => { if (r.sent || r.failed) console.log(`${now()} mail retry: ${r.sent} delivered, ${r.failed} given up, ${r.waiting} waiting`); }).catch((e: Error) => console.warn(`Mail retry failed: ${e.message}`)); });
   if (!ctx.config.test) {
     every(60 * 60_000, () => { runDigestTick(ctx).then((r) => { if (r.sent) console.log(`${now()} digest: sent ${r.sent}`); }).catch((e: Error) => console.warn(`Digest tick failed: ${e.message}`)); });
   }

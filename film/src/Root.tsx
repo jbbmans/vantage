@@ -7,7 +7,7 @@ import { TIMELINES } from './timeline';
 
 loadFonts();
 
-const CHAPTERS = ['quick-log', 'queue', 'reading-a-balance', 'record', 'report-studio', 'unit-dashboard'];
+const CHAPTERS = ['quick-log', 'queue', 'reading-a-balance', 'record', 'report-studio', 'unit-dashboard', 'first-week', 'visibility', 'import', 'analysis', 'counseling', 'setup', 'governance'];
 
 export function Root() {
   return (

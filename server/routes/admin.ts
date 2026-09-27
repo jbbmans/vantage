@@ -17,6 +17,8 @@ import { metaSet, SCHEMA_VERSION } from '../db/index.ts';
 import { VERSION } from '../version.ts';
 import { newId, now } from '../lib/ids.ts';
 import { layout } from '../services/email.ts';
+import { checkRecords, dnsHostOf, domainOf, heloName, lastPath, probePath, requiredRecords } from '../services/directMail.ts';
+import type { AppContext } from '../context.ts';
 import { runDigestTick } from '../services/digest.ts';
 import { RECORD_TABLE_NAMES } from '../services/records.ts';
 import { usageReport, pruneEvents, MIN_COHORT } from '../services/usage.ts';
@@ -124,6 +126,32 @@ adminRouter.post('/maradmins/sync', wrap(async (req, res) => {
   res.json({ ...result, state: maradminSyncState(req.ctx) });
 }));
 
+/** Everything the owner needs to send from their own domain: the records to publish, and what was last checked. */
+function emailSetup(ctx: AppContext) {
+  const direct = ctx.mailer.provider === 'direct';
+  const queue = ctx.db.prepare('SELECT COUNT(*) AS n, MIN(created_at) AS oldest FROM email_queue').get() as { n: number; oldest: string | null };
+  return {
+    provider: ctx.mailer.provider, from: ctx.config.email.from, domain: domainOf(ctx.config.email.from), replyTo: ctx.config.email.replyTo || null,
+    records: direct ? requiredRecords(ctx.db, ctx.config) : [],
+    path: direct ? lastPath(ctx.db) : null,
+    helo: direct ? heloName(ctx.db, ctx.config) : null,
+    queue: { waiting: queue.n, oldest: queue.oldest },
+    recent: ctx.db.prepare('SELECT to_address, kind, status, error, created_at FROM email_log ORDER BY created_at DESC LIMIT 15').all(),
+  };
+}
+
+adminRouter.get('/email', wrap((req, res) => res.json(emailSetup(req.ctx))));
+
+adminRouter.post('/email/check', wrap(async (req, res) => {
+  const ctx = req.ctx;
+  if (ctx.mailer.provider !== 'direct') throw badRequest('These checks are for sending from your own domain. Set VANTAGE_EMAIL_PROVIDER=direct first.');
+  const path = await probePath(ctx.db, ctx.config);
+  const records = await checkRecords(ctx.db, ctx.config);
+  const dnsHost = await dnsHostOf(domainOf(ctx.config.email.from));
+  audit(ctx, { actor_id: req.user.id, action: 'email_setup_checked', entity: 'instance', detail: `port 25 ${path.open ? 'open' : 'blocked'}; ${records.map((r) => `${r.id} ${r.status}`).join(', ')}`, ip: clientIp(req) });
+  res.json({ ...emailSetup(ctx), records, path, dnsHost });
+}));
+
 adminRouter.post('/email/test', wrap(async (req, res) => {
   const ctx = req.ctx;
   if (!ctx.mailer.enabled) throw badRequest('Email is not configured. Set VANTAGE_EMAIL_PROVIDER and its credentials.');
@@ -132,7 +160,7 @@ adminRouter.post('/email/test', wrap(async (req, res) => {
   const mail = layout({ title: 'Vantage email is working', intro: `This test was sent from ${ctx.config.publicUrl} using the ${ctx.mailer.provider} provider.` });
   const result = await ctx.mailer.send({ to, subject: 'Vantage email test', text: mail.text, html: mail.html, kind: 'test', userId: req.user.id });
   if (!result.ok) throw badRequest(result.error || 'Send failed.');
-  res.json({ ok: true });
+  res.json({ ok: true, queued: Boolean(result.queued) });
 }));
 
 adminRouter.post('/digest/run', wrap(async (req, res) => res.json(await runDigestTick(req.ctx))));

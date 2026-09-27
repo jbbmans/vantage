@@ -34,7 +34,7 @@ export interface AppConfig {
     enabled: boolean; apiKey: string; baseUrl: string; models: string[]; defaultModel: string; maxOutputTokens: number; timeoutMs: number;
     requestsPerMinute: number; perUserRequestsPerMinute: number; dailyTokenBudget: number; perUserDailyTokens: number;
   };
-  email: { provider: 'none' | 'resend' | 'smtp' | 'memory'; from: string; resendApiKey: string; smtpUrl: string };
+  email: { provider: 'none' | 'resend' | 'smtp' | 'direct' | 'memory'; from: string; replyTo: string; resendApiKey: string; smtpUrl: string; dkimSelector: string; helo: string; directRoute: string };
   maradmins: { enabled: boolean; refreshMinutes: number; source: string };
   m365: { clientId: string; clientSecret: string; tenant: string; redirectUri: string; endpointOverride: string | null };
   selfRegistration: boolean;
@@ -135,7 +135,8 @@ export function loadConfig(env = process.env): AppConfig {
 
   const dbPath = env.VANTAGE_DB || (test ? ':memory:' : 'data/vantage.db');
   const emailProvider = (env.VANTAGE_EMAIL_PROVIDER || 'none') as AppConfig['email']['provider'];
-  if (!['none', 'resend', 'smtp', 'memory'].includes(emailProvider)) throw new Error('VANTAGE_EMAIL_PROVIDER must be none, resend, or smtp.');
+  if (!['none', 'resend', 'smtp', 'direct', 'memory'].includes(emailProvider)) throw new Error('VANTAGE_EMAIL_PROVIDER must be none, direct, resend, or smtp.');
+  if (emailProvider === 'direct' && production && !/@[a-z0-9-]+(\.[a-z0-9-]+)+>?\s*$/i.test(env.VANTAGE_EMAIL_FROM || '')) throw new Error('Direct email needs VANTAGE_EMAIL_FROM on your own domain, such as "Vantage <no-reply@example.com>".');
   if (emailProvider === 'memory' && production) throw new Error('The memory email provider is for tests only.');
 
   const models = envList(env, 'VANTAGE_GENAI_MODELS', ['gemini-2.5-flash']);
@@ -215,8 +216,12 @@ export function loadConfig(env = process.env): AppConfig {
     email: {
       provider: emailProvider,
       from: env.VANTAGE_EMAIL_FROM || 'Vantage <no-reply@localhost>',
+      replyTo: env.VANTAGE_EMAIL_REPLY_TO || '',
       resendApiKey: env.RESEND_API_KEY || '',
       smtpUrl: env.SMTP_URL || '',
+      dkimSelector: (env.VANTAGE_DKIM_SELECTOR || 'vantage').replace(/[^a-z0-9-]/gi, '').slice(0, 40) || 'vantage',
+      helo: (env.VANTAGE_EMAIL_HELO || '').trim(),
+      directRoute: test ? (env.VANTAGE_EMAIL_DIRECT_ROUTE || '') : '',
     },
     maradmins: {
       enabled: envBool(env, 'VANTAGE_MARADMIN_ENABLED', false),

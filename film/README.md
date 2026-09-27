@@ -1,6 +1,6 @@
 # Vantage films
 
-The product films: a 90-second hero film for the public page, and six narrated chapters for the field
+The product films: a 90-second hero film for the public page, and thirteen chapters for the field
 guide. They are made in code, from the real application, and published with one command:
 
 ```sh
@@ -8,6 +8,7 @@ npm run film                     # from the repository root: every film, end to 
 npm run film -- hero queue       # just these
 npm run film -- --draft          # render to film/out only; publish nothing
 npm run film -- --reuse-shots    # keep the captured footage; skip the browser
+npm run film -- --allow-unvoiced # publish with music and on-by-default captions until a voice is recorded
 ```
 
 `npm --prefix film install` once first. A full run takes about half an hour on four cores.
@@ -36,6 +37,10 @@ renders as a draft in `film/out/`.
   Chromium for the capture.
 - **The synthetic demo** on `VANTAGE_DEMO_URL` (default `http://localhost:8798`). `render.mjs` starts
   it, and builds the application first if `dist/` is missing.
+- **A fresh accounts-mode instance** on `VANTAGE_FILM_INSTANCE_URL` (default `http://localhost:8799`), for
+  the films the demo cannot show: first launch, invitations and administration (`setup`, `governance`,
+  `first-week`). `render.mjs` starts `tools/instance.ts` with an empty database and captures `setup`
+  first; nothing else may be listening on that port.
 
 ## Changing a film
 
@@ -47,8 +52,8 @@ renders as a draft in `film/out/`.
 
 ## Honesty rules
 
-Every claim in a script is true of the product as it ships, and every figure on screen is from the
-synthetic demo, which each film says on screen. Nothing is edited into the footage that the
+Every claim in a script is true of the product as it ships, and every figure on screen is invented:
+the synthetic demo, or names and units marked synthetic on the fresh instance. Each film says so on screen. Nothing is edited into the footage that the
 application did not do.
 
 ## Licences
