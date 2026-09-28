@@ -3,9 +3,18 @@ import assert from 'node:assert/strict';
 import { createServer, type Server, type Socket } from 'node:net';
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { startApp, type TestApp } from './helpers.ts';
-import { dkimKey, requiredRecords, probePath, heloName, mergeSpf } from '../../server/services/directMail.ts';
+import { dkimKey, requiredRecords, probePath, heloName, mergeSpf, smtpErrorMessage } from '../../server/services/directMail.ts';
 
 interface Received { helo: string; from: string; to: string[]; data: string }
+
+test('failed IPv4 and IPv6 connection attempts retain their diagnostics', () => {
+  const ipv4 = Object.assign(new Error('connect ECONNREFUSED 192.0.2.1:25'), { code: 'ECONNREFUSED' });
+  const ipv6 = Object.assign(new Error('connect ENETUNREACH 2001:db8::1:25'), { code: 'ENETUNREACH' });
+  const message = smtpErrorMessage(new AggregateError([ipv4, ipv6]));
+  assert.match(message, /ECONNREFUSED/);
+  assert.match(message, /ENETUNREACH/);
+  assert.equal(smtpErrorMessage(new AggregateError([])), 'SMTP connection failed.');
+});
 
 /** A receiving mail server, just enough of one: it records what it is sent and answers RCPT as told. */
 function sink() {

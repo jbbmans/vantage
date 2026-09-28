@@ -19,6 +19,13 @@ export interface Outgoing { from: string; to: string; subject: string; text: str
 export interface Delivery { ok: boolean; permanent: boolean; error?: string; server?: string }
 export interface PathReport { checkedAt: string; open: boolean; ip: string | null; ptr: string | null; forwardConfirmed: boolean; server: string | null; error?: string }
 
+/** Node may report failed IPv4/IPv6 attempts as an AggregateError with an empty message. */
+export function smtpErrorMessage(error: unknown): string {
+  if (error instanceof AggregateError) return error.errors.map(smtpErrorMessage).join('; ') || error.message || 'SMTP connection failed.';
+  if (error instanceof Error) return error.message || (error as NodeJS.ErrnoException).code || error.name;
+  return typeof error === 'string' && error ? error : 'SMTP connection failed.';
+}
+
 const DKIM_META = 'mail_dkim';
 const PATH_META = 'mail_path';
 
@@ -191,7 +198,7 @@ export async function probePath(db: Db, config: AppConfig): Promise<PathReport> 
     }
     return save({ checkedAt, open: true, ip, ptr, forwardConfirmed, server });
   } catch (error) {
-    return save({ checkedAt, open: false, ip: null, ptr: null, forwardConfirmed: false, server, error: (error as Error).message });
+    return save({ checkedAt, open: false, ip: null, ptr: null, forwardConfirmed: false, server, error: smtpErrorMessage(error) });
   }
 }
 
