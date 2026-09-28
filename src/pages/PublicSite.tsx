@@ -150,9 +150,9 @@ function WorkflowDemo() {
 
 export default function PublicSite() {
   const root = useRef<HTMLDivElement | null>(null);
-  const [activeVideo, setActiveVideo] = useState('tour');
+  const film = videos.find((item) => item.id === 'ad') || videos.find((item) => item.id === 'tour');
+  const [activeVideo, setActiveVideo] = useState(film?.id || 'tour');
   const video = videos.find((item) => item.id === activeVideo) || videos[0];
-  const film = videos.find((item) => item.id === 'tour');
   const player = useRef<HTMLVideoElement | null>(null);
   const chosen = useRef(false);
   const choose = (id: string) => { chosen.current = true; setActiveVideo(id); };
@@ -203,9 +203,9 @@ export default function PublicSite() {
       {video && (
         <section className="ps-section ps-container ps-watch" id="watch" aria-labelledby="ps-watch-title">
           <div className="ps-section-head" data-reveal>
-            <p className="ps-eyebrow">{video.id === 'tour' ? 'The film' : 'Field guide'}</p>
-            <h2 id="ps-watch-title">{video.id === 'tour' ? 'Ninety seconds on what Vantage keeps.' : video.title}</h2>
-            <p className="ps-section-lede">Recorded on the real application, running the synthetic demo: every name and figure on screen is invented.</p>
+            <p className="ps-eyebrow">{video.id === 'ad' || video.id === 'tour' ? 'The film' : 'Field guide'}</p>
+            <h2 id="ps-watch-title">{video.title}</h2>
+            <p className="ps-section-lede">Recorded on the real application with demo data. Every name and number on screen is made up.</p>
           </div>
           <div className="mission-video-layout ps-video" data-reveal>
             <div className="ps-bezel ps-player"><div className="ps-bezel-core">
@@ -218,7 +218,7 @@ export default function PublicSite() {
               {videos.map((item) => (
                 <button type="button" key={item.id} aria-pressed={item.id === video.id} onClick={() => choose(item.id)}>
                   {item.poster ? <img src={item.poster} alt="" loading="lazy" width="96" height="54" /> : <Play strokeWidth={1.75} aria-hidden />}
-                  <span><strong>{item.id === 'tour' ? 'The film' : item.title}</strong><small>{item.length}</small></span>
+                  <span><strong>{item.title}</strong><small>{item.length}</small></span>
                 </button>
               ))}
             </div>

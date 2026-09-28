@@ -1,20 +1,30 @@
-export interface Line {
-  id: string;
-  text: string;
-  gap?: number;
-}
+/**
+ * Every film, as the cards that appear on screen. There is no narration: the text carries the film, and the
+ * music is timed to it. A scene holds one or more cards, shown one after another over the same picture.
+ */
 
 export interface Scene {
   id: string;
-  lines: Line[];
-  /** Air before the first line. */
-  lead?: number;
-  /** Air after the last line. */
-  tail?: number;
-  /** A floor, for scenes whose picture needs longer than their words. */
+  /** What appears on screen, one card at a time. A card may hold a short list after a line break. */
+  cards: string[];
+  /** A floor, in seconds, for scenes whose action needs longer than their words. */
   min?: number;
   /** What the score does at the start of this scene. */
-  cue?: 'hit' | 'rise' | 'lift' | 'hush' | 'resolve';
+  cue?: 'hit' | 'lift' | 'drop' | 'build' | 'resolve';
+}
+
+export type Mode = 'major' | 'minor';
+
+export interface Music {
+  /** MIDI note of the key's tonic, in the octave around middle C. */
+  tonic: number;
+  mode: Mode;
+  bpm: number;
+  /** Scale degrees, 1-based: [1, 6, 3, 7] is i–VI–III–VII in minor. */
+  progression: number[];
+  groove: 'pulse' | 'four' | 'half' | 'drive' | 'swing' | 'still';
+  lead: 'piano' | 'pluck' | 'bell' | 'keys' | 'arp16';
+  seed: number;
 }
 
 export interface Film {
@@ -22,232 +32,169 @@ export interface Film {
   title: string;
   /** Published slot in src/config/videos.ts. */
   slot: string;
+  kind: 'ad' | 'hero' | 'chapter';
+  /** Field guide number, for chapters. */
+  n?: number;
+  accent: string;
+  music: Music;
   scenes: Scene[];
-  score: { key: 'D' | 'F' | 'A'; bpm: number; intensity: number };
 }
 
-export const VOICE = {
-  voiceId: 'nPczCjzI2devNBz1zQrb',
-  name: 'Brian',
-  model: 'eleven_multilingual_v2',
-  settings: { stability: 0.55, similarity_boost: 0.8, style: 0.18, use_speaker_boost: true, speed: 0.96 },
-} as const;
-
-export const HERO: Film = {
-  id: 'hero',
-  title: 'Vantage — Every action. A clearer picture.',
-  slot: 'tour',
-  score: { key: 'D', bpm: 72, intensity: 1 },
+export const AD: Film = {
+  id: 'ad', title: 'Vantage', slot: 'ad', kind: 'ad', accent: '#3fd0bd',
+  music: { tonic: 57, mode: 'minor', bpm: 100, progression: [1, 6, 3, 7], groove: 'drive', lead: 'piano', seed: 11 },
   scenes: [
-    { id: 'open', lead: 1.6, tail: 0.3, cue: 'hush', lines: [
-      { id: 'open-1', text: 'Somewhere tonight, a Marine is finishing work that no one will ever see.' },
-    ] },
-    { id: 'detail', lead: 0.2, tail: 0.4, lines: [
-      { id: 'detail-1', text: 'Thirty reconciliations. A funding gap, caught in time.' },
-    ] },
-    { id: 'scatter', lead: 0.2, tail: 0.6, lines: [
-      { id: 'scatter-1', text: 'By morning, most of it is gone.', gap: 0.3 },
-      { id: 'scatter-2', text: 'Into a spreadsheet. An inbox. Somebody’s memory.' },
-    ] },
-    { id: 'title', lead: 1.0, tail: 2.0, min: 5, cue: 'hit', lines: [
-      { id: 'title-1', text: 'Vantage keeps it.' },
-    ] },
-    { id: 'capture', lead: 0.3, tail: 0.6, cue: 'lift', lines: [
-      { id: 'capture-1', text: 'Say what you did, once. Vantage reads the numbers, and shows you before it saves.' },
-    ] },
-    { id: 'queue', lead: 0.2, tail: 0.5, lines: [
-      { id: 'queue-1', text: 'Your section’s work, in one queue. Claim it, and it’s yours.' },
-    ] },
-    { id: 'case', lead: 0.2, tail: 0.6, lines: [
-      { id: 'case-1', text: 'Cases follow cited procedures. Evidence before action. Resolved only when verified.' },
-    ] },
-    { id: 'balance', lead: 0.2, tail: 0.8, cue: 'rise', lines: [
-      { id: 'balance-1', text: 'Open commitments. Undelivered orders.', gap: 0.2 },
-      { id: 'balance-2', text: 'Read in the order the money moves.' },
-    ] },
-    { id: 'sealed', lead: 0.2, tail: 0.6, lines: [
-      { id: 'sealed-1', text: 'Every entry, signed into the history. Nothing important happens quietly.' },
-    ] },
-    { id: 'credit', lead: 0.2, tail: 0.6, cue: 'lift', lines: [
-      { id: 'credit-1', text: 'And the credit goes to the Marine who did the work.' },
-    ] },
-    { id: 'report', lead: 0.2, tail: 0.6, lines: [
-      { id: 'report-1', text: 'When evaluation season comes, the record is already written, and every line cites its source.' },
-    ] },
-    { id: 'lead', lead: 0.2, tail: 0.7, lines: [
-      { id: 'lead-1', text: 'Leaders see the whole section at a glance.' },
-    ] },
-    { id: 'trust', lead: 0.3, tail: 0.8, cue: 'hush', lines: [
-      { id: 'trust-1', text: 'Private by default. Built to run on your own network.' },
-    ] },
-    { id: 'end', lead: 0.4, tail: 3.2, min: 6, cue: 'resolve', lines: [
-      { id: 'end-1', text: 'Vantage. Give good work a lasting record.' },
-    ] },
+    { id: 'ad-work', cue: 'build', cards: ['You reconciled 30 ULOs this week.'] },
+    { id: 'ad-gap', cards: ['And caught a $1,275 funding gap before it turned into a problem.'] },
+    { id: 'ad-later', cue: 'drop', cards: ['Six months later you need it for your JEPES or FITREP, and you can’t find half of it.'] },
+    { id: 'ad-scatter', cards: ['It’s in a spreadsheet, an old email, and a sticky note somewhere.'], min: 5 },
+    { id: 'ad-logo', cue: 'hit', cards: [''], min: 3.4 },
+    { id: 'ad-capture', cue: 'lift', cards: ['Type what you did in plain English.', 'It pulls out the numbers. You check them and save.'], min: 9 },
+    { id: 'ad-queue', cards: ['Your section’s work is in one list. Claim something and it’s yours.'], min: 5 },
+    { id: 'ad-history', cards: ['Everything you do on it is logged with your name and the date.'] },
+    { id: 'ad-report', cue: 'lift', cards: ['When it goes into your JEPES or FITREP, it’s already logged.'] },
+    { id: 'ad-lead', cards: ['Leaders can see what’s overdue or stuck without asking around.'] },
+    { id: 'ad-private', cards: ['Your entries stay private unless you share them.'] },
+    { id: 'ad-end', cue: 'resolve', cards: [''], min: 5 },
   ],
 };
 
+export const HERO: Film = {
+  id: 'hero', title: 'Vantage, the tour', slot: 'tour', kind: 'hero', accent: '#3fd0bd',
+  music: { tonic: 62, mode: 'minor', bpm: 84, progression: [1, 6, 3, 7], groove: 'pulse', lead: 'piano', seed: 3 },
+  scenes: [
+    { id: 'open', cards: ['Most of the work a Marine does never gets written down anywhere.'], min: 5 },
+    { id: 'detail', cards: ['30 reconciliations. A funding gap caught in time.'], min: 5 },
+    { id: 'scatter', cards: ['By the next morning it’s in a spreadsheet, an inbox, or someone’s head.'], min: 5.5 },
+    { id: 'title', cue: 'hit', cards: [''], min: 3.6 },
+    { id: 'capture', cue: 'lift', cards: ['Log what you did in one line. Vantage reads the numbers and shows you before saving.'], min: 7.5 },
+    { id: 'queue', cards: ['All of your section’s work in one queue. Claim a case and it’s on your list.'], min: 5.5 },
+    { id: 'case', cards: ['Cases follow written procedures with sources. They close when the result is verified.'] },
+    { id: 'balance', cue: 'build', cards: ['Enter a document’s figures and Vantage shows you what’s still open.'], min: 5.5 },
+    { id: 'sealed', cards: ['Every action on a case is saved to its history with a name and date.'] },
+    { id: 'credit', cue: 'lift', cards: ['Credit goes to whoever did the work, not whoever held the case.'] },
+    { id: 'report', cards: ['What you logged is ready to put into your JEPES or FITREP, with a link back to each entry.'] },
+    { id: 'lead', cards: ['Leaders get a view of the whole section.'] },
+    { id: 'trust', cue: 'drop', cards: ['Private by default. Can run on your own network.'] },
+    { id: 'end', cue: 'resolve', cards: [''], min: 5 },
+  ],
+};
+
+const chapter = (id: string, n: number, title: string, accent: string, music: Music, scenes: Scene[]): Film => ({
+  id, title, slot: id, kind: 'chapter', n, accent, music,
+  scenes: [{ id: `${id}-title`, cue: 'hit', cards: [''] }, ...scenes, { id: `${id}-end`, cue: 'resolve', cards: [''] }],
+});
+
 export const CHAPTERS: Film[] = [
-  {
-    id: 'quick-log', title: 'Quick Log: a record in one sentence', slot: 'quick-log',
-    score: { key: 'D', bpm: 72, intensity: 0.45 },
-    scenes: [
-      { id: 'ql-title', lead: 0.6, tail: 0.4, min: 3, cue: 'hit', lines: [{ id: 'ql-0', text: 'Quick Log.' }] },
-      { id: 'ql-open', lead: 0.2, tail: 0.5, lines: [{ id: 'ql-1', text: 'The fastest way to keep a record. Press N, anywhere in Vantage.' }] },
-      { id: 'ql-type', lead: 0.2, tail: 0.6, min: 5.5, lines: [{ id: 'ql-2', text: 'Write it the way you’d say it out loud.' }] },
-      { id: 'ql-read', lead: 0.2, tail: 0.6, lines: [{ id: 'ql-3', text: 'Vantage reads the count, the dollar value and what kind of value it is, the system, and the date.' }] },
-      { id: 'ql-save', lead: 0.2, tail: 0.8, lines: [{ id: 'ql-4', text: 'Check what it understood, then save. It lands in your record, dated, and yours.' }] },
-      { id: 'ql-offline', lead: 0.2, tail: 2.2, cue: 'resolve', lines: [{ id: 'ql-5', text: 'No signal? It waits on your device, and syncs when you’re back.' }] },
-    ],
-  },
-  {
-    id: 'queue', title: 'Working a case', slot: 'queue',
-    score: { key: 'D', bpm: 72, intensity: 0.45 },
-    scenes: [
-      { id: 'q-title', lead: 0.6, tail: 0.4, min: 3, cue: 'hit', lines: [{ id: 'q-0', text: 'Working a case.' }] },
-      { id: 'q-queue', lead: 0.2, tail: 0.5, lines: [{ id: 'q-1', text: 'Work arrives as a queue your whole section can see.' }] },
-      { id: 'q-claim', lead: 0.2, tail: 0.6, lines: [{ id: 'q-2', text: 'Claim a case, and it’s on your list at once. Claiming isn’t credit. The work is.' }] },
-      { id: 'q-step', lead: 0.2, tail: 0.6, lines: [{ id: 'q-3', text: 'The procedure shows the next step, and the form asks only for what that step needs.' }] },
-      { id: 'q-calc', lead: 0.2, tail: 0.7, lines: [{ id: 'q-4', text: 'Record what you found, and Vantage calculates the candidate, citing every input.' }] },
-      { id: 'q-decide', lead: 0.2, tail: 0.7, lines: [{ id: 'q-5', text: 'Decide, with your reason. A step that needs evidence first says so, before it refuses.' }] },
-      { id: 'q-history', lead: 0.2, tail: 2.2, cue: 'resolve', lines: [{ id: 'q-6', text: 'Every entry is signed into the history. Hand it on, and each of you keeps exactly what you did.' }] },
-    ],
-  },
-  {
-    id: 'reading-a-balance', title: 'Reading a balance', slot: 'reading-a-balance',
-    score: { key: 'D', bpm: 72, intensity: 0.45 },
-    scenes: [
-      { id: 'b-title', lead: 0.6, tail: 0.4, min: 3, cue: 'hit', lines: [{ id: 'b-0', text: 'Reading a balance.' }] },
-      { id: 'b-ref', lead: 0.2, tail: 0.5, lines: [{ id: 'b-1', text: 'The Reference is the FMRA desk reference, inside Vantage, with every statement cited.' }] },
-      { id: 'b-enter', lead: 0.2, tail: 0.6, min: 5, lines: [{ id: 'b-2', text: 'Enter a document’s commitment, obligation, delivered, and paid.' }] },
-      { id: 'b-read', lead: 0.2, tail: 0.7, lines: [{ id: 'b-3', text: 'Vantage names the open condition, the causes worth ruling out, who can act, and what would prove the fix.' }] },
-      { id: 'b-dash', lead: 0.2, tail: 0.6, lines: [{ id: 'b-4', text: 'A dash on a report isn’t a zero. Mark it not shown.' }] },
-      { id: 'b-case', lead: 0.2, tail: 2.2, cue: 'resolve', lines: [{ id: 'b-5', text: 'Open a case, and the figures come with it, labelled with where they came from.' }] },
-    ],
-  },
-  {
-    id: 'record', title: 'Your Record, and what counts', slot: 'record',
-    score: { key: 'D', bpm: 72, intensity: 0.45 },
-    scenes: [
-      { id: 'r-title', lead: 0.6, tail: 0.4, min: 3, cue: 'hit', lines: [{ id: 'r-0', text: 'Your Record.' }] },
-      { id: 'r-three', lead: 0.2, tail: 0.6, lines: [{ id: 'r-1', text: 'It keeps three things apart. What you hold, which isn’t credit. What you contributed, counted from the work itself. And what you logged yourself.' }] },
-      { id: 'r-count', lead: 0.2, tail: 0.6, lines: [{ id: 'r-2', text: 'One document counts once, however many entries it took.' }] },
-      { id: 'r-draft', lead: 0.2, tail: 0.6, lines: [{ id: 'r-3', text: 'From any case you worked, prepare a private draft, built only from your own facts.' }] },
-      { id: 'r-keep', lead: 0.2, tail: 2.2, cue: 'resolve', lines: [{ id: 'r-4', text: 'Keep it, and it lands in your record, with a link back to the case.' }] },
-    ],
-  },
-  {
-    id: 'report-studio', title: 'Report Studio', slot: 'report-studio',
-    score: { key: 'D', bpm: 72, intensity: 0.45 },
-    scenes: [
-      { id: 's-title', lead: 0.6, tail: 0.4, min: 3, cue: 'hit', lines: [{ id: 's-0', text: 'Report Studio.' }] },
-      { id: 's-intro', lead: 0.2, tail: 0.5, lines: [{ id: 's-1', text: 'Report Studio turns your record into JEPES or FITREP input.' }] },
-      { id: 's-period', lead: 0.2, tail: 0.6, lines: [{ id: 's-2', text: 'Choose the period, and the entries it should cite.' }] },
-      { id: 's-facts', lead: 0.2, tail: 0.6, lines: [{ id: 's-3', text: 'Write against facts you can open and check.' }] },
-      { id: 's-save', lead: 0.2, tail: 2.2, cue: 'resolve', lines: [{ id: 's-4', text: 'Save, and the revision is locked to exactly what was reviewed.' }] },
-    ],
-  },
-  {
-    id: 'unit-dashboard', title: 'Leading a section', slot: 'unit-dashboard',
-    score: { key: 'D', bpm: 72, intensity: 0.45 },
-    scenes: [
-      { id: 'l-title', lead: 0.6, tail: 0.4, min: 3, cue: 'hit', lines: [{ id: 'l-0', text: 'Leading a section.' }] },
-      { id: 'l-today', lead: 0.2, tail: 0.5, lines: [{ id: 'l-1', text: 'As a section lead, Today puts your section first: what’s unassigned, overdue, blocked, and waiting, and on what.' }] },
-      { id: 'l-proc', lead: 0.2, tail: 0.6, lines: [{ id: 'l-2', text: 'See how many open commitments, undelivered orders and UMTs you’re carrying.' }] },
-      { id: 'l-work', lead: 0.2, tail: 0.6, lines: [{ id: 'l-3', text: 'Workload shows who holds what, beside what each count means.' }] },
-      { id: 'l-limits', lead: 0.2, tail: 2.2, cue: 'resolve', lines: [{ id: 'l-4', text: 'Counts never measure effort. And zero recorded is never zero work.' }] },
-    ],
-  },
-  {
-    id: 'first-week', title: 'Your first week', slot: 'first-week',
-    score: { key: 'F', bpm: 72, intensity: 0.45 },
-    scenes: [
-      { id: 'fw-title', lead: 0.6, tail: 0.4, min: 3, cue: 'hit', lines: [{ id: 'fw-0', text: 'Your first week.' }] },
-      { id: 'fw-invite', lead: 0.2, tail: 0.6, min: 7, lines: [{ id: 'fw-1', text: 'Day one starts with an invitation from your leader. Choose a username, and a password of your own.' }] },
-      { id: 'fw-list', lead: 0.2, tail: 0.6, lines: [{ id: 'fw-2', text: 'Today opens with a short list for the week. Each step ticks itself off as you do it.' }] },
-      { id: 'fw-secure', lead: 0.2, tail: 0.6, lines: [{ id: 'fw-3', text: 'First, protect your sign-in with a passkey or an authenticator app, so a password alone is never enough.' }] },
-      { id: 'fw-profile', lead: 0.2, tail: 0.6, min: 5.5, lines: [{ id: 'fw-4', text: 'Check your profile. Your rank decides whether you build JEPES or FITREP input.' }] },
-      { id: 'fw-first', lead: 0.2, tail: 0.6, min: 6.5, lines: [{ id: 'fw-5', text: 'Then log something you did. One sentence is enough.' }] },
-      { id: 'fw-team', lead: 0.2, tail: 2.2, cue: 'resolve', lines: [{ id: 'fw-6', text: 'By Friday, open Team: who you work with, the command above you, and the goals you share.' }] },
-    ],
-  },
-  {
-    id: 'visibility', title: 'Private, unit, and who can see what', slot: 'visibility',
-    score: { key: 'F', bpm: 72, intensity: 0.45 },
-    scenes: [
-      { id: 'v-title', lead: 0.6, tail: 0.4, min: 3, cue: 'hit', lines: [{ id: 'v-0', text: 'Who can see what.' }] },
-      { id: 'v-choose', lead: 0.2, tail: 0.6, min: 5.5, lines: [{ id: 'v-1', text: 'Every entry has an audience, and you choose it when you save.' }] },
-      { id: 'v-private', lead: 0.2, tail: 0.6, lines: [{ id: 'v-2', text: 'Only me means exactly that. No leader can open it, and neither can the instance owner.' }] },
-      { id: 'v-unit', lead: 0.2, tail: 0.6, lines: [{ id: 'v-3', text: 'Share it with your unit, and it counts on the unit dashboard, for leaders who can read that unit’s records.' }] },
-      { id: 'v-says', lead: 0.2, tail: 0.6, lines: [{ id: 'v-4', text: 'Every entry says who can see it, in plain words, at the top.' }] },
-      { id: 'v-never', lead: 0.2, tail: 2.2, cue: 'resolve', lines: [{ id: 'v-5', text: 'Drafts and career plans are never shared. And every time a leader opens your record, it is logged.' }] },
-    ],
-  },
-  {
-    id: 'import', title: 'Importing a spreadsheet', slot: 'import',
-    score: { key: 'A', bpm: 72, intensity: 0.45 },
-    scenes: [
-      { id: 'i-title', lead: 0.6, tail: 0.4, min: 3, cue: 'hit', lines: [{ id: 'i-0', text: 'Importing a spreadsheet.' }] },
-      { id: 'i-bring', lead: 0.2, tail: 0.6, lines: [{ id: 'i-1', text: 'Bring in the sheet your section already works from. Vantage keeps the original, unchanged.' }] },
-      { id: 'i-map', lead: 0.2, tail: 0.6, lines: [{ id: 'i-2', text: 'It reads the headings, and guesses what each column means. Correct anything it got wrong.' }] },
-      { id: 'i-preview', lead: 0.2, tail: 0.6, lines: [{ id: 'i-3', text: 'Before anything is written, you see exactly what will happen, row by row.' }] },
-      { id: 'i-run', lead: 0.2, tail: 0.6, lines: [{ id: 'i-4', text: 'Import, and every row becomes work in the queue, traced to the row it came from.' }] },
-      { id: 'i-again', lead: 0.2, tail: 2.2, cue: 'resolve', lines: [{ id: 'i-5', text: 'Bring the same file in again, and nothing changes. That is the right answer.' }] },
-    ],
-  },
-  {
-    id: 'analysis', title: 'Reading the full analysis', slot: 'analysis',
-    score: { key: 'A', bpm: 72, intensity: 0.45 },
-    scenes: [
-      { id: 'a-title', lead: 0.6, tail: 0.4, min: 3, cue: 'hit', lines: [{ id: 'a-0', text: 'Reading the analysis.' }] },
-      { id: 'a-open', lead: 0.2, tail: 0.6, lines: [{ id: 'a-1', text: 'Before you claim anything, see what your record actually shows.' }] },
-      { id: 'a-units', lead: 0.2, tail: 0.6, lines: [{ id: 'a-2', text: 'Figures are grouped by what they measure. Hours, kilometres and dollars are never added together.' }] },
-      { id: 'a-summary', lead: 0.2, tail: 0.6, lines: [{ id: 'a-3', text: 'The summary says it plainly: how often you logged, your longest gap, and where this pace will leave you.' }] },
-      { id: 'a-coverage', lead: 0.2, tail: 0.6, lines: [{ id: 'a-4', text: 'Coverage shows which entries are thin, so you can strengthen them before a report cites them.' }] },
-      { id: 'a-behind', lead: 0.2, tail: 2.2, cue: 'resolve', lines: [{ id: 'a-5', text: 'And a figure on Today opens into the entries behind it.' }] },
-    ],
-  },
-  {
-    id: 'counseling', title: 'Counseling and acknowledgement', slot: 'counseling',
-    score: { key: 'D', bpm: 72, intensity: 0.45 },
-    scenes: [
-      { id: 'c-title', lead: 0.6, tail: 0.4, min: 3, cue: 'hit', lines: [{ id: 'c-0', text: 'Counseling.' }] },
-      { id: 'c-record', lead: 0.2, tail: 0.6, min: 8, lines: [{ id: 'c-1', text: 'From a Marine’s page, record the counseling: what went well, what to improve, and the goals you set.' }] },
-      { id: 'c-save', lead: 0.2, tail: 0.6, lines: [{ id: 'c-2', text: 'Save it, and it is on their record, dated, with you as the counselor.' }] },
-      { id: 'c-ack', lead: 0.2, tail: 0.6, lines: [{ id: 'c-3', text: 'They open it from Career, and acknowledge it. That confirms they read it, not that they agree.' }] },
-      { id: 'c-both', lead: 0.2, tail: 2.2, cue: 'resolve', lines: [{ id: 'c-4', text: 'Both of you hold the same dated record, and it shows as acknowledged.' }] },
-    ],
-  },
-  {
-    id: 'setup', title: 'Standing up a deployment', slot: 'setup',
-    score: { key: 'D', bpm: 72, intensity: 0.45 },
-    scenes: [
-      { id: 'su-title', lead: 0.6, tail: 0.4, min: 3, cue: 'hit', lines: [{ id: 'su-0', text: 'Standing up a deployment.' }] },
-      { id: 'su-first', lead: 0.2, tail: 0.6, min: 9, lines: [{ id: 'su-1', text: 'The first launch asks for one thing: the owner account, and the first unit you will lead.' }] },
-      { id: 'su-console', lead: 0.2, tail: 0.6, lines: [{ id: 'su-2', text: 'The Owner console runs the deployment: settings, accounts, units, retention and backups.' }] },
-      { id: 'su-settings', lead: 0.2, tail: 0.6, lines: [{ id: 'su-3', text: 'Decide the settings before anyone else signs in, starting with whether people may register themselves.' }] },
-      { id: 'su-units', lead: 0.2, tail: 0.6, min: 7, lines: [{ id: 'su-4', text: 'Build the chain of command. Teams sit under their command, and authority flows down, never up.' }] },
-      { id: 'su-people', lead: 0.2, tail: 2.2, cue: 'resolve', lines: [{ id: 'su-5', text: 'Then bring people in: an invitation they accept themselves, or accounts imported from a roster.' }] },
-    ],
-  },
-  {
-    id: 'governance', title: 'Retention, holds and the privacy inventory', slot: 'governance',
-    score: { key: 'A', bpm: 72, intensity: 0.45 },
-    scenes: [
-      { id: 'g-title', lead: 0.6, tail: 0.4, min: 3, cue: 'hit', lines: [{ id: 'g-0', text: 'Retention and privacy.' }] },
-      { id: 'g-sched', lead: 0.2, tail: 0.6, min: 8, lines: [{ id: 'g-1', text: 'Retention is off until you turn it on, one kind of record at a time, and every schedule names its authority.' }] },
-      { id: 'g-preview', lead: 0.2, tail: 0.6, lines: [{ id: 'g-2', text: 'See what is eligible before anything runs.' }] },
-      { id: 'g-hold', lead: 0.2, tail: 0.6, min: 6, lines: [{ id: 'g-3', text: 'A legal hold stops every deletion it covers, and always wins over a schedule.' }] },
-      { id: 'g-inventory', lead: 0.2, tail: 0.6, lines: [{ id: 'g-4', text: 'The privacy inventory is built from the live database each time it opens, so it cannot quietly stop being true.' }] },
-      { id: 'g-export', lead: 0.2, tail: 2.2, cue: 'resolve', lines: [{ id: 'g-5', text: 'Export it for the privacy impact assessment.' }] },
-    ],
-  },
+  chapter('quick-log', 1, 'Quick Log', '#3fd0bd',
+    { tonic: 64, mode: 'major', bpm: 104, progression: [1, 5, 6, 4], groove: 'four', lead: 'bell', seed: 21 }, [
+      { id: 'ql-open', cards: ['Press N from any page.'] },
+      { id: 'ql-type', cards: ['Type it the way you’d say it.'], min: 5.5 },
+      { id: 'ql-read', cards: ['Vantage fills in the count, the dollar amount, the system and the date.'], min: 6 },
+      { id: 'ql-save', cards: ['Look it over, fix anything that’s off, and save.'], min: 7 },
+      { id: 'ql-offline', cue: 'drop', cards: ['No connection? It saves on your device and syncs later.'], min: 8 },
+    ]),
+  chapter('queue', 2, 'Working a case', '#5b8def',
+    { tonic: 55, mode: 'minor', bpm: 92, progression: [1, 4, 6, 5], groove: 'half', lead: 'pluck', seed: 22 }, [
+      { id: 'q-queue', cards: ['Your section’s open work is all in one queue.'] },
+      { id: 'q-claim', cards: ['Claim a case and it moves to your list.', 'Claiming a case doesn’t give you credit. The work you log on it does.'], min: 8 },
+      { id: 'q-step', cards: ['The procedure shows the next step and only asks for what that step needs.'], min: 7 },
+      { id: 'q-calc', cards: ['Enter what you found and Vantage does the math, showing every number it used.'], min: 7 },
+      { id: 'q-decide', cards: ['If a step needs evidence first, it tells you up front.'], min: 8 },
+      { id: 'q-history', cue: 'lift', cards: ['Everything you do goes into the case history under your name.', 'If you hand the case off, you each keep credit for your own part.'], min: 8 },
+    ]),
+  chapter('reading-a-balance', 3, 'Reading a balance', '#7cc4ff',
+    { tonic: 65, mode: 'major', bpm: 88, progression: [1, 2, 6, 5], groove: 'swing', lead: 'keys', seed: 23 }, [
+      { id: 'b-ref', cards: ['The FMRA desk reference is built in, with a source for everything in it.'] },
+      { id: 'b-enter', cards: ['Enter the commitment, obligation, delivered and paid amounts.'], min: 5 },
+      { id: 'b-read', cards: ['Vantage shows what’s still open, what could be causing it, who can fix it, and what proves it’s fixed.'], min: 7 },
+      { id: 'b-dash', cards: ['A dash on a report doesn’t mean zero. Mark it as “not shown.”'], min: 5 },
+      { id: 'b-case', cards: ['Open a case from here and the numbers carry over, along with where they came from.'], min: 8 },
+    ]),
+  chapter('record', 4, 'Your record', '#5fe0a8',
+    { tonic: 60, mode: 'major', bpm: 96, progression: [6, 4, 1, 5], groove: 'pulse', lead: 'piano', seed: 24 }, [
+      { id: 'r-three', cards: ['Your record keeps three things separate.', 'Work you’re holding. That isn’t credit yet.', 'Work you contributed to, counted from the case itself.', 'Things you logged yourself.'] },
+      { id: 'r-count', cards: ['A document only counts once, no matter how many entries it took.'], min: 5 },
+      { id: 'r-draft', cards: ['From any case you worked, you can start a private draft using only your own facts.'], min: 6 },
+      { id: 'r-keep', cards: ['Save it and it’s added to your record with a link to the case.'], min: 5 },
+    ]),
+  chapter('report-studio', 5, 'Report Studio', '#e8b35a',
+    { tonic: 58, mode: 'major', bpm: 90, progression: [1, 3, 4, 5], groove: 'swing', lead: 'keys', seed: 25 }, [
+      { id: 's-intro', cards: ['Report Studio helps you put what you’ve logged into your JEPES or FITREP.'], min: 5 },
+      { id: 's-period', cards: ['Pick the period and the entries you want to cite.'], min: 6 },
+      { id: 's-facts', cards: ['Click any cited entry to check it while you write.', 'If one of those entries changes while you’re writing, it won’t save until you look at it again.'], min: 9 },
+      { id: 's-save', cards: ['Each saved version is locked to exactly what it cited.'] },
+    ]),
+  chapter('unit-dashboard', 6, 'Leading a section', '#5b8def',
+    { tonic: 62, mode: 'minor', bpm: 100, progression: [1, 7, 6, 7], groove: 'drive', lead: 'pluck', seed: 26 }, [
+      { id: 'l-today', cards: ['If you lead a section, Today shows your section first.', 'What’s unassigned, overdue, blocked, or waiting on someone else.'] },
+      { id: 'l-proc', cards: ['How many open commitments, undelivered orders and UMTs you have.'] },
+      { id: 'l-work', cards: ['Workload shows who’s holding what, and explains what each number means.'], min: 5 },
+      { id: 'l-limits', cards: ['These counts don’t measure effort. Zero logged doesn’t mean zero done.'], min: 5 },
+    ]),
+  chapter('first-week', 7, 'Your first week', '#3fd0bd',
+    { tonic: 55, mode: 'major', bpm: 108, progression: [1, 4, 6, 5], groove: 'four', lead: 'bell', seed: 27 }, [
+      { id: 'fw-invite', cards: ['Day one, you’ll get an email with your username and a link to set your password.'], min: 9 },
+      { id: 'fw-list', cards: ['Today has a short checklist for your first week. Items check off as you do them.'] },
+      { id: 'fw-secure', cards: ['Start by adding a passkey or an authenticator app to your account.'], min: 5 },
+      { id: 'fw-profile', cards: ['Check your profile and make sure your rank is right.'], min: 5 },
+      { id: 'fw-first', cards: ['Log one thing you did. One line is enough.'], min: 6.5 },
+      { id: 'fw-team', cards: ['By Friday, open Team to see your people, your chain of command, and shared goals.'], min: 7 },
+    ]),
+  chapter('visibility', 8, 'Who can see what', '#a99bff',
+    { tonic: 57, mode: 'minor', bpm: 84, progression: [1, 6, 4, 5], groove: 'still', lead: 'piano', seed: 28 }, [
+      { id: 'v-choose', cards: ['When you save an entry, you pick who can see it.'], min: 6 },
+      { id: 'v-private', cards: ['Only me: nobody else can open it. Not your leaders, not the site owner.'] },
+      { id: 'v-unit', cards: ['My unit: it counts on the unit dashboard for leaders over that unit.'] },
+      { id: 'v-says', cards: ['Every entry shows who can see it, right at the top.'], min: 6 },
+      { id: 'v-never', cards: ['Drafts and career plans are always private.', 'When a leader opens your record, that gets logged.'] },
+    ]),
+  chapter('import', 9, 'Importing a spreadsheet', '#7cc4ff',
+    { tonic: 64, mode: 'minor', bpm: 110, progression: [1, 6, 3, 7], groove: 'four', lead: 'arp16', seed: 29 }, [
+      { id: 'i-bring', cards: ['Bring in the spreadsheet your section already uses. Your original file isn’t changed.'], min: 6 },
+      { id: 'i-map', cards: ['Vantage reads the column headers and guesses what each one is. Fix any it got wrong.'] },
+      { id: 'i-preview', cards: ['You see a preview of every row before anything is saved.'] },
+      { id: 'i-run', cards: ['Each row becomes an item in the queue, linked back to its row in the file.'], min: 9 },
+      { id: 'i-again', cards: ['Import the same file again and nothing gets duplicated.'], min: 6 },
+    ]),
+  chapter('analysis', 10, 'Reading the analysis', '#e8b35a',
+    { tonic: 60, mode: 'minor', bpm: 90, progression: [1, 4, 7, 3], groove: 'half', lead: 'keys', seed: 30 }, [
+      { id: 'a-open', cards: ['The Analysis tab shows what your record actually says before you use it.'] },
+      { id: 'a-units', cards: ['Hours, kilometers and dollars are kept separate and never added together.'] },
+      { id: 'a-summary', cards: ['The summary shows how often you log, your longest gap, and where your pace puts you.'] },
+      { id: 'a-coverage', cards: ['Coverage points out entries missing details, so you can fix them before a report uses them.'] },
+      { id: 'a-behind', cards: ['Click any number on Today to see the entries behind it.'], min: 5 },
+    ]),
+  chapter('counseling', 11, 'Counseling', '#5fe0a8',
+    { tonic: 65, mode: 'major', bpm: 80, progression: [1, 6, 4, 5], groove: 'still', lead: 'piano', seed: 31 }, [
+      { id: 'c-record', cards: ['Record a counseling from the Marine’s page: what went well, what to work on, and goals.'], min: 10 },
+      { id: 'c-save', cards: ['Once it’s saved, it’s on their record with the date and your name.'], min: 5 },
+      { id: 'c-ack', cards: ['They open it under Career and acknowledge it.', 'Acknowledging means they read it. It doesn’t mean they agree.'], min: 7 },
+      { id: 'c-both', cards: ['You both see the same record, marked acknowledged.'] },
+    ]),
+  chapter('setup', 12, 'Setting up Vantage', '#3fd0bd',
+    { tonic: 62, mode: 'major', bpm: 96, progression: [1, 5, 6, 4], groove: 'pulse', lead: 'pluck', seed: 32 }, [
+      { id: 'su-first', cards: ['On first launch, create the owner account and your first unit.'], min: 11 },
+      { id: 'su-console', cards: ['The Owner console is where you manage settings, accounts, units, email, retention and backups.'], min: 5 },
+      { id: 'su-settings', cards: ['Get settings right before anyone else signs in, starting with whether people can sign themselves up.'], min: 7 },
+      { id: 'su-units', cards: ['Build your chain of command. Teams go under their command, and permissions flow down, not up.'], min: 9 },
+      { id: 'su-people', cards: ['Add people by invite, by importing a roster, or by emailing everyone their sign-in details.'], min: 10 },
+    ]),
+  chapter('governance', 13, 'Retention and privacy', '#a99bff',
+    { tonic: 58, mode: 'minor', bpm: 86, progression: [1, 6, 7, 1], groove: 'pulse', lead: 'keys', seed: 33 }, [
+      { id: 'g-sched', cards: ['Retention is off until you turn it on, one record type at a time. Each schedule lists its authority.'], min: 9 },
+      { id: 'g-preview', cards: ['Preview what would be deleted before anything runs.'], min: 5 },
+      { id: 'g-hold', cards: ['A legal hold blocks any deletion it covers, even if a schedule says otherwise.'], min: 7 },
+      { id: 'g-inventory', cards: ['The privacy inventory is built from the live database, so it stays current.'], min: 6 },
+      { id: 'g-export', cards: ['Export it for your privacy impact assessment.'], min: 5 },
+    ]),
 ];
 
-export const FILMS: Film[] = [HERO, ...CHAPTERS];
+export const FILMS: Film[] = [AD, HERO, ...CHAPTERS];
 
-/** Before a voice exists: roughly the pace Brian reads at. */
-export const estimateSeconds = (text: string) => {
+/** How long a card needs on screen to be read comfortably, before the music's rounding. */
+export const readingSeconds = (text: string, kind: Film['kind']) => {
+  if (!text.trim()) return 0;
   const words = text.trim().split(/\s+/).length;
-  const pauses = (text.match(/[.,;:?!—]/g) || []).length;
-  return words / 2.45 + pauses * 0.12 + 0.25;
+  return (kind === 'ad' ? 0.9 : 1.1) + words * (kind === 'ad' ? 0.27 : 0.3);
 };

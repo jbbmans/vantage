@@ -38,7 +38,7 @@ export default function VideoSlotCard({ slot, className }: { slot: Slot; classNa
           </span>
         </div>
         <p className="mt-1.5 text-sm leading-relaxed text-ink-2">{slot.description}</p>
-        {slot.src && !slot.captions && (
+        {slot.src && !slot.captions && !slot.textOnly && (
           <p className="mt-2 text-xs text-warn">Captions have not been added to this video yet.</p>
         )}
       </figcaption>

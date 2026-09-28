@@ -1,7 +1,9 @@
 import { AbsoluteFill, Img, staticFile, useCurrentFrame } from 'remotion';
 import { C } from '../theme';
 
-export function Backdrop({ glow = 1, contours = 0.07, hue = 'cool' }: { glow?: number; contours?: number; hue?: 'cool' | 'warm' | 'black' }) {
+const rgb = (hex: string) => { const n = parseInt(hex.slice(1), 16); return `${(n >> 16) & 255},${(n >> 8) & 255},${n & 255}`; };
+
+export function Backdrop({ glow = 1, contours = 0.07, hue = 'cool', accent = '#3fd0bd' }: { glow?: number; contours?: number; hue?: 'cool' | 'warm' | 'black'; accent?: string }) {
   const f = useCurrentFrame();
   const a = f / 300;
   const x1 = 72 + Math.sin(a * 0.9) * 6;
@@ -14,7 +16,7 @@ export function Backdrop({ glow = 1, contours = 0.07, hue = 'cool' }: { glow?: n
       <AbsoluteFill style={{
         opacity: glow,
         background: `radial-gradient(1200px 700px at ${x1}% ${y1}%, rgba(47,107,255,${hue === 'warm' ? 0.18 : 0.26}), transparent 62%),
-          radial-gradient(900px 620px at ${x2}% ${y2}%, rgba(63,208,189,0.13), transparent 60%),
+          radial-gradient(900px 620px at ${x2}% ${y2}%, rgba(${rgb(accent)},0.15), transparent 60%),
           linear-gradient(180deg, ${base} 0%, ${C.navy} 100%)`,
       }} />
       {contours > 0 && (

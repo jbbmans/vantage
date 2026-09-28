@@ -47,14 +47,15 @@ test('a new Marine gets a first-week list that ticks itself off and can be put a
   await expect(page.getByRole('region', { name: 'Your first week' })).toHaveCount(0);
 });
 
-test('every Field guide walkthrough is recorded and captioned', async ({ page, request }) => {
+test('every Field guide walkthrough is recorded, and none is missing words it needs', async ({ page, request }) => {
   await ensureSetup(request);
   await loginAs(page, OPERATOR.username);
   await page.goto('/help');
-  await expect(page.getByText(/^All \d+ recorded, each with captions\.$/)).toBeVisible();
+  await expect(page.getByText(/^All \d+ recorded\.$/)).toBeVisible();
   await expect(page.getByText('Not recorded yet')).toHaveCount(0);
-  const tracks = await page.locator('video track[kind="captions"]').count();
-  expect(tracks).toBeGreaterThanOrEqual(14);
+  expect(await page.locator('video').count()).toBeGreaterThanOrEqual(15);
+  // The films have no narration; their words are on screen, so no caption track is owed.
+  await expect(page.getByText('Captions have not been added to this video yet.')).toHaveCount(0);
 });
 
 test('the owner console explains sending from your own domain, and a leader can open a team message', async ({ page, request }) => {
