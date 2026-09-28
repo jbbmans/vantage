@@ -232,6 +232,8 @@ export const adminEmail = () => api.get('/admin/email');
 export const adminEmailCheck = () => api.post('/admin/email/check', {});
 export const adminDigestRun = () => api.post('/admin/digest/run');
 export const adminUsers = () => api.get('/admin/users');
+export const adminSignInAudience = () => api.get('/admin/accounts/sign-in-details');
+export const adminSendSignInDetails = (userIds: string[]) => api.post('/admin/accounts/sign-in-details', { userIds });
 export const adminUnits = () => api.get('/admin/units');
 export const adminClaimUnit = (id: string, ownerId?: string) => api.post(`/admin/units/${encodeURIComponent(id)}/claim`, { owner_user_id: ownerId });
 export const adminAudit = (limit = 200) => api.get(`/admin/audit?limit=${limit}`);

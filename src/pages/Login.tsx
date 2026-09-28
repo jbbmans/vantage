@@ -213,7 +213,9 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
     setup: ['First launch', 'Set up Vantage', 'Create the owner account and the first unit. This only happens once.'],
     register: ['Join Vantage', 'Create your account', 'Self-registration is open on this deployment.'],
     forgot: ['Account recovery', 'Reset your password', 'Enter your username or email. If email is configured, a one-time link follows.'],
-    reset: ['Account recovery', 'Choose a new password', tokenInfo?.email ? `Resetting the account for ${tokenInfo.email}.` : 'This link works once and expires after 30 minutes.'],
+    reset: tokenInfo?.purpose === 'sign_in'
+      ? ['Welcome to Vantage', 'Choose your password', `You sign in as ${tokenInfo.username}. Choose a password to finish; you are signed in as soon as it is saved.`]
+      : ['Account recovery', 'Choose a new password', tokenInfo?.email ? `Resetting the account for ${tokenInfo.email}.` : 'This link works once and expires after 30 minutes.'],
     invite: ['Your invitation', 'Accept your invitation', tokenInfo?.unit ? `${tokenInfo.invitedBy || 'A leader'} invited you to ${tokenInfo.unit}.` : 'Create your account to join the unit.'],
   };
 
@@ -363,8 +365,9 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
 
             {mode === 'reset' && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitReset(); }}>
-                {tokenInfo && !tokenInfo.valid && <div className="auth-notice error compact">This reset link is invalid or has expired. Request a new one.</div>}
-                <Field label="New password" hint={`${MIN_PASSWORD_LENGTH}+ characters`} error={fieldErrors.password}>{passwordInput}</Field>
+                {tokenInfo && !tokenInfo.valid && <div className="auth-notice error compact">This link is invalid, has expired, or was already used. Request a new one with “Forgot password”, or ask your leader to send your sign-in details again.</div>}
+                {tokenInfo?.username && <Field label="Username" hint="yours to keep"><Input value={tokenInfo.username} readOnly autoComplete="username" spellCheck={false} className="mono" /></Field>}
+                <Field label={tokenInfo?.purpose === 'sign_in' ? 'Password' : 'New password'} hint={`${MIN_PASSWORD_LENGTH}+ characters`} error={fieldErrors.password}>{passwordInput}</Field>
                 <PasswordMeter value={form.password} />
                 <Button type="submit" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={Boolean(passwordProblem(form.password)) || (tokenInfo && !tokenInfo.valid)}><KeyRound className="h-4 w-4" /> Set password and sign in</Button>
               </form>

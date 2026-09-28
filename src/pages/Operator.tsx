@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Save, RefreshCw, Unlock, Mail, Download, Upload, Database, ShieldCheck, Users, Building2, ScrollText, Wrench, Sparkles, KeyRound, LogOut, Copy } from 'lucide-react';
+import { Save, RefreshCw, Unlock, Mail, Download, Upload, Database, ShieldCheck, Users, Building2, ScrollText, Wrench, Sparkles, KeyRound, LogOut, Copy, Send } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, Panel, Badge, Switch, Skeleton, Stat, EmptyState } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -10,6 +10,7 @@ import { keys, useIdentity, signOutEverywhere } from '@/lib/queries';
 import * as api from '@/lib/api';
 import UsageConsole from '@/components/UsageConsole';
 import AccountImport from '@/components/AccountImport';
+import SignInDetails from '@/components/SignInDetails';
 import EmailConsole from '@/components/EmailConsole';
 import { PersonnelConsole, RetentionConsole, PrivacyConsole } from '@/components/GovernanceConsole';
 import { copyToClipboard, downloadText, humanize, timeAgo } from '@/lib/utils';
@@ -59,7 +60,7 @@ function Overview() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Panel title="Instance"><dl className="space-y-1.5 text-sm">{[['Version', `${data.version} · schema ${data.schemaVersion}`], ['Node', data.node], ['Uptime', `${Math.round(data.uptime / 3600)} h`], ['Public URL', data.publicUrl], ['Passkey domain', data.rpId], ['Time zone', data.timezone], ['Sessions open', data.sessions], ['MFA users', `${data.mfaUsers} authenticator · ${data.passkeyUsers} passkey`]].map(([k, v]) => <div key={String(k)} className="flex justify-between gap-3"><dt className="text-ink-3">{k}</dt><dd className="fig truncate text-right text-ink">{String(v)}</dd></div>)}</dl></Panel>
         <Panel title="Email" subtitle={data.email.enabled ? `${data.email.provider} · from ${data.email.from}` : 'not configured'} action={data.email.enabled ? <Button size="sm" onClick={async () => { try { await withSudo(() => api.adminEmailTest()); toast.success('Test email sent to you.'); } catch (e) { toast.error(api.errorText(e)); } }}><Mail className="h-3.5 w-3.5" />Send test</Button> : undefined}>
-          {!data.email.enabled ? <p className="text-sm text-ink-2">Turn email on to send reset links, invitations and digests. The Email tab shows how to send from your own domain with no email service.</p> : !data.email.recent.length ? <p className="text-sm text-ink-3">No email sent yet.</p> : <ul className="space-y-1 text-xs">{data.email.recent.map((m: any, i: number) => <li key={i} className="flex justify-between gap-2"><span className="truncate text-ink">{m.kind} → {m.to_address}</span><span className={m.status === 'sent' ? 'text-good' : 'text-bad'}>{m.status}{m.error ? `: ${m.error}` : ''}</span></li>)}</ul>}
+          {!data.email.enabled ? <p className="text-sm text-ink-2">Turn email on to send reset links, invitations and digests. The Email tab shows how to send from your own domain with no email service.</p> : !data.email.recent.length ? <p className="text-sm text-ink-3">No email sent yet.</p> : <ul className="space-y-1 text-xs">{data.email.recent.map((m: any, i: number) => <li key={i} className="flex justify-between gap-2"><span className="truncate text-ink">{m.kind} → {m.to_address}</span><span className={m.status === 'sent' ? 'text-good' : m.status === 'queued' ? 'text-warn' : 'text-bad'}>{m.status}{m.error ? `: ${m.error}` : ''}</span></li>)}</ul>}
         </Panel>
         <Panel title="Audit chain" subtitle="Tamper-evident log">
           <p className="text-sm"><Badge tone={data.audit.ok ? 'good' : 'bad'}>{data.audit.ok ? 'Intact' : 'Broken'}</Badge> <span className="fig text-ink-2">{data.audit.count} entries</span></p>
@@ -230,10 +231,18 @@ function Accounts() {
     if (confirm.kind === 'reset-mfa') await act('MFA and passkeys cleared', () => api.resetMemberMfa(u.id));
     if (confirm.kind === 'temp') { const r = await act('Temporary password issued', () => api.temporaryPassword(u.id)); if (r?.password) setTemp({ user: u, password: r.password }); }
     if (confirm.kind === 'operator') await act(u.is_operator ? 'Owner authority removed' : 'Owner authority granted', () => api.setOperator(u.id, !u.is_operator));
+    if (confirm.kind === 'sign-in') {
+      try {
+        const { results: [r] } = await withSudo(() => api.adminSendSignInDetails([u.id]));
+        if (r.status === 'sent' || r.status === 'queued') toast.success(r.status === 'queued' ? `The receiving server asked to try later. ${u.username}’s sign-in details are queued.` : `Sign-in details sent to ${u.email}.`);
+        else toast.error(r.error || 'The sign-in details could not be sent.');
+        refetch();
+      } catch (e) { toast.error(api.errorText(e)); }
+    }
   };
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-center gap-2"><Input aria-label="Search accounts" placeholder="Search accounts…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" /><span className="text-xs text-ink-3">{users.length} shown</span><span className="ml-auto"><AccountImport onDone={() => refetch()} /></span></div>
+      <div className="mb-3 flex flex-wrap items-center gap-2"><Input aria-label="Search accounts" placeholder="Search accounts…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" /><span className="text-xs text-ink-3">{users.length} shown</span><span className="ml-auto flex flex-wrap gap-2"><SignInDetails onDone={() => refetch()} /><AccountImport onDone={() => refetch()} /></span></div>
       <div className="card" style={{ overflow: 'hidden' }}>
         <Table minWidth={860} head={<><th>Account</th><th className="w-32">Security</th><th className="w-20 text-center">Units</th><th className="w-28">Last sign-in</th><th className="w-24">Status</th><th className="w-64"></th></>}>
           {users.map((u) => (
@@ -242,13 +251,13 @@ function Accounts() {
               <td className="text-xs text-ink-2">{u.totp_enabled ? 'Authenticator' : ''}{u.totp_enabled && u.passkeys ? ' · ' : ''}{u.passkeys ? `${u.passkeys} passkey${u.passkeys === 1 ? '' : 's'}` : ''}{!u.totp_enabled && !u.passkeys ? <span className="text-warn">Password only</span> : ''}{u.must_change_password ? <span className="block text-warn">Temp password</span> : null}</td>
               <td className="fig text-center">{u.units}</td><td className="text-xs text-ink-3">{u.last_login_at ? timeAgo(u.last_login_at) : 'never'}</td><td>{u.active ? <Badge tone="good">Active</Badge> : <Badge tone="bad">Inactive</Badge>}</td>
               <td className="text-right"><span className="flex flex-wrap justify-end gap-1">
-                {u.active ? <>{u.id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'temp', user: u })}><KeyRound className="h-3 w-3" />Temp password</Button>}<Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'reset-mfa', user: u })}>Reset MFA</Button><Button size="xs" variant="ghost" onClick={() => act('Signed out everywhere', () => api.forceLogout(u.id))}><LogOut className="h-3 w-3" /></Button>{u.id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'operator', user: u })}>{u.is_operator ? 'Remove owner' : 'Make owner'}</Button>}{u.id !== identity?.user.id && <Button size="xs" variant="ghost" className="text-bad" onClick={() => setConfirm({ kind: 'deactivate', user: u })}>Deactivate</Button>}</> : <Button size="xs" onClick={() => act('Reactivated', () => api.reactivateMember(u.id))}>Reactivate</Button>}
+                {u.active ? <>{u.id !== identity?.user.id && u.email && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'sign-in', user: u })}><Send className="h-3 w-3" />Email sign-in</Button>}{u.id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'temp', user: u })}><KeyRound className="h-3 w-3" />Temp password</Button>}<Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'reset-mfa', user: u })}>Reset MFA</Button><Button size="xs" variant="ghost" onClick={() => act('Signed out everywhere', () => api.forceLogout(u.id))}><LogOut className="h-3 w-3" /></Button>{u.id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'operator', user: u })}>{u.is_operator ? 'Remove owner' : 'Make owner'}</Button>}{u.id !== identity?.user.id && <Button size="xs" variant="ghost" className="text-bad" onClick={() => setConfirm({ kind: 'deactivate', user: u })}>Deactivate</Button>}</> : <Button size="xs" onClick={() => act('Reactivated', () => api.reactivateMember(u.id))}>Reactivate</Button>}
               </span></td>
             </tr>
           ))}
         </Table>
       </div>
-      <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} danger={confirm?.kind === 'deactivate'} confirmLabel={confirm?.kind === 'deactivate' ? 'Deactivate' : 'Continue'} title={confirm ? { deactivate: `Deactivate ${confirm.user.username}?`, 'reset-mfa': `Reset MFA for ${confirm.user.username}?`, temp: `Issue a temporary password to ${confirm.user.username}?`, operator: confirm.user.is_operator ? `Remove owner authority from ${confirm.user.username}?` : `Make ${confirm.user.username} an owner?` }[confirm.kind] || '' : ''} body={confirm ? { deactivate: 'They cannot sign in; their records stay. Reactivate any time.', 'reset-mfa': 'Their authenticator, recovery codes, and passkeys are removed and every session signed out. Use this when a phone is lost.', temp: 'Their current password stops working, every session is signed out, and they must set a new password on next sign-in. Hand the temporary password over in person.', operator: 'Owners can open this console, manage every account, and move the instance. Give it to the fewest people possible.' }[confirm.kind] : ''} onConfirm={run} />
+      <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} danger={confirm?.kind === 'deactivate'} confirmLabel={confirm?.kind === 'deactivate' ? 'Deactivate' : confirm?.kind === 'sign-in' ? 'Send' : 'Continue'} title={confirm ? { deactivate: `Deactivate ${confirm.user.username}?`, 'reset-mfa': `Reset MFA for ${confirm.user.username}?`, temp: `Issue a temporary password to ${confirm.user.username}?`, 'sign-in': `Email ${confirm.user.username} their sign-in details?`, operator: confirm.user.is_operator ? `Remove owner authority from ${confirm.user.username}?` : `Make ${confirm.user.username} an owner?` }[confirm.kind] || '' : ''} body={confirm ? { deactivate: 'They cannot sign in; their records stay. Reactivate any time.', 'reset-mfa': 'Their authenticator, recovery codes, and passkeys are removed and every session signed out. Use this when a phone is lost.', temp: 'Their current password stops working, every session is signed out, and they must set a new password on next sign-in. Hand the temporary password over in person.', 'sign-in': `${confirm.user.email} gets their username and a one-time link, good for 72 hours, to choose a password. Their current password keeps working until they use it, and any earlier link stops working.`, operator: 'Owners can open this console, manage every account, and move the instance. Give it to the fewest people possible.' }[confirm.kind] : ''} onConfirm={run} />
       <Dialog open={Boolean(temp)} onOpenChange={(o) => { if (!o) setTemp(null); }} title={`Temporary password for ${temp?.user.username}`} description="Shown once. It expires when they set their own." size="sm" footer={<Button variant="primary" onClick={async () => { if (await copyToClipboard(temp!.password)) toast.success('Copied.'); }}><Copy className="h-4 w-4" />Copy</Button>}><p className="mono select-all rounded-md border border-line bg-surface-2 px-3 py-2 text-center text-lg text-ink">{temp?.password}</p></Dialog>
     </>
   );

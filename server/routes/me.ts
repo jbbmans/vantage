@@ -15,7 +15,7 @@ import { issueToken, consumeToken } from '../auth/tokens.ts';
 import { limiters, mailAllowance } from '../auth/limiter.ts';
 import { tooMany } from '../lib/errors.ts';
 import { audit } from '../services/audit.ts';
-import { layout } from '../services/email.ts';
+import { layout } from '../services/mailLayout.ts';
 import { newId, now } from '../lib/ids.ts';
 import { ancestorIds, viewsFor } from '../services/org.ts';
 import { PERMISSION_LIST } from '../../shared/permissions.ts';
@@ -286,7 +286,17 @@ meRouter.post('/email/verify', requireSudo, wrap(async (req, res) => {
   mailAllowance(req.user.id);
   const { token } = issueToken(ctx, 'email_change', { userId: req.user.id, email, ttlMinutes: 60 });
   const url = `${ctx.config.publicUrl}/settings?verify=${encodeURIComponent(token)}`;
-  const mail = layout({ title: 'Confirm your email for Vantage', intro: `Confirm that ${email} belongs to ${req.user.username}. The link works for one hour.`, cta: { label: 'Confirm email', url } });
+  const mail = layout({
+    eyebrow: 'Confirm your email',
+    title: 'Is this your address?',
+    preheader: `Confirm ${email} for your Vantage account. The link works for one hour.`,
+    intro: `Confirm that this address belongs to your Vantage account. Once confirmed, it receives your reset links and, if you turn it on, the weekly digest.`,
+    details: [{ label: 'Username', value: req.user.username, mono: true }, { label: 'Email', value: email }],
+    cta: { label: 'Confirm email', url },
+    note: 'The link works once, for one hour. If you did not ask for this, ignore it and nothing changes.',
+    footer: 'Vantage sent this because someone added this address to an account.',
+    origin: ctx.config.publicUrl,
+  });
   const result = await ctx.mailer.send({ to: email, subject: 'Confirm your Vantage email', text: mail.text, html: mail.html, kind: 'email_change', userId: req.user.id });
   if (!result.ok) throw badRequest(result.error || 'The confirmation could not be sent.');
   res.json({ ok: true });

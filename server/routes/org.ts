@@ -9,7 +9,7 @@ import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { issueToken } from '../auth/tokens.ts';
-import { layout } from '../services/email.ts';
+import { layout } from '../services/mailLayout.ts';
 import { emailField, profileSchema } from '../../shared/schemas.ts';
 import { hydrate, withGoalProgress } from '../services/records.ts';
 import { newId, now } from '../lib/ids.ts';
@@ -209,7 +209,18 @@ orgRouter.post('/units/:unitId/invites', wrap(async (req, res) => {
   let emailed = false;
   if (body.email && ctx.mailer.enabled) {
     mailAllowance(req.user.id);
-    const mail = layout({ title: `You are invited to ${unit.short_name || unit.name} on Vantage`, intro: `${req.user.first_name} ${req.user.last_name} invited you to join ${unit.name}. Create your account with the link below. The invitation works for seven days.`, cta: { label: 'Accept invitation', url } });
+    const inviter = [req.user.rank_id, req.user.first_name, req.user.last_name].filter(Boolean).join(' ');
+    const mail = layout({
+      eyebrow: 'Invitation',
+      title: `Join ${unit.short_name || unit.name} on Vantage`,
+      preheader: `${inviter} invited you to ${unit.name}. The invitation works for seven days.`,
+      intro: `${inviter} invited you to join ${unit.name} on Vantage, where your team keeps its work, record and career plans in one place. Create your account with the button below.`,
+      details: [{ label: 'Unit', value: unit.name }, { label: 'Invited by', value: inviter }],
+      cta: { label: 'Accept invitation', url },
+      note: 'The invitation works once, for seven days. If you were not expecting it, you can ignore this message.',
+      footer: `${inviter} sent this invitation through Vantage.`,
+      origin: ctx.config.publicUrl,
+    });
     emailed = (await ctx.mailer.send({ to: body.email, subject: `Invitation to ${unit.short_name || unit.name} on Vantage`, text: mail.text, html: mail.html, kind: 'invite' })).ok;
   }
   audit(ctx, { actor_id: req.user.id, action: 'invite_created', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${body.email || 'link'}; emailed: ${emailed}`, ip: clientIp(req) });
