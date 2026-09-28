@@ -3,9 +3,19 @@ import assert from 'node:assert/strict';
 import { createServer, type Server, type Socket } from 'node:net';
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { startApp, type TestApp } from './helpers.ts';
-import { dkimKey, requiredRecords, probePath, heloName, mergeSpf } from '../../server/services/directMail.ts';
+import { dkimKey, requiredRecords, probePath, heloName, mergeSpf, smtpErrorMessage } from '../../server/services/directMail.ts';
+import { createMailer } from '../../server/services/email.ts';
 
 interface Received { helo: string; from: string; to: string[]; data: string }
+
+test('failed IPv4 and IPv6 connection attempts retain their diagnostics', () => {
+  const ipv4 = Object.assign(new Error('connect ECONNREFUSED 192.0.2.1:25'), { code: 'ECONNREFUSED' });
+  const ipv6 = Object.assign(new Error('connect ENETUNREACH 2001:db8::1:25'), { code: 'ENETUNREACH' });
+  const message = smtpErrorMessage(new AggregateError([ipv4, ipv6]));
+  assert.match(message, /ECONNREFUSED/);
+  assert.match(message, /ENETUNREACH/);
+  assert.equal(smtpErrorMessage(new AggregateError([])), 'SMTP connection failed.');
+});
 
 /** A receiving mail server, just enough of one: it records what it is sent and answers RCPT as told. */
 function sink() {
@@ -122,6 +132,36 @@ test('the path check finds the port open and the address this server sends from'
   assert.ok(heloName(app.ctx.db, app.ctx.config));
 });
 
+test('the path check rejects SMTP refusals and early disconnects', async (t) => {
+  const cases = [
+    { name: 'temporary greeting refusal', greeting: '421 4.7.0 try later\r\n', ehlo: '250 ignored refusal\r\n', error: /421/ },
+    { name: 'permanent EHLO refusal', greeting: '220 ready\r\n', ehlo: '550 5.7.1 not permitted\r\n', error: /550/ },
+    { name: 'disconnect during a multiline greeting', greeting: '220-not finished\r\n', ehlo: '', error: /closed the connection/ },
+  ];
+  for (const scenario of cases) await t.test(scenario.name, async () => {
+    const server = createServer((socket) => {
+      socket.on('error', () => {});
+      if (!scenario.ehlo) socket.end(scenario.greeting);
+      else {
+        socket.write(scenario.greeting);
+        socket.once('data', () => socket.end(scenario.ehlo));
+      }
+    });
+    await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve));
+    try {
+      const config = { ...app.ctx.config, email: { ...app.ctx.config.email, directRoute: `127.0.0.1:${(server.address() as { port: number }).port}` } };
+      const path = await probePath(app.ctx.db, config);
+      assert.equal(path.open, false);
+      assert.equal(path.ip, null);
+      assert.match(path.error || '', scenario.error);
+    } finally {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
+  });
+  // Restore the successful check used by the owner-console integration test below.
+  await probePath(app.ctx.db, app.ctx.config);
+});
+
 test('mail goes straight to the receiving server, DKIM-signed for the domain, with a reply address', async () => {
   const res = await app.call('POST', '/api/admin/email/test', { token: op.token, body: { to: 'avery@example.test' } });
   assert.equal(res.status, 200, JSON.stringify(res.body));
@@ -171,6 +211,52 @@ test('the owner sees the records and the path in one place', async () => {
   assert.equal(res.body.domain, 'vantage.test');
   assert.equal(res.body.records.length, 3);
   assert.equal(res.body.path.open, true);
+});
+
+test('expired queued mail is never delivered even when the receiver recovers', async () => {
+  mx.reply('451 4.7.1 try later');
+  const result = await app.ctx.mailer.send({ to: 'expired@example.test', subject: 'Expired reset', text: 'link', html: '<p>link</p>', kind: 'reset' });
+  assert.equal(result.queued, true);
+  const row = app.ctx.db.prepare('SELECT log_id FROM email_queue').get() as { log_id: string };
+  app.ctx.db.prepare("UPDATE email_queue SET next_attempt_at = '2000-01-01T00:00:00.000Z', expires_at = '2000-01-01T00:30:00.000Z'").run();
+  mx.reply('250 OK');
+  const before = mx.received.length;
+  assert.deepEqual(await app.ctx.mailer.retryQueued(), { sent: 0, failed: 1, waiting: 0 });
+  assert.equal(mx.received.length, before);
+  const log = app.ctx.db.prepare('SELECT status, error FROM email_log WHERE id = ?').get(row.log_id) as { status: string; error: string };
+  assert.equal(log.status, 'failed');
+  assert.match(log.error, /expired/);
+});
+
+test('overlapping retry runs share one delivery and later runs still work', async () => {
+  for (let i = 0; i < 2; i++) {
+    mx.reply('451 4.7.1 try later');
+    const result = await app.ctx.mailer.send({ to: `once${i}@example.test`, subject: 'One copy', text: 'text', html: '<p>text</p>', kind: 'test' });
+    assert.equal(result.queued, true);
+    app.ctx.db.prepare("UPDATE email_queue SET next_attempt_at = '2000-01-01T00:00:00.000Z'").run();
+    mx.reply('250 OK');
+    const before = mx.received.length;
+    const results = await Promise.all([app.ctx.mailer.retryQueued(), app.ctx.mailer.retryQueued()]);
+    assert.deepEqual(results, [{ sent: 1, failed: 0, waiting: 0 }, { sent: 1, failed: 0, waiting: 0 }]);
+    assert.equal(mx.received.length, before + 1, 'the recipient gets one copy');
+    assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM email_queue').get() as { n: number }).n, 0);
+  }
+});
+
+test('switching providers still expires queued mail before its next scheduled attempt', async () => {
+  mx.reply('451 4.7.1 try later');
+  assert.equal((await app.ctx.mailer.send({ to: 'switched@example.test', subject: 'Reset', text: 'link', html: '<p>link</p>', kind: 'reset' })).queued, true);
+  const row = app.ctx.db.prepare('SELECT log_id FROM email_queue').get() as { log_id: string };
+  app.ctx.db.prepare("UPDATE email_queue SET expires_at = '2000-01-01T00:00:00.000Z', next_attempt_at = '2100-01-01T00:00:00.000Z'").run();
+  const mailer = createMailer({ ...app.ctx.config, email: { ...app.ctx.config.email, provider: 'resend' } }, app.ctx.db);
+  const before = mx.received.length;
+  assert.deepEqual(await mailer.retryQueued(), { sent: 0, failed: 1, waiting: 0 });
+  assert.equal(mx.received.length, before);
+  assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM email_queue').get() as { n: number }).n, 0);
+  const log = app.ctx.db.prepare('SELECT status, error FROM email_log WHERE id = ?').get(row.log_id) as { status: string; error: string };
+  assert.equal(log.status, 'failed');
+  assert.match(log.error, /expired/);
+  mx.reply('250 OK');
 });
 
 test('a leader emails the team: one copy each, replies to the leader, and everyone sees it in Vantage', async () => {

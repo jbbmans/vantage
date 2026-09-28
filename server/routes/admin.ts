@@ -148,7 +148,7 @@ adminRouter.post('/email/check', wrap(async (req, res) => {
   const path = await probePath(ctx.db, ctx.config);
   const records = await checkRecords(ctx.db, ctx.config);
   const dnsHost = await dnsHostOf(domainOf(ctx.config.email.from));
-  audit(ctx, { actor_id: req.user.id, action: 'email_setup_checked', entity: 'instance', detail: `port 25 ${path.open ? 'open' : 'blocked'}; ${records.map((r) => `${r.id} ${r.status}`).join(', ')}`, ip: clientIp(req) });
+  audit(ctx, { actor_id: req.user.id, action: 'email_setup_checked', entity: 'instance', detail: `SMTP check ${path.open ? 'passed' : 'failed'}; ${records.map((r) => `${r.id} ${r.status}`).join(', ')}`, ip: clientIp(req) });
   res.json({ ...emailSetup(ctx), records, path, dnsHost });
 }));
 
