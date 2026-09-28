@@ -4,6 +4,7 @@ import { createServer, type Server, type Socket } from 'node:net';
 import { createHash, createPublicKey, verify } from 'node:crypto';
 import { startApp, type TestApp } from './helpers.ts';
 import { dkimKey, requiredRecords, probePath, heloName, mergeSpf, smtpErrorMessage } from '../../server/services/directMail.ts';
+import { createMailer } from '../../server/services/email.ts';
 
 interface Received { helo: string; from: string; to: string[]; data: string }
 
@@ -240,6 +241,22 @@ test('overlapping retry runs share one delivery and later runs still work', asyn
     assert.equal(mx.received.length, before + 1, 'the recipient gets one copy');
     assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM email_queue').get() as { n: number }).n, 0);
   }
+});
+
+test('switching providers still expires queued mail before its next scheduled attempt', async () => {
+  mx.reply('451 4.7.1 try later');
+  assert.equal((await app.ctx.mailer.send({ to: 'switched@example.test', subject: 'Reset', text: 'link', html: '<p>link</p>', kind: 'reset' })).queued, true);
+  const row = app.ctx.db.prepare('SELECT log_id FROM email_queue').get() as { log_id: string };
+  app.ctx.db.prepare("UPDATE email_queue SET expires_at = '2000-01-01T00:00:00.000Z', next_attempt_at = '2100-01-01T00:00:00.000Z'").run();
+  const mailer = createMailer({ ...app.ctx.config, email: { ...app.ctx.config.email, provider: 'resend' } }, app.ctx.db);
+  const before = mx.received.length;
+  assert.deepEqual(await mailer.retryQueued(), { sent: 0, failed: 1, waiting: 0 });
+  assert.equal(mx.received.length, before);
+  assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM email_queue').get() as { n: number }).n, 0);
+  const log = app.ctx.db.prepare('SELECT status, error FROM email_log WHERE id = ?').get(row.log_id) as { status: string; error: string };
+  assert.equal(log.status, 'failed');
+  assert.match(log.error, /expired/);
+  mx.reply('250 OK');
 });
 
 test('a leader emails the team: one copy each, replies to the leader, and everyone sees it in Vantage', async () => {

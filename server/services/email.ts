@@ -65,6 +65,12 @@ export function createMailer(config: AppConfig, db: Db): Mailer {
 
   const retryBatch: Mailer['retryQueued'] = async () => {
     const counts = { sent: 0, failed: 0, waiting: 0 };
+    // Switching providers must not retain old encrypted queue payloads beyond their lifetime.
+    counts.failed = db.transaction(() => {
+      const at = now();
+      db.prepare("UPDATE email_log SET status = 'failed', error = 'The queued message expired before it could be delivered.' WHERE id IN (SELECT log_id FROM email_queue WHERE expires_at <= ?)").run(at);
+      return db.prepare('DELETE FROM email_queue WHERE expires_at <= ?').run(at).changes;
+    })();
     if (provider !== 'direct') return counts;
     const due = db.prepare('SELECT * FROM email_queue WHERE next_attempt_at <= ? ORDER BY next_attempt_at LIMIT 25').all(now()) as Array<{ id: string; log_id: string | null; to_address: string; kind: string; payload: string; attempts: number; expires_at: string }>;
     for (const row of due) {
