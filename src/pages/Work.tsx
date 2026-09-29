@@ -7,7 +7,7 @@ import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { DateText, PageShell, StatusBadge, useParam, onText } from '@/components/common';
-import { useDeleteRecord, useIdentity, useProjects, useTasks, useTeam, useUpdateRecord, usePrefs, useActivities } from '@/lib/queries';
+import { can, unitsWith, useDeleteRecord, useIdentity, useProjects, useTasks, useTeam, useUpdateRecord, usePrefs, useActivities } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { WORK_STATUS, PRIORITIES } from '../../shared/constants';
 import { PERMISSIONS } from '../../shared/permissions';
@@ -53,8 +53,8 @@ export default function Work({ embedded }: { embedded?: boolean } = {}) {
   };
   const newTask = (extra: Partial<TaskDraft> = {}) => setTaskDraft({ title: '', notes: '', status: 'planned', priority: 'medium', due_date: '', project_id: projectFilter !== 'all' ? projectFilter : null, assignee_id: null, visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null, ...extra });
   const newProject = () => setProjectDraft({ name: '', description: '', status: 'active', priority: 'medium', progress: 0, start_date: today, target_date: '', organization: '', visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null });
-  const canAssign = Boolean(identity && Object.values(identity.permissions).some((b) => b & ((1 << 12) | (1 << 4))));
-  const canEditRow = (r: any) => r.user_id === me || Boolean(r.unit_id && identity && ((identity.permissions[r.unit_id] || 0) & ((1 << 12) | (1 << 3))));
+  const canAssign = unitsWith(identity, PERMISSIONS.CREATE_SHARED_WORK).length > 0;
+  const canEditRow = (r: any) => r.user_id === me || can(identity, PERMISSIONS.MANAGE_RECORDS, r.unit_id);
   const canToggleRow = (r: any) => canEditRow(r) || (r.assignee_id === me && r.visibility === 'unit');
 
   return (

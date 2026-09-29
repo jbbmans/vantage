@@ -1,4 +1,4 @@
-import { formatDollarsExact, formatNumber, formatDTG, toDate } from './metrics.ts';
+import { formatDollarsExact, formatNumber, formatDTG } from './metrics.ts';
 import { JEPES_CORE, DEFAULT_METRICS, isSummable, type MetricsConfig } from './constants.ts';
 
 export type BulletStyle = 'jepes' | 'fitrep' | 'resume';
@@ -224,8 +224,3 @@ export function packageToText(pkg: PackageGroup[] = [], header = ''): string {
   return lines.join('\n');
 }
 
-export function byWeakestFirst(a: BulletSource, b: BulletSource): number {
-  const d = strength(a) - strength(b);
-  if (d !== 0) return d;
-  return (toDate(b.date)?.getTime() || 0) - (toDate(a.date)?.getTime() || 0);
-}

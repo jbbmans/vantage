@@ -121,7 +121,6 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
   return scope;
 }
 
-export function invalidateScope(reqKey: object) { cache.delete(reqKey); }
 
 export const can = (scope: Scope, flag: number, unitId: string | null | undefined) => Boolean(unitId) && has(scope.permissions[unitId!] || 0, flag);
 export const positionIn = (scope: Scope, unitId: string | null | undefined) => (unitId ? scope.positions[unitId] || 0 : 0);

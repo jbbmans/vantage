@@ -1,6 +1,6 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
-import { can, isMember, PERMISSIONS } from '../authz/scope.ts';
+import { can, PERMISSIONS } from '../authz/scope.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { randomBytes } from 'node:crypto';
 import { newId, now } from '../lib/ids.ts';
@@ -123,4 +123,3 @@ export function redeemInvite(ctx: AppContext, user: SessionUser, code: string, i
   })();
 }
 
-export const _internals = { freshCode, HASH, isMember };

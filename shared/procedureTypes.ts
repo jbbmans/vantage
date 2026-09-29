@@ -2,10 +2,6 @@ export type Authority =
   | 'official_policy' | 'official_system_guidance' | 'approved_local_sop' | 'training_reference'
   | 'validated_sme_workflow' | 'sme_walkthrough' | 'historical_case' | 'ai_inference';
 
-export const AUTHORITY_ORDER: Authority[] = [
-  'official_policy', 'official_system_guidance', 'approved_local_sop', 'training_reference',
-  'validated_sme_workflow', 'sme_walkthrough', 'historical_case', 'ai_inference',
-];
 
 export const AUTHORITY_LABEL: Record<Authority, string> = {
   official_policy: 'Current official DoD/USMC policy',

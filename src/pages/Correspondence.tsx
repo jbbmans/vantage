@@ -2,7 +2,7 @@ import { useEffect, useMemo, useRef, useState } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  Mail, MailPlus, Paperclip, Plug, Send, Upload, UserRound, ShieldAlert, Link2, ImageOff, Clock,
+  Mail, MailPlus, Paperclip, PenLine, Plug, Send, Upload, UserRound, ShieldAlert, Link2, ImageOff, Clock,
 } from 'lucide-react';
 import {
   Panel, Button, Input, Select, Textarea, Field, Badge, EmptyState, Skeleton, Tabs, type Tone,
@@ -12,11 +12,12 @@ import { useToast } from '@/components/ui/toast';
 import { DateText, PageShell, useParam } from '@/components/common';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import {
-  useIdentity, useContacts, useThreads, useThread, useConnectors, invalidateCorrespondence,
+  can, useIdentity, useContacts, useThreads, useThread, useConnectors, invalidateCorrespondence,
   correspondenceKeys, type ThreadSummary,
 } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { cn, todayIso } from '@/lib/utils';
+import { PERMISSIONS } from '../../shared/permissions';
 
 const STATES = ['draft', 'sent', 'awaiting_reply', 'response_received', 'ksd_received', 'resolved'] as const;
 type State = (typeof STATES)[number];
@@ -56,6 +57,7 @@ export default function Correspondence({ embedded }: { embedded?: boolean } = {}
   const [openId, setOpenId] = useParam('thread', '');
   const [composing, setComposing] = useState(false);
   const [contactOpen, setContactOpen] = useState(false);
+  const [editingContact, setEditingContact] = useState<Record<string, any> | null>(null);
 
   const params = useMemo(() => ({
     state: stateFilter || undefined,
@@ -129,7 +131,7 @@ export default function Correspondence({ embedded }: { embedded?: boolean } = {}
         </>
       )}
 
-      {tab === 'contacts' && <Contacts onNew={() => setContactOpen(true)} />}
+      {tab === 'contacts' && <Contacts onNew={() => setContactOpen(true)} onEdit={setEditingContact} />}
       {tab === 'mailboxes' && <Mailboxes />}
 
       <ComposeThread
@@ -141,11 +143,13 @@ export default function Correspondence({ embedded }: { embedded?: boolean } = {}
         onCreated={(id) => { invalidateCorrespondence(qc); setComposing(false); setOpenId(id); toast.success('Thread started.'); }}
       />
       <ContactDialog
-        open={contactOpen}
-        onOpenChange={setContactOpen}
+        key={editingContact ? String(editingContact.id) : 'new'}
+        open={contactOpen || Boolean(editingContact)}
+        onOpenChange={(o) => { if (!o) { setContactOpen(false); setEditingContact(null); } }}
+        contact={editingContact}
         units={identity?.unitIds || []}
         defaultUnit={primaryUnit}
-        onSaved={() => { qc.invalidateQueries({ queryKey: correspondenceKeys.contacts }); setContactOpen(false); toast.success('Contact saved.'); }}
+        onSaved={() => { qc.invalidateQueries({ queryKey: correspondenceKeys.contacts }); setContactOpen(false); setEditingContact(null); toast.success('Contact saved.'); }}
       />
       <ThreadDetail id={openId || null} onClose={() => setOpenId('')} />
     </PageShell>
@@ -238,11 +242,14 @@ function ComposeThread({ open, onOpenChange, contacts, units, defaultUnit, onCre
   );
 }
 
-function ContactDialog({ open, onOpenChange, units, defaultUnit, onSaved }: {
-  open: boolean; onOpenChange: (o: boolean) => void; units: string[]; defaultUnit: string; onSaved: () => void;
+/** A new contact, or, given one, a correction to it: people change jobs, numbers and addresses. */
+function ContactDialog({ open, onOpenChange, contact, units, defaultUnit, onSaved }: {
+  open: boolean; onOpenChange: (o: boolean) => void; contact?: Record<string, any> | null; units: string[]; defaultUnit: string; onSaved: () => void;
 }) {
   const toast = useToast();
-  const [d, setD] = useState({ ...emptyContact, unit_id: defaultUnit });
+  const [d, setD] = useState(() => (contact
+    ? Object.fromEntries(Object.keys(emptyContact).map((k) => [k, contact[k] ?? ''])) as typeof emptyContact
+    : { ...emptyContact, unit_id: defaultUnit }));
   const [busy, setBusy] = useState(false);
   const set = (k: keyof typeof emptyContact, v: string) => setD((prev) => ({ ...prev, [k]: v }));
 
@@ -250,7 +257,8 @@ function ContactDialog({ open, onOpenChange, units, defaultUnit, onSaved }: {
     if (!d.name.trim()) { toast.error('A contact needs a name.'); return; }
     setBusy(true);
     try {
-      await api.createContact({ ...d, unit_id: d.visibility === 'unit' ? (d.unit_id || defaultUnit) : null });
+      const body = { ...d, unit_id: d.visibility === 'unit' ? (d.unit_id || defaultUnit) : null };
+      if (contact) await api.updateContact(String(contact.id), body); else await api.createContact(body);
       setD({ ...emptyContact, unit_id: defaultUnit });
       onSaved();
     } catch (err) { toast.error(api.errorText(err)); }
@@ -261,7 +269,7 @@ function ContactDialog({ open, onOpenChange, units, defaultUnit, onSaved }: {
     <Dialog
       open={open}
       onOpenChange={onOpenChange}
-      title="New contact"
+      title={contact ? 'Edit contact' : 'New contact'}
       footer={<><Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button><Button variant="primary" loading={busy} onClick={save}>Save contact</Button></>}
     >
       <div className="space-y-3">
@@ -284,8 +292,11 @@ function ContactDialog({ open, onOpenChange, units, defaultUnit, onSaved }: {
   );
 }
 
-function Contacts({ onNew }: { onNew: () => void }) {
+function Contacts({ onNew, onEdit }: { onNew: () => void; onEdit: (contact: Record<string, any>) => void }) {
   const contacts = useContacts();
+  const { data: identity } = useIdentity();
+  // The same rule the server applies: the person who added it, or whoever manages records in its unit.
+  const editable = (c: Record<string, any>) => c.owner_id === identity?.user.id || (Boolean(c.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, c.unit_id));
   if (contacts.isPending) return <div className="space-y-2">{[0, 1].map((i) => <Skeleton key={i} className="h-14" />)}</div>;
   if (!contacts.data?.length) {
     return <div className="card"><EmptyState icon={UserRound} title="No contacts yet" description="The people you correspond with, so a thread has somebody on the other end." action={<Button variant="primary" onClick={onNew}><UserRound className="h-4 w-4" />New contact</Button>} /></div>;
@@ -294,7 +305,10 @@ function Contacts({ onNew }: { onNew: () => void }) {
     <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-3">
       {contacts.data.map((c) => (
         <div key={String(c.id)} className="card p-4">
-          <p className="text-md font-semibold text-ink">{String(c.name)}</p>
+          <div className="flex items-start justify-between gap-2">
+            <p className="text-md font-semibold text-ink">{String(c.name)}</p>
+            {editable(c) && <Button size="xs" variant="ghost" onClick={() => onEdit(c)} aria-label={`Edit ${String(c.name)}`}><PenLine className="h-3.5 w-3.5" /></Button>}
+          </div>
           {c.role || c.organization ? <p className="mt-0.5 text-xs text-ink-3">{[c.role, c.organization].filter(Boolean).join(' · ')}</p> : null}
           <div className="mt-2 space-y-0.5 text-xs text-ink-2">
             {c.email ? <p className="truncate">{String(c.email)}</p> : null}

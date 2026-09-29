@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { ingest, record, EVENTS } from '../services/telemetry.ts';
+import { ingest, record } from '../services/telemetry.ts';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
@@ -30,16 +30,6 @@ miscRouter.post('/events', wrap((req, res) => {
   const events = Array.isArray(req.body?.events) ? req.body.events : [];
   const result = ingest(req.ctx, { id: req.user.id, sessionId: req.sessionId ?? null }, events, 'client');
   res.status(202).json(result);
-}));
-
-miscRouter.get('/events/catalog', wrap((_req, res) => {
-  res.json({
-    events: Object.entries(EVENTS).map(([name, spec]) => ({
-      name, family: spec.family, serverOnly: Boolean(spec.serverOnly),
-      properties: Object.entries(spec.properties).map(([key, p]) => ({ key, kind: p.kind, values: p.values || null })),
-      times: spec.times || [],
-    })),
-  });
 }));
 
 const reportQuery = z.object({

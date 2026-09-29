@@ -220,4 +220,3 @@ export const metaGet = (db: Db, key: string): string | null =>
   (db.prepare('SELECT value FROM meta WHERE key = ?').get(key) as { value: string } | undefined)?.value ?? null;
 export const metaSet = (db: Db, key: string, value: string) =>
   db.prepare('INSERT INTO meta (key, value) VALUES (?, ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value').run(key, value);
-export const metaDelete = (db: Db, key: string) => db.prepare('DELETE FROM meta WHERE key = ?').run(key);

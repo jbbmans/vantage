@@ -19,4 +19,3 @@ export function MenuItem({ children, onSelect, danger, icon: Icon, disabled }: {
   );
 }
 export const MenuSeparator = () => <DropdownMenu.Separator className="-mx-1.5 my-1.5 h-px bg-line" />;
-export const MenuLabel = ({ children }: { children: React.ReactNode }) => <DropdownMenu.Label className="px-2.5 py-1 text-2xs font-semibold uppercase tracking-wider text-ink-3">{children}</DropdownMenu.Label>;

@@ -61,37 +61,3 @@ export function BarList({ items, format = (v) => String(v), colorFor, className,
     </ul>
   );
 }
-
-export function Donut({ segments, size = 120, thickness = 14, centerLabel, centerValue, className }: { segments: Array<{ label: string; value: number; color: string }>; size?: number; thickness?: number; centerLabel?: string; centerValue?: string; className?: string }) {
-  const total = segments.reduce((n, s) => n + s.value, 0) || 1;
-  const r = (size - thickness) / 2;
-  const c = 2 * Math.PI * r;
-  const live = segments.filter((s) => s.value > 0);
-  const offsets = live.reduce<number[]>((acc, s, i) => { acc.push(i === 0 ? 0 : acc[i - 1] + (live[i - 1].value / total) * c); return acc; }, []);
-  return (
-    <div className={cn('flex items-center gap-4', className)}>
-      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} role="img" aria-label={segments.map((s) => `${s.label} ${Math.round((s.value / total) * 100)}%`).join(', ')}>
-        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="rgb(var(--surface-3))" strokeWidth={thickness} />
-        {live.map((s, i) => {
-          const len = (s.value / total) * c;
-          return <circle key={s.label} cx={size / 2} cy={size / 2} r={r} fill="none" stroke={s.color} strokeWidth={thickness} strokeDasharray={`${len} ${c - len}`} strokeDashoffset={-offsets[i]} transform={`rotate(-90 ${size / 2} ${size / 2})`} />;
-        })}
-        {centerValue && <text x="50%" y="50%" textAnchor="middle" dominantBaseline="central" fontSize={size / 6} fontWeight="600" fill="rgb(var(--ink))">{centerValue}</text>}
-        {centerLabel && <text x="50%" y={size / 2 + size / 7} textAnchor="middle" fontSize={size / 12} fill="rgb(var(--ink-3))">{centerLabel}</text>}
-      </svg>
-      <ul className="min-w-0 space-y-1 text-xs">
-        {segments.map((s) => <li key={s.label} className="flex items-center gap-2 text-ink-2"><span className="badge-dot" style={{ backgroundColor: s.color }} /><span className="truncate">{s.label}</span><span className="fig ml-auto text-ink-3">{Math.round((s.value / total) * 100)}%</span></li>)}
-      </ul>
-    </div>
-  );
-}
-
-export function Sparkline({ values, className, height = 28, width = 90 }: { values: number[]; className?: string; height?: number; width?: number }) {
-  if (!values.length) return null;
-  const max = Math.max(1, ...values);
-  const x = (i: number) => (values.length > 1 ? (i / (values.length - 1)) * width : width / 2);
-  const y = (v: number) => height - 2 - (v / max) * (height - 4);
-  const d = values.map((v, i) => `${i ? 'L' : 'M'}${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(' ');
-  return <svg width={width} height={height} viewBox={`0 0 ${width} ${height}`} className={className} aria-hidden><path d={d} fill="none" stroke="rgb(var(--accent))" strokeWidth="1.8" strokeLinejoin="round" strokeLinecap="round" /></svg>;
-}
-

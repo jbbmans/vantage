@@ -8,11 +8,12 @@ import RecordDialog from '@/components/RecordDialog';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, StatusBadge, useParam, onText, Table, DescriptionList } from '@/components/common';
-import { useAwards, useCounselings, useDeleteRecord, useIdentity, usePrefs, useTrainings, invalidateRecords } from '@/lib/queries';
+import { can, useAwards, useCounselings, useDeleteRecord, useIdentity, usePrefs, useTrainings, invalidateRecords } from '@/lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import * as api from '@/lib/api';
 import { TRAINING_TYPES, TRAINING_STATUS, AWARD_TYPES, AWARD_STATUS, AWARD_NAMES, COUNSELING_TYPES } from '../../shared/constants';
 import { formatNumber } from '../../shared/metrics';
+import { PERMISSIONS } from '../../shared/permissions';
 import { humanize, todayIso, fullName } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/primitives';
 
@@ -106,7 +107,7 @@ export default function Career() {
   useEffect(() => { if (openId && counselings) { const c = counselings.find((x: any) => x.id === openId); if (c) { setView({ kind: 'counseling', row: c }); setTab('counseling'); } } }, [openId, counselings, setTab]);
 
   const hours = useMemo(() => (trainings || []).reduce((n: number, t: any) => n + (Number(t.hours) || 0), 0), [trainings]);
-  const canEditRow = (r: any) => r.user_id === me ? !r.frozen_at : Boolean(r.unit_id && identity && ((identity.permissions[r.unit_id] || 0) & ((1 << 12) | (1 << 3))));
+  const canEditRow = (r: any) => r.user_id === me ? !r.frozen_at : can(identity, PERMISSIONS.MANAGE_RECORDS, r.unit_id);
   const acknowledge = async (c: any) => { try { await api.acknowledgeCounseling(c.id); invalidateRecords(qc, 'counselings'); toast.success('Acknowledged.'); setView(null); } catch (e) { toast.error(api.errorText(e)); } };
 
   if (tab === 'messages') return <Navigate to="/maradmins" replace />;

@@ -176,7 +176,6 @@ export const listReportDrafts = () => api.get('/studio/reports');
 export const createReportDraft = (body: Record<string, unknown>) => api.post('/studio/reports', body);
 export const reportDraft = (id: string) => api.get(`/studio/reports/${encodeURIComponent(id)}`);
 export const saveReportRevision = (id: string, body: Record<string, unknown>) => api.post(`/studio/reports/${encodeURIComponent(id)}/revisions`, body);
-export const reportRevision = (id: string, revision: number) => api.get(`/studio/reports/${encodeURIComponent(id)}/revisions/${revision}`);
 export const reportRevisionExportUrl = (id: string, revision: number) => `/api/studio/reports/${encodeURIComponent(id)}/revisions/${revision}/export.txt`;
 
 export const uploadSource = (file: File, opts: { unitId: string | null; visibility: 'private' | 'unit' }) =>
@@ -188,11 +187,9 @@ export const uploadSource = (file: File, opts: { unitId: string | null; visibili
       'x-visibility': opts.visibility,
     },
   });
-export const listSources = () => api.get('/work/sources');
 export const inspectSource = (id: string) => api.get(`/work/sources/${encodeURIComponent(id)}`);
 export const previewImport = (plan: unknown) => api.post('/work/imports/preview', plan);
 export const runImport = (plan: unknown, idempotencyKey: string) => request('POST', '/work/imports', plan, { headers: { 'idempotency-key': idempotencyKey } });
-export const listImports = () => api.get('/work/imports');
 export const listWorkItems = (params: Record<string, string | number | undefined | null>) => api.get(`/work/items?${qs(params)}`);
 export const workItem = (id: string) => api.get(`/work/items/${encodeURIComponent(id)}`);
 export const claimWorkItem = (id: string, version: number) => api.post(`/work/items/${encodeURIComponent(id)}/claim`, { version });
@@ -229,7 +226,6 @@ export const adminSyncMaradmins = () => api.post('/admin/maradmins/sync');
 export const adminEmailTest = (to?: string) => api.post('/admin/email/test', { to });
 export const adminEmail = () => api.get('/admin/email');
 export const adminEmailCheck = () => api.post('/admin/email/check', {});
-export const adminDigestRun = () => api.post('/admin/digest/run');
 export const adminUsers = () => api.get('/admin/users');
 export const adminSignInAudience = () => api.get('/admin/accounts/sign-in-details');
 export const adminSendSignInDetails = (userIds: string[]) => api.post('/admin/accounts/sign-in-details', { userIds });
@@ -240,7 +236,6 @@ export const adminAudit = (limit = 200) => api.get(`/admin/audit?limit=${limit}`
 // Authoritative personnel
 export const adminPersonnel = () => api.get('/admin/personnel');
 export const adminPersonnelDivergence = () => api.get('/admin/personnel/divergence');
-export const adminPersonnelRuns = () => api.get('/admin/personnel/runs');
 export const adminPersonnelSync = (text: string, source: string, opts: { apply?: boolean; confirmSeparations?: boolean } = {}) =>
   request<any>('POST', `/admin/personnel/sync?source=${encodeURIComponent(source)}${opts.apply ? '&apply=1' : ''}${opts.confirmSeparations ? '&confirm_separations=1' : ''}`,
     new Blob([text], { type: 'text/plain' }), { headers: { 'content-type': 'text/plain' } });
@@ -305,9 +300,7 @@ export const syncConnector = (id: string, body: Record<string, unknown> = {}) =>
 /** Fire-and-forget. keepalive lets a batch finish after the page is gone. */
 export const sendEvents = (events: unknown[], keepalive = false) =>
   request('POST', '/events', { events }, keepalive ? { keepalive: true } : {});
-export const eventCatalog = () => api.get('/events/catalog');
 export const adminUsage = (params: Record<string, string | number | undefined | null>) => api.get(`/admin/usage?${qs(params)}`);
-export const adminPruneEvents = (olderThanDays: number) => api.post('/admin/usage/prune', { older_than_days: olderThanDays });
 
 const itemPath = (id: string) => `/work/items/${encodeURIComponent(id)}`;
 export const recordEntry = (id: string, body: Record<string, unknown>, idempotencyKey: string) =>
@@ -317,7 +310,6 @@ export const handOffWork = (id: string, body: Record<string, unknown>) => api.po
 export const calculateCase = (id: string, step?: string | null) => api.post(`${itemPath(id)}/calculate`, step ? { step } : {});
 export const applyProcedure = (id: string, key: string) => api.post(`${itemPath(id)}/procedure`, { key });
 export const procedureSuggestion = (id: string) => api.get(`${itemPath(id)}/suggestion`);
-export const listProcedures = () => api.get('/work/procedures');
 export const workload = (unitId: string, params: Record<string, string | undefined> = {}) => api.get(`/work/workload?${qs({ unit_id: unitId, ...params })}`);
 
 export const recordPractice = () => api.get('/record/practice');

@@ -1,7 +1,7 @@
 import React, { useCallback } from 'react';
 import { useSearchParams } from 'react-router-dom';
 import { Badge, PageHeader, Select, type Tone } from '@/components/ui/primitives';
-import { PERIOD_OPTIONS, formatDate, formatDollars, formatNumber } from '../../shared/metrics';
+import { PERIOD_OPTIONS, formatDate, formatDollars } from '../../shared/metrics';
 import { categoryColor } from '../../shared/constants';
 import { useMetrics } from '@/lib/queries';
 import { humanize } from '@/lib/utils';
@@ -14,7 +14,6 @@ export const StatusBadge = ({ value, className }: { value?: string | null; class
 
 export const DateText = ({ value, pattern, fallback = 'No date' }: { value?: string | null; pattern?: string; fallback?: string }) => <span className="fig">{value ? formatDate(value, pattern) : <span className="text-ink-3">{fallback}</span>}</span>;
 export const Money = ({ value }: { value?: number | null }) => <span className="fig">{value == null ? '' : formatDollars(value)}</span>;
-export const Num = ({ value }: { value?: number | null }) => <span className="fig">{value == null ? '' : formatNumber(value)}</span>;
 export const CategoryDot = ({ category }: { category?: string | null }) => { const cfg = useMetrics(); return <span className="badge-dot" style={{ backgroundColor: categoryColor(category, cfg) }} aria-hidden />; };
 
 export function PeriodSelect({ value, onChange, className, includeAll = true }: { value: string; onChange: (v: string) => void; className?: string; includeAll?: boolean }) {
@@ -65,5 +64,4 @@ export function DescriptionList({ items }: { items: Array<[string, React.ReactNo
   );
 }
 
-export const toNum = (v: unknown): number | null => { if (v == null || v === '') return null; const n = Number(String(v).replace(/[$,\s]/g, '')); return Number.isFinite(n) ? n : null; };
 export const onText = (set: (k: any, v: unknown) => void, k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => set(k, e.target.value);

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Users, UserPlus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send } from 'lucide-react';
+import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -14,13 +14,12 @@ import * as api from '@/lib/api';
 import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATE, listPermissions } from '../../shared/permissions';
 import { ECHELONS, categoryColor } from '../../shared/constants';
 import { formatDollars } from '../../shared/metrics';
-import { copyToClipboard, cn, humanize, fullName } from '@/lib/utils';
-
-const TeamWorkload = lazy(() => import('./TeamWorkload'));
-import { downloadText, lastDays } from '@/lib/utils';
+import { copyToClipboard, cn, downloadText, fullName, humanize, lastDays } from '@/lib/utils';
 import { useView, subtreeOf, viewLabel } from '@/lib/view';
 import { UnitOverviewPanel } from '@/components/UnitOverview';
 import { markTeamSeen } from '@/components/GettingStarted';
+
+const TeamWorkload = lazy(() => import('./TeamWorkload'));
 
 export default function Team() {
   const { data: identity } = useIdentity();
@@ -80,7 +79,31 @@ function Roster({ team, unit, subtree, unitLabel, canManage, moveTargets }: { te
   const [q, setQ] = useState('');
   const [enroll, setEnroll] = useState(false);
   const [moving, setMoving] = useState<{ person: any; from: string } | null>(null);
+  const [removing, setRemoving] = useState<{ person: any; unit: string } | null>(null);
+  const [billet, setBillet] = useState<{ person: any; unit: string; value: string } | null>(null);
   const { data: identity } = useIdentity();
+  const toast = useToast(); const qc = useQueryClient();
+  const manages = (unitId: string) => moveTargets.some((t) => t.id === unitId);
+  const nameOf = (p: any) => `${p.rank_abbr || ''} ${p.last_name}`.trim();
+  const refresh = () => { qc.invalidateQueries({ queryKey: keys.team }); qc.invalidateQueries({ queryKey: ['unit-overview'] }); };
+  const remove = async () => {
+    if (!removing) return;
+    try {
+      const r = await api.removeMember(removing.unit, removing.person.id);
+      const parts = [r.recordsFrozen && `${r.recordsFrozen} shared ${r.recordsFrozen === 1 ? 'record is' : 'records are'} now read-only`, r.claimsReleased && `${r.claimsReleased} held ${r.claimsReleased === 1 ? 'item is' : 'items are'} back in the queue`].filter(Boolean);
+      toast.success(`${nameOf(removing.person)} left ${unitLabel(removing.unit)}.${parts.length ? ` ${parts.join('; ')}.` : ''}`);
+      refresh();
+    } catch (e) { toast.error(api.errorText(e)); }
+    finally { setRemoving(null); }
+  };
+  const saveBillet = async () => {
+    if (!billet) return;
+    try {
+      await api.updateMembership(billet.unit, billet.person.id, { billet: billet.value.trim() || null });
+      toast.success(`Billet saved for ${nameOf(billet.person)}.`);
+      refresh(); setBillet(null);
+    } catch (e) { toast.error(api.errorText(e)); }
+  };
   const rollup = subtree.length > 1;
   const roster: any[] = useMemo(() => (team?.roster || []).filter((p: any) => (!unit || p.memberships.some((m: any) => subtree.includes(m.unit_id))) && (!q.trim() || `${p.first_name} ${p.last_name} ${p.mos || ''} ${p.rank_abbr || ''}`.toLowerCase().includes(q.trim().toLowerCase()))), [team, unit, subtree, q]);
   const teamOf = (p: any) => (p.memberships.find((m: any) => m.unit_id !== unit && subtree.includes(m.unit_id)) || p.memberships.find((m: any) => m.unit_id === unit) || p.memberships[0]);
@@ -99,7 +122,11 @@ function Roster({ team, unit, subtree, unitLabel, canManage, moveTargets }: { te
                 {rollup && <td className="text-xs text-ink-2">{m ? unitLabel(m.unit_id) : ''}</td>}
                 <td className="fig text-xs">{p.mos || ''}</td><td className="text-xs text-ink-2">{m?.billet || ''}</td>
                 <td><span className="flex flex-wrap gap-1">{p.roles.filter((r: any) => r.unit_id === (m?.unit_id || unit)).map((r: any) => <RoleBadge key={r.id} color={r.color}>{r.name}</RoleBadge>)}</span></td>
-                <td className="text-right"><span className="inline-flex items-center gap-1">{m && p.id !== identity?.user.id && moveTargets.some((t) => t.id === m.unit_id) && moveTargets.some((t) => t.id !== m.unit_id && !p.memberships.some((x: any) => x.unit_id === t.id)) && <Button size="xs" variant="ghost" onClick={() => setMoving({ person: p, from: m.unit_id })} aria-label={`Move ${p.last_name} to another team`}><ArrowRightLeft className="h-3.5 w-3.5" /></Button>}{p.canOpen ? <Button size="xs" asChild><Link to={`/team/${p.id}`}>Open</Link></Button> : <span className="text-2xs text-ink-3">roster only</span>}</span></td>
+                <td className="text-right"><span className="inline-flex items-center gap-1">{m && p.id !== identity?.user.id && manages(m.unit_id) && <>
+                  <Button size="xs" variant="ghost" onClick={() => setBillet({ person: p, unit: m.unit_id, value: m.billet || '' })} aria-label={`Change ${p.last_name}’s billet`}><PenLine className="h-3.5 w-3.5" /></Button>
+                  {moveTargets.some((t) => t.id !== m.unit_id && !p.memberships.some((x: any) => x.unit_id === t.id)) && <Button size="xs" variant="ghost" onClick={() => setMoving({ person: p, from: m.unit_id })} aria-label={`Move ${p.last_name} to another team`}><ArrowRightLeft className="h-3.5 w-3.5" /></Button>}
+                  <Button size="xs" variant="ghost" onClick={() => setRemoving({ person: p, unit: m.unit_id })} aria-label={`Remove ${p.last_name} from ${unitLabel(m.unit_id)}`}><UserMinus className="h-3.5 w-3.5" /></Button>
+                </>}{p.canOpen ? <Button size="xs" asChild><Link to={`/team/${p.id}`}>Open</Link></Button> : <span className="text-2xs text-ink-3">roster only</span>}</span></td>
               </tr>
             ); })}
           </Table>
@@ -107,6 +134,16 @@ function Roster({ team, unit, subtree, unitLabel, canManage, moveTargets }: { te
       )}
       <EnrollDialog open={enroll} onOpenChange={setEnroll} unitId={unit} unitLabel={unitLabel(unit)} />
       <MoveDialog move={moving} onClose={() => setMoving(null)} targets={moveTargets} unitLabel={unitLabel} />
+      <ConfirmDialog
+        open={Boolean(removing)} onOpenChange={(o) => { if (!o) setRemoving(null); }}
+        title={removing ? `Remove ${nameOf(removing.person)} from ${unitLabel(removing.unit)}?` : ''} confirmLabel="Remove"
+        body="Their account, private entries and history stay with them. What they shared with this unit becomes read-only, work they were holding here goes back to the queue, their roles here end, and they are signed out everywhere. To keep them in the command, move them instead."
+        onConfirm={remove}
+      />
+      <Dialog open={Boolean(billet)} onOpenChange={(o) => { if (!o) setBillet(null); }} title={billet ? `${nameOf(billet.person)}’s billet` : ''} description={billet ? `In ${unitLabel(billet.unit)}. Leave it empty to clear it.` : ''} size="sm"
+        footer={<><Button variant="ghost" onClick={() => setBillet(null)}>Cancel</Button><Button variant="primary" onClick={saveBillet}>Save</Button></>}>
+        <Field label="Billet"><Input autoFocus maxLength={80} value={billet?.value ?? ''} onChange={(e) => setBillet((b) => (b ? { ...b, value: e.target.value } : b))} placeholder="Budget analyst" /></Field>
+      </Dialog>
     </>
   );
 }
