@@ -7,7 +7,7 @@
 #
 # The application routes below are different: they render the same shell on every path and have no
 # content worth a crawl, so they stay disallowed to save crawl budget. They are additionally served
-# noindex once the client boots.
+# noindex, in the page and in an X-Robots-Tag header. Rules match by prefix: /record covers /records.
 User-agent: *
 Allow: /
 Allow: /login
@@ -15,17 +15,24 @@ Allow: /register
 Allow: /reset
 Allow: /invite
 
-Disallow: /records
-Disallow: /work
-Disallow: /goals
-Disallow: /career
-Disallow: /maradmins
-Disallow: /readiness
-Disallow: /reports
-Disallow: /team
-Disallow: /settings
-Disallow: /operator
-Disallow: /help
 Disallow: /api/
+Disallow: /activities
+Disallow: /assist
+Disallow: /career
+Disallow: /correspondence
+Disallow: /goals
+Disallow: /help
+Disallow: /maradmins
+Disallow: /operator
+Disallow: /queue
+Disallow: /readiness
+Disallow: /record
+Disallow: /reference
+Disallow: /reports
+Disallow: /settings
+Disallow: /setup
+Disallow: /studio
+Disallow: /team
+Disallow: /work
 
 Sitemap: https://vantageusmc.com/sitemap.xml

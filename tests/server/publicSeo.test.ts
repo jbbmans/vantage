@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { PROJECT_ROOT } from '../../server/config.ts';
+import { PROJECT_ROOT, loadConfig } from '../../server/config.ts';
+import { announcePublicPage, indexNowKey } from '../../server/services/indexNow.ts';
 import { startApp } from './helpers.ts';
 import { MARK_PATHS } from '../../shared/brand.ts';
 
@@ -91,4 +92,71 @@ test('the tab icon is the logo: every declared icon exists, is versioned by cont
     assert.equal(readFileSync(join(PROJECT_ROOT, 'public/apple-touch-icon.png'))[25], 2, 'the home-screen icon must be opaque');
     for (const gone of ['/vantage-favicon.svg', '/app-icon.svg', '/favicon-16.png']) assert.equal((await app.call('GET', gone)).status, 404, gone);
   } finally { await app.close(); }
+});
+
+test('search engines can verify ownership and are told once when the public page changes', async () => {
+  const app = await startApp({
+    VANTAGE_PUBLIC_URL: 'https://vantage.example.test', VANTAGE_INDEXNOW: 'true', VANTAGE_INDEXNOW_URL: 'https://indexnow.example.test/indexnow',
+    VANTAGE_GOOGLE_SITE_VERIFICATION: 'google-token_123', VANTAGE_BING_SITE_VERIFICATION: 'BING0123456789ABCDEF',
+  });
+  try {
+    const page = await app.call('GET', '/display');
+    assert.match(page.text, /<meta name="google-site-verification" content="google-token_123" \/>/);
+    assert.match(page.text, /<meta name="msvalidate.01" content="BING0123456789ABCDEF" \/>/);
+
+    const key = indexNowKey(app.ctx);
+    const served = await app.call('GET', `/${key}.txt`);
+    assert.equal(served.status, 200);
+    assert.equal(served.text, key, 'the engines confirm a submission by fetching the key from the site');
+
+    const sent: Array<{ url: string; body: any }> = [];
+    const fetcher = (async (url: string, init: RequestInit) => { sent.push({ url, body: JSON.parse(String(init.body)) }); return new Response(null, { status: 202 }); }) as unknown as typeof fetch;
+    const html = readFileSync(join(PROJECT_ROOT, 'dist/public.html'), 'utf8');
+    assert.equal(await announcePublicPage(app.ctx, html, fetcher), 'sent');
+    assert.deepEqual(sent[0].body, { host: 'vantage.example.test', key, keyLocation: `https://vantage.example.test/${key}.txt`, urlList: ['https://vantage.example.test/'] });
+    assert.equal(await announcePublicPage(app.ctx, html.replace(/\/assets\/public-[^"]+/, '/assets/public-renamed.js'), fetcher), 'unchanged', 'a rebuild that only renames scripts is not news');
+    assert.equal(await announcePublicPage(app.ctx, html.replace('A clearer picture', 'A sharper picture'), fetcher), 'sent');
+    assert.equal(sent.length, 2);
+  } finally { await app.close(); }
+
+  const plain = await startApp();
+  try {
+    assert.equal(await announcePublicPage(plain.ctx, '<html></html>'), 'off', 'off unless the deployment turns it on');
+    assert.doesNotMatch((await plain.call('GET', '/display')).text, /site-verification|msvalidate/);
+  } finally { await plain.close(); }
+  assert.throws(() => loadConfig({ VANTAGE_GOOGLE_SITE_VERIFICATION: '"><script>' } as NodeJS.ProcessEnv), /VANTAGE_GOOGLE_SITE_VERIFICATION/);
+});
+
+test('the public page tells every engine one consistent story, in its head, its structured data and its sitemap', async () => {
+  const { SITE, FAQS } = await import('../../src/config/site.ts');
+  const html = readFileSync(join(PROJECT_ROOT, 'dist/public.html'), 'utf8');
+  const unescape = (s: string) => s.replace(/&amp;/g, '&').replace(/&quot;/g, '"');
+  const head = (pattern: RegExp) => unescape(html.match(pattern)?.[1] ?? '');
+  assert.equal(head(/<title>([^<]+)<\/title>/), SITE.title, 'public.html and src/config/site.ts disagree on the title');
+  assert.ok(SITE.title.length <= 60, 'results truncate titles past about 60 characters');
+  assert.ok(SITE.description.length >= 70 && SITE.description.length <= 160, `description is ${SITE.description.length} characters`);
+  for (const pattern of [/<meta name="description" content="([^"]+)"/, /<meta property="og:description" content="([^"]+)"/, /<meta name="twitter:description" content="([^"]+)"/]) {
+    assert.equal(head(pattern), SITE.description, `${pattern} disagrees with src/config/site.ts`);
+  }
+  for (const pattern of [/<meta property="og:title" content="([^"]+)"/, /<meta name="twitter:title" content="([^"]+)"/]) assert.equal(head(pattern), SITE.title);
+
+  const blocks = [...html.matchAll(/<script type="application\/ld\+json">([\s\S]*?)<\/script>/g)].map((m) => JSON.parse(m[1]));
+  assert.equal(blocks.length, 1, 'one linked graph, not several blocks describing the same things differently');
+  const graph = blocks[0]['@graph'] as Array<Record<string, any>>;
+  const of = (type: string) => graph.filter((n) => n['@type'] === type);
+  assert.equal(of('Organization')[0].logo.width, 512);
+  assert.equal(of('WebSite')[0].publisher['@id'], of('Organization')[0]['@id']);
+  assert.equal(of('FAQPage')[0].mainEntity.length, FAQS.length);
+  const videos = of('VideoObject');
+  assert.ok(videos.length > 0, 'the films are described for video search');
+  for (const v of videos) {
+    assert.ok(v.name && v.description && v.thumbnailUrl && v.contentUrl && v.uploadDate, `${v.name} is missing a field video results require`);
+    assert.match(v.duration, /^PT\d+M\d+S$/);
+  }
+
+  const sitemap = readFileSync(join(PROJECT_ROOT, 'dist/sitemap.xml'), 'utf8');
+  assert.equal([...sitemap.matchAll(/<loc>/g)].length, 1, 'only the canonical page belongs in the sitemap');
+  assert.match(sitemap, new RegExp(`<lastmod>${SITE.updated}</lastmod>`));
+  assert.equal([...sitemap.matchAll(/<video:video>/g)].length, videos.length);
+  assert.doesNotMatch(sitemap.replace(/&(amp|lt|gt|quot|apos);/g, ''), /&/, 'every & in the sitemap is escaped');
 });

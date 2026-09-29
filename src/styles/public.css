@@ -1,0 +1,27 @@
+/* What the public page needs beneath its own PublicSite.css: the brand face, Tailwind's reset, and the
+   few base rules it inherits from the application's body (type size, heading weight, focus ring). The
+   application's stylesheet is not loaded here, so a visitor to the landing page downloads none of it.
+   All of it sits in a cascade layer, which unlayered rules always outrank, so it stays beneath the page's
+   own styles whatever order the build emits the two files in. */
+@font-face { font-family: 'Geist'; src: url('/fonts/geist-normal.woff2') format('woff2'); font-weight: 100 900; font-display: swap; }
+
+@layer reset {
+  @tailwind base;
+
+  button, a, [role='button'], input, label { touch-action: manipulation; -webkit-tap-highlight-color: transparent; }
+  html { -webkit-text-size-adjust: 100%; scroll-behavior: smooth; }
+  body {
+    background: rgb(239 249 253); color: rgb(0 31 41);
+    font-family: Geist, Inter, ui-sans-serif, system-ui, -apple-system, 'Segoe UI', Roboto, 'Helvetica Neue', sans-serif;
+    font-size: 13px; line-height: 20px;
+    -webkit-font-smoothing: antialiased; -moz-osx-font-smoothing: grayscale;
+    font-feature-settings: 'ss01' 1, 'cv11' 1;
+    text-rendering: optimizeLegibility;
+    min-width: 320px;
+    overscroll-behavior-y: none;
+  }
+  h1, h2, h3, h4 { font-weight: 600; color: rgb(10 27 51); letter-spacing: -0.018em; text-wrap: balance; }
+  p { text-wrap: pretty; }
+  :focus-visible { outline: 2px solid transparent; outline-offset: 2px; box-shadow: 0 0 0 2px #fff, 0 0 0 4px rgb(3 105 161 / 0.6); }
+  ::selection { background: rgb(3 105 161 / 0.16); }
+}

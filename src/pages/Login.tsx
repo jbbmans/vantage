@@ -25,7 +25,6 @@ import { passwordProblem, passwordStrength, MIN_PASSWORD_LENGTH } from '../../sh
 import { applyTheme, resolveTheme, storedTheme } from '@/lib/theme';
 import { VERSION } from '@/lib/version';
 import { cn } from '@/lib/utils';
-import { applySeo, clearPublicStructuredData } from '@/lib/seo';
 
 type Mode = 'login' | 'mfa' | 'setup' | 'register' | 'forgot' | 'reset' | 'invite';
 
@@ -99,13 +98,8 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
   };
 
   useEffect(() => {
-    applySeo({
-      title: 'Sign in | Vantage',
-      description: 'Sign in to your Vantage deployment.',
-      canonicalPath: '/login',
-      indexable: false,
-    });
-    clearPublicStructuredData();
+    // The shell this renders in is already kept out of search results; only the tab needs naming.
+    document.title = 'Sign in | Vantage';
 
     api.setupStatus().then((s: Status) => {
       setStatus(s);

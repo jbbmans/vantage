@@ -37,6 +37,7 @@ import { purgeDeleted } from './services/records.ts';
 import { releaseStaleClaims } from './services/work.ts';
 import { sealBacklog, anchorCaseHeads } from './services/caseSeal.ts';
 import { loadRuntime } from './runtime.ts';
+import { announcePublicPage, indexNowKey } from './services/indexNow.ts';
 export { loadRuntime };
 
 export function createContext(config: AppConfig): AppContext {
@@ -65,6 +66,14 @@ export function createContext(config: AppConfig): AppContext {
     if (sealed) console.log(`Sealed ${sealed} existing case-history entries.`);
   }
   return ctx;
+}
+
+/** The ownership tags Google Search Console and Bing Webmaster Tools look for on the home page. */
+function siteVerification({ googleVerification, bingVerification }: AppConfig['search']): string {
+  return [
+    googleVerification && `<meta name="google-site-verification" content="${googleVerification}" />`,
+    bingVerification && `<meta name="msvalidate.01" content="${bingVerification}" />`,
+  ].filter(Boolean).join('\n    ');
 }
 
 /** The brand images other sites legitimately embed: link previews, search results, bookmarks, email. */
@@ -111,6 +120,11 @@ export function createApp(ctx: AppContext) {
     if (config.production) res.setHeader('Strict-Transport-Security', 'max-age=63072000; includeSubDomains; preload');
     next();
   });
+
+  if (config.search.indexNow) {
+    const key = indexNowKey(ctx);
+    app.get(`/${key}.txt`, (_req, res) => res.type('text/plain').send(key));
+  }
 
   app.get('/api/health', (req, res) => {
     try {
@@ -181,11 +195,10 @@ export function createApp(ctx: AppContext) {
     const publicRoutes = new Set(['/', '/display', '/about']);
     const appRoute = /^\/(?:login|register|reset|invite|setup|work|record|goals|career|reference|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
     const recordRoute = /^\/(?:records|activities|team)(?:\/[^/]+){0,2}\/?$|^\/work\/items\/[^/]+\/?$/;
-    const indexHtml = readFileSync(join(distDir, 'index.html'), 'utf8');
-    const shell = indexHtml
-      .replace(/<meta name="robots"[^>]*>/, '<meta name="robots" content="noindex, nofollow" />')
-      .replace(/<link rel="canonical"[^>]*>/, '')
-      .replace(/<script[^>]*type="application\/ld\+json"[^>]*>[\s\S]*?<\/script>/g, '');
+    // The application shell is noindex in its source; the public page is its own document, public.html.
+    const shell = readFileSync(join(distDir, 'index.html'), 'utf8');
+    const publicFile = join(distDir, 'public.html');
+    const publicPage = existsSync(publicFile) ? readFileSync(publicFile, 'utf8').replace('<!--site-verification-->', siteVerification(config.search)) : null;
     app.use((req, res, next) => {
       if (req.path === '/index.html' || req.path === '/public.html') {
         res.setHeader('X-Robots-Tag', 'noindex, nofollow');
@@ -197,12 +210,12 @@ export function createApp(ctx: AppContext) {
       const req = (res as unknown as { req: Request }).req;
       if (path.endsWith('sw.js')) { res.setHeader('Cache-Control', 'no-cache'); res.setHeader('CDN-Cache-Control', 'no-store'); }
       else if (req.path.startsWith('/videos/')) res.setHeader('Cache-Control', req.query.v ? 'public, max-age=31536000, immutable' : 'public, max-age=86400');
+      // Icons, the manifest and the social card are addressed by content hash, so a versioned URL never changes.
+      else if (req.query.v) res.setHeader('Cache-Control', 'public, max-age=31536000, immutable');
       else if (req.path.startsWith('/fonts/')) res.setHeader('Cache-Control', 'public, max-age=2592000, stale-while-revalidate=86400');
       else if (req.path.startsWith('/brand/')) res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
     } }));
 
-    const prerendered = join(distDir, 'public.html');
-    const hasPrerender = existsSync(prerendered);
     // Once somebody has an account the instance never goes back to first-time setup, so the answer is kept.
     let setUp = false;
     const instanceSetUp = () => (setUp ||= Boolean(ctx.db.prepare('SELECT 1 FROM users LIMIT 1').get()));
@@ -212,12 +225,11 @@ export function createApp(ctx: AppContext) {
       res.vary('Cookie');
       const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
       // /display and /about are the public page for everybody. / is the public page only for a signed-out visitor
-      // to a set-up instance with accounts: setup and the demo render something else there, and the client trusts
-      // a prerendered page enough to show it without asking the API first.
-      const publicPage = req.path === '/'
+      // to a set-up instance with accounts; first-time setup and the demo are the application's to render.
+      const servePublic = req.path === '/'
         ? !signedIn && config.accessMode === 'accounts' && instanceSetUp()
         : publicRoutes.has(req.path);
-      if (publicPage && hasPrerender) return res.sendFile(prerendered);
+      if (servePublic && publicPage) return res.type('html').send(publicPage);
       res.setHeader('X-Robots-Tag', 'noindex, nofollow');
       if (!publicRoutes.has(req.path) && !appRoute.test(req.path) && !recordRoute.test(req.path)) {
         return res.status(404).type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Page not found | VANTAGE</title></head><body><main><h1>Page not found</h1><p>This address does not exist.</p><a href="/">Return to VANTAGE</a></main></body></html>`);
@@ -242,6 +254,17 @@ export function startSchedulers(ctx: AppContext) {
     const run = () => syncMaradmins(ctx).catch((e: Error) => console.warn(`MARADMIN refresh skipped: ${e.message}`));
     const first = setTimeout(run, 3_000); first.unref?.(); timers.push(first);
     every(5 * 60_000, run);
+  }
+  if (ctx.config.search.indexNow && !ctx.config.test) {
+    // Wait until this release is the one serving traffic, so the engines fetch the new page, not the old one.
+    const announce = setTimeout(() => {
+      const page = join(PROJECT_ROOT, 'dist', 'public.html');
+      if (!existsSync(page)) return;
+      announcePublicPage(ctx, readFileSync(page, 'utf8'))
+        .then((result) => { if (result !== 'unchanged') console.log(`${now()} IndexNow: ${result}`); })
+        .catch((e: Error) => console.warn(`IndexNow announcement failed: ${e.message}`));
+    }, 5 * 60_000);
+    announce.unref?.(); timers.push(announce);
   }
   every(60_000, () => { ctx.mailer.retryQueued().then((r) => { if (r.sent || r.failed) console.log(`${now()} mail retry: ${r.sent} delivered, ${r.failed} given up, ${r.waiting} waiting`); }).catch((e: Error) => console.warn(`Mail retry failed: ${e.message}`)); });
   if (!ctx.config.test) {

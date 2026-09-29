@@ -2,9 +2,6 @@ import React, { Suspense, lazy, useEffect, useReducer, useState } from 'react';
 import { BrowserRouter, Navigate, Route, Routes, useLocation, useNavigate } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import AppShell from '@/components/AppShell';
-import Login from '@/pages/Login';
-import PublicSite from '@/pages/PublicSite';
-import ForcePasswordChange from '@/pages/ForcePasswordChange';
 import Dashboard from '@/pages/Dashboard';
 import { ToastProvider } from '@/components/ui/toast';
 import { TooltipProvider, Skeleton, EmptyState, Button } from '@/components/ui/primitives';
@@ -14,6 +11,10 @@ import { applyAccent, applyDensity, applyTheme, storedTheme } from '@/lib/theme'
 import AppLoader from '@/components/AppLoader';
 import { NAV_REDIRECTS } from '@/config/nav';
 
+// Signed-out and one-off screens load on demand; a visitor to the public page gets public.html instead.
+const Login = lazy(() => import('@/pages/Login'));
+const PublicSite = lazy(() => import('@/pages/PublicSite'));
+const ForcePasswordChange = lazy(() => import('@/pages/ForcePasswordChange'));
 const RecordHub = lazy(() => import('@/pages/RecordHub'));
 const WorkItemPage = lazy(() => import('@/pages/WorkItemPage'));
 const RecordDetail = lazy(() => import('@/pages/RecordDetail'));
@@ -34,6 +35,8 @@ function Fallback() {
   return <div className="page space-y-3"><Skeleton className="h-8 w-56" /><Skeleton className="h-40" /><Skeleton className="h-64" /></div>;
 }
 const D = ({ children }: { children: React.ReactNode }) => <Suspense fallback={<Fallback />}>{children}</Suspense>;
+/** For whole-screen pages outside the shell, which have no skeleton of their own to show. */
+const Screen = ({ children }: { children: React.ReactNode }) => <Suspense fallback={<AppLoader />}>{children}</Suspense>;
 
 function NotFound() {
   const navigate = useNavigate();
@@ -55,21 +58,16 @@ const PUBLIC_ROUTES = ['/display', '/about'];
 const isPublicRoute = (pathname: string) => PUBLIC_ROUTES.includes(pathname);
 
 /**
- * The server prerenders the public page into #root only for a signed-out visitor to a set-up instance
- * running accounts. Finding it there already answers what the loader would ask the API, so the page
- * stays on screen instead of giving way to a spinner and coming back. Read before React replaces it.
+ * The server answers / with public.html for a signed-out visitor to a set-up instance, so the app only
+ * reaches here for first-time setup or a session that turned out to have expired.
  */
-const PRERENDERED_HOME = typeof document !== 'undefined' && window.location.pathname === '/' && Boolean(document.getElementById('root')?.firstElementChild);
-
 function SignedOutHome({ serverError, onRetry }: { serverError: string | null; onRetry: () => void }) {
-  const [state, setState] = useState<'loading' | 'setup' | 'public'>(PRERENDERED_HOME ? 'public' : 'loading');
+  const [state, setState] = useState<'loading' | 'setup' | 'public'>('loading');
   useEffect(() => {
-    if (PRERENDERED_HOME) return;
     setupStatus().then((status) => setState(status.needsSetup ? 'setup' : 'public')).catch(() => setState('public'));
   }, []);
   if (state === 'loading') return <AppLoader />;
-  if (state === 'setup') return <Login serverError={serverError} onRetry={onRetry} />;
-  return <PublicSite />;
+  return <Screen>{state === 'setup' ? <Login serverError={serverError} onRetry={onRetry} /> : <PublicSite />}</Screen>;
 }
 
 let demoStarting: { attempt: number; promise: Promise<unknown> } | null = null;
@@ -139,39 +137,38 @@ function AppRoutes() {
 
   const signedOut = !hasSession() || (identity.isError && (identity.error as { status?: number })?.status === 401);
   const publicStandalone = isPublicRoute(location.pathname);
-  const prerenderedHome = PRERENDERED_HOME && location.pathname === '/';
-  const accessMode = useAccessMode(signedOut && !publicStandalone && !prerenderedHome);
+  const accessMode = useAccessMode(signedOut && !publicStandalone);
   const identityBroken = identity.isError && (identity.error as { status?: number })?.status !== 401;
   if (!publicStandalone && !signedOut && identity.isPending) return <AppLoader />;
 
   const serverError = identity.isError && (identity.error as { status?: number })?.status !== 401 ? (identity.error as Error).message : null;
 
   if (publicStandalone) {
-    return <Routes><Route path="*" element={<PublicSite />} /></Routes>;
+    return <Routes><Route path="*" element={<Screen><PublicSite /></Screen>} /></Routes>;
   }
 
   if (identityBroken) {
-    return <Routes><Route path="*" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} /></Routes>;
+    return <Routes><Route path="*" element={<Screen><Login serverError={serverError} onRetry={() => identity.refetch()} /></Screen>} /></Routes>;
   }
 
   if (signedOut || !identity.data) {
-    if (accessMode === null && !prerenderedHome) return <AppLoader />;
+    if (accessMode === null) return <AppLoader />;
     if (accessMode === 'demo') return <DemoEntry />;
     return (
       <Routes>
         <Route path="/" element={<SignedOutHome serverError={serverError} onRetry={() => identity.refetch()} />} />
-        <Route path="/login" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
-        <Route path="/register" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
-        <Route path="/reset" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
-        <Route path="/invite" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
-        <Route path="/setup" element={<Login serverError={serverError} onRetry={() => identity.refetch()} />} />
+        <Route path="/login" element={<Screen><Login serverError={serverError} onRetry={() => identity.refetch()} /></Screen>} />
+        <Route path="/register" element={<Screen><Login serverError={serverError} onRetry={() => identity.refetch()} /></Screen>} />
+        <Route path="/reset" element={<Screen><Login serverError={serverError} onRetry={() => identity.refetch()} /></Screen>} />
+        <Route path="/invite" element={<Screen><Login serverError={serverError} onRetry={() => identity.refetch()} /></Screen>} />
+        <Route path="/setup" element={<Screen><Login serverError={serverError} onRetry={() => identity.refetch()} /></Screen>} />
         <Route path="*" element={<Navigate to="/login" replace />} />
       </Routes>
     );
   }
 
   if (identity.data.user.must_change_password) {
-    return <Routes><Route path="*" element={<ForcePasswordChange />} /></Routes>;
+    return <Routes><Route path="*" element={<Screen><ForcePasswordChange /></Screen>} /></Routes>;
   }
 
   return (

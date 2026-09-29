@@ -6,7 +6,7 @@ import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 
 const PUBLIC_ORIGIN = (process.env.VANTAGE_PUBLIC_URL || process.env.VITE_PUBLIC_ORIGIN || 'https://vantageusmc.com').replace(/\/$/, '');
-const ICON_FILES = ['favicon.ico', 'favicon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'manifest.webmanifest'];
+const ICON_FILES = ['favicon.ico', 'favicon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'manifest.webmanifest', 'og.png'];
 
 /** Content hash of the icon set, so a changed icon is a changed URL and no browser keeps showing the old one. */
 function iconVersion(): string {
@@ -28,7 +28,7 @@ function publicFiles(): Plugin {
     transformIndexHtml: { order: 'pre', handler: finish },
     closeBundle() {
       const out = fileURLToPath(new URL('./dist', import.meta.url));
-      for (const name of ['robots.txt', 'sitemap.xml', 'llms.txt', 'manifest.webmanifest']) {
+      for (const name of ['robots.txt', 'llms.txt', 'manifest.webmanifest']) {
         const file = join(out, name);
         if (existsSync(file)) writeFileSync(file, finish(readFileSync(file, 'utf8')));
       }
@@ -60,11 +60,14 @@ export default defineConfig({
     sourcemap: false,
     target: 'es2022',
     rollupOptions: {
+      // Two documents: the application, and the public page, which loads only what it renders.
+      input: {
+        index: fileURLToPath(new URL('./index.html', import.meta.url)),
+        public: fileURLToPath(new URL('./public.html', import.meta.url)),
+      },
       output: {
-        manualChunks: {
-          react: ['react', 'react-dom', 'react-router-dom', '@tanstack/react-query'],
-          radix: ['@radix-ui/react-dialog', '@radix-ui/react-dropdown-menu', '@radix-ui/react-popover', '@radix-ui/react-select', '@radix-ui/react-tooltip'],
-        },
+        // The framework both documents share changes least, so it is cached on its own.
+        manualChunks: { react: ['react', 'react-dom', 'react-dom/client', 'react-router-dom'] },
       },
     },
   },

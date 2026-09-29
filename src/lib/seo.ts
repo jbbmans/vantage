@@ -1,144 +1,73 @@
-export const SITE_ORIGIN = (import.meta.env.VITE_PUBLIC_ORIGIN as string | undefined)?.replace(/\/$/, '')
-  || 'https://vantageusmc.com';
+import { FAQS, SITE } from '@/config/site';
+import { publishedVideos } from '@/config/videos';
+import films from '@/config/films.generated.json';
 
-const abs = (path: string) => `${SITE_ORIGIN}${path.startsWith('/') ? path : `/${path}`}`;
+const FEATURES = [
+  'Performance and outcome records',
+  'Work, task and project management',
+  'Spreadsheet-driven work queues',
+  'Readiness dates and requirements',
+  'Goals with measurable progress',
+  'JEPES and FITREP input traced to source records',
+  'Correspondence tracking',
+  'Role-aware team visibility',
+];
 
-function upsert<T extends HTMLElement>(selector: string, create: () => T): T {
-  const found = document.head.querySelector<T>(selector);
-  if (found) return found;
-  const el = create();
-  document.head.appendChild(el);
-  return el;
-}
+/** ISO 8601, which is how video results read a running time. */
+const duration = (seconds: number) => `PT${Math.floor(seconds / 60)}M${seconds % 60}S`;
 
-function meta(nameOrProperty: string, content: string, asProperty = false) {
-  const attr = asProperty ? 'property' : 'name';
-  const el = upsert<HTMLMetaElement>(`meta[${attr}="${nameOrProperty}"]`, () => {
-    const m = document.createElement('meta');
-    m.setAttribute(attr, nameOrProperty);
-    return m;
-  });
-  el.setAttribute('content', content);
-}
-
-function link(rel: string, href: string) {
-  const el = upsert<HTMLLinkElement>(`link[rel="${rel}"]`, () => {
-    const l = document.createElement('link');
-    l.rel = rel;
-    return l;
-  });
-  el.href = href;
-}
-
-function jsonLd(key: string, data: unknown | null) {
-  const id = `ld-${key}`;
-  const existing = document.getElementById(id);
-  if (!data) { existing?.remove(); return; }
-  const el = existing instanceof HTMLScriptElement ? existing : document.createElement('script');
-  el.id = id;
-  el.type = 'application/ld+json';
-  el.textContent = JSON.stringify(data);
-  if (!el.isConnected) document.head.appendChild(el);
-}
-
-export interface PageSeo {
-  title: string;
-  description: string;
-  canonicalPath: string;
-  indexable: boolean;
-  image?: string;
-  imageAlt?: string;
-}
-
-export function applySeo({ title, description, canonicalPath, indexable, image = '/og.png', imageAlt = 'Vantage — performance, productivity and readiness' }: PageSeo) {
-  document.title = title;
-  meta('description', description);
-  meta('robots', indexable
-    ? 'index, follow, max-image-preview:large, max-snippet:-1, max-video-preview:-1'
-    : 'noindex, nofollow');
-  link('canonical', abs(canonicalPath));
-
-  const imageUrl = image.startsWith('http') ? image : abs(image);
-  meta('og:type', 'website', true);
-  meta('og:site_name', 'Vantage', true);
-  meta('og:title', title, true);
-  meta('og:description', description, true);
-  meta('og:url', abs(canonicalPath), true);
-  meta('og:image', imageUrl, true);
-  meta('og:image:alt', imageAlt, true);
-  meta('og:image:width', '1200', true);
-  meta('og:image:height', '630', true);
-  meta('og:locale', 'en_US', true);
-  meta('twitter:card', 'summary_large_image');
-  meta('twitter:title', title);
-  meta('twitter:description', description);
-  meta('twitter:image', imageUrl);
-  meta('twitter:image:alt', imageAlt);
-}
-
-export function applyPublicStructuredData(faqs: ReadonlyArray<readonly [string, string]>, videos: ReadonlyArray<{ name: string; description: string; url: string; thumbnail?: string; uploadDate?: string }> = []) {
-  jsonLd('org', {
+/**
+ * The public page's structured data as one linked graph, written into the prerendered HTML at build time
+ * so every crawler reads it without running JavaScript.
+ */
+export function structuredData(origin: string) {
+  const url = `${origin}/`;
+  const abs = (path: string) => (/^https?:/.test(path) ? path : `${origin}${path}`);
+  const organization = { '@id': `${origin}/#organization` };
+  const card = { '@type': 'ImageObject', url: abs('/og.png'), width: 1200, height: 630 };
+  const seconds = films as Record<string, { seconds: number }>;
+  return {
     '@context': 'https://schema.org',
-    '@type': 'Organization',
-    '@id': `${SITE_ORIGIN}/#organization`,
-    name: 'VANTAGE',
-    alternateName: 'VANTAGE USMC',
-    url: SITE_ORIGIN,
-    logo: abs('/icon-512.png'),
-    description: 'An independent, self-hosted platform for performance records, work management, readiness and reporting. Not a Department of Defense or U.S. Marine Corps system of record.',
-  });
-
-  jsonLd('website', {
-    '@context': 'https://schema.org',
-    '@type': 'WebSite',
-    '@id': `${SITE_ORIGIN}/#website`,
-    name: 'VANTAGE',
-    alternateName: 'VANTAGE USMC',
-    publisher: { '@id': `${SITE_ORIGIN}/#organization` },
-    url: SITE_ORIGIN,
-  });
-
-  jsonLd('software', {
-    '@context': 'https://schema.org',
-    '@type': 'SoftwareApplication',
-    name: 'Vantage',
-    url: SITE_ORIGIN,
-    applicationCategory: 'BusinessApplication',
-    operatingSystem: 'Web',
-    description: 'A self-hosted platform for performance records, work management, readiness tracking, goals, correspondence, reporting and team visibility.',
-    featureList: [
-      'Performance and outcome records',
-      'Work, task and project management',
-      'Spreadsheet-driven work queues',
-      'Readiness dates and requirements',
-      'Goals with measurable progress',
-      'Report drafting traced to source records',
-      'Correspondence tracking',
-      'Role-aware team visibility',
+    '@graph': [
+      {
+        '@type': 'Organization', ...organization, name: 'VANTAGE', alternateName: SITE.alternateName, url,
+        logo: { '@type': 'ImageObject', url: abs('/icon-512.png'), width: 512, height: 512 },
+        description: SITE.disclaimer,
+      },
+      {
+        '@type': 'WebSite', '@id': `${origin}/#website`, url, name: SITE.name, alternateName: SITE.alternateName,
+        description: SITE.description, publisher: organization, inLanguage: 'en-US',
+      },
+      {
+        // FAQPage is a kind of WebPage, so the page and its questions are one node.
+        '@type': 'FAQPage', '@id': `${origin}/#webpage`, url, name: SITE.title, description: SITE.description,
+        isPartOf: { '@id': `${origin}/#website` }, about: { '@id': `${origin}/#software` },
+        primaryImageOfPage: card, dateModified: SITE.updated, inLanguage: 'en-US',
+        mainEntity: FAQS.map(([question, answer]) => ({ '@type': 'Question', name: question, acceptedAnswer: { '@type': 'Answer', text: answer } })),
+      },
+      {
+        '@type': 'SoftwareApplication', '@id': `${origin}/#software`, name: SITE.name, url,
+        applicationCategory: 'BusinessApplication', operatingSystem: 'Web', description: SITE.description,
+        featureList: FEATURES, image: card, publisher: organization,
+      },
+      ...publishedVideos().map((v) => ({
+        '@type': 'VideoObject', '@id': `${origin}/#video-${v.id}`, name: v.title, description: v.description,
+        thumbnailUrl: abs(v.poster || '/og.png'), contentUrl: abs(v.src),
+        // Noon UTC is the same calendar day from Hawaii to Japan.
+        ...(v.published ? { uploadDate: `${v.published}T12:00:00Z` } : {}),
+        ...(seconds[v.id] ? { duration: duration(seconds[v.id].seconds) } : {}),
+        publisher: organization, inLanguage: 'en-US',
+      })),
     ],
-  });
-
-  jsonLd('faq', faqs.length ? {
-    '@context': 'https://schema.org',
-    '@type': 'FAQPage',
-    mainEntity: faqs.map(([question, answer]) => ({
-      '@type': 'Question',
-      name: question,
-      acceptedAnswer: { '@type': 'Answer', text: answer },
-    })),
-  } : null);
-
-  jsonLd('video', videos.length ? videos.map((v) => ({
-    '@context': 'https://schema.org',
-    '@type': 'VideoObject',
-    name: v.name,
-    description: v.description,
-    contentUrl: v.url.startsWith('http') ? v.url : abs(v.url),
-    thumbnailUrl: v.thumbnail ? (v.thumbnail.startsWith('http') ? v.thumbnail : abs(v.thumbnail)) : abs('/og.png'),
-    uploadDate: v.uploadDate || undefined,
-  })) : null);
+  };
 }
 
-export function clearPublicStructuredData() {
-  for (const key of ['faq', 'video']) jsonLd(key, null);
+/** Video entries for the sitemap, so video search finds the films as well as the page. */
+export function sitemapVideos(origin: string) {
+  const abs = (path: string) => (/^https?:/.test(path) ? path : `${origin}${path}`);
+  const seconds = films as Record<string, { seconds: number }>;
+  return publishedVideos().map((v) => ({
+    title: v.title, description: v.description, thumbnail: abs(v.poster || '/og.png'), content: abs(v.src),
+    seconds: seconds[v.id]?.seconds ?? null, published: v.published ?? null,
+  }));
 }
