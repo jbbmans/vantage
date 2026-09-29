@@ -184,7 +184,12 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     setQuery(next);
     setSearch(next.q);
   };
-  const activeView = views.data?.find((v: any) => v.id === activeViewId) ?? null;
+  // A view stays selected only while the queue still shows it; once anything changes, picking it again reapplies it.
+  const showing = (config: Record<string, unknown>) => {
+    const v = { ...DEFAULT_QUERY, ...config } as Query;
+    return v.q === search.trim() && (['state', 'active', 'claimed', 'sort', 'direction', 'unit_id', 'procedure'] as const).every((k) => v[k] === query[k]);
+  };
+  const activeView = views.data?.find((v: any) => v.id === activeViewId && showing(v.config)) ?? null;
   const deleteActiveView = async () => {
     if (!activeView) return;
     try {
@@ -198,8 +203,10 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
 
   const saveCurrentView = async () => {
     try {
-      const saved = await api.saveWorkView({ name: viewName, config: { state: query.state, active: query.active, claimed: query.claimed, q: query.q, sort: query.sort, direction: query.direction, unit_id: query.unit_id, procedure: query.procedure } });
-      track('work.view_saved', { filters: [query.state, query.claimed, query.q, query.unit_id, query.procedure].filter(Boolean).length });
+      // The search box reaches the query a beat after typing stops; the view keeps what the box says now.
+      const q = search.trim();
+      const saved = await api.saveWorkView({ name: viewName, config: { state: query.state, active: query.active, claimed: query.claimed, q, sort: query.sort, direction: query.direction, unit_id: query.unit_id, procedure: query.procedure } });
+      track('work.view_saved', { filters: [query.state, query.claimed, q, query.unit_id, query.procedure].filter(Boolean).length });
       toast.success('View saved.');
       setSaveViewOpen(false); setViewName('');
       setActiveViewId(saved?.id ?? null);
@@ -241,7 +248,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
         <Button variant={showFilters ? 'primary' : 'default'} onClick={() => setShowFilters((v) => !v)} aria-expanded={showFilters}><Filter className="h-4 w-4" />Filter</Button>
         {views.data && views.data.length > 0 && (
           <Select
-            aria-label="Saved views" className="w-44" value={activeViewId ?? ''} placeholder="Saved views"
+            aria-label="Saved views" className="w-44" value={activeView?.id ?? ''} placeholder="Saved views"
             onValueChange={(id) => { const v = views.data.find((x: any) => x.id === id); if (v) { applyView(v.config); setActiveViewId(v.id); } }}
             options={views.data.map((v: any) => ({ value: v.id, label: v.shared ? `${v.name} (shared)` : v.name }))}
           />
