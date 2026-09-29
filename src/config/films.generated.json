@@ -1,114 +1,107 @@
 {
   "tour": {
-    "src": "/videos/films/tour.mp4?v=ba817d627f",
-    "poster": "/videos/films/tour.jpg?v=ebe8c25217",
-    "captions": "/videos/films/tour.vtt?v=a8fd02f918",
-    "seconds": 87,
-    "published": "2026-09-25",
-    "voiced": false
+    "src": "/videos/films/tour.mp4?v=52b7cba74a",
+    "poster": "/videos/films/tour.jpg?v=b35db5b432",
+    "seconds": 81,
+    "published": "2026-09-28",
+    "textOnly": true
   },
   "quick-log": {
-    "src": "/videos/films/quick-log.mp4?v=054d354af0",
-    "poster": "/videos/films/quick-log.jpg?v=d646d7358b",
-    "captions": "/videos/films/quick-log.vtt?v=2feabbe712",
-    "seconds": 39,
-    "published": "2026-09-25",
-    "voiced": false
+    "src": "/videos/films/quick-log.mp4?v=0985f64601",
+    "poster": "/videos/films/quick-log.jpg?v=722d78603f",
+    "seconds": 42,
+    "published": "2026-09-28",
+    "textOnly": true
   },
   "queue": {
-    "src": "/videos/films/queue.mp4?v=4ab0cc0df3",
-    "poster": "/videos/films/queue.jpg?v=a7c45a1d8d",
-    "captions": "/videos/films/queue.vtt?v=90aa7137b3",
-    "seconds": 49,
-    "published": "2026-09-25",
-    "voiced": false
+    "src": "/videos/films/queue.mp4?v=53c4ff9614",
+    "poster": "/videos/films/queue.jpg?v=617cc16731",
+    "seconds": 60,
+    "published": "2026-09-28",
+    "textOnly": true
   },
   "reading-a-balance": {
-    "src": "/videos/films/reading-a-balance.mp4?v=32cee39f60",
-    "poster": "/videos/films/reading-a-balance.jpg?v=a96bb72496",
-    "captions": "/videos/films/reading-a-balance.vtt?v=a246e4610f",
-    "seconds": 39,
-    "published": "2026-09-25",
-    "voiced": false
+    "src": "/videos/films/reading-a-balance.mp4?v=9a361a89f5",
+    "poster": "/videos/films/reading-a-balance.jpg?v=1437b93584",
+    "seconds": 42,
+    "published": "2026-09-28",
+    "textOnly": true
   },
   "record": {
-    "src": "/videos/films/record.mp4?v=74c9582eaa",
-    "poster": "/videos/films/record.jpg?v=d561454c5d",
-    "captions": "/videos/films/record.vtt?v=7d220fc0b9",
-    "seconds": 36,
-    "published": "2026-09-25",
-    "voiced": false
+    "src": "/videos/films/record.mp4?v=2fe4f66220",
+    "poster": "/videos/films/record.jpg?v=b594e01584",
+    "seconds": 41,
+    "published": "2026-09-28",
+    "textOnly": true
   },
   "report-studio": {
-    "src": "/videos/films/report-studio.mp4?v=3c595c4102",
-    "poster": "/videos/films/report-studio.jpg?v=fcbd5652df",
-    "captions": "/videos/films/report-studio.vtt?v=3a3ff8e9a5",
-    "seconds": 25,
-    "published": "2026-09-25",
-    "voiced": false
+    "src": "/videos/films/report-studio.mp4?v=f87074373a",
+    "poster": "/videos/films/report-studio.jpg?v=4a87151cf7",
+    "seconds": 39,
+    "published": "2026-09-28",
+    "textOnly": true
   },
   "unit-dashboard": {
-    "src": "/videos/films/unit-dashboard.mp4?v=de90e6060c",
-    "poster": "/videos/films/unit-dashboard.jpg?v=744a375220",
-    "captions": "/videos/films/unit-dashboard.vtt?v=24b562b6b4",
-    "seconds": 31,
-    "published": "2026-09-25",
-    "voiced": false
+    "src": "/videos/films/unit-dashboard.mp4?v=5af272d1cd",
+    "poster": "/videos/films/unit-dashboard.jpg?v=e7f8706e89",
+    "seconds": 35,
+    "published": "2026-09-28",
+    "textOnly": true
   },
   "first-week": {
-    "src": "/videos/films/first-week.mp4?v=1aac89f948",
-    "poster": "/videos/films/first-week.jpg?v=cf8a0b9c42",
-    "captions": "/videos/films/first-week.vtt?v=f55b8e8104",
+    "src": "/videos/films/first-week.mp4?v=2997d5f72f",
+    "poster": "/videos/films/first-week.jpg?v=5a46bb0b87",
     "seconds": 52,
-    "published": "2026-09-25",
-    "voiced": false
+    "published": "2026-09-28",
+    "textOnly": true
   },
   "visibility": {
-    "src": "/videos/films/visibility.mp4?v=0c5ba036a3",
-    "poster": "/videos/films/visibility.jpg?v=59267aac47",
-    "captions": "/videos/films/visibility.vtt?v=a67310ca8f",
+    "src": "/videos/films/visibility.mp4?v=6b04541e86",
+    "poster": "/videos/films/visibility.jpg?v=924a66c02f",
     "seconds": 44,
-    "published": "2026-09-25",
-    "voiced": false
+    "published": "2026-09-28",
+    "textOnly": true
   },
   "import": {
-    "src": "/videos/films/import.mp4?v=8afc52b180",
-    "poster": "/videos/films/import.jpg?v=e5bba6cfff",
-    "captions": "/videos/films/import.vtt?v=4075997335",
-    "seconds": 41,
-    "published": "2026-09-25",
-    "voiced": false
+    "src": "/videos/films/import.mp4?v=7a18dcd3fc",
+    "poster": "/videos/films/import.jpg?v=4caa063272",
+    "seconds": 45,
+    "published": "2026-09-28",
+    "textOnly": true
   },
   "analysis": {
-    "src": "/videos/films/analysis.mp4?v=35a85f0ed6",
-    "poster": "/videos/films/analysis.jpg?v=4f11ccfefb",
-    "captions": "/videos/films/analysis.vtt?v=7618da5e53",
-    "seconds": 40,
-    "published": "2026-09-25",
-    "voiced": false
+    "src": "/videos/films/analysis.mp4?v=3d60780712",
+    "poster": "/videos/films/analysis.jpg?v=47f182a47e",
+    "seconds": 39,
+    "published": "2026-09-28",
+    "textOnly": true
   },
   "counseling": {
-    "src": "/videos/films/counseling.mp4?v=35559cc4ae",
-    "poster": "/videos/films/counseling.jpg?v=af845e303a",
-    "captions": "/videos/films/counseling.vtt?v=914338bbd9",
-    "seconds": 36,
-    "published": "2026-09-25",
-    "voiced": false
+    "src": "/videos/films/counseling.mp4?v=338d0d745b",
+    "poster": "/videos/films/counseling.jpg?v=8d84f5e8c6",
+    "seconds": 41,
+    "published": "2026-09-28",
+    "textOnly": true
   },
   "setup": {
-    "src": "/videos/films/setup.mp4?v=71a3a4bae8",
-    "poster": "/videos/films/setup.jpg?v=67218961b0",
-    "captions": "/videos/films/setup.vtt?v=c631444d3f",
-    "seconds": 43,
-    "published": "2026-09-25",
-    "voiced": false
+    "src": "/videos/films/setup.mp4?v=1551df45ba",
+    "poster": "/videos/films/setup.jpg?v=56717951f2",
+    "seconds": 54,
+    "published": "2026-09-28",
+    "textOnly": true
   },
   "governance": {
-    "src": "/videos/films/governance.mp4?v=eb96d24bf2",
-    "poster": "/videos/films/governance.jpg?v=360c33862c",
-    "captions": "/videos/films/governance.vtt?v=bddb2bd627",
-    "seconds": 39,
-    "published": "2026-09-25",
-    "voiced": false
+    "src": "/videos/films/governance.mp4?v=235864f9e5",
+    "poster": "/videos/films/governance.jpg?v=e6a1b3c3bf",
+    "seconds": 46,
+    "published": "2026-09-28",
+    "textOnly": true
+  },
+  "ad": {
+    "src": "/videos/films/ad.mp4?v=26d243dee6",
+    "poster": "/videos/films/ad.jpg?v=80da7b8d8f",
+    "seconds": 62,
+    "published": "2026-09-28",
+    "textOnly": true
   }
 }

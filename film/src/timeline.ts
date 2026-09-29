@@ -1,15 +1,17 @@
 import data from './generated/timelines.json';
 
-export interface Word { word: string; start: number; end: number }
-export interface TLine { id: string; text: string; start: number; end: number; from: number; to: number; file: string | null; words: Word[] }
-export interface TScene { id: string; cue: string | null; start: number; end: number; from: number; to: number; lines: TLine[] }
-export interface TFilm { id: string; title: string; slot: string; fps: number; seconds: number; frames: number; estimated: number; scenes: TScene[] }
+export interface TCard { text: string; start: number; end: number; from: number; to: number }
+export interface TScene { id: string; cue: string | null; start: number; end: number; from: number; to: number; cards: TCard[] }
+export interface TFilm {
+  id: string; title: string; slot: string; kind: 'ad' | 'hero' | 'chapter'; n: number | null; accent: string;
+  music: { bpm: number }; fps: number; beat: number; seconds: number; frames: number; scenes: TScene[];
+}
 
 export const TIMELINES = data as unknown as Record<string, TFilm>;
 
 export const film = (id: string) => {
   const f = TIMELINES[id];
-  if (!f) throw new Error(`No timeline for ${id}; run tools/render.mjs --timeline`);
+  if (!f) throw new Error(`No timeline for ${id}; run tools/timeline.mjs`);
   return f;
 };
 
@@ -19,10 +21,5 @@ export const scene = (filmId: string, sceneId: string) => {
   return s;
 };
 
-export const wordFrame = (s: TScene, lineIndex: number, word: string, fps = 30, nth = 0) => {
-  const line = s.lines[lineIndex];
-  const norm = (w: string) => w.toLowerCase().replace(/[^a-z0-9$]/g, '');
-  const hits = line.words.filter((w) => norm(w.word) === norm(word));
-  const w = hits[nth] || hits[0];
-  return Math.round((w ? w.start : line.start) * fps);
-};
+/** A scene's cards with frames counted from the scene's own start, for use inside its Sequence. */
+export const localCards = (s: TScene) => s.cards.map((c) => ({ text: c.text, from: c.from - s.from, to: c.to - s.from }));

@@ -55,6 +55,15 @@ test('a save is refused when a cited record changed, and goes through once the a
   const edited = await page.request.put(`/api/records/activities/${record.id}`, { headers: H, data: { quantity: 400, version: record.version } });
   expect(edited.ok(), await edited.text()).toBeTruthy();
 
+  // Checking a cited entry opens it beside the writing, as it is now, and leaves the text alone.
+  await page.getByRole('button', { name: 'A record that will move', exact: true }).click();
+  const peek = page.getByRole('dialog', { name: 'A record that will move' });
+  await expect(peek.getByText('This changed after you cited it.', { exact: false })).toBeVisible();
+  await expect(peek.getByText('400 studio-items')).toBeVisible();
+  await peek.getByRole('button', { name: 'Back to writing' }).click();
+  await expect(peek).toHaveCount(0);
+  await expect(page.getByLabel('Mission accomplishment text')).toHaveValue('A claim about the record that is about to move.');
+
   await page.getByRole('button', { name: 'Save revision' }).click();
   await expect(page.getByRole('alert').getByText('This was not saved')).toBeVisible();
   await expect(page.getByText(/facts changed after this wording was written/i)).toBeVisible();

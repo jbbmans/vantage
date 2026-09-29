@@ -10,16 +10,10 @@ const TL = JSON.parse(readFileSync(join(ROOT, 'src', 'generated', 'timelines.jso
 function cue(filmId, sceneId) {
   const s = TL[filmId].scenes.find((x) => x.id === sceneId);
   if (!s) throw new Error(`no scene ${filmId}/${sceneId}`);
-  const norm = (w) => w.toLowerCase().replace(/[^\p{L}\p{N}$]/gu, '');
   return {
     dur: s.end - s.start,
-    at(word, { nth = 0, end = false } = {}) {
-      const all = s.lines.flatMap((l) => l.words);
-      const hits = all.filter((w) => norm(w.word) === norm(word));
-      const w = hits[nth];
-      if (!w) throw new Error(`${filmId}/${sceneId}: the narration has no "${word}"`);
-      return (end ? w.end : w.start) - s.start;
-    },
+    /** When card i appears, in seconds from the start of the scene. */
+    card: (i) => s.cards[Math.min(i, s.cards.length - 1)].start - s.start,
   };
 }
 
@@ -48,9 +42,9 @@ async function hero(browser) {
     tk.hold(0.3);
     await tk.type(null, 'Reconciled 30 ULOs totaling $41,806.12 in SABRS yesterday', { cps: 21 });
     // "Vantage reads the numbers" — the camera moves to what it read.
-    tk.until(c.at('reads') - 0.3);
+    tk.until(c.dur * 0.45);
     await tk.focus(page.getByLabel('Action amount').locator('xpath=ancestor::div[contains(@class,"grid")][1]'), { zoom: 1.4, ease: 1.1, pad: 30 });
-    tk.until(c.at('shows') - 0.2);
+    tk.until(c.dur * 0.7);
     await tk.focus(page.getByText('Bullet preview', { exact: false }).locator('xpath=..'), { zoom: 1.55, ease: 1.0, pad: 24 });
     await tk.finish(c.dur);
   }
@@ -65,7 +59,7 @@ async function hero(browser) {
     const tk = take(page, 'hero', 'queue');
     await tk.start();
     tk.focus(page.locator('table').first(), { zoom: 1.06, ease: 0.01, pad: 20 });
-    tk.until(c.at('claim') - 0.7);
+    tk.until(1.4);
     const row = page.locator('tr', { hasText: 'SYN-26-P-0047' });
     await tk.focus(row, { zoom: 1.6, ease: 0.8, pad: 30 });
     await tk.click(row.getByRole('button', { name: 'Claim' }), { travel: 0.6, after: 0.2 });
@@ -89,6 +83,58 @@ async function hero(browser) {
   const lead = await openDemo(browser, BASE, { persona: 'leader' });
   await still(lead.page, 'hero-lead');
   await lead.context.close();
+
+  const own = await openDemo(browser, BASE);
+  await own.page.keyboard.press('n');
+  const log = own.page.getByRole('dialog', { name: 'Log activity' });
+  await log.getByLabel('What did you do?').fill('Briefed 14 Marines on the travel policy');
+  await log.getByRole('button', { name: /Organization, system, notes, visibility/ }).click();
+  await log.getByRole('radio', { name: 'Only me' }).click();
+  await still(own.page, 'hero-private', { locator: log.getByRole('radio', { name: 'Only me' }).locator('xpath=ancestor::*[@role="radiogroup"][1]') });
+  await own.context.close();
+}
+
+async function ad(browser) {
+  const F = 'ad';
+  const { context, page } = await openDemo(browser, BASE);
+  const dialog = page.getByRole('dialog', { name: 'Log activity' });
+  {
+    const c = cue(F, 'ad-capture');
+    await page.keyboard.press('n');
+    await settle(page, 300);
+    const tk = take(page, F, 'ad-capture');
+    await tk.start();
+    tk.focus(dialog, { zoom: 1.12, ease: 0.01, pad: 10 });
+    await tk.focus(page.getByLabel('What did you do?'), { zoom: 1.75, ease: 0.7, pad: 30 });
+    tk.hold(0.3);
+    await tk.type(null, 'Reconciled 30 ULOs totaling $41,806.12 in SABRS yesterday', { cps: 24 });
+    tk.until(c.card(1) - 0.2);
+    const chips = dialog.getByText('dollar figure', { exact: true }).locator('xpath=ancestor::div[1]');
+    await tk.focus(chips, { zoom: 1.8, ease: 0.8, pad: 20 });
+    tk.hold(1.3);
+    await tk.focus(page.getByLabel('Action amount').locator('xpath=ancestor::div[contains(@class,"grid")][1]'), { zoom: 1.4, ease: 0.9, pad: 30 });
+    tk.until(c.dur - 1.8);
+    await tk.click(dialog.getByRole('button', { name: 'Save activity' }), { travel: 0.5, after: 0.1 });
+    tk.wide({ ease: 0.6 });
+    await tk.capture(300);
+    await tk.finish(c.dur);
+  }
+  {
+    const c = cue(F, 'ad-queue');
+    await page.goto('/work', { waitUntil: 'networkidle' });
+    await role(page, 'button', 'Open to claim').click();
+    await settle(page);
+    const tk = take(page, F, 'ad-queue');
+    await tk.start();
+    tk.focus(page.locator('table').first(), { zoom: 1.06, ease: 0.01, pad: 20 });
+    tk.until(1.2);
+    const row = page.locator('tr', { hasText: 'SYN-26-P-0047' });
+    await tk.focus(row, { zoom: 1.6, ease: 0.8, pad: 30 });
+    await tk.click(row.getByRole('button', { name: 'Claim' }), { travel: 0.6, after: 0.2 });
+    await tk.capture(400);
+    await tk.finish(c.dur);
+  }
+  await context.close();
 }
 
 async function workUmt(page, id, { claim = true, decide = true } = {}) {
@@ -121,7 +167,7 @@ async function quickLog(browser) {
     const c = cue(F, 'ql-open');
     const tk = take(page, F, 'ql-open');
     await tk.start();
-    tk.until(c.at('press') - 0.1);
+    tk.until(0.7);
     await tk.press('n', { after: 0.2 });
     await tk.focus(dialog, { zoom: 1.28, ease: 0.9, pad: 12, dx: 60 });
     await tk.finish(c.dur);
@@ -141,17 +187,17 @@ async function quickLog(browser) {
     await tk.start();
     const chips = dialog.getByText('dollar figure', { exact: true }).locator('xpath=ancestor::div[1]');
     await tk.focus(chips, { zoom: 1.85, ease: 0.9, pad: 20 });
-    tk.until(c.at('count') - 0.1);
+    tk.until(0.8);
     await tk.focus(page.getByLabel('Action amount').locator('xpath=ancestor::div[contains(@class,"grid")][1]'), { zoom: 1.45, ease: 1.0, pad: 24 });
     await tk.point(page.getByLabel('Action amount'), { travel: 0.5, scroll: false });
-    tk.until(c.at('dollar'));
+    tk.until(1.8);
     await tk.point(page.getByLabel('Transaction value'), { travel: 0.5, scroll: false });
-    tk.until(c.at('kind'));
+    tk.until(2.6);
     await tk.point(page.getByText('Value type', { exact: true }), { travel: 0.5, scroll: false });
-    tk.until(c.at('system'));
+    tk.until(3.6);
     await tk.focus(chips, { zoom: 1.85, ease: 0.8, pad: 20 });
     await tk.point(dialog.getByText('system: SABRS'), { travel: 0.5, scroll: false });
-    tk.until(c.at('date'));
+    tk.until(4.6);
     await tk.point(dialog.getByText('date: yesterday'), { travel: 0.45, scroll: false });
     await tk.finish(c.dur);
   }
@@ -162,7 +208,7 @@ async function quickLog(browser) {
     await tk.focus(page.getByLabel('Result'), { zoom: 1.5, ease: 0.7, pad: 60 });
     await tk.type(page.getByLabel('Result'), 'zero findings at the quarterly review', { cps: 22 });
     await tk.focus(page.getByText('Bullet preview', { exact: false }).locator('xpath=..'), { zoom: 1.45, ease: 0.7, pad: 24 });
-    tk.until(c.at('save') - 0.55);
+    tk.until(c.dur - 2.6);
     await tk.click(dialog.getByRole('button', { name: 'Save activity' }), { travel: 0.5, after: 0.15 });
     tk.wide({ ease: 0.6 });
     await tk.goto('/record?tab=entries');
@@ -177,13 +223,13 @@ async function quickLog(browser) {
     await context.setOffline(true);
     await tk.capture(600);
     await tk.focus(page.getByText('Offline', { exact: true }), { zoom: 1.6, ease: 0.6, pad: 80 });
-    tk.until(c.at('waits') - 0.6);
+    tk.until(1.6);
     await tk.press('n', { after: 0.15 });
     await tk.focus(dialog, { zoom: 1.25, ease: 0.7, pad: 12, dx: 60 });
     await tk.type(null, 'Briefed 14 Marines on the travel policy', { cps: 26 });
     await tk.click(dialog.getByRole('button', { name: 'Queue offline' }), { travel: 0.45, after: 0.3 });
     tk.wide({ ease: 0.7 });
-    tk.until(c.at('syncs') - 0.2);
+    tk.until(c.dur - 2.8);
     await context.setOffline(false);
     await page.waitForTimeout(1500);
     await tk.capture(300);
@@ -202,7 +248,7 @@ async function queue(browser) {
     const c = cue(F, 'q-queue');
     const tk = take(page, F, 'q-queue');
     await tk.start();
-    tk.until(c.at('queue') - 0.5);
+    tk.until(0.6);
     await tk.click(role(page, 'button', 'Open to claim'), { after: 0.2 });
     await tk.focus(page.locator('table').first(), { zoom: 1.12, ease: 1.0, pad: 20 });
     await tk.finish(c.dur);
@@ -219,11 +265,11 @@ async function queue(browser) {
     tk.wide({ ease: 0.01 });
     await tk.capture(300);
     url = page.url();
-    tk.until(c.at('claim') - 0.4);
+    tk.until(1.9);
     await tk.focus(role(page, 'button', 'Claim').locator('xpath=ancestor::header[1] | ancestor::div[contains(@class,"flex")][2]').first(), { zoom: 1.3, ease: 0.7, pad: 40 });
     await tk.click(role(page, 'button', 'Claim'), { travel: 0.55, after: 0.1 });
     await tk.capture(300);
-    tk.until(c.at('credit') - 0.3);
+    tk.until(c.card(1) + 0.2);
     await tk.focus(page.getByText(/It is on your assigned list now/).first(), { zoom: 1.5, ease: 0.8, pad: 50 }).catch(() => undefined);
     await tk.finish(c.dur);
   }
@@ -234,7 +280,7 @@ async function queue(browser) {
     tk.wide({ ease: 0.6 });
     const steps = page.getByText('applicable steps done', { exact: false }).locator('xpath=ancestor::section[1]');
     await tk.focus(steps, { zoom: 1.35, ease: 0.9, pad: 20 }).catch(() => undefined);
-    tk.until(c.at('form') - 0.9);
+    tk.until(2.0);
     await tk.reveal(page.getByLabel('Current award amount'));
     await tk.focus(page.getByLabel('Current award amount').locator('xpath=ancestor::section[1]'), { zoom: 1.3, ease: 0.9, pad: 20 });
     await tk.type(page.getByLabel('Current award amount'), '91,250.00', { cps: 28 });
@@ -250,7 +296,7 @@ async function queue(browser) {
     await tk.click(role(page, 'button', 'Record what you found'), { travel: 0.45, after: 0.1 });
     await tk.type(page.getByLabel('Requisition funding available'), '1,500.00', { cps: 30 });
     await tk.click(role(page, 'button', 'Record what you found'), { travel: 0.4, after: 0.05 });
-    tk.until(c.at('calculates') - 0.6);
+    tk.until(c.dur * 0.4);
     await tk.click(role(page, 'button', 'Calculate the candidate'), { travel: 0.5, after: 0.1 });
     const calc = page.locator('section', { hasText: 'Candidate calculation' }).first();
     await tk.reveal(calc, { anchor: 0.2 });
@@ -266,7 +312,7 @@ async function queue(browser) {
     await tk.click(page.getByLabel('Amend the requisition first'), { travel: 0.5, after: 0.1 });
     await tk.type(page.getByLabel('Why'), 'Requisition shows $1,500.00 against +$2,775.00.', { cps: 34 });
     await tk.click(role(page, 'button', 'Record the decision'), { travel: 0.45, after: 0.1 });
-    tk.until(c.at('evidence') - 0.7);
+    tk.until(c.dur * 0.45);
     const checklist = page.locator('section', { hasText: 'applicable steps done' }).first();
     await tk.click(checklist.getByText('Submit the modification'), { travel: 0.55, after: 0.1 });
     const gate = page.getByText('Submission waits on a PASSED check.', { exact: false }).first();
@@ -303,9 +349,9 @@ async function queue(browser) {
     const history = page.locator('section', { has: page.getByRole('heading', { name: 'History' }) }).first();
     await tk.reveal(history, { anchor: 0.12, seconds: 1.3 });
     await tk.focus(history, { zoom: 1.2, ease: 0.9, pad: 10 });
-    tk.until(c.at('history', { end: true }) - 0.2);
+    tk.until(c.card(1) - 1.6);
     await tk.focus(page.getByText(/History sealed/).last(), { zoom: 1.9, ease: 0.8, pad: 60 });
-    tk.until(c.at('hand') - 0.3);
+    tk.until(c.card(1) + 0.1);
     const who = page.locator('section', { hasText: 'Who worked this' }).first();
     await tk.reveal(who, { anchor: 0.3 });
     await tk.focus(who, { zoom: 1.45, ease: 0.9, pad: 20 });
@@ -324,7 +370,7 @@ async function balance(browser) {
     const tk = take(page, F, 'b-ref');
     await tk.start();
     await tk.focus(page.getByRole('heading', { level: 1 }), { zoom: 1.35, ease: 0.01, pad: 60 });
-    tk.until(c.at('cited') - 0.9);
+    tk.until(1.2);
     const cite = page.locator('section', { hasText: 'OCMT' }).first();
     await tk.reveal(cite, { anchor: 0.15, seconds: 1.0 });
     await tk.focus(cite, { zoom: 1.3, ease: 0.9, pad: 10 });
@@ -350,11 +396,11 @@ async function balance(browser) {
     await tk.start();
     const reading = page.locator('section[aria-label="The reading"]');
     await tk.focus(reading, { zoom: 1.25, ease: 0.8, pad: 10 });
-    tk.until(c.at('causes') - 0.3);
+    tk.until(c.dur * 0.25);
     await tk.scroll(380, 1.2);
-    tk.until(c.at('act') - 0.4);
+    tk.until(c.dur * 0.5);
     await tk.scroll(760, 1.2);
-    tk.until(c.at('prove') - 0.5);
+    tk.until(c.dur * 0.72);
     await tk.scroll(1120, 1.2);
     await tk.finish(c.dur);
   }
@@ -366,7 +412,7 @@ async function balance(browser) {
     const figs = page.locator('section[aria-label="The figures"]');
     const paid = figs.getByText('Not shown', { exact: true }).nth(3);
     await tk.focus(figs, { zoom: 1.5, ease: 0.8, pad: 10, dy: 80 });
-    tk.until(c.at('mark') - 0.5);
+    tk.until(2.0);
     await tk.click(paid, { travel: 0.5, after: 0.3 });
     await tk.focus(page.locator('section[aria-label="The reading"]'), { zoom: 1.2, ease: 0.9, pad: 10 });
     await tk.finish(c.dur);
@@ -384,9 +430,9 @@ async function balance(browser) {
     tk.cut();
     tk.wide({ ease: 0.01 });
     await tk.capture(500);
-    tk.until(c.at('figures', { nth: 0 }) - 0.2);
+    tk.until(c.dur * 0.5);
     await tk.focus(page.getByText('What the figures show').locator('xpath=ancestor::section[1]'), { zoom: 1.35, ease: 0.9, pad: 10 });
-    tk.until(c.at('labelled') - 0.2);
+    tk.until(c.dur * 0.72);
     const hist = page.locator('section', { has: page.getByRole('heading', { name: 'History' }) }).first();
     await tk.reveal(hist, { anchor: 0.15 });
     await tk.focus(hist, { zoom: 1.35, ease: 0.8, pad: 10, dy: -60 });
@@ -406,11 +452,11 @@ async function record(browser) {
     const c = cue(F, 'r-three');
     const tk = take(page, F, 'r-three');
     await tk.start();
-    tk.until(c.at('hold') - 0.4);
+    tk.until(c.card(1) - 0.2);
     await tk.focus(page.locator('section', { hasText: 'Assigned to you' }).first(), { zoom: 1.4, ease: 0.9, pad: 10 });
-    tk.until(c.at('contributed') - 0.4);
+    tk.until(c.card(2) - 0.2);
     await tk.focus(page.getByText('What you contributed', { exact: true }).locator('xpath=ancestor::section[1]'), { zoom: 1.2, ease: 0.9, pad: 10 });
-    tk.until(c.at('logged') - 0.4);
+    tk.until(c.card(3) - 0.2);
     await tk.focus(page.locator('section', { hasText: 'What you recorded yourself' }).first(), { zoom: 1.4, ease: 0.9, pad: 10 });
     await tk.finish(c.dur);
   }
@@ -420,7 +466,7 @@ async function record(browser) {
     await tk.start();
     const card = page.getByText('Documents researched', { exact: true }).locator('xpath=ancestor::*[contains(@class,"card") or self::article][1]');
     await tk.focus(card, { zoom: 2.0, ease: 0.8, pad: 40 });
-    tk.until(c.at('once', { nth: 0 }) - 0.6);
+    tk.until(1.8);
     await tk.hover(card.getByRole('button').first(), { travel: 0.5, after: 0.2 });
     await tk.focus(page.getByRole('tooltip').first(), { zoom: 1.7, ease: 0.8, pad: 60 }).catch(() => undefined);
     await tk.finish(c.dur);
@@ -435,13 +481,13 @@ async function record(browser) {
     const prep = role(page, 'button', 'Prepare a private draft from my work');
     await tk.reveal(prep, { anchor: 0.45 });
     await tk.focus(prep, { zoom: 1.6, ease: 0.8, pad: 90 });
-    tk.until(c.at('prepare') - 0.6);
+    tk.until(1.4);
     await tk.click(prep, { travel: 0.5, after: 0 });
     await page.waitForURL(/tab=drafts/);
     tk.cut();
     tk.wide({ ease: 0.01 });
     await tk.capture(400);
-    tk.until(c.at('own') - 0.8);
+    tk.until(c.dur * 0.6);
     await tk.focus(page.getByText(/Recorded current award amount/).first().locator('xpath=ancestor::*[contains(@class,"card")][1]'), { zoom: 1.35, ease: 0.9, pad: 20 }).catch(() => undefined);
     await tk.finish(c.dur);
   }
@@ -451,7 +497,7 @@ async function record(browser) {
     await tk.start();
     await tk.click(role(page, 'button', 'Keep in my record'), { travel: 0.55, after: 0.1 });
     await tk.capture(300);
-    tk.until(c.at('link') - 0.8);
+    tk.until(1.6);
     await tk.goto('/record?tab=entries');
     await tk.focus(page.locator('main').getByRole('link').filter({ hasText: /award|UMT|2-Way/i }).first().locator('xpath=ancestor::*[self::li or self::tr][1]'), { zoom: 1.5, ease: 0.9, pad: 30 }).catch(() => undefined);
     await tk.finish(c.dur);
@@ -464,12 +510,14 @@ async function studio(browser) {
   const { context, page } = await openDemo(browser, BASE);
   const yesterday = new Date(Date.now() - 86_400_000).toISOString().slice(0, 10);
   const week = new Date(Date.now() - 6 * 86_400_000).toISOString().slice(0, 10);
+  const seeded = [];
   for (const data of [
     { title: 'Reconciled 30 ULOs totaling $41,806.12 in SABRS', date: yesterday, quantity: 30, unit_label: 'ULOs', dollar_amount: 41806.12, dollar_type: 'reconciled', result: 'zero findings at the quarterly review', category: 'Fiscal & Financial', eval_area: 'MOS / Mission Accomplishment', system: 'SABRS', visibility: 'private' },
     { title: 'Cleared 12 unmatched transactions in DAI', date: week, quantity: 12, unit_label: 'UMTs', result: 'every one posted before month-end close', category: 'Fiscal & Financial', eval_area: 'MOS / Mission Accomplishment', system: 'DAI', visibility: 'private' },
   ]) {
     const res = await page.request.post('/api/records/activities', { data, headers: { 'x-vantage-client': '1' } });
     if (!res.ok()) throw new Error(`seed activity: ${res.status()} ${await res.text()}`);
+    seeded.push(await res.json());
   }
   await page.goto('/reports', { waitUntil: 'networkidle' });
   await still(page, 's-bg');
@@ -478,7 +526,7 @@ async function studio(browser) {
     const tk = take(page, F, 's-intro');
     await tk.start();
     await tk.focus(page.getByRole('heading', { level: 1 }), { zoom: 1.4, ease: 0.01, pad: 60 });
-    tk.until(c.at('turns') - 0.3);
+    tk.until(0.9);
     await tk.click(role(page, 'button', 'New report'), { travel: 0.6, after: 0.1 });
     const start = page.getByRole('dialog', { name: 'Start a report' });
     await tk.focus(start, { zoom: 1.45, ease: 0.7, pad: 20 });
@@ -496,7 +544,7 @@ async function studio(browser) {
     tk.cut();
     tk.wide({ ease: 0.01 });
     await tk.capture(400);
-    tk.until(c.at('entries') - 0.6);
+    tk.until(c.dur * 0.35);
     await tk.click(role(page, 'button', 'Choose'), { travel: 0.5, after: 0.1 });
     const picker = page.getByRole('dialog', { name: 'Choose the records this report cites' });
     await tk.focus(picker, { zoom: 1.2, ease: 0.6, pad: 10 });
@@ -513,16 +561,35 @@ async function studio(browser) {
     tk.wide({ ease: 0.5 });
     const text = page.getByLabel('Mission accomplishment text');
     await tk.focus(text.locator('xpath=ancestor::section[1]'), { zoom: 1.3, ease: 0.7, pad: 10 });
-    await tk.type(text, 'Reconciled 30 ULOs worth $41,806.12 and cleared 12 UMTs, with zero findings at review.', { cps: 30 });
+    await tk.type(text, 'Reconciled 30 ULOs worth $41,806.12 and cleared 12 UMTs', { cps: 34 });
+    // Check a fact without leaving the writing.
+    const cited = page.getByRole('button', { name: 'Reconciled 30 ULOs totaling $41,806.12 in SABRS', exact: true });
+    await tk.click(cited, { travel: 0.5, after: 0.2 });
+    const peek = page.getByRole('dialog', { name: 'Reconciled 30 ULOs totaling $41,806.12 in SABRS' });
+    await tk.focus(peek, { zoom: 1.25, ease: 0.7, pad: 10 });
+    tk.until(c.card(1) - 0.9);
+    await tk.click(peek.getByRole('button', { name: 'Back to writing' }), { travel: 0.45, after: 0.1 });
+    // The entry is corrected elsewhere while the report is still being written.
+    const [sabrs] = seeded;
+    const moved = await page.request.put(`/api/records/activities/${sabrs.id}`, { data: { result: 'zero findings at the quarterly review; confirmed by the section lead', version: sabrs.version }, headers: H });
+    if (!moved.ok()) throw new Error(`edit cited record: ${moved.status()} ${await moved.text()}`);
+    await tk.focus(text.locator('xpath=ancestor::section[1]'), { zoom: 1.3, ease: 0.6, pad: 10 });
+    await tk.type(text, ', with zero findings at review.', { cps: 34 });
+    await tk.click(role(page, 'button', 'Save revision'), { travel: 0.5, after: 0.2 });
+    await tk.capture(300);
+    tk.wide({ ease: 0.5 });
+    await tk.focus(page.getByRole('alert').filter({ hasText: 'This was not saved' }), { zoom: 1.5, ease: 0.8, pad: 30 });
     await tk.finish(c.dur);
   }
   {
     const c = cue(F, 's-save');
     const tk = take(page, F, 's-save');
     await tk.start();
+    await tk.click(role(page, 'button', 'I have read the updated facts'), { travel: 0.5, after: 0.2 });
+    tk.wide({ ease: 0.5 });
     await tk.click(role(page, 'button', 'Save revision'), { travel: 0.5, after: 0.2 });
     await tk.capture(300);
-    tk.until(c.at('locked') - 0.5);
+    tk.until(c.dur * 0.5);
     await tk.focus(page.getByText('Saved through revision 1.').first(), { zoom: 1.7, ease: 0.9, pad: 70 }).catch(() => undefined);
     await tk.finish(c.dur);
   }
@@ -538,14 +605,14 @@ async function leading(browser) {
     const c = cue(F, 'l-today');
     const tk = take(page, F, 'l-today');
     await tk.start();
-    tk.until(c.at('section', { nth: 0 }) - 0.4);
+    tk.until(0.5);
     const cards = page.getByText('Unassigned', { exact: true }).locator('xpath=ancestor::div[contains(@class,"grid")][1]');
     await tk.focus(cards, { zoom: 1.12, ease: 0.9, pad: 20 });
     for (const [w, label] of [['unassigned', 'Unassigned'], ['overdue', 'Overdue'], ['blocked', 'Blocked'], ['waiting', 'Waiting']]) {
-      tk.until(c.at(w) - 0.25);
+      tk.until(c.card(1) + 0.2 + 0.7 * ['unassigned', 'overdue', 'blocked', 'waiting'].indexOf(w));
       await tk.point(page.getByText(label, { exact: true }).first(), { travel: 0.4, scroll: false });
     }
-    tk.until(c.at('what', { nth: 0 }) - 0.2);
+    tk.until(c.card(1) + 3.0);
     await tk.focus(page.getByText('Waiting', { exact: true }).first().locator('xpath=ancestor::*[contains(@class,"card") or self::a][1]'), { zoom: 1.9, ease: 0.8, pad: 30 });
     await tk.finish(c.dur);
   }
@@ -556,7 +623,7 @@ async function leading(browser) {
     const row = page.locator('section', { hasText: 'Open work by procedure' }).first();
     await tk.focus(row, { zoom: 1.2, ease: 0.8, pad: 10 });
     for (const w of ['commitments', 'orders', 'umts']) {
-      tk.until(c.at(w) - 0.3);
+      tk.until(0.8 + ['commitments', 'orders', 'umts'].indexOf(w));
       const label = { commitments: 'OCMT', orders: 'UDOU', umts: '2-WAY UMT' }[w];
       await tk.point(row.getByText(label, { exact: true }).first(), { travel: 0.4, scroll: false }).catch(() => undefined);
     }
@@ -570,7 +637,7 @@ async function leading(browser) {
     await tk.click(page.getByRole('link', { name: 'Full workload' }), { travel: 0.55, after: 0 });
     tk.cut();
     await tk.capture(500);
-    tk.until(c.at('holds') - 0.4);
+    tk.until(2.0);
     await tk.focus(page.locator('main section, main [class*="card"]').filter({ hasText: /held/ }).first(), { zoom: 1.3, ease: 0.9, pad: 10 }).catch(() => undefined);
     await tk.finish(c.dur);
   }
@@ -659,7 +726,7 @@ async function setupFilm(browser) {
     tk.cut();
     await tk.capture(500);
     await tk.focus(page.getByRole('heading', { level: 1 }).locator('xpath=..'), { zoom: 1.45, ease: 0.8, pad: 30 });
-    tk.until(c.at('settings') - 0.5);
+    tk.until(2.2);
     await tk.focus(page.getByRole('tablist').first(), { zoom: 1.5, ease: 0.8, pad: 20 });
     await tk.finish(c.dur);
   }
@@ -671,7 +738,7 @@ async function setupFilm(browser) {
     await tk.click(page.getByRole('tab', { name: 'Settings' }), { travel: 0.5, after: 0.1 });
     const switches = page.locator('section, .card').filter({ has: page.getByText('Self-registration', { exact: true }) }).last();
     await tk.focus(switches, { zoom: 1.4, ease: 0.8, pad: 10 });
-    tk.until(c.at('register') - 0.6);
+    tk.until(2.4);
     await tk.click(switches.getByRole('switch').first(), { travel: 0.45, after: 0.15 });
     await tk.click(switches.getByRole('button', { name: 'Save' }), { travel: 0.45, after: 0.1 });
     await sudoIfAsked(tk, page);
@@ -695,12 +762,20 @@ async function setupFilm(browser) {
     await sudoIfAsked(tk, page);
     await tk.capture(500);
     tk.wide({ ease: 0.7 });
-    tk.until(c.at('flows') - 0.4);
+    tk.until(c.dur * 0.72);
     await tk.focus(page.locator('main').getByText(TEAM.short_name, { exact: true }).first().locator('xpath=ancestor::*[self::li or self::tr or contains(@class,"card")][1]'), { zoom: 1.5, ease: 0.8, pad: 40 }).catch(() => undefined);
     await tk.finish(c.dur);
   }
   {
     const c = cue(F, 'su-people');
+    // A roster brought in off camera, so the sign-in email has people to go to.
+    const roster = ['Rank,First Name,Last Name,L2 Command,Fire Team,Username,Email,Role',
+      `Cpl,Riley,Chen,${OWNER_SETUP.unit_name},${TEAM.name},riley.chen,riley.chen@example.mil,Marine`,
+      `Cpl,Taylor,Nguyen,${OWNER_SETUP.unit_name},${TEAM.name},taylor.nguyen,taylor.nguyen@example.mil,Marine`,
+      `LCpl,Jordan,Reyes,${OWNER_SETUP.unit_name},${TEAM.name},jordan.reyes,jordan.reyes@example.mil,Marine`,
+      `Sgt,Casey,Brooks,${OWNER_SETUP.unit_name},,casey.brooks,casey.brooks@example.mil,NCO`].join('\n');
+    const imported = await page.request.post('/api/admin/accounts/import?apply=1', { data: Buffer.from(roster), headers: { ...H, 'content-type': 'text/csv', 'x-vantage-filename': 'roster (synthetic).csv' } });
+    if (!imported.ok()) throw new Error(`film roster: ${imported.status()} ${await imported.text()}`);
     const tk = take(page, F, 'su-people');
     await tk.start();
     await tk.goto('/team?tab=invites');
@@ -710,10 +785,17 @@ async function setupFilm(browser) {
     await tk.type(page.getByLabel('Last name'), 'Patel', { cps: 24 });
     await tk.click(page.getByRole('button', { name: 'Create link' }), { travel: 0.45, after: 0.1 });
     await tk.focus(page.locator('[data-invite-url]').locator('xpath=..'), { zoom: 1.7, ease: 0.7, pad: 30 });
-    tk.until(c.at('roster') - 0.9);
+    tk.until(c.dur * 0.35);
     await tk.goto('/operator?tab=users');
     await tk.focus(page.getByRole('button', { name: 'Import accounts' }), { zoom: 2.0, ease: 0.8, pad: 90 });
     await tk.point(page.getByRole('button', { name: 'Import accounts' }), { travel: 0.5 });
+    tk.until(c.dur * 0.6);
+    await tk.click(page.getByRole('button', { name: 'Email sign-in details' }), { travel: 0.45, after: 0.1 });
+    await sudoIfAsked(tk, page);
+    const details = page.getByRole('dialog', { name: 'Email sign-in details' });
+    await details.getByText('@riley.chen').waitFor();
+    await tk.capture(300);
+    await tk.focus(details, { zoom: 1.15, ease: 0.7, pad: 10 });
     await tk.finish(c.dur);
   }
   await context.close();
@@ -732,13 +814,13 @@ async function governance(browser) {
     await tk.start();
     const panel = page.locator('section, .card').filter({ has: page.getByRole('heading', { name: 'Retention schedules' }) }).first();
     await tk.focus(panel, { zoom: 1.2, ease: 0.8, pad: 10 });
-    tk.until(c.at('off') - 0.3);
+    tk.until(1.2);
     await tk.point(page.getByText('not set').first(), { travel: 0.45 });
-    tk.until(c.at('one', { nth: 0 }) - 0.5);
+    tk.until(2.2);
     await tk.click(page.locator('tr', { hasText: 'Activities' }).getByRole('button', { name: 'Set' }), { travel: 0.5, after: 0.1 });
     const dialog = page.getByRole('dialog', { name: 'Retention for Activities' });
     await tk.focus(dialog, { zoom: 1.4, ease: 0.6, pad: 20 });
-    tk.until(c.at('authority') - 1.0);
+    tk.until(3.4);
     await tk.type(dialog.getByLabel('Authority'), 'Unit records SOP 5210 (synthetic)', { cps: 48 });
     await tk.click(dialog.getByRole('switch'), { travel: 0.4, after: 0.1 });
     await tk.click(dialog.getByRole('button', { name: 'Save schedule' }), { travel: 0.4, after: 0.1 });
@@ -782,7 +864,7 @@ async function governance(browser) {
     await tk.click(page.getByRole('tab', { name: 'Privacy' }), { travel: 0.5, after: 0.1 });
     const stats = page.getByText('Tables holding personal data').locator('xpath=ancestor::div[contains(@class,"grid")][1]');
     await tk.focus(stats, { zoom: 1.25, ease: 0.8, pad: 10 });
-    tk.until(c.at('live') - 0.3);
+    tk.until(c.dur * 0.4);
     const inventory = page.getByRole('heading', { name: 'Data inventory' }).locator('xpath=ancestor::section[1]');
     await tk.reveal(page.getByRole('cell', { name: 'users', exact: true }), { anchor: 0.3, seconds: 1.3 });
     await tk.click(page.getByRole('cell', { name: 'users', exact: true }), { travel: 0.5, after: 0.1 });
@@ -817,6 +899,8 @@ async function firstWeek(browser) {
   };
   // Teammates already aboard, off camera.
   for (const [first, last, rank, username] of [['Riley', 'Chen', 'Cpl', 'riley.chen'], ['Taylor', 'Nguyen', 'Cpl', 'taylor.nguyen']]) {
+    const exists = await (await owner.page.request.get('/api/admin/users')).json();
+    if (exists.users?.some((u) => u.username === username)) continue;
     const url = await invite({ first_name: first, last_name: last, rank_id: rank });
     const token = new URL(url).searchParams.get('token');
     const guest = await browser.newContext({ baseURL: INSTANCE });
@@ -824,22 +908,41 @@ async function firstWeek(browser) {
     if (!r.ok() && r.status() !== 409) throw new Error(`accept ${username}: ${r.status()} ${await r.text()}`);
     await guest.close();
   }
-  const url = await invite({ first_name: 'Sam', last_name: 'Patel', rank_id: 'LCpl' });
+  // Sam's account comes from the roster, and the owner emails the sign-in details.
+  const roster = ['Rank,First Name,Last Name,L2 Command,Fire Team,Username,Email,Role,Billet', `LCpl,Sam,Patel,${OWNER_SETUP.unit_name},${TEAM.name},sam.patel,sam.patel@example.mil,Marine,Budget analyst`].join('\n');
+  const imported = await owner.page.request.post('/api/admin/accounts/import?apply=1', { data: Buffer.from(roster), headers: { ...H, 'content-type': 'text/csv', 'x-vantage-filename': 'roster (synthetic).csv' } });
+  if (!imported.ok()) throw new Error(`film roster: ${imported.status()} ${await imported.text()}`);
+  const users = (await (await owner.page.request.get('/api/admin/users')).json()).users;
+  const sam = users.find((u) => u.username === 'sam.patel');
+  const sent = await owner.page.request.post('/api/admin/accounts/sign-in-details', { data: { userIds: [sam.id] }, headers: H });
+  if (!sent.ok()) throw new Error(`sign-in details: ${sent.status()} ${await sent.text()}`);
   await owner.context.close();
 
   const { context, page } = await openInstance(browser, INSTANCE);
-  await page.goto(url, { waitUntil: 'networkidle' });
+  await page.goto('/__film/mail?to=sam.patel@example.mil', { waitUntil: 'networkidle' });
   {
     const c = cue(F, 'fw-invite');
     const tk = take(page, F, 'fw-invite');
     await tk.start();
-    const card = page.locator('.auth-card');
-    await tk.focus(card, { zoom: 1.25, ease: 0.8, pad: 10 });
-    tk.until(c.at('choose') - 0.5);
-    await tk.type(page.getByLabel('Username'), 'sam.patel', { cps: 24 });
+    await tk.focus(page.locator('h1'), { zoom: 1.5, ease: 0.01, pad: 140, dy: 60 });
+    tk.hold(0.8);
+    const details = page.locator('td').filter({ hasText: /^\s*Username\s*$/ }).first().locator('xpath=ancestor::table[1]');
+    await tk.focus(details, { zoom: 1.7, ease: 0.8, pad: 30 });
+    tk.until(c.dur * 0.3);
+    const choose = page.getByRole('link', { name: /Choose your password/ });
+    await tk.reveal(choose, { anchor: 0.45 });
+    await tk.focus(choose, { zoom: 1.8, ease: 0.7, pad: 90 });
+    // Mail links open a new tab; on film the page just follows the link.
+    await choose.evaluate((a) => a.removeAttribute('target'));
+    await tk.click(choose, { travel: 0.5, after: 0 });
+    await page.waitForURL(/\/reset\?token=/);
+    tk.cut();
+    tk.wide({ ease: 0.01 });
+    await tk.capture(700);
+    await tk.focus(page.locator('.auth-card'), { zoom: 1.25, ease: 0.6, pad: 10 });
     await tk.type(page.getByLabel('Password', { exact: true }), MARINE_PASSWORD, { cps: 44 });
-    await tk.click(page.getByRole('button', { name: 'Join and sign in' }), { travel: 0.45, after: 0 });
-    await page.waitForURL((u) => !u.pathname.startsWith('/invite'));
+    await tk.click(page.getByRole('button', { name: 'Set password and sign in' }), { travel: 0.45, after: 0 });
+    await page.waitForURL((u) => !u.pathname.startsWith('/reset'));
     tk.cut();
     tk.wide({ ease: 0.01 });
     await tk.capture(700);
@@ -851,7 +954,7 @@ async function firstWeek(browser) {
     const tk = take(page, F, 'fw-list');
     await tk.start();
     await tk.focus(list, { zoom: 1.2, ease: 0.8, pad: 10 });
-    tk.until(c.at('ticks') - 0.4);
+    tk.until(c.dur * 0.4);
     await tk.point(list.locator('li').first(), { travel: 0.5 });
     await tk.finish(c.dur);
   }
@@ -863,9 +966,9 @@ async function firstWeek(browser) {
     tk.cut();
     tk.wide({ ease: 0.01 });
     await tk.capture(500);
-    tk.until(c.at('passkey') - 0.4);
+    tk.until(c.dur * 0.35);
     await tk.focus(page.getByText('Passkeys', { exact: true }).locator('xpath=ancestor::section[1]'), { zoom: 1.45, ease: 0.8, pad: 10 });
-    tk.until(c.at('authenticator') - 0.4);
+    tk.until(c.dur * 0.62);
     await tk.focus(page.getByText('Authenticator app', { exact: true }).locator('xpath=ancestor::section[1]'), { zoom: 1.45, ease: 0.8, pad: 10 });
     await tk.finish(c.dur);
   }
@@ -877,7 +980,7 @@ async function firstWeek(browser) {
     const identity = page.getByText('Identity', { exact: true }).locator('xpath=ancestor::section[1]');
     await tk.focus(identity, { zoom: 1.3, ease: 0.6, pad: 10 });
     await tk.type(page.getByLabel('MOS'), '3451', { cps: 20 });
-    tk.until(c.at('rank', { nth: 0 }) - 0.2);
+    tk.until(1.6);
     await tk.focus(page.getByText('decides JEPES vs FITREP'), { zoom: 2.2, ease: 0.7, pad: 60 });
     tk.hold(0.6);
     tk.wide({ ease: 0.6 });
@@ -907,10 +1010,10 @@ async function firstWeek(browser) {
     tk.cut();
     tk.wide({ ease: 0.01 });
     await tk.capture(700);
-    tk.until(c.at('command') - 0.5);
+    tk.until(c.dur * 0.35);
     await tk.click(page.getByTestId('view-switcher'), { travel: 0.5, after: 0.1 });
     await tk.focus(page.getByRole('listbox', { name: 'Views' }), { zoom: 1.7, ease: 0.7, pad: 30 });
-    tk.until(c.at('goals') - 0.6);
+    tk.until(c.dur * 0.65);
     await tk.press('Escape', { show: false, after: 0.1 });
     await tk.focus(page.locator('main').getByText('Roster', { exact: true }).locator('xpath=ancestor::section[1]'), { zoom: 1.25, ease: 0.8, pad: 10 }).catch(() => undefined);
     await tk.finish(c.dur);
@@ -935,7 +1038,7 @@ async function visibility(browser) {
     await tk.press('n', { after: 0.2 });
     await tk.focus(dialog, { zoom: 1.25, ease: 0.7, pad: 12, dx: 60 });
     await tk.type(dialog.getByLabel('What did you do?'), 'Briefed 14 Marines on the travel policy', { cps: 30 });
-    tk.until(c.at('choose') - 0.6);
+    tk.until(c.dur * 0.45);
     await tk.click(dialog.getByRole('button', { name: /Organization, system, notes, visibility/ }), { travel: 0.45, after: 0.1 });
     const audience = dialog.getByRole('radio', { name: 'Only me' }).locator('xpath=ancestor::*[@role="radiogroup"][1]');
     await tk.reveal(audience);
@@ -947,7 +1050,7 @@ async function visibility(browser) {
     const tk = take(page, F, 'v-private');
     await tk.start();
     await tk.click(dialog.getByRole('radio', { name: 'Only me' }), { travel: 0.5, after: 0.2 });
-    tk.until(c.at('owner') - 0.4);
+    tk.until(c.dur * 0.4);
     await tk.focus(dialog.getByRole('radio', { name: 'Only me' }), { zoom: 2.1, ease: 0.8, pad: 50 });
     await tk.finish(c.dur);
   }
@@ -957,7 +1060,7 @@ async function visibility(browser) {
     await tk.start();
     await tk.click(dialog.getByRole('radio', { name: /Share with unit/ }), { travel: 0.5, after: 0.2 });
     await tk.focus(dialog.getByRole('radio', { name: /Share with unit/ }), { zoom: 2.0, ease: 0.8, pad: 50 });
-    tk.until(c.at('dashboard') - 0.6);
+    tk.until(c.dur * 0.55);
     await tk.click(dialog.getByRole('button', { name: 'Save activity' }), { travel: 0.45, after: 0.2 });
     tk.wide({ ease: 0.6 });
     await tk.finish(c.dur);
@@ -972,7 +1075,7 @@ async function visibility(browser) {
     await tk.capture(500);
     const line = page.getByText(/^Shared with /).first();
     await tk.focus(line, { zoom: 2.0, ease: 0.8, pad: 60 });
-    tk.until(c.at('plain') - 0.3);
+    tk.until(c.dur * 0.5);
     await tk.reveal(page.getByText(/Visible on the unit dashboard/), { anchor: 0.45 });
     await tk.focus(page.getByText(/Visible on the unit dashboard/).locator('xpath=ancestor::section[1]'), { zoom: 1.5, ease: 0.8, pad: 20 }).catch(() => undefined);
     await tk.finish(c.dur);
@@ -981,10 +1084,12 @@ async function visibility(browser) {
     const c = cue(F, 'v-never');
     const tk = take(page, F, 'v-never');
     await tk.start();
+    await tk.goto('/record?tab=drafts');
+    await tk.focus(page.locator('main').getByText(/private draft/).first().locator('xpath=ancestor::*[contains(@class,"card")][1]'), { zoom: 1.5, ease: 0.8, pad: 30 }).catch(() => undefined);
+    tk.until(c.card(1) - 0.3);
     await tk.goto('/settings?tab=security');
     const looked = page.getByText('Who has looked at your record', { exact: true }).locator('xpath=ancestor::section[1]');
     await tk.reveal(looked, { anchor: 0.2 });
-    tk.until(c.at('logged') - 1.2);
     await tk.focus(looked, { zoom: 1.4, ease: 0.8, pad: 10 });
     await tk.finish(c.dur);
   }
@@ -1004,7 +1109,7 @@ async function importFilm(browser) {
     await tk.start();
     await tk.click(page.getByRole('button', { name: 'Import a spreadsheet' }).first(), { travel: 0.55, after: 0.1 });
     await tk.focus(dialog, { zoom: 1.3, ease: 0.6, pad: 20 });
-    tk.until(c.at('original') - 0.6);
+    tk.until(1.8);
     await tk.focus(dialog.getByText(/original file is kept unchanged/i), { zoom: 1.9, ease: 0.8, pad: 50 });
     tk.hold(0.4);
     await page.getByLabel('Spreadsheet to import').setInputFiles(file);
@@ -1018,7 +1123,7 @@ async function importFilm(browser) {
     await tk.start();
     await tk.click(dialog.getByRole('button', { name: 'Next' }), { travel: 0.45, after: 0.2 });
     await tk.focus(dialog, { zoom: 1.2, ease: 0.7, pad: 10 });
-    tk.until(c.at('correct') - 0.4);
+    tk.until(c.dur * 0.5);
     await tk.point(dialog.getByLabel('Which column identifies each row'), { travel: 0.5 });
     await tk.finish(c.dur);
   }
@@ -1037,14 +1142,14 @@ async function importFilm(browser) {
     await tk.click(dialog.getByRole('button', { name: /^Import \d+ rows?/ }), { travel: 0.5, after: 0.2 });
     await tk.capture(900);
     await tk.focus(dialog.getByText(/new, \d+ updated/), { zoom: 1.8, ease: 0.7, pad: 60 });
-    tk.until(c.at('queue') - 0.3);
+    tk.until(2.6);
     await tk.click(dialog.getByRole('button', { name: 'Open the queue' }), { travel: 0.45, after: 0 });
     tk.cut();
     tk.wide({ ease: 0.01 });
     await tk.capture(600);
     await tk.type(page.getByPlaceholder(/Identifier, title or reference/), 'SYN-26-P-0101', { cps: 34 });
     await tk.focus(page.locator('table').first(), { zoom: 1.2, ease: 0.7, pad: 10 });
-    tk.until(c.at('traced') - 1.1);
+    tk.until(c.dur * 0.62);
     await tk.click(page.locator('tr', { hasText: 'SYN-26-P-0101' }).getByText('SYN-26-P-0101'), { travel: 0.45, after: 0 });
     tk.cut();
     await tk.capture(600);
@@ -1099,9 +1204,9 @@ async function analysisFilm(browser) {
     const summary = page.getByRole('heading', { name: 'Executive summary' }).locator('xpath=ancestor::section[1]');
     await tk.reveal(summary, { anchor: 0.08 });
     await tk.focus(summary.locator('ul').first(), { zoom: 1.5, ease: 0.8, pad: 20 });
-    tk.until(c.at('gap') - 0.4);
+    tk.until(c.dur * 0.4);
     await tk.point(summary.getByText(/Longest gap/).first(), { travel: 0.5, scroll: false });
-    tk.until(c.at('pace') - 0.4);
+    tk.until(c.dur * 0.65);
     await tk.point(summary.getByText(/At the current pace/).first(), { travel: 0.5, scroll: false });
     await tk.finish(c.dur);
   }
@@ -1112,7 +1217,7 @@ async function analysisFilm(browser) {
     const coverage = page.getByRole('heading', { name: 'Coverage' }).locator('xpath=ancestor::section[1]');
     await tk.reveal(coverage, { anchor: 0.15, seconds: 1.4 });
     await tk.focus(coverage, { zoom: 1.35, ease: 0.8, pad: 10 });
-    tk.until(c.at('strengthen') - 0.4);
+    tk.until(c.dur * 0.55);
     await tk.focus(page.getByRole('heading', { name: 'Data quality' }).locator('xpath=ancestor::section[1]'), { zoom: 1.4, ease: 0.8, pad: 10 });
     await tk.finish(c.dur);
   }
@@ -1147,11 +1252,11 @@ async function counselingFilm(browser) {
     const dialog = page.getByRole('dialog', { name: /Counsel Avery/ });
     await tk.focus(dialog, { zoom: 1.25, ease: 0.6, pad: 10 });
     await tk.type(dialog.getByLabel('Summary'), summary, { cps: 46 });
-    tk.until(c.at('well') - 0.6);
+    tk.until(2.6);
     await tk.type(dialog.getByLabel('Strengths'), 'Accurate, fast, and documents every step.', { cps: 40 });
-    tk.until(c.at('improve') - 0.4);
+    tk.until(4.6);
     await tk.type(dialog.getByLabel('Areas to improve'), 'Brief the section lead before month-end close.', { cps: 40 });
-    tk.until(c.at('goals') - 0.4);
+    tk.until(6.6);
     await tk.type(dialog.getByLabel('Goals set'), 'Lead the Q1 UMT review.', { cps: 40 });
     await tk.finish(c.dur);
   }
@@ -1177,7 +1282,7 @@ async function counselingFilm(browser) {
     await tk.click(row.getByRole('button').first(), { travel: 0.5, after: 0.2 });
     const view = page.getByRole('dialog');
     await tk.focus(view, { zoom: 1.2, ease: 0.6, pad: 10 });
-    tk.until(c.at('confirms') - 0.6);
+    tk.until(c.card(1) - 0.3);
     await tk.focus(view.getByText('Acknowledging confirms you read it, not that you agree.').locator('xpath=..'), { zoom: 1.7, ease: 0.7, pad: 30 });
     await tk.click(view.getByRole('button', { name: 'Acknowledge' }), { travel: 0.45, after: 0.2 });
     tk.wide({ ease: 0.6 });
@@ -1198,7 +1303,7 @@ async function counselingFilm(browser) {
   await context.close();
 }
 
-const FILMS = { hero, 'quick-log': quickLog, queue, 'reading-a-balance': balance, record, 'report-studio': studio, 'unit-dashboard': leading, setup: setupFilm, governance, 'first-week': firstWeek, visibility, import: importFilm, analysis: analysisFilm, counseling: counselingFilm };
+const FILMS = { ad, hero, 'quick-log': quickLog, queue, 'reading-a-balance': balance, record, 'report-studio': studio, 'unit-dashboard': leading, setup: setupFilm, governance, 'first-week': firstWeek, visibility, import: importFilm, analysis: analysisFilm, counseling: counselingFilm };
 
 if (import.meta.url === `file://${process.argv[1]}`) {
   const want = process.argv.slice(2);

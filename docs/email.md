@@ -44,6 +44,8 @@ Resend's records sit on their own names (`resend._domainkey`, and an MX and SPF 
 3. On Render set `VANTAGE_EMAIL_PROVIDER=resend`, `RESEND_API_KEY=<key>`, and `VANTAGE_EMAIL_FROM="Vantage <no-reply@vantageusmc.com>"`.
 4. Redeploy, then use **Owner console → Overview → Send test**.
 
+Resend accepts a few requests a second. When it answers 429 (or is briefly unavailable), Vantage waits as told and tries again up to four times under one idempotency key, so a roster-wide send finishes and no one gets a message twice.
+
 ### Moving from Resend to direct
 
 1. Set `VANTAGE_EMAIL_PROVIDER=direct` on Render (in `render.yaml` too, or the next blueprint sync puts `resend` back) and redeploy. Leave `RESEND_API_KEY` and Resend's DNS records in place for now.
@@ -57,9 +59,12 @@ Any SMTP relay works: `VANTAGE_EMAIL_PROVIDER=smtp` and `SMTP_URL=smtps://user:p
 ## What gets sent
 
 - Reset links: 30-minute, single-use, only when the account has an email.
+- Sign-in details: from **Owner console → Accounts → Email sign-in details**, everyone (or only those who have never signed in, or those not sent one yet) gets their username, the sign-in page, their unit, and a single-use link to choose a password that lasts 72 hours. No password is ever emailed: passwords are stored only as hashes, and nobody's current password changes until they use the link. Sending again replaces the earlier link. Accounts without an address are listed so the owner can hand them a temporary password instead. **Email sign-in** on any row sends to one person.
 - Invitations: 7-day link, sent when the leader supplies an address.
 - Email change: confirmation link before the address changes.
 - Weekly digest: opt-in per user, at their chosen day and hour in the instance time zone; what they logged, what is overdue, and what is closing.
 - Team messages: a leader who manages a unit's members can email everyone in it and the teams beneath it from **Team → Email the team**. Each Marine gets their own copy, replies go to the leader, everyone also sees it in Vantage, and it is recorded in the unit's access log. Five messages an hour per leader.
+
+Every message shares one design (`server/services/mailLayout.ts`): table-based so Outlook lays it out, inline styles so Gmail keeps them, a dark-mode palette for Apple Mail, a plain-text part that says everything the HTML does, and the mark served from `/brand/email-mark.png` (only over HTTPS; the wordmark beside it is live text, so a blocked image loses nothing).
 
 Every send is logged in `email_log` (recipient, kind, status, error) and shown on the owner overview and the Email tab.

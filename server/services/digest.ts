@@ -1,7 +1,7 @@
 import { zonedDay } from '../lib/clock.ts';
 import { withGoalProgress } from './records.ts';
 import type { AppContext } from '../context.ts';
-import { layout } from './email.ts';
+import { layout } from './mailLayout.ts';
 import { audit } from './audit.ts';
 import { formatDollars } from '../../shared/metrics.ts';
 import { isSummable } from '../../shared/constants.ts';
@@ -33,8 +33,8 @@ export function composeDigest(ctx: AppContext, user: DigestUser) {
   const followUps = db.prepare(`SELECT c.follow_up_date, u.first_name, u.last_name FROM counselings c JOIN users u ON u.id = c.user_id WHERE c.counselor_id = ? AND c.deleted_at IS NULL AND c.follow_up_date >= ? AND c.follow_up_date <= ? ORDER BY c.follow_up_date LIMIT 5`).all(user.id, todayIso, soon) as Array<{ follow_up_date: string; first_name: string; last_name: string }>;
 
   const sections: Array<{ heading: string; lines: string[] }> = [];
+  // The totals lead the message as figures; this section is what is behind them.
   sections.push({ heading: 'Last 7 days', lines: [
-    `${acts.length} ${acts.length === 1 ? 'activity' : 'activities'} logged${dollars ? `, ${formatDollars(dollars)} headline impact` : ''}`,
     ...(noOutcome ? [`${noOutcome} recent ${noOutcome === 1 ? 'entry is' : 'entries are'} missing an outcome`] : []),
     ...acts.slice(0, 3).map((a) => a.title),
   ] });
@@ -45,11 +45,19 @@ export function composeDigest(ctx: AppContext, user: DigestUser) {
 
   const subject = `Vantage weekly: ${acts.length} logged${overdue.length ? `, ${overdue.length} overdue` : ''}`;
   const content = layout({
+    eyebrow: 'Weekly digest',
     title: `Your week, ${user.first_name}`,
     intro: acts.length ? 'Here is what your record picked up this week and what needs attention next.' : 'Nothing was logged this week. One entry keeps the record current.',
+    stats: [
+      { label: acts.length === 1 ? 'entry logged' : 'entries logged', value: String(acts.length) },
+      ...(dollars ? [{ label: 'headline impact', value: formatDollars(dollars), tone: 'good' as const }] : []),
+      { label: 'overdue tasks', value: String(overdue.length), ...(overdue.length ? { tone: 'bad' as const } : {}) },
+      { label: 'due in 14 days', value: String(dueSoon.length), ...(dueSoon.length ? { tone: 'warn' as const } : {}) },
+    ],
     sections,
     cta: { label: 'Open Vantage', url: `${ctx.config.publicUrl}/` },
     footer: 'You receive this weekly digest because it is enabled in Settings. Turn it off there at any time.',
+    origin: ctx.config.publicUrl,
   });
   return { subject, ...content, stats: { activities: acts.length, overdue: overdue.length } };
 }

@@ -132,7 +132,7 @@ export default function Help() {
             title="Walkthroughs"
             subtitle={unrecorded === VIDEOS.length
               ? `${VIDEOS.length} walkthroughs are planned and none are recorded yet. The slots below say what each one will cover.`
-              : unrecorded === 0 ? `All ${VIDEOS.length} recorded, each with captions.` : `${VIDEOS.length - unrecorded} of ${VIDEOS.length} recorded.`}
+              : unrecorded === 0 ? `All ${VIDEOS.length} recorded.` : `${VIDEOS.length - unrecorded} of ${VIDEOS.length} recorded.`}
           >
             <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
               {VIDEOS.map((slot) => <VideoSlotCard key={slot.id} slot={slot} />)}
@@ -140,8 +140,8 @@ export default function Help() {
             <p className="mt-4 text-xs leading-relaxed text-ink-3">
               Grouped as {Object.values(TOPIC_LABELS).join(', ').toLowerCase()}. Each film is recorded on the real
               application with invented data: the synthetic demo, or a fresh instance for first launch and administration.
-              Every film is captioned, with the captions on until a narrated version replaces it.
-              <code className="mx-1 rounded bg-surface-2 px-1 py-0.5">npm run film</code> records, captions and scores them, and
+              There is no narration: everything a film says is on screen.
+              <code className="mx-1 rounded bg-surface-2 px-1 py-0.5">npm run film</code> records and scores them, and
               publishes them here and on the public page.
             </p>
           </Panel>

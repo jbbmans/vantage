@@ -1,11 +1,11 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, Check, Download, FileText, History, Plus, ShieldCheck, X } from 'lucide-react';
+import { useQuery, useQueryClient } from '@tanstack/react-query';
+import { AlertTriangle, ArrowLeft, Check, Download, ExternalLink, FileText, History, Plus, ShieldCheck, X } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Textarea, Select, Badge, EmptyState, Skeleton, Panel } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
-import { DateText, PageShell } from '@/components/common';
-import { useIdentity, useReportDrafts, useReportDraft } from '@/lib/queries';
+import { DateText, DescriptionList, PageShell } from '@/components/common';
+import { keys, useIdentity, useReportDrafts, useReportDraft } from '@/lib/queries';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { editorClock, track } from '@/lib/telemetry';
 import * as api from '@/lib/api';
@@ -114,6 +114,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
   const [picker, setPicker] = useState(false);
   const [history, setHistory] = useState(false);
   const [stale, setStale] = useState<any[] | null>(null);
+  const [peek, setPeek] = useState<any | null>(null);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
 
@@ -304,7 +305,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
           <Button onClick={() => setSections((prev) => [...prev, { heading: 'New section', body: '', source_ids: [] }])}><Plus className="h-4 w-4" />Add a section</Button>
         </div>
 
-        <Panel title={`${chosen.length} cited ${chosen.length === 1 ? 'record' : 'records'}`} subtitle="Every claim traces to one of these" action={<Button size="xs" variant="ghost" onClick={() => setPicker(true)}>Choose</Button>}>
+        <Panel title={`${chosen.length} cited ${chosen.length === 1 ? 'record' : 'records'}`} subtitle="Every claim traces to one of these. Click one to check it." action={<Button size="xs" variant="ghost" onClick={() => setPicker(true)}>Choose</Button>}>
           {chosen.length === 0 ? (
             <EmptyState title="Nothing cited yet" description="Pick the records this report is built from. A report cannot be saved without them." action={<Button onClick={() => setPicker(true)}>Choose records</Button>} />
           ) : (
@@ -315,7 +316,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
                   <li key={s.id} className={cn('rounded-md border px-3 py-2 text-sm', moved ? 'border-warn/50 bg-warn/5' : 'border-line')}>
                     <span className="flex items-start justify-between gap-2">
                       <span className="min-w-0">
-                        <span className="block truncate font-medium text-ink">{s.title}</span>
+                        <button type="button" onClick={() => setPeek(s)} title="Check this entry" className="block w-full truncate rounded-sm text-left font-medium text-ink underline-offset-2 hover:text-accent hover:underline focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent">{s.title}</button>
                         <span className="block text-xs text-ink-3">
                           <DateText value={s.date} />
                           {s.quantity != null ? ` · ${formatNumber(s.quantity)} ${s.unit_label || ''}` : ''}
@@ -364,6 +365,8 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
         )}
       </Dialog>
 
+      <CitedEntry source={peek} citedVersion={peek ? versions[peek.id] : undefined} onClose={() => setPeek(null)} />
+
       <Dialog
         open={history} onOpenChange={setHistory} title="Revision history" size="md"
         description="Each revision is kept as it was saved, with the facts it was built from."
@@ -389,5 +392,56 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
         )}
       </Dialog>
     </div>
+  );
+}
+
+/** A cited entry as it stands now, opened beside the writing so checking a fact never loses a word. */
+function CitedEntry({ source, citedVersion, onClose }: { source: any | null; citedVersion?: number; onClose: () => void }) {
+  const { data: r, isPending, error } = useQuery({
+    queryKey: source ? keys.record(source.table, source.id) : ['record', 'none'],
+    queryFn: () => api.getRecord(source.table, source.id),
+    enabled: Boolean(source),
+    retry: false,
+  });
+  const changed = r && citedVersion != null && Number(r.version) !== citedVersion;
+  return (
+    <Dialog
+      open={Boolean(source)} onOpenChange={(o) => { if (!o) onClose(); }} variant="drawer"
+      title={source?.title || 'Cited entry'}
+      description="The entry as it stands now. What you have written stays as it is."
+      footer={<>
+        {source?.table === 'activities' && <Button asChild variant="ghost"><a href={`/records/${source.id}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="h-4 w-4" />Open the full entry</a></Button>}
+        <Button variant="primary" onClick={onClose}>Back to writing</Button>
+      </>}
+    >
+      {isPending ? <Skeleton className="h-48" /> : error || !r ? (
+        <EmptyState title="That entry is not available" description={api.errorText(error) || 'It may have been deleted since you cited it.'} />
+      ) : (
+        <>
+          {changed && (
+            <p className="mb-3 flex items-start gap-2 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink" role="status">
+              <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0 text-warn" />This changed after you cited it. Saving will ask you to read the new facts first.
+            </p>
+          )}
+          <DescriptionList items={[
+            ['Date', r.date ? <DateText value={r.date} /> : null],
+            ['Quantity', r.quantity != null ? `${formatNumber(r.quantity)} ${r.unit_label || ''}`.trim() : null],
+            ['Value', r.dollar_amount != null ? `${formatDollars(r.dollar_amount)}${r.dollar_type ? ` · ${r.dollar_type}` : ''}` : null],
+            ['Result', r.result],
+            ['System', r.system],
+            ['Organization', r.organization],
+            ['Category', r.category],
+            ['Hours', r.hours],
+            ['Provider', r.provider],
+            ['Strengths', r.strengths],
+            ['To improve', r.improvements],
+            ['Goals set', r.goals_set],
+            ['Citation', r.citation],
+            ['Notes', r.notes ? <span className="whitespace-pre-wrap">{r.notes}</span> : null],
+          ]} />
+          <p className="mt-3 text-2xs text-ink-3">Updated <DateText value={r.updated_at} /> · version {r.version}</p>
+        </>
+      )}
+    </Dialog>
   );
 }

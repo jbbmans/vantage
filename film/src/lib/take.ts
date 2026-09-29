@@ -46,7 +46,9 @@ export const WIDE: Cam = { z: 1, cx: VW / 2, cy: VH / 2 };
 function targetOf(e: TakeEvent): Cam {
   if (e.type !== 'focus') return WIDE;
   const b = e.box;
-  const z = Math.max(1, Math.min(e.zoom, (VW * 0.94) / b.width, (VH * 0.9) / b.height));
+  // Push in, but gently: the window is large on screen, and a hard zoom crops the app mid-word.
+  const soft = 1 + (e.zoom - 1) * 0.62;
+  const z = Math.max(1, Math.min(soft, 1.55, (VW * 0.94) / b.width, (VH * 0.9) / b.height));
   const hw = VW / 2 / z; const hh = VH / 2 / z;
   const cx = Math.min(VW - hw, Math.max(hw, b.x + b.width / 2));
   const cy = Math.min(VH - hh, Math.max(hh, b.y + b.height / 2));

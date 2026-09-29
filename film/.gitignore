@@ -1,5 +1,5 @@
 node_modules/
-# Everything below is made by the pipeline from what is committed (script, voice cache, tools).
+# Everything below is made by the pipeline from what is committed (script and tools).
 out/
 .work/
 smoke/
@@ -10,3 +10,4 @@ public/fonts/
 public/brand/
 src/generated/takes.json
 src/generated/media.json
+src/generated/stills.json

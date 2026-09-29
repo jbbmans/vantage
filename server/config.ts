@@ -34,7 +34,7 @@ export interface AppConfig {
     enabled: boolean; apiKey: string; baseUrl: string; models: string[]; defaultModel: string; maxOutputTokens: number; timeoutMs: number;
     requestsPerMinute: number; perUserRequestsPerMinute: number; dailyTokenBudget: number; perUserDailyTokens: number;
   };
-  email: { provider: 'none' | 'resend' | 'smtp' | 'direct' | 'memory'; from: string; replyTo: string; resendApiKey: string; smtpUrl: string; dkimSelector: string; helo: string; directRoute: string };
+  email: { provider: 'none' | 'resend' | 'smtp' | 'direct' | 'memory'; from: string; replyTo: string; resendApiKey: string; smtpUrl: string; dkimSelector: string; helo: string; directRoute: string; resendUrl: string };
   maradmins: { enabled: boolean; refreshMinutes: number; source: string };
   m365: { clientId: string; clientSecret: string; tenant: string; redirectUri: string; endpointOverride: string | null };
   selfRegistration: boolean;
@@ -222,6 +222,7 @@ export function loadConfig(env = process.env): AppConfig {
       dkimSelector: (env.VANTAGE_DKIM_SELECTOR || 'vantage').replace(/[^a-z0-9-]/gi, '').slice(0, 40) || 'vantage',
       helo: (env.VANTAGE_EMAIL_HELO || '').trim(),
       directRoute: test ? (env.VANTAGE_EMAIL_DIRECT_ROUTE || '') : '',
+      resendUrl: (test && env.VANTAGE_RESEND_URL) || 'https://api.resend.com/emails',
     },
     maradmins: {
       enabled: envBool(env, 'VANTAGE_MARADMIN_ENABLED', false),

@@ -1,6 +1,6 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import { subtreeIds, membersAcross } from '../authz/scope.ts';
-import { layout } from './email.ts';
+import { layout } from './mailLayout.ts';
 import { notify } from './notifications.ts';
 import { getUnit } from './org.ts';
 
@@ -36,9 +36,13 @@ export async function sendTeamMessage(ctx: AppContext, sender: SessionUser, unit
   const senderName = [sender.rank_id, sender.first_name, sender.last_name].filter(Boolean).join(' ');
   const list = recipients(ctx, unitId, sender.id);
   const mail = layout({
+    eyebrow: `Message to ${unitLabel}`,
     title: message.subject,
     intro: message.body,
+    details: [{ label: 'From', value: senderName }, { label: 'To', value: `${unit.name} and every team beneath it` }],
+    cta: { label: 'Open Vantage', url: `${ctx.config.publicUrl}/team?tab=overview` },
     footer: `${senderName} sent this to ${unitLabel} through Vantage.${sender.email ? ' Reply to reach them directly.' : ''}`,
+    origin: ctx.config.publicUrl,
   });
   let emailed = 0; let queued = 0; let failed = 0;
   for (const r of list) {

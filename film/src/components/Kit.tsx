@@ -1,6 +1,7 @@
 import type { CSSProperties, ReactNode } from 'react';
 import { Img, staticFile, useCurrentFrame } from 'remotion';
 import { easeOut, p, rand } from '../lib/motion';
+import stills from '../generated/stills.json';
 import { C, FONT, MONO } from '../theme';
 
 /** Dark glass: the film's card material. */
@@ -15,8 +16,12 @@ export function Glass({ children, style, radius = 28, pad = 36 }: { children?: R
   );
 }
 
-export function Shot({ src, width, natural, radius = 20, style, glow }: { src: string; width: number; natural: [number, number]; radius?: number; style?: CSSProperties; glow?: number }) {
-  const h = (width * natural[1]) / natural[0];
+/** Pixel sizes of the stills, recorded when they are captured. */
+const SIZES = stills as unknown as Record<string, [number, number]>;
+
+export function Shot({ src, width, natural, radius = 20, style, glow }: { src: string; width: number; natural?: [number, number]; radius?: number; style?: CSSProperties; glow?: number }) {
+  const [nw, nh] = natural ?? SIZES[src] ?? [16, 9];
+  const h = (width * nh) / nw;
   return (
     <div style={{ position: 'relative', width, height: h, ...style }}>
       <div style={{ position: 'absolute', inset: -9, borderRadius: radius + 9, background: 'rgba(255,255,255,0.04)', boxShadow: `inset 0 0 0 1px rgba(255,255,255,0.09), 0 60px 130px -40px rgba(0,0,0,0.8)${glow ? `, 0 0 ${80 * glow}px rgba(63,208,189,${0.25 * glow})` : ''}` }} />

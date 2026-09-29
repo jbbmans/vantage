@@ -13,7 +13,7 @@ import { presentedCertificate, resolveAccount, CacError } from '../auth/cac.ts';
 import { authenticationOptions, completeAuthentication } from '../auth/passkeys.ts';
 import { record } from '../services/telemetry.ts';
 import { audit } from '../services/audit.ts';
-import { layout } from '../services/email.ts';
+import { layout } from '../services/mailLayout.ts';
 import { newId, now } from '../lib/ids.ts';
 import { claimUnit, addMember } from '../services/org.ts';
 import { slug } from '../lib/ids.ts';
@@ -242,7 +242,17 @@ authRouter.post('/forgot', wrap(async (req, res) => {
     revokeTokens(ctx, 'reset', row.id);
     const { token } = issueToken(ctx, 'reset', { userId: row.id, email: row.email, ttlMinutes: 30, payload: { ip } });
     const url = `${ctx.config.publicUrl}/reset?token=${encodeURIComponent(token)}`;
-    const mail = layout({ title: 'Reset your Vantage password', intro: `${row.first_name}, someone asked to reset the password for ${row.username}. This link works for 30 minutes and only once. If that was not you, ignore this message.`, cta: { label: 'Choose a new password', url } });
+    const mail = layout({
+      eyebrow: 'Account recovery',
+      title: 'Reset your password',
+      preheader: 'A one-time link to choose a new Vantage password. It works for 30 minutes.',
+      intro: `${row.first_name}, someone asked to reset the password for your Vantage account. Choose a new one with the button below.`,
+      details: [{ label: 'Username', value: row.username, mono: true }],
+      cta: { label: 'Choose a new password', url },
+      note: 'This link works once and expires in 30 minutes. If you did not ask for it, ignore this message: your password stays as it is.',
+      footer: 'Vantage sent this because a password reset was requested for your account.',
+      origin: ctx.config.publicUrl,
+    });
     audit(ctx, { actor_id: row.id, action: 'password_reset_requested', subject_id: row.id, ip });
     void ctx.mailer.send({ to: row.email, subject: 'Reset your Vantage password', text: mail.text, html: mail.html, kind: 'reset', userId: row.id }).catch(() => undefined);
   }
@@ -252,7 +262,14 @@ authRouter.post('/forgot', wrap(async (req, res) => {
 authRouter.get('/reset', wrap((req, res) => {
   const token = String(req.query.token || '');
   const pending = peekToken(req.ctx, 'reset', token);
-  res.json({ valid: Boolean(pending), email: pending?.email ? pending.email.replace(/^(.).*(@.*)$/, '$1***$2') : null });
+  // A sign-in link's email already told its holder the username; saying it again on the page is what makes it usable.
+  const signIn = pending?.payload.purpose === 'sign_in' && pending.user_id
+    ? req.ctx.db.prepare('SELECT username FROM users WHERE id = ? AND active = 1').get(pending.user_id) as { username: string } | undefined
+    : undefined;
+  res.json({
+    valid: Boolean(pending), email: pending?.email ? pending.email.replace(/^(.).*(@.*)$/, '$1***$2') : null,
+    ...(signIn ? { purpose: 'sign_in', username: signIn.username, expiresAt: pending!.expires_at } : {}),
+  });
 }));
 
 authRouter.post('/reset', wrap((req, res) => {

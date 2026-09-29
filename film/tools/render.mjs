@@ -1,6 +1,6 @@
 import { spawn, spawnSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
-import { copyFileSync, existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
+import { copyFileSync, cpSync, existsSync, mkdirSync, readdirSync, readFileSync, rmSync, writeFileSync } from 'node:fs';
 import { dirname, join } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
@@ -56,25 +56,43 @@ async function instanceServer() {
   throw new Error('the film instance did not start');
 }
 
+/** The poster: the logo for the ad and the tour, the title card for a chapter. */
 function posterFrame(tl) {
-  if (tl.id === 'hero') { const s = tl.scenes.find((x) => x.id === 'title'); return Math.round(s.from + (s.to - s.from) * 0.8); }
-  const s = tl.scenes[2] ?? tl.scenes[1];
-  return Math.round(s.from + (s.to - s.from) * 0.7);
+  const s = tl.id === 'hero' ? tl.scenes.find((x) => x.id === 'title') : tl.id === 'ad' ? tl.scenes.find((x) => x.id === 'ad-logo') : tl.scenes[0];
+  return Math.round(s.from + (s.to - s.from) * 0.85);
+}
+
+/** Fonts and brand art come from the application, so the films always match it. */
+function stagePublic() {
+  for (const dir of ['fonts', 'brand']) {
+    rmSync(join(ROOT, 'public', dir), { recursive: true, force: true });
+    cpSync(join(REPO, 'public', dir), join(ROOT, 'public', dir), { recursive: true });
+  }
+  measureStills();
+}
+
+/** Each still's pixel size, read from its PNG header, so a still is never drawn stretched. */
+export function measureStills() {
+  const dir = join(ROOT, 'public', 'screens');
+  const sizes = {};
+  if (existsSync(dir)) for (const f of readdirSync(dir)) {
+    if (!f.endsWith('.png')) continue;
+    const b = readFileSync(join(dir, f));
+    sizes[f.slice(0, -4)] = [b.readUInt32BE(16), b.readUInt32BE(20)];
+  }
+  mkdirSync(join(ROOT, 'src', 'generated'), { recursive: true });
+  writeFileSync(join(ROOT, 'src', 'generated', 'stills.json'), JSON.stringify(sizes, null, 1));
 }
 
 async function main() {
   mkdirSync(OUT, { recursive: true });
 
-  // 1–2. Voice and timeline.
-  const { voiceAll } = await import('./voice.mjs');
-  const manifest = await voiceAll({ check: flag('--no-voice') });
-  const { buildTimelines, captionsFor } = await import('./timeline.mjs');
-  const timelines = buildTimelines(manifest);
+  // 1. Timeline: cards timed for reading, on the beat.
+  stagePublic();
+  const { buildTimelines } = await import('./timeline.mjs');
+  const timelines = buildTimelines();
   const ids = Object.keys(timelines).filter((id) => !wanted.length || wanted.includes(id));
   if (!ids.length) throw new Error(`no such film: ${wanted.join(', ')}`);
-  for (const id of ids) writeFileSync(join(OUT, `${id}.vtt`), captionsFor(timelines[id]));
-  const unvoiced = ids.filter((id) => timelines[id].estimated > 0);
-  if (unvoiced.length) log(`narration still estimated for: ${unvoiced.join(', ')} — ${flag('--allow-unvoiced') ? 'publishing with music and captions only, as asked' : 'these render as drafts and are not published'}`);
 
   // 3. Capture.
   if (!flag('--reuse-shots')) {
@@ -88,12 +106,15 @@ async function main() {
       for (const id of order) { log(`capturing ${id}`); await FILMS[id](browser); }
       await browser.close();
       collectTakes();
+      measureStills();
     } finally { server?.kill(); instance?.kill(); }
   }
 
+  if (flag('--capture-only')) { log('captured; stopping as asked'); return; }
+
   // 4. Score and mix.
   const { score } = await import(`./score.mjs?${Date.now()}`);
-  for (const id of ids) { const r = score(id); log(`mixed ${id}: ${r.voiced ? `${r.voiced} lines of voice` : 'music only'}`); }
+  for (const id of ids) { const r = score(id); log(`scored ${id}: ${r.seconds.toFixed(1)}s, ${r.style}`); }
 
   // 5. Render.
   const { bundle } = await import('@remotion/bundler');
@@ -108,7 +129,7 @@ async function main() {
     await renderMedia({
       serveUrl, composition, codec: 'h264', outputLocation: output, browserExecutable: BROWSER,
       audioCodec: 'aac', audioBitrate: '192k', x264Preset: 'slow', pixelFormat: 'yuv420p', colorSpace: 'bt709',
-      ...(id === 'hero' ? { ...ENCODE.hero, ffmpegOverride: keepGrain } : ENCODE.chapter),
+      ...(id === 'hero' || id === 'ad' ? { ...ENCODE.hero, ffmpegOverride: keepGrain } : ENCODE.chapter),
       concurrency: Number(process.env.FILM_CONCURRENCY || 3),
       onProgress: ({ progress }) => { const p = Math.floor(progress * 10); if (p !== last) { last = p; process.stdout.write(`\rfilm: rendering ${id} ${p * 10}%   `); } },
     });
@@ -129,14 +150,13 @@ async function main() {
   const url = (file) => `/videos/films/${file}?v=${createHash('sha256').update(readFileSync(join(dest, file))).digest('hex').slice(0, 10)}`;
   for (const id of made) {
     const tl = timelines[id];
-    const voiced = tl.estimated === 0;
-    if (!voiced && !flag('--allow-unvoiced')) { log(`not publishing ${id}: ${tl.estimated} lines have no recorded voice`); continue; }
     const slot = tl.slot;
     const r = spawnSync(join(FF_DIR, 'ffmpeg'), ['-hide_banner', '-loglevel', 'error', '-y', '-i', join(OUT, `${id}.mp4`), '-c', 'copy', '-movflags', '+faststart', join(dest, `${slot}.mp4`)], { env: ENV, encoding: 'utf8' });
     if (r.status !== 0) throw new Error(`faststart ${id}: ${r.stderr}`);
     copyFileSync(join(OUT, `${id}.jpg`), join(dest, `${slot}.jpg`));
-    copyFileSync(join(OUT, `${id}.vtt`), join(dest, `${slot}.vtt`));
-    index[slot] = { src: url(`${slot}.mp4`), poster: url(`${slot}.jpg`), captions: url(`${slot}.vtt`), seconds: Math.round(tl.seconds), published: today, voiced };
+    // No narration: the words are on screen, so there is nothing for a caption track to add.
+    rmSync(join(dest, `${slot}.vtt`), { force: true });
+    index[slot] = { src: url(`${slot}.mp4`), poster: url(`${slot}.jpg`), seconds: Math.round(tl.seconds), published: today, textOnly: true };
     log(`published ${slot}`);
   }
   writeFileSync(indexPath, `${JSON.stringify(index, null, 2)}\n`);

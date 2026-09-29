@@ -16,7 +16,7 @@ import { exportInstance, importInstance } from '../services/exports.ts';
 import { metaSet, SCHEMA_VERSION } from '../db/index.ts';
 import { VERSION } from '../version.ts';
 import { newId, now } from '../lib/ids.ts';
-import { layout } from '../services/email.ts';
+import { layout } from '../services/mailLayout.ts';
 import { checkRecords, dnsHostOf, domainOf, heloName, lastPath, probePath, requiredRecords } from '../services/directMail.ts';
 import type { AppContext } from '../context.ts';
 import { runDigestTick } from '../services/digest.ts';
@@ -28,6 +28,7 @@ import { listSchedules, saveSchedule, openHolds, placeHold, releaseHold, runDisp
 import { buildInventory, inventoryMarkdown } from '../services/privacyInventory.ts';
 import { verifyAllCases, anchorCaseHeads } from '../services/caseSeal.ts';
 import { readRoster, planAccounts, applyAccounts } from '../services/accountImport.ts';
+import { signInAudience, sendSignInDetails, MAX_SIGN_IN_BATCH } from '../services/signInMail.ts';
 
 export const adminRouter = Router();
 adminRouter.use(requireAuth, requireOperator, requireSudo);
@@ -157,7 +158,15 @@ adminRouter.post('/email/test', wrap(async (req, res) => {
   if (!ctx.mailer.enabled) throw badRequest('Email is not configured. Set VANTAGE_EMAIL_PROVIDER and its credentials.');
   const to = String(req.body?.to || req.user.email || '');
   if (!to) throw badRequest('Provide a destination address or add an email to your profile.');
-  const mail = layout({ title: 'Vantage email is working', intro: `This test was sent from ${ctx.config.publicUrl} using the ${ctx.mailer.provider} provider.` });
+  const mail = layout({
+    eyebrow: 'Test message',
+    title: 'Email is working',
+    intro: 'If you are reading this, Vantage can reach this inbox. Reset links, invitations, sign-in details and digests will arrive the same way.',
+    details: [{ label: 'Sent from', value: ctx.config.publicUrl }, { label: 'Provider', value: ctx.mailer.provider }, { label: 'From address', value: ctx.config.email.from }, { label: 'Sent at', value: new Date().toLocaleString('en-US', { timeZone: ctx.config.timezone, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) }],
+    note: 'Check that this message did not land in spam. For direct delivery, open the message headers and look for “dkim=pass”.',
+    footer: 'An owner sent this test from the Vantage Owner console.',
+    origin: ctx.config.publicUrl,
+  });
   const result = await ctx.mailer.send({ to, subject: 'Vantage email test', text: mail.text, html: mail.html, kind: 'test', userId: req.user.id });
   if (!result.ok) throw badRequest(result.error || 'Send failed.');
   res.json({ ok: true, queued: Boolean(result.queued) });
@@ -183,6 +192,18 @@ adminRouter.post('/accounts/import', accountRoster, wrap((req, res) => {
   const result = applyAccounts(req.ctx, req.user, rows, clientIp(req));
   audit(req.ctx, { actor_id: req.user.id, action: 'accounts_imported', entity: 'instance', detail: `${result.created} created; ${result.counts.exists} already existed; ${result.counts.error} skipped; ${result.counts.new_units} new units`, ip: clientIp(req) });
   res.json(result);
+}));
+
+adminRouter.get('/accounts/sign-in-details', wrap((req, res) => res.json(signInAudience(req.ctx, req.user.id))));
+
+adminRouter.post('/accounts/sign-in-details', wrap(async (req, res) => {
+  const ctx = req.ctx;
+  const { userIds } = parse(z.object({ userIds: z.array(z.string().max(64)).min(1).max(MAX_SIGN_IN_BATCH) }), req.body);
+  if (!ctx.mailer.enabled) throw badRequest('Email is not configured. Set VANTAGE_EMAIL_PROVIDER and its credentials.');
+  // One at a time: a provider's rate limit is per second, and each person's link is issued only as their mail goes.
+  const results = [];
+  for (const id of [...new Set(userIds)]) results.push(await sendSignInDetails(ctx, req.user, id, clientIp(req)));
+  res.json({ results });
 }));
 
 adminRouter.get('/units', wrap((req, res) => {

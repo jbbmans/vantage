@@ -2,6 +2,7 @@ import { readFileSync, writeFileSync, mkdirSync, existsSync } from 'node:fs';
 import { join, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { spawnSync } from 'node:child_process';
+import { MOMENTS } from '../src/moments.ts';
 
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const FF_DIR = join(ROOT, 'node_modules', '@remotion', 'compositor-linux-x64-gnu');
@@ -19,7 +20,6 @@ const mtof = (m) => 440 * 2 ** ((m - 69) / 12);
 const cents = (c) => 2 ** (c / 1200);
 const clamp = (x, a, b) => Math.min(b, Math.max(a, x));
 const pan2 = (pan) => { const th = ((clamp(pan, -1, 1) + 1) * Math.PI) / 4; return [Math.cos(th), Math.sin(th)]; };
-const db = (d) => 10 ** (d / 20);
 
 class Bus {
   constructor(seconds) { this.n = Math.ceil(seconds * SR); this.L = new Float32Array(this.n); this.R = new Float32Array(this.n); }
@@ -266,25 +266,58 @@ function shimmer(bus, t, dur, notes, { amp = 0.03 } = {}) {
   bus.stereo(t, L, R, amp / notes.length);
 }
 
-const CHORDS = {
-  Dm: { root: 38, pad: [57, 62, 65, 69, 76], arp: [62, 65, 69, 74, 76, 81] },
-  Bb: { root: 34, pad: [58, 62, 65, 69, 74], arp: [58, 62, 65, 69, 74, 77] },
-  F: { root: 41, pad: [57, 60, 65, 67, 72], arp: [60, 65, 67, 69, 72, 77] },
-  C: { root: 36, pad: [55, 60, 62, 67, 72], arp: [60, 62, 67, 72, 74, 79] },
-  D: { root: 38, pad: [57, 62, 66, 69, 76], arp: [62, 66, 69, 74, 76, 81] },
-};
-const PROG = ['Dm', 'Bb', 'F', 'C'];
-const ARP = [0, 2, 1, 3, 2, 4, 3, 5];
 
-function clock(tl) {
-  const sc = (id) => tl.scenes.find((s) => s.id === id);
-  const norm = (w) => w.toLowerCase().replace(/[^\p{L}\p{N}$]/gu, '');
-  return {
-    start: (id) => sc(id).start, end: (id) => sc(id).end,
-    w: (id, word, nth = 0) => { const ws = sc(id).lines.flatMap((l) => l.words).filter((x) => norm(x.word) === norm(word)); return (ws[nth] ?? ws[0] ?? { start: sc(id).start }).start; },
-    line: (id, i) => sc(id).lines[i],
-  };
+// ─── New instruments ──────────────────────────────────────────────────────────────────────────────────
+
+/** A two-operator FM voice: an electric piano when the ratio is 1, a bell when it is not a whole number. */
+function fm(bus, t, m, { vel = 0.5, dur = 1.6, ratio = 1, index = 2.6, decay = 0.9, pan = 0, tine = 0.25, gain = 0.2 } = {}) {
+  const f = mtof(m); const n = Math.ceil(dur * SR); const s = new Float32Array(n);
+  for (let i = 0; i < n; i++) {
+    const tt = i / SR;
+    const env = Math.min(1, tt / 0.004) * Math.exp(-tt / decay);
+    const idx = index * Math.exp(-tt / (decay * 0.45)) * (0.6 + vel * 0.6);
+    const mod = Math.sin(2 * Math.PI * f * ratio * tt) * idx + Math.sin(2 * Math.PI * f * 14 * tt) * tine * Math.exp(-tt / 0.03);
+    s[i] = Math.sin(2 * Math.PI * f * tt + mod) * env;
+  }
+  biquad(s, 'hp', 120);
+  bus.mono(t, s, vel * gain, pan);
 }
+const epiano = (bus, t, m, o = {}) => fm(bus, t, m, { ratio: 1, index: 2.2, decay: 0.95, tine: 0.35, gain: 0.16, ...o });
+const bell = (bus, t, m, o = {}) => fm(bus, t, m, { ratio: 3.5, index: 3.2, decay: 1.1, tine: 0, dur: 2.4, gain: 0.12, ...o });
+
+/** A synth bass: a saw and its sub, closed down by a short filter envelope. */
+function bass(bus, t, m, { dur = 0.4, vel = 0.7 } = {}) {
+  const f = mtof(m); const n = Math.ceil((dur + 0.08) * SR); const s = new Float32Array(n);
+  let ph = 0; const dt = f / SR;
+  for (let i = 0; i < n; i++) {
+    const tt = i / SR; ph += dt; if (ph >= 1) ph -= 1;
+    const env = Math.min(1, tt / 0.005) * (tt < dur ? 1 : Math.exp(-(tt - dur) / 0.03));
+    s[i] = ((2 * ph - 1 - polyblep(ph, dt)) * 0.55 + Math.sin(2 * Math.PI * f * tt) * 0.8) * env;
+  }
+  biquad(s, 'lp', (i) => 220 + 900 * vel * Math.exp(-i / SR / 0.08), 1.1);
+  bus.mono(t, s, vel * 0.32);
+}
+
+function clap(bus, t, { amp = 0.18, pan = 0 } = {}) {
+  const n = Math.ceil(0.32 * SR); const s = new Float32Array(n); const r = rng(Math.round(t * 1777));
+  for (let i = 0; i < n; i++) {
+    const tt = i / SR;
+    const burst = [0, 0.009, 0.019].reduce((a, o) => a + (tt >= o ? Math.exp(-(tt - o) / 0.006) : 0), 0) * 0.6 + Math.exp(-tt / 0.09) * 0.5;
+    s[i] = (r() * 2 - 1) * burst + Math.sin(2 * Math.PI * 190 * tt) * Math.exp(-tt / 0.04) * 0.25;
+  }
+  biquad(s, 'bp', 1400, 0.9); biquad(s, 'hp', 500);
+  bus.mono(t, s, amp, pan);
+}
+
+function hat(bus, t, { amp = 0.05, open = false, pan = 0.2 } = {}) {
+  const len = open ? 0.35 : 0.06; const n = Math.ceil(len * SR); const s = new Float32Array(n); const r = rng(Math.round(t * 4099) + (open ? 7 : 0));
+  for (let i = 0; i < n; i++) { const tt = i / SR; s[i] = (r() * 2 - 1) * Math.min(1, tt / 0.001) * Math.exp(-tt / (open ? 0.1 : 0.016)); }
+  biquad(s, 'hp', 7200, 0.8); biquad(s, 'peak', 10500, 1, 4);
+  bus.mono(t, s, amp, pan);
+}
+
+/** A clock that has been left running. */
+function clockTick(bus, t, hi) { tick(bus, t, { amp: 0.09, pitch: hi ? 3200 : 2500, pan: hi ? 0.15 : -0.15 }); thock(bus, t, { amp: 0.05 }); }
 
 function counterTicks(bus, t0, dur, to, amp = 0.05) {
   let last = -1; let lastT = -1;
@@ -309,175 +342,220 @@ function takeSounds(bus, key, t0, { amp = 1 } = {}) {
   }
 }
 
-function heroScore(tl) {
-  const c = clock(tl); const T = tl.seconds + 1;
-  const music = new Bus(T); const drums = new Bus(T); const fx = new Bus(T); const arpBus = new Bus(T);
-  const title = c.start('title'); const cap = c.start('capture'); const trust = c.start('trust'); const end = c.start('end');
-  const beat = 60 / tl.score.bpm; const bar = beat * 4; const chordLen = bar * 2;
+// ─── Harmony ──────────────────────────────────────────────────────────────────────────────────────────
 
-  const gone = c.w('scatter', 'gone');
-  pad(music, 0, title - 0.2, [50, 53, 57, 62, 69], { amp: 0.1, attack: 3.5, release: 1.2, cut: [500, 1100], seed: 3 });
-  pad(music, 0, title - 0.2, [50, 57], { amp: 0.03, attack: 4, release: 1, cut: [300, 380], seed: 4 });
-  for (const [t, m, v] of [[1.4, 74, 0.45], [3.9, 69, 0.4], [6.1, 77, 0.42], [c.start('detail') + 0.3, 76, 0.5], [c.w('detail', 'caught') - 0.05, 81, 0.5], [gone + 0.1, 77, 0.35], [gone + 1.0, 76, 0.32], [gone + 2.0, 74, 0.3]]) felt(music, t, m, { vel: v, dur: 5, pan: (m - 74) / 20 });
-  counterTicks(fx, c.w('detail', 'thirty') - 0.13, 0.73, 30, 0.045);
-  chime(fx, c.w('detail', 'caught') + 0.08, 81, { amp: 0.08, pan: 0.3 });
-  // The work coming apart, and the three places it goes.
-  for (let i = 0; i < 70; i++) { const r = rng(i + 5); tick(fx, gone - 0.2 + r() * 1.6 * r(), { amp: 0.018 + r() * 0.02, pitch: 3000 + r() * 3000, pan: r() * 1.6 - 0.8 }); }
-  whoosh(fx, gone - 0.4, { dur: 1.3, amp: 0.1, from: 0.2, to: -0.4, lo: 250, hi: 1800 });
-  ['spreadsheet', 'inbox', 'memory'].forEach((w, k) => whoosh(fx, c.w('scatter', w) - 0.45, { dur: 0.75, amp: 0.13, from: [-0.8, 0, 0.8][k] - 0.3, to: [-0.8, 0, 0.8][k] + 0.3, lo: 300, hi: 2400 }));
-  riser(fx, title - 2.4, 2.4, { amp: 0.2 });
+const SCALES = { major: [0, 2, 4, 5, 7, 9, 11], minor: [0, 2, 3, 5, 7, 8, 10] };
 
-  // The title: the hit, and air.
-  impact(fx, title, { amp: 0.9, size: 1.2 });
-  shimmer(music, title, 5, [74, 81, 86, 93], { amp: 0.05 });
-
-  // From the title: the progression, and the groove from the capture on.
-  let k = 0;
-  for (let t = title; t < trust; t += chordLen, k++) {
-    const ch = CHORDS[PROG[k % 4]];
-    const len = Math.min(chordLen, trust - t);
-    const lift = t >= c.start('credit') - 0.1 ? 1 : 0;
-    pad(music, t, len, ch.pad, { amp: 0.1, attack: 0.9, release: 2.4, cut: [1500 + lift * 800, 2200 + lift * 1000], seed: 10 + k });
-    if (lift && t < c.end('lead')) pad(music, t, len, ch.pad.map((m) => m + 12), { amp: 0.03, attack: 1.5, release: 2, cut: [2200, 3200], seed: 50 + k, spread: 1 });
-    if (t + 0.01 >= cap - 0.01 || t + len > cap) {
-      const s0 = Math.max(t, cap);
-      sub(music, s0, t + len - s0 - 0.05, ch.root + 12, { amp: 0.26 });
-    }
-  }
-  // The groove: a grid from the title's downbeat.
-  const balance = c.start('balance'); const sealed = c.start('sealed'); const credit = c.start('credit');
-  for (let t = title; t < trust - 0.05; t += beat / 2) {
-    const i = Math.round((t - title) / (beat / 2));
-    if (t < cap - 0.02) continue;
-    const ch = CHORDS[PROG[Math.floor((t - title) / chordLen) % 4]];
-    const inBuild = t >= balance && t < sealed;
-    const vel = t < c.start('queue') ? 0.55 : inBuild ? 0.55 + 0.4 * ((t - balance) / (sealed - balance)) : 0.7;
-    pluck(arpBus, t, ch.arp[ARP[i % 8]], { vel, pan: i % 2 ? 0.35 : -0.35, bright: inBuild ? 0.6 + (t - balance) / (sealed - balance) : 0.8 });
-    if (inBuild) pluck(arpBus, t + beat / 4, ch.arp[ARP[(i + 3) % 8]] + 12, { vel: vel * 0.6, pan: i % 2 ? -0.5 : 0.5, bright: 0.9 });
-    if (i % 4 === 0) kick(drums, t, { amp: t < credit ? 0.42 : 0.5 });
-    if (t >= c.start('queue')) { shaker(drums, t, { amp: i % 2 ? 0.035 : 0.022, pan: 0.3 }); shaker(drums, t + beat / 4, { amp: 0.016, pan: 0.35 }); }
-    if (i % 4 === 2 && t >= credit && t < c.end('lead')) rim(drums, t, { amp: 0.1 });
-  }
-  pingpong(arpBus, beat * 0.75, 0.33, 0.3);
-  // Lifts and the build.
-  for (const id of ['capture', 'credit']) { const t = c.start(id); whoosh(fx, t - 1.1, { dur: 1.3, amp: 0.12, lo: 500, hi: 5200, from: -0.5, to: 0.5 }); shimmer(music, t, 3, [81, 86, 88], { amp: 0.035 }); }
-  riser(fx, balance, sealed - balance, { amp: 0.12 });
-  impact(fx, sealed, { amp: 0.35, size: 0.6 });
-
-  // Picture sounds.
-  takeSounds(fx, 'hero/capture', cap, { amp: 0.9 });
-  takeSounds(fx, 'hero/queue', c.start('queue'), { amp: 0.9 });
-  tick(fx, c.w('case', 'evidence') + 0.05, { amp: 0.1, pitch: 1400 });
-  chime(fx, c.w('case', 'verified') + 0.1, 81, { amp: 0.1 });
-  felt(fx, c.w('balance', 'commitments') + 0.05, 69, { vel: 0.5, dur: 2 });
-  felt(fx, c.w('balance', 'undelivered') + 0.05, 72, { vel: 0.5, dur: 2 });
-  [74, 77, 81, 86].forEach((m, i) => felt(fx, c.w('balance', 'order') + i * 0.38, m, { vel: 0.45, dur: 2.5, pan: -0.3 + i * 0.2 }));
-  const l0 = c.line('sealed', 0); const nothing = c.w('sealed', 'nothing');
-  const step = Math.max(8, Math.min(16, ((nothing - l0.start) * 30 - 14) / 6)) / 30;
-  for (let i = 0; i < 6; i++) tick(fx, l0.start - 4 / 30 + i * step + 0.12, { amp: 0.08, pitch: 1900 + i * 120 });
-  thock(fx, nothing - 0.1, { amp: 0.26 }); chime(fx, nothing - 0.05, 86, { amp: 0.06 });
-  counterTicks(fx, c.w('credit', 'credit') - 2 / 30, 1.0, 66, 0.035);
-  const written = c.w('report', 'written'); const cites = c.w('report', 'cites');
-  for (let i = 0; i < 86; i++) keystroke(fx, written - 20 / 30 + (i / 86) * 2.0, i * 13, { amp: 0.035 });
-  chime(fx, cites + 0.05, 84, { amp: 0.06, pan: 0.4 }); chime(fx, cites + 0.32, 88, { amp: 0.05, pan: 0.5 });
-  whoosh(fx, c.start('lead') + 0.2, { dur: 1.6, amp: 0.1, lo: 400, hi: 3000, from: -0.8, to: 0.8 });
-  for (const id of ['queue', 'case', 'balance', 'report', 'lead']) whoosh(fx, c.start(id) - 0.25, { dur: 0.5, amp: 0.05, lo: 700, hi: 2600 });
-
-  // Trust: everything falls away but the pad and the piano.
-  pad(music, trust, end - trust, CHORDS.Bb.pad, { amp: 0.08, attack: 0.6, release: 1.5, cut: [1200, 800], seed: 90 });
-  felt(music, trust + 0.4, 74, { vel: 0.4, dur: 5 }); felt(music, trust + 2.2, 81, { vel: 0.32, dur: 5, pan: 0.3 });
-  pad(music, trust, end - trust + 1, [38, 45], { amp: 0.025, attack: 1.5, release: 1, cut: [260, 260], seed: 91 });
-
-  // The end: resolve to the major, and let it ring out.
-  const res = end + 0.25;
-  impact(fx, res, { amp: 0.35, size: 0.9 });
-  pad(music, res, tl.seconds - res - 1.2, CHORDS.D.pad, { amp: 0.11, attack: 0.5, release: 2.6, cut: [3200, 1600], seed: 99 });
-  pad(music, res, tl.seconds - res - 1.2, [50, 57], { amp: 0.035, attack: 0.3, release: 2.4, cut: [400, 300], seed: 98 });
-  [50, 57, 62, 66, 69, 74].forEach((m, i) => felt(music, res + i * 0.06, m, { vel: 0.55, dur: 6, pan: (i - 2.5) / 4 }));
-  shimmer(music, res, tl.seconds - res - 1, [78, 81, 86, 90], { amp: 0.05 });
-
-  return { music, drums, fx, arpBus, T };
+/** A chord on a scale degree: root, third, fifth and seventh as pitch classes above the tonic. */
+function chordOf(music, degree) {
+  const sc = SCALES[music.mode];
+  const at = (k) => { const i = degree - 1 + k; return sc[i % 7] + 12 * Math.floor(i / 7); };
+  const tones = [at(0), at(2), at(4), at(6)];
+  // In a minor key the fifth chord borrows the leading tone, so it pulls home.
+  if (music.mode === 'minor' && degree === 5) tones[1] += 1;
+  return tones;
 }
 
-function chapterScore(tl, id) {
-  const T = tl.seconds + 1; const c = clock(tl);
-  const music = new Bus(T); const drums = new Bus(T); const fx = new Bus(T); const arpBus = new Bus(T);
-  const beat = 60 / tl.score.bpm; const chordLen = beat * 8;
-  const [first, ...shots] = tl.scenes;
-  const endAt = tl.seconds - 64 / 30;
-  // The title: a soft struck chord, a little air.
-  const t0 = first.start + 0.15;
-  impact(fx, t0, { amp: 0.22, size: 0.7 });
-  [50, 57, 62, 65, 69].forEach((m, i) => felt(music, t0 + i * 0.05, m, { vel: 0.5, dur: 5, pan: (i - 2) / 4 }));
-  shimmer(music, t0, 3, [81, 86], { amp: 0.03 });
-  const start = shots[0].start;
-  let k = 0;
-  for (let t = start; t < endAt; t += chordLen, k++) {
-    const ch = CHORDS[PROG[k % 4]];
-    const len = Math.min(chordLen, endAt - t);
-    pad(music, t, len, ch.pad, { amp: 0.075, attack: 1.2, release: 2.4, cut: [1200, 1700], seed: 200 + k });
-    sub(music, t, len - 0.05, ch.root + 12, { amp: 0.12 });
+function voicing(music, degree) {
+  const [r, third, fifth, seventh] = chordOf(music, degree);
+  const T = music.tonic;
+  const root = T + r;
+  const bassNote = ((root - 33) % 12 + 12) % 12 + 33;
+  const lift = (x) => { let v = T + x; while (v < 55) v += 12; while (v > 66) v -= 12; return v; };
+  const pad = [lift(r), lift(third), lift(fifth), lift(seventh) + 12, lift(r) + 12, lift(third) + 12 + (music.mode === 'major' ? 2 : 0)].sort((a, b) => a - b);
+  const arp = [lift(r) + 12, lift(third) + 12, lift(fifth) + 12, lift(r) + 24, lift(third) + 24, lift(fifth) + 24].sort((a, b) => a - b);
+  const scale = [];
+  for (let o = 0; o < 3; o++) for (const x of SCALES[music.mode]) scale.push(T + 12 + x + 12 * o);
+  return { bass: bassNote, pad, arp, chordPcs: [r, third, fifth, seventh].map((x) => ((x % 12) + 12) % 12), scale };
+}
+
+// ─── Arrangement ──────────────────────────────────────────────────────────────────────────────────────
+
+/** What each scene contributes: how much of the band plays under it. */
+function sections(tl) {
+  const scenes = tl.scenes;
+  const hitIndex = tl.kind === 'chapter' ? 0 : scenes.findIndex((s) => s.cue === 'hit');
+  return scenes.map((s, i) => {
+    let level;
+    if (i === scenes.length - 1) level = 'outro';
+    else if (tl.kind === 'chapter') level = i === 0 ? 'intro' : s.cue === 'drop' ? 'break' : i === 1 ? 'low' : 'full';
+    else if (i < hitIndex) level = 'dark';
+    else if (i === hitIndex) level = 'hit';
+    else level = s.cue === 'drop' ? 'break' : 'full';
+    return { ...s, level };
+  });
+}
+
+const GROOVES = {
+  four: { kick: [0, 4, 8, 12], clap: [4, 12], hat: [2, 6, 10, 14], shaker: true, bass8: false, pump: 0.55 },
+  drive: { kick: [0, 4, 8, 12], clap: [4, 12], hat: [0, 2, 4, 6, 8, 10, 12, 14], shaker: false, bass8: true, pump: 0.6 },
+  half: { kick: [0, 10], clap: [8], hat: [0, 2, 4, 6, 8, 10, 12, 14], shaker: false, bass8: false, pump: 0.35 },
+  pulse: { kick: [0, 8], rim: [12], hat: [], shaker: true, bass8: false, pump: 0.3 },
+  swing: { kick: [0, 7, 10], rim: [4, 12], hat: [2, 6, 10, 14], swing: true, shaker: false, bass8: false, pump: 0.25 },
+  still: { kick: [], rim: [12], hat: [], shaker: true, bass8: false, pump: 0 },
+};
+
+function arrange(tl, id) {
+  const music = tl.music;
+  const T = tl.seconds + 3;
+  const B = { pads: new Bus(T), lead: new Bus(T), arp: new Bus(T), bass: new Bus(T), drums: new Bus(T), fx: new Bus(T), ui: new Bus(T) };
+  const beat = 60 / music.bpm; const bar = beat * 4; const step = beat / 4;
+  const groove = GROOVES[music.groove];
+  const rnd = rng(music.seed * 7777);
+  const secs = sections(tl);
+  const levelAt = (t) => { for (const s of secs) if (t >= s.start - 1e-6 && t < s.end - 1e-6) return s.level; return 'outro'; };
+  const firstContent = secs.find((s) => ['low', 'full'].includes(s.level))?.start ?? 0;
+  const chordBars = music.groove === 'still' || music.bpm < 86 ? 2 : 1;
+  const chordLen = bar * chordBars;
+  const degreeAt = (t) => {
+    const lv = levelAt(t);
+    if (lv === 'intro' || lv === 'outro' || lv === 'hit') return 1;
+    const k = Math.floor((t - (lv === 'dark' ? 0 : firstContent) + 1e-6) / chordLen);
+    return music.progression[((k % music.progression.length) + music.progression.length) % music.progression.length];
+  };
+  const kicks = [];
+
+  // Pads and bass, chord by chord.
+  const boundaries = new Set([0]);
+  for (let t = 0; t < tl.seconds; t += chordLen / (chordBars === 2 ? 2 : 1)) boundaries.add(Number(t.toFixed(4)));
+  for (const s of secs) boundaries.add(Number(s.start.toFixed(4)));
+  const marks = [...boundaries].sort((a, b) => a - b);
+  for (let i = 0; i < marks.length; i++) {
+    const t0 = marks[i]; const t1 = i + 1 < marks.length ? marks[i + 1] : tl.seconds;
+    if (t1 - t0 < 0.05) continue;
+    const lv = levelAt(t0 + 0.01);
+    const v = voicing(music, degreeAt(t0 + 0.01));
+    const outro = lv === 'outro';
+    const pcs = outro && music.mode === 'minor' ? voicing({ ...music, mode: 'major' }, 1).pad : v.pad;
+    const bright = lv === 'full' ? [1500, 2300] : lv === 'dark' ? [520, 900] : lv === 'break' ? [800, 1200] : [1100, 1700];
+    pad(B.pads, t0, (outro ? tl.seconds - t0 - 0.6 : t1 - t0), pcs, { amp: lv === 'dark' ? 0.085 : 0.09, attack: lv === 'dark' ? 1.8 : 0.5, release: outro ? 2.6 : 1.4, cut: bright, seed: music.seed * 31 + i });
+    if (lv !== 'intro' && lv !== 'hit') sub(B.bass, t0, (outro ? tl.seconds - t0 - 0.8 : t1 - t0) - 0.04, v.bass + 12, { amp: lv === 'dark' ? 0.12 : lv === 'break' ? 0.1 : 0.2 });
+    if (outro) break;
   }
-  for (let t = start + beat, i = 0; t < endAt - beat; t += beat / 2, i++) {
-    const ch = CHORDS[PROG[Math.floor((t - start) / chordLen) % 4]];
-    pluck(arpBus, t, ch.arp[ARP[i % 8]], { vel: 0.35, pan: i % 2 ? 0.35 : -0.35, bright: 0.5 });
+
+  // The grid: drums, bass line and the lead, sixteenth by sixteenth.
+  const bars = Math.ceil(tl.seconds / bar);
+  const motif = Array.from({ length: 8 }, () => rnd());
+  for (let b = 0; b < bars; b++) {
+    for (let k = 0; k < 16; k++) {
+      let t = b * bar + k * step;
+      if (groove.swing && k % 4 === 2) t += step * 0.33;
+      const lv = levelAt(t);
+      if (t >= tl.seconds - 0.2) continue;
+      const v = voicing(music, degreeAt(t));
+      const full = lv === 'full'; const low = lv === 'low';
+      // Drums play in full sections; the first content scene gets kick and hats only.
+      if (full || low) {
+        if (groove.kick.includes(k)) { kick(B.drums, t, { amp: full ? 0.5 : 0.38 }); kicks.push(t); }
+        if (full && groove.clap?.includes(k)) clap(B.drums, t, { amp: 0.16 });
+        if (full && groove.rim?.includes(k)) rim(B.drums, t, { amp: 0.1 });
+        if (groove.hat.includes(k)) hat(B.drums, t, { amp: (k % 4 === 2 ? 0.05 : 0.032) * (full ? 1 : 0.7), pan: 0.25 });
+        if (full && groove.hat.length === 8 && k === 14 && b % 2 === 1) hat(B.drums, t, { amp: 0.04, open: true });
+        if (groove.shaker && k % 2 === 0) shaker(B.drums, t, { amp: k % 4 === 2 ? 0.03 : 0.018, pan: 0.3 });
+        if (groove.bass8 && full && k % 2 === 0) bass(B.bass, t, v.bass + 12 + (k === 14 ? 12 : 0), { dur: step * 1.6, vel: k % 4 === 0 ? 0.75 : 0.55 });
+        else if (!groove.bass8 && (full || low) && (k === 0 || (k === 10 && music.groove !== 'still'))) bass(B.bass, t, v.bass + 12, { dur: step * (k === 0 ? 5 : 3), vel: 0.55 });
+      }
+      if (lv === 'dark' && k === 0 && b % 2 === 0) kicks.push(t);
+
+      // The lead.
+      if (!(full || low || lv === 'break')) continue;
+      const lead = music.lead;
+      if (lead === 'pluck' || lead === 'arp16') {
+        const every = lead === 'arp16' ? 1 : 2;
+        if (k % every === 0 && (full || k % 4 === 0)) {
+          const i = Math.floor(k / every) + b * 3;
+          const note = v.arp[[0, 2, 1, 3, 2, 4, 3, 5][i % 8]];
+          pluck(B.arp, t, note, { vel: (full ? 0.5 : 0.35) * (k % 4 === 0 ? 1 : 0.8), pan: k % 4 ? 0.35 : -0.35, bright: lv === 'break' ? 0.4 : 0.7 });
+        }
+      }
+      if (lead === 'keys' && (k === 6 || k === 14)) {
+        v.pad.slice(0, 4).forEach((m, j) => epiano(B.lead, t + j * 0.006, m, { vel: full ? 0.55 : 0.4, dur: 1.2, pan: (j - 1.5) / 5 }));
+      }
+      // A short motif on the strong steps, varied every other bar.
+      const pattern = [0, 3, 6, 10, 12];
+      const melodic = lead === 'piano' || lead === 'bell' || (lead === 'keys' && b % 2 === 1);
+      if (melodic && pattern.includes(k) && (full || k === 0 || lv === 'break')) {
+        const idx = pattern.indexOf(k);
+        if (motif[(idx + (b % 2) * 3) % 8] < 0.3 && k !== 0) continue;
+        const chordTone = (m) => v.chordPcs.includes(((m - music.tonic) % 12 + 12) % 12);
+        const pool = v.scale.filter((m) => m >= 69 && m <= 88 && (k % 4 === 0 ? chordTone(m) : true));
+        const note = pool[Math.floor(motif[(idx * 3 + b) % 8] * pool.length * 0.999)] ?? v.arp[2];
+        if (lead === 'bell') bell(B.lead, t, note, { vel: full ? 0.6 : 0.45, pan: (note - 78) / 24 });
+        else if (lead === 'keys') epiano(B.lead, t, note + 12, { vel: 0.45, dur: 1.4 });
+        else felt(B.lead, t, note, { vel: full ? 0.5 : 0.42, dur: 3.5, pan: (note - 78) / 24 });
+      }
+    }
   }
-  pingpong(arpBus, beat * 0.75, 0.3, 0.25);
+  if (music.lead === 'pluck' || music.lead === 'arp16') pingpong(B.arp, beat * 0.75, 0.3, 0.26);
+  if (music.lead === 'bell' || music.lead === 'piano') pingpong(B.lead, beat * 0.5, 0.22, 0.14);
+
+  // Cues: what happens at the start of a scene.
+  for (const [i, s] of secs.entries()) {
+    if (i > 0 && s.level !== 'outro') whoosh(B.fx, s.start - 0.3, { dur: 0.55, amp: 0.045, lo: 700, hi: 2800 });
+    if (s.cue === 'lift') { riser(B.fx, s.start - bar, bar, { amp: 0.09 }); shimmer(B.pads, s.start, bar * 2, [voicing(music, 1).arp[3], voicing(music, 1).arp[5]], { amp: 0.03 }); }
+    if (s.cue === 'build') riser(B.fx, s.start, s.end - s.start, { amp: 0.06 });
+  }
+  const first = secs[0];
+  if (tl.kind === 'chapter') {
+    impact(B.fx, first.start + 0.12, { amp: 0.22, size: 0.7 });
+    voicing(music, 1).pad.forEach((m, j) => felt(B.lead, first.start + 0.12 + j * 0.045, m, { vel: 0.5, dur: 5, pan: (j - 2.5) / 5 }));
+    shimmer(B.pads, first.start, 3, [voicing(music, 1).arp[3], voicing(music, 1).arp[5]], { amp: 0.03 });
+  }
+  const hit = secs.find((s) => s.level === 'hit');
+  if (hit) {
+    riser(B.fx, hit.start - 2.2, 2.2, { amp: 0.18 });
+    impact(B.fx, hit.start, { amp: 0.9, size: 1.2 });
+    shimmer(B.pads, hit.start, hit.end - hit.start + 1, voicing(music, 1).arp.slice(2), { amp: 0.05 });
+    voicing(music, 1).pad.forEach((m, j) => felt(B.lead, hit.start + 0.02 + j * 0.03, m, { vel: 0.6, dur: 5, pan: (j - 2.5) / 5 }));
+  }
+  const end = secs[secs.length - 1];
+  impact(B.fx, end.start + 0.1, { amp: tl.kind === 'chapter' ? 0.2 : 0.35, size: 0.9 });
+  const home = voicing({ ...music, mode: 'major' }, 1).pad;
+  home.forEach((m, j) => felt(B.lead, end.start + 0.12 + j * 0.05, m, { vel: 0.5, dur: 6, pan: (j - 2.5) / 5 }));
+  shimmer(B.pads, end.start, end.end - end.start - 0.5, voicing(music, 1).arp.slice(3), { amp: 0.04 });
+
+  // The dark opening of the ad and the tour: sparse piano over the pad.
+  for (const s of secs.filter((x) => x.level === 'dark')) {
+    const v = voicing(music, 1);
+    for (let t = s.start + 0.4, j = 0; t < s.end - 0.6; t += beat * 2, j++) felt(B.lead, t, v.arp[[2, 1, 3, 0][j % 4]], { vel: 0.38, dur: 4, pan: j % 2 ? 0.3 : -0.3 });
+  }
+
   // The product's own sounds.
-  for (const s of shots) takeSounds(fx, `${id}/${s.id}`, s.start, { amp: 1 });
-  whoosh(fx, start - 0.35, { dur: 0.8, amp: 0.08, lo: 400, hi: 2600 });
-  // Resolve on the end card.
-  impact(fx, endAt + 0.2, { amp: 0.18, size: 0.7 });
-  pad(music, endAt, tl.seconds - endAt - 0.5, CHORDS.D.pad, { amp: 0.09, attack: 0.4, release: 1.6, cut: [2800, 1500], seed: 299 });
-  [50, 57, 62, 66, 69].forEach((m, i) => felt(music, endAt + 0.2 + i * 0.05, m, { vel: 0.5, dur: 4, pan: (i - 2) / 4 }));
-  return { music, drums, fx, arpBus, T, c };
+  for (const s of tl.scenes) takeSounds(B.ui, `${id}/${s.id}`, s.start, { amp: 1 });
+  for (const s of tl.scenes) if (id === 'ad' && (s.id === 'ad-capture' || s.id === 'ad-queue')) takeSounds(B.ui, `ad/${s.id}`, s.start, { amp: 1 });
+  if (id === 'hero') for (const k of ['capture', 'queue']) { const s = tl.scenes.find((x) => x.id === k); if (s) takeSounds(B.ui, `hero/${k}`, s.start, { amp: 1 }); }
+  designedSounds(B, tl, id);
+
+  return { B, T, kicks, pump: groove.pump, beat };
 }
 
-export function decode(file) {
-  const r = spawnSync(FFMPEG, ['-v', 'error', '-i', file, '-ac', '1', '-ar', String(SR), '-c:a', 'pcm_s24le', '-f', 'wav', '-'], { env: ENV, maxBuffer: 1 << 30 });
-  if (r.status !== 0) throw new Error(`decode ${file}: ${r.stderr}`);
-  const b = r.stdout;
-  let o = 12;
-  while (o < b.length - 8) {
-    const id = b.toString('ascii', o, o + 4); const size = b.readUInt32LE(o + 4);
-    if (id === 'data') {
-      const len = Math.min(size === 0xffffffff || size === 0 ? b.length - o - 8 : size, b.length - o - 8);
-      const out = new Float32Array(Math.floor(len / 3));
-      for (let i = 0; i < out.length; i++) out[i] = b.readIntLE(o + 8 + i * 3, 3) / 8388608;
-      return out;
-    }
-    o += 8 + size + (size & 1);
+/** Sounds for the designed scenes of the ad and the tour, from the same moments the picture uses. */
+function designedSounds(B, tl, id) {
+  if (id !== 'ad' && id !== 'hero') return;
+  const sc = (x) => tl.scenes.find((s) => s.id === x);
+  const counterScene = sc(id === 'ad' ? 'ad-work' : 'detail');
+  if (counterScene) counterTicks(B.fx, counterScene.start + MOMENTS.counter.at, MOMENTS.counter.dur, 30, 0.05);
+  const gapScene = sc(id === 'ad' ? 'ad-gap' : 'detail');
+  if (gapScene) { const stamp = gapScene.start + (gapScene.end - gapScene.start) * MOMENTS.gap.stamp; thock(B.fx, stamp, { amp: 0.25 }); chime(B.fx, stamp + 0.05, 81, { amp: 0.09, pan: 0.3 }); }
+  const later = sc('ad-later');
+  if (later) for (let i = 0; i < MOMENTS.months.count; i++) clockTick(B.fx, later.start + MOMENTS.months.at + i * MOMENTS.months.step, i % 2 === 0);
+  const scatter = sc(id === 'ad' ? 'ad-scatter' : 'scatter');
+  if (scatter) {
+    for (let k = 0; k < 3; k++) whoosh(B.fx, scatter.start + MOMENTS.scatter.first + k * MOMENTS.scatter.step - 0.35, { dur: 0.75, amp: 0.13, from: [-0.8, 0, 0.8][k] - 0.3, to: [-0.8, 0, 0.8][k] + 0.3, lo: 300, hi: 2400 });
+    for (let i = 0; i < 50; i++) { const r = rng(i + 5); tick(B.fx, scatter.end - 1.4 + r() * 1.2, { amp: 0.015 + r() * 0.015, pitch: 3000 + r() * 3000, pan: r() * 1.6 - 0.8 }); }
   }
-  throw new Error(`decode ${file}: no data chunk`);
-}
-
-function voiceBus(tl, T) {
-  const vo = new Bus(T); let lines = 0;
-  for (const s of tl.scenes) for (const l of s.lines) {
-    if (!l.file) continue;
-    const sig = decode(join(ROOT, 'assets', l.file));
-    biquad(sig, 'hp', 75, 0.7);
-    biquad(sig, 'peak', 3200, 0.8, 1.5);
-    vo.mono(l.start, sig, 1, 0);
-    lines++;
+  const history = sc(id === 'ad' ? 'ad-history' : 'sealed');
+  if (history) {
+    const d = history.end - history.start;
+    for (let i = 0; i < 6; i++) tick(B.fx, history.start + MOMENTS.history.first + i * MOMENTS.history.step, { amp: 0.07, pitch: 1900 + i * 120 });
+    thock(B.fx, history.start + d * MOMENTS.history.seal, { amp: 0.24 }); chime(B.fx, history.start + d * MOMENTS.history.seal + 0.04, 86, { amp: 0.06 });
   }
-  return { vo, lines };
-}
-
-function duckCurve(vo, depthDb = -7) {
-  const g = new Float32Array(vo.n);
-  const a = Math.exp(-1 / (0.012 * SR)); const r = Math.exp(-1 / (0.45 * SR));
-  let env = 0; const depth = db(depthDb);
-  for (let i = 0; i < vo.n; i++) {
-    const x = Math.abs(vo.L[i]) + Math.abs(vo.R[i]);
-    env = x > env ? a * env + (1 - a) * x : r * env + (1 - r) * x;
-    const k = clamp(env / 0.05, 0, 1);
-    g[i] = 1 - (1 - depth) * k;
+  const report = sc(id === 'ad' ? 'ad-report' : 'report');
+  if (report) {
+    const d = report.end - report.start;
+    for (let i = 0; i < 70; i++) keystroke(B.ui, report.start + MOMENTS.report.type + (i / 70) * d * 0.28, i * 13, { amp: 0.03 });
+    chime(B.fx, report.start + d * MOMENTS.report.cite, 84, { amp: 0.06, pan: 0.4 }); chime(B.fx, report.start + d * MOMENTS.report.cite + 0.27, 88, { amp: 0.05, pan: 0.5 });
   }
-  // Smooth the gain itself so it never flutters.
-  let s = 1; const sm = Math.exp(-1 / (0.03 * SR));
-  for (let i = 0; i < g.length; i++) { s = sm * s + (1 - sm) * g[i]; g[i] = s; }
-  return g;
 }
 
 function writeWav(path, L, R) {
@@ -502,39 +580,41 @@ function loudnorm(input, output, target) {
 
 export function score(id) {
   const tl = TL[id];
-  const parts = id === 'hero' ? heroScore(tl) : chapterScore(tl, id);
-  const { music, drums, fx, arpBus, T } = parts;
-  const { vo, lines } = voiceBus(tl, T);
-  const duck = lines ? duckCurve(vo, id === 'hero' ? -7 : -9) : null;
-
+  const { B, T, kicks, pump } = arrange(tl, id);
+  // The pads, bass and arpeggio breathe with the kick.
+  const duck = new Float32Array(Math.ceil(T * SR)).fill(1);
+  if (pump > 0) for (const k of kicks) {
+    const o = Math.round(k * SR); const len = Math.round(0.28 * SR);
+    for (let i = 0; i < len && o + i < duck.length; i++) { const x = i / len; duck[o + i] = Math.min(duck[o + i], 1 - pump * 0.45 * (1 - x) ** 2); }
+  }
   const send = new Bus(T);
   for (let i = 0; i < send.n; i++) {
-    send.L[i] = music.L[i] * 0.55 + fx.L[i] * 0.45 + arpBus.L[i] * 0.4 + drums.L[i] * 0.12;
-    send.R[i] = music.R[i] * 0.55 + fx.R[i] * 0.45 + arpBus.R[i] * 0.4 + drums.R[i] * 0.12;
+    send.L[i] = B.pads.L[i] * 0.5 + B.lead.L[i] * 0.55 + B.arp.L[i] * 0.4 + B.fx.L[i] * 0.45 + B.drums.L[i] * 0.08 + B.ui.L[i] * 0.2;
+    send.R[i] = B.pads.R[i] * 0.5 + B.lead.R[i] * 0.55 + B.arp.R[i] * 0.4 + B.fx.R[i] * 0.45 + B.drums.R[i] * 0.08 + B.ui.R[i] * 0.2;
   }
-  const hall = reverb(send, { room: 0.87, damp: 0.35, pre: 0.025 });
+  const hall = reverb(send, { room: 0.86, damp: 0.34, pre: 0.025 });
   const mix = new Bus(T);
-  const fadeIn = Math.round(0.02 * SR); const fadeOutFrom = Math.round((tl.seconds - 0.25) * SR);
-  for (let i = 0; i < mix.n; i++) {
-    const d = duck ? duck[i] : 1;
-    const dFx = duck ? 1 - (1 - duck[i]) * 0.5 : 1;
-    let l = (music.L[i] + arpBus.L[i] + drums.L[i] + hall.L[i] * 0.9) * d + fx.L[i] * dFx + vo.L[i] * 0.9;
-    let r = (music.R[i] + arpBus.R[i] + drums.R[i] + hall.R[i] * 0.9) * d + fx.R[i] * dFx + vo.R[i] * 0.9;
-    const g = Math.min(1, i / fadeIn) * (i > fadeOutFrom ? Math.max(0, 1 - (i - fadeOutFrom) / (0.25 * SR)) : 1);
-    mix.L[i] = Math.tanh(l * g * 1.1) / 1.1; mix.R[i] = Math.tanh(r * g * 1.1) / 1.1;
-  }
   const n = Math.round(tl.seconds * SR);
+  const fadeIn = Math.round(0.02 * SR); const fadeOutFrom = Math.round((tl.seconds - 0.6) * SR);
+  for (let i = 0; i < mix.n; i++) {
+    const d = duck[i] ?? 1;
+    const l = (B.pads.L[i] + B.bass.L[i] + B.arp.L[i]) * d + B.lead.L[i] + B.drums.L[i] * 0.9 + B.fx.L[i] + B.ui.L[i] * 0.8 + hall.L[i] * 0.85;
+    const r = (B.pads.R[i] + B.bass.R[i] + B.arp.R[i]) * d + B.lead.R[i] + B.drums.R[i] * 0.9 + B.fx.R[i] + B.ui.R[i] * 0.8 + hall.R[i] * 0.85;
+    const g = Math.min(1, i / fadeIn) * (i > fadeOutFrom ? Math.max(0, 1 - (i - fadeOutFrom) / (0.6 * SR)) : 1);
+    mix.L[i] = Math.tanh(l * g * 1.15) / 1.15; mix.R[i] = Math.tanh(r * g * 1.15) / 1.15;
+  }
   mkdirSync(join(ROOT, '.work'), { recursive: true });
   mkdirSync(join(ROOT, 'public', 'mix'), { recursive: true });
   const raw = join(ROOT, '.work', `mix-${id}.wav`);
   writeWav(raw, mix.L.subarray(0, n), mix.R.subarray(0, n));
   const out = join(ROOT, 'public', 'mix', `${id}.wav`);
-  const { measured } = loudnorm(raw, out, lines ? -14 : -16);
+  const { measured } = loudnorm(raw, out, tl.kind === 'chapter' ? -16 : -14);
   const mediaPath = join(ROOT, 'src', 'generated', 'media.json');
   const media = existsSync(mediaPath) ? JSON.parse(readFileSync(mediaPath, 'utf8')) : { mixes: {} };
-  media.mixes[id] = { file: `mix/${id}.wav`, voiced: lines };
+  media.mixes[id] = { file: `mix/${id}.wav` };
   writeFileSync(mediaPath, JSON.stringify(media, null, 1));
-  return { id, seconds: tl.seconds, voiced: lines, measured };
+  const m = tl.music;
+  return { id, seconds: tl.seconds, measured, style: `${['C', 'C#', 'D', 'Eb', 'E', 'F', 'F#', 'G', 'Ab', 'A', 'Bb', 'B'][m.tonic % 12]} ${m.mode}, ${m.bpm} bpm, ${m.groove}, ${m.lead}` };
 }
 
 if (import.meta.url === `file://${process.argv[1]}`) {
@@ -543,6 +623,6 @@ if (import.meta.url === `file://${process.argv[1]}`) {
     if (want.length && !want.includes(id)) continue;
     const t0 = Date.now();
     const r = score(id);
-    console.log(`score: ${id.padEnd(18)} ${r.seconds.toFixed(1)}s  ${r.voiced ? `${r.voiced} lines voiced` : 'music only (no voice yet)'}  in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
+    console.log(`score: ${id.padEnd(18)} ${r.seconds.toFixed(1)}s  ${r.style}  in ${((Date.now() - t0) / 1000).toFixed(1)}s`);
   }
 }

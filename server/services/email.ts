@@ -17,8 +17,10 @@ export interface Mailer {
 }
 
 /** How long a message is worth retrying: a reset link is dead after 30 minutes, so its email is too. */
-const RETRY_WINDOW_MINUTES: Record<string, number> = { reset: 30, test: 60, digest: 12 * 60, email_change: 24 * 60, invite: 48 * 60, team_message: 48 * 60 };
+const RETRY_WINDOW_MINUTES: Record<string, number> = { reset: 30, test: 60, digest: 12 * 60, email_change: 24 * 60, invite: 48 * 60, team_message: 48 * 60, sign_in: 72 * 60 };
 const BACKOFF_MINUTES = [2, 10, 30, 60, 120, 240, 480];
+const RESEND_ATTEMPTS = 4;
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 export function createMailer(config: AppConfig, db: Db): Mailer {
   const { provider, from, resendApiKey, smtpUrl } = config.email;
@@ -34,13 +36,22 @@ export function createMailer(config: AppConfig, db: Db): Mailer {
   let transport: ((mail: Mail) => Promise<void | SendResult>) | null = null;
   if (provider === 'resend' && resendApiKey) {
     transport = async (mail) => {
-      const res = await fetch('https://api.resend.com/emails', {
-        method: 'POST',
-        headers: { authorization: `Bearer ${resendApiKey}`, 'content-type': 'application/json' },
-        body: JSON.stringify({ from, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html, ...(replyTo(mail) ? { reply_to: replyTo(mail) } : {}) }),
-        signal: AbortSignal.timeout(15_000),
-      });
-      if (!res.ok) throw new Error(`Resend returned ${res.status}: ${(await res.text()).slice(0, 200)}`);
+      // One key for every attempt, so a retry after a lost answer cannot deliver the message twice.
+      const idempotencyKey = newId();
+      for (let attempt = 1; ; attempt += 1) {
+        const res = await fetch(config.email.resendUrl, {
+          method: 'POST',
+          headers: { authorization: `Bearer ${resendApiKey}`, 'content-type': 'application/json', 'idempotency-key': idempotencyKey },
+          body: JSON.stringify({ from, to: [mail.to], subject: mail.subject, text: mail.text, html: mail.html, ...(replyTo(mail) ? { reply_to: replyTo(mail) } : {}) }),
+          signal: AbortSignal.timeout(15_000),
+        });
+        if (res.ok) return;
+        const error = `Resend returned ${res.status}: ${(await res.text()).slice(0, 200)}`;
+        // Resend allows a few requests a second, and emailing a whole roster reaches that. Wait as told, then retry.
+        if ((res.status !== 429 && res.status < 500) || attempt >= RESEND_ATTEMPTS) throw new Error(error);
+        const retryAfter = Number(res.headers.get('retry-after'));
+        await sleep(Math.min(10_000, retryAfter > 0 ? retryAfter * 1000 : 500 * 2 ** attempt));
+      }
     };
   } else if (provider === 'smtp' && smtpUrl) {
     const transporter = nodemailer.createTransport(smtpUrl);
@@ -126,25 +137,4 @@ export function createMailer(config: AppConfig, db: Db): Mailer {
       }
     },
   };
-}
-
-const escape = (s: string) => s.replace(/[&<>"']/g, (c) => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c] as string));
-
-export function layout({ title, intro, cta, footer, sections = [] }: { title: string; intro: string; cta?: { label: string; url: string }; footer?: string; sections?: Array<{ heading: string; lines: string[] }> }) {
-  const text = [
-    title, '', intro, '',
-    ...sections.flatMap((s) => [s.heading.toUpperCase(), ...s.lines.map((l) => `- ${l}`), '']),
-    cta ? `${cta.label}: ${cta.url}` : '', '', footer || 'Sent by Vantage. Records stay on the deployment server.',
-  ].filter((l) => l !== undefined).join('\n');
-  const html = `<!doctype html><html><body style="margin:0;background:#f4f5f7;font-family:-apple-system,Segoe UI,Roboto,Helvetica,Arial,sans-serif;color:#111827">
-  <div style="max-width:560px;margin:24px auto;background:#fff;border:1px solid #e5e7eb;border-radius:12px;overflow:hidden">
-    <div style="background:#0f172a;color:#fff;padding:18px 24px;font-weight:600;letter-spacing:.14em;font-size:12px">VANTAGE</div>
-    <div style="padding:24px">
-      <h1 style="margin:0 0 12px;font-size:20px">${escape(title)}</h1>
-      <p style="margin:0 0 16px;line-height:1.55;color:#374151">${escape(intro).replace(/\r?\n/g, '<br>')}</p>
-      ${sections.map((s) => `<h2 style="font-size:12px;letter-spacing:.08em;text-transform:uppercase;color:#6b7280;margin:18px 0 6px">${escape(s.heading)}</h2><ul style="margin:0;padding-left:18px;color:#374151;line-height:1.55">${s.lines.map((l) => `<li>${escape(l)}</li>`).join('')}</ul>`).join('')}
-      ${cta ? `<p style="margin:22px 0 8px"><a href="${escape(cta.url)}" style="display:inline-block;background:#b91c1c;color:#fff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600">${escape(cta.label)}</a></p><p style="font-size:12px;color:#6b7280;word-break:break-all">${escape(cta.url)}</p>` : ''}
-      <p style="margin-top:24px;font-size:12px;color:#9ca3af">${escape(footer || 'Sent by Vantage. Records stay on the deployment server.')}</p>
-    </div></div></body></html>`;
-  return { text, html };
 }
