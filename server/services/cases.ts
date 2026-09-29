@@ -6,10 +6,8 @@ import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { notify } from './notifications.ts';
 import { sealEvent, caseIntegrity } from './caseSeal.ts';
-import {
-  STAGE_TO_STATE, STATE_TO_STAGE, CLOSED_STAGES, RESEARCH_KINDS, entrySchema, stageChangeSchema, handoffSchema,
-  type Stage, type EntryInput, type WaitingCategory,
-} from '../../shared/caseModel.ts';
+import { STAGE_TO_STATE, STATE_TO_STAGE, CLOSED_STAGES, RESEARCH_KINDS, type Stage, type WaitingCategory } from '../../shared/caseModel.ts';
+import { entrySchema, stageChangeSchema, handoffSchema, type EntryInput } from '../../shared/caseSchemas.ts';
 import {
   pinnedProcedure, procedureFor, progress, latestFundsCheck, observationCents, stepApplies, isVerified, resolutionMet, resolutionChecks,
   fieldsOf, calculationState, FORMULAS, PROCEDURES,

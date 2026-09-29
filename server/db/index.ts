@@ -191,10 +191,36 @@ export function openDatabase(path: string): Db {
   db.pragma('journal_mode = WAL');
   db.pragma('foreign_keys = ON');
   db.pragma('busy_timeout = 5000');
+  // Sorts and scratch tables in memory, and a larger page cache: faster, and no change to what is durable.
+  db.pragma('temp_store = MEMORY');
+  db.pragma('cache_size = -32000');
   db.exec(SCHEMA);
   migrate(db);
   seed(db);
+  // Refresh the planner's statistics where they have gone stale; SQLite's advice for a long-lived connection.
+  db.pragma('optimize = 0x10002');
+  cacheStatements(db);
   return db;
+}
+
+/**
+ * Compiling SQL was the largest single cost of a request: the code prepares its statements where it uses
+ * them, so the same text was compiled again on every call. The connection now keeps what it compiled and
+ * hands the same statement back. Nothing puts a statement into a special mode (pluck, raw, expand) or holds
+ * one open while iterating, so a shared statement always behaves like a fresh one. Bounded, because a few
+ * statements are built with a variable number of placeholders.
+ */
+function cacheStatements(db: Db, limit = 1000) {
+  const compile = db.prepare.bind(db);
+  const cache = new Map<string, Database.Statement>();
+  db.prepare = ((sql: string) => {
+    let statement = cache.get(sql);
+    if (statement) { cache.delete(sql); cache.set(sql, statement); return statement; }
+    statement = compile(sql);
+    cache.set(sql, statement);
+    if (cache.size > limit) cache.delete(cache.keys().next().value!);
+    return statement;
+  }) as Db['prepare'];
 }
 
 function migrate(db: Db) {

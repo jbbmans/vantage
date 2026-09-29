@@ -6,7 +6,7 @@ import {
   recordSummary, proceduresPracticed, assignedWork, contributionHistory, parseWindow, listDrafts, draftFromWork, updateDraft, saveDraftToRecord, deleteDraft,
   careerOverview, saveCareerProfile, saveCareerStep, deleteCareerStep,
 } from '../services/record.ts';
-import { careerProfileSchema, careerStepSchema } from '../../shared/record.ts';
+import { careerProfileSchema, careerStepSchema } from '../../shared/recordSchemas.ts';
 
 export const recordRouter = Router();
 recordRouter.use(requireAuth);
