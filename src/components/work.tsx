@@ -3,7 +3,7 @@ import { ArrowRight, Clock, Hourglass, OctagonAlert } from 'lucide-react';
 import { Badge, type Tone } from '@/components/ui/primitives';
 import { DateText } from '@/components/common';
 import { STAGE_LABEL, WAITING_LABEL, type Stage, type WaitingCategory } from '../../shared/caseModel';
-import { cn } from '@/lib/utils';
+import { cn, todayIso } from '@/lib/utils';
 
 export const STAGE_TONE: Record<Stage, Tone> = {
   not_started: 'neutral',
@@ -35,7 +35,7 @@ export function elapsed(since: string | null | undefined): string {
 export const personName = (p: { name: string; rank?: string | null } | undefined | null) => (p ? [p.rank, p.name].filter(Boolean).join(' ') : 'Someone');
 
 export function WorkRow({ item, showNext = true, trailing }: { item: any; showNext?: boolean; trailing?: React.ReactNode }) {
-  const overdue = item.due_date && item.due_date < new Date().toISOString().slice(0, 10) && !['resolved', 'not_applicable'].includes(item.stage);
+  const overdue = item.due_date && item.due_date < todayIso() && !['resolved', 'not_applicable'].includes(item.stage);
   return (
     <li>
       <Link to={`/work/items/${item.id}`} className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-2">

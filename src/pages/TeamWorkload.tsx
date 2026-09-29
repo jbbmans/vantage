@@ -5,7 +5,7 @@ import { Panel, Segmented, Skeleton, Tooltip } from '@/components/ui/primitives'
 import { WorkRow, StageBadge } from '@/components/work';
 import { useWorkload } from '@/lib/queries';
 import { STAGE_LABEL, WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
-import { cn } from '@/lib/utils';
+import { cn, lastDays } from '@/lib/utils';
 import { QueryFailure } from '@/components/QueryFailure';
 
 const WINDOWS = [{ value: '30', label: '30 days' }, { value: '90', label: '90 days' }] as const;
@@ -14,10 +14,7 @@ type SortKey = 'name' | 'assigned' | 'waiting' | 'blocked' | 'documents_research
 
 export default function TeamWorkload({ unitId }: { unitId: string }) {
   const [days, setDays] = useState<'30' | '90'>('30');
-  const params = useMemo(() => {
-    const to = new Date(); const from = new Date(to.getTime() - (Number(days) - 1) * 86_400_000);
-    return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
-  }, [days]);
+  const params = useMemo(() => lastDays(days), [days]);
   const w = useWorkload(unitId, params);
   const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'documents_researched', dir: 'desc' });
 

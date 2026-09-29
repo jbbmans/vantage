@@ -4,17 +4,14 @@ import { buildPackage, type BulletStyle } from '../../shared/bullets.ts';
 import { aggregateMetrics, rangeForPeriod, formatDTG, type PeriodKey } from '../../shared/metrics.ts';
 import { narrativeConfig, areasFor, trackForGrade, type Track } from '../../shared/evaluation.ts';
 import { hydrate } from './records.ts';
-import { zonedNow } from '../lib/clock.ts';
+import { isoDay, zonedDay, zonedNow } from '../lib/clock.ts';
 
 export interface ReportScope { userId: string; unitId?: string | null }
-
-const iso = (d: Date) => d.toISOString().slice(0, 10);
-const localIso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 
 export function periodBounds(period: string, from?: string | null, to?: string | null, timezone = 'UTC') {
   if (from && to) return { from, to, label: `${formatDTG(from)} to ${formatDTG(to)}` };
   const range = rangeForPeriod(period as PeriodKey, zonedNow(timezone));
-  return { from: localIso(range.start), to: localIso(range.end), label: range.label };
+  return { from: isoDay(range.start), to: isoDay(range.end), label: range.label };
 }
 
 export function buildReport(ctx: AppContext, opts: { userId: string; unitId?: string | null; period: string; from?: string | null; to?: string | null; style?: BulletStyle; limit?: number; track?: Track | null }) {
@@ -37,6 +34,6 @@ export function buildReport(ctx: AppContext, opts: { userId: string; unitId?: st
     subject: `${person?.rank_abbr || ''} ${person?.first_name || ''} ${person?.last_name || ''}`.replace(/\s+/g, ' ').trim(),
     narrative, pkg, metrics, metricsConfig, activities, awards, trainings,
     counts: { activities: activities.length, awards: awards.length, trainingHours: trainings.reduce((n, t) => n + (Number(t.hours) || 0), 0) },
-    generatedAt: iso(new Date()),
+    generatedAt: zonedDay(ctx.config.timezone),
   };
 }

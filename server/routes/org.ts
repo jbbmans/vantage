@@ -18,9 +18,19 @@ import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
 import { mailAllowance, limiters } from '../auth/limiter.ts';
 import { sendTeamMessage, teamAudience } from '../services/teamMail.ts';
+import { zonedDay } from '../lib/clock.ts';
+import type { Request } from 'express';
 
 export const orgRouter = Router();
 orgRouter.use(requireAuth);
+
+/** The last 90 days in the instance's timezone, unless the caller names a window. */
+function dashboardWindow(req: Request) {
+  const to = String(req.query.to || zonedDay(req.ctx.config.timezone));
+  const from = String(req.query.from || zonedDay(req.ctx.config.timezone, -89));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw badRequest('Use a valid from/to window.');
+  return { from, to };
+}
 
 orgRouter.post('/units', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
@@ -35,9 +45,7 @@ orgRouter.get('/units/:unitId/dashboard', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   if (!getUnit(req.ctx, unitId)) throw notFound('No such unit.');
   if (!can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('You cannot view that unit dashboard.');
-  const to = String(req.query.to || new Date().toISOString().slice(0, 10));
-  const from = String(req.query.from || new Date(Date.now() - 89 * 86_400_000).toISOString().slice(0, 10));
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw badRequest('Use a valid from/to window.');
+  const { from, to } = dashboardWindow(req);
   const includeMembers = can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, unitId);
   audit(req.ctx, { actor_id: req.user.id, action: 'view_unit_dashboard', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${from}..${to}`, ip: clientIp(req) });
   res.json(unitDashboard(req.ctx, unitId, from, to, { includeMembers }));
@@ -48,9 +56,7 @@ orgRouter.get('/units/:unitId/overview', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   if (!getUnit(req.ctx, unitId)) throw notFound('No such unit.');
   if (!req.user.is_operator && !scope.viewableUnitIds.includes(unitId)) throw forbidden('That unit is outside your chain of command.');
-  const to = String(req.query.to || new Date().toISOString().slice(0, 10));
-  const from = String(req.query.from || new Date(Date.now() - 89 * 86_400_000).toISOString().slice(0, 10));
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw badRequest('Use a valid from/to window.');
+  const { from, to } = dashboardWindow(req);
   const goalUnits = [...new Set([...scope.readableUnitIds, ...scope.unitIds, ...ancestorIds(req.ctx, scope.unitIds)])];
   res.json(unitOverview(req.ctx, unitId, { from, to, full: can(scope, PERMISSIONS.VIEW_RECORDS, unitId), goalUnits }));
 }));

@@ -9,7 +9,7 @@ import { DateText, useParam } from '@/components/common';
 import { StageBadge, WorkRow } from '@/components/work';
 import { useAssignedWork, useContributions, useRecordDrafts, useRecordSummary, caseKeys, invalidateDomains } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { cn, timeAgo } from '@/lib/utils';
+import { cn, lastDays, timeAgo } from '@/lib/utils';
 import { QueryFailure } from '@/components/QueryFailure';
 
 const Records = lazy(() => import('./Records'));
@@ -20,16 +20,11 @@ const WINDOWS = [
   { value: '365', label: '12 months' },
 ] as const;
 
-const windowParams = (days: string) => {
-  const to = new Date();
-  const from = new Date(to.getTime() - (Number(days) - 1) * 86_400_000);
-  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
-};
 
 export default function RecordHub() {
   const [tab, setTab] = useParam('tab', 'overview');
   const [days, setDays] = useParam('window', '90');
-  const params = useMemo(() => windowParams(days), [days]);
+  const params = useMemo(() => lastDays(days), [days]);
   const summary = useRecordSummary(params);
   const drafts = useRecordDrafts();
   const openDrafts = (drafts.data || []).filter((d) => !d.activity_id).length;

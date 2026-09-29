@@ -17,7 +17,7 @@ import { formatDollars } from '../../shared/metrics';
 import { copyToClipboard, cn, humanize, fullName } from '@/lib/utils';
 
 const TeamWorkload = lazy(() => import('./TeamWorkload'));
-import { downloadText } from '@/lib/utils';
+import { downloadText, lastDays } from '@/lib/utils';
 import { useView, subtreeOf, viewLabel } from '@/lib/view';
 import { UnitOverviewPanel } from '@/components/UnitOverview';
 import { markTeamSeen } from '@/components/GettingStarted';
@@ -300,9 +300,7 @@ function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: st
   const cfg = useMetrics();
   const toast = useToast();
   const [days, setDays] = useState('90');
-  const [now] = useState(() => Date.now());
-  const to = new Date(now).toISOString().slice(0, 10);
-  const from = new Date(now - (Number(days) - 1) * 86_400_000).toISOString().slice(0, 10);
+  const { from, to } = useMemo(() => lastDays(days), [days]);
   const { data, isPending } = useQuery({ queryKey: keys.dashboard(unitId, from, to), queryFn: () => api.unitDashboard(unitId, from, to) });
   const unitMetricParams = useMemo(() => ({ from, to, unit_id: unitId }), [from, to, unitId]);
   const unitMetrics = useMetricsReport(unitMetricParams);

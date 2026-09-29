@@ -21,7 +21,7 @@ import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { audit } from '../services/audit.ts';
 import { notifyOperators } from '../services/notifications.ts';
 import { now } from '../lib/ids.ts';
-import { zonedNow } from '../lib/clock.ts';
+import { isoDay, zonedNow } from '../lib/clock.ts';
 
 export const miscRouter = Router();
 miscRouter.use(requireAuth);
@@ -238,7 +238,7 @@ miscRouter.get('/reports/csv', wrap((req, res) => {
   const where = unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
   const params = unitId ? [userId, unitId] : [userId];
   const dateClause = q.period === 'all' ? '' : ' AND date >= ? AND date <= ?';
-  const bounds = q.period === 'all' ? [] : (() => { const r = rangeForPeriod(q.period, zonedNow(req.ctx.config.timezone)); const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; return [q.from || iso(r.start), q.to || iso(r.end)]; })();
+  const bounds = q.period === 'all' ? [] : (() => { const r = rangeForPeriod(q.period, zonedNow(req.ctx.config.timezone)); return [q.from || isoDay(r.start), q.to || isoDay(r.end)]; })();
   const rows = (req.ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL${dateClause} ORDER BY date DESC`).all(...params, ...bounds) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
   audit(req.ctx, { actor_id: req.user.id, action: 'export_csv', entity: 'activities', subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: `${rows.length} rows`, ip: clientIp(req) });
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -314,4 +314,3 @@ miscRouter.get('/search', wrap((req, res) => {
   res.json({ results: results.slice(0, 30) });
 }));
 
-export { badRequest, can, PERMISSIONS };

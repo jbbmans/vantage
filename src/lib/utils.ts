@@ -40,7 +40,16 @@ export const timeAgo = (iso?: string | null) => {
   if (d < 30) return `${d}d ago`;
   return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
 };
-export const todayIso = () => { const d = new Date(); return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; };
+/** YYYY-MM-DD on the viewer's own calendar. toISOString gives the UTC day, which is already tomorrow every US evening. */
+export const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+export const todayIso = () => isoDay(new Date());
+/** The last `days` calendar days, today included. */
+export function lastDays(days: number | string) {
+  const to = new Date();
+  const from = new Date(to);
+  from.setDate(from.getDate() - (Number(days) - 1));
+  return { from: isoDay(from), to: isoDay(to) };
+}
 
 export function useMediaQuery(query: string): boolean {
   const [matches, setMatches] = useState(() => (typeof window === 'undefined' ? false : window.matchMedia?.(query).matches ?? false));

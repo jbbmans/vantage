@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
-import { HttpError, badRequest, conflict, forbidden, notFound, tooMany, unauthorized } from '../lib/errors.ts';
+import { badRequest, conflict, forbidden, notFound, tooMany, unauthorized } from '../lib/errors.ts';
 import { registrationSchema, setupSchema, passwordField, usernameField, emailField } from '../../shared/schemas.ts';
 import { hashPassword, verifyPassword, burnVerification, safeEqual, decryptSecret, sha256 } from '../lib/crypto.ts';
 import { limiters } from '../auth/limiter.ts';
@@ -210,18 +210,20 @@ authRouter.post('/logout', requireAuth, wrap((req, res) => {
 authRouter.post('/sudo', requireAuth, wrap((req, res) => {
   const ctx = req.ctx;
   const { password } = parse(z.object({ password: z.string().max(512) }), req.body);
-  const limited = limiters.loginUser.limited(req.user.username);
+  // Keyed exactly as sign-in keys it, so failures here and there share one budget.
+  const name = req.user.username.toLowerCase();
+  const limited = limiters.loginUser.limited(name);
   if (limited) {
     record(ctx, 'security.step_up', { granted: false, method: 'password' }, { id: req.user.id });
     throw tooMany('Too many failed confirmations. Try again shortly.', limited.retryAfter);
   }
   const row = ctx.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id) as { password_hash: string };
   if (!verifyPassword(password, row.password_hash)) {
-    limiters.loginUser.bump(req.user.username);
+    limiters.loginUser.bump(name);
     record(ctx, 'security.step_up', { granted: false, method: 'password' }, { id: req.user.id });
     throw forbidden('Current password is incorrect.', 'bad_password');
   }
-  limiters.loginUser.clear(req.user.username);
+  limiters.loginUser.clear(name);
   const until = grantSudo(ctx, req.sessionId);
   record(ctx, 'security.step_up', { granted: true, method: 'password' }, { id: req.user.id });
   res.json({ ok: true, until });
@@ -331,8 +333,6 @@ authRouter.post('/invite/accept', wrap((req, res) => {
   const row = ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow;
   return finishSignIn(req, res, row, 'password', 'invite_login');
 }));
-
-export function throwIfInactive(user: { active: number }) { if (!user.active) throw new HttpError(403, 'That account is deactivated.', 'inactive'); }
 
 authRouter.post('/cac', wrap((req, res) => {
   const ctx = req.ctx;

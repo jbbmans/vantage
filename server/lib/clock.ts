@@ -1,7 +1,11 @@
+/** YYYY-MM-DD from a date's local fields. Pair it with zonedNow, whose local fields hold the instance's wall clock. */
+export const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+
+/** The calendar day in the instance's timezone, not UTC: after 7pm Central the UTC date is already tomorrow. */
 export function zonedDay(timezone: string, offsetDays = 0, at = new Date()): string {
   const d = zonedNow(timezone, at);
   d.setDate(d.getDate() + offsetDays);
-  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
+  return isoDay(d);
 }
 
 export function zonedNow(timezone: string, at = new Date()): Date {

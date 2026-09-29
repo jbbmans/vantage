@@ -199,7 +199,6 @@ export const claimWorkItem = (id: string, version: number) => api.post(`/work/it
 export const releaseWorkItem = (id: string, version: number) => api.post(`/work/items/${encodeURIComponent(id)}/release`, { version });
 export const patchWorkItem = (id: string, patch: Record<string, unknown>) => request('PATCH', `/work/items/${encodeURIComponent(id)}`, patch);
 export const createWorkItem = (body: Record<string, unknown>) => api.post('/work/items', body);
-export const assignWorkItem = (id: string, userId: string, version: number) => api.post(`/work/items/${encodeURIComponent(id)}/assign`, { user_id: userId, version });
 export const recordWorkAction = (id: string, body: Record<string, unknown>, idempotencyKey: string) =>
   request('POST', `/work/items/${encodeURIComponent(id)}/actions`, body, { headers: { 'idempotency-key': idempotencyKey } });
 export const listWorkViews = () => api.get('/work/views');

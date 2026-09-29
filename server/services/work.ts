@@ -1,8 +1,7 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
-import { can, isMember, scopeFor, PERMISSIONS } from '../authz/scope.ts';
+import { can, isMember, PERMISSIONS } from '../authz/scope.ts';
 import { audit } from './audit.ts';
-import { notify } from './notifications.ts';
 import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
@@ -25,6 +24,7 @@ export interface WorkItemRow {
 
 export const WORK_STATES = ['open', 'in_progress', 'waiting', 'resolved', 'not_applicable'] as const;
 export type WorkState = (typeof WORK_STATES)[number];
+const CLOSED_STATES = new Set<string>(['resolved', 'not_applicable']);
 
 const hydrate = (row: WorkItemRow) => ({ ...row, data: JSON.parse(row.data || '{}') as Record<string, string> });
 
@@ -117,8 +117,8 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
   else if (opts.claimed === 'anyone') where.push('w.claimed_by IS NOT NULL');
   if (opts.dueBefore) { where.push('w.due_date IS NOT NULL AND w.due_date <= ?'); params.push(opts.dueBefore); }
   if (opts.q && opts.q.trim()) {
-    const needle = `%${opts.q.trim().toLowerCase()}%`;
-    where.push('(lower(w.title) LIKE ? OR lower(w.natural_key) LIKE ? OR lower(COALESCE(w.reference, \'\')) LIKE ?)');
+    const needle = `%${opts.q.trim().toLowerCase().replace(/[\\%_]/g, '\\$&')}%`;
+    where.push("(lower(w.title) LIKE ? ESCAPE '\\' OR lower(w.natural_key) LIKE ? ESCAPE '\\' OR lower(COALESCE(w.reference, '')) LIKE ? ESCAPE '\\')");
     params.push(needle, needle, needle);
   }
 
@@ -181,7 +181,9 @@ export function claimItem(ctx: AppContext, user: SessionUser, scope: Scope, id: 
       const holder = ctx.db.prepare('SELECT first_name, last_name FROM users WHERE id = ?').get(row.claimed_by) as { first_name: string; last_name: string } | undefined;
       throw conflict(holder ? `${holder.first_name} ${holder.last_name} already picked this up.` : 'Someone else already picked this up.');
     }
-    if (row.state === 'resolved') throw conflict('This work is already resolved.');
+    if (CLOSED_STATES.has(row.state)) throw conflict('This work is already closed.');
+    // Claiming what you already hold changes nothing, and must not add a second entry to the sealed history.
+    if (row.claimed_by === user.id) return hydrate(row);
     const at = now();
     ctx.db.prepare(
       `UPDATE work_items SET claimed_by = ?, claimed_at = ?, state = CASE WHEN state = 'open' THEN 'in_progress' ELSE state END,
@@ -258,40 +260,6 @@ export function createItem(
   return hydrate(reload(ctx, id));
 }
 
-export function assignItem(ctx: AppContext, user: SessionUser, scope: Scope, id: string, toUserId: string, expectedVersion: number | null) {
-  return ctx.db.transaction(() => {
-    const row = reload(ctx, id);
-    if (!readable(scope, user, row)) throw forbidden('That work is not yours.');
-    if (!mayReassign(scope, user, row)) throw forbidden('Handing work to somebody else is not yours to do.');
-    if (expectedVersion != null && row.version !== expectedVersion) throw conflict('This row changed while you were looking at it. Reload and try again.');
-    if (row.state === 'resolved') throw conflict('This work is already resolved.');
-
-    const target = ctx.db.prepare('SELECT id, first_name, last_name FROM users WHERE id = ? AND active = 1').get(toUserId) as { id: string; first_name: string; last_name: string } | undefined;
-    if (!target) throw badRequest('No such person to assign this to.');
-    // Checked with their authority, not the assigner's.
-    if (!readable(scopeFor(ctx, { id: target.id }), { id: target.id } as SessionUser, row)) {
-      throw badRequest(`${target.first_name} ${target.last_name} cannot see this work, so it cannot be assigned to them.`);
-    }
-
-    const at = now();
-    ctx.db.prepare(
-      `UPDATE work_items SET claimed_by = ?, claimed_at = ?, state = CASE WHEN state = 'open' THEN 'in_progress' ELSE state END,
-              stage = CASE WHEN state = 'open' THEN 'researching' ELSE COALESCE(stage, 'researching') END, version = version + 1, updated_at = ? WHERE id = ?`
-    ).run(target.id, at, at, id);
-    appendEvent(ctx, { item: row, actorId: user.id, kind: 'assigned', subjectId: target.id, body: { from: row.claimed_by } });
-    audit(ctx, { actor_id: user.id, action: 'work_assigned', entity: 'work_items', entity_id: id, subject_id: target.id, unit_id: row.unit_id });
-    notify(ctx, target.id, {
-      kind: 'work_assigned',
-      title: 'A case was handed to you',
-      message: row.title.slice(0, 160),
-      actionUrl: `/work/items/${id}`,
-      dedupeKey: `work-assign:${id}:${at}`,
-    });
-    record(ctx, 'work.assigned', { bulk: false, count: 1 }, { id: user.id });
-    return hydrate(reload(ctx, id));
-  })();
-}
-
 export function releaseStaleClaims(ctx: AppContext, afterHours = 72): number {
   const cutoff = new Date(Date.now() - afterHours * 3_600_000).toISOString();
   const stale = ctx.db.prepare(
@@ -343,7 +311,6 @@ export interface ItemPatch {
   project_id?: string | null;
 }
 
-const CLOSED_STATES = new Set<string>(['resolved', 'not_applicable']);
 const EDITABLE_FIELDS = ['title', 'reference', 'due_date'] as const;
 
 export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id: string, patch: ItemPatch, expectedVersion: number | null) {
@@ -539,7 +506,11 @@ export function listViews(ctx: AppContext, user: SessionUser, scope: Scope) {
   const rows = units.length
     ? ctx.db.prepare(`SELECT * FROM work_views WHERE user_id = ? OR (shared = 1 AND unit_id IN (${units.map(() => '?').join(',')})) ORDER BY name`).all(user.id, ...units)
     : ctx.db.prepare('SELECT * FROM work_views WHERE user_id = ? ORDER BY name').all(user.id);
-  return (rows as Array<Record<string, unknown>>).map((r) => ({ ...r, config: JSON.parse(String(r.config || '{}')) }));
+  return (rows as Array<Record<string, unknown>>).map((r) => {
+    let config = {};
+    try { config = JSON.parse(String(r.config || '{}')); } catch { /* a view saved before configs were size-checked may hold cut-off JSON */ }
+    return { ...r, config };
+  });
 }
 
 export function saveView(ctx: AppContext, user: SessionUser, scope: Scope, input: { id?: string | null; name: string; unit_id?: string | null; shared?: boolean; config: unknown }) {
@@ -549,7 +520,8 @@ export function saveView(ctx: AppContext, user: SessionUser, scope: Scope, input
     if (!input.unit_id) throw badRequest('Choose the unit to share this view with.');
     if (!can(scope, PERMISSIONS.CREATE_SHARED_WORK, input.unit_id)) throw forbidden('You cannot share a view with that unit.');
   }
-  const config = JSON.stringify(input.config ?? {}).slice(0, 8000);
+  const config = JSON.stringify(input.config ?? {});
+  if (config.length > 8000) throw badRequest('That view holds too many filters to save.');
   const at = now();
   if (input.id) {
     const existing = ctx.db.prepare('SELECT * FROM work_views WHERE id = ?').get(input.id) as { user_id: string } | undefined;
