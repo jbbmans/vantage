@@ -7,8 +7,11 @@
 const VERSION = '__VANTAGE_BUILD__';
 const SHELL = `vantage-shell-${VERSION}`;
 const ASSETS = `vantage-assets-${VERSION}`;
+// Icons are listed as the page asks for them, version and all, or the cache would never match the request.
+const ICONS = '__ICONS__';
 const SHELL_URLS = [
-  '/', '/manifest.webmanifest', '/mark.svg', '/favicon.svg', '/app-icon.svg', '/brand/mark-reversed.svg', '/brand/mark-monochrome.svg', '/icon-192.png', '/icon-512.png',
+  '/', `/manifest.webmanifest?v=${ICONS}`, `/favicon.svg?v=${ICONS}`, `/favicon.ico?v=${ICONS}`, `/icon-192.png?v=${ICONS}`, `/icon-512.png?v=${ICONS}`,
+  '/mark.svg', '/brand/mark-reversed.svg',
   '/fonts/geist-normal.woff2', '/fonts/inter-normal.woff2', '/fonts/jetbrains-normal.woff2',
 ];
 
@@ -45,11 +48,12 @@ self.addEventListener('fetch', (event) => {
     return;
   }
 
+  // A response body can be read once, so each copy for the cache is cloned before the original is handed back.
   if (request.mode === 'navigate') {
-    event.respondWith(fetch(request).then((res) => { if (res.ok) caches.open(SHELL).then((c) => c.put('/', res.clone())); return res; })
+    event.respondWith(fetch(request).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(SHELL).then((c) => c.put('/', copy)); } return res; })
       .catch(() => caches.match('/').then((hit) => hit || new Response('<!doctype html><title>Vantage</title><p style="font-family:system-ui;padding:2rem">Vantage is offline and no cached copy is available yet. Reconnect and try again.</p>', { headers: { 'content-type': 'text/html' } }))));
     return;
   }
 
-  event.respondWith(caches.match(request).then((hit) => hit || fetch(request).then((res) => { if (res.ok && (url.pathname.startsWith('/fonts/') || SHELL_URLS.includes(url.pathname))) caches.open(SHELL).then((c) => c.put(request, res.clone())); return res; })));
+  event.respondWith(caches.match(request).then((hit) => hit || fetch(request).then((res) => { if (res.ok && (url.pathname.startsWith('/fonts/') || SHELL_URLS.includes(url.pathname + url.search))) { const copy = res.clone(); caches.open(SHELL).then((c) => c.put(request, copy)); } return res; })));
 });

@@ -67,6 +67,9 @@ export function createContext(config: AppConfig): AppContext {
   return ctx;
 }
 
+/** The brand images other sites legitimately embed: link previews, search results, bookmarks, email. */
+const SHAREABLE = /^\/(?:og\.png|favicon\.(?:ico|svg)|apple-touch-icon\.png|icon-[\w-]+\.png|mark\.svg|brand\/)/;
+
 function inlineScriptHashes(distDir: string): string[] {
   const indexPath = join(distDir, 'index.html');
   if (!existsSync(indexPath)) return [];
@@ -101,7 +104,7 @@ export function createApp(ctx: AppContext) {
     res.setHeader('Referrer-Policy', 'no-referrer');
     res.setHeader('Permissions-Policy', 'geolocation=(), camera=(), microphone=(), interest-cohort=(), publickey-credentials-get=(self), publickey-credentials-create=(self)');
     res.setHeader('Cross-Origin-Opener-Policy', 'same-origin');
-    res.setHeader('Cross-Origin-Resource-Policy', /^\/(og\.png|favicon\.svg|mark\.svg|app-icon\.svg|icon-\d+\.png|brand\/)/.test(req.path) ? 'cross-origin' : 'same-origin');
+    res.setHeader('Cross-Origin-Resource-Policy', SHAREABLE.test(req.path) ? 'cross-origin' : 'same-origin');
     res.setHeader('Origin-Agent-Cluster', '?1');
     res.setHeader('X-Permitted-Cross-Domain-Policies', 'none');
     if (req.path.startsWith('/api/')) { res.setHeader('Cache-Control', 'no-store, max-age=0'); res.setHeader('Pragma', 'no-cache'); }
@@ -199,14 +202,22 @@ export function createApp(ctx: AppContext) {
     } }));
 
     const prerendered = join(distDir, 'public.html');
+    const hasPrerender = existsSync(prerendered);
+    // Once somebody has an account the instance never goes back to first-time setup, so the answer is kept.
+    let setUp = false;
+    const instanceSetUp = () => (setUp ||= Boolean(ctx.db.prepare('SELECT 1 FROM users LIMIT 1').get()));
     app.get(/^(?!\/api\/).*/, (req, res) => {
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('CDN-Cache-Control', 'no-store');
       res.vary('Cookie');
       const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
-      if ((!signedIn || req.path !== '/') && publicRoutes.has(req.path) && existsSync(prerendered)) {
-        return res.sendFile(prerendered);
-      }
+      // /display and /about are the public page for everybody. / is the public page only for a signed-out visitor
+      // to a set-up instance with accounts: setup and the demo render something else there, and the client trusts
+      // a prerendered page enough to show it without asking the API first.
+      const publicPage = req.path === '/'
+        ? !signedIn && config.accessMode === 'accounts' && instanceSetUp()
+        : publicRoutes.has(req.path);
+      if (publicPage && hasPrerender) return res.sendFile(prerendered);
       res.setHeader('X-Robots-Tag', 'noindex, nofollow');
       if (!publicRoutes.has(req.path) && !appRoute.test(req.path) && !recordRoute.test(req.path)) {
         return res.status(404).type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Page not found | VANTAGE</title></head><body><main><h1>Page not found</h1><p>This address does not exist.</p><a href="/">Return to VANTAGE</a></main></body></html>`);

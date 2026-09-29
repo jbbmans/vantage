@@ -10,7 +10,7 @@ Vantage should feel like a modern enterprise operating system: disciplined, clea
 
 ## Logo
 
-The primary mark is the flat geometric Vantage `V` in `public/mark.svg`.
+The primary mark is the flat geometric Vantage `V`. Its geometry and fills are defined once, in `shared/brand.ts`; the in-app logo, `public/mark.svg`, the reversed and monochrome files, the favicon, the app icons and the social card are all generated from that one definition.
 
 - Deep Navy forms the structural V.
 - Summit Teal forms the upper forward chevron.
@@ -56,10 +56,10 @@ The application continues to use Geist for interface text and JetBrains Mono onl
 
 The brand lives in the tokens of `src/styles/index.css`, the single stylesheet the product loads (the former `brand-2026.css` override layer was folded into it). The public page and the sign-in page keep their own scoped stylesheets for the navy brand surfaces. See `docs/design/DESIGN_SYSTEM.md` for the tokens, depth, type and motion rules.
 
-When changing the primary mark, regenerate raster assets with:
+When changing the mark, edit `shared/brand.ts` and regenerate every asset with:
 
 ```bash
 npm run icons
 ```
 
-This rebuilds the PWA icons, Apple touch icon, maskable icon, and social card from `public/mark.svg`.
+This rewrites the mark SVGs, `favicon.svg` and `favicon.ico` (16, 32 and 48 px), the PWA icons, the Apple touch icon (full-bleed, since iOS rounds it and fills transparency with black), the maskable icon, the email mark and `og.png`. The favicon is the reversed mark on a navy tile, exactly as it sits in the site's navy header. The build stamps the icon set's content hash into every icon URL, so browsers pick up a new icon without a manual version bump.

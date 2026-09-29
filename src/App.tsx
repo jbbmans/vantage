@@ -52,11 +52,19 @@ function NavigateBridge() {
 
 /** Routes that render the public page for anybody, signed in or not. */
 const PUBLIC_ROUTES = ['/display', '/about'];
-export const isPublicRoute = (pathname: string) => PUBLIC_ROUTES.includes(pathname);
+const isPublicRoute = (pathname: string) => PUBLIC_ROUTES.includes(pathname);
+
+/**
+ * The server prerenders the public page into #root only for a signed-out visitor to a set-up instance
+ * running accounts. Finding it there already answers what the loader would ask the API, so the page
+ * stays on screen instead of giving way to a spinner and coming back. Read before React replaces it.
+ */
+const PRERENDERED_HOME = typeof document !== 'undefined' && window.location.pathname === '/' && Boolean(document.getElementById('root')?.firstElementChild);
 
 function SignedOutHome({ serverError, onRetry }: { serverError: string | null; onRetry: () => void }) {
-  const [state, setState] = useState<'loading' | 'setup' | 'public'>('loading');
+  const [state, setState] = useState<'loading' | 'setup' | 'public'>(PRERENDERED_HOME ? 'public' : 'loading');
   useEffect(() => {
+    if (PRERENDERED_HOME) return;
     setupStatus().then((status) => setState(status.needsSetup ? 'setup' : 'public')).catch(() => setState('public'));
   }, []);
   if (state === 'loading') return <AppLoader />;
@@ -131,7 +139,8 @@ function AppRoutes() {
 
   const signedOut = !hasSession() || (identity.isError && (identity.error as { status?: number })?.status === 401);
   const publicStandalone = isPublicRoute(location.pathname);
-  const accessMode = useAccessMode(signedOut && !publicStandalone);
+  const prerenderedHome = PRERENDERED_HOME && location.pathname === '/';
+  const accessMode = useAccessMode(signedOut && !publicStandalone && !prerenderedHome);
   const identityBroken = identity.isError && (identity.error as { status?: number })?.status !== 401;
   if (!publicStandalone && !signedOut && identity.isPending) return <AppLoader />;
 
@@ -146,7 +155,7 @@ function AppRoutes() {
   }
 
   if (signedOut || !identity.data) {
-    if (accessMode === null) return <AppLoader />;
+    if (accessMode === null && !prerenderedHome) return <AppLoader />;
     if (accessMode === 'demo') return <DemoEntry />;
     return (
       <Routes>
