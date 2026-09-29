@@ -1,10 +1,10 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Browser, type Page } from '@playwright/test';
 import { ensureSetup, loginAs, confirmSudoIfAsked, unique, OPERATOR, PASSWORD } from './fixtures';
 
 const H = { 'x-vantage-client': '1' };
 
 /** A Marine registered on their own, then enrolled in G8 by the owner signed in on `page`. */
-async function enrolledMarine(page: Page, browser: import('@playwright/test').Browser, last: string) {
+async function enrolledMarine(page: Page, browser: Browser, last: string) {
   const username = unique(last.toLowerCase());
   const other = await browser.newContext();
   const res = await other.request.post('/api/auth/register', { headers: H, data: { username, password: PASSWORD, first_name: 'Sam', last_name: last, rank_id: 'LCpl' } });
