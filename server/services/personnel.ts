@@ -158,8 +158,8 @@ function rankResolver(ctx: AppContext) {
 function rosterDate(raw: string): string | null {
   const iso = /^(\d{4})-?(\d{2})-?(\d{2})$/.exec(raw);
   const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(raw);
-  const [y, mo, d] = iso ? [iso[1], iso[2], iso[3]] : us ? [us[3], us[1].padStart(2, '0'), us[2].padStart(2, '0')] : [];
-  if (!y) return null;
+  if (!iso && !us) return null;
+  const [y, mo, d] = iso ? [iso[1], iso[2], iso[3]] : [us![3], us![1].padStart(2, '0'), us![2].padStart(2, '0')];
   const date = new Date(Date.UTC(+y, +mo - 1, +d));
   return date.getUTCMonth() === +mo - 1 && date.getUTCDate() === +d ? `${y}-${mo}-${d}` : null;
 }
