@@ -160,3 +160,24 @@ test('every event stored holds nothing but declared scalars', () => {
     }
   }
 });
+
+test('every event the code raises is in the catalog, with the values the code actually sends', async () => {
+  const { readFileSync, readdirSync } = await import('node:fs');
+  const { join } = await import('node:path');
+  const files = (dir: string): string[] => readdirSync(dir, { withFileTypes: true }).flatMap((e) => (e.isDirectory() ? files(join(dir, e.name)) : /\.tsx?$/.test(e.name) ? [join(dir, e.name)] : []));
+  const raised = new Set<string>();
+  for (const file of [...files('server'), ...files('src')]) {
+    for (const m of readFileSync(file, 'utf8').matchAll(/\b(?:record\((?:req\.)?ctx, |track\()'([a-z_]+\.[a-z_]+)'/g)) raised.add(m[1]);
+  }
+  assert.ok(raised.size > 20, 'the scan found the calls');
+  assert.deepEqual([...raised].filter((name) => !EVENTS[name]), [], 'these events were raised and silently refused as not in the catalog');
+
+  const { ACTION_KINDS } = await import('../../server/services/work.ts');
+  const { AI_WORKFLOWS } = await import('../../server/services/ai.ts');
+  const { THREAD_STATES } = await import('../../server/services/correspondence.ts');
+  assert.deepEqual(EVENTS['work.action_recorded'].properties.kind.values, ACTION_KINDS, 'the kind of every recorded action was dropped');
+  for (const name of ['ai.requested', 'ai.answered', 'ai.accepted']) {
+    assert.deepEqual([...EVENTS[name].properties.workflow.values!].sort(), AI_WORKFLOWS.map((w) => w.id).sort(), name);
+  }
+  assert.deepEqual(EVENTS['correspondence.state_changed'].properties.to.values, THREAD_STATES);
+});

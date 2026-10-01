@@ -50,7 +50,8 @@ export const EVENTS: Record<string, EventSpec> = {
 
   'work.claimed': { serverOnly: true, family: 'work', properties: { bulk: bool, count: num } },
   'work.released': { serverOnly: true, family: 'work', properties: { held_hours: num } },
-  'work.action_recorded': { serverOnly: true, family: 'work', properties: { kind: oneOf('note', 'progress', 'resolution', 'correction'), drafted_record: bool, resolved: bool }, times: ['confirmed_work_minutes'] },
+  'work.created': { serverOnly: true, family: 'work', properties: { manual: bool, count: num } },
+  'work.action_recorded': { serverOnly: true, family: 'work', properties: { kind: oneOf('worked', 'contacted', 'escalated', 'corrected', 'reconciled', 'validated', 'resolved', 'noted'), drafted_record: bool, resolved: bool }, times: ['confirmed_work_minutes'] },
   'work.view_saved': { family: 'work', properties: { filters: num } },
 
   'import.uploaded': { serverOnly: true, family: 'import', properties: { format: oneOf('xlsx', 'csv', 'other'), bytes: num, scan: oneOf('clean', 'infected', 'skipped', 'error') } },
@@ -63,6 +64,7 @@ export const EVENTS: Record<string, EventSpec> = {
   'correspondence.thread_created': { serverOnly: true, family: 'correspondence', properties: { has_contact: bool, has_follow_up: bool } },
   'correspondence.state_changed': { serverOnly: true, family: 'correspondence', properties: { to: oneOf('draft', 'sent', 'awaiting_reply', 'response_received', 'ksd_received', 'resolved'), days_since_sent: num } },
   'correspondence.message_imported': { serverOnly: true, family: 'correspondence', properties: { source: oneOf('eml', 'graph', 'manual'), duplicate: bool, blocked_remote_images: bool, blocked_active_content: bool, attachments: num } },
+  'correspondence.authorized': { serverOnly: true, family: 'correspondence', properties: { cloud: oneOf('global', 'usgov', 'usgovdod') } },
   'correspondence.linked': { serverOnly: true, family: 'correspondence', properties: { items: num } },
   'correspondence.sync': { family: 'correspondence', serverOnly: true, properties: { cloud: oneOf('global', 'usgov', 'usgovdod'), stored: num, skipped: num, pages: num, failed: bool } },
 
