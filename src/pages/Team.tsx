@@ -35,7 +35,10 @@ export default function Team() {
   useEffect(() => { markTeamSeen(identity?.user.id); }, [identity?.user.id]);
   const units: any[] = org?.units || [];
   const unitLabel = (id: string) => { const u = units.find((x) => x.id === id); return u ? u.short_name || u.name : id; };
-  const manageMembers = unitsWith(identity, PERMISSIONS.MANAGE_MEMBERS);
+  // Accounts and membership are closed in the synthetic demo, so it offers none of the actions that change them.
+  const demo = Boolean(identity?.demo);
+  const leads = unitsWith(identity, PERMISSIONS.MANAGE_MEMBERS);
+  const manageMembers = demo ? [] : leads;
   const manageRoles = unitsWith(identity, PERMISSIONS.MANAGE_ROLES);
   const manageUnits = unitsWith(identity, PERMISSIONS.MANAGE_UNITS);
   const viewAudit = unitsWith(identity, PERMISSIONS.VIEW_AUDIT);
@@ -54,7 +57,7 @@ export default function Team() {
   return (
     <div className="page">
       <PageHeader eyebrow={view && subtree.length > 1 ? 'Whole command' : 'Team'} title={viewLabel(view) || 'Team'} lede={full ? 'The work and people of this view. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.' : 'Who is in this view, how its teams are doing, and the goals it is working toward. Figures built from fewer than three people are not shown.'}>
-        {manageMembers.includes(unit) && <Button onClick={() => setMessaging(true)}><Send className="h-4 w-4" />Email the team</Button>}
+        {leads.includes(unit) && <Button onClick={() => setMessaging(true)}><Send className="h-4 w-4" />Email the team</Button>}
         {views.length > 1 && <Select aria-label="View" className="w-64" value={unit} onValueChange={setView} options={views.map((v) => ({ value: v.id, label: `${'\u2003'.repeat(v.depth)}${v.short_name || v.name}${v.teams ? ' (whole command)' : ''}` }))} />}
       </PageHeader>
       <Tabs value={shown} onChange={setTab} className="mb-4" tabs={tabs} />

@@ -75,7 +75,9 @@ function Security() {
   const { data: identity } = useIdentity(); const toast = useToast(); const qc = useQueryClient();
   const [pw, setPw] = useState({ current: '', next: '' }); const [busy, setBusy] = useState(false);
   const { data: sessions, refetch: refetchSessions } = useQuery({ queryKey: ['sessions'], queryFn: api.mySessions });
-  const { data: pk, refetch: refetchPk } = useQuery({ queryKey: ['passkeys'], queryFn: api.passkeys });
+  // The synthetic demo has no sign-in, so its password, authenticator and passkey routes are closed.
+  const demo = Boolean(identity?.demo);
+  const { data: pk, refetch: refetchPk } = useQuery({ queryKey: ['passkeys'], queryFn: api.passkeys, enabled: !demo });
   const { data: audit } = useQuery({ queryKey: ['my-audit'], queryFn: api.myAudit });
   const [totp, setTotp] = useState<{ secret: string; otpauth: string; qr: string } | null>(null); const [code, setCode] = useState(''); const [codes, setCodes] = useState<string[] | null>(null);
   const [confirmDisable, setConfirmDisable] = useState(false); const [pkName, setPkName] = useState('');
@@ -96,6 +98,11 @@ function Security() {
   const u = identity!.user;
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+      {demo ? (
+        <Panel title="Sign-in security" subtitle="Password, authenticator app and passkeys">
+          <p className="text-sm text-ink-2">The synthetic demo has no sign-in, so there is nothing here to set. On a real deployment this is where a Marine changes their password, turns on an authenticator app and registers passkeys.</p>
+        </Panel>
+      ) : <>
       <Panel title="Password" subtitle="Fifteen characters or more; changing it signs out other devices">
         <div className="space-y-3">
           <Field label="Current password"><Input type="password" autoComplete="current-password" value={pw.current} onChange={(e) => setPw({ ...pw, current: e.target.value })} /></Field>
@@ -112,6 +119,7 @@ function Security() {
       <Panel title="Authenticator app" subtitle="A six-digit code as a second step" action={<Badge tone={u.totp_enabled ? 'good' : 'neutral'}>{u.totp_enabled ? 'On' : 'Off'}</Badge>}>
         {u.totp_enabled ? <div className="flex flex-wrap gap-2"><Button onClick={regen}>New recovery codes</Button><Button variant="danger" onClick={() => setConfirmDisable(true)}>Turn off</Button></div> : <div className="space-y-2"><p className="text-sm text-ink-2">Scan a QR code with any authenticator app. You get ten recovery codes for when the phone is not around.</p><Button variant="primary" onClick={startTotp}><Smartphone className="h-4 w-4" />Set up</Button></div>}
       </Panel>
+      </>}
       <Panel title="Signed-in devices" action={<Button size="sm" variant="ghost" onClick={async () => { try { const r = await api.revokeOtherSessions(); toast.success(`${r.revoked} other session${r.revoked === 1 ? '' : 's'} signed out.`); refetchSessions(); } catch (e) { toast.error(api.errorText(e)); } }}><LogOut className="h-3.5 w-3.5" />Sign out others</Button>}>
         <ul className="space-y-1.5">{(sessions?.sessions || []).map((s: any) => <li key={s.id} className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-sm"><span><span className="flex items-center gap-2 text-ink">{s.current ? <Badge tone="accent">This device</Badge> : null}<span className="truncate">{describeAgent(s.user_agent)}</span></span><span className="block text-2xs text-ink-3">{s.method} · {s.ip || 'unknown IP'} · active {timeAgo(s.last_used_at || s.created_at)}</span></span>{!s.current && <Button size="xs" variant="ghost" onClick={async () => { try { await api.revokeSession(s.id); refetchSessions(); } catch (e) { toast.error(api.errorText(e)); } }}>Sign out</Button>}</li>)}</ul>
       </Panel>

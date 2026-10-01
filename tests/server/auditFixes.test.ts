@@ -5,6 +5,7 @@ import { slug } from '../../server/lib/ids.ts';
 import { zonedDay } from '../../server/lib/clock.ts';
 import { todayActions } from '../../shared/health.ts';
 import { applyMapping } from '../../shared/csv.ts';
+import { buildZip } from '../../server/lib/zip.ts';
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
@@ -123,4 +124,23 @@ test('“today” is the day where the Marine is, not in Greenwich', () => {
   // Okinawa is ahead of UTC: a free-form date parses as local midnight, which is still the previous day in UTC.
   const { records } = inZone('Asia/Tokyo', () => applyMapping([{ When: 'Sep 29, 2026', What: 'Range brief' }], { date: 'When', title: 'What' }));
   assert.equal(records[0].date, '2026-09-29');
+});
+
+test('a preview of a sheet the workbook does not have is refused, not quietly read from the first sheet', async () => {
+  const cells = (rows: string[][]) => `<?xml version="1.0"?><worksheet><sheetData>${rows.map((r, i) => `<row r="${i + 1}">${r.map((v) => `<c t="inlineStr"><is><t>${v}</t></is></c>`).join('')}</row>`).join('')}</sheetData></worksheet>`;
+  const workbook = buildZip([
+    { name: '[Content_Types].xml', data: '<?xml version="1.0"?><Types/>' },
+    { name: 'xl/workbook.xml', data: '<?xml version="1.0"?><workbook xmlns:r="r"><sheets><sheet name="Summary" sheetId="1" r:id="rId1"/><sheet name="Open items" sheetId="2" r:id="rId2"/></sheets></workbook>' },
+    { name: 'xl/_rels/workbook.xml.rels', data: '<?xml version="1.0"?><Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet2.xml"/></Relationships>' },
+    { name: 'xl/worksheets/sheet1.xml', data: cells([['Document', 'Note'], ['TOTAL', 'not a work item']]) },
+    { name: 'xl/worksheets/sheet2.xml', data: cells([['Document', 'Note'], ['ULO-7001', 'clear it']]) },
+  ]);
+  const source = await app.call('POST', '/api/work/sources', { token: op.token, raw: workbook, headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x-filename': 'balances.xlsx', 'x-unit-id': '', 'x-visibility': 'private' } });
+  assert.equal(source.status, 201, JSON.stringify(source.body));
+  const plan = { source_file_id: source.body.id, header_row: 1, key_columns: ['Document'], mapping: {}, unit_id: null, visibility: 'private' };
+  const renamed = await app.call('POST', '/api/work/imports/preview', { token: op.token, body: { ...plan, sheet_name: 'Open Items (old)' } });
+  assert.equal(renamed.status, 400, 'a missing sheet used to fall back to the Summary sheet');
+  assert.match(renamed.body.error, /no sheet named/);
+  const named = await app.call('POST', '/api/work/imports/preview', { token: op.token, body: { ...plan, sheet_name: 'Open items' } });
+  assert.deepEqual(named.body.will_insert.map((r: { natural_key: string }) => r.natural_key), ['ULO-7001']);
 });

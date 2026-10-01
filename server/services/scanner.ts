@@ -54,7 +54,7 @@ export class ClamdScanner implements Scanner {
   }
 }
 
-/** Used by tests to drive each verdict without needing a scanner installed. */
+/** clamdscan when VANTAGE_SCANNER_COMMAND names it; otherwise uploads are recorded as not scanned. */
 export function scannerFor(config: { command: string | null }): Scanner {
   return config.command ? new ClamdScanner(config.command) : new NoScanner();
 }
