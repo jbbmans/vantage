@@ -112,8 +112,8 @@ function notifyMentions(
 
 function recordUrl(table: string, id: string) {
   if (table === 'activities') return `/records/${id}`;
-  if (table === 'awards') return `/career?tab=awards&open=${id}`;
-  if (table === 'counselings') return `/career?tab=counseling&open=${id}`;
+  if (table === 'awards') return `/career/awards?open=${id}`;
+  if (table === 'counselings') return `/career/counseling?open=${id}`;
   return `/records/${table}/${id}`;
 }
 

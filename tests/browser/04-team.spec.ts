@@ -4,7 +4,7 @@ import { ensureSetup, loginAs, logout, quickLog, unique, OPERATOR, PASSWORD } fr
 test('a leader invites a Marine by link, sees their shared work on the unit dashboard, and counsels them', async ({ browser, page, request }) => {
   await ensureSetup(request);
   await loginAs(page, OPERATOR.username);
-  await page.goto('/team?tab=invites');
+  await page.goto('/team/invitations');
   await page.getByLabel('First name').fill('Ana');
   await page.getByLabel('Last name').fill('Rivera');
   await page.getByLabel('Billet').fill('Budget Analyst');
@@ -37,7 +37,7 @@ test('a leader invites a Marine by link, sees their shared work on the unit dash
   await privateDialog.getByRole('button', { name: 'Save activity' }).click();
   await expect(ip.getByRole('status').filter({ hasText: 'Activity logged.' })).toBeVisible();
 
-  await page.goto('/team?tab=dashboard&unit=G8');
+  await page.goto('/team/dashboard?unit=G8');
   const memberRow = page.getByRole('row').filter({ hasText: 'Rivera' });
   await expect(memberRow).toBeVisible();
   await expect(memberRow).toContainText('Budget Analyst');
@@ -53,7 +53,7 @@ test('a leader invites a Marine by link, sees their shared work on the unit dash
   await counsel.getByRole('button', { name: 'Add counseling' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Counseling added.' })).toBeVisible();
 
-  await ip.goto('/career?tab=counseling');
+  await ip.goto('/career/counseling');
   await expect(ip.getByText('Strong first month')).toBeVisible();
   await ip.getByRole('button', { name: 'Acknowledge' }).first().click();
   await expect(ip.getByText('Acknowledged', { exact: true })).toBeVisible();

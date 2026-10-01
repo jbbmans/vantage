@@ -12,8 +12,8 @@ import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
 
 const KINDS = {
-  tasks: { label: 'Task', back: '/work?tab=tasks', title: (r: Record<string, string>) => r.title },
-  projects: { label: 'Project', back: '/work?tab=projects', title: (r: Record<string, string>) => r.name },
+  tasks: { label: 'Task', back: '/work/tasks', title: (r: Record<string, string>) => r.title },
+  projects: { label: 'Project', back: '/work/projects', title: (r: Record<string, string>) => r.name },
   goals: { label: 'Goal', back: '/goals', title: (r: Record<string, string>) => r.title },
 } as const;
 

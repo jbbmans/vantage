@@ -7,7 +7,7 @@ import { useToast } from '@/components/ui/toast';
 import { keys, useActivities, useIdentity, useReadiness, useTrack } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { PILLARS, ARQ_BANDS, estimate, recommend, fitnessClass, EFFORT_ORDER } from '../../shared/jepes';
-import { fitrepCoverage, recommendFitrep, daysUntil, trackMeta, FITREP_SECTIONS } from '../../shared/evaluation';
+import { fitrepCoverage, recommendFitrep, daysUntil, FITREP_SECTIONS } from '../../shared/evaluation';
 import { EVAL_REFERENCES, EVAL_VERIFIED, REC_KINDS } from '../../shared/evalRefs';
 import { RIFLE_QUALS, MCMAP_BELTS, DEGREES, PME_STATUS } from '../../shared/constants';
 import { areaBalance } from '../../shared/narrative';
@@ -37,7 +37,6 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
   const coverage = useMemo(() => fitrepCoverage(mine), [mine]);
   const daysToEnd = daysUntil(form.fitrep_period_end || null);
   const recs = useMemo(() => (track === 'fitrep' ? recommendFitrep(profile, stats, { coverage, daysToEnd }) : recommend(profile, stats)), [track, profile, stats, coverage, daysToEnd]);
-  const meta = trackMeta(track);
   const ref = EVAL_REFERENCES[track];
   const [effortSort, setEffortSort] = useState(false);
   const sortedRecs = effortSort ? [...recs].sort((a, b) => EFFORT_ORDER[a.effort] - EFFORT_ORDER[b.effort] || b.priority - a.priority) : recs;
@@ -47,7 +46,7 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
   return (
     <PageShell
       embedded={embedded}
-      eyebrow={meta.readinessTitle}
+      eyebrow="Career"
       title={track === 'fitrep' ? 'FITREP readiness' : 'JEPES readiness'}
       lede={track === 'fitrep' ? 'Your rank reports on a fitness report. Vantage checks that every attribute your Reporting Senior marks has evidence behind it.' : 'The four JEPES pillars, what you have entered, and where the cheapest points are. Your MOL score is the only official number.'}
       actions={<Button variant="primary" onClick={submit} loading={save.isPending} disabled={!dirty}><Save className="h-4 w-4" />Save</Button>}

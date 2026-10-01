@@ -64,7 +64,7 @@ export default function RecordDetail() {
 
   return (
     <div className="page max-w-5xl">
-      <Link to="/record?tab=entries" className="mb-3 inline-flex items-center gap-1 text-xs text-ink-3 hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />All records</Link>
+      <Link to="/record/activities" className="mb-3 inline-flex items-center gap-1 text-xs text-ink-3 hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />All records</Link>
       {a.deleted_at && <div className="mb-4 flex items-center gap-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink"><span className="flex-1">This entry is in the recycle bin. It is excluded from reports and will be purged after 30 days.</span><Button size="sm" onClick={() => restore.mutateAsync(id).then(() => toast.success('Restored.')).catch((e) => toast.error(api.errorText(e)))}><RotateCcw className="h-4 w-4" />Restore</Button></div>}
       {a.frozen_at && <div className="mb-4 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">This entry was frozen when the unit membership ended. It stays on your record but cannot be edited.</div>}
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
@@ -96,7 +96,7 @@ export default function RecordDetail() {
               ['Result', a.result], ['Quantity', a.quantity != null ? `${formatNumber(a.quantity)} ${a.unit_label || ''}` : null],
               ['Transaction value', a.dollar_amount != null ? `${formatDollars(a.dollar_amount)}${dollarType ? ` · ${dollarType.label}` : ''}` : null],
               [trackMeta(track).areaLabel, mapAreaToTrack(a.eval_area, track)], ['Organization', a.organization], ['System', a.system], ['Status', <StatusBadge value={a.status} />],
-              ['Project', a.project_name ? <Link className="link" to="/work?tab=projects">{a.project_name}</Link> : null],
+              ['Project', a.project_name ? <Link className="link" to="/work/projects">{a.project_name}</Link> : null],
               ['Notes', a.notes ? <span className="whitespace-pre-wrap">{a.notes}</span> : null],
             ]} />
             {(a.evidence_links || []).length > 0 && <div className="mt-4"><p className="eyebrow mb-1.5">Evidence</p><ul className="space-y-1">{a.evidence_links.map((l: any, i: number) => <li key={i} className="text-sm">{l.url ? <a href={l.url} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1">{l.label || l.url}<ExternalLink className="h-3 w-3" /></a> : <span className="text-ink-2">{l.label}</span>}</li>)}</ul></div>}

@@ -140,5 +140,5 @@ test('a comment on a career record points somewhere that can actually open it', 
   const note = inbox.find((n) => n.kind === 'comment_added');
   assert.ok(note, 'the record owner hears about it');
   // /records/awards/:id has no page; the career screen opens it, with its comments, by id.
-  assert.equal(note!.action_url, `/career?tab=awards&open=${award.body.id}`, 'and is sent where the record and its comments open');
+  assert.equal(note!.action_url, `/career/awards?open=${award.body.id}`, 'and is sent where the record and its comments open');
 });
