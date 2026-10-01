@@ -4,7 +4,7 @@ import { ExternalLink, Search, X } from 'lucide-react';
 import { PageHeader, Panel, Kbd, Input, Button, EmptyState } from '@/components/ui/primitives';
 import { EVAL_REFERENCES, EVAL_VERIFIED } from '../../shared/evalRefs';
 import { dollarSumRule } from '../../shared/constants';
-import { useMetrics } from '@/lib/queries';
+import { useIdentity, useMetrics } from '@/lib/queries';
 import { VERSION } from '@/lib/version';
 import { HELP, searchHelp, type Answer } from '@/config/help';
 import { TOPIC_LABELS, VIDEOS, videosByTopic, type VideoSlot } from '@/config/videos';
@@ -37,6 +37,7 @@ function QA({ entry, highlight }: { entry: Answer; highlight?: boolean }) {
 
 export default function Help() {
   const cfg = useMetrics();
+  const demo = Boolean(useIdentity().data?.demo);
   const [q, setQ] = useParam('q');
   const [query, setQuery] = useState(q);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -172,6 +173,12 @@ export default function Help() {
               Official submissions belong in the authoritative systems.
             </p>
           </Panel>
+
+          {!demo && (
+            <Panel title="Still stuck?" subtitle="The guide does not cover everything.">
+              <p className="text-sm text-ink-2"><Link className="link font-medium" to="/support">Ask a person</Link>. A request goes to the people who run Vantage here, and you see every answer in one place.</p>
+            </Panel>
+          )}
 
           <p className="px-1 text-xs text-ink-3">Build {VERSION}</p>
         </div>

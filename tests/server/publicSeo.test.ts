@@ -160,3 +160,18 @@ test('the public page tells every engine one consistent story, in its head, its 
   assert.equal([...sitemap.matchAll(/<video:video>/g)].length, videos.length);
   assert.doesNotMatch(sitemap.replace(/&(amp|lt|gt|quot|apos);/g, ''), /&/, 'every & in the sitemap is escaped');
 });
+
+test('every screen the app declares is served by the server, not answered with its 404 page', async () => {
+  const app = await startApp();
+  try {
+    const source = readFileSync(join(PROJECT_ROOT, 'src', 'App.tsx'), 'utf8') + readFileSync(join(PROJECT_ROOT, 'src', 'config', 'nav.ts'), 'utf8');
+    const declared = new Set<string>();
+    for (const [, path] of source.matchAll(/<Route path="([^"*]+)"/g)) declared.add(path.startsWith('/') ? path : `/${path}`);
+    for (const [, path] of source.matchAll(/^\s+'(\/[a-z]+)': '\//gm)) declared.add(path);
+    assert.ok(declared.size > 20, `the scan found the routes (${declared.size})`);
+    for (const path of declared) {
+      const concrete = path.replace(/:[a-z]+/g, 'x');
+      assert.equal((await app.call('GET', concrete)).status, 200, `${concrete} is a screen in the app, but the server answered it with "Page not found"`);
+    }
+  } finally { await app.close(); }
+});

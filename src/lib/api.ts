@@ -65,6 +65,7 @@ export const api = {
   get: <T = any>(p: string) => request<T>('GET', p),
   post: <T = any>(p: string, b?: unknown) => request<T>('POST', p, b ?? {}),
   put: <T = any>(p: string, b?: unknown) => request<T>('PUT', p, b ?? {}),
+  patch: <T = any>(p: string, b?: unknown) => request<T>('PATCH', p, b ?? {}),
   del: <T = any>(p: string) => request<T>('DELETE', p),
 };
 
@@ -149,6 +150,13 @@ export const removeMember = (unitId: string, userId: string) => api.del(`/org/un
 export const createInvite = (unitId: string, payload: unknown) => api.post(`/org/units/${encodeURIComponent(unitId)}/invites`, payload);
 export const listInvites = (unitId: string) => api.get(`/org/units/${encodeURIComponent(unitId)}/invites`);
 export const revokeInvite = (id: string) => api.del(`/org/invites/${encodeURIComponent(id)}`);
+export const supportTickets = (mine = false) => api.get(`/support/tickets${mine ? '?mine=1' : ''}`);
+export const supportTicket = (id: string) => api.get(`/support/tickets/${encodeURIComponent(id)}`);
+export const raiseSupportTicket = (payload: { subject: string; body: string; category: string; unit_id: string | null }) => api.post('/support/tickets', payload);
+export const replySupportTicket = (id: string, payload: { body: string; internal: boolean }) => api.post(`/support/tickets/${encodeURIComponent(id)}/messages`, payload);
+export const updateSupportTicket = (id: string, payload: { state?: string; priority?: string; assigned_to?: string | null; version?: number }) => api.patch(`/support/tickets/${encodeURIComponent(id)}`, payload);
+/** For someone who cannot sign in: no account needed, and the answer says nothing about whether one exists. */
+export const askForHelp = (payload: { subject: string; body: string; category: 'sign_in'; requester_name?: string; requester_email: string }) => api.post('/public-support/tickets', payload);
 export const createJoinCode = (unitId: string, payload: { role_id?: string | null; note?: string | null; max_uses?: number | null; expires_in_hours?: number | null }) => api.post(`/org/units/${encodeURIComponent(unitId)}/join-codes`, payload);
 export const listJoinCodes = (unitId: string) => api.get(`/org/units/${encodeURIComponent(unitId)}/join-codes`);
 export const revokeJoinCode = (unitId: string, id: string) => api.del(`/org/units/${encodeURIComponent(unitId)}/join-codes/${encodeURIComponent(id)}`);

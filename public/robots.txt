@@ -32,6 +32,7 @@ Disallow: /reports
 Disallow: /settings
 Disallow: /setup
 Disallow: /studio
+Disallow: /support
 Disallow: /team
 Disallow: /work
 

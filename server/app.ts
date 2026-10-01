@@ -194,7 +194,7 @@ export function createApp(ctx: AppContext) {
     // Only public marketing routes are indexable, before any JavaScript runs.
     const publicRoutes = new Set(['/', '/display', '/about']);
     const appRoute = /^\/(?:login|register|reset|invite|setup|work|record|goals|career|reference|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
-    const recordRoute = /^\/(?:records|activities|team)(?:\/[^/]+){0,2}\/?$|^\/work\/items\/[^/]+\/?$/;
+    const recordRoute = /^\/(?:records|activities|team|support)(?:\/[^/]+){0,2}\/?$|^\/work\/items\/[^/]+\/?$/;
     // The application shell is noindex in its source; the public page is its own document, public.html.
     const shell = readFileSync(join(distDir, 'index.html'), 'utf8');
     const publicFile = join(distDir, 'public.html');

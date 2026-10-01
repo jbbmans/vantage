@@ -5,6 +5,7 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { notify } from './notifications.ts';
+import { ancestorIds } from './org.ts';
 
 export const TICKET_STATES = ['open', 'in_progress', 'waiting_on_requester', 'resolved', 'closed'] as const;
 export const TICKET_CATEGORIES = ['sign_in', 'account', 'data', 'bug', 'request', 'other'] as const;
@@ -25,6 +26,17 @@ export const worksQueue = (user: SessionUser, scope: Scope) =>
 /** Whether this person may work *this* ticket. */
 export const worksTicket = (user: SessionUser, scope: Scope, row: Pick<TicketRow, 'unit_id'>) =>
   Boolean(user.is_operator) || (Boolean(row.unit_id) && supportUnits(scope).includes(row.unit_id!));
+
+/** Everyone who works a ticket in this unit: the operators, and whoever holds VIEW_SUPPORT here or above. */
+function queueFor(ctx: AppContext, unitId: string | null): string[] {
+  const people = new Set((ctx.db.prepare('SELECT id FROM users WHERE is_operator = 1 AND active = 1').all() as Array<{ id: string }>).map((u) => u.id));
+  if (unitId) {
+    const candidates = ctx.db.prepare(`SELECT DISTINCT um.user_id AS id FROM unit_members um JOIN users u ON u.id = um.user_id
+      WHERE u.active = 1 AND um.unit_id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(ancestorIds(ctx, [unitId]))) as Array<{ id: string }>;
+    for (const { id } of candidates) if (supportUnits(scopeFor(ctx, { id })).includes(unitId)) people.add(id);
+  }
+  return [...people];
+}
 
 export function raiseTicket(
   ctx: AppContext,
@@ -58,8 +70,9 @@ export function raiseTicket(
   })();
 
   audit(ctx, { actor_id: user?.id ?? null, action: 'support_ticket_raised', entity: 'support_ticket', entity_id: id, unit_id: input.unit_id ?? null, ip });
-  for (const op of ctx.db.prepare('SELECT id FROM users WHERE is_operator = 1 AND active = 1').all() as Array<{ id: string }>) {
-    notify(ctx, op.id, { kind: 'support_ticket', title: 'A new help request', message: subject.slice(0, 160), actionUrl: `/support/${id}`, dedupeKey: `ticket:${id}:${op.id}` });
+  for (const staff of queueFor(ctx, input.unit_id ?? null)) {
+    if (staff === user?.id) continue;
+    notify(ctx, staff, { kind: 'support_ticket', title: 'A new help request', message: subject.slice(0, 160), actionUrl: `/support/${id}`, dedupeKey: `ticket:${id}:${staff}` });
   }
   return getTicket(ctx, id)!;
 }
@@ -103,7 +116,8 @@ export function ticketDetail(ctx: AppContext, user: SessionUser, scope: Scope, i
       WHERE m.ticket_id = ? ${staff ? '' : 'AND m.internal = 0'} ORDER BY m.created_at`
   ).all(id) as Array<Record<string, unknown>>;
 
-  return { ticket: row, messages, delivery: staff ? deliveryFor(ctx, row) : [] };
+  const assignee = row.assigned_to ? ctx.db.prepare('SELECT id, first_name, last_name FROM users WHERE id = ?').get(row.assigned_to) as { id: string; first_name: string; last_name: string } | undefined : undefined;
+  return { ticket: row, messages, delivery: staff ? deliveryFor(ctx, row) : [], works: staff, assignee: assignee ? { id: assignee.id, name: `${assignee.first_name} ${assignee.last_name}` } : null };
 }
 
 function deliveryFor(ctx: AppContext, row: TicketRow) {
@@ -127,19 +141,24 @@ export function replyToTicket(ctx: AppContext, user: SessionUser, scope: Scope, 
   const text = String(body || '').trim();
   if (!text) throw badRequest('Write something first.', { fieldErrors: { body: 'Required.' } });
   if (text.length > 8000) throw badRequest('Keep a reply under 8000 characters.');
+  if (row.state === 'closed' && !staff) throw conflict('This request is closed. Raise a new one if you still need help.', 'ticket_closed');
 
   const at = now();
   ctx.db.prepare('INSERT INTO support_messages (id, ticket_id, author_id, body, internal, created_at) VALUES (?, ?, ?, ?, ?, ?)')
     .run(newId(), id, user.id, text, internal ? 1 : 0, at);
-  const nextState = row.state === 'resolved' || row.state === 'closed' ? row.state
-    : staff && !internal ? 'waiting_on_requester'
-      : row.requester_id === user.id ? 'in_progress' : row.state;
-  ctx.db.prepare('UPDATE support_tickets SET state = ?, version = version + 1, updated_at = ? WHERE id = ?').run(nextState, at, id);
+  // A requester who answers a resolved ticket is saying it is not resolved; it goes back to the queue.
+  const fromRequester = row.requester_id === user.id && !internal;
+  const nextState = fromRequester ? (row.state === 'resolved' ? 'open' : row.state === 'closed' ? row.state : 'in_progress')
+    : row.state === 'resolved' || row.state === 'closed' ? row.state
+      : staff && !internal ? 'waiting_on_requester' : row.state;
+  ctx.db.prepare(`UPDATE support_tickets SET state = ?,${nextState === 'open' ? ' resolved_at = NULL,' : ''} version = version + 1, updated_at = ? WHERE id = ?`).run(nextState, at, id);
 
   if (!internal) {
-    const target = staff ? row.requester_id : row.assigned_to;
-    if (target && target !== user.id) {
-      notify(ctx, target, { kind: 'support_reply', title: 'A reply on your help request', message: text.slice(0, 160), actionUrl: `/support/${id}`, dedupeKey: `ticket-reply:${id}:${at}` });
+    const targets = fromRequester ? (row.assigned_to ? [row.assigned_to] : queueFor(ctx, row.unit_id)) : row.requester_id ? [row.requester_id] : [];
+    for (const target of targets) {
+      if (target === user.id) continue;
+      const title = fromRequester ? 'A reply on a help request' : 'A reply on your help request';
+      notify(ctx, target, { kind: 'support_reply', title, message: text.slice(0, 160), actionUrl: `/support/${id}`, dedupeKey: `ticket-reply:${id}:${at}:${target}` });
     }
   }
   audit(ctx, { actor_id: user.id, action: internal ? 'support_note_added' : 'support_reply_added', entity: 'support_ticket', entity_id: id, ip });

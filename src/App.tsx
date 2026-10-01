@@ -29,6 +29,7 @@ const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
 const Settings = lazy(() => import('@/pages/Settings'));
 const Operator = lazy(() => import('@/pages/Operator'));
 const Help = lazy(() => import('@/pages/Help'));
+const Support = lazy(() => import('@/pages/Support'));
 const Reference = lazy(() => import('@/pages/Reference'));
 
 function Fallback() {
@@ -190,6 +191,8 @@ function AppRoutes() {
         <Route path="settings" element={<D><Settings /></D>} />
         <Route path="operator" element={<D><Operator /></D>} />
         <Route path="help" element={<D><Help /></D>} />
+        <Route path="support" element={<D><Support /></D>} />
+        <Route path="support/:id" element={<D><Support /></D>} />
         {Object.entries(NAV_REDIRECTS).map(([from, to]) => (
           <Route key={from} path={from.slice(1)} element={<RedirectKeepingQuery to={to} />} />
         ))}

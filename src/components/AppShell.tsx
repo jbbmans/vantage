@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { installTelemetry, track } from '@/lib/telemetry';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle, Bell, Building2, Check, ChevronsLeft, ChevronsRight, ChevronsUpDown, CloudOff, FlaskConical, Keyboard, LogOut, Menu as MenuIcon, Moon,
+  AlertTriangle, Bell, Building2, Check, ChevronsLeft, ChevronsRight, ChevronsUpDown, CloudOff, FlaskConical, Keyboard, LifeBuoy, LogOut, Menu as MenuIcon, Moon,
   Plus, RefreshCw, Search, Settings2, Sun, Users, WifiOff, X,
 } from 'lucide-react';
 import { NAV, NAV_GROUPS } from '@/config/nav';
@@ -40,6 +40,7 @@ const TITLES: Array<[string, string, string]> = [
   ['/settings', 'Settings', 'Your preferences'],
   ['/operator', 'Owner console', 'This deployment'],
   ['/help', 'Field guide', 'How Vantage works'],
+  ['/support', 'Support', 'Ask a person'],
 ];
 const entryFor = (p: string) => (p === '/' ? (['/', 'Today', 'Your next move'] as const) : TITLES.find(([path]) => p.startsWith(path)));
 const titleFor = (p: string) => entryFor(p)?.[1] || 'Vantage';
@@ -197,7 +198,7 @@ function surfaceOf(pathname: string, search: string): string {
   if (segment === 'reference') return tab === 'diagnose' || !tab ? 'diagnose' : 'reference';
   const map: Record<string, string> = {
     '': 'dashboard', records: 'records', record: 'records', goals: 'goals', readiness: 'readiness', career: 'career',
-    maradmins: 'maradmins', team: 'team', settings: 'settings', operator: 'operator', help: 'help',
+    maradmins: 'maradmins', team: 'team', settings: 'settings', operator: 'operator', help: 'help', support: 'help',
   };
   return map[segment] || 'dashboard';
 }
@@ -316,6 +317,7 @@ export default function AppShell() {
         {user?.is_operator && !demo ? <MenuItem onSelect={() => navigate('/operator')}>Owner console</MenuItem> : null}
         <MenuItem onSelect={toggleTheme} icon={theme === 'dark' ? Sun : Moon}>{theme === 'dark' ? 'Light theme' : 'Dark theme'}</MenuItem>
         <MenuItem icon={Keyboard} onSelect={() => setShortcuts(true)}>Keyboard shortcuts</MenuItem>
+        {!demo && <MenuItem icon={LifeBuoy} onSelect={() => navigate('/support')}>Ask for help</MenuItem>}
         <MenuSeparator />
         {demo
           ? <MenuItem icon={RefreshCw} onSelect={() => startOver()}>Start the demo over</MenuItem>
