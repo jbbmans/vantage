@@ -1,7 +1,7 @@
 import type { AppContext } from '../context.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
-import { RECORD_TABLE_NAMES } from './records.ts';
+import { RECORD_TABLE_NAMES, destroyRecords } from './records.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
 import { badRequest } from '../lib/errors.ts';
 import { holdState } from './holds.ts';
@@ -49,6 +49,11 @@ const IDENTIFYING: Record<string, string[]> = {
   tasks: ['title', 'notes'],
   projects: ['name', 'description'],
 };
+
+function identifyingColumns(ctx: AppContext, table: RecordTable): string[] {
+  const live = new Set((ctx.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name));
+  return (IDENTIFYING[table] || []).filter((c) => live.has(c));
+}
 
 export const RETAINABLE_TYPES = RECORD_TABLE_NAMES.filter((t) => CLOCK[t]);
 
@@ -141,29 +146,29 @@ export function runDisposition(ctx: AppContext, opts: { dryRun: boolean; actorId
       continue;
     }
 
+    const table = schedule.record_type as RecordTable;
     const heldUsers = [...holds.users];
     const exclusion = heldUsers.length ? ` AND user_id NOT IN (${heldUsers.map(() => '?').join(',')})` : '';
-    const params = [cutoff, ...heldUsers];
+    // An anonymized row stays past the cutoff for good. It is done, not due again at every run.
+    const columns = schedule.disposition === 'anonymize' ? identifyingColumns(ctx, table) : [];
+    const done = columns.length ? ` AND NOT (${columns.map((c) => `${c} IS ?`).join(' AND ')})` : '';
+    const due = `${clock} IS NOT NULL AND ${clock} < ?${exclusion}${done}`;
+    const params = [cutoff, ...heldUsers, ...columns.map(() => REDACTED)];
 
-    const eligible = (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${schedule.record_type} WHERE ${clock} IS NOT NULL AND ${clock} < ?${exclusion}`).get(...params) as { n: number }).n;
+    const eligible = (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${due}`).get(...params) as { n: number }).n;
     const held = heldUsers.length
-      ? (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${schedule.record_type} WHERE ${clock} IS NOT NULL AND ${clock} < ? AND user_id IN (${heldUsers.map(() => '?').join(',')})`).get(cutoff, ...heldUsers) as { n: number }).n
+      ? (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${clock} IS NOT NULL AND ${clock} < ? AND user_id IN (${heldUsers.map(() => '?').join(',')})`).get(cutoff, ...heldUsers) as { n: number }).n
       : 0;
 
     let acted = 0;
-    if (!opts.dryRun && schedule.disposition !== 'review' && eligible > 0) {
+    if (!opts.dryRun && eligible > 0) {
       ctx.db.transaction(() => {
         if (schedule.disposition === 'destroy') {
-          acted = ctx.db.prepare(`DELETE FROM ${schedule.record_type} WHERE ${clock} IS NOT NULL AND ${clock} < ?${exclusion}`).run(...params).changes;
-        } else {
-          const declared = IDENTIFYING[schedule.record_type] || [];
-          const live = new Set((ctx.db.prepare(`PRAGMA table_info(${schedule.record_type})`).all() as Array<{ name: string }>).map((c) => c.name));
-          const columns = declared.filter((c) => live.has(c));
-          if (columns.length) {
-            const sets = columns.map((c) => `${c} = ?`).join(', ');
-            acted = ctx.db.prepare(`UPDATE ${schedule.record_type} SET ${sets}, updated_at = ? WHERE ${clock} IS NOT NULL AND ${clock} < ?${exclusion}`)
-              .run(...columns.map(() => REDACTED), stamp, ...params).changes;
-          }
+          const ids = (ctx.db.prepare(`SELECT id FROM ${table} WHERE ${due}`).all(...params) as Array<{ id: string }>).map((r) => r.id);
+          acted = destroyRecords(ctx, table, ids).records;
+        } else if (columns.length) {
+          acted = ctx.db.prepare(`UPDATE ${table} SET ${columns.map((c) => `${c} = ?`).join(', ')}, updated_at = ? WHERE ${due}`)
+            .run(...columns.map(() => REDACTED), stamp, ...params).changes;
         }
       })();
     }

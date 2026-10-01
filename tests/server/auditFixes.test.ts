@@ -6,6 +6,7 @@ import { zonedDay } from '../../server/lib/clock.ts';
 import { todayActions } from '../../shared/health.ts';
 import { applyMapping } from '../../shared/csv.ts';
 import { buildZip } from '../../server/lib/zip.ts';
+import { EXPORT_TABLES, NOT_EXPORTED } from '../../server/services/exports.ts';
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
@@ -159,4 +160,11 @@ test('a join code is checked when it is made, and works however a Marine types i
   assert.equal(peek.status, 200, 'a code typed without its hyphen, in lower case, was refused');
   assert.equal(peek.body.note, 'Formation');
   assert.equal((await app.call('POST', `/api/org/join-codes/${encodeURIComponent(typed)}/join`, { token: joiner.token })).status, 200);
+});
+
+test('the instance archive carries every table, unless one is left out on purpose', () => {
+  const tables = (app.ctx.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>).map((t) => t.name);
+  const accounted = new Set<string>([...EXPORT_TABLES, ...NOT_EXPORTED]);
+  assert.deepEqual(tables.filter((t) => !accounted.has(t)), [], 'moving an instance used to drop comments, legal holds, retention schedules and case seals');
+  assert.deepEqual([...accounted].filter((t) => !tables.includes(t)), [], 'the archive names a table that does not exist');
 });

@@ -8,17 +8,24 @@ import { loadRuntime } from '../runtime.ts';
 
 const keyCheck = (secret: string) => hmac(secret, 'vantage-instance-key-check');
 
-const EXPORT_TABLES = [
+export const EXPORT_TABLES = [
   'ranks', 'users', 'readiness', 'units', 'unit_members', 'roles', 'member_roles', 'passkeys', 'recovery_codes',
   ...RECORD_TABLE_NAMES,
-  'source_files', 'import_jobs', 'work_items', 'work_actions', 'work_events', 'work_views',
+  'source_files', 'import_jobs', 'work_items', 'work_actions', 'work_events', 'work_event_seals', 'work_event_heads', 'work_views',
   // A person's own drafts and career plan move with the instance too.
   'record_drafts', 'career_steps', 'career_profiles',
   // Report Studio: a draft and every revision it has been saved as.
   'report_drafts', 'report_revisions',
   'contacts', 'connectors', 'threads', 'thread_messages', 'thread_links',
-  'attachments', 'audit_log', 'notifications', 'maradmins', 'maradmin_user_state', 'ai_usage_daily', 'product_events', 'email_log', 'meta',
+  'attachments', 'comments', 'unit_invites', 'unit_invite_uses', 'support_tickets', 'support_messages',
+  'personnel_roster', 'personnel_sync_runs',
+  // Holds and schedules decide what may be destroyed; a moved instance that forgot them would destroy what is held.
+  'legal_holds', 'retention_schedules', 'disposition_runs',
+  'audit_log', 'notifications', 'maradmins', 'maradmin_user_state', 'ai_usage_daily', 'product_events', 'email_log', 'meta',
 ] as const;
+
+/** Tables left out of the archive on purpose: sign-ins, links and queued mail that belong to the old host. */
+export const NOT_EXPORTED = ['sessions', 'tokens', 'email_queue', 'connector_auth_states', 'demo_workspaces'] as const;
 
 export function exportInstance(ctx: AppContext) {
   const tables: Record<string, unknown[]> = {};
@@ -43,7 +50,7 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   ctx.db.pragma('foreign_keys = OFF');
   try {
     ctx.db.transaction(() => {
-      for (const table of ['sessions', 'tokens', ...[...EXPORT_TABLES].reverse()]) ctx.db.prepare(`DELETE FROM ${table}`).run();
+      for (const table of [...NOT_EXPORTED, ...[...EXPORT_TABLES].reverse()]) ctx.db.prepare(`DELETE FROM ${table}`).run();
       for (const table of EXPORT_TABLES) {
         const rows = archive.tables![table] || [];
         if (!rows.length) { counts[table] = 0; continue; }

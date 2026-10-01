@@ -337,6 +337,25 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
   return { created, updated, duplicates: duplicates.length, duplicateRows: duplicates };
 }
 
+/**
+ * Destroy records for good, with what hangs off them: their attachments and comments go too, work history keeps its
+ * entry without the link, and a draft that became the entry goes with it. Run inside the caller's transaction.
+ */
+export function destroyRecords(ctx: AppContext, table: RecordTable, ids: string[]): { records: number; attachments: number; comments: number } {
+  if (!ids.length) return { records: 0, attachments: 0, comments: 0 };
+  const list = JSON.stringify(ids);
+  const each = 'IN (SELECT value FROM json_each(?))';
+  const attachments = ctx.db.prepare(`DELETE FROM attachments WHERE record_table = ? AND record_id ${each}`).run(table, list).changes;
+  const comments = ctx.db.prepare(`DELETE FROM comments WHERE record_table = ? AND record_id ${each}`).run(table, list).changes;
+  if (table === 'activities') {
+    ctx.db.prepare(`UPDATE work_actions SET activity_id = NULL WHERE activity_id ${each}`).run(list);
+    ctx.db.prepare(`DELETE FROM record_drafts WHERE activity_id ${each}`).run(list);
+  }
+  if (table === 'projects') for (const linked of ['tasks', 'activities', 'work_items']) ctx.db.prepare(`UPDATE ${linked} SET project_id = NULL WHERE project_id ${each}`).run(list);
+  const records = ctx.db.prepare(`DELETE FROM ${table} WHERE id ${each}`).run(list).changes;
+  return { records, attachments, comments };
+}
+
 export function purgeDeleted(ctx: AppContext, days = 30): { records: number; attachments: number; comments: number; held: number; blocked: boolean } {
   const cutoff = new Date(Date.now() - days * 86_400_000).toISOString();
   let records = 0; let attachments = 0; let comments = 0; let heldTotal = 0;
@@ -363,17 +382,9 @@ export function purgeDeleted(ctx: AppContext, days = 30): { records: number; att
         if (held) recordDispositionRun(ctx, { actorId: null, recordType: table, disposition: 'destroy', eligible: 0, acted: 0, held, detail: `recycle-bin purge (${days} days): rows of people under hold kept` });
         continue;
       }
-      for (const { id } of gone) {
-        attachments += ctx.db.prepare('DELETE FROM attachments WHERE record_table = ? AND record_id = ?').run(table, id).changes;
-        comments += ctx.db.prepare('DELETE FROM comments WHERE record_table = ? AND record_id = ?').run(table, id).changes;
-      }
-      if (table === 'projects') for (const { id } of gone) {
-        ctx.db.prepare('UPDATE tasks SET project_id = NULL WHERE project_id = ?').run(id);
-        ctx.db.prepare('UPDATE activities SET project_id = NULL WHERE project_id = ?').run(id);
-        ctx.db.prepare('UPDATE work_items SET project_id = NULL WHERE project_id = ?').run(id);
-      }
-      const acted = ctx.db.prepare(`DELETE FROM ${table} WHERE ${past}${users.sql}`).run(cutoff, ...users.params).changes;
-      records += acted;
+      const destroyed = destroyRecords(ctx, table, gone.map((r) => r.id));
+      const acted = destroyed.records;
+      records += acted; attachments += destroyed.attachments; comments += destroyed.comments;
       recordDispositionRun(ctx, { actorId: null, recordType: table, disposition: 'destroy', eligible: gone.length, acted, held, detail: `recycle-bin purge: deleted more than ${days} days ago` });
     }
     const keep: string[] = [];

@@ -240,3 +240,51 @@ test('source bytes past the intake window are kept under a hold and released wit
     assert.throws(() => placeHold(app.ctx, { scope: 'record_type', record_type: 'nonsense', reason: 'x' }, op.id), /cannot name/);
   } finally { await app.close(); }
 });
+
+test('an entry drafted from work can be purged and destroyed: its links are let go, its files and draft go with it', async () => {
+  const app = await startApp();
+  try {
+    const op = await app.setupOperator();
+    const entryFromWork = async (title: string) => {
+      const item = await app.call('POST', '/api/work/items', { token: op.token, body: { unit_id: 'G8', title } });
+      await app.call('POST', `/api/work/items/${item.body.id}/claim`, { token: op.token, body: {} });
+      const action = await app.call('POST', `/api/work/items/${item.body.id}/actions`, { token: op.token, body: { kind: 'worked', note: 'cleared', draft_record: true } });
+      assert.equal(action.status, 201, JSON.stringify(action.body));
+      return { activityId: action.body.activity_id as string, actionId: action.body.action.id as string };
+    };
+    const attach = (recordId: string) => app.ctx.db.prepare(`INSERT INTO attachments (id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, content, created_at)
+      VALUES (?, 'activities', ?, ?, 'memo.txt', 'text/plain', 4, 'x', ?, ?)`).run(`att-${recordId}`, recordId, op.id, Buffer.from('memo'), new Date().toISOString());
+
+    // The recycle bin: one such entry used to fail the whole purge on a foreign key, every six hours, for good.
+    const binned = await entryFromWork('Clear ULO 1');
+    app.ctx.db.prepare('INSERT INTO record_drafts (id, user_id, title, activity_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run('draft-1', op.id, 'Clear ULO 1', binned.activityId, new Date().toISOString(), new Date().toISOString());
+    attach(binned.activityId);
+    assert.equal((await app.call('DELETE', `/api/records/activities/${binned.activityId}`, { token: op.token })).status, 200);
+    const purged = purgeDeleted(app.ctx, 0);
+    assert.equal(purged.records, 1);
+    assert.equal(purged.attachments, 1);
+    const action = app.ctx.db.prepare('SELECT activity_id FROM work_actions WHERE id = ?').get(binned.actionId) as { activity_id: string | null };
+    assert.equal(action.activity_id, null, 'the work history keeps its entry, without the link');
+    assert.equal(app.ctx.db.prepare('SELECT 1 FROM record_drafts WHERE id = ?').get('draft-1'), undefined, 'the saved draft goes with its entry');
+
+    // A retention schedule that destroys entries takes their attached files too.
+    const kept = await entryFromWork('Clear ULO 2');
+    attach(kept.activityId);
+    app.ctx.db.prepare('UPDATE activities SET date = ? WHERE id = ?').run(daysAgo(900), kept.activityId);
+    saveSchedule(app.ctx, { record_type: 'activities', retain_days: 365, disposition: 'destroy', enabled: true }, op.id);
+    const result = runDisposition(app.ctx, { dryRun: false, actorId: op.id });
+    assert.equal(result.lines.find((l) => l.record_type === 'activities')!.acted, 1);
+    assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM attachments').get() as { n: number }).n, 0, 'destroyed entries used to leave their files behind');
+  } finally { await app.close(); }
+});
+
+test('anonymized entries are done: the next run neither counts nor touches them again', async () => {
+  const { app, op } = await withOldRecords();
+  try {
+    saveSchedule(app.ctx, { record_type: 'activities', retain_days: 365, disposition: 'anonymize', enabled: true }, op.id);
+    const first = runDisposition(app.ctx, { dryRun: false, actorId: op.id }).lines.find((l) => l.record_type === 'activities')!;
+    assert.deepEqual([first.eligible, first.acted], [2, 2]);
+    const second = runDisposition(app.ctx, { dryRun: false, actorId: op.id }).lines.find((l) => l.record_type === 'activities')!;
+    assert.deepEqual([second.eligible, second.acted], [0, 0], 'the same two rows used to be reported and rewritten at every run');
+  } finally { await app.close(); }
+});
