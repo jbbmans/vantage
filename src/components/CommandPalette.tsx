@@ -2,7 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import * as DialogPrimitive from '@radix-ui/react-dialog';
 import { ArrowRight, BookOpen, Building2, CornerDownLeft, History, Plus, Search } from 'lucide-react';
-import type { NavItem } from '@/config/nav';
+import type { NavPage } from '@/config/nav';
 import * as api from '@/lib/api';
 import { useIdentity } from '@/lib/queries';
 import { useView, viewLabel } from '@/lib/view';
@@ -11,7 +11,7 @@ import { cn } from '@/lib/utils';
 
 interface Item { id: string; title: string; subtitle?: string | null; kind: string; to?: string; run?: () => void }
 
-export default function CommandPalette({ open, onOpenChange, onQuickLog, nav }: { open: boolean; onOpenChange: (o: boolean) => void; onQuickLog: (seed?: string) => void; nav: NavItem[] }) {
+export default function CommandPalette({ open, onOpenChange, onQuickLog, nav }: { open: boolean; onOpenChange: (o: boolean) => void; onQuickLog: (seed?: string) => void; nav: NavPage[] }) {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Item[]>([]);
@@ -39,7 +39,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav }: 
   const items = useMemo<Item[]>(() => {
     const q = query.trim().toLowerCase();
     const actions: Item[] = [{ id: 'act-log', title: q && !/^(go|open|nav)/.test(q) && q.length > 6 ? `Log activity: “${query.trim()}”` : 'Log activity', subtitle: 'Press N anywhere', kind: 'action', run: () => onQuickLog(q.length > 6 ? query.trim() : '') }];
-    const pages = nav.filter((n) => !q || n.label.toLowerCase().includes(q)).map((n) => ({ id: `nav-${n.to}`, title: n.label, subtitle: `G then ${n.key.toUpperCase()}`, kind: 'page', to: n.to }));
+    const pages = nav.filter((n) => !q || `${n.label} ${n.hint}`.toLowerCase().includes(q)).map((n) => ({ id: `nav-${n.to}`, title: n.label, subtitle: n.key ? `G then ${n.key.toUpperCase()} · ${n.hint}` : n.hint, kind: 'page', to: n.to }));
     const switches = views.length > 1 ? views.filter((v) => v.id !== view?.id && (!q || `view ${viewLabel(v)} ${v.name}`.toLowerCase().includes(q))).map((v) => ({ id: `view-${v.id}`, title: `View ${viewLabel(v)}`, subtitle: v.teams ? `Whole command · ${v.teams} ${v.teams === 1 ? 'team' : 'teams'}` : v.level === 'full' ? 'Team' : 'Team overview', kind: 'view', run: () => setView(v.id) })) : [];
     const recent = recentVisits(identity?.user.id).slice(0, 5).map((r) => ({ id: `recent-${r.to}`, title: r.title, subtitle: r.kind === 'case' ? 'Case you opened' : r.kind === 'marine' ? 'Marine you opened' : 'Entry you opened', kind: 'recent', to: r.to }));
     if (!q) return [...recent, ...actions, ...pages, ...switches.slice(0, 3)];

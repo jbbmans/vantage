@@ -17,7 +17,7 @@ const EML = [
 
 test('a thread records a reply, the knowledge, and the close as three separate facts', async ({ page }) => {
   const subject = unique('Aged obligation review ');
-  await page.goto('/work?tab=mail');
+  await page.goto('/work/correspondence');
   await page.getByRole('button', { name: 'New thread' }).first().click();
   const dialog = page.getByRole('dialog', { name: 'New thread' });
   await dialog.getByLabel('Subject').fill(subject);
@@ -41,7 +41,7 @@ test('a thread records a reply, the knowledge, and the close as three separate f
 
 test('an imported email is stripped of what could run and of images loaded from elsewhere', async ({ page }) => {
   const subject = unique('Import check ');
-  await page.goto('/work?tab=mail');
+  await page.goto('/work/correspondence');
   await page.getByRole('button', { name: 'New thread' }).first().click();
   const dialog = page.getByRole('dialog', { name: 'New thread' });
   await dialog.getByLabel('Subject').fill(subject);
@@ -63,7 +63,7 @@ test('an imported email is stripped of what could run and of images loaded from 
 });
 
 test('a mailbox is named with its cloud, and nothing is read until it is authorized', async ({ page }) => {
-  await page.goto('/work?tab=mail&mail=mailboxes');
+  await page.goto('/work/correspondence?mail=mailboxes');
   await page.getByLabel('Mailbox address').fill(unique('G-8 inbox '));
   await page.getByRole('button', { name: 'Add mailbox' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Nothing is read until it is authorized' })).toBeVisible();

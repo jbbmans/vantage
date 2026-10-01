@@ -23,7 +23,7 @@ test('a leader switches between the whole command and a team beneath it, from th
 
   await page.goto('/team');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText(short);
-  await expect(page.getByRole('tab', { name: 'Roster' })).toBeVisible();
+  await expect(page.getByRole('navigation', { name: 'Primary' }).getByRole('link', { name: 'Roster' }), 'a full view offers its roster').toBeVisible();
 
   await page.keyboard.press('Control+k');
   await page.keyboard.type('view G8');

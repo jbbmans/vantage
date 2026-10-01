@@ -1,49 +1,27 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Save, RefreshCw, Unlock, Mail, Download, Upload, Database, ShieldCheck, Users, Building2, ScrollText, Wrench, Sparkles, KeyRound, LogOut, Copy, Send, IdCard } from 'lucide-react';
-import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, Panel, Badge, Switch, Skeleton, Stat, EmptyState } from '@/components/ui/primitives';
+import { Button, Field, Input, Select, Textarea, Panel, Badge, Switch, Skeleton, Stat, EmptyState } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { withSudo } from '@/components/SudoDialog';
-import { Table, useParam } from '@/components/common';
+import { Table } from '@/components/common';
 import { keys, useIdentity, signOutEverywhere } from '@/lib/queries';
 import * as api from '@/lib/api';
 import UsageConsole from '@/components/UsageConsole';
+export { UsageConsole };
 import AccountImport from '@/components/AccountImport';
 import SignInDetails from '@/components/SignInDetails';
 import EmailConsole from '@/components/EmailConsole';
+export { EmailConsole };
 import { PersonnelConsole, RetentionConsole, PrivacyConsole } from '@/components/GovernanceConsole';
+export { PersonnelConsole, RetentionConsole, PrivacyConsole };
 import { copyToClipboard, downloadText, humanize, timeAgo } from '@/lib/utils';
 import { DEFAULT_METRICS, CATEGORY_PALETTE, type MetricsConfig } from '../../shared/constants';
 
-export default function Operator() {
-  const { data: identity } = useIdentity();
-  const [tab, setTab] = useParam('tab', 'overview');
-  if (!identity?.user.is_operator) return <div className="page"><div className="card"><EmptyState icon={ShieldCheck} title="Owner console" description="Only the instance owner can open this." /></div></div>;
-  return (
-    <div className="page">
-      <PageHeader eyebrow="Owner console" title="Run this deployment" lede="Instance-wide settings, accounts, and data. Everything here asks for your password again." />
-      <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[{ value: 'overview', label: 'Overview' }, { value: 'settings', label: 'Settings' }, { value: 'ai', label: 'AI' }, { value: 'metrics', label: 'Metrics' }, { value: 'users', label: 'Accounts' }, { value: 'units', label: 'Units' }, { value: 'email', label: 'Email' }, { value: 'personnel', label: 'Personnel' }, { value: 'retention', label: 'Retention' }, { value: 'privacy', label: 'Privacy' }, { value: 'usage', label: 'Usage and reliability' }, { value: 'audit', label: 'Audit log' }, { value: 'data', label: 'Backup and move' }]} />
-      {tab === 'overview' && <Overview />}
-      {tab === 'settings' && <RuntimeSettings />}
-      {tab === 'ai' && <AiSettings />}
-      {tab === 'metrics' && <MetricsSettings />}
-      {tab === 'users' && <Accounts />}
-      {tab === 'units' && <UnitsAdmin />}
-      {tab === 'email' && <EmailConsole />}
-      {tab === 'personnel' && <PersonnelConsole />}
-      {tab === 'retention' && <RetentionConsole />}
-      {tab === 'privacy' && <PrivacyConsole />}
-      {tab === 'usage' && <UsageConsole />}
-      {tab === 'audit' && <AuditLog />}
-      {tab === 'data' && <DataAdmin />}
-    </div>
-  );
-}
-
 function useAdmin<T = any>(key: string, fn: () => Promise<T>) { return useQuery<T>({ queryKey: ['admin', key], queryFn: () => withSudo(fn), retry: false }); }
 
-function Overview() {
+export function Overview() {
   const { data, isPending, error, refetch } = useAdmin('overview', api.adminOverview);
   const toast = useToast();
   if (isPending) return <Skeleton className="h-64" />;
@@ -58,7 +36,7 @@ function Overview() {
         <Stat label="Database" value={mb(data.database.sizeBytes)} hint={`of ${mb(data.database.maxBytes)} safety threshold`} icon={Database} tone={data.database.sizeBytes && data.database.sizeBytes > data.database.maxBytes * 0.8 ? 'warn' : undefined} />
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Panel title="Instance"><dl className="space-y-1.5 text-sm">{[['Version', `${data.version} · schema ${data.schemaVersion}`], ['Node', data.node], ['Uptime', `${Math.round(data.uptime / 3600)} h`], ['Public URL', data.publicUrl], ['Passkey domain', data.rpId], ['Time zone', data.timezone], ['Sessions open', data.sessions], ['MFA users', `${data.mfaUsers} authenticator · ${data.passkeyUsers} passkey`]].map(([k, v]) => <div key={String(k)} className="flex justify-between gap-3"><dt className="text-ink-3">{k}</dt><dd className="fig truncate text-right text-ink">{String(v)}</dd></div>)}</dl></Panel>
+        <Panel title="Instance"><dl className="space-y-1.5 text-sm">{[['Version', `${data.version} · schema ${data.schemaVersion}`], ['Node', data.node], ['Uptime', `${Math.round(data.uptime / 3600)} h`], ...(data.siteUrl && data.siteUrl !== data.publicUrl ? [['Public site', data.siteUrl]] : []), ['App', data.publicUrl], ...(data.consoleUrl && data.consoleUrl !== data.publicUrl ? [['Owner console', data.consoleUrl]] : []), ['Passkey domain', data.rpId], ['Time zone', data.timezone], ['Sessions open', data.sessions], ['MFA users', `${data.mfaUsers} authenticator · ${data.passkeyUsers} passkey`]].map(([k, v]) => <div key={String(k)} className="flex justify-between gap-3"><dt className="text-ink-3">{k}</dt><dd className="fig truncate text-right text-ink">{String(v)}</dd></div>)}</dl></Panel>
         <Panel title="Email" subtitle={data.email.enabled ? `${data.email.provider} · from ${data.email.from}` : 'not configured'} action={data.email.enabled ? <Button size="sm" onClick={async () => { try { await withSudo(() => api.adminEmailTest()); toast.success('Test email sent to you.'); } catch (e) { toast.error(api.errorText(e)); } }}><Mail className="h-3.5 w-3.5" />Send test</Button> : undefined}>
           {!data.email.enabled ? <p className="text-sm text-ink-2">Turn email on to send reset links, invitations and digests. The Email tab shows how to send from your own domain with no email service.</p> : !data.email.recent.length ? <p className="text-sm text-ink-3">No email sent yet.</p> : <ul className="space-y-1 text-xs">{data.email.recent.map((m: any, i: number) => <li key={i} className="flex justify-between gap-2"><span className="truncate text-ink">{m.kind} → {m.to_address}</span><span className={m.status === 'sent' ? 'text-good' : m.status === 'queued' ? 'text-warn' : 'text-bad'}>{m.status}{m.error ? `: ${m.error}` : ''}</span></li>)}</ul>}
         </Panel>
@@ -90,7 +68,7 @@ function CaseHistories() {
   );
 }
 
-function RuntimeSettings() {
+export function RuntimeSettings() {
   const { data, isPending, refetch } = useAdmin('overview', api.adminOverview);
   const toast = useToast(); const qc = useQueryClient();
   const [form, setForm] = useState<any>(null); const [busy, setBusy] = useState(false);
@@ -116,7 +94,7 @@ function RuntimeSettings() {
   );
 }
 
-function MetricsSettings() {
+export function MetricsSettings() {
   const { data, isPending, refetch } = useAdmin('overview', api.adminOverview);
   const toast = useToast(); const qc = useQueryClient();
   const [form, setForm] = useState<MetricsConfig | null>(null); const [busy, setBusy] = useState(false); const [dirty, setDirty] = useState(false);
@@ -181,7 +159,7 @@ function MetricsSettings() {
   );
 }
 
-function AiSettings() {
+export function AiSettings() {
   const { data, isPending, refetch } = useAdmin('ai', api.adminAi);
   const toast = useToast(); const qc = useQueryClient();
   const [models, setModels] = useState<string[] | null>(null); const [def, setDef] = useState(''); const [enabled, setEnabled] = useState<boolean | null>(null); const [add, setAdd] = useState(''); const [discovered, setDiscovered] = useState<string[] | null>(null); const [busy, setBusy] = useState(false);
@@ -235,7 +213,7 @@ function AiSettings() {
   );
 }
 
-function Accounts() {
+export function Accounts() {
   const { data, isPending, refetch } = useAdmin('users', api.adminUsers);
   const { data: identity } = useIdentity(); const toast = useToast(); const qc = useQueryClient();
   const [q, setQ] = useState(''); const [temp, setTemp] = useState<{ user: any; password: string } | null>(null); const [confirm, setConfirm] = useState<{ kind: string; user: any } | null>(null);
@@ -292,7 +270,7 @@ function Accounts() {
   );
 }
 
-function UnitsAdmin() {
+export function UnitsAdmin() {
   const { data, isPending, refetch } = useAdmin('units', api.adminUnits);
   const { data: users } = useAdmin('users', api.adminUsers);
   const toast = useToast(); const qc = useQueryClient();
@@ -312,7 +290,7 @@ function UnitsAdmin() {
   );
 }
 
-function AuditLog() {
+export function AuditLog() {
   const { data, isPending } = useAdmin('audit', () => api.adminAudit(300));
   const [q, setQ] = useState('');
   if (isPending) return <Skeleton className="h-64" />;
@@ -329,7 +307,7 @@ function AuditLog() {
   );
 }
 
-function DataAdmin() {
+export function DataAdmin() {
   const toast = useToast(); const [busy, setBusy] = useState(''); const [importFile, setImportFile] = useState<File | null>(null); const [confirmImport, setConfirmImport] = useState(false);
   const backup = async () => { setBusy('backup'); try { const n = await api.downloadFile('/api/admin/backup', 'vantage-backup.db'); toast.success(`Downloaded ${n}.`); } catch (e: any) { if (e?.code === 'sudo_required') { try { await withSudo(() => api.adminOverview()); const n = await api.downloadFile('/api/admin/backup', 'vantage-backup.db'); toast.success(`Downloaded ${n}.`); } catch (e2) { toast.error(api.errorText(e2)); } } else toast.error(api.errorText(e)); } finally { setBusy(''); } };
   const exportJson = async () => { setBusy('export'); try { await withSudo(() => api.adminOverview()); const n = await api.downloadFile('/api/admin/export', 'vantage-instance.json'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(''); } };

@@ -118,7 +118,7 @@ export const HELP: HelpSection[] = [
         id: 'csv',
         q: 'Can I import or export a spreadsheet of records?',
         a: [
-          'Yes, both. Records → Import CSV brings rows in, and the CSV export round-trips: a file exported from Vantage can be edited and imported back without creating duplicates, because rows carry a Vantage ID.',
+          'Yes, both. Record → Activities → Import CSV brings rows in, and the CSV export round-trips: a file exported from Vantage can be edited and imported back without creating duplicates, because rows carry a Vantage ID.',
           'A row with no Vantage ID is treated as new. A row with one updates the record it names.',
         ],
         also: ['excel', 'upload', 'download', 'bulk'],
@@ -135,7 +135,7 @@ export const HELP: HelpSection[] = [
         id: 'workbook',
         q: 'How do I bring a workbook in?',
         a: [
-          'Work → import walks you through it. The file is quarantined and read, never executed: no macros, no external links, cached values only. Your original file is never modified.',
+          'Work → Queue → Import a spreadsheet walks you through it. The file is quarantined and read, never executed: no macros, no external links, cached values only. Your original file is never modified.',
           'You see exactly what would be written before anything is written. Nothing lands until you say so.',
         ],
         also: ['excel', 'xlsx', 'spreadsheet', 'import'],

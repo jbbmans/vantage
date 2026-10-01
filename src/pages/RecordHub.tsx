@@ -1,8 +1,8 @@
-import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { useEffect, useMemo, useState } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { ArrowRight, BookOpenCheck, CheckCircle2, FileText, Info, Lock, PenLine, Plus, Trash2 } from 'lucide-react';
-import { Badge, Button, EmptyState, Field, Input, PageHeader, Panel, Segmented, Skeleton, Tabs, Textarea, Tooltip } from '@/components/ui/primitives';
+import { Badge, Button, EmptyState, Field, Input, PageHeader, Panel, Segmented, Skeleton, Textarea, Tooltip } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { DateText, useParam } from '@/components/common';
@@ -12,7 +12,6 @@ import * as api from '@/lib/api';
 import { cn, lastDays, timeAgo } from '@/lib/utils';
 import { QueryFailure } from '@/components/QueryFailure';
 
-const Records = lazy(() => import('./Records'));
 
 const WINDOWS = [
   { value: '30', label: '30 days' },
@@ -21,35 +20,34 @@ const WINDOWS = [
 ] as const;
 
 
-export default function RecordHub() {
-  const [tab, setTab] = useParam('tab', 'overview');
+export type RecordSection = 'overview' | 'contributions' | 'drafts';
+
+const HEADINGS: Record<RecordSection, [string, string]> = {
+  overview: ['Your record', 'What you hold, what you did, and what you logged yourself. Built from the work, so you do not type it twice.'],
+  contributions: ['Contributions', 'What you did on each case you worked, counted the way a reviewer would count it.'],
+  drafts: ['Drafts', 'Entries drawn from your work, waiting for your wording before they join your record. Only you can see them.'],
+};
+
+/** Three pages of Record: the overview at /record, and /record/contributions and /record/drafts. Activities is Records.tsx. */
+export default function RecordHub({ section }: { section: RecordSection }) {
   const [days, setDays] = useParam('window', '90');
   const params = useMemo(() => lastDays(days), [days]);
-  const summary = useRecordSummary(params);
-  const drafts = useRecordDrafts();
-  const openDrafts = (drafts.data || []).filter((d) => !d.activity_id).length;
+  const summary = useRecordSummary(params, section === 'overview');
 
   return (
     <div className="page">
-      <PageHeader eyebrow="Record" title="Your record" lede="What you hold, what you did, and what you logged yourself. Built from the work, so you do not type it twice.">
+      <PageHeader eyebrow="Record" title={HEADINGS[section][0]} lede={HEADINGS[section][1]}>
         <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
       </PageHeader>
-      <Tabs value={tab} onChange={setTab} className="mb-5" tabs={[
-        { value: 'overview', label: 'Overview' },
-        { value: 'contributions', label: 'Contributions' },
-        { value: 'entries', label: 'Your entries' },
-        { value: 'drafts', label: 'Drafts', count: openDrafts || undefined },
-      ]} />
-      {(tab === 'overview' || tab === 'contributions') && (
+      {section !== 'drafts' && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
           <p className="text-sm text-ink-3">{params.from} to {params.to}</p>
           <Segmented label="Reporting window" value={days as (typeof WINDOWS)[number]['value']} onChange={setDays} options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))} size="sm" />
         </div>
       )}
-      {tab === 'overview' && (summary.isError ? <QueryFailure error={summary.error} what="Your Record" onRetry={() => summary.refetch()} /> : <Overview summary={summary.data} loading={summary.isPending} onTab={setTab} />)}
-      {tab === 'contributions' && <Contributions params={params} />}
-      {tab === 'entries' && <Suspense fallback={<Skeleton className="h-64" />}><Records embedded /></Suspense>}
-      {tab === 'drafts' && <Drafts />}
+      {section === 'overview' && (summary.isError ? <QueryFailure error={summary.error} what="Your Record" onRetry={() => summary.refetch()} /> : <Overview summary={summary.data} loading={summary.isPending} />)}
+      {section === 'contributions' && <Contributions params={params} />}
+      {section === 'drafts' && <Drafts />}
     </div>
   );
 }
@@ -96,7 +94,8 @@ function Practiced() {
   );
 }
 
-function Overview({ summary, loading, onTab }: { summary: any; loading: boolean; onTab: (t: string) => void }) {
+function Overview({ summary, loading }: { summary: any; loading: boolean }) {
+  const navigate = useNavigate();
   const assigned = useAssignedWork();
   if (loading || !summary) return <div className="grid gap-3 sm:grid-cols-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-28" />)}</div>;
   const c = summary.contributions;
@@ -107,11 +106,11 @@ function Overview({ summary, loading, onTab }: { summary: any; loading: boolean;
         <h2 id="contributed" className="mb-1 text-md font-semibold text-ink">What you contributed</h2>
         <p className="mb-3 text-xs text-ink-3">Read from the history of the work you did. One document counts once however many entries it has.</p>
         <div className="grid grid-cols-2 gap-3 md:grid-cols-3 xl:grid-cols-5">
-          <Figure label="Documents researched" value={c.documents_researched} definition={d.documents_researched} to="/record?tab=contributions" />
-          <Figure label="Research entries" value={c.research_actions} definition={d.research_actions} to="/record?tab=contributions" />
-          <Figure label="Submitted" value={c.submitted_actions} definition={d.submitted_actions} to="/record?tab=contributions" />
-          <Figure label="Verified outcomes" value={c.verified_outcomes} definition={d.verified_outcomes} to="/record?tab=contributions" />
-          <Figure label="Resolved" value={c.resolved_work} definition={d.resolved_work} to="/record?tab=contributions" />
+          <Figure label="Documents researched" value={c.documents_researched} definition={d.documents_researched} to="/record/contributions" />
+          <Figure label="Research entries" value={c.research_actions} definition={d.research_actions} to="/record/contributions" />
+          <Figure label="Submitted" value={c.submitted_actions} definition={d.submitted_actions} to="/record/contributions" />
+          <Figure label="Verified outcomes" value={c.verified_outcomes} definition={d.verified_outcomes} to="/record/contributions" />
+          <Figure label="Resolved" value={c.resolved_work} definition={d.resolved_work} to="/record/contributions" />
         </div>
       </section>
 
@@ -128,17 +127,17 @@ function Overview({ summary, loading, onTab }: { summary: any; loading: boolean;
         <Panel title="What you recorded yourself" subtitle="PME, PT, volunteering, qualifications: anything that did not start as a tasker.">
           <ul className="grid grid-cols-3 gap-3 text-sm">
             <li>
-              <button type="button" onClick={() => onTab('entries')} className="block w-full rounded-md border border-line px-3 py-2 text-left hover:border-line-strong">
+              <button type="button" onClick={() => navigate('/record/activities')} className="block w-full rounded-md border border-line px-3 py-2 text-left hover:border-line-strong">
                 <span className="block text-xs text-ink-3">Activities</span><span className="fig mt-0.5 block text-lg font-semibold text-ink">{summary.personal.activities}</span>
               </button>
             </li>
             <li>
-              <Link to="/career?tab=training" className="block rounded-md border border-line px-3 py-2 hover:border-line-strong">
+              <Link to="/career/training" className="block rounded-md border border-line px-3 py-2 hover:border-line-strong">
                 <span className="block text-xs text-ink-3">Training</span><span className="fig mt-0.5 block text-lg font-semibold text-ink">{summary.personal.trainings}</span>
               </Link>
             </li>
             <li>
-              <button type="button" onClick={() => onTab('drafts')} className="block w-full rounded-md border border-line px-3 py-2 text-left hover:border-line-strong">
+              <button type="button" onClick={() => navigate('/record/drafts')} className="block w-full rounded-md border border-line px-3 py-2 text-left hover:border-line-strong">
                 <span className="block text-xs text-ink-3">Open drafts</span><span className="fig mt-0.5 block text-lg font-semibold text-ink">{summary.personal.open_drafts}</span>
               </button>
             </li>

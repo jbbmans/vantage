@@ -151,7 +151,7 @@ configuration gap, not missing code.**
 | `VANTAGE_EMAIL_FROM` | e.g. `VANTAGE <no-reply@yourdomain>` — the domain must be one the provider has verified |
 | `RESEND_API_KEY` | the API key, if using Resend |
 | `SMTP_URL` | the connection URL instead, if using SMTP |
-| `VANTAGE_PUBLIC_URL` | already set; the reset link is built from it, so a wrong value sends people to the wrong host |
+| `VANTAGE_APP_URL` (or `VANTAGE_PUBLIC_URL` on one address) | already set; the reset link is built from it, so a wrong value sends people to the wrong host |
 
 Nothing in this repository can set those — they are secrets and they belong in the
 deployment's own environment. Until they are set, resets are silently skipped, which

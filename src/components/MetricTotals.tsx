@@ -91,7 +91,7 @@ function ContributorsDialog({ total, params, onClose }: { total: MetricTotal; pa
             {rows.map((r: MetricContributor) => (
               <li key={`${r.table}-${r.id}`}>
                 <Link
-                  to={r.table === 'activities' ? `/records/${r.id}` : '/career?tab=training'}
+                  to={r.table === 'activities' ? `/records/${r.id}` : '/career/training'}
                   className="flex items-center gap-3 px-1 py-2.5 transition-colors hover:bg-surface-2"
                   onClick={onClose}
                 >

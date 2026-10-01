@@ -31,8 +31,8 @@ createServer((req, res) => {
     const html = mail.html
       .replace(/(<table role="presentation" cellpadding="0" cellspacing="0" border="0"><tr>)(\s*<td valign="middle" style="font-family:[^"]*letter-spacing:4px)/, `$1${MARK}$2`)
       // Only text a reader sees changes; the href attributes still point at this instance.
-      .replace(/>http:\/\/localhost:\d+/g, '>https://vantageusmc.com')
-      .replace(/(>| from )localhost:\d+/g, '$1vantageusmc.com');
+      .replace(/>http:\/\/localhost:\d+/g, '>https://secure.vantageusmc.com')
+      .replace(/(>| from )localhost:\d+/g, '$1secure.vantageusmc.com');
     res.writeHead(200, { 'content-type': 'text/html; charset=utf-8' });
     res.end(html);
     return;

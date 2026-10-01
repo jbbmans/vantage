@@ -5,7 +5,8 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { createHash } from 'node:crypto';
 
-const PUBLIC_ORIGIN = (process.env.VANTAGE_PUBLIC_URL || process.env.VITE_PUBLIC_ORIGIN || 'https://vantageusmc.com').replace(/\/$/, '');
+// The public site's address: canonical links, the sitemap and the social card name it.
+const PUBLIC_ORIGIN = (process.env.VANTAGE_SITE_URL || process.env.VANTAGE_PUBLIC_URL || process.env.VITE_PUBLIC_ORIGIN || 'https://www.vantageusmc.com').replace(/\/$/, '');
 const ICON_FILES = ['favicon.ico', 'favicon.svg', 'icon-192.png', 'icon-512.png', 'icon-maskable-512.png', 'apple-touch-icon.png', 'manifest.webmanifest', 'og.png'];
 
 /** Content hash of the icon set, so a changed icon is a changed URL and no browser keeps showing the old one. */
@@ -22,7 +23,7 @@ function iconVersion(): string {
  */
 function publicFiles(): Plugin {
   const icons = iconVersion();
-  const finish = (text: string) => text.replaceAll('https://vantageusmc.com', PUBLIC_ORIGIN).replaceAll('__ICONS__', icons);
+  const finish = (text: string) => text.replaceAll('https://www.vantageusmc.com', PUBLIC_ORIGIN).replaceAll('__ICONS__', icons);
   return {
     name: 'vantage-public-files',
     transformIndexHtml: { order: 'pre', handler: finish },
@@ -60,10 +61,11 @@ export default defineConfig({
     sourcemap: false,
     target: 'es2022',
     rollupOptions: {
-      // Two documents: the application, and the public page, which loads only what it renders.
+      // Three documents: the application, the public page (which loads only what it renders), and the owner console.
       input: {
         index: fileURLToPath(new URL('./index.html', import.meta.url)),
         public: fileURLToPath(new URL('./public.html', import.meta.url)),
+        console: fileURLToPath(new URL('./console.html', import.meta.url)),
       },
       output: {
         // The framework both documents share changes least, so it is cached on its own.

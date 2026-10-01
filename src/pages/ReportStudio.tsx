@@ -54,7 +54,7 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
   return (
     <PageShell
       embedded={embedded}
-      eyebrow="Report Studio"
+      eyebrow="Reports"
       title="Packages"
       lede="Each saved version records which facts it was built from. Exporting hands over exactly what was reviewed."
       actions={<Button variant="primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" />New report</Button>}

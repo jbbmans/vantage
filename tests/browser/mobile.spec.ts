@@ -7,8 +7,9 @@ test('phone layout: drawer navigation, card records, and the header log button',
   await page.getByRole('button', { name: 'Open menu' }).click();
   await page.getByRole('link', { name: 'Record', exact: true }).click();
   await expect(page.getByRole('heading', { name: 'Your record' })).toBeVisible();
-  await page.getByRole('tab', { name: 'Your entries' }).click();
-  await expect(page.getByRole('heading', { name: 'Activities you recorded' })).toBeVisible();
+  // On a phone the group's pages run along the top of the page.
+  await page.getByRole('navigation', { name: 'Record pages' }).getByRole('link', { name: 'Activities' }).click();
+  await expect(page.getByRole('heading', { name: 'Activities', level: 1 })).toBeVisible();
   await page.getByRole('banner').getByRole('button', { name: 'Log activity' }).click();
   const dialog = page.getByRole('dialog', { name: 'Log activity' });
   await dialog.getByLabel('What did you do?').fill('Ran a 3 mile route with 8 Marines this morning');

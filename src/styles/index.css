@@ -185,6 +185,8 @@
   .nav-item svg { transition: transform var(--dur-base) var(--ease-spring); opacity: .85; }
   .nav-item[aria-current='page'] svg { opacity: 1; }
   .nav-label { @apply px-3 pb-2 text-2xs font-semibold uppercase; color: rgb(var(--rail-ink) / .6); letter-spacing: 0.1em; }
+  /* A page within a group: indented past the group's icon, which a thin line joins them to. */
+  .nav-sub { @apply py-[5px] pl-[38px] text-sm; }
 
   .kbd { @apply inline-flex h-5 min-w-5 items-center justify-center rounded-[5px] border border-line bg-surface-2 px-1.5 font-mono text-2xs text-ink-3; box-shadow: inset 0 -1px 0 rgb(var(--line)); }
 

@@ -11,13 +11,18 @@ records are not served while custom nameservers are set, so changes there do not
 | --- | --- | --- | --- |
 | A | `@` | `216.24.57.1` | Proxied |
 | CNAME | `www` | the service's `*.onrender.com` hostname | Proxied |
+| CNAME | `secure` | the same hostname | Proxied |
+| CNAME | `dev` | the same hostname | Proxied |
 
-Confirm both values in Render under **Settings → Custom Domains**; it prints what it expects. When adding a
+`www` is the public page, `secure` the app and `dev` the owner console; the bare domain redirects to `www`. All four
+reach the same Render service, which answers each by the name it was asked for (see
+[deploy-render.md](deploy-render.md#custom-domains-one-address-for-each-face)).
+
+Confirm the values in Render under **Settings → Custom Domains**; it prints what it expects. When adding a
 domain, set the records to **DNS only** until Render shows the certificates as issued, then switch them to
 **Proxied**. Do not add `AAAA` records of your own; Render has no IPv6 origin.
 
-`www` redirects to the apex because `VANTAGE_PUBLIC_URL` names the apex. Passkeys are bound to that
-hostname, so users arriving on `www` still sign in.
+Passkeys belong to `vantageusmc.com` (`VANTAGE_RP_ID`), so one registered on `secure` also works on `dev`.
 
 ## Cloudflare settings
 

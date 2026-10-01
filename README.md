@@ -88,7 +88,7 @@ Requirements: Node 22.18 or newer. No build step for the server; Node runs the T
 
 The core application needs only a Node 22 process, a local volume, and a reverse proxy for TLS. It makes no outbound requests with the defaults (AI, the MARADMIN feed and IndexNow are off), and the browser loads nothing from third parties. PostgreSQL is the production target and is not yet implemented (`docs/engineering/ADR/0003-postgresql-migration-path.md`). Deployment questions for a restricted network are in `docs/engineering/INFRASTRUCTURE_QUESTIONS.md`.
 
-The public site at https://vantageusmc.com runs on a Render web service (`render.yaml`, `Dockerfile`). That is an optional demonstration host, not a dependency.
+The public site at https://www.vantageusmc.com runs on a Render web service (`render.yaml`, `Dockerfile`). That is an optional demonstration host, not a dependency.
 
 - [Render deployment](docs/deploy-render.md)
 - [DNS: Namecheap and Cloudflare](docs/dns-namecheap.md)
@@ -104,7 +104,9 @@ Everything is an environment variable. `.env.example` lists them with defaults. 
 
 | Variable | Purpose |
 | --- | --- |
-| `VANTAGE_PUBLIC_URL` | HTTPS origin of the site; drives passkeys, cookies, and email links |
+| `VANTAGE_PUBLIC_URL` | HTTPS origin of a deployment on one address: the public page, the app, and the owner console at `/console` |
+| `VANTAGE_SITE_URL`, `VANTAGE_APP_URL`, `VANTAGE_CONSOLE_URL` | Give each its own address instead (for example `www.`, `secure.` and `dev.`): the public page, sign-in and the app, and the owners' console. Email links use the app's; administration answers only on the console's. Each falls back to the one before it, and the first to `VANTAGE_PUBLIC_URL`. See `docs/deploy-render.md` |
+| `VANTAGE_RP_ID` | The domain passkeys belong to; by default the one the app and console share |
 | `VANTAGE_SECRET` | 32+ random characters; signs tokens, encrypts MFA secrets, chains the audit log |
 | `VANTAGE_SETUP_TOKEN` | 24+ characters; required once, to create the owner account |
 | `VANTAGE_DB` | SQLite path on the persistent disk |

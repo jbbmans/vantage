@@ -3,10 +3,11 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { installTelemetry, track } from '@/lib/telemetry';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle, Bell, Building2, Check, ChevronsLeft, ChevronsRight, ChevronsUpDown, CloudOff, FlaskConical, Keyboard, LifeBuoy, LogOut, Menu as MenuIcon, Moon,
+  AlertTriangle, Bell, Building2, Check, ChevronDown, ChevronsLeft, ChevronsRight, ChevronsUpDown, CloudOff, FlaskConical, Keyboard, LifeBuoy, LogOut, Menu as MenuIcon, Moon,
   Plus, RefreshCw, Search, Settings2, Sun, Users, WifiOff, X,
 } from 'lucide-react';
-import { NAV, NAV_GROUPS } from '@/config/nav';
+import { FOOTER, GROUPS, HOME, groupFor, pageFor, type Count, type NavGroup, type NavPage, type Requirement } from '@/config/nav';
+import { teamSections } from '@/lib/teamAccess';
 import { cn, initials, timeAgo } from '@/lib/utils';
 import { Tooltip, Kbd } from '@/components/ui/primitives';
 import Logo, { Mark } from '@/components/Logo';
@@ -19,7 +20,7 @@ import ShortcutsDialog from '@/components/ShortcutsDialog';
 import { ActivityBar } from '@/components/ui/motion';
 import SudoDialog, { type SudoRequest } from '@/components/SudoDialog';
 import ErrorBoundary from '@/components/ErrorBoundary';
-import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys, invalidateDomains } from '@/lib/queries';
+import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys, invalidateDomains, useTasks, useThreads, useRecordDrafts } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { flushOutbox, onOutboxChange, outbox } from '@/lib/outbox';
@@ -28,23 +29,15 @@ import { VERSION } from '@/lib/version';
 import { useBuildWatch } from '@/lib/build';
 import { useView, roleLine, viewLabel } from '@/lib/view';
 
-const TITLES: Array<[string, string, string]> = [
-  ['/records', 'Record', 'An activity you recorded'],
-  ['/record', 'Record', 'What you did and what backs it up'],
-  ['/work', 'Work', 'Taskers, the queue, and what is yours'],
-  ['/goals', 'Goals', 'Targets and measurable progress'],
-  ['/career', 'Career', 'Next steps, training, readiness'],
-  ['/reference', 'Reference', 'The FMRA desk reference'],
-  ['/maradmins', 'MARADMINs', 'Messages that change a requirement'],
-  ['/reports', 'Reports', 'JEPES and FITREP input from the facts'],
-  ['/team', 'Team', 'Your team and the command above it'],
-  ['/settings', 'Settings', 'Your preferences'],
-  ['/operator', 'Owner console', 'This deployment'],
-  ['/help', 'Field guide', 'How Vantage works'],
-  ['/support', 'Support', 'Ask a person'],
-];
-const entryFor = (p: string) => (p === '/' ? (['/', 'Today', 'Your next move'] as const) : TITLES.find(([path]) => p.startsWith(path)));
-const titleFor = (p: string) => entryFor(p)?.[1] || 'Vantage';
+/** What the header says about where you are: the group and the page, or a page and what it is for. */
+function placeOf(pathname: string): { title: string; detail: string; group?: string } {
+  const page = pageFor(pathname);
+  const group = groupFor(pathname);
+  if (page && group && group.pages.length > 1) return { title: page.label, detail: page.hint, group: group.label };
+  if (page) return { title: page.label, detail: page.hint };
+  if (group) return { title: group.label, detail: group.hint };
+  return { title: 'Vantage', detail: '' };
+}
 
 function useOnline() {
   const [online, setOnline] = useState(() => (typeof navigator === 'undefined' ? true : navigator.onLine));
@@ -191,17 +184,31 @@ function NotificationBell({ onNavigate }: { onNavigate: (to: string) => void }) 
 }
 
 function surfaceOf(pathname: string, search: string): string {
-  const segment = pathname.split('/')[1] || '';
-  const tab = new URLSearchParams(search).get('tab') || '';
-  if (segment === 'work') return tab === 'mail' ? 'correspondence' : tab === 'tasks' || tab === 'projects' ? 'tasks' : 'queue';
-  if (segment === 'reports') return tab === 'analysis' ? 'reports' : 'studio';
-  if (segment === 'career' && tab === 'readiness') return 'readiness';
-  if (segment === 'reference') return tab === 'diagnose' || !tab ? 'diagnose' : 'reference';
+  const under = (prefix: string) => pathname === prefix || pathname.startsWith(`${prefix}/`);
+  if (under('/work/correspondence')) return 'correspondence';
+  if (under('/work/tasks') || under('/work/projects')) return 'tasks';
+  if (under('/work')) return 'queue';
+  if (under('/reports/analysis')) return 'reports';
+  if (under('/reports')) return 'studio';
+  if (under('/career/readiness')) return 'readiness';
+  if (under('/reference')) { const tab = new URLSearchParams(search).get('tab'); return tab === 'diagnose' || !tab ? 'diagnose' : 'reference'; }
   const map: Record<string, string> = {
-    '': 'dashboard', records: 'records', record: 'records', goals: 'goals', readiness: 'readiness', career: 'career',
+    '': 'dashboard', records: 'records', record: 'records', goals: 'goals', career: 'career',
     maradmins: 'maradmins', team: 'team', settings: 'settings', operator: 'operator', help: 'help', support: 'help',
   };
-  return map[segment] || 'dashboard';
+  return map[pathname.split('/')[1] || ''] || 'dashboard';
+}
+
+/** The figures beside a group's pages, fetched only while you are in that group (its pages fetch them anyway). */
+function useCounts(group: string | undefined): Record<Count, number> {
+  const tasks = useTasks(group === 'work');
+  const threads = useThreads({ state: 'awaiting_reply' }, group === 'work');
+  const drafts = useRecordDrafts(group === 'record');
+  return {
+    tasks: (tasks.data || []).filter((t: { status: string }) => t.status !== 'completed').length,
+    mail: threads.data?.length ?? 0,
+    drafts: (drafts.data || []).filter((d: { activity_id: string | null }) => !d.activity_id).length,
+  };
 }
 
 export default function AppShell() {
@@ -231,7 +238,8 @@ export default function AppShell() {
   useEffect(() => { setTheme(resolveTheme(identity?.prefs.theme || storedTheme())); }, [identity?.prefs.theme]);
   // eslint-disable-next-line react-hooks/exhaustive-deps -- scroll reset on path change only
   useEffect(() => { setDrawer(false); if (!location.hash) window.scrollTo({ top: 0 }); }, [location.pathname]);
-  useEffect(() => { document.title = `${titleFor(location.pathname)} · Vantage`; }, [location.pathname]);
+  const place = placeOf(location.pathname);
+  useEffect(() => { document.title = `${place.title} · Vantage`; }, [place.title]);
 
   const flush = useCallback(async () => {
     if (!userId) return;
@@ -253,15 +261,32 @@ export default function AppShell() {
   }, [openQuickLog]);
 
   const demo = identity?.demo || null;
-  const visibleNav = useMemo(() => NAV.filter((item) => {
-    if (item.hideInDemo && identity?.demo) return false;
-    if (item.requiresLead && !identity?.canLead) return false;
-    if (item.requiresUnit && !identity?.views?.length) return false;
-    if (item.requiresOperator && !identity?.user.is_operator) return false;
-    if (item.requiresAi && !identity?.instance.aiEnabled) return false;
-    if (item.requiresMaradmins && !identity?.instance.maradminsEnabled) return false;
+  // What this person may open, and so what the sidebar, the palette and the shortcuts offer.
+  const { view } = useView(identity);
+  const teams = useMemo(() => teamSections(identity, view), [identity, view]);
+  const allowed = useCallback((when?: Requirement) => {
+    if (!when) return true;
+    if (when.notDemo && identity?.demo) return false;
+    if (when.unit && !identity?.views?.length) return false;
+    if (when.operator && !identity?.user.is_operator) return false;
+    if (when.maradmins && !identity?.instance.maradminsEnabled) return false;
+    if (when.team && !teams.has(when.team)) return false;
     return true;
-  }), [identity]);
+  }, [identity, teams]);
+  const groups = useMemo(() => GROUPS.filter((g) => allowed(g.when)).map((g) => ({ ...g, pages: g.pages.filter((p) => allowed(p.when)) })).filter((g) => g.pages.length), [allowed]);
+  const footer = useMemo(() => FOOTER.filter((p) => allowed(p.when)), [allowed]);
+  const activeGroup = groupFor(location.pathname);
+  /** Every page offered, titled with its group where the label alone is ambiguous ("Overview"). */
+  const visibleNav = useMemo(() => [
+    HOME,
+    ...groups.flatMap((g) => g.pages.map((p) => ({ ...p, label: g.pages.length > 1 && !p.key ? `${g.label}: ${p.label}` : p.label }))),
+    ...footer,
+  ], [groups, footer]);
+  const goKeys = useMemo(() => [
+    ...visibleNav.filter((p) => p.key).map((p) => ({ key: p.key!, to: p.to })),
+    ...groups.map((g) => ({ key: g.key, to: g.pages[0].to })),
+  ], [visibleNav, groups]);
+  const counts = useCounts(activeGroup?.id);
 
   useEffect(() => {
     const onKey = (event: KeyboardEvent) => {
@@ -280,14 +305,14 @@ export default function AppShell() {
         window.setTimeout(() => window.dispatchEvent(new Event('vantage:open-views')), 80);
       }
       else if (event.key === 'g') {
-        const second = (next: KeyboardEvent) => { const hit = visibleNav.find((i) => i.key === next.key); if (hit) { next.preventDefault(); navigate(hit.to); } window.removeEventListener('keydown', second, true); };
+        const second = (next: KeyboardEvent) => { const hit = goKeys.find((i) => i.key === next.key); if (hit) { next.preventDefault(); navigate(hit.to); } window.removeEventListener('keydown', second, true); };
         window.addEventListener('keydown', second, true);
         window.setTimeout(() => window.removeEventListener('keydown', second, true), 1200);
       }
     };
     window.addEventListener('keydown', onKey);
     return () => window.removeEventListener('keydown', onKey);
-  }, [navigate, openQuickLog, visibleNav, identity?.views, collapsed]);
+  }, [navigate, openQuickLog, goKeys, identity?.views, collapsed]);
 
   const switchPersona = async (persona: 'marine' | 'leader') => {
     try { await api.demoPersona(persona); qc.clear(); navigate('/'); qc.invalidateQueries(); }
@@ -301,7 +326,6 @@ export default function AppShell() {
   const toggleTheme = () => { const next = theme === 'dark' ? 'light' : 'dark'; setTheme(next); savePrefs.mutate({ theme: next }); };
   function toggleRail() { setCollapsed((c) => { const n = !c; try { localStorage.setItem('vantage.rail', n ? 'collapsed' : 'open'); } catch {} return n; }); }
   const user = identity?.user;
-  const { view } = useView(identity);
   const who = [user?.rank?.abbr, user?.first_name, user?.last_name].filter(Boolean).join(' ');
 
   const accountMenu = (trigger: React.ReactNode) => (
@@ -328,34 +352,100 @@ export default function AppShell() {
     </Menu>
   );
 
+  // Which groups are open: the one you are in, and any you opened yourself. Your choices are remembered.
+  const [opened, setOpened] = useState<Record<string, boolean>>(() => { try { return JSON.parse(localStorage.getItem('vantage.nav') || '{}'); } catch { return {}; } });
+  const setGroupOpen = (id: string, open: boolean) => setOpened((current) => {
+    const next = { ...current, [id]: open };
+    try { localStorage.setItem('vantage.nav', JSON.stringify(next)); } catch {}
+    return next;
+  });
+  const isOpen = (g: NavGroup) => opened[g.id] ?? g.id === activeGroup?.id;
+
+  const badge = (count?: Count) => {
+    const n = count ? counts[count] : 0;
+    return n ? <span className="ml-auto rounded-full bg-white/10 px-1.5 py-px font-mono text-[10px] text-white/80">{n}</span> : null;
+  };
+  const hint = (page: NavPage | NavGroup, wide: boolean, mobile: boolean) => (wide && !mobile && page.key
+    ? <span className="ml-auto hidden font-mono text-[10px] text-white/35 group-hover:inline" aria-hidden>G {page.key.toUpperCase()}</span> : null);
+  const isCurrent = (page: NavPage) => (page.end || page.to === '/' ? location.pathname === page.to : location.pathname === page.to || location.pathname.startsWith(`${page.to}/`));
+  const topItem = (page: NavPage, wide: boolean, mobile: boolean) => (
+    <Tooltip key={page.to} content={!wide ? page.label : null} side="right">
+      <NavLink to={page.to} end={page.end} className={cn('nav-item group', !wide && 'justify-center px-0')} aria-current={isCurrent(page) ? 'page' : undefined}>
+        <page.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} />
+        {wide && <span className="truncate">{page.label}</span>}
+        {hint(page, wide, mobile)}
+      </NavLink>
+    </Tooltip>
+  );
+
   const navList = (mobile: boolean) => {
     const wide = !collapsed || mobile;
     return (
       <nav className="flex flex-1 flex-col overflow-y-auto px-3 py-2" aria-label="Primary">
-        {NAV_GROUPS.map((group) => {
-          const items = visibleNav.filter((i) => i.group === group);
-          if (!items.length) return null;
-          return (
-            <div key={group} className={cn('mb-1', group === 'More' && 'mt-auto pt-5', group !== 'Primary' && group !== 'More' && 'pt-4')}>
-              {wide && (group === 'Leading' || group === 'Knowledge') && <p className="nav-label">{group === 'Leading' ? 'Leading' : 'Knowledge'}</p>}
-              {!wide && group !== 'Primary' && group !== 'More' && <div className="mx-3 mb-3 h-px bg-white/10" aria-hidden />}
-              <div className="space-y-0.5">
-                {items.map((item) => (
-                  <Tooltip key={item.to} content={!wide ? item.label : null} side="right">
-                    <NavLink to={item.to} end={item.end} className={cn('nav-item group', !wide && 'justify-center px-0')} aria-current={location.pathname === item.to || (!item.end && location.pathname.startsWith(item.to)) ? 'page' : undefined}>
-                      <item.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} />
-                      {wide && <span className="truncate">{item.label}</span>}
-                      {wide && !mobile && <span className="ml-auto hidden font-mono text-[10px] text-white/35 group-hover:inline" aria-hidden>G {item.key.toUpperCase()}</span>}
-                    </NavLink>
-                  </Tooltip>
-                ))}
+        <div className="space-y-0.5">
+          {topItem(HOME, wide, mobile)}
+          {groups.map((g) => {
+            const here = g.id === activeGroup?.id;
+            // A narrow rail has room for the group alone; its pages are the strip at the top of the page.
+            if (!wide) {
+              return (
+                <Tooltip key={g.id} content={g.label} side="right">
+                  <NavLink to={g.pages[0].to} className="nav-item justify-center px-0" aria-current={here ? 'page' : undefined} aria-label={g.label}>
+                    <g.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} />
+                  </NavLink>
+                </Tooltip>
+              );
+            }
+            const open = isOpen(g);
+            const single = g.pages.length === 1;
+            return (
+              <div key={g.id} className="pt-0.5">
+                <div className={cn('nav-item group pr-1', here && 'text-white')}>
+                  <g.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} />
+                  <NavLink to={g.pages[0].to} onClick={() => setGroupOpen(g.id, true)} className="min-w-0 flex-1 truncate after:absolute after:inset-0 after:content-['']" aria-current={single && isCurrent(g.pages[0]) ? 'page' : undefined}>{g.label}</NavLink>
+                  {hint(g, wide, mobile)}
+                  {!single && (
+                    <button type="button" onClick={() => setGroupOpen(g.id, !open)} aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} the ${g.label} pages`}
+                      className="relative z-10 ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white">
+                      <ChevronDown className={cn('h-3.5 w-3.5 transition-transform duration-200', !open && '-rotate-90')} />
+                    </button>
+                  )}
+                </div>
+                {!single && open && (
+                  <ul className="relative mb-1 mt-0.5 space-y-px before:absolute before:bottom-1.5 before:left-[20px] before:top-1.5 before:w-px before:bg-white/10" aria-label={`${g.label} pages`}>
+                    {g.pages.map((p) => (
+                      <li key={p.to}>
+                        <NavLink to={p.to} end={p.end} className="nav-item nav-sub group" aria-current={isCurrent(p) ? 'page' : undefined}>
+                          <span className="truncate">{p.label}</span>
+                          {badge(p.count) || hint(p, wide, mobile)}
+                        </NavLink>
+                      </li>
+                    ))}
+                  </ul>
+                )}
               </div>
-            </div>
-          );
-        })}
+            );
+          })}
+        </div>
+        <div className="mt-auto space-y-0.5 pt-5">{footer.map((p) => topItem(p, wide, mobile))}</div>
       </nav>
     );
   };
+
+  // The pages of the group you are in, along the top of the page, where the sidebar does not list them.
+  const strip = activeGroup ? groups.find((g) => g.id === activeGroup.id)?.pages ?? [] : [];
+  const sectionStrip = strip.length > 1 ? (
+    <nav data-strip aria-label={`${activeGroup!.label} pages`} className={cn('no-print page -mt-3 mb-6 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none]', !collapsed && 'lg:hidden')}>
+      {strip.map((p) => (
+        <NavLink key={p.to} to={p.to} end={p.end} aria-current={isCurrent(p) ? 'page' : undefined}
+          className={cn('flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium ring-1 transition-colors', isCurrent(p) ? 'bg-ink text-surface ring-ink' : 'bg-surface text-ink-2 ring-line hover:text-ink hover:ring-line-strong')}>
+          {p.label}
+          {p.count && counts[p.count] ? <span className={cn('rounded-full px-1.5 font-mono text-[10px]', isCurrent(p) ? 'bg-surface/20' : 'bg-surface-2 text-ink-3')}>{counts[p.count]}</span> : null}
+        </NavLink>
+      ))}
+    </nav>
+  ) : null;
+  useEffect(() => { document.querySelector('[data-strip] a[aria-current="page"]')?.scrollIntoView({ block: 'nearest', inline: 'center' }); }, [location.pathname]);
 
   const workspace = (wide: boolean, mobile = false) => wide ? <ViewSwitcher mobile={mobile} /> : null;
 
@@ -414,9 +504,9 @@ export default function AppShell() {
           <header className="no-print sticky top-0 z-30 flex h-[60px] items-center gap-3 border-b border-line/80 bg-surface/80 px-3 backdrop-blur-xl backdrop-saturate-150 sm:px-5 lg:px-8">
             <button type="button" className="rounded-lg p-1.5 text-ink-2 hover:bg-surface-2 lg:hidden" onClick={() => setDrawer(true)} aria-label="Open menu"><MenuIcon className="h-5 w-5" /></button>
             <p className="flex min-w-0 items-baseline gap-2">
-              <span className="truncate text-[15px] font-semibold tracking-[-0.01em] text-ink">{titleFor(location.pathname)}</span>
-              <span className="hidden shrink-0 text-line-strong sm:inline" aria-hidden>/</span>
-              <span className="hidden truncate text-sm text-ink-3 sm:inline">{entryFor(location.pathname)?.[2]}</span>
+              {place.group && <><span className="hidden shrink-0 text-[15px] text-ink-3 sm:inline">{place.group}</span><span className="hidden shrink-0 text-line-strong sm:inline" aria-hidden>/</span></>}
+              <span className="truncate text-[15px] font-semibold tracking-[-0.01em] text-ink">{place.title}</span>
+              {!place.group && place.detail && <><span className="hidden shrink-0 text-line-strong sm:inline" aria-hidden>/</span><span className="hidden truncate text-sm text-ink-3 sm:inline">{place.detail}</span></>}
             </p>
             <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
               {!online && <Tooltip content="Offline. New entries queue on this device."><span className="flex h-8 items-center gap-1.5 rounded-full bg-warn/10 px-3 text-xs font-medium text-warn ring-1 ring-warn/20"><WifiOff className="h-3.5 w-3.5" /><span className="hidden sm:inline">Offline</span></span></Tooltip>}
@@ -471,6 +561,7 @@ export default function AppShell() {
                 <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-lg bg-accent/10 text-accent"><AlertTriangle className="h-4 w-4" /></span><span className="pt-0.5">{identity.instance.announcement}</span>
               </div>
             )}
+            {sectionStrip}
             <ErrorBoundary resetKey={location.pathname + location.search}><div key={location.pathname} className="animate-fade-up"><Outlet /></div></ErrorBoundary>
           </main>
           <footer className="no-print flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-5 text-xs text-ink-3 sm:px-6 lg:px-10">

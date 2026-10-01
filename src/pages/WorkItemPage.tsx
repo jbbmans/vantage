@@ -238,7 +238,7 @@ export default function WorkItemPage() {
             )}
             {iContributed && (
               <Button size="sm" className="mt-4 w-full" onClick={async () => {
-                try { const d = await api.draftFromWork(id); invalidateDomains(qc, 'draft'); toast.success('A private draft is ready in your Record.'); navigate(`/record?tab=drafts&open=${d.id}`); }
+                try { const d = await api.draftFromWork(id); invalidateDomains(qc, 'draft'); toast.success('A private draft is ready in your Record.'); navigate(`/record/drafts?open=${d.id}`); }
                 catch (e) { toast.error(api.errorText(e)); }
               }}><PenLine className="h-4 w-4" />Prepare a private draft from my work</Button>
             )}

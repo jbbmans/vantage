@@ -24,7 +24,7 @@ test.beforeEach(async ({ page, request }) => {
 test('a leader corrects a billet and removes a Marine from the unit, told what follows first', async ({ page, browser }) => {
   const last = `Okafor${unique('')}`;
   await enrolledMarine(page, browser, last);
-  await page.goto('/team?tab=roster&unit=G8');
+  await page.goto('/team/roster?unit=G8');
   const row = page.getByRole('row').filter({ hasText: last });
   await expect(row).toBeVisible();
 
@@ -65,7 +65,7 @@ test('a leader assigns work nobody holds, with a note, from the item itself', as
 
 test('a saved queue view can be deleted, and applying one fills in its search', async ({ page }) => {
   const name = unique('Endorsements ');
-  await page.goto('/work?tab=queue');
+  await page.goto('/work/queue');
   await page.getByLabel('Search the queue').fill('endorsement');
   await page.getByRole('button', { name: 'Save this view' }).click();
   const save = page.getByRole('dialog', { name: 'Save this view' });
@@ -87,7 +87,7 @@ test('a contact can be corrected after it is saved', async ({ page }) => {
   const name = unique('Maj Reyes ');
   const made = await page.request.post('/api/correspondence/contacts', { headers: H, data: { name, email: 'reyes@example.mil', organization: 'DFAS', visibility: 'unit', unit_id: 'G8' } });
   expect(made.ok(), await made.text()).toBeTruthy();
-  await page.goto('/work?tab=mail&mail=contacts');
+  await page.goto('/work/correspondence?mail=contacts');
   await page.getByRole('button', { name: `Edit ${name}` }).click();
   const dialog = page.getByRole('dialog', { name: 'Edit contact' });
   await expect(dialog.getByLabel('Name')).toHaveValue(name);
@@ -112,7 +112,7 @@ test('the owner links an account to its EDIPI so it can sign in with a CAC', asy
 });
 
 test('a leader makes a join code and a Marine joins the unit with it from Settings', async ({ page, browser }) => {
-  await page.goto('/team?tab=invites&unit=G8');
+  await page.goto('/team/invitations?unit=G8');
   const note = unique('Formation ');
   await page.getByPlaceholder('Second squad, 1 October formation').fill(note);
   await page.getByRole('button', { name: 'Create join code' }).click();
@@ -159,7 +159,7 @@ test('an award opens by link, with its discussion, and takes a remark', async ({
   const made = await page.request.post('/api/records/awards', { headers: H, data: { name, date: '2026-09-01', visibility: 'unit', unit_id: 'G8' } });
   expect(made.ok(), await made.text()).toBeTruthy();
   const award = await made.json();
-  await page.goto(`/career?tab=awards&open=${award.id}`);
+  await page.goto(`/career/awards?open=${award.id}`);
   const dialog = page.getByRole('dialog', { name });
   await expect(dialog).toBeVisible();
   await dialog.getByLabel('Write a remark').fill('Citation went up to the CO today.');
