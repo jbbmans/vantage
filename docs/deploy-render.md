@@ -65,10 +65,10 @@ at `/console`. That is also what happens between merging this and finishing the 
    both, then add `www.vantageusmc.com` first (Render adds the bare domain back and redirects it to www). Add
    `secure.vantageusmc.com` and `dev.vantageusmc.com`. Wait until each shows its certificate as issued, then set
    the Cloudflare records to **Proxied**.
-3. **Render → Environment.** Set `VANTAGE_SITE_URL=https://www.vantageusmc.com`,
+3. **Render → Environment**, only once steps 1 and 2 are done. Set `VANTAGE_SITE_URL=https://www.vantageusmc.com`,
    `VANTAGE_APP_URL=https://secure.vantageusmc.com`, `VANTAGE_CONSOLE_URL=https://dev.vantageusmc.com` and
-   `VANTAGE_RP_ID=vantageusmc.com` (all four are in `render.yaml`), and remove `VANTAGE_PUBLIC_URL`. Saving
-   redeploys.
+   `VANTAGE_RP_ID=vantageusmc.com`. `render.yaml` names all four without values, so a merge never switches the site
+   before its addresses resolve. Saving redeploys. `VANTAGE_PUBLIC_URL` can stay; the four take precedence.
 4. **Microsoft Entra**, only if mailboxes are connected: change the app registration's redirect URI to
    `https://secure.vantageusmc.com/api/correspondence/connectors/callback`.
 5. **Search Console** needs nothing new if its property is the *Domain* property for `vantageusmc.com`, which covers

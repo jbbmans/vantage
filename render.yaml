@@ -31,18 +31,24 @@ services:
         value: "8787"
       - key: VANTAGE_DB
         value: /data/vantage.db
-      # The three faces of Vantage: the public site, the app (sign-in and the tool) and the owner console.
-      # Email links go to the app; search engines are told about the site; administration answers only on the console.
+      # One address serves everything until the three below are set. Set them in the dashboard, not here, once
+      # secure. and dev. resolve and have certificates; set here, a merge would send people to addresses that do
+      # not exist yet. See docs/deploy-render.md, "Moving vantageusmc.com to three addresses".
+      - key: VANTAGE_PUBLIC_URL
+        value: https://vantageusmc.com
+      # https://www.vantageusmc.com: the public page.
       - key: VANTAGE_SITE_URL
-        value: https://www.vantageusmc.com
+        sync: false
+      # https://secure.vantageusmc.com: sign-in and the app. Email links point here.
       - key: VANTAGE_APP_URL
-        value: https://secure.vantageusmc.com
+        sync: false
+      # https://dev.vantageusmc.com: the owner console; administration answers here alone.
       - key: VANTAGE_CONSOLE_URL
-        value: https://dev.vantageusmc.com
-      # Passkeys belong to this domain, so one made on the app also works on the console. It is what they were made
-      # under before the split, so none has to be registered again.
+        sync: false
+      # vantageusmc.com: passkeys belong to the domain, so one works on the app and the console, and none made
+      # before the split has to be registered again.
       - key: VANTAGE_RP_ID
-        value: vantageusmc.com
+        sync: false
       - key: TRUST_PROXY
         value: "true"
       - key: VANTAGE_TIMEZONE
