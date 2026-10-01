@@ -14,6 +14,7 @@ import { renderReportPdf } from '../services/pdf.ts';
 import { comparePeriods } from '../../shared/delta.ts';
 import { rangeForPeriod } from '../../shared/metrics.ts';
 import { areasFor } from '../../shared/evaluation.ts';
+import { isoDate } from '../../shared/schemas.ts';
 import { rowsToCsv, ACTIVITY_CSV_COLUMNS, activityToCsvRow } from '../../shared/csv.ts';
 import { hydrate } from '../services/records.ts';
 import { runAiWorkflow, aiStatus, AiError } from '../services/ai.ts';
@@ -55,8 +56,8 @@ function reportTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
 
 const draftSchema = z.object({
   title: z.string().max(200),
-  period_start: z.string().max(10),
-  period_end: z.string().max(10),
+  period_start: isoDate,
+  period_end: isoDate,
   subject_id: z.string().max(64).nullable().optional(),
   unit_id: z.string().max(64).nullable().optional(),
   track: z.enum(['jepes', 'fitrep']).optional(),
@@ -89,8 +90,8 @@ miscRouter.get('/studio/reports/:id', wrap((req, res) => {
 
 const revisionSchema = z.object({
   title: z.string().max(200).optional(),
-  period_start: z.string().max(10).optional(),
-  period_end: z.string().max(10).optional(),
+  period_start: isoDate.optional(),
+  period_end: isoDate.optional(),
   note: z.string().max(500).nullable().optional(),
   base_revision: z.coerce.number().int().nullable().optional(),
   sections: z.array(z.object({ heading: z.string().max(200), body: z.string().max(20000), source_ids: z.array(z.string().max(64)).max(200).optional() })).max(40),

@@ -7,6 +7,7 @@ import { todayActions } from '../../shared/health.ts';
 import { applyMapping } from '../../shared/csv.ts';
 import { buildZip } from '../../server/lib/zip.ts';
 import { EXPORT_TABLES, NOT_EXPORTED } from '../../server/services/exports.ts';
+import { parseMaradminFeed } from '../../server/services/maradmins.ts';
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
@@ -181,4 +182,10 @@ test('a thread keeps its newest message date when an older one is filed late, an
   const due = await app.call('GET', '/api/correspondence/threads?due=1', { token: op.token });
   assert.equal(due.body.some((t: { id: string }) => t.id === thread.body.id), false, 'tomorrow’s follow-up is not due today');
   assert.equal((await app.call('POST', '/api/correspondence/threads', { token: op.token, body: { subject: 'x', visibility: 'private', follow_up_at: 'next week' } })).status, 400);
+});
+
+test('a MARADMIN title is decoded once, whatever entities the feed uses', () => {
+  const item = (title: string) => `<item><title>${title}</title><link>https://www.marines.mil/News/Messages/Messages-Display/Article/1/</link><description>MARADMIN 512/26</description><pubDate>Tue, 29 Sep 2026 14:00:00 GMT</pubDate></item>`;
+  const [r] = parseMaradminFeed(`<rss><channel>${item('FY27 R&amp;amp;D &amp;lt;DRAFT&amp;gt; &#x2014; Q&amp;A &#99999999;')}</channel></rss>`);
+  assert.equal(r.title, 'FY27 R&amp;D &lt;DRAFT&gt; — Q&A &#99999999;', 'an escaped ampersand used to be decoded twice, and a bad code point failed the whole sync');
 });
