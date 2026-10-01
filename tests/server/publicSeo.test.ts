@@ -49,7 +49,7 @@ test('public HTML exposes the product while private and missing routes cannot be
     }
     const about = await app.call('GET', '/about');
     assert.match(about.text, /<h1\b/);
-    assert.match(about.text, /<link rel="canonical" href="https:\/\/vantageusmc.com\/"/);
+    assert.match(about.text, /<link rel="canonical" href="https:\/\/www\.vantageusmc\.com\/"/);
     assert.equal((await app.call('GET', '/api/health')).status, 200);
   } finally {
     await app.close();
@@ -171,7 +171,9 @@ test('every screen the app declares is served by the server, not answered with i
     assert.ok(declared.size > 20, `the scan found the routes (${declared.size})`);
     for (const path of declared) {
       const concrete = path.replace(/:[a-z]+/g, 'x');
-      assert.equal((await app.call('GET', concrete)).status, 200, `${concrete} is a screen in the app, but the server answered it with "Page not found"`);
+      // /operator opens the owner console, which is its own document; following the move is still being served.
+      const res = await fetch(app.base + concrete, { redirect: 'manual' });
+      assert.ok(res.status === 200 || (path === '/operator' && res.status === 301), `${concrete} is a screen in the app, but the server answered it with ${res.status}`);
     }
   } finally { await app.close(); }
 });

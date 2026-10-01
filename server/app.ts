@@ -11,6 +11,7 @@ import { createMailer } from './services/email.ts';
 import { attachContext } from './auth/middleware.ts';
 import { SESSION_COOKIE, SIGNED_IN_COOKIE } from './auth/sessions.ts';
 import { HttpError } from './lib/errors.ts';
+import { hostPlan, facesOf, linksMeta, type HostPlan } from './lib/hosts.ts';
 import { sendError } from './lib/http.ts';
 import { VERSION } from './version.ts';
 import { authRouter } from './routes/auth.ts';
@@ -80,14 +81,28 @@ function siteVerification({ googleVerification, bingVerification }: AppConfig['s
 const SHAREABLE = /^\/(?:og\.png|favicon\.(?:ico|svg)|apple-touch-icon\.png|icon-[\w-]+\.png|mark\.svg|brand\/)/;
 
 function inlineScriptHashes(distDir: string): string[] {
-  const indexPath = join(distDir, 'index.html');
-  if (!existsSync(indexPath)) return [];
-  const html = readFileSync(indexPath, 'utf8');
-  const hashes: string[] = [];
-  const pattern = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g;
-  let match: RegExpExecArray | null;
-  while ((match = pattern.exec(html)) !== null) hashes.push(`'sha256-${createHash('sha256').update(match[1], 'utf8').digest('base64')}'`);
-  return hashes;
+  const hashes = new Set<string>();
+  for (const name of ['index.html', 'public.html', 'console.html']) {
+    const file = join(distDir, name);
+    if (!existsSync(file)) continue;
+    // Only scripts the browser runs; JSON-LD is data, and the policy does not cover it.
+    const pattern = /<script(?![^>]*\b(?:src=|type="application\/ld\+json"))[^>]*>([\s\S]*?)<\/script>/g;
+    for (const match of readFileSync(file, 'utf8').matchAll(pattern)) hashes.add(`'sha256-${createHash('sha256').update(match[1], 'utf8').digest('base64')}'`);
+  }
+  return [...hashes];
+}
+
+/** Every path the application serves a page at; a sign-in link sent before a move still finds it. */
+const APP_PATH = /^\/(?:login|register|reset|invite|setup|work|record|goals|career|reference|maradmins|readiness|reports|settings|help|queue|correspondence|studio|assist)\/?$|^\/(?:records|activities|team|support)(?:\/[^/]+){0,2}\/?$|^\/work\/items\/[^/]+\/?$/;
+const CONSOLE_PATH = /^\/(?:operator|console)(?:\/.*)?$/;
+/** What the console's own pages call: signing in, the owner's identity, administration and the accounts and units it manages. */
+const CONSOLE_API = /^\/(?:admin|org|me)(?:\/|$)|^\/auth\/(?:setup|login|login\/mfa|passkey\/options|passkey\/verify|cac|logout|sudo|forgot)$|^\/ranks$/;
+const APP_ROBOTS = 'User-agent: *\nAllow: /login\nAllow: /register\nAllow: /reset\nAllow: /invite\nDisallow: /\n';
+
+/** The console address for an old /operator?tab= link or a /console path, on whichever host the console lives. */
+function consoleTarget(hosts: HostPlan, path: string, query: string): string {
+  const rest = path.startsWith('/console') ? path.slice('/console'.length) : '';
+  return hosts.url('console', `${hosts.consoleBase}${rest || '/'}${query}`);
 }
 
 export function createApp(ctx: AppContext) {
@@ -136,9 +151,27 @@ export function createApp(ctx: AppContext) {
     }
   });
 
+  // Which face of Vantage the request's host serves. A host the deployment does not name (the bare domain, the
+  // platform's own hostname) is sent on to the one that serves the page, so old links and bookmarks keep working.
+  const hosts = hostPlan(config);
+  app.use((req, res, next) => {
+    const faces = hosts.facesFor(req);
+    if (faces) { res.locals.faces = faces; return next(); }
+    if (req.path.startsWith('/api/')) return res.status(421).json({ error: `Vantage is at ${config.urls.app} now. Reload the page.`, code: 'moved' });
+    if (req.method !== 'GET' && req.method !== 'HEAD') return res.status(421).end();
+    const query = req.originalUrl.slice(req.path.length);
+    if (CONSOLE_PATH.test(req.path)) return res.redirect(301, consoleTarget(hosts, req.path, query));
+    return res.redirect(301, hosts.url(APP_PATH.test(req.path) ? 'app' : 'site', req.path + query));
+  });
+
   const MAINTENANCE_OPEN = new Set(['/auth/login', '/auth/login/mfa', '/auth/passkey/options', '/auth/passkey/verify', '/auth/logout', '/auth/sudo']);
   app.use('/api', (req, res, next) => {
     const path = req.path.toLowerCase().replace(/\/+$/, '');
+    // Each host answers only the calls its own pages make: the public site none, the console only its own, and
+    // administration nowhere but the console, so a session on the application can never reach it.
+    const faces = facesOf(res);
+    const allowed = faces.has('app') ? (faces.has('console') || !path.startsWith('/admin')) : faces.has('console') && CONSOLE_API.test(path);
+    if (!allowed) return res.status(404).json({ error: 'No such API route.', code: 'not_found' });
     if (ctx.runtime.maintenance && path.startsWith('/auth') && !MAINTENANCE_OPEN.has(path) && req.method !== 'GET') {
       res.setHeader('Cache-Control', 'no-store');
       return res.status(503).json({ error: 'Vantage is in scheduled maintenance. Try again shortly.', code: 'maintenance' });
@@ -193,18 +226,26 @@ export function createApp(ctx: AppContext) {
   if (existsSync(distDir)) {
     // Only public marketing routes are indexable, before any JavaScript runs.
     const publicRoutes = new Set(['/', '/display', '/about']);
-    const appRoute = /^\/(?:login|register|reset|invite|setup|work|record|goals|career|reference|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
-    const recordRoute = /^\/(?:records|activities|team|support)(?:\/[^/]+){0,2}\/?$|^\/work\/items\/[^/]+\/?$/;
+    // Each document says where the other faces live, for the links between them.
+    const withLinks = (html: string) => html.replace('</head>', `    ${linksMeta(hosts.links)}\n  </head>`);
     // The application shell is noindex in its source; the public page is its own document, public.html.
-    const shell = readFileSync(join(distDir, 'index.html'), 'utf8');
-    const publicFile = join(distDir, 'public.html');
-    const publicPage = existsSync(publicFile) ? readFileSync(publicFile, 'utf8').replace('<!--site-verification-->', siteVerification(config.search)) : null;
+    const shell = withLinks(readFileSync(join(distDir, 'index.html'), 'utf8'));
+    const read = (name: string) => (existsSync(join(distDir, name)) ? readFileSync(join(distDir, name), 'utf8') : null);
+    const publicPage = read('public.html')?.replace('<!--site-verification-->', siteVerification(config.search)) ?? null;
+    const consolePage = read('console.html');
+    const consoleDocument = consolePage ? withLinks(consolePage) : null;
     app.use((req, res, next) => {
-      if (req.path === '/index.html' || req.path === '/public.html') {
-        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-      }
+      if (/^\/(?:index|public|console)\.html$/.test(req.path)) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
       next();
     });
+    // The public site's crawl rules belong to the public site. The application lets crawlers read its sign-in
+    // pages' noindex and nothing else; the console is closed to them.
+    app.get('/robots.txt', (_req, res, next) => {
+      const faces = facesOf(res);
+      if (faces.has('site')) return next();
+      res.type('text/plain').send(faces.has('app') ? APP_ROBOTS : 'User-agent: *\nDisallow: /\n');
+    });
+    app.get(/^\/(?:sitemap\.xml|llms\.txt)$/, (req, res, next) => (facesOf(res).has('site') ? next() : res.redirect(301, hosts.url('site', req.path))));
     app.use('/assets', express.static(join(distDir, 'assets'), { immutable: true, maxAge: '1y', index: false }));
     app.use(express.static(distDir, { index: false, maxAge: '1h', setHeaders: (res, path) => {
       const req = (res as unknown as { req: Request }).req;
@@ -216,6 +257,7 @@ export function createApp(ctx: AppContext) {
       else if (req.path.startsWith('/brand/')) res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
     } }));
 
+    const notFound = (res: Response) => res.status(404).type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Page not found | VANTAGE</title></head><body><main><h1>Page not found</h1><p>This address does not exist.</p><a href="/">Return to VANTAGE</a></main></body></html>`);
     // Once somebody has an account the instance never goes back to first-time setup, so the answer is kept.
     let setUp = false;
     const instanceSetUp = () => (setUp ||= Boolean(ctx.db.prepare('SELECT 1 FROM users LIMIT 1').get()));
@@ -223,18 +265,36 @@ export function createApp(ctx: AppContext) {
       res.setHeader('Cache-Control', 'no-cache');
       res.setHeader('CDN-Cache-Control', 'no-store');
       res.vary('Cookie');
-      const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
-      // /display and /about are the public page for everybody. / is the public page only for a signed-out visitor
-      // to a set-up instance with accounts; first-time setup and the demo are the application's to render.
-      const servePublic = req.path === '/'
-        ? !signedIn && config.accessMode === 'accounts' && instanceSetUp()
-        : publicRoutes.has(req.path);
-      if (servePublic && publicPage) return res.type('html').send(publicPage);
-      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-      if (!publicRoutes.has(req.path) && !appRoute.test(req.path) && !recordRoute.test(req.path)) {
-        return res.status(404).type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Page not found | VANTAGE</title></head><body><main><h1>Page not found</h1><p>This address does not exist.</p><a href="/">Return to VANTAGE</a></main></body></html>`);
+      const faces = facesOf(res);
+      const path = req.path;
+      const query = req.originalUrl.slice(req.path.length);
+      const page = (html: string) => res.type('html').send(html);
+
+      // The owner console: the whole of a host of its own, or /console on a shared one.
+      const consolePath = CONSOLE_PATH.test(path);
+      if (faces.has('console') && (hosts.consoleBase === '' || consolePath) && config.accessMode === 'accounts') {
+        if (path === '/operator' || (hosts.consoleBase === '' && consolePath)) return res.redirect(301, consoleTarget(hosts, path, query));
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+        return consoleDocument ? page(consoleDocument) : notFound(res);
       }
-      return res.type('html').send(shell);
+      if (consolePath && config.accessMode === 'accounts') return res.redirect(301, consoleTarget(hosts, path, query));
+
+      // The public site. / is the public page on a host of its own; on a host shared with the application, only
+      // for a signed-out visitor to a set-up instance with accounts (first-time setup and the demo are the app's).
+      if (publicRoutes.has(path)) {
+        if (faces.has('site')) {
+          const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
+          const servePublic = path !== '/' || !faces.has('app') || (!signedIn && config.accessMode === 'accounts' && instanceSetUp());
+          if (servePublic && publicPage) return page(publicPage);
+          if (!faces.has('app')) return notFound(res);
+        } else if (path !== '/') return res.redirect(301, hosts.url('site', path + query));
+      }
+
+      // The application.
+      res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+      if (!publicRoutes.has(path) && !APP_PATH.test(path)) return notFound(res);
+      if (!faces.has('app')) return res.redirect(301, hosts.url('app', path + query));
+      return page(shell);
     });
   }
   return app;

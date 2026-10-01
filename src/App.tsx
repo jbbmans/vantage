@@ -10,6 +10,7 @@ import { hasSession, setupStatus, demoStart, errorText } from '@/lib/api';
 import { applyAccent, applyDensity, applyTheme, storedTheme } from '@/lib/theme';
 import AppLoader from '@/components/AppLoader';
 import { NAV_REDIRECTS } from '@/config/nav';
+import { LINKS, consoleHref, siteHref } from '@/lib/links';
 
 // Signed-out and one-off screens load on demand; a visitor to the public page gets public.html instead.
 const Login = lazy(() => import('@/pages/Login'));
@@ -27,7 +28,6 @@ const ReportsHub = lazy(() => import('@/pages/ReportsHub'));
 const Team = lazy(() => import('@/pages/Team'));
 const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
 const Settings = lazy(() => import('@/pages/Settings'));
-const Operator = lazy(() => import('@/pages/Operator'));
 const Help = lazy(() => import('@/pages/Help'));
 const Support = lazy(() => import('@/pages/Support'));
 const Reference = lazy(() => import('@/pages/Reference'));
@@ -58,6 +58,18 @@ function NavigateBridge() {
 const PUBLIC_ROUTES = ['/display', '/about'];
 const isPublicRoute = (pathname: string) => PUBLIC_ROUTES.includes(pathname);
 
+/** A page that lives on another host (the public site, the owner console): the browser goes there. */
+function Elsewhere({ href, label }: { href: string; label: string }) {
+  useEffect(() => { window.location.replace(href); }, [href]);
+  return <AppLoader label={label} />;
+}
+
+/** The owner console is its own app; /operator, from old links and notifications, opens it at the same tab. */
+function ToConsole() {
+  const { search } = useLocation();
+  return <Elsewhere href={consoleHref(`/${search}`)} label="Opening the owner console…" />;
+}
+
 /**
  * The server answers / with public.html for a signed-out visitor to a set-up instance, so the app only
  * reaches here for first-time setup or a session that turned out to have expired.
@@ -68,7 +80,8 @@ function SignedOutHome({ serverError, onRetry }: { serverError: string | null; o
     setupStatus().then((status) => setState(status.needsSetup ? 'setup' : 'public')).catch(() => setState('public'));
   }, []);
   if (state === 'loading') return <AppLoader />;
-  return <Screen>{state === 'setup' ? <Login serverError={serverError} onRetry={onRetry} /> : <PublicSite />}</Screen>;
+  // Where the public site has a host of its own, the application's front door is sign-in.
+  return <Screen>{state === 'setup' || LINKS.site ? <Login serverError={serverError} onRetry={onRetry} /> : <PublicSite />}</Screen>;
 }
 
 let demoStarting: { attempt: number; promise: Promise<unknown> } | null = null;
@@ -145,6 +158,7 @@ function AppRoutes() {
   const serverError = identity.isError && (identity.error as { status?: number })?.status !== 401 ? (identity.error as Error).message : null;
 
   if (publicStandalone) {
+    if (LINKS.site) return <Elsewhere href={siteHref(location.pathname)} label="Opening Vantage…" />;
     return <Routes><Route path="*" element={<Screen><PublicSite /></Screen>} /></Routes>;
   }
 
@@ -189,7 +203,7 @@ function AppRoutes() {
         <Route path="team" element={<D><Team /></D>} />
         <Route path="team/:id" element={<D><MemberDetail /></D>} />
         <Route path="settings" element={<D><Settings /></D>} />
-        <Route path="operator" element={<D><Operator /></D>} />
+        <Route path="operator" element={<ToConsole />} />
         <Route path="help" element={<D><Help /></D>} />
         <Route path="support" element={<D><Support /></D>} />
         <Route path="support/:id" element={<D><Support /></D>} />

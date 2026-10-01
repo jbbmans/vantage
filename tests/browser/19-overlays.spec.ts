@@ -39,13 +39,15 @@ test('every overlay opens fully inside a phone screen', async ({ page, request }
 test('a tab strip too wide for the screen scrolls, and shows the tab you are on', async ({ page, request }) => {
   await ensureSetup(request);
   await loginAs(page, OPERATOR.username);
-  // The owner console has more tabs than fit any phone.
-  await page.goto('/operator?tab=privacy');
-  const active = page.getByRole('tab', { name: 'Privacy' });
+  // Team, for a leader who runs the unit, has more tabs than fit any phone.
+  await page.goto('/team?tab=audit');
+  const active = page.getByRole('tab', { name: 'Access log' });
   await active.waitFor();
+  await assertOnScreen(active, 'the active tab');
 
-  const box = (await active.boundingBox())!;
-  const width = (await page.viewportSize())!.width;
-  expect(box.x, 'the active tab was left off the left of the strip').toBeGreaterThanOrEqual(-1);
-  expect(box.x + box.width, 'the active tab was left off the right of the strip').toBeLessThanOrEqual(width + 1);
+  // The owner console's sections, a strip of their own on a phone, keep the page you are on in view the same way.
+  await page.goto('/operator?tab=data');
+  const section = page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Backup and move' });
+  await section.waitFor();
+  await assertOnScreen(section, 'the console section you are on');
 });

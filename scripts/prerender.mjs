@@ -9,7 +9,7 @@ import { fileURLToPath, pathToFileURL } from 'node:url';
 const ROOT = join(dirname(fileURLToPath(import.meta.url)), '..');
 const DIST = join(ROOT, 'dist');
 const SSR_OUT = join(ROOT, '.ssr-build');
-const ORIGIN = (process.env.VANTAGE_PUBLIC_URL || process.env.VITE_PUBLIC_ORIGIN || 'https://vantageusmc.com').replace(/\/$/, '');
+const ORIGIN = (process.env.VANTAGE_SITE_URL || process.env.VANTAGE_PUBLIC_URL || process.env.VITE_PUBLIC_ORIGIN || 'https://www.vantageusmc.com').replace(/\/$/, '');
 
 const page = join(DIST, 'public.html');
 if (!existsSync(page)) {

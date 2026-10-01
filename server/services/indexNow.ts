@@ -18,7 +18,8 @@ export type Announcement = 'sent' | 'unchanged' | 'off' | 'refused';
 
 /** Submits the public page once per version of it, so a deploy that leaves it alone sends nothing. */
 export async function announcePublicPage(ctx: AppContext, page: string, fetcher: typeof fetch = fetch): Promise<Announcement> {
-  const { search, publicUrl } = ctx.config;
+  const { search } = ctx.config;
+  const publicUrl = ctx.config.urls.site;
   if (!search.indexNow || !/^https:\/\//.test(publicUrl)) return 'off';
   const version = contentVersion(page);
   if (metaGet(ctx.db, 'indexnow_version') === version) return 'unchanged';

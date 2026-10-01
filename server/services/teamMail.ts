@@ -44,9 +44,9 @@ export async function sendTeamMessage(ctx: AppContext, sender: SessionUser, unit
     title: message.subject,
     intro: message.body,
     details: [{ label: 'From', value: senderName }, { label: 'To', value: `${unit.name} and every team beneath it` }],
-    cta: { label: 'Open Vantage', url: `${ctx.config.publicUrl}/team?tab=overview` },
+    cta: { label: 'Open Vantage', url: `${ctx.config.urls.app}/team?tab=overview` },
     footer: `${senderName} sent this to ${unitLabel} through Vantage.${sender.email ? ' Reply to reach them directly.' : ''}`,
-    origin: ctx.config.publicUrl,
+    origin: ctx.config.urls.app,
   });
   let emailed = 0; let queued = 0; let failed = 0;
   for (const r of list) {

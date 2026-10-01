@@ -287,7 +287,7 @@ meRouter.post('/email/verify', requireSudo, wrap(async (req, res) => {
   if (ctx.db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id <> ?').get(email, req.user.id)) throw badRequest('That email is already in use.', { fieldErrors: { email: 'Already in use.' } });
   mailAllowance(req.user.id);
   const { token } = issueToken(ctx, 'email_change', { userId: req.user.id, email, ttlMinutes: 60 });
-  const url = `${ctx.config.publicUrl}/settings?verify=${encodeURIComponent(token)}`;
+  const url = `${ctx.config.urls.app}/settings?verify=${encodeURIComponent(token)}`;
   const mail = layout({
     eyebrow: 'Confirm your email',
     title: 'Is this your address?',
@@ -297,7 +297,7 @@ meRouter.post('/email/verify', requireSudo, wrap(async (req, res) => {
     cta: { label: 'Confirm email', url },
     note: 'The link works once, for one hour. If you did not ask for this, ignore it and nothing changes.',
     footer: 'Vantage sent this because someone added this address to an account.',
-    origin: ctx.config.publicUrl,
+    origin: ctx.config.urls.app,
   });
   const result = await ctx.mailer.send({ to: email, subject: 'Confirm your Vantage email', text: mail.text, html: mail.html, kind: 'email_change', userId: req.user.id });
   if (!result.ok) throw badRequest(result.error || 'The confirmation could not be sent.');

@@ -41,7 +41,7 @@ export function composeSignInMail(ctx: AppContext, account: Account, sender: Ses
   const unit = membership ? { name: membership.parent ? `${membership.name}, ${membership.parent}` : membership.name } : undefined;
   const senderName = [sender.rank_id, sender.first_name, sender.last_name].filter(Boolean).join(' ');
   const greeting = account.rank_abbr ? `${account.rank_abbr} ${account.last_name}` : account.first_name;
-  const host = new URL(ctx.config.publicUrl).host;
+  const host = new URL(ctx.config.urls.app).host;
   const expires = expiresAt.toLocaleString('en-US', { timeZone: ctx.config.timezone, weekday: 'long', month: 'long', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
   const returning = Boolean(account.last_login_at);
   return layout({
@@ -64,7 +64,7 @@ export function composeSignInMail(ctx: AppContext, account: Account, sender: Ses
     ] }],
     note: `This link works once and expires ${expires}. After that, use “Forgot password” on the sign-in page, or ask your leader for a new link. Vantage never asks for your password by email.`,
     footer: `${senderName} sent this from ${host}. If you were not expecting a Vantage account, you can ignore this message.`,
-    origin: ctx.config.publicUrl,
+    origin: ctx.config.urls.app,
   });
 }
 
@@ -81,7 +81,7 @@ export async function sendSignInDetails(ctx: AppContext, sender: SessionUser, us
   revokeTokens(ctx, 'reset', account.id);
   const expiresAt = new Date(Date.now() + SIGN_IN_LINK_HOURS * 3_600_000);
   const { token } = issueToken(ctx, 'reset', { userId: account.id, email: account.email, ttlMinutes: SIGN_IN_LINK_HOURS * 60, createdBy: sender.id, payload: { purpose: 'sign_in', ip: ip ?? null } });
-  const url = `${ctx.config.publicUrl}/reset?token=${encodeURIComponent(token)}`;
+  const url = `${ctx.config.urls.app}/reset?token=${encodeURIComponent(token)}`;
   const mail = composeSignInMail(ctx, account, sender, url, expiresAt);
   const result = await ctx.mailer.send({ to: account.email, subject: 'Your Vantage sign-in details', text: mail.text, html: mail.html, kind: 'sign_in', userId: account.id });
   // An undelivered link is one nobody should hold.

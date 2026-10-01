@@ -36,4 +36,4 @@ Disallow: /support
 Disallow: /team
 Disallow: /work
 
-Sitemap: https://vantageusmc.com/sitemap.xml
+Sitemap: https://www.vantageusmc.com/sitemap.xml

@@ -5,6 +5,9 @@ import {
 import type { AppContext } from '../context.ts';
 import { now } from '../lib/ids.ts';
 
+/** A passkey is used on the application and on the owner console, wherever each one lives. */
+const passkeyOrigins = (ctx: AppContext) => [...new Set([ctx.config.urls.app, ctx.config.urls.console])];
+
 const challenges = new Map<string, { challenge: string; userId: string | null; expires: number }>();
 const CHALLENGE_TTL = 5 * 60_000;
 export const MAX_CHALLENGES = 2000;
@@ -51,7 +54,7 @@ export async function completeRegistration(ctx: AppContext, userId: string, resp
   const pending = take(`reg:${userId}`);
   if (!pending) throw new Error('Passkey registration timed out. Start again.');
   const verification = await verifyRegistrationResponse({
-    response, expectedChallenge: pending.challenge, expectedOrigin: ctx.config.publicUrl, expectedRPID: ctx.config.rpId, requireUserVerification: true,
+    response, expectedChallenge: pending.challenge, expectedOrigin: passkeyOrigins(ctx), expectedRPID: ctx.config.rpId, requireUserVerification: true,
   });
   if (!verification.verified || !verification.registrationInfo) throw new Error('The passkey could not be verified.');
   const { credential, credentialDeviceType, credentialBackedUp } = verification.registrationInfo;
@@ -85,7 +88,7 @@ export async function completeAuthentication(ctx: AppContext, response: Authenti
   if (!row) throw new Error('That passkey is not registered here.');
   if (pending.userId && pending.userId !== row.user_id) throw new Error('That passkey belongs to a different account.');
   const verification = await verifyAuthenticationResponse({
-    response, expectedChallenge: pending.challenge, expectedOrigin: ctx.config.publicUrl, expectedRPID: ctx.config.rpId, requireUserVerification: true,
+    response, expectedChallenge: pending.challenge, expectedOrigin: passkeyOrigins(ctx), expectedRPID: ctx.config.rpId, requireUserVerification: true,
     credential: { id: row.id, publicKey: new Uint8Array(row.public_key), counter: row.counter, transports: JSON.parse(row.transports || '[]') },
   });
   if (!verification.verified) throw new Error('The passkey could not be verified.');

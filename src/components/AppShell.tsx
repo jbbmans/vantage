@@ -39,7 +39,6 @@ const TITLES: Array<[string, string, string]> = [
   ['/reports', 'Reports', 'JEPES and FITREP input from the facts'],
   ['/team', 'Team', 'Your team and the command above it'],
   ['/settings', 'Settings', 'Your preferences'],
-  ['/operator', 'Owner console', 'This deployment'],
   ['/help', 'Field guide', 'How Vantage works'],
   ['/support', 'Support', 'Ask a person'],
 ];

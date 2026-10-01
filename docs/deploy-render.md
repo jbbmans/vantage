@@ -38,9 +38,45 @@ should carry `cf-cache-status: HIT`.
 A service with a persistent disk cannot deploy with zero downtime; Render stops the old instance before
 starting the new one, so a deploy is a gap of a few seconds.
 
-## Custom domain
+## Custom domains: one address for each face
 
-`render.yaml` lists `vantageusmc.com` and `www.vantageusmc.com`. Render issues and renews the TLS certificate once DNS points at it; see [dns-namecheap.md](dns-namecheap.md), which also covers Cloudflare, email records and DNSSEC. Keep `VANTAGE_PUBLIC_URL` equal to the canonical origin. Passkeys are bound to that hostname, so changing it later invalidates every registered passkey.
+Vantage has three faces, and production gives each an address of its own:
+
+| Address | What it serves |
+| --- | --- |
+| `www.vantageusmc.com` | the public page, its sitemap and `robots.txt`; nothing behind sign-in |
+| `secure.vantageusmc.com` | sign-in and the app. Every link in an email points here |
+| `dev.vantageusmc.com` | the owner console, a separate app. Only owners can sign in, and administration answers here and nowhere else |
+
+The bare `vantageusmc.com` serves the public page too, and anything else that reaches it (a reset link emailed
+before the move, an old bookmark) is sent on to the address that now serves it, path and all. `/login` on www goes to
+secure; `/operator` anywhere goes to the console.
+
+A deployment that sets only `VANTAGE_PUBLIC_URL` keeps serving everything from that one address, with the console
+at `/console`. That is also what happens between merging this and finishing the steps below, so the order is safe.
+
+### Moving vantageusmc.com to three addresses
+
+1. **Cloudflare → DNS.** Add `CNAME secure` and `CNAME dev`, each pointing to the service's `*.onrender.com`
+   hostname, set to **DNS only** for now. Keep the `www` CNAME and the apex `A` record. See
+   [dns-namecheap.md](dns-namecheap.md).
+2. **Render → the service → Settings → Custom Domains.** Render redirects between the bare domain and `www` toward
+   whichever one was added first. Make `www` the primary: if `vantageusmc.com` is listed as the primary, delete
+   both, then add `www.vantageusmc.com` first (Render adds the bare domain back and redirects it to www). Add
+   `secure.vantageusmc.com` and `dev.vantageusmc.com`. Wait until each shows its certificate as issued, then set
+   the Cloudflare records to **Proxied**.
+3. **Render → Environment.** Set `VANTAGE_SITE_URL=https://www.vantageusmc.com`,
+   `VANTAGE_APP_URL=https://secure.vantageusmc.com`, `VANTAGE_CONSOLE_URL=https://dev.vantageusmc.com` and
+   `VANTAGE_RP_ID=vantageusmc.com` (all four are in `render.yaml`), and remove `VANTAGE_PUBLIC_URL`. Saving
+   redeploys.
+4. **Microsoft Entra**, only if mailboxes are connected: change the app registration's redirect URI to
+   `https://secure.vantageusmc.com/api/correspondence/connectors/callback`.
+5. **Search Console** needs nothing new if its property is the *Domain* property for `vantageusmc.com`, which covers
+   every subdomain. Submit `https://www.vantageusmc.com/sitemap.xml` again so it reads the new canonical address.
+
+Afterwards everyone signs in once more at `secure.vantageusmc.com`: a session belongs to the address it was made on.
+Passkeys keep working, because `VANTAGE_RP_ID` names the domain they were registered under, and it is shared by the
+app and the console. Owners sign in to the console separately; signing in to one never signs you in to the other.
 
 ## Optional services
 
