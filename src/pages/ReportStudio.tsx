@@ -91,7 +91,9 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
         <Field label="Period" hint={`${dayKey(range.start)} to ${dayKey(range.end)}`}>
           <Select value={period} onValueChange={setPeriod} options={[
             { value: 'fiscalQuarter', label: 'This fiscal quarter' },
+            { value: 'lastFiscalQuarter', label: 'Last fiscal quarter' },
             { value: 'fiscalYear', label: 'This fiscal year' },
+            { value: 'lastFiscalYear', label: 'Last fiscal year' },
             { value: 'last90', label: 'Last 90 days' },
             { value: 'year', label: 'This calendar year' },
           ]} />

@@ -42,7 +42,7 @@ export function fiscalQuarterRange(ref = new Date()): DateRange & { label: strin
 }
 
 
-export type PeriodKey = 'week' | 'month' | 'quarter' | 'fiscalQuarter' | 'fiscalYear' | 'year' | 'last30' | 'last90' | 'all';
+export type PeriodKey = 'week' | 'month' | 'quarter' | 'fiscalQuarter' | 'lastFiscalQuarter' | 'fiscalYear' | 'lastFiscalYear' | 'year' | 'last30' | 'last90' | 'all';
 
 export const PERIOD_OPTIONS: Array<{ value: PeriodKey; label: string; short: string }> = [
   { value: 'week', label: 'This week', short: 'WK' },
@@ -50,7 +50,9 @@ export const PERIOD_OPTIONS: Array<{ value: PeriodKey; label: string; short: str
   { value: 'last30', label: 'Last 30 days', short: '30D' },
   { value: 'last90', label: 'Last 90 days', short: '90D' },
   { value: 'fiscalQuarter', label: 'Fiscal quarter', short: 'FQ' },
+  { value: 'lastFiscalQuarter', label: 'Last fiscal quarter', short: 'LFQ' },
   { value: 'fiscalYear', label: 'Fiscal year', short: 'FY' },
+  { value: 'lastFiscalYear', label: 'Last fiscal year', short: 'LFY' },
   { value: 'year', label: 'Calendar year', short: 'CY' },
   { value: 'all', label: 'All time', short: 'ALL' },
 ];
@@ -77,6 +79,11 @@ export function rangeForPeriod(key: PeriodKey | string, ref = new Date()): DateR
       return fiscalQuarterRange(ref);
     case 'fiscalYear':
       return fiscalYearRange(ref);
+    // The period just closed, which is the one an evaluation is usually written for.
+    case 'lastFiscalQuarter':
+      return fiscalQuarterRange(subDays(fiscalQuarterRange(ref).start, 1));
+    case 'lastFiscalYear':
+      return fiscalYearRange(subDays(fiscalYearRange(ref).start, 1));
     case 'year':
       return { start: startOfYear(ref), end: endOfYear(ref), label: `CY${ref.getFullYear()}` };
     case 'all':

@@ -2,6 +2,7 @@ import type { AppContext, SessionUser } from '../context.ts';
 import { issueToken, revokeTokens } from '../auth/tokens.ts';
 import { layout } from './mailLayout.ts';
 import { audit } from './audit.ts';
+import { MIN_PASSWORD_LENGTH } from '../../shared/password.ts';
 
 /**
  * Sign-in details: each person's username and a one-time link to choose their own password. Passwords are stored
@@ -57,7 +58,7 @@ export function composeSignInMail(ctx: AppContext, account: Account, sender: Ses
     ],
     cta: { label: returning ? 'Choose a new password' : 'Choose your password', url },
     sections: returning ? [] : [{ heading: 'Signing in for the first time', lines: [
-      'Press the button and choose a password of at least 15 characters. A short phrase you will remember works well.',
+      `Press the button and choose a password of at least ${MIN_PASSWORD_LENGTH} characters. A short phrase you will remember works well.`,
       'You are signed in as soon as it is saved. After that, sign in on the sign-in page with your username and that password.',
       'Then add an authenticator app or a passkey under Settings, so a password alone is never enough.',
     ] }],

@@ -205,3 +205,14 @@ test('a team message too big for one send is refused whole, not quietly cut at t
   assert.equal(reached.n, 0, 'nobody got part of a message');
   app.ctx.db.prepare("DELETE FROM unit_members WHERE user_id LIKE 'bulk-%'").run();
 });
+
+test('Quick Log never dates work in the future or on a day that does not exist', async () => {
+  const { parseQuickLog } = await import('../../shared/quickLog.ts');
+  const now = new Date(2026, 9, 1, 12); // 1 October 2026
+  const day = (text: string) => { const d = parseQuickLog(text, now).date; return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
+  assert.equal(day('Closed 4 MIPRs 12/15'), '2025-12-15', 'a date without a year is the latest one already past, not one ten weeks away');
+  assert.equal(day('Briefed the CO on 20 Dec'), '2025-12-20');
+  assert.equal(day('Briefed the CO on 20 Sep'), '2026-9-20');
+  assert.equal(day('Closed 4 MIPRs 12/15/2026'), '2026-12-15', 'a year written out is kept');
+  assert.equal(day('Reconciled 13/45 items'), '2026-10-1', '13/45 used to roll over into a real date');
+});
