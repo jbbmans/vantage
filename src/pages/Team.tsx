@@ -166,12 +166,14 @@ function MessageDialog({ open, onOpenChange, unitId, unitLabel }: { open: boolea
       onOpenChange(false);
     } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }
   };
+  const tooMany = Boolean(audience && audience.members > audience.limit);
   const reach = !audience ? 'Counting…' : !audience.members ? 'Nobody else is on this roster yet.'
+    : tooMany ? `${audience.members} Marines are in ${unitLabel} and the teams beneath it; one message reaches at most ${audience.limit}. Send it to each team beneath instead.`
     : audience.emailEnabled ? `${audience.members} ${audience.members === 1 ? 'Marine' : 'Marines'}: ${audience.withEmail} by email and in Vantage${audience.appOnly ? `, ${audience.appOnly} in Vantage only (no email on file)` : ''}.`
       : `${audience.members} ${audience.members === 1 ? 'Marine' : 'Marines'}, in Vantage. Email is off on this deployment.`;
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title={`Email ${unitLabel}`} description={reach} size="md"
-      footer={<><span className="mr-auto text-2xs text-ink-3">{identity?.user.email ? `Replies go to ${identity.user.email}.` : 'Add an email to your profile so replies reach you.'}</span><Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button><Button variant="primary" onClick={send} loading={busy} disabled={!subject.trim() || !body.trim() || !audience?.members}><Send className="h-4 w-4" />Send</Button></>}>
+      footer={<><span className="mr-auto text-2xs text-ink-3">{identity?.user.email ? `Replies go to ${identity.user.email}.` : 'Add an email to your profile so replies reach you.'}</span><Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button><Button variant="primary" onClick={send} loading={busy} disabled={!subject.trim() || !body.trim() || !audience?.members || tooMany}><Send className="h-4 w-4" />Send</Button></>}>
       <div className="space-y-3">
         <Field label="Subject"><Input autoFocus value={subject} maxLength={120} onChange={(e) => setSubject(e.target.value)} placeholder="Q4 close-out: what is due Friday" /></Field>
         <Field label="Message" hint={`${body.length} / 5000`}><Textarea rows={8} value={body} maxLength={5000} onChange={(e) => setBody(e.target.value)} placeholder="Plain words. Each Marine gets their own copy; no one sees anyone else’s address." /></Field>

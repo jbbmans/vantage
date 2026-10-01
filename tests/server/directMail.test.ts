@@ -267,7 +267,7 @@ test('a leader emails the team: one copy each, replies to the leader, and everyo
     assert.equal(r.status, 201, JSON.stringify(r.body));
   }
   const audience = await app.call('GET', '/api/org/units/G8/message', { token: op.token });
-  assert.deepEqual(audience.body, { members: 2, withEmail: 1, appOnly: 1, emailEnabled: true });
+  assert.deepEqual(audience.body, { members: 2, withEmail: 1, appOnly: 1, emailEnabled: true, limit: 300 });
 
   const before = mx.received.length;
   const sent = await app.call('POST', '/api/org/units/G8/message', { token: op.token, body: { subject: 'Close-out Friday', body: 'Line one.\nLine two.' } });

@@ -189,3 +189,19 @@ test('a MARADMIN title is decoded once, whatever entities the feed uses', () => 
   const [r] = parseMaradminFeed(`<rss><channel>${item('FY27 R&amp;amp;D &amp;lt;DRAFT&amp;gt; &#x2014; Q&amp;A &#99999999;')}</channel></rss>`);
   assert.equal(r.title, 'FY27 R&amp;D &lt;DRAFT&gt; — Q&A &#99999999;', 'an escaped ampersand used to be decoded twice, and a bad code point failed the whole sync');
 });
+
+test('a team message too big for one send is refused whole, not quietly cut at the most junior Marines', async () => {
+  const at = new Date().toISOString();
+  const addUser = app.ctx.db.prepare("INSERT INTO users (id, username, password_hash, first_name, last_name, rank_id, created_at, updated_at) VALUES (?, ?, 'x', 'Pat', ?, 'Pvt', ?, ?)");
+  const addMember = app.ctx.db.prepare('INSERT INTO unit_members (user_id, unit_id, is_primary, joined_at) VALUES (?, ?, 1, ?)');
+  app.ctx.db.transaction(() => { for (let i = 0; i < 305; i++) { addUser.run(`bulk-${i}`, `bulk${i}`, `Bulk${i}`, at, at); addMember.run(`bulk-${i}`, 'G8', at); } })();
+
+  const audience = await app.call('GET', '/api/org/units/G8/message', { token: op.token });
+  assert.ok(audience.body.members > audience.body.limit, `the dialog used to count ${audience.body.members} when the send would stop at 300`);
+  const sent = await app.call('POST', '/api/org/units/G8/message', { token: op.token, body: { subject: 'All hands', body: 'Formation at 0700.' } });
+  assert.equal(sent.status, 400);
+  assert.equal(sent.body.code, 'too_many_recipients');
+  const reached = app.ctx.db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE title LIKE '%All hands%'").get() as { n: number };
+  assert.equal(reached.n, 0, 'nobody got part of a message');
+  app.ctx.db.prepare("DELETE FROM unit_members WHERE user_id LIKE 'bulk-%'").run();
+});
