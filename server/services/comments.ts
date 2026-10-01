@@ -9,7 +9,8 @@ import { notify } from './notifications.ts';
 import { getRecord, isRecordTable } from './records.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
 
-export const COMMENTABLE = new Set<string>(['activities', 'awards', 'counselings', 'trainings', 'tasks', 'projects', 'goals']);
+/** The records that show a comment thread. A training is a line in a log, with no page to hold one. */
+export const COMMENTABLE = new Set<string>(['activities', 'awards', 'counselings', 'tasks', 'projects', 'goals']);
 
 const MAX_BODY = 4000;
 
@@ -111,9 +112,8 @@ function notifyMentions(
 
 function recordUrl(table: string, id: string) {
   if (table === 'activities') return `/records/${id}`;
-  if (table === 'awards') return `/career?tab=awards#${id}`;
-  if (table === 'counselings') return `/career?tab=counseling#${id}`;
-  if (table === 'trainings') return `/career#${id}`;
+  if (table === 'awards') return `/career?tab=awards&open=${id}`;
+  if (table === 'counselings') return `/career?tab=counseling&open=${id}`;
   return `/records/${table}/${id}`;
 }
 

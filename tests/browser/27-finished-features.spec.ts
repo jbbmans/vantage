@@ -153,3 +153,16 @@ test('the owner checks every case history from the console, and can anchor them 
   await page.getByRole('button', { name: 'Anchor now' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'written into the audit chain' })).toBeVisible();
 });
+
+test('an award opens by link, with its discussion, and takes a remark', async ({ page }) => {
+  const name = unique('NAM ');
+  const made = await page.request.post('/api/records/awards', { headers: H, data: { name, date: '2026-09-01', visibility: 'unit', unit_id: 'G8' } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const award = await made.json();
+  await page.goto(`/career?tab=awards&open=${award.id}`);
+  const dialog = page.getByRole('dialog', { name });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel('Write a remark').fill('Citation went up to the CO today.');
+  await dialog.getByRole('button', { name: 'Post' }).click();
+  await expect(dialog.getByText('Citation went up to the CO today.')).toBeVisible();
+});
