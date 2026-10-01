@@ -168,3 +168,17 @@ test('the instance archive carries every table, unless one is left out on purpos
   assert.deepEqual(tables.filter((t) => !accounted.has(t)), [], 'moving an instance used to drop comments, legal holds, retention schedules and case seals');
   assert.deepEqual([...accounted].filter((t) => !tables.includes(t)), [], 'the archive names a table that does not exist');
 });
+
+test('a thread keeps its newest message date when an older one is filed late, and follow-ups fall due by the local day', async () => {
+  const thread = await app.call('POST', '/api/correspondence/threads', { token: op.token, body: { subject: 'TDY claim 4410', visibility: 'private', follow_up_at: zonedDay(app.ctx.config.timezone, 1) } });
+  assert.equal(thread.status, 201, JSON.stringify(thread.body));
+  const add = (sent_at: string) => app.call('POST', `/api/correspondence/threads/${thread.body.id}/messages`, { token: op.token, body: { direction: 'inbound', body_text: 'Received.', sent_at } });
+  assert.equal((await add('2026-09-20T15:00:00.000Z')).status, 201);
+  assert.equal((await add('2026-09-02T15:00:00.000Z')).status, 201);
+  const detail = await app.call('GET', `/api/correspondence/threads/${thread.body.id}`, { token: op.token });
+  assert.equal(detail.body.thread.last_message_at, '2026-09-20T15:00:00.000Z');
+
+  const due = await app.call('GET', '/api/correspondence/threads?due=1', { token: op.token });
+  assert.equal(due.body.some((t: { id: string }) => t.id === thread.body.id), false, 'tomorrow’s follow-up is not due today');
+  assert.equal((await app.call('POST', '/api/correspondence/threads', { token: op.token, body: { subject: 'x', visibility: 'private', follow_up_at: 'next week' } })).status, 400);
+});

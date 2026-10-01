@@ -1,14 +1,14 @@
-import { Router } from 'express';
-import express from 'express';
+import express, { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest } from '../lib/errors.ts';
+import { isoDate } from '../../shared/schemas.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor } from '../authz/scope.ts';
 import { audit } from '../services/audit.ts';
 import {
   listContacts, saveContact, listThreads, createThread, threadDetail, setThreadState,
-  addMessage, importEml, linkThreadMany, unlinkThread, threadsForItem, THREAD_STATES,
+  addMessage, importEml, linkThreadMany, unlinkThread, threadsForItem, assertPlacement, THREAD_STATES,
 } from '../services/correspondence.ts';
 import {
   listConnectors, createConnector, ownedConnector, deleteConnector, authorizationPlan,
@@ -83,7 +83,7 @@ const threadSchema = z.object({
   unit_id: z.string().max(64).nullable().optional(),
   visibility: z.enum(['private', 'unit']).optional(),
   contact_id: z.string().max(64).nullable().optional(),
-  follow_up_at: z.string().max(10).nullable().optional(),
+  follow_up_at: isoDate.nullable().optional(),
 });
 
 correspondenceRouter.post('/threads', wrap((req, res) => {
@@ -100,7 +100,7 @@ correspondenceRouter.get('/threads/:id', wrap((req, res) => {
 const stateSchema = z.object({
   state: z.enum(THREAD_STATES),
   at: z.string().max(30).nullable().optional(),
-  follow_up_at: z.string().max(10).nullable().optional(),
+  follow_up_at: isoDate.nullable().optional(),
   version: z.coerce.number().int().optional(),
 });
 
@@ -224,11 +224,15 @@ correspondenceRouter.post('/connectors/:id/sync', wrap(async (req, res) => {
     });
     return;
   }
+  const visibility = req.body?.visibility === 'unit' ? 'unit' : 'private';
+  const unitId = typeof req.body?.unit_id === 'string' && req.body.unit_id ? req.body.unit_id : null;
+  // Synced threads land where any other thread would, so they are held to the same rule: only a unit you are in.
+  assertPlacement(scopeFor(req.ctx, req.user, req), unitId, visibility);
   const token = await accessTokenFor(req.ctx, connector);
   try {
     const result = await syncMailbox(req.ctx, req.user, connector.id, graphFetcher(connector, token, 20_000, graphHostFor(req.ctx, connector)), {
-      unitId: req.body?.unit_id || null,
-      visibility: req.body?.visibility === 'unit' ? 'unit' : 'private',
+      unitId,
+      visibility,
       graphHost: graphHostFor(req.ctx, connector),
     });
     audit(req.ctx, { actor_id: req.user.id, action: 'sync_mailbox', entity: 'connectors', entity_id: connector.id, detail: `${result.stored} stored, ${result.skipped} already held`, ip: clientIp(req) });
