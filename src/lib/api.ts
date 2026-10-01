@@ -73,6 +73,8 @@ export const setupStatus = () => api.get('/auth/setup');
 export const runSetup = (payload: unknown) => api.post('/auth/setup', payload).then((r) => { markSignedIn(); return r; });
 export const register = (payload: unknown) => api.post('/auth/register', payload).then((r) => { markSignedIn(); return r; });
 export const login = (username: string, password: string) => api.post('/auth/login', { username, password }).then((r) => { if (r.ok) markSignedIn(); return r; });
+/** The browser presents the card's certificate during the TLS handshake; there is nothing to send but the request. */
+export const cacLogin = () => api.post('/auth/cac').then((r) => { markSignedIn(); return r; });
 export const loginMfa = (challenge: string, code: string) => api.post('/auth/login/mfa', { challenge, code }).then((r) => { markSignedIn(); return r; });
 export const passkeyOptions = (username?: string) => api.post('/auth/passkey/options', { username });
 export const passkeyVerify = (key: string, response: unknown) => api.post('/auth/passkey/verify', { key, response }).then((r) => { markSignedIn(); return r; });
@@ -236,6 +238,8 @@ export const adminAi = () => api.get('/admin/ai');
 export const adminAiDiscover = () => api.post('/admin/ai/discover');
 export const adminAiUnlock = () => api.post('/admin/ai/unlock');
 export const adminSyncMaradmins = () => api.post('/admin/maradmins/sync');
+export const adminIntegrity = () => api.get('/admin/integrity');
+export const adminAnchorCases = () => api.post('/admin/integrity/anchor');
 export const adminEmailTest = (to?: string) => api.post('/admin/email/test', { to });
 export const adminEmail = () => api.get('/admin/email');
 export const adminEmailCheck = () => api.post('/admin/email/check', {});

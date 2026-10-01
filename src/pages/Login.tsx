@@ -5,6 +5,7 @@ import { startAuthentication } from '@simplewebauthn/browser';
 import {
   ArrowLeft,
   ArrowRight,
+  CreditCard,
   Eye,
   EyeOff,
   Fingerprint,
@@ -33,6 +34,7 @@ interface Status {
   needsSetup: boolean;
   requiresSetupToken: boolean;
   selfRegistration: boolean;
+  cac?: { enabled: boolean; exclusive: boolean };
   emailEnabled: boolean;
   displayName: string;
   announcement: string;
@@ -186,6 +188,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
     await api.acceptInvite({ token: params.get('token') || '', username: form.username, password: form.password, first_name: form.first_name, last_name: form.last_name, rank_id: form.rank_id || null, mos: form.mos || null, email: form.email || undefined });
     finish();
   });
+  const cac = () => run(async () => { await api.cacLogin(); finish(); });
   const passkey = () => run(async () => {
     const { options, key } = await api.passkeyOptions(form.username || undefined);
     let response;
@@ -302,7 +305,14 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
             )}
             {error && <div role="alert" className="auth-notice error compact">{error}</div>}
 
-            {mode === 'login' && (
+            {mode === 'login' && status?.cac?.exclusive && (
+              <div className="auth-form">
+                <Button type="button" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={offline} onClick={cac}><CreditCard className="h-4 w-4" /> Sign in with your CAC</Button>
+                <p className="text-sm text-ink-3">Put your card in the reader first. Your browser asks which certificate to use and for your PIN. <button type="button" className="link" onClick={() => setMode('help')}>Need help?</button></p>
+              </div>
+            )}
+
+            {mode === 'login' && !status?.cac?.exclusive && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitLogin(); }}>
                 <Field label="Username" error={fieldErrors.username}>
                   <div className="auth-input-wrap" role="group" aria-label="Username controls"><UserRound /><Input aria-label="Username" autoFocus required autoComplete="username webauthn" spellCheck={false} autoCapitalize="none" value={form.username} onChange={set('username')} /></div>
@@ -322,6 +332,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
                 <Button type="button" variant="outline" size="lg" className="auth-passkey" onClick={passkey} disabled={busy || offline}>
                   <Fingerprint className="h-4 w-4" /> Sign in with a passkey
                 </Button>
+                {status?.cac?.enabled && <Button type="button" variant="outline" size="lg" className="auth-passkey" onClick={cac} disabled={busy || offline}><CreditCard className="h-4 w-4" /> Sign in with your CAC</Button>}
               </form>
             )}
 

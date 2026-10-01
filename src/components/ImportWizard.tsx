@@ -71,6 +71,14 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
     return row.map((h: string, i: number) => (h || '').trim() || `Column ${i + 1}`);
   }, [sheet, headerRow]);
 
+  // The demo's own synthetic sheet, so a leader can watch a tasker arrive without a real file to hand.
+  const takeSample = async () => {
+    try {
+      const res = await fetch('/api/demo/sample.csv', { credentials: 'same-origin' });
+      if (!res.ok) throw new Error('The sample sheet could not be fetched.');
+      await pick(new File([await res.blob()], 'FY26-Q4-UMT-batch-2 (synthetic).csv', { type: 'text/csv' }));
+    } catch (e) { toast.error(api.errorText(e)); }
+  };
   const pick = async (file: File) => {
     setBusy(true);
     try {
@@ -196,6 +204,11 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
             accept=".xlsx,.xlsm,.csv,.tsv,.txt"
             onChange={(e) => { const f = e.target.files?.[0]; if (f) void pick(f); e.target.value = ''; }}
           />
+          {identity?.demo && (
+            <p className="text-sm text-ink-2">
+              No spreadsheet to hand? <button type="button" className="link" disabled={busy} onClick={takeSample}>Use the synthetic sample sheet</button>: ten unmatched transactions, the way a tasker arrives.
+            </p>
+          )}
           <p className="text-xs text-ink-3">
             Macros are never run. Formulas are read as the value the spreadsheet saved, never recalculated. Links to other files are not followed.
           </p>

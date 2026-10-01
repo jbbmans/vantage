@@ -19,7 +19,6 @@ import { newId, now } from '../lib/ids.ts';
 import { layout } from '../services/mailLayout.ts';
 import { checkRecords, dnsHostOf, domainOf, heloName, lastPath, probePath, requiredRecords } from '../services/directMail.ts';
 import type { AppContext } from '../context.ts';
-import { runDigestTick } from '../services/digest.ts';
 import { RECORD_TABLE_NAMES } from '../services/records.ts';
 import { usageReport, MIN_COHORT } from '../services/usage.ts';
 import { EVENTS } from '../services/telemetry.ts';
@@ -166,7 +165,6 @@ adminRouter.post('/email/test', wrap(async (req, res) => {
   res.json({ ok: true, queued: Boolean(result.queued) });
 }));
 
-adminRouter.post('/digest/run', wrap(async (req, res) => res.json(await runDigestTick(req.ctx))));
 
 adminRouter.get('/users', wrap((req, res) => {
   const rows = req.ctx.db.prepare(`SELECT u.id, u.username, u.email, u.edipi, u.first_name, u.last_name, u.is_operator, u.active, u.totp_enabled, u.must_change_password, u.last_login_at, u.created_at, r.abbr AS rank_abbr,

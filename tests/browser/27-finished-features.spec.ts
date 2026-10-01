@@ -139,3 +139,17 @@ test('a leader makes a join code and a Marine joins the unit with it from Settin
   await page.reload();
   await expect(page.getByRole('row').filter({ hasText: note })).toContainText('1');
 });
+
+test('the owner checks every case history from the console, and can anchor them on demand', async ({ page }) => {
+  const made = await page.request.post('/api/work/items', { headers: H, data: { unit_id: 'G8', title: `Sealed history ${unique('')}` } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  await page.goto('/operator');
+  await confirmSudoIfAsked(page);
+  await page.getByRole('button', { name: 'Check them' }).click();
+  await confirmSudoIfAsked(page);
+  const panel = page.locator('section').filter({ hasText: 'Case histories' });
+  await expect(panel.getByText('Intact').last()).toBeVisible();
+  await expect(panel).toContainText('checked');
+  await page.getByRole('button', { name: 'Anchor now' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'written into the audit chain' })).toBeVisible();
+});

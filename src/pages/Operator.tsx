@@ -65,10 +65,27 @@ function Overview() {
         <Panel title="Audit chain" subtitle="Tamper-evident log">
           <p className="text-sm"><Badge tone={data.audit.ok ? 'good' : 'bad'}>{data.audit.ok ? 'Intact' : 'Broken'}</Badge> <span className="fig text-ink-2">{data.audit.count} entries</span></p>
           {!data.audit.ok && <p className="mt-2 text-xs text-bad">{data.audit.reason}. Restore from a backup taken before that point and investigate.</p>}
+          <CaseHistories />
           <p className="mt-3 text-sm text-ink-2">MARADMIN feed: {data.maradmins.enabled ? `${data.maradmins.count} cached · last sync ${data.maradmins.lastSuccess ? timeAgo(data.maradmins.lastSuccess) : 'never'}` : 'off'}{data.maradmins.lastError ? <span className="block text-xs text-warn">{data.maradmins.lastError}</span> : null}</p>
           {data.maradmins.enabled && <Button size="sm" className="mt-2" onClick={async () => { try { const r = await withSudo(() => api.adminSyncMaradmins()); toast.success(`Synced: ${r.inserted ?? 0} new, ${r.updated ?? 0} updated.`); refetch(); } catch (e) { toast.error(api.errorText(e)); } }}><RefreshCw className="h-3.5 w-3.5" />Sync now</Button>}
         </Panel>
       </div>
+    </div>
+  );
+}
+
+/** Every case's history is sealed entry by entry, and the heads are written into the audit chain each day. */
+function CaseHistories() {
+  const toast = useToast();
+  const [result, setResult] = useState<any>(null); const [busy, setBusy] = useState(false);
+  const check = async () => { setBusy(true); try { setResult((await withSudo(() => api.adminIntegrity())).cases); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
+  const anchor = async () => { try { const r = await withSudo(() => api.adminAnchorCases()); toast.success(`${r.cases} case ${r.cases === 1 ? 'history' : 'histories'} written into the audit chain.`); } catch (e) { toast.error(api.errorText(e)); } };
+  return (
+    <div className="mt-3 border-t border-line pt-3">
+      <p className="text-sm text-ink-2">Case histories</p>
+      {result && <p className="mt-1 text-sm"><Badge tone={result.ok ? 'good' : 'bad'}>{result.ok ? 'Intact' : 'Broken'}</Badge> <span className="fig text-ink-2">{result.checked} checked{result.unsealed ? ` · ${result.unsealed} from before sealing` : ''}</span></p>}
+      {result && !result.ok && <ul className="mt-1 space-y-0.5 text-xs text-bad">{result.broken.map((b: { work_item_id: string; reason?: string }) => <li key={b.work_item_id}><a className="link" href={`/work/items/${b.work_item_id}`}>Case {b.work_item_id.slice(0, 8)}</a>: {b.reason}</li>)}</ul>}
+      <div className="mt-2 flex flex-wrap gap-2"><Button size="sm" onClick={check} loading={busy}><ShieldCheck className="h-3.5 w-3.5" />Check them</Button><Button size="sm" variant="ghost" onClick={anchor}>Anchor now</Button></div>
     </div>
   );
 }
