@@ -177,13 +177,13 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     else if (data.quantity != null && !data.unit_label) record(ctx, 'quality.record_missing_measure', { missing: 'unit' }, { id: user.id });
   }
   if (table === 'awards' && onBehalf) {
-    notify(ctx, ownerId, { kind: 'award', title: 'Award recommendation started', message: `${user.first_name} ${user.last_name} recommended you for ${String(data.name || 'an award')}.`, actionUrl: '/career?tab=awards', dedupeKey: `award:${id}` });
+    notify(ctx, ownerId, { kind: 'award', title: 'Award recommendation started', message: `${user.first_name} ${user.last_name} recommended you for ${String(data.name || 'an award')}.`, actionUrl: `/career?tab=awards&open=${id}`, dedupeKey: `award:${id}` });
   }
   if (table === 'counselings' && counselorId) {
     notify(ctx, ownerId, { kind: 'counseling', title: 'New counseling recorded', message: `${user.first_name} ${user.last_name} recorded a ${String(data.type || 'counseling').replace('_', ' ')} counseling.`, actionUrl: `/career?tab=counseling&open=${id}`, dedupeKey: `counseling:${id}` });
   }
   if (spec.assignee && data.assignee_id && data.assignee_id !== user.id) {
-    notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || ''), actionUrl: table === 'tasks' ? '/work' : '/goals', dedupeKey: `${table}:${id}:assigned` });
+    notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || ''), actionUrl: `/records/${table}/${id}`, dedupeKey: `${table}:${id}:assigned` });
   }
   return readBack(ctx, table, id);
 }
@@ -244,7 +244,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   }
   audit(ctx, { actor_id: user.id, action: 'edit', entity: table, entity_id: id, subject_id: row.user_id !== user.id ? row.user_id : null, unit_id: finalUnit, detail: row.user_id === user.id ? 'author edit' : 'manager edit', ip });
   if (spec.assignee && data.assignee_id && data.assignee_id !== row.assignee_id && data.assignee_id !== user.id) {
-    notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || row.title || ''), actionUrl: table === 'tasks' ? '/work' : '/goals', dedupeKey: `${table}:${id}:assigned:${data.assignee_id}` });
+    notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || row.title || ''), actionUrl: `/records/${table}/${id}`, dedupeKey: `${table}:${id}:assigned:${data.assignee_id}` });
   }
   return readBack(ctx, table, id);
 }
