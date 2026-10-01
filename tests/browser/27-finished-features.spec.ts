@@ -1,0 +1,168 @@
+import { test, expect, type Browser, type Page } from '@playwright/test';
+import { ensureSetup, loginAs, confirmSudoIfAsked, unique, OPERATOR, PASSWORD } from './fixtures';
+
+const H = { 'x-vantage-client': '1' };
+
+/** A Marine registered on their own, then enrolled in G8 by the owner signed in on `page`. */
+async function enrolledMarine(page: Page, browser: Browser, last: string) {
+  const username = unique(last.toLowerCase());
+  const other = await browser.newContext();
+  const res = await other.request.post('/api/auth/register', { headers: H, data: { username, password: PASSWORD, first_name: 'Sam', last_name: last, rank_id: 'LCpl' } });
+  expect(res.ok(), await res.text()).toBeTruthy();
+  const me = await (await other.request.get('/api/me')).json();
+  await other.close();
+  const enrolled = await page.request.post('/api/org/units/G8/members', { headers: H, data: { user_id: me.user.id } });
+  expect(enrolled.ok(), await enrolled.text()).toBeTruthy();
+  return { id: me.user.id as string, username };
+}
+
+test.beforeEach(async ({ page, request }) => {
+  await ensureSetup(request);
+  await loginAs(page, OPERATOR.username);
+});
+
+test('a leader corrects a billet and removes a Marine from the unit, told what follows first', async ({ page, browser }) => {
+  const last = `Okafor${unique('')}`;
+  await enrolledMarine(page, browser, last);
+  await page.goto('/team?tab=roster&unit=G8');
+  const row = page.getByRole('row').filter({ hasText: last });
+  await expect(row).toBeVisible();
+
+  await row.getByRole('button', { name: `Change ${last}’s billet` }).click();
+  const billet = page.getByRole('dialog', { name: /billet/ });
+  await billet.getByLabel('Billet').fill('Disbursing Clerk');
+  await billet.getByRole('button', { name: 'Save' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Billet saved' })).toBeVisible();
+  await expect(row).toContainText('Disbursing Clerk');
+
+  await row.getByRole('button', { name: `Remove ${last} from G8` }).click();
+  const confirm = page.getByRole('alertdialog').or(page.getByRole('dialog')).filter({ hasText: 'signed out everywhere' });
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole('button', { name: 'Remove' }).click();
+  await expect(page.getByRole('status').filter({ hasText: `left G8` })).toBeVisible();
+  await expect(page.getByRole('row').filter({ hasText: last })).toHaveCount(0);
+});
+
+test('a leader assigns work nobody holds, with a note, from the item itself', async ({ page, browser }) => {
+  const last = `Delgado${unique('')}`;
+  const marine = await enrolledMarine(page, browser, last);
+  const made = await page.request.post('/api/work/items', { headers: H, data: { unit_id: 'G8', title: `Chase the endorsement ${unique('')}` } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const item = await made.json();
+
+  await page.goto(`/work/items/${item.id}`);
+  await page.getByRole('button', { name: 'Assign' }).click();
+  const dialog = page.getByRole('dialog', { name: 'Assign this' });
+  await dialog.getByRole('combobox').click();
+  await page.getByRole('option', { name: new RegExp(last) }).click();
+  await dialog.getByLabel(/What they need to know/).fill('Start with the September report.');
+  await dialog.getByRole('button', { name: 'Assign' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Assigned.' })).toBeVisible();
+  const detail = await (await page.request.get(`/api/work/items/${item.id}`)).json();
+  expect(detail.item.claimed_by).toBe(marine.id);
+  await expect(page.getByRole('button', { name: 'Hand off' })).toBeVisible();
+});
+
+test('a saved queue view can be deleted, and applying one fills in its search', async ({ page }) => {
+  const name = unique('Endorsements ');
+  await page.goto('/work?tab=queue');
+  await page.getByLabel('Search the queue').fill('endorsement');
+  await page.getByRole('button', { name: 'Save this view' }).click();
+  const save = page.getByRole('dialog', { name: 'Save this view' });
+  await save.getByLabel('Name').fill(name);
+  await save.getByRole('button', { name: 'Save view' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'View saved.' })).toBeVisible();
+
+  await page.getByLabel('Search the queue').fill('');
+  await page.getByRole('combobox', { name: 'Saved views' }).click();
+  await page.getByRole('option', { name }).click();
+  await expect(page.getByLabel('Search the queue')).toHaveValue('endorsement');
+
+  await page.getByRole('button', { name: `Delete the saved view “${name}”` }).click();
+  await page.getByRole('alertdialog').or(page.getByRole('dialog')).filter({ hasText: 'The work in it is not touched' }).getByRole('button', { name: 'Delete' }).click();
+  await expect(page.getByRole('status').filter({ hasText: `Deleted the view “${name}”` })).toBeVisible();
+});
+
+test('a contact can be corrected after it is saved', async ({ page }) => {
+  const name = unique('Maj Reyes ');
+  const made = await page.request.post('/api/correspondence/contacts', { headers: H, data: { name, email: 'reyes@example.mil', organization: 'DFAS', visibility: 'unit', unit_id: 'G8' } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  await page.goto('/work?tab=mail&mail=contacts');
+  await page.getByRole('button', { name: `Edit ${name}` }).click();
+  const dialog = page.getByRole('dialog', { name: 'Edit contact' });
+  await expect(dialog.getByLabel('Name')).toHaveValue(name);
+  await dialog.getByLabel('Organization').fill('DFAS Indianapolis');
+  await dialog.getByRole('button', { name: 'Save contact' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'Contact saved.' })).toBeVisible();
+  await expect(page.getByText('DFAS Indianapolis')).toBeVisible();
+});
+
+test('the owner links an account to its EDIPI so it can sign in with a CAC', async ({ page, browser }) => {
+  const last = `Nguyen${unique('')}`;
+  const marine = await enrolledMarine(page, browser, last);
+  await page.goto('/operator?tab=users');
+  await page.getByLabel('Search accounts').fill(marine.username);
+  await page.getByRole('button', { name: `EDIPI for ${marine.username}` }).click();
+  const dialog = page.getByRole('dialog', { name: `EDIPI for ${marine.username}` });
+  await dialog.getByLabel('EDIPI').fill(`12${Date.now().toString().slice(-8)}`);
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await confirmSudoIfAsked(page);
+  await expect(page.getByRole('status').filter({ hasText: `EDIPI linked to ${marine.username}` })).toBeVisible();
+  await expect(page.getByRole('row').filter({ hasText: marine.username })).toContainText('CAC linked');
+});
+
+test('a leader makes a join code and a Marine joins the unit with it from Settings', async ({ page, browser }) => {
+  await page.goto('/team?tab=invites&unit=G8');
+  const note = unique('Formation ');
+  await page.getByPlaceholder('Second squad, 1 October formation').fill(note);
+  await page.getByRole('button', { name: 'Create join code' }).click();
+  const shown = page.locator('[data-join-code]');
+  await expect(shown).toBeVisible();
+  const code = (await shown.textContent())!.trim();
+  await expect(page.getByRole('row').filter({ hasText: note })).toContainText(code.slice(0, 5));
+
+  const marine = await browser.newContext();
+  const username = unique('joiner');
+  const res = await marine.request.post('/api/auth/register', { headers: H, data: { username, password: PASSWORD, first_name: 'Ana', last_name: 'Joiner', rank_id: 'Cpl' } });
+  expect(res.ok(), await res.text()).toBeTruthy();
+  const own = await marine.newPage();
+  await own.goto('/settings');
+  await own.getByLabel('Join code').fill(code.replace('-', ' ').toLowerCase());
+  await own.getByRole('button', { name: 'Continue' }).click();
+  const confirm = own.getByRole('dialog').filter({ hasText: note });
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole('button', { name: 'Join' }).click();
+  await expect(own.getByRole('status').filter({ hasText: 'You joined' })).toBeVisible();
+  await expect(own.getByRole('listitem').filter({ hasText: 'G8' }).first()).toBeVisible();
+  await marine.close();
+
+  await page.reload();
+  await expect(page.getByRole('row').filter({ hasText: note })).toContainText('1');
+});
+
+test('the owner checks every case history from the console, and can anchor them on demand', async ({ page }) => {
+  const made = await page.request.post('/api/work/items', { headers: H, data: { unit_id: 'G8', title: `Sealed history ${unique('')}` } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  await page.goto('/operator');
+  await confirmSudoIfAsked(page);
+  await page.getByRole('button', { name: 'Check them' }).click();
+  await confirmSudoIfAsked(page);
+  const panel = page.locator('section').filter({ hasText: 'Case histories' });
+  await expect(panel.getByText('Intact').last()).toBeVisible();
+  await expect(panel).toContainText('checked');
+  await page.getByRole('button', { name: 'Anchor now' }).click();
+  await expect(page.getByRole('status').filter({ hasText: 'written into the audit chain' })).toBeVisible();
+});
+
+test('an award opens by link, with its discussion, and takes a remark', async ({ page }) => {
+  const name = unique('NAM ');
+  const made = await page.request.post('/api/records/awards', { headers: H, data: { name, date: '2026-09-01', visibility: 'unit', unit_id: 'G8' } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const award = await made.json();
+  await page.goto(`/career?tab=awards&open=${award.id}`);
+  const dialog = page.getByRole('dialog', { name });
+  await expect(dialog).toBeVisible();
+  await dialog.getByLabel('Write a remark').fill('Citation went up to the CO today.');
+  await dialog.getByRole('button', { name: 'Post' }).click();
+  await expect(dialog.getByText('Citation went up to the CO today.')).toBeVisible();
+});

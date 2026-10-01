@@ -23,6 +23,9 @@ test('a report is written against chosen records and saved as a revision', async
   await page.getByRole('button', { name: 'New report' }).click();
   const start = page.getByRole('dialog', { name: 'Start a report' });
   await start.getByLabel('Title').fill('Studio walkthrough');
+  // A record from three days ago is in the last 90 days whatever the date; this quarter can have begun since.
+  await start.getByRole('combobox').click();
+  await page.getByRole('option', { name: 'Last 90 days' }).click();
   await start.getByRole('button', { name: 'Start' }).click();
 
   await expect(page.getByText('Not saved yet. Pick the records this report is built from, then save a revision.')).toBeVisible();

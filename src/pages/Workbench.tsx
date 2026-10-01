@@ -3,10 +3,10 @@ import { useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDown, ArrowUp, Bookmark, ClipboardCopy, Filter, Hand, Inbox, Mail,
-  RefreshCw, Search, Upload, X,
+  RefreshCw, Search, Trash2, Upload, X,
 } from 'lucide-react';
 import { Button, Input, Select, Badge, EmptyState, Skeleton, Field } from '@/components/ui/primitives';
-import { Dialog } from '@/components/ui/Dialog';
+import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { DateText, PageShell } from '@/components/common';
 import { StageBadge } from '@/components/work';
@@ -70,6 +70,8 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const [importing, setImporting] = useState(false);
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [viewName, setViewName] = useState('');
+  const [activeViewId, setActiveViewId] = useState<string | null>(null);
+  const [deletingView, setDeletingView] = useState(false);
   const [showFilters, setShowFilters] = useState(false);
   const scroller = useRef<HTMLDivElement>(null);
   const [scrollTop, setScrollTop] = useState(0);
@@ -177,14 +179,37 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const visibleCount = Math.ceil(viewportHeight / ROW_HEIGHT) + WINDOW_OVERSCAN * 2;
   const windowed = rows.slice(first, first + visibleCount);
 
-  const applyView = (config: Record<string, unknown>) => setQuery({ ...DEFAULT_QUERY, ...config } as Query);
+  const applyView = (config: Record<string, unknown>) => {
+    const next = { ...DEFAULT_QUERY, ...config } as Query;
+    setQuery(next);
+    setSearch(next.q);
+  };
+  // A view stays selected only while the queue still shows it; once anything changes, picking it again reapplies it.
+  const showing = (config: Record<string, unknown>) => {
+    const v = { ...DEFAULT_QUERY, ...config } as Query;
+    return v.q === search.trim() && (['state', 'active', 'claimed', 'sort', 'direction', 'unit_id', 'procedure'] as const).every((k) => v[k] === query[k]);
+  };
+  const activeView = views.data?.find((v: any) => v.id === activeViewId && showing(v.config)) ?? null;
+  const deleteActiveView = async () => {
+    if (!activeView) return;
+    try {
+      await api.deleteWorkView(activeView.id);
+      toast.success(`Deleted the view “${activeView.name}”.`);
+      setActiveViewId(null);
+      qc.invalidateQueries({ queryKey: ['work-views'] });
+    } catch (e) { toast.error(api.errorText(e)); }
+    finally { setDeletingView(false); }
+  };
 
   const saveCurrentView = async () => {
     try {
-      await api.saveWorkView({ name: viewName, config: { state: query.state, claimed: query.claimed, q: query.q, sort: query.sort, direction: query.direction, unit_id: query.unit_id, procedure: query.procedure } });
-      track('work.view_saved', { filters: [query.state, query.claimed, query.q, query.unit_id, query.procedure].filter(Boolean).length });
+      // The search box reaches the query a beat after typing stops; the view keeps what the box says now.
+      const q = search.trim();
+      const saved = await api.saveWorkView({ name: viewName, config: { state: query.state, active: query.active, claimed: query.claimed, q, sort: query.sort, direction: query.direction, unit_id: query.unit_id, procedure: query.procedure } });
+      track('work.view_saved', { filters: [query.state, query.claimed, q, query.unit_id, query.procedure].filter(Boolean).length });
       toast.success('View saved.');
       setSaveViewOpen(false); setViewName('');
+      setActiveViewId(saved?.id ?? null);
       qc.invalidateQueries({ queryKey: ['work-views'] });
     } catch (e) { toast.error(api.errorText(e)); }
   };
@@ -223,10 +248,13 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
         <Button variant={showFilters ? 'primary' : 'default'} onClick={() => setShowFilters((v) => !v)} aria-expanded={showFilters}><Filter className="h-4 w-4" />Filter</Button>
         {views.data && views.data.length > 0 && (
           <Select
-            aria-label="Saved views" className="w-44" value=""
-            onValueChange={(id) => { const v = views.data.find((x: any) => x.id === id); if (v) applyView(v.config); }}
-            options={[{ value: '', label: 'Saved views' }, ...views.data.map((v: any) => ({ value: v.id, label: v.shared ? `${v.name} (shared)` : v.name }))]}
+            aria-label="Saved views" className="w-44" value={activeView?.id ?? ''} placeholder="Saved views"
+            onValueChange={(id) => { const v = views.data.find((x: any) => x.id === id); if (v) { applyView(v.config); setActiveViewId(v.id); } }}
+            options={views.data.map((v: any) => ({ value: v.id, label: v.shared ? `${v.name} (shared)` : v.name }))}
           />
+        )}
+        {activeView && activeView.user_id === identity?.user.id && (
+          <Button variant="ghost" size="sm" aria-label={`Delete the saved view “${activeView.name}”`} onClick={() => setDeletingView(true)}><Trash2 className="h-4 w-4" /></Button>
         )}
         <Button onClick={() => setSaveViewOpen(true)}><Bookmark className="h-4 w-4" />Save this view</Button>
       </div>
@@ -247,7 +275,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
               options={[{ value: '', label: 'Every unit I am in' }, ...identity.memberships.map((m) => ({ value: m.unit_id, label: m.unit_short || m.unit_name }))]}
             />
           )}
-          <Button variant="ghost" onClick={() => { setQuery(DEFAULT_QUERY); setSearch(''); }}>Clear</Button>
+          <Button variant="ghost" onClick={() => { setQuery(DEFAULT_QUERY); setSearch(''); setActiveViewId(null); }}>Clear</Button>
         </div>
       )}
 
@@ -375,6 +403,12 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
       )}
 
       {importing && <ImportWizard onClose={() => setImporting(false)} onImported={() => { setImporting(false); refresh(); }} />}
+
+      <ConfirmDialog
+        open={deletingView} onOpenChange={setDeletingView}
+        title="Delete this saved view?" body={activeView ? `“${activeView.name}” goes from your saved views${activeView.shared ? ' and from everyone it was shared with' : ''}. The work in it is not touched.` : ''}
+        onConfirm={deleteActiveView}
+      />
 
       <Dialog
         open={saveViewOpen} onOpenChange={setSaveViewOpen} title="Save this view" size="sm"

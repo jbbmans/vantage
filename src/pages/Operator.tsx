@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Save, RefreshCw, Unlock, Mail, Download, Upload, Database, ShieldCheck, Users, Building2, ScrollText, Wrench, Sparkles, KeyRound, LogOut, Copy, Send } from 'lucide-react';
+import { Save, RefreshCw, Unlock, Mail, Download, Upload, Database, ShieldCheck, Users, Building2, ScrollText, Wrench, Sparkles, KeyRound, LogOut, Copy, Send, IdCard } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, Panel, Badge, Switch, Skeleton, Stat, EmptyState } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -65,10 +65,27 @@ function Overview() {
         <Panel title="Audit chain" subtitle="Tamper-evident log">
           <p className="text-sm"><Badge tone={data.audit.ok ? 'good' : 'bad'}>{data.audit.ok ? 'Intact' : 'Broken'}</Badge> <span className="fig text-ink-2">{data.audit.count} entries</span></p>
           {!data.audit.ok && <p className="mt-2 text-xs text-bad">{data.audit.reason}. Restore from a backup taken before that point and investigate.</p>}
+          <CaseHistories />
           <p className="mt-3 text-sm text-ink-2">MARADMIN feed: {data.maradmins.enabled ? `${data.maradmins.count} cached · last sync ${data.maradmins.lastSuccess ? timeAgo(data.maradmins.lastSuccess) : 'never'}` : 'off'}{data.maradmins.lastError ? <span className="block text-xs text-warn">{data.maradmins.lastError}</span> : null}</p>
           {data.maradmins.enabled && <Button size="sm" className="mt-2" onClick={async () => { try { const r = await withSudo(() => api.adminSyncMaradmins()); toast.success(`Synced: ${r.inserted ?? 0} new, ${r.updated ?? 0} updated.`); refetch(); } catch (e) { toast.error(api.errorText(e)); } }}><RefreshCw className="h-3.5 w-3.5" />Sync now</Button>}
         </Panel>
       </div>
+    </div>
+  );
+}
+
+/** Every case's history is sealed entry by entry, and the heads are written into the audit chain each day. */
+function CaseHistories() {
+  const toast = useToast();
+  const [result, setResult] = useState<any>(null); const [busy, setBusy] = useState(false);
+  const check = async () => { setBusy(true); try { setResult((await withSudo(() => api.adminIntegrity())).cases); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
+  const anchor = async () => { try { const r = await withSudo(() => api.adminAnchorCases()); toast.success(`${r.cases} case ${r.cases === 1 ? 'history' : 'histories'} written into the audit chain.`); } catch (e) { toast.error(api.errorText(e)); } };
+  return (
+    <div className="mt-3 border-t border-line pt-3">
+      <p className="text-sm text-ink-2">Case histories</p>
+      {result && <p className="mt-1 text-sm"><Badge tone={result.ok ? 'good' : 'bad'}>{result.ok ? 'Intact' : 'Broken'}</Badge> <span className="fig text-ink-2">{result.checked} checked{result.unsealed ? ` · ${result.unsealed} from before sealing` : ''}</span></p>}
+      {result && !result.ok && <ul className="mt-1 space-y-0.5 text-xs text-bad">{result.broken.map((b: { work_item_id: string; reason?: string }) => <li key={b.work_item_id}><a className="link" href={`/work/items/${b.work_item_id}`}>Case {b.work_item_id.slice(0, 8)}</a>: {b.reason}</li>)}</ul>}
+      <div className="mt-2 flex flex-wrap gap-2"><Button size="sm" onClick={check} loading={busy}><ShieldCheck className="h-3.5 w-3.5" />Check them</Button><Button size="sm" variant="ghost" onClick={anchor}>Anchor now</Button></div>
     </div>
   );
 }
@@ -222,7 +239,15 @@ function Accounts() {
   const { data, isPending, refetch } = useAdmin('users', api.adminUsers);
   const { data: identity } = useIdentity(); const toast = useToast(); const qc = useQueryClient();
   const [q, setQ] = useState(''); const [temp, setTemp] = useState<{ user: any; password: string } | null>(null); const [confirm, setConfirm] = useState<{ kind: string; user: any } | null>(null);
+  // CAC sign-in binds on the EDIPI alone, so an account made by invitation or registration needs one linked first.
+  const [cac, setCac] = useState<{ user: any; edipi: string } | null>(null);
   if (isPending) return <Skeleton className="h-64" />;
+  const saveEdipi = async () => {
+    if (!cac) return;
+    const edipi = cac.edipi.trim() || null;
+    const r = await act(edipi ? `EDIPI linked to ${cac.user.username}` : `EDIPI cleared from ${cac.user.username}`, () => api.adminPersonnelLink(cac.user.id, edipi));
+    if (r) setCac(null);
+  };
   const users: any[] = (data?.users || []).filter((u: any) => !q.trim() || `${u.username} ${u.first_name} ${u.last_name} ${u.email || ''}`.toLowerCase().includes(q.trim().toLowerCase()));
   const act = async (label: string, fn: () => Promise<any>) => { try { const r = await withSudo(fn); toast.success(`${label}${r?.sessionsRevoked ? ` · ${r.sessionsRevoked} sessions signed out` : ''}.`); refetch(); qc.invalidateQueries({ queryKey: keys.team }); return r; } catch (e) { toast.error(api.errorText(e)); } };
   const run = async () => {
@@ -248,16 +273,20 @@ function Accounts() {
           {users.map((u) => (
             <tr key={u.id}>
               <td><span className="block font-medium text-ink">{u.rank_abbr || ''} {u.last_name}, {u.first_name}{u.is_operator ? <Badge tone="accent" className="ml-2">Owner</Badge> : null}</span><span className="block text-xs text-ink-3">@{u.username}{u.email ? ` · ${u.email}` : ''}</span></td>
-              <td className="text-xs text-ink-2">{u.totp_enabled ? 'Authenticator' : ''}{u.totp_enabled && u.passkeys ? ' · ' : ''}{u.passkeys ? `${u.passkeys} passkey${u.passkeys === 1 ? '' : 's'}` : ''}{!u.totp_enabled && !u.passkeys ? <span className="text-warn">Password only</span> : ''}{u.must_change_password ? <span className="block text-warn">Temp password</span> : null}</td>
+              <td className="text-xs text-ink-2">{u.totp_enabled ? 'Authenticator' : ''}{u.totp_enabled && u.passkeys ? ' · ' : ''}{u.passkeys ? `${u.passkeys} passkey${u.passkeys === 1 ? '' : 's'}` : ''}{!u.totp_enabled && !u.passkeys ? <span className="text-warn">Password only</span> : ''}{u.must_change_password ? <span className="block text-warn">Temp password</span> : null}{u.edipi ? <span className="block">CAC linked</span> : null}</td>
               <td className="fig text-center">{u.units}</td><td className="text-xs text-ink-3">{u.last_login_at ? timeAgo(u.last_login_at) : 'never'}</td><td>{u.active ? <Badge tone="good">Active</Badge> : <Badge tone="bad">Inactive</Badge>}</td>
               <td className="text-right"><span className="flex flex-wrap justify-end gap-1">
-                {u.active ? <>{u.id !== identity?.user.id && u.email && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'sign-in', user: u })}><Send className="h-3 w-3" />Email sign-in</Button>}{u.id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'temp', user: u })}><KeyRound className="h-3 w-3" />Temp password</Button>}<Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'reset-mfa', user: u })}>Reset MFA</Button><Button size="xs" variant="ghost" onClick={() => act('Signed out everywhere', () => api.forceLogout(u.id))}><LogOut className="h-3 w-3" /></Button>{u.id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'operator', user: u })}>{u.is_operator ? 'Remove owner' : 'Make owner'}</Button>}{u.id !== identity?.user.id && <Button size="xs" variant="ghost" className="text-bad" onClick={() => setConfirm({ kind: 'deactivate', user: u })}>Deactivate</Button>}</> : <Button size="xs" onClick={() => act('Reactivated', () => api.reactivateMember(u.id))}>Reactivate</Button>}
+                {u.active ? <>{u.id !== identity?.user.id && u.email && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'sign-in', user: u })}><Send className="h-3 w-3" />Email sign-in</Button>}{u.id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'temp', user: u })}><KeyRound className="h-3 w-3" />Temp password</Button>}<Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'reset-mfa', user: u })}>Reset MFA</Button><Button size="xs" variant="ghost" onClick={() => setCac({ user: u, edipi: u.edipi || '' })} aria-label={`EDIPI for ${u.username}`}><IdCard className="h-3 w-3" />EDIPI</Button><Button size="xs" variant="ghost" onClick={() => act('Signed out everywhere', () => api.forceLogout(u.id))}><LogOut className="h-3 w-3" /></Button>{u.id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'operator', user: u })}>{u.is_operator ? 'Remove owner' : 'Make owner'}</Button>}{u.id !== identity?.user.id && <Button size="xs" variant="ghost" className="text-bad" onClick={() => setConfirm({ kind: 'deactivate', user: u })}>Deactivate</Button>}</> : <Button size="xs" onClick={() => act('Reactivated', () => api.reactivateMember(u.id))}>Reactivate</Button>}
               </span></td>
             </tr>
           ))}
         </Table>
       </div>
       <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} danger={confirm?.kind === 'deactivate'} confirmLabel={confirm?.kind === 'deactivate' ? 'Deactivate' : confirm?.kind === 'sign-in' ? 'Send' : 'Continue'} title={confirm ? { deactivate: `Deactivate ${confirm.user.username}?`, 'reset-mfa': `Reset MFA for ${confirm.user.username}?`, temp: `Issue a temporary password to ${confirm.user.username}?`, 'sign-in': `Email ${confirm.user.username} their sign-in details?`, operator: confirm.user.is_operator ? `Remove owner authority from ${confirm.user.username}?` : `Make ${confirm.user.username} an owner?` }[confirm.kind] || '' : ''} body={confirm ? { deactivate: 'They cannot sign in; their records stay. Reactivate any time.', 'reset-mfa': 'Their authenticator, recovery codes, and passkeys are removed and every session signed out. Use this when a phone is lost.', temp: 'Their current password stops working, every session is signed out, and they must set a new password on next sign-in. Hand the temporary password over in person.', 'sign-in': `${confirm.user.email} gets their username and a one-time link, good for 72 hours, to choose a password. Their current password keeps working until they use it, and any earlier link stops working.`, operator: 'Owners can open this console, manage every account, and move the instance. Give it to the fewest people possible.' }[confirm.kind] : ''} onConfirm={run} />
+      <Dialog open={Boolean(cac)} onOpenChange={(o) => { if (!o) setCac(null); }} title={`EDIPI for ${cac?.user.username}`} description="The ten-digit DoD ID on the card. Certificate sign-in finds the account by it. Leave it empty to unlink." size="sm"
+        footer={<><Button variant="ghost" onClick={() => setCac(null)}>Cancel</Button><Button variant="primary" disabled={Boolean(cac?.edipi.trim()) && !/^\d{10}$/.test(cac?.edipi.trim() || '')} onClick={saveEdipi}>Save</Button></>}>
+        <Field label="EDIPI" hint="Ten digits"><Input autoFocus inputMode="numeric" autoComplete="off" maxLength={10} className="mono" value={cac?.edipi ?? ''} onChange={(e) => setCac((c) => (c ? { ...c, edipi: e.target.value.replace(/\D/g, '') } : c))} /></Field>
+      </Dialog>
       <Dialog open={Boolean(temp)} onOpenChange={(o) => { if (!o) setTemp(null); }} title={`Temporary password for ${temp?.user.username}`} description="Shown once. It expires when they set their own." size="sm" footer={<Button variant="primary" onClick={async () => { if (await copyToClipboard(temp!.password)) toast.success('Copied.'); }}><Copy className="h-4 w-4" />Copy</Button>}><p className="mono select-all rounded-md border border-line bg-surface-2 px-3 py-2 text-center text-lg text-ink">{temp?.password}</p></Dialog>
     </>
   );

@@ -19,9 +19,8 @@ import { newId, now } from '../lib/ids.ts';
 import { layout } from '../services/mailLayout.ts';
 import { checkRecords, dnsHostOf, domainOf, heloName, lastPath, probePath, requiredRecords } from '../services/directMail.ts';
 import type { AppContext } from '../context.ts';
-import { runDigestTick } from '../services/digest.ts';
 import { RECORD_TABLE_NAMES } from '../services/records.ts';
-import { usageReport, pruneEvents, MIN_COHORT } from '../services/usage.ts';
+import { usageReport, MIN_COHORT } from '../services/usage.ts';
 import { EVENTS } from '../services/telemetry.ts';
 import { parseRoster, planSync, applySync, divergence, rosterStats, isEdipi, SOURCED_FIELDS, type SyncPlan } from '../services/personnel.ts';
 import { listSchedules, saveSchedule, openHolds, placeHold, releaseHold, runDisposition, dispositionHistory, RETAINABLE_TYPES, HOLDABLE_TYPES } from '../services/retention.ts';
@@ -45,12 +44,6 @@ adminRouter.get('/usage', wrap((req, res) => {
     minimumCohort: MIN_COHORT,
     catalogSize: Object.keys(EVENTS).length,
   });
-}));
-
-adminRouter.post('/usage/prune', wrap((req, res) => {
-  const removed = pruneEvents(req.ctx, Number(req.body?.older_than_days) || 400);
-  audit(req.ctx, { actor_id: req.user.id, action: 'prune_events', entity: 'product_events', detail: `${removed} removed`, ip: clientIp(req) });
-  res.json({ removed });
 }));
 
 adminRouter.get('/overview', wrap((req, res) => {
@@ -172,10 +165,9 @@ adminRouter.post('/email/test', wrap(async (req, res) => {
   res.json({ ok: true, queued: Boolean(result.queued) });
 }));
 
-adminRouter.post('/digest/run', wrap(async (req, res) => res.json(await runDigestTick(req.ctx))));
 
 adminRouter.get('/users', wrap((req, res) => {
-  const rows = req.ctx.db.prepare(`SELECT u.id, u.username, u.email, u.first_name, u.last_name, u.is_operator, u.active, u.totp_enabled, u.must_change_password, u.last_login_at, u.created_at, r.abbr AS rank_abbr,
+  const rows = req.ctx.db.prepare(`SELECT u.id, u.username, u.email, u.edipi, u.first_name, u.last_name, u.is_operator, u.active, u.totp_enabled, u.must_change_password, u.last_login_at, u.created_at, r.abbr AS rank_abbr,
     (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = u.id) AS passkeys, (SELECT COUNT(*) FROM unit_members um WHERE um.user_id = u.id) AS units
     FROM users u LEFT JOIN ranks r ON r.id = u.rank_id ORDER BY u.active DESC, u.last_name`).all();
   res.json({ users: rows });
@@ -284,10 +276,6 @@ adminRouter.get('/personnel', wrap((req, res) => {
 
 adminRouter.get('/personnel/divergence', wrap((req, res) => {
   res.json(divergence(req.ctx));
-}));
-
-adminRouter.get('/personnel/runs', wrap((req, res) => {
-  res.json(req.ctx.db.prepare('SELECT * FROM personnel_sync_runs ORDER BY at DESC LIMIT 50').all());
 }));
 
 adminRouter.post('/personnel/sync', rosterBody, wrap((req, res) => {

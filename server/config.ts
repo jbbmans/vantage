@@ -1,6 +1,5 @@
 import { isAbsolute, resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
-import { randomBytes } from 'node:crypto';
 
 const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
@@ -36,6 +35,13 @@ export interface AppConfig {
   };
   email: { provider: 'none' | 'resend' | 'smtp' | 'direct' | 'memory'; from: string; replyTo: string; resendApiKey: string; smtpUrl: string; dkimSelector: string; helo: string; directRoute: string; resendUrl: string };
   maradmins: { enabled: boolean; refreshMinutes: number; source: string };
+  /** How the public page presents itself to search engines. */
+  search: {
+    /** Tokens for the meta tags Google Search Console and Bing Webmaster Tools use to confirm ownership. */
+    googleVerification: string; bingVerification: string;
+    /** Tell IndexNow engines (Bing and so Edge, DuckDuckGo and Yahoo; Yandex; Seznam; Naver) when the public page changes. */
+    indexNow: boolean; indexNowEndpoint: string;
+  };
   m365: { clientId: string; clientSecret: string; tenant: string; redirectUri: string; endpointOverride: string | null };
   selfRegistration: boolean;
   cac: CacConfig;
@@ -103,6 +109,13 @@ function envList(env: NodeJS.ProcessEnv, name: string, fallback: string[]): stri
   const raw = env[name];
   if (raw === undefined || raw === '') return fallback;
   return raw.split(',').map((s) => s.trim()).filter(Boolean);
+}
+
+/** A verification token goes into an HTML attribute, so only the characters the engines issue are accepted. */
+function verificationToken(env: NodeJS.ProcessEnv, name: string): string {
+  const raw = (env[name] || '').trim();
+  if (raw && !/^[A-Za-z0-9_-]{8,128}$/.test(raw)) throw new Error(`${name} must be the token the search engine issued: letters, digits, - and _.`);
+  return raw;
 }
 
 function resolveTrustProxy(raw: string | undefined, production: boolean): boolean | number | string {
@@ -224,6 +237,13 @@ export function loadConfig(env = process.env): AppConfig {
       directRoute: test ? (env.VANTAGE_EMAIL_DIRECT_ROUTE || '') : '',
       resendUrl: (test && env.VANTAGE_RESEND_URL) || 'https://api.resend.com/emails',
     },
+    search: {
+      googleVerification: verificationToken(env, 'VANTAGE_GOOGLE_SITE_VERIFICATION'),
+      bingVerification: verificationToken(env, 'VANTAGE_BING_SITE_VERIFICATION'),
+      // Off by default: with it on, a deploy that changes the public page makes one outbound request.
+      indexNow: accessMode === 'accounts' && envBool(env, 'VANTAGE_INDEXNOW', false),
+      indexNowEndpoint: (test && env.VANTAGE_INDEXNOW_URL) || 'https://api.indexnow.org/indexnow',
+    },
     maradmins: {
       enabled: envBool(env, 'VANTAGE_MARADMIN_ENABLED', false),
       refreshMinutes: envNumber(env, 'VANTAGE_MARADMIN_REFRESH_MINUTES', 30),
@@ -236,7 +256,6 @@ export function loadConfig(env = process.env): AppConfig {
   };
 }
 
-export const generatedSecret = () => randomBytes(32).toString('base64url');
 export const PROJECT_ROOT = ROOT;
 
 function readM365Config(env: NodeJS.ProcessEnv, production: boolean, test: boolean, publicUrl: string): AppConfig['m365'] {

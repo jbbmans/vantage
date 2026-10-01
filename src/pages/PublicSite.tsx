@@ -1,24 +1,12 @@
 import { useEffect, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
 import {
   ArrowRight, ArrowUpRight, BookOpen, CheckCircle2, ChevronRight, CircleDot, Circle, FileText, Fingerprint, GitBranch, Layers3,
   ListChecks, Lock, Play, RotateCcw, ShieldCheck, ScrollText, Users, WifiOff,
 } from 'lucide-react';
-import { applySeo, applyPublicStructuredData } from '@/lib/seo';
+import { FAQS, SITE } from '@/config/site';
 import { publishedVideos } from '@/config/videos';
 import LiveParser from '@/components/public/LiveParser';
 import './PublicSite.css';
-
-const faqs = [
-  ['What is Vantage?', 'Vantage is a self-hosted performance, productivity, readiness, work-management, reporting and decision-support platform. It turns day-to-day operational work into clear, traceable records, and those records into the views and reports a Marine and their leaders actually use.'],
-  ['Who is Vantage for?', 'Individual Marines, NCOs and team leaders, staff sections such as a comptroller’s budget and execution shop, command teams, and the people who run a deployment. Each sees the part of the picture their role allows.'],
-  ['Is Vantage an official Marine Corps system?', 'No. Vantage is an independent software project and is not an official Department of Defense or U.S. Marine Corps system of record. It complements approved processes and systems; it does not replace them, and it never writes to them.'],
-  ['What can teams track?', 'Work actions and outcomes, configurable value metrics, projects, spreadsheet-driven queues, cases that follow cited procedures, goals, correspondence, readiness dates, training, awards, counselings and report drafts.'],
-  ['Does it help financial management analysts?', 'Yes. Imported open balances are read in lifecycle order (commitment, obligation, delivered, paid), the open condition is named, and each case can follow a versioned procedure with its evidence gates. The reference content it uses is training material, and Vantage labels it that way rather than presenting it as policy.'],
-  ['Can it support Marine Corps performance documentation?', 'Vantage organises source records and drafts material that can help prepare JEPES or FITREP input. Official submissions still belong in the authoritative systems and processes.'],
-  ['How does Vantage handle accountability?', 'Every case keeps an append-only history that is sealed and signed, access follows current unit membership, and important changes are attributable in a hash-chained audit log. Outputs can be traced back to the facts used to make them.'],
-  ['Does Vantage use AI?', 'Only when the deployment owner enables it, and only through GenAI.mil. AI sits inside the workflows where it helps, never as a separate destination, and everything it drafts is something a person reviews.'],
-] as const satisfies ReadonlyArray<readonly [string, string]>;
 
 const samples = [
   { title: 'Clear a 2-Way UMT', detail: 'Recorded the award and two invoices, calculated a +$2,775.00 candidate adjustment, and verified the UMT cleared on the next report.', evidence: 'UMT report line, invoice pair', category: 'Fiscal & Financial', count: '1 UMT cleared' },
@@ -45,10 +33,9 @@ function useReveal(root: React.RefObject<HTMLDivElement | null>) {
   }, [root]);
 }
 
-function PillLink({ href, to, children, tone = 'light' }: { href?: string; to?: string; children: React.ReactNode; tone?: 'light' | 'dark' }) {
-  const inner = <><span>{children}</span><span className="ps-pill-icon" aria-hidden><ArrowUpRight strokeWidth={1.75} /></span></>;
-  const className = `ps-pill ps-pill-${tone}`;
-  return to ? <Link to={to} className={className}>{inner}</Link> : <a href={href} className={className}>{inner}</a>;
+// Plain links, not router links: the public page is its own document (public.html), and signing in loads the app.
+function PillLink({ href, children, tone = 'light' }: { href: string; children: React.ReactNode; tone?: 'light' | 'dark' }) {
+  return <a href={href} className={`ps-pill ps-pill-${tone}`}><span>{children}</span><span className="ps-pill-icon" aria-hidden><ArrowUpRight strokeWidth={1.75} /></span></a>;
 }
 
 function CaseMock() {
@@ -158,26 +145,25 @@ export default function PublicSite() {
   const choose = (id: string) => { chosen.current = true; setActiveVideo(id); };
   useEffect(() => { if (chosen.current) player.current?.play().catch(() => undefined); }, [activeVideo]);
   useReveal(root);
-  useEffect(() => {
-    applySeo({ title: 'VANTAGE USMC | Marine Performance & Work Management', description: 'VANTAGE helps Marines and operational teams track work, performance records, readiness and goals, then build reports from traceable evidence.', canonicalPath: '/', indexable: true });
-    applyPublicStructuredData(faqs, videos.map((v) => ({ name: v.title, description: v.description, url: v.src, thumbnail: v.poster, uploadDate: v.published })));
-  }, []);
+  // public.html already carries the page's head; this names the tab when the app shows the page instead.
+  useEffect(() => { document.title = SITE.title; }, []);
 
   return (
     <div className="public-site" data-theme="light" ref={root}>
-      <a href="#ps-main" className="ps-skip">Skip to content</a>
+      <a href="#ps-content" className="ps-skip">Skip to content</a>
 
+      <main id="ps-main">
       <div className="ps-hero-band">
         <div className="ps-hero-glow" aria-hidden />
         <header className="ps-nav-wrap">
           <nav className="ps-nav" aria-label="Public navigation">
-            <Link to="/" className="ps-brand" aria-label="Vantage home"><img src="/brand/mark-reversed.svg" alt="" width="26" height="26" /><span>VANTAGE</span></Link>
+            <a href="/" className="ps-brand" aria-label="Vantage home"><img src="/brand/mark-reversed.svg" alt="" width="26" height="26" /><span>VANTAGE</span></a>
             <div className="ps-nav-links"><a href="#product">Product</a><a href="#analysts">For analysts</a><a href="#security">Security</a><a href="#faq">FAQ</a></div>
-            <Link to="/login" className="ps-nav-cta">Sign in <ArrowRight strokeWidth={1.75} aria-hidden /></Link>
+            <a href="/login" className="ps-nav-cta">Sign in <ArrowRight strokeWidth={1.75} aria-hidden /></a>
           </nav>
         </header>
 
-        <main id="ps-main" className="ps-container ps-hero">
+        <div id="ps-content" className="ps-container ps-hero">
           <div className="ps-hero-copy">
             <p className="ps-eyebrow ps-eyebrow-dark">Performance and work management for Marines</p>
             <h1>Every action.<br /><span>A clearer picture.</span></h1>
@@ -197,7 +183,7 @@ export default function PublicSite() {
             </ul>
           </div>
           <CaseMock />
-        </main>
+        </div>
       </div>
 
       {video && (
@@ -320,19 +306,20 @@ export default function PublicSite() {
       <section className="ps-section ps-container ps-faq" id="faq" aria-labelledby="ps-faq-title">
         <div data-reveal><p className="ps-eyebrow">A few things to know</p><h2 id="ps-faq-title">Clear from the start.</h2></div>
         <div className="ps-faq-list" data-reveal>
-          {faqs.map(([q, a]) => <details key={q}><summary>{q}<ChevronRight strokeWidth={1.75} aria-hidden /></summary><p>{a}</p></details>)}
+          {FAQS.map(([q, a]) => <details key={q}><summary>{q}<ChevronRight strokeWidth={1.75} aria-hidden /></summary><p>{a}</p></details>)}
         </div>
       </section>
+      </main>
 
       <footer className="ps-footer">
         <div className="ps-container">
           <div className="ps-footer-cta" data-reveal>
             <h2>Give good work<br />a lasting record.</h2>
-            <PillLink to="/login" tone="dark">Enter Vantage</PillLink>
+            <PillLink href="/login" tone="dark">Enter Vantage</PillLink>
           </div>
           <div className="ps-footer-bottom">
             <span className="ps-brand"><img src="/brand/mark-reversed.svg" alt="" width="22" height="22" /><span>VANTAGE</span></span>
-            <p>Independent software project. Not an official Department of Defense or U.S. Marine Corps system of record.</p>
+            <p>{SITE.disclaimer}</p>
           </div>
         </div>
       </footer>

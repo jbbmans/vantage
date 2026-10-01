@@ -9,27 +9,31 @@ import { now } from '../lib/ids.ts';
 
 interface DigestUser { id: string; email: string | null; first_name: string; last_name: string; prefs: string; digest_last_sent_at: string | null }
 
+const clocks = new Map<string, Intl.DateTimeFormat>();
+
 /** Local weekday (0 = Sunday) and hour in the instance timezone. */
 export function localClock(timezone: string, at = new Date()) {
-  const parts = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short', hour: 'numeric', hour12: false }).formatToParts(at);
+  let clock = clocks.get(timezone);
+  if (!clock) clocks.set(timezone, clock = new Intl.DateTimeFormat('en-US', { timeZone: timezone, weekday: 'short', hour: 'numeric', hourCycle: 'h23' }));
+  const parts = clock.formatToParts(at);
   const weekdayName = parts.find((p) => p.type === 'weekday')?.value || 'Mon';
   const hour = Number(parts.find((p) => p.type === 'hour')?.value || 0) % 24;
   const weekday = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'].indexOf(weekdayName);
   return { weekday: weekday < 0 ? 1 : weekday, hour };
 }
 
-export function composeDigest(ctx: AppContext, user: DigestUser) {
+export function composeDigest(ctx: AppContext, user: DigestUser, at = new Date()) {
   const db = ctx.db;
-  const since = zonedDay(ctx.config.timezone, -7);
-  const todayIso = zonedDay(ctx.config.timezone);
-  const soon = zonedDay(ctx.config.timezone, 14);
+  const since = zonedDay(ctx.config.timezone, -7, at);
+  const todayIso = zonedDay(ctx.config.timezone, 0, at);
+  const soon = zonedDay(ctx.config.timezone, 14, at);
   const acts = db.prepare(`SELECT title, dollar_amount, dollar_type, result FROM activities WHERE user_id = ? AND deleted_at IS NULL AND date >= ? ORDER BY date DESC`).all(user.id, since) as Array<{ title: string; dollar_amount: number | null; dollar_type: string | null; result: string | null }>;
   const dollars = acts.reduce((n, a) => n + (isSummable(a.dollar_type, ctx.runtime.metrics) ? Number(a.dollar_amount) || 0 : 0), 0);
   const noOutcome = acts.filter((a) => !a.result).length;
   const overdue = db.prepare(`SELECT title, due_date FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND status <> 'completed' AND deleted_at IS NULL AND due_date < ? ORDER BY due_date LIMIT 5`).all(user.id, user.id, todayIso) as Array<{ title: string; due_date: string }>;
   const dueSoon = db.prepare(`SELECT title, due_date FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND status <> 'completed' AND deleted_at IS NULL AND due_date >= ? AND due_date <= ? ORDER BY due_date LIMIT 5`).all(user.id, user.id, todayIso, soon) as Array<{ title: string; due_date: string }>;
   const goals = withGoalProgress(ctx, db.prepare(`SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND status = 'active' AND deleted_at IS NULL AND period_end >= ? AND period_end <= ? ORDER BY period_end LIMIT 5`).all(user.id, user.id, todayIso, soon) as Array<{ title: string; period_end: string; current_value: number; target_value: number | null; metric: string; user_id: string }>);
-  const maradmins = db.prepare(`SELECT number, title FROM maradmins WHERE published_at >= ? ORDER BY published_at DESC LIMIT 6`).all(new Date(Date.now() - 7 * 86_400_000).toISOString()) as Array<{ number: string; title: string }>;
+  const maradmins = db.prepare(`SELECT number, title FROM maradmins WHERE published_at >= ? ORDER BY published_at DESC LIMIT 6`).all(new Date(at.getTime() - 7 * 86_400_000).toISOString()) as Array<{ number: string; title: string }>;
   const followUps = db.prepare(`SELECT c.follow_up_date, u.first_name, u.last_name FROM counselings c JOIN users u ON u.id = c.user_id WHERE c.counselor_id = ? AND c.deleted_at IS NULL AND c.follow_up_date >= ? AND c.follow_up_date <= ? ORDER BY c.follow_up_date LIMIT 5`).all(user.id, todayIso, soon) as Array<{ follow_up_date: string; first_name: string; last_name: string }>;
 
   const sections: Array<{ heading: string; lines: string[] }> = [];

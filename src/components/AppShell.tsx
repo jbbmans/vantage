@@ -3,7 +3,7 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { installTelemetry, track } from '@/lib/telemetry';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle, Bell, Building2, Check, ChevronsLeft, ChevronsRight, ChevronsUpDown, CloudOff, FlaskConical, Keyboard, LogOut, Menu as MenuIcon, Moon,
+  AlertTriangle, Bell, Building2, Check, ChevronsLeft, ChevronsRight, ChevronsUpDown, CloudOff, FlaskConical, Keyboard, LifeBuoy, LogOut, Menu as MenuIcon, Moon,
   Plus, RefreshCw, Search, Settings2, Sun, Users, WifiOff, X,
 } from 'lucide-react';
 import { NAV, NAV_GROUPS } from '@/config/nav';
@@ -13,6 +13,7 @@ import Logo, { Mark } from '@/components/Logo';
 import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/components/ui/Menu';
 import * as Popover from '@radix-ui/react-popover';
 import QuickLog from '@/components/QuickLog';
+import OutboxDialog from '@/components/OutboxDialog';
 import CommandPalette from '@/components/CommandPalette';
 import ShortcutsDialog from '@/components/ShortcutsDialog';
 import { ActivityBar } from '@/components/ui/motion';
@@ -40,6 +41,7 @@ const TITLES: Array<[string, string, string]> = [
   ['/settings', 'Settings', 'Your preferences'],
   ['/operator', 'Owner console', 'This deployment'],
   ['/help', 'Field guide', 'How Vantage works'],
+  ['/support', 'Support', 'Ask a person'],
 ];
 const entryFor = (p: string) => (p === '/' ? (['/', 'Today', 'Your next move'] as const) : TITLES.find(([path]) => p.startsWith(path)));
 const titleFor = (p: string) => entryFor(p)?.[1] || 'Vantage';
@@ -197,7 +199,7 @@ function surfaceOf(pathname: string, search: string): string {
   if (segment === 'reference') return tab === 'diagnose' || !tab ? 'diagnose' : 'reference';
   const map: Record<string, string> = {
     '': 'dashboard', records: 'records', record: 'records', goals: 'goals', readiness: 'readiness', career: 'career',
-    maradmins: 'maradmins', team: 'team', settings: 'settings', operator: 'operator', help: 'help',
+    maradmins: 'maradmins', team: 'team', settings: 'settings', operator: 'operator', help: 'help', support: 'help',
   };
   return map[segment] || 'dashboard';
 }
@@ -215,6 +217,7 @@ export default function AppShell() {
   const online = useOnline();
   const userId = identity?.user.id;
   const pending = useOutboxCount(userId);
+  const [queueOpen, setQueueOpen] = useState(false);
   const [drawer, setDrawer] = useState(false);
   const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem('vantage.rail') === 'collapsed'; } catch { return false; } });
   const [quickLog, setQuickLog] = useState(false);
@@ -316,6 +319,7 @@ export default function AppShell() {
         {user?.is_operator && !demo ? <MenuItem onSelect={() => navigate('/operator')}>Owner console</MenuItem> : null}
         <MenuItem onSelect={toggleTheme} icon={theme === 'dark' ? Sun : Moon}>{theme === 'dark' ? 'Light theme' : 'Dark theme'}</MenuItem>
         <MenuItem icon={Keyboard} onSelect={() => setShortcuts(true)}>Keyboard shortcuts</MenuItem>
+        {!demo && <MenuItem icon={LifeBuoy} onSelect={() => navigate('/support')}>Ask for help</MenuItem>}
         <MenuSeparator />
         {demo
           ? <MenuItem icon={RefreshCw} onSelect={() => startOver()}>Start the demo over</MenuItem>
@@ -416,7 +420,7 @@ export default function AppShell() {
             </p>
             <div className="ml-auto flex items-center gap-1.5 sm:gap-2">
               {!online && <Tooltip content="Offline. New entries queue on this device."><span className="flex h-8 items-center gap-1.5 rounded-full bg-warn/10 px-3 text-xs font-medium text-warn ring-1 ring-warn/20"><WifiOff className="h-3.5 w-3.5" /><span className="hidden sm:inline">Offline</span></span></Tooltip>}
-              {online && pending > 0 && <button type="button" onClick={flush} className="flex h-8 items-center gap-1.5 rounded-full bg-info/10 px-3 text-xs font-medium text-info ring-1 ring-info/20 hover:bg-info/15"><CloudOff className="h-3.5 w-3.5" />{pending} queued</button>}
+              {online && pending > 0 && <button type="button" onClick={() => setQueueOpen(true)} title="Entries waiting to sync" className="flex h-8 items-center gap-1.5 rounded-full bg-info/10 px-3 text-xs font-medium text-info ring-1 ring-info/20 hover:bg-info/15"><CloudOff className="h-3.5 w-3.5" />{pending} queued</button>}
               <button type="button" onClick={() => setPalette(true)} className="flex h-9 items-center gap-2 rounded-full bg-surface-2 px-3 text-sm text-ink-3 ring-1 ring-line transition-[box-shadow,color,background-color] hover:bg-surface hover:text-ink-2 hover:ring-line-strong md:w-64 lg:w-80" aria-label="Search">
                 <Search className="h-4 w-4 shrink-0" aria-hidden /><span className="hidden md:inline">Search work, records, reference…</span><span className="ml-auto hidden lg:inline"><Kbd>⌘K</Kbd></span>
               </button>
@@ -477,6 +481,7 @@ export default function AppShell() {
         </div>
 
         <QuickLog open={quickLog} onOpenChange={setQuickLog} initialText={quickLogSeed} />
+        {userId && <OutboxDialog open={queueOpen} onOpenChange={setQueueOpen} userId={userId} onRetry={flush} />}
         <CommandPalette open={palette} onOpenChange={setPalette} onQuickLog={openQuickLog} nav={visibleNav} />
         <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
         <SudoDialog open={Boolean(sudoOpen)} onOpenChange={(o) => { if (!o) { sudoOpen?.cancel(); setSudoOpen(null); } }} onConfirmed={() => { const req = sudoOpen; setSudoOpen(null); req?.confirm(); }} />

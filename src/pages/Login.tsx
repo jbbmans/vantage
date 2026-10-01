@@ -5,10 +5,12 @@ import { startAuthentication } from '@simplewebauthn/browser';
 import {
   ArrowLeft,
   ArrowRight,
+  CreditCard,
   Eye,
   EyeOff,
   Fingerprint,
   KeyRound,
+  LifeBuoy,
   LockKeyhole,
   Mail,
   Moon,
@@ -17,7 +19,7 @@ import {
   UserRound,
   WifiOff,
 } from 'lucide-react';
-import { Button, Field, Input, Select } from '@/components/ui/primitives';
+import { Button, Field, Input, Select, Textarea } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import * as api from '@/lib/api';
 import { keys } from '@/lib/queries';
@@ -25,14 +27,14 @@ import { passwordProblem, passwordStrength, MIN_PASSWORD_LENGTH } from '../../sh
 import { applyTheme, resolveTheme, storedTheme } from '@/lib/theme';
 import { VERSION } from '@/lib/version';
 import { cn } from '@/lib/utils';
-import { applySeo, clearPublicStructuredData } from '@/lib/seo';
 
-type Mode = 'login' | 'mfa' | 'setup' | 'register' | 'forgot' | 'reset' | 'invite';
+type Mode = 'login' | 'mfa' | 'setup' | 'register' | 'forgot' | 'reset' | 'invite' | 'help';
 
 interface Status {
   needsSetup: boolean;
   requiresSetupToken: boolean;
   selfRegistration: boolean;
+  cac?: { enabled: boolean; exclusive: boolean };
   emailEnabled: boolean;
   displayName: string;
   announcement: string;
@@ -82,7 +84,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({
-    username: '', password: '', first_name: '', last_name: '', middle_initial: '', rank_id: '', mos: '', email: '', unit_name: '', unit_short_name: '', setup_token: '', code: '', identifier: '',
+    username: '', password: '', first_name: '', last_name: '', middle_initial: '', rank_id: '', mos: '', email: '', unit_name: '', unit_short_name: '', setup_token: '', code: '', identifier: '', help_subject: '', help_body: '',
   });
   const [challenge, setChallenge] = useState('');
   const [tokenInfo, setTokenInfo] = useState<any>(null);
@@ -99,13 +101,8 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
   };
 
   useEffect(() => {
-    applySeo({
-      title: 'Sign in | Vantage',
-      description: 'Sign in to your Vantage deployment.',
-      canonicalPath: '/login',
-      indexable: false,
-    });
-    clearPublicStructuredData();
+    // The shell this renders in is already kept out of search results; only the tab needs naming.
+    document.title = 'Sign in | Vantage';
 
     api.setupStatus().then((s: Status) => {
       setStatus(s);
@@ -174,6 +171,12 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
     toast.info(result.emailEnabled ? 'If that account has an email on file, a reset link is on its way.' : 'Email is not configured on this server. Ask your unit leader or the owner for a temporary password.');
     setMode('login');
   });
+  const submitHelp = () => run(async () => {
+    await api.askForHelp({ subject: form.help_subject.trim() || 'I cannot sign in', body: form.help_body, category: 'sign_in', requester_name: [form.first_name, form.last_name].filter(Boolean).join(' ') || undefined, requester_email: form.email.trim() });
+    toast.success(`Your request is in. Someone who runs Vantage here will write to ${form.email.trim()}.`);
+    setForm((current) => ({ ...current, help_subject: '', help_body: '' }));
+    setMode('login');
+  });
   const submitReset = () => run(async () => {
     const result = await api.resetPassword(params.get('token') || '', form.password);
     if (result?.mfa === 'totp') {
@@ -185,6 +188,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
     await api.acceptInvite({ token: params.get('token') || '', username: form.username, password: form.password, first_name: form.first_name, last_name: form.last_name, rank_id: form.rank_id || null, mos: form.mos || null, email: form.email || undefined });
     finish();
   });
+  const cac = () => run(async () => { await api.cacLogin(); finish(); });
   const passkey = () => run(async () => {
     const { options, key } = await api.passkeyOptions(form.username || undefined);
     let response;
@@ -216,6 +220,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
     reset: tokenInfo?.purpose === 'sign_in'
       ? ['Welcome to Vantage', 'Choose your password', `You sign in as ${tokenInfo.username}. Choose a password to finish; you are signed in as soon as it is saved.`]
       : ['Account recovery', 'Choose a new password', tokenInfo?.email ? `Resetting the account for ${tokenInfo.email}.` : 'This link works once and expires after 30 minutes.'],
+    help: ['Account recovery', 'Ask for help', 'Tell the people who run Vantage here what is wrong. You need no account to ask, and nobody will ever ask for your password.'],
     invite: ['Your invitation', 'Accept your invitation', tokenInfo?.unit ? `${tokenInfo.invitedBy || 'A leader'} invited you to ${tokenInfo.unit}.` : 'Create your account to join the unit.'],
   };
 
@@ -300,7 +305,14 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
             )}
             {error && <div role="alert" className="auth-notice error compact">{error}</div>}
 
-            {mode === 'login' && (
+            {mode === 'login' && status?.cac?.exclusive && (
+              <div className="auth-form">
+                <Button type="button" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={offline} onClick={cac}><CreditCard className="h-4 w-4" /> Sign in with your CAC</Button>
+                <p className="text-sm text-ink-3">Put your card in the reader first. Your browser asks which certificate to use and for your PIN. <button type="button" className="link" onClick={() => setMode('help')}>Need help?</button></p>
+              </div>
+            )}
+
+            {mode === 'login' && !status?.cac?.exclusive && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitLogin(); }}>
                 <Field label="Username" error={fieldErrors.username}>
                   <div className="auth-input-wrap" role="group" aria-label="Username controls"><UserRound /><Input aria-label="Username" autoFocus required autoComplete="username webauthn" spellCheck={false} autoCapitalize="none" value={form.username} onChange={set('username')} /></div>
@@ -311,6 +323,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
                 <div className="auth-form-links">
                   <button type="button" className="link" onClick={() => setMode('forgot')}>Forgot your password?</button>
                   {status?.selfRegistration && <button type="button" className="link" onClick={() => setMode('register')}>Create an account</button>}
+                  <button type="button" className="link" onClick={() => setMode('help')}>Need help?</button>
                 </div>
                 <Button type="submit" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={offline}>
                   Sign in <ArrowRight className="h-4 w-4" />
@@ -319,6 +332,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
                 <Button type="button" variant="outline" size="lg" className="auth-passkey" onClick={passkey} disabled={busy || offline}>
                   <Fingerprint className="h-4 w-4" /> Sign in with a passkey
                 </Button>
+                {status?.cac?.enabled && <Button type="button" variant="outline" size="lg" className="auth-passkey" onClick={cac} disabled={busy || offline}><CreditCard className="h-4 w-4" /> Sign in with your CAC</Button>}
               </form>
             )}
 
@@ -360,6 +374,20 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
                 <Field label="Username or email"><Input autoFocus value={form.identifier} onChange={set('identifier')} autoCapitalize="none" /></Field>
                 {status && !status.emailEnabled && <p className="text-xs text-ink-3">Email is not configured here. Your unit leader or the owner can issue a temporary password from the Team page instead.</p>}
                 <Button type="submit" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={!form.identifier}><Mail className="h-4 w-4" /> Send reset link</Button>
+                <p className="text-sm text-ink-3">Still stuck? <button type="button" className="link" onClick={() => setMode('help')}>Ask for help</button></p>
+              </form>
+            )}
+
+            {mode === 'help' && (
+              <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitHelp(); }}>
+                <div className="grid grid-cols-2 gap-3">
+                  <Field label="First name"><Input autoFocus value={form.first_name} onChange={set('first_name')} autoComplete="given-name" /></Field>
+                  <Field label="Last name"><Input value={form.last_name} onChange={set('last_name')} autoComplete="family-name" /></Field>
+                </div>
+                <Field label="Your email" hint="where the answer goes" error={fieldErrors.requester_email}><Input type="email" required value={form.email} onChange={set('email')} autoComplete="email" autoCapitalize="none" spellCheck={false} /></Field>
+                <Field label="What is wrong" error={fieldErrors.subject}><Input value={form.help_subject} onChange={set('help_subject')} maxLength={200} placeholder="I cannot sign in" /></Field>
+                <Field label="What happened" hint="what you tried, and what it said" error={fieldErrors.body}><Textarea rows={4} required value={form.help_body} maxLength={8000} onChange={(e) => setForm((current) => ({ ...current, help_body: e.target.value }))} /></Field>
+                <Button type="submit" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={!form.email.trim() || !form.help_body.trim() || offline}><LifeBuoy className="h-4 w-4" /> Send request</Button>
               </form>
             )}
 

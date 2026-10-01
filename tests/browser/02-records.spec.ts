@@ -11,7 +11,8 @@ test('quick log parses a sentence, saves it, and the record round-trips through 
   await dialog.getByRole('button', { name: 'Save activity' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Activity logged.' })).toBeVisible();
 
-  await page.goto('/records');
+  // All time: on the first days of a fiscal year, yesterday is last year's.
+  await page.goto('/records?period=all');
   const row = page.getByRole('link', { name: /Reconciled 30 ULOs/ }).first();
   await expect(row).toBeVisible();
   await expect(page.getByRole('cell', { name: '$1,118', exact: true })).toBeVisible();
@@ -25,7 +26,7 @@ test('quick log parses a sentence, saves it, and the record round-trips through 
   await edit.getByRole('button', { name: 'Save changes' }).click();
   await expect(page.getByText('G-8 Comptroller').first()).toBeVisible();
 
-  await page.goto('/reports?tab=analysis');
+  await page.goto('/reports?tab=analysis&period=all');
   await expect(page.getByRole('heading', { name: /JEPES input/ })).toBeVisible();
   await expect(page.getByText(/MISSION:/)).toBeVisible();
   const [pdf] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export PDF' }).click()]);
@@ -42,7 +43,7 @@ test('csv import updates rows that carry a Vantage ID instead of duplicating the
   const title = `Import test ${Date.now()}`;
   const created = await (await page.request.post('/api/records/activities', { headers: { 'x-vantage-client': '1' }, data: { title, date: '2026-08-01', quantity: 4, unit_label: 'MIPRs', result: 'zero returns' } })).json();
   const csv = `Vantage ID,Date,Title,Action Amount,Action Unit,Result\n${created.id},2026-08-01,${title} (edited),9,MIPRs,zero returns\n,2026-08-02,Brand new imported row,1,brief,delivered\n`;
-  await page.goto('/records?import=1');
+  await page.goto('/records?import=1&period=all');
   const dialog = page.getByRole('dialog', { name: 'Import activities from CSV' });
   await dialog.locator('input[type=file]').setInputFiles({ name: 'rows.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await expect(dialog.getByText(/1.*update existing/)).toBeVisible();

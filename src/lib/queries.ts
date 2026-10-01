@@ -6,6 +6,7 @@ import type { Store } from './api.ts';
 import type { Prefs } from '../../shared/schemas.ts';
 import { applyAccent, applyDensity, applyTheme } from './theme.ts';
 import { trackForGrade, type Track } from '../../shared/evaluation.ts';
+import { PERMISSIONS } from '../../shared/permissions.ts';
 import type { MetricTotal } from '../../shared/metricEngine.ts';
 
 export const queryClient = new QueryClient({
@@ -198,13 +199,12 @@ export const useNotifications = (enabled = true) => useQuery({ queryKey: keys.no
 export const useTeam = (enabled = true) => useQuery({ queryKey: keys.team, queryFn: api.team, enabled });
 export const useRoles = (enabled = true) => useQuery({ queryKey: keys.roles, queryFn: api.roles, enabled });
 
+/** Whether the person holds `flag` in the unit. ADMINISTRATOR holds every permission, as it does on the server. */
 export function can(identity: Identity | undefined, flag: number, unitId?: string | null): boolean {
   if (!identity || !unitId) return false;
-  const bits = identity.permissions[unitId] || 0;
-  return Boolean(bits & (1 << 12)) || Boolean(bits & flag);
+  return Boolean((identity.permissions[unitId] || 0) & (flag | PERMISSIONS.ADMINISTRATOR));
 }
-export const canAnywhere = (identity: Identity | undefined, flag: number) => Boolean(identity && Object.values(identity.permissions).some((bits) => Boolean(bits & (1 << 12)) || Boolean(bits & flag)));
-export const unitsWith = (identity: Identity | undefined, flag: number) => identity ? Object.entries(identity.permissions).filter(([, bits]) => Boolean(bits & (1 << 12)) || Boolean(bits & flag)).map(([id]) => id) : [];
+export const unitsWith = (identity: Identity | undefined, flag: number) => identity ? Object.keys(identity.permissions).filter((id) => can(identity, flag, id)) : [];
 
 export function unitName(identity: Identity | undefined, unitId?: string | null, org?: { units?: Array<{ id: string; name: string; short_name: string | null }> }) {
   if (!unitId) return '';
@@ -273,7 +273,6 @@ export const useRecordDrafts = () => useQuery<any[]>({ queryKey: caseKeys.drafts
 export const useCareer = () => useQuery<any>({ queryKey: caseKeys.career, queryFn: api.career, staleTime: 30_000 });
 export const useWorkload = (unitId: string | null, params: Record<string, string | undefined> = {}) =>
   useQuery<any>({ queryKey: caseKeys.workload(unitId || '', params), queryFn: () => api.workload(unitId!, params), enabled: Boolean(unitId), retry: false });
-export const useDemoStatus = (enabled = true) => useQuery<any>({ queryKey: caseKeys.demo, queryFn: api.demoStatus, enabled, staleTime: 60_000, retry: false });
 
 export function invalidateWork(qc: QueryClient, itemId?: string, ...also: Domain[]) {
   if (itemId) qc.invalidateQueries({ queryKey: caseKeys.item(itemId) });

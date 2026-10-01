@@ -9,7 +9,8 @@ import RecordDialog from '@/components/RecordDialog';
 import CsvImportDialog from '@/components/CsvImportDialog';
 import { ActivityFields, emptyActivity, toActivityDraft, activityPayload, type ActivityDraft } from '@/components/ActivityForm';
 import { PeriodSelect, DateText, CategoryDot, useParam, Table, PageShell } from '@/components/common';
-import { useActivities, useRecords, useDeleteRecord, useIdentity, usePrefs, useRestoreRecord, useSavePrefs, useTrack, unitName, useOrg, useMetrics } from '@/lib/queries';
+import { can, useActivities, useRecords, useDeleteRecord, useIdentity, usePrefs, useRestoreRecord, useSavePrefs, useTrack, unitName, useOrg, useMetrics } from '@/lib/queries';
+import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
 import { categoryNames } from '../../shared/constants';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
@@ -85,7 +86,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
     try { const name = await api.downloadFile(api.reportCsvUrl({ period: from && to ? 'custom' : period, from, to }), 'vantage-activities.csv'); toast.success(`Downloaded ${name}.`); }
     catch (e) { toast.error(api.errorText(e)); }
   };
-  const canEditRow = (a: any) => !a.deleted_at && (a.user_id === identity?.user.id ? !a.frozen_at : Boolean(a.unit_id && identity && ((identity.permissions[a.unit_id] || 0) & ((1 << 12) | (1 << 3)))));
+  const canEditRow = (a: any) => !a.deleted_at && (a.user_id === identity?.user.id ? !a.frozen_at : can(identity, PERMISSIONS.MANAGE_RECORDS, a.unit_id));
   const restoreRow = async (a: any) => { try { await restore.mutateAsync(a.id); toast.success('Entry restored.'); } catch (e) { toast.error(api.errorText(e)); } };
 
   const qualityOptions = [

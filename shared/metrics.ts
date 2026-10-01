@@ -1,6 +1,6 @@
 import {
   startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear,
-  subDays, parseISO, isValid, format, differenceInCalendarDays,
+  subDays, parseISO, isValid, format,
 } from 'date-fns';
 import { FISCAL_YEAR_START_MONTH, DEFAULT_METRICS, isSummable, type MetricsConfig } from './constants.ts';
 import type { DateRange } from './types.ts';
@@ -41,14 +41,8 @@ export function fiscalQuarterRange(ref = new Date()): DateRange & { label: strin
   return { start, end, label: `FY${String(fy).slice(-2)} Q${q}`, fy, quarter: q };
 }
 
-export function fiscalYearProgress(ref = new Date()) {
-  const { start, end } = fiscalYearRange(ref);
-  const total = differenceInCalendarDays(end, start) + 1;
-  const elapsed = differenceInCalendarDays(ref, start) + 1;
-  return { elapsed, total, fraction: Math.min(1, Math.max(0, elapsed / total)) };
-}
 
-export type PeriodKey = 'week' | 'month' | 'quarter' | 'fiscalQuarter' | 'fiscalYear' | 'year' | 'last30' | 'last90' | 'all';
+export type PeriodKey = 'week' | 'month' | 'quarter' | 'fiscalQuarter' | 'lastFiscalQuarter' | 'fiscalYear' | 'lastFiscalYear' | 'year' | 'last30' | 'last90' | 'all';
 
 export const PERIOD_OPTIONS: Array<{ value: PeriodKey; label: string; short: string }> = [
   { value: 'week', label: 'This week', short: 'WK' },
@@ -56,7 +50,9 @@ export const PERIOD_OPTIONS: Array<{ value: PeriodKey; label: string; short: str
   { value: 'last30', label: 'Last 30 days', short: '30D' },
   { value: 'last90', label: 'Last 90 days', short: '90D' },
   { value: 'fiscalQuarter', label: 'Fiscal quarter', short: 'FQ' },
+  { value: 'lastFiscalQuarter', label: 'Last fiscal quarter', short: 'LFQ' },
   { value: 'fiscalYear', label: 'Fiscal year', short: 'FY' },
+  { value: 'lastFiscalYear', label: 'Last fiscal year', short: 'LFY' },
   { value: 'year', label: 'Calendar year', short: 'CY' },
   { value: 'all', label: 'All time', short: 'ALL' },
 ];
@@ -83,6 +79,11 @@ export function rangeForPeriod(key: PeriodKey | string, ref = new Date()): DateR
       return fiscalQuarterRange(ref);
     case 'fiscalYear':
       return fiscalYearRange(ref);
+    // The period just closed, which is the one an evaluation is usually written for.
+    case 'lastFiscalQuarter':
+      return fiscalQuarterRange(subDays(fiscalQuarterRange(ref).start, 1));
+    case 'lastFiscalYear':
+      return fiscalYearRange(subDays(fiscalYearRange(ref).start, 1));
     case 'year':
       return { start: startOfYear(ref), end: endOfYear(ref), label: `CY${ref.getFullYear()}` };
     case 'all':
@@ -170,14 +171,6 @@ export function aggregateMetrics(list: MetricSource[] = [], cfg: MetricsConfig =
 
 const round2 = (n: number) => Math.round(n * 100) / 100;
 
-export function daysSinceLastActivity<T extends { date?: string | null }>(list: T[] = [], ref = new Date()): number | null {
-  let latest: Date | null = null;
-  for (const a of list) {
-    const d = toDate(a.date);
-    if (d && d <= endOfDay(ref) && (!latest || d > latest)) latest = d;
-  }
-  return latest ? Math.max(0, differenceInCalendarDays(startOfDay(ref), startOfDay(latest))) : null;
-}
 
 export function delta(current: number, previous: number): number | null {
   if (previous === 0) return current > 0 ? null : 0;
@@ -194,7 +187,6 @@ const nf = new Intl.NumberFormat('en-US');
 const exact2 = new Intl.NumberFormat('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 let currencySymbol = '$';
 export const setCurrencySymbol = (s: string) => { currencySymbol = s || '$'; };
-export const getCurrencySymbol = () => currencySymbol;
 
 export function formatNumber(n: number | null | undefined): string {
   if (n == null || Number.isNaN(n)) return '0';
@@ -216,13 +208,6 @@ export function formatDollarsExact(n: number | null | undefined, symbol = curren
   return `${n < 0 ? '-' : ''}${symbol}${exact2.format(Math.abs(n))}`;
 }
 
-export function formatCompact(n: number | null | undefined): string {
-  if (n == null) return '0';
-  const abs = Math.abs(n);
-  if (abs >= 1e6) return `${(n / 1e6).toFixed(1)}M`;
-  if (abs >= 1e4) return `${(n / 1e3).toFixed(1)}K`;
-  return nf.format(n);
-}
 
 export function formatDate(value: unknown, pattern = 'dd MMM yy'): string {
   const d = toDate(value);
@@ -234,6 +219,3 @@ export function formatDTG(value: unknown): string {
   return d ? format(d, 'dd MMM yy').toUpperCase() : '—';
 }
 
-export function isoToday(ref = new Date()): string {
-  return dayKey(ref);
-}

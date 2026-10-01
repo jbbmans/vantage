@@ -44,10 +44,6 @@ export const DOLLAR_TYPES: readonly DollarType[] = [
   { key: 'reviewed', label: 'Reviewed', verb: 'reviewed', summable: false, definition: 'Funds that passed through your review without a balance change.' },
   { key: 'impact', label: 'Impact', verb: 'impacted', summable: true, definition: 'General fiscal impact that does not fit a narrower type.' },
 ];
-export const DOLLAR_TYPE_KEYS = DOLLAR_TYPES.map((d) => d.key);
-export const SUMMABLE_DOLLAR_TYPES = DOLLAR_TYPES.filter((d) => d.summable).map((d) => d.key);
-export const DOLLAR_SUM_RULE =
-  'Headline totals sum Reconciled, Obligated, Saved, and Impact. Reviewed is tracked separately: funds crossing your desk are not funds you moved.';
 
 export const UNIT_SUGGESTIONS = [
   'ULOs', 'UMTs', 'MIPRs', 'documents', 'transactions', 'validations', 'reconciliations', 'reports',

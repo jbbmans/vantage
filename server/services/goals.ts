@@ -111,16 +111,17 @@ export function goalProgressFor(ctx: AppContext, goal: GoalRow): GoalProgress {
     completed: Boolean(goal.completed_at),
   });
   const filterText = Object.entries(filters).filter(([, v]) => v !== undefined).map(([k, v]) => `${k} is ${v ?? 'unset'}`).join(', ');
+  const counted = totals(measures, { filters, from: opts.from, to: opts.to });
   let mismatch = '';
   if (result.outcomes === 0 && metricId.startsWith('quantity:')) {
-    const present = [...new Set(totals(measures, { filters, from: opts.from, to: opts.to }).filter((t) => t.kind === 'quantity').map((t) => t.unit))];
+    const present = [...new Set(counted.filter((t) => t.kind === 'quantity').map((t) => t.unit))];
     if (present.length) mismatch = ` Nothing was counted, because the work in this period is measured in ${present.join(', ')} rather than ${goal.unit_label || 'items'}.`;
   }
   return {
     ...result,
     basis: `Counted ${aggregation === 'sum' ? 'by adding' : `by taking the ${aggregation}`} ${who} ${period}${filterText ? `, where ${filterText}` : ''}.${mismatch}`,
     auto: true, measuresEntries: false, metricId,
-    unit: totals(measures, { filters, from: opts.from, to: opts.to }).find((t) => t.metricId === metricId)?.unit ?? goal.unit_label,
+    unit: counted.find((t) => t.metricId === metricId)?.unit ?? goal.unit_label,
   };
 }
 
@@ -141,10 +142,18 @@ export function goalContributors(ctx: AppContext, goal: GoalRow): GoalContributo
   const window = goalWindow(goal);
   const measures = measuresForGoal(ctx, goal);
   const chosen = selectMeasures(measures, { filters, from: window.from, to: window.to }).filter((m) => m.metricId === metricId);
+  // One lookup per table for the titles, not one per contributing entry.
+  const ids = { activities: new Set<string>(), trainings: new Set<string>() };
+  for (const m of chosen) { const [table, id] = m.outcomeId.split(':'); ids[table === 'trainings' ? 'trainings' : 'activities'].add(id); }
+  const sources = new Map<string, { title: string; date: string }>();
+  for (const [table, set] of Object.entries(ids)) {
+    if (!set.size) continue;
+    for (const row of ctx.db.prepare(`SELECT id, title, date FROM ${table} WHERE id IN (SELECT value FROM json_each(?))`).all(JSON.stringify([...set])) as Array<{ id: string; title: string; date: string }>) sources.set(`${table}:${row.id}`, row);
+  }
   const rows = new Map<string, GoalContributor>();
   for (const m of chosen) {
     const [table, id] = m.outcomeId.split(':');
-    const source = ctx.db.prepare(`SELECT title, date FROM ${table === 'trainings' ? 'trainings' : 'activities'} WHERE id = ?`).get(id) as { title: string; date: string } | undefined;
+    const source = sources.get(`${table === 'trainings' ? 'trainings' : 'activities'}:${id}`);
     rows.set(m.outcomeId, { table, id, date: source?.date || m.date, title: source?.title || '', value: m.value, unit: m.unit });
   }
   return [...rows.values()].sort((a, b) => b.date.localeCompare(a.date));

@@ -120,8 +120,9 @@ const toISODate = (v: unknown): string | null => {
     if (Number.isNaN(d.getTime()) || d.getUTCFullYear() !== y || d.getUTCMonth() !== month - 1 || d.getUTCDate() !== day) return null;
     return d.toISOString().slice(0, 10);
   }
+  // Free-form dates parse as local midnight, so read the local fields: toISOString would move them a day back east of UTC.
   const d = new Date(s);
-  return Number.isNaN(d.getTime()) ? null : d.toISOString().slice(0, 10);
+  return Number.isNaN(d.getTime()) ? null : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
 export interface ImportedActivity {

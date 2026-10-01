@@ -4,6 +4,7 @@ import { can, isMember, PERMISSIONS } from '../authz/scope.ts';
 import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
+import { zonedDay } from '../lib/clock.ts';
 import { parseEml, looksLikeOutlookMsg, EmlError, type ParsedEmail } from '../lib/eml.ts';
 import { sanitizeEmailHtml, htmlToText } from '../lib/sanitizeHtml.ts';
 import { readableItem } from './work.ts';
@@ -29,7 +30,7 @@ export interface ThreadRow {
   version: number; deleted_at: string | null; created_at: string; updated_at: string;
 }
 
-function assertPlacement(scope: Scope, unitId: string | null, visibility: string) {
+export function assertPlacement(scope: Scope, unitId: string | null, visibility: string) {
   if (visibility === 'private') return;
   if (!unitId) throw badRequest('Choose the unit this correspondence belongs to.');
   if (!isMember(scope, unitId)) throw forbidden('You are not a member of that unit.');
@@ -88,8 +89,8 @@ export function listThreads(ctx: AppContext, user: SessionUser, scope: Scope, fi
   if (filters.unitId) { where.push('t.unit_id = ?'); params.push(filters.unitId); }
   if (filters.contactId) { where.push('t.contact_id = ?'); params.push(filters.contactId); }
   if (filters.workItemId) { where.push('t.id IN (SELECT thread_id FROM thread_links WHERE work_item_id = ?)'); params.push(filters.workItemId); }
-  if (filters.dueOnly) { where.push("t.follow_up_at IS NOT NULL AND t.follow_up_at <= ? AND t.state NOT IN ('resolved', 'ksd_received')"); params.push(now().slice(0, 10)); }
-  if (filters.q?.trim()) { where.push('lower(t.subject) LIKE ?'); params.push(`%${filters.q.trim().toLowerCase()}%`); }
+  if (filters.dueOnly) { where.push("t.follow_up_at IS NOT NULL AND t.follow_up_at <= ? AND t.state NOT IN ('resolved', 'ksd_received')"); params.push(zonedDay(ctx.config.timezone)); }
+  if (filters.q?.trim()) { where.push("lower(t.subject) LIKE ? ESCAPE '\\'"); params.push(`%${filters.q.trim().toLowerCase().replace(/[\\%_]/g, '\\$&')}%`); }
 
   const rows = ctx.db.prepare(
     `SELECT t.*, c.name AS contact_name, c.organization AS contact_organization,
@@ -186,6 +187,9 @@ export function setThreadState(ctx: AppContext, user: SessionUser, scope: Scope,
   })();
 }
 
+/** A message filed late, older than the thread's newest, does not move the thread back in time. */
+const LATEST_MESSAGE = 'last_message_at = MAX(COALESCE(last_message_at, ?), ?)';
+
 export interface MessageInput {
   direction: 'outbound' | 'inbound';
   subject?: string | null;
@@ -216,7 +220,7 @@ export function addMessage(ctx: AppContext, user: SessionUser, scope: Scope, thr
     sentAt, String(input.subject || thread.subject).slice(0, 500), String(input.body_text || '').slice(0, 100_000) || null,
     user.id, at,
   );
-  ctx.db.prepare('UPDATE threads SET last_message_at = ?, version = version + 1, updated_at = ? WHERE id = ?').run(sentAt, at, threadId);
+  ctx.db.prepare(`UPDATE threads SET ${LATEST_MESSAGE}, version = version + 1, updated_at = ? WHERE id = ?`).run(sentAt, sentAt, at, threadId);
   return ctx.db.prepare('SELECT * FROM thread_messages WHERE id = ?').get(id);
 }
 
@@ -245,7 +249,7 @@ export function storeParsedMessage(
     safe.blockedRemoteImages ? 1 : 0, safe.blockedActiveContent ? 1 : 0,
     JSON.stringify(parsed.attachments), meta.createdBy || null, at,
   );
-  ctx.db.prepare('UPDATE threads SET last_message_at = ?, version = version + 1, updated_at = ? WHERE id = ?').run(parsed.date || at, at, threadId);
+  ctx.db.prepare(`UPDATE threads SET ${LATEST_MESSAGE}, version = version + 1, updated_at = ? WHERE id = ?`).run(parsed.date || at, parsed.date || at, at, threadId);
   record(ctx, 'correspondence.message_imported', {
     source: meta.source,
     duplicate: false,

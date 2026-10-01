@@ -88,11 +88,15 @@ export function Field({ label, hint, error, children, className, required }: { l
 
 export interface SelectOption { value: string; label: string; disabled?: boolean }
 export function Select({ value, onValueChange, options, placeholder = 'Select…', className, disabled, ...rest }: { value?: string | null; onValueChange: (v: string) => void; options: Array<SelectOption | string>; placeholder?: string; className?: string; disabled?: boolean; 'aria-label'?: string; 'aria-labelledby'?: string; id?: string }) {
+  // Radix renders an empty value as the placeholder, so an explicit "any" option ('' value) supplies that text.
+  const empty = options.find((o) => typeof o !== 'string' && o.value === '') as SelectOption | undefined;
+  const shown = empty?.label ?? placeholder;
   return (
     // Keyed on the option count: Radix shows nothing for a value whose option arrives after it, as ranks do.
-    <SelectPrimitive.Root key={options.length} value={value || undefined} onValueChange={onValueChange} disabled={disabled}>
-      <SelectPrimitive.Trigger {...rest} aria-label={rest['aria-label'] ?? (rest['aria-labelledby'] ? undefined : placeholder)} className={cn('field flex h-9 items-center justify-between gap-2 py-0 text-left data-[placeholder]:text-ink-3', className)}>
-        <span className="truncate"><SelectPrimitive.Value placeholder={placeholder} /></span>
+    // Always controlled: passing undefined for '' would hand Radix its own state and leave a stale choice showing after a reset.
+    <SelectPrimitive.Root key={options.length} value={value ?? ''} onValueChange={onValueChange} disabled={disabled}>
+      <SelectPrimitive.Trigger {...rest} aria-label={rest['aria-label'] ?? (rest['aria-labelledby'] ? undefined : shown)} className={cn('field flex h-9 items-center justify-between gap-2 py-0 text-left', !empty && 'data-[placeholder]:text-ink-3', className)}>
+        <span className="truncate"><SelectPrimitive.Value placeholder={shown} /></span>
         <SelectPrimitive.Icon><ChevronDown className="h-4 w-4 shrink-0 text-ink-3" /></SelectPrimitive.Icon>
       </SelectPrimitive.Trigger>
       <SelectPrimitive.Portal>

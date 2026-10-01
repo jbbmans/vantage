@@ -113,6 +113,7 @@ test.describe('the public site', () => {
   });
 
   test('hands a crawler the whole page without running any JavaScript', async ({ request }) => {
+    await ensureSetup(request);
     const readable = (html: string) => html
       .replace(/<script[\s\S]*?<\/script>/g, '')
       .replace(/<[^>]+>/g, ' ')

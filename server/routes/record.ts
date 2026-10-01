@@ -6,13 +6,13 @@ import {
   recordSummary, proceduresPracticed, assignedWork, contributionHistory, parseWindow, listDrafts, draftFromWork, updateDraft, saveDraftToRecord, deleteDraft,
   careerOverview, saveCareerProfile, saveCareerStep, deleteCareerStep,
 } from '../services/record.ts';
-import { careerProfileSchema, careerStepSchema } from '../../shared/record.ts';
+import { careerProfileSchema, careerStepSchema } from '../../shared/recordSchemas.ts';
 
 export const recordRouter = Router();
 recordRouter.use(requireAuth);
 
 recordRouter.get('/summary', wrap((req, res) => {
-  res.json(recordSummary(req.ctx, req.user, parseWindow(req.query as Record<string, unknown>)));
+  res.json(recordSummary(req.ctx, req.user, parseWindow(req.ctx.config.timezone, req.query as Record<string, unknown>)));
 }));
 
 recordRouter.get('/practice', wrap((req, res) => res.json({ procedures: proceduresPracticed(req.ctx, req.user.id) })));
@@ -21,7 +21,7 @@ recordRouter.get('/assigned', wrap((req, res) => res.json(assignedWork(req.ctx, 
 
 recordRouter.get('/contributions', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
-  res.json(contributionHistory(req.ctx, req.user, scope, parseWindow(req.query as Record<string, unknown>)));
+  res.json(contributionHistory(req.ctx, req.user, scope, parseWindow(req.ctx.config.timezone, req.query as Record<string, unknown>)));
 }));
 
 recordRouter.get('/drafts', wrap((req, res) => res.json(listDrafts(req.ctx, req.user))));

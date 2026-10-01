@@ -29,10 +29,13 @@ export function screenImport<T extends DupSource>(incoming: T[] = [], existing: 
   const exact: T[] = [];
   const near: Array<{ row: T; match: DupSource; score: number }> = [];
   const seenThisBatch = new Set<string>();
+  // Near matches only ever share a day, so each row is compared with that day's records, not all of them.
+  const byDay = new Map<string, DupSource[]>();
+  for (const rec of existing) { const day = String(rec.date || '').slice(0, 10); const list = byDay.get(day); if (list) list.push(rec); else byDay.set(day, [rec]); }
   for (const row of incoming) {
     const sig = signature(row);
     if (index.has(sig) || seenThisBatch.has(sig)) { exact.push(row); continue; }
-    const sameDay = existing.filter((e) => String(e.date || '').slice(0, 10) === String(row.date || '').slice(0, 10));
+    const sameDay = byDay.get(String(row.date || '').slice(0, 10)) || [];
     let best: { row: T; match: DupSource; score: number } | null = null;
     for (const candidate of sameDay) {
       const score = titleSimilarity(row.title || '', candidate.title || '');

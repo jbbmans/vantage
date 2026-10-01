@@ -1,25 +1,19 @@
 # VANTAGE USMC
 
-VANTAGE (also described as VANTAGE USMC) is an independent, self-hosted performance, productivity, readiness, work tracking, reporting, and team decision-support platform.
+> Vantage helps Marines and their leaders track work, performance records, readiness and goals, and build JEPES and FITREP input from traceable evidence. It is an independent, self-hosted platform, not an official Department of Defense or U.S. Marine Corps system of record.
 
 ## Public website
-- https://vantageusmc.com/
+- https://vantageusmc.com/: what Vantage does, short films of the real application, a live Quick Log demonstration, and answers to common questions.
 
 ## What Vantage does
-Vantage helps operational teams capture work, organize actions and outcomes, track goals and readiness, manage spreadsheet-supported work queues and correspondence, build reports, and understand individual and team performance from traceable source records.
-
-## Core capabilities
-- Performance and action tracking
-- Work and project management
-- Spreadsheet-supported queues
-- Goals and measurable progress
-- Readiness tracking
-- Correspondence tracking
-- Report creation and source-linked analysis
-- Team and unit visibility
-- Role-aware access
-- Self-hosted deployment controls
-- AI-assisted workflows embedded where work happens
+- Quick Log: one sentence such as "Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday" becomes a record with its quantity, value, system and date read out, checked by the Marine before it is saved.
+- Work: a spreadsheet a section already uses becomes a queue; each row is claimed, worked and resolved with an attributed, sealed history. Claiming work is not credit for it.
+- Record: what a Marine researched, submitted and verified is counted from the work's own history, one document once.
+- JEPES and FITREP input: Report Studio drafts evaluation input from entries a reviewer can open and check, and locks each saved version to the records it cited.
+- Financial management analysts: open balances are read in lifecycle order (commitment, obligation, delivered, paid), the open condition is named, and cases follow versioned, cited procedures with evidence gates.
+- Goals, career planning, training, awards, counselings and readiness.
+- Team views: section totals and workload by chain of command, with small groups withheld so nobody is singled out.
+- Security: passkeys, authenticator codes, optional CAC sign-in, a hash-chained audit log, retention schedules and legal holds.
 
 ## Important clarification
-Vantage is an independent software project. It is not an official Department of Defense or U.S. Marine Corps system of record.
+Vantage is an independent software project. It is not an official Department of Defense or U.S. Marine Corps system of record, it does not compute official scores, and it never writes to authoritative systems.

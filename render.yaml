@@ -43,6 +43,14 @@ services:
         value: "false"
       - key: VANTAGE_MARADMIN_ENABLED
         value: "true"
+      # Tell Bing (and so Edge, DuckDuckGo and Yahoo), Yandex and the other IndexNow engines when the public page changes.
+      - key: VANTAGE_INDEXNOW
+        value: "true"
+      # Ownership tokens from Google Search Console and Bing Webmaster Tools (the meta-tag method). See docs/seo.md.
+      - key: VANTAGE_GOOGLE_SITE_VERIFICATION
+        sync: false
+      - key: VANTAGE_BING_SITE_VERIFICATION
+        sync: false
       - key: VANTAGE_EMAIL_PROVIDER
         # Keep the verified route until direct SMTP and domain authentication pass in production.
         value: resend

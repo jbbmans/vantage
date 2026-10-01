@@ -339,6 +339,7 @@ export async function syncMailbox(
 
   let url = connector.delta_token || (opts.graphHost ? `${opts.graphHost}/v1.0/me/messages/delta` : plan.delta_url);
   let deltaLink: string | null = null;
+  let resumeAt: string | null = null;
 
   try {
     for (let page = 0; page < maxPages; page += 1) {
@@ -357,9 +358,11 @@ export async function syncMailbox(
       if (body['@odata.deltaLink']) { deltaLink = body['@odata.deltaLink']; break; }
       if (!body['@odata.nextLink']) break;
       url = body['@odata.nextLink'];
+      resumeAt = page + 1 === maxPages ? url : null;
     }
   } catch (e) {
-    ctx.db.prepare("UPDATE connectors SET status = 'error', last_error = ?, updated_at = ? WHERE id = ?")
+    const restart = Boolean((e as { restart?: boolean }).restart);
+    ctx.db.prepare(`UPDATE connectors SET status = 'error', last_error = ?,${restart ? ' delta_token = NULL,' : ''} updated_at = ? WHERE id = ?`)
       .run(String((e as Error).message).slice(0, 500), now(), connector.id);
     record(ctx, 'correspondence.sync', { cloud: connector.cloud, stored: result.stored, skipped: result.skipped, pages: result.pages, failed: true }, { id: user.id });
     throw e;
@@ -369,6 +372,10 @@ export async function syncMailbox(
     ctx.db.prepare("UPDATE connectors SET delta_token = ?, last_sync_at = ?, last_error = NULL, status = 'connected', updated_at = ? WHERE id = ?")
       .run(deltaLink, now(), now(), connector.id);
     result.deltaStored = true;
+  } else if (resumeAt) {
+    // A big mailbox takes more than one sync. Keep the place, or every sync would re-read the same first pages.
+    ctx.db.prepare("UPDATE connectors SET delta_token = ?, last_sync_at = ?, last_error = NULL, status = 'connected', updated_at = ? WHERE id = ?")
+      .run(resumeAt, now(), now(), connector.id);
   } else {
     ctx.db.prepare('UPDATE connectors SET last_sync_at = ?, updated_at = ? WHERE id = ?').run(now(), now(), connector.id);
   }
@@ -424,6 +431,8 @@ export function graphFetcher(connector: ConnectorRow, accessToken: string, timeo
     try {
       const res = await fetch(url, { headers: { authorization: `Bearer ${accessToken}`, accept: 'application/json' }, redirect: 'error', signal: controller.signal });
       if (res.status === 401) throw Object.assign(new Error('Microsoft Graph no longer accepts this connection’s sign-in.'), { reauthorize: true });
+      // The saved place in the mailbox has expired on Microsoft's side. The next sync starts from the top again.
+      if (res.status === 410) throw Object.assign(new Error('Microsoft Graph no longer recognises where the last sync stopped. The next sync reads the mailbox again from the start.'), { restart: true });
       if (!res.ok) throw new Error(`Microsoft Graph answered ${res.status}.`);
       return (await res.json()) as DeltaPage;
     } finally { clearTimeout(timer); }

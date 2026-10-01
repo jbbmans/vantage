@@ -4,14 +4,14 @@ import QRCode from 'qrcode';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth, requireSudo } from '../auth/middleware.ts';
-import { scopeFor, unitsWith, PERMISSIONS, can, detailUnitsFor } from '../authz/scope.ts';
+import { scopeFor, unitsWith, PERMISSIONS, detailUnitsFor } from '../authz/scope.ts';
 import { profileSchema, passwordField, readinessSchema, prefsSchema, emailField } from '../../shared/schemas.ts';
 import { sourcedFieldsFor } from '../services/personnel.ts';
 import { hashPassword, verifyPassword, encryptSecret, decryptSecret, sha256 } from '../lib/crypto.ts';
 import { invalidateUserSessions, listSessions, revokeSessionByPrefix, SESSION_COOKIE, SIGNED_IN_COOKIE } from '../auth/sessions.ts';
 import { generateTotpSecret, otpauthUrl, matchTotp, generateRecoveryCodes } from '../auth/totp.ts';
 import { registrationOptions, completeRegistration, listPasskeys, deletePasskey } from '../auth/passkeys.ts';
-import { issueToken, consumeToken } from '../auth/tokens.ts';
+import { issueToken, consumeToken, peekToken } from '../auth/tokens.ts';
 import { limiters, mailAllowance } from '../auth/limiter.ts';
 import { tooMany } from '../lib/errors.ts';
 import { audit } from '../services/audit.ts';
@@ -109,11 +109,13 @@ meRouter.put('/prefs', wrap((req, res) => {
 meRouter.post('/password', wrap((req, res) => {
   const ctx = req.ctx;
   const { current_password, new_password } = parse(z.object({ current_password: z.string().max(512), new_password: passwordField }), req.body);
-  const limited = limiters.loginUser.limited(req.user.username);
+  // Keyed exactly as sign-in keys it, so failures here and there share one budget.
+  const name = req.user.username.toLowerCase();
+  const limited = limiters.loginUser.limited(name);
   if (limited) throw tooMany('Too many failed attempts. Try again later.', limited.retryAfter);
   const stored = ctx.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id) as { password_hash: string };
-  if (!verifyPassword(current_password, stored.password_hash)) { limiters.loginUser.bump(req.user.username); throw forbidden('Current password is incorrect.', 'bad_password'); }
-  limiters.loginUser.clear(req.user.username);
+  if (!verifyPassword(current_password, stored.password_hash)) { limiters.loginUser.bump(name); throw forbidden('Current password is incorrect.', 'bad_password'); }
+  limiters.loginUser.clear(name);
   if (current_password === new_password) throw badRequest('Choose a different password.', { fieldErrors: { new_password: 'Choose a different password.' } });
   ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?').run(hashPassword(new_password), now(), req.user.id);
   const revoked = invalidateUserSessions(ctx, req.user.id, req.sessionId);
@@ -304,11 +306,14 @@ meRouter.post('/email/verify', requireSudo, wrap(async (req, res) => {
 meRouter.post('/email/confirm', wrap((req, res) => {
   const ctx = req.ctx;
   const { token } = parse(z.object({ token: z.string().max(200) }), req.body);
-  const pending = consumeToken(ctx, 'email_change', token);
+  // Checked before it is spent: opening the link while signed in as somebody else must not burn it.
+  const pending = peekToken(ctx, 'email_change', token);
   if (!pending || pending.user_id !== req.user.id || !pending.email) throw badRequest('That confirmation link is invalid or has expired.');
+  // The address may have been taken in the hour the link was live.
+  if (ctx.db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id <> ?').get(pending.email, req.user.id)) throw badRequest('That email is already in use.', { fieldErrors: { email: 'Already in use.' } });
+  consumeToken(ctx, 'email_change', token);
   ctx.db.prepare('UPDATE users SET email = ?, updated_at = ? WHERE id = ?').run(pending.email, now(), req.user.id);
   audit(ctx, { actor_id: req.user.id, action: 'email_confirmed', subject_id: req.user.id, ip: clientIp(req) });
   res.json({ ok: true, email: pending.email });
 }));
 
-export { can };

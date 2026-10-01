@@ -104,7 +104,7 @@ export default function WorkItemPage() {
             {!item.claimed_by && !closed && c.permissions.claim && (
               <Button variant="primary" loading={busy} onClick={() => run(() => api.claimWorkItem(id, item.version), 'It is yours. It is on your assigned list now.')}><Hand className="h-4 w-4" />Claim</Button>
             )}
-            {!closed && c.permissions.hand_off && item.claimed_by && <Button onClick={() => setHandoffOpen(true)}><UserRoundPlus className="h-4 w-4" />Hand off</Button>}
+            {!closed && c.permissions.hand_off && <Button onClick={() => setHandoffOpen(true)}><UserRoundPlus className="h-4 w-4" />{item.claimed_by ? 'Hand off' : 'Assign'}</Button>}
             {holding && !closed && <Button variant="ghost" loading={busy} onClick={() => run(() => api.releaseWorkItem(id, item.version), 'Released back to the queue.')}>Release</Button>}
             {(c.permissions.progress || c.permissions.resolve) && (
               <Select
@@ -264,7 +264,7 @@ export default function WorkItemPage() {
         </aside>
       </div>
 
-      {handoffOpen && <HandoffDialog itemId={id} version={item.version} onClose={() => setHandoffOpen(false)} onDone={() => { setHandoffOpen(false); refresh(); }} />}
+      {handoffOpen && <HandoffDialog itemId={id} version={item.version} assigning={!item.claimed_by} onClose={() => setHandoffOpen(false)} onDone={() => { setHandoffOpen(false); refresh(); }} />}
       {stageOpen && <StageDialog itemId={id} version={item.version} stage={stageOpen} procedure={procedure} resolution={c.resolution} onClose={() => setStageOpen(null)} onDone={() => { setStageOpen(null); refresh(); }} />}
     </div>
   );
@@ -1054,20 +1054,21 @@ function CorrectDialog({ itemId, entry, onClose, onDone }: { itemId: string; ent
   );
 }
 
-function HandoffDialog({ itemId, version, onClose, onDone }: { itemId: string; version: number; onClose: () => void; onDone: () => void }) {
+/** Passing held work on, or, for a leader, putting unheld work in somebody's hands. Same record either way. */
+function HandoffDialog({ itemId, version, assigning, onClose, onDone }: { itemId: string; version: number; assigning: boolean; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
   const candidates = useQuery<Array<{ id: string; name: string; rank: string | null }>>({ queryKey: ['handoff-candidates', itemId], queryFn: () => api.handoffCandidates(itemId) });
   const [to, setTo] = useState('');
   const [note, setNote] = useState('');
   const [busy, setBusy] = useState(false);
   return (
-    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} title="Hand this off" description="Your entries stay yours. The history records who passed it, to whom, and what you said." size="sm"
+    <Dialog open onOpenChange={(o) => { if (!o) onClose(); }} title={assigning ? 'Assign this' : 'Hand this off'} description={assigning ? 'Nobody holds this yet. The history records who assigned it, to whom, and what you said.' : 'Your entries stay yours. The history records who passed it, to whom, and what you said.'} size="sm"
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" loading={busy} disabled={!to || !note.trim()} onClick={async () => {
         setBusy(true);
-        try { await api.handOffWork(itemId, { to_user_id: to, note, version }); toast.success('Handed off.'); onDone(); }
+        try { await api.handOffWork(itemId, { to_user_id: to, note, version }); toast.success(assigning ? 'Assigned.' : 'Handed off.'); onDone(); }
         catch (e) { toast.error(api.errorText(e)); }
         finally { setBusy(false); }
-      }}><Users className="h-4 w-4" />Hand off</Button></>}>
+      }}><Users className="h-4 w-4" />{assigning ? 'Assign' : 'Hand off'}</Button></>}>
       <div className="space-y-3">
         <Field label="To">
           <Select value={to} onValueChange={setTo} placeholder={candidates.isPending ? 'Loading…' : candidates.data?.length === 0 ? 'Nobody else can pick this up' : 'Choose a teammate'}

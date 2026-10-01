@@ -74,7 +74,7 @@ export interface ParseResult { rows: RosterRow[]; rejected: Array<{ line: number
 export function parseRoster(text: string, maxRows = 200_000): ParseResult {
   const rows: RosterRow[] = [];
   const rejected: Array<{ line: number; reason: string }> = [];
-  const body = text.replace(/^ /, '').trim();
+  const body = text.trim(); // trim() also drops the byte-order mark Excel puts at the front of a CSV
   if (!body) throw badRequest('The roster file is empty.');
 
   const take = (get: (field: string) => unknown, line: number) => {
@@ -142,6 +142,28 @@ interface RosterDbRow extends RosterRow { row_hash: string }
 
 export const MASS_SEPARATION_SHARE = 0.2;
 
+const squash = (v: string) => v.toLowerCase().replace(/[^a-z0-9]/g, '');
+
+/** Extracts write a rank their own way (SGT, Sgt, E5, E-5). Each resolves to a rank Vantage knows, or to nothing. */
+function rankResolver(ctx: AppContext) {
+  const known = new Map<string, string | null>();
+  const add = (key: string, id: string) => { const k = squash(key); known.set(k, known.has(k) && known.get(k) !== id ? null : id); };
+  for (const r of ctx.db.prepare('SELECT id, abbr, grade FROM ranks').all() as Array<{ id: string; abbr: string; grade: string }>) {
+    add(r.id, r.id); add(r.abbr, r.id); add(r.grade, r.id); // E-8 and E-9 are two ranks each, so a bare grade there resolves to nothing
+  }
+  return (raw: string) => known.get(squash(raw)) ?? null;
+}
+
+/** An EAS as YYYY-MM-DD, from that form, YYYYMMDD or MM/DD/YYYY. */
+function rosterDate(raw: string): string | null {
+  const iso = /^(\d{4})-?(\d{2})-?(\d{2})$/.exec(raw);
+  const us = /^(\d{1,2})\/(\d{1,2})\/(\d{4})$/.exec(raw);
+  if (!iso && !us) return null;
+  const [y, mo, d] = iso ? [iso[1], iso[2], iso[3]] : [us![3], us![1].padStart(2, '0'), us![2].padStart(2, '0')];
+  const date = new Date(Date.UTC(+y, +mo - 1, +d));
+  return date.getUTCMonth() === +mo - 1 && date.getUTCDate() === +d ? `${y}-${mo}-${d}` : null;
+}
+
 export function planSync(
   ctx: AppContext,
   rows: RosterRow[],
@@ -155,8 +177,13 @@ export function planSync(
 
   const plan: SyncPlan = { source, rowsSeen: rows.length, rejected, creates: [], updates: [], separations: [], conflicts: [], unchanged: 0 };
   const seen = new Set<string>();
+  const rank = rankResolver(ctx);
 
-  for (const row of rows) {
+  for (const raw of rows) {
+    // A value Vantage cannot place is left as it is on the account, and said so, rather than failing the whole sync.
+    const row = { ...raw, rank_id: raw.rank_id && rank(raw.rank_id), eas: raw.eas && rosterDate(raw.eas) };
+    if (raw.rank_id && !row.rank_id) plan.conflicts.push({ edipi: raw.edipi, reason: `rank “${raw.rank_id}” is not one Vantage knows, so the rank was left as it is` });
+    if (raw.eas && !row.eas) plan.conflicts.push({ edipi: raw.edipi, reason: `EAS “${raw.eas}” is not a date, so it was left as it is` });
     if (seen.has(row.edipi)) { plan.conflicts.push({ edipi: row.edipi, reason: 'the extract lists this EDIPI more than once' }); continue; }
     seen.add(row.edipi);
     const prior = existing.get(row.edipi);

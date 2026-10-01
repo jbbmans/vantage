@@ -1,5 +1,6 @@
 import { findDuplicates } from './duplicates.ts';
 import { daysUntil } from './evaluation.ts';
+import { dayKey } from './metrics.ts';
 
 const DAY = 86_400_000;
 const ageDays = (iso: string | null | undefined, now: Date) => {
@@ -62,7 +63,7 @@ export function todayActions({
   profile?: Record<string, unknown> | null; track?: string; fitrepPeriodEnd?: string | null; now?: Date;
 } = {}): TodayAction[] {
   const out: TodayAction[] = [];
-  const today = now.toISOString().slice(0, 10);
+  const today = dayKey(now);
   const overdue = tasks.filter((t) => t.status !== 'completed' && t.due_date && t.due_date < today);
   if (overdue.length) out.push({ key: 'overdue', count: overdue.length, label: `overdue task${overdue.length === 1 ? '' : 's'}`, detail: overdue.slice(0, 2).map((t) => t.title || '').join(' · '), to: '/work' });
   const goalsDue = goals.filter((g) => { if (g.status !== 'active' || !g.period_end) return false; const d = daysUntil(g.period_end, now); return d !== null && d <= 14; });

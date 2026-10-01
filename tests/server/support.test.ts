@@ -163,3 +163,29 @@ test('the anonymous route still refuses a request with no client header', async 
   });
   assert.equal(bare.status, 403);
 });
+
+test('the unit’s support staff hear about a request, and a reply to a resolved one reopens it for them', async () => {
+  app.ctx.db.prepare("INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, 'G8:sncoic', 'G8', ?, ?)").run(nguyen.id, op.id, new Date().toISOString());
+  const nguyenToken = (await app.login('nguyen')).body.token;
+  const notes = (userId: string, ticketId: string) => (app.ctx.db.prepare('SELECT title FROM notifications WHERE user_id = ? AND action_url = ?').all(userId, `/support/${ticketId}`) as Array<{ title: string }>).map((n) => n.title);
+
+  const ticket = await app.call('POST', '/api/support/tickets', { token: rivera.token, body: { subject: 'Readiness looks wrong', body: 'My PFT is missing.', category: 'data', unit_id: 'G8' } });
+  assert.equal(ticket.status, 201, JSON.stringify(ticket.body));
+  const id = ticket.body.id;
+  assert.deepEqual(notes(nguyen.id, id), ['A new help request'], 'only operators used to be told, never the unit staff who work it');
+
+  await app.call('POST', `/api/support/tickets/${id}/messages`, { token: nguyenToken, body: { body: 'Fixed the import; check now.' } });
+  await app.call('PATCH', `/api/support/tickets/${id}`, { token: nguyenToken, body: { state: 'resolved' } });
+  const back = await app.call('POST', `/api/support/tickets/${id}/messages`, { token: rivera.token, body: { body: 'Still missing.' } });
+  assert.equal(back.status, 201);
+  assert.equal(back.body.ticket.state, 'open', 'the reply used to sit on a resolved ticket nobody looks at');
+  assert.equal(back.body.ticket.resolved_at, null);
+  assert.ok(notes(nguyen.id, id).includes('A reply on a help request'), 'and nobody was told about it');
+  assert.equal(back.body.works, false);
+
+  await app.call('PATCH', `/api/support/tickets/${id}`, { token: op.token, body: { state: 'closed' } });
+  const late = await app.call('POST', `/api/support/tickets/${id}/messages`, { token: rivera.token, body: { body: 'Hello?' } });
+  assert.equal(late.status, 409, 'a closed request is closed; the requester raises a new one');
+  const detail = await app.call('GET', `/api/support/tickets/${id}`, { token: nguyenToken });
+  assert.equal(detail.body.works, true);
+});

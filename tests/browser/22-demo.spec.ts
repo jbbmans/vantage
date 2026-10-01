@@ -139,6 +139,16 @@ test('the section lead sees workload with its definitions and limits', async ({ 
   await expect(page.getByText('Zero recorded activity is not evidence of zero work.')).toBeVisible();
 });
 
+test('a section lead with no spreadsheet to hand imports the synthetic sample sheet', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'View as the section lead' }).click();
+  await expect(page.getByRole('heading', { name: 'G-8 BE' })).toBeVisible();
+  await page.goto('/work?tab=queue');
+  await page.getByRole('button', { name: 'Import a spreadsheet' }).first().click();
+  await page.getByRole('button', { name: 'Use the synthetic sample sheet' }).click();
+  await expect(page.getByRole('dialog')).toContainText('Document Number');
+});
+
 test('demo pages have no serious accessibility violations in either theme', async ({ page }) => {
   await page.goto('/');
   await expect(todayHeading(page)).toBeVisible();

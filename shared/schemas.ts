@@ -173,7 +173,6 @@ export const RECORD_SCHEMAS = {
   counselings: counselingSchema,
 } as const;
 export type RecordTable = keyof typeof RECORD_SCHEMAS;
-export const RECORD_TABLES = Object.keys(RECORD_SCHEMAS) as RecordTable[];
 
 export const readinessSchema = z.object({
   pft_score: optNumber(0, 300, true),

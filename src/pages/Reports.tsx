@@ -5,7 +5,7 @@ import { FileDown, Download, Copy, TrendingUp, TrendingDown, Minus, Sparkles } f
 import { Button, Select, Panel, Segmented, Badge, Skeleton, EmptyState, Stat } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult, ModelPicker } from '@/components/AiPanel';
-import { PeriodSelect, DateText, PageShell } from '@/components/common';
+import { PeriodSelect, DateText, PageShell, useParam } from '@/components/common';
 import { keys, useIdentity, usePrefs, useSavePrefs, useTeam, useTrack, useMetricsReport } from '@/lib/queries';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
@@ -26,7 +26,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const subjectId = params.get('user') || '';
   const unitParam = params.get('unit') || '';
   const { data: team } = useTeam(Boolean(identity?.canLead));
-  const [period, setPeriod] = useState(prefs.reportPeriod || 'fiscalYear');
+  const [period, setPeriod] = useParam('period', prefs.reportPeriod || 'fiscalYear');
   const [style, setStyle] = useState<'jepes' | 'fitrep' | 'resume'>(myTrack === 'fitrep' ? 'fitrep' : 'jepes');
   const [track, setTrack] = useState<Track | ''>('');
   const [view, setView] = useState<'narrative' | 'bullets' | 'delta' | 'analysis'>((prefs.reportView as never) || 'narrative');

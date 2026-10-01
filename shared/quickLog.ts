@@ -9,6 +9,13 @@ const SYSTEMS = ['DAI', 'ADVANA', 'SABRS', 'GCSS-MC', 'DTS', 'WAWF', 'iRAPT', 'P
 
 const escapeRe = (s: string) => s.replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
 
+/** A date written without a year is the latest one not yet to come: Quick Log records work already done. */
+function latest(d: Date, now: Date, yearGiven: boolean): Date {
+  if (yearGiven || d <= now) return d;
+  const prior = new Date(d.getFullYear() - 1, d.getMonth(), d.getDate());
+  return prior.getMonth() === d.getMonth() ? prior : d;
+}
+
 function parseWhen(text: string, now: Date): { date: Date; matched: string | null } {
   const lower = text.toLowerCase();
   if (/\byesterday\b/.test(lower)) return { date: startOfDay(subDays(now, 1)), matched: 'yesterday' };
@@ -21,13 +28,15 @@ function parseWhen(text: string, now: Date): { date: Date; matched: string | nul
     const year = dmy[3] ? dmy[3].trim() : String(now.getFullYear());
     const full = `${dmy[1]} ${dmy[2].slice(0, 3)} ${year.length === 2 ? `20${year}` : year}`;
     const d = parse(full, 'd MMM yyyy', new Date());
-    if (isValid(d)) return { date: startOfDay(d), matched: dmy[0] };
+    if (isValid(d)) return { date: startOfDay(latest(d, now, Boolean(dmy[3]))), matched: dmy[0] };
   }
   const slash = text.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
   if (slash) {
     const y = slash[3] ? (slash[3].length === 2 ? 2000 + +slash[3] : +slash[3]) : now.getFullYear();
-    const d = new Date(y, +slash[1] - 1, +slash[2]);
-    if (isValid(d)) return { date: startOfDay(d), matched: slash[0] };
+    const [month, day] = [+slash[1], +slash[2]];
+    const d = new Date(y, month - 1, day);
+    // 13/45 is not a date; JavaScript would roll it over into one.
+    if (d.getMonth() === month - 1 && d.getDate() === day) return { date: startOfDay(latest(d, now, Boolean(slash[3]))), matched: slash[0] };
   }
   return { date: startOfDay(now), matched: null };
 }

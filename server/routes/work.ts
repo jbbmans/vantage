@@ -2,7 +2,7 @@ import { Router } from 'express';
 import express from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
-import { badRequest } from '../lib/errors.ts';
+import { forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor } from '../authz/scope.ts';
 import { audit } from '../services/audit.ts';
@@ -12,12 +12,11 @@ import {
   MAPPABLE_FIELDS, type ImportPlan,
 } from '../services/intake.ts';
 import {
-  listItems, itemDetail, claimItem, releaseItem, assignItem, createItem, updateItem, recordAction,
+  listItems, itemDetail, claimItem, releaseItem, createItem, updateItem, recordAction,
   listViews, saveView, deleteView, WORK_STATES, ACTION_KINDS,
 } from '../services/work.ts';
 import { recordEntry, changeStage, handOff, calculate, applyProcedure, handoffCandidates } from '../services/cases.ts';
 import { teamWorkload, parseWindow } from '../services/record.ts';
-import { forbidden } from '../lib/errors.ts';
 import { PROCEDURES, PROCEDURE_LIST, PROCEDURE_VERSIONS, suggestProcedure } from '../../shared/procedures.ts';
 import { STAGES } from '../../shared/caseModel.ts';
 
@@ -96,7 +95,7 @@ workRouter.get('/imports', wrap((req, res) => {
 
 workRouter.get('/imports/:id', wrap((req, res) => {
   const row = req.ctx.db.prepare('SELECT * FROM import_jobs WHERE id = ? AND user_id = ?').get(String(req.params.id), req.user.id);
-  if (!row) throw badRequest('No such import.');
+  if (!row) throw notFound('No such import.');
   res.json(row);
 }));
 
@@ -166,12 +165,6 @@ workRouter.post('/items/:id/release', wrap((req, res) => {
   res.json(releaseItem(req.ctx, req.user, scope, String(req.params.id), versionOf(req.body)));
 }));
 
-workRouter.post('/items/:id/assign', wrap((req, res) => {
-  const scope = scopeFor(req.ctx, req.user, req);
-  const to = String(req.body?.user_id || '');
-  res.json(assignItem(req.ctx, req.user, scope, String(req.params.id), to, versionOf(req.body)));
-}));
-
 const patchSchema = z.object({
   state: z.enum(WORK_STATES).optional(),
   acknowledge_source_change: z.boolean().optional(),
@@ -220,7 +213,7 @@ workRouter.get('/workload', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   const unitId = String(req.query.unit_id || '');
   if (!unitId) throw forbidden('Choose a unit.');
-  res.json(teamWorkload(req.ctx, req.user, scope, unitId, parseWindow(req.query as Record<string, unknown>, 30)));
+  res.json(teamWorkload(req.ctx, req.user, scope, unitId, parseWindow(req.ctx.config.timezone, req.query as Record<string, unknown>, 30)));
 }));
 
 workRouter.get('/procedures', wrap((_req, res) => {
@@ -233,7 +226,7 @@ workRouter.get('/procedures', wrap((_req, res) => {
 
 workRouter.get('/procedures/:key', wrap((req, res) => {
   const versions = PROCEDURE_VERSIONS[String(req.params.key)];
-  if (!versions) throw badRequest('No such procedure.');
+  if (!versions) throw notFound('No such procedure.');
   res.json({ current: PROCEDURES[String(req.params.key)], versions: Object.values(versions) });
 }));
 

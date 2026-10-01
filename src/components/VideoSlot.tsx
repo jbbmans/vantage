@@ -1,4 +1,4 @@
-import { Play, Video as VideoIcon } from 'lucide-react';
+import { Video as VideoIcon } from 'lucide-react';
 import type { VideoSlot as Slot } from '@/config/videos';
 import { cn } from '@/lib/utils';
 
@@ -43,22 +43,5 @@ export default function VideoSlotCard({ slot, className }: { slot: Slot; classNa
         )}
       </figcaption>
     </figure>
-  );
-}
-
-/** The compact form, for a row of links beside written instructions. */
-export function VideoLink({ slot }: { slot: Slot }) {
-  return (
-    <a
-      href={`/help#video-${slot.id}`}
-      className={cn(
-        'inline-flex items-center gap-2 rounded-md border border-line bg-surface px-2.5 py-1.5 text-xs font-medium transition-colors hover:bg-surface-2',
-        slot.src ? 'text-accent' : 'text-ink-3',
-      )}
-    >
-      <Play className="h-3 w-3" aria-hidden />
-      {slot.title}
-      {!slot.src && <span className="text-ink-3">· not recorded yet</span>}
-    </a>
   );
 }

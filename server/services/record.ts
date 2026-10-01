@@ -6,10 +6,12 @@ import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { RESEARCH_KINDS, describeEvent, humanKey, type Stage } from '../../shared/caseModel.ts';
 import { PROCEDURES, progress, stepObject, actedOn } from '../../shared/procedures.ts';
-import { CONTRIBUTION_DEFINITIONS, WORKLOAD_LIMITATIONS, draftUpdateSchema } from '../../shared/record.ts';
+import { CONTRIBUTION_DEFINITIONS, WORKLOAD_LIMITATIONS } from '../../shared/record.ts';
+import { draftUpdateSchema } from '../../shared/recordSchemas.ts';
 import { parse } from '../lib/http.ts';
 import { eventsFor, caseEventsOf, stageOf, procedureOf } from './cases.ts';
 import { readable, type WorkItemRow } from './work.ts';
+import { zonedDay } from '../lib/clock.ts';
 
 const RESEARCH = RESEARCH_KINDS.map((k) => `'${k}'`).join(',');
 const OPEN = "('resolved','not_applicable')";
@@ -17,14 +19,10 @@ const OPEN = "('resolved','not_applicable')";
 export interface Window { from: string; to: string }
 const bounds = (w: Window) => [`${w.from}T00:00:00.000Z`, `${w.to}T23:59:59.999Z`] as const;
 
-export function defaultWindow(days = 90): Window {
-  const to = new Date();
-  const from = new Date(to.getTime() - (days - 1) * 86_400_000);
-  return { from: from.toISOString().slice(0, 10), to: to.toISOString().slice(0, 10) };
-}
+const defaultWindow = (timezone: string, days: number): Window => ({ from: zonedDay(timezone, -(days - 1)), to: zonedDay(timezone) });
 
-export function parseWindow(query: Record<string, unknown>, days = 90): Window {
-  const fallback = defaultWindow(days);
+export function parseWindow(timezone: string, query: Record<string, unknown>, days = 90): Window {
+  const fallback = defaultWindow(timezone, days);
   const from = typeof query.from === 'string' && query.from ? query.from : fallback.from;
   const to = typeof query.to === 'string' && query.to ? query.to : fallback.to;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw badRequest('Use a valid from/to window.');
@@ -167,7 +165,7 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
   const unitIds = subtreeIds(ctx, unitId);
   const units = JSON.stringify(unitIds);
   const [lo, hi] = bounds(w);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = zonedDay(ctx.config.timezone);
   const items = ctx.db.prepare(
     `SELECT w.*, p.name AS project_name FROM work_items w LEFT JOIN projects p ON p.id = w.project_id AND p.deleted_at IS NULL
       WHERE w.unit_id IN (SELECT value FROM json_each(?)) AND w.visibility = 'unit' AND w.deleted_at IS NULL`

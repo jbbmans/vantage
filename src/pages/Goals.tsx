@@ -9,7 +9,7 @@ import VisibilityPicker from '@/components/VisibilityPicker';
 import { AiAction } from '@/components/AiPanel';
 import { track } from '@/lib/telemetry';
 import { DateText, StatusBadge, onText } from '@/components/common';
-import { useDeleteRecord, useGoals, useIdentity, usePrefs, useMetrics, useGoalContributors, useMetricsReport } from '@/lib/queries';
+import { can, useDeleteRecord, useGoals, useIdentity, usePrefs, useMetrics, useGoalContributors, useMetricsReport } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { GOAL_TYPES, GOAL_STATUS, categoryNames } from '../../shared/constants';
 import { formatNumber, formatDollars, rangeForPeriod, dayKey } from '../../shared/metrics';
@@ -81,7 +81,7 @@ export default function Goals() {
     visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null,
   });
 
-  const canEditRow = (r: any) => r.user_id === me || Boolean(r.unit_id && identity && ((identity.permissions[r.unit_id] || 0) & ((1 << 12) | (1 << 3))));
+  const canEditRow = (r: any) => r.user_id === me || can(identity, PERMISSIONS.MANAGE_RECORDS, r.unit_id);
   const format = (g: any, n: number) => (String(g.metric_id || '').startsWith('money:') ? formatDollars(n) : `${formatNumber(n)}${g.unit_label ? ` ${g.unit_label}` : ''}`);
 
   if (isPending) return <div className="page space-y-3"><Skeleton className="h-10 w-64" /><Skeleton className="h-40" /></div>;

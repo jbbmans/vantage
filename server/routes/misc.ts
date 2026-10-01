@@ -1,6 +1,6 @@
 import { Router } from 'express';
 import { z } from 'zod';
-import { ingest, record, EVENTS } from '../services/telemetry.ts';
+import { ingest, record } from '../services/telemetry.ts';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
@@ -14,6 +14,7 @@ import { renderReportPdf } from '../services/pdf.ts';
 import { comparePeriods } from '../../shared/delta.ts';
 import { rangeForPeriod } from '../../shared/metrics.ts';
 import { areasFor } from '../../shared/evaluation.ts';
+import { isoDate } from '../../shared/schemas.ts';
 import { rowsToCsv, ACTIVITY_CSV_COLUMNS, activityToCsvRow } from '../../shared/csv.ts';
 import { hydrate } from '../services/records.ts';
 import { runAiWorkflow, aiStatus, AiError } from '../services/ai.ts';
@@ -21,7 +22,7 @@ import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { audit } from '../services/audit.ts';
 import { notifyOperators } from '../services/notifications.ts';
 import { now } from '../lib/ids.ts';
-import { zonedNow } from '../lib/clock.ts';
+import { isoDay, zonedNow } from '../lib/clock.ts';
 
 export const miscRouter = Router();
 miscRouter.use(requireAuth);
@@ -30,16 +31,6 @@ miscRouter.post('/events', wrap((req, res) => {
   const events = Array.isArray(req.body?.events) ? req.body.events : [];
   const result = ingest(req.ctx, { id: req.user.id, sessionId: req.sessionId ?? null }, events, 'client');
   res.status(202).json(result);
-}));
-
-miscRouter.get('/events/catalog', wrap((_req, res) => {
-  res.json({
-    events: Object.entries(EVENTS).map(([name, spec]) => ({
-      name, family: spec.family, serverOnly: Boolean(spec.serverOnly),
-      properties: Object.entries(spec.properties).map(([key, p]) => ({ key, kind: p.kind, values: p.values || null })),
-      times: spec.times || [],
-    })),
-  });
 }));
 
 const reportQuery = z.object({
@@ -65,8 +56,8 @@ function reportTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
 
 const draftSchema = z.object({
   title: z.string().max(200),
-  period_start: z.string().max(10),
-  period_end: z.string().max(10),
+  period_start: isoDate,
+  period_end: isoDate,
   subject_id: z.string().max(64).nullable().optional(),
   unit_id: z.string().max(64).nullable().optional(),
   track: z.enum(['jepes', 'fitrep']).optional(),
@@ -99,8 +90,8 @@ miscRouter.get('/studio/reports/:id', wrap((req, res) => {
 
 const revisionSchema = z.object({
   title: z.string().max(200).optional(),
-  period_start: z.string().max(10).optional(),
-  period_end: z.string().max(10).optional(),
+  period_start: isoDate.optional(),
+  period_end: isoDate.optional(),
   note: z.string().max(500).nullable().optional(),
   base_revision: z.coerce.number().int().nullable().optional(),
   sections: z.array(z.object({ heading: z.string().max(200), body: z.string().max(20000), source_ids: z.array(z.string().max(64)).max(200).optional() })).max(40),
@@ -238,7 +229,7 @@ miscRouter.get('/reports/csv', wrap((req, res) => {
   const where = unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
   const params = unitId ? [userId, unitId] : [userId];
   const dateClause = q.period === 'all' ? '' : ' AND date >= ? AND date <= ?';
-  const bounds = q.period === 'all' ? [] : (() => { const r = rangeForPeriod(q.period, zonedNow(req.ctx.config.timezone)); const iso = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`; return [q.from || iso(r.start), q.to || iso(r.end)]; })();
+  const bounds = q.period === 'all' ? [] : (() => { const r = rangeForPeriod(q.period, zonedNow(req.ctx.config.timezone)); return [q.from || isoDay(r.start), q.to || isoDay(r.end)]; })();
   const rows = (req.ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL${dateClause} ORDER BY date DESC`).all(...params, ...bounds) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
   audit(req.ctx, { actor_id: req.user.id, action: 'export_csv', entity: 'activities', subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: `${rows.length} rows`, ip: clientIp(req) });
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -257,7 +248,7 @@ miscRouter.post('/ai/assist', wrap(async (req, res) => {
     res.json(result);
   } catch (error) {
     if (error instanceof AiError) {
-      if (error.code === 'ai_key_locked') notifyOperators(ctx, { kind: 'system', title: 'GenAI.mil key needs unlock', message: 'AI assistance is paused until the GenAI.mil key lock is cleared in the Owner Console.', actionUrl: '/operator#ai', dedupeKey: `genai-lock:${now().slice(0, 13)}` });
+      if (error.code === 'ai_key_locked') notifyOperators(ctx, { kind: 'system', title: 'GenAI.mil key needs unlock', message: 'AI assistance is paused until the GenAI.mil key lock is cleared in the Owner Console.', actionUrl: '/operator?tab=ai', dedupeKey: `genai-lock:${now().slice(0, 13)}` });
       audit(ctx, { actor_id: req.user.id, action: 'ai_assist_failed', entity: 'ai_request', detail: `${workflow || 'unknown'}; ${error.code}`, ip: clientIp(req) });
     }
     throw error;
@@ -314,4 +305,3 @@ miscRouter.get('/search', wrap((req, res) => {
   res.json({ results: results.slice(0, 30) });
 }));
 
-export { badRequest, can, PERMISSIONS };

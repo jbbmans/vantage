@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { Check, KeyRound, ShieldCheck, UserRound, PenLine, Users, X } from 'lucide-react';
 import { useIdentity, useRecordSummary, useSavePrefs } from '@/lib/queries';
 import { useView, viewLabel } from '@/lib/view';
-import { cn } from '@/lib/utils';
+import { cn, todayIso } from '@/lib/utils';
 
 const seenKey = (userId: string) => `vantage.seen-team.${userId}`;
 export const markTeamSeen = (userId: string | undefined) => { if (userId) { try { localStorage.setItem(seenKey(userId), '1'); } catch { /* ignore */ } } };
@@ -18,7 +18,7 @@ interface Step { key: string; title: string; hint: string; done: boolean; icon: 
 export default function GettingStarted() {
   const { data: identity } = useIdentity();
   const { view } = useView(identity);
-  const today = new Date().toISOString().slice(0, 10);
+  const today = todayIso();
   const summary = useRecordSummary({ from: '2000-01-01', to: today });
   const save = useSavePrefs();
   const user = identity?.user;

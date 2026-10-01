@@ -293,7 +293,8 @@ test('a unit can let somebody work cases without letting them close one', async 
 test('work can be handed to somebody, and only to somebody who can already see it', async () => {
   const current = await freshRow(op.token, 'Chase the second endorsement');
 
-  const handed = await app.call('POST', `/api/work/items/${current.id}/assign`, { token: op.token, body: { user_id: bree.id, version: current.version } });
+  // Nobody holds it yet: a leader assigns it through the same hand-off a holder uses, note and all.
+  const handed = await app.call('POST', `/api/work/items/${current.id}/handoff`, { token: op.token, body: { to_user_id: bree.id, note: 'Yours from here.', version: current.version } });
   assert.equal(handed.status, 200, JSON.stringify(handed.body));
   assert.equal(handed.body.claimed_by, bree.id, 'the case is now held by the person it was given to');
 
@@ -301,12 +302,12 @@ test('work can be handed to somebody, and only to somebody who can already see i
   const inbox = await app.call('GET', '/api/me/notifications', { token: bree.token });
   assert.ok((inbox.body.rows as Array<{ kind: string }>).some((n) => n.kind === 'work_assigned'), 'the recipient hears about it');
 
-  const toStranger = await app.call('POST', `/api/work/items/${current.id}/assign`, { token: op.token, body: { user_id: outsider.id, version: handed.body.version } });
+  const toStranger = await app.call('POST', `/api/work/items/${current.id}/handoff`, { token: op.token, body: { to_user_id: outsider.id, note: 'Over to you.', version: handed.body.version } });
   assert.equal(toStranger.status, 400);
-  assert.match(toStranger.body.error, /cannot see this work/i);
+  assert.match(toStranger.body.error, /cannot pick this work up/i);
 
   // And a plain member cannot hand work around at all.
-  const byMember = await app.call('POST', `/api/work/items/${current.id}/assign`, { token: alex.token, body: { user_id: alex.id, version: handed.body.version } });
+  const byMember = await app.call('POST', `/api/work/items/${current.id}/handoff`, { token: alex.token, body: { to_user_id: alex.id, note: 'Taking this.', version: handed.body.version } });
   assert.equal(byMember.status, 403);
 });
 

@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Users, UserPlus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send } from 'lucide-react';
+import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine, Ticket } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -14,13 +14,12 @@ import * as api from '@/lib/api';
 import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATE, listPermissions } from '../../shared/permissions';
 import { ECHELONS, categoryColor } from '../../shared/constants';
 import { formatDollars } from '../../shared/metrics';
-import { copyToClipboard, cn, humanize, fullName } from '@/lib/utils';
-
-const TeamWorkload = lazy(() => import('./TeamWorkload'));
-import { downloadText } from '@/lib/utils';
+import { copyToClipboard, cn, downloadText, fullName, humanize, lastDays } from '@/lib/utils';
 import { useView, subtreeOf, viewLabel } from '@/lib/view';
 import { UnitOverviewPanel } from '@/components/UnitOverview';
 import { markTeamSeen } from '@/components/GettingStarted';
+
+const TeamWorkload = lazy(() => import('./TeamWorkload'));
 
 export default function Team() {
   const { data: identity } = useIdentity();
@@ -36,7 +35,10 @@ export default function Team() {
   useEffect(() => { markTeamSeen(identity?.user.id); }, [identity?.user.id]);
   const units: any[] = org?.units || [];
   const unitLabel = (id: string) => { const u = units.find((x) => x.id === id); return u ? u.short_name || u.name : id; };
-  const manageMembers = unitsWith(identity, PERMISSIONS.MANAGE_MEMBERS);
+  // Accounts and membership are closed in the synthetic demo, so it offers none of the actions that change them.
+  const demo = Boolean(identity?.demo);
+  const leads = unitsWith(identity, PERMISSIONS.MANAGE_MEMBERS);
+  const manageMembers = demo ? [] : leads;
   const manageRoles = unitsWith(identity, PERMISSIONS.MANAGE_ROLES);
   const manageUnits = unitsWith(identity, PERMISSIONS.MANAGE_UNITS);
   const viewAudit = unitsWith(identity, PERMISSIONS.VIEW_AUDIT);
@@ -55,7 +57,7 @@ export default function Team() {
   return (
     <div className="page">
       <PageHeader eyebrow={view && subtree.length > 1 ? 'Whole command' : 'Team'} title={viewLabel(view) || 'Team'} lede={full ? 'The work and people of this view. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.' : 'Who is in this view, how its teams are doing, and the goals it is working toward. Figures built from fewer than three people are not shown.'}>
-        {manageMembers.includes(unit) && <Button onClick={() => setMessaging(true)}><Send className="h-4 w-4" />Email the team</Button>}
+        {leads.includes(unit) && <Button onClick={() => setMessaging(true)}><Send className="h-4 w-4" />Email the team</Button>}
         {views.length > 1 && <Select aria-label="View" className="w-64" value={unit} onValueChange={setView} options={views.map((v) => ({ value: v.id, label: `${'\u2003'.repeat(v.depth)}${v.short_name || v.name}${v.teams ? ' (whole command)' : ''}` }))} />}
       </PageHeader>
       <Tabs value={shown} onChange={setTab} className="mb-4" tabs={tabs} />
@@ -65,7 +67,7 @@ export default function Team() {
           {shown === 'workload' && unit && <Suspense fallback={<Skeleton className="h-64" />}><TeamWorkload unitId={unit} /></Suspense>}
           {shown === 'roster' && <Roster team={team} unit={unit} subtree={subtree} unitLabel={unitLabel} canManage={manageMembers.includes(unit)} moveTargets={views.filter((v) => manageMembers.includes(v.id)).map((v) => ({ id: v.id, depth: v.depth, label: v.teams ? `${v.short_name || v.name} (command element)` : v.short_name || v.name }))} />}
           {shown === 'dashboard' && unit && <UnitDashboard unitId={unit} unitLabel={unitLabel(unit)} canExport={can(identity, PERMISSIONS.EXPORT_DATA, unit)} canDetail={can(identity, PERMISSIONS.VIEW_MEMBER_DETAIL, unit)} />}
-          {shown === 'invites' && <Invites unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} />}
+          {shown === 'invites' && <><Invites unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} /><JoinCodes unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} /></>}
           {shown === 'roles' && <Roles unitId={unit} unitLabel={unitLabel} />}
           {shown === 'units' && <Units units={units} manageUnits={manageUnits} isOperator={Boolean(identity?.user.is_operator)} roster={team?.roster || []} />}
           {shown === 'audit' && <UnitAudit unitId={viewAudit.includes(unit) ? unit : viewAudit[0]} />}
@@ -80,7 +82,31 @@ function Roster({ team, unit, subtree, unitLabel, canManage, moveTargets }: { te
   const [q, setQ] = useState('');
   const [enroll, setEnroll] = useState(false);
   const [moving, setMoving] = useState<{ person: any; from: string } | null>(null);
+  const [removing, setRemoving] = useState<{ person: any; unit: string } | null>(null);
+  const [billet, setBillet] = useState<{ person: any; unit: string; value: string } | null>(null);
   const { data: identity } = useIdentity();
+  const toast = useToast(); const qc = useQueryClient();
+  const manages = (unitId: string) => moveTargets.some((t) => t.id === unitId);
+  const nameOf = (p: any) => `${p.rank_abbr || ''} ${p.last_name}`.trim();
+  const refresh = () => { qc.invalidateQueries({ queryKey: keys.team }); qc.invalidateQueries({ queryKey: ['unit-overview'] }); };
+  const remove = async () => {
+    if (!removing) return;
+    try {
+      const r = await api.removeMember(removing.unit, removing.person.id);
+      const parts = [r.recordsFrozen && `${r.recordsFrozen} shared ${r.recordsFrozen === 1 ? 'record is' : 'records are'} now read-only`, r.claimsReleased && `${r.claimsReleased} held ${r.claimsReleased === 1 ? 'item is' : 'items are'} back in the queue`].filter(Boolean);
+      toast.success(`${nameOf(removing.person)} left ${unitLabel(removing.unit)}.${parts.length ? ` ${parts.join('; ')}.` : ''}`);
+      refresh();
+    } catch (e) { toast.error(api.errorText(e)); }
+    finally { setRemoving(null); }
+  };
+  const saveBillet = async () => {
+    if (!billet) return;
+    try {
+      await api.updateMembership(billet.unit, billet.person.id, { billet: billet.value.trim() || null });
+      toast.success(`Billet saved for ${nameOf(billet.person)}.`);
+      refresh(); setBillet(null);
+    } catch (e) { toast.error(api.errorText(e)); }
+  };
   const rollup = subtree.length > 1;
   const roster: any[] = useMemo(() => (team?.roster || []).filter((p: any) => (!unit || p.memberships.some((m: any) => subtree.includes(m.unit_id))) && (!q.trim() || `${p.first_name} ${p.last_name} ${p.mos || ''} ${p.rank_abbr || ''}`.toLowerCase().includes(q.trim().toLowerCase()))), [team, unit, subtree, q]);
   const teamOf = (p: any) => (p.memberships.find((m: any) => m.unit_id !== unit && subtree.includes(m.unit_id)) || p.memberships.find((m: any) => m.unit_id === unit) || p.memberships[0]);
@@ -99,7 +125,11 @@ function Roster({ team, unit, subtree, unitLabel, canManage, moveTargets }: { te
                 {rollup && <td className="text-xs text-ink-2">{m ? unitLabel(m.unit_id) : ''}</td>}
                 <td className="fig text-xs">{p.mos || ''}</td><td className="text-xs text-ink-2">{m?.billet || ''}</td>
                 <td><span className="flex flex-wrap gap-1">{p.roles.filter((r: any) => r.unit_id === (m?.unit_id || unit)).map((r: any) => <RoleBadge key={r.id} color={r.color}>{r.name}</RoleBadge>)}</span></td>
-                <td className="text-right"><span className="inline-flex items-center gap-1">{m && p.id !== identity?.user.id && moveTargets.some((t) => t.id === m.unit_id) && moveTargets.some((t) => t.id !== m.unit_id && !p.memberships.some((x: any) => x.unit_id === t.id)) && <Button size="xs" variant="ghost" onClick={() => setMoving({ person: p, from: m.unit_id })} aria-label={`Move ${p.last_name} to another team`}><ArrowRightLeft className="h-3.5 w-3.5" /></Button>}{p.canOpen ? <Button size="xs" asChild><Link to={`/team/${p.id}`}>Open</Link></Button> : <span className="text-2xs text-ink-3">roster only</span>}</span></td>
+                <td className="text-right"><span className="inline-flex items-center gap-1">{m && p.id !== identity?.user.id && manages(m.unit_id) && <>
+                  <Button size="xs" variant="ghost" onClick={() => setBillet({ person: p, unit: m.unit_id, value: m.billet || '' })} aria-label={`Change ${p.last_name}’s billet`}><PenLine className="h-3.5 w-3.5" /></Button>
+                  {moveTargets.some((t) => t.id !== m.unit_id && !p.memberships.some((x: any) => x.unit_id === t.id)) && <Button size="xs" variant="ghost" onClick={() => setMoving({ person: p, from: m.unit_id })} aria-label={`Move ${p.last_name} to another team`}><ArrowRightLeft className="h-3.5 w-3.5" /></Button>}
+                  <Button size="xs" variant="ghost" onClick={() => setRemoving({ person: p, unit: m.unit_id })} aria-label={`Remove ${p.last_name} from ${unitLabel(m.unit_id)}`}><UserMinus className="h-3.5 w-3.5" /></Button>
+                </>}{p.canOpen ? <Button size="xs" asChild><Link to={`/team/${p.id}`}>Open</Link></Button> : <span className="text-2xs text-ink-3">roster only</span>}</span></td>
               </tr>
             ); })}
           </Table>
@@ -107,6 +137,16 @@ function Roster({ team, unit, subtree, unitLabel, canManage, moveTargets }: { te
       )}
       <EnrollDialog open={enroll} onOpenChange={setEnroll} unitId={unit} unitLabel={unitLabel(unit)} />
       <MoveDialog move={moving} onClose={() => setMoving(null)} targets={moveTargets} unitLabel={unitLabel} />
+      <ConfirmDialog
+        open={Boolean(removing)} onOpenChange={(o) => { if (!o) setRemoving(null); }}
+        title={removing ? `Remove ${nameOf(removing.person)} from ${unitLabel(removing.unit)}?` : ''} confirmLabel="Remove"
+        body="Their account, private entries and history stay with them. What they shared with this unit becomes read-only, work they were holding here goes back to the queue, their roles here end, and they are signed out everywhere. To keep them in the command, move them instead."
+        onConfirm={remove}
+      />
+      <Dialog open={Boolean(billet)} onOpenChange={(o) => { if (!o) setBillet(null); }} title={billet ? `${nameOf(billet.person)}’s billet` : ''} description={billet ? `In ${unitLabel(billet.unit)}. Leave it empty to clear it.` : ''} size="sm"
+        footer={<><Button variant="ghost" onClick={() => setBillet(null)}>Cancel</Button><Button variant="primary" onClick={saveBillet}>Save</Button></>}>
+        <Field label="Billet"><Input autoFocus maxLength={80} value={billet?.value ?? ''} onChange={(e) => setBillet((b) => (b ? { ...b, value: e.target.value } : b))} placeholder="Budget analyst" /></Field>
+      </Dialog>
     </>
   );
 }
@@ -126,12 +166,14 @@ function MessageDialog({ open, onOpenChange, unitId, unitLabel }: { open: boolea
       onOpenChange(false);
     } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }
   };
+  const tooMany = Boolean(audience && audience.members > audience.limit);
   const reach = !audience ? 'Counting…' : !audience.members ? 'Nobody else is on this roster yet.'
+    : tooMany ? `${audience.members} Marines are in ${unitLabel} and the teams beneath it; one message reaches at most ${audience.limit}. Send it to each team beneath instead.`
     : audience.emailEnabled ? `${audience.members} ${audience.members === 1 ? 'Marine' : 'Marines'}: ${audience.withEmail} by email and in Vantage${audience.appOnly ? `, ${audience.appOnly} in Vantage only (no email on file)` : ''}.`
       : `${audience.members} ${audience.members === 1 ? 'Marine' : 'Marines'}, in Vantage. Email is off on this deployment.`;
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title={`Email ${unitLabel}`} description={reach} size="md"
-      footer={<><span className="mr-auto text-2xs text-ink-3">{identity?.user.email ? `Replies go to ${identity.user.email}.` : 'Add an email to your profile so replies reach you.'}</span><Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button><Button variant="primary" onClick={send} loading={busy} disabled={!subject.trim() || !body.trim() || !audience?.members}><Send className="h-4 w-4" />Send</Button></>}>
+      footer={<><span className="mr-auto text-2xs text-ink-3">{identity?.user.email ? `Replies go to ${identity.user.email}.` : 'Add an email to your profile so replies reach you.'}</span><Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button><Button variant="primary" onClick={send} loading={busy} disabled={!subject.trim() || !body.trim() || !audience?.members || tooMany}><Send className="h-4 w-4" />Send</Button></>}>
       <div className="space-y-3">
         <Field label="Subject"><Input autoFocus value={subject} maxLength={120} onChange={(e) => setSubject(e.target.value)} placeholder="Q4 close-out: what is due Friday" /></Field>
         <Field label="Message" hint={`${body.length} / 5000`}><Textarea rows={8} value={body} maxLength={5000} onChange={(e) => setBody(e.target.value)} placeholder="Plain words. Each Marine gets their own copy; no one sees anyone else’s address." /></Field>
@@ -212,10 +254,63 @@ function Invites({ unitId, unitLabel }: { unitId: string; unitLabel: (id: string
       <Panel title="Open invitations" className="lg:col-span-2" padded={false}>
         {!data?.invites?.length ? <EmptyState title="No open invitations" /> : (
           <Table head={<><th>Invitee</th><th>Role · billet</th><th className="w-28">Expires</th><th className="w-28">By</th><th className="w-20"></th></>}>
-            {data.invites.map((i: any) => <tr key={i.id}><td><span className="block text-ink">{i.email || 'Link invitation'}</span><span className="block text-xs text-ink-3">{[i.payload.first_name, i.payload.last_name].filter(Boolean).join(' ')}</span></td><td className="text-xs text-ink-2">{roles.find((r: any) => r.id === i.payload.role_id)?.name || 'Marine'}{i.payload.billet ? ` · ${i.payload.billet}` : ''}</td><td className="text-xs"><DateText value={i.expires_at?.slice(0, 10)} /></td><td className="text-xs text-ink-3">{i.by_last || ''}</td><td className="text-right">{i.used_at ? <Badge tone="good">Used</Badge> : <Button size="xs" variant="ghost" onClick={async () => { try { await api.revokeInvite(i.id); refetch(); } catch (e) { toast.error(api.errorText(e)); } }}>Revoke</Button>}</td></tr>)}
+            {data.invites.map((i: any) => <tr key={i.id}><td><span className="block text-ink">{i.email || 'Link invitation'}</span><span className="block text-xs text-ink-3">{[i.payload.first_name, i.payload.last_name].filter(Boolean).join(' ')}</span></td><td className="text-xs text-ink-2">{roles.find((r: any) => r.id === i.payload.role_id)?.name || 'Marine'}{i.payload.billet ? ` · ${i.payload.billet}` : ''}</td><td className="text-xs"><DateText value={i.expires_at} /></td><td className="text-xs text-ink-3">{i.by_last || ''}</td><td className="text-right">{i.used_at ? <Badge tone="good">Used</Badge> : <Button size="xs" variant="ghost" onClick={async () => { try { await api.revokeInvite(i.id); refetch(); } catch (e) { toast.error(api.errorText(e)); } }}>Revoke</Button>}</td></tr>)}
           </Table>
         )}
       </Panel>
+    </div>
+  );
+}
+
+const CODE_LIFETIMES = [{ value: '24', label: '1 day' }, { value: '168', label: '7 days' }, { value: '720', label: '30 days' }, { value: 'never', label: 'Until revoked' }];
+
+function joinCodeState(c: { revoked_at: string | null; expires_at: string | null; max_uses: number | null; uses: number }) {
+  if (c.revoked_at) return { label: 'Revoked', tone: 'neutral' as const };
+  if (c.expires_at && Date.parse(c.expires_at) < Date.now()) return { label: 'Expired', tone: 'neutral' as const };
+  if (c.max_uses != null && c.uses >= c.max_uses) return { label: 'Used up', tone: 'neutral' as const };
+  return { label: 'Live', tone: 'good' as const };
+}
+
+/** One code a leader reads out at formation or posts to the section chat; each Marine enters it in Settings and joins. */
+function JoinCodes({ unitId, unitLabel }: { unitId: string; unitLabel: (id: string) => string }) {
+  const toast = useToast(); const { data: rolesData } = useRoles();
+  const { data, refetch } = useQuery({ queryKey: ['join-codes', unitId], queryFn: () => api.listJoinCodes(unitId), enabled: Boolean(unitId) });
+  const [form, setForm] = useState({ role_id: '', note: '', max_uses: '', lifetime: '168' });
+  const [busy, setBusy] = useState(false); const [created, setCreated] = useState<{ code: string } | null>(null); const [revoking, setRevoking] = useState<any>(null);
+  const roles = (rolesData?.roles || []).filter((r: any) => r.unit_id === unitId && r.key !== 'unit-leader' && !r.is_default);
+  const create = async () => {
+    setBusy(true);
+    try {
+      const r = await api.createJoinCode(unitId, { role_id: form.role_id || null, note: form.note.trim() || null, max_uses: form.max_uses ? Number(form.max_uses) : null, expires_in_hours: form.lifetime === 'never' ? null : Number(form.lifetime) });
+      setCreated(r); refetch(); setForm({ ...form, note: '', max_uses: '' }); toast.success('Join code created.');
+    } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }
+  };
+  const codes: any[] = data?.invites || [];
+  return (
+    <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <Panel title={`Join code for ${unitLabel(unitId)}`} subtitle="One code for a whole formation" className="lg:col-span-1">
+        <div className="space-y-3">
+          <p className="text-xs text-ink-3">Anyone signed in who enters the code under Settings joins the unit. Use it where you can see who is in the room; send a named invitation to anyone else.</p>
+          <Field label="Role on arrival"><Select value={form.role_id || '__none'} onValueChange={(v) => setForm({ ...form, role_id: v === '__none' ? '' : v })} options={[{ value: '__none', label: 'Marine (default)' }, ...roles.map((r: any) => ({ value: r.id, label: r.name }))]} /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Works for"><Select value={form.lifetime} onValueChange={(v) => setForm({ ...form, lifetime: v })} options={CODE_LIFETIMES} /></Field>
+            <Field label="Uses" hint="blank: no limit"><Input type="number" inputMode="numeric" min={1} max={1000} value={form.max_uses} onChange={(e) => setForm({ ...form, max_uses: e.target.value })} /></Field>
+          </div>
+          <Field label="Note" hint="who it is for; Marines see it"><Input maxLength={200} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Second squad, 1 October formation" /></Field>
+          <Button variant="primary" className="w-full" onClick={create} loading={busy}><Ticket className="h-4 w-4" />Create join code</Button>
+          {created && <div className="border-l-2 border-l-good border-y border-r border-line p-3 text-xs"><p className="font-medium text-ink">Copy it now. Vantage keeps only a fingerprint of it and cannot show it again.</p><p data-join-code className="mt-1 font-mono text-lg tracking-wider text-ink">{created.code}</p><Button size="xs" className="mt-2" onClick={async () => { if (await copyToClipboard(created.code)) toast.success('Code copied.'); else toast.error('Could not copy.'); }}><Copy className="h-3 w-3" />Copy code</Button></div>}
+        </div>
+      </Panel>
+      <Panel title="Join codes" className="lg:col-span-2" padded={false}>
+        {!codes.length ? <EmptyState title="No join codes" description="Create one to enroll a group at once." /> : (
+          <Table head={<><th>Code</th><th>Role · note</th><th className="w-20">Used</th><th className="w-28">Expires</th><th className="w-24"></th></>}>
+            {codes.map((c) => { const state = joinCodeState(c); return (
+              <tr key={c.id}><td className="font-mono text-xs text-ink">{c.code_hint}-·····</td><td className="text-xs text-ink-2">{roles.find((r: any) => r.id === c.role_id)?.name || 'Marine'}{c.note ? ` · ${c.note}` : ''}</td><td className="fig text-xs">{c.uses}{c.max_uses != null ? ` of ${c.max_uses}` : ''}</td><td className="text-xs">{c.expires_at ? <DateText value={c.expires_at} /> : <span className="text-ink-3">Until revoked</span>}</td><td className="text-right">{state.label === 'Live' ? <Button size="xs" variant="ghost" aria-label={`Revoke join code ${c.code_hint}`} onClick={() => setRevoking(c)}>Revoke</Button> : <Badge tone={state.tone}>{state.label}</Badge>}</td></tr>
+            ); })}
+          </Table>
+        )}
+      </Panel>
+      <ConfirmDialog open={Boolean(revoking)} onOpenChange={(o) => { if (!o) setRevoking(null); }} title={`Revoke join code ${revoking?.code_hint}?`} body="Nobody else can join with it. Marines who already joined stay in the unit." confirmLabel="Revoke" onConfirm={async () => { try { await api.revokeJoinCode(unitId, revoking.id); refetch(); toast.success('Join code revoked.'); } catch (e) { toast.error(api.errorText(e)); } }} />
     </div>
   );
 }
@@ -300,9 +395,7 @@ function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: st
   const cfg = useMetrics();
   const toast = useToast();
   const [days, setDays] = useState('90');
-  const [now] = useState(() => Date.now());
-  const to = new Date(now).toISOString().slice(0, 10);
-  const from = new Date(now - (Number(days) - 1) * 86_400_000).toISOString().slice(0, 10);
+  const { from, to } = useMemo(() => lastDays(days), [days]);
   const { data, isPending } = useQuery({ queryKey: keys.dashboard(unitId, from, to), queryFn: () => api.unitDashboard(unitId, from, to) });
   const unitMetricParams = useMemo(() => ({ from, to, unit_id: unitId }), [from, to, unitId]);
   const unitMetrics = useMetricsReport(unitMetricParams);

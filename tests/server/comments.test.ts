@@ -139,6 +139,6 @@ test('a comment on a career record points somewhere that can actually open it', 
   const inbox = (await app.call('GET', '/api/me/notifications', { token: rivera.token })).body.rows as Array<{ kind: string; action_url: string }>;
   const note = inbox.find((n) => n.kind === 'comment_added');
   assert.ok(note, 'the record owner hears about it');
-  // /records/awards/:id has no page; the career screen does.
-  assert.match(note!.action_url, /^\/career\?tab=awards#/, 'and is sent where the record can be opened');
+  // /records/awards/:id has no page; the career screen opens it, with its comments, by id.
+  assert.equal(note!.action_url, `/career?tab=awards&open=${award.body.id}`, 'and is sent where the record and its comments open');
 });

@@ -195,8 +195,9 @@ function sheetRows(ctx: AppContext, row: SourceFileRow, sheetName: string): stri
   const limits = { maxRows: ctx.config.intake.maxRows, maxColumns: ctx.config.intake.maxColumns };
   if (row.kind === 'xlsx') {
     const wb = readWorkbook(buffer, limits);
-    const sheet = wb.sheets.find((s) => s.name === sheetName) || wb.sheets[0];
-    if (!sheet) throw badRequest('That sheet is not in this workbook.');
+    // A named sheet that is missing is an error, not a reason to import whichever sheet comes first.
+    const sheet = sheetName ? wb.sheets.find((s) => s.name === sheetName) : wb.sheets[0];
+    if (!sheet) throw badRequest(sheetName ? `This workbook has no sheet named “${sheetName}”. Choose one of its sheets.` : 'This workbook has no sheets.');
     return sheet.rows;
   }
   const text = buffer.toString('utf8');
@@ -252,6 +253,9 @@ function damagedIdentifier(value: string): string | null {
   if (/^#(REF|VALUE|NAME|DIV\/0|N\/A|NULL|NUM)[!?]?$/i.test(text)) return 'the cell holds a spreadsheet error rather than a value';
   return null;
 }
+
+/** Joins the parts of a key of several columns. A character no cell holds, so N0012 + 1 and N001 + 21 stay two keys. */
+const KEY_SEPARATOR = '\u001f';
 
 const VALID_STATES = new Set(['open', 'in_progress', 'waiting', 'resolved', 'not_applicable']);
 
@@ -317,7 +321,7 @@ export function normalizeRows(rows: string[][], plan: ImportPlan): { rows: Norma
       });
       continue;
     }
-    const naturalKey = keyParts.join('');
+    const naturalKey = keyParts.join(KEY_SEPARATOR);
     const firstSeen = seen.get(naturalKey);
     if (firstSeen != null) { rejections.push({ source_row: sourceRow, value: keyParts.join(' / '), reason: `The same identifier is on row ${firstSeen} of this sheet. Vantage imports it once.` }); continue; }
     seen.set(naturalKey, sourceRow);

@@ -10,7 +10,8 @@ import { ActivityFields, toActivityDraft, type ActivityDraft } from '@/component
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DescriptionList, DateText, StatusBadge, CategoryDot } from '@/components/common';
 import { Comments } from '@/components/Comments';
-import { keys, useDeleteRecord, useIdentity, useRestoreRecord, useTrack, unitName, useOrg, useMetrics } from '@/lib/queries';
+import { can, keys, useDeleteRecord, useIdentity, useRestoreRecord, useTrack, unitName, useOrg, useMetrics } from '@/lib/queries';
+import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
 import { useForgetVisit, useRememberVisit } from '@/lib/recent';
 import { composeBullet, strength, weaknesses, expandAcronyms, type BulletStyle } from '../../shared/bullets';
@@ -47,7 +48,7 @@ export default function RecordDetail() {
   const gaps = useMemo(() => (a ? weaknesses(a) : []), [a]);
   const score = a ? strength(a) : 0;
   const mine = a?.user_id === identity?.user.id;
-  const canEdit = a ? (mine ? !a.frozen_at : Boolean(a.unit_id && identity && ((identity.permissions[a.unit_id] || 0) & ((1 << 12) | (1 << 3))))) : false;
+  const canEdit = a ? (mine ? !a.frozen_at : can(identity, PERMISSIONS.MANAGE_RECORDS, a.unit_id)) : false;
 
   if (isPending) return <div className="page space-y-3"><Skeleton className="h-8 w-40" /><Skeleton className="h-40" /><Skeleton className="h-64" /></div>;
   if (error || !a) return <div className="page"><div className="card"><EmptyState title="That entry is not available" description={api.errorText(error) || 'It may have been deleted, or it is private to another Marine.'} action={<Button onClick={() => navigate('/records')}>Back to records</Button>} /></div></div>;
@@ -128,7 +129,7 @@ export default function RecordDetail() {
         </div>
       </div>
 
-      <Comments table="activities" id={id} canModerate={Boolean(a.unit_id && identity && ((identity.permissions[a.unit_id] || 0) & ((1 << 12) | (1 << 3))))} />
+      <Comments table="activities" id={id} canModerate={can(identity, PERMISSIONS.MANAGE_RECORDS, a.unit_id)} />
 
       <RecordDialog<ActivityDraft> store="activities" open={Boolean(editing)} onOpenChange={(o) => { if (!o) setEditing(null); }} initial={editing} title="Edit activity" noun="Activity" size="lg" fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : null)} onSaved={() => qc.invalidateQueries({ queryKey: keys.record('activities', id) })} />
       <ConfirmDialog open={confirm} onOpenChange={setConfirm} title="Delete this entry?" body="It moves to the recycle bin for 30 days and can be restored from this page." onConfirm={async () => { try { await remove.mutateAsync(id); toast.success('Entry deleted.'); navigate('/records'); } catch (e) { toast.error(api.errorText(e)); } }} />

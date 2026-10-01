@@ -33,11 +33,10 @@ test('digest preview composes the week and sends on the configured slot only', a
   assert.equal(now.status, 200);
 });
 
-test('operator email test and digest run endpoints', async () => {
+test('the operator can send themselves a test email', async () => {
   const t = await app.call('POST', '/api/admin/email/test', { token: op.token, body: {} });
   assert.equal(t.status, 200);
   assert.equal(app.ctx.mailer.outbox.at(-1)!.subject, 'Vantage email test');
-  assert.equal((await app.call('POST', '/api/admin/digest/run', { token: op.token })).status, 200);
 });
 
 test('MARADMIN listing and per-user state', async () => {

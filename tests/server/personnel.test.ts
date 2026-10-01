@@ -124,3 +124,20 @@ test('the personnel feed is operator-only', async () => {
     assert.ok(res.status === 403 || res.status === 404, `a member cannot run a sync (got ${res.status})`);
   } finally { await app.close(); }
 });
+
+test('an extract that writes ranks and dates its own way updates the account instead of failing the sync', async () => {
+  const app = await startApp();
+  try {
+    const op = await app.setupOperator();
+    app.ctx.db.prepare("UPDATE users SET edipi = '1234567890', rank_id = 'Cpl' WHERE id = ?").run(op.id);
+    const extract = `EDIPI,Last,First,Rank,EAS\n1234567890,Boletz,John,SGT,06/30/2027\n9876543210,Rivera,Ana,E-8,someday\n`;
+    const applied = await post(app, op.token, extract, '&apply=1');
+    assert.equal(applied.status, 200, `an upper-case rank used to fail the whole sync with ${applied.status}`);
+    const me = (await app.call('GET', '/api/me', { token: op.token })).body.user;
+    assert.equal(me.rank_id, 'Sgt');
+    assert.equal(me.eas, '2027-06-30');
+    const reasons = applied.body.plan.conflicts.map((c: { reason: string }) => c.reason).join(' | ');
+    assert.match(reasons, /rank “E-8” is not one Vantage knows/, 'E-8 is two ranks, so it is not guessed');
+    assert.match(reasons, /EAS “someday” is not a date/);
+  } finally { await app.close(); }
+});

@@ -1,7 +1,7 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
-import { badRequest, conflict, forbidden, notFound, tooMany } from '../lib/errors.ts';
+import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth, requireOperator, requireSudo } from '../auth/middleware.ts';
 import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross } from '../authz/scope.ts';
 import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, type RoleRow } from '../services/org.ts';
@@ -18,9 +18,21 @@ import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
 import { mailAllowance, limiters } from '../auth/limiter.ts';
 import { sendTeamMessage, teamAudience } from '../services/teamMail.ts';
+import { zonedDay } from '../lib/clock.ts';
+import type { Request } from 'express';
+import { randomBytes } from 'node:crypto';
+import { hashPassword } from '../lib/crypto.ts';
 
 export const orgRouter = Router();
 orgRouter.use(requireAuth);
+
+/** The last 90 days in the instance's timezone, unless the caller names a window. */
+function dashboardWindow(req: Request) {
+  const to = String(req.query.to || zonedDay(req.ctx.config.timezone));
+  const from = String(req.query.from || zonedDay(req.ctx.config.timezone, -89));
+  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw badRequest('Use a valid from/to window.');
+  return { from, to };
+}
 
 orgRouter.post('/units', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
@@ -35,9 +47,7 @@ orgRouter.get('/units/:unitId/dashboard', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   if (!getUnit(req.ctx, unitId)) throw notFound('No such unit.');
   if (!can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('You cannot view that unit dashboard.');
-  const to = String(req.query.to || new Date().toISOString().slice(0, 10));
-  const from = String(req.query.from || new Date(Date.now() - 89 * 86_400_000).toISOString().slice(0, 10));
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw badRequest('Use a valid from/to window.');
+  const { from, to } = dashboardWindow(req);
   const includeMembers = can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, unitId);
   audit(req.ctx, { actor_id: req.user.id, action: 'view_unit_dashboard', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${from}..${to}`, ip: clientIp(req) });
   res.json(unitDashboard(req.ctx, unitId, from, to, { includeMembers }));
@@ -48,9 +58,7 @@ orgRouter.get('/units/:unitId/overview', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   if (!getUnit(req.ctx, unitId)) throw notFound('No such unit.');
   if (!req.user.is_operator && !scope.viewableUnitIds.includes(unitId)) throw forbidden('That unit is outside your chain of command.');
-  const to = String(req.query.to || new Date().toISOString().slice(0, 10));
-  const from = String(req.query.from || new Date(Date.now() - 89 * 86_400_000).toISOString().slice(0, 10));
-  if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw badRequest('Use a valid from/to window.');
+  const { from, to } = dashboardWindow(req);
   const goalUnits = [...new Set([...scope.readableUnitIds, ...scope.unitIds, ...ancestorIds(req.ctx, scope.unitIds)])];
   res.json(unitOverview(req.ctx, unitId, { from, to, full: can(scope, PERMISSIONS.VIEW_RECORDS, unitId), goalUnits }));
 }));
@@ -439,8 +447,8 @@ orgRouter.post('/team/:userId/temporary-password', requireOperator, requireSudo,
   const id = String(req.params.userId);
   if (id === req.user.id) throw badRequest('Use Change password for your own account.');
   if (!ctx.db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) throw notFound('No such Marine.');
-  const password = `${newId().slice(0, 8)}-${newId().slice(0, 8)}-${newId().slice(0, 4)}`;
-  const { hashPassword } = await_import();
+  const hex = randomBytes(10).toString('hex');
+  const password = `${hex.slice(0, 8)}-${hex.slice(8, 16)}-${hex.slice(16)}`;
   ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = ? WHERE id = ?').run(hashPassword(password), now(), id);
   const revoked = invalidateUserSessions(ctx, id);
   audit(ctx, { actor_id: req.user.id, action: 'temporary_password', entity: 'user', entity_id: id, subject_id: id, detail: `sessions revoked: ${revoked}`, ip: clientIp(req) });
@@ -464,18 +472,16 @@ orgRouter.post('/team/:userId/operator', requireOperator, requireSudo, wrap((req
   res.json({ ok: true });
 }));
 
-import { hashPassword as _hashPassword } from '../lib/crypto.ts';
-function await_import() { return { hashPassword: _hashPassword }; }
-export { conflict };
+const joinCodeSchema = z.object({
+  role_id: z.string().max(120).nullish(),
+  note: z.string().max(200).nullish(),
+  max_uses: z.number().int().min(1).max(1000).nullish(),
+  expires_in_hours: z.number().int().min(1).max(24 * 365).nullish(),
+});
 
 orgRouter.post('/units/:unitId/join-codes', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
-  res.status(201).json(createInvite(req.ctx, req.user, scope, String(req.params.unitId), {
-    role_id: req.body?.role_id ?? null,
-    note: req.body?.note ?? null,
-    max_uses: req.body?.max_uses ?? null,
-    expires_in_hours: req.body?.expires_in_hours ?? null,
-  }, clientIp(req)));
+  res.status(201).json(createInvite(req.ctx, req.user, scope, String(req.params.unitId), parse(joinCodeSchema, req.body), clientIp(req)));
 }));
 
 orgRouter.get('/units/:unitId/join-codes', wrap((req, res) => {

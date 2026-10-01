@@ -1,11 +1,11 @@
 import { Lock, Users } from 'lucide-react';
-import { useIdentity } from '@/lib/queries';
+import { can, useIdentity } from '@/lib/queries';
 import { Select } from '@/components/ui/primitives';
 import { cn } from '@/lib/utils';
 
 export default function VisibilityPicker({ value, unitId, onChange, compact = false, permission }: { value: 'private' | 'unit'; unitId?: string | null; onChange: (v: { visibility: 'private' | 'unit'; unit_id?: string | null }) => void; compact?: boolean; permission?: number }) {
   const { data: identity } = useIdentity();
-  const allowed = (unit: string) => !permission || Boolean(((identity?.permissions[unit] || 0) & (permission | (1 << 12))));
+  const allowed = (unit: string) => !permission || can(identity, permission, unit);
   const memberships = (identity?.memberships || []).filter((m) => allowed(m.unit_id));
   const canShare = memberships.length > 0;
   const options: Array<{ value: 'private' | 'unit'; label: string; icon: typeof Lock; hint: string; disabled?: boolean }> = [

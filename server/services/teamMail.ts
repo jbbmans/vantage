@@ -3,11 +3,13 @@ import { subtreeIds, membersAcross } from '../authz/scope.ts';
 import { layout } from './mailLayout.ts';
 import { notify } from './notifications.ts';
 import { getUnit } from './org.ts';
+import { HttpError } from '../lib/errors.ts';
 
-const MAX_RECIPIENTS = 300;
+/** One message reaches at most this many Marines. A bigger command is messaged a team at a time, never cut short. */
+export const MAX_RECIPIENTS = 300;
 
 function recipients(ctx: AppContext, unitId: string, senderId: string) {
-  const members = membersAcross(ctx, subtreeIds(ctx, unitId)).filter((m) => m.id !== senderId).slice(0, MAX_RECIPIENTS);
+  const members = membersAcross(ctx, subtreeIds(ctx, unitId)).filter((m) => m.id !== senderId);
   const emails = new Map<string, string | null>();
   if (members.length) {
     const rows = ctx.db.prepare(`SELECT id, email FROM users WHERE id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(members.map((m) => m.id))) as Array<{ id: string; email: string | null }>;
@@ -20,7 +22,7 @@ function recipients(ctx: AppContext, unitId: string, senderId: string) {
 export function teamAudience(ctx: AppContext, unitId: string, senderId: string) {
   const list = recipients(ctx, unitId, senderId);
   const withEmail = list.filter((r) => r.email).length;
-  return { members: list.length, withEmail, appOnly: list.length - withEmail, emailEnabled: ctx.mailer.enabled };
+  return { members: list.length, withEmail, appOnly: list.length - withEmail, emailEnabled: ctx.mailer.enabled, limit: MAX_RECIPIENTS };
 }
 
 /**
@@ -35,6 +37,8 @@ export async function sendTeamMessage(ctx: AppContext, sender: SessionUser, unit
   const unitLabel = unit.short_name || unit.name;
   const senderName = [sender.rank_id, sender.first_name, sender.last_name].filter(Boolean).join(' ');
   const list = recipients(ctx, unitId, sender.id);
+  // The roster is ordered by rank, so cutting it short would quietly leave out the most junior Marines.
+  if (list.length > MAX_RECIPIENTS) throw new HttpError(400, `${unitLabel} and the teams beneath it hold ${list.length} Marines; one message reaches at most ${MAX_RECIPIENTS}. Send it to each team beneath instead.`, 'too_many_recipients');
   const mail = layout({
     eyebrow: `Message to ${unitLabel}`,
     title: message.subject,

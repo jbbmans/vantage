@@ -1,0 +1,218 @@
+import { test, after, before } from 'node:test';
+import assert from 'node:assert/strict';
+import { startApp, enroll, PASSWORD, type TestApp } from './helpers.ts';
+import { slug } from '../../server/lib/ids.ts';
+import { zonedDay } from '../../server/lib/clock.ts';
+import { todayActions } from '../../shared/health.ts';
+import { applyMapping } from '../../shared/csv.ts';
+import { buildZip } from '../../server/lib/zip.ts';
+import { EXPORT_TABLES, NOT_EXPORTED } from '../../server/services/exports.ts';
+import { parseMaradminFeed } from '../../server/services/maradmins.ts';
+
+let app: TestApp;
+let op: { token: string; id: string; unitId: string };
+let peer: { token: string; id: string };
+
+before(async () => {
+  app = await startApp();
+  op = await app.setupOperator();
+  peer = await app.register('peer', { email: 'peer@example.mil' });
+  await enroll(app, op.token, 'G8', peer.id);
+  peer = { ...peer, token: (await app.login('peer')).body.token };
+});
+after(() => app.close());
+
+const newItem = async (title: string, reference?: string) => {
+  const made = await app.call('POST', '/api/work/items', { token: op.token, body: { unit_id: 'G8', title, reference } });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  return made.body as { id: string; version: number };
+};
+
+/** Runs fn with the process in another timezone, the way a browser or a host in that zone would be. */
+function inZone<T>(tz: string, fn: () => T): T {
+  const before = process.env.TZ;
+  process.env.TZ = tz;
+  try { return fn(); } finally { if (before === undefined) delete process.env.TZ; else process.env.TZ = before; }
+}
+
+test('a saved view too large to store is refused, and a cut-off one saved earlier cannot break the list', async () => {
+  const huge = await app.call('POST', '/api/work/views', { token: op.token, body: { name: 'Everything', config: { q: 'x'.repeat(9000) } } });
+  assert.equal(huge.status, 400, 'the view used to be cut off mid-JSON and saved');
+
+  const ok = await app.call('POST', '/api/work/views', { token: op.token, body: { name: 'Mine', config: { claimed: 'me' } } });
+  assert.equal(ok.status, 201);
+  app.ctx.db.prepare('UPDATE work_views SET config = ? WHERE id = ?').run('{"q":"unterminated', ok.body.id);
+  const list = await app.call('GET', '/api/work/views', { token: op.token });
+  assert.equal(list.status, 200, 'one unreadable view used to fail the whole list for everyone it was shared with');
+  assert.deepEqual(list.body.find((v: { id: string }) => v.id === ok.body.id).config, {});
+
+  assert.equal((await app.call('DELETE', `/api/work/views/${ok.body.id}`, { token: peer.token })).status, 403, 'only its owner deletes a view');
+  assert.equal((await app.call('DELETE', `/api/work/views/${ok.body.id}`, { token: op.token })).status, 204);
+});
+
+test('claiming work already held adds nothing to its history, and closed work cannot be claimed', async () => {
+  const item = await newItem('Reconcile the travel ledger');
+  const first = await app.call('POST', `/api/work/items/${item.id}/claim`, { token: op.token, body: {} });
+  assert.equal(first.status, 200);
+  const again = await app.call('POST', `/api/work/items/${item.id}/claim`, { token: op.token, body: {} });
+  assert.equal(again.status, 200);
+  assert.equal(again.body.version, first.body.version, 'a repeat claim must not bump the version');
+  const claims = app.ctx.db.prepare("SELECT COUNT(*) AS n FROM work_events WHERE work_item_id = ? AND kind = 'claimed'").get(item.id) as { n: number };
+  assert.equal(claims.n, 1, 'the sealed history gained a second claim entry');
+
+  const closed = await newItem('Duplicate request');
+  const na = await app.call('PATCH', `/api/work/items/${closed.id}`, { token: op.token, body: { state: 'not_applicable' } });
+  assert.equal(na.status, 200, JSON.stringify(na.body));
+  assert.equal((await app.call('POST', `/api/work/items/${closed.id}/claim`, { token: op.token, body: {} })).status, 409, 'claiming used to reopen not-applicable work');
+});
+
+test('a leader can assign work nobody holds, through the hand-off with its note', async () => {
+  const item = await newItem('Pull the Q4 obligations');
+  const detail = await app.call('GET', `/api/work/items/${item.id}`, { token: op.token });
+  assert.equal(detail.body.case.permissions.hand_off, true, 'the leader is offered the action on unheld work');
+  const candidates = await app.call('GET', `/api/work/items/${item.id}/handoff-candidates`, { token: op.token });
+  assert.ok(candidates.body.some((c: { id: string }) => c.id === peer.id));
+  const handed = await app.call('POST', `/api/work/items/${item.id}/handoff`, { token: op.token, body: { to_user_id: peer.id, note: 'Yours: start with the September report.', version: detail.body.item.version } });
+  assert.equal(handed.status, 200, JSON.stringify(handed.body));
+  assert.equal(handed.body.claimed_by, peer.id);
+  assert.equal((await app.call('POST', `/api/work/items/${item.id}/assign`, { token: op.token, body: { user_id: peer.id } })).status, 404, 'the weaker duplicate route is gone');
+});
+
+test('queue search treats % and _ as the characters they are', async () => {
+  await newItem('Rate change 100% review');
+  await newItem('Rate change review');
+  const list = await app.call('GET', `/api/work/items?q=${encodeURIComponent('100%')}`, { token: op.token });
+  assert.deepEqual(list.body.items.map((i: { title: string }) => i.title), ['Rate change 100% review']);
+  const underscore = await app.call('GET', `/api/work/items?q=${encodeURIComponent('_')}`, { token: op.token });
+  assert.equal(underscore.body.total, 0, '_ used to match every row');
+});
+
+test('an email confirmation link is not spent by the wrong account, and a taken address is refused cleanly', async () => {
+  await app.call('POST', '/api/auth/sudo', { token: op.token, body: { password: PASSWORD } });
+  assert.equal((await app.call('POST', '/api/me/email/verify', { token: op.token, body: { email: 'shared@example.mil' } })).status, 200);
+  const link = decodeURIComponent(app.ctx.mailer.outbox.at(-1)!.text.match(/verify=([^\s]+)/)![1]);
+
+  assert.equal((await app.call('POST', '/api/me/email/confirm', { token: peer.token, body: { token: link } })).status, 400);
+  app.ctx.db.prepare('UPDATE users SET email = ? WHERE id = ?').run('shared@example.mil', peer.id);
+  const taken = await app.call('POST', '/api/me/email/confirm', { token: op.token, body: { token: link } });
+  assert.equal(taken.status, 400, `a unique-index failure used to surface as ${taken.status}`);
+  assert.match(taken.body.error, /already in use/);
+
+  app.ctx.db.prepare('UPDATE users SET email = ? WHERE id = ?').run('peer@example.mil', peer.id);
+  const confirmed = await app.call('POST', '/api/me/email/confirm', { token: op.token, body: { token: link } });
+  assert.equal(confirmed.status, 200, 'the link survived both refusals');
+  assert.equal((await app.call('POST', '/api/me/email/confirm', { token: op.token, body: { token: link } })).status, 400, 'and works once');
+});
+
+test('failed password confirmations count against the same budget as sign-in, whatever the case of the username', async () => {
+  const marine = await app.register('CaseSensitive');
+  for (let i = 0; i < 10; i += 1) await app.call('POST', '/api/auth/sudo', { token: marine.token, body: { password: 'wrong-password-wrong' } });
+  const login = await app.login('casesensitive');
+  assert.equal(login.status, 429, 'ten failed confirmations should lock sign-in for the account too');
+});
+
+test('unit codes never end in a hyphen', () => {
+  assert.equal(slug(`${'A'.repeat(39)} B`), 'A'.repeat(39));
+  assert.equal(slug('  1st Bn, 8th Marines!  '), '1ST-BN-8TH-MARINES');
+});
+
+test('“today” is the day where the Marine is, not in Greenwich', () => {
+  // 21:00 in Chicago on 29 September is already 30 September in UTC.
+  const evening = new Date('2026-09-30T02:00:00Z');
+  assert.equal(zonedDay('America/Chicago', 0, evening), '2026-09-29');
+  const actions = inZone('America/Chicago', () => todayActions({ tasks: [{ status: 'open', due_date: '2026-09-29', title: 'Due today' }], now: evening }));
+  assert.equal(actions.some((a) => a.key === 'overdue'), false, 'work due today was flagged overdue every evening');
+
+  // Okinawa is ahead of UTC: a free-form date parses as local midnight, which is still the previous day in UTC.
+  const { records } = inZone('Asia/Tokyo', () => applyMapping([{ When: 'Sep 29, 2026', What: 'Range brief' }], { date: 'When', title: 'What' }));
+  assert.equal(records[0].date, '2026-09-29');
+});
+
+test('a preview of a sheet the workbook does not have is refused, not quietly read from the first sheet', async () => {
+  const cells = (rows: string[][]) => `<?xml version="1.0"?><worksheet><sheetData>${rows.map((r, i) => `<row r="${i + 1}">${r.map((v) => `<c t="inlineStr"><is><t>${v}</t></is></c>`).join('')}</row>`).join('')}</sheetData></worksheet>`;
+  const workbook = buildZip([
+    { name: '[Content_Types].xml', data: '<?xml version="1.0"?><Types/>' },
+    { name: 'xl/workbook.xml', data: '<?xml version="1.0"?><workbook xmlns:r="r"><sheets><sheet name="Summary" sheetId="1" r:id="rId1"/><sheet name="Open items" sheetId="2" r:id="rId2"/></sheets></workbook>' },
+    { name: 'xl/_rels/workbook.xml.rels', data: '<?xml version="1.0"?><Relationships><Relationship Id="rId1" Target="worksheets/sheet1.xml"/><Relationship Id="rId2" Target="worksheets/sheet2.xml"/></Relationships>' },
+    { name: 'xl/worksheets/sheet1.xml', data: cells([['Document', 'Note'], ['TOTAL', 'not a work item']]) },
+    { name: 'xl/worksheets/sheet2.xml', data: cells([['Document', 'Note'], ['ULO-7001', 'clear it']]) },
+  ]);
+  const source = await app.call('POST', '/api/work/sources', { token: op.token, raw: workbook, headers: { 'content-type': 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'x-filename': 'balances.xlsx', 'x-unit-id': '', 'x-visibility': 'private' } });
+  assert.equal(source.status, 201, JSON.stringify(source.body));
+  const plan = { source_file_id: source.body.id, header_row: 1, key_columns: ['Document'], mapping: {}, unit_id: null, visibility: 'private' };
+  const renamed = await app.call('POST', '/api/work/imports/preview', { token: op.token, body: { ...plan, sheet_name: 'Open Items (old)' } });
+  assert.equal(renamed.status, 400, 'a missing sheet used to fall back to the Summary sheet');
+  assert.match(renamed.body.error, /no sheet named/);
+  const named = await app.call('POST', '/api/work/imports/preview', { token: op.token, body: { ...plan, sheet_name: 'Open items' } });
+  assert.deepEqual(named.body.will_insert.map((r: { natural_key: string }) => r.natural_key), ['ULO-7001']);
+});
+
+test('a join code is checked when it is made, and works however a Marine types it', async () => {
+  for (const max_uses of ['lots', 0, 1.5]) {
+    assert.equal((await app.call('POST', '/api/org/units/G8/join-codes', { token: op.token, body: { max_uses } })).status, 400, `max_uses ${max_uses} used to be stored as no limit`);
+  }
+  assert.equal((await app.call('POST', '/api/org/units/G8/join-codes', { token: op.token, body: { note: 42 } })).status, 400, 'a non-text note used to fail with a 500');
+
+  const made = await app.call('POST', '/api/org/units/G8/join-codes', { token: op.token, body: { max_uses: 2, expires_in_hours: 24, note: 'Formation' } });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const typed = ` ${made.body.code.replace('-', '').toLowerCase()} `;
+  const joiner = await app.register('joiner');
+  const peek = await app.call('GET', `/api/org/join-codes/${encodeURIComponent(typed)}`, { token: joiner.token });
+  assert.equal(peek.status, 200, 'a code typed without its hyphen, in lower case, was refused');
+  assert.equal(peek.body.note, 'Formation');
+  assert.equal((await app.call('POST', `/api/org/join-codes/${encodeURIComponent(typed)}/join`, { token: joiner.token })).status, 200);
+});
+
+test('the instance archive carries every table, unless one is left out on purpose', () => {
+  const tables = (app.ctx.db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%'").all() as Array<{ name: string }>).map((t) => t.name);
+  const accounted = new Set<string>([...EXPORT_TABLES, ...NOT_EXPORTED]);
+  assert.deepEqual(tables.filter((t) => !accounted.has(t)), [], 'moving an instance used to drop comments, legal holds, retention schedules and case seals');
+  assert.deepEqual([...accounted].filter((t) => !tables.includes(t)), [], 'the archive names a table that does not exist');
+});
+
+test('a thread keeps its newest message date when an older one is filed late, and follow-ups fall due by the local day', async () => {
+  const thread = await app.call('POST', '/api/correspondence/threads', { token: op.token, body: { subject: 'TDY claim 4410', visibility: 'private', follow_up_at: zonedDay(app.ctx.config.timezone, 1) } });
+  assert.equal(thread.status, 201, JSON.stringify(thread.body));
+  const add = (sent_at: string) => app.call('POST', `/api/correspondence/threads/${thread.body.id}/messages`, { token: op.token, body: { direction: 'inbound', body_text: 'Received.', sent_at } });
+  assert.equal((await add('2026-09-20T15:00:00.000Z')).status, 201);
+  assert.equal((await add('2026-09-02T15:00:00.000Z')).status, 201);
+  const detail = await app.call('GET', `/api/correspondence/threads/${thread.body.id}`, { token: op.token });
+  assert.equal(detail.body.thread.last_message_at, '2026-09-20T15:00:00.000Z');
+
+  const due = await app.call('GET', '/api/correspondence/threads?due=1', { token: op.token });
+  assert.equal(due.body.some((t: { id: string }) => t.id === thread.body.id), false, 'tomorrow’s follow-up is not due today');
+  assert.equal((await app.call('POST', '/api/correspondence/threads', { token: op.token, body: { subject: 'x', visibility: 'private', follow_up_at: 'next week' } })).status, 400);
+});
+
+test('a MARADMIN title is decoded once, whatever entities the feed uses', () => {
+  const item = (title: string) => `<item><title>${title}</title><link>https://www.marines.mil/News/Messages/Messages-Display/Article/1/</link><description>MARADMIN 512/26</description><pubDate>Tue, 29 Sep 2026 14:00:00 GMT</pubDate></item>`;
+  const [r] = parseMaradminFeed(`<rss><channel>${item('FY27 R&amp;amp;D &amp;lt;DRAFT&amp;gt; &#x2014; Q&amp;A &#99999999;')}</channel></rss>`);
+  assert.equal(r.title, 'FY27 R&amp;D &lt;DRAFT&gt; — Q&A &#99999999;', 'an escaped ampersand used to be decoded twice, and a bad code point failed the whole sync');
+});
+
+test('a team message too big for one send is refused whole, not quietly cut at the most junior Marines', async () => {
+  const at = new Date().toISOString();
+  const addUser = app.ctx.db.prepare("INSERT INTO users (id, username, password_hash, first_name, last_name, rank_id, created_at, updated_at) VALUES (?, ?, 'x', 'Pat', ?, 'Pvt', ?, ?)");
+  const addMember = app.ctx.db.prepare('INSERT INTO unit_members (user_id, unit_id, is_primary, joined_at) VALUES (?, ?, 1, ?)');
+  app.ctx.db.transaction(() => { for (let i = 0; i < 305; i++) { addUser.run(`bulk-${i}`, `bulk${i}`, `Bulk${i}`, at, at); addMember.run(`bulk-${i}`, 'G8', at); } })();
+
+  const audience = await app.call('GET', '/api/org/units/G8/message', { token: op.token });
+  assert.ok(audience.body.members > audience.body.limit, `the dialog used to count ${audience.body.members} when the send would stop at 300`);
+  const sent = await app.call('POST', '/api/org/units/G8/message', { token: op.token, body: { subject: 'All hands', body: 'Formation at 0700.' } });
+  assert.equal(sent.status, 400);
+  assert.equal(sent.body.code, 'too_many_recipients');
+  const reached = app.ctx.db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE title LIKE '%All hands%'").get() as { n: number };
+  assert.equal(reached.n, 0, 'nobody got part of a message');
+  app.ctx.db.prepare("DELETE FROM unit_members WHERE user_id LIKE 'bulk-%'").run();
+});
+
+test('Quick Log never dates work in the future or on a day that does not exist', async () => {
+  const { parseQuickLog } = await import('../../shared/quickLog.ts');
+  const now = new Date(2026, 9, 1, 12); // 1 October 2026
+  const day = (text: string) => { const d = parseQuickLog(text, now).date; return `${d.getFullYear()}-${d.getMonth() + 1}-${d.getDate()}`; };
+  assert.equal(day('Closed 4 MIPRs 12/15'), '2025-12-15', 'a date without a year is the latest one already past, not one ten weeks away');
+  assert.equal(day('Briefed the CO on 20 Dec'), '2025-12-20');
+  assert.equal(day('Briefed the CO on 20 Sep'), '2026-9-20');
+  assert.equal(day('Closed 4 MIPRs 12/15/2026'), '2026-12-15', 'a year written out is kept');
+  assert.equal(day('Reconciled 13/45 items'), '2026-10-1', '13/45 used to roll over into a real date');
+});

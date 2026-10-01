@@ -16,7 +16,7 @@ import * as api from '@/lib/api';
 import { WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
 import { rangeForPeriod, dayKey, formatNumber } from '../../shared/metrics';
 import { todayActions } from '../../shared/health';
-import { cn, timeAgo } from '@/lib/utils';
+import { cn, timeAgo, todayIso } from '@/lib/utils';
 import { useView } from '@/lib/view';
 import { UnitPulse, TeamStrip, useUnitOverview } from '@/components/UnitOverview';
 import GettingStarted from '@/components/GettingStarted';
@@ -70,7 +70,7 @@ export default function Dashboard() {
                         <span className="flex items-center gap-2"><Badge tone={t.priority === 'high' || t.priority === 'critical' ? 'warn' : 'neutral'}>Task</Badge><span className="truncate text-sm font-medium text-ink">{t.title}</span></span>
                         {t.notes && <span className="mt-0.5 block truncate text-xs text-ink-3">{t.notes}</span>}
                       </span>
-                      {t.due_date && <span className={cn('shrink-0 text-xs', t.due_date < new Date().toISOString().slice(0, 10) ? 'text-bad' : 'text-ink-3')}>Due <DateText value={t.due_date} /></span>}
+                      {t.due_date && <span className={cn('shrink-0 text-xs', t.due_date < todayIso() ? 'text-bad' : 'text-ink-3')}>Due <DateText value={t.due_date} /></span>}
                     </Link>
                   </li>
                 ))}

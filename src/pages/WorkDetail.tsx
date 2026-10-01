@@ -7,7 +7,8 @@ import { DescriptionList, DateText, StatusBadge } from '@/components/common';
 import { Comments } from '@/components/Comments';
 import { Attachments } from '@/components/Attachments';
 import { ProjectWork } from '@/components/ProjectWork';
-import { keys, useIdentity, unitName, useOrg } from '@/lib/queries';
+import { can, keys, useIdentity, unitName, useOrg } from '@/lib/queries';
+import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
 
 const KINDS = {
@@ -60,9 +61,7 @@ export default function WorkDetail() {
     );
   }
 
-  const bits = row.unit_id ? (identity?.permissions?.[row.unit_id] || 0) : 0;
-  const ADMINISTRATOR = 1 << 12, MANAGE_RECORDS = 1 << 3;
-  const steward = Boolean(bits & (ADMINISTRATOR | MANAGE_RECORDS));
+  const steward = can(identity, PERMISSIONS.MANAGE_RECORDS, row.unit_id);
   const mine = row.user_id === identity?.user.id;
   const canEdit = mine ? !row.frozen_at : steward;
 

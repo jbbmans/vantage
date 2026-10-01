@@ -365,3 +365,30 @@ test('removing a connector keeps the correspondence it brought in', async () => 
     assert.deepEqual(threads.map((t) => t.connector_id), [null], 'the thread survives, detached from the connection');
   } finally { await fresh.close(); }
 });
+
+test('a mailbox too big for one sync picks up where the last one stopped, and an expired place starts over', async () => {
+  const fresh = await startApp();
+  try {
+    const owner = await fresh.setupOperator();
+    const connectorId = (await fresh.call('POST', '/api/correspondence/connectors', { token: owner.token, body: { cloud: 'global', account_label: 'a@b.mil' } })).body.id;
+    fresh.ctx.db.prepare("UPDATE connectors SET status = 'connected' WHERE id = ?").run(connectorId);
+    const user = fresh.ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(owner.id) as never;
+    const base = `${MICROSOFT_CLOUDS.global.graph}/v1.0/me/messages/delta`;
+    const msg = (id: string) => ({ id, conversationId: id, subject: id, receivedDateTime: '2026-06-01T00:00:00Z', body: { contentType: 'text', content: id } });
+
+    const asked: string[] = [];
+    const first = await syncMailbox(fresh.ctx, user, connectorId, async (url) => { asked.push(url); return { value: [msg('p1')], '@odata.nextLink': `${base}?$skiptoken=2` }; }, { visibility: 'private', maxPages: 1 });
+    assert.equal(first.stored, 1);
+    const second = await syncMailbox(fresh.ctx, user, connectorId, async (url) => { asked.push(url); return { value: [msg('p2')], '@odata.deltaLink': `${base}?$deltatoken=done` }; }, { visibility: 'private', maxPages: 1 });
+    assert.equal(asked[1], `${base}?$skiptoken=2`, 'the second sync used to start from the top and re-read the same first pages');
+    assert.equal(second.stored, 1);
+
+    await assert.rejects(syncMailbox(fresh.ctx, user, connectorId, async () => { throw Object.assign(new Error('gone'), { restart: true }); }, { visibility: 'private' }));
+    const after = fresh.ctx.db.prepare('SELECT delta_token FROM connectors WHERE id = ?').get(connectorId) as { delta_token: string | null };
+    assert.equal(after.delta_token, null, 'an expired place used to be retried, and refused, at every sync');
+
+    fresh.ctx.db.prepare("UPDATE connectors SET status = 'connected' WHERE id = ?").run(connectorId);
+    const elsewhere = await fresh.call('POST', `/api/correspondence/connectors/${connectorId}/sync`, { token: owner.token, body: { visibility: 'unit', unit_id: 'SOMEONE-ELSES-UNIT' } });
+    assert.equal(elsewhere.status, 403, 'synced mail could be filed as shared correspondence of a unit the Marine is not in');
+  } finally { await fresh.close(); }
+});

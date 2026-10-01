@@ -3,6 +3,7 @@ import { subtreeIds, membersAcross } from '../authz/scope.ts';
 import { isSummable } from '../../shared/constants.ts';
 import { strength } from '../../shared/bullets.ts';
 import { withTypedProgress } from './goals.ts';
+import { zonedDay } from '../lib/clock.ts';
 
 const weekKey = (dateStr: string) => {
   const d = new Date(`${dateStr}T00:00:00Z`);
@@ -49,7 +50,7 @@ export function unitDashboard(ctx: AppContext, unitId: string, from: string, to:
   }
 
   const tasks = db.prepare(`SELECT status, due_date, assignee_id, user_id FROM tasks WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL`).all(units) as Array<{ status: string; due_date: string | null; assignee_id: string | null; user_id: string }>;
-  const todayIso = new Date().toISOString().slice(0, 10);
+  const todayIso = zonedDay(ctx.config.timezone);
   const openTasks = tasks.filter((t) => t.status !== 'completed');
   const overdue = openTasks.filter((t) => t.due_date && t.due_date < todayIso);
   const goals = db.prepare(`SELECT status, current_value, target_value, period_end FROM goals WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL`).all(units) as Array<{ status: string; current_value: number; target_value: number | null; period_end: string | null }>;
@@ -62,7 +63,7 @@ export function unitDashboard(ctx: AppContext, unitId: string, from: string, to:
   const cfts = readiness.map((r) => r.cft_score).filter((n): n is number => n != null);
   const avg = (list: number[]) => (list.length ? Math.round(list.reduce((a, b) => a + b, 0) / list.length) : null);
 
-  const cutoff = new Date(Date.now() - 45 * 86_400_000).toISOString().slice(0, 10);
+  const cutoff = zonedDay(ctx.config.timezone, -45);
   const memberRows = members.map((m) => {
     const stats = byMember.get(m.id) || { entries: 0, dollars: 0, quantity: 0, complete: 0, lastDate: null };
     const r = readinessMap.get(m.id);

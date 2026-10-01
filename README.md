@@ -86,13 +86,14 @@ Requirements: Node 22.18 or newer. No build step for the server; Node runs the T
 
 ## Deploy
 
-The core application needs only a Node 22 process, a local volume, and a reverse proxy for TLS. It makes no outbound requests with the defaults (AI and the MARADMIN feed are off), and the browser loads nothing from third parties. PostgreSQL is the production target and is not yet implemented (`docs/engineering/ADR/0003-postgresql-migration-path.md`). Deployment questions for a restricted network are in `docs/engineering/INFRASTRUCTURE_QUESTIONS.md`.
+The core application needs only a Node 22 process, a local volume, and a reverse proxy for TLS. It makes no outbound requests with the defaults (AI, the MARADMIN feed and IndexNow are off), and the browser loads nothing from third parties. PostgreSQL is the production target and is not yet implemented (`docs/engineering/ADR/0003-postgresql-migration-path.md`). Deployment questions for a restricted network are in `docs/engineering/INFRASTRUCTURE_QUESTIONS.md`.
 
 The public site at https://vantageusmc.com runs on a Render web service (`render.yaml`, `Dockerfile`). That is an optional demonstration host, not a dependency.
 
 - [Render deployment](docs/deploy-render.md)
 - [DNS: Namecheap and Cloudflare](docs/dns-namecheap.md)
 - [Email (Resend or SMTP)](docs/email.md)
+- [Search engines: what the code does, and Search Console and Bing setup](docs/seo.md)
 - [Operations: backups, restore, moving hosts](docs/operations.md)
 - [Security model](docs/security.md)
 - [Architecture](docs/architecture.md)
@@ -112,7 +113,9 @@ Everything is an environment variable. `.env.example` lists them with defaults. 
 | `VANTAGE_AI_ENABLED`, `VANTAGE_GENAI_API_KEY`, `VANTAGE_GENAI_MODELS` | GenAI.mil drafting help and the model allowlist (off by default) |
 | `VANTAGE_ACCESS_MODE` | `accounts` (default) or `demo` (synthetic, no sign-in; never in production) |
 | `VANTAGE_DEMO_TTL_HOURS`, `VANTAGE_DEMO_MAX_WORKSPACES` | How long a demo workspace lasts, and how many may exist at once |
-| `VANTAGE_MARADMIN_ENABLED` | The MARADMIN feed from marines.mil. Off by default: it is the only outbound request |
+| `VANTAGE_MARADMIN_ENABLED` | The MARADMIN feed from marines.mil. Off by default: it is the only outbound request unless IndexNow is on |
+| `VANTAGE_INDEXNOW` | Tell Bing, Edge, DuckDuckGo, Yahoo and Yandex when a deploy changes the public page (off by default). See `docs/seo.md` |
+| `VANTAGE_GOOGLE_SITE_VERIFICATION`, `VANTAGE_BING_SITE_VERIFICATION` | Ownership tokens for Google Search Console and Bing Webmaster Tools |
 | `VANTAGE_M365_CLIENT_ID`, `VANTAGE_M365_CLIENT_SECRET`, `VANTAGE_M365_TENANT` | Microsoft Entra application for read-only mailbox sign-in (off until set). See `docs/deploy-render.md` |
 
 ## Status

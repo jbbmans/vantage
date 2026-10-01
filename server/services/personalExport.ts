@@ -36,22 +36,12 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   const recordIds = new Map<string, Set<string>>();
   for (const [table, rows] of Object.entries(records)) recordIds.set(table, new Set(rows.map((r) => String(r.id))));
 
-  const attachedPairs: Array<[string, string]> = [];
-  for (const [table, ids] of recordIds) for (const id of ids) attachedPairs.push([table, id]);
+  // What hangs off the Marine's own records: one indexed lookup per record type, however many records there are.
+  const onOwnRecords = (columns: string, from: 'attachments' | 'comments') => [...recordIds].flatMap(([table, ids]) => (ids.size
+    ? db.prepare(`SELECT ${columns} FROM ${from} WHERE record_table = ? AND record_id IN (SELECT value FROM json_each(?))`).all(table, JSON.stringify([...ids])) as Row[]
+    : []));
   const attachmentColumns = 'id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, created_at, deleted_at';
-  const byOwnRecord = attachedPairs.length
-    ? (() => {
-      // Chunked because SQLite caps how many parameters one statement may carry.
-      const rows: Row[] = [];
-      for (let i = 0; i < attachedPairs.length; i += 400) {
-        const chunk = attachedPairs.slice(i, i + 400);
-        rows.push(...db.prepare(
-          `SELECT ${attachmentColumns} FROM attachments WHERE ${chunk.map(() => '(record_table = ? AND record_id = ?)').join(' OR ')}`
-        ).all(...chunk.flat()) as Row[]);
-      }
-      return rows;
-    })()
-    : [];
+  const byOwnRecord = onOwnRecords(attachmentColumns, 'attachments');
   const byUpload = db.prepare(`SELECT ${attachmentColumns} FROM attachments WHERE uploaded_by = ?`).all(userId) as Row[];
   const seenAttachments = new Set<string>();
   const attachmentRows = [...byOwnRecord, ...byUpload]
@@ -63,15 +53,8 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
 
   const commentColumns = 'id, record_table, record_id, author_id, body, mentions, edited_at, created_at, deleted_at';
   const ownComments = db.prepare(`SELECT ${commentColumns} FROM comments WHERE author_id = ?`).all(userId) as Row[];
-  const onOwnRecords: Row[] = [];
-  for (let i = 0; i < attachedPairs.length; i += 400) {
-    const chunk = attachedPairs.slice(i, i + 400);
-    onOwnRecords.push(...db.prepare(
-      `SELECT ${commentColumns} FROM comments WHERE ${chunk.map(() => '(record_table = ? AND record_id = ?)').join(' OR ')}`
-    ).all(...chunk.flat()) as Row[]);
-  }
   const seenComments = new Set<string>();
-  const commentRows = [...ownComments, ...onOwnRecords]
+  const commentRows = [...ownComments, ...onOwnRecords(commentColumns, 'comments')]
     .filter((c) => { const id = String(c.id); if (seenComments.has(id)) return false; seenComments.add(id); return true; })
     .sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)));
   const auditTrail = db.prepare(`SELECT al.id, al.at, al.action, al.entity, al.entity_id, al.unit_id, al.detail, al.ip, CASE WHEN al.actor_id = ? THEN 'me' ELSE COALESCE(u.username, al.actor_id) END AS actor, CASE WHEN al.subject_id = ? THEN 'me' ELSE COALESCE(s.username, al.subject_id) END AS subject
