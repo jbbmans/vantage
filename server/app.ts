@@ -268,7 +268,9 @@ export function startSchedulers(ctx: AppContext) {
   }
   every(60_000, () => { ctx.mailer.retryQueued().then((r) => { if (r.sent || r.failed) console.log(`${now()} mail retry: ${r.sent} delivered, ${r.failed} given up, ${r.waiting} waiting`); }).catch((e: Error) => console.warn(`Mail retry failed: ${e.message}`)); });
   if (!ctx.config.test) {
-    every(60 * 60_000, () => { runDigestTick(ctx).then((r) => { if (r.sent) console.log(`${now()} digest: sent ${r.sent}`); }).catch((e: Error) => console.warn(`Digest tick failed: ${e.message}`)); });
+    // Each Marine's slot is one local hour. An hourly timer started at boot can step over an hour (after a deploy,
+    // or by drift), and that week's digest never goes; the six-day guard keeps the more frequent ticks to one send.
+    every(15 * 60_000, () => { runDigestTick(ctx).then((r) => { if (r.sent) console.log(`${now()} digest: sent ${r.sent}`); }).catch((e: Error) => console.warn(`Digest tick failed: ${e.message}`)); });
   }
   return () => timers.forEach((t) => clearInterval(t));
 }

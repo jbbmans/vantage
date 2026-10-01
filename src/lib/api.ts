@@ -149,6 +149,11 @@ export const removeMember = (unitId: string, userId: string) => api.del(`/org/un
 export const createInvite = (unitId: string, payload: unknown) => api.post(`/org/units/${encodeURIComponent(unitId)}/invites`, payload);
 export const listInvites = (unitId: string) => api.get(`/org/units/${encodeURIComponent(unitId)}/invites`);
 export const revokeInvite = (id: string) => api.del(`/org/invites/${encodeURIComponent(id)}`);
+export const createJoinCode = (unitId: string, payload: { role_id?: string | null; note?: string | null; max_uses?: number | null; expires_in_hours?: number | null }) => api.post(`/org/units/${encodeURIComponent(unitId)}/join-codes`, payload);
+export const listJoinCodes = (unitId: string) => api.get(`/org/units/${encodeURIComponent(unitId)}/join-codes`);
+export const revokeJoinCode = (unitId: string, id: string) => api.del(`/org/units/${encodeURIComponent(unitId)}/join-codes/${encodeURIComponent(id)}`);
+export const peekJoinCode = (code: string) => api.get(`/org/join-codes/${encodeURIComponent(code)}`);
+export const joinWithCode = (code: string) => api.post(`/org/join-codes/${encodeURIComponent(code)}/join`);
 export const roles = () => api.get('/org/roles');
 export const createRole = (payload: unknown) => api.post('/org/roles', payload);
 export const updateRole = (id: string, payload: unknown) => api.put(`/org/roles/${encodeURIComponent(id)}`, payload);

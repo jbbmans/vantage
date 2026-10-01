@@ -144,3 +144,19 @@ test('a preview of a sheet the workbook does not have is refused, not quietly re
   const named = await app.call('POST', '/api/work/imports/preview', { token: op.token, body: { ...plan, sheet_name: 'Open items' } });
   assert.deepEqual(named.body.will_insert.map((r: { natural_key: string }) => r.natural_key), ['ULO-7001']);
 });
+
+test('a join code is checked when it is made, and works however a Marine types it', async () => {
+  for (const max_uses of ['lots', 0, 1.5]) {
+    assert.equal((await app.call('POST', '/api/org/units/G8/join-codes', { token: op.token, body: { max_uses } })).status, 400, `max_uses ${max_uses} used to be stored as no limit`);
+  }
+  assert.equal((await app.call('POST', '/api/org/units/G8/join-codes', { token: op.token, body: { note: 42 } })).status, 400, 'a non-text note used to fail with a 500');
+
+  const made = await app.call('POST', '/api/org/units/G8/join-codes', { token: op.token, body: { max_uses: 2, expires_in_hours: 24, note: 'Formation' } });
+  assert.equal(made.status, 201, JSON.stringify(made.body));
+  const typed = ` ${made.body.code.replace('-', '').toLowerCase()} `;
+  const joiner = await app.register('joiner');
+  const peek = await app.call('GET', `/api/org/join-codes/${encodeURIComponent(typed)}`, { token: joiner.token });
+  assert.equal(peek.status, 200, 'a code typed without its hyphen, in lower case, was refused');
+  assert.equal(peek.body.note, 'Formation');
+  assert.equal((await app.call('POST', `/api/org/join-codes/${encodeURIComponent(typed)}/join`, { token: joiner.token })).status, 200);
+});

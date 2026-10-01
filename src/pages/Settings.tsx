@@ -66,8 +66,27 @@ function Profile() {
           <Field label="Email" className="col-span-2 sm:col-span-3" hint={identity!.instance.emailEnabled ? 'changes are confirmed by a link' : 'reset links and digests need email configured on the server'} error={errors.email}><Input type="email" spellCheck={false} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
         </div>
       </Panel>
-      <Panel title="Units"><ul className="space-y-2">{identity!.memberships.map((m) => <li key={m.unit_id} className="rounded-md border border-line px-3 py-2 text-sm"><span className="flex items-center justify-between"><span className="font-medium text-ink">{m.unit_short || m.unit_name}</span>{m.is_primary ? <Badge tone="accent">Primary</Badge> : null}</span><span className="block text-xs text-ink-3">{m.billet || 'No billet'} · joined {timeAgo(m.joined_at)}</span><span className="mt-1 flex flex-wrap gap-1">{identity!.roles.filter((r) => r.unit_id === m.unit_id).map((r) => <RoleBadge key={r.id} color={r.color}>{r.name}</RoleBadge>)}</span></li>)}{!identity!.memberships.length && <li className="text-sm text-ink-3">Not in a unit. Ask a leader for an invitation.</li>}</ul></Panel>
+      <Panel title="Units"><ul className="space-y-2">{identity!.memberships.map((m) => <li key={m.unit_id} className="rounded-md border border-line px-3 py-2 text-sm"><span className="flex items-center justify-between"><span className="font-medium text-ink">{m.unit_short || m.unit_name}</span>{m.is_primary ? <Badge tone="accent">Primary</Badge> : null}</span><span className="block text-xs text-ink-3">{m.billet || 'No billet'} · joined {timeAgo(m.joined_at)}</span><span className="mt-1 flex flex-wrap gap-1">{identity!.roles.filter((r) => r.unit_id === m.unit_id).map((r) => <RoleBadge key={r.id} color={r.color}>{r.name}</RoleBadge>)}</span></li>)}{!identity!.memberships.length && <li className="text-sm text-ink-3">Not in a unit yet. Ask a leader for an invitation or a join code.</li>}</ul>{!identity!.demo && <JoinUnit />}</Panel>
     </div>
+  );
+}
+
+/** Enter the join code a leader read out or posted, see which unit it is for, then join. */
+function JoinUnit() {
+  const toast = useToast(); const qc = useQueryClient();
+  const [code, setCode] = useState(''); const [busy, setBusy] = useState(false);
+  const [found, setFound] = useState<{ unit_name: string; note: string | null } | null>(null);
+  const look = async () => { setBusy(true); try { setFound(await api.peekJoinCode(code.trim())); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
+  const join = async () => {
+    try { const r = await api.joinWithCode(code.trim()); setCode(''); qc.invalidateQueries(); toast.success(`You joined ${r.unit_name}.`); } catch (e) { toast.error(api.errorText(e)); }
+  };
+  return (
+    <form className="mt-3 border-t border-line pt-3" onSubmit={(e) => { e.preventDefault(); look(); }}>
+      <p className="mb-1.5 text-sm font-medium text-ink">Join with a code</p>
+      <div className="flex gap-2"><Input aria-label="Join code" className="font-mono uppercase" autoComplete="off" spellCheck={false} maxLength={20} placeholder="ABCDE-FGHJK" value={code} onChange={(e) => setCode(e.target.value)} /><Button type="submit" loading={busy} disabled={code.trim().length < 10}>Continue</Button></div>
+      <p className="mt-1 text-xs text-ink-3">Your leader gives it out at formation or in the section chat.</p>
+      <ConfirmDialog open={Boolean(found)} onOpenChange={(o) => { if (!o) setFound(null); }} title={`Join ${found?.unit_name}?`} body={<>{found?.note && <span className="mb-2 block text-ink">“{found.note}”</span>}Its leaders will see what you share with the unit. Private entries stay private.</>} confirmLabel="Join" danger={false} onConfirm={join} />
+    </form>
   );
 }
 

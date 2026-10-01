@@ -180,7 +180,7 @@ function Contributions({ params }: { params: { from: string; to: string } }) {
           <p className="mt-2 text-xs text-ink-3">{[row.research && `${row.research} research`, row.submitted && `${row.submitted} submitted`, row.verified && `${row.verified} verified`].filter(Boolean).join(' · ')}</p>
           <ol className="mt-2 space-y-1 border-l border-line pl-3">
             {row.events.slice(0, 5).map((e: any) => (
-              <li key={e.id} className="text-sm text-ink-2"><span className="mr-2 text-xs text-ink-3"><DateText value={e.occurred_at.slice(0, 10)} /></span>{e.summary}</li>
+              <li key={e.id} className="text-sm text-ink-2"><span className="mr-2 text-xs text-ink-3"><DateText value={e.occurred_at} /></span>{e.summary}</li>
             ))}
           </ol>
         </li>

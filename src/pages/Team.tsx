@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine } from 'lucide-react';
+import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine, Ticket } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -67,7 +67,7 @@ export default function Team() {
           {shown === 'workload' && unit && <Suspense fallback={<Skeleton className="h-64" />}><TeamWorkload unitId={unit} /></Suspense>}
           {shown === 'roster' && <Roster team={team} unit={unit} subtree={subtree} unitLabel={unitLabel} canManage={manageMembers.includes(unit)} moveTargets={views.filter((v) => manageMembers.includes(v.id)).map((v) => ({ id: v.id, depth: v.depth, label: v.teams ? `${v.short_name || v.name} (command element)` : v.short_name || v.name }))} />}
           {shown === 'dashboard' && unit && <UnitDashboard unitId={unit} unitLabel={unitLabel(unit)} canExport={can(identity, PERMISSIONS.EXPORT_DATA, unit)} canDetail={can(identity, PERMISSIONS.VIEW_MEMBER_DETAIL, unit)} />}
-          {shown === 'invites' && <Invites unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} />}
+          {shown === 'invites' && <><Invites unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} /><JoinCodes unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} /></>}
           {shown === 'roles' && <Roles unitId={unit} unitLabel={unitLabel} />}
           {shown === 'units' && <Units units={units} manageUnits={manageUnits} isOperator={Boolean(identity?.user.is_operator)} roster={team?.roster || []} />}
           {shown === 'audit' && <UnitAudit unitId={viewAudit.includes(unit) ? unit : viewAudit[0]} />}
@@ -252,10 +252,63 @@ function Invites({ unitId, unitLabel }: { unitId: string; unitLabel: (id: string
       <Panel title="Open invitations" className="lg:col-span-2" padded={false}>
         {!data?.invites?.length ? <EmptyState title="No open invitations" /> : (
           <Table head={<><th>Invitee</th><th>Role · billet</th><th className="w-28">Expires</th><th className="w-28">By</th><th className="w-20"></th></>}>
-            {data.invites.map((i: any) => <tr key={i.id}><td><span className="block text-ink">{i.email || 'Link invitation'}</span><span className="block text-xs text-ink-3">{[i.payload.first_name, i.payload.last_name].filter(Boolean).join(' ')}</span></td><td className="text-xs text-ink-2">{roles.find((r: any) => r.id === i.payload.role_id)?.name || 'Marine'}{i.payload.billet ? ` · ${i.payload.billet}` : ''}</td><td className="text-xs"><DateText value={i.expires_at?.slice(0, 10)} /></td><td className="text-xs text-ink-3">{i.by_last || ''}</td><td className="text-right">{i.used_at ? <Badge tone="good">Used</Badge> : <Button size="xs" variant="ghost" onClick={async () => { try { await api.revokeInvite(i.id); refetch(); } catch (e) { toast.error(api.errorText(e)); } }}>Revoke</Button>}</td></tr>)}
+            {data.invites.map((i: any) => <tr key={i.id}><td><span className="block text-ink">{i.email || 'Link invitation'}</span><span className="block text-xs text-ink-3">{[i.payload.first_name, i.payload.last_name].filter(Boolean).join(' ')}</span></td><td className="text-xs text-ink-2">{roles.find((r: any) => r.id === i.payload.role_id)?.name || 'Marine'}{i.payload.billet ? ` · ${i.payload.billet}` : ''}</td><td className="text-xs"><DateText value={i.expires_at} /></td><td className="text-xs text-ink-3">{i.by_last || ''}</td><td className="text-right">{i.used_at ? <Badge tone="good">Used</Badge> : <Button size="xs" variant="ghost" onClick={async () => { try { await api.revokeInvite(i.id); refetch(); } catch (e) { toast.error(api.errorText(e)); } }}>Revoke</Button>}</td></tr>)}
           </Table>
         )}
       </Panel>
+    </div>
+  );
+}
+
+const CODE_LIFETIMES = [{ value: '24', label: '1 day' }, { value: '168', label: '7 days' }, { value: '720', label: '30 days' }, { value: 'never', label: 'Until revoked' }];
+
+function joinCodeState(c: { revoked_at: string | null; expires_at: string | null; max_uses: number | null; uses: number }) {
+  if (c.revoked_at) return { label: 'Revoked', tone: 'neutral' as const };
+  if (c.expires_at && Date.parse(c.expires_at) < Date.now()) return { label: 'Expired', tone: 'neutral' as const };
+  if (c.max_uses != null && c.uses >= c.max_uses) return { label: 'Used up', tone: 'neutral' as const };
+  return { label: 'Live', tone: 'good' as const };
+}
+
+/** One code a leader reads out at formation or posts to the section chat; each Marine enters it in Settings and joins. */
+function JoinCodes({ unitId, unitLabel }: { unitId: string; unitLabel: (id: string) => string }) {
+  const toast = useToast(); const { data: rolesData } = useRoles();
+  const { data, refetch } = useQuery({ queryKey: ['join-codes', unitId], queryFn: () => api.listJoinCodes(unitId), enabled: Boolean(unitId) });
+  const [form, setForm] = useState({ role_id: '', note: '', max_uses: '', lifetime: '168' });
+  const [busy, setBusy] = useState(false); const [created, setCreated] = useState<{ code: string } | null>(null); const [revoking, setRevoking] = useState<any>(null);
+  const roles = (rolesData?.roles || []).filter((r: any) => r.unit_id === unitId && r.key !== 'unit-leader' && !r.is_default);
+  const create = async () => {
+    setBusy(true);
+    try {
+      const r = await api.createJoinCode(unitId, { role_id: form.role_id || null, note: form.note.trim() || null, max_uses: form.max_uses ? Number(form.max_uses) : null, expires_in_hours: form.lifetime === 'never' ? null : Number(form.lifetime) });
+      setCreated(r); refetch(); setForm({ ...form, note: '', max_uses: '' }); toast.success('Join code created.');
+    } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }
+  };
+  const codes: any[] = data?.invites || [];
+  return (
+    <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-3">
+      <Panel title={`Join code for ${unitLabel(unitId)}`} subtitle="One code for a whole formation" className="lg:col-span-1">
+        <div className="space-y-3">
+          <p className="text-xs text-ink-3">Anyone signed in who enters the code under Settings joins the unit. Use it where you can see who is in the room; send a named invitation to anyone else.</p>
+          <Field label="Role on arrival"><Select value={form.role_id || '__none'} onValueChange={(v) => setForm({ ...form, role_id: v === '__none' ? '' : v })} options={[{ value: '__none', label: 'Marine (default)' }, ...roles.map((r: any) => ({ value: r.id, label: r.name }))]} /></Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label="Works for"><Select value={form.lifetime} onValueChange={(v) => setForm({ ...form, lifetime: v })} options={CODE_LIFETIMES} /></Field>
+            <Field label="Uses" hint="blank: no limit"><Input type="number" inputMode="numeric" min={1} max={1000} value={form.max_uses} onChange={(e) => setForm({ ...form, max_uses: e.target.value })} /></Field>
+          </div>
+          <Field label="Note" hint="who it is for; Marines see it"><Input maxLength={200} value={form.note} onChange={(e) => setForm({ ...form, note: e.target.value })} placeholder="Second squad, 1 October formation" /></Field>
+          <Button variant="primary" className="w-full" onClick={create} loading={busy}><Ticket className="h-4 w-4" />Create join code</Button>
+          {created && <div className="border-l-2 border-l-good border-y border-r border-line p-3 text-xs"><p className="font-medium text-ink">Copy it now. Vantage keeps only a fingerprint of it and cannot show it again.</p><p data-join-code className="mt-1 font-mono text-lg tracking-wider text-ink">{created.code}</p><Button size="xs" className="mt-2" onClick={async () => { if (await copyToClipboard(created.code)) toast.success('Code copied.'); else toast.error('Could not copy.'); }}><Copy className="h-3 w-3" />Copy code</Button></div>}
+        </div>
+      </Panel>
+      <Panel title="Join codes" className="lg:col-span-2" padded={false}>
+        {!codes.length ? <EmptyState title="No join codes" description="Create one to enroll a group at once." /> : (
+          <Table head={<><th>Code</th><th>Role · note</th><th className="w-20">Used</th><th className="w-28">Expires</th><th className="w-24"></th></>}>
+            {codes.map((c) => { const state = joinCodeState(c); return (
+              <tr key={c.id}><td className="font-mono text-xs text-ink">{c.code_hint}-·····</td><td className="text-xs text-ink-2">{roles.find((r: any) => r.id === c.role_id)?.name || 'Marine'}{c.note ? ` · ${c.note}` : ''}</td><td className="fig text-xs">{c.uses}{c.max_uses != null ? ` of ${c.max_uses}` : ''}</td><td className="text-xs">{c.expires_at ? <DateText value={c.expires_at} /> : <span className="text-ink-3">Until revoked</span>}</td><td className="text-right">{state.label === 'Live' ? <Button size="xs" variant="ghost" aria-label={`Revoke join code ${c.code_hint}`} onClick={() => setRevoking(c)}>Revoke</Button> : <Badge tone={state.tone}>{state.label}</Badge>}</td></tr>
+            ); })}
+          </Table>
+        )}
+      </Panel>
+      <ConfirmDialog open={Boolean(revoking)} onOpenChange={(o) => { if (!o) setRevoking(null); }} title={`Revoke join code ${revoking?.code_hint}?`} body="Nobody else can join with it. Marines who already joined stay in the unit." confirmLabel="Revoke" onConfirm={async () => { try { await api.revokeJoinCode(unitId, revoking.id); refetch(); toast.success('Join code revoked.'); } catch (e) { toast.error(api.errorText(e)); } }} />
     </div>
   );
 }

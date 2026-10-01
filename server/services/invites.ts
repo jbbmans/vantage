@@ -8,7 +8,11 @@ import { sha256 } from '../lib/crypto.ts';
 import { audit } from './audit.ts';
 import { addMember, assertMayGrantRole, getUnit, type RoleRow } from './org.ts';
 
-const HASH = (code: string) => sha256(`unit_invite:${code.trim().toUpperCase()}`);
+/** Codes are read out at formation and typed on phones, so case, spaces and the hyphen do not matter. */
+const HASH = (code: string) => {
+  const c = code.toUpperCase().replace(/[^A-Z0-9]/g, '');
+  return sha256(`unit_invite:${c.slice(0, 5)}-${c.slice(5)}`);
+};
 
 const ALPHABET = 'ABCDEFGHJKMNPQRSTUVWXYZ23456789';
 function freshCode(): string {
@@ -59,13 +63,13 @@ export function createInvite(
     roleId = role.id;
   }
 
-  const maxUses = input.max_uses == null ? null : Math.max(1, Math.min(1000, Number(input.max_uses)));
-  const hours = input.expires_in_hours == null ? null : Math.max(1, Math.min(24 * 365, Number(input.expires_in_hours)));
+  const maxUses = input.max_uses ?? null;
+  const hours = input.expires_in_hours ?? null;
   const code = freshCode();
   const id = newId();
   ctx.db.prepare(
     'INSERT INTO unit_invites (id, unit_id, code_hash, code_hint, created_by, role_id, note, max_uses, uses, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, 0, ?, ?)'
-  ).run(id, unitId, HASH(code), code.slice(0, 5), actor.id, roleId, input.note?.trim()?.slice(0, 200) || null,
+  ).run(id, unitId, HASH(code), code.slice(0, 5), actor.id, roleId, input.note?.trim() || null,
         maxUses, hours ? new Date(Date.now() + hours * 3_600_000).toISOString() : null, now());
   audit(ctx, { actor_id: actor.id, action: 'unit_invite_created', entity: 'unit', entity_id: unitId, unit_id: unitId, ip });
 

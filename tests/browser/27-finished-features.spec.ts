@@ -110,3 +110,32 @@ test('the owner links an account to its EDIPI so it can sign in with a CAC', asy
   await expect(page.getByRole('status').filter({ hasText: `EDIPI linked to ${marine.username}` })).toBeVisible();
   await expect(page.getByRole('row').filter({ hasText: marine.username })).toContainText('CAC linked');
 });
+
+test('a leader makes a join code and a Marine joins the unit with it from Settings', async ({ page, browser }) => {
+  await page.goto('/team?tab=invites&unit=G8');
+  const note = unique('Formation ');
+  await page.getByPlaceholder('Second squad, 1 October formation').fill(note);
+  await page.getByRole('button', { name: 'Create join code' }).click();
+  const shown = page.locator('[data-join-code]');
+  await expect(shown).toBeVisible();
+  const code = (await shown.textContent())!.trim();
+  await expect(page.getByRole('row').filter({ hasText: note })).toContainText(code.slice(0, 5));
+
+  const marine = await browser.newContext();
+  const username = unique('joiner');
+  const res = await marine.request.post('/api/auth/register', { headers: H, data: { username, password: PASSWORD, first_name: 'Ana', last_name: 'Joiner', rank_id: 'Cpl' } });
+  expect(res.ok(), await res.text()).toBeTruthy();
+  const own = await marine.newPage();
+  await own.goto('/settings');
+  await own.getByLabel('Join code').fill(code.replace('-', ' ').toLowerCase());
+  await own.getByRole('button', { name: 'Continue' }).click();
+  const confirm = own.getByRole('dialog').filter({ hasText: note });
+  await expect(confirm).toBeVisible();
+  await confirm.getByRole('button', { name: 'Join' }).click();
+  await expect(own.getByRole('status').filter({ hasText: 'You joined' })).toBeVisible();
+  await expect(own.getByRole('listitem').filter({ hasText: 'G8' }).first()).toBeVisible();
+  await marine.close();
+
+  await page.reload();
+  await expect(page.getByRole('row').filter({ hasText: note })).toContainText('1');
+});
