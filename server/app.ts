@@ -86,9 +86,8 @@ function siteVerification({ googleVerification, bingVerification }: AppConfig['s
 const SHAREABLE = /^\/(?:og\.png|favicon\.(?:ico|svg)|apple-touch-icon\.png|icon-[\w-]+\.png|mark\.svg|brand\/)/;
 
 function inlineScriptHashes(distDir: string): string[] {
-  const indexPath = join(distDir, 'index.html');
-  if (!existsSync(indexPath)) return [];
-  const html = readFileSync(indexPath, 'utf8');
+  let html: string;
+  try { html = readFileSync(join(distDir, 'index.html'), 'utf8'); } catch { return []; }
   const hashes: string[] = [];
   const pattern = /<script(?![^>]*\bsrc=)[^>]*>([\s\S]*?)<\/script>/g;
   let match: RegExpExecArray | null;
@@ -101,7 +100,10 @@ export function createApp(ctx: AppContext) {
   const app = express();
   const distDir = join(PROJECT_ROOT, 'dist');
   const scriptSrc = ["'self'", ...inlineScriptHashes(distDir)].join(' ');
-  const clientBuild = existsSync(join(distDir, 'index.html')) ? createHash('sha256').update(readFileSync(join(distDir, 'index.html'))).digest('hex').slice(0, 16) : null;
+  // Read once, and tolerate a build in progress: the API serves without the client rather than failing to start.
+  let shellHtml: string | null = null;
+  try { shellHtml = readFileSync(join(distDir, 'index.html'), 'utf8'); } catch { shellHtml = null; }
+  const clientBuild = shellHtml ? createHash('sha256').update(shellHtml).digest('hex').slice(0, 16) : null;
   const build = String(process.env.RENDER_GIT_COMMIT || process.env.VANTAGE_BUILD_ID || clientBuild || VERSION).slice(0, 64);
 
   app.disable('x-powered-by');
@@ -196,13 +198,13 @@ export function createApp(ctx: AppContext) {
     return res.status(500).json({ error: 'The server could not complete that request.', code: 'server_error' });
   });
 
-  if (existsSync(distDir)) {
+  if (shellHtml) {
     // Only public marketing routes are indexable, before any JavaScript runs.
     const publicRoutes = new Set(['/', '/display', '/about']);
     const appRoute = /^\/(?:login|register|reset|invite|setup|work|record|goals|career|reference|maradmins|readiness|reports|settings|operator|help|queue|correspondence|studio|assist)\/?$/;
     const recordRoute = /^\/(?:records|activities|team|support)(?:\/[^/]+){0,2}\/?$|^\/work\/items\/[^/]+\/?$/;
     // The application shell is noindex in its source; the public page is its own document, public.html.
-    const shell = readFileSync(join(distDir, 'index.html'), 'utf8');
+    const shell = shellHtml;
     const publicFile = join(distDir, 'public.html');
     const publicPage = existsSync(publicFile) ? readFileSync(publicFile, 'utf8').replace('<!--site-verification-->', siteVerification(config.search)) : null;
     app.use((req, res, next) => {

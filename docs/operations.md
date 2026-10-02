@@ -104,5 +104,5 @@ The owner (or any user for themselves after signing in with a recovery code) can
 ## Retention
 
 - Deleted records sit in a recycle bin for 30 days, then purge nightly.
-- Sessions expire after 60 minutes idle and 12 hours absolute (`VANTAGE_IDLE_MINUTES`, `VANTAGE_SESSION_HOURS`).
+- Sessions expire after 15 minutes idle (10 for an owner) and 12 hours absolute (`VANTAGE_IDLE_MINUTES`, `VANTAGE_OPERATOR_IDLE_MINUTES`, `VANTAGE_SESSION_HOURS`). Background polls do not count as activity.
 - The audit log is append-only and never purged.
