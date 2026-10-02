@@ -8,8 +8,8 @@
     "render": "node tools/render.mjs"
   },
   "dependencies": {
-    "@remotion/bundler": "^4.0.528",
-    "@remotion/cli": "^4.0.528",
+    "@remotion/bundler": "^4.0.529",
+    "@remotion/cli": "^4.0.529",
     "@remotion/renderer": "^4.0.528",
     "react": "^19.3.0",
     "react-dom": "^19.3.0",
