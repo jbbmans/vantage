@@ -215,7 +215,7 @@ orgRouter.post('/units/:unitId/invites', wrap(async (req, res) => {
     assertMayGrantRole(ctx, req.user, scope, role, unitId);
   }
   const { token, id } = issueToken(ctx, 'invite', { email: body.email || null, ttlMinutes: 7 * 24 * 60, createdBy: req.user.id, payload: { unit_id: unitId, role_id: body.role_id || null, billet: body.billet || null, first_name: body.first_name || null, last_name: body.last_name || null, rank_id: body.rank_id || null } });
-  const url = `${ctx.config.publicUrl}/invite?token=${encodeURIComponent(token)}`;
+  const url = `${ctx.config.urls.app}/invite?token=${encodeURIComponent(token)}`;
   let emailed = false;
   if (body.email && ctx.mailer.enabled) {
     mailAllowance(req.user.id);
@@ -229,7 +229,7 @@ orgRouter.post('/units/:unitId/invites', wrap(async (req, res) => {
       cta: { label: 'Accept invitation', url },
       note: 'The invitation works once, for seven days. If you were not expecting it, you can ignore this message.',
       footer: `${inviter} sent this invitation through Vantage.`,
-      origin: ctx.config.publicUrl,
+      origin: ctx.config.urls.app,
     });
     emailed = (await ctx.mailer.send({ to: body.email, subject: `Invitation to ${unit.short_name || unit.name} on Vantage`, text: mail.text, html: mail.html, kind: 'invite' })).ok;
   }

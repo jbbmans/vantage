@@ -3,7 +3,7 @@
 > Vantage helps Marines and their leaders track work, performance records, readiness and goals, and build JEPES and FITREP input from traceable evidence. It is an independent, self-hosted platform, not an official Department of Defense or U.S. Marine Corps system of record.
 
 ## Public website
-- https://vantageusmc.com/: what Vantage does, short films of the real application, a live Quick Log demonstration, and answers to common questions.
+- https://www.vantageusmc.com/: what Vantage does, short films of the real application, a live Quick Log demonstration, and answers to common questions.
 
 ## What Vantage does
 - Quick Log: one sentence such as "Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday" becomes a record with its quantity, value, system and date read out, checked by the Marine before it is saved.

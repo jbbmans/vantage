@@ -15,6 +15,7 @@ import { matchTotp } from '../auth/totp.ts';
 import { presentedCertificate, resolveAccount, CacError } from '../auth/cac.ts';
 import { authenticationOptions, completeAuthentication } from '../auth/passkeys.ts';
 import { record } from '../services/telemetry.ts';
+import { facesOf } from '../lib/hosts.ts';
 import { audit } from '../services/audit.ts';
 import { layout } from '../services/mailLayout.ts';
 import { newId, now } from '../lib/ids.ts';
@@ -36,6 +37,15 @@ export function finishSignIn(req: Request, res: Response, user: { id: string; mu
   const ctx = req.ctx;
   // The router refused anything unaccepted before it ran; this is the backstop for any future way in.
   if (consentFor(ctx) && req.get('x-vantage-consent') !== '1') throw forbidden('Read and accept the notice before signing in.', 'consent_required');
+  // A console on a host of its own is for the people who run the instance, and nobody else signs in there.
+  const faces = facesOf(res);
+  if (faces.has('console') && !faces.has('app')) {
+    const owner = ctx.db.prepare('SELECT is_operator FROM users WHERE id = ?').get(user.id) as { is_operator: number } | undefined;
+    if (!owner?.is_operator) {
+      audit(ctx, { actor_id: user.id, action: 'console_sign_in_refused', ip: clientIp(req), detail: method });
+      throw forbidden(`The owner console is for the people who run this Vantage. Sign in at ${ctx.config.urls.app} instead.`, 'console_owners_only');
+    }
+  }
   clearFailures(ctx, user.id);
   const { token, expires } = createSession(ctx, user.id, { ip: clientIp(req), userAgent: req.get('user-agent'), method, sudo: true });
   audit(ctx, { actor_id: user.id, action, ip: clientIp(req), detail: method });
@@ -272,7 +282,7 @@ authRouter.post('/forgot', wrap(async (req, res) => {
     limiters.resetUser.bump(row.id);
     revokeTokens(ctx, 'reset', row.id);
     const { token } = issueToken(ctx, 'reset', { userId: row.id, email: row.email, ttlMinutes: 30, payload: { ip } });
-    const url = `${ctx.config.publicUrl}/reset?token=${encodeURIComponent(token)}`;
+    const url = `${ctx.config.urls.app}/reset?token=${encodeURIComponent(token)}`;
     const mail = layout({
       eyebrow: 'Account recovery',
       title: 'Reset your password',
@@ -282,7 +292,7 @@ authRouter.post('/forgot', wrap(async (req, res) => {
       cta: { label: 'Choose a new password', url },
       note: 'This link works once and expires in 30 minutes. If you did not ask for it, ignore this message: your password stays as it is.',
       footer: 'Vantage sent this because a password reset was requested for your account.',
-      origin: ctx.config.publicUrl,
+      origin: ctx.config.urls.app,
     });
     audit(ctx, { actor_id: row.id, action: 'password_reset_requested', subject_id: row.id, ip });
     void ctx.mailer.send({ to: row.email, subject: 'Reset your Vantage password', text: mail.text, html: mail.html, kind: 'reset', userId: row.id }).catch(() => undefined);

@@ -44,13 +44,13 @@ export async function sendTeamMessage(ctx: AppContext, sender: SessionUser, unit
     title: message.subject,
     intro: message.body,
     details: [{ label: 'From', value: senderName }, { label: 'To', value: `${unit.name} and every team beneath it` }],
-    cta: { label: 'Open Vantage', url: `${ctx.config.publicUrl}/team?tab=overview` },
+    cta: { label: 'Open Vantage', url: `${ctx.config.urls.app}/team` },
     footer: `${senderName} sent this to ${unitLabel} through Vantage.${sender.email ? ' Reply to reach them directly.' : ''}`,
-    origin: ctx.config.publicUrl,
+    origin: ctx.config.urls.app,
   });
   let emailed = 0; let queued = 0; let failed = 0;
   for (const r of list) {
-    notify(ctx, r.id, { kind: 'unit', title: `${unitLabel}: ${message.subject}`.slice(0, 140), message: message.body.slice(0, 400), actionUrl: '/team?tab=overview' });
+    notify(ctx, r.id, { kind: 'unit', title: `${unitLabel}: ${message.subject}`.slice(0, 140), message: message.body.slice(0, 400), actionUrl: '/team' });
     if (!r.email || !ctx.mailer.enabled) continue;
     const result = await ctx.mailer.send({ to: r.email, subject: `[${unitLabel}] ${message.subject}`, text: mail.text, html: mail.html, kind: 'team_message', userId: r.id, replyTo: sender.email || null });
     if (result.ok && result.queued) queued++;

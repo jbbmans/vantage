@@ -288,7 +288,7 @@ function WhatCounted({ goal, onClose }: { goal: any; onClose: () => void }) {
           <ul className="divide-y divide-line">
             {rows.map((r) => (
               <li key={`${r.table}-${r.id}`}>
-                <Link to={r.table === 'activities' ? `/records/${r.id}` : '/career?tab=training'} onClick={onClose} className="flex items-center gap-3 px-1 py-2.5 transition-colors hover:bg-surface-2">
+                <Link to={r.table === 'activities' ? `/records/${r.id}` : '/career/training'} onClick={onClose} className="flex items-center gap-3 px-1 py-2.5 transition-colors hover:bg-surface-2">
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm text-ink">{r.title}</span>
                     <span className="block text-xs text-ink-3"><DateText value={r.date} /></span>

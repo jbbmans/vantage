@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
-import { Navigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
 import { Plus, GraduationCap, Award as AwardIcon, MessageSquare, CheckCircle2, Paperclip } from 'lucide-react';
-import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, NumberInput, Stat } from '@/components/ui/primitives';
+import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, NumberInput, Stat } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
@@ -19,7 +19,6 @@ import { humanize, todayIso, fullName } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/primitives';
 
 const CareerPlan = lazy(() => import('./CareerPlan'));
-const Readiness = lazy(() => import('./Readiness'));
 
 interface TrainingDraft { id?: string; version?: number; title: string; date: string; type: string; hours: number | string; provider: string; status: string; notes: string; visibility: 'private' | 'unit'; unit_id: string | null }
 interface AwardDraft { id?: string; version?: number; name: string; date: string; type: string; status: string; recommending_official: string; approving_authority: string; citation: string; notes: string; submitted_at: string; approved_at: string; presented_at: string; visibility: 'private' | 'unit'; unit_id: string | null }
@@ -85,12 +84,24 @@ export function CounselingFields({ d, set, errors, leader }: { d: CounselingDraf
   );
 }
 
-export default function Career() {
+/** Readiness, the fifth part of Career, is its own page (Readiness.tsx) at /career/readiness. */
+export type CareerSection = 'plan' | 'training' | 'awards' | 'counseling';
+
+const HEADINGS: Record<CareerSection, [string, string]> = {
+  plan: ['Your career plan', 'Where you are headed, the next steps toward it, and what to finish before your next evaluation.'],
+  training: ['Training', 'PME, MarineNet courses, certifications and college. Hours here feed your record and your readiness.'],
+  awards: ['Awards', 'Recommendations in progress and awards presented, with the citation and who signed off.'],
+  counseling: ['Counseling', 'Counselings you received and gave. Acknowledging one confirms you read it, not that you agree.'],
+};
+
+/** One page of Career: the plan at /career, and each of its parts at /career/<section>. */
+export default function Career({ section }: { section: CareerSection }) {
+  const navigate = useNavigate();
   const toast = useToast();
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
   const prefs = usePrefs();
-  const [tab, setTab] = useParam('tab', 'plan');
+  const tab = section;
   const [openId, setOpenId] = useParam('open');
   const { data: trainings } = useTrainings();
   const { data: awards } = useAwards();
@@ -110,31 +121,23 @@ export default function Career() {
     if (!openId) return;
     const c = counselings?.find((x: any) => x.id === openId);
     const a = awards?.find((x: any) => x.id === openId);
-    if (c) { setView({ kind: 'counseling', row: c }); setTab('counseling'); } else if (a) { setView({ kind: 'award', row: a }); setTab('awards'); }
-  }, [openId, counselings, awards, setTab]);
+    // A link to a record opens it on its own page: /career/counseling?open=<id>.
+    if (c) { setView({ kind: 'counseling', row: c }); if (tab !== 'counseling') navigate(`/career/counseling?open=${encodeURIComponent(openId)}`, { replace: true }); }
+    else if (a) { setView({ kind: 'award', row: a }); if (tab !== 'awards') navigate(`/career/awards?open=${encodeURIComponent(openId)}`, { replace: true }); }
+  }, [openId, counselings, awards, tab, navigate]);
 
   const hours = useMemo(() => (trainings || []).reduce((n: number, t: any) => n + (Number(t.hours) || 0), 0), [trainings]);
   const canEditRow = (r: any) => r.user_id === me ? !r.frozen_at : can(identity, PERMISSIONS.MANAGE_RECORDS, r.unit_id);
   const acknowledge = async (c: any) => { try { await api.acknowledgeCounseling(c.id); invalidateRecords(qc, 'counselings'); toast.success('Acknowledged.'); setView(null); } catch (e) { toast.error(api.errorText(e)); } };
 
-  if (tab === 'messages') return <Navigate to="/maradmins" replace />;
-
   return (
     <div className="page">
-      <PageHeader eyebrow="Career" title="Career" lede="Where you stand, what you are working toward, and the training, awards, counseling and readiness that back it up.">
+      <PageHeader eyebrow="Career" title={HEADINGS[tab][0]} lede={HEADINGS[tab][1]}>
         {tab === 'training' && <Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}><Plus className="h-4 w-4" />Log training</Button>}
         {tab === 'awards' && <Button variant="primary" onClick={() => setAward(emptyAward(vis, unit))}><Plus className="h-4 w-4" />Track an award</Button>}
         {tab === 'counseling' && <Button variant="primary" onClick={() => setCounseling(emptyCounseling(vis, unit))}><Plus className="h-4 w-4" />Record counseling</Button>}
       </PageHeader>
-      <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[
-        { value: 'plan', label: 'Plan and next steps' },
-        { value: 'training', label: 'Training', count: (trainings || []).length },
-        { value: 'awards', label: 'Awards', count: (awards || []).length },
-        { value: 'counseling', label: 'Counseling', count: (counselings || []).length },
-        { value: 'readiness', label: 'Readiness' },
-      ]} />
       {tab === 'plan' && <Suspense fallback={<Skeleton className="h-64" />}><CareerPlan /></Suspense>}
-      {tab === 'readiness' && <Suspense fallback={<Skeleton className="h-64" />}><Readiness embedded /></Suspense>}
       {['training', 'awards', 'counseling'].includes(tab) && <div className="mb-4 grid grid-cols-3 gap-3">
         <Stat label="Training hours" value={formatNumber(hours)} hint={`${(trainings || []).length} entries`} />
         <Stat label="Awards in progress" value={(awards || []).filter((a: any) => ['recommended', 'submitted', 'approved'].includes(a.status)).length} hint={`${(awards || []).filter((a: any) => a.status === 'presented').length} presented`} />

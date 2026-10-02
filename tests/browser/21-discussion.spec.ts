@@ -7,7 +7,7 @@ test('a task opens onto its own page and carries a conversation', async ({ page,
   await ensureSetup(request);
   await loginAs(page, OPERATOR.username);
 
-  await page.goto('/work?tab=tasks');
+  await page.goto('/work/tasks');
   await page.getByRole('button', { name: 'New task' }).click();
   const dialog = page.getByRole('dialog', { name: 'New task' });
   await dialog.waitFor();

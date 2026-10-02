@@ -300,10 +300,10 @@ miscRouter.get('/search', wrap((req, res) => {
   }
   own('activities', 'title', 'date', (id) => `/records/${id}`, 'activity');
   own('tasks', 'title', 'status', (id) => `/records/tasks/${id}`, 'task');
-  own('projects', 'name', 'status', () => '/work?tab=projects', 'project');
+  own('projects', 'name', 'status', () => '/work/projects', 'project');
   own('goals', 'title', 'status', () => '/goals', 'goal');
-  own('awards', 'name', 'status', () => '/career?tab=awards', 'award');
-  own('trainings', 'title', 'date', () => '/career?tab=training', 'training');
+  own('awards', 'name', 'status', () => '/career/awards', 'award');
+  own('trainings', 'title', 'date', () => '/career/training', 'training');
   if (scope.readableUnitIds.length) {
     const ph = scope.readableUnitIds.map(() => '?').join(',');
     const people = req.ctx.db.prepare(`SELECT DISTINCT u.id, u.first_name, u.last_name, r.abbr AS rank_abbr FROM users u JOIN unit_members um ON um.user_id = u.id LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.active = 1 AND um.unit_id IN (${ph}) AND (u.last_name LIKE ? ESCAPE '\\' COLLATE NOCASE OR u.first_name LIKE ? ESCAPE '\\' COLLATE NOCASE) LIMIT 6`).all(...scope.readableUnitIds, like, like) as Array<{ id: string; first_name: string; last_name: string; rank_abbr: string | null }>;

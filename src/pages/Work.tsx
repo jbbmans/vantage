@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 import { Plus, CheckCircle2, Circle, Clock, FolderKanban, ListTodo } from 'lucide-react';
-import { Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, Progress, Skeleton, NumberInput } from '@/components/ui/primitives';
+import { Button, Field, Input, Select, Textarea, EmptyState, Badge, Progress, Skeleton, NumberInput } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
@@ -16,11 +16,13 @@ import { humanize, cn, todayIso } from '@/lib/utils';
 interface TaskDraft { id?: string; version?: number; title: string; notes: string; status: string; priority: string; due_date: string; project_id: string | null; assignee_id: string | null; visibility: 'private' | 'unit'; unit_id: string | null }
 interface ProjectDraft { id?: string; version?: number; name: string; description: string; status: string; priority: string; progress: number | string; start_date: string; target_date: string; organization: string; visibility: 'private' | 'unit'; unit_id: string | null }
 
-export default function Work({ embedded }: { embedded?: boolean } = {}) {
+/** Tasks or projects: two pages of Work, at /work/tasks and /work/projects. */
+export default function Work({ section }: { section: 'tasks' | 'projects' }) {
+  const navigate = useNavigate();
   const toast = useToast();
   const { data: identity } = useIdentity();
   const prefs = usePrefs();
-  const [tab, setTab] = useParam('tab', 'tasks');
+  const tab = section;
   const { data: tasks, isPending } = useTasks();
   const { data: projects } = useProjects();
   const { data: activities } = useActivities();
@@ -32,7 +34,8 @@ export default function Work({ embedded }: { embedded?: boolean } = {}) {
   const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null);
   const [confirm, setConfirm] = useState<{ store: 'tasks' | 'projects'; row: any } | null>(null);
   const [showDone, setShowDone] = useState(false);
-  const [projectFilter, setProjectFilter] = useState('all');
+  // A project's "tasks" link opens Tasks filtered to it, so the filter lives in the address.
+  const [projectFilter, setProjectFilter] = useParam('project', 'all');
   const today = todayIso();
   const me = identity?.user.id;
   const roster: any[] = team?.roster || [];
@@ -59,13 +62,11 @@ export default function Work({ embedded }: { embedded?: boolean } = {}) {
 
   return (
     <PageShell
-      embedded={embedded}
       eyebrow="Work"
-      title="Tasks and projects"
-      lede="What is in flight, what is due, and what it rolls up to. Completed work becomes a logged activity in one click."
+      title={tab === 'projects' ? 'Projects' : 'Tasks'}
+      lede={tab === 'projects' ? 'Taskers and projects, with the tasks that roll up to each and how far along they are.' : 'What is in flight and what is due. Completed work becomes a logged activity in one click.'}
       actions={tab === 'projects' ? <Button variant="primary" onClick={newProject}><Plus className="h-4 w-4" />New project</Button> : <Button variant="primary" onClick={() => newTask()}><Plus className="h-4 w-4" />New task</Button>}
     >
-      {!embedded && <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[{ value: 'tasks', label: 'Tasks', count: (tasks || []).filter((t: any) => t.status !== 'completed').length }, { value: 'projects', label: 'Projects', count: (projects || []).filter((p: any) => p.status !== 'completed').length }]} />}
 
       {tab === 'tasks' && (
         <>
@@ -117,7 +118,7 @@ export default function Work({ embedded }: { embedded?: boolean } = {}) {
                   {p.description && <p className="mt-1 line-clamp-3 text-sm text-ink-2">{p.description}</p>}
                   <div className="mt-3"><div className="flex justify-between text-xs text-ink-3"><span>{done}/{pTasks.length} tasks · {acts} activities</span><span className="fig">{pct}%</span></div><Progress value={pct} className="mt-1" tone={pct >= 100 ? 'good' : 'accent'} /></div>
                   <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-3">{p.target_date && <Badge tone={p.status !== 'completed' && p.target_date < today ? 'bad' : 'neutral'}>Due <DateText value={p.target_date} /></Badge>}{p.priority !== 'medium' && <StatusBadge value={p.priority} />}{p.visibility === 'unit' && <Badge tone="info">Shared</Badge>}</div>
-                  <div className="mt-auto flex justify-between gap-2 border-t border-line pt-3"><span className="flex gap-1"><Button size="xs" variant="ghost" onClick={() => { setProjectFilter(p.id); setTab('tasks'); }}>Tasks</Button><Link to={`/records/projects/${p.id}`} className="link self-center text-xs">Open</Link></span><span className="flex gap-1"><Button size="xs" variant="ghost" onClick={() => newTask({ project_id: p.id })}>+ Task</Button>{canEditRow(p) && <><Button size="xs" variant="ghost" onClick={() => setProjectDraft({ ...p, description: p.description || '', start_date: p.start_date || '', target_date: p.target_date || '', organization: p.organization || '', progress: p.progress ?? 0 })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'projects', row: p })}>Delete</Button></>}</span></div>
+                  <div className="mt-auto flex justify-between gap-2 border-t border-line pt-3"><span className="flex gap-1"><Button size="xs" variant="ghost" onClick={() => { navigate(`/work/tasks?project=${encodeURIComponent(p.id)}`); }}>Tasks</Button><Link to={`/records/projects/${p.id}`} className="link self-center text-xs">Open</Link></span><span className="flex gap-1"><Button size="xs" variant="ghost" onClick={() => newTask({ project_id: p.id })}>+ Task</Button>{canEditRow(p) && <><Button size="xs" variant="ghost" onClick={() => setProjectDraft({ ...p, description: p.description || '', start_date: p.start_date || '', target_date: p.target_date || '', organization: p.organization || '', progress: p.progress ?? 0 })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'projects', row: p })}>Delete</Button></>}</span></div>
                 </article>
               );
             })}

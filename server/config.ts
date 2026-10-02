@@ -18,7 +18,11 @@ export interface AppConfig {
   demo: DemoConfig;
   port: number;
   databasePath: string;
-  publicUrl: string;
+  /**
+   * Where each face of Vantage lives: the public site, the application, and the owner console. One address
+   * serves all three unless the deployment names separate ones (VANTAGE_SITE_URL, _APP_URL, _CONSOLE_URL).
+   */
+  urls: { site: string; app: string; console: string };
   rpId: string;
   secret: string;
   /** Secrets this instance ran with before VANTAGE_SECRET, kept for one start so stored values can be re-sealed. */
@@ -213,11 +217,18 @@ export function loadConfig(env = process.env): AppConfig {
   const setupToken = String(env.VANTAGE_SETUP_TOKEN || '');
   if (production && setupToken.length < 24) throw new Error('VANTAGE_SETUP_TOKEN must be at least 24 characters in production.');
 
-  const publicUrl = String(env.VANTAGE_PUBLIC_URL || (production ? '' : 'http://localhost:5173')).replace(/\/$/, '');
-  if (production && !/^https:\/\/[a-z0-9.-]+(?::\d+)?$/i.test(publicUrl)) {
-    throw new Error('VANTAGE_PUBLIC_URL must be the HTTPS origin of the deployment in production.');
-  }
-  const rpId = env.VANTAGE_RP_ID || new URL(publicUrl || 'http://localhost').hostname;
+  const origin = (name: string, value: string | undefined) => {
+    const url = String(value || '').replace(/\/$/, '');
+    if (production && !/^https:\/\/[a-z0-9.-]+(?::\d+)?$/i.test(url)) throw new Error(`${name} must be an HTTPS origin, such as https://vantage.example.mil, in production.`);
+    if (url && !/^https?:\/\/[a-z0-9.-]+(?::\d+)?$/i.test(url)) throw new Error(`${name} must be an origin: a scheme, a host and at most a port.`);
+    return url;
+  };
+  // VANTAGE_PUBLIC_URL names the one address of a single-host deployment; the three below split it.
+  const site = origin('VANTAGE_SITE_URL', env.VANTAGE_SITE_URL || env.VANTAGE_PUBLIC_URL || (production ? '' : 'http://localhost:5173'));
+  const app = origin('VANTAGE_APP_URL', env.VANTAGE_APP_URL || site);
+  const consoleUrl = origin('VANTAGE_CONSOLE_URL', env.VANTAGE_CONSOLE_URL || app);
+  // Passkeys made on the application must also work on the console, so they belong to the domain both share.
+  const rpId = env.VANTAGE_RP_ID || sharedDomain(new URL(app).hostname, new URL(consoleUrl).hostname);
 
   const dbPath = env.VANTAGE_DB || (test ? ':memory:' : 'data/vantage.db');
   const emailProvider = (env.VANTAGE_EMAIL_PROVIDER || 'none') as AppConfig['email']['provider'];
@@ -252,7 +263,7 @@ export function loadConfig(env = process.env): AppConfig {
     },
     port: envNumber(env, 'PORT', 8787),
     databasePath: dbPath === ':memory:' || isAbsolute(dbPath) ? dbPath : resolve(ROOT, dbPath),
-    publicUrl,
+    urls: { site, app, console: consoleUrl },
     rpId,
     secret,
     previousSecrets,
@@ -329,7 +340,7 @@ export function loadConfig(env = process.env): AppConfig {
       refreshMinutes: envNumber(env, 'VANTAGE_MARADMIN_REFRESH_MINUTES', 30),
       source: env.VANTAGE_MARADMIN_SOURCE || 'https://www.marines.mil/DesktopModules/ArticleCS/RSS.ashx?ContentType=6&Site=481&category=14336&max=50',
     },
-    m365: readM365Config(env, production, test, publicUrl),
+    m365: readM365Config(env, production, test, app),
     // A demo visitor is handed a synthetic person; nobody registers.
     selfRegistration: accessMode === 'demo' ? false : envBool(env, 'VANTAGE_SELF_REGISTRATION', true),
     cac: readCacConfig(env, production),
@@ -339,6 +350,15 @@ export function loadConfig(env = process.env): AppConfig {
 }
 
 export const PROJECT_ROOT = ROOT;
+
+/** The registrable domain two hosts share (secure.example.com and dev.example.com share example.com), or the first host. */
+export function sharedDomain(a: string, b: string): string {
+  if (a === b || /^[\d.]+$|:/.test(a) || /^[\d.]+$|:/.test(b)) return a;
+  const x = a.split('.').reverse(); const y = b.split('.').reverse();
+  const common: string[] = [];
+  for (let i = 0; i < Math.min(x.length, y.length) && x[i] === y[i]; i++) common.push(x[i]);
+  return common.length >= 2 ? common.reverse().join('.') : a;
+}
 
 function readM365Config(env: NodeJS.ProcessEnv, production: boolean, test: boolean, publicUrl: string): AppConfig['m365'] {
   const clientId = String(env.VANTAGE_M365_CLIENT_ID || '').trim();

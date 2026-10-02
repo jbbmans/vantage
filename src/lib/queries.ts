@@ -84,7 +84,7 @@ export function useRecords(store: Store, params?: Record<string, string | undefi
   return useQuery<any[]>({ queryKey: keys.records(store, params), queryFn: () => api.listRecords(store, params), enabled });
 }
 export const useActivities = () => useRecords('activities');
-export const useTasks = () => useRecords('tasks');
+export const useTasks = (enabled = true) => useRecords('tasks', undefined, enabled);
 export const useProjects = () => useRecords('projects');
 export const useGoals = () => useRecords('goals');
 export const useTrainings = () => useRecords('trainings');
@@ -238,8 +238,8 @@ export const correspondenceKeys = {
 };
 
 export const useContacts = (enabled = true) => useQuery<Array<Record<string, any>>>({ queryKey: correspondenceKeys.contacts, queryFn: api.listContacts, staleTime: 60_000, enabled });
-export const useThreads = (params: Record<string, string | undefined> = {}) =>
-  useQuery<ThreadSummary[]>({ queryKey: correspondenceKeys.threads(params), queryFn: () => api.listThreads(params), staleTime: 15_000 });
+export const useThreads = (params: Record<string, string | undefined> = {}, enabled = true) =>
+  useQuery<ThreadSummary[]>({ queryKey: correspondenceKeys.threads(params), queryFn: () => api.listThreads(params), staleTime: 15_000, enabled });
 export const useThread = (id: string | null) =>
   useQuery<{ thread: any; messages: any[]; links: any[]; contact: any }>({ queryKey: correspondenceKeys.thread(id || ''), queryFn: () => api.threadDetail(id!), enabled: Boolean(id) });
 export const useItemThreads = (workItemId: string | null) =>
@@ -266,10 +266,10 @@ export const caseKeys = {
 };
 
 export const useWorkItem = (id: string | null) => useQuery<any>({ queryKey: caseKeys.item(id || ''), queryFn: () => api.workItem(id!), enabled: Boolean(id) });
-export const useRecordSummary = (params: Record<string, string | undefined> = {}) => useQuery<any>({ queryKey: caseKeys.summary(params), queryFn: () => api.recordSummary(params), staleTime: 15_000 });
+export const useRecordSummary = (params: Record<string, string | undefined> = {}, enabled = true) => useQuery<any>({ queryKey: caseKeys.summary(params), queryFn: () => api.recordSummary(params), staleTime: 15_000, enabled });
 export const useAssignedWork = () => useQuery<any[]>({ queryKey: caseKeys.assigned, queryFn: api.assignedWork, staleTime: 10_000 });
 export const useContributions = (params: Record<string, string | undefined> = {}) => useQuery<any[]>({ queryKey: caseKeys.contributions(params), queryFn: () => api.contributions(params) });
-export const useRecordDrafts = () => useQuery<any[]>({ queryKey: caseKeys.drafts, queryFn: api.recordDrafts });
+export const useRecordDrafts = (enabled = true) => useQuery<any[]>({ queryKey: caseKeys.drafts, queryFn: api.recordDrafts, enabled });
 export const useCareer = () => useQuery<any>({ queryKey: caseKeys.career, queryFn: api.career, staleTime: 30_000 });
 export const useWorkload = (unitId: string | null, params: Record<string, string | undefined> = {}) =>
   useQuery<any>({ queryKey: caseKeys.workload(unitId || '', params), queryFn: () => api.workload(unitId!, params), enabled: Boolean(unitId), retry: false });

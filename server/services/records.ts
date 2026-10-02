@@ -177,10 +177,10 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     else if (data.quantity != null && !data.unit_label) record(ctx, 'quality.record_missing_measure', { missing: 'unit' }, { id: user.id });
   }
   if (table === 'awards' && onBehalf) {
-    notify(ctx, ownerId, { kind: 'award', title: 'Award recommendation started', message: `${user.first_name} ${user.last_name} recommended you for ${String(data.name || 'an award')}.`, actionUrl: `/career?tab=awards&open=${id}`, dedupeKey: `award:${id}` });
+    notify(ctx, ownerId, { kind: 'award', title: 'Award recommendation started', message: `${user.first_name} ${user.last_name} recommended you for ${String(data.name || 'an award')}.`, actionUrl: `/career/awards?open=${id}`, dedupeKey: `award:${id}` });
   }
   if (table === 'counselings' && counselorId) {
-    notify(ctx, ownerId, { kind: 'counseling', title: 'New counseling recorded', message: `${user.first_name} ${user.last_name} recorded a ${String(data.type || 'counseling').replace('_', ' ')} counseling.`, actionUrl: `/career?tab=counseling&open=${id}`, dedupeKey: `counseling:${id}` });
+    notify(ctx, ownerId, { kind: 'counseling', title: 'New counseling recorded', message: `${user.first_name} ${user.last_name} recorded a ${String(data.type || 'counseling').replace('_', ' ')} counseling.`, actionUrl: `/career/counseling?open=${id}`, dedupeKey: `counseling:${id}` });
   }
   if (spec.assignee && data.assignee_id && data.assignee_id !== user.id) {
     notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || ''), actionUrl: `/records/${table}/${id}`, dedupeKey: `${table}:${id}:assigned` });

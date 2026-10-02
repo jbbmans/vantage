@@ -101,7 +101,7 @@ test('a Marine claims, researches, calculates, decides, hands off, and keeps a p
   await expect(todayHeading(page)).toBeVisible();
   await page.goto(itemUrl);
   await page.getByRole('button', { name: 'Prepare a private draft from my work' }).click();
-  await expect(page).toHaveURL(/\/record\?tab=drafts/);
+  await expect(page).toHaveURL(/\/record\/drafts/);
   await expect(page.getByText(/Recorded current award amount: \$91,250\.00/)).toBeVisible();
   await expect(page.getByText(/No leader, reviewer or administrator can open them/)).toBeVisible();
   await page.getByRole('button', { name: 'Keep in my record' }).click();
@@ -115,7 +115,7 @@ test('personal value: quick capture, a goal update, and a career step', async ({
   const log = page.getByRole('dialog', { name: 'Log activity' });
   await log.getByRole('button', { name: 'Save activity' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Activity logged.' })).toBeVisible();
-  await page.goto('/record?tab=entries');
+  await page.goto('/record/activities');
   await expect(page.getByRole('link', { name: /Volunteered 4 hours/ })).toBeVisible();
 
   await page.goto('/goals');
@@ -139,7 +139,7 @@ test('the section lead sees workload with its definitions and limits', async ({ 
   await page.goto('/');
   await page.getByRole('button', { name: 'View as the section lead' }).click();
   await expect(page.getByRole('heading', { name: 'G-8 BE' })).toBeVisible();
-  await page.goto('/team?tab=workload');
+  await page.goto('/team/workload');
   const table = page.getByRole('table', { name: /Workload and recorded contributions by person/ });
   await expect(table).toContainText('Cpl Riley Chen');
   await expect(table).toContainText('PFC Casey Brooks');
@@ -151,7 +151,7 @@ test('a section lead with no spreadsheet to hand imports the synthetic sample sh
   await page.goto('/');
   await page.getByRole('button', { name: 'View as the section lead' }).click();
   await expect(page.getByRole('heading', { name: 'G-8 BE' })).toBeVisible();
-  await page.goto('/work?tab=queue');
+  await page.goto('/work/queue');
   await page.getByRole('button', { name: 'Import a spreadsheet' }).first().click();
   await page.getByRole('button', { name: 'Use the synthetic sample sheet' }).click();
   await expect(page.getByRole('dialog')).toContainText('Document Number');
@@ -162,7 +162,7 @@ test('demo pages have no serious accessibility violations in either theme', asyn
   await expect(todayHeading(page)).toBeVisible();
   const item = (await (await page.request.get('/api/work/items?q=SYN-26-P-0047')).json()).items[0].id;
   for (const theme of ['light', 'dark']) {
-    for (const path of ['/', '/work', `/work/items/${item}`, '/record', '/record?tab=contributions', '/career', '/goals']) {
+    for (const path of ['/', '/work', `/work/items/${item}`, '/record', '/record/contributions', '/career', '/goals']) {
       await page.goto(path);
       await page.evaluate((t) => document.documentElement.setAttribute('data-theme', t), theme);
       await page.waitForLoadState('networkidle');

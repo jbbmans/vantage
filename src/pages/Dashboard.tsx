@@ -215,7 +215,7 @@ function PersonalPanel({ summary }: { summary: any }) {
           </li>
         )}
         {reminders.map((a) => (
-          <li key={a.key}><Link to={a.to === '/readiness' ? '/career?tab=readiness' : a.to} className="flex items-start gap-1.5 text-ink-2 hover:underline"><CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />{a.label}</Link></li>
+          <li key={a.key}><Link to={a.to === '/readiness' ? '/career/readiness' : a.to} className="flex items-start gap-1.5 text-ink-2 hover:underline"><CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />{a.label}</Link></li>
         ))}
         {!active.length && !nextStep && !reminders.length && <li className="text-ink-3">Set a goal or a career step and it shows here.</li>}
       </ul>
@@ -235,13 +235,13 @@ function SectionOverview({ unitId }: { unitId: string }) {
     <section aria-labelledby="section-heading" className="mb-6">
       <div className="mb-2 flex items-center justify-between gap-2">
         <h2 id="section-heading" className="flex items-center gap-2 text-md font-semibold text-ink">{teams ? <Building2 className="h-4 w-4 text-accent" aria-hidden /> : <Users className="h-4 w-4 text-accent" aria-hidden />}{unitLabel}{teams ? <span className="text-sm font-normal text-ink-3">· whole command, {teams} {teams === 1 ? 'team' : 'teams'}</span> : null}</h2>
-        <Link to="/team?tab=workload" className="text-xs text-accent hover:underline">Full workload</Link>
+        <Link to="/team/workload" className="text-xs text-accent hover:underline">Full workload</Link>
       </div>
       <div className="stagger grid grid-cols-2 gap-3 md:grid-cols-4">
         <Tile label="Unassigned" value={s.unassigned} hint="open to claim or assign" to="/work?claimed=nobody" tone={s.unassigned ? 'accent' : undefined} />
-        <Tile label="Overdue" value={s.overdue} hint="past due and still open" to="/team?tab=workload" tone={s.overdue ? 'bad' : undefined} />
-        <Tile label="Blocked" value={s.blocked} hint="something is in the way" to="/team?tab=workload" tone={s.blocked ? 'warn' : undefined} />
-        <Tile label="Waiting" value={s.waiting} hint={waitingBits.map(([k, v]) => `${v.count} ${WAITING_LABEL[k as WaitingCategory]?.toLowerCase() || k}`).join(', ') || 'on approvals or posting'} to="/team?tab=workload" />
+        <Tile label="Overdue" value={s.overdue} hint="past due and still open" to="/team/workload" tone={s.overdue ? 'bad' : undefined} />
+        <Tile label="Blocked" value={s.blocked} hint="something is in the way" to="/team/workload" tone={s.blocked ? 'warn' : undefined} />
+        <Tile label="Waiting" value={s.waiting} hint={waitingBits.map(([k, v]) => `${v.count} ${WAITING_LABEL[k as WaitingCategory]?.toLowerCase() || k}`).join(', ') || 'on approvals or posting'} to="/team/workload" />
       </div>
       {Array.isArray(s.by_procedure) && s.by_procedure.some((p: any) => p.key !== 'none') && <ProcedureLedger rows={s.by_procedure} />}
       {teams > 0 && <CommandTeams unitId={unitId} />}

@@ -83,7 +83,7 @@ export function UnitPulse({ unitId }: { unitId: string }) {
           {data.unit.short_name || data.unit.name}
           <span className="text-sm font-normal text-ink-3">{whole ? `· whole command, ${data.teams.length} ${data.teams.length === 1 ? 'team' : 'teams'}` : data.parent ? `· ${data.parent.name}` : ''}</span>
         </h2>
-        <Link to="/team?tab=overview" className="text-xs text-accent hover:underline">Open</Link>
+        <Link to="/team" className="text-xs text-accent hover:underline">Open</Link>
       </div>
       <div className="stagger grid grid-cols-2 gap-3 md:grid-cols-4">
         <Stat label="Marines" value={<CountUp value={t.members} />} hint={whole ? `across ${t.teams} teams` : 'on the roster'} />

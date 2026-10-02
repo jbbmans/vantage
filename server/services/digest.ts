@@ -61,9 +61,9 @@ export function composeDigest(ctx: AppContext, user: DigestUser, at = new Date()
       { label: 'due in 14 days', value: String(dueSoon.length), ...(dueSoon.length ? { tone: 'warn' as const } : {}) },
     ],
     sections,
-    cta: { label: 'Open Vantage', url: `${ctx.config.publicUrl}/` },
+    cta: { label: 'Open Vantage', url: `${ctx.config.urls.app}/` },
     footer: 'You receive this weekly digest because it is enabled in Settings. Turn it off there at any time.',
-    origin: ctx.config.publicUrl,
+    origin: ctx.config.urls.app,
   });
   return { subject, ...content, stats: { activities: acts.length, overdue: overdue.length } };
 }

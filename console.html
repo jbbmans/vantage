@@ -8,11 +8,11 @@
     <meta name="application-name" content="Vantage" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-    <meta name="apple-mobile-web-app-title" content="Vantage" />
+    <meta name="apple-mobile-web-app-title" content="Vantage console" />
     <meta name="referrer" content="strict-origin-when-cross-origin" />
 
-    <!-- The application shell: every signed-in route. The public page is public.html. -->
-    <title>Vantage</title>
+    <!-- The owner console: its own document, for the people who run the instance. -->
+    <title>Owner console | Vantage</title>
     <meta name="robots" content="noindex, nofollow" />
 
     <!-- Written by `npm run icons` from shared/brand.ts; the build stamps __ICONS__ with their content hash. -->
@@ -20,19 +20,11 @@
     <link rel="icon" href="/favicon.svg?v=__ICONS__" type="image/svg+xml" />
     <link rel="icon" href="/icon-192.png?v=__ICONS__" type="image/png" sizes="192x192" />
     <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=__ICONS__" />
-    <link rel="manifest" href="/manifest.webmanifest?v=__ICONS__" />
     <link rel="preload" href="/fonts/geist-normal.woff2" as="font" type="font/woff2" crossorigin />
-
-    <!-- A link to any page in the app still previews as Vantage when it is pasted into a chat. -->
-    <meta property="og:type" content="website" />
-    <meta property="og:site_name" content="Vantage" />
-    <meta property="og:title" content="Vantage" />
-    <meta property="og:image" content="https://www.vantageusmc.com/og.png?v=__ICONS__" />
-    <meta name="twitter:card" content="summary_large_image" />
 
     <script>
       try {
-        var mode = localStorage.getItem('vantage.theme') || 'system';
+        var mode = localStorage.getItem('vantage.theme') || 'light';
         var dark = mode === 'dark' || (mode === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
         document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
         var accent = localStorage.getItem('vantage.accent');
@@ -43,6 +35,6 @@
   <body>
     <div id="root"></div>
     <noscript>Vantage needs JavaScript enabled.</noscript>
-    <script type="module" src="/src/main.tsx"></script>
+    <script type="module" src="/src/console-main.tsx"></script>
   </body>
 </html>

@@ -19,9 +19,11 @@ services:
       name: vantage-data
       mountPath: /data
       sizeGB: 1
+    # www first: Render then adds the bare vantageusmc.com and redirects it to www. See docs/deploy-render.md.
     domains:
-      - vantageusmc.com
       - www.vantageusmc.com
+      - secure.vantageusmc.com
+      - dev.vantageusmc.com
     envVars:
       - key: NODE_ENV
         value: production
@@ -29,8 +31,24 @@ services:
         value: "8787"
       - key: VANTAGE_DB
         value: /data/vantage.db
+      # One address serves everything until the three below are set. Set them in the dashboard, not here, once
+      # secure. and dev. resolve and have certificates; set here, a merge would send people to addresses that do
+      # not exist yet. See docs/deploy-render.md, "Moving vantageusmc.com to three addresses".
       - key: VANTAGE_PUBLIC_URL
         value: https://vantageusmc.com
+      # https://www.vantageusmc.com: the public page.
+      - key: VANTAGE_SITE_URL
+        sync: false
+      # https://secure.vantageusmc.com: sign-in and the app. Email links point here.
+      - key: VANTAGE_APP_URL
+        sync: false
+      # https://dev.vantageusmc.com: the owner console; administration answers here alone.
+      - key: VANTAGE_CONSOLE_URL
+        sync: false
+      # vantageusmc.com: passkeys belong to the domain, so one works on the app and the console, and none made
+      # before the split has to be registered again.
+      - key: VANTAGE_RP_ID
+        sync: false
       - key: TRUST_PROXY
         value: "true"
       - key: VANTAGE_TIMEZONE

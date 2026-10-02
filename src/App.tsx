@@ -9,7 +9,9 @@ import { useIdentity, keys } from '@/lib/queries';
 import { hasSession, setupStatus, demoStart, errorText } from '@/lib/api';
 import { applyAccent, applyDensity, applyTheme, storedTheme } from '@/lib/theme';
 import AppLoader from '@/components/AppLoader';
-import { NAV_REDIRECTS } from '@/config/nav';
+import type { TeamSection } from '@/lib/teamAccess';
+import { MOVED, movedTo } from '@/config/nav';
+import { LINKS, consoleHref, siteHref } from '@/lib/links';
 
 // Signed-out and one-off screens load on demand; a visitor to the public page gets public.html instead.
 const Login = lazy(() => import('@/pages/Login'));
@@ -19,15 +21,20 @@ const RecordHub = lazy(() => import('@/pages/RecordHub'));
 const WorkItemPage = lazy(() => import('@/pages/WorkItemPage'));
 const RecordDetail = lazy(() => import('@/pages/RecordDetail'));
 const WorkDetail = lazy(() => import('@/pages/WorkDetail'));
-const WorkHub = lazy(() => import('@/pages/WorkHub'));
+const Workbench = lazy(() => import('@/pages/Workbench'));
+const Work = lazy(() => import('@/pages/Work'));
+const Correspondence = lazy(() => import('@/pages/Correspondence'));
+const Records = lazy(() => import('@/pages/Records'));
+const Readiness = lazy(() => import('@/pages/Readiness'));
 const Goals = lazy(() => import('@/pages/Goals'));
 const Career = lazy(() => import('@/pages/Career'));
 const Maradmins = lazy(() => import('@/pages/Maradmins'));
-const ReportsHub = lazy(() => import('@/pages/ReportsHub'));
+const ReportStudio = lazy(() => import('@/pages/ReportStudio'));
+const Reports = lazy(() => import('@/pages/Reports'));
 const Team = lazy(() => import('@/pages/Team'));
 const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
 const Settings = lazy(() => import('@/pages/Settings'));
-const Operator = lazy(() => import('@/pages/Operator'));
+const DemoGovernance = lazy(() => import('@/pages/DemoGovernance'));
 const Help = lazy(() => import('@/pages/Help'));
 const Support = lazy(() => import('@/pages/Support'));
 const Reference = lazy(() => import('@/pages/Reference'));
@@ -58,6 +65,18 @@ function NavigateBridge() {
 const PUBLIC_ROUTES = ['/display', '/about'];
 const isPublicRoute = (pathname: string) => PUBLIC_ROUTES.includes(pathname);
 
+/** A page that lives on another host (the public site, the owner console): the browser goes there. */
+function Elsewhere({ href, label }: { href: string; label: string }) {
+  useEffect(() => { window.location.replace(href); }, [href]);
+  return <AppLoader label={label} />;
+}
+
+/** The owner console is its own app; /operator, from old links and notifications, opens it at the same tab. */
+function ToConsole() {
+  const { search } = useLocation();
+  return <Elsewhere href={consoleHref(`/${search}`)} label="Opening the owner console…" />;
+}
+
 /**
  * The server answers / with public.html for a signed-out visitor to a set-up instance, so the app only
  * reaches here for first-time setup or a session that turned out to have expired.
@@ -68,7 +87,8 @@ function SignedOutHome({ serverError, onRetry }: { serverError: string | null; o
     setupStatus().then((status) => setState(status.needsSetup ? 'setup' : 'public')).catch(() => setState('public'));
   }, []);
   if (state === 'loading') return <AppLoader />;
-  return <Screen>{state === 'setup' ? <Login serverError={serverError} onRetry={onRetry} /> : <PublicSite />}</Screen>;
+  // Where the public site has a host of its own, the application's front door is sign-in.
+  return <Screen>{state === 'setup' || LINKS.site ? <Login serverError={serverError} onRetry={onRetry} /> : <PublicSite />}</Screen>;
 }
 
 let demoStarting: { attempt: number; promise: Promise<unknown> } | null = null;
@@ -145,6 +165,7 @@ function AppRoutes() {
   const serverError = identity.isError && (identity.error as { status?: number })?.status !== 401 ? (identity.error as Error).message : null;
 
   if (publicStandalone) {
+    if (LINKS.site) return <Elsewhere href={siteHref(location.pathname)} label="Opening Vantage…" />;
     return <Routes><Route path="*" element={<Screen><PublicSite /></Screen>} /></Routes>;
   }
 
@@ -176,25 +197,39 @@ function AppRoutes() {
     <Routes>
       <Route element={<AppShell />}>
         <Route index element={<Dashboard />} />
-        <Route path="record" element={<D><RecordHub /></D>} />
+        <Route path="work" element={<Here />} />
+        <Route path="work/queue" element={<D><Workbench /></D>} />
+        <Route path="work/tasks" element={<D><Work section="tasks" /></D>} />
+        <Route path="work/projects" element={<D><Work section="projects" /></D>} />
+        <Route path="work/correspondence" element={<D><Correspondence /></D>} />
+        <Route path="work/items/:id" element={<D><WorkItemPage /></D>} />
+        <Route path="record" element={<Here><D><RecordHub section="overview" /></D></Here>} />
+        <Route path="record/activities" element={<D><Records /></D>} />
+        <Route path="record/drafts" element={<D><RecordHub section="drafts" /></D>} />
+        <Route path="record/contributions" element={<D><RecordHub section="contributions" /></D>} />
         <Route path="records/:id" element={<D><RecordDetail /></D>} />
         <Route path="records/:table/:id" element={<D><WorkDetail /></D>} />
-        <Route path="work" element={<D><WorkHub /></D>} />
-        <Route path="work/items/:id" element={<D><WorkItemPage /></D>} />
         <Route path="goals" element={<D><Goals /></D>} />
-        <Route path="career" element={<D><Career /></D>} />
+        <Route path="career" element={<Here><D><Career section="plan" /></D></Here>} />
+        <Route path="career/training" element={<D><Career section="training" /></D>} />
+        <Route path="career/awards" element={<D><Career section="awards" /></D>} />
+        <Route path="career/counseling" element={<D><Career section="counseling" /></D>} />
+        <Route path="career/readiness" element={<D><Readiness /></D>} />
+        <Route path="reports" element={<Here><D><ReportStudio /></D></Here>} />
+        <Route path="reports/analysis" element={<D><Reports /></D>} />
         <Route path="reference" element={<D><Reference /></D>} />
         <Route path="maradmins" element={<D><Maradmins /></D>} />
-        <Route path="reports" element={<D><ReportsHub /></D>} />
-        <Route path="team" element={<D><Team /></D>} />
+        <Route path="team" element={<Here><D><Team section="overview" /></D></Here>} />
+        {TEAM_PAGES.map(([path, section]) => <Route key={path} path={`team/${path}`} element={<D><Team section={section} /></D>} />)}
         <Route path="team/:id" element={<D><MemberDetail /></D>} />
         <Route path="settings" element={<D><Settings /></D>} />
-        <Route path="operator" element={<D><Operator /></D>} />
+        <Route path="governance" element={<D><DemoGovernance /></D>} />
+        <Route path="operator" element={<ToConsole />} />
         <Route path="help" element={<D><Help /></D>} />
         <Route path="support" element={<D><Support /></D>} />
         <Route path="support/:id" element={<D><Support /></D>} />
-        {Object.entries(NAV_REDIRECTS).map(([from, to]) => (
-          <Route key={from} path={from.slice(1)} element={<RedirectKeepingQuery to={to} />} />
+        {Object.keys(MOVED).map((from) => (
+          <Route key={from} path={from.slice(1)} element={<Here />} />
         ))}
         <Route path="activities/:id" element={<RedirectRecord />} />
         {['login', 'register', 'reset', 'invite', 'setup'].map((path) => (
@@ -219,14 +254,14 @@ export default function App() {
   );
 }
 
-function RedirectKeepingQuery({ to }: { to: string }) {
-  const location = useLocation();
-  const [path, query = ''] = to.split('?');
-  const merged = new URLSearchParams(query);
-  new URLSearchParams(location.search).forEach((value, key) => { if (!merged.has(key)) merged.set(key, value); });
-  const search = merged.toString();
-  return <Navigate to={`${path}${search ? `?${search}` : ''}`} replace />;
+/** An address that moved (a tab that became a page, a page merged into another) goes where it lives now. */
+function Here({ children }: { children?: React.ReactNode }) {
+  const { pathname, search, hash } = useLocation();
+  const target = movedTo(pathname, search);
+  return target ? <Navigate to={`${target}${hash}`} replace /> : <>{children}</>;
 }
+
+const TEAM_PAGES: Array<[string, TeamSection]> = [['workload', 'workload'], ['roster', 'roster'], ['dashboard', 'dashboard'], ['invitations', 'invites'], ['roles', 'roles'], ['units', 'units'], ['access-log', 'audit']];
 
 function RedirectRecord() {
   const id = window.location.pathname.split('/').pop();

@@ -34,7 +34,8 @@
 
 ## Transport and browser
 
-- HTTPS only in production (`VANTAGE_PUBLIC_URL` must be `https://`), HSTS with preload, a strict CSP with hashed inline bootstrap and `connect-src` limited to this server and the GenAI.mil gateway (the owner console checks from the browser whether the gateway is reachable), `frame-ancestors 'none'`, `nosniff`, `Referrer-Policy: no-referrer`.
+- The owner console can have a host of its own (`VANTAGE_CONSOLE_URL`). There, only owners can sign in, its session cookie is its own, and administration (`/api/admin`) answers on that host alone, so a session stolen from the app can never reach it.
+- HTTPS only in production (every configured address must be `https://`), HSTS with preload, a strict CSP with hashed inline bootstrap and `connect-src` limited to this server and the GenAI.mil gateway (the owner console checks from the browser whether the gateway is reachable), `frame-ancestors 'none'`, `nosniff`, `Referrer-Policy: no-referrer`.
 - CSRF: state-changing requests must carry `x-vantage-client`; cookies are `SameSite=Lax`.
 - Rate limits per IP and per account on sign-in, registration, reset, MFA, and mutations. The current-password check on the change-password form shares the sign-in limit. Reset emails are capped at three an hour per account, and mail sent on a user's request (address confirmation, digests, invitations) at ten per 15 minutes.
 - Links a user saves as evidence must be `http`, `https` or `mailto`, checked the way a browser reads a scheme (ignoring control characters and whitespace). MARADMIN links are kept only when they are `https`.

@@ -65,7 +65,7 @@ adminRouter.get('/overview', wrap((req, res) => {
     email: { provider: req.ctx.mailer.provider, enabled: req.ctx.mailer.enabled, from: req.ctx.config.email.from, recent: db.prepare('SELECT to_address, kind, status, error, created_at FROM email_log ORDER BY created_at DESC LIMIT 10').all() },
     maradmins: maradminSyncState(req.ctx),
     runtime: req.ctx.runtime,
-    publicUrl: req.ctx.config.publicUrl, rpId: req.ctx.config.rpId, timezone: req.ctx.config.timezone,
+    publicUrl: req.ctx.config.urls.app, siteUrl: req.ctx.config.urls.site, consoleUrl: req.ctx.config.urls.console, rpId: req.ctx.config.rpId, timezone: req.ctx.config.timezone,
     audit: verifyAuditChain(req.ctx),
     auditForwarding: auditForwardingStatus(req.ctx),
     browserBackups: req.ctx.config.security.browserBackups,
@@ -160,10 +160,10 @@ adminRouter.post('/email/test', wrap(async (req, res) => {
     eyebrow: 'Test message',
     title: 'Email is working',
     intro: 'If you are reading this, Vantage can reach this inbox. Reset links, invitations, sign-in details and digests will arrive the same way.',
-    details: [{ label: 'Sent from', value: ctx.config.publicUrl }, { label: 'Provider', value: ctx.mailer.provider }, { label: 'From address', value: ctx.config.email.from }, { label: 'Sent at', value: new Date().toLocaleString('en-US', { timeZone: ctx.config.timezone, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) }],
+    details: [{ label: 'Sent from', value: ctx.config.urls.app }, { label: 'Provider', value: ctx.mailer.provider }, { label: 'From address', value: ctx.config.email.from }, { label: 'Sent at', value: new Date().toLocaleString('en-US', { timeZone: ctx.config.timezone, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) }],
     note: 'Check that this message did not land in spam. For direct delivery, open the message headers and look for “dkim=pass”.',
     footer: 'An owner sent this test from the Vantage Owner console.',
-    origin: ctx.config.publicUrl,
+    origin: ctx.config.urls.app,
   });
   const result = await ctx.mailer.send({ to, subject: 'Vantage email test', text: mail.text, html: mail.html, kind: 'test', userId: req.user.id });
   if (!result.ok) throw badRequest(result.error || 'Send failed.');

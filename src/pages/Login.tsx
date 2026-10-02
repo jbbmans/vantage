@@ -1,5 +1,4 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
 import { startAuthentication } from '@simplewebauthn/browser';
 import {
@@ -27,6 +26,7 @@ import { passwordProblem, passwordStrength, MIN_PASSWORD_LENGTH } from '../../sh
 import { applyTheme, resolveTheme, storedTheme } from '@/lib/theme';
 import { VERSION } from '@/lib/version';
 import { cn } from '@/lib/utils';
+import { appHref, siteHref } from '@/lib/links';
 
 type Mode = 'login' | 'mfa' | 'setup' | 'register' | 'forgot' | 'reset' | 'invite' | 'help';
 
@@ -67,7 +67,9 @@ function PasswordMeter({ value }: { value: string }) {
   );
 }
 
-export default function Login({ serverError, onRetry }: { serverError: string | null; onRetry: () => void }) {
+/** The sign-in screen of the application, or (variant="console") of the owner console, which only owners use. */
+export default function Login({ serverError, onRetry, variant = 'app' }: { serverError: string | null; onRetry: () => void; variant?: 'app' | 'console' }) {
+  const owners = variant === 'console';
   const qc = useQueryClient();
   const toast = useToast();
   const ranks = useRanks();
@@ -111,7 +113,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
 
     api.setupStatus().then((s: Status) => {
       setStatus(s);
-      if (s.needsSetup && mode === 'login') setMode('setup');
+      if (s.needsSetup && mode === 'login' && !owners) setMode('setup');
     }).catch((e) => setStatusError(api.errorText(e)));
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
@@ -217,7 +219,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
   const offline = typeof navigator !== 'undefined' && !navigator.onLine;
 
   const heading: Record<Mode, [string, string, string]> = {
-    login: ['Welcome back', 'Sign in', 'Continue to your Vantage workspace.'],
+    login: owners ? ['Owner console', 'Sign in', 'For the people who run this Vantage. Everyone else signs in to the app.'] : ['Welcome back', 'Sign in', 'Continue to your Vantage workspace.'],
     mfa: ['Secure sign-in', 'Second step', 'Enter the six-digit code from your authenticator app, or a recovery code.'],
     setup: ['First launch', 'Set up Vantage', 'Create the owner account and the first unit. This only happens once.'],
     register: ['Join Vantage', 'Create your account', 'Self-registration is open on this deployment.'],
@@ -249,10 +251,10 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
     <div className="auth-page">
       <aside className="auth-brand-panel" aria-label="About Vantage">
         <div className="auth-brand-glow" aria-hidden />
-        <Link to="/" className="auth-panel-brand" aria-label="Vantage overview">
+        <a href={siteHref('/')} className="auth-panel-brand" aria-label="Vantage overview">
           <img src="/brand/mark-reversed.svg" alt="" width="28" height="28" />
           <span>VANTAGE</span>
-        </Link>
+        </a>
         <div className="auth-panel-copy">
           <p className="auth-panel-eyebrow">Performance and work management</p>
           <p className="auth-panel-title">Every action.<br /><span>A clearer picture.</span></p>
@@ -267,12 +269,14 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
 
       <div className="auth-side">
       <header className="auth-topbar">
-        <Link to="/" className="auth-top-brand" aria-label="Vantage overview">
+        <a href={owners ? appHref('/') : siteHref('/')} className="auth-top-brand" aria-label={owners ? 'Open the Vantage app' : 'Vantage overview'}>
           <img src="/mark.svg" alt="" />
           <span>VANTAGE</span>
-        </Link>
+        </a>
         <div className="auth-top-actions">
-          <Link to="/display" className="auth-overview-link">About Vantage <ArrowRight /></Link>
+          {owners
+            ? <a href={appHref('/')} className="auth-overview-link">Open the app <ArrowRight /></a>
+            : <a href={siteHref('/display')} className="auth-overview-link">About Vantage <ArrowRight /></a>}
           <button type="button" onClick={toggleTheme} className="auth-theme" aria-label="Toggle theme">
             {theme === 'dark' ? <Sun /> : <Moon />}
           </button>
@@ -284,7 +288,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
           <div className={cn('auth-brand-lockup', !(status?.displayName && status.displayName !== 'Vantage') && 'auth-brand-lockup-default')}>
             <div className="auth-mark-wrap"><img src="/mark.svg" alt="" /></div>
             <p>{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'VANTAGE'}</p>
-            <span>{status?.displayName && status.displayName !== 'Vantage' ? 'Powered by Vantage' : 'Performance · Productivity · Readiness'}</span>
+            <span>{owners ? 'Owner console' : status?.displayName && status.displayName !== 'Vantage' ? 'Powered by Vantage' : 'Performance · Productivity · Readiness'}</span>
           </div>
 
           <div className="auth-card">
@@ -301,6 +305,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
             </div>
 
             {status?.announcement && <div className="auth-notice accent">{status.announcement}</div>}
+            {owners && status?.needsSetup && <div className="auth-notice accent">Vantage is not set up yet. <a className="link" href={appHref('/setup')}>Set it up in the app</a>, then come back here.</div>}
             {status?.maintenance && <div className="auth-notice warn">Vantage is in maintenance. Only the owner can sign in right now.</div>}
             {(serverError || statusError) && (
               <div className="auth-notice error">
@@ -335,8 +340,8 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
                 </Field>
                 <div className="auth-form-links">
                   <button type="button" className="link" onClick={() => setMode('forgot')}>Forgot your password?</button>
-                  {status?.selfRegistration && <button type="button" className="link" onClick={() => setMode('register')}>Create an account</button>}
-                  <button type="button" className="link" onClick={() => setMode('help')}>Need help?</button>
+                  {status?.selfRegistration && !owners && <button type="button" className="link" onClick={() => setMode('register')}>Create an account</button>}
+                  {!owners && <button type="button" className="link" onClick={() => setMode('help')}>Need help?</button>}
                 </div>
                 <Button type="submit" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={offline}>
                   Sign in <ArrowRight className="h-4 w-4" />

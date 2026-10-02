@@ -2,7 +2,7 @@ import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine, Ticket } from 'lucide-react';
-import { PageHeader, Button, Field, Input, Select, Textarea, Tabs, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch } from '@/components/ui/primitives';
+import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult } from '@/components/AiPanel';
@@ -16,16 +16,21 @@ import { ECHELONS, categoryColor } from '../../shared/constants';
 import { formatDollars } from '../../shared/metrics';
 import { copyToClipboard, cn, downloadText, formatRange, fullName, humanize, lastDays } from '@/lib/utils';
 import { useView, subtreeOf, viewLabel } from '@/lib/view';
+import { teamSections, type TeamSection } from '@/lib/teamAccess';
 import { UnitOverviewPanel } from '@/components/UnitOverview';
 import { markTeamSeen } from '@/components/GettingStarted';
 
 const TeamWorkload = lazy(() => import('./TeamWorkload'));
 
-export default function Team() {
+const SECTION_LABELS: Record<TeamSection, string> = {
+  overview: 'Overview', workload: 'Workload', roster: 'Roster', dashboard: 'Unit dashboard', invites: 'Invitations', roles: 'Roles', units: 'Units', audit: 'Access log',
+};
+
+/** One page of Team: /team, and /team/<section> for the rest. Which ones a person may open is teamSections'. */
+export default function Team({ section }: { section: TeamSection }) {
   const { data: identity } = useIdentity();
   const { data: org } = useOrg();
   const { data: team, isPending } = useTeam();
-  const [tab, setTab] = useParam('tab', 'overview');
   const { view, views, setView } = useView(identity);
   const [linked, setLinked] = useParam('unit', '');
   useEffect(() => { if (linked && views.some((v) => v.id === linked)) { setView(linked); setLinked(''); } }, [linked, views]); // eslint-disable-line react-hooks/exhaustive-deps
@@ -39,29 +44,20 @@ export default function Team() {
   const demo = Boolean(identity?.demo);
   const leads = unitsWith(identity, PERMISSIONS.MANAGE_MEMBERS);
   const manageMembers = demo ? [] : leads;
-  const manageRoles = unitsWith(identity, PERMISSIONS.MANAGE_ROLES);
   const manageUnits = unitsWith(identity, PERMISSIONS.MANAGE_UNITS);
   const viewAudit = unitsWith(identity, PERMISSIONS.VIEW_AUDIT);
-  const rosterCount = (team?.roster || []).filter((p: any) => p.memberships.some((m: any) => subtree.includes(m.unit_id))).length;
-  const tabs: Array<{ value: string; label: string; count?: number }> = [{ value: 'overview', label: 'Overview' }];
-  if (full) tabs.push({ value: 'workload', label: 'Workload' }, { value: 'roster', label: 'Roster', count: rosterCount }, { value: 'dashboard', label: 'Unit dashboard' });
-  if (manageMembers.length) tabs.push({ value: 'invites', label: 'Invitations' });
-  if (manageRoles.length || manageUnits.length || identity?.user.is_operator) tabs.push({ value: 'roles', label: 'Roles' });
-  if (manageUnits.length || identity?.user.is_operator) tabs.push({ value: 'units', label: 'Units' });
-  if (viewAudit.length) tabs.push({ value: 'audit', label: 'Access log' });
-
-  const shown = tabs.some((t) => t.value === tab) ? tab : 'overview';
+  const allowed = teamSections(identity, view);
+  // A section this view does not offer (a team-level view has no roster) shows the overview instead.
+  const shown: TeamSection = allowed.has(section) ? section : 'overview';
   const [messaging, setMessaging] = useState(false);
   if (!views.length) return <div className="page"><PageHeader eyebrow="Team" title="Team" /><div className="card"><EmptyState icon={Users} title="No unit visibility yet" description="Team shows the Marines and shared records of units where you hold a leadership role. Ask your unit leader for a role." /></div></div>;
 
   return (
     <div className="page">
-      <PageHeader eyebrow={view && subtree.length > 1 ? 'Whole command' : 'Team'} title={viewLabel(view) || 'Team'} lede={full ? 'The work and people of this view. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.' : 'Who is in this view, how its teams are doing, and the goals it is working toward. Figures built from fewer than three people are not shown.'}>
+      <PageHeader eyebrow={`${view && subtree.length > 1 ? 'Whole command' : 'Team'}${shown === 'overview' ? '' : ` · ${SECTION_LABELS[shown]}`}`} title={viewLabel(view) || 'Team'} lede={full ? 'The work and people of this view. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.' : 'Who is in this view, how its teams are doing, and the goals it is working toward. Figures built from fewer than three people are not shown.'}>
         {leads.includes(unit) && <Button onClick={() => setMessaging(true)}><Send className="h-4 w-4" />Email the team</Button>}
         {views.length > 1 && <Select aria-label="View" className="w-64" value={unit} onValueChange={setView} options={views.map((v) => ({ value: v.id, label: `${'\u2003'.repeat(v.depth)}${v.short_name || v.name}${v.teams ? ' (whole command)' : ''}` }))} />}
       </PageHeader>
-      {/* One tab is not a choice; it is a heading the page already has. */}
-      {tabs.length > 1 && <Tabs value={shown} onChange={setTab} className="mb-4" tabs={tabs} />}
       {isPending ? <Skeleton className="h-64" /> : (
         <>
           {shown === 'overview' && unit && <UnitOverviewPanel key={unit} unitId={unit} />}
