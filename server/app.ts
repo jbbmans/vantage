@@ -38,10 +38,12 @@ import { releaseStaleClaims } from './services/work.ts';
 import { sealBacklog, anchorCaseHeads } from './services/caseSeal.ts';
 import { loadRuntime } from './runtime.ts';
 import { loadChainKey, resealStoredSecrets } from './lib/keys.ts';
+import { configurePasswordHashing } from './lib/crypto.ts';
 import { announcePublicPage, indexNowKey } from './services/indexNow.ts';
 export { loadRuntime };
 
 export function createContext(config: AppConfig): AppContext {
+  configurePasswordHashing(config.security.passwordIterations);
   const db = openDatabase(config.databasePath);
   const chainKey = loadChainKey(db, config);
   const resealed = resealStoredSecrets(db, config);

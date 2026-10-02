@@ -8,6 +8,7 @@ import { canEdit, canRead } from '../authz/records.ts';
 import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress } from '../services/records.ts';
 import { inspectAttachment, attachmentDisposition } from '../services/attachments.ts';
 import { audit } from '../services/audit.ts';
+import { scanUpload } from '../services/scanner.ts';
 import { goalContributors } from '../services/goals.ts';
 import { listComments, addComment, editComment, deleteComment } from '../services/comments.ts';
 import { newId, now } from '../lib/ids.ts';
@@ -113,7 +114,7 @@ recordsRouter.get('/:table/:id/attachments', wrap((req, res) => {
   res.json({ attachments: rows.map(attachmentMeta), enabled: req.ctx.runtime.attachmentsEnabled, maxBytes: req.ctx.config.attachments.maxBytes, allowedTypes: req.ctx.config.attachments.allowedTypes });
 }));
 
-recordsRouter.post('/:table/:id/attachments', attachmentBody, wrap((req, res) => {
+recordsRouter.post('/:table/:id/attachments', attachmentBody, wrap(async (req, res) => {
   const ctx = req.ctx;
   if (!ctx.runtime.attachmentsEnabled) throw notFound('Attachments are not enabled.');
   const { table, row } = attachableRecord(req, true);
@@ -122,6 +123,12 @@ recordsRouter.post('/:table/:id/attachments', attachmentBody, wrap((req, res) =>
   const inspected = inspectAttachment({ body: req.body, filename: req.get('x-vantage-filename'), contentType: req.get('content-type'), allowedTypes: ctx.config.attachments.allowedTypes, maxBytes: ctx.config.attachments.maxBytes });
   if (!inspected.ok) throw badRequest(inspected.error);
   try { if (ctx.db.name !== ':memory:' && statSync(ctx.db.name).size + inspected.size >= ctx.config.limits.maxDatabaseBytes) throw new HttpError(507, 'The database is too close to its safety threshold for that file.', 'database_capacity'); } catch (e) { if (e instanceof HttpError) throw e; }
+  // Evidence is scanned like any other upload: a rejected file is never stored.
+  try { await scanUpload(ctx.config.intake, req.body as Buffer, inspected.filename); }
+  catch (e) {
+    if ((e as HttpError).code === 'malware_rejected') audit(ctx, { actor_id: req.user.id, action: 'upload_rejected', entity: table, entity_id: row.id, unit_id: row.unit_id, detail: (e as Error).message.slice(0, 300), ip: clientIp(req) });
+    throw e;
+  }
   const id = newId();
   try {
     ctx.db.prepare('INSERT INTO attachments (id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')

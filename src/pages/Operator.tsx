@@ -292,8 +292,9 @@ function Accounts() {
             <tr key={u.id}>
               <td><span className="block font-medium text-ink">{u.rank_abbr || ''} {u.last_name}, {u.first_name}{u.is_operator ? <Badge tone="accent" className="ml-2">Owner</Badge> : null}</span><span className="block text-xs text-ink-3">@{u.username}{u.email ? ` · ${u.email}` : ''}</span></td>
               <td className="text-xs text-ink-2">{u.totp_enabled ? 'Authenticator' : ''}{u.totp_enabled && u.passkeys ? ' · ' : ''}{u.passkeys ? `${u.passkeys} passkey${u.passkeys === 1 ? '' : 's'}` : ''}{!u.totp_enabled && !u.passkeys ? <span className="text-warn">Password only</span> : ''}{u.must_change_password ? <span className="block text-warn">Temp password</span> : null}{u.edipi ? <span className="block">CAC linked</span> : null}</td>
-              <td className="fig text-center">{u.units}</td><td className="text-xs text-ink-3">{u.last_login_at ? timeAgo(u.last_login_at) : 'never'}</td><td>{u.active ? <Badge tone="good">Active</Badge> : <Badge tone="bad">Inactive</Badge>}</td>
+              <td className="fig text-center">{u.units}</td><td className="text-xs text-ink-3">{u.last_login_at ? timeAgo(u.last_login_at) : 'never'}</td><td>{!u.active ? <Badge tone="bad">Inactive</Badge> : u.locked_until ? <Badge tone="warn" title={`Locked after failed attempts until ${new Date(u.locked_until).toLocaleTimeString()}`}>Locked</Badge> : <Badge tone="good">Active</Badge>}</td>
               <td className="text-right"><span className="flex flex-wrap justify-end gap-1">
+                {u.active && u.locked_until && <Button size="xs" variant="ghost" onClick={() => act(`${u.username} unlocked`, () => api.unlockAccount(u.id))}>Unlock</Button>}
                 {u.active ? <>{u.id !== identity?.user.id && u.email && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'sign-in', user: u })}><Send className="h-3 w-3" />Email sign-in</Button>}{u.id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'temp', user: u })}><KeyRound className="h-3 w-3" />Temp password</Button>}<Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'reset-mfa', user: u })}>Reset MFA</Button><Button size="xs" variant="ghost" onClick={() => setCac({ user: u, edipi: u.edipi || '' })} aria-label={`EDIPI for ${u.username}`}><IdCard className="h-3 w-3" />EDIPI</Button><Button size="xs" variant="ghost" onClick={() => act('Signed out everywhere', () => api.forceLogout(u.id))}><LogOut className="h-3 w-3" /></Button>{u.id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'operator', user: u })}>{u.is_operator ? 'Remove owner' : 'Make owner'}</Button>}{u.id !== identity?.user.id && <Button size="xs" variant="ghost" className="text-bad" onClick={() => setConfirm({ kind: 'deactivate', user: u })}>Deactivate</Button>}</> : <Button size="xs" onClick={() => act('Reactivated', () => api.reactivateMember(u.id))}>Reactivate</Button>}
               </span></td>
             </tr>
@@ -348,6 +349,8 @@ function AuditLog() {
 }
 
 function DataAdmin() {
+  const { data: overview } = useAdmin('overview', api.adminOverview);
+  const browserOff = overview?.browserBackups === false;
   const toast = useToast(); const [busy, setBusy] = useState(''); const [importFile, setImportFile] = useState<File | null>(null); const [confirmImport, setConfirmImport] = useState(false);
   const backup = async () => { setBusy('backup'); try { const n = await api.downloadFile('/api/admin/backup', 'vantage-backup.db'); toast.success(`Downloaded ${n}.`); } catch (e: any) { if (e?.code === 'sudo_required') { try { await withSudo(() => api.adminOverview()); const n = await api.downloadFile('/api/admin/backup', 'vantage-backup.db'); toast.success(`Downloaded ${n}.`); } catch (e2) { toast.error(api.errorText(e2)); } } else toast.error(api.errorText(e)); } finally { setBusy(''); } };
   const exportJson = async () => { setBusy('export'); try { await withSudo(() => api.adminOverview()); const n = await api.downloadFile('/api/admin/export', 'vantage-instance.json'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(''); } };
@@ -356,8 +359,10 @@ function DataAdmin() {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Backup" subtitle="A consistent copy of the SQLite database">
-        <p className="text-sm text-ink-2">Render's disk is not backed up for you. Download a copy on a schedule you can live with, and before any upgrade.</p>
-        <Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button>
+        <p className="text-sm text-ink-2">The file holds every record, password hash and sealed secret on this instance. Every other owner is notified each time one is downloaded.</p>
+        {browserOff
+          ? <p className="mt-3 text-sm text-warn">Downloading through the browser is turned off on this instance (VANTAGE_BROWSER_BACKUPS=false). Back up on the server; see Operations in the documentation.</p>
+          : <Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button>}
       </Panel>
       <Panel title="Move to another host" subtitle="Portable JSON of the whole instance">
         <p className="text-sm text-ink-2">Export everything (accounts, units, roles, records, attachments, audit log) as one JSON file. Import it into a fresh Vantage anywhere: Render, a VM, a laptop. Passwords, passkeys, and authenticators carry over.</p>

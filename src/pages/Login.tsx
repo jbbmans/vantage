@@ -39,6 +39,8 @@ interface Status {
   displayName: string;
   announcement: string;
   maintenance: boolean;
+  /** A notice the person must accept before any sign-in, such as the DoD Notice and Consent Banner. */
+  consent?: string | null;
 }
 
 function useRanks() {
@@ -89,6 +91,9 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
   const [challenge, setChallenge] = useState('');
   const [tokenInfo, setTokenInfo] = useState<any>(null);
   const [theme, setTheme] = useState(() => resolveTheme(storedTheme()));
+  const [consented, setConsented] = useState(() => api.consentWasAccepted());
+  // Until the notice is accepted, the forms behind it are not shown.
+  const gated = Boolean(status?.consent) && !consented;
 
   const set = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((current) => ({ ...current, [key]: e.target.value }));
@@ -305,14 +310,22 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
             )}
             {error && <div role="alert" className="auth-notice error compact">{error}</div>}
 
-            {mode === 'login' && status?.cac?.exclusive && (
+            {gated && (
+              <div className="auth-form" role="region" aria-labelledby="consent-heading">
+                <h2 id="consent-heading" className="text-sm font-semibold text-ink">Notice and consent</h2>
+                <div className="max-h-72 overflow-y-auto whitespace-pre-line rounded-md border border-line bg-surface-2 p-3 text-xs leading-relaxed text-ink-2" tabIndex={0}>{status?.consent}</div>
+                <Button type="button" variant="primary" size="lg" className="auth-submit" autoFocus onClick={() => { api.acceptConsent(); setConsented(true); }}>I agree</Button>
+              </div>
+            )}
+
+            {!gated && mode === 'login' && status?.cac?.exclusive && (
               <div className="auth-form">
                 <Button type="button" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={offline} onClick={cac}><CreditCard className="h-4 w-4" /> Sign in with your CAC</Button>
                 <p className="text-sm text-ink-3">Put your card in the reader first. Your browser asks which certificate to use and for your PIN. <button type="button" className="link" onClick={() => setMode('help')}>Need help?</button></p>
               </div>
             )}
 
-            {mode === 'login' && !status?.cac?.exclusive && (
+            {!gated && mode === 'login' && !status?.cac?.exclusive && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitLogin(); }}>
                 <Field label="Username" error={fieldErrors.username}>
                   <div className="auth-input-wrap" role="group" aria-label="Username controls"><UserRound /><Input aria-label="Username" autoFocus required autoComplete="username webauthn" spellCheck={false} autoCapitalize="none" value={form.username} onChange={set('username')} /></div>
@@ -336,14 +349,14 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
               </form>
             )}
 
-            {mode === 'mfa' && (
+            {!gated && mode === 'mfa' && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitMfa(); }}>
                 <Field label="Code" hint="6 digits, or a recovery code"><Input autoFocus inputMode="numeric" autoComplete="one-time-code" spellCheck={false} value={form.code} onChange={set('code')} className="fig text-lg tracking-[0.3em]" /></Field>
                 <Button type="submit" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={form.code.replace(/\s/g, '').length < 6}><ShieldCheck className="h-4 w-4" /> Verify</Button>
               </form>
             )}
 
-            {(mode === 'setup' || mode === 'register' || mode === 'invite') && (
+            {!gated && (mode === 'setup' || mode === 'register' || mode === 'invite') && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); (mode === 'setup' ? submitSetup : mode === 'register' ? submitRegister : submitInvite)(); }}>
                 {mode === 'invite' && tokenInfo && !tokenInfo.valid && <div className="auth-notice error compact">This invitation is invalid or has expired. Ask your leader for a new one.</div>}
                 {mode === 'setup' && status?.requiresSetupToken && <Field label="Deployment setup token" hint="from the server environment" error={fieldErrors.setup_token}><Input autoFocus value={form.setup_token} onChange={set('setup_token')} autoComplete="off" /></Field>}
@@ -357,7 +370,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
                 <Field label="Email" hint={mode === 'invite' && tokenInfo?.email ? 'set by the invitation' : 'optional; used for reset links and the weekly digest'} error={fieldErrors.email}><Input type="email" spellCheck={false} value={form.email} onChange={set('email')} autoComplete="email" disabled={mode === 'invite' && Boolean(tokenInfo?.email)} /></Field>
                 <Field label="Password" required hint={`${MIN_PASSWORD_LENGTH}+ characters`} error={fieldErrors.password}>{passwordInput}</Field>
                 <PasswordMeter value={form.password} />
-                {mode === 'setup' && (
+                {!gated && mode === 'setup' && (
                   <div className="auth-two-col auth-unit-fields">
                     <Field label="First unit" required hint="you will lead it" error={fieldErrors.unit_name}><Input value={form.unit_name} onChange={set('unit_name')} placeholder="Comptroller, MCB Quantico" /></Field>
                     <Field label="Short name" error={fieldErrors.unit_short_name}><Input value={form.unit_short_name} onChange={set('unit_short_name')} placeholder="G-8" /></Field>
@@ -369,7 +382,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
               </form>
             )}
 
-            {mode === 'forgot' && (
+            {!gated && mode === 'forgot' && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitForgot(); }}>
                 <Field label="Username or email"><Input autoFocus value={form.identifier} onChange={set('identifier')} autoCapitalize="none" /></Field>
                 {status && !status.emailEnabled && <p className="text-xs text-ink-3">Email is not configured here. Your unit leader or the owner can issue a temporary password from the Team page instead.</p>}
@@ -378,7 +391,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
               </form>
             )}
 
-            {mode === 'help' && (
+            {!gated && mode === 'help' && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitHelp(); }}>
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="First name"><Input autoFocus value={form.first_name} onChange={set('first_name')} autoComplete="given-name" /></Field>
@@ -391,7 +404,7 @@ export default function Login({ serverError, onRetry }: { serverError: string | 
               </form>
             )}
 
-            {mode === 'reset' && (
+            {!gated && mode === 'reset' && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitReset(); }}>
                 {tokenInfo && !tokenInfo.valid && <div className="auth-notice error compact">This link is invalid, has expired, or was already used. Request a new one with “Forgot password”, or ask your leader to send your sign-in details again.</div>}
                 {tokenInfo?.username && <Field label="Username" hint="yours to keep"><Input value={tokenInfo.username} readOnly autoComplete="username" spellCheck={false} className="mono" /></Field>}

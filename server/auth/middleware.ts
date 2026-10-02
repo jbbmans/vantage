@@ -15,7 +15,8 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   const header = req.get('authorization') || '';
   const bearer = ctx.config.test && header.startsWith('Bearer ') ? header.slice(7) : null;
   const token = bearer || (req.cookies?.[SESSION_COOKIE] as string | undefined);
-  const resolved = resolveSession(ctx, token);
+  // A background poll says so, and does not count as the person being active.
+  const resolved = resolveSession(ctx, token, { touch: req.get('x-vantage-background') !== '1' });
   if (!resolved) return next(unauthorized());
   if (!bearer && !SAFE.has(req.method) && !req.get('x-vantage-client')) return next(new HttpError(403, 'Request rejected: missing client header.', 'csrf'));
   if (!SAFE.has(req.method)) {
@@ -34,6 +35,8 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   req.user = resolved.user;
   req.sessionId = resolved.session.id;
   req.sessionRow = resolved.session;
+  // The client warns before an idle sign-out instead of losing what the person was typing.
+  res.setHeader('X-Session-Expires', resolved.session.expires_at);
   next();
 }
 

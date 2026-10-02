@@ -9,12 +9,12 @@ import { profileSchema, passwordField, readinessSchema, prefsSchema, emailField 
 import { sourcedFieldsFor } from '../services/personnel.ts';
 import { hashPassword, verifyPassword, encryptSecret, decryptSecret, sha256 } from '../lib/crypto.ts';
 import { secretsOf } from '../lib/keys.ts';
+import { assertNotLocked, recordFailure, clearFailures } from '../auth/lockout.ts';
 import { invalidateUserSessions, listSessions, revokeSessionByPrefix, SESSION_COOKIE, SIGNED_IN_COOKIE } from '../auth/sessions.ts';
 import { generateTotpSecret, otpauthUrl, matchTotp, generateRecoveryCodes } from '../auth/totp.ts';
 import { registrationOptions, completeRegistration, listPasskeys, deletePasskey } from '../auth/passkeys.ts';
 import { issueToken, consumeToken, peekToken } from '../auth/tokens.ts';
-import { limiters, mailAllowance } from '../auth/limiter.ts';
-import { tooMany } from '../lib/errors.ts';
+import { mailAllowance } from '../auth/limiter.ts';
 import { audit } from '../services/audit.ts';
 import { layout } from '../services/mailLayout.ts';
 import { newId, now } from '../lib/ids.ts';
@@ -107,16 +107,17 @@ meRouter.put('/prefs', wrap((req, res) => {
   res.json(merged);
 }));
 
-meRouter.post('/password', wrap((req, res) => {
+meRouter.post('/password', wrap(async (req, res) => {
   const ctx = req.ctx;
   const { current_password, new_password } = parse(z.object({ current_password: z.string().max(512), new_password: passwordField }), req.body);
-  // Keyed exactly as sign-in keys it, so failures here and there share one budget.
-  const name = req.user.username.toLowerCase();
-  const limited = limiters.loginUser.limited(name);
-  if (limited) throw tooMany('Too many failed attempts. Try again later.', limited.retryAfter);
+  // Failures here count toward the same lockout as sign-in.
+  assertNotLocked(ctx, req.user.id);
   const stored = ctx.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id) as { password_hash: string };
-  if (!verifyPassword(current_password, stored.password_hash)) { limiters.loginUser.bump(name); throw forbidden('Current password is incorrect.', 'bad_password'); }
-  limiters.loginUser.clear(name);
+  if (!(await verifyPassword(current_password, stored.password_hash))) {
+    if (recordFailure(ctx, req.user.id, { ip: clientIp(req), where: 'password_change' })) assertNotLocked(ctx, req.user.id);
+    throw forbidden('Current password is incorrect.', 'bad_password');
+  }
+  clearFailures(ctx, req.user.id);
   if (current_password === new_password) throw badRequest('Choose a different password.', { fieldErrors: { new_password: 'Choose a different password.' } });
   ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?').run(hashPassword(new_password), now(), req.user.id);
   const revoked = invalidateUserSessions(ctx, req.user.id, req.sessionId);

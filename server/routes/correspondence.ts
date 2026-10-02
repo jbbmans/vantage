@@ -6,6 +6,7 @@ import { isoDate } from '../../shared/schemas.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor } from '../authz/scope.ts';
 import { audit } from '../services/audit.ts';
+import { scanUpload } from '../services/scanner.ts';
 import {
   listContacts, saveContact, listThreads, createThread, threadDetail, setThreadState,
   addMessage, importEml, linkThreadMany, unlinkThread, threadsForItem, assertPlacement, THREAD_STATES,
@@ -152,10 +153,12 @@ correspondenceRouter.get('/items/:id/threads', wrap((req, res) => {
 const emlBody: express.RequestHandler = (req, res, next) =>
   express.raw({ type: () => true, limit: req.ctx.config.intake.maxBytes })(req, res, next);
 
-correspondenceRouter.post('/messages/import', emlBody, wrap((req, res) => {
+correspondenceRouter.post('/messages/import', emlBody, wrap(async (req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
   if (!buffer.length) throw badRequest('That file is empty.');
+  // A saved message carries its attachments with it, so it is scanned before anything is read out of it.
+  await scanUpload(req.ctx.config.intake, buffer, 'message.eml');
   const result = importEml(req.ctx, req.user, scope, buffer, {
     threadId: req.get('x-thread-id') || null,
     unitId: req.get('x-unit-id') || null,

@@ -18,6 +18,7 @@ import CommandPalette from '@/components/CommandPalette';
 import ShortcutsDialog from '@/components/ShortcutsDialog';
 import { ActivityBar } from '@/components/ui/motion';
 import SudoDialog, { type SudoRequest } from '@/components/SudoDialog';
+import IdleGuard from '@/components/IdleGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys, invalidateDomains } from '@/lib/queries';
 import * as api from '@/lib/api';
@@ -253,6 +254,7 @@ export default function AppShell() {
   }, [openQuickLog]);
 
   const demo = identity?.demo || null;
+  const idleSignOut = useCallback(() => { api.logout().catch(() => {}).finally(() => window.dispatchEvent(new CustomEvent('vantage:signed-out'))); }, []);
   const visibleNav = useMemo(() => NAV.filter((item) => {
     if (item.hideInDemo && identity?.demo) return false;
     if (item.requiresLead && !identity?.canLead) return false;
@@ -484,6 +486,7 @@ export default function AppShell() {
         {userId && <OutboxDialog open={queueOpen} onOpenChange={setQueueOpen} userId={userId} onRetry={flush} />}
         <CommandPalette open={palette} onOpenChange={setPalette} onQuickLog={openQuickLog} nav={visibleNav} />
         <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
+        {!demo && <IdleGuard onSignOut={idleSignOut} />}
         <SudoDialog open={Boolean(sudoOpen)} onOpenChange={(o) => { if (!o) { sudoOpen?.cancel(); setSudoOpen(null); } }} onConfirmed={() => { const req = sudoOpen; setSudoOpen(null); req?.confirm(); }} />
       </div>
     </OutboxContext.Provider>

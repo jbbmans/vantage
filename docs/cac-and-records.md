@@ -22,6 +22,7 @@ with TOTP enabled is not challenged a second time.
 | --- | --- | --- |
 | Who terminates TLS | Vantage | nginx, Apache, a load balancer |
 | Chain validated by | Node, against `CAC_CA_BUNDLE` | the gateway |
+| Revocation checked by | Node, against the CRLs in `CAC_CRL_DIR` | the gateway (OCSP or CRL) |
 | Trust rests on | the TLS handshake | a shared secret between gateway and app |
 
 **`direct`** is stronger and simpler to reason about: Node validates the chain during the handshake
@@ -48,6 +49,8 @@ line, not the only one.
 | `CAC_EXCLUSIVE` | `true` stops passwords and self-registration being accepted at all |
 | `CAC_CA_BUNDLE` | PEM bundle of issuing CAs. Required for `direct` |
 | `CAC_TLS_CERT`, `CAC_TLS_KEY` | this server's own certificate. Required for `direct` |
+| `CAC_CRL_DIR` | directory of the issuing CAs' CRLs (DER `.crl` as DoD publishes them, or PEM). Required for `direct`. A card whose serial is listed, or whose issuer has no CRL in the directory, is refused. Keep it fresh with a scheduled download; Vantage reloads it within ten minutes of a change, and keeps the previous set if a refresh is unreadable |
+| `CAC_REVOCATION` | `off` accepts cards without the revocation check in `direct` mode. It has to be set on purpose |
 | `CAC_CERT_HEADER` | default `x-client-cert`. nginx: `ssl_client_escaped_cert` |
 | `CAC_VERIFY_HEADER` / `CAC_VERIFY_SUCCESS` | default `x-client-verify` / `SUCCESS`. nginx: `ssl_client_verify` |
 | `CAC_PROXY_SECRET_HEADER` / `CAC_PROXY_SECRET` | the shared secret. Required for `proxy` |

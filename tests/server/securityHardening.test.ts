@@ -105,14 +105,17 @@ test('an authenticator code works once, and starting setup again leaves the old 
   assert.equal(me.body.user.totp_last_step, undefined);
 });
 
-test('guessing the current password on the change-password form is throttled', async () => {
+test('guessing the current password on the change-password form, or a step-up, locks the account like sign-in does', async () => {
   resetLimiters();
   const u = await app.register('guesser');
-  for (let i = 0; i < 10; i += 1) {
+  for (let i = 0; i < 2; i += 1) {
     assert.equal((await app.call('POST', '/api/me/password', { token: u.token, body: { current_password: `wrong-${i}`, new_password: `${PASSWORD}!x` } })).status, 403);
   }
+  assert.equal((await app.call('POST', '/api/auth/sudo', { token: u.token, body: { password: 'wrong-again' } })).status, 429, 'a step-up failure counts toward the same lock');
   const blocked = await app.call('POST', '/api/me/password', { token: u.token, body: { current_password: PASSWORD, new_password: `${PASSWORD}!x` } });
   assert.equal(blocked.status, 429);
+  assert.equal(blocked.body.code, 'account_locked');
+  assert.equal((await app.login('guesser')).status, 429, 'and sign-in is locked too');
   resetLimiters();
 });
 

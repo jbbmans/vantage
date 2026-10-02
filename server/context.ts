@@ -41,6 +41,6 @@ declare module 'express-serve-static-core' {
     ctx: AppContext;
     user: SessionUser;
     sessionId: string;
-    sessionRow: { id: string; sudo_until: string | null; method: string };
+    sessionRow: { id: string; sudo_until: string | null; method: string; expires_at?: string };
   }
 }

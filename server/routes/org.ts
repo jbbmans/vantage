@@ -3,6 +3,7 @@ import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth, requireOperator, requireSudo } from '../auth/middleware.ts';
+import { unlockAccount } from '../auth/lockout.ts';
 import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross } from '../authz/scope.ts';
 import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, type RoleRow } from '../services/org.ts';
 import { audit } from '../services/audit.ts';
@@ -449,10 +450,16 @@ orgRouter.post('/team/:userId/temporary-password', requireOperator, requireSudo,
   if (!ctx.db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) throw notFound('No such Marine.');
   const hex = randomBytes(10).toString('hex');
   const password = `${hex.slice(0, 8)}-${hex.slice(8, 16)}-${hex.slice(16)}`;
-  ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 1, updated_at = ? WHERE id = ?').run(hashPassword(password), now(), id);
+  // A new password is the administrator's answer to a locked account, so it unlocks it too.
+  ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 1, failed_sign_ins = 0, locked_until = NULL, updated_at = ? WHERE id = ?').run(hashPassword(password), now(), id);
   const revoked = invalidateUserSessions(ctx, id);
   audit(ctx, { actor_id: req.user.id, action: 'temporary_password', entity: 'user', entity_id: id, subject_id: id, detail: `sessions revoked: ${revoked}`, ip: clientIp(req) });
   res.json({ ok: true, password, sessionsRevoked: revoked });
+}));
+orgRouter.post('/team/:userId/unlock', requireOperator, requireSudo, wrap((req, res) => {
+  const id = String(req.params.userId);
+  if (!req.ctx.db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) throw notFound('No such Marine.');
+  res.json({ ok: true, unlocked: unlockAccount(req.ctx, id, req.user.id, clientIp(req)) });
 }));
 orgRouter.post('/team/:userId/logout', requireOperator, requireSudo, wrap((req, res) => {
   const id = String(req.params.userId);

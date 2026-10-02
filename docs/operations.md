@@ -2,7 +2,10 @@
 
 ## Backups
 
-Render disks are not backed up for you. From **Owner console → Backup and move → Download backup** you get a consistent copy of the SQLite file (uses SQLite's online backup API, safe while the app runs). Do it weekly and before every upgrade. Store it somewhere the data classification allows.
+Render disks are not backed up for you. Take a consistent copy of the SQLite file (SQLite's online backup API, safe while the app runs) weekly and before every upgrade, and store it somewhere the data classification allows.
+
+- **On the server** (the way to do it on an accredited host): `VANTAGE_DB=/data/vantage.db npm run backup -- /backups/vantage-$(date +%F).db`. The copy is written readable by its owner only; encrypt it before it leaves the host.
+- **From the browser**: **Owner console → Backup and move → Download backup**. Every other owner is notified each time a backup or instance archive is downloaded. Set `VANTAGE_BROWSER_BACKUPS=false` to close this path where policy requires backups to stay on the server.
 
 Restoring a `.db` file: turn on maintenance mode, replace `/data/vantage.db` (a Render shell: `render ssh`, then `cp`), delete any `-wal` and `-shm` siblings, restart the service.
 

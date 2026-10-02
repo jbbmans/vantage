@@ -197,14 +197,15 @@ test('TOTP follows RFC 6238 vectors and tolerates one step of drift', () => {
   assert.equal(generateTotpSecret().length, 32);
 });
 
-test('secret encryption and password hashing round-trip', () => {
+test('secret encryption and password hashing round-trip', async () => {
   const key = 'k'.repeat(40);
   const enc = encryptSecret(key, 'JBSWY3DPEHPK3PXP');
   assert.equal(decryptSecret(key, enc), 'JBSWY3DPEHPK3PXP');
   assert.equal(decryptSecret('wrong'.repeat(8), enc), null);
   const hash = hashPassword('cobalt-orbit-velvet-anchor-927');
-  assert.ok(verifyPassword('cobalt-orbit-velvet-anchor-927', hash));
-  assert.ok(!verifyPassword('nope', hash));
+  assert.ok(await verifyPassword('cobalt-orbit-velvet-anchor-927', hash));
+  assert.ok(!(await verifyPassword('nope', hash)));
+  assert.match(hash, /^pbkdf2-sha256\$/, 'new hashes are PBKDF2, the FIPS-approved choice');
 });
 
 test('MARADMIN feed parser', () => {

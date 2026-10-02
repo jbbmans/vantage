@@ -25,8 +25,14 @@ export const errorText = (err: unknown): string => {
 
 export const isOffline = (err: unknown) => err instanceof ApiError && err.status === 0;
 
+/** Set when the person accepts the sign-in notice; sent with each sign-in, and forgotten at sign-out so it is shown again. */
+let consentAccepted = false;
+export const acceptConsent = () => { consentAccepted = true; };
+export const consentWasAccepted = () => consentAccepted;
+
 function markSignedOut() {
   sessionState = 'none';
+  consentAccepted = false;
   clearDrafts();
   try { document.cookie = 'vantage_signed_in=; Max-Age=0; path=/'; } catch {}
 }
@@ -41,7 +47,7 @@ async function request<T = any>(method: string, path: string, body?: unknown, in
       ...init,
       method,
       credentials: 'same-origin',
-      headers: { ...(body instanceof Blob || body instanceof ArrayBuffer ? {} : { 'content-type': 'application/json' }), ...(init.headers as Record<string, string> | undefined), 'x-vantage-client': '1' },
+      headers: { ...(body instanceof Blob || body instanceof ArrayBuffer ? {} : { 'content-type': 'application/json' }), ...(init.headers as Record<string, string> | undefined), 'x-vantage-client': '1', ...(consentAccepted ? { 'x-vantage-consent': '1' } : {}) },
       body: body === undefined ? undefined : body instanceof Blob || body instanceof ArrayBuffer ? (body as BodyInit) : JSON.stringify(body),
     });
   } catch {
@@ -53,6 +59,8 @@ async function request<T = any>(method: string, path: string, body?: unknown, in
     let payload: any = null; try { payload = JSON.parse(text); } catch {}
     throw new ApiError(payload?.error || 'Your session has expired. Sign in again.', 401, payload || {});
   }
+  const expires = res.headers.get('x-session-expires');
+  if (expires) window.dispatchEvent(new CustomEvent('vantage:session-expires', { detail: Date.parse(expires) }));
   const text = await res.text();
   let payload: any = null;
   if (text) { try { payload = JSON.parse(text); } catch { payload = null; } }
@@ -105,7 +113,8 @@ export const passkeyDelete = (id: string) => api.del(`/me/passkeys/${encodeURICo
 export const readiness = () => api.get('/me/readiness');
 export const saveReadiness = (payload: unknown) => api.put('/me/readiness', payload);
 export const memberReadiness = (id: string) => api.get(`/me/readiness/${encodeURIComponent(id)}`);
-export const notifications = (limit = 40) => api.get(`/me/notifications?limit=${limit}`);
+/** Polled in the background, so it is marked as such: a poll must not keep an idle session alive. */
+export const notifications = (limit = 40) => request('GET', `/me/notifications?limit=${limit}`, undefined, { headers: { 'x-vantage-background': '1' } });
 export const markRead = (id: string) => api.put(`/me/notifications/${encodeURIComponent(id)}/read`);
 export const markAllRead = () => api.post('/me/notifications/read-all');
 export const myAudit = () => api.get('/me/audit');
@@ -183,6 +192,7 @@ export const reactivateMember = (id: string) => api.post(`/org/team/${encodeURIC
 export const resetMemberMfa = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/reset-mfa`);
 export const temporaryPassword = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/temporary-password`);
 export const forceLogout = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/logout`);
+export const unlockAccount = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/unlock`);
 export const setOperator = (id: string, grant: boolean) => api.post(`/org/team/${encodeURIComponent(id)}/operator`, { grant });
 
 const qs = (params: Record<string, string | number | undefined | null>) => Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');

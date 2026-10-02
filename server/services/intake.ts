@@ -126,6 +126,10 @@ export async function uploadSource(
   ).run(id, user.id, input.unitId, input.visibility, input.filename.slice(0, 255), input.contentType.slice(0, 120), kind, input.buffer.length, sha256, input.buffer, at);
 
   const verdict = await scanner.scan(input.buffer, input.filename);
+  if (verdict.verdict === 'skipped' && ctx.config.intake.scanRequired) {
+    ctx.db.prepare('DELETE FROM source_files WHERE id = ?').run(id);
+    throw new HttpError(503, `${verdict.detail} This instance accepts only scanned files; try again shortly or ask your administrator.`, 'scan_unavailable');
+  }
   ctx.db.prepare('UPDATE source_files SET scan_status = ?, scan_detail = ?, scanner = ?, scanned_at = ? WHERE id = ?')
     .run(verdict.verdict, verdict.detail, verdict.scanner, now(), id);
 

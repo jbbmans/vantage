@@ -17,7 +17,7 @@ const SECRET = 'proxy-secret-proxy-secret-proxy-secret';
 const base: CacConfig = {
   mode: 'proxy', exclusive: false, caBundlePath: '', certHeader: 'x-client-cert',
   verifyHeader: 'x-client-verify', verifySuccessValue: 'SUCCESS',
-  proxySecretHeader: 'x-cac-proxy-secret', proxySecret: SECRET, requirePolicyOids: [], autoProvisionFromRoster: false,
+  proxySecretHeader: 'x-cac-proxy-secret', proxySecret: SECRET, requirePolicyOids: [], autoProvisionFromRoster: false, crlDir: '', revocation: 'crl',
 };
 const proxyEnv = {
   CAC_MODE: 'proxy', CAC_PROXY_SECRET: SECRET,
