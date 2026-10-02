@@ -8,6 +8,7 @@ import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
 import { appendEvent, caseView, assertMayResolveCase } from './cases.ts';
 import { STATE_TO_STAGE } from '../../shared/caseModel.ts';
+import { zoneOf } from '../lib/zone.ts';
 
 export interface WorkItemRow {
   id: string; unit_id: string | null; owner_id: string; visibility: string;
@@ -428,7 +429,7 @@ export function recordAction(
   }
 
   const kind = ACTION_KINDS.includes(input.kind as never) ? input.kind : 'worked';
-  const occurredAt = input.occurred_at && /^\d{4}-\d{2}-\d{2}$/.test(input.occurred_at) ? input.occurred_at : zonedDay(ctx.config.timezone);
+  const occurredAt = input.occurred_at && /^\d{4}-\d{2}-\d{2}$/.test(input.occurred_at) ? input.occurred_at : zonedDay(zoneOf(ctx, user));
   const note = (input.note || '').slice(0, 5000) || null;
   const quantity = input.quantity == null ? null : Number(input.quantity);
   const dollarAmount = input.dollar_amount == null ? null : Number(input.dollar_amount);

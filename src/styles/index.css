@@ -163,8 +163,12 @@
   .row:hover { background-color: rgb(var(--surface-2) / .7); }
   .page { @apply mx-auto w-full max-w-[1400px]; }
 
-  .page-title { @apply display text-[30px] leading-[1.05] sm:text-[38px]; }
-  .page-lede { @apply mt-2.5 max-w-[46rem] text-md leading-relaxed text-ink-2; }
+  .page-title { @apply display text-[28px] leading-[1.05] sm:text-[34px]; }
+  /* A tab strip that scrolls fades on the side where more tabs are. */
+  .tab-bar[data-more-right] { -webkit-mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, #000 calc(100% - 40px), transparent); }
+  .tab-bar[data-more-left] { -webkit-mask-image: linear-gradient(to right, transparent, #000 40px); mask-image: linear-gradient(to right, transparent, #000 40px); }
+  .tab-bar[data-more-left][data-more-right] { -webkit-mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); mask-image: linear-gradient(to right, transparent, #000 40px, #000 calc(100% - 40px), transparent); }
+  .page-lede { @apply mt-2 max-w-[46rem] text-md leading-relaxed text-ink-2; }
 
   .stat-value { @apply fig text-[32px] leading-none text-ink; font-weight: 580; letter-spacing: -0.035em; }
 

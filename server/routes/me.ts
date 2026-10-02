@@ -55,7 +55,7 @@ meRouter.get('/', wrap((req, res) => {
     exportUnits: unitsWith(scope, PERMISSIONS.EXPORT_DATA),
     session: { id: req.sessionId.slice(0, 12), method: req.sessionRow.method, sudoUntil: req.sessionRow.sudo_until },
     demo: ctx.config.accessMode === 'demo' ? demoStatus(ctx, req.user.id) : null,
-    instance: { accessMode: ctx.config.accessMode, displayName: ctx.runtime.displayName, organizationName: ctx.runtime.organizationName, announcement: ctx.runtime.announcement, emailEnabled: ctx.mailer.enabled, attachmentsEnabled: ctx.runtime.attachmentsEnabled, aiEnabled: ctx.runtime.aiEnabled && Boolean(ctx.config.ai.apiKey), maradminsEnabled: ctx.runtime.maradminsEnabled, selfServiceUnits: ctx.runtime.selfServiceUnits, metrics: ctx.runtime.metrics },
+    instance: { accessMode: ctx.config.accessMode, displayName: ctx.runtime.displayName, organizationName: ctx.runtime.organizationName, announcement: ctx.runtime.announcement, emailEnabled: ctx.mailer.enabled, attachmentsEnabled: ctx.runtime.attachmentsEnabled, aiEnabled: ctx.runtime.aiEnabled && Boolean(ctx.config.ai.apiKey), maradminsEnabled: ctx.runtime.maradminsEnabled, selfServiceUnits: ctx.runtime.selfServiceUnits, metrics: ctx.runtime.metrics, timezone: ctx.config.timezone },
   });
 }));
 

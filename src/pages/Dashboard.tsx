@@ -49,12 +49,14 @@ export default function Dashboard() {
     <div className="page">
       <PageHeader eyebrow={`${greeting}, ${first ?? ''}`} title="Today" lede={lede}>
         <Button onClick={() => navigate('/work')}><Inbox className="h-4 w-4" />Find work</Button>
-        <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
+        {/* The header carries a labelled Log activity button from xl up; below that it is an icon, so this one stays. */}
+        <Button variant="primary" className="xl:hidden" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
       </PageHeader>
 
       <GettingStarted />
 
-      {view && (view.level === 'full' ? <SectionOverview key={view.id} unitId={view.id} /> : <UnitPulse key={view.id} unitId={view.id} />)}
+      {/* A leader's Today opens on their section. A Marine's opens on their own work; the team's pulse comes after it. */}
+      {view?.level === 'full' && <SectionOverview key={view.id} unitId={view.id} />}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="space-y-4 xl:col-span-2">
@@ -94,6 +96,8 @@ export default function Dashboard() {
           <PersonalPanel summary={summary.data} />
         </div>
       </div>
+
+      {view && view.level !== 'full' && <div className="mt-6"><UnitPulse key={view.id} unitId={view.id} /></div>}
 
       <Outcomes />
     </div>
@@ -313,7 +317,7 @@ function Outcomes() {
   return (
     <section aria-labelledby="outcomes-heading" className="mt-8">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 id="outcomes-heading" className="flex items-center gap-2 text-md font-semibold text-ink"><TrendingUp className="h-4 w-4 text-accent" aria-hidden />Outcomes you logged, {range.label.toLowerCase()}</h2>
+        <h2 id="outcomes-heading" className="flex items-center gap-2 text-md font-semibold text-ink"><TrendingUp className="h-4 w-4 text-accent" aria-hidden />Outcomes you logged, {/^FY/.test(range.label) ? range.label : range.label.toLowerCase()}</h2>
         <PeriodSelect value={period} onChange={(v) => savePrefs.mutate({ dashboardPeriod: v })} className="w-44" />
       </div>
       {report.isPending ? <Skeleton className="h-28" /> : (

@@ -34,6 +34,8 @@ export interface SessionUser {
   id: string; username: string; email: string | null; first_name: string; last_name: string; middle_initial: string | null;
   rank_id: string | null; mos: string | null; eas: string | null; is_operator: number; active: number; must_change_password: number;
   totp_enabled: number; prefs: string; last_login_at: string | null; created_at: string; updated_at: string;
+  /** The person's own timezone, when they set one. */
+  timezone?: string | null;
 }
 
 declare module 'express-serve-static-core' {

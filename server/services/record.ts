@@ -16,9 +16,10 @@ import { zonedDay, zonedDayBounds, zonedDateOf } from '../lib/clock.ts';
 const RESEARCH = RESEARCH_KINDS.map((k) => `'${k}'`).join(',');
 const OPEN = "('resolved','not_applicable')";
 
-export interface Window { from: string; to: string }
+/** A run of local days, and the timezone whose days they are. */
+export interface Window { from: string; to: string; timezone?: string }
 /** The window's local days as UTC instants: events are stored in UTC, the window is days in the instance's timezone. */
-const bounds = (timezone: string, w: Window) => zonedDayBounds(timezone, w.from, w.to);
+const bounds = (timezone: string, w: Window) => zonedDayBounds(w.timezone || timezone, w.from, w.to);
 
 const defaultWindow = (timezone: string, days: number): Window => ({ from: zonedDay(timezone, -(days - 1)), to: zonedDay(timezone) });
 
@@ -27,7 +28,7 @@ export function parseWindow(timezone: string, query: Record<string, unknown>, da
   const from = typeof query.from === 'string' && query.from ? query.from : fallback.from;
   const to = typeof query.to === 'string' && query.to ? query.to : fallback.to;
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw badRequest('Use a valid from/to window.');
-  return { from, to };
+  return { from, to, timezone };
 }
 
 const SHARED = `EXISTS (SELECT 1 FROM work_items wi WHERE wi.id = e.work_item_id AND wi.unit_id IN (SELECT value FROM json_each(?)) AND wi.visibility = 'unit' AND wi.deleted_at IS NULL)`;
@@ -166,7 +167,7 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
   const unitIds = subtreeIds(ctx, unitId);
   const units = JSON.stringify(unitIds);
   const [lo, hi] = bounds(ctx.config.timezone, w);
-  const today = zonedDay(ctx.config.timezone);
+  const today = zonedDay(w.timezone || ctx.config.timezone);
   const items = ctx.db.prepare(
     `SELECT w.*, p.name AS project_name FROM work_items w LEFT JOIN projects p ON p.id = w.project_id AND p.deleted_at IS NULL
       WHERE w.unit_id IN (SELECT value FROM json_each(?)) AND w.visibility = 'unit' AND w.deleted_at IS NULL`

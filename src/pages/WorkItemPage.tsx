@@ -15,7 +15,7 @@ import { AiAction, AiResult, useAiModel } from '@/components/AiPanel';
 import { ThreadsForItem } from './Workbench';
 import { useIdentity, useMetrics, useWorkItem, invalidateWork, invalidateDomains } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { cn, timeAgo, todayIso } from '@/lib/utils';
+import { cn, formatStamp, timeAgo, todayIso } from '@/lib/utils';
 import { useForgetVisit, useRememberVisit } from '@/lib/recent';
 import {
   STAGE_LABEL, WAITING_CATEGORIES, WAITING_LABEL, FUNDS_CHECK_RESULTS, EXTERNAL_EVENTS, VALUE_SOURCES,
@@ -123,7 +123,7 @@ export default function WorkItemPage() {
           {c.waiting?.since && <div className="text-ink-3"><dt className="sr-only">Waiting</dt><dd>Waiting {elapsed(c.waiting.since)} (elapsed, not work)</dd></div>}
           {c.blocked_reason && <div className="text-bad"><dt className="sr-only">Blocked</dt><dd className="flex items-center gap-1.5"><OctagonAlert className="h-4 w-4" aria-hidden />{c.blocked_reason}</dd></div>}
           <div className="text-ink-2"><dt className="inline text-ink-3">Held by </dt><dd className="inline font-medium text-ink">{holding ? 'You' : holder ? personName(holder) : 'Nobody yet'}</dd></div>
-          {item.due_date && <div className="text-ink-2"><dt className="inline text-ink-3">Due </dt><dd className="inline"><DateText value={item.due_date} /></dd></div>}
+          {item.due_date && <div className="text-ink-2"><dt className="inline text-ink-3">Due </dt><dd className="inline"><DateText value={item.due_date} />{item.due_date < todayIso() && !['resolved', 'not_applicable'].includes(item.state) && <Badge tone="bad" className="ml-2">Overdue</Badge>}</dd></div>}
           {item.amount != null && <div className="text-ink-2"><dt className="inline text-ink-3">Amount on the sheet </dt><dd className="fig inline font-medium text-ink">{formatCents(Math.round(Number(item.amount) * 100))}</dd></div>}
           {c.integrity?.count ? <div><dt className="sr-only">History</dt><dd><IntegrityBadge integrity={c.integrity} /></dd></div> : null}
         </dl>
@@ -943,7 +943,7 @@ function HistoryPanel({ itemId, events, people, procedure, canCorrect, onDone, i
       <ol className="divide-y divide-line">
         {visible.map((e) => (
           <li key={e.id} className={cn('group flex gap-3 px-5 py-3 text-sm', e.superseded && 'opacity-60')}>
-            <span className="w-24 shrink-0 text-xs text-ink-3" title={new Date(e.created_at).toLocaleString()}>{timeAgo(e.created_at)}</span>
+            <span className="w-24 shrink-0 text-xs text-ink-3"><time dateTime={e.created_at} className="block">{timeAgo(e.created_at)}</time><span className="fig block text-2xs">{formatStamp(e.created_at)}</span></span>
             <span className="min-w-0 flex-1">
               <span className="text-ink">
                 <span className="font-medium">{who(e.actor_id)}</span>{' '}

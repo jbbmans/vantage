@@ -1,6 +1,7 @@
 import { useEffect, useState } from 'react';
 import { clsx, type ClassValue } from 'clsx';
 import { twMerge } from 'tailwind-merge';
+import { formatDate } from '../../shared/metrics';
 
 export const cn = (...inputs: ClassValue[]) => twMerge(clsx(inputs));
 
@@ -38,8 +39,12 @@ export const timeAgo = (iso?: string | null) => {
   if (h < 24) return `${h}h ago`;
   const d = Math.round(h / 24);
   if (d < 30) return `${d}d ago`;
-  return new Date(iso).toLocaleDateString('en-US', { month: 'short', day: 'numeric' });
+  return formatDate(iso);
 };
+/** One way to write a date range everywhere: "4 Jul 26 – 1 Oct 26". */
+export const formatRange = (from?: string | null, to?: string | null) => `${formatDate(from)} – ${formatDate(to)}`;
+/** A moment in a record's history, written out in full: "28 Sep 26 1432". Relative times alone do not hold up in a review. */
+export const formatStamp = (iso?: string | null) => (iso ? formatDate(iso, 'dd MMM yy HHmm') : '');
 /** YYYY-MM-DD on the viewer's own calendar. toISOString gives the UTC day, which is already tomorrow every US evening. */
 export const isoDay = (d: Date) => `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 export const todayIso = () => isoDay(new Date());

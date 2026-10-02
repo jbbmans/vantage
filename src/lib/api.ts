@@ -275,6 +275,7 @@ export const adminPlaceHold = (body: unknown) => api.post('/admin/retention/hold
 export const adminReleaseHold = (id: string) => api.del(`/admin/retention/holds/${encodeURIComponent(id)}`);
 export const adminRunDisposition = (apply: boolean) => api.post(`/admin/retention/run${apply ? '?apply=1' : ''}`);
 export const adminPrivacyInventory = () => api.get('/admin/privacy/inventory');
+export const demoGovernance = () => api.get('/demo/governance');
 export const adminImport = (archive: unknown) => api.post('/admin/import', archive);
 export const adminMaintenance = (enabled: boolean) => api.post('/admin/maintenance', { enabled });
 

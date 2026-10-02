@@ -14,7 +14,7 @@ import * as api from '@/lib/api';
 import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATE, listPermissions } from '../../shared/permissions';
 import { ECHELONS, categoryColor } from '../../shared/constants';
 import { formatDollars } from '../../shared/metrics';
-import { copyToClipboard, cn, downloadText, fullName, humanize, lastDays } from '@/lib/utils';
+import { copyToClipboard, cn, downloadText, formatRange, fullName, humanize, lastDays } from '@/lib/utils';
 import { useView, subtreeOf, viewLabel } from '@/lib/view';
 import { UnitOverviewPanel } from '@/components/UnitOverview';
 import { markTeamSeen } from '@/components/GettingStarted';
@@ -60,7 +60,8 @@ export default function Team() {
         {leads.includes(unit) && <Button onClick={() => setMessaging(true)}><Send className="h-4 w-4" />Email the team</Button>}
         {views.length > 1 && <Select aria-label="View" className="w-64" value={unit} onValueChange={setView} options={views.map((v) => ({ value: v.id, label: `${'\u2003'.repeat(v.depth)}${v.short_name || v.name}${v.teams ? ' (whole command)' : ''}` }))} />}
       </PageHeader>
-      <Tabs value={shown} onChange={setTab} className="mb-4" tabs={tabs} />
+      {/* One tab is not a choice; it is a heading the page already has. */}
+      {tabs.length > 1 && <Tabs value={shown} onChange={setTab} className="mb-4" tabs={tabs} />}
       {isPending ? <Skeleton className="h-64" /> : (
         <>
           {shown === 'overview' && unit && <UnitOverviewPanel key={unit} unitId={unit} />}
@@ -406,7 +407,7 @@ function UnitDashboard({ unitId, unitLabel, canExport, canDetail }: { unitId: st
   const t = data.totals;
   return (
     <div className="space-y-4">
-      <div className="flex flex-wrap items-center gap-2"><Select aria-label="Window" className="w-40" value={days} onValueChange={setDays} options={[{ value: '30', label: 'Last 30 days' }, { value: '90', label: 'Last 90 days' }, { value: '180', label: 'Last 180 days' }, { value: '365', label: 'Last year' }]} /><span className="text-xs text-ink-3">Shared entries only · {from} to {to}</span>{canExport && <Button className="ml-auto" onClick={exportJson}><Download className="h-4 w-4" />Export unit data</Button>}</div>
+      <div className="flex flex-wrap items-center gap-2"><Select aria-label="Window" className="w-40" value={days} onValueChange={setDays} options={[{ value: '30', label: 'Last 30 days' }, { value: '90', label: 'Last 90 days' }, { value: '180', label: 'Last 180 days' }, { value: '365', label: 'Last year' }]} /><span className="text-xs text-ink-3">Shared entries only · {formatRange(from, to)}</span>{canExport && <Button className="ml-auto" onClick={exportJson}><Download className="h-4 w-4" />Export unit data</Button>}</div>
       <div>
         <h3 className="eyebrow mb-2">What the unit produced in this window</h3>
         <MetricTotalsGrid

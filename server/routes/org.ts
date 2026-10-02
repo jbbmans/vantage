@@ -23,14 +23,15 @@ import { zonedDay } from '../lib/clock.ts';
 import type { Request } from 'express';
 import { randomBytes } from 'node:crypto';
 import { hashPassword } from '../lib/crypto.ts';
+import { zoneOf } from '../lib/zone.ts';
 
 export const orgRouter = Router();
 orgRouter.use(requireAuth);
 
 /** The last 90 days in the instance's timezone, unless the caller names a window. */
 function dashboardWindow(req: Request) {
-  const to = String(req.query.to || zonedDay(req.ctx.config.timezone));
-  const from = String(req.query.from || zonedDay(req.ctx.config.timezone, -89));
+  const to = String(req.query.to || zonedDay(zoneOf(req.ctx, req.user)));
+  const from = String(req.query.from || zonedDay(zoneOf(req.ctx, req.user), -89));
   if (!/^\d{4}-\d{2}-\d{2}$/.test(from) || !/^\d{4}-\d{2}-\d{2}$/.test(to) || from > to) throw badRequest('Use a valid from/to window.');
   return { from, to };
 }

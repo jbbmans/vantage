@@ -28,9 +28,17 @@ test('the demo opens on Today with no sign-in form and one clear synthetic indic
   await expect(page.locator('input[type=password]')).toHaveCount(0);
   const banner = page.getByRole('region', { name: 'Synthetic demo' });
   await expect(banner).toContainText('LCpl Jordan Avery');
-  await expect(page.getByRole('link', { name: 'Owner console' })).toHaveCount(0);
   await page.reload();
   await expect(banner).toContainText('LCpl Jordan Avery');
+});
+
+test('the demo has no owner console, but its entry shows what an owner governs and the live data inventory', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('link', { name: 'Owner console' }).click();
+  await expect(page.getByRole('heading', { name: 'What an owner governs' })).toBeVisible();
+  await expect(page.getByText('Retention and legal holds')).toBeVisible();
+  await expect(page.getByText('Data inventory', { exact: true })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Export for the PIA/ })).toHaveCount(0);
 });
 
 test('a Marine claims, researches, calculates, decides, hands off, and keeps a private draft', async ({ page }) => {

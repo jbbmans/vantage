@@ -9,7 +9,7 @@ import { DateText, useParam } from '@/components/common';
 import { StageBadge, WorkRow } from '@/components/work';
 import { useAssignedWork, useContributions, useRecordDrafts, useRecordSummary, caseKeys, invalidateDomains } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { cn, lastDays, timeAgo } from '@/lib/utils';
+import { cn, formatRange, lastDays, timeAgo } from '@/lib/utils';
 import { QueryFailure } from '@/components/QueryFailure';
 
 const Records = lazy(() => import('./Records'));
@@ -32,7 +32,7 @@ export default function RecordHub() {
   return (
     <div className="page">
       <PageHeader eyebrow="Record" title="Your record" lede="What you hold, what you did, and what you logged yourself. Built from the work, so you do not type it twice.">
-        <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
+        <Button variant="primary" className="xl:hidden" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
       </PageHeader>
       <Tabs value={tab} onChange={setTab} className="mb-5" tabs={[
         { value: 'overview', label: 'Overview' },
@@ -42,7 +42,7 @@ export default function RecordHub() {
       ]} />
       {(tab === 'overview' || tab === 'contributions') && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
-          <p className="text-sm text-ink-3">{params.from} to {params.to}</p>
+          <p className="text-sm text-ink-3">{formatRange(params.from, params.to)}</p>
           <Segmented label="Reporting window" value={days as (typeof WINDOWS)[number]['value']} onChange={setDays} options={WINDOWS.map((w) => ({ value: w.value, label: w.label }))} size="sm" />
         </div>
       )}

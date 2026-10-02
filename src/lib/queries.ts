@@ -29,7 +29,7 @@ export interface Identity {
   canLead: boolean; manageableUnits: string[]; counselUnits: string[]; exportUnits: string[];
   session: { id: string; method: string; sudoUntil: string | null };
   demo: null | { mode: 'demo'; ttl_hours: number; workspace: { expires_at: string; persona: 'marine' | 'leader' | null } | null; personas: Record<string, { label: string; description: string }>; flagship: { reference: string; note: string; values: Array<{ field: string; label: string; display: string; reference?: string }>; scenario: string } };
-  instance: { accessMode?: 'accounts' | 'demo'; displayName: string; organizationName: string; announcement: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean; metrics: MetricsConfig };
+  instance: { accessMode?: 'accounts' | 'demo'; displayName: string; organizationName: string; announcement: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean; metrics: MetricsConfig; timezone?: string };
 }
 
 export interface MetricSeriesPoint { key: string; label: string; value: number; outcomes: number; contributors: string[] }

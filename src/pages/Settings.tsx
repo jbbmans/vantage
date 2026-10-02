@@ -37,16 +37,24 @@ export default function Settings() {
   );
 }
 
+/** Where Marines are stationed, so the list is short enough to scan. A zone set some other way still shows. */
+const ZONES = [
+  'America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu', 'Pacific/Guam',
+  'Asia/Tokyo', 'Asia/Seoul', 'Australia/Darwin', 'Europe/Madrid', 'Europe/Berlin', 'Europe/London', 'Asia/Bahrain', 'Africa/Djibouti', 'UTC',
+];
+const zoneLabel = (tz: string) => { try { const name = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' }).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value; return `${tz.replace(/_/g, ' ')}${name ? ` · ${name}` : ''}`; } catch { return tz; } };
+const timeZoneOptions = (current: string) => [...new Set([...ZONES, ...(current ? [current] : [])])].map((tz) => ({ value: tz, label: zoneLabel(tz) }));
+
 function Profile() {
   const { data: identity } = useIdentity(); const { data: org } = useOrg(); const toast = useToast(); const qc = useQueryClient();
   const u = identity!.user;
-  const [form, setForm] = useState({ first_name: u.first_name, last_name: u.last_name, middle_initial: u.middle_initial || '', rank_id: u.rank_id || '', mos: u.mos || '', eas: u.eas || '', email: u.email || '' });
+  const [form, setForm] = useState({ first_name: u.first_name, last_name: u.last_name, middle_initial: u.middle_initial || '', rank_id: u.rank_id || '', mos: u.mos || '', eas: u.eas || '', email: u.email || '', timezone: (u as { timezone?: string | null }).timezone || '' });
   const [errors, setErrors] = useState<Record<string, string>>({}); const [busy, setBusy] = useState(false);
   const save = async () => {
     setBusy(true); setErrors({});
     try {
       const emailChanged = form.email !== (u.email || '');
-      const body: Record<string, unknown> = { first_name: form.first_name, last_name: form.last_name, middle_initial: form.middle_initial || null, rank_id: form.rank_id || null, mos: form.mos || null, eas: form.eas || null };
+      const body: Record<string, unknown> = { first_name: form.first_name, last_name: form.last_name, middle_initial: form.middle_initial || null, rank_id: form.rank_id || null, mos: form.mos || null, eas: form.eas || null, timezone: form.timezone || null };
       if (emailChanged && form.email && identity!.instance.emailEnabled) { await withSudo(() => api.emailVerify(form.email)); toast.info(`Confirmation sent to ${form.email}. The address changes once you click the link.`); }
       else if (emailChanged) body.email = form.email || null;
       await withSudo(() => api.updateProfile(body));
@@ -63,6 +71,10 @@ function Profile() {
           <Field label="Rank" hint="decides JEPES vs FITREP" error={errors.rank_id}><Select value={form.rank_id || '__none'} onValueChange={(v) => setForm({ ...form, rank_id: v === '__none' ? '' : v })} options={[{ value: '__none', label: 'Not set' }, ...(org?.ranks || []).map((r: any) => ({ value: r.id, label: `${r.abbr} · ${r.name}` }))]} /></Field>
           <Field label="MOS"><Input value={form.mos} onChange={(e) => setForm({ ...form, mos: e.target.value })} /></Field>
           <Field label="EAS"><Input type="date" value={form.eas} onChange={(e) => setForm({ ...form, eas: e.target.value })} /></Field>
+          <Field label="Time zone" hint="decides your today and what is overdue" error={errors.timezone}>
+            <Select value={form.timezone || '__instance'} onValueChange={(v) => setForm({ ...form, timezone: v === '__instance' ? '' : v })}
+              options={[{ value: '__instance', label: `Unit default (${zoneLabel(identity!.instance.timezone || '')})` }, ...timeZoneOptions(form.timezone)]} />
+          </Field>
           <Field label="Email" className="col-span-2 sm:col-span-3" hint={identity!.instance.emailEnabled ? 'changes are confirmed by a link' : 'reset links and digests need email configured on the server'} error={errors.email}><Input type="email" spellCheck={false} value={form.email} onChange={(e) => setForm({ ...form, email: e.target.value })} /></Field>
         </div>
       </Panel>

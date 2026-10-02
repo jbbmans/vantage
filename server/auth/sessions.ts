@@ -91,6 +91,6 @@ export function resolveSession(ctx: AppContext, token: string | undefined, { tou
     expiresAt = new Date(Math.min(nowMs + idleMinutesFor(config, row.is_operator) * 60_000, new Date(row.absolute_expires_at).getTime())).toISOString();
     db.prepare('UPDATE sessions SET last_used_at = ?, expires_at = ? WHERE id = ?').run(new Date(nowMs).toISOString(), expiresAt, id);
   }
-  const { password_hash: _p, totp_secret: _t, totp_pending: _tp, totp_last_step: _ts, expires_at: _e, absolute_expires_at: _a, last_used_at: _l, sudo_until, method, ...user } = row;
+  const { password_hash: _p, totp_secret: _t, totp_pending: _tp, totp_last_step: _ts, expires_at: _e, absolute_expires_at: _a, last_used_at: _l, sudo_until, method, failed_sign_ins: _f, locked_until: _lu, ...user } = row as typeof row & { failed_sign_ins?: number; locked_until?: string | null };
   return { user: user as SessionUser, session: { id, sudo_until, method, expires_at: expiresAt } };
 }

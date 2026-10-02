@@ -24,8 +24,10 @@ export function PageShell({ embedded, eyebrow, title, lede, actions, children }:
   if (embedded) {
     return (
       <>
+        {/* Inside a tab the tab already names the section, so the heading is for screen readers and the line says what is in it. */}
         <div className="-mt-1 mb-4 flex flex-wrap items-center justify-between gap-2">
-          <h2 className="min-w-0 truncate text-lg font-semibold text-ink">{title}</h2>
+          <h2 className="sr-only">{title}</h2>
+          <p className="min-w-0 text-sm text-ink-2">{lede}</p>
           {actions ? <div className="flex flex-wrap items-center gap-2">{actions}</div> : null}
         </div>
         {children}

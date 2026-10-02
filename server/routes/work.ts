@@ -19,6 +19,7 @@ import { recordEntry, changeStage, handOff, calculate, applyProcedure, handoffCa
 import { teamWorkload, parseWindow } from '../services/record.ts';
 import { PROCEDURES, PROCEDURE_LIST, PROCEDURE_VERSIONS, suggestProcedure } from '../../shared/procedures.ts';
 import { STAGES } from '../../shared/caseModel.ts';
+import { zoneOf } from '../lib/zone.ts';
 
 export const workRouter = Router();
 workRouter.use(requireAuth);
@@ -213,7 +214,7 @@ workRouter.get('/workload', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   const unitId = String(req.query.unit_id || '');
   if (!unitId) throw forbidden('Choose a unit.');
-  res.json(teamWorkload(req.ctx, req.user, scope, unitId, parseWindow(req.ctx.config.timezone, req.query as Record<string, unknown>, 30)));
+  res.json(teamWorkload(req.ctx, req.user, scope, unitId, parseWindow(zoneOf(req.ctx, req.user), req.query as Record<string, unknown>, 30)));
 }));
 
 workRouter.get('/procedures', wrap((_req, res) => {

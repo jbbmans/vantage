@@ -5,18 +5,26 @@ import { Panel, Segmented, Skeleton, Tooltip } from '@/components/ui/primitives'
 import { WorkRow, StageBadge } from '@/components/work';
 import { useWorkload } from '@/lib/queries';
 import { STAGE_LABEL, WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
-import { cn, lastDays } from '@/lib/utils';
+import { cn, formatRange, lastDays } from '@/lib/utils';
 import { QueryFailure } from '@/components/QueryFailure';
 
 const WINDOWS = [{ value: '30', label: '30 days' }, { value: '90', label: '90 days' }] as const;
 
 type SortKey = 'name' | 'assigned' | 'waiting' | 'blocked' | 'documents_researched' | 'research_actions' | 'submitted_actions' | 'verified_outcomes' | 'resolved_work';
 
+
+/** "5 hours", "1 day", "3 days": whole units a person reads at a glance, never "1 days" or "0 days". */
+const elapsed = (hours: number) => {
+  if (hours < 24) { const h = Math.max(1, Math.round(hours)); return `${h} ${h === 1 ? 'hour' : 'hours'}`; }
+  const d = Math.round(hours / 24);
+  return `${d} ${d === 1 ? 'day' : 'days'}`;
+};
 export default function TeamWorkload({ unitId }: { unitId: string }) {
   const [days, setDays] = useState<'30' | '90'>('30');
   const params = useMemo(() => lastDays(days), [days]);
   const w = useWorkload(unitId, params);
-  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'documents_researched', dir: 'desc' });
+  // Alphabetical until a leader asks for an order: opening the page should not rank people.
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
 
   if (w.isPending) return <Skeleton className="h-64" />;
   if (w.isError || !w.data) {
@@ -25,7 +33,9 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
   const d = w.data;
   const s = d.section;
   const members = [...d.members].sort((a: any, b: any) => {
-    const av = sort.key === 'name' ? a.name : a[sort.key]; const bv = sort.key === 'name' ? b.name : b[sort.key];
+    // By last name, as a roster reads.
+    const byName = (m: any) => `${String(m.name).split(' ').slice(-1)[0]} ${m.name}`;
+    const av = sort.key === 'name' ? byName(a) : a[sort.key]; const bv = sort.key === 'name' ? byName(b) : b[sort.key];
     const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
     return sort.dir === 'asc' ? cmp : -cmp;
   });
@@ -43,7 +53,7 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-ink-3">{d.unit_name} · recorded {d.window.from} to {d.window.to}</p>
+        <p className="text-sm text-ink-3">{d.unit_name} · recorded {formatRange(d.window.from, d.window.to)}</p>
         <Segmented label="Window" value={days} onChange={setDays} options={WINDOWS.map((x) => ({ value: x.value, label: x.label }))} size="sm" />
       </div>
 
@@ -68,7 +78,7 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
           {Object.keys(s.by_waiting).length === 0 ? <p className="text-sm text-ink-3">Nothing is waiting.</p> : (
             <ul className="space-y-1.5 text-sm">
               {Object.entries(s.by_waiting as Record<string, { count: number; oldest_hours: number }>).map(([cat, v]) => (
-                <li key={cat} className="flex items-center justify-between gap-2"><span className="text-ink">{WAITING_LABEL[cat as WaitingCategory] || cat}</span><span className="text-xs text-ink-3">{v.count} · oldest {Math.round(v.oldest_hours / 24)} days</span></li>
+                <li key={cat} className="flex items-center justify-between gap-2"><span className="text-ink">{WAITING_LABEL[cat as WaitingCategory] || cat}</span><span className="text-xs text-ink-3">{v.count} · oldest {elapsed(v.oldest_hours)}</span></li>
               ))}
             </ul>
           )}

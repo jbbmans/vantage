@@ -4,6 +4,7 @@ import { Activity, ShieldCheck, Users } from 'lucide-react';
 import { Panel, Stat, Select, Skeleton, Badge, EmptyState, Progress } from '@/components/ui/primitives';
 import * as api from '@/lib/api';
 import { formatNumber } from '../../shared/metrics';
+import { formatRange } from '@/lib/utils';
 
 interface Distribution { count: number; median: number | null; p90: number | null; total: number }
 interface Bucket { key: string; events: number; people: number }
@@ -57,7 +58,7 @@ export default function UsageConsole() {
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-3">
         <p className="text-sm text-ink-3">
-          {r.period.from} to {r.period.to} · {formatNumber(r.events)} events · {instrumented} of {r.coverage.length} measures reporting
+          {formatRange(r.period.from, r.period.to)} · {formatNumber(r.events)} events · {instrumented} of {r.coverage.length} measures reporting
         </p>
         <Select
           aria-label="Period"

@@ -6,7 +6,9 @@ import { requireAuth } from '../auth/middleware.ts';
 import { limiters } from '../auth/limiter.ts';
 import { resolveSession, destroySession, SESSION_COOKIE } from '../auth/sessions.ts';
 import { finishSignIn } from './auth.ts';
-import { audit } from '../services/audit.ts';
+import { audit, verifyAuditChain } from '../services/audit.ts';
+import { buildInventory } from '../services/privacyInventory.ts';
+import { verifyAllCases } from '../services/caseSeal.ts';
 import { createWorkspace, demoStatus, workspaceOf, purgeWorkspace, sampleSheet, type Persona } from '../services/demo.ts';
 
 export const demoRouter = Router();
@@ -52,6 +54,19 @@ demoRouter.post('/reset', requireAuth, wrap((req, res) => {
   const fresh = createWorkspace(req.ctx);
   const user = req.ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(fresh.persona_user_id) as { id: string; must_change_password: number };
   return finishSignIn(req, res, user, 'demo', 'demo_start');
+}));
+
+/**
+ * The owner console is not part of the demo (it is instance-wide, and every visitor shares the instance). What it
+ * governs can still be shown: the privacy inventory is derived from the schema, so it says nothing about any visitor.
+ */
+demoRouter.get('/governance', requireAuth, wrap((req, res) => {
+  const inventory = buildInventory(req.ctx);
+  res.json({
+    inventory: { ...inventory, tables: inventory.tables.map((t) => ({ ...t, rows: null })) },
+    caseHistories: verifyAllCases(req.ctx).ok,
+    auditChain: verifyAuditChain(req.ctx).ok,
+  });
 }));
 
 /** The synthetic sheet a section lead can import, to watch a tasker arrive. */

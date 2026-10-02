@@ -36,7 +36,8 @@ export const NAV: NavItem[] = [
   { to: '/reports', label: 'Reports', icon: FileText, key: 'p', group: 'More', secondary: true, hint: 'JEPES and FITREP input from the facts' },
   { to: '/maradmins', label: 'MARADMINs', icon: ScrollText, key: 'm', group: 'More', secondary: true, hint: 'Messages that change a requirement', requiresMaradmins: true },
   { to: '/settings', label: 'Settings', icon: Settings2, key: 's', secondary: true, group: 'More' },
-  { to: '/operator', label: 'Owner console', icon: ShieldCheck, key: 'o', requiresOperator: true, secondary: true, group: 'More', hideInDemo: true },
+  // In the demo nobody is an owner, but the governance tour stands in for the console, so the entry stays.
+  { to: '/operator', label: 'Owner console', icon: ShieldCheck, key: 'o', requiresOperator: true, secondary: true, group: 'More' },
   { to: '/help', label: 'Field guide', icon: LifeBuoy, key: 'h', secondary: true, group: 'More' },
 ];
 

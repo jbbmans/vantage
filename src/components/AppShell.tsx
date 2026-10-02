@@ -259,7 +259,7 @@ export default function AppShell() {
     if (item.hideInDemo && identity?.demo) return false;
     if (item.requiresLead && !identity?.canLead) return false;
     if (item.requiresUnit && !identity?.views?.length) return false;
-    if (item.requiresOperator && !identity?.user.is_operator) return false;
+    if (item.requiresOperator && !identity?.user.is_operator && !identity?.demo) return false;
     if (item.requiresAi && !identity?.instance.aiEnabled) return false;
     if (item.requiresMaradmins && !identity?.instance.maradminsEnabled) return false;
     return true;
