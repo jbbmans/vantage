@@ -8,17 +8,19 @@ import { scopeFor, unitsWith, PERMISSIONS, detailUnitsFor } from '../authz/scope
 import { profileSchema, passwordField, readinessSchema, prefsSchema, emailField } from '../../shared/schemas.ts';
 import { sourcedFieldsFor } from '../services/personnel.ts';
 import { hashPassword, verifyPassword, encryptSecret, decryptSecret, sha256 } from '../lib/crypto.ts';
+import { secretsOf } from '../lib/keys.ts';
+import { assertNotLocked, recordFailure, clearFailures } from '../auth/lockout.ts';
 import { invalidateUserSessions, listSessions, revokeSessionByPrefix, SESSION_COOKIE, SIGNED_IN_COOKIE } from '../auth/sessions.ts';
 import { generateTotpSecret, otpauthUrl, matchTotp, generateRecoveryCodes } from '../auth/totp.ts';
 import { registrationOptions, completeRegistration, listPasskeys, deletePasskey } from '../auth/passkeys.ts';
 import { issueToken, consumeToken, peekToken } from '../auth/tokens.ts';
-import { limiters, mailAllowance } from '../auth/limiter.ts';
-import { tooMany } from '../lib/errors.ts';
+import { mailAllowance } from '../auth/limiter.ts';
 import { audit } from '../services/audit.ts';
 import { layout } from '../services/mailLayout.ts';
 import { newId, now } from '../lib/ids.ts';
 import { ancestorIds, viewsFor } from '../services/org.ts';
 import { PERMISSION_LIST } from '../../shared/permissions.ts';
+import type { OrgResponse, Rank, Role, Unit } from '../../shared/types.ts';
 import { composeDigest, sendDigest } from '../services/digest.ts';
 import { buildPersonalExport, buildPersonalExportZip } from '../services/personalExport.ts';
 import { demoStatus } from '../services/demo.ts';
@@ -54,7 +56,7 @@ meRouter.get('/', wrap((req, res) => {
     exportUnits: unitsWith(scope, PERMISSIONS.EXPORT_DATA),
     session: { id: req.sessionId.slice(0, 12), method: req.sessionRow.method, sudoUntil: req.sessionRow.sudo_until },
     demo: ctx.config.accessMode === 'demo' ? demoStatus(ctx, req.user.id) : null,
-    instance: { accessMode: ctx.config.accessMode, displayName: ctx.runtime.displayName, organizationName: ctx.runtime.organizationName, announcement: ctx.runtime.announcement, emailEnabled: ctx.mailer.enabled, attachmentsEnabled: ctx.runtime.attachmentsEnabled, aiEnabled: ctx.runtime.aiEnabled && Boolean(ctx.config.ai.apiKey), maradminsEnabled: ctx.runtime.maradminsEnabled, selfServiceUnits: ctx.runtime.selfServiceUnits, metrics: ctx.runtime.metrics },
+    instance: { accessMode: ctx.config.accessMode, displayName: ctx.runtime.displayName, organizationName: ctx.runtime.organizationName, announcement: ctx.runtime.announcement, emailEnabled: ctx.mailer.enabled, attachmentsEnabled: ctx.runtime.attachmentsEnabled, aiEnabled: ctx.runtime.aiEnabled && Boolean(ctx.config.ai.apiKey), maradminsEnabled: ctx.runtime.maradminsEnabled, selfServiceUnits: ctx.runtime.selfServiceUnits, metrics: ctx.runtime.metrics, timezone: ctx.config.timezone },
   });
 }));
 
@@ -62,9 +64,10 @@ meRouter.get('/org', wrap((req, res) => {
   const ctx = req.ctx;
   const scope = scopeFor(ctx, req.user, req);
   const ids = req.user.is_operator ? (ctx.db.prepare('SELECT id FROM units WHERE active = 1').all() as Array<{ id: string }>).map((r) => r.id) : [...new Set([...ancestorIds(ctx, scope.unitIds), ...scope.viewableUnitIds])];
-  const units = ids.length ? ctx.db.prepare(`SELECT * FROM units WHERE active = 1 AND id IN (${ids.map(() => '?').join(',')}) ORDER BY name`).all(...ids) : [];
-  const roles = scope.unitIds.length ? ctx.db.prepare(`SELECT * FROM roles WHERE unit_id IN (${scope.unitIds.map(() => '?').join(',')}) ORDER BY position DESC, name`).all(...scope.unitIds) : [];
-  res.json({ ranks: ctx.db.prepare('SELECT * FROM ranks ORDER BY sort').all(), units, roles, permissionCatalogue: PERMISSION_LIST.map((p) => ({ ...p, bit: PERMISSIONS[p.key] })) });
+  const units = ids.length ? ctx.db.prepare(`SELECT * FROM units WHERE active = 1 AND id IN (${ids.map(() => '?').join(',')}) ORDER BY name`).all(...ids) as Unit[] : [];
+  const roles = scope.unitIds.length ? ctx.db.prepare(`SELECT * FROM roles WHERE unit_id IN (${scope.unitIds.map(() => '?').join(',')}) ORDER BY position DESC, name`).all(...scope.unitIds) as Role[] : [];
+  const body: OrgResponse = { ranks: ctx.db.prepare('SELECT * FROM ranks ORDER BY sort').all() as Rank[], units, roles, permissionCatalogue: PERMISSION_LIST.map((p) => ({ ...p, bit: PERMISSIONS[p.key] })) };
+  res.json(body);
 }));
 
 meRouter.put('/profile', wrap((req, res) => {
@@ -106,16 +109,17 @@ meRouter.put('/prefs', wrap((req, res) => {
   res.json(merged);
 }));
 
-meRouter.post('/password', wrap((req, res) => {
+meRouter.post('/password', wrap(async (req, res) => {
   const ctx = req.ctx;
   const { current_password, new_password } = parse(z.object({ current_password: z.string().max(512), new_password: passwordField }), req.body);
-  // Keyed exactly as sign-in keys it, so failures here and there share one budget.
-  const name = req.user.username.toLowerCase();
-  const limited = limiters.loginUser.limited(name);
-  if (limited) throw tooMany('Too many failed attempts. Try again later.', limited.retryAfter);
+  // Failures here count toward the same lockout as sign-in.
+  assertNotLocked(ctx, req.user.id);
   const stored = ctx.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id) as { password_hash: string };
-  if (!verifyPassword(current_password, stored.password_hash)) { limiters.loginUser.bump(name); throw forbidden('Current password is incorrect.', 'bad_password'); }
-  limiters.loginUser.clear(name);
+  if (!(await verifyPassword(current_password, stored.password_hash))) {
+    if (recordFailure(ctx, req.user.id, { ip: clientIp(req), where: 'password_change' })) assertNotLocked(ctx, req.user.id);
+    throw forbidden('Current password is incorrect.', 'bad_password');
+  }
+  clearFailures(ctx, req.user.id);
   if (current_password === new_password) throw badRequest('Choose a different password.', { fieldErrors: { new_password: 'Choose a different password.' } });
   ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?').run(hashPassword(new_password), now(), req.user.id);
   const revoked = invalidateUserSessions(ctx, req.user.id, req.sessionId);
@@ -169,7 +173,7 @@ meRouter.post('/mfa/totp/confirm', requireSudo, wrap((req, res) => {
   const ctx = req.ctx;
   const { code } = parse(z.object({ code: z.string().max(12) }), req.body);
   const row = ctx.db.prepare('SELECT totp_pending FROM users WHERE id = ?').get(req.user.id) as { totp_pending: string | null };
-  const secret = row.totp_pending ? decryptSecret(ctx.config.secret, row.totp_pending) : null;
+  const secret = row.totp_pending ? decryptSecret(secretsOf(ctx.config), row.totp_pending) : null;
   if (!secret) throw badRequest('Start authenticator setup first.');
   const step = matchTotp(secret, code);
   if (step === null) throw badRequest('That code did not match. Check the time on your device and try again.', { fieldErrors: { code: 'Incorrect code.' } });

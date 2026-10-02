@@ -1,11 +1,12 @@
 import { generateKeyPairSync } from 'node:crypto';
 import { resolveMx, resolveNs, resolveTxt, reverse, resolve4, resolve6 } from 'node:dns/promises';
-import { connect, isIP } from 'node:net';
+import { BlockList, connect, isIP, isIPv4, isIPv6 } from 'node:net';
 import nodemailer from 'nodemailer';
 import type { AppConfig } from '../config.ts';
 import type { Db } from '../db/index.ts';
 import { metaGet, metaSet } from '../db/index.ts';
 import { encryptSecret, decryptSecret } from '../lib/crypto.ts';
+import { secretsOf } from '../lib/keys.ts';
 import { now } from '../lib/ids.ts';
 
 /**
@@ -38,7 +39,7 @@ export function dkimKey(db: Db, config: AppConfig): DkimKey {
   const stored = metaGet(db, DKIM_META);
   if (stored) {
     const row = JSON.parse(stored) as { domain: string; selector: string; key: string; public: string; created_at: string };
-    const privateKey = decryptSecret(config.secret, row.key);
+    const privateKey = decryptSecret(secretsOf(config), row.key);
     if (privateKey && row.domain === domain) return { domain, selector: row.selector, privateKey, publicKey: row.public, createdAt: row.created_at };
   }
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });
@@ -113,6 +114,30 @@ export async function checkRecords(db: Db, config: AppConfig) {
   return out;
 }
 
+/**
+ * Addresses direct delivery never connects to. A recipient's domain is chosen by whoever is invited, and its MX
+ * records by whoever owns that domain: without this, an address could point delivery at this host's own network.
+ */
+const NOT_PUBLIC = (() => {
+  const list = new BlockList();
+  for (const [net, bits] of [['0.0.0.0', 8], ['10.0.0.0', 8], ['100.64.0.0', 10], ['127.0.0.0', 8], ['169.254.0.0', 16], ['172.16.0.0', 12], ['192.0.0.0', 24], ['192.168.0.0', 16], ['198.18.0.0', 15], ['224.0.0.0', 4], ['240.0.0.0', 4]] as const) list.addSubnet(net, bits, 'ipv4');
+  for (const [net, bits] of [['::', 128], ['::1', 128], ['fc00::', 7], ['fe80::', 10], ['ff00::', 8], ['64:ff9b::', 96]] as const) list.addSubnet(net, bits, 'ipv6');
+  return list;
+})();
+
+export function isPublicAddress(address: string): boolean {
+  const v4 = address.match(/^::ffff:(\d+\.\d+\.\d+\.\d+)$/i)?.[1];
+  if (v4 || isIPv4(address)) return !NOT_PUBLIC.check(v4 || address, 'ipv4');
+  return isIPv6(address) ? !NOT_PUBLIC.check(address, 'ipv6') : false;
+}
+
+/** The public addresses a mail host resolves to; empty when it resolves only to private or reserved ones. */
+async function publicAddresses(host: string): Promise<string[]> {
+  if (isIP(host)) return isPublicAddress(host) ? [host] : [];
+  const found = [...await resolve4(host).catch(() => [] as string[]), ...await resolve6(host).catch(() => [] as string[])];
+  return found.filter(isPublicAddress);
+}
+
 /** Where to deliver for a domain: its MX hosts by preference, or the domain itself when it publishes none. */
 export async function mailServers(domain: string, config: AppConfig): Promise<Array<{ host: string; port: number }>> {
   if (config.test && config.email.directRoute) {
@@ -151,8 +176,15 @@ export async function deliver(db: Db, config: AppConfig, mail: Outgoing): Promis
   const name = heloName(db, config);
   let last: Delivery = { ok: false, permanent: false, error: 'No mail server answered.' };
   for (const server of servers.slice(0, 5)) {
+    // Connect to the address that was checked, not the name, so a second DNS answer cannot swap in a private one.
+    let address = server.host;
+    if (!(config.test && config.email.directRoute) && !config.email.allowPrivate) {
+      const [first] = await publicAddresses(server.host);
+      if (!first) { last = { ok: false, permanent: true, error: `${server.host} resolves only to private or reserved addresses, which direct delivery never connects to.`, server: server.host }; continue; }
+      address = first;
+    }
     const transport = nodemailer.createTransport({
-      host: server.host, port: server.port, secure: false, name,
+      host: address, port: server.port, secure: false, name,
       // Opportunistic TLS, as between mail servers: encrypt whenever the receiver offers it.
       tls: { rejectUnauthorized: false, servername: server.host },
       connectionTimeout: 15_000, greetingTimeout: 15_000, socketTimeout: 30_000,

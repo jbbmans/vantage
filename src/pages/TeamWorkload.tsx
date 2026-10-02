@@ -5,18 +5,27 @@ import { Panel, Segmented, Skeleton, Tooltip } from '@/components/ui/primitives'
 import { WorkRow, StageBadge } from '@/components/work';
 import { useWorkload } from '@/lib/queries';
 import { STAGE_LABEL, WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
-import { cn, lastDays } from '@/lib/utils';
+import { cn, formatRange, lastDays } from '@/lib/utils';
 import { QueryFailure } from '@/components/QueryFailure';
+import type { WorkloadMember } from '../../shared/caseView';
 
 const WINDOWS = [{ value: '30', label: '30 days' }, { value: '90', label: '90 days' }] as const;
 
 type SortKey = 'name' | 'assigned' | 'waiting' | 'blocked' | 'documents_researched' | 'research_actions' | 'submitted_actions' | 'verified_outcomes' | 'resolved_work';
 
+
+/** "5 hours", "1 day", "3 days": whole units a person reads at a glance, never "1 days" or "0 days". */
+const elapsed = (hours: number) => {
+  if (hours < 24) { const h = Math.max(1, Math.round(hours)); return `${h} ${h === 1 ? 'hour' : 'hours'}`; }
+  const d = Math.round(hours / 24);
+  return `${d} ${d === 1 ? 'day' : 'days'}`;
+};
 export default function TeamWorkload({ unitId }: { unitId: string }) {
   const [days, setDays] = useState<'30' | '90'>('30');
   const params = useMemo(() => lastDays(days), [days]);
   const w = useWorkload(unitId, params);
-  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'documents_researched', dir: 'desc' });
+  // Alphabetical until a leader asks for an order: opening the page should not rank people.
+  const [sort, setSort] = useState<{ key: SortKey; dir: 'asc' | 'desc' }>({ key: 'name', dir: 'asc' });
 
   if (w.isPending) return <Skeleton className="h-64" />;
   if (w.isError || !w.data) {
@@ -24,9 +33,10 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
   }
   const d = w.data;
   const s = d.section;
-  const members = [...d.members].sort((a: any, b: any) => {
-    const av = sort.key === 'name' ? a.name : a[sort.key]; const bv = sort.key === 'name' ? b.name : b[sort.key];
-    const cmp = typeof av === 'string' ? av.localeCompare(bv) : av - bv;
+  const members = [...d.members].sort((a, b) => {
+    // By last name, as a roster reads.
+    const byName = (m: WorkloadMember) => `${m.name.split(' ').slice(-1)[0]} ${m.name}`;
+    const cmp = sort.key === 'name' ? byName(a).localeCompare(byName(b)) : a[sort.key] - b[sort.key];
     return sort.dir === 'asc' ? cmp : -cmp;
   });
   const col = (key: SortKey, label: string, definition?: string) => (
@@ -43,7 +53,7 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
   return (
     <div className="space-y-4">
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-sm text-ink-3">{d.unit_name} · recorded {d.window.from} to {d.window.to}</p>
+        <p className="text-sm text-ink-3">{d.unit_name} · recorded {formatRange(d.window.from, d.window.to)}</p>
         <Segmented label="Window" value={days} onChange={setDays} options={WINDOWS.map((x) => ({ value: x.value, label: x.label }))} size="sm" />
       </div>
 
@@ -68,7 +78,7 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
           {Object.keys(s.by_waiting).length === 0 ? <p className="text-sm text-ink-3">Nothing is waiting.</p> : (
             <ul className="space-y-1.5 text-sm">
               {Object.entries(s.by_waiting as Record<string, { count: number; oldest_hours: number }>).map(([cat, v]) => (
-                <li key={cat} className="flex items-center justify-between gap-2"><span className="text-ink">{WAITING_LABEL[cat as WaitingCategory] || cat}</span><span className="text-xs text-ink-3">{v.count} · oldest {Math.round(v.oldest_hours / 24)} days</span></li>
+                <li key={cat} className="flex items-center justify-between gap-2"><span className="text-ink">{WAITING_LABEL[cat as WaitingCategory] || cat}</span><span className="text-xs text-ink-3">{v.count} · oldest {elapsed(v.oldest_hours)}</span></li>
               ))}
             </ul>
           )}
@@ -101,10 +111,10 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
                 </tr>
               </thead>
               <tbody>
-                {members.map((m: any) => (
+                {members.map((m) => (
                   <tr key={m.id} className="border-t border-line">
                     <td className="px-3 py-2"><span className="font-medium text-ink">{[m.rank_abbr, m.name].filter(Boolean).join(' ')}</span>{m.billet && <span className="block text-xs text-ink-3">{m.billet}</span>}</td>
-                    {['assigned', 'waiting', 'blocked', 'documents_researched', 'research_actions', 'submitted_actions', 'verified_outcomes', 'resolved_work'].map((k) => (
+                    {(['assigned', 'waiting', 'blocked', 'documents_researched', 'research_actions', 'submitted_actions', 'verified_outcomes', 'resolved_work'] as const).map((k) => (
                       <td key={k} className={cn('fig px-3 py-2 text-right', m[k] === 0 ? 'text-ink-3' : 'text-ink')}>{m[k]}</td>
                     ))}
                   </tr>
@@ -120,10 +130,10 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Unassigned" subtitle="Soonest due first" padded={false} action={<Link to="/work?claimed=nobody" className="text-xs text-accent hover:underline">All</Link>}>
-          {d.unassigned.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Everything open has someone on it.</p> : <ul className="divide-y divide-line">{d.unassigned.slice(0, 6).map((i: any) => <WorkRow key={i.id} item={i} showNext={false} />)}</ul>}
+          {d.unassigned.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Everything open has someone on it.</p> : <ul className="divide-y divide-line">{d.unassigned.slice(0, 6).map((i) => <WorkRow key={i.id} item={i} showNext={false} />)}</ul>}
         </Panel>
         <Panel title="Needs a decision" subtitle={`${STAGE_LABEL.blocked as string}, overdue, or waiting on verification`} padded={false}>
-          {d.attention.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Nothing is stuck.</p> : <ul className="divide-y divide-line">{d.attention.slice(0, 6).map((i: any) => <WorkRow key={i.id} item={i} />)}</ul>}
+          {d.attention.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Nothing is stuck.</p> : <ul className="divide-y divide-line">{d.attention.slice(0, 6).map((i) => <WorkRow key={i.id} item={i} />)}</ul>}
         </Panel>
       </div>
 

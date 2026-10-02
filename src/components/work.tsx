@@ -4,6 +4,7 @@ import { Badge, type Tone } from '@/components/ui/primitives';
 import { DateText } from '@/components/common';
 import { STAGE_LABEL, WAITING_LABEL, type Stage, type WaitingCategory } from '../../shared/caseModel';
 import { cn, todayIso } from '@/lib/utils';
+import type { AssignedItem } from '../../shared/caseView';
 
 export const STAGE_TONE: Record<Stage, Tone> = {
   not_started: 'neutral',
@@ -34,7 +35,11 @@ export function elapsed(since: string | null | undefined): string {
 
 export const personName = (p: { name: string; rank?: string | null } | undefined | null) => (p ? [p.rank, p.name].filter(Boolean).join(' ') : 'Someone');
 
-export function WorkRow({ item, showNext = true, trailing }: { item: any; showNext?: boolean; trailing?: React.ReactNode }) {
+/** What a row needs: an assigned item has all of it; other lists may not carry the next step or the waiting details. */
+export type WorkRowItem = Pick<AssignedItem, 'id' | 'title' | 'reference' | 'natural_key' | 'due_date' | 'stage'>
+  & Partial<Pick<AssignedItem, 'waiting_category' | 'waiting_since' | 'blocked_reason' | 'next_step'>>;
+
+export function WorkRow({ item, showNext = true, trailing }: { item: WorkRowItem; showNext?: boolean; trailing?: React.ReactNode }) {
   const overdue = item.due_date && item.due_date < todayIso() && !['resolved', 'not_applicable'].includes(item.stage);
   return (
     <li>

@@ -7,12 +7,19 @@ export const SIGNED_IN_COOKIE = 'vantage_signed_in';
 
 export const sessionDigest = (token: string) => sha256(`session:${token}`);
 
+/** How long a session may sit unused. An operator's is never longer than anyone else's. */
+export const idleMinutesFor = (config: AppContext['config'], isOperator: boolean | number) =>
+  // A synthetic demo holds nothing real, and its workspace is thrown away when the session ends.
+  config.accessMode === 'demo' ? config.demo.ttlHours * 60
+    : isOperator ? Math.min(config.sessions.operatorIdleMinutes, config.sessions.idleMinutes) : config.sessions.idleMinutes;
+
 export function createSession(ctx: AppContext, userId: string, { ip, userAgent, method = 'password', sudo = false }: { ip?: string | null; userAgent?: string | null; method?: string; sudo?: boolean }) {
   const { db, config } = ctx;
   const token = randomToken(32);
   const id = sessionDigest(token);
   const created = Date.now();
-  const idle = new Date(created + config.sessions.idleMinutes * 60_000);
+  const operator = (db.prepare('SELECT is_operator FROM users WHERE id = ?').get(userId) as { is_operator: number } | undefined)?.is_operator ?? 0;
+  const idle = new Date(created + idleMinutesFor(config, operator) * 60_000);
   const absolute = new Date(created + config.sessions.absoluteHours * 3_600_000);
   const sudoUntil = sudo ? new Date(created + config.sessions.sudoMinutes * 60_000).toISOString() : null;
   db.transaction(() => {
@@ -61,7 +68,11 @@ export function grantSudo(ctx: AppContext, sessionId: string) {
   return until;
 }
 
-export function resolveSession(ctx: AppContext, token: string | undefined): { user: SessionUser; session: { id: string; sudo_until: string | null; method: string } } | null {
+/**
+ * The session a token names, if it is still live. A request the person made (`touch`) keeps it alive; a background
+ * poll does not, or a tab left open with its notification bell would never time out.
+ */
+export function resolveSession(ctx: AppContext, token: string | undefined, { touch = true }: { touch?: boolean } = {}): { user: SessionUser; session: { id: string; sudo_until: string | null; method: string; expires_at: string } } | null {
   if (!token) return null;
   const { db, config } = ctx;
   const id = sessionDigest(token);
@@ -75,13 +86,11 @@ export function resolveSession(ctx: AppContext, token: string | undefined): { us
     destroySession(ctx, id);
     return null;
   }
-  if (nowMs - new Date(row.last_used_at).getTime() > 60_000) {
-    db.prepare('UPDATE sessions SET last_used_at = ?, expires_at = ? WHERE id = ?').run(
-      new Date(nowMs).toISOString(),
-      new Date(Math.min(nowMs + config.sessions.idleMinutes * 60_000, new Date(row.absolute_expires_at).getTime())).toISOString(),
-      id
-    );
+  let expiresAt = row.expires_at;
+  if (touch && nowMs - new Date(row.last_used_at).getTime() > 15_000) {
+    expiresAt = new Date(Math.min(nowMs + idleMinutesFor(config, row.is_operator) * 60_000, new Date(row.absolute_expires_at).getTime())).toISOString();
+    db.prepare('UPDATE sessions SET last_used_at = ?, expires_at = ? WHERE id = ?').run(new Date(nowMs).toISOString(), expiresAt, id);
   }
-  const { password_hash: _p, totp_secret: _t, totp_pending: _tp, totp_last_step: _ts, expires_at: _e, absolute_expires_at: _a, last_used_at: _l, sudo_until, method, ...user } = row;
-  return { user: user as SessionUser, session: { id, sudo_until, method } };
+  const { password_hash: _p, totp_secret: _t, totp_pending: _tp, totp_last_step: _ts, expires_at: _e, absolute_expires_at: _a, last_used_at: _l, sudo_until, method, failed_sign_ins: _f, locked_until: _lu, ...user } = row as typeof row & { failed_sign_ins?: number; locked_until?: string | null };
+  return { user: user as SessionUser, session: { id, sudo_until, method, expires_at: expiresAt } };
 }

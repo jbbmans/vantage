@@ -6,8 +6,9 @@ import { audit } from './audit.ts';
 import { formatDollars } from '../../shared/metrics.ts';
 import { isSummable } from '../../shared/constants.ts';
 import { now } from '../lib/ids.ts';
+import { zoneOf } from '../lib/zone.ts';
 
-interface DigestUser { id: string; email: string | null; first_name: string; last_name: string; prefs: string; digest_last_sent_at: string | null }
+interface DigestUser { id: string; email: string | null; first_name: string; last_name: string; prefs: string; digest_last_sent_at: string | null; timezone?: string | null }
 
 const clocks = new Map<string, Intl.DateTimeFormat>();
 
@@ -24,9 +25,10 @@ export function localClock(timezone: string, at = new Date()) {
 
 export function composeDigest(ctx: AppContext, user: DigestUser, at = new Date()) {
   const db = ctx.db;
-  const since = zonedDay(ctx.config.timezone, -7, at);
-  const todayIso = zonedDay(ctx.config.timezone, 0, at);
-  const soon = zonedDay(ctx.config.timezone, 14, at);
+  const zone = zoneOf(ctx, user);
+  const since = zonedDay(zone, -7, at);
+  const todayIso = zonedDay(zone, 0, at);
+  const soon = zonedDay(zone, 14, at);
   const acts = db.prepare(`SELECT title, dollar_amount, dollar_type, result FROM activities WHERE user_id = ? AND deleted_at IS NULL AND date >= ? ORDER BY date DESC`).all(user.id, since) as Array<{ title: string; dollar_amount: number | null; dollar_type: string | null; result: string | null }>;
   const dollars = acts.reduce((n, a) => n + (isSummable(a.dollar_type, ctx.runtime.metrics) ? Number(a.dollar_amount) || 0 : 0), 0);
   const noOutcome = acts.filter((a) => !a.result).length;
@@ -79,13 +81,14 @@ export async function sendDigest(ctx: AppContext, user: DigestUser) {
 
 export async function runDigestTick(ctx: AppContext, at = new Date()) {
   if (!ctx.mailer.enabled) return { sent: 0, skipped: 'email disabled' };
-  const clock = localClock(ctx.config.timezone, at);
-  const users = ctx.db.prepare(`SELECT id, email, first_name, last_name, prefs, digest_last_sent_at FROM users WHERE active = 1 AND email IS NOT NULL`).all() as DigestUser[];
+  const users = ctx.db.prepare(`SELECT id, email, first_name, last_name, prefs, digest_last_sent_at, timezone FROM users WHERE active = 1 AND email IS NOT NULL`).all() as DigestUser[];
   let sent = 0;
   for (const user of users) {
     let prefs: { digest?: { enabled: boolean; weekday: number; hour: number } } = {};
     try { prefs = JSON.parse(user.prefs || '{}'); } catch {}
     const d = prefs.digest;
+    // The hour a person chose is an hour on their own clock.
+    const clock = localClock(zoneOf(ctx, user), at);
     if (!d?.enabled || d.weekday !== clock.weekday || d.hour !== clock.hour) continue;
     if (user.digest_last_sent_at && at.getTime() - new Date(user.digest_last_sent_at).getTime() < 6 * 86_400_000) continue;
     const result = await sendDigest(ctx, user);

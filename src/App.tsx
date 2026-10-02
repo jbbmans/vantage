@@ -34,6 +34,7 @@ const Reports = lazy(() => import('@/pages/Reports'));
 const Team = lazy(() => import('@/pages/Team'));
 const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
 const Settings = lazy(() => import('@/pages/Settings'));
+const DemoGovernance = lazy(() => import('@/pages/DemoGovernance'));
 const Help = lazy(() => import('@/pages/Help'));
 const Support = lazy(() => import('@/pages/Support'));
 const Reference = lazy(() => import('@/pages/Reference'));
@@ -222,6 +223,7 @@ function AppRoutes() {
         {TEAM_PAGES.map(([path, section]) => <Route key={path} path={`team/${path}`} element={<D><Team section={section} /></D>} />)}
         <Route path="team/:id" element={<D><MemberDetail /></D>} />
         <Route path="settings" element={<D><Settings /></D>} />
+        <Route path="governance" element={<D><DemoGovernance /></D>} />
         <Route path="operator" element={<ToConsole />} />
         <Route path="help" element={<D><Help /></D>} />
         <Route path="support" element={<D><Support /></D>} />

@@ -14,6 +14,8 @@ export interface Requirement {
   maradmins?: boolean;
   /** Not offered in the synthetic demo. */
   notDemo?: boolean;
+  /** Offered only in the synthetic demo. */
+  demo?: boolean;
   /** One of the Team sections, which depend on the view and on the permissions held in it. */
   team?: TeamSection;
 }
@@ -106,6 +108,8 @@ export const GROUPS: NavGroup[] = [
 export const FOOTER: NavPage[] = [
   { to: '/settings', label: 'Settings', icon: Settings2, key: 's', hint: 'Your profile, security and preferences' },
   { to: '/operator', label: 'Owner console', icon: ShieldCheck, key: 'o', hint: 'Run this deployment', when: { operator: true, notDemo: true } },
+  // The demo has no owner console (every visitor shares the instance); this shows what one governs instead.
+  { to: '/governance', label: 'Owner console', icon: ShieldCheck, hint: 'What an owner governs', when: { demo: true } },
 ];
 
 /** Every page, for the command palette, the shortcuts and the header. */

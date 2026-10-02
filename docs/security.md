@@ -2,10 +2,13 @@
 
 ## Identities and sessions
 
-- Usernames plus a 15-character-minimum password, checked against common patterns, hashed with scrypt.
+- Usernames plus a 15-character-minimum password, checked against common patterns, hashed with PBKDF2-HMAC-SHA256 (600,000 iterations by default, `VANTAGE_PBKDF2_ITERATIONS`, at least 210,000 in production), the FIPS 140 approved choice. Hashes made with scrypt by earlier versions still verify and are replaced the next time the person signs in. Verification runs off the event loop.
 - Passkeys (WebAuthn, discoverable credentials) with the site hostname as relying party. Passkeys sign in without a password.
+- Organization sign-in over OpenID Connect (Entra ID commercial, GCC High or DoD, or any OIDC provider): code flow with PKCE, single-use hashed state and nonce, ID token signature and claims verified against the provider's published keys. It can be the only way in (`VANTAGE_OIDC_EXCLUSIVE`). See docs/cac-and-records.md.
 - Authenticator app (TOTP, RFC 6238) as a second step for password sign-in, with eight single-use recovery codes. Each code is accepted once, and a code older than the last one used is refused. Setting up a new authenticator leaves the current one in force until the new one is confirmed.
-- Sessions are random 256-bit tokens stored only as SHA-256 digests, in an `HttpOnly`, `SameSite=Lax`, `Secure` cookie. Idle timeout 60 minutes, absolute 12 hours, at most 8 active per user.
+- Sessions are random 256-bit tokens stored only as SHA-256 digests, in an `HttpOnly`, `SameSite=Lax`, `Secure` cookie. Idle timeout 15 minutes, 10 for an instance owner (`VANTAGE_IDLE_MINUTES`, `VANTAGE_OPERATOR_IDLE_MINUTES`), absolute 12 hours, at most 8 active per user. A background poll (the notification bell) is marked as such and does not count as activity, so an open tab still times out. The client is told when the session will end and asks two minutes before.
+- Lockout: three consecutive failures (a wrong password at sign-in, a wrong second factor, or a wrong password at a step-up or password change) lock the account for 15 minutes (`VANTAGE_LOCKOUT_ATTEMPTS`, `VANTAGE_LOCKOUT_MINUTES`). The count is kept in the database, so a restart does not lift it. The right password does not open a locked account; a passkey, a CAC or organization sign-in still does. An owner can unlock from the Accounts tab, and issuing a temporary password unlocks too. Each lock and unlock is audited.
+- Notice and consent: `VANTAGE_CONSENT_BANNER=dod` shows the standard DoD Notice and Consent Banner before sign-in, and the server refuses to create an account or a session for a client that has not accepted it. `custom` shows `VANTAGE_CONSENT_TEXT`. Off by default, because it states the conditions of a U.S. Government system.
 - Step-up: sensitive changes require the password again within a 10-minute window (`sudo_until` on the session).
 - Password change, role change, membership change, MFA reset, and deactivation revoke the affected user's other sessions.
 - Accounts can be created in bulk from a roster only by the Instance Operator, after re-entering their password. Temporary passwords in the roster must meet the password policy, and every imported account has to set its own password before it can do anything else.
@@ -24,7 +27,9 @@
 
 ## Integrity
 
-- The audit log is an HMAC hash chain keyed by `VANTAGE_SECRET`; the head is stored separately and verified on the owner overview.
+- The audit log is an HMAC hash chain under a chain key kept in the database and sealed with `VANTAGE_SECRET`; the head is stored separately and verified on the owner overview. Case histories are chained the same way, and a history whose seals were removed reads as broken.
+- Both chains detect a change made by somebody who has the database but not the secret. Against somebody who holds the whole server, the evidence is a copy they do not control: `VANTAGE_AUDIT_SYSLOG` sends every audit record, with its hash, to a syslog collector as it is committed (see `docs/operations.md`).
+- `VANTAGE_SECRET` can be changed: set the old one as `VANTAGE_SECRET_PREVIOUS` for one start and every stored secret is re-sealed.
 - Records carry a `version`; concurrent edits are rejected with the current copy (409) and the client offers reload or overwrite.
 - CSV import screens exact and near duplicates; the database enforces a per-user fingerprint.
 
@@ -36,6 +41,8 @@
 - Rate limits per IP and per account on sign-in, registration, reset, MFA, and mutations. The current-password check on the change-password form shares the sign-in limit. Reset emails are capped at three an hour per account, and mail sent on a user's request (address confirmation, digests, invitations) at ten per 15 minutes.
 - Links a user saves as evidence must be `http`, `https` or `mailto`, checked the way a browser reads a scheme (ignoring control characters and whitespace). MARADMIN links are kept only when they are `https`.
 - Attachments are sniffed for type (PDF, PNG, JPEG, plain text, CSV), size-limited, hashed, stored in the database, and served with `Content-Disposition: attachment`.
+- Every upload (evidence attachments, imported workbooks, saved `.eml` messages) is scanned when a scanner is configured: clamd over its socket (`VANTAGE_CLAMD=tcp://host:3310` or a unix socket path) or the `clamdscan` command (`VANTAGE_SCANNER_COMMAND`). A rejected file is never stored. `VANTAGE_SCAN_REQUIRED=true` refuses a file that could not be scanned instead of keeping it marked "not scanned".
+- A workbook is charged against its size limit by what it really expands to, not by the sizes it declares.
 
 ## AI
 
@@ -55,6 +62,7 @@
 - In direct mode Vantage signs every message with DKIM. The private key is generated on the server, stored in `meta` encrypted with `VANTAGE_SECRET` (AES-256-GCM), and never leaves the instance; only the public key is shown, for DNS.
 - Mail a receiver asks to retry is queued in `email_queue` encrypted with the same secret, and deleted once delivered or given up: 30 minutes for a reset link, two days at most otherwise.
 - Delivery uses opportunistic STARTTLS, as mail servers do between themselves; a receiver that offers no TLS still gets the message in the clear, which is the norm for server-to-server mail.
+- Direct delivery resolves each mail host itself and never connects to a private, loopback, link-local or reserved address, so a recipient domain cannot point delivery into the host's own network. It connects to the address it checked. `VANTAGE_EMAIL_ALLOW_PRIVATE=true` is for a network whose mail hosts really are private.
 - The Owner console's email checks are operator-only behind step-up confirmation, and each run is audited (`email_setup_checked`).
 - Team messages need `MANAGE_MEMBERS` in the unit, go to each member separately so no address is shared, set Reply-To to the sender, are limited to five an hour per sender, and are audited (`team_message`). Subjects are flattened to one line, so typed text cannot add mail headers.
 
@@ -70,7 +78,7 @@
 
 | Threat | Mitigation |
 | --- | --- |
-| Credential stuffing | Rate limits, long passwords, passkeys, TOTP |
+| Credential stuffing | Rate limits, a lockout after three failures kept in the database, long passwords, passkeys, TOTP |
 | Replaying an observed authenticator code | Each code accepted once per account |
 | Pulling a Marine into your own unit to read them | Direct enrollment only for Marines already led; everyone else by invitation |
 | Escalating through a lower role | Grants limited to permissions the granter holds |
@@ -78,7 +86,14 @@
 | Sidestepping the demo's closed routes | Paths compared case-insensitively, without trailing slashes |
 | Session theft | Digest storage, short idle timeout, revocation on sensitive changes, device list |
 | Insider read of private records | Not reachable through the API; audit of every shared read |
-| Tampering with the audit trail | HMAC chain verified by the owner |
+| Tampering with the audit trail | HMAC chain verified by the owner; a copy of every record sent off the host |
+| A forged or replayed organization sign-in | Signature checked against the provider's keys, `none` and HMAC refused, issuer, audience, expiry and nonce checked, state used once |
+| One organization identity taking over another's account | An account is bound to one provider subject; a second subject with the same address is refused |
+| A revoked CAC | Direct mode checks the issuing CAs' CRLs and fails closed; proxy mode relies on the gateway's check |
+| A workbook that expands without limit | Real expanded size charged against the limit |
+| Malware in an upload | clamd scan of every upload; optionally refuse what could not be scanned |
+| Mail delivery aimed at the host's own network | Private and reserved addresses refused |
+| A copy of the whole instance walking out | Browser downloads can be turned off; every other owner is notified of each one |
 | CSRF / clickjacking | Client header, `SameSite`, `frame-ancestors 'none'` |
 | Malicious upload | Type sniffing, size cap, attachment disposition, no inline render |
 | Prompt injection via records | Data labeled untrusted; no tool access; output is a draft |

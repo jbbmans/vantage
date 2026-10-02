@@ -41,12 +41,12 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
   const roster: any[] = team?.roster || [];
   const nameOf = (id?: string | null) => { if (!id) return ''; if (id === me) return 'Me'; const p = roster.find((r) => r.id === id); return p ? `${p.rank_abbr || ''} ${p.last_name}`.trim() : 'Assigned'; };
 
-  const visibleTasks = useMemo(() => (tasks || []).filter((t: any) => (showDone || t.status !== 'completed') && (projectFilter === 'all' || t.project_id === projectFilter)), [tasks, showDone, projectFilter]);
+  const visibleTasks = useMemo(() => (tasks || []).filter((t) => (showDone || t.status !== 'completed') && (projectFilter === 'all' || t.project_id === projectFilter)), [tasks, showDone, projectFilter]);
   const groups = useMemo(() => {
-    const overdue = visibleTasks.filter((t: any) => t.status !== 'completed' && t.due_date && t.due_date < today);
-    const week = visibleTasks.filter((t: any) => !overdue.includes(t) && t.status !== 'completed' && t.due_date && t.due_date <= addDays(today, 7));
-    const later = visibleTasks.filter((t: any) => !overdue.includes(t) && !week.includes(t) && t.status !== 'completed');
-    const done = visibleTasks.filter((t: any) => t.status === 'completed');
+    const overdue = visibleTasks.filter((t) => t.status !== 'completed' && t.due_date && t.due_date < today);
+    const week = visibleTasks.filter((t) => !overdue.includes(t) && t.status !== 'completed' && t.due_date && t.due_date <= addDays(today, 7));
+    const later = visibleTasks.filter((t) => !overdue.includes(t) && !week.includes(t) && t.status !== 'completed');
+    const done = visibleTasks.filter((t) => t.status === 'completed');
     return [['Overdue', overdue, 'bad'], ['Due this week', week, 'warn'], ['Later', later, 'neutral'], ['Completed', done, 'good']] as Array<[string, any[], string]>;
   }, [visibleTasks, today]);
 
@@ -71,7 +71,7 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
       {tab === 'tasks' && (
         <>
           <div className="mb-3 flex flex-wrap items-center gap-2">
-            <Select aria-label="Project filter" className="w-52" value={projectFilter} onValueChange={setProjectFilter} options={[{ value: 'all', label: 'All projects' }, ...(projects || []).map((p: any) => ({ value: p.id, label: p.name }))]} />
+            <Select aria-label="Project filter" className="w-52" value={projectFilter} onValueChange={setProjectFilter} options={[{ value: 'all', label: 'All projects' }, ...(projects || []).map((p) => ({ value: p.id, label: p.name }))]} />
             <label className="flex items-center gap-2 text-sm text-ink-2"><input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />Show completed</label>
           </div>
           {isPending ? <Skeleton className="h-40" /> : visibleTasks.length === 0 ? <div className="card"><EmptyState icon={ListTodo} title="No open tasks" description="Tasks are the things you owe. When one is done, log it as an activity so it counts." action={<Button variant="primary" onClick={() => newTask()}>Add a task</Button>} /></div> : (
@@ -79,14 +79,14 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
               {groups.filter(([, list]) => list.length).map(([label, list, tone]) => (
                 <section key={label} className="card" style={{ overflow: 'hidden' }}>
                   <header className="flex items-center gap-2 border-b border-line px-4 py-2"><span className={cn('badge-dot', tone === 'bad' ? 'bg-bad' : tone === 'warn' ? 'bg-warn' : tone === 'good' ? 'bg-good' : 'bg-line-strong')} /><h2 className="text-md font-semibold text-ink">{label}</h2><span className="fig text-xs text-ink-3">{list.length}</span></header>
-                  <ul>{list.map((t: any) => (
+                  <ul>{list.map((t) => (
                     <li key={t.id} className="row flex items-start gap-3 px-4 py-2.5">
                       <button type="button" onClick={() => toggle(t)} disabled={!canToggleRow(t)} className="mt-0.5 text-ink-3 hover:text-good disabled:opacity-40" aria-label={t.status === 'completed' ? 'Reopen task' : 'Complete task'}>{t.status === 'completed' ? <CheckCircle2 className="h-5 w-5 text-good" /> : <Circle className="h-5 w-5" />}</button>
                       <div className="min-w-0 flex-1">
                         <Link to={`/records/tasks/${t.id}`} className={cn('block truncate text-left text-sm font-medium text-ink hover:underline', t.status === 'completed' && 'line-through text-ink-3')}>{t.title}</Link>
                         <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-3">
                           {t.due_date && <span className={cn('flex items-center gap-1', t.status !== 'completed' && t.due_date < today && 'text-bad')}><Clock className="h-3 w-3" /><DateText value={t.due_date} /></span>}
-                          {t.project_id && <span>{(projects || []).find((p: any) => p.id === t.project_id)?.name}</span>}
+                          {t.project_id && <span>{(projects || []).find((p) => p.id === t.project_id)?.name}</span>}
                           {t.assignee_id && t.assignee_id !== me && <span>→ {nameOf(t.assignee_id)}</span>}
                           {t.user_id !== me && <span>from {nameOf(t.user_id)}</span>}
                           {t.notes && <span className="truncate">{t.notes}</span>}
@@ -107,10 +107,10 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
       {tab === 'projects' && (
         (projects || []).length === 0 ? <div className="card"><EmptyState icon={FolderKanban} title="No projects" description="A project groups tasks and activities under one effort so the roll-up writes itself." action={<Button variant="primary" onClick={newProject}>Add a project</Button>} /></div> : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
-            {(projects || []).map((p: any) => {
-              const pTasks = (tasks || []).filter((t: any) => t.project_id === p.id);
-              const done = pTasks.filter((t: any) => t.status === 'completed').length;
-              const acts = (activities || []).filter((a: any) => a.project_id === p.id).length;
+            {(projects || []).map((p) => {
+              const pTasks = (tasks || []).filter((t) => t.project_id === p.id);
+              const done = pTasks.filter((t) => t.status === 'completed').length;
+              const acts = (activities || []).filter((a) => a.project_id === p.id).length;
               const pct = p.progress != null ? Number(p.progress) : pTasks.length ? Math.round((done / pTasks.length) * 100) : 0;
               return (
                 <article key={p.id} className="card card-hover flex flex-col p-4">
@@ -134,7 +134,7 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
               <Field label="Status"><Select value={d.status} onValueChange={(v) => set('status', v)} options={WORK_STATUS.map((s) => ({ value: s, label: humanize(s) }))} /></Field>
               <Field label="Priority"><Select value={d.priority} onValueChange={(v) => set('priority', v)} options={PRIORITIES.map((s) => ({ value: s, label: humanize(s) }))} /></Field>
               <Field label="Due" error={errors.due_date}><Input type="date" value={d.due_date} onChange={onText(set, 'due_date')} /></Field>
-              <Field label="Project"><Select value={d.project_id || '__none'} onValueChange={(v) => set('project_id', v === '__none' ? null : v)} options={[{ value: '__none', label: 'None' }, ...(projects || []).map((p: any) => ({ value: p.id, label: p.name }))]} /></Field>
+              <Field label="Project"><Select value={d.project_id || '__none'} onValueChange={(v) => set('project_id', v === '__none' ? null : v)} options={[{ value: '__none', label: 'None' }, ...(projects || []).map((p) => ({ value: p.id, label: p.name }))]} /></Field>
             </div>
             {canAssign && d.visibility === 'unit' && <Field label="Assign to" hint="members of the shared unit"><Select value={d.assignee_id || '__me'} onValueChange={(v) => set('assignee_id', v === '__me' ? null : v)} options={[{ value: '__me', label: 'Myself' }, ...roster.filter((r) => r.id !== me && r.memberships.some((m: any) => m.unit_id === d.unit_id)).map((r) => ({ value: r.id, label: `${r.rank_abbr || ''} ${r.last_name}, ${r.first_name}`.trim() }))]} /></Field>}
             <Field label="Notes"><Textarea rows={3} value={d.notes} onChange={onText(set, 'notes')} /></Field>

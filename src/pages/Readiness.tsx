@@ -30,8 +30,8 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
   const set = (k: string) => (v: string) => { setForm((f) => ({ ...f, [k]: v })); setDirty(true); };
   const submit = () => save.mutate(Object.fromEntries(['pft_score', 'cft_score', 'rifle_qual', 'mcmap_belt', 'ceus', 'college_credits', 'degree', 'pme_complete', 'cmd_character', 'cmd_mos', 'cmd_leadership', 'fitrep_period_end'].map((k) => [k, form[k] === '' || form[k] == null ? null : form[k]])));
 
-  const mine = useMemo(() => (activities || []).filter((a: any) => a.user_id === identity?.user.id), [activities, identity?.user.id]);
-  const stats = useMemo(() => ({ total: mine.length, withOutcome: mine.filter((a: any) => a.result).length, thinAreas: areaBalance(mine as never, areasFor('jepes')).filter((b) => b.count === 0).map((b) => b.area) }), [mine]);
+  const mine = useMemo(() => (activities || []).filter((a) => a.user_id === identity?.user.id), [activities, identity?.user.id]);
+  const stats = useMemo(() => ({ total: mine.length, withOutcome: mine.filter((a) => a.result).length, thinAreas: areaBalance(mine as never, areasFor('jepes')).filter((b) => b.count === 0).map((b) => b.area) }), [mine]);
   const profile = useMemo(() => ({ ...(readiness || {}), ...Object.fromEntries(Object.entries(form).map(([k, v]) => [k, v === '' ? null : v])) }), [readiness, form]);
   const est = useMemo(() => estimate(profile), [profile]);
   const coverage = useMemo(() => fitrepCoverage(mine), [mine]);

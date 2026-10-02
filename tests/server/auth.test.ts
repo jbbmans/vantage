@@ -20,17 +20,25 @@ test('setup runs once and makes the first account an operator with a unit', asyn
   assert.ok(me.body.canLead);
 });
 
-test('login rejects bad credentials uniformly and throttles', async () => {
+test('login rejects bad credentials uniformly, and three consecutive failures lock the account in the database', async () => {
   const bad = await app.login('boletz', 'wrong-password-value');
   assert.equal(bad.status, 401);
   const nobody = await app.login('nobody', 'wrong-password-value');
   assert.equal(nobody.status, 401);
   assert.equal(bad.body.error, nobody.body.error);
-  for (let i = 0; i < 10; i += 1) await app.login('boletz', 'wrong-password-value');
+  assert.equal((await app.login('boletz', 'wrong-password-value')).status, 401);
+  const third = await app.login('boletz', 'wrong-password-value');
+  assert.equal(third.status, 429);
+  assert.equal(third.body.code, 'account_locked');
   const locked = await app.login('boletz');
-  assert.equal(locked.status, 429);
+  assert.equal(locked.status, 429, 'the right password does not open a locked account');
+  assert.match(locked.body.error, /locked/);
   resetLimiters();
-  assert.equal((await app.login('boletz')).status, 200);
+  assert.equal((await app.login('boletz')).status, 429, 'the lock is in the database, so a restart does not lift it');
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'login_lockout'").get(), 'the lockout is audited');
+  app.ctx.db.prepare("UPDATE users SET locked_until = '2000-01-01T00:00:00.000Z' WHERE username = 'boletz'").run();
+  assert.equal((await app.login('boletz')).status, 200, 'and it lapses');
+  assert.equal((app.ctx.db.prepare("SELECT failed_sign_ins FROM users WHERE username = 'boletz'").get() as { failed_sign_ins: number }).failed_sign_ins, 0);
 });
 
 test('unauthenticated and CSRF-missing requests are rejected', async () => {

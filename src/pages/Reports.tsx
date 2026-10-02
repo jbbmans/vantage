@@ -40,7 +40,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
     return { from: dayKey(r.start), to: dayKey(r.end), user_id: subjectId || undefined, unit_id: unitParam || undefined, scope: subjectId || unitParam ? undefined : 'me' };
   }, [period, subjectId, unitParam]);
   const reportMetrics = useMetricsReport(metricParams);
-  const subject = subjectId ? (team?.roster || []).find((r: any) => r.id === subjectId) : null;
+  const subject = subjectId ? (team?.roster || []).find((r) => r.id === subjectId) : null;
   const effectiveTrack: Track = report?.track || myTrack;
   const meta = trackMeta(effectiveTrack);
   const pkgText = useMemo(() => (report ? packageToText(report.pkg, `${meta.inputName} · ${report.subject} · ${report.label}`) : ''), [report, meta.inputName]);
@@ -97,7 +97,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
                 {report.narrative.areas?.length > 0 && <ul className="mt-3 flex flex-wrap gap-1.5">{report.narrative.areas.map((a: any) => <li key={a.area}><Badge>{a.label} · {a.count} entries · {a.included}/{a.available} support</Badge></li>)}</ul>}
               </Panel>
               <div className="space-y-4">
-                <Panel title="Recognitions in period">{report.awards.length === 0 && report.trainings.length === 0 ? <p className="text-sm text-ink-3">No awards or training in this period.</p> : <ul className="space-y-1 text-sm">{report.awards.map((a: any, i: number) => <li key={`a${i}`} className="flex justify-between gap-2"><span className="truncate text-ink">{a.name}</span><span className="shrink-0 text-xs text-ink-3"><DateText value={a.date} /></span></li>)}{report.trainings.map((t: any, i: number) => <li key={`t${i}`} className="flex justify-between gap-2"><span className="truncate text-ink-2">{t.title}</span><span className="fig shrink-0 text-xs text-ink-3">{t.hours ? `${t.hours} h` : ''}</span></li>)}</ul>}</Panel>
+                <Panel title="Recognitions in period">{report.awards.length === 0 && report.trainings.length === 0 ? <p className="text-sm text-ink-3">No awards or training in this period.</p> : <ul className="space-y-1 text-sm">{report.awards.map((a: any, i: any) => <li key={`a${i}`} className="flex justify-between gap-2"><span className="truncate text-ink">{a.name}</span><span className="shrink-0 text-xs text-ink-3"><DateText value={a.date} /></span></li>)}{report.trainings.map((t: any, i: any) => <li key={`t${i}`} className="flex justify-between gap-2"><span className="truncate text-ink-2">{t.title}</span><span className="fig shrink-0 text-xs text-ink-3">{t.hours ? `${t.hours} h` : ''}</span></li>)}</ul>}</Panel>
                 {identity?.instance.aiEnabled && !subjectId && (
                   <Panel title="AI narrative draft" subtitle="From the same entries; verify every figure" action={<ModelPicker className="h-8 w-40 text-xs" />}>
                     <AiAction workflow="report_narrative" input={{ from: report.from, to: report.to, track: effectiveTrack, character_limit: report.narrative.limit }} label="Draft narrative" onResult={(output, meta2) => setAiOut({ output, meta: meta2 })} size="md" />
@@ -115,7 +115,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
                 <div className="space-y-5">{report.pkg.map((g: any) => (
                   <section key={g.area}><h3 className="mb-2 flex items-center justify-between text-md font-semibold text-ink">{g.area}<span className="fig text-xs font-normal text-ink-3">{g.count} entries · top {g.bullets.length}</span></h3>
                     {g.rollup && <p className="mb-2 rounded-md bg-accent-soft/50 px-3 py-2 text-sm text-ink">{g.rollup}</p>}
-                    <ul className="space-y-1.5">{g.bullets.map((b: any, i: number) => <li key={i} className="group flex items-start gap-2 rounded-md border border-line px-3 py-2 font-mono text-xs leading-relaxed text-ink"><span className="flex-1">{b.text}</span><button type="button" onClick={() => copy(b.text, 'Bullet')} className="text-ink-3 opacity-0 transition-opacity hover:text-ink group-hover:opacity-100" aria-label="Copy bullet"><Copy className="h-3.5 w-3.5" /></button></li>)}</ul>
+                    <ul className="space-y-1.5">{g.bullets.map((b: any, i: any) => <li key={i} className="group flex items-start gap-2 rounded-md border border-line px-3 py-2 font-mono text-xs leading-relaxed text-ink"><span className="flex-1">{b.text}</span><button type="button" onClick={() => copy(b.text, 'Bullet')} className="text-ink-3 opacity-0 transition-opacity hover:text-ink group-hover:opacity-100" aria-label="Copy bullet"><Copy className="h-3.5 w-3.5" /></button></li>)}</ul>
                   </section>
                 ))}</div>
               )}

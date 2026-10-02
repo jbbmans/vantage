@@ -1,6 +1,6 @@
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, enroll, mockGenAi, type TestApp } from './helpers.ts';
+import { startApp, enroll, mockGenAi, type TestApp, today } from './helpers.ts';
 import { resetAiState } from '../../server/services/ai.ts';
 import { zonedDay } from '../../server/lib/clock.ts';
 
@@ -44,7 +44,7 @@ test('quick log extraction sends only the text, honors model choice, and returns
 });
 
 test('record-driven workflows exclude names and private fields; command brief needs EXPORT_DATA', async () => {
-  await app.call('POST', '/api/records/activities', { token: op.token, body: { title: 'Secret notes test', notes: 'DO NOT SEND', visibility: 'unit', date: new Date().toISOString().slice(0, 10), evidence_links: [{ url: 'https://secret.example' }] } });
+  await app.call('POST', '/api/records/activities', { token: op.token, body: { title: 'Secret notes test', notes: 'DO NOT SEND', visibility: 'unit', date: today(), evidence_links: [{ url: 'https://secret.example' }] } });
   const review = await app.call('POST', '/api/ai/assist', { token: op.token, body: { workflow: 'personal_review', input: { days: 30 } } });
   assert.equal(review.status, 200);
   const sent = JSON.stringify(mock.calls.at(-1)!.body);

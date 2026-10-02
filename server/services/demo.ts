@@ -135,6 +135,7 @@ export function createWorkspace(ctx: AppContext): WorkspaceRow {
     const workIds = seedWork(ctx, unitId, ids);
     const balanceIds = seedOpenBalances(ctx, unitId, ids);
     seedPersonalRecord(ctx, unitId, ids);
+    seedSharedRecord(ctx, unitId, ids);
     sealBacklog(ctx, [...workIds, ...balanceIds]);
   })();
   return ctx.db.prepare('SELECT * FROM demo_workspaces WHERE id = ?').get(wsId) as WorkspaceRow;
@@ -464,6 +465,37 @@ function seedPersonalRecord(ctx: AppContext, unitId: string, ids: Record<string,
   step.run(newId(), me, 'Collect Q4 JEPES supporting notes from verified work', 'evaluation', 'planned', dayOffset(20), 'Use the Record’s drafts; nothing is submitted automatically.', null, null, at, at);
   step.run(newId(), me, 'Ask SSgt Diaz what the lead analyst billet requires', 'military', 'planned', dayOffset(14), null, null, null, at, at);
   step.run(newId(), me, 'Look into the Certified Defense Financial Manager credential', 'certification', 'planned', null, 'Requirements and eligibility not checked yet.', 'American Society of Military Comptrollers', 'https://www.asmconline.org', at, at);
+}
+
+/**
+ * What the section shares: a few entries from four Marines and one section goal, so a Marine's overview of their
+ * team shows figures (totals from fewer than three people are withheld), and a report package to open in Reports.
+ */
+function seedSharedRecord(ctx: AppContext, unitId: string, ids: Record<string, string>) {
+  const at = now();
+  const shared = ctx.db.prepare(
+    `INSERT INTO activities (id, user_id, unit_id, visibility, date, title, category, quantity, unit_label, dollar_amount, dollar_type, result, status, evidence_links, fingerprint, version, created_at, updated_at)
+     VALUES (?, ?, ?, 'unit', ?, ?, 'Fiscal & Financial', ?, ?, ?, ?, ?, 'completed', '[]', ?, 1, ?, ?)`
+  );
+  const entries: Array<[string, number, string, number, string, number, string, string]> = [
+    ['marine', 6, 'Cleared 4 2-Way UMTs on the Q4 report', 4, 'UMTs', 6206.40, 'reconciled', 'Each verified cleared on the next report.'],
+    ['chen', 4, 'Deobligated dormant MIPR balances', 3, 'MIPRs', 18250.00, 'saved', 'Funds returned before the year closed.'],
+    ['chen', 12, 'Reconciled the September invoice holds', 7, 'invoices', 9310.75, 'reconciled', 'All seven released for payment.'],
+    ['patel', 8, 'Corrected feeder rejects from GCSS-MC', 5, 'rejects', 4120.00, 'reconciled', 'Resubmitted and accepted.'],
+    ['nguyen', 10, 'Validated open commitments on GPC accounts', 12, 'accounts', 2875.25, 'reviewed', 'Two stale commitments closed.'],
+  ];
+  for (const [who, days, title, qty, label, dollars, type, result] of entries) {
+    shared.run(newId(), ids[who], unitId, dayOffset(-days), title, qty, label, dollars, type, result, `demo-shared:${who}:${title}`, at, at);
+  }
+  ctx.db.prepare(
+    `INSERT INTO goals (id, user_id, unit_id, visibility, title, description, type, category, metric, current_value, target_value, unit_label, status, period_start, period_end,
+                        direction, baseline_value, aggregation, filters, measure_scope, version, created_at, updated_at)
+     VALUES (?, ?, ?, 'unit', ?, ?, 'quarterly', 'Fiscal & Financial', 'manual', 21, 30, 'UMTs', 'active', ?, ?, 'increase', 0, 'latest', '{}', 'subject', 1, ?, ?)`
+  ).run(newId(), ids.leader, unitId, 'Clear the Q4 2-Way UMT backlog', 'Every UMT on the Q4 report verified cleared before the year-end close.', dayOffset(-30), dayOffset(30), at, at);
+  ctx.db.prepare(
+    `INSERT INTO report_drafts (id, user_id, subject_id, unit_id, visibility, title, period_start, period_end, track, latest_revision, version, created_at, updated_at)
+     VALUES (?, ?, ?, ?, 'private', ?, ?, ?, 'jepes', 0, 1, ?, ?)`
+  ).run(newId(), ids.marine, ids.marine, unitId, 'Q4 JEPES input', dayOffset(-89), dayOffset(0), at, at);
 }
 
 export function purgeWorkspace(ctx: AppContext, wsId: string) {

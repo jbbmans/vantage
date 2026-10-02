@@ -4,6 +4,7 @@ import { startAuthentication } from '@simplewebauthn/browser';
 import {
   ArrowLeft,
   ArrowRight,
+  Building2,
   CreditCard,
   Eye,
   EyeOff,
@@ -35,11 +36,31 @@ interface Status {
   requiresSetupToken: boolean;
   selfRegistration: boolean;
   cac?: { enabled: boolean; exclusive: boolean };
+  /** Sign-in through the organization's identity provider (Entra ID and the like). */
+  sso?: { enabled: boolean; label: string; exclusive: boolean };
   emailEnabled: boolean;
   displayName: string;
   announcement: string;
   maintenance: boolean;
+  /** A notice the person must accept before any sign-in, such as the DoD Notice and Consent Banner. */
+  consent?: string | null;
 }
+
+/** Why an organization sign-in came back without a session; the server sends the code, not the words. */
+const SSO_ERRORS: Record<string, string> = {
+  oidc_unlinked: 'Your organization account is not linked to a Vantage account here. Ask your unit leader or the owner to add you, then sign in again.',
+  oidc_conflict: 'That Vantage account is already linked to a different organization account. Ask the owner to check it.',
+  oidc_inactive: 'That Vantage account is turned off. Ask your unit leader or the owner.',
+  oidc_denied: 'Your organization did not sign you in. Try again, or ask your help desk.',
+  oidc_expired: 'The sign-in took too long. Try again.',
+  oidc_state: 'That sign-in was already used or has expired. Start again.',
+  oidc_bad_token: 'Your organization’s answer could not be verified, so you were not signed in. If this keeps happening, tell the owner.',
+  oidc_unreachable: 'Your organization’s sign-in service could not be reached. Try again in a minute.',
+  oidc_misconfigured: 'Organization sign-in is not set up correctly here. Tell the owner.',
+  consent_required: 'Read and accept the notice first.',
+  console_owners_only: 'The owner console is for the people who run this Vantage. Sign in to the app instead.',
+  throttled: 'Too many sign-in attempts. Wait a few minutes and try again.',
+};
 
 function useRanks() {
   const [ranks, setRanks] = useState<Array<{ id: string; abbr: string; name: string }>>([]);
@@ -82,7 +103,10 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
           : 'login'
   ));
   const [busy, setBusy] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState(() => {
+    const code = params.get('sso_error');
+    return code ? SSO_ERRORS[code] || 'Organization sign-in did not finish. Try again.' : '';
+  });
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const [showPassword, setShowPassword] = useState(false);
   const [form, setForm] = useState<Record<string, string>>({
@@ -91,6 +115,9 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
   const [challenge, setChallenge] = useState('');
   const [tokenInfo, setTokenInfo] = useState<any>(null);
   const [theme, setTheme] = useState(() => resolveTheme(storedTheme()));
+  const [consented, setConsented] = useState(() => api.consentWasAccepted());
+  // Until the notice is accepted, the forms behind it are not shown.
+  const gated = Boolean(status?.consent) && !consented;
 
   const set = (key: string) => (e: React.ChangeEvent<HTMLInputElement>) => {
     setForm((current) => ({ ...current, [key]: e.target.value }));
@@ -105,6 +132,12 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
   useEffect(() => {
     // The shell this renders in is already kept out of search results; only the tab needs naming.
     document.title = 'Sign in | Vantage';
+    if (params.has('sso_error')) {
+      const rest = new URLSearchParams(params);
+      rest.delete('sso_error');
+      const query = rest.toString();
+      window.history.replaceState(null, '', `${path}${query ? `?${query}` : ''}`);
+    }
 
     api.setupStatus().then((s: Status) => {
       setStatus(s);
@@ -191,6 +224,16 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
     finish();
   });
   const cac = () => run(async () => { await api.cacLogin(); finish(); });
+  // A full-page trip to the organization's sign-in page and back; the notice, if any, was accepted here first.
+  const organization = () => {
+    const query = new URLSearchParams();
+    if (consented) query.set('consent', '1');
+    if (!/^\/(login|register|reset|invite|setup)(\/|$)/.test(path)) query.set('return', `${path}${window.location.search}`);
+    setBusy(true);
+    const qs = query.toString();
+    window.location.assign(`/api/auth/oidc/start${qs ? `?${qs}` : ''}`);
+  };
+  const noPassword = Boolean(status?.cac?.exclusive || status?.sso?.exclusive);
   const passkey = () => run(async () => {
     const { options, key } = await api.passkeyOptions(form.username || undefined);
     let response;
@@ -310,14 +353,26 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
             )}
             {error && <div role="alert" className="auth-notice error compact">{error}</div>}
 
-            {mode === 'login' && status?.cac?.exclusive && (
-              <div className="auth-form">
-                <Button type="button" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={offline} onClick={cac}><CreditCard className="h-4 w-4" /> Sign in with your CAC</Button>
-                <p className="text-sm text-ink-3">Put your card in the reader first. Your browser asks which certificate to use and for your PIN. <button type="button" className="link" onClick={() => setMode('help')}>Need help?</button></p>
+            {gated && (
+              <div className="auth-form" role="region" aria-labelledby="consent-heading">
+                <h2 id="consent-heading" className="text-sm font-semibold text-ink">Notice and consent</h2>
+                <div className="max-h-72 overflow-y-auto whitespace-pre-line rounded-md border border-line bg-surface-2 p-3 text-xs leading-relaxed text-ink-2" tabIndex={0}>{status?.consent}</div>
+                <Button type="button" variant="primary" size="lg" className="auth-submit" autoFocus onClick={() => { api.acceptConsent(); setConsented(true); }}>I agree</Button>
               </div>
             )}
 
-            {mode === 'login' && !status?.cac?.exclusive && (
+            {!gated && mode === 'login' && noPassword && (
+              <div className="auth-form">
+                {status?.sso?.enabled && <Button type="button" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={offline} onClick={organization}><Building2 className="h-4 w-4" /> {status.sso.label}</Button>}
+                {status?.cac?.enabled && <Button type="button" variant={status?.sso?.enabled ? 'outline' : 'primary'} size="lg" className={status?.sso?.enabled ? 'auth-passkey' : 'auth-submit'} loading={busy && !status?.sso?.enabled} disabled={offline || (busy && Boolean(status?.sso?.enabled))} onClick={cac}><CreditCard className="h-4 w-4" /> Sign in with your CAC</Button>}
+                <p className="text-sm text-ink-3">
+                  {status?.cac?.enabled ? 'For your CAC, put your card in the reader first; your browser asks which certificate to use and for your PIN. ' : 'Your organization’s sign-in page opens, then brings you back here. '}
+                  {!owners && <button type="button" className="link" onClick={() => setMode('help')}>Need help?</button>}
+                </p>
+              </div>
+            )}
+
+            {!gated && mode === 'login' && !noPassword && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitLogin(); }}>
                 <Field label="Username" error={fieldErrors.username}>
                   <div className="auth-input-wrap" role="group" aria-label="Username controls"><UserRound /><Input aria-label="Username" autoFocus required autoComplete="username webauthn" spellCheck={false} autoCapitalize="none" value={form.username} onChange={set('username')} /></div>
@@ -334,6 +389,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
                   Sign in <ArrowRight className="h-4 w-4" />
                 </Button>
                 <div className="auth-divider"><span>or continue with</span></div>
+                {status?.sso?.enabled && <Button type="button" variant="outline" size="lg" className="auth-passkey" onClick={organization} disabled={busy || offline}><Building2 className="h-4 w-4" /> {status.sso.label}</Button>}
                 <Button type="button" variant="outline" size="lg" className="auth-passkey" onClick={passkey} disabled={busy || offline}>
                   <Fingerprint className="h-4 w-4" /> Sign in with a passkey
                 </Button>
@@ -341,14 +397,14 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
               </form>
             )}
 
-            {mode === 'mfa' && (
+            {!gated && mode === 'mfa' && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitMfa(); }}>
                 <Field label="Code" hint="6 digits, or a recovery code"><Input autoFocus inputMode="numeric" autoComplete="one-time-code" spellCheck={false} value={form.code} onChange={set('code')} className="fig text-lg tracking-[0.3em]" /></Field>
                 <Button type="submit" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={form.code.replace(/\s/g, '').length < 6}><ShieldCheck className="h-4 w-4" /> Verify</Button>
               </form>
             )}
 
-            {(mode === 'setup' || mode === 'register' || mode === 'invite') && (
+            {!gated && (mode === 'setup' || mode === 'register' || mode === 'invite') && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); (mode === 'setup' ? submitSetup : mode === 'register' ? submitRegister : submitInvite)(); }}>
                 {mode === 'invite' && tokenInfo && !tokenInfo.valid && <div className="auth-notice error compact">This invitation is invalid or has expired. Ask your leader for a new one.</div>}
                 {mode === 'setup' && status?.requiresSetupToken && <Field label="Deployment setup token" hint="from the server environment" error={fieldErrors.setup_token}><Input autoFocus value={form.setup_token} onChange={set('setup_token')} autoComplete="off" /></Field>}
@@ -362,7 +418,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
                 <Field label="Email" hint={mode === 'invite' && tokenInfo?.email ? 'set by the invitation' : 'optional; used for reset links and the weekly digest'} error={fieldErrors.email}><Input type="email" spellCheck={false} value={form.email} onChange={set('email')} autoComplete="email" disabled={mode === 'invite' && Boolean(tokenInfo?.email)} /></Field>
                 <Field label="Password" required hint={`${MIN_PASSWORD_LENGTH}+ characters`} error={fieldErrors.password}>{passwordInput}</Field>
                 <PasswordMeter value={form.password} />
-                {mode === 'setup' && (
+                {!gated && mode === 'setup' && (
                   <div className="auth-two-col auth-unit-fields">
                     <Field label="First unit" required hint="you will lead it" error={fieldErrors.unit_name}><Input value={form.unit_name} onChange={set('unit_name')} placeholder="Comptroller, MCB Quantico" /></Field>
                     <Field label="Short name" error={fieldErrors.unit_short_name}><Input value={form.unit_short_name} onChange={set('unit_short_name')} placeholder="G-8" /></Field>
@@ -374,7 +430,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
               </form>
             )}
 
-            {mode === 'forgot' && (
+            {!gated && mode === 'forgot' && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitForgot(); }}>
                 <Field label="Username or email"><Input autoFocus value={form.identifier} onChange={set('identifier')} autoCapitalize="none" /></Field>
                 {status && !status.emailEnabled && <p className="text-xs text-ink-3">Email is not configured here. Your unit leader or the owner can issue a temporary password from the Team page instead.</p>}
@@ -383,7 +439,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
               </form>
             )}
 
-            {mode === 'help' && (
+            {!gated && mode === 'help' && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitHelp(); }}>
                 <div className="grid grid-cols-2 gap-3">
                   <Field label="First name"><Input autoFocus value={form.first_name} onChange={set('first_name')} autoComplete="given-name" /></Field>
@@ -396,7 +452,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
               </form>
             )}
 
-            {mode === 'reset' && (
+            {!gated && mode === 'reset' && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitReset(); }}>
                 {tokenInfo && !tokenInfo.valid && <div className="auth-notice error compact">This link is invalid, has expired, or was already used. Request a new one with “Forgot password”, or ask your leader to send your sign-in details again.</div>}
                 {tokenInfo?.username && <Field label="Username" hint="yours to keep"><Input value={tokenInfo.username} readOnly autoComplete="username" spellCheck={false} className="mono" /></Field>}

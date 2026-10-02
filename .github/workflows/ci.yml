@@ -30,6 +30,28 @@ jobs:
       - run: npm run build
       - run: npm test
 
+  supply-chain:
+    name: Dependencies and SBOM
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+      - run: npm ci
+      # A high or critical advisory in anything that ships fails the build; dev tooling is reported, not gating.
+      - run: npm audit --omit=dev --audit-level=high
+      - run: npm audit --audit-level=critical
+      - name: Software bill of materials (CycloneDX)
+        run: npm sbom --sbom-format cyclonedx --omit dev > vantage-sbom.cdx.json
+      - uses: actions/upload-artifact@v4
+        with:
+          name: sbom
+          path: vantage-sbom.cdx.json
+          retention-days: 90
+
   browser:
     name: Browser tests (Playwright)
     runs-on: ubuntu-latest
@@ -87,3 +109,12 @@ jobs:
           curl -fsS -o /dev/null http://127.0.0.1:8787/og.png
       - if: failure()
         run: docker logs vantage
+      # The image that ships is scanned: fixable high and critical findings in its OS packages or Node modules fail.
+      - name: Scan the image
+        uses: aquasecurity/trivy-action@0.28.0
+        with:
+          image-ref: vantage:ci
+          severity: CRITICAL,HIGH
+          ignore-unfixed: true
+          exit-code: '1'
+          format: table

@@ -216,6 +216,15 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
   const strip = React.useRef<HTMLDivElement | null>(null);
   const ink = React.useRef<HTMLSpanElement | null>(null);
   const [measured, setMeasured] = React.useState(false);
+  // On a narrow screen the strip scrolls. A fade on the side with more tabs says so; a hard edge looked like the end.
+  const [more, setMore] = React.useState<{ left: boolean; right: boolean }>({ left: false, right: false });
+  const edges = React.useCallback(() => {
+    const bar = strip.current;
+    if (!bar) return;
+    const left = bar.scrollLeft > 2;
+    const right = bar.scrollLeft + bar.clientWidth < bar.scrollWidth - 2;
+    setMore((m) => (m.left === left && m.right === right ? m : { left, right }));
+  }, []);
   React.useEffect(() => {
     const el = strip.current?.querySelector<HTMLElement>('[aria-selected="true"]');
     el?.scrollIntoView({ block: 'nearest', inline: 'center' });
@@ -234,13 +243,15 @@ export function Tabs<T extends string>({ value, onChange, tabs, className }: { v
       setMeasured(true);
     };
     place();
-    const watch = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(place);
+    edges();
+    const watch = typeof ResizeObserver === 'undefined' ? null : new ResizeObserver(() => { place(); edges(); });
     watch?.observe(bar);
     bar.querySelectorAll('[role="tab"]').forEach((t) => watch?.observe(t));
     return () => watch?.disconnect();
-  }, [value, tabs.length]);
+  }, [value, tabs.length, edges]);
   return (
-    <div ref={strip} role="tablist" data-ink={measured || undefined} className={cn('tab-bar relative scroll-x scroll-x-canvas scroll-x-quiet', className)}>
+    <div ref={strip} role="tablist" data-ink={measured || undefined} data-more-left={more.left || undefined} data-more-right={more.right || undefined} onScroll={edges}
+      className={cn('tab-bar relative scroll-x scroll-x-canvas scroll-x-quiet', className)}>
       <span ref={ink} className="tab-ink" style={{ opacity: measured ? 1 : 0 }} aria-hidden />
       {tabs.map((t) => {
         const active = t.value === value;
@@ -268,11 +279,13 @@ export const Skeleton = ({ className }: { className?: string }) => <div classNam
 export const Kbd = ({ children }: { children: React.ReactNode }) => <kbd className="kbd">{children}</kbd>;
 
 export function PageHeader({ eyebrow, title, lede, children }: { eyebrow?: string; title: React.ReactNode; lede?: React.ReactNode; children?: React.ReactNode }) {
+  // An eyebrow that only repeats the title ("WORK" over "Work") is a line spent saying nothing; the breadcrumb already names the page.
+  const showEyebrow = Boolean(eyebrow) && !(typeof title === 'string' && eyebrow!.trim().toLowerCase() === title.trim().toLowerCase());
   return (
-    <div className="mb-8">
+    <div className="mb-6">
       <div className="flex flex-wrap items-end justify-between gap-x-6 gap-y-4">
         <div className="min-w-0 flex-1 basis-[22rem]">
-          {eyebrow && <p className="eyebrow mb-3 flex items-center gap-2"><span className="h-px w-5 bg-accent" aria-hidden />{eyebrow}</p>}
+          {showEyebrow && <p className="eyebrow mb-3 flex items-center gap-2"><span className="h-px w-5 bg-accent" aria-hidden />{eyebrow}</p>}
           <h1 className="page-title">{title}</h1>
           {lede && <p className="page-lede">{lede}</p>}
         </div>

@@ -1,4 +1,6 @@
 import { clearDrafts } from './drafts.ts';
+import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
+import type { MemberDetailResponse, OrgResponse, RecordRows, RolesResponse, TeamResponse } from '../../shared/types';
 
 let sessionState: 'none' | 'unknown' | 'active' = (() => {
   try { return document.cookie.includes('vantage_signed_in=') ? 'unknown' : 'none'; } catch { return 'unknown'; }
@@ -25,8 +27,14 @@ export const errorText = (err: unknown): string => {
 
 export const isOffline = (err: unknown) => err instanceof ApiError && err.status === 0;
 
+/** Set when the person accepts the sign-in notice; sent with each sign-in, and forgotten at sign-out so it is shown again. */
+let consentAccepted = false;
+export const acceptConsent = () => { consentAccepted = true; };
+export const consentWasAccepted = () => consentAccepted;
+
 function markSignedOut() {
   sessionState = 'none';
+  consentAccepted = false;
   clearDrafts();
   try { document.cookie = 'vantage_signed_in=; Max-Age=0; path=/'; } catch {}
 }
@@ -41,7 +49,7 @@ async function request<T = any>(method: string, path: string, body?: unknown, in
       ...init,
       method,
       credentials: 'same-origin',
-      headers: { ...(body instanceof Blob || body instanceof ArrayBuffer ? {} : { 'content-type': 'application/json' }), ...(init.headers as Record<string, string> | undefined), 'x-vantage-client': '1' },
+      headers: { ...(body instanceof Blob || body instanceof ArrayBuffer ? {} : { 'content-type': 'application/json' }), ...(init.headers as Record<string, string> | undefined), 'x-vantage-client': '1', ...(consentAccepted ? { 'x-vantage-consent': '1' } : {}) },
       body: body === undefined ? undefined : body instanceof Blob || body instanceof ArrayBuffer ? (body as BodyInit) : JSON.stringify(body),
     });
   } catch {
@@ -53,6 +61,8 @@ async function request<T = any>(method: string, path: string, body?: unknown, in
     let payload: any = null; try { payload = JSON.parse(text); } catch {}
     throw new ApiError(payload?.error || 'Your session has expired. Sign in again.', 401, payload || {});
   }
+  const expires = res.headers.get('x-session-expires');
+  if (expires) window.dispatchEvent(new CustomEvent('vantage:session-expires', { detail: Date.parse(expires) }));
   const text = await res.text();
   let payload: any = null;
   if (text) { try { payload = JSON.parse(text); } catch { payload = null; } }
@@ -87,7 +97,7 @@ export const inviteStatus = (token: string) => api.get(`/auth/invite?token=${enc
 export const acceptInvite = (payload: unknown) => api.post('/auth/invite/accept', payload).then((r) => { markSignedIn(); return r; });
 
 export const me = () => api.get('/me');
-export const org = () => api.get('/me/org');
+export const org = () => api.get<OrgResponse>('/me/org');
 export const updateProfile = (payload: unknown) => api.put('/me/profile', payload);
 export const savePrefs = (patch: unknown) => api.put('/me/prefs', patch);
 export const changePassword = (current_password: string, new_password: string) => api.post('/me/password', { current_password, new_password });
@@ -105,7 +115,8 @@ export const passkeyDelete = (id: string) => api.del(`/me/passkeys/${encodeURICo
 export const readiness = () => api.get('/me/readiness');
 export const saveReadiness = (payload: unknown) => api.put('/me/readiness', payload);
 export const memberReadiness = (id: string) => api.get(`/me/readiness/${encodeURIComponent(id)}`);
-export const notifications = (limit = 40) => api.get(`/me/notifications?limit=${limit}`);
+/** Polled in the background, so it is marked as such: a poll must not keep an idle session alive. */
+export const notifications = (limit = 40) => request('GET', `/me/notifications?limit=${limit}`, undefined, { headers: { 'x-vantage-background': '1' } });
 export const markRead = (id: string) => api.put(`/me/notifications/${encodeURIComponent(id)}/read`);
 export const markAllRead = () => api.post('/me/notifications/read-all');
 export const myAudit = () => api.get('/me/audit');
@@ -116,9 +127,9 @@ export const emailConfirm = (token: string) => api.post('/me/email/confirm', { t
 
 export const STORES = ['activities', 'projects', 'tasks', 'goals', 'trainings', 'awards', 'counselings'] as const;
 export type Store = (typeof STORES)[number];
-export const listRecords = (store: Store, params: Record<string, string | undefined> = {}) => {
+export const listRecords = <S extends Store>(store: S, params: Record<string, string | undefined> = {}) => {
   const qs = Object.entries(params).filter(([, v]) => v).map(([k, v]) => `${k}=${encodeURIComponent(v!)}`).join('&');
-  return api.get<any[]>(`/records/${store}${qs ? `?${qs}` : ''}`);
+  return api.get<Array<RecordRows[S]>>(`/records/${store}${qs ? `?${qs}` : ''}`);
 };
 export const getRecord = (store: Store, id: string) => api.get(`/records/${store}/${encodeURIComponent(id)}`);
 export const createRecord = (store: Store, data: unknown) => api.post(`/records/${store}`, data);
@@ -139,8 +150,8 @@ export const addComment = (store: Store, id: string, body: string) => api.post(`
 export const editComment = (store: Store, id: string, commentId: string, body: string) => api.put(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`, { body });
 export const deleteComment = (store: Store, id: string, commentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`);
 
-export const team = () => api.get('/org/team');
-export const member = (id: string) => api.get(`/org/team/${encodeURIComponent(id)}`);
+export const team = () => api.get<TeamResponse>('/org/team');
+export const member = (id: string) => api.get<MemberDetailResponse>(`/org/team/${encodeURIComponent(id)}`);
 export const updateMemberProfile = (id: string, payload: unknown) => api.put(`/org/team/${encodeURIComponent(id)}/profile`, payload);
 export const directory = (unitId: string, q: string) => api.get(`/org/directory?unit_id=${encodeURIComponent(unitId)}&q=${encodeURIComponent(q)}`);
 export const addMember = (unitId: string, payload: unknown) => api.post(`/org/units/${encodeURIComponent(unitId)}/members`, payload);
@@ -164,7 +175,7 @@ export const listJoinCodes = (unitId: string) => api.get(`/org/units/${encodeURI
 export const revokeJoinCode = (unitId: string, id: string) => api.del(`/org/units/${encodeURIComponent(unitId)}/join-codes/${encodeURIComponent(id)}`);
 export const peekJoinCode = (code: string) => api.get(`/org/join-codes/${encodeURIComponent(code)}`);
 export const joinWithCode = (code: string) => api.post(`/org/join-codes/${encodeURIComponent(code)}/join`);
-export const roles = () => api.get('/org/roles');
+export const roles = () => api.get<RolesResponse>('/org/roles');
 export const createRole = (payload: unknown) => api.post('/org/roles', payload);
 export const updateRole = (id: string, payload: unknown) => api.put(`/org/roles/${encodeURIComponent(id)}`, payload);
 export const deleteRole = (id: string) => api.del(`/org/roles/${encodeURIComponent(id)}`);
@@ -183,6 +194,7 @@ export const reactivateMember = (id: string) => api.post(`/org/team/${encodeURIC
 export const resetMemberMfa = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/reset-mfa`);
 export const temporaryPassword = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/temporary-password`);
 export const forceLogout = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/logout`);
+export const unlockAccount = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/unlock`);
 export const setOperator = (id: string, grant: boolean) => api.post(`/org/team/${encodeURIComponent(id)}/operator`, { grant });
 
 const qs = (params: Record<string, string | number | undefined | null>) => Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
@@ -206,7 +218,7 @@ export const inspectSource = (id: string) => api.get(`/work/sources/${encodeURIC
 export const previewImport = (plan: unknown) => api.post('/work/imports/preview', plan);
 export const runImport = (plan: unknown, idempotencyKey: string) => request('POST', '/work/imports', plan, { headers: { 'idempotency-key': idempotencyKey } });
 export const listWorkItems = (params: Record<string, string | number | undefined | null>) => api.get(`/work/items?${qs(params)}`);
-export const workItem = (id: string) => api.get(`/work/items/${encodeURIComponent(id)}`);
+export const workItem = (id: string) => api.get<WorkItemDetail>(`/work/items/${encodeURIComponent(id)}`);
 export const claimWorkItem = (id: string, version: number) => api.post(`/work/items/${encodeURIComponent(id)}/claim`, { version });
 export const releaseWorkItem = (id: string, version: number) => api.post(`/work/items/${encodeURIComponent(id)}/release`, { version });
 export const patchWorkItem = (id: string, patch: Record<string, unknown>) => request('PATCH', `/work/items/${encodeURIComponent(id)}`, patch);
@@ -265,6 +277,7 @@ export const adminPlaceHold = (body: unknown) => api.post('/admin/retention/hold
 export const adminReleaseHold = (id: string) => api.del(`/admin/retention/holds/${encodeURIComponent(id)}`);
 export const adminRunDisposition = (apply: boolean) => api.post(`/admin/retention/run${apply ? '?apply=1' : ''}`);
 export const adminPrivacyInventory = () => api.get('/admin/privacy/inventory');
+export const demoGovernance = () => api.get('/demo/governance');
 export const adminImport = (archive: unknown) => api.post('/admin/import', archive);
 export const adminMaintenance = (enabled: boolean) => api.post('/admin/maintenance', { enabled });
 
@@ -327,11 +340,11 @@ export const handOffWork = (id: string, body: Record<string, unknown>) => api.po
 export const calculateCase = (id: string, step?: string | null) => api.post(`${itemPath(id)}/calculate`, step ? { step } : {});
 export const applyProcedure = (id: string, key: string) => api.post(`${itemPath(id)}/procedure`, { key });
 export const procedureSuggestion = (id: string) => api.get(`${itemPath(id)}/suggestion`);
-export const workload = (unitId: string, params: Record<string, string | undefined> = {}) => api.get(`/work/workload?${qs({ unit_id: unitId, ...params })}`);
+export const workload = (unitId: string, params: Record<string, string | undefined> = {}) => api.get<WorkloadResponse>(`/work/workload?${qs({ unit_id: unitId, ...params })}`);
 
 export const recordPractice = () => api.get('/record/practice');
 export const recordSummary = (params: Record<string, string | undefined> = {}) => api.get(`/record/summary?${qs(params)}`);
-export const assignedWork = () => api.get('/record/assigned');
+export const assignedWork = () => api.get<AssignedItem[]>('/record/assigned');
 export const contributions = (params: Record<string, string | undefined> = {}) => api.get(`/record/contributions?${qs(params)}`);
 export const recordDrafts = () => api.get('/record/drafts');
 export const draftFromWork = (workItemId: string) => api.post('/record/drafts/from-work', { work_item_id: workItemId });

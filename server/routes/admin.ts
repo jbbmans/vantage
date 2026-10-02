@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import { Router, type Request } from 'express';
 import express from 'express';
 import { z } from 'zod';
 import { normalizeMetrics } from '../../shared/constants.ts';
@@ -7,15 +7,18 @@ import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { chmodSync, statSync, unlinkSync } from 'node:fs';
 import { wrap, parse, clientIp } from '../lib/http.ts';
-import { badRequest } from '../lib/errors.ts';
+import { badRequest, forbidden } from '../lib/errors.ts';
+import { notifyOperators } from '../services/notifications.ts';
 import { requireAuth, requireOperator, requireSudo } from '../auth/middleware.ts';
 import { audit, verifyAuditChain } from '../services/audit.ts';
+import { auditForwardingStatus } from '../services/auditSink.ts';
 import { aiStatus, discoverModels, unlockAi } from '../services/ai.ts';
 import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { exportInstance, importInstance } from '../services/exports.ts';
 import { metaSet, SCHEMA_VERSION } from '../db/index.ts';
 import { VERSION } from '../version.ts';
 import { newId, now } from '../lib/ids.ts';
+import { zonedDay } from '../lib/clock.ts';
 import { layout } from '../services/mailLayout.ts';
 import { checkRecords, dnsHostOf, domainOf, heloName, lastPath, probePath, requiredRecords } from '../services/directMail.ts';
 import type { AppContext } from '../context.ts';
@@ -37,7 +40,7 @@ const usageQuery = z.object({ from: z.string().max(10).optional(), to: z.string(
 adminRouter.get('/usage', wrap((req, res) => {
   const q = parse(usageQuery, req.query);
   const days = q.days ?? 30;
-  const to = q.to || now().slice(0, 10);
+  const to = q.to || zonedDay(req.ctx.config.timezone);
   const from = q.from || new Date(Date.parse(`${to}T00:00:00Z`) - (days - 1) * 86_400_000).toISOString().slice(0, 10);
   res.json({
     report: usageReport(req.ctx, { from, to }),
@@ -64,6 +67,8 @@ adminRouter.get('/overview', wrap((req, res) => {
     runtime: req.ctx.runtime,
     publicUrl: req.ctx.config.urls.app, siteUrl: req.ctx.config.urls.site, consoleUrl: req.ctx.config.urls.console, rpId: req.ctx.config.rpId, timezone: req.ctx.config.timezone,
     audit: verifyAuditChain(req.ctx),
+    auditForwarding: auditForwardingStatus(req.ctx),
+    browserBackups: req.ctx.config.security.browserBackups,
   });
 }));
 
@@ -167,9 +172,9 @@ adminRouter.post('/email/test', wrap(async (req, res) => {
 
 
 adminRouter.get('/users', wrap((req, res) => {
-  const rows = req.ctx.db.prepare(`SELECT u.id, u.username, u.email, u.edipi, u.first_name, u.last_name, u.is_operator, u.active, u.totp_enabled, u.must_change_password, u.last_login_at, u.created_at, r.abbr AS rank_abbr,
+  const rows = req.ctx.db.prepare(`SELECT u.id, u.username, u.email, u.edipi, u.first_name, u.last_name, u.is_operator, u.active, u.totp_enabled, u.must_change_password, u.last_login_at, CASE WHEN u.locked_until > ? THEN u.locked_until END AS locked_until, u.created_at, r.abbr AS rank_abbr,
     (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = u.id) AS passkeys, (SELECT COUNT(*) FROM unit_members um WHERE um.user_id = u.id) AS units
-    FROM users u LEFT JOIN ranks r ON r.id = u.rank_id ORDER BY u.active DESC, u.last_name`).all();
+    FROM users u LEFT JOIN ranks r ON r.id = u.rank_id ORDER BY u.active DESC, u.last_name`).all(now());
   res.json({ users: rows });
 }));
 
@@ -232,9 +237,21 @@ adminRouter.post('/integrity/anchor', wrap((req, res) => {
   res.json(anchored);
 }));
 
+/**
+ * The database and the instance archive hold every Marine's records, password hashes and sealed secrets. On an
+ * accredited host they are taken on the server (docs/operations.md) and VANTAGE_BROWSER_BACKUPS=false closes this
+ * door. Where it stays open, every other owner is told each time it is used.
+ */
+function browserCopy(req: Request, what: string) {
+  if (!req.ctx.config.security.browserBackups) throw forbidden(`Downloading ${what} through the browser is turned off on this instance. Take it on the server; see Operations in the documentation.`, 'browser_backups_off');
+  const name = `${req.user.first_name} ${req.user.last_name}`.trim() || req.user.username;
+  notifyOperators(req.ctx, { kind: 'system', title: `${name} downloaded ${what}`, message: `From ${clientIp(req) || 'an unknown address'}. If that was not expected, review the audit log.`, actionUrl: '/operator?tab=audit' }, req.user.id);
+}
+
 adminRouter.get('/backup', wrap(async (req, res) => {
   const ctx = req.ctx;
   if (ctx.db.name === ':memory:') throw badRequest('In-memory databases cannot be backed up.');
+  browserCopy(req, 'a full database backup');
   const stamp = now().replace(/[-:]/g, '').slice(0, 13);
   const dest = join(tmpdir(), `vantage-backup-${stamp}-${newId().slice(0, 6)}.db`);
   await ctx.db.backup(dest);
@@ -245,6 +262,7 @@ adminRouter.get('/backup', wrap(async (req, res) => {
 }));
 
 adminRouter.get('/export', wrap((req, res) => {
+  browserCopy(req, 'the instance archive');
   const archive = exportInstance(req.ctx);
   audit(req.ctx, { actor_id: req.user.id, action: 'instance_export', entity: 'instance', ip: clientIp(req) });
   res.setHeader('Content-Disposition', `attachment; filename="vantage-instance-${now().slice(0, 10)}.json"`);

@@ -1,9 +1,12 @@
 import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
-import { badRequest, conflict, forbidden, notFound, tooMany, unauthorized } from '../lib/errors.ts';
+import { badRequest, conflict, forbidden, notFound, tooMany, unauthorized, HttpError } from '../lib/errors.ts';
 import { registrationSchema, setupSchema, passwordField, usernameField, emailField } from '../../shared/schemas.ts';
-import { hashPassword, verifyPassword, burnVerification, safeEqual, decryptSecret, sha256 } from '../lib/crypto.ts';
+import { hashPassword, verifyPassword, burnVerification, safeEqual, decryptSecret, sha256, needsRehash } from '../lib/crypto.ts';
+import { assertNotLocked, recordFailure, clearFailures } from '../auth/lockout.ts';
+import { DOD_CONSENT_BANNER } from '../../shared/consent.ts';
+import { secretsOf } from '../lib/keys.ts';
 import { limiters } from '../auth/limiter.ts';
 import { createSession, destroySession, invalidateUserSessions, SESSION_COOKIE, SIGNED_IN_COOKIE, grantSudo } from '../auth/sessions.ts';
 import { requireAuth } from '../auth/middleware.ts';
@@ -20,6 +23,7 @@ import { claimUnit, addMember } from '../services/org.ts';
 import { slug } from '../lib/ids.ts';
 import type { Request, Response } from 'express';
 import type { AppContext } from '../context.ts';
+import { startSignIn, completeSignIn, resolveOidcAccount, OidcError } from '../auth/oidc.ts';
 
 export const authRouter = Router();
 
@@ -31,7 +35,20 @@ function cookieOptions(req: Request) {
 }
 
 export function finishSignIn(req: Request, res: Response, user: { id: string; must_change_password: number }, method: string, action = 'login') {
+  const { token, expires } = openSession(req, res, user, method, action);
+  const body: Record<string, unknown> = { ok: true, expires, mustChangePassword: Boolean(user.must_change_password) };
+  if (req.ctx.config.test) body.token = token;
+  return res.json(body);
+}
+
+/**
+ * Every way of getting a session ends here: the notice, the console's owners-only rule, the lockout count and the
+ * cookies. `consented` is for a sign-in that came back from another site and so carries no header.
+ */
+function openSession(req: Request, res: Response, user: { id: string }, method: string, action: string, opts: { consented?: boolean } = {}) {
   const ctx = req.ctx;
+  // The router refused anything unaccepted before it ran; this is the backstop for any future way in.
+  if (consentFor(ctx) && !(opts.consented ?? req.get('x-vantage-consent') === '1')) throw forbidden('Read and accept the notice before signing in.', 'consent_required');
   // A console on a host of its own is for the people who run the instance, and nobody else signs in there.
   const faces = facesOf(res);
   if (faces.has('console') && !faces.has('app')) {
@@ -41,13 +58,24 @@ export function finishSignIn(req: Request, res: Response, user: { id: string; mu
       throw forbidden(`The owner console is for the people who run this Vantage. Sign in at ${ctx.config.urls.app} instead.`, 'console_owners_only');
     }
   }
+  clearFailures(ctx, user.id);
   const { token, expires } = createSession(ctx, user.id, { ip: clientIp(req), userAgent: req.get('user-agent'), method, sudo: true });
   audit(ctx, { actor_id: user.id, action, ip: clientIp(req), detail: method });
   res.cookie(SESSION_COOKIE, token, cookieOptions(req));
   res.cookie(SIGNED_IN_COOKIE, '1', { ...cookieOptions(req), httpOnly: false });
-  const body: Record<string, unknown> = { ok: true, expires, mustChangePassword: Boolean(user.must_change_password) };
-  if (ctx.config.test) body.token = token;
-  return res.json(body);
+  return { token, expires };
+}
+
+/** A hash made the old way is replaced while the password is in hand, so the instance moves to PBKDF2 as people sign in. */
+export function rehashIfOld(ctx: AppContext, userId: string, password: string, stored: string) {
+  if (needsRehash(stored)) ctx.db.prepare('UPDATE users SET password_hash = ? WHERE id = ? AND password_hash = ?').run(hashPassword(password), userId, stored);
+}
+
+/** The notice to acknowledge before sign-in, if this instance shows one. */
+function consentFor(ctx: AppContext): string | null {
+  const { consentBanner, consentText } = ctx.config.security;
+  if (consentBanner === 'off' || ctx.config.accessMode === 'demo') return null;
+  return consentBanner === 'dod' ? DOD_CONSENT_BANNER : consentText;
 }
 
 function userCount(ctx: AppContext) { return (ctx.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n; }
@@ -58,14 +86,26 @@ authRouter.get('/setup', wrap((req, res) => {
     accessMode: ctx.config.accessMode,
     needsSetup: ctx.config.accessMode === 'demo' ? false : userCount(ctx) === 0,
     requiresSetupToken: ctx.config.production && userCount(ctx) === 0,
-    selfRegistration: ctx.runtime.selfRegistration && !ctx.config.cac.exclusive,
+    selfRegistration: ctx.runtime.selfRegistration && !ctx.config.cac.exclusive && !ctx.config.oidc.exclusive,
     cac: { enabled: ctx.config.cac.mode !== 'off', exclusive: ctx.config.cac.exclusive },
+    sso: { enabled: ctx.config.oidc.enabled, label: ctx.config.oidc.label, exclusive: ctx.config.oidc.exclusive },
     emailEnabled: ctx.mailer.enabled,
     displayName: ctx.runtime.displayName,
     announcement: ctx.runtime.announcement,
     maintenance: ctx.runtime.maintenance,
+    consent: consentFor(ctx),
   });
 }));
+
+/** Every request that creates an account or a session. With a sign-in notice on, none of them runs until it is accepted. */
+const NEEDS_CONSENT = new Set(['/setup', '/register', '/login', '/login/mfa', '/passkey/verify', '/reset', '/invite/accept', '/cac']);
+authRouter.use((req, _res, next) => {
+  const path = req.path.toLowerCase().replace(/\/+$/, '');
+  if (req.method === 'POST' && NEEDS_CONSENT.has(path) && consentFor(req.ctx) && req.get('x-vantage-consent') !== '1') {
+    return next(forbidden('Read and accept the notice before signing in.', 'consent_required'));
+  }
+  next();
+});
 
 authRouter.post('/setup', wrap((req, res) => {
   const ctx = req.ctx;
@@ -96,6 +136,7 @@ authRouter.post('/register', wrap((req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
   if (ctx.config.cac.exclusive) throw forbidden('This instance requires a CAC. Accounts are created from the personnel roster.', 'cac_required');
+  if (ctx.config.oidc.exclusive) throw forbidden(`This instance signs in through your organization. Use ${ctx.config.oidc.label}.`, 'oidc_required');
   if (!ctx.runtime.selfRegistration) throw notFound('Self-registration is not enabled. Ask a leader for an invitation.');
   if (userCount(ctx) === 0) throw conflict('The deployment must be initialized before accounts can self-register.', 'setup_required');
   const limited = limiters.registerIp.limited(ip);
@@ -119,28 +160,32 @@ authRouter.post('/register', wrap((req, res) => {
 
 const loginSchema = z.object({ username: z.string().max(40), password: z.string().max(512) });
 
-authRouter.post('/login', wrap((req, res) => {
+authRouter.post('/login', wrap(async (req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
   if (ctx.config.cac.exclusive) throw forbidden('This instance requires a CAC. Sign in with your card.', 'cac_required');
+  if (ctx.config.oidc.exclusive) throw forbidden(`This instance signs in through your organization. Use ${ctx.config.oidc.label}.`, 'oidc_required');
   const { username, password } = parse(loginSchema, req.body);
   const name = username.trim().toLowerCase();
   const ipLimit = limiters.loginIp.limited(ip);
   if (ipLimit) throw tooMany('Too many sign-in attempts from this connection. Try again later.', ipLimit.retryAfter);
+  // Names that match no account are throttled in memory; real accounts lock in the database.
   const userLimit = name ? limiters.loginUser.limited(name) : null;
   const row = ctx.db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE AND active = 1').get(name) as UserRow | undefined;
-  if (!row || !verifyPassword(password, row?.password_hash)) {
-    if (!row) burnVerification(password);
+  if (!row) {
+    await burnVerification(password);
     limiters.loginIp.bump(ip);
-    if (name) {
-      const e = limiters.loginUser.bump(name);
-      if (row && e.count === 10) audit(ctx, { actor_id: row.id, action: 'login_lockout', ip, detail: 'failed-attempt threshold reached' });
-    }
+    if (name) limiters.loginUser.bump(name);
     if (userLimit) throw tooMany('Too many failed attempts for this account. Try again later.', userLimit.retryAfter);
     throw unauthorized('Username or password is incorrect.', 'bad_credentials');
   }
-  if (userLimit) throw tooMany('Too many failed attempts for this account. Try again later.', userLimit.retryAfter);
-  limiters.loginUser.clear(name);
+  assertNotLocked(ctx, row.id);
+  if (!(await verifyPassword(password, row.password_hash))) {
+    limiters.loginIp.bump(ip);
+    if (recordFailure(ctx, row.id, { ip, where: 'password' })) assertNotLocked(ctx, row.id);
+    throw unauthorized('Username or password is incorrect.', 'bad_credentials');
+  }
+  rehashIfOld(ctx, row.id, password, row.password_hash);
   if (row.totp_enabled) {
     const mfaLimit = limiters.mfaUser.limited(row.id);
     if (mfaLimit) throw tooMany('Too many second-factor failures for this account. Try again later.', mfaLimit.retryAfter);
@@ -163,7 +208,8 @@ authRouter.post('/login/mfa', wrap((req, res) => {
   if (!row) throw unauthorized('The sign-in challenge expired. Start again.', 'challenge_expired');
   const accountLimit = limiters.mfaUser.limited(row.id);
   if (accountLimit) throw tooMany('Too many second-factor failures for this account. Try again later.', accountLimit.retryAfter);
-  const secret = row.totp_secret ? decryptSecret(ctx.config.secret, row.totp_secret) : null;
+  assertNotLocked(ctx, row.id);
+  const secret = row.totp_secret ? decryptSecret(secretsOf(ctx.config), row.totp_secret) : null;
   const clean = code.replace(/\s+/g, '').toLowerCase();
   const step = secret ? matchTotp(secret, clean) : null;
   let ok = step !== null && ctx.db.prepare('UPDATE users SET totp_last_step = ? WHERE id = ? AND COALESCE(totp_last_step, -1) < ?').run(step, row.id, step).changes === 1;
@@ -175,8 +221,8 @@ authRouter.post('/login/mfa', wrap((req, res) => {
   if (!ok) {
     limiters.mfaToken.bump(key);
     limiters.loginIp.bump(ip);
-    const e = limiters.mfaUser.bump(row.id);
-    if (e.count === 10) audit(ctx, { actor_id: row.id, action: 'login_lockout', ip, detail: 'second-factor failure threshold reached' });
+    limiters.mfaUser.bump(row.id);
+    if (recordFailure(ctx, row.id, { ip, where: 'second_factor' })) { consumeToken(ctx, 'login_mfa', challenge); assertNotLocked(ctx, row.id); }
     throw unauthorized('That code is not valid.', 'bad_code');
   }
   limiters.mfaUser.clear(row.id);
@@ -217,23 +263,19 @@ authRouter.post('/logout', requireAuth, wrap((req, res) => {
 }));
 
 /** Step-up authentication for sensitive settings. */
-authRouter.post('/sudo', requireAuth, wrap((req, res) => {
+authRouter.post('/sudo', requireAuth, wrap(async (req, res) => {
   const ctx = req.ctx;
   const { password } = parse(z.object({ password: z.string().max(512) }), req.body);
-  // Keyed exactly as sign-in keys it, so failures here and there share one budget.
-  const name = req.user.username.toLowerCase();
-  const limited = limiters.loginUser.limited(name);
-  if (limited) {
-    record(ctx, 'security.step_up', { granted: false, method: 'password' }, { id: req.user.id });
-    throw tooMany('Too many failed confirmations. Try again shortly.', limited.retryAfter);
-  }
+  // Failures here count toward the same lockout as sign-in: a stolen session must not become a way to guess the password.
+  try { assertNotLocked(ctx, req.user.id); } catch (e) { record(ctx, 'security.step_up', { granted: false, method: 'password' }, { id: req.user.id }); throw e; }
   const row = ctx.db.prepare('SELECT password_hash FROM users WHERE id = ?').get(req.user.id) as { password_hash: string };
-  if (!verifyPassword(password, row.password_hash)) {
-    limiters.loginUser.bump(name);
+  if (!(await verifyPassword(password, row.password_hash))) {
     record(ctx, 'security.step_up', { granted: false, method: 'password' }, { id: req.user.id });
+    if (recordFailure(ctx, req.user.id, { ip: clientIp(req), where: 'step_up' })) assertNotLocked(ctx, req.user.id);
     throw forbidden('Current password is incorrect.', 'bad_password');
   }
-  limiters.loginUser.clear(name);
+  clearFailures(ctx, req.user.id);
+  rehashIfOld(ctx, req.user.id, password, row.password_hash);
   const until = grantSudo(ctx, req.sessionId);
   record(ctx, 'security.step_up', { granted: true, method: 'password' }, { id: req.user.id });
   res.json({ ok: true, until });
@@ -342,6 +384,65 @@ authRouter.post('/invite/accept', wrap((req, res) => {
   audit(ctx, { actor_id: id, action: 'invite_accepted', entity: 'user', entity_id: id, subject_id: id, unit_id: pending.payload.unit_id ? String(pending.payload.unit_id) : null, ip });
   const row = ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow;
   return finishSignIn(req, res, row, 'password', 'invite_login');
+}));
+
+/** Where a failed organization sign-in lands: the sign-in page of the face it started from, with the reason. */
+function signInPage(req: Request, res: Response, code: string): string {
+  const faces = facesOf(res);
+  const base = faces.has('console') && !faces.has('app') ? '/' : '/login';
+  return `${base}?sso_error=${encodeURIComponent(code)}`;
+}
+
+/** A path on this host to return to after signing in; anything else (another host, a scheme) is ignored. */
+const localPath = (value: unknown): string | null => {
+  const v = typeof value === 'string' ? value : '';
+  return /^\/(?!\/)[^\\\s]*$/.test(v) ? v.slice(0, 300) : null;
+};
+
+/** Sends the browser to the organization's identity provider. */
+authRouter.get('/oidc/start', wrap(async (req, res) => {
+  const ctx = req.ctx;
+  if (!ctx.config.oidc.enabled) throw notFound('Organization sign-in is not enabled here.');
+  const ip = clientIp(req);
+  const limited = limiters.loginIp.limited(ip);
+  if (limited) return res.redirect(302, signInPage(req, res, 'throttled'));
+  limiters.loginIp.bump(ip);
+  const consented = req.query.consent === '1';
+  // The notice is accepted on the sign-in page before the browser leaves for the provider; the answer rides in the state.
+  if (consentFor(ctx) && !consented) return res.redirect(302, signInPage(req, res, 'consent_required'));
+  const faces = facesOf(res);
+  const face = faces.has('console') && !faces.has('app') ? 'console' : 'app';
+  try {
+    res.redirect(302, await startSignIn(ctx, { face, consented, returnTo: localPath(req.query.return) }));
+  } catch (error) {
+    if (!(error instanceof OidcError)) throw error;
+    audit(ctx, { action: 'oidc_rejected', ip, detail: `${error.code}: ${error.message}`.slice(0, 300) });
+    res.redirect(302, signInPage(req, res, error.code));
+  }
+}));
+
+/** The provider sends the browser back here with a code; on success a session is opened and the browser goes on. */
+authRouter.get('/oidc/callback', wrap(async (req, res) => {
+  const ctx = req.ctx;
+  if (!ctx.config.oidc.enabled) throw notFound('Organization sign-in is not enabled here.');
+  const ip = clientIp(req);
+  const q = req.query as Record<string, string | undefined>;
+  try {
+    const done = await completeSignIn(ctx, { code: q.code, state: q.state, error: q.error, error_description: q.error_description });
+    const account = resolveOidcAccount(ctx, done.claims);
+    if (account.linked) audit(ctx, { actor_id: account.userId, action: account.provisioned ? 'oidc_provisioned' : 'oidc_linked', subject_id: account.userId, ip, detail: `${done.claims.iss} ${done.claims.sub}`.slice(0, 300) });
+    const user = ctx.db.prepare('SELECT id, must_change_password FROM users WHERE id = ? AND active = 1').get(account.userId) as { id: string; must_change_password: number } | undefined;
+    if (!user) throw new OidcError('That account is not active.', 'oidc_inactive');
+    openSession(req, res, user, 'oidc', 'login', { consented: done.consented });
+    res.redirect(302, done.returnTo || '/');
+  } catch (error) {
+    const code = error instanceof OidcError ? error.code : error instanceof HttpError ? error.code : null;
+    if (!code) throw error;
+    limiters.loginIp.bump(ip);
+    // The owner reads the reason in the audit log; the browser is only told the code.
+    audit(ctx, { action: 'oidc_rejected', ip, detail: `${code}: ${(error as Error).message}`.slice(0, 300) });
+    res.redirect(302, signInPage(req, res, code));
+  }
 }));
 
 authRouter.post('/cac', wrap((req, res) => {

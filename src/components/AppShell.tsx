@@ -19,6 +19,7 @@ import CommandPalette from '@/components/CommandPalette';
 import ShortcutsDialog from '@/components/ShortcutsDialog';
 import { ActivityBar } from '@/components/ui/motion';
 import SudoDialog, { type SudoRequest } from '@/components/SudoDialog';
+import IdleGuard from '@/components/IdleGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys, invalidateDomains, useTasks, useThreads, useRecordDrafts } from '@/lib/queries';
 import * as api from '@/lib/api';
@@ -261,12 +262,14 @@ export default function AppShell() {
   }, [openQuickLog]);
 
   const demo = identity?.demo || null;
+  const idleSignOut = useCallback(() => { api.logout().catch(() => {}).finally(() => window.dispatchEvent(new CustomEvent('vantage:signed-out'))); }, []);
   // What this person may open, and so what the sidebar, the palette and the shortcuts offer.
   const { view } = useView(identity);
   const teams = useMemo(() => teamSections(identity, view), [identity, view]);
   const allowed = useCallback((when?: Requirement) => {
     if (!when) return true;
     if (when.notDemo && identity?.demo) return false;
+    if (when.demo && !identity?.demo) return false;
     if (when.unit && !identity?.views?.length) return false;
     if (when.operator && !identity?.user.is_operator) return false;
     if (when.maradmins && !identity?.instance.maradminsEnabled) return false;
@@ -575,6 +578,7 @@ export default function AppShell() {
         {userId && <OutboxDialog open={queueOpen} onOpenChange={setQueueOpen} userId={userId} onRetry={flush} />}
         <CommandPalette open={palette} onOpenChange={setPalette} onQuickLog={openQuickLog} nav={visibleNav} />
         <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
+        {!demo && <IdleGuard onSignOut={idleSignOut} />}
         <SudoDialog open={Boolean(sudoOpen)} onOpenChange={(o) => { if (!o) { sudoOpen?.cancel(); setSudoOpen(null); } }} onConfirmed={() => { const req = sudoOpen; setSudoOpen(null); req?.confirm(); }} />
       </div>
     </OutboxContext.Provider>

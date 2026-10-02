@@ -35,7 +35,7 @@ export default function Dashboard() {
   const summary = useRecordSummary({});
 
   const me = identity?.user.id;
-  const myTasks = useMemo(() => (tasks || []).filter((t: any) => (t.assignee_id || t.user_id) === me && t.status !== 'completed'), [tasks, me]);
+  const myTasks = useMemo(() => (tasks || []).filter((t) => (t.assignee_id || t.user_id) === me && t.status !== 'completed'), [tasks, me]);
   const working = (assigned.data || []).filter((a) => !['waiting', 'blocked'].includes(a.stage));
   const waiting = (assigned.data || []).filter((a) => ['waiting', 'blocked'].includes(a.stage));
 
@@ -49,12 +49,14 @@ export default function Dashboard() {
     <div className="page">
       <PageHeader eyebrow={`${greeting}, ${first ?? ''}`} title="Today" lede={lede}>
         <Button onClick={() => navigate('/work')}><Inbox className="h-4 w-4" />Find work</Button>
-        <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
+        {/* The header carries a labelled Log activity button from xl up; below that it is an icon, so this one stays. */}
+        <Button variant="primary" className="xl:hidden" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
       </PageHeader>
 
       <GettingStarted />
 
-      {view && (view.level === 'full' ? <SectionOverview key={view.id} unitId={view.id} /> : <UnitPulse key={view.id} unitId={view.id} />)}
+      {/* A leader's Today opens on their section. A Marine's opens on their own work; the team's pulse comes after it. */}
+      {view?.level === 'full' && <SectionOverview key={view.id} unitId={view.id} />}
 
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-3">
         <div className="space-y-4 xl:col-span-2">
@@ -63,7 +65,7 @@ export default function Dashboard() {
             {assigned.isPending ? <Skeleton className="m-4 h-24" /> : working.length || myTasks.length ? (
               <ul className="divide-y divide-line">
                 {working.map((item) => <WorkRow key={item.id} item={item} />)}
-                {myTasks.slice(0, 4).map((t: any) => (
+                {myTasks.slice(0, 4).map((t) => (
                   <li key={t.id}>
                     <Link to={`/records/tasks/${t.id}`} className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-2">
                       <span className="min-w-0 flex-1">
@@ -94,6 +96,8 @@ export default function Dashboard() {
           <PersonalPanel summary={summary.data} />
         </div>
       </div>
+
+      {view && view.level !== 'full' && <div className="mt-6"><UnitPulse key={view.id} unitId={view.id} /></div>}
 
       <Outcomes />
     </div>
@@ -183,7 +187,7 @@ function PersonalPanel({ summary }: { summary: any }) {
   const { data: readiness } = useReadiness();
   const track = useTrack();
   const { data: identity } = useIdentity();
-  const active = (goals || []).filter((g: any) => g.status === 'active' && (g.assignee_id || g.user_id) === identity?.user.id).slice(0, 2);
+  const active = (goals || []).filter((g) => g.status === 'active' && (g.assignee_id || g.user_id) === identity?.user.id).slice(0, 2);
   const nextStep = (career.data?.steps || []).find((s: any) => s.status === 'in_progress' || s.status === 'planned');
   const reminders = useMemo(() => todayActions({ tasks: [], goals: goals || [], activities: [], profile: readiness || null, track, fitrepPeriodEnd: readiness?.fitrep_period_end }).slice(0, 2), [goals, readiness, track]);
   return (
@@ -196,7 +200,7 @@ function PersonalPanel({ summary }: { summary: any }) {
         </Link>
       )}
       <ul className="space-y-3 text-sm">
-        {active.map((g: any) => {
+        {active.map((g) => {
           const pct = g.progress?.percent ?? (g.target_value ? Math.min(100, (Number(g.current_value) / Number(g.target_value)) * 100) : 0);
           return (
             <li key={g.id}>
@@ -239,18 +243,18 @@ function SectionOverview({ unitId }: { unitId: string }) {
         <Tile label="Blocked" value={s.blocked} hint="something is in the way" to="/team/workload" tone={s.blocked ? 'warn' : undefined} />
         <Tile label="Waiting" value={s.waiting} hint={waitingBits.map(([k, v]) => `${v.count} ${WAITING_LABEL[k as WaitingCategory]?.toLowerCase() || k}`).join(', ') || 'on approvals or posting'} to="/team/workload" />
       </div>
-      {Array.isArray(s.by_procedure) && s.by_procedure.some((p: any) => p.key !== 'none') && <ProcedureLedger rows={s.by_procedure} />}
+      {Array.isArray(s.by_procedure) && s.by_procedure.some((p) => p.key !== 'none') && <ProcedureLedger rows={s.by_procedure} />}
       {teams > 0 && <CommandTeams unitId={unitId} />}
       <div className="mt-4 grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Needs a decision" subtitle="Blocked, overdue, or waiting on verification" padded={false}>
           {w.data.attention.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">Nothing is stuck.</p> : (
-            <ul className="divide-y divide-line">{w.data.attention.slice(0, 5).map((item: any) => <WorkRow key={item.id} item={item} />)}</ul>
+            <ul className="divide-y divide-line">{w.data.attention.slice(0, 5).map((item) => <WorkRow key={item.id} item={item} />)}</ul>
           )}
         </Panel>
         <Panel title="Who holds what" subtitle={`Open work held now, with documents researched since ${w.data.window.from}`}>
           {w.data.members_visible ? (
             <BarList
-              items={w.data.members.filter((m: any) => m.assigned || m.documents_researched).map((m: any) => ({ label: `${m.rank_abbr ? `${m.rank_abbr} ` : ''}${m.name}`, value: m.assigned, hint: `${m.documents_researched} documents researched${m.waiting ? `, ${m.waiting} waiting` : ''}${m.blocked ? `, ${m.blocked} blocked` : ''}` }))}
+              items={w.data.members.filter((m) => m.assigned || m.documents_researched).map((m) => ({ label: `${m.rank_abbr ? `${m.rank_abbr} ` : ''}${m.name}`, value: m.assigned, hint: `${m.documents_researched} documents researched${m.waiting ? `, ${m.waiting} waiting` : ''}${m.blocked ? `, ${m.blocked} blocked` : ''}` }))}
               format={(v) => `${v} held`}
             />
           ) : <p className="text-sm text-ink-3">Your role shows section totals only.</p>}
@@ -313,7 +317,7 @@ function Outcomes() {
   return (
     <section aria-labelledby="outcomes-heading" className="mt-8">
       <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
-        <h2 id="outcomes-heading" className="flex items-center gap-2 text-md font-semibold text-ink"><TrendingUp className="h-4 w-4 text-accent" aria-hidden />Outcomes you logged, {range.label.toLowerCase()}</h2>
+        <h2 id="outcomes-heading" className="flex items-center gap-2 text-md font-semibold text-ink"><TrendingUp className="h-4 w-4 text-accent" aria-hidden />Outcomes you logged, {/^FY/.test(range.label) ? range.label : range.label.toLowerCase()}</h2>
         <PeriodSelect value={period} onChange={(v) => savePrefs.mutate({ dashboardPeriod: v })} className="w-44" />
       </div>
       {report.isPending ? <Skeleton className="h-28" /> : (

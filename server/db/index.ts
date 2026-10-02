@@ -168,6 +168,27 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
   },
   // The email_queue table comes from schema.sql, which is safe to replay.
   { id: 12, name: '012_email_queue', run: () => {} },
+  {
+    id: 13,
+    name: '013_lockout_and_timezone',
+    run: (db) => {
+      // Failed sign-ins are counted in the database, so a lockout outlasts a restart and holds across processes.
+      // A person's own timezone decides their "today" and what is overdue for them.
+      const existing = new Set((db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map((c) => c.name));
+      const columns: Array<[string, string]> = [['failed_sign_ins', 'INTEGER NOT NULL DEFAULT 0'], ['locked_until', 'TEXT'], ['timezone', 'TEXT']];
+      for (const [name, type] of columns) if (!existing.has(name)) db.exec(`ALTER TABLE users ADD COLUMN ${name} ${type}`);
+    },
+  },
+  {
+    id: 14,
+    name: '014_organization_sign_in',
+    run: (db) => {
+      // The identity an account is linked to at the organization's provider: issuer and subject, never reassigned.
+      const existing = new Set((db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map((c) => c.name));
+      for (const name of ['oidc_issuer', 'oidc_subject']) if (!existing.has(name)) db.exec(`ALTER TABLE users ADD COLUMN ${name} TEXT`);
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc ON users(oidc_issuer, oidc_subject) WHERE oidc_subject IS NOT NULL');
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 

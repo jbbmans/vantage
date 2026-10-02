@@ -125,8 +125,9 @@ test('counselings: leaders with COUNSEL record for members; members acknowledge'
   assert.equal(c.body.user_id, rivera.id);
   assert.equal(c.body.counselor_id, nguyen.id);
   const mine = await app.call('GET', '/api/records/counselings', { token: rivera.token });
-  assert.ok(mine.body.some((r: any) => r.id === c.body.id));
-  assert.ok((await app.call('GET', '/api/records/counselings', { token: nguyen.token })).body.some((r: any) => r.id === c.body.id));
+  assert.equal(mine.body.find((r: any) => r.id === c.body.id).subject_name, undefined, 'the person counseled is not told their own name');
+  const recorded = (await app.call('GET', '/api/records/counselings', { token: nguyen.token })).body.find((r: any) => r.id === c.body.id);
+  assert.match(recorded.subject_name, /Rivera/, 'the counselor sees whom it was for');
   assert.equal((await app.call('GET', '/api/records/counselings', { token: outsider.token })).body.length, 0);
   assert.equal((await app.call('POST', `/api/records/counselings/${c.body.id}/acknowledge`, { token: nguyen.token })).status, 403);
   const ack = await app.call('POST', `/api/records/counselings/${c.body.id}/acknowledge`, { token: rivera.token });

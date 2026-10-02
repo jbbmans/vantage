@@ -25,19 +25,22 @@ export interface AppConfig {
   urls: { site: string; app: string; console: string };
   rpId: string;
   secret: string;
+  /** Secrets this instance ran with before VANTAGE_SECRET, kept for one start so stored values can be re-sealed. */
+  previousSecrets: string[];
   setupToken: string;
   operatorUsernames: string[];
   timezone: string;
   trustProxy: boolean | number | string;
-  sessions: { idleMinutes: number; absoluteHours: number; maxActive: number; sudoMinutes: number };
+  /** Idle limits follow the Application Security and Development STIG: 15 minutes, and 10 for an instance operator. */
+  sessions: { idleMinutes: number; operatorIdleMinutes: number; absoluteHours: number; maxActive: number; sudoMinutes: number };
   limits: { mutationsPer15Minutes: number; registrationsPer15Minutes: number; maxRecordsPerUser: number; maxDatabaseBytes: number };
   attachments: { enabled: boolean; maxBytes: number; maxPerRecord: number; allowedTypes: string[] };
-  intake: { enabled: boolean; maxBytes: number; maxBytesPerUser: number; maxRows: number; maxColumns: number; retainDays: number; scannerCommand: string | null };
+  intake: { enabled: boolean; maxBytes: number; maxBytesPerUser: number; maxRows: number; maxColumns: number; retainDays: number; scannerCommand: string | null; clamd: string | null; scanRequired: boolean };
   ai: {
     enabled: boolean; apiKey: string; baseUrl: string; models: string[]; defaultModel: string; maxOutputTokens: number; timeoutMs: number;
     requestsPerMinute: number; perUserRequestsPerMinute: number; dailyTokenBudget: number; perUserDailyTokens: number;
   };
-  email: { provider: 'none' | 'resend' | 'smtp' | 'direct' | 'memory'; from: string; replyTo: string; resendApiKey: string; smtpUrl: string; dkimSelector: string; helo: string; directRoute: string; resendUrl: string };
+  email: { provider: 'none' | 'resend' | 'smtp' | 'direct' | 'memory'; from: string; replyTo: string; resendApiKey: string; smtpUrl: string; dkimSelector: string; helo: string; directRoute: string; resendUrl: string; allowPrivate: boolean };
   maradmins: { enabled: boolean; refreshMinutes: number; source: string };
   /** How the public page presents itself to search engines. */
   search: {
@@ -49,6 +52,109 @@ export interface AppConfig {
   m365: { clientId: string; clientSecret: string; tenant: string; redirectUri: string; endpointOverride: string | null };
   selfRegistration: boolean;
   cac: CacConfig;
+  audit: AuditConfig;
+  security: SecurityConfig;
+  oidc: OidcConfig;
+}
+
+export interface OidcConfig {
+  enabled: boolean;
+  /** The issuer exactly as the provider names it, e.g. https://login.microsoftonline.us/<tenant id>/v2.0 */
+  issuer: string;
+  clientId: string;
+  clientSecret: string;
+  scopes: string;
+  /** The button: "Sign in with Microsoft". */
+  label: string;
+  /** How a first sign-in finds its existing account: by email address, by EDIPI claim, or not at all. */
+  linkBy: 'email' | 'edipi' | 'none';
+  /** The claim carrying the DoD ID, where the tenant issues one. */
+  edipiClaim: string;
+  /** Trust the email claim without email_verified: true. Right for an organization's own Entra tenant, which owns its addresses. */
+  trustProviderEmail: boolean;
+  autoProvisionFromRoster: boolean;
+  /** Only this sign-in (and CAC): no passwords, no self-registration. */
+  exclusive: boolean;
+}
+
+function readOidcConfig(env: NodeJS.ProcessEnv, production: boolean, test: boolean): OidcConfig {
+  const issuer = (env.VANTAGE_OIDC_ISSUER || '').trim();
+  const clientId = (env.VANTAGE_OIDC_CLIENT_ID || '').trim();
+  const enabled = Boolean(issuer && clientId);
+  if (issuer && !clientId) throw new Error('VANTAGE_OIDC_ISSUER is set but VANTAGE_OIDC_CLIENT_ID is not.');
+  if (enabled && !/^https:\/\//.test(issuer) && !(test && /^http:\/\/127\.0\.0\.1:/.test(issuer))) throw new Error('VANTAGE_OIDC_ISSUER must be an https:// address.');
+  const linkBy = (env.VANTAGE_OIDC_LINK || 'email').trim().toLowerCase();
+  if (!['email', 'edipi', 'none'].includes(linkBy)) throw new Error('VANTAGE_OIDC_LINK must be email, edipi, or none.');
+  const edipiClaim = (env.VANTAGE_OIDC_EDIPI_CLAIM || '').trim();
+  if (linkBy === 'edipi' && !edipiClaim) throw new Error('VANTAGE_OIDC_LINK=edipi needs VANTAGE_OIDC_EDIPI_CLAIM, the claim that carries the DoD ID.');
+  const microsoft = /^https:\/\/login\.microsoftonline\.(com|us)\//.test(issuer);
+  void production;
+  return {
+    enabled, issuer, clientId,
+    clientSecret: env.VANTAGE_OIDC_CLIENT_SECRET || '',
+    scopes: (env.VANTAGE_OIDC_SCOPES || 'openid profile email').trim(),
+    label: (env.VANTAGE_OIDC_LABEL || (microsoft ? 'Sign in with Microsoft' : 'Sign in with your organization')).trim(),
+    linkBy: linkBy as OidcConfig['linkBy'],
+    edipiClaim,
+    trustProviderEmail: envBool(env, 'VANTAGE_OIDC_TRUST_EMAIL', microsoft),
+    autoProvisionFromRoster: envBool(env, 'VANTAGE_OIDC_AUTO_PROVISION', false),
+    exclusive: enabled && envBool(env, 'VANTAGE_OIDC_EXCLUSIVE', false),
+  };
+}
+
+export interface SecurityConfig {
+  /** PBKDF2-HMAC-SHA256 iterations for new password hashes. */
+  passwordIterations: number;
+  /** Consecutive failed sign-ins, step-ups or second factors before an account locks, and for how long. */
+  lockoutAttempts: number;
+  lockoutMinutes: number;
+  /** The notice shown, and acknowledged, before the sign-in form: the standard DoD banner, custom text, or none. */
+  consentBanner: 'off' | 'dod' | 'custom';
+  consentText: string;
+  /** Whether an operator may download the database or the instance archive through the browser. */
+  browserBackups: boolean;
+}
+
+function readSecurityConfig(env: NodeJS.ProcessEnv, production: boolean, test: boolean): SecurityConfig {
+  const passwordIterations = envNumber(env, 'VANTAGE_PBKDF2_ITERATIONS', test ? 1_000 : 600_000);
+  if (production && passwordIterations < 210_000) throw new Error('VANTAGE_PBKDF2_ITERATIONS must be at least 210000 in production.');
+  const banner = (env.VANTAGE_CONSENT_BANNER || 'off').trim().toLowerCase();
+  if (!['off', 'dod', 'custom'].includes(banner)) throw new Error('VANTAGE_CONSENT_BANNER must be off, dod, or custom.');
+  const consentText = String(env.VANTAGE_CONSENT_TEXT || '').trim();
+  if (banner === 'custom' && !consentText) throw new Error('VANTAGE_CONSENT_BANNER=custom needs the notice in VANTAGE_CONSENT_TEXT.');
+  return {
+    passwordIterations,
+    lockoutAttempts: Math.max(1, envNumber(env, 'VANTAGE_LOCKOUT_ATTEMPTS', 3)),
+    lockoutMinutes: Math.max(1, envNumber(env, 'VANTAGE_LOCKOUT_MINUTES', 15)),
+    consentBanner: banner as SecurityConfig['consentBanner'],
+    consentText,
+    browserBackups: envBool(env, 'VANTAGE_BROWSER_BACKUPS', true),
+  };
+}
+
+export interface AuditConfig {
+  /** Write every audit record to standard output as one JSON line, for a platform that ships container logs. */
+  stdout: boolean;
+  /** udp://, tcp:// or tls:// address of a syslog collector (RFC 5424, octet-counted framing on streams). */
+  syslog: string | null;
+  /** CA bundle for a tls:// collector whose certificate is not in the system store. */
+  syslogCa: string | null;
+  appName: string;
+}
+
+function readAuditConfig(env: NodeJS.ProcessEnv): AuditConfig {
+  const syslog = (env.VANTAGE_AUDIT_SYSLOG || '').trim() || null;
+  if (syslog) {
+    let url: URL;
+    try { url = new URL(syslog); } catch { throw new Error('VANTAGE_AUDIT_SYSLOG must be a udp://, tcp:// or tls:// address, such as tls://siem.example.mil:6514.'); }
+    if (!['udp:', 'tcp:', 'tls:'].includes(url.protocol) || !url.hostname) throw new Error('VANTAGE_AUDIT_SYSLOG must be a udp://, tcp:// or tls:// address, such as tls://siem.example.mil:6514.');
+  }
+  return {
+    stdout: envBool(env, 'VANTAGE_AUDIT_STDOUT', false),
+    syslog,
+    syslogCa: (env.VANTAGE_AUDIT_SYSLOG_CA || '').trim() || null,
+    appName: (env.VANTAGE_AUDIT_APP_NAME || 'vantage').trim() || 'vantage',
+  };
 }
 
 export interface CacConfig {
@@ -62,6 +168,10 @@ export interface CacConfig {
   proxySecret: string;
   requirePolicyOids: string[];
   autoProvisionFromRoster: boolean;
+  /** Direct mode: a directory of the issuing CAs' CRLs (PEM or DER), reloaded as they are refreshed. */
+  crlDir: string;
+  /** Direct mode only: 'off' accepts a card without checking revocation, and has to be said out loud. */
+  revocation: 'crl' | 'off';
 }
 
 function readCacConfig(env: NodeJS.ProcessEnv, production: boolean): CacConfig {
@@ -78,6 +188,8 @@ function readCacConfig(env: NodeJS.ProcessEnv, production: boolean): CacConfig {
     proxySecret: env.CAC_PROXY_SECRET || '',
     requirePolicyOids: envList(env, 'CAC_REQUIRE_POLICY_OIDS', []),
     autoProvisionFromRoster: envBool(env, 'CAC_AUTO_PROVISION', false),
+    crlDir: (env.CAC_CRL_DIR || '').trim(),
+    revocation: (env.CAC_REVOCATION || 'crl').trim().toLowerCase() === 'off' ? 'off' : 'crl',
   };
   if (cfg.mode === 'proxy') {
     if (cfg.proxySecret.length < 32) {
@@ -86,6 +198,11 @@ function readCacConfig(env: NodeJS.ProcessEnv, production: boolean): CacConfig {
   }
   if (cfg.mode === 'direct' && !cfg.caBundlePath) {
     throw new Error('CAC_MODE=direct requires CAC_CA_BUNDLE pointing at the PEM bundle of trusted issuing CAs.');
+  }
+  // A revoked card (lost, stolen, or its holder separated) must not sign in. In proxy mode the gateway checks; in
+  // direct mode this server does, from the CAs' CRLs.
+  if (cfg.mode === 'direct' && cfg.revocation === 'crl' && !cfg.crlDir) {
+    throw new Error('CAC_MODE=direct requires CAC_CRL_DIR, a directory holding the issuing CAs\' CRLs, so a revoked card is refused. Set CAC_REVOCATION=off only to accept cards without that check.');
   }
   if (cfg.exclusive && cfg.mode === 'off') throw new Error('CAC_EXCLUSIVE needs CAC_MODE set to direct or proxy.');
   void production;
@@ -141,6 +258,8 @@ export function loadConfig(env = process.env): AppConfig {
     if (production) throw new Error('VANTAGE_SECRET must be at least 32 characters in production.');
     secret = env.VANTAGE_SECRET || 'vantage-development-secret-not-for-production-use';
   }
+  const previousSecrets = envList(env, 'VANTAGE_SECRET_PREVIOUS', []).filter((s) => s !== secret);
+  if (production && previousSecrets.some((s) => s.length < 32)) throw new Error('VANTAGE_SECRET_PREVIOUS must hold the earlier secret exactly, at least 32 characters.');
   const setupToken = String(env.VANTAGE_SETUP_TOKEN || '');
   if (production && setupToken.length < 24) throw new Error('VANTAGE_SETUP_TOKEN must be at least 24 characters in production.');
 
@@ -178,6 +297,7 @@ export function loadConfig(env = process.env): AppConfig {
     if (envBool(env, 'VANTAGE_AI_ENABLED', false)) throw new Error('The synthetic demo runs without AI. Set VANTAGE_AI_ENABLED=false.');
     if (envBool(env, 'VANTAGE_MARADMIN_ENABLED', false)) throw new Error('The synthetic demo makes no outbound requests. Set VANTAGE_MARADMIN_ENABLED=false.');
     if (env.VANTAGE_M365_CLIENT_ID) throw new Error('The synthetic demo reads no mailboxes. Unset VANTAGE_M365_CLIENT_ID.');
+    if (env.VANTAGE_OIDC_ISSUER) throw new Error('The synthetic demo has no sign-in. Unset VANTAGE_OIDC_ISSUER.');
   }
 
   return {
@@ -193,12 +313,14 @@ export function loadConfig(env = process.env): AppConfig {
     urls: { site, app, console: consoleUrl },
     rpId,
     secret,
+    previousSecrets,
     setupToken,
     operatorUsernames: envList(env, 'VANTAGE_OPERATOR', []).map((s) => s.toLowerCase()),
     timezone: env.VANTAGE_TIMEZONE || 'America/New_York',
     trustProxy: resolveTrustProxy(env.TRUST_PROXY, production),
     sessions: {
-      idleMinutes: envNumber(env, 'VANTAGE_IDLE_MINUTES', 60),
+      idleMinutes: envNumber(env, 'VANTAGE_IDLE_MINUTES', 15),
+      operatorIdleMinutes: envNumber(env, 'VANTAGE_OPERATOR_IDLE_MINUTES', 10),
       absoluteHours: envNumber(env, 'VANTAGE_SESSION_HOURS', 12),
       maxActive: envNumber(env, 'VANTAGE_MAX_SESSIONS', 8),
       sudoMinutes: envNumber(env, 'VANTAGE_SUDO_MINUTES', 10),
@@ -223,6 +345,9 @@ export function loadConfig(env = process.env): AppConfig {
       maxBytesPerUser: envNumber(env, 'VANTAGE_INTAKE_MAX_BYTES_PER_USER', 250 * 1024 * 1024),
       retainDays: envNumber(env, 'VANTAGE_INTAKE_RETAIN_DAYS', 400),
       scannerCommand: env.VANTAGE_SCANNER_COMMAND ? String(env.VANTAGE_SCANNER_COMMAND) : null,
+      clamd: (env.VANTAGE_CLAMD || '').trim() || null,
+      // Accredited hosts: refuse a file that could not be scanned rather than keep it marked as not scanned.
+      scanRequired: envBool(env, 'VANTAGE_SCAN_REQUIRED', false),
     },
     ai: {
       enabled: envBool(env, 'VANTAGE_AI_ENABLED', false),
@@ -247,6 +372,8 @@ export function loadConfig(env = process.env): AppConfig {
       helo: (env.VANTAGE_EMAIL_HELO || '').trim(),
       directRoute: test ? (env.VANTAGE_EMAIL_DIRECT_ROUTE || '') : '',
       resendUrl: (test && env.VANTAGE_RESEND_URL) || 'https://api.resend.com/emails',
+      // Direct delivery to a private address is refused unless the network's mail hosts really are private.
+      allowPrivate: envBool(env, 'VANTAGE_EMAIL_ALLOW_PRIVATE', false),
     },
     search: {
       googleVerification: verificationToken(env, 'VANTAGE_GOOGLE_SITE_VERIFICATION'),
@@ -264,6 +391,9 @@ export function loadConfig(env = process.env): AppConfig {
     // A demo visitor is handed a synthetic person; nobody registers.
     selfRegistration: accessMode === 'demo' ? false : envBool(env, 'VANTAGE_SELF_REGISTRATION', true),
     cac: readCacConfig(env, production),
+    audit: readAuditConfig(env),
+    security: readSecurityConfig(env, production, test),
+    oidc: readOidcConfig(env, production, test),
   };
 }
 

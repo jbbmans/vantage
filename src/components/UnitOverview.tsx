@@ -5,8 +5,8 @@ import { Building2, Target, Users, ArrowRight, EyeOff } from 'lucide-react';
 import { Panel, Skeleton, Stat, EmptyState } from '@/components/ui/primitives';
 import { useIdentity } from '@/lib/queries';
 import { useView } from '@/lib/view';
-import { formatDollars } from '../../shared/metrics';
-import { cn } from '@/lib/utils';
+import { formatDate, formatDollars } from '../../shared/metrics';
+import { cn, formatRange } from '@/lib/utils';
 import { CountUp } from '@/components/ui/motion';
 import * as api from '@/lib/api';
 
@@ -112,7 +112,7 @@ export function UnitOverviewPanel({ unitId }: { unitId: string }) {
     <div className="space-y-4">
       <div className="stagger grid grid-cols-2 gap-3 lg:grid-cols-4">
         <Stat label="Marines" value={<CountUp value={t.members} />} hint={whole ? `across ${t.teams} teams` : 'on the roster'} />
-        <Stat label="Contributors" value={t.withheld ? '—' : <CountUp value={t.contributors || 0} />} hint={t.withheld ? 'too few to show' : `${share(t.contributors, t.members)}% of the roster, ${data.window.from} to ${data.window.to}`} />
+        <Stat label="Contributors" value={t.withheld ? '—' : <CountUp value={t.contributors || 0} />} hint={t.withheld ? 'too few to show' : `${share(t.contributors, t.members)}% of the roster, ${formatRange(data.window.from, data.window.to)}`} />
         <Stat label="Value recorded" value={t.withheld || t.dollars == null ? '—' : <CountUp value={t.dollars} format={formatDollars} />} hint="headline value types" />
         <Stat label="Unit goals" value={<CountUp value={data.goals.filter((g) => g.status === 'active').length} />} hint={`${data.goals.filter((g) => g.status === 'achieved').length} achieved`} />
       </div>
@@ -131,7 +131,7 @@ export function UnitOverviewPanel({ unitId }: { unitId: string }) {
                       <span className={cn('fig text-xs', g.status === 'achieved' ? 'text-good' : 'text-ink-2')}>{g.status === 'achieved' ? 'achieved' : `${pct}%`}</span>
                     </div>
                     <div className="mt-2 h-1.5 overflow-hidden rounded-full bg-surface-3" aria-hidden><div className={cn('bar-grow h-full rounded-full', g.status === 'achieved' ? 'bg-good' : 'bg-accent')} style={{ width: `${g.status === 'achieved' ? 100 : pct}%` }} /></div>
-                    {g.period_end && <p className="mt-1 text-2xs text-ink-3">by {g.period_end}</p>}
+                    {g.period_end && <p className="mt-1 text-2xs text-ink-3">by {formatDate(g.period_end)}</p>}
                   </li>
                 );
               })}

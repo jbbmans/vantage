@@ -99,7 +99,7 @@ export default function RecordDetail() {
               ['Project', a.project_name ? <Link className="link" to="/work/projects">{a.project_name}</Link> : null],
               ['Notes', a.notes ? <span className="whitespace-pre-wrap">{a.notes}</span> : null],
             ]} />
-            {(a.evidence_links || []).length > 0 && <div className="mt-4"><p className="eyebrow mb-1.5">Evidence</p><ul className="space-y-1">{a.evidence_links.map((l: any, i: number) => <li key={i} className="text-sm">{l.url ? <a href={l.url} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1">{l.label || l.url}<ExternalLink className="h-3 w-3" /></a> : <span className="text-ink-2">{l.label}</span>}</li>)}</ul></div>}
+            {(a.evidence_links || []).length > 0 && <div className="mt-4"><p className="eyebrow mb-1.5">Evidence</p><ul className="space-y-1">{a.evidence_links.map((l: any, i: any) => <li key={i} className="text-sm">{l.url ? <a href={l.url} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1">{l.label || l.url}<ExternalLink className="h-3 w-3" /></a> : <span className="text-ink-2">{l.label}</span>}</li>)}</ul></div>}
             <p className="mt-4 text-2xs text-ink-3">Created {new Date(a.created_at).toLocaleString()} · updated {new Date(a.updated_at).toLocaleString()} · version {a.version}</p>
           </Panel>
 

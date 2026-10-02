@@ -318,8 +318,9 @@ export function RetentionConsole() {
   );
 }
 
-export function PrivacyConsole() {
-  const inv = useAdmin('privacy-inventory', api.adminPrivacyInventory);
+/** `demo` shows the schema-derived inventory a demo visitor may see, without row counts or the export. */
+export function PrivacyConsole({ demo = false }: { demo?: boolean } = {}) {
+  const inv = useQuery<any>({ queryKey: ['admin', 'privacy-inventory', demo], queryFn: () => (demo ? api.demoGovernance().then((r: any) => r.inventory) : withSudo(api.adminPrivacyInventory)), retry: false });
   const [open, setOpen] = useState<string | null>(null);
   if (inv.isPending) return <Skeleton className="h-64" />;
   if (inv.error) return <div className="card"><EmptyState icon={ShieldAlert} title="Could not build the inventory" description={api.errorText(inv.error)} /></div>;
@@ -336,14 +337,14 @@ export function PrivacyConsole() {
       <Panel
         title="Data inventory"
         subtitle="Built from the live database every time it is opened, so it cannot quietly stop being true the way a written document does."
-        action={<Button onClick={async () => { const md = await withSudo(() => fetch('/api/admin/privacy/inventory?format=markdown', { credentials: 'same-origin', headers: { 'x-vantage-client': '1' } }).then((r) => r.text())); downloadText('vantage-data-inventory.md', md); }}><Download className="h-4 w-4" />Export for the PIA</Button>}
+        action={demo ? undefined : <Button onClick={async () => { const md = await withSudo(() => fetch('/api/admin/privacy/inventory?format=markdown', { credentials: 'same-origin', headers: { 'x-vantage-client': '1' } }).then((r) => r.text())); downloadText('vantage-data-inventory.md', md); }}><Download className="h-4 w-4" />Export for the PIA</Button>}
       >
         <div className="-mx-4 -mt-1">
           <Table minWidth={680} head={<><th>Table</th><th className="w-24 text-right">Rows</th><th>Purpose</th><th className="w-40">Retention</th><th className="w-24">Gaps</th></>}>
             {data.tables.map((t: any) => (
               <tr key={t.table} className="cursor-pointer" onClick={() => setOpen(open === t.table ? null : t.table)}>
                 <td className="font-medium text-ink">{t.table}</td>
-                <td className="fig text-right text-xs">{t.rows < 0 ? '—' : t.rows.toLocaleString()}</td>
+                <td className="fig text-right text-xs">{t.rows == null || t.rows < 0 ? '—' : t.rows.toLocaleString()}</td>
                 <td className="text-xs text-ink-2">{t.purpose || <span className="text-warn">not declared</span>}</td>
                 <td className="text-xs">{t.retention ? `${t.retention.retain_days}d ${t.retention.disposition}${t.retention.enabled ? '' : ' (off)'}` : <span className="text-ink-3">none</span>}</td>
                 <td>{t.unclassified.length || t.stale.length ? <Badge tone="warn">{t.unclassified.length + t.stale.length}</Badge> : <Badge tone="good">—</Badge>}</td>

@@ -6,6 +6,8 @@ import type { MetricsConfig } from '../shared/constants.ts';
 export interface AppContext {
   db: Db;
   config: AppConfig;
+  /** The key under which the audit chain and case seals are computed. Kept in the database, sealed with VANTAGE_SECRET. */
+  chainKey: string;
   mailer: Mailer;
   /** Mutable runtime settings edited by operators and persisted in meta. */
   runtime: RuntimeSettings;
@@ -32,6 +34,8 @@ export interface SessionUser {
   id: string; username: string; email: string | null; first_name: string; last_name: string; middle_initial: string | null;
   rank_id: string | null; mos: string | null; eas: string | null; is_operator: number; active: number; must_change_password: number;
   totp_enabled: number; prefs: string; last_login_at: string | null; created_at: string; updated_at: string;
+  /** The person's own timezone, when they set one. */
+  timezone?: string | null;
 }
 
 declare module 'express-serve-static-core' {
@@ -39,6 +43,6 @@ declare module 'express-serve-static-core' {
     ctx: AppContext;
     user: SessionUser;
     sessionId: string;
-    sessionRow: { id: string; sudo_until: string | null; method: string };
+    sessionRow: { id: string; sudo_until: string | null; method: string; expires_at?: string };
   }
 }

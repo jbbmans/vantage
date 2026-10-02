@@ -36,7 +36,7 @@ export function ActivityFields({ draft, set, errors }: { draft: ActivityDraft; s
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <Field label="Organization"><Input value={draft.organization} onChange={onText(set, 'organization')} placeholder="G-8" /></Field>
         <Field label="System"><Input value={draft.system} onChange={onText(set, 'system')} placeholder="DAI" /></Field>
-        <Field label="Project"><Select value={draft.project_id || '__none'} onValueChange={(v) => set('project_id', v === '__none' ? null : v)} options={[{ value: '__none', label: 'No project' }, ...(projects || []).map((p: any) => ({ value: p.id, label: p.name }))]} /></Field>
+        <Field label="Project"><Select value={draft.project_id || '__none'} onValueChange={(v) => set('project_id', v === '__none' ? null : v)} options={[{ value: '__none', label: 'No project' }, ...(projects || []).map((p) => ({ value: p.id, label: p.name }))]} /></Field>
       </div>
       <Field label="Notes"><Textarea rows={3} value={draft.notes} onChange={onText(set, 'notes')} /></Field>
       <div>

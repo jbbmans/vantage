@@ -15,7 +15,7 @@ import { AiAction, AiResult, useAiModel } from '@/components/AiPanel';
 import { ThreadsForItem } from './Workbench';
 import { useIdentity, useMetrics, useWorkItem, invalidateWork, invalidateDomains } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { cn, timeAgo, todayIso } from '@/lib/utils';
+import { cn, formatStamp, timeAgo, todayIso } from '@/lib/utils';
 import { useForgetVisit, useRememberVisit } from '@/lib/recent';
 import {
   STAGE_LABEL, WAITING_CATEGORIES, WAITING_LABEL, FUNDS_CHECK_RESULTS, EXTERNAL_EVENTS, VALUE_SOURCES,
@@ -23,16 +23,17 @@ import {
 } from '../../shared/caseModel';
 import {
   AUTHORITY_LABEL, PROCEDURE_LIST, PROCEDURES, observedStep, stepApplies, isVerified, FORMULAS, stepObject, actedOn,
-  type CaseEvent, type Procedure, type ProcedureField, type ProcedureStep,
+  type CaseEvent, type CalcInput, type Procedure, type ProcedureField, type ProcedureStep, type StoredAnomaly, type StoredFinding,
 } from '../../shared/procedures';
 import { diagnose, METHODS, responsibilityName, type MethodKey } from '../../shared/fmra';
 import { formatCents, parseMoney } from '../../shared/money';
+import type { CaseEventView, CaseIntegrity, CaseView, EventBody, WorkItemView } from '../../shared/caseView';
 
 const newKey = () => `${Date.now()}-${Math.random().toString(36).slice(2, 10)}`;
 const LIFECYCLE_FIELDS = ['commitment_amount', 'obligation_amount', 'delivered_amount', 'paid_amount'] as const;
 
 /** The case's events in the shape the shared procedure rules read. */
-const toCaseEvents = (events: any[]): CaseEvent[] => events.map((e, i) => ({ id: e.id, kind: e.kind, actor_id: e.actor_id, occurred_at: e.occurred_at, supersedes_id: e.supersedes_id, seq: i, body: { ...e.body, step: e.step ?? undefined } }));
+const toCaseEvents = (events: CaseEventView[]): CaseEvent[] => events.map((e, i) => ({ id: e.id, kind: e.kind, actor_id: e.actor_id, occurred_at: e.occurred_at, supersedes_id: e.supersedes_id, seq: i, body: { ...e.body, step: e.step ?? undefined } }));
 
 export default function WorkItemPage() {
   const { id = '' } = useParams();
@@ -83,9 +84,10 @@ export default function WorkItemPage() {
   const activeStep = steps.find((s) => s.key === activeKey) || null;
   const activeStatus = progress?.steps.find((s) => s.key === activeKey) || null;
   const flagship = identity?.demo && identity.demo.flagship.reference === item.reference ? identity.demo.flagship : null;
-  const iContributed = c.contributors.some((p: any) => p.user_id === me);
+  const iContributed = c.contributors.some((p) => p.user_id === me);
   const caseEvents = toCaseEvents(c.events);
   const lifecycle = procedure?.family === 'normal_condition';
+  const unavailable = c.procedure_unavailable;
 
   return (
     <div className="page">
@@ -123,7 +125,7 @@ export default function WorkItemPage() {
           {c.waiting?.since && <div className="text-ink-3"><dt className="sr-only">Waiting</dt><dd>Waiting {elapsed(c.waiting.since)} (elapsed, not work)</dd></div>}
           {c.blocked_reason && <div className="text-bad"><dt className="sr-only">Blocked</dt><dd className="flex items-center gap-1.5"><OctagonAlert className="h-4 w-4" aria-hidden />{c.blocked_reason}</dd></div>}
           <div className="text-ink-2"><dt className="inline text-ink-3">Held by </dt><dd className="inline font-medium text-ink">{holding ? 'You' : holder ? personName(holder) : 'Nobody yet'}</dd></div>
-          {item.due_date && <div className="text-ink-2"><dt className="inline text-ink-3">Due </dt><dd className="inline"><DateText value={item.due_date} /></dd></div>}
+          {item.due_date && <div className="text-ink-2"><dt className="inline text-ink-3">Due </dt><dd className="inline"><DateText value={item.due_date} />{item.due_date < todayIso() && !['resolved', 'not_applicable'].includes(item.state) && <Badge tone="bad" className="ml-2">Overdue</Badge>}</dd></div>}
           {item.amount != null && <div className="text-ink-2"><dt className="inline text-ink-3">Amount on the sheet </dt><dd className="fig inline font-medium text-ink">{formatCents(Math.round(Number(item.amount) * 100))}</dd></div>}
           {c.integrity?.count ? <div><dt className="sr-only">History</dt><dd><IntegrityBadge integrity={c.integrity} /></dd></div> : null}
         </dl>
@@ -161,11 +163,11 @@ export default function WorkItemPage() {
             </div>
           )}
 
-          {c.procedure_unavailable && (
+          {unavailable && (
             <div className="card flex flex-wrap items-center gap-3 px-4 py-3 text-sm">
               <ShieldAlert className="h-4 w-4 shrink-0 text-warn" aria-hidden />
-              <span className="min-w-0 flex-1 text-ink">This case is pinned to procedure version {c.procedure_unavailable.version}, which this build does not have. It will not be run under a different version without somebody saying so.</span>
-              {c.permissions.apply_procedure && !closed && c.procedure_unavailable.current && <Button size="sm" onClick={() => run(() => api.applyProcedure(id, c.procedure_unavailable.key), `Moved to v${c.procedure_unavailable.current}.`)}>Move to v{c.procedure_unavailable.current}</Button>}
+              <span className="min-w-0 flex-1 text-ink">This case is pinned to procedure version {unavailable.version}, which this build does not have. It will not be run under a different version without somebody saying so.</span>
+              {c.permissions.apply_procedure && !closed && unavailable.current && <Button size="sm" onClick={() => run(() => api.applyProcedure(id, unavailable.key), `Moved to v${unavailable.current}.`)}>Move to v{unavailable.current}</Button>}
             </div>
           )}
 
@@ -220,7 +222,7 @@ export default function WorkItemPage() {
           <Panel title="Who worked this" subtitle="Each person’s own entries. Nobody is credited with anyone else’s.">
             {c.contributors.length === 0 ? <p className="text-sm text-ink-3">Nobody has recorded anything on this yet.</p> : (
               <ul className="space-y-3">
-                {c.contributors.map((p: any) => (
+                {c.contributors.map((p) => (
                   <li key={p.user_id} className="flex items-start gap-3 text-sm">
                     <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-surface-2 text-2xs font-semibold text-ink-2 ring-1 ring-inset ring-line">{(p.name || '?').split(' ').map((w: string) => w[0]).join('').slice(0, 2)}</span>
                     <span className="min-w-0 flex-1">
@@ -404,7 +406,7 @@ const STATUS_ICON: Record<string, React.ReactNode> = {
 };
 const STATUS_TEXT: Record<string, string> = { done: 'done', current: 'next', attention: 'needs attention', skipped: 'not needed', upcoming: 'to do', conditional: 'depends on a decision' };
 
-function ProcedurePanel({ procedure, progress, active, resolution, onPick }: { procedure: Procedure & { pinned_version: string }; progress: { steps: Array<{ key: string; status: string; note: string | null }>; next: string | null }; active: string | null; resolution: any; onPick: (key: string) => void }) {
+function ProcedurePanel({ procedure, progress, active, resolution, onPick }: { procedure: Procedure & { pinned_version: string }; progress: { steps: Array<{ key: string; status: string; note: string | null }>; next: string | null }; active: string | null; resolution: CaseView['resolution']; onPick: (key: string) => void }) {
   const done = progress.steps.filter((s) => s.status === 'done').length;
   const counted = progress.steps.filter((s) => s.status !== 'skipped' && s.status !== 'conditional').length;
   return (
@@ -460,7 +462,7 @@ function StepHelp({ step }: { step: ProcedureStep }) {
 }
 
 /** The one figure each calculation produces, so a Marine's own answer can be checked against it. */
-const HEADLINE_FIGURE: Record<string, (body: Record<string, any>) => number | null> = {
+const HEADLINE_FIGURE: Record<string, (body: EventBody) => number | null> = {
   umt2way_award_adjustment: (b) => b.adjustment_cents ?? null,
   umt_award_shortfall: (b) => b.shortfall_cents ?? null,
   lifecycle_residual: (b) => b.findings?.[0]?.residual_cents ?? null,
@@ -481,7 +483,7 @@ function GateNotice({ message, action }: { message: string; action?: React.React
 }
 
 function StepPanel({ itemId, procedure, step, status, caseData, events, canAct, focused, onBackToNext, onDone, onResolve, onJump }: {
-  itemId: string; procedure: Procedure; step: ProcedureStep; status: { status: string; note: string | null } | null; caseData: any; events: CaseEvent[]; canAct: boolean; focused: boolean;
+  itemId: string; procedure: Procedure; step: ProcedureStep; status: { status: string; note: string | null } | null; caseData: CaseView; events: CaseEvent[]; canAct: boolean; focused: boolean;
   onBackToNext: () => void; onDone: () => void; onResolve: () => void; onJump: (key: string) => void;
 }) {
   const toast = useToast();
@@ -491,7 +493,7 @@ function StepPanel({ itemId, procedure, step, status, caseData, events, canAct, 
   const [extra, setExtra] = useState<Array<{ amount: string; reference: string }>>([]);
   const set = (k: string, v: string) => setValues((p) => ({ ...p, [k]: v }));
   const [key] = useState(newKey);
-  const recorded = (field: string) => caseData.events.filter((e: any) => e.kind === 'observation' && e.body.field === field && !e.superseded);
+  const recorded = (field: string) => caseData.events.filter((e) => e.kind === 'observation' && e.body.field === field && !e.superseded);
   const applies = stepApplies(step, events);
   const requiresMet = step.requires ? isVerified(events, step.requires.check) : true;
   const prerequisite = step.requires ? procedure.steps.find((s) => s.kind === 'verification' && s.check === step.requires!.check) : null;
@@ -570,7 +572,7 @@ function StepPanel({ itemId, procedure, step, status, caseData, events, canAct, 
         <Button variant="primary" loading={busy} onClick={async () => {
           setBusy(true);
           try {
-            const event = await api.calculateCase(itemId, step.key) as { body?: Record<string, any> };
+            const event = await api.calculateCase(itemId, step.key) as { body?: EventBody };
             const figure = formula && event?.body ? HEADLINE_FIGURE[formula.key]?.(event.body) ?? null : null;
             if (mine?.ok && figure != null) {
               if (mine.cents === figure) toast.success(`Calculated. Your figure matched: ${formatCents(figure)}.`);
@@ -696,7 +698,7 @@ function StepPanel({ itemId, procedure, step, status, caseData, events, canAct, 
 }
 
 function ResearchField({ f, have, value, reference, notShown, onValue, onReference, onNotShown, extra, setExtra }: {
-  f: ProcedureField; have: any[]; value: string; reference: string; notShown: boolean;
+  f: ProcedureField; have: CaseEventView[]; value: string; reference: string; notShown: boolean;
   onValue: (v: string) => void; onReference: (v: string) => void; onNotShown: (v: boolean) => void;
   extra?: Array<{ amount: string; reference: string }>; setExtra?: (fn: (p: Array<{ amount: string; reference: string }>) => Array<{ amount: string; reference: string }>) => void;
 }) {
@@ -707,7 +709,7 @@ function ResearchField({ f, have, value, reference, notShown, onValue, onReferen
       {have.length > 0 && (
         <p className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs text-ink-3">
           <FileCheck2 className="h-3.5 w-3.5 text-good" aria-hidden /><span className="font-medium text-ink-2">{f.label}:</span>
-          {have.map((e: any) => `${e.body.display}${e.body.reference ? ` (${e.body.reference})` : ''}`).join(', ')}
+          {have.map((e) => `${e.body.display}${e.body.reference ? ` (${e.body.reference})` : ''}`).join(', ')}
           {have[0].body.source === 'source_file' ? <span className="chip">from the imported sheet</span> : null}
         </p>
       )}
@@ -751,7 +753,7 @@ function CaseBrief({ itemId }: { itemId: string }) {
   );
 }
 
-function CalculationPanel({ calc }: { calc: any }) {
+function CalculationPanel({ calc }: { calc: NonNullable<CaseView['latest_calculation']> }) {
   const badge = calc.stale ? <Badge tone="warn">Stale</Badge> : <Badge tone={calc.requires_review ? 'warn' : 'accent'}>{calc.requires_review ? 'Needs review' : 'Candidate'}</Badge>;
   return (
     <Panel title={calc.formula === 'lifecycle_residual' ? 'Open residual' : 'Candidate calculation'} subtitle={[calc.title, calc.formula_text].filter(Boolean).join(' · ')} action={badge}>
@@ -775,8 +777,8 @@ function CalculationPanel({ calc }: { calc: any }) {
         )}
         {calc.formula === 'lifecycle_residual' && (
           <div className="flex flex-wrap gap-2">
-            {(calc.findings || []).map((f: any) => <span key={f.condition} className="inline-flex items-center gap-2 rounded-lg bg-warn/10 px-2.5 py-1.5 text-sm ring-1 ring-inset ring-warn/25"><span className="font-semibold text-ink">{f.abbr}</span><span className="text-ink-2">{f.pattern}</span><span className="fig font-semibold text-ink">{formatCents(f.residual_cents)}</span></span>)}
-            {(calc.anomalies || []).map((a: any) => <span key={a.key} className="inline-flex items-center gap-2 rounded-lg bg-bad/10 px-2.5 py-1.5 text-sm text-bad ring-1 ring-inset ring-bad/25">{a.title}</span>)}
+            {((calc.findings || []) as StoredFinding[]).map((f) => <span key={f.condition} className="inline-flex items-center gap-2 rounded-lg bg-warn/10 px-2.5 py-1.5 text-sm ring-1 ring-inset ring-warn/25"><span className="font-semibold text-ink">{f.abbr}</span><span className="text-ink-2">{f.pattern}</span><span className="fig font-semibold text-ink">{formatCents(f.residual_cents)}</span></span>)}
+            {((calc.anomalies || []) as StoredAnomaly[]).map((a) => <span key={a.key} className="inline-flex items-center gap-2 rounded-lg bg-bad/10 px-2.5 py-1.5 text-sm text-bad ring-1 ring-inset ring-bad/25">{a.title}</span>)}
             {calc.complete && <span className="inline-flex items-center gap-2 rounded-lg bg-good/10 px-2.5 py-1.5 text-sm text-good ring-1 ring-inset ring-good/25">Nothing open between phases</span>}
           </div>
         )}
@@ -784,7 +786,7 @@ function CalculationPanel({ calc }: { calc: any }) {
           <caption className="sr-only">Inputs to the calculation</caption>
           <thead><tr className="text-left text-xs text-ink-3"><th className="py-1 font-medium">Input</th><th className="py-1 font-medium">Source</th><th className="py-1 text-right font-medium">Amount</th></tr></thead>
           <tbody>
-            {(calc.inputs || []).map((i: any) => (
+            {((calc.inputs || []) as CalcInput[]).map((i) => (
               <tr key={i.event_id} className="border-t border-line">
                 <td className="py-2 text-ink">{i.label}</td>
                 <td className="py-2 text-xs text-ink-3">{VALUE_SOURCES[i.source as keyof typeof VALUE_SOURCES]}</td>
@@ -808,7 +810,7 @@ function Figure({ label, cents, signed = false, accent = false }: { label: strin
   );
 }
 
-function ActionForm({ itemId, item, onDone }: { itemId: string; item: any; onDone: () => void }) {
+function ActionForm({ itemId, item, onDone }: { itemId: string; item: WorkItemView; onDone: () => void }) {
   const toast = useToast();
   const qc = useQueryClient();
   const cfg = useMetrics();
@@ -928,22 +930,22 @@ function EntryComposer({ itemId, procedure, onDone }: { itemId: string; procedur
 
 const QUIET = new Set(['created', 'procedure_applied']);
 
-function HistoryPanel({ itemId, events, people, procedure, canCorrect, onDone, integrity }: { itemId: string; events: any[]; people: Record<string, { name: string; rank: string | null }>; procedure: Procedure | null; canCorrect: boolean; onDone: () => void; integrity: any }) {
+function HistoryPanel({ itemId, events, people, procedure, canCorrect, onDone, integrity }: { itemId: string; events: CaseEventView[]; people: Record<string, { name: string; rank: string | null }>; procedure: Procedure | null; canCorrect: boolean; onDone: () => void; integrity: CaseIntegrity }) {
   const [showAll, setShowAll] = useState(false);
-  const [correcting, setCorrecting] = useState<any | null>(null);
+  const [correcting, setCorrecting] = useState<CaseEventView | null>(null);
   const { data: identity } = useIdentity();
   const ordered = [...events].reverse();
   const visible = showAll ? ordered : ordered.filter((e) => !QUIET.has(e.kind)).slice(0, 25);
   const stepTitle = (k: string | null) => procedure?.steps.find((s) => s.key === k)?.title;
   const who = (id: string | null) => (id === identity?.user.id ? 'You' : id ? personName(people[id]) : 'Vantage');
-  const sentence = (e: any) => historySentence(e, procedure);
+  const sentence = (e: CaseEventView) => historySentence(e, procedure);
 
   return (
     <Panel title="History" subtitle="Every change, who made it, and where each value came from. Nothing is edited; corrections are added." action={<span className="flex items-center gap-2"><IntegrityBadge integrity={integrity} /><History className="h-4 w-4 text-ink-3" aria-hidden /></span>} bodyClassName="p-0">
       <ol className="divide-y divide-line">
         {visible.map((e) => (
           <li key={e.id} className={cn('group flex gap-3 px-5 py-3 text-sm', e.superseded && 'opacity-60')}>
-            <span className="w-24 shrink-0 text-xs text-ink-3" title={new Date(e.created_at).toLocaleString()}>{timeAgo(e.created_at)}</span>
+            <span className="w-24 shrink-0 text-xs text-ink-3"><time dateTime={e.created_at} className="block">{timeAgo(e.created_at)}</time><span className="fig block text-2xs">{formatStamp(e.created_at)}</span></span>
             <span className="min-w-0 flex-1">
               <span className="text-ink">
                 <span className="font-medium">{who(e.actor_id)}</span>{' '}
@@ -954,7 +956,7 @@ function HistoryPanel({ itemId, events, people, procedure, canCorrect, onDone, i
               </span>
               {e.kind === 'source_revised' && Array.isArray(e.body.changes) && (
                 <span className="mt-1.5 block space-y-0.5 rounded-lg bg-surface-2/70 px-3 py-2 text-xs ring-1 ring-inset ring-line">
-                  {e.body.changes.slice(0, 8).map((ch: any) => <span key={ch.field} className="block text-ink-2"><span className="font-medium text-ink">{ch.field}</span>: <span className="line-through">{ch.from ?? '—'}</span> → {ch.to ?? '—'}</span>)}
+                  {(e.body.changes as Array<{ field: string; from: string | null; to: string | null }>).slice(0, 8).map((ch) => <span key={ch.field} className="block text-ink-2"><span className="font-medium text-ink">{ch.field}</span>: <span className="line-through">{ch.from ?? '—'}</span> → {ch.to ?? '—'}</span>)}
                 </span>
               )}
               {(e.body.note || e.body.rationale || (e.body.text && !['note', 'finding', 'question'].includes(e.kind)) || e.body.reason) && (
@@ -987,7 +989,7 @@ function HistoryPanel({ itemId, events, people, procedure, canCorrect, onDone, i
 
 const lowerFirst = (text: string) => (/^[A-Z][a-z]/.test(text) ? text.charAt(0).toLowerCase() + text.slice(1) : text);
 
-function historySentence(e: any, procedure: Procedure | null): string {
+function historySentence(e: CaseEventView, procedure: Procedure | null): string {
   const b = e.body || {};
   const step = procedure?.steps.find((s) => s.key === (b.step || e.step));
   const stepName = step ? lowerFirst(step.title) : lowerFirst(String(b.step || e.step || 'the step').replace(/_/g, ' '));
@@ -1019,7 +1021,7 @@ function historySentence(e: any, procedure: Procedure | null): string {
   }
 }
 
-function CorrectDialog({ itemId, entry, onClose, onDone }: { itemId: string; entry: any; onClose: () => void; onDone: () => void }) {
+function CorrectDialog({ itemId, entry, onClose, onDone }: { itemId: string; entry: CaseEventView; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
   const money = Number.isSafeInteger(entry.body.amount_cents) || entry.body.not_shown;
   const [value, setValue] = useState('');
@@ -1080,7 +1082,7 @@ function HandoffDialog({ itemId, version, assigning, onClose, onDone }: { itemId
   );
 }
 
-function StageDialog({ itemId, version, stage, procedure, resolution, onClose, onDone }: { itemId: string; version: number; stage: Stage; procedure: Procedure | null; resolution: any; onClose: () => void; onDone: () => void }) {
+function StageDialog({ itemId, version, stage, procedure, resolution, onClose, onDone }: { itemId: string; version: number; stage: Stage; procedure: Procedure | null; resolution: CaseView['resolution']; onClose: () => void; onDone: () => void }) {
   const toast = useToast();
   const [category, setCategory] = useState('');
   const [reason, setReason] = useState('');
@@ -1098,7 +1100,7 @@ function StageDialog({ itemId, version, stage, procedure, resolution, onClose, o
         finally { setBusy(false); }
       }}>Move it</Button></>}>
       <div className="space-y-3">
-        {blockedResolve && <p className="flex items-start gap-2 rounded-xl bg-warn/[.07] px-3.5 py-2.5 text-sm text-ink ring-1 ring-inset ring-warn/25"><Lock className="mt-0.5 h-4 w-4 shrink-0 text-warn" aria-hidden />Not yet: {(resolution?.checks || []).map((r: any) => r.label.toLowerCase()).join(', or ')}.</p>}
+        {blockedResolve && <p className="flex items-start gap-2 rounded-xl bg-warn/[.07] px-3.5 py-2.5 text-sm text-ink ring-1 ring-inset ring-warn/25"><Lock className="mt-0.5 h-4 w-4 shrink-0 text-warn" aria-hidden />Not yet: {(resolution?.checks || []).map((r) => r.label.toLowerCase()).join(', or ')}.</p>}
         {needsCategory && <Field label="Waiting on" required><Select value={category} onValueChange={setCategory} placeholder="Choose" options={WAITING_CATEGORIES.map((w) => ({ value: w, label: WAITING_LABEL[w] }))} /></Field>}
         <Field label={stage === 'blocked' ? 'What is blocking it' : 'Reason'} required={needsReason}><Textarea rows={2} value={reason} onChange={(e) => setReason(e.target.value)} /></Field>
       </div>

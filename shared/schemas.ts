@@ -209,7 +209,14 @@ export const profileSchema = z.object({
   mos: optText(12),
   eas: optDate,
   email: optEmail,
+  /** The person's own IANA timezone ("America/Los_Angeles"), or null to use the instance's. */
+  timezone: z.string().trim().max(64).refine((tz) => !tz || isTimeZone(tz), 'Choose a timezone from the list.').nullable().optional(),
 });
+
+/** A timezone this runtime knows. */
+export function isTimeZone(tz: string): boolean {
+  try { new Intl.DateTimeFormat('en-US', { timeZone: tz }); return true; } catch { return false; }
+}
 
 export const registrationSchema = z.object({
   username: usernameField,

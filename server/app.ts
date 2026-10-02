@@ -38,13 +38,19 @@ import { purgeDeleted } from './services/records.ts';
 import { releaseStaleClaims } from './services/work.ts';
 import { sealBacklog, anchorCaseHeads } from './services/caseSeal.ts';
 import { loadRuntime } from './runtime.ts';
+import { loadChainKey, resealStoredSecrets } from './lib/keys.ts';
+import { configurePasswordHashing } from './lib/crypto.ts';
 import { announcePublicPage, indexNowKey } from './services/indexNow.ts';
 export { loadRuntime };
 
 export function createContext(config: AppConfig): AppContext {
+  configurePasswordHashing(config.security.passwordIterations);
   const db = openDatabase(config.databasePath);
+  const chainKey = loadChainKey(db, config);
+  const resealed = resealStoredSecrets(db, config);
+  if (resealed) console.log(`Re-sealed ${resealed} stored secret(s) under the new VANTAGE_SECRET. Remove VANTAGE_SECRET_PREVIOUS before the next start.`);
   const runtime = loadRuntime(db, config);
-  const ctx: AppContext = { db, config, mailer: createMailer(config, db), runtime, saveRuntime: () => metaSet(db, 'runtime', JSON.stringify(runtime)) };
+  const ctx: AppContext = { db, config, chainKey, mailer: createMailer(config, db), runtime, saveRuntime: () => metaSet(db, 'runtime', JSON.stringify(runtime)) };
   assertDatabaseMatchesMode(ctx);
   if (config.accessMode === 'demo') {
     runtime.selfServiceUnits = false;
@@ -83,20 +89,21 @@ const SHAREABLE = /^\/(?:og\.png|favicon\.(?:ico|svg)|apple-touch-icon\.png|icon
 function inlineScriptHashes(distDir: string): string[] {
   const hashes = new Set<string>();
   for (const name of ['index.html', 'public.html', 'console.html']) {
-    const file = join(distDir, name);
-    if (!existsSync(file)) continue;
+    // A build in progress may not have written the file yet: skip it rather than fail to start.
+    let html: string;
+    try { html = readFileSync(join(distDir, name), 'utf8'); } catch { continue; }
     // Only scripts the browser runs; JSON-LD is data, and the policy does not cover it.
     const pattern = /<script(?![^>]*\b(?:src=|type="application\/ld\+json"))[^>]*>([\s\S]*?)<\/script>/g;
-    for (const match of readFileSync(file, 'utf8').matchAll(pattern)) hashes.add(`'sha256-${createHash('sha256').update(match[1], 'utf8').digest('base64')}'`);
+    for (const match of html.matchAll(pattern)) hashes.add(`'sha256-${createHash('sha256').update(match[1], 'utf8').digest('base64')}'`);
   }
   return [...hashes];
 }
 
 /** Every path the application serves a page at; a sign-in link sent before a move still finds it. */
-const APP_PATH = /^\/(?:login|register|reset|invite|setup|goals|reference|maradmins|readiness|settings|help|queue|correspondence|studio|assist)\/?$|^\/(?:work|record|records|activities|career|reports|team|support)(?:\/[^/]+){0,2}\/?$/;
+const APP_PATH = /^\/(?:login|register|reset|invite|setup|goals|reference|maradmins|readiness|settings|governance|help|queue|correspondence|studio|assist)\/?$|^\/(?:work|record|records|activities|career|reports|team|support)(?:\/[^/]+){0,2}\/?$/;
 const CONSOLE_PATH = /^\/(?:operator|console)(?:\/.*)?$/;
 /** What the console's own pages call: signing in, the owner's identity, administration and the accounts and units it manages. */
-const CONSOLE_API = /^\/(?:admin|org|me)(?:\/|$)|^\/auth\/(?:setup|login|login\/mfa|passkey\/options|passkey\/verify|cac|logout|sudo|forgot)$|^\/ranks$/;
+const CONSOLE_API = /^\/(?:admin|org|me)(?:\/|$)|^\/auth\/(?:setup|login|login\/mfa|passkey\/options|passkey\/verify|cac|logout|sudo|forgot|oidc\/start|oidc\/callback)$|^\/ranks$/;
 const APP_ROBOTS = 'User-agent: *\nAllow: /login\nAllow: /register\nAllow: /reset\nAllow: /invite\nDisallow: /\n';
 
 /** The console address for an old /operator?tab= link or a /console path, on whichever host the console lives. */
@@ -110,7 +117,10 @@ export function createApp(ctx: AppContext) {
   const app = express();
   const distDir = join(PROJECT_ROOT, 'dist');
   const scriptSrc = ["'self'", ...inlineScriptHashes(distDir)].join(' ');
-  const clientBuild = existsSync(join(distDir, 'index.html')) ? createHash('sha256').update(readFileSync(join(distDir, 'index.html'))).digest('hex').slice(0, 16) : null;
+  // Read once, and tolerate a build in progress: the API serves without the client rather than failing to start.
+  let shellHtml: string | null = null;
+  try { shellHtml = readFileSync(join(distDir, 'index.html'), 'utf8'); } catch { shellHtml = null; }
+  const clientBuild = shellHtml ? createHash('sha256').update(shellHtml).digest('hex').slice(0, 16) : null;
   const build = String(process.env.RENDER_GIT_COMMIT || process.env.VANTAGE_BUILD_ID || clientBuild || VERSION).slice(0, 64);
 
   app.disable('x-powered-by');
@@ -223,14 +233,14 @@ export function createApp(ctx: AppContext) {
     return res.status(500).json({ error: 'The server could not complete that request.', code: 'server_error' });
   });
 
-  if (existsSync(distDir)) {
+  if (shellHtml) {
     // Only public marketing routes are indexable, before any JavaScript runs.
     const publicRoutes = new Set(['/', '/display', '/about']);
     // Each document says where the other faces live, for the links between them.
     const withLinks = (html: string) => html.replace('</head>', `    ${linksMeta(hosts.links)}\n  </head>`);
     // The application shell is noindex in its source; the public page is its own document, public.html.
-    const shell = withLinks(readFileSync(join(distDir, 'index.html'), 'utf8'));
-    const read = (name: string) => (existsSync(join(distDir, name)) ? readFileSync(join(distDir, name), 'utf8') : null);
+    const shell = withLinks(shellHtml);
+    const read = (name: string) => { try { return readFileSync(join(distDir, name), 'utf8'); } catch { return null; } };
     const publicPage = read('public.html')?.replace('<!--site-verification-->', siteVerification(config.search)) ?? null;
     const consolePage = read('console.html');
     const consoleDocument = consolePage ? withLinks(consolePage) : null;

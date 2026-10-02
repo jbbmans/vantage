@@ -74,7 +74,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
     return [...list].sort(cmp[sort]);
   }, [rows, from, to, period, owner, category, area, quality, q, sort, dupIds, identity?.user.id, track]);
   const metrics = useMemo(() => aggregateMetrics(filtered, cfg), [filtered, cfg]);
-  const hasShared = (rows || []).some((a: any) => a.user_id !== identity?.user.id);
+  const hasShared = (rows || []).some((a) => a.user_id !== identity?.user.id);
 
   const del = async (a: any) => {
     try {

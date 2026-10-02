@@ -2,6 +2,7 @@ import type { AppContext, SessionUser } from '../context.ts';
 import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { decryptSecret, encryptSecret, sha256 } from '../lib/crypto.ts';
+import { secretsOf } from '../lib/keys.ts';
 import { createHash, randomBytes } from 'node:crypto';
 import { newId, now } from '../lib/ids.ts';
 import { parseAddresses, type ParsedEmail } from '../lib/eml.ts';
@@ -192,7 +193,7 @@ export async function completeAuthorization(ctx: AppContext, user: SessionUser, 
   const row = ownedConnector(ctx, user, pending.connector_id);
   if (input.error) failAuthorization(ctx, row, `Microsoft did not authorize the mailbox: ${String(input.error_description || input.error).slice(0, 300)}`, 'authorization_declined');
   if (!input.code) failAuthorization(ctx, row, 'Microsoft returned without an authorization code.', 'authorization_incomplete');
-  const verifier = decryptSecret(ctx.config.secret, pending.verifier_enc);
+  const verifier = decryptSecret(secretsOf(ctx.config), pending.verifier_enc);
   if (!verifier) failAuthorization(ctx, row, 'The sign-in could not be completed on this server. Start it again.', 'authorization_incomplete');
 
   const ep = endpointsFor(ctx, row);
@@ -233,9 +234,9 @@ export async function completeAuthorization(ctx: AppContext, user: SessionUser, 
 
 export async function accessTokenFor(ctx: AppContext, row: ConnectorRow): Promise<string> {
   if (row.status !== 'connected') throw conflict('This mailbox is not connected. Authorize it first.', 'connector_not_authorized');
-  const current = row.access_token_enc ? decryptSecret(ctx.config.secret, row.access_token_enc) : null;
+  const current = row.access_token_enc ? decryptSecret(secretsOf(ctx.config), row.access_token_enc) : null;
   if (current && row.token_expires_at && Date.parse(row.token_expires_at) - Date.now() > 120_000) return current;
-  const refresh = row.refresh_token_enc ? decryptSecret(ctx.config.secret, row.refresh_token_enc) : null;
+  const refresh = row.refresh_token_enc ? decryptSecret(secretsOf(ctx.config), row.refresh_token_enc) : null;
   if (!refresh || !mailboxConfigured(ctx)) {
     forgetTokens(ctx, row, 'The connection’s sign-in has run out and there is nothing to renew it with. Authorize it again.');
     throw conflict('The mailbox sign-in has run out. Authorize it again.', 'connector_reauthorize');

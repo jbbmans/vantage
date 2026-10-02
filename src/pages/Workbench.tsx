@@ -13,8 +13,8 @@ import { StageBadge } from '@/components/work';
 import ImportWizard from '@/components/ImportWizard';
 import { useIdentity, useItemThreads, useThreads, invalidateCorrespondence, invalidateWork } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { formatDollars, formatNumber } from '../../shared/metrics';
-import { cn, useMediaQuery } from '@/lib/utils';
+import { formatDollarsExact, formatNumber } from '../../shared/metrics';
+import { cn, isoDay, todayIso, useMediaQuery } from '@/lib/utils';
 import { track } from '@/lib/telemetry';
 import { PROCEDURES, PROCEDURE_LIST } from '../../shared/procedures';
 
@@ -34,18 +34,24 @@ const COLUMNS = [
   { key: 'title', label: 'What it is', width: '' },
   { key: 'state', label: 'Stage', width: 'w-40' },
   { key: 'due_date', label: 'Due', width: 'w-24' },
-  { key: 'amount', label: 'Amount', width: 'w-24' },
+  { key: 'amount', label: 'Amount', width: 'w-28' },
   { key: 'claimed', label: 'Held by', width: 'w-32' },
 ];
 
-const ROW_HEIGHT = 44;
+const ROW_HEIGHT = 52;
 const WINDOW_OVERSCAN = 8;
 
 interface Query {
   state: string; active: boolean; claimed: string; q: string; sort: string; direction: 'asc' | 'desc'; unit_id: string; procedure: string; limit: number; offset: number;
+  /** Past due and still open. */
+  overdue: boolean;
 }
 
-const DEFAULT_QUERY: Query = { state: '', active: true, claimed: '', q: '', sort: 'due_date', direction: 'asc', unit_id: '', procedure: '', limit: 200, offset: 0 };
+const DEFAULT_QUERY: Query = { state: '', active: true, claimed: '', q: '', sort: 'due_date', direction: 'asc', unit_id: '', procedure: '', limit: 200, offset: 0, overdue: false };
+
+/** The day before today on the viewer's calendar: due on or before it, and still open, is overdue. */
+const yesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return isoDay(d); };
+const isOverdue = (row: { due_date?: string | null; state?: string }) => Boolean(row.due_date && row.due_date < todayIso() && !['resolved', 'not_applicable'].includes(String(row.state)));
 const PROCEDURE_FILTER = [
   { value: '', label: 'Any procedure' },
   ...PROCEDURE_LIST.map((p) => ({ value: p.key, label: p.short })),
@@ -62,6 +68,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     ...DEFAULT_QUERY,
     claimed: ['me', 'nobody', 'anyone'].includes(searchParams.get('claimed') || '') ? String(searchParams.get('claimed')) : '',
     procedure: PROCEDURE_FILTER.some((o) => o.value && o.value === searchParams.get('procedure')) ? String(searchParams.get('procedure')) : '',
+    overdue: searchParams.get('overdue') === '1',
   }));
   const [search, setSearch] = useState('');
   const [selected, setSelected] = useState<Set<string>>(new Set());
@@ -87,7 +94,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const params = useMemo(() => ({
     state: query.state || undefined, active: query.active && !query.state ? '1' : undefined, claimed: query.claimed || undefined, q: query.q || undefined,
     unit_id: query.unit_id || undefined, procedure: query.procedure || undefined, sort: query.sort, direction: query.direction,
-    limit: query.limit, offset: query.offset,
+    limit: query.limit, offset: query.offset, due_before: query.overdue ? yesterday() : undefined,
   }), [query]);
 
   const list = useQuery({ queryKey: ['work-items', params], queryFn: () => api.listWorkItems(params), staleTime: 10_000 });
@@ -187,7 +194,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   // A view stays selected only while the queue still shows it; once anything changes, picking it again reapplies it.
   const showing = (config: Record<string, unknown>) => {
     const v = { ...DEFAULT_QUERY, ...config } as Query;
-    return v.q === search.trim() && (['state', 'active', 'claimed', 'sort', 'direction', 'unit_id', 'procedure'] as const).every((k) => v[k] === query[k]);
+    return v.q === search.trim() && (['state', 'active', 'claimed', 'sort', 'direction', 'unit_id', 'procedure', 'overdue'] as const).every((k) => v[k] === query[k]);
   };
   const activeView = views.data?.find((v: any) => v.id === activeViewId && showing(v.config)) ?? null;
   const deleteActiveView = async () => {
@@ -205,7 +212,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
     try {
       // The search box reaches the query a beat after typing stops; the view keeps what the box says now.
       const q = search.trim();
-      const saved = await api.saveWorkView({ name: viewName, config: { state: query.state, active: query.active, claimed: query.claimed, q, sort: query.sort, direction: query.direction, unit_id: query.unit_id, procedure: query.procedure } });
+      const saved = await api.saveWorkView({ name: viewName, config: { state: query.state, active: query.active, claimed: query.claimed, q, sort: query.sort, direction: query.direction, unit_id: query.unit_id, procedure: query.procedure, overdue: query.overdue } });
       track('work.view_saved', { filters: [query.state, query.claimed, q, query.unit_id, query.procedure].filter(Boolean).length });
       toast.success('View saved.');
       setSaveViewOpen(false); setViewName('');
@@ -230,12 +237,13 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
 
       <div className="mb-3 flex flex-wrap items-center gap-2" role="group" aria-label="Whose work">
         {([
-          ['open', 'All open work', { active: true, claimed: '', state: '' }],
-          ['nobody', 'Open to claim', { active: true, claimed: 'nobody', state: '' }],
-          ['me', 'Mine', { active: true, claimed: 'me', state: '' }],
-          ['resolved', 'Resolved', { active: false, claimed: '', state: 'resolved' }],
+          ['open', 'All open work', { active: true, claimed: '', state: '', overdue: false }],
+          ['nobody', 'Open to claim', { active: true, claimed: 'nobody', state: '', overdue: false }],
+          ['me', 'Mine', { active: true, claimed: 'me', state: '', overdue: false }],
+          ['overdue', 'Overdue', { active: true, claimed: '', state: '', overdue: true }],
+          ['resolved', 'Resolved', { active: false, claimed: '', state: 'resolved', overdue: false }],
         ] as const).map(([key, label, patch]) => {
-          const on = query.active === patch.active && query.claimed === patch.claimed && query.state === patch.state;
+          const on = query.active === patch.active && query.claimed === patch.claimed && query.state === patch.state && query.overdue === patch.overdue;
           return <Button key={key} size="sm" variant={on ? 'primary' : 'default'} aria-pressed={on} onClick={() => setQuery((q) => ({ ...q, ...patch, offset: 0 }))}>{label}</Button>;
         })}
       </div>
@@ -314,8 +322,8 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                   </span>
                   <span className="mt-1 block text-sm text-ink">{row.title}</span>
                   <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
-                    {row.due_date && <span>Due <DateText value={row.due_date} /></span>}
-                    {row.amount != null && <span className="fig">{formatDollars(row.amount)}{row.amount_type ? ` ${row.amount_type}` : ''}</span>}
+                    {row.due_date && <span className={cn(isOverdue(row) && 'font-medium text-bad')}>{isOverdue(row) ? 'Overdue · ' : ''}Due <DateText value={row.due_date} /></span>}
+                    {row.amount != null && <span className="fig">{formatDollarsExact(row.amount)}{row.amount_type ? ` ${row.amount_type}` : ''}</span>}
                     {row.claimed_by && <span>{row.claimed_by === identity?.user.id ? 'You have this' : `${[row.holder_rank, row.holder_name].filter(Boolean).join(' ')} has this`}</span>}
                   </span>
                 </button>
@@ -365,14 +373,19 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                             <input type="checkbox" checked={isSelected} onChange={() => toggleSelected(row.id)} aria-label={`Select ${row.reference || row.natural_key}`} />
                           </td>
                           <td className="fig w-36 truncate px-3 text-xs font-semibold text-ink-2">{row.reference || row.natural_key}</td>
-                          <td className="truncate px-3 text-ink" title={row.title}>
-                            {row.procedure_key && PROCEDURES[row.procedure_key] && <Badge tone="accent" className="mr-2">{PROCEDURES[row.procedure_key].short}</Badge>}
-                            {row.title}
-                            {row.source_changed_at && <Badge tone="warn" className="ml-2">Source changed</Badge>}
+                          <td className="px-3 text-ink" title={row.title}>
+                            {/* Two lines, not one: rows of the same report differ at the end of the title, which a single line cut off. */}
+                            <span className="line-clamp-2 text-[13px] leading-snug">
+                              {row.procedure_key && PROCEDURES[row.procedure_key] && <Badge tone="accent" className="mr-2">{PROCEDURES[row.procedure_key].short}</Badge>}
+                              {row.title}
+                              {row.source_changed_at && <Badge tone="warn" className="ml-2">Source changed</Badge>}
+                            </span>
                           </td>
                           <td className="w-40 truncate px-3"><StageBadge stage={row.stage || row.state} waiting={row.waiting_category} /></td>
-                          <td className="w-24 px-3 text-xs text-ink-3"><DateText value={row.due_date} fallback="—" /></td>
-                          <td className="fig w-24 px-3 text-right text-xs">{row.amount == null ? '' : formatDollars(row.amount)}</td>
+                          <td className={cn('w-24 px-3 text-xs', isOverdue(row) ? 'font-medium text-bad' : 'text-ink-3')}>
+                            <DateText value={row.due_date} fallback="—" />{isOverdue(row) && <span className="block text-2xs uppercase tracking-wide">Overdue</span>}
+                          </td>
+                          <td className="fig w-28 px-3 text-right text-xs">{row.amount == null ? '' : formatDollarsExact(row.amount)}</td>
                           <td className="w-32 truncate px-3 text-xs text-ink-3">{row.claimed_by ? (mine ? 'You' : [row.holder_rank, row.holder_name].filter(Boolean).join(' ') || 'Someone else') : '—'}</td>
                           <td className="w-20 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                             {row.claimed_by

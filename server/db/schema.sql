@@ -711,6 +711,20 @@ CREATE TABLE IF NOT EXISTS connector_auth_states (
   used_at       TEXT
 );
 
+-- An organization sign-in (OpenID Connect) in progress: hashes of its state and nonce and the sealed PKCE verifier,
+-- for ten minutes, used once.
+CREATE TABLE IF NOT EXISTS oidc_states (
+  state_hash    TEXT PRIMARY KEY,
+  nonce_hash    TEXT NOT NULL,
+  verifier_enc  TEXT NOT NULL,
+  face          TEXT NOT NULL CHECK (face IN ('app', 'console')),
+  consented     INTEGER NOT NULL DEFAULT 0 CHECK (consented IN (0, 1)),
+  return_to     TEXT,
+  created_at    TEXT NOT NULL,
+  expires_at    TEXT NOT NULL,
+  used_at       TEXT
+);
+
 CREATE TABLE IF NOT EXISTS product_events (
   id           TEXT PRIMARY KEY,
   name         TEXT NOT NULL,

@@ -38,16 +38,34 @@ export function Overview() {
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <Panel title="Instance"><dl className="space-y-1.5 text-sm">{[['Version', `${data.version} · schema ${data.schemaVersion}`], ['Node', data.node], ['Uptime', `${Math.round(data.uptime / 3600)} h`], ...(data.siteUrl && data.siteUrl !== data.publicUrl ? [['Public site', data.siteUrl]] : []), ['App', data.publicUrl], ...(data.consoleUrl && data.consoleUrl !== data.publicUrl ? [['Owner console', data.consoleUrl]] : []), ['Passkey domain', data.rpId], ['Time zone', data.timezone], ['Sessions open', data.sessions], ['MFA users', `${data.mfaUsers} authenticator · ${data.passkeyUsers} passkey`]].map(([k, v]) => <div key={String(k)} className="flex justify-between gap-3"><dt className="text-ink-3">{k}</dt><dd className="fig truncate text-right text-ink">{String(v)}</dd></div>)}</dl></Panel>
         <Panel title="Email" subtitle={data.email.enabled ? `${data.email.provider} · from ${data.email.from}` : 'not configured'} action={data.email.enabled ? <Button size="sm" onClick={async () => { try { await withSudo(() => api.adminEmailTest()); toast.success('Test email sent to you.'); } catch (e) { toast.error(api.errorText(e)); } }}><Mail className="h-3.5 w-3.5" />Send test</Button> : undefined}>
-          {!data.email.enabled ? <p className="text-sm text-ink-2">Turn email on to send reset links, invitations and digests. The Email tab shows how to send from your own domain with no email service.</p> : !data.email.recent.length ? <p className="text-sm text-ink-3">No email sent yet.</p> : <ul className="space-y-1 text-xs">{data.email.recent.map((m: any, i: number) => <li key={i} className="flex justify-between gap-2"><span className="truncate text-ink">{m.kind} → {m.to_address}</span><span className={m.status === 'sent' ? 'text-good' : m.status === 'queued' ? 'text-warn' : 'text-bad'}>{m.status}{m.error ? `: ${m.error}` : ''}</span></li>)}</ul>}
+          {!data.email.enabled ? <p className="text-sm text-ink-2">Turn email on to send reset links, invitations and digests. The Email tab shows how to send from your own domain with no email service.</p> : !data.email.recent.length ? <p className="text-sm text-ink-3">No email sent yet.</p> : <ul className="space-y-1 text-xs">{data.email.recent.map((m: any, i: any) => <li key={i} className="flex justify-between gap-2"><span className="truncate text-ink">{m.kind} → {m.to_address}</span><span className={m.status === 'sent' ? 'text-good' : m.status === 'queued' ? 'text-warn' : 'text-bad'}>{m.status}{m.error ? `: ${m.error}` : ''}</span></li>)}</ul>}
         </Panel>
         <Panel title="Audit chain" subtitle="Tamper-evident log">
           <p className="text-sm"><Badge tone={data.audit.ok ? 'good' : 'bad'}>{data.audit.ok ? 'Intact' : 'Broken'}</Badge> <span className="fig text-ink-2">{data.audit.count} entries</span></p>
           {!data.audit.ok && <p className="mt-2 text-xs text-bad">{data.audit.reason}. Restore from a backup taken before that point and investigate.</p>}
+          <AuditForwarding status={data.auditForwarding} />
           <CaseHistories />
           <p className="mt-3 text-sm text-ink-2">MARADMIN feed: {data.maradmins.enabled ? `${data.maradmins.count} cached · last sync ${data.maradmins.lastSuccess ? timeAgo(data.maradmins.lastSuccess) : 'never'}` : 'off'}{data.maradmins.lastError ? <span className="block text-xs text-warn">{data.maradmins.lastError}</span> : null}</p>
           {data.maradmins.enabled && <Button size="sm" className="mt-2" onClick={async () => { try { const r = await withSudo(() => api.adminSyncMaradmins()); toast.success(`Synced: ${r.inserted ?? 0} new, ${r.updated ?? 0} updated.`); refetch(); } catch (e) { toast.error(api.errorText(e)); } }}><RefreshCw className="h-3.5 w-3.5" />Sync now</Button>}
         </Panel>
       </div>
+    </div>
+  );
+}
+
+/** Where the audit records go besides this database. Without a copy off the host, the chain proves nothing against whoever holds the host. */
+function AuditForwarding({ status }: { status?: { stdout: boolean; syslog: null | { target: string; connected: boolean; sent: number; dropped: number; queued: number; lastError: string | null } } }) {
+  if (!status) return null;
+  const off = !status.stdout && !status.syslog;
+  return (
+    <div className="mt-3 border-t border-line pt-3 text-sm">
+      <p className="text-ink-2">Copies off this host</p>
+      {off
+        ? <p className="mt-1 text-xs text-warn">None. Somebody holding this server and its secret could rewrite the chain unseen. Set VANTAGE_AUDIT_SYSLOG to your SIEM, or VANTAGE_AUDIT_STDOUT=true where the platform keeps container logs.</p>
+        : <ul className="mt-1 space-y-0.5 text-xs text-ink-2">
+            {status.stdout && <li>Standard output, one JSON line per record</li>}
+            {status.syslog && <li><Badge tone={status.syslog.lastError ? 'warn' : 'good'}>{status.syslog.lastError ? 'Retrying' : 'Sending'}</Badge> <span className="fig">{status.syslog.target} · {status.syslog.sent} sent{status.syslog.queued ? ` · ${status.syslog.queued} waiting` : ''}{status.syslog.dropped ? ` · ${status.syslog.dropped} dropped` : ''}</span>{status.syslog.lastError && <span className="block text-warn">{status.syslog.lastError}</span>}</li>}
+          </ul>}
     </div>
   );
 }
@@ -252,8 +270,9 @@ export function Accounts() {
             <tr key={u.id}>
               <td><span className="block font-medium text-ink">{u.rank_abbr || ''} {u.last_name}, {u.first_name}{u.is_operator ? <Badge tone="accent" className="ml-2">Owner</Badge> : null}</span><span className="block text-xs text-ink-3">@{u.username}{u.email ? ` · ${u.email}` : ''}</span></td>
               <td className="text-xs text-ink-2">{u.totp_enabled ? 'Authenticator' : ''}{u.totp_enabled && u.passkeys ? ' · ' : ''}{u.passkeys ? `${u.passkeys} passkey${u.passkeys === 1 ? '' : 's'}` : ''}{!u.totp_enabled && !u.passkeys ? <span className="text-warn">Password only</span> : ''}{u.must_change_password ? <span className="block text-warn">Temp password</span> : null}{u.edipi ? <span className="block">CAC linked</span> : null}</td>
-              <td className="fig text-center">{u.units}</td><td className="text-xs text-ink-3">{u.last_login_at ? timeAgo(u.last_login_at) : 'never'}</td><td>{u.active ? <Badge tone="good">Active</Badge> : <Badge tone="bad">Inactive</Badge>}</td>
+              <td className="fig text-center">{u.units}</td><td className="text-xs text-ink-3">{u.last_login_at ? timeAgo(u.last_login_at) : 'never'}</td><td>{!u.active ? <Badge tone="bad">Inactive</Badge> : u.locked_until ? <Badge tone="warn" title={`Locked after failed attempts until ${new Date(u.locked_until).toLocaleTimeString()}`}>Locked</Badge> : <Badge tone="good">Active</Badge>}</td>
               <td className="text-right"><span className="flex flex-wrap justify-end gap-1">
+                {u.active && u.locked_until && <Button size="xs" variant="ghost" onClick={() => act(`${u.username} unlocked`, () => api.unlockAccount(u.id))}>Unlock</Button>}
                 {u.active ? <>{u.id !== identity?.user.id && u.email && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'sign-in', user: u })}><Send className="h-3 w-3" />Email sign-in</Button>}{u.id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'temp', user: u })}><KeyRound className="h-3 w-3" />Temp password</Button>}<Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'reset-mfa', user: u })}>Reset MFA</Button><Button size="xs" variant="ghost" onClick={() => setCac({ user: u, edipi: u.edipi || '' })} aria-label={`EDIPI for ${u.username}`}><IdCard className="h-3 w-3" />EDIPI</Button><Button size="xs" variant="ghost" onClick={() => act('Signed out everywhere', () => api.forceLogout(u.id))}><LogOut className="h-3 w-3" /></Button>{u.id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'operator', user: u })}>{u.is_operator ? 'Remove owner' : 'Make owner'}</Button>}{u.id !== identity?.user.id && <Button size="xs" variant="ghost" className="text-bad" onClick={() => setConfirm({ kind: 'deactivate', user: u })}>Deactivate</Button>}</> : <Button size="xs" onClick={() => act('Reactivated', () => api.reactivateMember(u.id))}>Reactivate</Button>}
               </span></td>
             </tr>
@@ -308,6 +327,8 @@ export function AuditLog() {
 }
 
 export function DataAdmin() {
+  const { data: overview } = useAdmin('overview', api.adminOverview);
+  const browserOff = overview?.browserBackups === false;
   const toast = useToast(); const [busy, setBusy] = useState(''); const [importFile, setImportFile] = useState<File | null>(null); const [confirmImport, setConfirmImport] = useState(false);
   const backup = async () => { setBusy('backup'); try { const n = await api.downloadFile('/api/admin/backup', 'vantage-backup.db'); toast.success(`Downloaded ${n}.`); } catch (e: any) { if (e?.code === 'sudo_required') { try { await withSudo(() => api.adminOverview()); const n = await api.downloadFile('/api/admin/backup', 'vantage-backup.db'); toast.success(`Downloaded ${n}.`); } catch (e2) { toast.error(api.errorText(e2)); } } else toast.error(api.errorText(e)); } finally { setBusy(''); } };
   const exportJson = async () => { setBusy('export'); try { await withSudo(() => api.adminOverview()); const n = await api.downloadFile('/api/admin/export', 'vantage-instance.json'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(''); } };
@@ -316,8 +337,10 @@ export function DataAdmin() {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Backup" subtitle="A consistent copy of the SQLite database">
-        <p className="text-sm text-ink-2">Render's disk is not backed up for you. Download a copy on a schedule you can live with, and before any upgrade.</p>
-        <Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button>
+        <p className="text-sm text-ink-2">The file holds every record, password hash and sealed secret on this instance. Every other owner is notified each time one is downloaded.</p>
+        {browserOff
+          ? <p className="mt-3 text-sm text-warn">Downloading through the browser is turned off on this instance (VANTAGE_BROWSER_BACKUPS=false). Back up on the server; see Operations in the documentation.</p>
+          : <Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button>}
       </Panel>
       <Panel title="Move to another host" subtitle="Portable JSON of the whole instance">
         <p className="text-sm text-ink-2">Export everything (accounts, units, roles, records, attachments, audit log) as one JSON file. Import it into a fresh Vantage anywhere: Render, a VM, a laptop. Passwords, passkeys, and authenticators carry over.</p>

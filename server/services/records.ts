@@ -74,7 +74,19 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   const offset = Math.max(Number(opts.offset) || 0, 0);
   const rows = ctx.db.prepare(`SELECT t.* FROM ${table} t WHERE ${where.join(' AND ')} ORDER BY ${spec.orderBy} LIMIT ? OFFSET ?`).all(...params, limit, offset) as Array<Record<string, unknown>>;
   const hydrated = rows.map((r) => hydrate(r, table)!);
+  if (table === 'counselings') return withSubjectNames(ctx, user.id, hydrated);
   return table === 'goals' ? withGoalProgress(ctx, hydrated as never) : hydrated;
+}
+
+/** A counselor reading a counseling they recorded for someone else sees whom it was for. */
+function withSubjectNames(ctx: AppContext, viewerId: string, rows: Array<Record<string, unknown>>) {
+  const ids = [...new Set(rows.map((r) => String(r.user_id)).filter((id) => id !== viewerId))];
+  if (!ids.length) return rows;
+  const names = new Map((ctx.db.prepare(
+    `SELECT u.id, u.first_name, u.last_name, r.abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id IN (${ids.map(() => '?').join(',')})`
+  ).all(...ids) as Array<{ id: string; first_name: string; last_name: string; abbr: string | null }>)
+    .map((u) => [u.id, `${u.abbr ? `${u.abbr} ` : ''}${u.last_name}, ${u.first_name}`]));
+  return rows.map((r) => (r.user_id !== viewerId && names.has(String(r.user_id)) ? { ...r, subject_name: names.get(String(r.user_id)) } : r));
 }
 
 export function withGoalProgress<T extends Record<string, unknown>>(ctx: AppContext, goals: T[]): T[] {

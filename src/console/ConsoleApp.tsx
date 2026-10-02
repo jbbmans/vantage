@@ -9,6 +9,7 @@ import Logo from '@/components/Logo';
 import AppLoader from '@/components/AppLoader';
 import ErrorBoundary from '@/components/ErrorBoundary';
 import SudoDialog, { type SudoRequest } from '@/components/SudoDialog';
+import IdleGuard from '@/components/IdleGuard';
 import { ToastProvider } from '@/components/ui/toast';
 import { Button, EmptyState, PageHeader, Skeleton, TooltipProvider } from '@/components/ui/primitives';
 import { keys, queryClient, useIdentity, useSavePrefs, type Identity } from '@/lib/queries';
@@ -176,6 +177,8 @@ function Shell({ identity }: { identity: Identity }) {
           </ErrorBoundary>
         </div></main>
       </div>
+      {/* An owner's session ends after 10 idle minutes; ask before it does. */}
+      <IdleGuard onSignOut={() => { void signOut(); }} />
       <SudoDialog open={Boolean(sudo)} onOpenChange={(o) => { if (!o) { sudo?.cancel(); setSudo(null); } }} onConfirmed={() => { const req = sudo; setSudo(null); req?.confirm(); }} />
     </div>
   );

@@ -1,0 +1,27 @@
+name: Release tag
+
+# Every version that reaches main gets a tag, so a deployed build can be traced to its source and a buyer or
+# assessor can ask for "5.1.0" by name. The tag is created once; bumping package.json's version makes the next one.
+on:
+  push:
+    branches: [main]
+    paths: [package.json]
+
+permissions:
+  contents: write
+
+jobs:
+  tag:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Tag the version if it is new
+        run: |
+          version="v$(node -p "require('./package.json').version")"
+          if git rev-parse -q --verify "refs/tags/$version" >/dev/null; then echo "$version already tagged"; exit 0; fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "$version" -m "Vantage $version"
+          git push origin "$version"

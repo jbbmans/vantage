@@ -69,7 +69,7 @@ export default function Goals() {
   }, [cfg, catalogQuery.data]);
 
   const list = useMemo(
-    () => (goals || []).filter((g: any) => filter === 'all' || g.status === 'active').sort((a: any, b: any) => (a.period_end || '9999').localeCompare(b.period_end || '9999')),
+    () => (goals || []).filter((g) => filter === 'all' || g.status === 'active').sort((a, b) => (a.period_end || '9999').localeCompare(b.period_end || '9999')),
     [goals, filter],
   );
 
@@ -97,7 +97,7 @@ export default function Goals() {
         <div className="card"><EmptyState icon={Target} title={filter === 'active' ? 'No active goals' : 'No goals yet'} description="Pick one number you want to move this quarter, in the unit the work is measured in." action={<Button variant="primary" onClick={newGoal}>Set a goal</Button>} /></div>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {list.map((g: any) => {
+          {list.map((g) => {
             const p = g.progress || { current: Number(g.current_value) || 0, percent: 0, met: false, auto: false, basis: '', measuresEntries: false, outcomes: 0 };
             const days = daysUntil(g.period_end);
             return (

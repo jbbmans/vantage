@@ -22,6 +22,7 @@ with TOTP enabled is not challenged a second time.
 | --- | --- | --- |
 | Who terminates TLS | Vantage | nginx, Apache, a load balancer |
 | Chain validated by | Node, against `CAC_CA_BUNDLE` | the gateway |
+| Revocation checked by | Node, against the CRLs in `CAC_CRL_DIR` | the gateway (OCSP or CRL) |
 | Trust rests on | the TLS handshake | a shared secret between gateway and app |
 
 **`direct`** is stronger and simpler to reason about: Node validates the chain during the handshake
@@ -48,6 +49,8 @@ line, not the only one.
 | `CAC_EXCLUSIVE` | `true` stops passwords and self-registration being accepted at all |
 | `CAC_CA_BUNDLE` | PEM bundle of issuing CAs. Required for `direct` |
 | `CAC_TLS_CERT`, `CAC_TLS_KEY` | this server's own certificate. Required for `direct` |
+| `CAC_CRL_DIR` | directory of the issuing CAs' CRLs (DER `.crl` as DoD publishes them, or PEM). Required for `direct`. A card whose serial is listed, or whose issuer has no CRL in the directory, is refused. Keep it fresh with a scheduled download; Vantage reloads it within ten minutes of a change, and keeps the previous set if a refresh is unreadable |
+| `CAC_REVOCATION` | `off` accepts cards without the revocation check in `direct` mode. It has to be set on purpose |
 | `CAC_CERT_HEADER` | default `x-client-cert`. nginx: `ssl_client_escaped_cert` |
 | `CAC_VERIFY_HEADER` / `CAC_VERIFY_SUCCESS` | default `x-client-verify` / `SUCCESS`. nginx: `ssl_client_verify` |
 | `CAC_PROXY_SECRET_HEADER` / `CAC_PROXY_SECRET` | the shared secret. Required for `proxy` |
@@ -78,6 +81,57 @@ Personnel**, or let the roster do it. Turning on `CAC_AUTO_PROVISION` creates th
 sign-in — but only for someone the roster already lists as active. A valid DoD certificate proves
 somebody is in the Department; it does not prove they belong to this command, and the roster is what
 says that.
+
+## Organization sign-in (Entra ID and other OIDC providers)
+
+Vantage can hand sign-in to the organization's identity provider over OpenID Connect: Microsoft Entra ID
+(commercial, GCC High or DoD), Okta, Keycloak, Login.gov or any provider that publishes a discovery document.
+The person is sent to the provider's page, signs in there with whatever the provider requires (CAC, phone,
+password and MFA), and is sent back already signed in. Vantage never sees their provider password.
+
+### How it is checked
+
+- Authorization code flow with PKCE (S256). The `state` and `nonce` are stored only as digests, expire after
+  ten minutes, and are used once, so a callback cannot be replayed or forged from another browser.
+- The ID token's signature is checked against the provider's published keys (RS256/384/512, PS256/384,
+  ES256/384). `none` and HMAC-signed tokens are refused. Issuer, audience, authorized party, expiry,
+  not-before, issued-at and nonce are all checked, with two minutes of clock tolerance.
+- The provider's discovery document must name the issuer that is configured, and every endpoint must be HTTPS.
+- Every rejection is written to the audit log as `oidc_rejected` with the reason. The browser is told only a
+  short code, which the sign-in page turns into a plain sentence.
+
+### Settings
+
+| Variable | Meaning |
+| --- | --- |
+| `VANTAGE_OIDC_ISSUER` | The issuer URL. Setting it turns organization sign-in on. Entra ID: `https://login.microsoftonline.com/<tenant id>/v2.0`, or `login.microsoftonline.us` for GCC High and DoD. Use the tenant's own issuer, not `common` or `organizations`. |
+| `VANTAGE_OIDC_CLIENT_ID` | The application (client) ID registered with the provider. Required. |
+| `VANTAGE_OIDC_CLIENT_SECRET` | The client secret, if the registration is a confidential client. |
+| `VANTAGE_OIDC_SCOPES` | Default `openid profile email`. |
+| `VANTAGE_OIDC_LABEL` | The button text. Defaults to "Sign in with Microsoft" for Entra ID, otherwise "Sign in with your organization". |
+| `VANTAGE_OIDC_LINK` | How a first sign-in finds its account: `email` (default), `edipi`, or `none` (only accounts already linked). |
+| `VANTAGE_OIDC_EDIPI_CLAIM` | The claim that carries the EDIPI. Required with `VANTAGE_OIDC_LINK=edipi`. |
+| `VANTAGE_OIDC_TRUST_EMAIL` | Treat the provider's address as verified even without `email_verified`. On by default for Entra ID, whose tenant controls its users' addresses. |
+| `VANTAGE_OIDC_AUTO_PROVISION` | Create the account on first sign-in for someone the personnel roster lists as active (needs the EDIPI claim). |
+| `VANTAGE_OIDC_EXCLUSIVE` | Turn password sign-in and self-registration off. Passkeys and CAC, where enabled, still work. |
+
+Register these redirect URIs with the provider, one for each face that people sign in on:
+`https://<app host>/api/auth/oidc/callback` and, if the owner console has its own host,
+`https://<console host>/api/auth/oidc/callback`.
+
+The demo refuses organization sign-in, and a plain `http` issuer is refused outside the test suite.
+
+### Linking accounts
+
+The first time someone signs in, Vantage looks for their account by verified email address (or EDIPI, if
+configured) and records the provider's subject on it. After that the account is found by subject alone, so
+a changed address at the provider does not lose the link. An account already linked to one subject is never
+re-linked to another with the same address; that sign-in is refused and audited. With
+`VANTAGE_OIDC_AUTO_PROVISION`, a person with no account gets one only if the roster lists their EDIPI as
+active, for the same reason as with a CAC: the provider proves who someone is, the roster says they belong here.
+
+If the DoD consent banner is on, the person accepts it on the Vantage sign-in page before leaving for the
+provider, and the server refuses a sign-in that did not.
 
 ## The personnel feed
 

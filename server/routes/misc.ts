@@ -23,6 +23,8 @@ import { audit } from '../services/audit.ts';
 import { notifyOperators } from '../services/notifications.ts';
 import { now } from '../lib/ids.ts';
 import { isoDay, zonedNow } from '../lib/clock.ts';
+import { listItems } from '../services/work.ts';
+import { zoneOf } from '../lib/zone.ts';
 
 export const miscRouter = Router();
 miscRouter.use(requireAuth);
@@ -186,7 +188,7 @@ miscRouter.get('/reports/delta', wrap((req, res) => {
   const awards = req.ctx.db.prepare(`SELECT date FROM awards WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ date: string | null }>;
   const trainings = req.ctx.db.prepare(`SELECT date, hours FROM trainings WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ date: string | null; hours: number | null }>;
   const goals = req.ctx.db.prepare(`SELECT status FROM goals WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ status: string }>;
-  const range = rangeForPeriod(q.period, zonedNow(req.ctx.config.timezone));
+  const range = rangeForPeriod(q.period, zonedNow(zoneOf(req.ctx, req.user)));
   const track = q.track || buildReport(req.ctx, { userId, unitId, period: q.period }).track;
   res.json(comparePeriods(activities as never, range, { areas: areasFor(track), awards, trainings, goals }));
 }));
@@ -229,7 +231,7 @@ miscRouter.get('/reports/csv', wrap((req, res) => {
   const where = unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
   const params = unitId ? [userId, unitId] : [userId];
   const dateClause = q.period === 'all' ? '' : ' AND date >= ? AND date <= ?';
-  const bounds = q.period === 'all' ? [] : (() => { const r = rangeForPeriod(q.period, zonedNow(req.ctx.config.timezone)); return [q.from || isoDay(r.start), q.to || isoDay(r.end)]; })();
+  const bounds = q.period === 'all' ? [] : (() => { const r = rangeForPeriod(q.period, zonedNow(zoneOf(req.ctx, req.user))); return [q.from || isoDay(r.start), q.to || isoDay(r.end)]; })();
   const rows = (req.ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL${dateClause} ORDER BY date DESC`).all(...params, ...bounds) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
   audit(req.ctx, { actor_id: req.user.id, action: 'export_csv', entity: 'activities', subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: `${rows.length} rows`, ip: clientIp(req) });
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
@@ -279,6 +281,8 @@ miscRouter.put('/maradmins/:id/state', wrap((req, res) => {
   res.json({ ok: true, read_at: readAt, saved_at: savedAt });
 }));
 
+const humanStage = (w: { stage?: string | null; state?: string | null }) => String(w.stage || w.state || '').replace(/_/g, ' ');
+
 miscRouter.get('/search', wrap((req, res) => {
   const q = String(req.query.q || '').trim().slice(0, 80);
   if (q.length < 2) return res.json({ results: [] });
@@ -289,8 +293,13 @@ miscRouter.get('/search', wrap((req, res) => {
     const rows = req.ctx.db.prepare(`SELECT id, ${titleCol} AS title, ${subCol} AS subtitle FROM ${table} WHERE user_id = ? AND deleted_at IS NULL AND (${titleCol} LIKE ? ESCAPE '\\' COLLATE NOCASE) ORDER BY updated_at DESC LIMIT 6`).all(req.user.id, like) as Array<{ id: string; title: string; subtitle: string | null }>;
     for (const r of rows) results.push({ type, id: r.id, title: r.title, subtitle: r.subtitle, to: to(r.id) });
   };
+  // Cases first: a document number from an email is the most common thing anyone types here. Same scope as the queue.
+  for (const w of listItems(req.ctx, req.user, scope, { q, limit: 8, sort: 'updated_at', direction: 'desc' }).items) {
+    const ref = w.reference || w.natural_key;
+    results.push({ type: 'work', id: w.id, title: ref && ref !== w.title ? `${ref} · ${w.title}` : w.title, subtitle: [humanStage(w), w.due_date ? `due ${w.due_date}` : null].filter(Boolean).join(' · ') || null, to: `/work/items/${w.id}` });
+  }
   own('activities', 'title', 'date', (id) => `/records/${id}`, 'activity');
-  own('tasks', 'title', 'status', () => '/work', 'task');
+  own('tasks', 'title', 'status', (id) => `/records/tasks/${id}`, 'task');
   own('projects', 'name', 'status', () => '/work/projects', 'project');
   own('goals', 'title', 'status', () => '/goals', 'goal');
   own('awards', 'name', 'status', () => '/career/awards', 'award');

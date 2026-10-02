@@ -1,7 +1,7 @@
 import { test, after, before } from 'node:test';
 import { existsSync, readFileSync } from 'node:fs';
 import assert from 'node:assert/strict';
-import { startApp, enroll, mockGenAi, type TestApp } from './helpers.ts';
+import { startApp, enroll, mockGenAi, type TestApp, today } from './helpers.ts';
 import { exportInstance } from '../../server/services/exports.ts';
 import { pruneSources, storedBytesFor } from '../../server/services/intake.ts';
 import { buildPersonalExport } from '../../server/services/personalExport.ts';
@@ -161,7 +161,7 @@ test('the app shell precaches fonts that actually ship', () => {
 test('the command brief counts the value types the instance actually configured', async () => {
   await app.call('POST', '/api/records/activities', {
     token: op.token,
-    body: { title: 'Recovered expiring funds', date: new Date().toISOString().slice(0, 10), visibility: 'unit', unit_id: 'G8', dollar_amount: 4000, dollar_type: 'reviewed' },
+    body: { title: 'Recovered expiring funds', date: today(), visibility: 'unit', unit_id: 'G8', dollar_amount: 4000, dollar_type: 'reviewed' },
   });
 
   const before = briefTotal(await brief());

@@ -28,5 +28,5 @@ export function applyDensity(density: string) {
 }
 
 export function storedTheme(): ThemeMode {
-  try { return (localStorage.getItem('vantage.theme') as ThemeMode) || 'light'; } catch { return 'light'; }
+  try { return (localStorage.getItem('vantage.theme') as ThemeMode) || 'system'; } catch { return 'system'; }
 }

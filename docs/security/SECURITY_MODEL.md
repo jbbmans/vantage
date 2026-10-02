@@ -9,7 +9,7 @@ MCEN, NETACT-RES, RMF or CAC approval has been sought or granted.
 
 | Mode | How people get in | Where it may run |
 |---|---|---|
-| `accounts` (default) | Local accounts: 15+ character passwords (scrypt), passkeys, TOTP, step-up, sessions with idle and absolute expiry, rate limits. Optionally CAC through `CAC_MODE=direct` (mTLS) or `CAC_MODE=proxy` (a trusted reverse proxy that must present a 32+ character shared secret). | Evaluation and operation |
+| `accounts` (default) | Local accounts: 15+ character passwords (PBKDF2-HMAC-SHA256), passkeys, TOTP, step-up, a lockout after three failures, sessions with 15-minute idle and absolute expiry, rate limits. Optionally CAC through `CAC_MODE=direct` (mTLS) or `CAC_MODE=proxy` (a trusted reverse proxy that must present a 32+ character shared secret). | Evaluation and operation |
 | `demo` | No sign-in form. Each visitor receives a disposable workspace of synthetic people and a session as one of them. | Only a non-production instance, on its own database |
 
 Enterprise identity (an approved OIDC/SAML provider or authenticating proxy) is a boundary to be

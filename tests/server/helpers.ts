@@ -3,6 +3,7 @@ import { loadConfig } from '../../server/config.ts';
 import { createApp, createContext } from '../../server/app.ts';
 import type { AppContext } from '../../server/context.ts';
 import { resetLimiters } from '../../server/auth/limiter.ts';
+import { zonedDay } from '../../server/lib/clock.ts';
 
 export interface TestApp {
   ctx: AppContext;
@@ -15,6 +16,9 @@ export interface TestApp {
 }
 
 export const PASSWORD = 'cobalt-orbit-velvet-anchor-927';
+
+/** Today in the test instance's timezone, as a Marine there would date an entry. The UTC date is tomorrow every evening. */
+export const today = () => zonedDay(process.env.VANTAGE_TIMEZONE || 'America/New_York');
 
 export async function startApp(env: Record<string, string> = {}): Promise<TestApp> {
   const config = loadConfig({
