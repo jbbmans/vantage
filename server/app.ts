@@ -37,13 +37,17 @@ import { purgeDeleted } from './services/records.ts';
 import { releaseStaleClaims } from './services/work.ts';
 import { sealBacklog, anchorCaseHeads } from './services/caseSeal.ts';
 import { loadRuntime } from './runtime.ts';
+import { loadChainKey, resealStoredSecrets } from './lib/keys.ts';
 import { announcePublicPage, indexNowKey } from './services/indexNow.ts';
 export { loadRuntime };
 
 export function createContext(config: AppConfig): AppContext {
   const db = openDatabase(config.databasePath);
+  const chainKey = loadChainKey(db, config);
+  const resealed = resealStoredSecrets(db, config);
+  if (resealed) console.log(`Re-sealed ${resealed} stored secret(s) under the new VANTAGE_SECRET. Remove VANTAGE_SECRET_PREVIOUS before the next start.`);
   const runtime = loadRuntime(db, config);
-  const ctx: AppContext = { db, config, mailer: createMailer(config, db), runtime, saveRuntime: () => metaSet(db, 'runtime', JSON.stringify(runtime)) };
+  const ctx: AppContext = { db, config, chainKey, mailer: createMailer(config, db), runtime, saveRuntime: () => metaSet(db, 'runtime', JSON.stringify(runtime)) };
   assertDatabaseMatchesMode(ctx);
   if (config.accessMode === 'demo') {
     runtime.selfServiceUnits = false;

@@ -21,6 +21,8 @@ export interface AppConfig {
   publicUrl: string;
   rpId: string;
   secret: string;
+  /** Secrets this instance ran with before VANTAGE_SECRET, kept for one start so stored values can be re-sealed. */
+  previousSecrets: string[];
   setupToken: string;
   operatorUsernames: string[];
   timezone: string;
@@ -163,6 +165,8 @@ export function loadConfig(env = process.env): AppConfig {
     if (production) throw new Error('VANTAGE_SECRET must be at least 32 characters in production.');
     secret = env.VANTAGE_SECRET || 'vantage-development-secret-not-for-production-use';
   }
+  const previousSecrets = envList(env, 'VANTAGE_SECRET_PREVIOUS', []).filter((s) => s !== secret);
+  if (production && previousSecrets.some((s) => s.length < 32)) throw new Error('VANTAGE_SECRET_PREVIOUS must hold the earlier secret exactly, at least 32 characters.');
   const setupToken = String(env.VANTAGE_SETUP_TOKEN || '');
   if (production && setupToken.length < 24) throw new Error('VANTAGE_SETUP_TOKEN must be at least 24 characters in production.');
 
@@ -208,6 +212,7 @@ export function loadConfig(env = process.env): AppConfig {
     publicUrl,
     rpId,
     secret,
+    previousSecrets,
     setupToken,
     operatorUsernames: envList(env, 'VANTAGE_OPERATOR', []).map((s) => s.toLowerCase()),
     timezone: env.VANTAGE_TIMEZONE || 'America/New_York',

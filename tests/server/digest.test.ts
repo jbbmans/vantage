@@ -1,6 +1,6 @@
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, type TestApp } from './helpers.ts';
+import { startApp, type TestApp, today } from './helpers.ts';
 import { runDigestTick, localClock } from '../../server/services/digest.ts';
 import { upsertMaradmins } from '../../server/services/maradmins.ts';
 
@@ -10,7 +10,7 @@ before(async () => { app = await startApp(); op = await app.setupOperator(); });
 after(async () => { await app.close(); });
 
 test('digest preview composes the week and sends on the configured slot only', async () => {
-  await app.call('POST', '/api/records/activities', { token: op.token, body: { title: 'Closed 12 UMTs', date: new Date().toISOString().slice(0, 10), dollar_amount: 500, dollar_type: 'saved' } });
+  await app.call('POST', '/api/records/activities', { token: op.token, body: { title: 'Closed 12 UMTs', date: today(), dollar_amount: 500, dollar_type: 'saved' } });
   await app.call('POST', '/api/records/tasks', { token: op.token, body: { title: 'Late task', due_date: '2020-01-01' } });
   upsertMaradmins(app.ctx, [{ id: 'maradmin-001-26', number: '001/26', title: 'TEST MESSAGE', summary: 's', url: 'https://x', tags: ['General'], audience: ['All Marines'], published_at: new Date().toISOString(), source_hash: 'h' }]);
   const preview = await app.call('GET', '/api/me/digest/preview', { token: op.token });

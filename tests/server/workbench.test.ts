@@ -1,6 +1,6 @@
 import { test, after, before, beforeEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, enroll, type TestApp } from './helpers.ts';
+import { startApp, enroll, type TestApp, today } from './helpers.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
 
 let app: TestApp;
@@ -88,7 +88,7 @@ test('picking up work is not an accomplishment: a claim produces no measured out
     const list = await fresh.call('GET', '/api/work/items?unit_id=G8', { token: owner.token });
     const target = list.body.items[0];
 
-    const day = new Date().toISOString().slice(0, 10);
+    const day = today();
     const before = await fresh.call('GET', `/api/metrics?from=2000-01-01&to=${day}`, { token: owner.token });
     await fresh.call('POST', `/api/work/items/${target.id}/claim`, { token: owner.token, body: { version: target.version } });
     await fresh.call('PATCH', `/api/work/items/${target.id}`, { token: owner.token, body: { state: 'waiting' } });
@@ -108,7 +108,7 @@ test('a recorded action can draft the personal record of the work, once', async 
     const target = (await fresh.call('GET', '/api/work/items?unit_id=G8', { token: owner.token })).body.items[0];
     await fresh.call('POST', `/api/work/items/${target.id}/claim`, { token: owner.token, body: { version: target.version } });
 
-    const day = new Date().toISOString().slice(0, 10);
+    const day = today();
     const body = { kind: 'reconciled', note: 'Confirmed the supporting document and released the balance.', occurred_at: day, dollar_amount: 1000, dollar_type: 'saved', quantity: 1, unit_label: 'ULOs', draft_record: true, resolve: true };
     const key = { 'idempotency-key': 'action-once' };
     const first = await fresh.call('POST', `/api/work/items/${target.id}/actions`, { token: owner.token, body, headers: key });

@@ -1,11 +1,11 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, enroll, type TestApp } from './helpers.ts';
+import { startApp, enroll, type TestApp, today as localToday } from './helpers.ts';
 
 let app: TestApp;
 let op: { token: string; id: string };
 const people: Record<string, { id: string; token: string }> = {};
-const today = new Date().toISOString().slice(0, 10);
+const today = localToday();
 const as = (name: string) => people[name].token;
 const relogin = async (name: string) => { people[name].token = (await app.login(name)).body.token; return people[name].token; };
 const share = async (name: string, unit_id: string, title: string) => {

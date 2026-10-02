@@ -9,9 +9,42 @@ Restoring a `.db` file: turn on maintenance mode, replace `/data/vantage.db` (a 
 ## Moving to another host
 
 1. **Owner console → Export instance.** One JSON file with everything: accounts (password hashes, TOTP secrets, passkeys), units, roles, memberships, every record, attachments, notifications, audit log.
-2. Stand up Vantage on the new host (Docker image, or `npm ci && npm run build && npm start`). Use the same `VANTAGE_PUBLIC_URL` and the same `VANTAGE_SECRET`, otherwise TOTP secrets cannot be decrypted and the audit chain will not verify. Passkeys survive only if the hostname is unchanged.
+2. Stand up Vantage on the new host (Docker image, or `npm ci && npm run build && npm start`). Use the same `VANTAGE_PUBLIC_URL` and the same `VANTAGE_SECRET` (or the new secret with the old one as `VANTAGE_SECRET_PREVIOUS`, see [Changing the secret](#changing-the-secret)), otherwise TOTP secrets cannot be decrypted and the audit chain will not verify. Passkeys survive only if the hostname is unchanged.
 3. Complete setup on the new host with any throwaway owner account, then **Import** the JSON. The import replaces everything, including that throwaway account, and resets every session.
 4. Point DNS at the new host.
+
+## Changing the secret
+
+`VANTAGE_SECRET` seals the values Vantage keeps encrypted (authenticator secrets, mailbox tokens, the DKIM key,
+queued mail) and the chain key the audit log and case histories are signed with. To change it, for a schedule or
+because it may have been exposed:
+
+1. Set the new value as `VANTAGE_SECRET` and the old one as `VANTAGE_SECRET_PREVIOUS`.
+2. Start Vantage once. That start re-seals every stored value and the chain key under the new secret, and logs how
+   many values it changed. The audit chain and case histories keep verifying: they are signed with the chain key,
+   which does not change.
+3. Remove `VANTAGE_SECRET_PREVIOUS` and restart.
+
+Started with a secret that opens nothing in the database, Vantage refuses to start and says which variable to set.
+Exports taken before the change still import while `VANTAGE_SECRET_PREVIOUS` holds the old value.
+
+If you believe the chain key itself was exposed, the copies of the audit log held off the host (see
+[Audit records off the host](#audit-records-off-the-host)) are the evidence a rewrite would have to match.
+
+## Audit records off the host
+
+The audit chain and case seals detect a change made by somebody who has the database but not the secret. Somebody
+who has the whole server has both. What catches them is a copy they do not control. Send one:
+
+- `VANTAGE_AUDIT_SYSLOG=tls://siem.example.mil:6514` (or `tcp://`, `udp://`) sends every audit record, as it is
+  committed, to a syslog collector in RFC 5424 format (facility 13, log audit; octet-counted framing on TCP and TLS).
+  `VANTAGE_AUDIT_SYSLOG_CA` names a CA bundle for a collector whose certificate is not in the system store.
+- `VANTAGE_AUDIT_STDOUT=true` writes each record to standard output as one JSON line, for a platform that already
+  ships container logs somewhere you keep.
+
+Each record carries its `entry_hash`, so a collector's copy can be compared with the chain at any time. The daily
+anchor of every case history's head is an audit record and travels the same way. The Owner console's Audit chain
+panel says where copies go, how many were sent, and warns when there are none.
 
 ## Adding people from a roster
 

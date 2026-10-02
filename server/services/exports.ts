@@ -7,6 +7,7 @@ import { hmac } from '../lib/crypto.ts';
 import { loadRuntime } from '../runtime.ts';
 import { metaSet } from '../db/index.ts';
 import { sealBacklog } from './caseSeal.ts';
+import { loadChainKey, resealStoredSecrets, secretsOf } from '../lib/keys.ts';
 
 const keyCheck = (secret: string) => hmac(secret, 'vantage-instance-key-check');
 
@@ -44,7 +45,7 @@ export function exportInstance(ctx: AppContext) {
 
 export function importInstance(ctx: AppContext, archive: { format?: string; key_check?: string; tables?: Record<string, Array<Record<string, unknown>>> }, actorId: string) {
   if (archive?.format !== 'vantage-instance/1' || !archive.tables) throw new Error('That file is not a Vantage instance archive.');
-  if (archive.key_check && archive.key_check !== keyCheck(ctx.config.secret)) throw new Error('This archive was exported under a different VANTAGE_SECRET. Set the same secret on this host before importing, or authenticator secrets and the audit chain will not verify.');
+  if (archive.key_check && !secretsOf(ctx.config).some((secret) => keyCheck(secret) === archive.key_check)) throw new Error('This archive was exported under a different VANTAGE_SECRET. Set the same secret on this host before importing, or authenticator secrets and the audit chain will not verify.');
   const users = (ctx.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
   const activities = (ctx.db.prepare('SELECT COUNT(*) AS n FROM activities').get() as { n: number }).n;
   if (users > 1 || activities > 0) throw new Error('Import only into a fresh instance (one operator account, no records).');
@@ -74,6 +75,9 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
     ctx.db.pragma('foreign_keys = ON');
   }
   Object.assign(ctx.runtime, loadRuntime(ctx.db, ctx.config));
+  // The archive brought its own chain key (or, from before there was one, chains signed with the secret itself).
+  ctx.chainKey = loadChainKey(ctx.db, ctx.config);
+  resealStoredSecrets(ctx.db, ctx.config);
   // An archive from before sealing brings histories without seals. Seal them now, so that from here on a history
   // without seals can only mean its seals were removed.
   sealBacklog(ctx);

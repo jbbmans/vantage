@@ -8,6 +8,7 @@ import { scopeFor, unitsWith, PERMISSIONS, detailUnitsFor } from '../authz/scope
 import { profileSchema, passwordField, readinessSchema, prefsSchema, emailField } from '../../shared/schemas.ts';
 import { sourcedFieldsFor } from '../services/personnel.ts';
 import { hashPassword, verifyPassword, encryptSecret, decryptSecret, sha256 } from '../lib/crypto.ts';
+import { secretsOf } from '../lib/keys.ts';
 import { invalidateUserSessions, listSessions, revokeSessionByPrefix, SESSION_COOKIE, SIGNED_IN_COOKIE } from '../auth/sessions.ts';
 import { generateTotpSecret, otpauthUrl, matchTotp, generateRecoveryCodes } from '../auth/totp.ts';
 import { registrationOptions, completeRegistration, listPasskeys, deletePasskey } from '../auth/passkeys.ts';
@@ -169,7 +170,7 @@ meRouter.post('/mfa/totp/confirm', requireSudo, wrap((req, res) => {
   const ctx = req.ctx;
   const { code } = parse(z.object({ code: z.string().max(12) }), req.body);
   const row = ctx.db.prepare('SELECT totp_pending FROM users WHERE id = ?').get(req.user.id) as { totp_pending: string | null };
-  const secret = row.totp_pending ? decryptSecret(ctx.config.secret, row.totp_pending) : null;
+  const secret = row.totp_pending ? decryptSecret(secretsOf(ctx.config), row.totp_pending) : null;
   if (!secret) throw badRequest('Start authenticator setup first.');
   const step = matchTotp(secret, code);
   if (step === null) throw badRequest('That code did not match. Check the time on your device and try again.', { fieldErrors: { code: 'Incorrect code.' } });

@@ -6,6 +6,7 @@ import type { AppConfig } from '../config.ts';
 import type { Db } from '../db/index.ts';
 import { metaGet, metaSet } from '../db/index.ts';
 import { encryptSecret, decryptSecret } from '../lib/crypto.ts';
+import { secretsOf } from '../lib/keys.ts';
 import { now } from '../lib/ids.ts';
 
 /**
@@ -38,7 +39,7 @@ export function dkimKey(db: Db, config: AppConfig): DkimKey {
   const stored = metaGet(db, DKIM_META);
   if (stored) {
     const row = JSON.parse(stored) as { domain: string; selector: string; key: string; public: string; created_at: string };
-    const privateKey = decryptSecret(config.secret, row.key);
+    const privateKey = decryptSecret(secretsOf(config), row.key);
     if (privateKey && row.domain === domain) return { domain, selector: row.selector, privateKey, publicKey: row.public, createdAt: row.created_at };
   }
   const { privateKey, publicKey } = generateKeyPairSync('rsa', { modulusLength: 2048 });

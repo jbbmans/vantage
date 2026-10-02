@@ -3,6 +3,7 @@ import type { AppConfig } from '../config.ts';
 import type { Db } from '../db/index.ts';
 import { newId, now } from '../lib/ids.ts';
 import { encryptSecret, decryptSecret } from '../lib/crypto.ts';
+import { secretsOf } from '../lib/keys.ts';
 import { deliver } from './directMail.ts';
 
 export interface Mail { to: string; subject: string; text: string; html: string; kind: string; userId?: string | null; replyTo?: string | null }
@@ -94,7 +95,7 @@ export function createMailer(config: AppConfig, db: Db): Mailer {
         counts.failed++;
         continue;
       }
-      const plain = decryptSecret(config.secret, row.payload);
+      const plain = decryptSecret(secretsOf(config), row.payload);
       if (!plain) { finish('failed', 'The queued message could not be read with this instance secret.'); counts.failed++; continue; }
       const body = JSON.parse(plain) as { subject: string; text: string; html: string; replyTo: string | null };
       const result = await deliver(db, config, { from, to: row.to_address, subject: body.subject, text: body.text, html: body.html, replyTo: body.replyTo });

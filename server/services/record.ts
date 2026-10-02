@@ -11,13 +11,14 @@ import { draftUpdateSchema } from '../../shared/recordSchemas.ts';
 import { parse } from '../lib/http.ts';
 import { eventsFor, caseEventsOf, stageOf, procedureOf } from './cases.ts';
 import { readable, type WorkItemRow } from './work.ts';
-import { zonedDay } from '../lib/clock.ts';
+import { zonedDay, zonedDayBounds, zonedDateOf } from '../lib/clock.ts';
 
 const RESEARCH = RESEARCH_KINDS.map((k) => `'${k}'`).join(',');
 const OPEN = "('resolved','not_applicable')";
 
 export interface Window { from: string; to: string }
-const bounds = (w: Window) => [`${w.from}T00:00:00.000Z`, `${w.to}T23:59:59.999Z`] as const;
+/** The window's local days as UTC instants: events are stored in UTC, the window is days in the instance's timezone. */
+const bounds = (timezone: string, w: Window) => zonedDayBounds(timezone, w.from, w.to);
 
 const defaultWindow = (timezone: string, days: number): Window => ({ from: zonedDay(timezone, -(days - 1)), to: zonedDay(timezone) });
 
@@ -40,7 +41,7 @@ const CURRENT_VERIFIED = `e.kind = 'verification' AND json_extract(e.body, '$.re
        AND NOT EXISTS (SELECT 1 FROM work_events s2 WHERE s2.supersedes_id = l.id))`;
 
 export function contributionCounts(ctx: AppContext, userId: string, w: Window, unitId: string | string[] | null = null) {
-  const [lo, hi] = bounds(w);
+  const [lo, hi] = bounds(ctx.config.timezone, w);
   const units = unitId == null ? null : JSON.stringify(Array.isArray(unitId) ? unitId : [unitId]);
   const unitClause = units ? ` AND ${SHARED}` : '';
   const p = () => [userId, lo, hi, ...(units ? [units] : [])];
@@ -127,7 +128,7 @@ export function proceduresPracticed(ctx: AppContext, userId: string) {
 }
 
 export function contributionHistory(ctx: AppContext, user: SessionUser, scope: Scope, w: Window, limit = 60) {
-  const [lo, hi] = bounds(w);
+  const [lo, hi] = bounds(ctx.config.timezone, w);
   const events = ctx.db.prepare(
     `SELECT e.* FROM work_events e WHERE e.actor_id = ? AND e.occurred_at BETWEEN ? AND ?
        AND e.kind NOT IN ('claimed','released','assigned','claim_expired','created','procedure_applied','stage_changed','waiting_started','waiting_ended')
@@ -164,7 +165,7 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
   const includeMembers = can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, unitId);
   const unitIds = subtreeIds(ctx, unitId);
   const units = JSON.stringify(unitIds);
-  const [lo, hi] = bounds(w);
+  const [lo, hi] = bounds(ctx.config.timezone, w);
   const today = zonedDay(ctx.config.timezone);
   const items = ctx.db.prepare(
     `SELECT w.*, p.name AS project_name FROM work_items w LEFT JOIN projects p ON p.id = w.project_id AND p.deleted_at IS NULL
@@ -271,7 +272,7 @@ export function draftFromWork(ctx: AppContext, user: SessionUser, _scope: Scope,
   const events = eventsFor(ctx, itemId);
   const mine = events.filter((e) => e.actor_id === user.id);
   if (!mine.length) throw forbidden('A draft is built from your own recorded work, and you have none on this item.');
-  const facts = factsFor(item, events, user.id);
+  const facts = factsFor(item, events, user.id, ctx.config.timezone);
   if (!facts.length) {
     throw conflict('There is nothing of yours on this case to draft from yet. Holding or moving work is not a contribution; record research, a decision, a submission or a verification first.', 'nothing_to_draft');
   }
@@ -293,7 +294,7 @@ export function draftFromWork(ctx: AppContext, user: SessionUser, _scope: Scope,
 
 const NOT_CONTRIBUTION = new Set(['claimed', 'released', 'assigned', 'claim_expired', 'created', 'procedure_applied', 'source_revised', 'stage_changed', 'waiting_started', 'waiting_ended', 'reopened']);
 
-function factsFor(item: ItemRow, events: ReturnType<typeof eventsFor>, userId: string): Fact[] {
+function factsFor(item: ItemRow, events: ReturnType<typeof eventsFor>, userId: string, timezone: string): Fact[] {
   const superseded = new Set(events.map((e) => e.supersedes_id).filter(Boolean));
   const procedure = procedureOf(item).procedure;
   const stepTitle = (key: string | null) => procedure?.steps.find((s) => s.key === key)?.title || humanKey(key);
@@ -303,7 +304,7 @@ function factsFor(item: ItemRow, events: ReturnType<typeof eventsFor>, userId: s
   for (const e of events) {
     if (e.actor_id !== userId || superseded.has(e.id)) continue;
     const body = JSON.parse(e.body || '{}');
-    const date = e.occurred_at.slice(0, 10);
+    const date = zonedDateOf(timezone, e.occurred_at);
     const source = { kind: e.kind, event_id: e.id };
     const push = (text: string) => facts.push({ text, date, source });
     if (e.kind === 'observation') push(`Recorded ${String(body.label || humanKey(body.field)).toLowerCase()}: ${body.display}${body.system ? ` (${body.system})` : ''}`);
@@ -355,7 +356,7 @@ export function saveDraftToRecord(ctx: AppContext, user: SessionUser, id: string
   if (row.activity_id) throw conflict('This draft is already in your record.');
   if (!row.facts.length) throw conflict('This draft has no recorded facts behind it, so it cannot become a completed entry. Delete it, or draft again once you have recorded work on the case.', 'nothing_to_draft');
   if (!row.wording.trim()) throw badRequest('Write the entry before saving it to your record.');
-  const date = row.facts.map((f) => f.date).sort().at(-1) || now().slice(0, 10);
+  const date = row.facts.map((f) => f.date).sort().at(-1) || zonedDay(ctx.config.timezone);
   const item = row.work_item_id ? (ctx.db.prepare('SELECT * FROM work_items WHERE id = ?').get(row.work_item_id) as ItemRow | undefined) : undefined;
   const fingerprint = row.work_item_id ? `case:${row.work_item_id}` : `draft:${id}`;
   const existing = ctx.db.prepare('SELECT id FROM activities WHERE user_id = ? AND fingerprint = ? AND deleted_at IS NULL').get(user.id, fingerprint) as { id: string } | undefined;

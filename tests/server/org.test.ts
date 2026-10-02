@@ -1,6 +1,6 @@
 import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
-import { startApp, enroll, PASSWORD, type TestApp } from './helpers.ts';
+import { startApp, enroll, PASSWORD, type TestApp, today } from './helpers.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
 
 let app: TestApp;
@@ -161,7 +161,7 @@ test('ownership transfer moves the Unit Leader role and strips the former owner'
 
 test('unit dashboard aggregates shared work and gates member rows', async () => {
   const sn = (await app.login('sncoic')).body.token;
-  await app.call('POST', '/api/records/activities', { token: sn, body: { title: 'Obligated 4 MIPRs', visibility: 'unit', dollar_amount: 12000, dollar_type: 'obligated', quantity: 4, unit_label: 'MIPRs', result: 'zero returns', date: new Date().toISOString().slice(0, 10) } });
+  await app.call('POST', '/api/records/activities', { token: sn, body: { title: 'Obligated 4 MIPRs', visibility: 'unit', dollar_amount: 12000, dollar_type: 'obligated', quantity: 4, unit_label: 'MIPRs', result: 'zero returns', date: today() } });
   const dash = await app.call('GET', '/api/org/units/G8/dashboard', { token: sn });
   assert.equal(dash.status, 200);
   assert.ok(dash.body.totals.entries >= 1);

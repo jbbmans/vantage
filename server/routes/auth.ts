@@ -4,6 +4,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound, tooMany, unauthorized } from '../lib/errors.ts';
 import { registrationSchema, setupSchema, passwordField, usernameField, emailField } from '../../shared/schemas.ts';
 import { hashPassword, verifyPassword, burnVerification, safeEqual, decryptSecret, sha256 } from '../lib/crypto.ts';
+import { secretsOf } from '../lib/keys.ts';
 import { limiters } from '../auth/limiter.ts';
 import { createSession, destroySession, invalidateUserSessions, SESSION_COOKIE, SIGNED_IN_COOKIE, grantSudo } from '../auth/sessions.ts';
 import { requireAuth } from '../auth/middleware.ts';
@@ -153,7 +154,7 @@ authRouter.post('/login/mfa', wrap((req, res) => {
   if (!row) throw unauthorized('The sign-in challenge expired. Start again.', 'challenge_expired');
   const accountLimit = limiters.mfaUser.limited(row.id);
   if (accountLimit) throw tooMany('Too many second-factor failures for this account. Try again later.', accountLimit.retryAfter);
-  const secret = row.totp_secret ? decryptSecret(ctx.config.secret, row.totp_secret) : null;
+  const secret = row.totp_secret ? decryptSecret(secretsOf(ctx.config), row.totp_secret) : null;
   const clean = code.replace(/\s+/g, '').toLowerCase();
   const step = secret ? matchTotp(secret, clean) : null;
   let ok = step !== null && ctx.db.prepare('UPDATE users SET totp_last_step = ? WHERE id = ? AND COALESCE(totp_last_step, -1) < ?').run(step, row.id, step).changes === 1;

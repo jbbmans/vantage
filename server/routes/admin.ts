@@ -17,6 +17,7 @@ import { exportInstance, importInstance } from '../services/exports.ts';
 import { metaSet, SCHEMA_VERSION } from '../db/index.ts';
 import { VERSION } from '../version.ts';
 import { newId, now } from '../lib/ids.ts';
+import { zonedDay } from '../lib/clock.ts';
 import { layout } from '../services/mailLayout.ts';
 import { checkRecords, dnsHostOf, domainOf, heloName, lastPath, probePath, requiredRecords } from '../services/directMail.ts';
 import type { AppContext } from '../context.ts';
@@ -38,7 +39,7 @@ const usageQuery = z.object({ from: z.string().max(10).optional(), to: z.string(
 adminRouter.get('/usage', wrap((req, res) => {
   const q = parse(usageQuery, req.query);
   const days = q.days ?? 30;
-  const to = q.to || now().slice(0, 10);
+  const to = q.to || zonedDay(req.ctx.config.timezone);
   const from = q.from || new Date(Date.parse(`${to}T00:00:00Z`) - (days - 1) * 86_400_000).toISOString().slice(0, 10);
   res.json({
     report: usageReport(req.ctx, { from, to }),

@@ -46,14 +46,18 @@ export function encryptSecret(secret: string, plaintext: string): string {
   return `v1.${iv.toString('base64url')}.${enc.toString('base64url')}.${tag.toString('base64url')}`;
 }
 
-export function decryptSecret(secret: string, payload: string): string | null {
-  try {
-    const [v, ivB, encB, tagB] = String(payload).split('.');
-    if (v !== 'v1') return null;
-    const decipher = createDecipheriv('aes-256-gcm', derivedKey(secret), Buffer.from(ivB, 'base64url'));
-    decipher.setAuthTag(Buffer.from(tagB, 'base64url'));
-    return Buffer.concat([decipher.update(Buffer.from(encB, 'base64url')), decipher.final()]).toString('utf8');
-  } catch {
-    return null;
+/** Opens a value sealed with `encryptSecret`, trying each secret in turn: the current one first, then any previous ones. */
+export function decryptSecret(secrets: string | readonly string[], payload: string): string | null {
+  for (const secret of typeof secrets === 'string' ? [secrets] : secrets) {
+    try {
+      const [v, ivB, encB, tagB] = String(payload).split('.');
+      if (v !== 'v1') return null;
+      const decipher = createDecipheriv('aes-256-gcm', derivedKey(secret), Buffer.from(ivB, 'base64url'));
+      decipher.setAuthTag(Buffer.from(tagB, 'base64url'));
+      return Buffer.concat([decipher.update(Buffer.from(encB, 'base64url')), decipher.final()]).toString('utf8');
+    } catch {
+      // wrong key or damaged value: try the next secret
+    }
   }
+  return null;
 }

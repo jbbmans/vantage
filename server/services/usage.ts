@@ -1,5 +1,6 @@
 import type { AppContext } from '../context.ts';
 import { EVENTS } from './telemetry.ts';
+import { zonedDayBounds, zonedDateOf } from '../lib/clock.ts';
 
 export const MIN_COHORT = 3;
 
@@ -36,9 +37,12 @@ interface EventRow {
 interface Loaded extends Omit<EventRow, 'properties'> { props: Record<string, unknown> }
 
 function load(ctx: AppContext, from: string, to: string): Loaded[] {
+  // A period of whole days only when both ends are days; a caller passing instants gets exactly those.
+  const days = /^\d{4}-\d{2}-\d{2}$/;
+  const [lo, hi] = days.test(from) && days.test(to) ? zonedDayBounds(ctx.config.timezone, from, to) : [from, to];
   const rows = ctx.db.prepare(
-    'SELECT name, user_id, properties, form_ms, active_editor_ms, confirmed_work_minutes, occurred_at FROM product_events WHERE occurred_at >= ? AND occurred_at < ? ORDER BY occurred_at'
-  ).all(from, `${to}T23:59:59.999Z`) as EventRow[];
+    'SELECT name, user_id, properties, form_ms, active_editor_ms, confirmed_work_minutes, occurred_at FROM product_events WHERE occurred_at >= ? AND occurred_at <= ? ORDER BY occurred_at'
+  ).all(lo, hi) as EventRow[];
   return rows.map((r) => {
     let props: Record<string, unknown> = {};
     try { props = JSON.parse(r.properties || '{}'); } catch { props = {}; }
@@ -104,7 +108,7 @@ export function usageReport(ctx: AppContext, period: { from: string; to: string 
   const dayMap = new Map<string, Set<string>>();
   for (const row of rows) {
     if (!row.user_id) continue;
-    const day = row.occurred_at.slice(0, 10);
+    const day = zonedDateOf(ctx.config.timezone, row.occurred_at);
     const set = dayMap.get(day) || new Set<string>();
     set.add(row.user_id);
     dayMap.set(day, set);
