@@ -10,6 +10,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest } from '../lib/errors.ts';
 import { requireAuth, requireOperator, requireSudo } from '../auth/middleware.ts';
 import { audit, verifyAuditChain } from '../services/audit.ts';
+import { auditForwardingStatus } from '../services/auditSink.ts';
 import { aiStatus, discoverModels, unlockAi } from '../services/ai.ts';
 import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { exportInstance, importInstance } from '../services/exports.ts';
@@ -64,6 +65,7 @@ adminRouter.get('/overview', wrap((req, res) => {
     runtime: req.ctx.runtime,
     publicUrl: req.ctx.config.publicUrl, rpId: req.ctx.config.rpId, timezone: req.ctx.config.timezone,
     audit: verifyAuditChain(req.ctx),
+    auditForwarding: auditForwardingStatus(req.ctx),
   });
 }));
 

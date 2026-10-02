@@ -3,6 +3,7 @@ import type { AppContext } from '../context.ts';
 import { hmac, safeEqual } from '../lib/crypto.ts';
 import { now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
+import { metaGet } from '../db/index.ts';
 
 interface SealableEvent {
   id: string; work_item_id: string; unit_id: string | null; actor_id: string | null; kind: string; step: string | null;
@@ -60,8 +61,14 @@ export function caseIntegrity(ctx: AppContext, itemId: string, rows?: SealableEv
   const events = rows || (db.prepare('SELECT * FROM work_events WHERE work_item_id = ? ORDER BY created_at, rowid').all(itemId) as SealableEvent[]);
   const seals = db.prepare('SELECT * FROM work_event_seals WHERE work_item_id = ? ORDER BY seq').all(itemId) as Array<{ event_id: string; seq: number; prev_hash: string | null; entry_hash: string }>;
   const head = db.prepare('SELECT * FROM work_event_heads WHERE work_item_id = ?').get(itemId) as { hash: string; count: number; mac: string } | undefined;
-  if (!events.length && !seals.length) return { status: 'verified', count: 0 };
-  if (!head && !seals.length) return { status: 'unsealed', count: events.length, reason: 'This history was written before sealing and has not been sealed yet.' };
+  if (!events.length && !seals.length && !head) return { status: 'verified', count: 0 };
+  if (!head && !seals.length) {
+    // Every history is sealed at start-up and every entry as it is written, so once that backfill has run a history
+    // with entries and no seals had its seals removed. Reporting it as merely unsealed would let stripping the seals
+    // pass the check.
+    if (metaGet(db, 'case_seals_backfilled')) return { status: 'broken', count: events.length, reason: 'This history has entries but no seals: they were removed outside Vantage.' };
+    return { status: 'unsealed', count: events.length, reason: 'This history was written before sealing and has not been sealed yet.' };
+  }
   if (!head) return { status: 'broken', count: events.length, reason: 'The chain head is missing.' };
   if (!safeEqual(head.mac, headMac(config.secret, itemId, head.hash, head.count))) return { status: 'broken', count: events.length, reason: 'The chain head’s signature does not match.' };
   if (seals.length !== head.count) return { status: 'broken', count: events.length, reason: `The head covers ${head.count} entries but ${seals.length} seals exist.` };
@@ -79,9 +86,10 @@ export function caseIntegrity(ctx: AppContext, itemId: string, rows?: SealableEv
   return { status: 'verified', count: events.length };
 }
 
-/** Every case's chain, for the owner console. */
-export function verifyAllCases(ctx: AppContext, limit = 5000): { ok: boolean; checked: number; broken: Array<{ work_item_id: string; reason?: string }>; unsealed: number } {
-  const ids = (ctx.db.prepare('SELECT DISTINCT work_item_id AS id FROM work_events LIMIT ?').all(limit) as Array<{ id: string }>).map((r) => r.id);
+/** Every case's chain, for the owner console. Every case is checked: a limit would leave the rest unexamined and still report ok. */
+export function verifyAllCases(ctx: AppContext): { ok: boolean; checked: number; broken: Array<{ work_item_id: string; reason?: string }>; unsealed: number } {
+  // Seals and heads without events are cases too: removing every entry of a history must not make it disappear from the check.
+  const ids = (ctx.db.prepare('SELECT work_item_id AS id FROM work_events UNION SELECT work_item_id FROM work_event_seals UNION SELECT work_item_id FROM work_event_heads').all() as Array<{ id: string }>).map((r) => r.id);
   const broken: Array<{ work_item_id: string; reason?: string }> = [];
   let unsealed = 0;
   for (const id of ids) {

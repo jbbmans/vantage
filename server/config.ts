@@ -45,6 +45,32 @@ export interface AppConfig {
   m365: { clientId: string; clientSecret: string; tenant: string; redirectUri: string; endpointOverride: string | null };
   selfRegistration: boolean;
   cac: CacConfig;
+  audit: AuditConfig;
+}
+
+export interface AuditConfig {
+  /** Write every audit record to standard output as one JSON line, for a platform that ships container logs. */
+  stdout: boolean;
+  /** udp://, tcp:// or tls:// address of a syslog collector (RFC 5424, octet-counted framing on streams). */
+  syslog: string | null;
+  /** CA bundle for a tls:// collector whose certificate is not in the system store. */
+  syslogCa: string | null;
+  appName: string;
+}
+
+function readAuditConfig(env: NodeJS.ProcessEnv): AuditConfig {
+  const syslog = (env.VANTAGE_AUDIT_SYSLOG || '').trim() || null;
+  if (syslog) {
+    let url: URL;
+    try { url = new URL(syslog); } catch { throw new Error('VANTAGE_AUDIT_SYSLOG must be a udp://, tcp:// or tls:// address, such as tls://siem.example.mil:6514.'); }
+    if (!['udp:', 'tcp:', 'tls:'].includes(url.protocol) || !url.hostname) throw new Error('VANTAGE_AUDIT_SYSLOG must be a udp://, tcp:// or tls:// address, such as tls://siem.example.mil:6514.');
+  }
+  return {
+    stdout: envBool(env, 'VANTAGE_AUDIT_STDOUT', false),
+    syslog,
+    syslogCa: (env.VANTAGE_AUDIT_SYSLOG_CA || '').trim() || null,
+    appName: (env.VANTAGE_AUDIT_APP_NAME || 'vantage').trim() || 'vantage',
+  };
 }
 
 export interface CacConfig {
@@ -253,6 +279,7 @@ export function loadConfig(env = process.env): AppConfig {
     // A demo visitor is handed a synthetic person; nobody registers.
     selfRegistration: accessMode === 'demo' ? false : envBool(env, 'VANTAGE_SELF_REGISTRATION', true),
     cac: readCacConfig(env, production),
+    audit: readAuditConfig(env),
   };
 }
 

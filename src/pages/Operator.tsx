@@ -65,11 +65,29 @@ function Overview() {
         <Panel title="Audit chain" subtitle="Tamper-evident log">
           <p className="text-sm"><Badge tone={data.audit.ok ? 'good' : 'bad'}>{data.audit.ok ? 'Intact' : 'Broken'}</Badge> <span className="fig text-ink-2">{data.audit.count} entries</span></p>
           {!data.audit.ok && <p className="mt-2 text-xs text-bad">{data.audit.reason}. Restore from a backup taken before that point and investigate.</p>}
+          <AuditForwarding status={data.auditForwarding} />
           <CaseHistories />
           <p className="mt-3 text-sm text-ink-2">MARADMIN feed: {data.maradmins.enabled ? `${data.maradmins.count} cached · last sync ${data.maradmins.lastSuccess ? timeAgo(data.maradmins.lastSuccess) : 'never'}` : 'off'}{data.maradmins.lastError ? <span className="block text-xs text-warn">{data.maradmins.lastError}</span> : null}</p>
           {data.maradmins.enabled && <Button size="sm" className="mt-2" onClick={async () => { try { const r = await withSudo(() => api.adminSyncMaradmins()); toast.success(`Synced: ${r.inserted ?? 0} new, ${r.updated ?? 0} updated.`); refetch(); } catch (e) { toast.error(api.errorText(e)); } }}><RefreshCw className="h-3.5 w-3.5" />Sync now</Button>}
         </Panel>
       </div>
+    </div>
+  );
+}
+
+/** Where the audit records go besides this database. Without a copy off the host, the chain proves nothing against whoever holds the host. */
+function AuditForwarding({ status }: { status?: { stdout: boolean; syslog: null | { target: string; connected: boolean; sent: number; dropped: number; queued: number; lastError: string | null } } }) {
+  if (!status) return null;
+  const off = !status.stdout && !status.syslog;
+  return (
+    <div className="mt-3 border-t border-line pt-3 text-sm">
+      <p className="text-ink-2">Copies off this host</p>
+      {off
+        ? <p className="mt-1 text-xs text-warn">None. Somebody holding this server and its secret could rewrite the chain unseen. Set VANTAGE_AUDIT_SYSLOG to your SIEM, or VANTAGE_AUDIT_STDOUT=true where the platform keeps container logs.</p>
+        : <ul className="mt-1 space-y-0.5 text-xs text-ink-2">
+            {status.stdout && <li>Standard output, one JSON line per record</li>}
+            {status.syslog && <li><Badge tone={status.syslog.lastError ? 'warn' : 'good'}>{status.syslog.lastError ? 'Retrying' : 'Sending'}</Badge> <span className="fig">{status.syslog.target} · {status.syslog.sent} sent{status.syslog.queued ? ` · ${status.syslog.queued} waiting` : ''}{status.syslog.dropped ? ` · ${status.syslog.dropped} dropped` : ''}</span>{status.syslog.lastError && <span className="block text-warn">{status.syslog.lastError}</span>}</li>}
+          </ul>}
     </div>
   );
 }

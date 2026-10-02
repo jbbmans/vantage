@@ -243,6 +243,34 @@ test('a case history is sealed, and a changed, removed or inserted entry breaks 
   assert.ok(audit.body.cases.broken.length >= 2);
 });
 
+test('removing a history’s seals, or every entry under a head, is reported as broken rather than unsealed', async () => {
+  const stripped = await caseUnder('ocmt_research');
+  await balances(stripped, { commitment_amount: '25', obligation_amount: null, delivered_amount: null, paid_amount: null });
+  const emptied = await caseUnder('ocmt_research');
+  const { db } = app.ctx;
+  assert.equal(caseIntegrity(app.ctx, stripped).status, 'verified');
+  // Somebody with the database file and not the secret: the append-only triggers are the first thing they remove.
+  db.exec('DROP TRIGGER work_events_append_only_delete; DROP TRIGGER work_event_seals_append_only_delete;');
+  try {
+    db.prepare('DELETE FROM work_event_seals WHERE work_item_id = ?').run(stripped);
+    db.prepare('DELETE FROM work_event_heads WHERE work_item_id = ?').run(stripped);
+    const result = caseIntegrity(app.ctx, stripped);
+    assert.equal(result.status, 'broken', 'a sealed instance never holds an unsealed history');
+    assert.match(result.reason!, /no seals/);
+
+    db.prepare('DELETE FROM work_event_seals WHERE work_item_id = ?').run(emptied);
+    db.prepare('DELETE FROM work_events WHERE work_item_id = ?').run(emptied);
+    assert.equal(caseIntegrity(app.ctx, emptied).status, 'broken', 'a head with nothing under it is a removed history');
+  } finally {
+    db.exec(`CREATE TRIGGER work_events_append_only_delete BEFORE DELETE ON work_events FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1' BEGIN SELECT RAISE(ABORT, 'work_events is append-only; record a correction instead'); END;
+      CREATE TRIGGER work_event_seals_append_only_delete BEFORE DELETE ON work_event_seals FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1' BEGIN SELECT RAISE(ABORT, 'work_event_seals is append-only'); END;`);
+  }
+
+  const all = await app.call('GET', '/api/admin/integrity', { token: op.token });
+  const ids = all.body.cases.broken.map((b: { work_item_id: string }) => b.work_item_id);
+  assert.ok(ids.includes(stripped) && ids.includes(emptied), JSON.stringify(all.body.cases));
+});
+
 test('an import can apply procedures by condition, seed the figures, and a revised sheet supersedes only the source’s own values', async () => {
   const csv = [
     'Document,Condition,Method,Commitment,Obligation,Delivered,Paid,Due',

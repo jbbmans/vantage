@@ -3,6 +3,7 @@ import { createServer as createHttpsServer } from 'node:https';
 import { loadConfig } from './config.ts';
 import { createApp, createContext, startSchedulers } from './app.ts';
 import { VERSION } from './version.ts';
+import { closeAuditSink } from './services/auditSink.ts';
 
 const config = loadConfig();
 const ctx = createContext(config);
@@ -34,7 +35,7 @@ function requireEnv(name: string): string {
 const shutdown = (signal: string) => () => {
   console.log(`${signal} received, shutting down.`);
   stopSchedulers();
-  server.close(() => { try { ctx.db.close(); } catch {} process.exit(0); });
+  server.close(() => { closeAuditSink(ctx); try { ctx.db.close(); } catch {} process.exit(0); });
   setTimeout(() => process.exit(1), 10_000).unref();
 };
 process.on('SIGTERM', shutdown('SIGTERM'));

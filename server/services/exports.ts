@@ -5,6 +5,8 @@ import { now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { hmac } from '../lib/crypto.ts';
 import { loadRuntime } from '../runtime.ts';
+import { metaSet } from '../db/index.ts';
+import { sealBacklog } from './caseSeal.ts';
 
 const keyCheck = (secret: string) => hmac(secret, 'vantage-instance-key-check');
 
@@ -72,6 +74,10 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
     ctx.db.pragma('foreign_keys = ON');
   }
   Object.assign(ctx.runtime, loadRuntime(ctx.db, ctx.config));
+  // An archive from before sealing brings histories without seals. Seal them now, so that from here on a history
+  // without seals can only mean its seals were removed.
+  sealBacklog(ctx);
+  metaSet(ctx.db, 'case_seals_backfilled', now());
   audit(ctx, { actor_id: null, action: 'instance_import', entity: 'instance', detail: `by ${actorId}; ${JSON.stringify(counts)}`.slice(0, 900) });
   return counts;
 }

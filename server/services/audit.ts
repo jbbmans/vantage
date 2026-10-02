@@ -2,6 +2,7 @@ import type { AppContext } from '../context.ts';
 import { hmac } from '../lib/crypto.ts';
 import { newId, now } from '../lib/ids.ts';
 import { metaGet, metaSet } from '../db/index.ts';
+import { forwardAudit } from './auditSink.ts';
 
 export interface AuditEntry {
   actor_id?: string | null; action: string; entity?: string | null; entity_id?: string | null; subject_id?: string | null;
@@ -23,9 +24,12 @@ export function audit(ctx: AppContext, entry: AuditEntry) {
     subject_id: entry.subject_id ?? null, unit_id: entry.unit_id ?? null, detail: entry.detail ? String(entry.detail).slice(0, 1000) : null,
     ip: entry.ip ?? null, at: now(),
   };
+  let prevHash: string | null = null;
+  let hash = '';
   db.transaction(() => {
     const head = JSON.parse(metaGet(db, 'audit_head') || '{"hash":"","count":0}') as { hash: string; count: number };
-    const hash = entryHash(config.secret, row, head.hash);
+    hash = entryHash(config.secret, row, head.hash);
+    prevHash = head.hash || null;
     db.prepare(
       `INSERT INTO audit_log (id, actor_id, action, entity, entity_id, subject_id, unit_id, detail, ip, at, prev_hash, entry_hash)
        VALUES (@id, @actor_id, @action, @entity, @entity_id, @subject_id, @unit_id, @detail, @ip, @at, @prev_hash, @entry_hash)`
@@ -33,6 +37,13 @@ export function audit(ctx: AppContext, entry: AuditEntry) {
     const count = head.count + 1;
     metaSet(db, 'audit_head', JSON.stringify({ hash, count, mac: hmac(config.secret, `audit-head:${hash}:${count}`) }));
   })();
+  if (!config.audit.stdout && !config.audit.syslog) return;
+  // An audit record is often written inside a larger transaction. Transactions here are synchronous, so by the time
+  // a microtask runs the outermost one has committed or rolled back; only a record that is really in the chain is sent.
+  const forwarded = { ...row, prev_hash: prevHash, entry_hash: hash };
+  queueMicrotask(() => {
+    try { if (db.prepare('SELECT 1 FROM audit_log WHERE id = ?').get(row.id)) forwardAudit(ctx, forwarded); } catch { /* database closed */ }
+  });
 }
 
 export function verifyAuditChain(ctx: AppContext): { ok: boolean; count: number; reason?: string } {
