@@ -130,6 +130,34 @@ test('an archive part that escapes its directory is refused', () => {
   assert.throws(() => readZip(buf), (e: Error) => e instanceof ZipError && /unsafe/i.test(e.message));
 });
 
+/** An archive whose directory claims every part is ten bytes, whatever it really expands to. */
+function understatedZip(parts: number, realBytes: number): Buffer {
+  const buf = buildZip(Array.from({ length: parts }, (_, i) => ({ name: `xl/part${i}.xml`, data: Buffer.alloc(realBytes) })));
+  const endIdx = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  let p = buf.readUInt32LE(endIdx + 16);
+  for (let i = 0; i < parts; i += 1) {
+    buf.writeUInt32LE(10, p + 24);
+    buf.writeUInt32LE(10, buf.readUInt32LE(p + 42) + 22);
+    p += 46 + buf.readUInt16LE(p + 28) + buf.readUInt16LE(p + 30) + buf.readUInt16LE(p + 32);
+  }
+  return buf;
+}
+
+test('an archive that understates its sizes cannot expand past the limit', () => {
+  const buf = understatedZip(4, 2 * 1024 * 1024);
+  assert.ok(buf.length < 64 * 1024, 'the archive itself is small');
+  assert.throws(() => readZip(buf, { maxTotalBytes: 5 * 1024 * 1024 }), (e: Error) => e instanceof ZipError && /size limit/i.test(e.message));
+  assert.throws(() => readZip(buf, { maxEntryBytes: 1024 * 1024 }), (e: Error) => e instanceof ZipError && /size limit/i.test(e.message));
+  assert.equal(readZip(buf, { maxTotalBytes: 9 * 1024 * 1024 }).size, 4, 'an honest budget still reads it');
+});
+
+test('a part that runs past the end of the file is refused as damaged', () => {
+  const buf = buildZip([{ name: 'xl/workbook.xml', data: '<workbook>'.repeat(50) }]);
+  const endIdx = buf.lastIndexOf(Buffer.from([0x50, 0x4b, 0x05, 0x06]));
+  buf.writeUInt32LE(buf.length * 2, buf.readUInt32LE(endIdx + 16) + 20);
+  assert.throws(() => readZip(buf), (e: Error) => e instanceof ZipError && /damaged/i.test(e.message));
+});
+
 test('a file that is not a workbook fails as a value, not a crash', () => {
   assert.throws(() => readWorkbook(Buffer.from('this is a plain text file, not a workbook')), (e: Error) => e instanceof ZipError || e instanceof WorkbookError);
   assert.throws(() => readWorkbook(buildZip([{ name: 'readme.txt', data: 'hello' }])), (e: Error) => e instanceof WorkbookError && /not an Excel workbook/i.test(e.message));

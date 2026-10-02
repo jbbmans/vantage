@@ -44,7 +44,7 @@ export function listZip(buf: Buffer): string[] {
   let p = buf.readUInt32LE(endIdx + 16);
   const count = buf.readUInt16LE(endIdx + 10);
   for (let i = 0; i < count; i++) {
-    if (buf.readUInt32LE(p) !== 0x02014b50) break;
+    if (p + 46 > buf.length || buf.readUInt32LE(p) !== 0x02014b50) break;
     const n = buf.readUInt16LE(p + 28); const extra = buf.readUInt16LE(p + 30); const comment = buf.readUInt16LE(p + 32);
     names.push(buf.subarray(p + 46, p + 46 + n).toString('utf8'));
     p += 46 + n + extra + comment;
@@ -87,23 +87,31 @@ export function readZip(buf: Buffer, limits: ZipLimits = {}): Map<string, Buffer
     p += 46 + nameLen + extraLen + commentLen;
 
     if (flags & 0x1) throw new ZipError('This workbook is password protected. Remove the protection and upload it again.');
+    // The sizes in the directory are the file's own claim. They refuse an honest oversized part early, but the
+    // budget below is charged with what each part really expands to, so a file that understates its sizes
+    // cannot expand past the limit.
     if (uncompressed > maxEntryBytes) throw new ZipError(`One part of this workbook expands to ${uncompressed} bytes, past the limit we will read.`);
-    total += uncompressed;
-    if (total > maxTotalBytes) throw new ZipError('This workbook expands past the size limit we will read.');
     if (name.includes('..') || name.startsWith('/')) throw new ZipError(`This workbook contains an unsafe part name: ${name}`);
 
     if (localOffset + 30 > buf.length || buf.readUInt32LE(localOffset) !== 0x04034b50) throw new ZipError('This workbook is damaged. A part header is missing.');
     const localNameLen = buf.readUInt16LE(localOffset + 26);
     const localExtraLen = buf.readUInt16LE(localOffset + 28);
     const start = localOffset + 30 + localNameLen + localExtraLen;
+    if (start + compressed > buf.length) throw new ZipError('This workbook is damaged. A part runs past the end of the file.');
     const body = buf.subarray(start, start + compressed);
-    if (method === 0) out.set(name, Buffer.from(body));
+    const budget = Math.min(maxEntryBytes, maxTotalBytes - total);
+    let data: Buffer;
+    if (method === 0) data = Buffer.from(body);
     else if (method === 8) {
-      let inflated: Buffer;
-      try { inflated = inflateRawSync(body, { maxOutputLength: maxEntryBytes }); }
-      catch { throw new ZipError(`This workbook could not be read. The part "${name}" did not decompress.`); }
-      out.set(name, inflated);
+      try { data = inflateRawSync(body, { maxOutputLength: Math.max(budget, 1) }); }
+      catch (e) {
+        if ((e as { code?: string }).code === 'ERR_BUFFER_TOO_LARGE') throw new ZipError('This workbook expands past the size limit we will read.');
+        throw new ZipError(`This workbook could not be read. The part "${name}" did not decompress.`);
+      }
     } else throw new ZipError(`This workbook uses a compression method we do not read (${method}).`);
+    if (data.length > budget) throw new ZipError('This workbook expands past the size limit we will read.');
+    total += data.length;
+    out.set(name, data);
   }
   return out;
 }
