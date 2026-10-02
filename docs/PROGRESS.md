@@ -1,8 +1,39 @@
 # Progress
 
-_Updated 2026-09-25_
+_Updated 2026-10-02_
 
-## What changed
+## What changed (2026-10-02 audit)
+
+An outside review of the code, the running demo and the security model found the issues below; each is fixed
+with a test unless noted.
+
+**Bugs.** A workbook that understated its sizes expanded past its limit (239 KB to 240 MB); the real expanded
+size is now charged. A case history whose seals were removed read as "unsealed" and passed the check; it now reads
+as broken, and the check covers every case. The Record, contribution history and team workload treated local days
+as UTC days, so work done after 8pm Eastern dropped out of today (and the test suite failed every evening); windows
+now span the instants their days really cover. nodemailer carried five high-severity advisories; it is on 10.0.13.
+
+**Accreditation controls.** 15-minute idle sessions (10 for owners) that a background poll cannot keep alive, with a
+warning before sign-out; a lockout after three failures kept in the database; PBKDF2-HMAC-SHA256 password hashing
+with scrypt hashes replaced at sign-in; the DoD Notice and Consent Banner, enforced on the server
+(`VANTAGE_CONSENT_BANNER=dod`); CRL checking for direct-mode CAC, failing closed; clamd scanning of every upload
+(attachments and email too), optionally refusing what could not be scanned; audit records sent off the host to a
+syslog collector as they are committed; a rotatable `VANTAGE_SECRET`; browser backups that can be turned off and
+that notify every other owner, plus `npm run backup` on the server; direct mail never connecting to private
+addresses. See `docs/security.md` and `docs/operations.md`.
+
+**Daily use.** ⌘K finds cases by document number; a Marine's Today opens on their own work; the queue shows cents,
+whole titles, and overdue items with an Overdue filter; one date style throughout, with full timestamps in case
+history; per-person time zones; the theme follows the device; shorter page headers; scroll cues on tab strips; and a
+demo whose team view, Reports and Owner console show something.
+
+**Engineering.** CI gates on `npm audit`, publishes a CycloneDX SBOM, scans the image with Trivy and runs CodeQL;
+the base image is pinned by digest; versions are tagged on main; the hand-written parsers are fuzzed.
+
+**Still open.** PostgreSQL (and with it running more than one server process), loosening the client's `any` types,
+and enterprise sign-in through OIDC or SAML. Owner decisions outside the code are unchanged (below).
+
+## Earlier (2026-09-25)
 
 **The FMRA knowledge, in the product.** The FMRAC reference (the 3451 Financial Management Resource
 Analyst course material) is encoded as a typed, cited knowledge base in `shared/fmra/`: the four
@@ -66,14 +97,14 @@ ULOs", and a case opened from the diagnoser that its opener did not hold.
 production; null-prototype registries for anything looked up by a request's key; every table declared
 in the privacy inventory; the financial answering rules on every AI prompt.
 
-## Verification (2026-09-24)
+## Verification
 
 | Check | Result |
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **411 / 411 pass** |
-| `npm run test:browser` (Playwright, Chromium, built client) | **67 / 67 pass**, including the four public-site checks that failed on `main` |
+| `npm test` (server suite, in-memory SQLite) | **520 / 520 pass** (run late on 1 Oct Eastern, inside the evening window where the old date bug failed 8 tests) |
+| `npm run test:browser` (Playwright, Chromium, built client) | **96 / 96 pass** (2026-10-02) |
 | Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference and the public page |
 | `npm audit` | 0 vulnerabilities |
 
@@ -83,7 +114,8 @@ in the privacy inventory; the financial answering rules on every AI prompt.
   a real Entra registration in GCC High or DoD has not been exercised.
 - The FMRA procedures against a current SOP or an SME. They are labelled "formal training reference,
   not verified against current policy", and screen paths are left undocumented until confirmed.
-- PostgreSQL, Windows Server, a real CAC, a restricted-network host, backup and restore drills.
+- PostgreSQL, Windows Server, a real CAC (revocation is tested with a fixture CA and CRL), a real clamd (tested against
+  a stand-in speaking its protocol), a real SIEM, a restricted-network host, backup and restore drills.
 
 ## Owner decisions
 
