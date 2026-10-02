@@ -16,6 +16,7 @@ import { hydrate, withGoalProgress } from '../services/records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { unitDashboard, unitOverview } from '../services/dashboard.ts';
 import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
+import type { Activity, Award, Counseling, Goal, MemberDetailResponse, Role, RolesResponse, Task, TeamPerson, TeamResponse, Training } from '../../shared/types.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
 import { mailAllowance, limiters } from '../auth/limiter.ts';
 import { sendTeamMessage, teamAudience } from '../services/teamMail.ts';
@@ -256,8 +257,9 @@ orgRouter.delete('/invites/:id', wrap((req, res) => {
 
 orgRouter.get('/roles', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
-  const roles = scope.unitIds.length ? (req.ctx.db.prepare(`SELECT * FROM roles WHERE unit_id IN (${scope.unitIds.map(() => '?').join(',')}) ORDER BY unit_id, position DESC`).all(...scope.unitIds) as RoleRow[]) : [];
-  res.json({ roles: roles.map((r) => ({ ...r, editable: canManageRoleDefinition(req.ctx, req.user, scope, r) })), positions: scope.positions, template: ROLE_TEMPLATE });
+  const roles = scope.unitIds.length ? (req.ctx.db.prepare(`SELECT * FROM roles WHERE unit_id IN (${scope.unitIds.map(() => '?').join(',')}) ORDER BY unit_id, position DESC`).all(...scope.unitIds) as Array<RoleRow & Pick<Role, 'created_at'>>) : [];
+  const body: RolesResponse = { roles: roles.map((r) => ({ ...r, editable: canManageRoleDefinition(req.ctx, req.user, scope, r) })), positions: scope.positions, template: ROLE_TEMPLATE };
+  res.json(body);
 }));
 
 const roleBody = z.object({ unit_id: z.string().max(64), name: z.string().max(60), description: z.string().max(300).nullish(), color: z.string().max(20).nullish(), position: z.coerce.number().int(), permissions: z.coerce.number().int() });
@@ -346,17 +348,18 @@ orgRouter.get('/team', wrap((req, res) => {
   const scope = scopeFor(ctx, req.user, req);
   const ids = visibleUserIds(ctx, scope, req.user.id);
   const allowed = new Set(scope.readableUnitIds);
-  const people = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.middle_initial, u.mos, u.rank_id, r.abbr AS rank_abbr, r.grade AS rank_grade, r.sort AS rank_sort FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.active = 1 AND u.id IN (${ids.map(() => '?').join(',')}) ORDER BY r.sort DESC, u.last_name`).all(...ids) as Array<Record<string, unknown> & { id: string }>;
+  const people = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.middle_initial, u.mos, u.rank_id, r.abbr AS rank_abbr, r.grade AS rank_grade, r.sort AS rank_sort FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.active = 1 AND u.id IN (${ids.map(() => '?').join(',')}) ORDER BY r.sort DESC, u.last_name`).all(...ids) as Array<Omit<TeamPerson, 'memberships' | 'roles' | 'canOpen'>>;
   const memberships = ctx.db.prepare(`SELECT um.user_id, um.unit_id, um.is_primary, um.billet, u.name AS unit_name, u.short_name AS unit_short FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id IN (${ids.map(() => '?').join(',')}) AND u.active = 1`).all(...ids) as Array<{ user_id: string; unit_id: string; is_primary: number; billet: string | null; unit_name: string; unit_short: string | null }>;
   const roleRows = scope.readableUnitIds.length ? ctx.db.prepare(`SELECT mr.user_id, mr.unit_id, r.id, r.name, r.color, r.position, r.key FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id IN (${ids.map(() => '?').join(',')}) AND mr.unit_id IN (${scope.readableUnitIds.map(() => '?').join(',')}) ORDER BY r.position DESC`).all(...ids, ...scope.readableUnitIds) as Array<{ user_id: string; unit_id: string; id: string; name: string; color: string | null; position: number; key: string | null }> : [];
-  const roster = people.map((p) => ({
+  const roster = people.map((p): TeamPerson => ({
     ...p,
     memberships: memberships.filter((m) => m.user_id === p.id && (m.user_id === req.user.id || allowed.has(m.unit_id))),
     roles: roleRows.filter((r) => r.user_id === p.id),
     canOpen: p.id === req.user.id || detailUnitsFor(ctx, scope, p.id).length > 0,
   }));
   if (roster.length > 1) audit(ctx, { actor_id: req.user.id, action: 'view_roster', detail: `${roster.length} personnel`, ip: clientIp(req) });
-  res.json({ roster, readableUnitIds: scope.readableUnitIds, manageMembers: unitsWith(scope, PERMISSIONS.MANAGE_MEMBERS), manageRoles: unitsWith(scope, PERMISSIONS.MANAGE_ROLES), counsel: unitsWith(scope, PERMISSIONS.COUNSEL), exportUnits: unitsWith(scope, PERMISSIONS.EXPORT_DATA) });
+  const body: TeamResponse = { roster, readableUnitIds: scope.readableUnitIds, manageMembers: unitsWith(scope, PERMISSIONS.MANAGE_MEMBERS), manageRoles: unitsWith(scope, PERMISSIONS.MANAGE_ROLES), counsel: unitsWith(scope, PERMISSIONS.COUNSEL), exportUnits: unitsWith(scope, PERMISSIONS.EXPORT_DATA) };
+  res.json(body);
 }));
 
 orgRouter.get('/team/:userId', wrap((req, res) => {
@@ -366,31 +369,32 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
   const scope = scopeFor(ctx, req.user, req);
   const units = isSelf ? scope.unitIds : detailUnitsFor(ctx, scope, id);
   if (!isSelf && !units.length) throw forbidden('You can see this Marine on a roster but cannot open their record in any shared unit.');
-  const person = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.middle_initial, u.mos, u.eas, u.rank_id, u.email, u.last_login_at, r.abbr AS rank_abbr, r.grade AS rank_grade, r.name AS rank_name FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ? AND u.active = 1`).get(id) as Record<string, unknown> | undefined;
+  const person = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.middle_initial, u.mos, u.eas, u.rank_id, u.email, u.last_login_at, r.abbr AS rank_abbr, r.grade AS rank_grade, r.name AS rank_name FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ? AND u.active = 1`).get(id) as MemberDetailResponse['person'] | undefined;
   if (!person) throw notFound('No such Marine.');
   if (!isSelf) { delete person.email; audit(ctx, { actor_id: req.user.id, action: 'view_member', entity: 'user', entity_id: id, subject_id: id, unit_id: units[0], ip: clientIp(req) }); }
   const ph = units.map(() => '?').join(',');
   const unitClause = isSelf ? '' : `AND visibility = 'unit' AND unit_id IN (${ph})`;
-  const scoped = (table: 'activities' | 'trainings' | 'awards') => (ctx.db.prepare(`SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL ${unitClause} ORDER BY date DESC LIMIT 500`).all(id, ...(isSelf ? [] : units)) as Array<Record<string, unknown>>).map((r) => hydrate(r, table));
+  const scoped = <T,>(table: 'activities' | 'trainings' | 'awards') => (ctx.db.prepare(`SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL ${unitClause} ORDER BY date DESC LIMIT 500`).all(id, ...(isSelf ? [] : units)) as Array<Record<string, unknown>>).map((r) => hydrate(r, table)) as T[];
   const counselings = isSelf
-    ? ctx.db.prepare('SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC').all(id)
-    : ctx.db.prepare(`SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND (counselor_id = ? OR (visibility = 'unit' AND unit_id IN (${ph}))) ORDER BY date DESC`).all(id, req.user.id, ...units);
+    ? ctx.db.prepare('SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL ORDER BY date DESC').all(id) as Counseling[]
+    : ctx.db.prepare(`SELECT * FROM counselings WHERE user_id = ? AND deleted_at IS NULL AND (counselor_id = ? OR (visibility = 'unit' AND unit_id IN (${ph}))) ORDER BY date DESC`).all(id, req.user.id, ...units) as Counseling[];
   const rawGoals = isSelf
     ? ctx.db.prepare('SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL').all(id, id)
     : ctx.db.prepare(`SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND visibility = 'unit' AND unit_id IN (${ph})`).all(id, id, ...units);
-  const goals = withGoalProgress(ctx, rawGoals as never);
+  const goals = withGoalProgress(ctx, rawGoals as never) as unknown as Goal[];
   const tasks = isSelf
-    ? ctx.db.prepare(`SELECT * FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND status <> 'completed'`).all(id, id)
-    : ctx.db.prepare(`SELECT * FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND status <> 'completed' AND visibility = 'unit' AND unit_id IN (${ph})`).all(id, id, ...units);
-  res.json({
+    ? ctx.db.prepare(`SELECT * FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND status <> 'completed'`).all(id, id) as Task[]
+    : ctx.db.prepare(`SELECT * FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND deleted_at IS NULL AND status <> 'completed' AND visibility = 'unit' AND unit_id IN (${ph})`).all(id, id, ...units) as Task[];
+  const body: MemberDetailResponse = {
     person,
-    memberships: ctx.db.prepare(`SELECT um.unit_id, um.is_primary, um.billet, um.joined_at, u.name AS unit_name, u.short_name AS unit_short FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND u.active = 1 ${isSelf ? '' : `AND um.unit_id IN (${ph})`}`).all(id, ...(isSelf ? [] : units)),
-    roles: ctx.db.prepare(`SELECT mr.unit_id, r.id, r.name, r.color, r.position, r.permissions, r.key FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id = ? ${isSelf ? '' : `AND mr.unit_id IN (${ph})`} ORDER BY r.position DESC`).all(id, ...(isSelf ? [] : units)),
+    memberships: ctx.db.prepare(`SELECT um.unit_id, um.is_primary, um.billet, um.joined_at, u.name AS unit_name, u.short_name AS unit_short FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND u.active = 1 ${isSelf ? '' : `AND um.unit_id IN (${ph})`}`).all(id, ...(isSelf ? [] : units)) as MemberDetailResponse['memberships'],
+    roles: ctx.db.prepare(`SELECT mr.unit_id, r.id, r.name, r.color, r.position, r.permissions, r.key FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id = ? ${isSelf ? '' : `AND mr.unit_id IN (${ph})`} ORDER BY r.position DESC`).all(id, ...(isSelf ? [] : units)) as MemberDetailResponse['roles'],
     detailUnits: units,
     canCounsel: units.filter((u) => can(scope, PERMISSIONS.COUNSEL, u)),
     canManageMembers: units.filter((u) => can(scope, PERMISSIONS.MANAGE_MEMBERS, u)),
-    activities: scoped('activities'), trainings: scoped('trainings'), awards: scoped('awards'), counselings, goals, tasks,
-  });
+    activities: scoped<Activity>('activities'), trainings: scoped<Training>('trainings'), awards: scoped<Award>('awards'), counselings, goals, tasks,
+  };
+  res.json(body);
 }));
 
 orgRouter.put('/team/:userId/profile', wrap((req, res) => {

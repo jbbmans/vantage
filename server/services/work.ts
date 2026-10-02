@@ -8,6 +8,7 @@ import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
 import { appendEvent, caseView, assertMayResolveCase } from './cases.ts';
 import { STATE_TO_STAGE } from '../../shared/caseModel.ts';
+import type { WorkItemDetail } from '../../shared/caseView.ts';
 import { zoneOf } from '../lib/zone.ts';
 
 export interface WorkItemRow {
@@ -140,7 +141,7 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
   return { total, limit, offset, items: rows.map(hydrate) };
 }
 
-export function itemDetail(ctx: AppContext, user: SessionUser, scope: Scope, id: string) {
+export function itemDetail(ctx: AppContext, user: SessionUser, scope: Scope, id: string): WorkItemDetail {
   const row = readableItem(ctx, user, scope, id);
   const actions = ctx.db.prepare(
     `SELECT a.*, u.first_name, u.last_name, r.abbr AS rank_abbr
@@ -148,10 +149,10 @@ export function itemDetail(ctx: AppContext, user: SessionUser, scope: Scope, id:
       WHERE a.work_item_id = ? ORDER BY a.occurred_at DESC, a.created_at DESC LIMIT 200`
   ).all(id) as Array<Record<string, unknown>>;
   const source = row.source_file_id
-    ? ctx.db.prepare('SELECT id, filename, created_at, sha256 FROM source_files WHERE id = ?').get(row.source_file_id)
+    ? (ctx.db.prepare('SELECT id, filename, created_at, sha256 FROM source_files WHERE id = ?').get(row.source_file_id) as WorkItemDetail['source'] | undefined) ?? null
     : null;
   const project = row.project_id
-    ? ctx.db.prepare('SELECT id, name, target_date FROM projects WHERE id = ? AND deleted_at IS NULL').get(row.project_id) ?? null
+    ? (ctx.db.prepare('SELECT id, name, target_date FROM projects WHERE id = ? AND deleted_at IS NULL').get(row.project_id) as WorkItemDetail['project'] | undefined) ?? null
     : null;
   return { item: hydrate(row), actions, source, project, contributors: contributors(ctx, id), case: caseView(ctx, user, scope, row) };
 }

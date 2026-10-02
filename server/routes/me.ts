@@ -20,6 +20,7 @@ import { layout } from '../services/mailLayout.ts';
 import { newId, now } from '../lib/ids.ts';
 import { ancestorIds, viewsFor } from '../services/org.ts';
 import { PERMISSION_LIST } from '../../shared/permissions.ts';
+import type { OrgResponse, Rank, Role, Unit } from '../../shared/types.ts';
 import { composeDigest, sendDigest } from '../services/digest.ts';
 import { buildPersonalExport, buildPersonalExportZip } from '../services/personalExport.ts';
 import { demoStatus } from '../services/demo.ts';
@@ -63,9 +64,10 @@ meRouter.get('/org', wrap((req, res) => {
   const ctx = req.ctx;
   const scope = scopeFor(ctx, req.user, req);
   const ids = req.user.is_operator ? (ctx.db.prepare('SELECT id FROM units WHERE active = 1').all() as Array<{ id: string }>).map((r) => r.id) : [...new Set([...ancestorIds(ctx, scope.unitIds), ...scope.viewableUnitIds])];
-  const units = ids.length ? ctx.db.prepare(`SELECT * FROM units WHERE active = 1 AND id IN (${ids.map(() => '?').join(',')}) ORDER BY name`).all(...ids) : [];
-  const roles = scope.unitIds.length ? ctx.db.prepare(`SELECT * FROM roles WHERE unit_id IN (${scope.unitIds.map(() => '?').join(',')}) ORDER BY position DESC, name`).all(...scope.unitIds) : [];
-  res.json({ ranks: ctx.db.prepare('SELECT * FROM ranks ORDER BY sort').all(), units, roles, permissionCatalogue: PERMISSION_LIST.map((p) => ({ ...p, bit: PERMISSIONS[p.key] })) });
+  const units = ids.length ? ctx.db.prepare(`SELECT * FROM units WHERE active = 1 AND id IN (${ids.map(() => '?').join(',')}) ORDER BY name`).all(...ids) as Unit[] : [];
+  const roles = scope.unitIds.length ? ctx.db.prepare(`SELECT * FROM roles WHERE unit_id IN (${scope.unitIds.map(() => '?').join(',')}) ORDER BY position DESC, name`).all(...scope.unitIds) as Role[] : [];
+  const body: OrgResponse = { ranks: ctx.db.prepare('SELECT * FROM ranks ORDER BY sort').all() as Rank[], units, roles, permissionCatalogue: PERMISSION_LIST.map((p) => ({ ...p, bit: PERMISSIONS[p.key] })) };
+  res.json(body);
 }));
 
 meRouter.put('/profile', wrap((req, res) => {

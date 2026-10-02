@@ -12,6 +12,7 @@ import { parse } from '../lib/http.ts';
 import { eventsFor, caseEventsOf, stageOf, procedureOf } from './cases.ts';
 import { readable, type WorkItemRow } from './work.ts';
 import { zonedDay, zonedDayBounds, zonedDateOf } from '../lib/clock.ts';
+import type { AssignedItem, ContributionCounts, WorkloadMember, WorkloadResponse } from '../../shared/caseView.ts';
 
 const RESEARCH = RESEARCH_KINDS.map((k) => `'${k}'`).join(',');
 const OPEN = "('resolved','not_applicable')";
@@ -41,7 +42,7 @@ const CURRENT_VERIFIED = `e.kind = 'verification' AND json_extract(e.body, '$.re
        AND (l.occurred_at > e.occurred_at OR (l.occurred_at = e.occurred_at AND l.created_at > e.created_at))
        AND NOT EXISTS (SELECT 1 FROM work_events s2 WHERE s2.supersedes_id = l.id))`;
 
-export function contributionCounts(ctx: AppContext, userId: string, w: Window, unitId: string | string[] | null = null) {
+export function contributionCounts(ctx: AppContext, userId: string, w: Window, unitId: string | string[] | null = null): ContributionCounts {
   const [lo, hi] = bounds(ctx.config.timezone, w);
   const units = unitId == null ? null : JSON.stringify(Array.isArray(unitId) ? unitId : [unitId]);
   const unitClause = units ? ` AND ${SHARED}` : '';
@@ -72,7 +73,7 @@ export function assignedWork(ctx: AppContext, user: SessionUser) {
   return rows.map((row) => summarizeItem(ctx, row));
 }
 
-export function summarizeItem(ctx: AppContext, row: ItemRow) {
+export function summarizeItem(ctx: AppContext, row: ItemRow): AssignedItem {
   const stage = stageOf(row);
   const procedure = procedureOf(row).procedure;
   let nextStep: { key: string; title: string; status: string; note: string | null } | null = null;
@@ -161,7 +162,7 @@ export function contributionHistory(ctx: AppContext, user: SessionUser, scope: S
   });
 }
 
-export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, unitId: string, w: Window) {
+export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, unitId: string, w: Window): WorkloadResponse {
   if (!can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('You cannot view workload for that unit.');
   const includeMembers = can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, unitId);
   const unitIds = subtreeIds(ctx, unitId);
@@ -227,7 +228,7 @@ export function teamWorkload(ctx: AppContext, user: SessionUser, scope: Scope, u
   const attention = open.filter((i) => stageOf(i) === 'blocked' || (i.due_date && i.due_date < today) || stageOf(i) === 'verification_required')
     .slice(0, 12).map((i) => summarizeItem(ctx, i));
 
-  let members: Array<Record<string, unknown>> = [];
+  let members: WorkloadMember[] = [];
   if (includeMembers) {
     const people = membersAcross(ctx, unitIds);
     members = people.map((m) => {

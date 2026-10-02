@@ -68,7 +68,7 @@ function Profile() {
           <Field label="First name" error={errors.first_name}><Input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} /></Field>
           <Field label="Last name" error={errors.last_name}><Input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} /></Field>
           <Field label="MI"><Input value={form.middle_initial} maxLength={4} onChange={(e) => setForm({ ...form, middle_initial: e.target.value })} /></Field>
-          <Field label="Rank" hint="decides JEPES vs FITREP" error={errors.rank_id}><Select value={form.rank_id || '__none'} onValueChange={(v) => setForm({ ...form, rank_id: v === '__none' ? '' : v })} options={[{ value: '__none', label: 'Not set' }, ...(org?.ranks || []).map((r: any) => ({ value: r.id, label: `${r.abbr} · ${r.name}` }))]} /></Field>
+          <Field label="Rank" hint="decides JEPES vs FITREP" error={errors.rank_id}><Select value={form.rank_id || '__none'} onValueChange={(v) => setForm({ ...form, rank_id: v === '__none' ? '' : v })} options={[{ value: '__none', label: 'Not set' }, ...(org?.ranks || []).map((r) => ({ value: r.id, label: `${r.abbr} · ${r.name}` }))]} /></Field>
           <Field label="MOS"><Input value={form.mos} onChange={(e) => setForm({ ...form, mos: e.target.value })} /></Field>
           <Field label="EAS"><Input type="date" value={form.eas} onChange={(e) => setForm({ ...form, eas: e.target.value })} /></Field>
           <Field label="Time zone" hint="decides your today and what is overdue" error={errors.timezone}>

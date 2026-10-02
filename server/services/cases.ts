@@ -14,6 +14,7 @@ import {
   type CaseEvent, type Procedure, type ProcedureStep,
 } from '../../shared/procedures.ts';
 import { formatCents } from '../../shared/money.ts';
+import type { CaseView } from '../../shared/caseView.ts';
 import { parse } from '../lib/http.ts';
 import {
   getItem, mayClaim, mayReassign, mayResolve, mayProgress, mayAct, readable, type WorkItemRow,
@@ -80,7 +81,7 @@ export function assertMayResolveCase(ctx: AppContext, row: CaseRow) {
   }
 }
 
-export function caseView(ctx: AppContext, user: SessionUser, scope: Scope, row: CaseRow) {
+export function caseView(ctx: AppContext, user: SessionUser, scope: Scope, row: CaseRow): CaseView {
   const events = eventsFor(ctx, row.id);
   const people = peopleFor(ctx, [...events.flatMap((e) => [e.actor_id, e.subject_id]), row.claimed_by, row.owner_id]);
   const pinned = procedureOf(row);
@@ -98,10 +99,10 @@ export function caseView(ctx: AppContext, user: SessionUser, scope: Scope, row: 
   } : null;
   return {
     stage,
-    waiting: row.waiting_category ? { category: row.waiting_category, since: row.waiting_since } : null,
+    waiting: row.waiting_category ? { category: row.waiting_category, since: row.waiting_since ?? null } : null,
     blocked_reason: row.blocked_reason || null,
-    procedure: procedure ? { ...procedure, pinned_version: pinned.pinned, newer_version: pinned.newer } : null,
-    procedure_unavailable: pinned.unavailable ? { key: row.procedure_key, version: pinned.pinned, current: PROCEDURES[row.procedure_key!]?.version || null } : null,
+    procedure: procedure ? { ...procedure, pinned_version: pinned.pinned ?? procedure.version, newer_version: pinned.newer } : null,
+    procedure_unavailable: pinned.unavailable && row.procedure_key ? { key: row.procedure_key, version: pinned.pinned, current: PROCEDURES[row.procedure_key]?.version || null } : null,
     progress: prog,
     latest_calculation: calc ? { id: calc.id, step: calc.body.step ?? null, ...calc.body, ...calculationState(calc, caseEvents) } : null,
     calculations: calcEvents.map((c) => ({ id: c.id, formula: c.body.formula, step: c.body.step ?? null, ...calculationState(c, caseEvents) })),

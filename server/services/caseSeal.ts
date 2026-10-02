@@ -4,6 +4,7 @@ import { hmac, safeEqual } from '../lib/crypto.ts';
 import { now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { metaGet } from '../db/index.ts';
+import type { CaseIntegrity } from '../../shared/caseView.ts';
 
 interface SealableEvent {
   id: string; work_item_id: string; unit_id: string | null; actor_id: string | null; kind: string; step: string | null;
@@ -50,11 +51,7 @@ export function sealBacklog(ctx: AppContext, itemIds?: string[]): number {
   return sealed;
 }
 
-export interface CaseIntegrity {
-  status: 'verified' | 'broken' | 'unsealed';
-  count: number;
-  reason?: string;
-}
+export type { CaseIntegrity };
 
 export function caseIntegrity(ctx: AppContext, itemId: string, rows?: SealableEvent[]): CaseIntegrity {
   const { db, chainKey } = ctx;

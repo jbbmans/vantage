@@ -141,7 +141,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
   const sourceById = useMemo(() => new Map(sources.map((s) => [s.id, s])), [sources]);
   const chosen = [...selected].map((sid) => sourceById.get(sid)).filter(Boolean);
   const [sectionAi, setSectionAi] = useState<Record<number, { output: Record<string, unknown>; meta: { model: string; tokens: number } }>>({});
-  const citedFacts = useMemo(() => chosen.map((s: any) => [
+  const citedFacts = useMemo(() => chosen.map((s) => [
     s.title,
     s.date,
     s.quantity != null ? `${formatNumber(s.quantity)} ${s.unit_label || ''}`.trim() : '',
@@ -312,7 +312,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
             <EmptyState title="Nothing cited yet" description="Pick the records this report is built from. A report cannot be saved without them." action={<Button onClick={() => setPicker(true)}>Choose records</Button>} />
           ) : (
             <ul className="space-y-2">
-              {chosen.map((s: any) => {
+              {chosen.map((s) => {
                 const moved = versions[s.id] != null && versions[s.id] !== s.version;
                 return (
                   <li key={s.id} className={cn('rounded-md border px-3 py-2 text-sm', moved ? 'border-warn/50 bg-warn/5' : 'border-line')}>
@@ -348,7 +348,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
           <EmptyState title="Nothing in this period" description="Widen the report's period, or log the work first." />
         ) : (
           <ul className="divide-y divide-line">
-            {sources.map((s: any) => (
+            {sources.map((s) => (
               <li key={s.id}>
                 <label className="flex cursor-pointer items-start gap-3 px-1 py-2.5 hover:bg-surface-2">
                   <input type="checkbox" className="mt-1" checked={selected.has(s.id)} onChange={() => toggle(s.id)} />

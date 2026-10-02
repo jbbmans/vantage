@@ -73,7 +73,7 @@ Scripts:
 | Command | What it does |
 | --- | --- |
 | `npm run dev` | API with `--watch` plus the Vite dev server |
-| `npm run check` | lint, typecheck, server tests, production build |
+| `npm run check` | lint (including the explicit-`any` budget in `scripts/any-budget.json`, which may only go down), typecheck, server tests, production build |
 | `npm test` | server test suite (in-memory SQLite) |
 | `npm run test:browser` | builds the client and runs the Playwright suite (desktop, phone, axe) |
 | `npm run build` | production client into `dist/` |

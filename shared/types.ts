@@ -1,4 +1,6 @@
 import type { Visibility } from './constants.ts';
+import type { ProgressResult } from './metricEngine.ts';
+import type { PermissionKey, RoleTemplate } from './permissions.ts';
 
 export interface Rank { id: string; grade: string; abbr: string; name: string; tier: string; sort: number }
 
@@ -44,6 +46,20 @@ export interface Goal extends BaseRecord {
   title: string; description: string | null; type: string; category: string | null; metric: string;
   current_value: number; target_value: number | null; unit_label: string | null; status: string;
   period_start: string | null; period_end: string | null; assignee_id: string | null;
+  metric_id: string | null; direction: string; baseline_value: number | null; aggregation: string;
+  /** Stored as JSON; the API sends it parsed. */
+  filters: Record<string, string | null>;
+  measure_scope: string; completed_at: string | null;
+  /** Computed by the server from the records the goal counts. */
+  progress?: GoalProgress;
+}
+
+export interface GoalProgress extends ProgressResult {
+  basis: string;
+  auto: boolean;
+  measuresEntries: boolean;
+  metricId: string | null;
+  unit: string | null;
 }
 
 export interface Training extends BaseRecord {
@@ -61,6 +77,8 @@ export interface Counseling extends BaseRecord {
   date: string | null; type: string; counselor_id: string | null; counselor_name: string | null;
   summary: string; strengths: string | null; improvements: string | null; goals_set: string | null;
   follow_up_date: string | null; acknowledged_at: string | null;
+  /** Sent when the reader is not the person counseled. */
+  subject_name?: string;
 }
 
 export interface Readiness {
@@ -77,3 +95,63 @@ export interface UserPublic {
 }
 
 export type DateRange = { start: Date; end: Date; label?: string };
+
+/** A row of each record store, as GET /api/records/:store returns it. */
+export interface RecordRows {
+  activities: Activity; projects: Project; tasks: Task; goals: Goal; trainings: Training; awards: Award; counselings: Counseling;
+}
+
+/** GET /api/me/org: the ranks, the units in view and the roles in the reader's own units. */
+export interface OrgResponse {
+  ranks: Rank[];
+  units: Unit[];
+  roles: Role[];
+  permissionCatalogue: Array<{ key: PermissionKey; label: string; hint: string; group: string; dangerous?: boolean; bit: number }>;
+}
+
+/** GET /api/org/roles. */
+export interface RolesResponse {
+  roles: Array<Role & { editable: boolean }>;
+  /** The reader's highest role position in each unit. */
+  positions: Record<string, number>;
+  template: RoleTemplate[];
+}
+
+export interface TeamMembership { user_id: string; unit_id: string; is_primary: number; billet: string | null; unit_name: string; unit_short: string | null }
+export interface TeamRole { user_id: string; unit_id: string; id: string; name: string; color: string | null; position: number; key: string | null }
+
+export interface TeamPerson {
+  id: string; first_name: string; last_name: string; middle_initial: string | null; mos: string | null; rank_id: string | null;
+  rank_abbr: string | null; rank_grade: string | null; rank_sort: number | null;
+  /** Only the memberships in units the reader can see. */
+  memberships: TeamMembership[];
+  roles: TeamRole[];
+  /** The reader may open this person's page. */
+  canOpen: boolean;
+}
+
+/** GET /api/org/team: everyone the reader can see, and the units where the reader holds each power. */
+export interface TeamResponse {
+  roster: TeamPerson[];
+  readableUnitIds: string[];
+  manageMembers: string[];
+  manageRoles: string[];
+  counsel: string[];
+  exportUnits: string[];
+}
+
+/** GET /api/org/team/:id: one Marine's page, limited to the units the reader shares with them (all of it for oneself). */
+export interface MemberDetailResponse {
+  person: {
+    id: string; first_name: string; last_name: string; middle_initial: string | null; mos: string | null; eas: string | null;
+    rank_id: string | null; rank_abbr: string | null; rank_grade: string | null; rank_name: string | null; last_login_at: string | null;
+    /** Only on one's own page. */
+    email?: string | null;
+  };
+  memberships: Array<{ unit_id: string; is_primary: number; billet: string | null; joined_at: string; unit_name: string; unit_short: string | null }>;
+  roles: Array<{ unit_id: string; id: string; name: string; color: string | null; position: number; permissions: number; key: string | null }>;
+  detailUnits: string[];
+  canCounsel: string[];
+  canManageMembers: string[];
+  activities: Activity[]; trainings: Training[]; awards: Award[]; counselings: Counseling[]; goals: Goal[]; tasks: Task[];
+}

@@ -30,8 +30,19 @@ demo whose team view, Reports and Owner console show something.
 **Engineering.** CI gates on `npm audit`, publishes a CycloneDX SBOM, scans the image with Trivy and runs CodeQL;
 the base image is pinned by digest; versions are tagged on main; the hand-written parsers are fuzzed.
 
-**Still open.** PostgreSQL (and with it running more than one server process), loosening the client's `any` types,
-and enterprise sign-in through OIDC or SAML. Owner decisions outside the code are unchanged (below).
+**Organization sign-in.** Entra ID (commercial, GCC High, DoD) or any OpenID Connect provider can sign people in:
+code flow with PKCE, single-use hashed state and nonce, the ID token verified against the provider's keys, and the
+account bound to the provider's subject. It can link by verified email or an EDIPI claim, create accounts for active
+roster members, and be the only way in (`VANTAGE_OIDC_EXCLUSIVE`). See `docs/cac-and-records.md`.
+
+**Types.** The case page, assigned work, team workload, the record stores, the roster, a member's page, the org and
+roles now have one shared response type each, which the server's builders are checked against, so a change on one
+side the other does not expect fails the typecheck. Doing so found a counseling list that offered "for <name>" from a
+field the server never sent (it sends it now). Explicit `any` went from 323 to 221 and cannot grow: `npm run lint`
+fails when a directory holds more than its budget in `scripts/any-budget.json`.
+
+**Still open.** PostgreSQL (and with it running more than one server process), SAML, and the remaining `any` in the
+owner console and import screens. Owner decisions outside the code are unchanged (below).
 
 ## Earlier (2026-09-25)
 
@@ -103,15 +114,15 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **520 / 520 pass** (run late on 1 Oct Eastern, inside the evening window where the old date bug failed 8 tests) |
-| `npm run test:browser` (Playwright, Chromium, built client) | **96 / 96 pass** (2026-10-02) |
+| `npm test` (server suite, in-memory SQLite) | **533 / 533 pass** (2026-10-02) |
+| `npm run test:browser` (Playwright, Chromium, built client) | **100 / 100 pass** (2026-10-02) |
 | Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference and the public page |
 | `npm audit` | 0 vulnerabilities |
 
 ### Not verified
 
-- A live Microsoft tenant. The mailbox flow is tested end to end against a local stand-in for Microsoft;
-  a real Entra registration in GCC High or DoD has not been exercised.
+- A live Microsoft tenant. The mailbox flow and organization sign-in are tested end to end against local stand-ins
+  for Microsoft and an OIDC provider; a real Entra registration in GCC High or DoD has not been exercised.
 - The FMRA procedures against a current SOP or an SME. They are labelled "formal training reference,
   not verified against current policy", and screen paths are left undocumented until confirmed.
 - PostgreSQL, Windows Server, a real CAC (revocation is tested with a fixture CA and CRL), a real clamd (tested against
@@ -130,7 +141,8 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 
 1. Walk an FMRA through the diagnoser and one procedure of each family, and correct the step wording
    and screen paths from what they say.
-2. Register a Microsoft Entra application in the target cloud and run one real mailbox sign-in.
+2. Register a Microsoft Entra application in the target cloud and run one real mailbox sign-in and one real
+   organization sign-in (`VANTAGE_OIDC_ISSUER`).
 3. The films are published without narration, at the owner's request (score, sound and captions,
    which play by default; `voiced: false` in `src/config/films.generated.json`). To add the voice: put
    `ELEVENLABS_API_KEY` in the environment's settings and run `npm run film`, which voices the script,

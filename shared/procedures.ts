@@ -419,6 +419,10 @@ export function progress(procedure: Procedure, allEvents: CaseEvent[], item: { r
   return { steps: out, next };
 }
 
+/** A lifecycle finding and anomaly as a calculation stores them. */
+export interface StoredFinding { condition: string; abbr: string; name: string; pattern: string; residual_cents: number; arithmetic: string }
+export interface StoredAnomaly { key: string; title: string; detail: string }
+
 export interface CalcInput { event_id: string; field: string; label: string; cents: number | null; source: 'manual_observation' | 'source_file' | 'user_entry'; not_shown?: boolean }
 
 export interface Formula {
@@ -534,8 +538,8 @@ export function lifecycleResidual(allEvents: CaseEvent[]) {
     ok: true as const,
     inputs: methodEvent ? [...inputs, { event_id: methodEvent.id, field: 'purchase_method', label: 'Purchase method', cents: null, source: sourceOf(methodEvent) }] : inputs,
     method,
-    findings: d.findings.map((f) => ({ condition: f.condition, abbr: f.abbr, name: f.name, pattern: f.pattern, residual_cents: f.residualCents, arithmetic: f.arithmetic })),
-    anomalies: d.anomalies.map((a) => ({ key: a.key, title: a.title, detail: a.detail })),
+    findings: d.findings.map((f): StoredFinding => ({ condition: f.condition, abbr: f.abbr, name: f.name, pattern: f.pattern, residual_cents: f.residualCents, arithmetic: f.arithmetic })),
+    anomalies: d.anomalies.map((a): StoredAnomaly => ({ key: a.key, title: a.title, detail: a.detail })),
     complete: d.complete,
     display: d.complete ? 'Nothing open between phases' : [...headline, ...odd].join('; ') || 'No residual',
     requires_review: d.anomalies.length > 0,

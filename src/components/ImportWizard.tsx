@@ -322,7 +322,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
             <div>
               <h3 className="mb-2 flex items-center gap-2 text-md font-semibold text-ink"><ShieldAlert className="h-4 w-4 text-warn" />Rows Vantage will not import</h3>
               <ul className="max-h-48 space-y-1 overflow-y-auto text-xs">
-                {preview.rejections.slice(0, 50).map((r: any, i: number) => (
+                {preview.rejections.slice(0, 50).map((r: any, i: any) => (
                   <li key={`${r.source_row}-${i}`} className="rounded-md border border-line px-3 py-1.5">
                     <span className="font-medium text-ink">Row {r.source_row}{r.value ? `: ${r.value}` : ''}</span>
                     <span className="block text-ink-3">{r.reason}</span>

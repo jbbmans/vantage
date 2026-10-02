@@ -8,6 +8,8 @@ import { applyAccent, applyDensity, applyTheme } from './theme.ts';
 import { trackForGrade, type Track } from '../../shared/evaluation.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
 import type { MetricTotal } from '../../shared/metricEngine.ts';
+import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
+import type { RecordRows } from '../../shared/types';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -80,8 +82,8 @@ export function useMetrics(): MetricsConfig {
 export function useOrg() {
   return useQuery({ queryKey: keys.org, queryFn: api.org, staleTime: 5 * 60_000 });
 }
-export function useRecords(store: Store, params?: Record<string, string | undefined>, enabled = true) {
-  return useQuery<any[]>({ queryKey: keys.records(store, params), queryFn: () => api.listRecords(store, params), enabled });
+export function useRecords<S extends Store>(store: S, params?: Record<string, string | undefined>, enabled = true) {
+  return useQuery<Array<RecordRows[S]>>({ queryKey: keys.records(store, params), queryFn: () => api.listRecords(store, params), enabled });
 }
 export const useActivities = () => useRecords('activities');
 export const useTasks = (enabled = true) => useRecords('tasks', undefined, enabled);
@@ -265,14 +267,14 @@ export const caseKeys = {
   demo: ['demo-status'] as const,
 };
 
-export const useWorkItem = (id: string | null) => useQuery<any>({ queryKey: caseKeys.item(id || ''), queryFn: () => api.workItem(id!), enabled: Boolean(id) });
+export const useWorkItem = (id: string | null) => useQuery<WorkItemDetail>({ queryKey: caseKeys.item(id || ''), queryFn: () => api.workItem(id!), enabled: Boolean(id) });
 export const useRecordSummary = (params: Record<string, string | undefined> = {}, enabled = true) => useQuery<any>({ queryKey: caseKeys.summary(params), queryFn: () => api.recordSummary(params), staleTime: 15_000, enabled });
-export const useAssignedWork = () => useQuery<any[]>({ queryKey: caseKeys.assigned, queryFn: api.assignedWork, staleTime: 10_000 });
+export const useAssignedWork = () => useQuery<AssignedItem[]>({ queryKey: caseKeys.assigned, queryFn: api.assignedWork, staleTime: 10_000 });
 export const useContributions = (params: Record<string, string | undefined> = {}) => useQuery<any[]>({ queryKey: caseKeys.contributions(params), queryFn: () => api.contributions(params) });
 export const useRecordDrafts = (enabled = true) => useQuery<any[]>({ queryKey: caseKeys.drafts, queryFn: api.recordDrafts, enabled });
 export const useCareer = () => useQuery<any>({ queryKey: caseKeys.career, queryFn: api.career, staleTime: 30_000 });
 export const useWorkload = (unitId: string | null, params: Record<string, string | undefined> = {}) =>
-  useQuery<any>({ queryKey: caseKeys.workload(unitId || '', params), queryFn: () => api.workload(unitId!, params), enabled: Boolean(unitId), retry: false });
+  useQuery<WorkloadResponse>({ queryKey: caseKeys.workload(unitId || '', params), queryFn: () => api.workload(unitId!, params), enabled: Boolean(unitId), retry: false });
 
 export function invalidateWork(qc: QueryClient, itemId?: string, ...also: Domain[]) {
   if (itemId) qc.invalidateQueries({ queryKey: caseKeys.item(itemId) });

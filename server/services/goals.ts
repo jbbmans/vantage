@@ -1,7 +1,8 @@
 import type { AppContext } from '../context.ts';
 import { badRequest } from '../lib/errors.ts';
 import { subjectMeasures, unitMeasures } from './metrics.ts';
-import { progress, totals, selectMeasures, moneyMetricId, quantityMetricId, durationMetricId, canonicalMetricId, type Direction, type Aggregation, type ProgressResult } from '../../shared/metricEngine.ts';
+import { progress, totals, selectMeasures, moneyMetricId, quantityMetricId, durationMetricId, canonicalMetricId, type Direction, type Aggregation } from '../../shared/metricEngine.ts';
+import type { GoalProgress } from '../../shared/types.ts';
 
 export const DIRECTIONS: Direction[] = ['increase', 'decrease', 'threshold', 'completion'];
 export const AGGREGATIONS: Aggregation[] = ['sum', 'max', 'min', 'average', 'latest', 'distinct'];
@@ -32,13 +33,7 @@ export function legacyMetricId(goal: Pick<GoalRow, 'metric' | 'unit_label'>): st
 
 export const countsEntries = (goal: Pick<GoalRow, 'metric' | 'metric_id'>) => !goal.metric_id && goal.metric === 'activity_count';
 
-export interface GoalProgress extends ProgressResult {
-  basis: string;
-  auto: boolean;
-  measuresEntries: boolean;
-  metricId: string | null;
-  unit: string | null;
-}
+export type { GoalProgress };
 
 function windowFor(goal: GoalRow): { from: string | null; to: string | null } {
   return { from: goal.period_start || null, to: goal.period_end || null };

@@ -16,7 +16,7 @@
     "build": "vite build && node scripts/prerender.mjs",
     "start": "node server/index.ts",
     "typecheck": "tsc -p tsconfig.json --noEmit && tsc -p tsconfig.web.json --noEmit && tsc -p tests/browser",
-    "lint": "eslint .",
+    "lint": "eslint . && node scripts/any-budget.ts",
     "test": "node --test --test-concurrency=1 \"tests/server/**/*.test.ts\"",
     "test:browser": "playwright test",
     "film": "npm --prefix film run render --",
