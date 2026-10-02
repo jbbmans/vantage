@@ -28,7 +28,7 @@ export const EXPORT_TABLES = [
 ] as const;
 
 /** Tables left out of the archive on purpose: sign-ins, links and queued mail that belong to the old host. */
-export const NOT_EXPORTED = ['sessions', 'tokens', 'email_queue', 'connector_auth_states', 'demo_workspaces'] as const;
+export const NOT_EXPORTED = ['sessions', 'tokens', 'email_queue', 'connector_auth_states', 'oidc_states', 'demo_workspaces'] as const;
 
 export function exportInstance(ctx: AppContext) {
   const tables: Record<string, unknown[]> = {};

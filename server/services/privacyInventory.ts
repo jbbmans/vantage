@@ -32,7 +32,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       is_operator: 'employment', active: 'employment', must_change_password: 'authentication',
       identity_source: 'employment', identity_synced_at: 'employment', demo_workspace_id: 'technical',
       prefs: 'none', digest_last_sent_at: 'technical', last_login_at: 'technical', timezone: 'none',
-      failed_sign_ins: 'authentication', locked_until: 'authentication',
+      failed_sign_ins: 'authentication', locked_until: 'authentication', oidc_issuer: 'authentication', oidc_subject: 'identifier',
       created_at: 'technical', updated_at: 'technical',
     },
   },
@@ -469,6 +469,12 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       created_at: 'technical', updated_at: 'technical', access_token_enc: 'authentication', refresh_token_enc: 'authentication',
       token_expires_at: 'technical', account_id: 'identifier', account_address: 'contact', tenant_id: 'technical', authorized_at: 'technical',
     },
+  },
+  oidc_states: {
+    purpose: 'An organization sign-in in progress: hashes of its state and nonce and its sealed PKCE verifier, for ten minutes, once.',
+    authority: 'Necessary to complete a sign-in safely.',
+    access: 'Nobody reads it; a returning sign-in is matched against the hash.',
+    columns: { state_hash: 'authentication', nonce_hash: 'authentication', verifier_enc: 'authentication', face: 'technical', consented: 'technical', return_to: 'technical', created_at: 'technical', expires_at: 'technical', used_at: 'technical' },
   },
   connector_auth_states: {
     purpose: 'A mailbox sign-in in progress: the hash of its state value and its encrypted PKCE verifier, for ten minutes, once.',

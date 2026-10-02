@@ -103,7 +103,7 @@ function inlineScriptHashes(distDir: string): string[] {
 const APP_PATH = /^\/(?:login|register|reset|invite|setup|goals|reference|maradmins|readiness|settings|governance|help|queue|correspondence|studio|assist)\/?$|^\/(?:work|record|records|activities|career|reports|team|support)(?:\/[^/]+){0,2}\/?$/;
 const CONSOLE_PATH = /^\/(?:operator|console)(?:\/.*)?$/;
 /** What the console's own pages call: signing in, the owner's identity, administration and the accounts and units it manages. */
-const CONSOLE_API = /^\/(?:admin|org|me)(?:\/|$)|^\/auth\/(?:setup|login|login\/mfa|passkey\/options|passkey\/verify|cac|logout|sudo|forgot)$|^\/ranks$/;
+const CONSOLE_API = /^\/(?:admin|org|me)(?:\/|$)|^\/auth\/(?:setup|login|login\/mfa|passkey\/options|passkey\/verify|cac|logout|sudo|forgot|oidc\/start|oidc\/callback)$|^\/ranks$/;
 const APP_ROBOTS = 'User-agent: *\nAllow: /login\nAllow: /register\nAllow: /reset\nAllow: /invite\nDisallow: /\n';
 
 /** The console address for an old /operator?tab= link or a /console path, on whichever host the console lives. */

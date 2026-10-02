@@ -54,6 +54,52 @@ export interface AppConfig {
   cac: CacConfig;
   audit: AuditConfig;
   security: SecurityConfig;
+  oidc: OidcConfig;
+}
+
+export interface OidcConfig {
+  enabled: boolean;
+  /** The issuer exactly as the provider names it, e.g. https://login.microsoftonline.us/<tenant id>/v2.0 */
+  issuer: string;
+  clientId: string;
+  clientSecret: string;
+  scopes: string;
+  /** The button: "Sign in with Microsoft". */
+  label: string;
+  /** How a first sign-in finds its existing account: by email address, by EDIPI claim, or not at all. */
+  linkBy: 'email' | 'edipi' | 'none';
+  /** The claim carrying the DoD ID, where the tenant issues one. */
+  edipiClaim: string;
+  /** Trust the email claim without email_verified: true. Right for an organization's own Entra tenant, which owns its addresses. */
+  trustProviderEmail: boolean;
+  autoProvisionFromRoster: boolean;
+  /** Only this sign-in (and CAC): no passwords, no self-registration. */
+  exclusive: boolean;
+}
+
+function readOidcConfig(env: NodeJS.ProcessEnv, production: boolean, test: boolean): OidcConfig {
+  const issuer = (env.VANTAGE_OIDC_ISSUER || '').trim();
+  const clientId = (env.VANTAGE_OIDC_CLIENT_ID || '').trim();
+  const enabled = Boolean(issuer && clientId);
+  if (issuer && !clientId) throw new Error('VANTAGE_OIDC_ISSUER is set but VANTAGE_OIDC_CLIENT_ID is not.');
+  if (enabled && !/^https:\/\//.test(issuer) && !(test && /^http:\/\/127\.0\.0\.1:/.test(issuer))) throw new Error('VANTAGE_OIDC_ISSUER must be an https:// address.');
+  const linkBy = (env.VANTAGE_OIDC_LINK || 'email').trim().toLowerCase();
+  if (!['email', 'edipi', 'none'].includes(linkBy)) throw new Error('VANTAGE_OIDC_LINK must be email, edipi, or none.');
+  const edipiClaim = (env.VANTAGE_OIDC_EDIPI_CLAIM || '').trim();
+  if (linkBy === 'edipi' && !edipiClaim) throw new Error('VANTAGE_OIDC_LINK=edipi needs VANTAGE_OIDC_EDIPI_CLAIM, the claim that carries the DoD ID.');
+  const microsoft = /^https:\/\/login\.microsoftonline\.(com|us)\//.test(issuer);
+  void production;
+  return {
+    enabled, issuer, clientId,
+    clientSecret: env.VANTAGE_OIDC_CLIENT_SECRET || '',
+    scopes: (env.VANTAGE_OIDC_SCOPES || 'openid profile email').trim(),
+    label: (env.VANTAGE_OIDC_LABEL || (microsoft ? 'Sign in with Microsoft' : 'Sign in with your organization')).trim(),
+    linkBy: linkBy as OidcConfig['linkBy'],
+    edipiClaim,
+    trustProviderEmail: envBool(env, 'VANTAGE_OIDC_TRUST_EMAIL', microsoft),
+    autoProvisionFromRoster: envBool(env, 'VANTAGE_OIDC_AUTO_PROVISION', false),
+    exclusive: enabled && envBool(env, 'VANTAGE_OIDC_EXCLUSIVE', false),
+  };
 }
 
 export interface SecurityConfig {
@@ -251,6 +297,7 @@ export function loadConfig(env = process.env): AppConfig {
     if (envBool(env, 'VANTAGE_AI_ENABLED', false)) throw new Error('The synthetic demo runs without AI. Set VANTAGE_AI_ENABLED=false.');
     if (envBool(env, 'VANTAGE_MARADMIN_ENABLED', false)) throw new Error('The synthetic demo makes no outbound requests. Set VANTAGE_MARADMIN_ENABLED=false.');
     if (env.VANTAGE_M365_CLIENT_ID) throw new Error('The synthetic demo reads no mailboxes. Unset VANTAGE_M365_CLIENT_ID.');
+    if (env.VANTAGE_OIDC_ISSUER) throw new Error('The synthetic demo has no sign-in. Unset VANTAGE_OIDC_ISSUER.');
   }
 
   return {
@@ -346,6 +393,7 @@ export function loadConfig(env = process.env): AppConfig {
     cac: readCacConfig(env, production),
     audit: readAuditConfig(env),
     security: readSecurityConfig(env, production, test),
+    oidc: readOidcConfig(env, production, test),
   };
 }
 

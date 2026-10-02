@@ -4,9 +4,10 @@
 
 - Usernames plus a 15-character-minimum password, checked against common patterns, hashed with PBKDF2-HMAC-SHA256 (600,000 iterations by default, `VANTAGE_PBKDF2_ITERATIONS`, at least 210,000 in production), the FIPS 140 approved choice. Hashes made with scrypt by earlier versions still verify and are replaced the next time the person signs in. Verification runs off the event loop.
 - Passkeys (WebAuthn, discoverable credentials) with the site hostname as relying party. Passkeys sign in without a password.
+- Organization sign-in over OpenID Connect (Entra ID commercial, GCC High or DoD, or any OIDC provider): code flow with PKCE, single-use hashed state and nonce, ID token signature and claims verified against the provider's published keys. It can be the only way in (`VANTAGE_OIDC_EXCLUSIVE`). See docs/cac-and-records.md.
 - Authenticator app (TOTP, RFC 6238) as a second step for password sign-in, with eight single-use recovery codes. Each code is accepted once, and a code older than the last one used is refused. Setting up a new authenticator leaves the current one in force until the new one is confirmed.
 - Sessions are random 256-bit tokens stored only as SHA-256 digests, in an `HttpOnly`, `SameSite=Lax`, `Secure` cookie. Idle timeout 15 minutes, 10 for an instance owner (`VANTAGE_IDLE_MINUTES`, `VANTAGE_OPERATOR_IDLE_MINUTES`), absolute 12 hours, at most 8 active per user. A background poll (the notification bell) is marked as such and does not count as activity, so an open tab still times out. The client is told when the session will end and asks two minutes before.
-- Lockout: three consecutive failures (a wrong password at sign-in, a wrong second factor, or a wrong password at a step-up or password change) lock the account for 15 minutes (`VANTAGE_LOCKOUT_ATTEMPTS`, `VANTAGE_LOCKOUT_MINUTES`). The count is kept in the database, so a restart does not lift it. The right password does not open a locked account; a passkey or CAC still does. An owner can unlock from the Accounts tab, and issuing a temporary password unlocks too. Each lock and unlock is audited.
+- Lockout: three consecutive failures (a wrong password at sign-in, a wrong second factor, or a wrong password at a step-up or password change) lock the account for 15 minutes (`VANTAGE_LOCKOUT_ATTEMPTS`, `VANTAGE_LOCKOUT_MINUTES`). The count is kept in the database, so a restart does not lift it. The right password does not open a locked account; a passkey, a CAC or organization sign-in still does. An owner can unlock from the Accounts tab, and issuing a temporary password unlocks too. Each lock and unlock is audited.
 - Notice and consent: `VANTAGE_CONSENT_BANNER=dod` shows the standard DoD Notice and Consent Banner before sign-in, and the server refuses to create an account or a session for a client that has not accepted it. `custom` shows `VANTAGE_CONSENT_TEXT`. Off by default, because it states the conditions of a U.S. Government system.
 - Step-up: sensitive changes require the password again within a 10-minute window (`sudo_until` on the session).
 - Password change, role change, membership change, MFA reset, and deactivation revoke the affected user's other sessions.
@@ -86,6 +87,8 @@
 | Session theft | Digest storage, short idle timeout, revocation on sensitive changes, device list |
 | Insider read of private records | Not reachable through the API; audit of every shared read |
 | Tampering with the audit trail | HMAC chain verified by the owner; a copy of every record sent off the host |
+| A forged or replayed organization sign-in | Signature checked against the provider's keys, `none` and HMAC refused, issuer, audience, expiry and nonce checked, state used once |
+| One organization identity taking over another's account | An account is bound to one provider subject; a second subject with the same address is refused |
 | A revoked CAC | Direct mode checks the issuing CAs' CRLs and fails closed; proxy mode relies on the gateway's check |
 | A workbook that expands without limit | Real expanded size charged against the limit |
 | Malware in an upload | clamd scan of every upload; optionally refuse what could not be scanned |

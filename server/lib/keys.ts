@@ -55,6 +55,7 @@ const SEALED_COLUMNS: Array<[table: string, column: string]> = [
   ['users', 'totp_secret'], ['users', 'totp_pending'],
   ['connectors', 'access_token_enc'], ['connectors', 'refresh_token_enc'],
   ['connector_auth_states', 'verifier_enc'],
+  ['oidc_states', 'verifier_enc'],
   ['email_queue', 'payload'],
 ];
 

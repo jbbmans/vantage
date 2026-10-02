@@ -179,6 +179,16 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       for (const [name, type] of columns) if (!existing.has(name)) db.exec(`ALTER TABLE users ADD COLUMN ${name} ${type}`);
     },
   },
+  {
+    id: 14,
+    name: '014_organization_sign_in',
+    run: (db) => {
+      // The identity an account is linked to at the organization's provider: issuer and subject, never reassigned.
+      const existing = new Set((db.prepare('PRAGMA table_info(users)').all() as Array<{ name: string }>).map((c) => c.name));
+      for (const name of ['oidc_issuer', 'oidc_subject']) if (!existing.has(name)) db.exec(`ALTER TABLE users ADD COLUMN ${name} TEXT`);
+      db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc ON users(oidc_issuer, oidc_subject) WHERE oidc_subject IS NOT NULL');
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 
