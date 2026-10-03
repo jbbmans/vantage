@@ -24,7 +24,7 @@ export default function Settings() {
   }, [verify]);
   if (!identity) return <Skeleton className="h-64" />;
   return (
-    <div className="page max-w-5xl">
+    <div className="page page-narrow">
       <PageHeader eyebrow="Settings" title={`${identity.user.first_name} ${identity.user.last_name}`} lede={`@${identity.user.username}${identity.user.rank ? ` · ${identity.user.rank.name}` : ''}`} />
       {identity.user.must_change_password ? <div className="mb-4 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink">You signed in with a temporary password. Set a new one under Security before doing anything else.</div> : null}
       <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[{ value: 'profile', label: 'Profile' }, { value: 'security', label: 'Security' }, { value: 'appearance', label: 'Appearance' }, { value: 'digest', label: 'Weekly digest' }, { value: 'data', label: 'Your data' }]} />
@@ -68,10 +68,10 @@ function Profile() {
           <Field label="First name" error={errors.first_name}><Input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} /></Field>
           <Field label="Last name" error={errors.last_name}><Input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} /></Field>
           <Field label="MI"><Input value={form.middle_initial} maxLength={4} onChange={(e) => setForm({ ...form, middle_initial: e.target.value })} /></Field>
-          <Field label="Rank" hint="decides JEPES vs FITREP" error={errors.rank_id}><Select value={form.rank_id || '__none'} onValueChange={(v) => setForm({ ...form, rank_id: v === '__none' ? '' : v })} options={[{ value: '__none', label: 'Not set' }, ...(org?.ranks || []).map((r) => ({ value: r.id, label: `${r.abbr} · ${r.name}` }))]} /></Field>
+          <Field label="Rank" hint="sets JEPES or FITREP" error={errors.rank_id}><Select value={form.rank_id || '__none'} onValueChange={(v) => setForm({ ...form, rank_id: v === '__none' ? '' : v })} options={[{ value: '__none', label: 'Not set' }, ...(org?.ranks || []).map((r) => ({ value: r.id, label: `${r.abbr} · ${r.name}` }))]} /></Field>
           <Field label="MOS"><Input value={form.mos} onChange={(e) => setForm({ ...form, mos: e.target.value })} /></Field>
           <Field label="EAS"><Input type="date" value={form.eas} onChange={(e) => setForm({ ...form, eas: e.target.value })} /></Field>
-          <Field label="Time zone" hint="decides your today and what is overdue" error={errors.timezone}>
+          <Field label="Time zone" className="col-span-2" hint="decides your today and what is overdue" error={errors.timezone}>
             <Select value={form.timezone || '__instance'} onValueChange={(v) => setForm({ ...form, timezone: v === '__instance' ? '' : v })}
               options={[{ value: '__instance', label: `Unit default (${zoneLabel(identity!.instance.timezone || '')})` }, ...timeZoneOptions(form.timezone)]} />
           </Field>

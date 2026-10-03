@@ -42,7 +42,7 @@ function SupportHome() {
   const tickets: Ticket[] = list.data?.tickets || [];
   const me = identity?.user.id;
   return (
-    <div className="page max-w-5xl">
+    <div className="page page-narrow">
       <PageHeader eyebrow="Support" title="Ask a person" lede="For what the field guide does not answer. A request goes to the people who run Vantage here, and to the support staff of the unit you send it to." />
       {works && <Tabs value={shown} onChange={setTab} className="mb-4" tabs={[{ value: 'mine', label: 'Yours', count: mine.data?.tickets?.length }, { value: 'queue', label: 'The queue', count: queue.data?.tickets?.filter((t: Ticket) => t.state !== 'resolved' && t.state !== 'closed').length }]} />}
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -95,8 +95,8 @@ function TicketView({ id }: { id: string }) {
   const toast = useToast(); const qc = useQueryClient(); const { data: identity } = useIdentity();
   const { data, isPending, error, refetch } = useQuery({ queryKey: ['support', 'ticket', id], queryFn: () => api.supportTicket(id) });
   const [reply, setReply] = useState(''); const [internal, setInternal] = useState(false); const [busy, setBusy] = useState(false);
-  if (isPending) return <div className="page max-w-5xl"><Skeleton className="h-64" /></div>;
-  if (!data) return <div className="page max-w-5xl"><div className="card"><EmptyState title="This request is not available" description={api.errorText(error)} action={<Link className="link" to="/support">All requests</Link>} /></div></div>;
+  if (isPending) return <div className="page page-narrow"><Skeleton className="h-64" /></div>;
+  if (!data) return <div className="page page-narrow"><div className="card"><EmptyState title="This request is not available" description={api.errorText(error)} action={<Link className="link" to="/support">All requests</Link>} /></div></div>;
 
   const ticket: Ticket = data.ticket;
   const works: boolean = data.works;
@@ -114,7 +114,7 @@ function TicketView({ id }: { id: string }) {
   const author = (m: any) => (m.author_id ? (m.author_id === me ? 'You' : `${m.first_name} ${m.last_name}`) : ticket.requester_name || ticket.requester_email || 'Someone signed out');
 
   return (
-    <div className="page max-w-5xl">
+    <div className="page page-narrow">
       <Link to="/support" className="link mb-3 inline-flex items-center gap-1 text-sm"><ArrowLeft className="h-4 w-4" />All requests</Link>
       <PageHeader eyebrow={categoryLabel(ticket.category)} title={ticket.subject} lede={`${mine ? 'You' : ticket.requester_name || ticket.requester_email || 'Someone signed out'} · opened ${timeAgo(ticket.created_at)}`}>
         <StateBadge state={ticket.state} mine={mine} />

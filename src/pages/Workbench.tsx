@@ -228,7 +228,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
       embedded={embedded}
       eyebrow="Work"
       title="Queue"
-      lede={list.isPending ? 'Loading the queue.' : `${formatNumber(total)} ${total === 1 ? 'item' : 'items'} in this view. You hold ${heldByMe}.`}
+      lede={list.isPending ? 'Loading the queue.' : total ? `${formatNumber(total)} ${total === 1 ? 'item' : 'items'} in this view. ${heldByMe ? `You hold ${formatNumber(heldByMe)}.` : 'You hold none of them.'}` : 'Nothing in this view.'}
       actions={<>
         <Button onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import a spreadsheet</Button>
         <Button onClick={refresh} aria-label="Refresh the queue"><RefreshCw className={cn('h-4 w-4', list.isFetching && 'animate-spin')} />Refresh</Button>

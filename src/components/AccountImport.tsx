@@ -61,7 +61,7 @@ export default function AccountImport({ onDone }: { onDone: () => void }) {
             <FileSpreadsheet className="h-5 w-5 text-ink-3" />
             <span className="font-medium text-ink">{file ? file.name : 'Choose a roster file'}</span>
             <span className="text-xs text-ink-3">{busy && !plan ? 'Reading…' : '.xlsx or .csv, up to 500 people'}</span>
-            <input ref={input} type="file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) void preview(f); }} />
+            <input ref={input} type="file" aria-label="Choose a roster file" accept=".xlsx,.csv,text/csv,application/vnd.openxmlformats-officedocument.spreadsheetml.sheet" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) void preview(f); }} />
           </label>
         )}
         {shown && (

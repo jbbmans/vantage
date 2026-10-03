@@ -313,8 +313,10 @@ export default function AppShell() {
         window.setTimeout(() => window.removeEventListener('keydown', second, true), 1200);
       }
     };
+    const openPalette = () => setPalette(true);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('vantage:open-palette', openPalette);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('vantage:open-palette', openPalette); };
   }, [navigate, openQuickLog, goKeys, identity?.views, collapsed]);
 
   const switchPersona = async (persona: 'marine' | 'leader') => {

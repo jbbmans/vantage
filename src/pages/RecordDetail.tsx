@@ -63,7 +63,7 @@ export default function RecordDetail() {
   const dollarType = valueType(a.dollar_type, cfg);
 
   return (
-    <div className="page max-w-5xl">
+    <div className="page page-narrow">
       <Link to="/record/activities" className="mb-3 inline-flex items-center gap-1 text-xs text-ink-3 hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />All records</Link>
       {a.deleted_at && <div className="mb-4 flex items-center gap-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink"><span className="flex-1">This entry is in the recycle bin. It is excluded from reports and will be purged after 30 days.</span><Button size="sm" onClick={() => restore.mutateAsync(id).then(() => toast.success('Restored.')).catch((e) => toast.error(api.errorText(e)))}><RotateCcw className="h-4 w-4" />Restore</Button></div>}
       {a.frozen_at && <div className="mb-4 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">This entry was frozen when the unit membership ended. It stays on your record but cannot be edited.</div>}
@@ -112,7 +112,7 @@ export default function RecordDetail() {
 
         <div className="space-y-4">
           <Panel title="Attachments" subtitle={identity?.instance.attachmentsEnabled ? 'PDFs and images, kept on this server' : 'disabled on this deployment'} action={canEdit && identity?.instance.attachmentsEnabled && !a.deleted_at ? <Button size="sm" loading={uploading} onClick={() => fileInput.current?.click()}><Paperclip className="h-3.5 w-3.5" />Add</Button> : undefined}>
-            <input ref={fileInput} type="file" className="sr-only" accept={(files?.allowedTypes || []).join(',')} onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); }} />
+            <input ref={fileInput} type="file" className="sr-only" aria-label="Attach a file" tabIndex={-1} accept={(files?.allowedTypes || []).join(',')} onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); }} />
             {!identity?.instance.attachmentsEnabled ? <p className="text-sm text-ink-3">Use evidence links instead.</p> : !files?.attachments?.length ? <p className="text-sm text-ink-3">No files yet. Attach the LOA, the screenshot, or the signed sheet. Max {Math.round((files?.maxBytes || 0) / 1_048_576) || 8} MB each.</p> : (
               <ul className="space-y-1.5">{files.attachments.map((f: any) => (
                 <li key={f.id} className="flex items-center gap-2 text-sm"><a href={api.attachmentUrl('activities', id, f.id)} className="link min-w-0 flex-1 truncate">{f.original_name}</a><span className="fig text-2xs text-ink-3">{Math.max(1, Math.round(f.size_bytes / 1024))} KB</span>{canEdit && <button type="button" className="text-ink-3 hover:text-bad" aria-label={`Remove ${f.original_name}`} onClick={async () => { try { await api.deleteAttachment('activities', id, f.id); refetchFiles(); } catch (e) { toast.error(api.errorText(e)); } }}>×</button>}</li>

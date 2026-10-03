@@ -100,8 +100,11 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
     path.startsWith('/reset') && params.get('token') ? 'reset'
       : path.startsWith('/invite') && params.get('token') ? 'invite'
         : path.startsWith('/register') ? 'register'
-          : 'login'
+          // /login?help opens the request form straight away; the security page links here with ?help=security.
+          : path.startsWith('/login') && params.has('help') ? 'help'
+            : 'login'
   ));
+  const securityReport = params.get('help') === 'security';
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState(() => {
     const code = params.get('sso_error');
@@ -207,7 +210,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
     setMode('login');
   });
   const submitHelp = () => run(async () => {
-    await api.askForHelp({ subject: form.help_subject.trim() || 'I cannot sign in', body: form.help_body, category: 'sign_in', requester_name: [form.first_name, form.last_name].filter(Boolean).join(' ') || undefined, requester_email: form.email.trim() });
+    await api.askForHelp({ subject: form.help_subject.trim() || (securityReport ? 'Security vulnerability report' : 'I cannot sign in'), body: form.help_body, category: securityReport ? 'bug' : 'sign_in', requester_name: [form.first_name, form.last_name].filter(Boolean).join(' ') || undefined, requester_email: form.email.trim() });
     toast.success(`Your request is in. Someone who runs Vantage here will write to ${form.email.trim()}.`);
     setForm((current) => ({ ...current, help_subject: '', help_body: '' }));
     setMode('login');
@@ -446,7 +449,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
                   <Field label="Last name"><Input value={form.last_name} onChange={set('last_name')} autoComplete="family-name" /></Field>
                 </div>
                 <Field label="Your email" hint="where the answer goes" error={fieldErrors.requester_email}><Input type="email" required value={form.email} onChange={set('email')} autoComplete="email" autoCapitalize="none" spellCheck={false} /></Field>
-                <Field label="What is wrong" error={fieldErrors.subject}><Input value={form.help_subject} onChange={set('help_subject')} maxLength={200} placeholder="I cannot sign in" /></Field>
+                <Field label="What is wrong" error={fieldErrors.subject}><Input value={form.help_subject} onChange={set('help_subject')} maxLength={200} placeholder={securityReport ? 'Security vulnerability report' : 'I cannot sign in'} /></Field>
                 <Field label="What happened" hint="what you tried, and what it said" error={fieldErrors.body}><Textarea rows={4} required value={form.help_body} maxLength={8000} onChange={(e) => setForm((current) => ({ ...current, help_body: e.target.value }))} /></Field>
                 <Button type="submit" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={!form.email.trim() || !form.help_body.trim() || offline}><LifeBuoy className="h-4 w-4" /> Send request</Button>
               </form>
@@ -464,11 +467,11 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
           </div>
 
           <div className="auth-trustline">
-            <span><ShieldCheck /> Secure workspace</span>
+            <a href={siteHref('/security')}><ShieldCheck /> How it is secured</a>
+            <i />
+            <a href={siteHref('/privacy')}>Privacy</a>
             <i />
             <span>Vantage v{VERSION}</span>
-            <i />
-            <span>Records stay on this deployment</span>
           </div>
         </section>
       </main>

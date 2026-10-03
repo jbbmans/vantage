@@ -73,7 +73,7 @@ export default function CsvImportDialog({ open, onOpenChange }: { open: boolean;
           <FileUp className="h-6 w-6 text-ink-3" />
           <span className="text-sm font-medium text-ink">Drop a .csv or .tsv here, or click to choose</span>
           <span className="text-xs text-ink-3">Any spreadsheet works; you map the columns next. Up to {MAX_IMPORT_ROWS} rows.</span>
-          <input type="file" accept=".csv,.tsv,text/csv,text/tab-separated-values" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) load(f); }} />
+          <input type="file" aria-label="Choose a CSV file" accept=".csv,.tsv,text/csv,text/tab-separated-values" className="sr-only" onChange={(e) => { const f = e.target.files?.[0]; if (f) load(f); }} />
           {error && <span className="mt-2 text-xs text-bad">{error}</span>}
         </label>
       ) : (

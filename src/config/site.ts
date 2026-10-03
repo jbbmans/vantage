@@ -11,7 +11,7 @@ export const SITE = {
   /** Under 160 characters for the same reason. */
   description: 'Vantage helps Marines and their leaders track work, performance records, readiness and goals, and build JEPES and FITREP input from traceable evidence.',
   imageAlt: 'The Vantage mark beside the words Performance, Productivity, Readiness',
-  disclaimer: 'Independent software project. Not an official Department of Defense or U.S. Marine Corps system of record.',
+  disclaimer: 'Vantage is an independent software project. It is not affiliated with, endorsed by or sponsored by the Department of Defense, the Department of the Navy or the U.S. Marine Corps, and it is not an official system of record.',
   /** The date the public page last changed in substance. The sitemap reports it; bump it when the page does. */
   updated: '2026-09-29',
 } as const;

@@ -162,6 +162,8 @@
   .row { @apply border-b border-line last:border-b-0; transition: background-color var(--dur-fast) ease; }
   .row:hover { background-color: rgb(var(--surface-2) / .7); }
   .page { @apply mx-auto w-full max-w-[1400px]; }
+  /* A reading or form page: narrower content, on the same left edge as every other page. */
+  .page-narrow > * { max-width: 64rem; }
 
   .page-title { @apply display text-[28px] leading-[1.05] sm:text-[34px]; }
   /* A tab strip that scrolls fades on the side where more tabs are. */

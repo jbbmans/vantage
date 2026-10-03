@@ -39,11 +39,12 @@ export default function Dashboard() {
   const working = (assigned.data || []).filter((a) => !['waiting', 'blocked'].includes(a.stage));
   const waiting = (assigned.data || []).filter((a) => ['waiting', 'blocked'].includes(a.stage));
 
-  const lede = assigned.isPending ? '' : [
-    `${working.length} ${working.length === 1 ? 'item' : 'items'} in your hands`,
+  const parts = [
+    working.length ? `${working.length} ${working.length === 1 ? 'item' : 'items'} in your hands` : null,
     waiting.length ? `${waiting.length} waiting on someone else` : null,
     myTasks.length ? `${myTasks.length} ${myTasks.length === 1 ? 'task' : 'tasks'} open` : null,
-  ].filter(Boolean).join(', ') + '.';
+  ].filter(Boolean);
+  const lede = assigned.isPending ? '' : parts.length ? `${parts.join(', ')}.` : 'Nothing in your hands right now. Claim work from the queue, or log what you did.';
 
   return (
     <div className="page">
@@ -252,12 +253,14 @@ function SectionOverview({ unitId }: { unitId: string }) {
           )}
         </Panel>
         <Panel title="Who holds what" subtitle={`Open work held now, with documents researched since ${w.data.window.from}`}>
-          {w.data.members_visible ? (
-            <BarList
-              items={w.data.members.filter((m) => m.assigned || m.documents_researched).map((m) => ({ label: `${m.rank_abbr ? `${m.rank_abbr} ` : ''}${m.name}`, value: m.assigned, hint: `${m.documents_researched} documents researched${m.waiting ? `, ${m.waiting} waiting` : ''}${m.blocked ? `, ${m.blocked} blocked` : ''}` }))}
-              format={(v) => `${v} held`}
-            />
-          ) : <p className="text-sm text-ink-3">Your role shows section totals only.</p>}
+          {!w.data.members_visible ? <p className="text-sm text-ink-3">Your role shows section totals only.</p>
+            : !w.data.members.some((m) => m.assigned || m.documents_researched) ? <p className="text-sm text-ink-3">Nobody holds open work, and nothing has been researched in this window.</p>
+            : (
+              <BarList
+                items={w.data.members.filter((m) => m.assigned || m.documents_researched).map((m) => ({ label: `${m.rank_abbr ? `${m.rank_abbr} ` : ''}${m.name}`, value: m.assigned, hint: `${m.documents_researched} documents researched${m.waiting ? `, ${m.waiting} waiting` : ''}${m.blocked ? `, ${m.blocked} blocked` : ''}` }))}
+                format={(v) => `${v} held`}
+              />
+            )}
           <p className="mt-3 text-xs text-ink-3">Counts show what was recorded. They do not measure effort or quality, and zero recorded is not zero work.</p>
         </Panel>
       </div>
