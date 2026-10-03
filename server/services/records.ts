@@ -7,6 +7,12 @@ import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee,
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
 import { valueType } from '../../shared/constants.ts';
 
+/** A goal that measures a whole unit reads its members' shared entries, so setting one takes the right to view them. */
+function unitMeasureAllowed(scope: Scope, unitId: string | null | undefined) {
+  if (!unitId) throw badRequest('Choose the unit this goal measures.', { fieldErrors: { unit_id: 'Required for a unit-wide goal.' } });
+  if (!can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('Only someone who can view this unit’s shared records can set a goal measured across it.', 'unit_measure_forbidden');
+}
+
 function checkValueType(ctx: AppContext, table: string, data: Record<string, unknown>) {
   if (table === 'goals') {
     validateTypedGoal(ctx, data as never, data.target_value as number | null | undefined);
@@ -152,6 +158,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (unitId && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(unitId)) throw badRequest('No such unit.', { fieldErrors: { unit_id: 'No such unit.' } });
   if (visibility === 'unit' && !unitId) throw badRequest('Choose a unit before sharing this record.', { fieldErrors: { unit_id: 'Required to share.' } });
   if (!onBehalf && !canPlace(scope, visibility, unitId, spec.shareFlag, Boolean(spec.personal))) throw forbidden('You cannot place a record in that unit.');
+  if (table === 'goals' && data.measure_scope === 'unit') unitMeasureAllowed(scope, unitId);
   if (spec.assignee && visibility !== 'unit' && data.assignee_id && data.assignee_id !== user.id) data.assignee_id = null;
   if (spec.assignee) {
     const problem = assigneeProblem(ctx, scope, user.id, data.assignee_id as string | null, unitId);
@@ -222,6 +229,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (finalVisibility === 'unit' && !finalUnit) throw badRequest('Choose a unit before sharing this record.', { fieldErrors: { unit_id: 'Required to share.' } });
   if (finalUnit && finalUnit !== row.unit_id && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(finalUnit)) throw badRequest('No such unit.');
   if (scopeChanged && !canPlace(scope, finalVisibility, finalUnit, spec.shareFlag, Boolean(spec.personal))) throw forbidden('You cannot place a record in that unit.');
+  if (table === 'goals' && (data.measure_scope ?? row.measure_scope) === 'unit' && ['measure_scope', 'unit_id', 'filters', 'metric_id'].some((k) => data[k] !== undefined)) unitMeasureAllowed(scope, finalUnit);
   if (spec.assignee && finalVisibility !== 'unit') { const who = (data.assignee_id as string | null | undefined) ?? (row.assignee_id as string | null); if (who && who !== user.id) data.assignee_id = null; }
   if (spec.assignee && (data.assignee_id !== undefined || scopeChanged)) {
     const problem = assigneeProblem(ctx, scope, user.id, (data.assignee_id as string | null | undefined) ?? (row.assignee_id as string | null), finalUnit);

@@ -166,6 +166,19 @@ test('password policy and strength', () => {
   assert.equal(passwordProblem('cobalt-orbit-velvet-anchor-927'), null);
   assert.ok(passwordStrength('cobalt-orbit-velvet-anchor-927').score >= 3);
   assert.equal(passwordStrength('abc').score, 0);
+  assert.ok(passwordProblem('Admin2026!!!!!!!!'), 'a predictable term with a year and symbols is still predictable');
+  assert.ok(passwordProblem('1234567890admin1234'), 'digits on both sides of a predictable term');
+});
+
+test('the password policy answers in linear time, whatever is typed', () => {
+  // A long run of digits after a predictable term, ending in a letter, once backtracked exponentially: 34
+  // characters held the event loop for seconds, unauthenticated, on every route that checks a password.
+  for (const value of ['admin' + '1'.repeat(240) + 'x', 'password' + '9'.repeat(240) + '!a', 'x'.repeat(256)]) {
+    const started = performance.now();
+    passwordProblem(value);
+    passwordStrength(value);
+    assert.ok(performance.now() - started < 50, `${value.slice(0, 12)}… took ${Math.round(performance.now() - started)} ms`);
+  }
 });
 
 test('schemas coerce and validate', () => {

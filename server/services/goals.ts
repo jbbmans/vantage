@@ -1,6 +1,7 @@
 import type { AppContext } from '../context.ts';
 import { badRequest } from '../lib/errors.ts';
 import { subjectMeasures, unitMeasures } from './metrics.ts';
+import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
 import { progress, totals, selectMeasures, moneyMetricId, quantityMetricId, durationMetricId, canonicalMetricId, type Direction, type Aggregation } from '../../shared/metricEngine.ts';
 import type { GoalProgress } from '../../shared/types.ts';
 
@@ -46,9 +47,19 @@ function goalWindow(goal: GoalRow): GoalWindow {
   return { from: window.from || '1970-01-01', to: window.to || '9999-12-31' };
 }
 
+/**
+ * Whether a goal may read across its unit: only while the person who set it can view the unit's shared records. A
+ * unit-wide measure with a person filter is otherwise a way to read entries the setter could never open directly
+ * (titles and amounts through the contributors, a person's total through the progress), so without that permission
+ * it reads nothing, including for a goal set before this was checked or by someone who has since lost the role.
+ */
+export function measuresUnit(ctx: AppContext, goal: Pick<GoalRow, 'measure_scope' | 'unit_id' | 'user_id'>): boolean {
+  return goal.measure_scope === 'unit' && Boolean(goal.unit_id) && can(scopeFor(ctx, { id: goal.user_id }), PERMISSIONS.VIEW_RECORDS, goal.unit_id);
+}
+
 function measuresForGoal(ctx: AppContext, goal: GoalRow) {
   const window = goalWindow(goal);
-  if (goal.measure_scope === 'unit' && goal.unit_id) return unitMeasures(ctx, goal.unit_id, window);
+  if (goal.measure_scope === 'unit' && goal.unit_id) return measuresUnit(ctx, goal) ? unitMeasures(ctx, goal.unit_id, window) : [];
   return subjectMeasures(ctx, goal.assignee_id || goal.user_id, {
     ...window,
     unitId: goal.unit_id,

@@ -32,6 +32,39 @@ function decode(text: string): string {
   });
 }
 
+/**
+ * Each <tag …>body</tag> or <tag …/> in order, found by scanning forward once. The global lazy patterns this replaces
+ * rescanned to the end of the part from every unterminated opening tag, so a workbook of a few hundred bytes
+ * ('<row>' repeated) held the server for seconds. A missing close ends the scan: no later element can have one either.
+ */
+function* elements(xml: string, tag: string): Generator<{ attrs: string; body: string }> {
+  const open = `<${tag}`;
+  const close = `</${tag}>`;
+  let at = 0;
+  for (;;) {
+    const start = xml.indexOf(open, at);
+    if (start < 0) return;
+    const next = xml.charCodeAt(start + open.length);
+    // The name must end here (<c, not <col): whitespace, '>' or '/'.
+    if (!(next === 32 || next === 9 || next === 10 || next === 13 || next === 62 || next === 47)) { at = start + open.length; continue; }
+    const gt = xml.indexOf('>', start + open.length);
+    if (gt < 0) return;
+    if (xml.charCodeAt(gt - 1) === 47) { yield { attrs: xml.slice(start + open.length, gt - 1), body: '' }; at = gt + 1; continue; }
+    const end = xml.indexOf(close, gt + 1);
+    if (end < 0) return;
+    yield { attrs: xml.slice(start + open.length, gt), body: xml.slice(gt + 1, end) };
+    at = end + close.length;
+  }
+}
+
+const ATTRS = new Map<string, RegExp>();
+const attr = (attrs: string, name: string) => {
+  let re = ATTRS.get(name);
+  if (!re) ATTRS.set(name, re = new RegExp(`(?:^|\\s)${name}="([^"]*)"`));
+  return re.exec(attrs)?.[1];
+};
+const textOf = (body: string) => { let text = ''; for (const t of elements(body, 't')) text += decode(t.body); return text; };
+
 /** Column letters to a zero-based index: A is 0, Z is 25, AA is 26. */
 export function columnIndex(ref: string): number {
   let n = 0;
@@ -48,9 +81,7 @@ function sharedStrings(xml: string): string[] {
   const out: string[] = [];
   for (const si of xml.split('<si>').slice(1)) {
     const body = si.split('</si>')[0];
-    let text = '';
-    for (const m of body.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)) text += decode(m[1]);
-    out.push(text);
+    out.push(textOf(body));
   }
   return out;
 }
@@ -70,14 +101,15 @@ function dateStyles(stylesXml: string | undefined): Set<number> {
   if (!stylesXml) return out;
   assertNoEntities(stylesXml, 'styles.xml');
   const customDateFormats = new Set<number>();
-  for (const m of stylesXml.matchAll(/<numFmt\b[^>]*numFmtId="(\d+)"[^>]*formatCode="([^"]*)"/g)) {
-    const code = decode(m[2]);
-    if (/[dmyhs]/i.test(code.replace(/"[^"]*"/g, '')) && !/^[#0.,%\s]+$/.test(code)) customDateFormats.add(Number(m[1]));
+  for (const { attrs } of elements(stylesXml, 'numFmt')) {
+    const id = attr(attrs, 'numFmtId');
+    const code = decode(attr(attrs, 'formatCode') ?? '');
+    if (id && /^\d+$/.test(id) && /[dmyhs]/i.test(code.replace(/"[^"]*"/g, '')) && !/^[#0.,%\s]+$/.test(code)) customDateFormats.add(Number(id));
   }
   const cellXfs = stylesXml.split('<cellXfs')[1]?.split('</cellXfs>')[0] || '';
   let index = 0;
-  for (const m of cellXfs.matchAll(/<xf\b[^>]*>/g)) {
-    const id = Number(/numFmtId="(\d+)"/.exec(m[0])?.[1] ?? 0);
+  for (const { attrs } of elements(cellXfs, 'xf')) {
+    const id = Number(attr(attrs, 'numFmtId') ?? 0);
     if (BUILTIN_DATE_FORMATS.has(id) || customDateFormats.has(id)) out.add(index);
     index += 1;
   }
@@ -90,14 +122,12 @@ function parseSheet(xml: string, strings: string[], dateStyleIndexes: Set<number
   let cells = 0;
   let truncated = false;
 
-  for (const rowMatch of xml.matchAll(/<row\b([^>]*)>([\s\S]*?)<\/row>/g)) {
+  for (const rowMatch of elements(xml, 'row')) {
     if (rows.length >= limits.maxRows) { truncated = true; break; }
-    const declared = Number(/\br="(\d+)"/.exec(rowMatch[1])?.[1] ?? 0);
+    const declared = Number(/\br="(\d+)"/.exec(rowMatch.attrs)?.[1] ?? 0);
     while (declared > 0 && rows.length < declared - 1 && rows.length < limits.maxRows) rows.push([]);
     const row: string[] = [];
-    for (const cellMatch of rowMatch[2].matchAll(/<c\b([^>]*)(?:\/>|>([\s\S]*?)<\/c>)/g)) {
-      const attrs = cellMatch[1];
-      const body = cellMatch[2] || '';
+    for (const { attrs, body } of elements(rowMatch.body, 'c')) {
       const ref = /\br="([A-Z]+)\d+"/.exec(attrs)?.[1];
       const col = ref ? columnIndex(ref) : row.length;
       if (col < 0 || col >= limits.maxColumns) continue;
@@ -108,9 +138,9 @@ function parseSheet(xml: string, strings: string[], dateStyleIndexes: Set<number
       const style = Number(/\bs="(\d+)"/.exec(attrs)?.[1] ?? -1);
       let value = '';
       if (type === 'inlineStr') {
-        for (const t of body.matchAll(/<t(?:\s[^>]*)?>([\s\S]*?)<\/t>/g)) value += decode(t[1]);
+        value = textOf(body);
       } else {
-        const v = /<v(?:\s[^>]*)?>([\s\S]*?)<\/v>/.exec(body)?.[1];
+        const v = elements(body, 'v').next().value?.body;
         if (v == null) value = '';
         else if (type === 's') value = strings[Number(v)] ?? '';
         else if (type === 'b') value = v === '1' ? 'TRUE' : 'FALSE';
@@ -161,14 +191,18 @@ export function readWorkbook(buf: Buffer, limits: WorkbookLimits = {}): Workbook
   const relsXml = text('xl/_rels/workbook.xml.rels') || '';
   assertNoEntities(relsXml, 'workbook.xml.rels');
   const targets = new Map<string, string>();
-  for (const m of relsXml.matchAll(/<Relationship\b[^>]*Id="([^"]+)"[^>]*Target="([^"]+)"/g)) targets.set(m[1], decode(m[2]));
+  for (const { attrs } of elements(relsXml, 'Relationship')) {
+    const id = attr(attrs, 'Id');
+    const target = attr(attrs, 'Target');
+    if (id && target) targets.set(id, decode(target));
+  }
 
   const strings = sharedStrings(text('xl/sharedStrings.xml') || '');
   const styleIndexes = dateStyles(text('xl/styles.xml'));
 
   const sheets: Sheet[] = [];
-  for (const m of workbookXml.matchAll(/<sheet\b([^>]*)\/?>/g)) {
-    const attrs = m[1];
+  const sheetsXml = workbookXml.split('<sheets')[1]?.split('</sheets>')[0] ?? workbookXml;
+  for (const { attrs } of elements(sheetsXml, 'sheet')) {
     const name = decode(/\bname="([^"]*)"/.exec(attrs)?.[1] || `Sheet ${sheets.length + 1}`);
     const state = /\bstate="([^"]*)"/.exec(attrs)?.[1];
     const rid = /\br:id="([^"]+)"/.exec(attrs)?.[1];

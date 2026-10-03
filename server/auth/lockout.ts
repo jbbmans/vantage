@@ -16,13 +16,44 @@ const row = (ctx: AppContext, userId: string) =>
 
 const hhmm = (iso: string, timeZone: string) => new Date(iso).toLocaleTimeString('en-US', { timeZone, hour: '2-digit', minute: '2-digit', hour12: false, timeZoneName: 'short' });
 
+/** The one answer for a locked name, whether or not an account has it. It names the ways back in that still work. */
+const lockedError = (ctx: AppContext, untilIso: string) => tooMany(
+  `This account is locked after too many failed attempts. Try again after ${hhmm(untilIso, ctx.config.timezone)}. A passkey, a CAC or a password reset link still signs you in, or ask your administrator to unlock it.`,
+  Math.max(1, Math.ceil((Date.parse(untilIso) - Date.now()) / 1000)), 'account_locked');
+
 /** Refuses when the account is locked. Checked before the password, so a locked account cannot keep being guessed. */
 export function assertNotLocked(ctx: AppContext, userId: string) {
   const r = row(ctx, userId);
   if (!r?.locked_until) return;
-  const until = Date.parse(r.locked_until);
-  if (until <= Date.now()) return;
-  throw tooMany(`This account is locked after too many failed attempts. Try again after ${hhmm(r.locked_until, ctx.config.timezone)}, or ask your administrator to unlock it.`, Math.ceil((until - Date.now()) / 1000), 'account_locked');
+  if (Date.parse(r.locked_until) <= Date.now()) return;
+  throw lockedError(ctx, r.locked_until);
+}
+
+/**
+ * A name that matches no account "locks" exactly as a real one does: the same count, the same answer, the same
+ * length of time. Otherwise the third wrong password says "locked" for a real account and "incorrect" for a made-up
+ * one, and the lock becomes a way to find out who has an account. Kept in memory: nothing about it needs to last.
+ */
+const phantoms = new Map<string, { count: number; until: number }>();
+const PHANTOM_CAP = 20_000;
+
+export function assertNameNotLocked(ctx: AppContext, name: string) {
+  const p = phantoms.get(name);
+  if (p?.until && p.until > Date.now()) throw lockedError(ctx, new Date(p.until).toISOString());
+}
+
+export function recordNameFailure(ctx: AppContext, name: string) {
+  const { lockoutAttempts, lockoutMinutes } = ctx.config.security;
+  const nowMs = Date.now();
+  const p = phantoms.get(name);
+  const count = (p && (!p.until || p.until > nowMs) ? p.count : 0) + 1;
+  if (phantoms.size >= PHANTOM_CAP) { for (const [k, v] of phantoms) if (!v.until || v.until <= nowMs) phantoms.delete(k); if (phantoms.size >= PHANTOM_CAP) phantoms.clear(); }
+  if (count >= lockoutAttempts) {
+    const until = nowMs + lockoutMinutes * 60_000;
+    phantoms.set(name, { count: 0, until });
+    throw lockedError(ctx, new Date(until).toISOString());
+  }
+  phantoms.set(name, { count, until: 0 });
 }
 
 /** Counts a failure, and locks the account when it reaches the limit. Returns true when this failure locked it. */

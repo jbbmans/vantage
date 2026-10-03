@@ -4,7 +4,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound, tooMany, unauthorized, HttpError } from '../lib/errors.ts';
 import { registrationSchema, setupSchema, passwordField, usernameField, emailField } from '../../shared/schemas.ts';
 import { hashPassword, verifyPassword, burnVerification, safeEqual, decryptSecret, sha256, needsRehash } from '../lib/crypto.ts';
-import { assertNotLocked, recordFailure, clearFailures } from '../auth/lockout.ts';
+import { assertNotLocked, assertNameNotLocked, recordFailure, recordNameFailure, clearFailures } from '../auth/lockout.ts';
 import { DOD_CONSENT_BANNER } from '../../shared/consent.ts';
 import { secretsOf } from '../lib/keys.ts';
 import { limiters } from '../auth/limiter.ts';
@@ -173,10 +173,12 @@ authRouter.post('/login', wrap(async (req, res) => {
   const userLimit = name ? limiters.loginUser.limited(name) : null;
   const row = ctx.db.prepare('SELECT * FROM users WHERE username = ? COLLATE NOCASE AND active = 1').get(name) as UserRow | undefined;
   if (!row) {
+    assertNameNotLocked(ctx, name);
     await burnVerification(password);
     limiters.loginIp.bump(ip);
     if (name) limiters.loginUser.bump(name);
     if (userLimit) throw tooMany('Too many failed attempts for this account. Try again later.', userLimit.retryAfter);
+    if (name) recordNameFailure(ctx, name);
     throw unauthorized('Username or password is incorrect.', 'bad_credentials');
   }
   assertNotLocked(ctx, row.id);
@@ -333,6 +335,8 @@ authRouter.post('/reset', wrap((req, res) => {
   const pending = consumeToken(ctx, 'reset', token);
   if (!pending?.user_id) throw badRequest('That reset link is invalid or has expired. Request a new one.');
   ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 0, updated_at = ? WHERE id = ?').run(hashPassword(password), now(), pending.user_id);
+  // A reset link proves the mailbox, so it is also the way out of a lock somebody else's guesses put on the account.
+  clearFailures(ctx, pending.user_id);
   invalidateUserSessions(ctx, pending.user_id);
   audit(ctx, { actor_id: pending.user_id, action: 'password_reset', subject_id: pending.user_id, ip });
   const row = ctx.db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(pending.user_id) as UserRow | undefined;

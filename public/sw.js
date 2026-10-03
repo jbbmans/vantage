@@ -50,7 +50,9 @@ self.addEventListener('fetch', (event) => {
 
   // A response body can be read once, so each copy for the cache is cloned before the original is handed back.
   if (request.mode === 'navigate') {
-    event.respondWith(fetch(request).then((res) => { if (res.ok) { const copy = res.clone(); caches.open(SHELL).then((c) => c.put('/', copy)); } return res; })
+    // Only the application's own document is kept as the offline copy. The public page, the security and privacy
+    // pages and the like are documents too; caching one of them as '/' left the app unable to open offline.
+    event.respondWith(fetch(request).then((res) => { if (res.ok && res.headers.get('x-vantage-document') === 'app') { const copy = res.clone(); caches.open(SHELL).then((c) => c.put('/', copy)); } return res; })
       .catch(() => caches.match('/').then((hit) => hit || new Response('<!doctype html><title>Vantage</title><p style="font-family:system-ui;padding:2rem">Vantage is offline and no cached copy is available yet. Reconnect and try again.</p>', { headers: { 'content-type': 'text/html' } }))));
     return;
   }
