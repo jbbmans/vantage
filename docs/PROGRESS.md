@@ -125,8 +125,8 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **533 / 533 pass** (2026-10-02) |
-| `npm run test:browser` (Playwright, Chromium, built client) | **100 / 100 pass** (2026-10-02) |
+| `npm test` (server suite, in-memory SQLite) | **567 / 567 pass** (2026-10-03) |
+| `npm run test:browser` (Playwright, Chromium, built client) | **100 / 100 pass** (2026-10-03) |
 | Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference and the public page |
 | `npm audit` | 0 vulnerabilities |
 
