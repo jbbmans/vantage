@@ -122,17 +122,27 @@ export function unitOverview(ctx: AppContext, unitId: string, opts: { from: stri
   const rows = db.prepare(`SELECT user_id, unit_id, dollar_amount, dollar_type FROM activities WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL AND date >= ? AND date <= ?`)
     .all(units, opts.from, opts.to) as Array<{ user_id: string; unit_id: string; dollar_amount: number | null; dollar_type: string | null }>;
 
+  const people = (list: typeof rows) => new Set(list.map((r) => r.user_id)).size;
+  const withheld = { entries: null, contributors: null, dollars: null, withheld: true } as const;
   const tally = (list: typeof rows) => {
-    const contributors = new Set(list.map((r) => r.user_id)).size;
+    const contributors = people(list);
     const shown = opts.full || contributors >= OVERVIEW_MIN_CONTRIBUTORS;
     const dollars = list.reduce((sum, r) => sum + (isSummable(r.dollar_type, ctx.runtime.metrics) ? Number(r.dollar_amount) || 0 : 0), 0);
-    return shown ? { entries: list.length, contributors, dollars: Math.round(dollars * 100) / 100, withheld: false } : { entries: null, contributors: null, dollars: null, withheld: true };
+    return shown ? { entries: list.length, contributors, dollars: Math.round(dollars * 100) / 100, withheld: false } : withheld;
   };
 
   const teams = unitIds.slice(1).map((id) => {
     const t = db.prepare('SELECT id, name, short_name, parent_id FROM units WHERE id = ?').get(id) as { id: string; name: string; short_name: string | null; parent_id: string | null };
     return { unit_id: id, name: t.short_name || t.name, full_name: t.name, parent_id: t.parent_id, members: members.filter((m) => m.unit_id === id).length, ...tally(rows.filter((r) => r.unit_id === id)) };
   });
+
+  // The total minus the teams shown is everything else: the unit's own entries plus any withheld team. Show the
+  // total only when that remainder could be shown in its own right (empty with nothing withheld, or at least three
+  // people behind it); otherwise subtracting the shown teams recovers the figure a team was withheld to protect.
+  const shownTeams = new Set(teams.filter((t) => !t.withheld).map((t) => t.unit_id));
+  const remainder = rows.filter((r) => !shownTeams.has(r.unit_id));
+  const exposed = teams.some((t) => t.withheld) || remainder.length > 0;
+  const totals = !opts.full && exposed && people(remainder) < OVERVIEW_MIN_CONTRIBUTORS ? withheld : tally(rows);
 
   const goalIds = unitIds.filter((id) => opts.goalUnits.includes(id));
   const goalRows = goalIds.length
@@ -148,7 +158,7 @@ export function unitOverview(ctx: AppContext, unitId: string, opts: { from: stri
     parent: parent ? { id: parent.id, name: parent.short_name || parent.name } : null,
     level: opts.full ? 'full' : 'overview',
     window: { from: opts.from, to: opts.to },
-    totals: { members: members.length, teams: teams.length, ...tally(rows) },
+    totals: { members: members.length, teams: teams.length, ...totals },
     teams,
     roster: members.map((m) => ({ id: m.id, name: `${m.last_name}, ${m.first_name}`, rank_abbr: m.rank_abbr, billet: m.billet, team: m.team, unit_id: m.unit_id })),
     goals,

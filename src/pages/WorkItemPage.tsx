@@ -824,13 +824,20 @@ function ActionForm({ itemId, item, onDone }: { itemId: string; item: WorkItemVi
   const [resolve, setResolve] = useState(false);
   const [busy, setBusy] = useState(false);
   const [key, setKey] = useState(newKey);
+  // Read figures the way Quick Log does ("1,118.38", "$1,118.38"). Number() alone gives NaN, which
+  // JSON sends as null, so the amount vanished while the toast said it was recorded.
+  const count = quantity.trim() ? Number(quantity.replace(/[$,\s]/g, '')) : null;
+  const countError = count != null && !Number.isFinite(count) ? 'That is not a number.' : undefined;
+  const money = amount.trim() ? parseMoney(amount) : null;
+  const amountError = money && !money.ok ? money.error : undefined;
   const submit = async () => {
+    if (countError || amountError) { toast.error(countError ? `How many: ${countError}` : `${cfg.currency_label} moved: ${amountError}`); return; }
     setBusy(true);
     try {
       const res = await api.recordWorkAction(itemId, {
         kind, note: note || null, occurred_at: todayIso(),
-        quantity: quantity === '' ? null : Number(quantity), unit_label: unitLabel || null,
-        dollar_amount: amount === '' ? null : Number(amount), dollar_type: amount === '' ? null : amountType || null,
+        quantity: count, unit_label: unitLabel || null,
+        dollar_amount: money?.ok ? money.cents / 100 : null, dollar_type: money?.ok ? amountType || null : null,
         draft_record: draftRecord, resolve,
       }, key);
       toast.success(res.activity_id ? 'Recorded, and added to your own record.' : 'Recorded.');
@@ -847,10 +854,10 @@ function ActionForm({ itemId, item, onDone }: { itemId: string; item: WorkItemVi
         <Field label="Kind">
           <Select value={kind} onValueChange={setKind} options={['worked', 'contacted', 'escalated', 'corrected', 'reconciled', 'validated', 'resolved', 'noted'].map((k) => ({ value: k, label: k[0].toUpperCase() + k.slice(1) }))} />
         </Field>
-        <Field label="How many" hint="Leave blank if this did not move a countable amount."><NumberInput value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="30" /></Field>
+        <Field label="How many" hint="Leave blank if this did not move a countable amount." error={countError}><NumberInput value={quantity} onChange={(e) => setQuantity(e.target.value)} placeholder="30" /></Field>
         <Field label="Of what"><Input value={unitLabel} onChange={(e) => setUnitLabel(e.target.value)} placeholder={item.unit_label || 'ULOs'} list="work-units" /></Field>
         <datalist id="work-units">{cfg.unit_suggestions.map((u) => <option key={u} value={u} />)}</datalist>
-        <Field label={`${cfg.currency_label} moved`}><NumberInput value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="1118.38" /></Field>
+        <Field label={`${cfg.currency_label} moved`} error={amountError}><NumberInput value={amount} onChange={(e) => setAmount(e.target.value)} placeholder="1118.38" /></Field>
         <Field label="Which kind of value" hint="An amount with no type cannot be counted toward anything.">
           <Select value={amountType} placeholder="Choose a type" onValueChange={setAmountType} disabled={amount === ''} options={cfg.value_types.map((t) => ({ value: t.key, label: t.summable ? t.label : `${t.label} (tracked separately)` }))} />
         </Field>

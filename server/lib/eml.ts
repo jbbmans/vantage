@@ -37,22 +37,43 @@ function parseHeaders(block: string): Map<string, string[]> {
     const idx = line.indexOf(':');
     if (idx <= 0) continue;
     const key = line.slice(0, idx).trim().toLowerCase();
-    const value = line.slice(idx + 1).trim();
+    const value = rawHeaderText(line.slice(idx + 1).trim());
     const list = map.get(key);
     if (list) list.push(value); else map.set(key, [value]);
   }
   return map;
 }
 
+// The source is read as latin1, but raw 8-bit header values (RFC 6532; Gmail, saved .eml) are UTF-8.
+// Re-read them as UTF-8, keeping latin1 when the bytes are not valid UTF-8.
+function rawHeaderText(value: string): string {
+  if (!/[\x80-\xff]/.test(value)) return value;
+  try { return new TextDecoder('utf-8', { fatal: true }).decode(Buffer.from(value, 'binary')); }
+  catch { return value; }
+}
+
+const ENCODED_WORD = /=\?([^?]+)\?([bBqQ])\?([^?]*)\?=/g;
+const ENCODED_RUN = /=\?[^?]+\?[bBqQ]\?[^?]*\?=(?:\s+=\?[^?]+\?[bBqQ]\?[^?]*\?=)*/g;
+
+function wordBytes(encoding: string, text: string): Buffer {
+  return encoding.toLowerCase() === 'b'
+    ? Buffer.from(text, 'base64')
+    : Buffer.from(text.replace(/_/g, ' ').replace(/=([0-9a-fA-F]{2})/g, (_m, hex: string) => String.fromCharCode(parseInt(hex, 16))), 'binary');
+}
+
+// Whitespace between adjacent encoded-words is folding, not text (RFC 2047 6.2), so a run of words is
+// decoded as one; same-charset bytes are joined first because mailers split multibyte characters across words.
 function decodeWords(input: string): string {
-  return input.replace(/=\?([^?]+)\?([bBqQ])\?([^?]*)\?=/g, (whole, charset: string, encoding: string, text: string) => {
-    try {
-      const bytes = encoding.toLowerCase() === 'b'
-        ? Buffer.from(text, 'base64')
-        : Buffer.from(text.replace(/_/g, ' ').replace(/=([0-9a-fA-F]{2})/g, (_m, hex: string) => String.fromCharCode(parseInt(hex, 16))), 'binary');
-      return decodeBuffer(bytes, charset);
-    } catch { return whole; }
-  }).replace(/\?=\s+=\?/g, '');
+  return input.replace(ENCODED_RUN, (run) => {
+    let out = ''; let charset = ''; let bytes: Buffer[] = [];
+    const flush = () => { if (bytes.length) out += decodeBuffer(Buffer.concat(bytes), charset); bytes = []; };
+    for (const [, wordCharset, encoding, text] of run.matchAll(ENCODED_WORD)) {
+      if (wordCharset.toLowerCase() !== charset) { flush(); charset = wordCharset.toLowerCase(); }
+      bytes.push(wordBytes(encoding, text));
+    }
+    flush();
+    return out;
+  });
 }
 
 function decodeBuffer(bytes: Buffer, charset: string | undefined): string {
@@ -81,20 +102,25 @@ function decodeBody(raw: string, encoding: string | undefined, charset: string |
 export function parseAddresses(value: string | undefined): EmlAddress[] {
   if (!value) return [];
   const entries: string[] = [];
-  // Split on commas that are not inside quotes or angle brackets.
-  let depth = 0; let quoted = false; let current = '';
+  // Split on commas that are not inside quotes, angle brackets or (comments).
+  let depth = 0; let parens = 0; let quoted = false; let current = '';
   for (const ch of value) {
     if (ch === '"') quoted = !quoted;
     else if (!quoted && ch === '<') depth += 1;
     else if (!quoted && ch === '>') depth -= 1;
-    if (ch === ',' && !quoted && depth <= 0) { entries.push(current); current = ''; continue; }
+    else if (!quoted && ch === '(') parens += 1;
+    else if (!quoted && ch === ')') parens -= 1;
+    if (ch === ',' && !quoted && depth <= 0 && parens <= 0) { entries.push(current); current = ''; continue; }
     current += ch;
   }
   if (current.trim()) entries.push(current);
   return entries.map((entry) => {
     const angled = /<([^>]+)>/.exec(entry);
-    const email = (angled ? angled[1] : entry).trim().replace(/^["']|["']$/g, '');
-    const name = angled ? decodeWords(entry.slice(0, angled.index).trim()).replace(/^["']|["']$/g, '') : '';
+    // `addr (Comment Name)`: the trailing comment is the display name, not part of the address.
+    const comment = angled ? null : /\(([^()]*)\)\s*$/.exec(entry);
+    const email = (angled ? angled[1] : comment ? entry.slice(0, comment.index) : entry).trim().replace(/^["']|["']$/g, '');
+    const name = angled ? decodeWords(entry.slice(0, angled.index).trim()).replace(/^["']|["']$/g, '')
+      : comment ? decodeWords(comment[1].trim()) : '';
     return { name: name || null, email: email.toLowerCase() };
   }).filter((a) => a.email.includes('@'));
 }

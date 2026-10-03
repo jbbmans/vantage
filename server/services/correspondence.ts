@@ -285,6 +285,25 @@ export function importEml(
     if (thread) {
       if (!writable(scope, user, thread)) throw forbidden('That correspondence is not yours to add to.');
     } else {
+      // Saved messages keep their Message-ID as the provider id (connectors store ids of their own), so a
+      // Message-ID names the conversation it was saved into, among threads this person can see.
+      const holding = (messageId: string) => (ctx.db.prepare(
+        `SELECT t.* FROM thread_messages m JOIN threads t ON t.id = m.thread_id
+          WHERE m.connector_id IS NULL AND m.provider_message_id = ? AND t.deleted_at IS NULL ORDER BY m.created_at`
+      ).all(messageId) as ThreadRow[]).filter((t) => readable(scope, user, t));
+      const already = parsed.messageId ? holding(parsed.messageId)[0] : undefined;
+      if (already) {
+        const existing = ctx.db.prepare('SELECT * FROM thread_messages WHERE thread_id = ? AND connector_id IS NULL AND provider_message_id = ?').get(already.id, parsed.messageId) as Record<string, unknown>;
+        record(ctx, 'correspondence.message_imported', { source: 'eml', duplicate: true, attachments: 0 }, { id: user.id });
+        return { thread: already, message: existing, created: false, replayed: true };
+      }
+      // A reply joins the conversation it answers (nearest reference first), when that is one this person can add to.
+      for (const ref of [parsed.inReplyTo, ...[...parsed.references].reverse()]) {
+        thread = (ref && holding(ref).find((t) => writable(scope, user, t))) || null;
+        if (thread) break;
+      }
+    }
+    if (!thread) {
       const visibility = opts.visibility === 'private' ? 'private' : 'unit';
       assertPlacement(scope, opts.unitId || null, visibility);
       thread = createThread(ctx, user, scope, {

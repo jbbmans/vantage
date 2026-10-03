@@ -10,6 +10,8 @@ import { appendEvent, caseView, assertMayResolveCase } from './cases.ts';
 import { STATE_TO_STAGE } from '../../shared/caseModel.ts';
 import type { WorkItemDetail } from '../../shared/caseView.ts';
 import { zoneOf } from '../lib/zone.ts';
+import { parse } from '../lib/http.ts';
+import { activitySchema } from '../../shared/schemas.ts';
 
 export interface WorkItemRow {
   id: string; unit_id: string | null; owner_id: string; visibility: string;
@@ -450,19 +452,24 @@ export function recordAction(
     let activityId: string | null = null;
 
     if (input.draft_record) {
+      // The drafted entry is a record entry like any other, held to the same rules: no negative
+      // figures, real calendar dates, known evaluation areas.
+      const drafted = parse(activitySchema, {
+        title: `${row.title}`.slice(0, 300), date: occurredAt, category: input.category || null, eval_area: input.eval_area || null,
+        quantity, unit_label: input.unit_label || row.unit_label || null, dollar_amount: dollarAmount, dollar_type: input.dollar_type || null,
+        result: note ? note.slice(0, 2000) : null,
+      });
       activityId = newId();
-      const title = `${row.title}`.slice(0, 300);
-      const result = note ? note.slice(0, 2000) : null;
       ctx.db.prepare(
         `INSERT INTO activities (id, user_id, unit_id, visibility, date, title, category, eval_area, quantity, unit_label,
                                  dollar_amount, dollar_type, result, organization, system, project_id, status, notes, evidence_links,
                                  fingerprint, version, created_at, updated_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, NULL, NULL, NULL, 'completed', NULL, '[]', ?, 1, ?, ?)`
       ).run(
-        activityId, user.id, row.unit_id, row.visibility, occurredAt, title,
-        input.category || null, input.eval_area || null,
-        quantity, input.unit_label || row.unit_label || null,
-        dollarAmount, input.dollar_type || null, result,
+        activityId, user.id, row.unit_id, row.visibility, drafted.date ?? occurredAt, drafted.title,
+        drafted.category ?? null, drafted.eval_area ?? null,
+        drafted.quantity ?? null, drafted.unit_label ?? null,
+        drafted.dollar_amount ?? null, drafted.dollar_type ?? null, drafted.result ?? null,
         `work:${itemId}:${scopedKey || newId()}`,
         at, at,
       );
