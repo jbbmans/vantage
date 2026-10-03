@@ -1,6 +1,17 @@
 # Progress
 
-_Updated 2026-10-02_
+_Updated 2026-10-03_
+
+## What changed (2026-10-03 audit and upgrade)
+
+A second outside review, of the live site and the code, found two high-severity security problems and fixed them:
+an unauthenticated request that could freeze the server (an exponential password-policy pattern), and a goal "measured
+across the unit" that let a member read entries they could not open. It also fixed four denial-of-service and
+disclosure issues (workbook reader, email sanitizer, lockout name disclosure, rate limits behind Cloudflare), more
+than twenty correctness bugs (among them FITREP packages losing every Quick Log entry, roster sync deactivating people
+for good, Quick Log dating "Sep 30" as today), and the live site's broken pages. The public site gained security,
+privacy and accessibility pages, `security.txt`, a hero and a "built for your role" section aimed at the Marines it is
+for, and a real footer. Details, verification and what is left for the owner: `docs/AUDIT-2026-10-03.md`.
 
 ## What changed (2026-10-02 audit)
 
