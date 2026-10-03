@@ -14,6 +14,7 @@ import * as api from '@/lib/api';
 import { GOAL_TYPES, GOAL_STATUS, categoryNames } from '../../shared/constants';
 import { formatNumber, formatDollars, rangeForPeriod, dayKey } from '../../shared/metrics';
 import { daysUntil } from '../../shared/evaluation';
+import { quantityMetricId, canonicalMetricId } from '../../shared/metricEngine';
 import { PERMISSIONS } from '../../shared/permissions';
 import { humanize, cn, todayIso } from '@/lib/utils';
 
@@ -62,7 +63,7 @@ export default function Goals() {
     seen.set('duration:hours', 'Hours logged');
     for (const entry of catalogQuery.data?.catalog || []) if (!seen.has(entry.metricId)) seen.set(entry.metricId, entry.metricLabel);
     for (const unit of cfg.unit_suggestions) {
-      const id = `quantity:${unit.trim().toLowerCase().replace(/s$/, '')}`;
+      const id = quantityMetricId(unit);
       if (!seen.has(id)) seen.set(id, unit);
     }
     return [...seen.entries()].map(([value, label]) => ({ value, label }));
@@ -258,7 +259,8 @@ function toDraft(g: any): GoalDraft {
     target_value: g.target_value ?? '',
     baseline_value: g.baseline_value ?? 0,
     current_value: g.current_value ?? 0,
-    metric_id: g.metric_id || null,
+    // An id saved under an older unit key ("quantity:discrepancie") selects the metric it now goes by.
+    metric_id: g.metric_id ? canonicalMetricId(g.metric_id) : null,
     direction: g.direction || 'increase',
     aggregation: g.aggregation || 'sum',
     measure_scope: g.measure_scope || 'subject',

@@ -1,5 +1,6 @@
 import { formatDollarsExact, formatNumber, formatDTG } from './metrics.ts';
 import { JEPES_CORE, DEFAULT_METRICS, isSummable, type MetricsConfig } from './constants.ts';
+import { areaAmong } from './evaluation.ts';
 
 export type BulletStyle = 'jepes' | 'fitrep' | 'resume';
 
@@ -182,8 +183,10 @@ export function weaknesses(a: BulletSource = {}): string[] {
 }
 
 export function groupByAreas<T extends BulletSource>(activities: T[] = [], areas: readonly string[] = JEPES_CORE) {
-  const groups = areas.map((area) => ({ area, activities: activities.filter((a) => a.eval_area === area) }));
-  const unassigned = activities.filter((a) => !a.eval_area || !areas.includes(a.eval_area));
+  // By the area's name in this breakdown's track: a Sgt's JEPES-named entries are still Mission Accomplishment.
+  const home = activities.map((a) => areaAmong(a.eval_area, areas));
+  const groups = areas.map((area) => ({ area, activities: activities.filter((_, i) => home[i] === area) }));
+  const unassigned = activities.filter((_, i) => !areas.includes(home[i]));
   if (unassigned.length) groups.push({ area: 'Unassigned', activities: unassigned });
   return groups;
 }

@@ -2,7 +2,7 @@ import type { AppContext } from '../context.ts';
 import { composeNarrative } from '../../shared/narrative.ts';
 import { buildPackage, type BulletStyle } from '../../shared/bullets.ts';
 import { aggregateMetrics, rangeForPeriod, formatDTG, type PeriodKey } from '../../shared/metrics.ts';
-import { narrativeConfig, areasFor, trackForGrade, type Track } from '../../shared/evaluation.ts';
+import { narrativeConfig, areasFor, areaAmong, trackForGrade, type Track } from '../../shared/evaluation.ts';
 import { hydrate } from './records.ts';
 import { isoDay, zonedDay, zonedNow } from '../lib/clock.ts';
 
@@ -25,7 +25,9 @@ export function buildReport(ctx: AppContext, opts: { userId: string; unitId?: st
   const trainings = ctx.db.prepare(`SELECT title, date, hours FROM trainings WHERE ${where} AND deleted_at IS NULL AND date >= ? AND date <= ? ORDER BY date DESC`).all(...params, from, to) as Array<{ title: string; date: string | null; hours: number | null }>;
   const cfg = narrativeConfig(track);
   const metricsConfig = ctx.runtime.metrics;
-  const narrative = composeNarrative(activities as never, { ...cfg, periodLabel: label, metrics: metricsConfig });
+  // The narrative reads areas by name as the package does (groupByAreas): a Sgt's JEPES-named entries are FITREP ones.
+  const onTrack = activities.map((a) => ({ ...a, eval_area: areaAmong(a.eval_area as string | null, cfg.areas) }));
+  const narrative = composeNarrative(onTrack as never, { ...cfg, periodLabel: label, metrics: metricsConfig });
   const pkg = buildPackage(activities as never, { periodLabel: label, style: opts.style || (track === 'fitrep' ? 'fitrep' : 'jepes'), limitPerArea: opts.limit ?? 8, areas: areasFor(track), metrics: metricsConfig });
   const metrics = aggregateMetrics(activities as never, metricsConfig);
   const unit = opts.unitId ? (ctx.db.prepare('SELECT name, short_name FROM units WHERE id = ?').get(opts.unitId) as { name: string; short_name: string | null } | undefined) : undefined;

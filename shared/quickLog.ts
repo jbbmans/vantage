@@ -4,6 +4,7 @@ import { subDays, startOfDay, parse, isValid } from 'date-fns';
 const STOPWORDS = new Set([
   'and', 'or', 'the', 'a', 'an', 'of', 'to', 'for', 'with', 'in', 'on', 'at', 'by', 'from', 'totaling', 'totalling', 'worth',
   'amounting', 'across', 'over', 'via', 'plus', 'about', 'approximately', 'roughly', 'per', 'each', 'more', 'than',
+  'after', 'before', 'during', 'through', 'while', 'last', 'this', 'next',
 ]);
 const SYSTEMS = ['DAI', 'ADVANA', 'SABRS', 'GCSS-MC', 'DTS', 'WAWF', 'iRAPT', 'PRISM', 'MCTFS', 'FMS', 'GFEBS', 'CDD', 'EDA', 'SAM', 'MOCAS', 'IPAC', 'MarineNet', 'MCTIMS', 'MOL'];
 
@@ -16,6 +17,20 @@ function latest(d: Date, now: Date, yearGiven: boolean): Date {
   return prior.getMonth() === d.getMonth() ? prior : d;
 }
 
+const MONTH = 'Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?';
+// Only a written-out year, or '26: "On 30 Sep 14 UDOs closed" is fourteen UDOs, not 2014.
+const YEAR = `(?:,?\\s+((?:19|20)\\d{2})|\\s*['’](\\d{2}))?\\b`;
+const DAY_FIRST = new RegExp(`\\b(\\d{1,2})\\s+(${MONTH})\\b\\.?${YEAR}`, 'i');
+const MONTH_FIRST = new RegExp(`\\b(${MONTH})\\b\\.?\\s+(\\d{1,2})(?:st|nd|rd|th)?\\b${YEAR}`, 'i');
+const WEEKDAYS = ['sunday', 'monday', 'tuesday', 'wednesday', 'thursday', 'friday', 'saturday'];
+const WEEKDAY = new RegExp(`\\b(?:last\\s+)?(${WEEKDAYS.join('|')})\\b`, 'i');
+
+function dayMonth(day: string, month: string, year4: string | undefined, year2: string | undefined, now: Date): Date | null {
+  const year = year4 || (year2 ? `20${year2}` : String(now.getFullYear()));
+  const d = parse(`${day} ${month.slice(0, 3)} ${year}`, 'd MMM yyyy', new Date());
+  return isValid(d) ? startOfDay(latest(d, now, Boolean(year4 || year2))) : null;
+}
+
 function parseWhen(text: string, now: Date): { date: Date; matched: string | null } {
   const lower = text.toLowerCase();
   if (/\byesterday\b/.test(lower)) return { date: startOfDay(subDays(now, 1)), matched: 'yesterday' };
@@ -23,20 +38,29 @@ function parseWhen(text: string, now: Date): { date: Date; matched: string | nul
   if (/\blast week\b/.test(lower)) return { date: startOfDay(subDays(now, 7)), matched: 'last week' };
   const daysAgo = lower.match(/\b(\d{1,2})\s+days?\s+ago\b/);
   if (daysAgo) return { date: startOfDay(subDays(now, parseInt(daysAgo[1], 10))), matched: daysAgo[0] };
-  const dmy = text.match(/\b(\d{1,2})\s+(Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|June?|July?|Aug(?:ust)?|Sep(?:t(?:ember)?)?|Oct(?:ober)?|Nov(?:ember)?|Dec(?:ember)?)\b\.?(\s+\d{2,4})?\b/i);
-  if (dmy) {
-    const year = dmy[3] ? dmy[3].trim() : String(now.getFullYear());
-    const full = `${dmy[1]} ${dmy[2].slice(0, 3)} ${year.length === 2 ? `20${year}` : year}`;
-    const d = parse(full, 'd MMM yyyy', new Date());
-    if (isValid(d)) return { date: startOfDay(latest(d, now, Boolean(dmy[3]))), matched: dmy[0] };
-  }
-  const slash = text.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b/);
+  const dmy = text.match(DAY_FIRST);
+  const dmyDate = dmy && dayMonth(dmy[1], dmy[2], dmy[3], dmy[4], now);
+  if (dmy && dmyDate) return { date: dmyDate, matched: dmy[0] };
+  // "Sep 30", "September 30", "Sept. 30, 2026": how most US users write a date.
+  const mdy = text.match(MONTH_FIRST);
+  // Lowercase "march" and "may" are words before they are months: "led a road march 2 hours" is two hours, not March 2.
+  const word = mdy && /^(?:march|may)$/.test(mdy[1]);
+  const mdyDate = mdy && !word && dayMonth(mdy[2], mdy[1], mdy[3], mdy[4], now);
+  if (mdy && mdyDate) return { date: mdyDate, matched: mdy[0] };
+  // "3/4 of the backlog" is a fraction.
+  const slash = text.match(/\b(\d{1,2})\/(\d{1,2})(?:\/(\d{2,4}))?\b(?!\s+of\b)/);
   if (slash) {
     const y = slash[3] ? (slash[3].length === 2 ? 2000 + +slash[3] : +slash[3]) : now.getFullYear();
     const [month, day] = [+slash[1], +slash[2]];
     const d = new Date(y, month - 1, day);
     // 13/45 is not a date; JavaScript would roll it over into one.
     if (d.getMonth() === month - 1 && d.getDate() === day) return { date: startOfDay(latest(d, now, Boolean(slash[3]))), matched: slash[0] };
+  }
+  // "Friday", "on Friday", "last Friday": the most recent one before today, since the work is already done.
+  const weekday = text.match(WEEKDAY);
+  if (weekday) {
+    const back = (now.getDay() - WEEKDAYS.indexOf(weekday[1].toLowerCase()) + 7) % 7 || 7;
+    return { date: startOfDay(subDays(now, back)), matched: weekday[0] };
   }
   return { date: startOfDay(now), matched: null };
 }
@@ -46,20 +70,20 @@ export interface ParsedQuickLog {
   category: string; eval_area: string; system: string | null; date: Date; inferred: string[];
 }
 
+const SCALE: Record<string, number> = { k: 1e3, thousand: 1e3, m: 1e6, mm: 1e6, mil: 1e6, million: 1e6, b: 1e9, bn: 1e9, billion: 1e9 };
+
 export function parseQuickLog(text = '', now = new Date()): ParsedQuickLog {
   const raw = text.trim();
   const inferred: string[] = [];
   let dollar_amount: number | null = null;
-  const dollarMatches = [...raw.matchAll(/\$\s?([\d,]+(?:\.\d{1,2})?)(\s?[kKmM]\b)?/g)];
+  // "$1.2 million", "$3M", "$1.234M", "$10.999": the whole figure, scaled, then to the cent.
+  const dollarMatches = [...raw.matchAll(/\$\s?(\d[\d,]*(?:\.\d+)?)\s?(thousand|million|billion|mil|mm|bn|k|m|b)?\b/gi)];
   if (dollarMatches.length) {
     let total = 0;
     for (const m of dollarMatches) {
-      let v = parseFloat(m[1].replace(/,/g, ''));
+      const v = parseFloat(m[1].replace(/,/g, ''));
       if (Number.isNaN(v)) continue;
-      const suffix = (m[2] || '').trim().toLowerCase();
-      if (suffix === 'k') v *= 1_000;
-      if (suffix === 'm') v *= 1_000_000;
-      total += v;
+      total += v * (SCALE[(m[2] || '').toLowerCase()] || 1);
     }
     dollar_amount = Math.round(total * 100) / 100;
     inferred.push(dollarMatches.length > 1 ? `summed ${dollarMatches.length} dollar figures` : 'dollar figure');
@@ -75,8 +99,11 @@ export function parseQuickLog(text = '', now = new Date()): ParsedQuickLog {
   const when = parseWhen(raw, now);
   if (when.matched) inferred.push(`date: ${when.matched}`);
 
-  let scan = raw;
-  for (const dm of dollarMatches) scan = scan.replace(dm[0], ' '.repeat(dm[0].length));
+  // Blank the dollar figures in one pass; a replace per figure is quadratic on a pasted ledger.
+  let scan = '';
+  let at = 0;
+  for (const dm of dollarMatches) { scan += raw.slice(at, dm.index) + ' '.repeat(dm[0].length); at = dm.index + dm[0].length; }
+  scan += raw.slice(at);
   if (when.matched) scan = scan.replace(new RegExp(escapeRe(when.matched), 'i'), (s) => ' '.repeat(s.length));
 
   const quantities: Array<{ value: number; unit: string }> = [];
@@ -85,10 +112,10 @@ export function parseQuickLog(text = '', now = new Date()): ParsedQuickLog {
   while ((m = pattern.exec(scan)) !== null) {
     const value = parseFloat(m[1].replace(/,/g, ''));
     if (Number.isNaN(value)) continue;
-    let unit = m[2].trim();
-    const words = unit.split(/\s+/).filter((w) => !STOPWORDS.has(w.toLowerCase()));
+    const words = m[2].trim().split(/\s+/).filter((w) => !STOPWORDS.has(w.toLowerCase()));
     if (!words.length) continue;
-    unit = words.join(' ');
+    // A plural is the whole unit ("7 MIPRs after lunch"); a modifier needs its noun ("9 travel claims", "4 DTS vouchers", "5 status reports").
+    const unit = /[^isu]s$/.test(words[0]) ? words[0] : words.join(' ');
     if (STOPWORDS.has(unit.toLowerCase())) continue;
     if (/^(days?|weeks?|months?|years?)\b/i.test(unit)) continue;
     const known = UNIT_SUGGESTIONS.find((u) => u.toLowerCase() === unit.toLowerCase());

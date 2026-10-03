@@ -35,9 +35,16 @@ export interface MetricTotal {
   contributors: string[];
 }
 
+/**
+ * One key for a unit's singular and plural, read as unitFor in bullets.ts reads a plural ("discrepancies",
+ * "boxes", "ULOs"). The singulars of the -ie and -ches/-xes words fold the same way, so "calorie" and "calories" meet.
+ */
 export function unitKeyOf(unit: string | null | undefined): string {
   const text = (String(unit ?? '').trim() || 'items').toLowerCase();
-  return text.endsWith('s') && text.length > 3 ? text.slice(0, -1) : text;
+  if (text.length <= 3) return text;
+  if (/ies?$/.test(text)) return text.replace(/ies?$/, 'y');
+  if (/(ch|sh|ss|x|z)es?$/.test(text)) return text.replace(/es?$/, '');
+  return /[^s]s$/.test(text) ? text.slice(0, -1) : text;
 }
 
 /** Hours typed as a count ("volunteered 6 hours") are the same measure as hours logged, so they total together. */
@@ -47,8 +54,16 @@ export const isTimeUnit = (unit: string | null | undefined) => TIME_UNIT_KEYS.ha
 export const durationMetricId = () => 'duration:hours';
 export const moneyMetricId = (type: string | null | undefined) => `money:${String(type ?? '').trim().toLowerCase() || 'unclassified'}`;
 export const quantityMetricId = (unit: string | null | undefined) => (isTimeUnit(unit) ? durationMetricId() : `quantity:${unitKeyOf(unit)}`);
-/** Metric ids saved before hours were merged (a goal, a link) still find their figure. */
-export const canonicalMetricId = (id: string) => (/^quantity:/.test(id) && isTimeUnit(id.slice('quantity:'.length)) ? durationMetricId() : id);
+/**
+ * Metric ids saved under an older key (a goal, a link) still find their figure: hours from before they merged, and
+ * units from when only a trailing "s" was dropped ("quantity:discrepancie", "quantity:classe", "quantity:clas").
+ */
+export function canonicalMetricId(id: string): string {
+  if (!id.startsWith('quantity:')) return id;
+  const key = id.slice('quantity:'.length);
+  // No current key that long ends in a single "s"; the old one for "class" did.
+  return quantityMetricId(key.length > 3 && /[^s]s$/.test(key) ? `${key}s` : key);
+}
 
 export interface OutcomeRow {
   id: string;

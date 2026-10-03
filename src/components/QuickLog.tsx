@@ -55,12 +55,13 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     if (!parsed) return null;
     const { quantity, unit } = primaryQuantity(parsed.quantities);
     return {
-      title: parsed.title, date: format(parsed.date, 'yyyy-MM-dd'), category: parsed.category, eval_area: parsed.eval_area, quantity, unit_label: unit,
+      // Save the area the select shows: the parser only knows JEPES names, and a Sgt's package reads FITREP ones.
+      title: parsed.title, date: format(parsed.date, 'yyyy-MM-dd'), category: parsed.category, eval_area: mapAreaToTrack(parsed.eval_area, track), quantity, unit_label: unit,
       dollar_amount: parsed.dollar_amount, dollar_type: valueType(parsed.dollar_type, cfg) ? parsed.dollar_type : fallbackType, system: parsed.system || '', organization: '', result: '', notes: '', status: 'completed',
       visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null,
       ...overrides,
     } as Record<string, any>;
-  }, [parsed, overrides, prefs.defaultVisibility, identity?.homeUnitId, cfg, fallbackType]);
+  }, [parsed, overrides, prefs.defaultVisibility, identity?.homeUnitId, cfg, fallbackType, track]);
 
   const set = (k: string) => (v: unknown) => setOverrides((o) => ({ ...o, [k]: v }));
   const setEvent = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => set(k)(e.target.value);
@@ -112,7 +113,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
       if (out[src] != null && out[src] !== '') next[dst] = out[src];
     }
     if (categoryNames(cfg).includes(out.category)) next.category = out.category;
-    if (EVAL_AREAS.includes(out.evaluation_area)) next.eval_area = out.evaluation_area;
+    if (EVAL_AREAS.includes(out.evaluation_area)) next.eval_area = mapAreaToTrack(out.evaluation_area, track);
     if (valueType(out.dollar_type, cfg)) next.dollar_type = out.dollar_type;
     setOverrides((o) => ({ ...o, ...next }));
     setExpanded(true);

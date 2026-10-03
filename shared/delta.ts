@@ -1,5 +1,6 @@
 import { aggregateMetrics, activitiesInRange, previousRange, delta, formatDTG, type MetricSource } from './metrics.ts';
 import { JEPES_CORE, DEFAULT_METRICS, categoryNames, type MetricsConfig } from './constants.ts';
+import { areaAmong } from './evaluation.ts';
 import type { DateRange } from './types.ts';
 
 export interface Movement { current: number; prior: number; diff: number; pct: number | null; direction: 'up' | 'down' | 'flat'; isNew: boolean; lapsed: boolean }
@@ -31,8 +32,10 @@ export function comparePeriods(
   const areas = extras.areas || JEPES_CORE;
   const cfg = extras.metrics || DEFAULT_METRICS;
   const prior = previousRange(range);
-  const now = activitiesInRange(activities, range);
-  const before = activitiesInRange(activities, prior);
+  // Each entry under its area's name in this track, so a Sgt's "MOS / Mission Accomplishment" counts as Mission Accomplishment.
+  const onTrack = activities.map((x) => ({ ...x, eval_area: areaAmong(x.eval_area, areas) }));
+  const now = activitiesInRange(onTrack, range);
+  const before = activitiesInRange(onTrack, prior);
   const a = aggregateMetrics(now, cfg);
   const b = aggregateMetrics(before, cfg);
   const headline = {

@@ -1,3 +1,4 @@
+import { startOfDay } from 'date-fns';
 import { JEPES_CORE } from './constants.ts';
 import { EVAL_REFERENCES } from './evalRefs.ts';
 
@@ -73,6 +74,19 @@ export function mapAreaToTrack(area: string | null | undefined, track: Track): s
   if (valid.includes(area)) return area;
   const mapped = track === 'fitrep' ? JEPES_TO_FITREP[area] : FITREP_TO_JEPES[area];
   return mapped || 'Unassigned';
+}
+
+/**
+ * The area an entry counts under in a breakdown over `areas`. An entry keeps the name of the track it was logged
+ * under, so a Sgt's "MOS / Mission Accomplishment" (the Quick Log default) is FITREP "Mission Accomplishment".
+ */
+export function areaAmong(area: string | null | undefined, areas: readonly string[]): string {
+  if (area && areas.includes(area)) return area;
+  for (const track of ['fitrep', 'jepes'] as const) {
+    const mapped = mapAreaToTrack(area, track);
+    if (areas.includes(mapped)) return mapped;
+  }
+  return 'Unassigned';
 }
 
 const ATTRIBUTE_HINTS: Record<string, string[]> = {
@@ -153,9 +167,13 @@ export function recommendFitrep(profile: Record<string, unknown> = {}, activityS
   return out.sort((a, b) => b.priority - a.priority);
 }
 
+/** Calendar days from today to a YYYY-MM-DD where the reader is: 0 on the day itself, whatever the hour. */
 export function daysUntil(dateStr?: string | null, now = new Date()): number | null {
   if (!dateStr) return null;
-  const d = new Date(dateStr);
+  // new Date('2026-10-31') is UTC midnight, a day early west of Greenwich; read the day as local.
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  const d = ymd ? new Date(+ymd[1], +ymd[2] - 1, +ymd[3]) : new Date(dateStr);
   if (Number.isNaN(d.getTime())) return null;
-  return Math.ceil((d.getTime() - now.getTime()) / 86_400_000);
+  // Round, not ceil: a day across a DST change is 23 or 25 hours.
+  return Math.round((startOfDay(d).getTime() - startOfDay(now).getTime()) / 86_400_000);
 }

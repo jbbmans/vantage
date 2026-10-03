@@ -126,16 +126,18 @@ export function aggregateMetrics(list: MetricSource[] = [], cfg: MetricsConfig =
   let withOutcome = 0;
 
   for (const a of list) {
+    // Reviewed dollars passed through without a balance change; they are no one area's impact, as in the headline.
+    const impact = isSummable(a.dollar_type, cfg) ? Number(a.dollar_amount) || 0 : 0;
     const cat = a.category || 'Other';
     byCategory[cat] ||= { count: 0, dollars: 0, quantity: 0 };
     byCategory[cat].count += 1;
-    byCategory[cat].dollars += Number(a.dollar_amount) || 0;
+    byCategory[cat].dollars += impact;
     byCategory[cat].quantity += Number(a.quantity) || 0;
 
     const area = a.eval_area || 'Unassigned';
     byArea[area] ||= { count: 0, dollars: 0, quantity: 0 };
     byArea[area].count += 1;
-    byArea[area].dollars += Number(a.dollar_amount) || 0;
+    byArea[area].dollars += impact;
     byArea[area].quantity += Number(a.quantity) || 0;
 
     if (a.result && String(a.result).trim()) withOutcome += 1;
