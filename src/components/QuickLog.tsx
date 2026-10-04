@@ -8,7 +8,8 @@ import { useToast } from '@/components/ui/toast';
 import { parseQuickLog, primaryQuantity } from '../../shared/quickLog';
 import { EVAL_AREAS, categoryNames, categoryColor, valueType } from '../../shared/constants';
 import { formatDollarsExact } from '../../shared/metrics';
-import { strength, weaknesses, composeBullet } from '../../shared/bullets';
+import { strength } from '../../shared/bullets';
+import { coachEntry } from '../../shared/writer/coach';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { AiAction, ModelPicker } from '@/components/AiPanel';
@@ -124,7 +125,8 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
   };
 
   const s = record ? strength(record) : 0;
-  const gaps = record ? weaknesses(record) : [];
+  // The bullet as the narrative will write it, and the reviewer's notes for it, while it is being typed.
+  const coach = useMemo(() => (record ? coachEntry(record) : null), [record]);
   const offline = typeof navigator !== 'undefined' && !navigator.onLine;
 
   return (
@@ -169,8 +171,13 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
             </div>
             <div className="card p-4">
               <div className="mb-2 flex items-center justify-between"><span className="eyebrow">Bullet preview</span><span className="flex items-center gap-1" aria-label={`Strength ${s} of 4`}>{[0, 1, 2, 3].map((i) => <span key={i} className={cn('h-1.5 w-5 rounded-full', i < s ? 'bg-accent' : 'bg-surface-3')} />)}<span className="fig ml-1 text-2xs text-ink-3">{s}/4</span></span></div>
-              <p className="flex items-start gap-2 text-base leading-relaxed text-ink"><Dot color={categoryColor(record!.category, cfg)} className="mt-2" /><span>{composeBullet(record!)}</span></p>
-              {gaps.length > 0 && <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-ink-3"><Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-accent" /><span>To strengthen: {gaps.join(' · ')}</span></p>}
+              <p className="flex items-start gap-2 text-base leading-relaxed text-ink"><Dot color={categoryColor(record!.category, cfg)} className="mt-2" /><span>{coach!.bullet}</span></p>
+              {coach!.held && <p className="mt-2 rounded-md bg-warn/10 px-2.5 py-1.5 text-xs leading-relaxed text-ink">{coach!.held} It is saved to your record, and held out of your evaluation input.</p>}
+              {coach!.notes.length > 0 && (
+                <ul className="mt-2 space-y-1 text-xs leading-relaxed text-ink-3">
+                  {coach!.notes.slice(0, 3).map((n) => <li key={n.code} className="flex items-start gap-1.5"><Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-accent" aria-hidden /><span><span className="font-medium text-ink-2">{n.message}.</span> {n.advice}</span></li>)}
+                </ul>
+              )}
               {record!.dollar_amount ? <p className="fig mt-2 text-2xs text-ink-3">Recorded to the cent as {formatDollarsExact(Number(String(record!.dollar_amount).replace(/[$,]/g, '')) || 0)}</p> : null}
             </div>
           </>

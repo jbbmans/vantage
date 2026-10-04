@@ -72,6 +72,16 @@ const VERBS: Array<[string, string, VerbKind, 1 | 2 | 3]> = [
   ['file', '', 'admin', 2], ['record', '', 'admin', 2], ['log', 'logged', 'admin', 1], ['enter', '', 'admin', 1], ['input', 'input', 'admin', 1],
   ['compile', '', 'admin', 2], ['consolidate', '', 'admin', 2], ['route', '', 'admin', 2], ['work', '', 'support', 1],
   ['attempt', '', 'support', 1], ['try', 'tried', 'support', 1],
+  // Irregular pasts a Marine is likely to type, so "Drove in the convoy" reads as the verb it is.
+  ['drive', 'drove', 'execute', 2], ['ride', 'rode', 'execute', 2], ['fly', 'flew', 'execute', 2], ['go', 'went', 'execute', 1],
+  ['give', 'gave', 'communicate', 2], ['take', 'took', 'execute', 2], ['make', 'made', 'build', 2], ['keep', 'kept', 'maintain', 2],
+  ['hold', 'held', 'maintain', 2], ['sell', 'sold', 'execute', 2], ['buy', 'bought', 'finance', 2], ['bring', 'brought', 'execute', 2],
+  ['send', 'sent', 'execute', 2], ['spend', 'spent', 'execute', 1], ['win', 'won', 'qualify', 3], ['meet', 'met', 'execute', 2],
+  ['set', 'set', 'execute', 2], ['put', 'put', 'execute', 1], ['find', 'found', 'analyze', 3], ['pay', 'paid', 'finance', 2],
+  ['speak', 'spoke', 'communicate', 2], ['tell', 'told', 'communicate', 1], ['get', 'got', 'execute', 1], ['begin', 'began', 'execute', 1],
+  ['become', 'became', 'qualify', 2], ['choose', 'chose', 'analyze', 2], ['swim', 'swam', 'qualify', 2], ['lead', 'led', 'lead', 3],
+  ['license', '', 'develop', 3], ['turn', '', 'execute', 2], ['load', '', 'execute', 2], ['unload', '', 'execute', 2], ['dispatch', '', 'execute', 2],
+  ['guard', '', 'maintain', 2], ['patrol', 'patrolled', 'execute', 2], ['navigate', '', 'execute', 2], ['fire', '', 'execute', 2],
 ];
 
 /** The regular past of a verb: "reconcile" → "reconciled", "verify" → "verified", "process" → "processed". */
@@ -234,4 +244,28 @@ export const GLOSSARY: Record<string, { one: string; many?: string }> = {
   SNCO: { one: 'staff noncommissioned officer', many: 'staff noncommissioned officers' },
   DEP: { one: 'Distance Education Program' },
   LOA: { one: 'Letter of Appreciation' },
+};
+
+/** Work not finished yet: not an accomplishment until it is done. */
+export const IN_PROGRESS = /^(?:working (?:on|towards?)|studying for|preparing for|trying to|attempting to|planning to|going to|currently (?:enrolled|working|studying)|in progress)\b|\bin progress\b/i;
+
+/** What "my" points at when it is the Marine's own, which keeps the possessive out rather than turning it into "the". */
+export const PERSONAL_NOUNS = /^(?:(?:associate'?s?|bachelor'?s?|master'?s?)\s+)?(?:degree|license|licence|belt|qualification|certification|certificate|gpa|pft|cft|rifle|score|course|education|class|own|first|promotion|meritorious|award|reenlistment)\b/i;
+
+/** An award for an earlier period, which MCO 1616.1 Appendix E says is not a billet accomplishment. */
+export const PRIOR_AWARD = /\b(?:award(?:ed)?|medal|certificate of commendation|letter of (?:appreciation|commendation)|LOA|NAM|commendation)\b.*\b(?:last year'?s?|previous|prior|preceding|earlier)\s+(?:deployment|period|year|tour|reporting period|command)\b/i;
+
+/** Acronyms kept in capitals when a title written in all capitals is set in sentence case. */
+export const ACRONYMS = new Set([
+  ...Object.keys(GLOSSARY), 'MOS', 'JEPES', 'FITREP', 'USMC', 'MCO', 'MARADMIN', 'CO', 'XO', 'IG', 'DLA', 'IAPS', 'MOL', 'MCTIMS', 'PMCS', 'MTVR',
+  'JLTV', 'HMMWV', 'ITX', 'CFT', 'PFT', 'SAPR', 'OPSEC', 'PII', 'BRS', 'TSP', 'EAS', 'SNM', 'MRO', 'RS', 'RO', 'FLS', 'SER', 'NCOIC', 'SNCOIC', 'OIC',
+  'S-1', 'S-2', 'S-3', 'S-4', 'S-6', 'G-1', 'G-3', 'G-4', 'G-6', 'G-8', 'HQ', 'HQMC', 'MEF', 'MEU', 'MLG', 'MAW', 'DIV', 'BN', 'CMC', 'DOD', 'DON', 'IT',
+  'OCMT', 'ODO', 'UDO', 'NULO', 'DOU', 'GTCC', 'DFAS', 'CAC', 'PCS', 'TAD', 'TDY', 'LES', 'BAH', 'BAS',
+]);
+
+/** Number words a bullet writes as numerals ("twelve MIPRs" → "12 MIPRs"). "zero" stays: it reads as the point. */
+export const NUMBER_WORDS: Record<string, number> = {
+  two: 2, three: 3, four: 4, five: 5, six: 6, seven: 7, eight: 8, nine: 9, ten: 10, eleven: 11, twelve: 12, thirteen: 13, fourteen: 14,
+  fifteen: 15, sixteen: 16, seventeen: 17, eighteen: 18, nineteen: 19, twenty: 20, thirty: 30, forty: 40, fifty: 50, sixty: 60,
+  seventy: 70, eighty: 80, ninety: 90, hundred: 100,
 };

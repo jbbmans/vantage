@@ -14,6 +14,7 @@ export const CHANGES: Change[] = [
       'Select any sentence to see the entries it came from and why it made the cut; keep it, leave it out, or ask for another wording.',
       'A reviewer grades the narrative out of 100 and says what would make it stronger, and what each point rests on: an order, guidance or style.',
       'Credit from your case histories (documents researched, outcomes verified, cases resolved) is written in, and required annual training is held back, as the order says.',
+      'Quick Log shows your entry as the narrative will write it, and coaches it as you type. Duplicates, unfinished work and old awards are held out of the input.',
       'Pages open on the last 12 months, so 1 October no longer reads as if nobody had done anything. A period you chose still wins.',
       'On a phone, Today, Work, a log button and your Record sit at the bottom where a thumb reaches. If you lead a team, Team takes the Record’s place.',
       'Due dates say how long: “tomorrow”, “in 4 days”, “1 day overdue”.',

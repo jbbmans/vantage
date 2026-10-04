@@ -22,8 +22,14 @@ test('the reader puts a title in the past tense, drops the first person and fill
   assert.deepEqual(mine.edits, ['first person', 'filler']);
 });
 
-test('the reader leaves a noun phrase a noun phrase, and gives it a plain verb', () => {
-  assert.equal(clauseOf(read('Process improvement for DTS')), 'Completed process improvement for DTS');
+test('the reader leaves a noun phrase a noun phrase, and never invents a claim', () => {
+  // No verb is added where none was written: "Completed…" would claim something finished that may not be.
+  assert.equal(clauseOf(read('Process improvement for DTS')), 'Process improvement for DTS');
+  assert.equal(clauseOf(read('Food pantry shift')), 'Food pantry shift');
+  // A past tense the lexicon does not list is still the verb.
+  assert.equal(clauseOf(read('Licensed 8 Marines on the JLTV')), 'Licensed 8 Marines on the JLTV');
+  assert.equal(clauseOf(read('Drove in the convoy to Camp Pendleton')), 'Drove in the convoy to Camp Pendleton');
+  assert.equal(clauseOf(read('Earned my associates degree')), 'Earned associates degree');
   assert.equal(clauseOf(read('Brief to the CO on Q4 execution')), 'Delivered brief to the CO on Q4 execution');
   assert.equal(clauseOf(read('Review of FY26 obligations')), 'Conducted review of FY26 obligations');
   assert.equal(clauseOf(read('Training on DTS for the section')), 'Conducted training on DTS for the section');
@@ -254,4 +260,63 @@ test('FITREP input is drafted for Section C: by section, at 1,232 characters', a
   const n = writeNarrative(corpus.map((e) => ({ ...e, eval_area: e.eval_area === M ? 'Mission Accomplishment' : e.eval_area })), { ...cfg, format: 'bullets' });
   assert.ok(n.length <= 1232);
   assert.ok(n.text.startsWith('Mission Accomplishment\n-'), n.text.slice(0, 60));
+});
+
+test('what real entries throw at it: work in progress, a first person it cannot remove, an outcome that repeats the title', () => {
+  const entries = [
+    { id: 'wip', title: 'working on getting my license for the 7 ton', eval_area: M },
+    { id: 'me', title: 'Outstanding performance during the field op', result: 'my squad leader said I was a valued asset', eval_area: M },
+    { id: 'cert', title: 'Hazmat certification', result: 'certified', eval_area: M },
+    { id: 'gpa', title: 'Earned my associates degree in business', result: '3.8 GPA', eval_area: 'Individual Character' },
+    { id: 'pfc', title: 'Trained the new PFC on unit diary entries', quantity: 1, unit_label: 'Marines', eval_area: 'Leadership' },
+    { id: 'keys', title: 'Responsible for the armory keys', eval_area: 'Individual Character' },
+    { id: 'phase', title: 'Completed Corporals Course Phase I', result: 'graduated in the top third', eval_area: 'Individual Character' },
+  ];
+  const n = writeNarrative(entries, opts({ format: 'bullets' }));
+  const held = Object.fromEntries(n.held.map((h) => [h.key, h]));
+  assert.match(held.wip.reason, /in progress/);
+  assert.equal(held.wip.basis, 'style');
+  assert.match(held.me.reason, /“I”/);
+  assert.ok(!held.phase, '"Phase I" is not a first person');
+  assert.ok(!/Completed (?:working|outstanding|hazmat)/i.test(n.text), 'no verb is invented');
+  assert.match(n.text, /-Earned associates degree in business, with a 3\.8 GPA\./);
+  assert.match(n.text, /-Trained the new PFC on unit diary entries\./);
+  assert.ok(!/certified\./.test(n.text), 'an outcome that only repeats the title is dropped');
+  assert.ok(!/armory keys/.test(n.text), 'a billet statement does not fill a line on its own');
+  assert.match(n.text, /-Completed Corporals Course Phase I; graduated in the top third\./);
+});
+
+test('typing as it comes: capitals, a second sentence, symbols, number words, the same entry twice, an old award', async () => {
+  const { tidy } = await import('../../shared/writer/facts.ts');
+  assert.equal(tidy('RECONCILED 40 ULOS IN DAI').text, 'Reconciled 40 ULOs in DAI');
+  assert.equal(tidy('Built the tracker. Also trained the section on it.').text, 'Built the tracker; also trained the section on it.');
+  assert.equal(tidy('Deobligated $2.5M in expired funds!!! 🚚').text, 'Deobligated $2.5M in expired funds');
+  assert.equal(tidy('processed twelve MIPRs for the G-8', { numerals: true }).text, 'processed 12 MIPRs for the G-8');
+  assert.equal(tidy('zero rejects', { numerals: true }).text, 'zero rejects');
+  const entries = [
+    { id: 'caps', title: 'RECONCILED 40 ULOS IN DAI', quantity: 40, unit_label: 'ULOS', result: 'ALL CLEARED', eval_area: M, date: '2026-09-01' },
+    { id: 'same', title: 'Reconciled 40 ULOs in DAI', quantity: 40, unit_label: 'ULOs', result: 'all cleared', eval_area: M, date: '2026-09-01' },
+    { id: 'award', title: "Received a Certificate of Commendation for actions during last year's deployment", eval_area: 'Individual Character' },
+    { id: 'bare', title: 'Mentored', quantity: 2, unit_label: 'Marines', eval_area: 'Leadership' },
+    { id: 'cents', title: 'Corrected 150.25 in misposted charges', dollar_amount: 150.25, dollar_type: 'reconciled', eval_area: M },
+  ];
+  const n = writeNarrative(entries, opts({ format: 'bullets' }));
+  assert.match(n.text, /-Reconciled 40 ULOs in DAI; all cleared\./);
+  assert.ok(!/80 ULOs|across 2 actions/.test(n.text), 'a duplicate is not counted twice');
+  assert.match(n.held.find((h) => h.key === 'same')!.reason, /logged twice/);
+  assert.match(n.held.find((h) => h.key === 'award')!.reason, /previous reporting period/);
+  assert.match(n.text, /-Mentored 2 Marines\./);
+  assert.equal(n.text.match(/150\.25/g)?.length, 1, 'an amount typed bare is not written again');
+  assert.ok(/^[\x20-\x7e\n]*$/.test(n.text));
+});
+
+test('an entry is coached while it is typed with the reviewer’s own notes, most useful first', async () => {
+  const { coachEntry } = await import('../../shared/writer/coach.ts');
+  const weak = coachEntry({ title: 'I helped the section with several ULOs' });
+  assert.equal(weak.bullet, 'Helped the section with several ULOs.');
+  assert.deepEqual(weak.notes.map((n) => n.code), ['outcome', 'vague', 'weak_verb']);
+  const annual = coachEntry({ title: 'Completed annual SAPR training' });
+  assert.match(annual.held!, /Appendix E/);
+  const strong = coachEntry({ title: 'Reconciled 14 ULOs in DAI', quantity: 14, unit_label: 'ULOs', result: 'all cleared on the next report', eval_area: M });
+  assert.deepEqual(strong.notes, []);
 });

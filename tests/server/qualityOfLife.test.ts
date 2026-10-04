@@ -51,7 +51,7 @@ test('a bullet does not repeat a dollar figure its title already states', async 
   assert.ok(!scaled.includes('1,200,000'), scaled);
   // A different figure in the title is not the amount, so the amount is still said.
   const other = composeBullet({ title: 'Reviewed a $500 invoice batch', dollar_amount: 12000 });
-  assert.ok(other.includes('$12,000.00'), other);
+  assert.ok(other.includes('$12,000'), other);
 });
 
 test('Quick Log takes a closing clause that says what came of the work as the outcome', async () => {

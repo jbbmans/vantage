@@ -52,8 +52,11 @@ export function weigh(f: Fact, ctx: { peakByUnit: Map<string, number>; recentFro
     if (f.strongResult) { score += 1; reasons.push('measured outcome'); } else reasons.push('outcome stated');
   }
   if (f.verb?.strength === 3) { score += 0.5; reasons.push(`strong verb (${f.verb.past})`); }
-  if (f.verb?.strength === 1) { score -= 1; reasons.push('weak opening'); }
+  // A weak opening ("Helped", "Responsible for") says little about what the Marine did, whatever the verb's entry says.
+  if (f.verb?.strength === 1 || f.issues.some((i) => i.code === 'weak_verb')) { score -= 1; reasons.push('weak opening'); }
   if (f.issues.some((i) => i.code === 'no_verb')) score -= 0.5;
   if (ctx.recentFrom && f.date && f.date >= ctx.recentFrom) { score += 0.25; reasons.push('recent'); }
+  // A rating or a cliché in the words costs the sentence its place before it costs the Marine.
+  for (const code of ['superlative', 'cliche'] as const) if (f.issues.some((i) => i.code === code)) { score -= 1.5; reasons.push(code === 'superlative' ? 'rates instead of states' : 'cliché'); }
   return { score: Math.round(score * 10) / 10, reasons };
 }

@@ -1,6 +1,6 @@
 import {
-  ANNUAL_TRAINING, ATTRIBUTE_FOR_KIND, CLICHE, FILLER, FIRST_PERSON, KEEP_CASE, MEASURE_UNIT, NOMINAL_OPENERS, NOUN_FOLLOWERS, PASSIVE,
-  PEOPLE_UNIT, PRAISE_ADVERBS, RESULT_LEADS, RS_JUDGMENT, SPECULATIVE, STRONG_RESULT, SUPERLATIVE, VAGUE, VERB_BY_LEMMA, VERB_FORMS,
+  ANNUAL_TRAINING, ATTRIBUTE_FOR_KIND, CLICHE, FILLER, FIRST_PERSON, IN_PROGRESS, KEEP_CASE, MEASURE_UNIT, NOMINAL_OPENERS, NOUN_FOLLOWERS, PASSIVE,
+  PEOPLE_UNIT, PERSONAL_NOUNS, PRAISE_ADVERBS, PRIOR_AWARD, ACRONYMS, NUMBER_WORDS, RESULT_LEADS, RS_JUDGMENT, SPECULATIVE, STRONG_RESULT, SUPERLATIVE, VAGUE, VERB_BY_LEMMA, VERB_FORMS,
   WEAK_OPENERS, type VerbEntry,
 } from './lexicon.ts';
 import { isTimeUnit, unitKeyOf } from '../metricEngine.ts';
@@ -37,6 +37,8 @@ export interface Fact {
   opener: string;
   /** What follows the opener: "14 ULOs totaling $48,250 in DAI". */
   rest: string;
+  /** What the work supported, when the title named only that ("FY26 year-end close"). */
+  purpose: string | null;
   quantity: { n: number; unit: string; kind: QuantityKind } | null;
   money: { amount: number; type: string | null; summable: boolean } | null;
   people: number | null;
@@ -48,8 +50,8 @@ export interface Fact {
   edits: string[];
   issues: Issue[];
   strongResult: boolean;
-  /** Why the writer holds this entry back from the input, when a rule says it does not belong (annual training). */
-  held: string | null;
+  /** Why the writer holds this entry back from the input, and what that rests on. The Marine can keep it anyway. */
+  held: { reason: string; basis: 'order' | 'guidance' | 'style' | 'data'; cite?: string } | null;
 }
 
 const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
@@ -61,8 +63,9 @@ export const lowerFirst = (s: string) => (!s || KEEP_CASE.test(s) ? s : s.charAt
 const marines = (s: string) => s.replace(/\bmarine(s?)\b/g, 'Marine$1');
 
 function dropFirstPerson(s: string): { text: string; changed: boolean } {
-  // "my section's ULOs" is "the section's ULOs": the possessive points at the unit, which still owns the work.
-  let out = s.replace(/^(?:I|We)\s+/, '').replace(/\b(?:my|our|My|Our)\s+/g, 'the ').replace(/\s+myself\b/gi, '');
+  // "my section's ULOs" is "the section's ULOs": the possessive points at the unit, which still owns the work. "My
+  // associates degree" is the Marine's own, and reads as "associates degree".
+  let out = s.replace(/^(?:I|We)\s+/, '').replace(/\b(?:my|our|My|Our)\s+(?=(\S+(?:\s+\S+)?))/g, (_m, next: string) => (PERSONAL_NOUNS.test(next) ? '' : 'the ')).replace(/\s+myself\b/gi, '');
   out = out.replace(/^the\s/, 'The ');
   return { text: out, changed: out !== s };
 }
@@ -75,6 +78,42 @@ function dropFiller(s: string): { text: string; changed: boolean } {
 }
 
 const UNTITLED_VERB: Record<string, string> = { reconciled: 'Reconciled', obligated: 'Obligated', saved: 'Recovered', reviewed: 'Reviewed', impact: 'Processed' };
+
+/** A first person the cleanup could not take out ("the squad leader said I was…"). "Phase I" and "Level I" are not. */
+const firstPersonLeft = (text: string) => /\b(?:me|my|mine|we|our|us|myself)\b/.test(text)
+  || /(?<!\b(?:Phase|Level|Tier|Part|Class|Stage|Block|Annex|Appendix|Volume|Book|Chapter|Echelon|Type|Mod|Course|Section|Spiral|Title)\s)\bI\b(?!-)/.test(text);
+
+/**
+ * Text as a Marine typed it, made fit to read: shouting capitals set in sentence case (acronyms kept), a second
+ * sentence joined to the first, exclamation marks and symbols gone, small number words as numerals. Nothing it says
+ * is changed.
+ */
+export function tidy(text: string, opts: { numerals?: boolean } = {}): { text: string; changed: boolean } {
+  let out = text.replace(/\p{Extended_Pictographic}|\uFE0F/gu, '').replace(/!+/g, '').replace(/\s+/g, ' ').trim();
+  const letters = out.replace(/[^A-Za-z]/g, '');
+  if (letters.length >= 8 && letters.replace(/[^A-Z]/g, '').length / letters.length > 0.8 && out.split(' ').length >= 2) {
+    out = out.split(' ').map((w, i) => {
+      const bare = w.replace(/[^A-Za-z0-9-]/g, '');
+      const plural = /S$/.test(bare) && ACRONYMS.has(bare.slice(0, -1));
+      if (ACRONYMS.has(bare) || /\d/.test(bare)) return w;
+      if (plural) return w.replace(bare, `${bare.slice(0, -1)}s`);
+      const low = w.toLowerCase();
+      return i === 0 ? low.charAt(0).toUpperCase() + low.slice(1) : low;
+    }).join(' ');
+  }
+  // "Built the tracker. Also trained the section on it." is one accomplishment told twice; it reads as one sentence.
+  out = out.replace(/([a-z0-9)])\.\s+(?=[A-Z][a-z])/g, (_m, c: string) => `${c}; `).replace(/;\s+([A-Z][a-z])/g, (_m, w: string) => `; ${w.toLowerCase()}`);
+  if (opts.numerals) out = out.replace(/\b(two|three|four|five|six|seven|eight|nine|ten|eleven|twelve|thirteen|fourteen|fifteen|sixteen|seventeen|eighteen|nineteen|twenty|thirty|forty|fifty|sixty|seventy|eighty|ninety)\b(?=\s+[A-Za-z])/gi, (w) => String(NUMBER_WORDS[w.toLowerCase()]));
+  return { text: out, changed: out !== text.replace(/\s+/g, ' ').trim() };
+}
+
+/** An outcome that only restates the title ("Hazmat certification; certified") says nothing more. */
+function restates(result: string, title: string): boolean {
+  const words = result.toLowerCase().split(/\s+/).filter(Boolean);
+  if (words.length > 2) return false;
+  const stems = new Set(title.toLowerCase().split(/[^a-z]+/).filter((w) => w.length >= 5).map((w) => w.slice(0, 5)));
+  return words.every((w) => w.length >= 5 && stems.has(w.slice(0, 5)));
+}
 
 const PEOPLE_IN_TEXT = /\b(\d[\d,]*)\s+((?:junior\s+)?(?:Marines?|personnel|students?|subordinates?|NCOs|SNCOs|sailors?|soldiers?|recruits?|trainees?|mentees?|members?|lance corporals?|privates?))\b/i;
 const NUMBER = /\d/;
@@ -103,6 +142,11 @@ function openingOf(text: string, category: string | null): Opening {
   const hit = VERB_FORMS.get(lower);
 
   if (hit && hit.form === 'past') return { verb: hit.entry, opener: capitalize(hit.entry.past), rest, edit: null };
+  // A past tense the lexicon does not list ("Licensed 8 Marines", "Turned in 35 items") is still the verb, when
+  // something follows it.
+  if (!hit && /^[a-z]{3,}ed$/i.test(first) && words.length > 1 && !NOUN_FOLLOWERS.has(next)) {
+    return { verb: { lemma: lower.replace(/ed$/, ''), past: lower, kind: 'execute', strength: 2 }, opener: capitalize(lower), rest, edit: null };
+  }
   // "Reconciling 14 ULOs" and "Reconciles ULOs" are verbs; "Process improvement for DTS" is a noun phrase. A bare
   // form only becomes the past tense when an object plainly follows it: a number, a name, "the", "all".
   const objectFollows = OBJECT_START.test(words[1] || '');
@@ -123,9 +167,10 @@ function openingOf(text: string, category: string | null): Opening {
   if (/^(?:was|were|served|acted)\b/i.test(text) || WEAK_OPENERS.some((w) => w.pattern.test(text))) {
     return { verb: hit?.entry ?? null, opener: '', rest: capitalize(text), edit: null };
   }
-  // No verb to start with. The category supplies a plain one, and the review asks for the real one.
-  const fallback = category === 'Leadership' ? 'Led' : category === 'Communications' ? 'Delivered' : category === 'Volunteer Service' ? 'Volunteered for' : 'Completed';
-  return { verb: VERB_FORMS.get(fallback.split(' ')[0].toLowerCase())?.entry ?? null, opener: fallback, rest: lowerFirst(text), edit: 'no verb' };
+  // No verb to start with. Adding one would make a claim the Marine did not ("Completed…" something not finished),
+  // so the words stay as written and the review asks for the verb.
+  void category;
+  return { verb: null, opener: '', rest: capitalize(text), edit: 'no verb' };
 }
 
 function inferArea(fact: Pick<Fact, 'verb' | 'people' | 'category' | 'quantity'>): AreaKind {
@@ -161,7 +206,9 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
   const metrics = opts.metrics ?? DEFAULT_METRICS;
   const edits: string[] = [];
   const issues: Issue[] = [];
-  let title = stripEnd(clean(String(entry.title ?? '')));
+  const typed = tidy(stripEnd(clean(String(entry.title ?? ''))), { numerals: true });
+  let title = stripEnd(typed.text);
+  if (typed.changed) edits.push('typing');
 
   const person = dropFirstPerson(title);
   if (person.changed) { edits.push('first person'); title = person.text; }
@@ -182,7 +229,7 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
   if (opening.edit === 'tense' || opening.edit === 'word order') edits.push(opening.edit);
 
   const qty = entry.quantity == null || entry.quantity === '' ? NaN : Number(entry.quantity);
-  const unit = String(entry.unit_label || '').trim();
+  const unit = tidy(String(entry.unit_label || '').trim()).text.replace(/^([A-Z]{2,})S$/, (_m, a: string) => (ACRONYMS.has(a) ? `${a}s` : `${a}S`));
   let quantity: Fact['quantity'] = Number.isFinite(qty) && qty > 0 ? { n: qty, unit: unit || 'items', kind: quantityKind(unit || 'items') } : null;
   let people = quantity?.kind === 'people' ? quantity.n : null;
   if (!people) {
@@ -194,13 +241,26 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
   const amount = entry.dollar_amount == null || entry.dollar_amount === '' ? NaN : Number(entry.dollar_amount);
   const money = Number.isFinite(amount) && amount !== 0 ? { amount, type: entry.dollar_type || null, summable: isSummable(entry.dollar_type, metrics) } : null;
 
-  let result = entry.result ? stripEnd(clean(String(entry.result))) : '';
+  let result = entry.result ? stripEnd(tidy(clean(String(entry.result))).text) : '';
   if (result) {
     const r = dropFirstPerson(result.replace(RESULT_LEADS, ''));
     const f = dropFiller(r.text);
     result = marines(lowerFirst(f.text));
   }
 
+  if (result && restates(result, title)) { result = ''; edits.push('repeated outcome'); }
+  // A title with no verb ("FY26 year-end close") and a count or sum the Marine classified ("reconciled") is that
+  // work: "Reconciled 30 ULOs … in support of FY26 year-end close". The verb is the Marine's own classification.
+  let purpose: string | null = null;
+  const typeVerb = entry.dollar_type && entry.dollar_type !== 'impact' && money ? VERB_FORMS.get(String(metrics.value_types.find((t) => t.key === entry.dollar_type)?.verb || entry.dollar_type).toLowerCase()) : undefined;
+  if (opening.edit === 'no verb' && typeVerb?.form === 'past' && (quantity || money)) {
+    purpose = lowerFirst(title);
+    opening.verb = typeVerb.entry;
+    opening.opener = capitalize(typeVerb.entry.past);
+    opening.rest = quantity && quantity.kind !== 'measure' ? `${quantity.n} ${quantity.unit}` : '';
+    opening.edit = 'from value type';
+    edits.push('verb from value type');
+  }
   const base = { verb: opening.verb, people, category, quantity };
   const given = opts.areas.includes(String(entry.eval_area)) ? String(entry.eval_area) : null;
   const givenKind = areaKindOf(given, opts.names);
@@ -214,7 +274,7 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
   // What the review should say about this entry.
   if (!result) issues.push({ code: 'outcome', message: 'No outcome', advice: 'Add what came of it: a number that changed, a deadline met, a problem that did not come back.' });
   if (weak) issues.push({ code: 'weak_verb', message: `Opens with ${weak.label}`, advice: weak.advice });
-  if (opening.edit === 'no verb') issues.push({ code: 'no_verb', message: 'Does not start with what you did', advice: 'Open with a past-tense verb: reconciled, trained, briefed, built.' });
+  if (opening.edit === 'no verb' && !purpose) issues.push({ code: 'no_verb', message: 'Does not start with what you did', advice: 'Open with a past-tense verb: reconciled, trained, briefed, built.' });
   const said = `${title} ${result}`;
   if (VAGUE.test(said) && !NUMBER.test(said) && !quantity && !money) issues.push({ code: 'vague', message: `Says “${VAGUE.exec(said)![1]}” instead of a number`, advice: 'Count it. “14 ULOs” is a fact; “several ULOs” is a guess.' });
   if (PASSIVE.test(title)) issues.push({ code: 'passive', message: 'Passive voice', advice: 'Put yourself first: “Reconciled the ledger”, not “The ledger was reconciled”.' });
@@ -237,12 +297,17 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
     key: entry.id || `entry:${title.toLowerCase().slice(0, 40)}`,
     sources: entry.id ? [entry.id] : [],
     area, areaKind, areaInferred: !givenKind, date: entry.date ?? null, category,
-    verb: opening.verb, opener: opening.opener, rest: clean(opening.rest),
+    verb: opening.verb, opener: opening.opener, rest: clean(opening.rest), purpose,
     quantity, money, people: people || null, result: result || null,
     system: entry.system ? clean(String(entry.system)) : null,
     organization: entry.organization ? clean(String(entry.organization)) : null,
     attribute, edits, issues, strongResult,
-    held: annual ? 'Required annual training is not a billet accomplishment (MCO 1616.1, Appendix E).' : null,
+    held: PRIOR_AWARD.test(raw) ? { reason: 'An award for actions in a previous reporting period is not a billet accomplishment (MCO 1616.1, Appendix E).', basis: 'order', cite: 'MCO 1616.1, App. E' }
+      : annual ? { reason: 'Required annual training is not a billet accomplishment (MCO 1616.1, Appendix E).', basis: 'order', cite: 'MCO 1616.1, App. E' }
+      : IN_PROGRESS.test(clean(String(entry.title ?? ''))) ? { reason: 'Still in progress: log it as an accomplishment when it is done.', basis: 'style' }
+      : judgment ? { reason: 'Rankings and recommendations are your reporting chain’s to write; input states what you did.', basis: 'guidance', cite: 'MCO 1610.7B' }
+      : firstPersonLeft(`${title} ${result}`) ? { reason: 'Still says “I” or “me” where the writer could not take it out; reword the entry without the first person.', basis: 'guidance', cite: 'MCO 1616.1, App. E' }
+      : null,
   };
 }
 

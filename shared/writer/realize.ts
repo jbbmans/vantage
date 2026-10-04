@@ -1,5 +1,5 @@
 import { formatNumber } from '../metrics.ts';
-import { unitFor } from '../bullets.ts';
+import { unitFor } from './units.ts';
 import { clauseOf, type Fact } from './facts.ts';
 import { shortMoney } from './score.ts';
 import { GLOSSARY } from './lexicon.ts';
@@ -12,6 +12,8 @@ export type Format = 'paragraph' | 'bullets';
 // order's examples do; anything else ("all cleared on the next report") follows a semicolon.
 const MEASURE_RESULT = /^(?:\d[\d,.]*\s*%?|100%|no|zero)\s+([a-z][a-z-]*)\b/i;
 function joinResult(clause: string, result: string, format: Format, seed: number, key: string): string {
+  // A grade or score the work earned: "…, with a 3.8 GPA".
+  if (/^\d[\d.,]*\s+(?:GPA|average|grade point average|score|composite)$/i.test(result)) return `${clause}, with a ${result}`;
   const m = MEASURE_RESULT.exec(result);
   const measure = Boolean(m && !/ed$/i.test(m[1]));
   if (measure && (format === 'bullets' || pick([false, true] as const, seed, `${key}:r`))) return `${clause}, resulting in ${result}`;
@@ -70,6 +72,8 @@ const SCALE: Record<string, number> = { k: 1e3, thousand: 1e3, m: 1e6, mm: 1e6, 
 
 /** Whether the text already states this amount, however it was written ("$48,250", "$48.3K", "$1.2 million"). */
 export function statesAmount(text: string, amount: number): boolean {
+  // A figure with cents typed bare ("corrected 150.25 in misposted charges") is the amount too.
+  for (const m of text.matchAll(/-?(\d[\d,]*\.\d{2})\b/g)) if (Math.abs(Number(m[1].replace(/,/g, '')) - Math.abs(amount)) < 0.005) return true;
   for (const m of text.matchAll(/\$\s?(\d[\d,]*(?:\.\d+)?)\s*(k|thousand|mm|m|million|b|billion)?\b/gi)) {
     const value = Number(m[1].replace(/,/g, '')) * (m[2] ? SCALE[m[2].toLowerCase()] : 1);
     // A written-down figure ("$48.3K") is within rounding of the amount it stands for.
@@ -82,7 +86,9 @@ const has = (text: string, part: string) => text.toLowerCase().includes(part.toL
 
 /** Plain characters, so the text pastes into any form: straight quotes, hyphens, no ellipsis glyph. */
 export function plain(text: string): string {
-  return text.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/…/g, '...').replace(/\u00a0/g, ' ');
+  return text.replace(/[‘’]/g, "'").replace(/[“”]/g, '"').replace(/[–—]/g, '-').replace(/…/g, '...').replace(/\u00a0/g, ' ')
+    // Accents to plain letters ("résumé" → "resume"); symbols and emoji, which a form may refuse, go.
+    .normalize('NFKD').replace(/[\u0300-\u036f]/g, '').replace(/[^\x20-\x7e\n]/g, '').replace(/ {2,}/g, ' ');
 }
 
 export function finish(sentence: string): string {
@@ -115,7 +121,10 @@ function withMoney(clause: string, f: Fact, density: Density, seed: number): str
 function withCount(clause: string, f: Fact): string {
   if (!f.quantity || f.quantity.kind === 'measure') return clause;
   const { n, unit } = f.quantity;
-  if (clause.includes(String(n)) || clause.includes(formatNumber(n))) return clause;
+  // "(1 Marine)" after "the new PFC" adds nothing; a count of one is in the words already.
+  if (n === 1 || clause.includes(String(n)) || clause.includes(formatNumber(n))) return clause;
+  // A bare verb takes its count as its object: "Mentored 2 Marines", not "Mentored (2 Marines)".
+  if (!f.rest.trim() && f.opener) return `${clause} ${formatNumber(n)} ${unitFor(unit, n)}`;
   return `${clause} (${formatNumber(n)} ${unitFor(unit, n)})`;
 }
 
@@ -135,6 +144,7 @@ export function sentenceFor(f: Fact, density: Density, seed: number, format: For
     if (f.system && !has(clause, f.system)) clause += ` in ${f.system}`;
     if (f.organization && !has(clause, f.organization)) clause += ` for ${f.organization}`;
   }
+  if (f.purpose) clause += `, in support of ${f.purpose}`;
   const result = f.result ? (density === 'compact' ? shortResult(f.result) : f.result) : null;
   return finish(result ? joinResult(clause, result, format, seed, f.key) : clause);
 }

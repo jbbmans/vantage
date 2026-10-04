@@ -1,7 +1,7 @@
 import { DEFAULT_METRICS, valueType, type MetricsConfig } from '../constants.ts';
-import { unitFor } from '../bullets.ts';
+import { unitFor } from './units.ts';
 import { formatNumber } from '../metrics.ts';
-import { readEntry, unitIdentity, type AreaNames, type EntryInput, type Fact } from './facts.ts';
+import { clauseOf, readEntry, unitIdentity, type AreaNames, type EntryInput, type Fact } from './facts.ts';
 import { weigh, shortMoney, type Weighed } from './score.ts';
 import { finish, sentenceFor, sentenceForGroup, spellOut, summaryFor, type Density, type Format, type Group } from './realize.ts';
 import { reviewWriting, type Review } from './review.ts';
@@ -34,7 +34,7 @@ export interface WriterOptions {
 }
 
 /** An entry a rule keeps out of the input, and the rule. */
-export interface Held { key: string; area: string; text: string; reason: string; sources: string[] }
+export interface Held { key: string; area: string; text: string; reason: string; basis: 'order' | 'guidance' | 'style' | 'data'; cite?: string; sources: string[] }
 
 export type SentenceKind = 'entry' | 'group' | 'summary' | 'casework';
 
@@ -238,7 +238,8 @@ function select(cands: Candidate[], opts: WriterOptions, layout: Layout, strateg
   // Every area with work in it gets its best sentence before any area gets a second.
   for (const area of opts.areas) {
     const best = cands.filter((c) => c.area === area && c.kind !== 'summary').sort((a, b) => b.weighed.score - a.weighed.score);
-    for (const c of best) if (tryAdd(c)) break;
+    // Not with a line that says next to nothing: an empty area is a finding the Marine can act on, filler is not.
+    for (const c of best) if ((c.weighed.score >= 1 || pin.has(c.key)) && tryAdd(c)) break;
   }
   // Then what says the most: for the space it takes, or outright. writeNarrative tries both and keeps the better.
   const rank = strategy === 'density' ? (c: Candidate) => c.weighed.score / c.full.length : (c: Candidate) => c.weighed.score;
@@ -276,8 +277,16 @@ export function writeNarrative(entries: EntryInput[], opts: WriterOptions): Writ
   const exclude = new Set(opts.exclude || []);
   const format: Format = opts.format ?? 'paragraph';
   const read = entries.map((e) => readEntry(e, { names: opts.names, areas: opts.areas, metrics })).filter((f) => !exclude.has(f.key));
+  // The same work logged twice (same words, numbers and day) counts once; a total built on both would claim double.
+  const seen = new Map<string, Fact>();
+  for (const f of read) {
+    const key = [clauseOf(f).toLowerCase().replace(/[^a-z0-9]/g, ''), f.quantity?.n ?? '', f.money?.amount ?? '', f.date ?? ''].join('|');
+    const first = seen.get(key);
+    if (first && !f.held) f.held = { reason: `Looks logged twice: the same words, numbers and day as another entry${first.date ? ` (${first.date})` : ''}.`, basis: 'data' };
+    else if (!first) seen.set(key, f);
+  }
   // What a rule keeps out (required annual training) is set aside with the rule, never written and never lost.
-  const held: Held[] = read.filter((f) => f.held && !(opts.pin || []).includes(f.key)).map((f) => ({ key: f.key, area: f.area, text: sentenceFor(f, 'full', seed, format), reason: f.held!, sources: f.sources }));
+  const held: Held[] = read.filter((f) => f.held && !(opts.pin || []).includes(f.key)).map((f) => ({ key: f.key, area: f.area, text: sentenceFor(f, 'full', seed, format), reason: f.held!.reason, basis: f.held!.basis, cite: f.held!.cite, sources: f.sources }));
   const facts = read.filter((f) => !f.held || (opts.pin || []).includes(f.key));
   const areas = [...opts.areas];
   for (const f of facts) if (!areas.includes(f.area)) areas.push(f.area);

@@ -78,7 +78,7 @@ export function reviewWriting(n: Written, ctx: { areas: readonly string[]; label
 
   if (!n.fits) findings.push({ id: 'over', tone: 'fix', basis: 'data', title: `${n.length - n.limit} characters over the limit`, detail: 'Pinned sentences are kept even when they do not fit. Unpin one, or leave one out.' });
   for (const h of n.held) {
-    findings.push({ id: `held:${h.key}`, tone: 'consider', basis: 'order', cite: APP_E, title: `Held back: “${short(h.text, 52)}”`, detail: `${h.reason} Keep it from Left out if your chain wants it anyway.`, sources: h.sources, area: h.area });
+    findings.push({ id: `held:${h.key}`, tone: 'consider', basis: h.basis, cite: h.cite, title: `Held back: “${short(h.text, 52)}”`, detail: `${h.reason} Keep it from Left out if your chain wants it anyway.`, sources: h.sources, area: h.area });
   }
 
   for (const area of expected) {

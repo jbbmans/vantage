@@ -58,8 +58,8 @@ test('formatters', () => {
 
 test('bullets fold figures into one defensible line', () => {
   const text = B.composeBullet({ title: 'FY26 year-end close', category: 'Fiscal & Financial', quantity: 30, unit_label: 'ULOs', dollar_amount: 1118.38, dollar_type: 'reconciled', system: 'DAI', organization: 'G-8', result: 'cleared the section backlog' });
-  assert.ok(text.startsWith('Reconciled 30 ULOs totaling $1,118.38'), text);
-  assert.ok(text.includes('via DAI') && text.includes('for G-8') && text.endsWith('cleared the section backlog.'), text);
+  // The writer's bullet: the Marine's own classification ("reconciled") supplies the verb a bare title lacks.
+  assert.match(text, /^Reconciled 30 ULOs (worth|totaling|valued at) \$1,118 in DAI for G-8, in support of FY26 year-end close; cleared the section backlog\.$/);
   assert.ok(B.composeBullet({ title: 'ULO reconciliation drill', category: 'Fiscal & Financial' }).includes('ULO'));
   const resume = B.composeBullet({ title: 'Processed 12 MIPRs', category: 'Fiscal & Financial' }, { style: 'resume' });
   assert.ok(resume.includes('military interdepartmental purchase requests'), resume);

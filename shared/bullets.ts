@@ -47,13 +47,12 @@ function titleIsAction(title = ''): boolean {
   return PAST_VERBS.test(title) || (/ed$/i.test(first) && first.length > 4);
 }
 
-export function unitFor(unit = 'items', n: number | string | null | undefined): string {
-  if (Number(n) !== 1) return unit;
-  if (/ies$/i.test(unit)) return unit.replace(/ies$/i, 'y');
-  if (/(ch|sh|ss|x|z)es$/i.test(unit)) return unit.replace(/es$/i, '');
-  if (/s$/.test(unit) && !/ss$/i.test(unit)) return unit.slice(0, -1);
-  return unit;
-}
+export { unitFor } from './writer/units.ts';
+import { readEntry, type EntryInput } from './writer/facts.ts';
+import { sentenceFor } from './writer/realize.ts';
+
+const SINGLE = { names: { mission: 'MOS / Mission Accomplishment', leadership: 'Leadership', character: 'Individual Character', intellect: 'Individual Character' }, areas: JEPES_CORE };
+import { unitFor } from './writer/units.ts';
 
 const capitalize = (s = '') => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
@@ -99,8 +98,16 @@ function titleStatesAmount(title: string, amount: number): boolean {
   return false;
 }
 
+/**
+ * One entry as a bullet. JEPES and FITREP bullets come from the narrative writer (shared/writer), so an entry reads
+ * the same in Quick Log, on its page, in the package and in the narrative; the résumé style keeps civilian phrasing.
+ */
 export function composeBullet(a: BulletSource = {}, opts: { style?: BulletStyle; includeDate?: boolean } = {}): string {
   const { style = 'jepes', includeDate = false } = opts;
+  if (style !== 'resume') {
+    const text = sentenceFor(readEntry(a as EntryInput, SINGLE), 'full', 0, 'bullets');
+    return includeDate && a.date ? `${text.replace(/\.$/, '')} (${formatDTG(a.date)}).` : text;
+  }
   const title = String(a.title || '').trim().replace(/\.$/, '');
   const titleLower = title.toLowerCase();
   const inTitle = (needle: unknown) => Boolean(needle) && titleLower.includes(String(needle).toLowerCase());
@@ -113,8 +120,8 @@ export function composeBullet(a: BulletSource = {}, opts: { style?: BulletStyle;
   const unitLabel = unitFor(a.unit_label || 'items', a.quantity);
   const showQty = hasQty && !inTitle(`${formatNumber(Number(a.quantity))} ${unitLabel}`);
   const qty = showQty ? `${formatNumber(Number(a.quantity))} ${unitLabel}` : null;
-  const joiner = style === 'fitrep' ? 'valued at' : 'totaling';
-  const measure = qty && money ? `${qty} ${joiner} ${money}` : qty || money || null;
+  // From here on, the résumé: civilian verbs, acronyms written out, the result as a consequence.
+  const measure = qty && money ? `${qty} totaling ${money}` : qty || money || null;
 
   const parts: string[] = [];
   if (title && titleIsAction(title)) {
@@ -123,19 +130,16 @@ export function composeBullet(a: BulletSource = {}, opts: { style?: BulletStyle;
   } else {
     const verb = leadVerb(a, style);
     parts.push(measure ? `${verb} ${measure}` : `${verb} ${lowerFirst(title || 'assigned task')}`);
-    if (measure && title) parts.push(`${style === 'fitrep' ? 'supporting' : 'in support of'} ${lowerFirst(title)}`);
+    if (measure && title) parts.push(`in support of ${lowerFirst(title)}`);
   }
   if (a.system && !inTitle(a.system)) parts.push(`via ${a.system}`);
-  if (a.organization && style === 'jepes' && !inTitle(a.organization)) parts.push(`for ${a.organization}`);
 
   let sentence = parts.join(' ').replace(/\s+,/g, ',').replace(/,\s*,/g, ',').replace(/\s+/g, ' ').trim().replace(/,$/, '');
   if (a.result) {
     const result = lowerFirst(String(a.result).trim().replace(/\.$/, ''));
-    sentence += style === 'resume' ? `, resulting in ${result}` : `; ${result}`;
+    sentence += `, resulting in ${result}`;
   }
-  if (style === 'fitrep') sentence = compress(sentence);
-  if (style === 'resume') sentence = expandAcronyms(sentence);
-  if (includeDate && a.date) sentence += ` (${formatDTG(a.date)})`;
+  sentence = expandAcronyms(sentence);
   sentence = capitalize(sentence);
   if (!/[.!?]$/.test(sentence)) sentence += '.';
   return sentence;

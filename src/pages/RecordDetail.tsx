@@ -14,7 +14,8 @@ import { can, keys, useDeleteRecord, useIdentity, useRestoreRecord, useTrack, un
 import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
 import { useForgetVisit, useRememberVisit } from '@/lib/recent';
-import { composeBullet, strength, weaknesses, expandAcronyms, type BulletStyle } from '../../shared/bullets';
+import { composeBullet, strength, expandAcronyms, type BulletStyle } from '../../shared/bullets';
+import { coachEntry } from '../../shared/writer/coach';
 import { formatDollars, formatNumber } from '../../shared/metrics';
 import { valueType } from '../../shared/constants';
 import { mapAreaToTrack, trackMeta } from '../../shared/evaluation';
@@ -45,7 +46,9 @@ export default function RecordDetail() {
   useEffect(() => { if (a?.title) document.title = `${a.title} · Vantage`; }, [a?.title]);
 
   const bullet = useMemo(() => (a ? composeBullet(a, { style, includeDate: style !== 'resume' }) : ''), [a, style]);
-  const gaps = useMemo(() => (a ? weaknesses(a) : []), [a]);
+  // The writer's notes for this entry: the same coaching Quick Log and the narrative reviewer give.
+  const coach = useMemo(() => (a ? coachEntry(a) : null), [a]);
+  const gaps = useMemo(() => [...(coach?.held ? [coach.held] : []), ...(coach?.notes || []).map((n) => n.message), ...(a && (!a.eval_area || a.eval_area === 'Unassigned') ? ['Untagged: no evaluation area'] : [])], [coach, a]);
   const score = a ? strength(a) : 0;
   const mine = a?.user_id === identity?.user.id;
   const canEdit = a ? (mine ? !a.frozen_at : can(identity, PERMISSIONS.MANAGE_RECORDS, a.unit_id)) : false;

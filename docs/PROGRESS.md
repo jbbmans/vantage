@@ -24,6 +24,27 @@ The JEPES and FITREP narrative is written by a new engine, `shared/writer/` (des
 - **Never writes the reporting chain's judgments.** It writes no rankings, recommendations or word pictures. The reviewer flags them if typed.
 - **Reviews its own writing.** A 100-point grade (areas, outcomes, numbers, openings, length) and findings, each naming the entries that would fix it and what it rests on: an order (MCO 1616.1, NAVMC 10835), guidance (NPS bulletin, Marine Corps Gazette) or style. "Helped" is marked as a preference, because no order forbids it.
 
+**Tested against real typing.** Messy entries from four MOSs (motor transport, admin, infantry, supply) and a harsher batch found real faults, all now fixed and covered by tests:
+- **No invented claims.**
+  - A title with no verb is never given one ("Completed working on…" claimed something unfinished).
+  - Work in progress is held until it is done.
+  - Unknown past tenses read as verbs ("Licensed 8 Marines", "Drove in the convoy").
+  - A verbless title with the Marine's own classification becomes "Reconciled 30 ULOs … in support of FY26 year-end close".
+- **No double counting.** The same entry logged twice (same words, numbers and day) counts once and is held as "looks logged twice".
+- **Held back by rule.** Awards for a previous period are held (Appendix E). So are entries still saying "I" or ranking the Marine.
+- **Weak lines don't fill a slot.** A line like "Responsible for the armory keys" no longer fills an area just to fill it; the reviewer asks for real work instead.
+- **Typing cleaned up:**
+  - shouting capitals are set in sentence case, keeping acronyms ("ULOs");
+  - a second sentence is joined to the first;
+  - "!!!" and emoji are removed; output is plain ASCII;
+  - number words become numerals ("twelve MIPRs" → "12 MIPRs");
+  - "my degree" reads "degree";
+  - "with a 3.8 GPA";
+  - an outcome that only repeats the title is dropped;
+  - no "(1 Marine)".
+
+**One phrasing everywhere.** Quick Log's preview, an entry's page and the Bullets tab now use the writer, and Quick Log coaches with the reviewer's own notes as you type. The notes come most useful first: what is held back and why, then the outcome, a vague word, a weak opening.
+
 The **narrative studio** on Analysis writes live in the browser:
 - **Explains every sentence:** select one to see its sources, score, attribute and why it made the cut.
 - **Lets the Marine shape it:** Always keep or Leave out, Another wording (never changes a figure), Best fit/Full/Compact, Bullets/Paragraph, length, and spell-out.
@@ -193,7 +214,7 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **593 / 593 pass** (2026-10-04) |
+| `npm test` (server suite, in-memory SQLite) | **596 / 596 pass** (2026-10-04) |
 | `npm run test:browser` (Playwright, Chromium, built client) | **103 / 103 pass** (2026-10-04) |
 | Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference, the public page and the security, privacy, accessibility and changes pages |
 | `npm audit` | 0 vulnerabilities |
