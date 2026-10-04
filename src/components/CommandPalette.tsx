@@ -40,7 +40,9 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav, ex
 
   const items = useMemo<Item[]>(() => {
     const q = query.trim().toLowerCase();
-    const more: Item[] = extra.filter((a) => !q || `${a.title} ${a.keywords || ''}`.toLowerCase().includes(q)).map((a) => ({ id: `act-${a.id}`, title: a.title, subtitle: a.subtitle, kind: 'action', run: a.run }));
+    // A typed apostrophe is straight; titles are set with curly ones (“What’s new”). Either finds either.
+    const plain = (s: string) => s.replace(/[‘’]/g, "'");
+    const more: Item[] = extra.filter((a) => !q || plain(`${a.title} ${a.keywords || ''}`.toLowerCase()).includes(plain(q))).map((a) => ({ id: `act-${a.id}`, title: a.title, subtitle: a.subtitle, kind: 'action', run: a.run }));
     const log: Item = { id: 'act-log', title: q && !/^(go|open|nav)/.test(q) && q.length > 6 ? `Log activity: “${query.trim()}”` : 'Log activity', subtitle: 'Press N anywhere', kind: 'action', run: () => onQuickLog(q.length > 6 ? query.trim() : '') };
     // An action named by what was typed ("dark", "pdf") comes before the catch-all "log this sentence".
     const actions: Item[] = q ? (more.length ? [...more, log] : [log]) : [log];

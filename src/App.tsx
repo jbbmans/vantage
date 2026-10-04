@@ -73,7 +73,7 @@ function NavigateBridge() {
 }
 
 /** Routes that render the public page for anybody, signed in or not. */
-const PUBLIC_ROUTES = ['/display', '/about', '/security', '/accessibility', '/privacy'];
+const PUBLIC_ROUTES = ['/display', '/about', '/security', '/accessibility', '/privacy', '/changes'];
 const isPublicRoute = (pathname: string) => PUBLIC_ROUTES.includes(pathname);
 
 /** A page that lives on another host (the public site, the owner console): the browser goes there. */

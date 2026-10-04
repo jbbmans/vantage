@@ -1,14 +1,16 @@
 import type { ReactNode } from 'react';
+import { CHANGES, LATEST_CHANGE } from '@/config/changes';
+import { VERSION } from '@/lib/version';
 
 /**
- * The public site's plain-language pages: how Vantage is secured, how accessible it is, and what it keeps about a
- * person. Each statement here is something the code does today; where a deployment chooses (AI, email, scanning),
+ * The public site's plain-language pages: how Vantage is secured, how accessible it is, what it keeps about a
+ * person, and what changed lately. Each statement here is something the code does today; where a deployment chooses (AI, email, scanning),
  * the page says so rather than promising it. scripts/prerender.mjs renders each one into its own document, and the
  * server answers its path with that document (server/app.ts, TRUST_DOCUMENTS).
  */
 export interface TrustSection { id: string; title: string; body: ReactNode }
 export interface TrustPage {
-  path: '/security' | '/accessibility' | '/privacy';
+  path: '/security' | '/accessibility' | '/privacy' | '/changes';
   /** The document title, under 60 characters. */
   title: string;
   /** The meta description, under 160 characters. */
@@ -20,6 +22,8 @@ export interface TrustPage {
   updated: string;
   sections: TrustSection[];
 }
+
+const longDate = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
 
 const Facts = ({ items }: { items: Array<[string, string]> }) => (
   <dl className="ps-doc-facts">{items.map(([k, v]) => <div key={k}><dt>{k}</dt><dd>{v}</dd></div>)}</dl>
@@ -223,14 +227,29 @@ const PRIVACY: TrustPage = {
   ],
 };
 
-export const TRUST_PAGES: Record<TrustPage['path'], TrustPage> = { '/security': SECURITY, '/accessibility': ACCESSIBILITY, '/privacy': PRIVACY };
+/** The same list the app's "What's new" shows (src/config/changes.ts), for anyone deciding whether Vantage is looked after. */
+const CHANGELOG: TrustPage = {
+  path: '/changes',
+  title: 'What’s new | Vantage',
+  description: 'What changed in Vantage, newest first: the fixes and improvements a Marine, a leader or an owner would notice.',
+  eyebrow: 'What’s new',
+  heading: 'What changed, and when.',
+  lede: `Vantage ${VERSION}. The changes someone using it would notice, newest first.`,
+  updated: LATEST_CHANGE,
+  sections: CHANGES.map((change) => ({
+    id: `changes-${change.date}`,
+    title: `${change.title}, ${longDate(change.date)}`,
+    body: <ul>{change.items.map((item) => <li key={item}>{item}</li>)}</ul>,
+  })),
+};
+
+export const TRUST_PAGES: Record<TrustPage['path'], TrustPage> = { '/security': SECURITY, '/accessibility': ACCESSIBILITY, '/privacy': PRIVACY, '/changes': CHANGELOG };
 
 export function trustPageFor(pathname: string): TrustPage | null {
   const path = (pathname.replace(/\/+$/, '') || '/') as TrustPage['path'];
   return Object.prototype.hasOwnProperty.call(TRUST_PAGES, path) ? TRUST_PAGES[path] : null;
 }
 
-const longDate = (iso: string) => new Date(`${iso}T12:00:00Z`).toLocaleDateString('en-US', { year: 'numeric', month: 'long', day: 'numeric', timeZone: 'UTC' });
 
 /** The page's heading, set in the site's navy band. */
 export function TrustHero({ page }: { page: TrustPage }) {

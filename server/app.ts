@@ -105,7 +105,7 @@ const CONSOLE_PATH = /^\/(?:operator|console)(?:\/.*)?$/;
 /** What the console's own pages call: signing in, the owner's identity, administration and the accounts and units it manages. */
 const CONSOLE_API = /^\/(?:admin|org|me)(?:\/|$)|^\/auth\/(?:setup|login|login\/mfa|passkey\/options|passkey\/verify|cac|logout|sudo|forgot|oidc\/start|oidc\/callback)$|^\/ranks$/;
 /** The public site's plain-language pages and the prerendered document that answers each (scripts/prerender.mjs). */
-export const TRUST_DOCUMENTS: Record<string, string> = { '/security': 'pages/security.html', '/accessibility': 'pages/accessibility.html', '/privacy': 'pages/privacy.html' };
+export const TRUST_DOCUMENTS: Record<string, string> = { '/security': 'pages/security.html', '/accessibility': 'pages/accessibility.html', '/privacy': 'pages/privacy.html', '/changes': 'pages/changes.html' };
 
 /** security.txt (RFC 9116) for this deployment. Expires six months after it is served; the RFC asks for under a year. */
 export function securityTxt(site: string, contact: string | null, at = new Date()): string {

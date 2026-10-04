@@ -1,0 +1,39 @@
+/**
+ * What changed, for the people who use Vantage: newest first, in their words rather than the code's. "What's new" shows
+ * these, and marks the menu until someone has read the newest. Add an entry for a change a Marine would notice; the
+ * engineering record stays in docs/PROGRESS.md.
+ */
+export interface Change { date: string; title: string; items: string[] }
+
+export const CHANGES: Change[] = [
+  {
+    date: '2026-10-04',
+    title: 'Everyday use',
+    items: [
+      'Pages open on the last 12 months, so 1 October no longer reads as if nobody had done anything. A period you chose still wins.',
+      'On a phone, Today, Work, a log button and your Record sit at the bottom where a thumb reaches. If you lead a team, Team takes the Record’s place.',
+      'Due dates say how long: “tomorrow”, “in 4 days”, “1 day overdue”.',
+      '⌘K switches the theme, lists the shortcuts, imports activities and downloads your record as a PDF.',
+      'Undo after you log an activity, and after you delete a task, project, goal, training, award or counseling.',
+      'Today’s cards read “Dollars reconciled” and “Hours logged”, and reminders say how many: “3 readiness fields incomplete”.',
+      'On a phone, the Activities filters fold behind one button and the demo banner takes one line.',
+      'Packages explain themselves, in four steps beside the list.',
+      'Settings names time zones by place: “New York · EDT”, “Okinawa / Tokyo”.',
+    ],
+  },
+  {
+    date: '2026-10-03',
+    title: 'Fixes and trust',
+    items: [
+      'FITREP packages count Quick Log entries again. They had been filed under “Unassigned”.',
+      'Quick Log reads “Sep 30”, “last Friday”, “$1.2 million” and “3/4 of the backlog” the way you meant them.',
+      'A Marine listed again in the next personnel extract has their account turned back on.',
+      'An amount typed with commas on a case (“1,118.38”) is saved.',
+      'Goal and FITREP countdowns are no longer a day off in the evening.',
+      'Security fixes to sign-in, uploads and goals. The new Security page says how to report anything else.',
+      'Security, privacy and accessibility pages, linked from sign-in.',
+    ],
+  },
+];
+
+export const LATEST_CHANGE = CHANGES[0].date;

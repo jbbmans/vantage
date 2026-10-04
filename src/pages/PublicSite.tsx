@@ -186,7 +186,7 @@ function SiteNav() {
         <details className="ps-nav-menu">
           <summary aria-label="Menu"><Menu strokeWidth={1.75} aria-hidden /></summary>
           <div className="ps-nav-sheet">
-            <a href="/#product">Product</a><a href="/#roles">Who it is for</a><a href="/#analysts">For analysts</a><a href="/#faq">FAQ</a>
+            <a href="/#product">Product</a><a href="/#roles">Who it is for</a><a href="/#analysts">For analysts</a><a href="/#faq">FAQ</a><a href="/changes">What’s new</a>
             <span aria-hidden />
             <a href="/security">Security</a><a href="/privacy">Privacy</a><a href="/accessibility">Accessibility</a>
           </div>
@@ -214,7 +214,7 @@ function SiteFooter({ cta = true }: { cta?: boolean }) {
           </div>
           <nav aria-label="Product">
             <p>Product</p>
-            <a href="/#product">How it works</a><a href="/#roles">Who it is for</a><a href="/#analysts">For analysts</a><a href="/#experience">Try Quick Log</a><a href="/#faq">FAQ</a>
+            <a href="/#product">How it works</a><a href="/#roles">Who it is for</a><a href="/#analysts">For analysts</a><a href="/#experience">Try Quick Log</a><a href="/#faq">FAQ</a><a href="/changes">What’s new</a>
           </nav>
           <nav aria-label="Trust">
             <p>Trust</p>

@@ -4,7 +4,7 @@ import { installTelemetry, track } from '@/lib/telemetry';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, Bell, Building2, Check, ChevronDown, ChevronsLeft, ChevronsRight, ChevronsUpDown, CloudOff, FlaskConical, Keyboard, LifeBuoy, LogOut, Menu as MenuIcon, Moon,
-  Plus, RefreshCw, Search, Settings2, Sun, Users, WifiOff, X,
+  Plus, RefreshCw, Search, Settings2, Sparkles, Sun, Users, WifiOff, X,
 } from 'lucide-react';
 import { FOOTER, GROUPS, HOME, groupFor, pageFor, type Count, type NavGroup, type NavPage, type Requirement } from '@/config/nav';
 import { teamSections } from '@/lib/teamAccess';
@@ -28,6 +28,7 @@ import { useToast } from '@/components/ui/toast';
 import { flushOutbox, onOutboxChange, outbox } from '@/lib/outbox';
 import { resolveTheme, storedTheme } from '@/lib/theme';
 import { VERSION } from '@/lib/version';
+import WhatsNewDialog, { useWhatsNew } from '@/components/WhatsNewDialog';
 import { useBuildWatch } from '@/lib/build';
 import { useView, roleLine, viewLabel } from '@/lib/view';
 
@@ -238,6 +239,9 @@ export default function AppShell() {
   const [quickLogSeed, setQuickLogSeed] = useState('');
   const [palette, setPalette] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
+  const [whatsNew, setWhatsNew] = useState(false);
+  const news = useWhatsNew(identity?.user?.created_at);
+  const openWhatsNew = () => { setWhatsNew(true); news.markSeen(); };
   const [sudoOpen, setSudoOpen] = useState<null | SudoRequest>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => resolveTheme(identity?.prefs.theme || storedTheme()));
   const updateReady = useBuildWatch();
@@ -339,6 +343,7 @@ export default function AppShell() {
   const paletteActions: PaletteAction[] = [
     { id: 'theme', title: theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme', keywords: 'theme dark light mode appearance', run: toggleTheme },
     { id: 'shortcuts', title: 'Keyboard shortcuts', subtitle: 'Press ? anywhere', keywords: 'keys hotkeys help', run: () => setShortcuts(true) },
+    { id: 'whats-new', title: 'What’s new in Vantage', subtitle: `v${VERSION}`, keywords: 'changes changelog release notes updates version', run: openWhatsNew },
     { id: 'import-activities', title: 'Import activities from a CSV', keywords: 'upload spreadsheet csv entries', run: () => navigate('/record/activities?import=1') },
     { id: 'export-pdf', title: 'Download my record as a PDF', subtitle: 'The last 12 months, ready for a reporting senior', keywords: 'export pdf report jepes fitrep print', run: () => { api.downloadFile(api.reportPdfUrl({ period: 'last12', limit: 12 }), 'vantage-report.pdf').then((name) => toast.success(`Downloaded ${name}.`)).catch((e) => toast.error(api.errorText(e))); } },
   ];
@@ -361,6 +366,7 @@ export default function AppShell() {
         {user?.is_operator && !demo ? <MenuItem onSelect={() => navigate('/operator')}>Owner console</MenuItem> : null}
         <MenuItem onSelect={toggleTheme} icon={theme === 'dark' ? Sun : Moon}>{theme === 'dark' ? 'Light theme' : 'Dark theme'}</MenuItem>
         <MenuItem icon={Keyboard} onSelect={() => setShortcuts(true)}>Keyboard shortcuts</MenuItem>
+        <MenuItem icon={Sparkles} onSelect={openWhatsNew}>What’s new{news.unseen && <><span className="sr-only"> (new)</span><span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" aria-hidden /></>}</MenuItem>
         {!demo && <MenuItem icon={LifeBuoy} onSelect={() => navigate('/support')}>Ask for help</MenuItem>}
         <MenuSeparator />
         {demo
@@ -484,8 +490,8 @@ export default function AppShell() {
             {!collapsed ? (
               <div className="flex items-center gap-1">
                 {accountMenu(
-                  <button type="button" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-left transition-colors hover:bg-white/[.06]" aria-label="Account menu">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-white/10 text-2xs font-semibold text-white ring-1 ring-white/10">{initials(user?.first_name, user?.last_name)}</span>
+                  <button type="button" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-left transition-colors hover:bg-white/[.06]" aria-label={news.unseen ? 'Account menu. Something new in Vantage' : 'Account menu'}>
+                    <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-white/10 text-2xs font-semibold text-white ring-1 ring-white/10">{initials(user?.first_name, user?.last_name)}{news.unseen && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-rail" aria-hidden />}</span>
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium text-white">{who}</span>
                       <span className="block truncate text-2xs text-white/50">{roleLine(identity, view)}</span>
@@ -540,7 +546,7 @@ export default function AppShell() {
               </button>
               <NotificationBell onNavigate={(to) => navigate(to)} />
               {accountMenu(
-                <button type="button" className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-rail-active text-xs font-semibold text-white ring-1 ring-black/5 transition-[filter] hover:brightness-125 lg:hidden" aria-label="Account menu">{initials(user?.first_name, user?.last_name)}</button>,
+                <button type="button" className="relative flex h-9 w-9 items-center justify-center rounded-[10px] bg-rail-active text-xs font-semibold text-white ring-1 ring-black/5 transition-[filter] hover:brightness-125 lg:hidden" aria-label={news.unseen ? 'Account menu. Something new in Vantage' : 'Account menu'}>{initials(user?.first_name, user?.last_name)}{news.unseen && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface" aria-hidden />}</button>,
               )}
             </div>
           </header>
@@ -587,7 +593,7 @@ export default function AppShell() {
             <ErrorBoundary resetKey={location.pathname + location.search}><div key={location.pathname} className="animate-fade-up"><Outlet /></div></ErrorBoundary>
           </main>
           <footer className="no-print flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pb-[calc(1.25rem+var(--tabbar,0px))] pt-5 text-xs text-ink-3 sm:px-6 lg:px-10">
-            <span className="flex items-center gap-1.5"><Mark size={12} />Vantage v{VERSION}</span>
+            <button type="button" onClick={openWhatsNew} className="flex items-center gap-1.5 rounded transition-colors hover:text-ink" aria-label={`Vantage v${VERSION}. What’s new`} title="What’s new"><Mark size={12} />Vantage v{VERSION}</button>
             <span>Records stay on this deployment’s server.</span>
             <span className="hidden sm:inline">Not an official DoD or USMC system of record.</span>
           </footer>
@@ -598,6 +604,7 @@ export default function AppShell() {
         {userId && <OutboxDialog open={queueOpen} onOpenChange={setQueueOpen} userId={userId} onRetry={flush} />}
         <CommandPalette open={palette} onOpenChange={setPalette} onQuickLog={openQuickLog} nav={visibleNav} extra={paletteActions} />
         <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
+        <WhatsNewDialog open={whatsNew} onOpenChange={setWhatsNew} />
         {!demo && <IdleGuard onSignOut={idleSignOut} />}
         <SudoDialog open={Boolean(sudoOpen)} onOpenChange={(o) => { if (!o) { sudoOpen?.cancel(); setSudoOpen(null); } }} onConfirmed={() => { const req = sudoOpen; setSudoOpen(null); req?.confirm(); }} />
       </div>
