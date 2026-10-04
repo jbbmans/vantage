@@ -547,23 +547,26 @@ export default function AppShell() {
 
           {demo && (
             <div role="region" aria-label="Synthetic demo" className="no-print flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-accent/15 bg-gradient-to-r from-accent-soft/80 via-accent-soft/40 to-transparent px-4 py-2 text-sm text-ink sm:px-6 lg:px-8">
-              <span className="flex items-center gap-2 font-medium"><span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent/10 text-accent"><FlaskConical className="h-3.5 w-3.5" aria-hidden /></span>Synthetic demo</span>
-              <span className="text-ink-2">
+              {/* One row on a phone: what this is, whose eyes, and a way to start again. The sentence is for wider screens. */}
+              <span className="flex items-center gap-2 font-medium"><span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent/10 text-accent"><FlaskConical className="h-3.5 w-3.5" aria-hidden /></span><span className="sm:hidden">Demo</span><span className="hidden sm:inline">Synthetic demo</span></span>
+              <span className="hidden text-ink-2 sm:inline">
                 You are {who}, {demo.workspace?.persona === 'leader' ? 'the section lead' : 'a budget analyst'}.
                 <span className="hidden md:inline"> Everything here is invented; changes last {demo.ttl_hours} hours.</span>
               </span>
-              <span className="flex items-center gap-1 md:ml-auto">
+              <span className="ml-auto flex items-center gap-1">
                 <span className="flex rounded-full bg-surface p-0.5 ring-1 ring-line">
                   <button type="button" onClick={() => demo.workspace?.persona === 'leader' && switchPersona('marine')} aria-pressed={demo.workspace?.persona !== 'leader'}
+                    aria-label={demo.workspace?.persona === 'leader' ? 'View as the Marine' : 'The Marine'}
                     className={cn('rounded-full px-3 py-1 text-xs font-medium transition-colors', demo.workspace?.persona !== 'leader' ? 'bg-rail-active text-white' : 'text-ink-2 hover:text-ink')}>
-                    {demo.workspace?.persona === 'leader' ? 'View as the Marine' : 'The Marine'}
+                    <span className="sm:hidden">Marine</span><span className="hidden sm:inline">{demo.workspace?.persona === 'leader' ? 'View as the Marine' : 'The Marine'}</span>
                   </button>
                   <button type="button" onClick={() => demo.workspace?.persona !== 'leader' && switchPersona('leader')} aria-pressed={demo.workspace?.persona === 'leader'}
+                    aria-label={demo.workspace?.persona === 'leader' ? 'The section lead' : 'View as the section lead'}
                     className={cn('rounded-full px-3 py-1 text-xs font-medium transition-colors', demo.workspace?.persona === 'leader' ? 'bg-rail-active text-white' : 'text-ink-2 hover:text-ink')}>
-                    {demo.workspace?.persona === 'leader' ? 'The section lead' : 'View as the section lead'}
+                    <span className="sm:hidden">Section lead</span><span className="hidden sm:inline">{demo.workspace?.persona === 'leader' ? 'The section lead' : 'View as the section lead'}</span>
                   </button>
                 </span>
-                <button type="button" onClick={startOver} className="ml-1 rounded-full px-3 py-1 text-xs font-medium text-ink-2 hover:bg-surface hover:text-ink">Start over</button>
+                <button type="button" onClick={startOver} className="ml-1 rounded-full px-2.5 py-1 text-xs font-medium text-ink-2 hover:bg-surface hover:text-ink sm:px-3">Start over</button>
               </span>
             </div>
           )}

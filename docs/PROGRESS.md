@@ -13,6 +13,7 @@ _Updated 2026-10-04_
 - **Smaller things.** A case page is titled "Work / Case" (it said "Vantage"), and Quick Log drops the word that introduced a date ("…in DAI on Sep 30" no longer leaves "…in DAI on").
 - **The bar follows the role.** Somebody who leads a team gets Team in the tab bar where a Marine gets the Record; the Record stays under More.
 - **Titles read whole on a phone.** Case and task rows put the due date under the title instead of beside it, and a title may take two lines before it is cut. The queue's "All open work · Open to claim · Mine · Overdue · Resolved" is one row that scrolls sideways.
+- **The demo banner is one line on a phone** ("Demo · Marine | Section lead · Start over"), giving back about half the first screen it took on every page.
 - **Packages explain themselves.** Beside the list, four steps say what a package is (choose the period, write against the records, save a revision that re-reads them, export what was reviewed), and each package says when it last changed.
 
 ## What changed (2026-10-03 audit and upgrade)
