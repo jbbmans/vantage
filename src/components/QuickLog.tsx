@@ -58,7 +58,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     return {
       // Save the area the select shows: the parser only knows JEPES names, and a Sgt's package reads FITREP ones.
       title: parsed.title, date: format(parsed.date, 'yyyy-MM-dd'), category: parsed.category, eval_area: mapAreaToTrack(parsed.eval_area, track), quantity, unit_label: unit,
-      dollar_amount: parsed.dollar_amount, dollar_type: valueType(parsed.dollar_type, cfg) ? parsed.dollar_type : fallbackType, system: parsed.system || '', organization: '', result: '', notes: '', status: 'completed',
+      dollar_amount: parsed.dollar_amount, dollar_type: valueType(parsed.dollar_type, cfg) ? parsed.dollar_type : fallbackType, system: parsed.system || '', organization: '', result: parsed.result || '', notes: '', status: 'completed',
       visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null,
       ...overrides,
     } as Record<string, any>;

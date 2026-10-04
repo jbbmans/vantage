@@ -42,3 +42,29 @@ test('a goal says whether it is on pace for the share of its period gone, and on
   assert.equal(goalPace({ ...goal, status: 'paused' }, { percent: 0, met: false }, at(2026, 11, 15)), null);
   assert.equal(goalPace({ ...goal, period_end: null }, { percent: 0, met: false }, at(2026, 11, 15)), null);
 });
+
+test('a bullet does not repeat a dollar figure its title already states', async () => {
+  const { composeBullet } = await import('../../shared/bullets.ts');
+  const plain = composeBullet({ title: 'Reconciled 14 ULOs totaling $48,250 in DAI', quantity: 14, unit_label: 'ULOs', dollar_amount: 48250 });
+  assert.equal(plain.match(/48,250/g)?.length, 1, plain);
+  const scaled = composeBullet({ title: 'Deobligated $1.2 million in expired funds', dollar_amount: 1_200_000 });
+  assert.ok(!scaled.includes('1,200,000'), scaled);
+  // A different figure in the title is not the amount, so the amount is still said.
+  const other = composeBullet({ title: 'Reviewed a $500 invoice batch', dollar_amount: 12000 });
+  assert.ok(other.includes('$12,000.00'), other);
+});
+
+test('Quick Log takes a closing clause that says what came of the work as the outcome', async () => {
+  const { parseQuickLog } = await import('../../shared/quickLog.ts');
+  const now = new Date(2026, 9, 4, 10);
+  const ulos = parseQuickLog('Reconciled 14 ULOs totaling $48,250 in DAI on Sep 30, all cleared on the next report', now);
+  assert.equal(ulos.title, 'Reconciled 14 ULOs totaling $48,250 in DAI');
+  assert.equal(ulos.result, 'all cleared on the next report');
+  assert.equal(parseQuickLog('Processed 12 MIPRs, resulting in zero returns', now).result, 'zero returns');
+  assert.equal(parseQuickLog('Rebuilt the UMT tracker - which cut the weekly review to an hour', now).result, 'cut the weekly review to an hour');
+  // A list after a comma is not an outcome, and neither is a word that only looks like a lead-in.
+  const list = parseQuickLog('Built the tracker for G-8, S-4 and S-1', now);
+  assert.equal(list.result, null);
+  assert.equal(list.title, 'Built the tracker for G-8, S-4 and S-1');
+  assert.equal(parseQuickLog('Briefed the CO, nobody else', now).result, null);
+});

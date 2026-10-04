@@ -24,6 +24,8 @@ export const CHANGES: Change[] = [
       'Goal cards read “21 of 30 UMTs”; project cards say “2 of 5 tasks done” and open from their title.',
       'On a phone, the Team roster is a list you can read, with each Marine’s billet, roles and controls in reach.',
       'Dates and times read one way everywhere: “05 Sep 26”, “28 Sep 26 1432”.',
+      'Quick Log fills in the outcome when your sentence ends with one: “…, all cleared on the next report”.',
+      'On an entry’s page, each thing it is missing opens Edit.',
     ],
   },
   {

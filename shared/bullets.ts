@@ -87,6 +87,18 @@ function lowerFirst(s = ''): string {
   return s.charAt(0).toLowerCase() + s.slice(1);
 }
 
+const SCALE: Record<string, number> = { k: 1e3, thousand: 1e3, m: 1e6, mm: 1e6, million: 1e6, b: 1e9, billion: 1e9 };
+
+/** Whether the title already names this amount ("$48,250", "$1.2 million"), so the bullet does not say it twice. */
+function titleStatesAmount(title: string, amount: number): boolean {
+  if (!amount) return false;
+  for (const m of title.matchAll(/\$\s?(\d[\d,]*(?:\.\d+)?)\s*(k|thousand|mm|m|million|b|billion)?\b/gi)) {
+    const value = Number(m[1].replace(/,/g, '')) * (m[2] ? SCALE[m[2].toLowerCase()] : 1);
+    if (Math.abs(value - amount) < 0.005) return true;
+  }
+  return false;
+}
+
 export function composeBullet(a: BulletSource = {}, opts: { style?: BulletStyle; includeDate?: boolean } = {}): string {
   const { style = 'jepes', includeDate = false } = opts;
   const title = String(a.title || '').trim().replace(/\.$/, '');
@@ -95,7 +107,7 @@ export function composeBullet(a: BulletSource = {}, opts: { style?: BulletStyle;
 
   const amount = a.dollar_amount ? Number(a.dollar_amount) : 0;
   const rawMoney = amount ? formatDollarsExact(amount) : null;
-  const money = rawMoney && !(inTitle(rawMoney.slice(1)) || inTitle(String(a.dollar_amount))) ? rawMoney : null;
+  const money = rawMoney && !(inTitle(rawMoney.slice(1)) || inTitle(String(a.dollar_amount)) || titleStatesAmount(title, amount)) ? rawMoney : null;
 
   const hasQty = a.quantity != null && a.quantity !== '' && (Number(a.quantity) !== 1 || Boolean(rawMoney));
   const unitLabel = unitFor(a.unit_label || 'items', a.quantity);

@@ -140,9 +140,9 @@ export default function Career({ section }: { section: CareerSection }) {
       </PageHeader>
       {tab === 'plan' && <Suspense fallback={<Skeleton className="h-64" />}><CareerPlan /></Suspense>}
       {['training', 'awards', 'counseling'].includes(tab) && <div className="mb-4 grid grid-cols-3 gap-3">
-        <Stat label="Training hours" value={formatNumber(hours)} hint={`${(trainings || []).length} entries`} />
-        <Stat label="Awards in progress" value={(awards || []).filter((a) => ['recommended', 'submitted', 'approved'].includes(a.status)).length} hint={`${(awards || []).filter((a) => a.status === 'presented').length} presented`} />
-        <Stat label="Counselings" value={(counselings || []).length} hint={(counselings || []).some((c) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'one awaits your acknowledgement' : 'up to date'} tone={(counselings || []).some((c) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'warn' : undefined} />
+        <Stat label="Training hours" value={formatNumber(hours)} hint={`${(trainings || []).length} ${(trainings || []).length === 1 ? 'entry' : 'entries'}`} to={tab === 'training' ? undefined : '/career/training'} />
+        <Stat label="Awards in progress" value={(awards || []).filter((a) => ['recommended', 'submitted', 'approved'].includes(a.status)).length} hint={`${(awards || []).filter((a) => a.status === 'presented').length} presented`} to={tab === 'awards' ? undefined : '/career/awards'} />
+        <Stat label="Counselings" value={(counselings || []).length} hint={(counselings || []).some((c) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'one awaits your acknowledgement' : 'up to date'} tone={(counselings || []).some((c) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'warn' : undefined} to={tab === 'counseling' ? undefined : '/career/counseling'} />
       </div>}
 
       {tab === 'training' && ((trainings || []).length === 0 ? <div className="card"><EmptyState icon={GraduationCap} title="No training logged" description="PME, MarineNet courses, certifications, college. Hours here feed training-hour goals and the evaluation package." action={<Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}>Log training</Button>} /></div> : (

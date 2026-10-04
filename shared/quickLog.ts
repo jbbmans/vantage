@@ -68,7 +68,14 @@ function parseWhen(text: string, now: Date): { date: Date; matched: string | nul
 export interface ParsedQuickLog {
   title: string; quantities: Array<{ value: number; unit: string }>; dollar_amount: number | null; dollar_type: string;
   category: string; eval_area: string; system: string | null; date: Date; inferred: string[];
+  /** What came of it, when the sentence ends by saying so ("…, all cleared on the next report"). */
+  result: string | null;
 }
+
+// A trailing clause that says what came of the work, after a comma, semicolon or dash. Only words that open an outcome
+// count, so "for G-8, S-4 and S-1" stays in the title. The lead-in that only links the clause is dropped.
+const RESULT_CLAUSE = /\s*(?:[,;]|\s[-–—])\s*((?:resulting in|which|so that|so|leading to|saving|clearing|cutting|reducing|all|each|every one|zero|no)\b.+)$/i;
+const RESULT_LINK = /^(?:resulting in|leading to|which|so that|so)\s+/i;
 
 const SCALE: Record<string, number> = { k: 1e3, thousand: 1e3, m: 1e6, mm: 1e6, mil: 1e6, million: 1e6, b: 1e9, bn: 1e9, billion: 1e9 };
 
@@ -141,8 +148,14 @@ export function parseQuickLog(text = '', now = new Date()): ParsedQuickLog {
   // The date leaves the title with the word that introduced it: "…in DAI on Sep 30" is "…in DAI", not "…in DAI on".
   if (when.matched) title = title.replace(new RegExp(`\\s*(?:\\b(?:on|dated|as of)\\s+)?\\b${escapeRe(when.matched)}\\b\\s*`, 'i'), ' ').trim();
   title = title.replace(/\s+/g, ' ').replace(/[,;]\s*$/, '');
+  let result: string | null = null;
+  const outcome = RESULT_CLAUSE.exec(title);
+  if (outcome && outcome.index >= 8) {
+    const said = outcome[1].replace(RESULT_LINK, '').replace(/[.;,]\s*$/, '').trim();
+    if (said.length >= 6) { result = said; title = title.slice(0, outcome.index).trim(); inferred.push('outcome'); }
+  }
 
-  return { title: title || raw, quantities: deduped, dollar_amount, dollar_type, category, eval_area, system, date: when.date, inferred };
+  return { title: title || raw, quantities: deduped, dollar_amount, dollar_type, category, eval_area, system, date: when.date, inferred, result };
 }
 
 export function primaryQuantity(quantities: Array<{ value: number; unit: string }> = []): { quantity: number | null; unit: string } {

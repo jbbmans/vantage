@@ -86,7 +86,13 @@ export default function RecordDetail() {
             {style === 'fitrep' && expandAcronyms(bullet) !== bullet && <p className="mt-2 text-xs text-ink-3">Expanded: {expandAcronyms(bullet)}</p>}
             <div className="mt-3 flex flex-wrap items-center gap-2">
               <Tooltip content="Strength counts date, quantity, value, result, area, and organization"><span className={cn('fig rounded-full border px-2 py-0.5 text-xs font-semibold', score >= 4 ? 'border-good/40 text-good' : score >= 2 ? 'border-line text-ink-2' : 'border-warn/40 text-warn')}>Strength {score}/5</span></Tooltip>
-              {gaps.map((g) => <Badge key={g} tone="warn">{g}</Badge>)}
+              {/* Each gap is one tap from the form that fills it. */}
+              {gaps.map((g) => {
+                const label = g[0].toUpperCase() + g.slice(1);
+                return canEdit && !a.deleted_at
+                  ? <button key={g} type="button" className="rounded-full" onClick={() => setEditing(toActivityDraft(a))} title="Add it in Edit"><Badge tone="warn" className="cursor-pointer transition-[filter] hover:brightness-95">{label}</Badge></button>
+                  : <Badge key={g} tone="warn">{label}</Badge>;
+              })}
               {gaps.length === 0 && <span className="text-xs text-good">Complete. This one survives the cut.</span>}
             </div>
           </Panel>
@@ -95,7 +101,7 @@ export default function RecordDetail() {
             <DescriptionList items={[
               ['Result', a.result], ['Quantity', a.quantity != null ? `${formatNumber(a.quantity)} ${a.unit_label || ''}` : null],
               ['Transaction value', a.dollar_amount != null ? `${formatDollars(a.dollar_amount)}${dollarType ? ` · ${dollarType.label}` : ''}` : null],
-              [trackMeta(track).areaLabel, mapAreaToTrack(a.eval_area, track)], ['Organization', a.organization], ['System', a.system], ['Status', <StatusBadge value={a.status} />],
+              [trackMeta(track).areaLabel, mapAreaToTrack(a.eval_area, track) === 'Unassigned' ? <span className="text-warn">Untagged</span> : mapAreaToTrack(a.eval_area, track)], ['Organization', a.organization], ['System', a.system], ['Status', <StatusBadge value={a.status} />],
               ['Project', a.project_name ? <Link className="link" to="/work/projects">{a.project_name}</Link> : null],
               ['Notes', a.notes ? <span className="whitespace-pre-wrap">{a.notes}</span> : null],
             ]} />

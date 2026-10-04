@@ -31,6 +31,10 @@ _Updated 2026-10-04_
 - **Age of open work, said exactly.** "One to four weeks" counted 7 to 30 days; the rows now read "Under 7 days", "7 to 30 days" and "Over 30 days", each with a bar for its share, over 30 days in amber.
 - **One way to write a date.** Today's "Who holds what" read "since 2026-09-05", a package's heading "2026-07-07 to 2026-10-04", and award, counseling, access-log, conflict and entry-history times used the browser's own format ("9/18/2026, 9:31:02 AM"). All now read the way the rest of Vantage does ("05 Sep 26", "28 Sep 26 1432").
 - **Smaller things.** Drafts with nothing in them use the full width and offer "Open my work"; the unit dashboard no longer says "the rest need a result written" at 100%.
+- **Quick Log hears the outcome.** "…in DAI on Sep 30, all cleared on the next report" used to leave Result empty and the preview asking "so what?". A closing clause that says what came of the work (after a comma, semicolon or dash, opening with "resulting in", "which", "so", "saving", "clearing", "all", "each", "zero", "no" and the like) fills Result and leaves the title, while a list such as "for G-8, S-4 and S-1" stays put (`parseQuickLog`'s `result`).
+- **A bullet says a figure once.** A title that already named its amount ("$48,250", "$1.2 million") got it again at the end ("…, $48,250.00."); the bullet now compares the title's figures by value.
+- **An entry's gaps are one tap from the fix.** On an entry's page each gap ("No quantity (how many?)") opens Edit, and a missing area reads "Untagged" there as it does in the list (it said "Unassigned" on one and "Untagged" on the other).
+- **Smaller things.** Activities' delete is a trash icon named for its entry ("Delete Cleared 4 2-Way UMTs…") instead of an anonymous "×", and the Career cards (training hours, awards, counselings) open their tabs.
 
 ## What changed (2026-10-03 audit and upgrade)
 
@@ -155,7 +159,7 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **570 / 570 pass** (2026-10-04) |
+| `npm test` (server suite, in-memory SQLite) | **572 / 572 pass** (2026-10-04) |
 | `npm run test:browser` (Playwright, Chromium, built client) | **102 / 102 pass** (2026-10-04) |
 | Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference, the public page and the security, privacy, accessibility and changes pages |
 | `npm audit` | 0 vulnerabilities |
