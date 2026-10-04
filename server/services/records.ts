@@ -81,6 +81,7 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   const rows = ctx.db.prepare(`SELECT t.* FROM ${table} t WHERE ${where.join(' AND ')} ORDER BY ${spec.orderBy} LIMIT ? OFFSET ?`).all(...params, limit, offset) as Array<Record<string, unknown>>;
   const hydrated = rows.map((r) => hydrate(r, table)!);
   if (table === 'counselings') return withSubjectNames(ctx, user.id, hydrated);
+  if (table === 'tasks') return withTaskPeople(ctx, user.id, hydrated);
   return table === 'goals' ? withGoalProgress(ctx, hydrated as never) : hydrated;
 }
 
@@ -93,6 +94,23 @@ function withSubjectNames(ctx: AppContext, viewerId: string, rows: Array<Record<
   ).all(...ids) as Array<{ id: string; first_name: string; last_name: string; abbr: string | null }>)
     .map((u) => [u.id, `${u.abbr ? `${u.abbr} ` : ''}${u.last_name}, ${u.first_name}`]));
   return rows.map((r) => (r.user_id !== viewerId && names.has(String(r.user_id)) ? { ...r, subject_name: names.get(String(r.user_id)) } : r));
+}
+
+/**
+ * Who set a task and who holds it, for someone who can read the task but not the roster (a Marine sees "from SSgt
+ * Diaz", not an id). Only the two people on a row the viewer may already read; the viewer's own name is left off.
+ */
+function withTaskPeople(ctx: AppContext, viewerId: string, rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const ids = [...new Set(rows.flatMap((r) => [r.user_id, r.assignee_id]).filter((id): id is string => typeof id === 'string' && id !== viewerId))];
+  if (!ids.length) return rows;
+  const names = new Map((ctx.db.prepare(
+    `SELECT u.id, u.last_name, r.abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id IN (${ids.map(() => '?').join(',')})`
+  ).all(...ids) as Array<{ id: string; last_name: string; abbr: string | null }>).map((u) => [u.id, `${u.abbr ? `${u.abbr} ` : ''}${u.last_name}`]));
+  return rows.map((r) => ({
+    ...r,
+    ...(r.user_id !== viewerId && names.has(String(r.user_id)) ? { owner_name: names.get(String(r.user_id)) } : {}),
+    ...(r.assignee_id && r.assignee_id !== viewerId && names.has(String(r.assignee_id)) ? { assignee_name: names.get(String(r.assignee_id)) } : {}),
+  }));
 }
 
 export function withGoalProgress<T extends Record<string, unknown>>(ctx: AppContext, goals: T[]): T[] {

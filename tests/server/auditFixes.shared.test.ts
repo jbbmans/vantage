@@ -83,12 +83,13 @@ test('B8: a fraction is not a date', () => {
 });
 
 test('Quick Log parses thousands of dollar figures in linear time', () => {
-  const ledger = Array.from({ length: 5000 }, (_, i) => `$${i + 1}.25`).join(' and ');
+  // Large enough that quadratic blanking takes seconds, so the budget can be generous on a busy machine (linear: ~30 ms).
+  const ledger = Array.from({ length: 20_000 }, (_, i) => `$${i + 1}.25`).join(' and ');
   const started = performance.now();
   const p = parseQuickLog(ledger, now);
   const took = performance.now() - started;
-  assert.equal(p.dollar_amount, 12_503_750);
-  assert.ok(took < 100, `took ${took.toFixed(1)} ms; blanking each figure with its own replace was quadratic`);
+  assert.equal(p.dollar_amount, 200_015_000);
+  assert.ok(took < 500, `took ${took.toFixed(1)} ms; blanking each figure with its own replace was quadratic`);
 });
 
 test('B16: a unit\'s singular and plural are one metric, and goals saved under the old key still find it', () => {

@@ -96,7 +96,12 @@ test('tasks and goals: assignment requires shared unit; assignee sees the task',
   const t = await app.call('POST', '/api/records/tasks', { token: nguyen.token, body: { title: 'Close ULOs', visibility: 'unit', assignee_id: rivera.id, due_date: '2026-09-30' } });
   assert.equal(t.status, 201);
   const mine = await app.call('GET', '/api/records/tasks', { token: rivera.token });
-  assert.ok(mine.body.some((r: any) => r.id === t.body.id));
+  const row = mine.body.find((r: any) => r.id === t.body.id);
+  assert.ok(row);
+  // The assignee cannot read the roster, so the row says who set it; their own name is left off.
+  const setter = app.ctx.db.prepare('SELECT last_name FROM users WHERE id = ?').get(nguyen.id) as { last_name: string };
+  assert.ok(String(row.owner_name).endsWith(setter.last_name), row.owner_name);
+  assert.equal(row.assignee_name, undefined);
   const notes = app.ctx.db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND kind = ?').get(rivera.id, 'assignment') as { n: number };
   assert.equal(notes.n, 1);
   const bad = await app.call('POST', '/api/records/tasks', { token: nguyen.token, body: { title: 'Nope', visibility: 'unit', assignee_id: outsider.id } });

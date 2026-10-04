@@ -19,6 +19,9 @@ export const CHANGES: Change[] = [
       'On a phone, the Activities filters fold behind one button and the demo banner takes one line.',
       'Packages explain themselves, in four steps beside the list.',
       'Settings names time zones by place: “New York · EDT”, “Okinawa / Tokyo”.',
+      'Goals say whether they are on pace for the time gone, with a tick on the bar where an even pace would be.',
+      'Tasks show who set them and who holds them by name, titles take two lines on a phone, and due dates say “tomorrow”.',
+      'Goal cards read “21 of 30 UMTs”; project cards say “2 of 5 tasks done” and open from their title.',
     ],
   },
   {

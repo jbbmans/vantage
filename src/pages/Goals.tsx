@@ -14,7 +14,7 @@ import * as api from '@/lib/api';
 import { GOAL_TYPES, GOAL_STATUS, categoryNames } from '../../shared/constants';
 import { DEFAULT_PERIOD, formatNumber, formatDollars, rangeForPeriod, dayKey } from '../../shared/metrics';
 import { daysUntil } from '../../shared/evaluation';
-import { quantityMetricId, canonicalMetricId } from '../../shared/metricEngine';
+import { quantityMetricId, canonicalMetricId, goalPace, type Pace } from '../../shared/metricEngine';
 import { PERMISSIONS } from '../../shared/permissions';
 import { humanize, cn, todayIso } from '@/lib/utils';
 
@@ -41,6 +41,12 @@ const AGGREGATION_OPTIONS = [
   { value: 'latest', label: 'Take the most recent' },
   { value: 'distinct', label: 'Count how many outcomes' },
 ];
+
+const PACE: Record<Pace, { label: string; tone: string }> = {
+  ahead: { label: 'Ahead of pace', tone: 'text-good' },
+  on: { label: 'On pace', tone: 'text-ink-2' },
+  behind: { label: 'Behind pace', tone: 'text-warn' },
+};
 
 export default function Goals() {
   const cfg = useMetrics();
@@ -84,7 +90,9 @@ export default function Goals() {
   });
 
   const canEditRow = (r: any) => r.user_id === me || can(identity, PERMISSIONS.MANAGE_RECORDS, r.unit_id);
-  const format = (g: any, n: number) => (String(g.metric_id || '').startsWith('money:') ? formatDollars(n) : `${formatNumber(n)}${g.unit_label ? ` ${g.unit_label}` : ''}`);
+  // "21 of 30 UMTs", "60 of 100% complete": the unit once, on the target, and a percent sign against its number.
+  const bare = (g: { metric_id?: string | null }, n: number) => (String(g.metric_id || '').startsWith('money:') ? formatDollars(n) : formatNumber(n));
+  const format = (g: { metric_id?: string | null; unit_label?: string | null }, n: number) => (String(g.metric_id || '').startsWith('money:') || !g.unit_label ? bare(g, n) : `${formatNumber(n)}${String(g.unit_label).startsWith('%') ? '' : ' '}${g.unit_label}`);
 
   if (isPending) return <div className="page space-y-3"><Skeleton className="h-10 w-64" /><Skeleton className="h-40" /></div>;
 
@@ -102,6 +110,7 @@ export default function Goals() {
           {list.map((g) => {
             const p = g.progress || { current: Number(g.current_value) || 0, percent: 0, met: false, auto: false, basis: '', measuresEntries: false, outcomes: 0 };
             const days = daysUntil(g.period_end);
+            const pace = goalPace(g, p);
             return (
               <article key={g.id} className="card card-hover p-4">
                 <div className="flex items-start justify-between gap-2">
@@ -127,12 +136,20 @@ export default function Goals() {
                 <div className="mt-3">
                   <div className="flex items-baseline justify-between text-sm">
                     <span className="fig font-semibold text-ink">
-                      {format(g, p.current)}
-                      {g.target_value != null && g.direction !== 'completion' && <span className="font-normal text-ink-3"> of {format(g, Number(g.target_value))}</span>}
+                      {g.target_value != null && g.direction !== 'completion'
+                        ? <>{bare(g, p.current)}<span className="font-normal text-ink-3"> of {format(g, Number(g.target_value))}</span></>
+                        : format(g, p.current)}
                     </span>
-                    <span className={cn('fig text-xs', p.met ? 'text-good' : 'text-ink-3')}>{p.met ? 'Met' : `${Math.round(p.percent)}%`}</span>
+                    <span className="fig text-xs text-ink-3">
+                      {pace && <span className={cn('font-medium', PACE[pace.pace].tone)} title={`${Math.round(p.percent)}% done with ${pace.expected}% of the period gone`}>{PACE[pace.pace].label} · </span>}
+                      {p.met ? <span className="text-good">Met</span> : `${Math.round(p.percent)}%`}
+                    </span>
                   </div>
-                  <Progress value={p.percent} className="mt-1.5" tone={p.met ? 'good' : days != null && days < 14 && p.percent < 70 ? 'warn' : 'accent'} />
+                  {/* The tick is where an even pace would have it by now. */}
+                  <div className="relative mt-1.5">
+                    <Progress value={p.percent} label={`${g.title}: ${Math.round(p.percent)}%`} tone={p.met ? 'good' : pace ? (pace.pace === 'behind' ? 'warn' : 'accent') : days != null && days < 14 && p.percent < 70 ? 'warn' : 'accent'} />
+                    {pace && <span className="absolute -top-[3px] h-3 w-0.5 -translate-x-1/2 rounded-full bg-ink-3/70" style={{ left: `${pace.expected}%` }} aria-hidden />}
+                  </div>
                 </div>
 
                 {p.basis && <p className="mt-2 text-2xs leading-relaxed text-ink-3">{p.basis}</p>}
@@ -140,7 +157,7 @@ export default function Goals() {
                 <div className="mt-3 flex flex-wrap items-center justify-between gap-2 text-xs text-ink-3">
                   <span>
                     {g.period_end ? (
-                      <>Ends <DateText value={g.period_end} />{days != null && g.status === 'active' && <span className={cn('ml-1', days < 0 ? 'text-bad' : days < 14 ? 'text-warn' : '')}>({days < 0 ? `${-days}d overdue` : `${days}d left`})</span>}</>
+                      <>Ends <DateText value={g.period_end} />{days != null && g.status === 'active' && <span className={cn('ml-1', days < 0 ? 'text-bad' : days < 14 ? 'text-warn' : '')}>· {days < 0 ? `ended ${-days === 1 ? 'yesterday' : `${-days} days ago`}` : days === 0 ? 'last day' : days === 1 ? '1 day left' : `${days} days left`}</span>}</>
                     ) : 'No end date'}
                     {g.visibility === 'unit' && <Badge tone="info" className="ml-2">Shared</Badge>}
                   </span>

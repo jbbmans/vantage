@@ -23,3 +23,22 @@ test('a Quick Log title loses the date and the word that introduced it', async (
   assert.equal(parseQuickLog('Ran the report as of 30 Sep for G-8', now).title, 'Ran the report for G-8');
   assert.equal(parseQuickLog('Briefed the section yesterday', now).title, 'Briefed the section');
 });
+
+test('a goal says whether it is on pace for the share of its period gone, and only when that means something', async () => {
+  const { goalPace } = await import('../../shared/metricEngine.ts');
+  const goal = { direction: 'increase', status: 'active', period_start: '2026-10-01', period_end: '2026-12-30' }; // 91 days
+  const at = (y: number, m: number, d: number) => new Date(y, m - 1, d, 21, 0); // evening, where a UTC reading slips a day
+  // 45 of 91 days gone: 49 expected, and within ten points either way is on pace.
+  assert.deepEqual(goalPace(goal, { percent: 45, met: false }, at(2026, 11, 15)), { pace: 'on', expected: 49 });
+  assert.equal(goalPace(goal, { percent: 30, met: false }, at(2026, 11, 15))?.pace, 'behind');
+  assert.equal(goalPace(goal, { percent: 70, met: false }, at(2026, 11, 15))?.pace, 'ahead');
+  assert.equal(goalPace({ ...goal, direction: 'decrease' }, { percent: 30, met: false }, at(2026, 11, 15))?.pace, 'behind');
+  // Too early to say, over, met, or not the kind of goal that builds a little at a time: nothing.
+  assert.equal(goalPace(goal, { percent: 0, met: false }, at(2026, 10, 5)), null);
+  assert.equal(goalPace(goal, { percent: 40, met: false }, at(2026, 12, 31)), null);
+  assert.equal(goalPace(goal, { percent: 100, met: true }, at(2026, 11, 15)), null);
+  assert.equal(goalPace({ ...goal, direction: 'threshold' }, { percent: 90, met: false }, at(2026, 11, 15)), null);
+  assert.equal(goalPace({ ...goal, direction: 'completion' }, { percent: 0, met: false }, at(2026, 11, 15)), null);
+  assert.equal(goalPace({ ...goal, status: 'paused' }, { percent: 0, met: false }, at(2026, 11, 15)), null);
+  assert.equal(goalPace({ ...goal, period_end: null }, { percent: 0, met: false }, at(2026, 11, 15)), null);
+});

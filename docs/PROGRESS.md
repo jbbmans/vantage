@@ -22,6 +22,10 @@ _Updated 2026-10-04_
 - **What's new, in the app and on the site.** The user menu, ⌘K and the version in the footer open a dated list of the changes a Marine would notice (`src/config/changes.ts`). A small dot on the avatar marks it until it has been read, for people who were here before the latest change. The same list is a public page, `/changes`, prerendered, in the sitemap, and linked from the site's menu and footer.
 - **⌘K forgives apostrophes.** "what's new" typed with a straight apostrophe finds "What’s new".
 - **The plain-language pages are checked like the rest.** Security, privacy, accessibility and what's new now run through axe in the browser suite, and their bulleted lists show their bullets again (the CSS reset had removed them).
+- **Goals know their pace.** A goal that builds over its period (increase or decrease) says "Ahead of pace", "On pace" or "Behind pace" against the share of its period gone, within ten points, with a tick on its bar where an even pace would be; a behind goal's bar turns amber, on the Goals page and on Today. It says nothing in the first tenth of a period, after it ends, once it is met, or for a threshold (a PFT score) or a completion goal (`goalPace` in `shared/metricEngine.ts`). The countdown reads "30 days left" rather than "(30d left)", and the figures read "21 of 30 UMTs" and "60 of 100% complete" instead of repeating the unit.
+- **Tasks say who.** A Marine without the roster saw "→ Assigned from Assigned" on a task their section lead set. Task rows now carry the setter's and holder's names (only on rows the reader can already open, and never their own), so it reads "from SSgt Diaz". Titles take two lines on a phone and due dates say "tomorrow" or "in 3 days".
+- **Projects and stat cards.** A project opens from its title (the stray "Open" link is gone), counts read "2 of 5 tasks done" or "No tasks yet", and its due date says how close it is. Stat cards let a label and a hint take two lines, so three across a phone read "Training hours" and "Awards in progress" instead of "Training ho…".
+- **Steadier timing tests.** One full server run failed once, straight after a production build, and did not fail again in five more full runs. The likeliest cause was the speed tests added in the audit, whose budgets (50–400 ms) were tight for a busy machine. Each now has 10–30 times its usual time and still fails on the slowdowns it guards against: the Quick Log test uses 20,000 figures (30 ms linear, seconds if quadratic).
 
 ## What changed (2026-10-03 audit and upgrade)
 
@@ -146,9 +150,9 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **569 / 569 pass** (2026-10-04) |
-| `npm run test:browser` (Playwright, Chromium, built client) | **100 / 100 pass** (2026-10-04) |
-| Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference and the public page |
+| `npm test` (server suite, in-memory SQLite) | **570 / 570 pass** (2026-10-04) |
+| `npm run test:browser` (Playwright, Chromium, built client) | **102 / 102 pass** (2026-10-04) |
+| Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference, the public page and the security, privacy, accessibility and changes pages |
 | `npm audit` | 0 vulnerabilities |
 
 ### Not verified

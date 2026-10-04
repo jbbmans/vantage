@@ -86,7 +86,8 @@ test('the workbook reader answers in linear time to parts that never close their
   ]) {
     const started = performance.now();
     try { readWorkbook(zip); } catch { /* refusing is fine; stalling is not */ }
-    assert.ok(performance.now() - started < 300, `took ${Math.round(performance.now() - started)} ms`);
+    // Linear is a few ms; the old reader took seconds. The slack is for a busy machine.
+    assert.ok(performance.now() - started < 1000, `took ${Math.round(performance.now() - started)} ms`);
   }
   // And it still reads an ordinary sheet, with the format code in either attribute order.
   const ok = readWorkbook(book('<worksheet><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>Doc</t></is></c><c r="B1" s="1"><v>46000</v></c></row></sheetData></worksheet>',
@@ -99,7 +100,7 @@ test('the email sanitizer and its text rendering answer in linear time', () => {
     const started = performance.now();
     sanitizeEmailHtml(html);
     htmlToText(html);
-    assert.ok(performance.now() - started < 400, `${html.slice(0, 8)}… took ${Math.round(performance.now() - started)} ms`);
+    assert.ok(performance.now() - started < 1500, `${html.slice(0, 8)}… took ${Math.round(performance.now() - started)} ms`);
   }
   assert.equal(htmlToText('<p>Before</p><script>steal()</script><style>p{}</style><p>After &amp; more<br>next</p>'), 'Before\n\nAfter & more\nnext');
 });

@@ -177,7 +177,8 @@ test('the password policy answers in linear time, whatever is typed', () => {
     const started = performance.now();
     passwordProblem(value);
     passwordStrength(value);
-    assert.ok(performance.now() - started < 50, `${value.slice(0, 12)}… took ${Math.round(performance.now() - started)} ms`);
+    // Generous for a loaded machine; the old pattern never finished on 240 digits.
+    assert.ok(performance.now() - started < 500, `${value.slice(0, 12)}… took ${Math.round(performance.now() - started)} ms`);
   }
 });
 

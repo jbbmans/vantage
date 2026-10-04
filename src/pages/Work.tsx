@@ -6,7 +6,7 @@ import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
 import VisibilityPicker from '@/components/VisibilityPicker';
-import { DateText, PageShell, StatusBadge, useParam, onText } from '@/components/common';
+import { DueText, PageShell, StatusBadge, useParam, onText } from '@/components/common';
 import { can, unitsWith, useDeleteRecord, useRestoreRecord, useIdentity, useProjects, useTasks, useTeam, useUpdateRecord, usePrefs, useActivities } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { WORK_STATUS, PRIORITIES } from '../../shared/constants';
@@ -41,7 +41,8 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
   const today = todayIso();
   const me = identity?.user.id;
   const roster: any[] = team?.roster || [];
-  const nameOf = (id?: string | null) => { if (!id) return ''; if (id === me) return 'Me'; const p = roster.find((r) => r.id === id); return p ? `${p.rank_abbr || ''} ${p.last_name}`.trim() : 'Assigned'; };
+  // A leader has the roster; anyone else has the names the row carries (who set it, who holds it).
+  const nameOf = (id?: string | null, named?: string | null) => { if (!id) return ''; if (id === me) return 'Me'; const p = roster.find((r) => r.id === id); return p ? `${p.rank_abbr || ''} ${p.last_name}`.trim() : named || 'a teammate'; };
 
   const visibleTasks = useMemo(() => (tasks || []).filter((t) => (showDone || t.status !== 'completed') && (projectFilter === 'all' || t.project_id === projectFilter)), [tasks, showDone, projectFilter]);
   const groups = useMemo(() => {
@@ -85,12 +86,12 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
                     <li key={t.id} className="row flex items-start gap-3 px-4 py-2.5">
                       <button type="button" onClick={() => toggle(t)} disabled={!canToggleRow(t)} className="mt-0.5 text-ink-3 hover:text-good disabled:opacity-40" aria-label={t.status === 'completed' ? 'Reopen task' : 'Complete task'}>{t.status === 'completed' ? <CheckCircle2 className="h-5 w-5 text-good" /> : <Circle className="h-5 w-5" />}</button>
                       <div className="min-w-0 flex-1">
-                        <Link to={`/records/tasks/${t.id}`} className={cn('block truncate text-left text-sm font-medium text-ink hover:underline', t.status === 'completed' && 'line-through text-ink-3')}>{t.title}</Link>
+                        <Link to={`/records/tasks/${t.id}`} className={cn('line-clamp-2 text-left text-sm font-medium text-ink hover:underline sm:line-clamp-1', t.status === 'completed' && 'line-through text-ink-3')}>{t.title}</Link>
                         <p className="flex flex-wrap items-center gap-x-2 gap-y-0.5 text-xs text-ink-3">
-                          {t.due_date && <span className={cn('flex items-center gap-1', t.status !== 'completed' && t.due_date < today && 'text-bad')}><Clock className="h-3 w-3" /><DateText value={t.due_date} /></span>}
+                          {t.due_date && <span className={cn('flex items-center gap-1', t.status !== 'completed' && t.due_date < today && 'text-bad')}><Clock className="h-3 w-3" /><DueText value={t.due_date} done={t.status === 'completed'} prefix="" /></span>}
                           {t.project_id && <span>{(projects || []).find((p) => p.id === t.project_id)?.name}</span>}
-                          {t.assignee_id && t.assignee_id !== me && <span>→ {nameOf(t.assignee_id)}</span>}
-                          {t.user_id !== me && <span>from {nameOf(t.user_id)}</span>}
+                          {t.assignee_id && t.assignee_id !== me && <span>→ {nameOf(t.assignee_id, t.assignee_name)}</span>}
+                          {t.user_id !== me && t.user_id !== t.assignee_id && <span>from {nameOf(t.user_id, t.owner_name)}</span>}
                           {t.notes && <span className="truncate">{t.notes}</span>}
                         </p>
                       </div>
@@ -116,11 +117,11 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
               const pct = p.progress != null ? Number(p.progress) : pTasks.length ? Math.round((done / pTasks.length) * 100) : 0;
               return (
                 <article key={p.id} className="card card-hover flex flex-col p-4">
-                  <div className="flex items-start justify-between gap-2"><h3 className="text-base font-semibold text-ink">{p.name}</h3><StatusBadge value={p.status} /></div>
+                  <div className="flex items-start justify-between gap-2"><h3 className="text-base font-semibold text-ink"><Link to={`/records/projects/${p.id}`} className="hover:underline">{p.name}</Link></h3><StatusBadge value={p.status} /></div>
                   {p.description && <p className="mt-1 line-clamp-3 text-sm text-ink-2">{p.description}</p>}
-                  <div className="mt-3"><div className="flex justify-between text-xs text-ink-3"><span>{done}/{pTasks.length} tasks · {acts} activities</span><span className="fig">{pct}%</span></div><Progress value={pct} className="mt-1" tone={pct >= 100 ? 'good' : 'accent'} /></div>
-                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-3">{p.target_date && <Badge tone={p.status !== 'completed' && p.target_date < today ? 'bad' : 'neutral'}>Due <DateText value={p.target_date} /></Badge>}{p.priority !== 'medium' && <StatusBadge value={p.priority} />}{p.visibility === 'unit' && <Badge tone="info">Shared</Badge>}</div>
-                  <div className="mt-auto flex justify-between gap-2 border-t border-line pt-3"><span className="flex gap-1"><Button size="xs" variant="ghost" onClick={() => { navigate(`/work/tasks?project=${encodeURIComponent(p.id)}`); }}>Tasks</Button><Link to={`/records/projects/${p.id}`} className="link self-center text-xs">Open</Link></span><span className="flex gap-1"><Button size="xs" variant="ghost" onClick={() => newTask({ project_id: p.id })}>+ Task</Button>{canEditRow(p) && <><Button size="xs" variant="ghost" onClick={() => setProjectDraft({ ...p, description: p.description || '', start_date: p.start_date || '', target_date: p.target_date || '', organization: p.organization || '', progress: p.progress ?? 0 })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'projects', row: p })}>Delete</Button></>}</span></div>
+                  <div className="mt-3"><div className="flex justify-between text-xs text-ink-3"><span>{pTasks.length ? `${done} of ${pTasks.length} task${pTasks.length === 1 ? '' : 's'} done` : 'No tasks yet'} · {acts} activit{acts === 1 ? 'y' : 'ies'}</span><span className="fig">{pct}%</span></div><Progress value={pct} className="mt-1" tone={pct >= 100 ? 'good' : 'accent'} /></div>
+                  <div className="mt-3 flex flex-wrap items-center gap-2 text-xs text-ink-3">{p.target_date && <Badge tone={p.status !== 'completed' && p.target_date < today ? 'bad' : 'neutral'}><DueText value={p.target_date} done={p.status === 'completed'} /></Badge>}{p.priority !== 'medium' && <StatusBadge value={p.priority} />}{p.visibility === 'unit' && <Badge tone="info">Shared</Badge>}</div>
+                  <div className="mt-auto flex justify-between gap-2 border-t border-line pt-3"><Button size="xs" variant="ghost" onClick={() => { navigate(`/work/tasks?project=${encodeURIComponent(p.id)}`); }}>View tasks</Button><span className="flex gap-1"><Button size="xs" variant="ghost" onClick={() => newTask({ project_id: p.id })}>+ Task</Button>{canEditRow(p) && <><Button size="xs" variant="ghost" onClick={() => setProjectDraft({ ...p, description: p.description || '', start_date: p.start_date || '', target_date: p.target_date || '', organization: p.organization || '', progress: p.progress ?? 0 })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'projects', row: p })}>Delete</Button></>}</span></div>
                 </article>
               );
             })}

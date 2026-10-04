@@ -16,6 +16,7 @@ import * as api from '@/lib/api';
 import { WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
 import { DEFAULT_PERIOD, rangeForPeriod, dayKey, formatNumber } from '../../shared/metrics';
 import { todayActions } from '../../shared/health';
+import { goalPace } from '../../shared/metricEngine';
 import { cn, timeAgo, todayIso } from '@/lib/utils';
 import { useView } from '@/lib/view';
 import { UnitPulse, TeamStrip, useUnitOverview } from '@/components/UnitOverview';
@@ -203,10 +204,14 @@ function PersonalPanel({ summary }: { summary: any }) {
       <ul className="space-y-3 text-sm">
         {active.map((g) => {
           const pct = g.progress?.percent ?? (g.target_value ? Math.min(100, (Number(g.current_value) / Number(g.target_value)) * 100) : 0);
+          const pace = goalPace(g, { percent: pct, met: g.progress?.met ?? pct >= 100 });
           return (
             <li key={g.id}>
-              <Link to="/goals" className="flex items-baseline justify-between gap-2 hover:underline"><span className="flex items-center gap-1.5 truncate text-ink"><Target className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />{g.title}</span><span className="fig shrink-0 text-xs text-ink-3">{formatNumber(Number(g.current_value))}{g.target_value ? ` / ${formatNumber(Number(g.target_value))}` : ''}</span></Link>
-              <Progress value={pct} className="mt-1" tone={pct >= 100 ? 'good' : 'accent'} label={`${g.title} progress`} />
+              <Link to="/goals" className="flex items-baseline justify-between gap-2 hover:underline"><span className="flex items-center gap-1.5 truncate text-ink"><Target className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />{g.title}</span><span className="fig shrink-0 text-xs text-ink-3">{pace?.pace === 'behind' && <span className="font-medium text-warn">Behind pace · </span>}{formatNumber(Number(g.current_value))}{g.target_value ? ` / ${formatNumber(Number(g.target_value))}` : ''}</span></Link>
+              <div className="relative mt-1">
+                <Progress value={pct} tone={pct >= 100 ? 'good' : pace?.pace === 'behind' ? 'warn' : 'accent'} label={`${g.title} progress`} />
+                {pace && <span className="absolute -top-[3px] h-3 w-0.5 -translate-x-1/2 rounded-full bg-ink-3/70" style={{ left: `${pace.expected}%` }} aria-hidden />}
+              </div>
             </li>
           );
         })}

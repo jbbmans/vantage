@@ -284,6 +284,40 @@ export function progress(input: ProgressInput): ProgressResult {
   return { current, percent: span <= 0 ? (met ? 100 : 0) : clampPercent(((current - baseline) / span) * 100), met, outcomes, contributors };
 }
 
+/** A calendar day as a whole number, from "2026-10-04" or a local Date, so a DST change never shifts a count. */
+const dayNumber = (v: string | Date | null | undefined): number | null => {
+  if (v instanceof Date) return Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()) / 86_400_000;
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(v || '');
+  return ymd ? Date.UTC(+ymd[1], +ymd[2] - 1, +ymd[3]) / 86_400_000 : null;
+};
+
+export type Pace = 'ahead' | 'on' | 'behind';
+export interface PaceResult { pace: Pace; /** Where an even pace would have it by now, 0–100. */ expected: number }
+
+/**
+ * Whether a goal that builds over its period is where it should be by now: its progress against the share of the
+ * period gone, within ten points either way. Only for goals that move a little at a time (increase, decrease); a
+ * threshold such as a PFT score starts most of the way there, and a completion is done or not. It says nothing in the
+ * first tenth of the period, when one entry swings it, once the period is over, or once the goal is met.
+ */
+export function goalPace(
+  goal: { direction?: string | null; status?: string | null; period_start?: string | null; period_end?: string | null },
+  result: { percent: number; met: boolean },
+  now = new Date(),
+): PaceResult | null {
+  if (result.met || (goal.status && goal.status !== 'active')) return null;
+  if (goal.direction !== 'increase' && goal.direction !== 'decrease') return null;
+  const start = dayNumber(goal.period_start);
+  const end = dayNumber(goal.period_end);
+  const today = dayNumber(now)!;
+  if (start == null || end == null || end < start) return null;
+  // The end day is the period's last day, so a period from the 1st to the 30th is 30 days long.
+  const gone = (today - start) / (end - start + 1);
+  if (gone < 0.1 || gone >= 1) return null;
+  const expected = Math.round(gone * 100);
+  return { pace: result.percent >= expected + 10 ? 'ahead' : result.percent <= expected - 10 ? 'behind' : 'on', expected };
+}
+
 const clampPercent = (n: number) => (Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n * 10) / 10)) : 0);
 
 export interface CatalogEntry { metricId: string; metricLabel: string; kind: MetricKind; unit: string; headline: boolean }
