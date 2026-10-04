@@ -2,7 +2,7 @@ import { useMemo, useState } from 'react';
 import { useQuery } from '@tanstack/react-query';
 import { useSearchParams } from 'react-router-dom';
 import { FileDown, Download, Copy, TrendingUp, TrendingDown, Minus, Sparkles } from 'lucide-react';
-import { Button, Select, Panel, Segmented, Badge, Skeleton, EmptyState, Stat } from '@/components/ui/primitives';
+import { Button, Select, Panel, Segmented, Skeleton, EmptyState, Stat } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult, ModelPicker } from '@/components/AiPanel';
 import { PeriodSelect, DateText, PageShell, useParam } from '@/components/common';
@@ -15,6 +15,7 @@ import { DEFAULT_PERIOD, formatDollars, formatNumber, rangeForPeriod, dayKey } f
 import { trackMeta, type Track } from '../../shared/evaluation';
 import { copyToClipboard, cn } from '@/lib/utils';
 import ReportAnalysis from './ReportAnalysis';
+import NarrativeStudio, { choicesToParams, useNarrativeChoices } from '@/components/NarrativeStudio';
 
 export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const toast = useToast();
@@ -43,10 +44,11 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const subject = subjectId ? (team?.roster || []).find((r) => r.id === subjectId) : null;
   const effectiveTrack: Track = report?.track || myTrack;
   const meta = trackMeta(effectiveTrack);
+  const [choices, setChoices] = useNarrativeChoices(`${identity?.user.id || 'me'}.${effectiveTrack}.${report?.from || period}.${report?.to || ''}.${subjectId}`);
   const pkgText = useMemo(() => (report ? packageToText(report.pkg, `${meta.inputName} · ${report.subject} · ${report.label}`) : ''), [report, meta.inputName]);
   const copy = async (text: string, what: string) => { if (await copyToClipboard(text)) toast.success(`${what} copied.`); else toast.error('Could not copy.'); };
   const download = async (kind: 'pdf' | 'csv' | 'analysis') => {
-    try { const name = await api.downloadFile(kind === 'pdf' ? api.reportPdfUrl({ ...q, limit: 12 }) : kind === 'analysis' ? api.analysisPdfUrl({ ...q, limit: 12 }) : api.reportCsvUrl(q), kind === 'pdf' ? 'vantage-report.pdf' : kind === 'analysis' ? 'vantage-analysis.pdf' : 'vantage-activities.csv'); toast.success(`Downloaded ${name}.`); }
+    try { const name = await api.downloadFile(kind === 'pdf' ? api.reportPdfUrl({ ...q, limit: 12, ...choicesToParams(choices) }) : kind === 'analysis' ? api.analysisPdfUrl({ ...q, limit: 12, ...choicesToParams(choices) }) : api.reportCsvUrl(q), kind === 'pdf' ? 'vantage-report.pdf' : kind === 'analysis' ? 'vantage-analysis.pdf' : 'vantage-activities.csv'); toast.success(`Downloaded ${name}.`); }
     catch (e) { toast.error(api.errorText(e)); }
   };
 
@@ -90,13 +92,9 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
           </div>
 
           {view === 'narrative' && (
-            <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-              <Panel className="lg:col-span-2" title={`Section I narrative (${meta.name})`} subtitle={`${report.narrative.length} of ${report.narrative.limit} characters${report.narrative.omitted ? ` · ${report.narrative.omitted} supporting sentences did not fit` : ''}`} action={<Button size="sm" variant="ghost" onClick={() => copy(report.narrative.text, 'Narrative')}><Copy className="h-3.5 w-3.5" />Copy</Button>}>
-                {report.narrative.text ? <p className="whitespace-pre-wrap font-mono text-sm leading-relaxed text-ink">{report.narrative.text}</p> : <EmptyState title="Nothing logged in this period" description="Widen the period, or log the work you did." />}
-                <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-surface-3"><div className={cn('h-full', report.narrative.fits ? 'bg-accent' : 'bg-bad')} style={{ width: `${Math.min(100, (report.narrative.length / report.narrative.limit) * 100)}%` }} /></div>
-                {report.narrative.areas?.length > 0 && <ul className="mt-3 flex flex-wrap gap-1.5">{report.narrative.areas.map((a: any) => <li key={a.area}><Badge>{a.label} · {a.count} entries · {a.included}/{a.available} support</Badge></li>)}</ul>}
-              </Panel>
-              <div className="space-y-4">
+            <NarrativeStudio
+              report={report} title={effectiveTrack === 'fitrep' ? 'Section C draft' : 'Billet accomplishments'} choices={choices} setChoices={setChoices} onCopy={(t) => copy(t, 'Narrative')}
+              aside={<>
                 <Panel title="Recognitions in period">{report.awards.length === 0 && report.trainings.length === 0 ? <p className="text-sm text-ink-3">No awards or training in this period.</p> : <ul className="space-y-1 text-sm">{report.awards.map((a: any, i: any) => <li key={`a${i}`} className="flex justify-between gap-2"><span className="truncate text-ink">{a.name}</span><span className="shrink-0 text-xs text-ink-3"><DateText value={a.date} /></span></li>)}{report.trainings.map((t: any, i: any) => <li key={`t${i}`} className="flex justify-between gap-2"><span className="truncate text-ink-2">{t.title}</span><span className="fig shrink-0 text-xs text-ink-3">{t.hours ? `${t.hours} h` : ''}</span></li>)}</ul>}</Panel>
                 {identity?.instance.aiEnabled && !subjectId && (
                   <Panel title="AI narrative draft" subtitle="From the same entries; verify every figure" action={<ModelPicker className="h-8 w-40 text-xs" />}>
@@ -105,8 +103,8 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
                     {!aiOut && <p className="mt-2 flex items-center gap-1.5 text-2xs text-ink-3"><Sparkles className="h-3 w-3" />Sends your entries in this period to GenAI.mil.</p>}
                   </Panel>
                 )}
-              </div>
-            </div>
+              </>}
+            />
           )}
 
           {view === 'bullets' && (

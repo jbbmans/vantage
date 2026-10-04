@@ -2,6 +2,37 @@
 
 _Updated 2026-10-04_
 
+## What changed (2026-10-04: the narrative writer)
+
+The JEPES and FITREP narrative is written by a new engine, `shared/writer/` (design and sources: `docs/product/NARRATIVE_WRITER.md`). The old builder headlined each area with a generic "Processed N things", pasted titles in strength order and cut what did not fit. The writer:
+
+- **Writes in the order's own form.** JEPES input is MCO 1616.1 Appendix E's billet accomplishments: under the three command input lines (Individual Character; MOS and/or Mission Accomplishment; Leadership), a dash, a past-tense verb, the number and the result, acronyms spelled out once. FITREP input is a Section C draft by section, at Section C's 1,232 characters (NPS bulletin), objective and without superlatives. Paragraph form stays one click away.
+- **Reads each entry.**
+  - Tense ("Reconciling" becomes "Reconciled") and word order ("14 ULOs reconciled" becomes "Reconciled 14 ULOs") are put right.
+  - First person, filler and praise adverbs go.
+  - A noun phrase gets a plain verb ("Brief to the CO" becomes "Delivered brief to the CO").
+  - "Helped" stays "Helped": a stronger verb would change the claim.
+  - The entries themselves are untouched.
+- **Weighs, groups and plans.**
+  - Each entry is scored, with reasons.
+  - Every area with work gets its best sentence first.
+  - Several plans are tried, and the one that says the most within the limit is kept.
+  - The same work is totalled when it would not all fit, or would repeat.
+  - Totals account for counted work left out.
+  - Case-history credit appears in its own sentence: "Researched 39 documents (2-Way UMT); recorded 66 verified outcomes and resolved 33 cases."
+- **Holds back what the order excludes.** Required annual training is set aside with the rule, and can be kept anyway.
+- **Never writes the reporting chain's judgments.** It writes no rankings, recommendations or word pictures. The reviewer flags them if typed.
+- **Reviews its own writing.** A 100-point grade (areas, outcomes, numbers, openings, length) and findings, each naming the entries that would fix it and what it rests on: an order (MCO 1616.1, NAVMC 10835), guidance (NPS bulletin, Marine Corps Gazette) or style. "Helped" is marked as a preference, because no order forbids it.
+
+The **narrative studio** on Analysis writes live in the browser:
+- **Explains every sentence:** select one to see its sources, score, attribute and why it made the cut.
+- **Lets the Marine shape it:** Always keep or Leave out, Another wording (never changes a figure), Best fit/Full/Compact, Bullets/Paragraph, length, and spell-out.
+- **Edits by hand,** with a live review as you type.
+- **Keeps what was left out** in a Left out list, held entries included.
+- **The PDF takes the same choices,** or the edited text.
+
+The optional AI draft is instructed with the same rules.
+
 ## What changed (2026-10-04: everyday use)
 
 - **No empty October.** Activities, the JEPES/FITREP input page, Today's outcomes, a Marine's page and the goal metric list opened on the fiscal year, so on 1 October every one of them read as if nobody had done anything. They open on a rolling twelve months ("Last 12 months", a new period everywhere), and a saved choice still wins.
@@ -162,8 +193,8 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **573 / 573 pass** (2026-10-04) |
-| `npm run test:browser` (Playwright, Chromium, built client) | **102 / 102 pass** (2026-10-04) |
+| `npm test` (server suite, in-memory SQLite) | **593 / 593 pass** (2026-10-04) |
+| `npm run test:browser` (Playwright, Chromium, built client) | **103 / 103 pass** (2026-10-04) |
 | Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference, the public page and the security, privacy, accessibility and changes pages |
 | `npm audit` | 0 vulnerabilities |
 

@@ -28,7 +28,9 @@ test('quick log parses a sentence, saves it, and the record round-trips through 
 
   await page.goto('/reports/analysis?period=all');
   await expect(page.getByRole('heading', { name: /JEPES input/ })).toBeVisible();
-  await expect(page.getByText(/MISSION:/)).toBeVisible();
+  // Billet accomplishments in MCO 1616.1's form, under the command input lines.
+  await expect(page.getByRole('heading', { name: 'Billet accomplishments' })).toBeVisible();
+  await expect(page.getByTestId('narrative')).toContainText('MOS and/or Mission Accomplishment');
   const [pdf] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export PDF' }).click()]);
   expect(pdf.suggestedFilename()).toMatch(/vantage-jepes-input.*\.pdf$/);
   const [csv] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'CSV', exact: true }).click()]);

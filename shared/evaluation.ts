@@ -11,7 +11,7 @@ export const TRACKS: Record<Track, { key: Track; name: string; inputName: string
   },
   fitrep: {
     key: 'fitrep', name: 'FITREP', inputName: 'FITREP input', system: 'Performance Evaluation System (fitness reports)',
-    order: EVAL_REFERENCES.fitrep.citation, narrativeLimit: 2000, balanceLabel: 'Attribute coverage', areaLabel: 'FITREP section', readinessTitle: 'FITREP readiness',
+    order: EVAL_REFERENCES.fitrep.citation, narrativeLimit: 1232, balanceLabel: 'Attribute coverage', areaLabel: 'FITREP section', readinessTitle: 'FITREP readiness',
   },
 };
 
@@ -45,20 +45,32 @@ export function areaOptions(track: Track): Array<{ value: string; label: string 
   return [{ value: 'Unassigned', label: 'Unassigned' }, ...JEPES_CORE.map((a) => ({ value: a, label: a }))];
 }
 
+/**
+ * How each track's input is written. JEPES: accomplishments under the three command input lines, by the names MCO
+ * 1616.1 gives them, as Appendix E's dash bullets. The order sets no length; 1,000 keeps it readable. FITREP: billet
+ * accomplishments for the MRO worksheet, by section, at Section C's 1,232 characters (NPS FITREP bulletin, 2025).
+ */
 export function narrativeConfig(track: Track) {
   if (track === 'fitrep') {
     return {
       areas: FITREP_AREA_KEYS,
       labels: { 'Mission Accomplishment': 'MISSION', 'Individual Character': 'CHARACTER', Leadership: 'LEADERSHIP', 'Intellect and Wisdom': 'INTELLECT', 'Evaluation Responsibilities': 'EVALUATIONS' } as Record<string, string>,
+      headers: { 'Mission Accomplishment': 'Mission Accomplishment', 'Individual Character': 'Individual Character', Leadership: 'Leadership', 'Intellect and Wisdom': 'Intellect and Wisdom', 'Evaluation Responsibilities': 'Fulfillment of Evaluation Responsibilities' } as Record<string, string>,
+      names: { mission: 'Mission Accomplishment', leadership: 'Leadership', character: 'Individual Character', intellect: 'Intellect and Wisdom' },
       fallbackArea: 'Mission Accomplishment',
       limit: TRACKS.fitrep.narrativeLimit,
+      track: 'fitrep' as const,
     };
   }
   return {
     areas: [...JEPES_CORE],
     labels: { 'Individual Character': 'CHARACTER', 'MOS / Mission Accomplishment': 'MISSION', Leadership: 'LEADERSHIP' } as Record<string, string>,
+    headers: { 'Individual Character': 'Individual Character', 'MOS / Mission Accomplishment': 'MOS and/or Mission Accomplishment', Leadership: 'Leadership' } as Record<string, string>,
+    // Courses and PME count toward a JEPES line, not a line of their own; they read as character, the Marine's own effort.
+    names: { mission: 'MOS / Mission Accomplishment', leadership: 'Leadership', character: 'Individual Character', intellect: 'Individual Character' },
     fallbackArea: 'MOS / Mission Accomplishment',
     limit: TRACKS.jepes.narrativeLimit,
+    track: 'jepes' as const,
   };
 }
 

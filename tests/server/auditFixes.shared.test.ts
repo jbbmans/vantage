@@ -161,7 +161,8 @@ test('B18: a Sgt\'s Quick Log entries appear under Mission Accomplishment in the
   const pkg = Object.fromEntries(rep.body.pkg.map((g: { area: string; count: number }) => [g.area, g.count]));
   assert.equal(pkg['Mission Accomplishment'], 3, `Section D read 0: ${JSON.stringify(pkg)}`);
   assert.equal(pkg.Unassigned, undefined);
-  assert.match(rep.body.narrative.text, /^MISSION:/);
+  // Section C draft, by section: the Sgt's work opens under Mission Accomplishment.
+  assert.match(rep.body.narrative.text, /^Mission Accomplishment\n-/);
 
   const delta = await app.call('GET', '/api/reports/delta?period=fiscalYear', { token: sgt.token });
   assert.equal(delta.status, 200, JSON.stringify(delta.body));

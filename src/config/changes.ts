@@ -10,6 +10,10 @@ export const CHANGES: Change[] = [
     date: '2026-10-04',
     title: 'Everyday use',
     items: [
+      'A new narrative writer: JEPES input in MCO 1616.1’s own form (a dash, a past-tense verb, the number, the result) under the three command input lines, and FITREP input as a Section C draft.',
+      'Select any sentence to see the entries it came from and why it made the cut; keep it, leave it out, or ask for another wording.',
+      'A reviewer grades the narrative out of 100 and says what would make it stronger, and what each point rests on: an order, guidance or style.',
+      'Credit from your case histories (documents researched, outcomes verified, cases resolved) is written in, and required annual training is held back, as the order says.',
       'Pages open on the last 12 months, so 1 October no longer reads as if nobody had done anything. A period you chose still wins.',
       'On a phone, Today, Work, a log button and your Record sit at the bottom where a thumb reaches. If you lead a team, Team takes the Record’s place.',
       'Due dates say how long: “tomorrow”, “in 4 days”, “1 day overdue”.',
@@ -26,7 +30,7 @@ export const CHANGES: Change[] = [
       'Dates and times read one way everywhere: “05 Sep 26”, “28 Sep 26 1432”.',
       'Quick Log fills in the outcome when your sentence ends with one: “…, all cleared on the next report”.',
       'On an entry’s page, each thing it is missing opens Edit.',
-      'The JEPES and FITREP narrative opens by counting work done, not kilometres or hours, and each package section prompts for what it asks.',
+      'Each package section prompts for what it asks.',
     ],
   },
   {
