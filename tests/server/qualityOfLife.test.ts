@@ -68,3 +68,18 @@ test('Quick Log takes a closing clause that says what came of the work as the ou
   assert.equal(list.title, 'Built the tracker for G-8, S-4 and S-1');
   assert.equal(parseQuickLog('Briefed the CO, nobody else', now).result, null);
 });
+
+test('a narrative headline counts work done, not kilometres or hours', async () => {
+  const { composeNarrative } = await import('../../shared/narrative.ts');
+  const area = 'MOS / Mission Accomplishment';
+  const mixed = composeNarrative([
+    { title: 'Cleared 4 2-Way UMTs on the Q4 report', quantity: 4, unit_label: 'UMTs', dollar_amount: 6206, dollar_type: 'reconciled', eval_area: area },
+    { title: 'Volunteered at the base food pantry', quantity: 6, unit_label: 'hours', eval_area: area },
+    { title: 'Led section PT: 10 km hike', quantity: 10, unit_label: 'km', eval_area: area },
+  ]).text;
+  assert.match(mixed, /^MISSION: Processed 4 UMTs valued at \$6K\./, mixed);
+  assert.ok(!/processed[^.]*\bkm\b/i.test(mixed) && !/processed[^.]*hours/i.test(mixed), mixed);
+  // With nothing countable, the headline says how much was done and for how long.
+  const hours = composeNarrative([{ title: 'Volunteered at the base food pantry', quantity: 6, unit_label: 'hours', eval_area: area }]).text;
+  assert.match(hours, /^MISSION: Completed 1 documented action over 6 hours\./, hours);
+});

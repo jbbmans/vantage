@@ -21,6 +21,16 @@ const BLANK_SECTIONS: Section[] = [
   { heading: 'Individual character', body: '', source_ids: [] },
 ];
 
+/** What each JEPES or FITREP section asks for, as the empty section's prompt. A section someone named themselves gets the general one. */
+const SECTION_PROMPTS: Array<[RegExp, string]> = [
+  [/mission|\bmos\b/i, 'What changed because of the work, in the units it was measured in: how many, how much, by when.'],
+  [/leader/i, 'Who you led, trained or mentored, and what they could do afterward that they could not before.'],
+  [/character|conduct|integrity/i, 'A specific act of integrity, initiative or bearing and what came of it: an instance, not an adjective.'],
+  [/intellect|wisdom|education|pme/i, 'What you studied or taught, and where you put it to use.'],
+  [/evaluation|fulfillment/i, 'Reports you wrote or reviewed: on time, accurate, and what they said about your Marines.'],
+];
+const sectionPrompt = (heading: string) => SECTION_PROMPTS.find(([re]) => re.test(heading))?.[1] ?? 'Write what changed because of the work, in the units it was measured in.';
+
 export default function ReportStudio({ embedded }: { embedded?: boolean } = {}) {
   const [openId, setOpenId] = useState<string | null>(null);
   return openId ? <Editor id={openId} onBack={() => setOpenId(null)} /> : <DraftList embedded={embedded} onOpen={setOpenId} />;
@@ -313,7 +323,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
                 rows={Math.max(4, Math.ceil(section.body.length / 90))}
                 value={section.body}
                 onChange={(e) => { clock.current.beat(); setSections((prev) => prev.map((s, i) => (i === index ? { ...s, body: e.target.value } : s))); }}
-                placeholder="Write what changed because of the work, in the units it was measured in."
+                placeholder={sectionPrompt(section.heading)}
               />
               <p className="mt-1 text-2xs text-ink-3">{section.body.length.toLocaleString()} characters</p>
               {sectionAi[index] && (

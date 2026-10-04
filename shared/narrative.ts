@@ -1,6 +1,7 @@
 import { formatNumber } from './metrics.ts';
 import { JEPES_CORE, DEFAULT_METRICS, isSummable, type MetricsConfig } from './constants.ts';
 import { strength, unitFor, type BulletSource } from './bullets.ts';
+import { isTimeUnit } from './metricEngine.ts';
 
 export const DEFAULT_LIMIT = 1000;
 
@@ -19,8 +20,13 @@ function money(n: number): string | null {
   return `$${Math.round(n)}`;
 }
 
+// Distance, points and percentages measure an effort rather than count work done: "processed 10 km" says nothing.
+// Those entries still speak for themselves in the sentences that follow the headline.
+const MEASURE_UNIT = /^(?:km|kms|kilomet(?:er|re)s?|mi|miles?|met(?:er|re)s?|yards?|yds?|points?|pts|%.*)$/i;
+
 function summarise(list: BulletSource[] = [], metrics: MetricsConfig = DEFAULT_METRICS) {
   const units: Record<string, number> = {};
+  const time: Record<string, number> = {};
   const systems = new Set<string>();
   const orgs = new Set<string>();
   let dollars = 0;
@@ -28,7 +34,8 @@ function summarise(list: BulletSource[] = [], metrics: MetricsConfig = DEFAULT_M
   for (const a of list) {
     if (a.quantity) {
       const key = (a.unit_label || 'actions').trim();
-      units[key] = (units[key] || 0) + Number(a.quantity);
+      if (isTimeUnit(key)) time[key] = (time[key] || 0) + Number(a.quantity);
+      else if (!MEASURE_UNIT.test(key)) units[key] = (units[key] || 0) + Number(a.quantity);
     }
     if (a.dollar_amount) {
       if (isSummable(a.dollar_type, metrics)) dollars += Number(a.dollar_amount);
@@ -37,8 +44,8 @@ function summarise(list: BulletSource[] = [], metrics: MetricsConfig = DEFAULT_M
     if (a.system) systems.add(a.system);
     if (a.organization) orgs.add(a.organization);
   }
-  const unitList = Object.entries(units).sort((a, b) => b[1] - a[1]).map(([unit, total]) => `${formatNumber(total)} ${unitFor(unit, total)}`);
-  return { unitList, dollars, reviewed, systems: [...systems], orgs: [...orgs], count: list.length };
+  const listOf = (bag: Record<string, number>) => Object.entries(bag).sort((a, b) => b[1] - a[1]).map(([unit, total]) => `${formatNumber(total)} ${unitFor(unit, total)}`);
+  return { unitList: listOf(units), timeList: listOf(time), dollars, reviewed, systems: [...systems], orgs: [...orgs], count: list.length };
 }
 
 function series(items: string[] = [], max = 3): string | null {
@@ -71,7 +78,7 @@ function headlineSentence(area: string, list: BulletSource[], metrics: MetricsCo
   if (quantity && cash) clauses.push(`${verbs.counted} ${quantity} valued at ${cash}`);
   else if (quantity) clauses.push(`${verbs.counted} ${quantity}`);
   else if (cash) clauses.push(`${verbs.money} ${cash}`);
-  else clauses.push(`completed ${s.count} documented ${s.count === 1 ? 'action' : 'actions'}`);
+  else clauses.push(`completed ${s.count} documented ${s.count === 1 ? 'action' : 'actions'}${s.timeList.length ? ` over ${series(s.timeList)}` : ''}`);
   if (s.systems.length) clauses.push(`across ${series(s.systems, 3)}`);
   return clauses.join(' ');
 }

@@ -71,7 +71,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav, ex
           <DialogPrimitive.Title className="sr-only">Search and jump</DialogPrimitive.Title>
           <div className="flex items-center gap-3 border-b border-line px-5">
             <Search className="h-[18px] w-[18px] text-ink-3" />
-            <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onKey} placeholder="Search work, records, people, the FMRA reference, or jump to a page…" className="h-14 flex-1 bg-transparent text-md text-ink outline-none placeholder:text-ink-3" aria-label="Search" role="combobox" aria-expanded aria-controls="palette-list" aria-activedescendant={items[active]?.id} />
+            <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onKey} placeholder="Search work, records, people, the FMRA reference, or jump to a page…" className="h-14 flex-1 bg-transparent text-md text-ink outline-none placeholder:text-ink-3 focus-visible:shadow-none" aria-label="Search" role="combobox" aria-expanded aria-controls="palette-list" aria-activedescendant={items[active]?.id} />
             <kbd className="kbd">Esc</kbd>
           </div>
           <ul id="palette-list" role="listbox" className="max-h-[52vh] overflow-y-auto p-2">

@@ -26,6 +26,7 @@ export const CHANGES: Change[] = [
       'Dates and times read one way everywhere: “05 Sep 26”, “28 Sep 26 1432”.',
       'Quick Log fills in the outcome when your sentence ends with one: “…, all cleared on the next report”.',
       'On an entry’s page, each thing it is missing opens Edit.',
+      'The JEPES and FITREP narrative opens by counting work done, not kilometres or hours, and each package section prompts for what it asks.',
     ],
   },
   {

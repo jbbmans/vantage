@@ -35,6 +35,9 @@ _Updated 2026-10-04_
 - **A bullet says a figure once.** A title that already named its amount ("$48,250", "$1.2 million") got it again at the end ("…, $48,250.00."); the bullet now compares the title's figures by value.
 - **An entry's gaps are one tap from the fix.** On an entry's page each gap ("No quantity (how many?)") opens Edit, and a missing area reads "Untagged" there as it does in the list (it said "Unassigned" on one and "Untagged" on the other).
 - **Smaller things.** Activities' delete is a trash icon named for its entry ("Delete Cleared 4 2-Way UMTs…") instead of an anonymous "×", and the Career cards (training hours, awards, counselings) open their tabs.
+- **The narrative's opening line makes sense.** The JEPES/FITREP narrative opened "MISSION: Processed 10 km, 6 hours and 4 UMTs valued at $6K." Its headline now counts work products only ("Processed 4 UMTs valued at $6K."); a hike's kilometres, points and percentages are left to the sentences about those entries, and hours appear only when nothing countable was logged ("Completed 3 documented actions over 22 hours."). The PDF uses the same text.
+- **Each package section says what it wants.** Every section's empty box said "Write what changed because of the work, in the units it was measured in.", Leadership and Individual character included. Mission, Leadership, Character, Intellect and Wisdom, and Evaluation responsibilities each have their own prompt.
+- **⌘K's search box has no stray outline.** The global focus ring drew a hard rectangle into the palette's top edge; the caret and the highlighted result already show where focus is.
 
 ## What changed (2026-10-03 audit and upgrade)
 
@@ -159,7 +162,7 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **572 / 572 pass** (2026-10-04) |
+| `npm test` (server suite, in-memory SQLite) | **573 / 573 pass** (2026-10-04) |
 | `npm run test:browser` (Playwright, Chromium, built client) | **102 / 102 pass** (2026-10-04) |
 | Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference, the public page and the security, privacy, accessibility and changes pages |
 | `npm audit` | 0 vulnerabilities |
