@@ -14,7 +14,7 @@ import {
 } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
-import { DEFAULT_PERIOD, rangeForPeriod, dayKey, formatNumber } from '../../shared/metrics';
+import { DEFAULT_PERIOD, rangeForPeriod, dayKey, formatDate, formatNumber } from '../../shared/metrics';
 import { todayActions } from '../../shared/health';
 import { goalPace } from '../../shared/metricEngine';
 import { cn, timeAgo, todayIso } from '@/lib/utils';
@@ -257,7 +257,7 @@ function SectionOverview({ unitId }: { unitId: string }) {
             <ul className="divide-y divide-line">{w.data.attention.slice(0, 5).map((item) => <WorkRow key={item.id} item={item} />)}</ul>
           )}
         </Panel>
-        <Panel title="Who holds what" subtitle={`Open work held now, with documents researched since ${w.data.window.from}`}>
+        <Panel title="Who holds what" subtitle={`Open work held now, with documents researched since ${formatDate(w.data.window.from)}`}>
           {!w.data.members_visible ? <p className="text-sm text-ink-3">Your role shows section totals only.</p>
             : !w.data.members.some((m) => m.assigned || m.documents_researched) ? <p className="text-sm text-ink-3">Nobody holds open work, and nothing has been researched in this window.</p>
             : (

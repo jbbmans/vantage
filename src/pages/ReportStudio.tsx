@@ -11,7 +11,7 @@ import { AiAction, AiResult } from '@/components/AiPanel';
 import { editorClock, track } from '@/lib/telemetry';
 import * as api from '@/lib/api';
 import { formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
-import { cn, timeAgo } from '@/lib/utils';
+import { cn, formatRange, timeAgo } from '@/lib/utils';
 
 interface Section { heading: string; body: string; source_ids: string[] }
 
@@ -244,7 +244,7 @@ function Editor({ id, onBack }: { id: string; onBack: () => void }) {
     <div className="page">
       <button type="button" onClick={onBack} className="mb-3 inline-flex items-center gap-1 text-xs text-ink-3 hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />All reports</button>
       <PageHeader
-        eyebrow={`${draft.period_start} to ${draft.period_end}`}
+        eyebrow={formatRange(draft.period_start, draft.period_end)}
         title={<input aria-label="Report title" value={title} onChange={(e) => setTitle(e.target.value)} className="doc-title w-full bg-transparent outline-none focus-visible:ring-2 focus-visible:ring-accent" />}
         lede={draft.latest_revision ? `Saved through revision ${draft.latest_revision}.` : 'Not saved yet. Pick the records this report is built from, then save a revision.'}
       >

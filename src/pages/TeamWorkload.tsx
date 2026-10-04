@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ArrowDown, ArrowUp, Info } from 'lucide-react';
-import { Panel, Segmented, Skeleton, Tooltip } from '@/components/ui/primitives';
+import { Panel, Progress, Segmented, Skeleton, Tooltip } from '@/components/ui/primitives';
 import { WorkRow, StageBadge } from '@/components/work';
 import { useWorkload } from '@/lib/queries';
 import { STAGE_LABEL, WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
@@ -84,10 +84,17 @@ export default function TeamWorkload({ unitId }: { unitId: string }) {
           )}
         </Panel>
         <Panel title="Age of open work">
-          <ul className="space-y-1.5 text-sm">
-            <li className="flex justify-between"><span className="text-ink">Under a week</span><span className="fig">{s.aging.under_7_days}</span></li>
-            <li className="flex justify-between"><span className="text-ink">One to four weeks</span><span className="fig">{s.aging.from_7_to_30_days}</span></li>
-            <li className="flex justify-between"><span className="text-ink">Over thirty days</span><span className="fig">{s.aging.over_30_days}</span></li>
+          {/* Days since each item was opened; the bar is its share of the open work. */}
+          <ul className="space-y-3 text-sm">
+            {([['Under 7 days', s.aging.under_7_days, 'accent'], ['7 to 30 days', s.aging.from_7_to_30_days, 'accent'], ['Over 30 days', s.aging.over_30_days, 'warn']] as const).map(([label, n, tone]) => {
+              const all = s.aging.under_7_days + s.aging.from_7_to_30_days + s.aging.over_30_days;
+              return (
+                <li key={label}>
+                  <span className="flex justify-between"><span className="text-ink">{label}</span><span className="fig">{n}</span></span>
+                  <Progress value={all ? (n / all) * 100 : 0} tone={n ? tone : 'accent'} className="mt-1" label={`${label}: ${n} of ${all}`} />
+                </li>
+              );
+            })}
           </ul>
         </Panel>
       </div>

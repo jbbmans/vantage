@@ -12,7 +12,7 @@ import { keys, useIdentity, useOrg, usePrefs, useSavePrefs, signOutEverywhere } 
 import * as api from '@/lib/api';
 import { ACCENTS, DEFAULT_ACCENT, VISIBILITIES } from '../../shared/constants';
 import { passwordProblem, passwordStrength } from '../../shared/password';
-import { copyToClipboard, downloadText, timeAgo, humanize, cn } from '@/lib/utils';
+import { copyToClipboard, downloadText, formatStamp, timeAgo, humanize, cn } from '@/lib/utils';
 import { resolveTheme, type ThemeMode } from '@/lib/theme';
 import { DEFAULT_PERIOD } from '../../shared/metrics';
 
@@ -159,7 +159,7 @@ function Security() {
         <ul className="space-y-1.5">{(sessions?.sessions || []).map((s: any) => <li key={s.id} className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-sm"><span><span className="flex items-center gap-2 text-ink">{s.current ? <Badge tone="accent">This device</Badge> : null}<span className="truncate">{describeAgent(s.user_agent)}</span></span><span className="block text-2xs text-ink-3">{s.method} · {s.ip || 'unknown IP'} · active {timeAgo(s.last_used_at || s.created_at)}</span></span>{!s.current && <Button size="xs" variant="ghost" onClick={async () => { try { await api.revokeSession(s.id); refetchSessions(); } catch (e) { toast.error(api.errorText(e)); } }}>Sign out</Button>}</li>)}</ul>
       </Panel>
       <Panel className="lg:col-span-2" title="Who has looked at your record" subtitle="Every open of your data by someone else" padded={false}>
-        {!audit?.length ? <EmptyState icon={ShieldCheck} title="Nobody but you" description="Leaders opening your shared records will show up here." /> : <Table head={<><th className="w-40">When</th><th className="w-40">Who</th><th>What</th></>}>{audit.map((r: any) => <tr key={r.id}><td className="fig text-xs text-ink-3">{new Date(r.at).toLocaleString()}</td><td className="text-xs">{r.rank_abbr || ''} {r.last_name || 'System'}</td><td className="text-xs text-ink">{humanize(r.action)}{r.entity ? ` · ${r.entity}` : ''}{r.detail ? <span className="text-ink-3"> · {r.detail}</span> : ''}</td></tr>)}</Table>}
+        {!audit?.length ? <EmptyState icon={ShieldCheck} title="Nobody but you" description="Leaders opening your shared records will show up here." /> : <Table head={<><th className="w-40">When</th><th className="w-40">Who</th><th>What</th></>}>{audit.map((r: any) => <tr key={r.id}><td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td><td className="text-xs">{r.rank_abbr || ''} {r.last_name || 'System'}</td><td className="text-xs text-ink">{humanize(r.action)}{r.entity ? ` · ${r.entity}` : ''}{r.detail ? <span className="text-ink-3"> · {r.detail}</span> : ''}</td></tr>)}</Table>}
       </Panel>
 
       <Dialog open={Boolean(totp)} onOpenChange={(o) => { if (!o) setTotp(null); }} title="Set up your authenticator" description="Scan, then enter the code the app shows." size="sm" footer={<><Button variant="ghost" onClick={() => setTotp(null)}>Cancel</Button><Button variant="primary" onClick={confirmTotp} disabled={code.replace(/\s/g, '').length < 6}>Turn on</Button></>}>

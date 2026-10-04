@@ -26,6 +26,11 @@ _Updated 2026-10-04_
 - **Tasks say who.** A Marine without the roster saw "→ Assigned from Assigned" on a task their section lead set. Task rows now carry the setter's and holder's names (only on rows the reader can already open, and never their own), so it reads "from SSgt Diaz". Titles take two lines on a phone and due dates say "tomorrow" or "in 3 days".
 - **Projects and stat cards.** A project opens from its title (the stray "Open" link is gone), counts read "2 of 5 tasks done" or "No tasks yet", and its due date says how close it is. Stat cards let a label and a hint take two lines, so three across a phone read "Training hours" and "Awards in progress" instead of "Training ho…".
 - **Steadier timing tests.** One full server run failed once, straight after a production build, and did not fail again in five more full runs. The likeliest cause was the speed tests added in the audit, whose budgets (50–400 ms) were tight for a busy machine. Each now has 10–30 times its usual time and still fails on the slowdowns it guards against: the Quick Log test uses 20,000 figures (30 ms linear, seconds if quadratic).
+- **The roster fits a phone.** On a phone the six-column table left a name two words wide and the controls off the screen; it is a list now (name, billet · MOS · team, roles, and the same controls). Each "Open" names whom it opens, for a screen reader.
+- **Each Team page says what it is for.** Workload, Roster, Unit dashboard, Roles, Units and Access log each have their own one-line lede instead of the overview's paragraph; the privacy promise stays on the overview and the roster.
+- **Age of open work, said exactly.** "One to four weeks" counted 7 to 30 days; the rows now read "Under 7 days", "7 to 30 days" and "Over 30 days", each with a bar for its share, over 30 days in amber.
+- **One way to write a date.** Today's "Who holds what" read "since 2026-09-05", a package's heading "2026-07-07 to 2026-10-04", and award, counseling, access-log, conflict and entry-history times used the browser's own format ("9/18/2026, 9:31:02 AM"). All now read the way the rest of Vantage does ("05 Sep 26", "28 Sep 26 1432").
+- **Smaller things.** Drafts with nothing in them use the full width and offer "Open my work"; the unit dashboard no longer says "the rest need a result written" at 100%.
 
 ## What changed (2026-10-03 audit and upgrade)
 

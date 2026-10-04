@@ -22,6 +22,8 @@ export const CHANGES: Change[] = [
       'Goals say whether they are on pace for the time gone, with a tick on the bar where an even pace would be.',
       'Tasks show who set them and who holds them by name, titles take two lines on a phone, and due dates say “tomorrow”.',
       'Goal cards read “21 of 30 UMTs”; project cards say “2 of 5 tasks done” and open from their title.',
+      'On a phone, the Team roster is a list you can read, with each Marine’s billet, roles and controls in reach.',
+      'Dates and times read one way everywhere: “05 Sep 26”, “28 Sep 26 1432”.',
     ],
   },
   {
