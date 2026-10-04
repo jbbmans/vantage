@@ -590,7 +590,7 @@ export default function AppShell() {
           </footer>
         </div>
 
-        <TabBar hidden={drawer || quickLog || palette} onLog={() => openQuickLog('')} onMore={() => setDrawer(true)} />
+        <TabBar hidden={drawer || quickLog || palette} leads={teams.has('workload')} onLog={() => openQuickLog('')} onMore={() => setDrawer(true)} />
         <QuickLog open={quickLog} onOpenChange={setQuickLog} initialText={quickLogSeed} />
         {userId && <OutboxDialog open={queueOpen} onOpenChange={setQueueOpen} userId={userId} onRetry={flush} />}
         <CommandPalette open={palette} onOpenChange={setPalette} onQuickLog={openQuickLog} nav={visibleNav} extra={paletteActions} />

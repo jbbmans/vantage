@@ -43,14 +43,15 @@ export function WorkRow({ item, showNext = true, trailing }: { item: WorkRowItem
   const overdue = item.due_date && item.due_date < todayIso() && !['resolved', 'not_applicable'].includes(item.stage);
   return (
     <li>
-      <Link to={`/work/items/${item.id}`} className="group flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-2">
+      {/* On a phone the due date goes under the title instead of beside it, so the title gets the width. */}
+      <Link to={`/work/items/${item.id}`} className="group flex flex-col gap-1.5 px-4 py-3 transition-colors hover:bg-surface-2 sm:flex-row sm:items-start sm:gap-3">
         <span className="min-w-0 flex-1">
           <span className="flex flex-wrap items-center gap-x-2 gap-y-1">
             <span className="fig text-sm font-semibold text-ink">{item.reference || item.natural_key}</span>
             <StageBadge stage={item.stage} waiting={item.waiting_category} />
             {overdue && <Badge tone="bad">Overdue</Badge>}
           </span>
-          <span className="mt-0.5 block truncate text-sm text-ink-2">{item.title}</span>
+          <span className="mt-0.5 line-clamp-2 text-sm text-ink-2 sm:line-clamp-1" title={item.title}>{item.title}</span>
           {showNext && item.stage === 'waiting' && item.waiting_since && (
             <span className="mt-1 flex items-center gap-1.5 text-xs text-ink-3"><Hourglass className="h-3.5 w-3.5" aria-hidden />Waiting {elapsed(item.waiting_since)}. Elapsed time, not work.</span>
           )}
@@ -61,7 +62,7 @@ export function WorkRow({ item, showNext = true, trailing }: { item: WorkRowItem
             <span className="mt-1 flex items-center gap-1.5 text-xs text-accent"><ArrowRight className="h-3.5 w-3.5" aria-hidden />Next: {item.next_step.title}{item.next_step.note ? ` · ${item.next_step.note}` : ''}</span>
           )}
         </span>
-        <span className="flex shrink-0 flex-col items-end gap-1 text-xs text-ink-3">
+        <span className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3 sm:flex-col sm:flex-nowrap sm:items-end sm:gap-1">
           {item.due_date && <span className={cn('flex items-center gap-1', overdue && 'text-bad')}><Clock className="h-3 w-3" aria-hidden /><DueText value={item.due_date} done={['resolved', 'not_applicable'].includes(item.stage)} /></span>}
           {trailing}
         </span>

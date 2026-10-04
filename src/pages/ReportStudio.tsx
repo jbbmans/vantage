@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { AlertTriangle, ArrowLeft, Check, Download, ExternalLink, FileText, History, Plus, ShieldCheck, X } from 'lucide-react';
+import { Link } from 'react-router-dom';
+import { AlertTriangle, ArrowLeft, ArrowRight, Check, Download, ExternalLink, FileText, History, Plus, ShieldCheck, X } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Textarea, Select, Badge, EmptyState, Skeleton, Panel } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -10,7 +11,7 @@ import { AiAction, AiResult } from '@/components/AiPanel';
 import { editorClock, track } from '@/lib/telemetry';
 import * as api from '@/lib/api';
 import { formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
-import { cn } from '@/lib/utils';
+import { cn, timeAgo } from '@/lib/utils';
 
 interface Section { heading: string; body: string; source_ids: string[] }
 
@@ -60,27 +61,50 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
       actions={<Button variant="primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" />New report</Button>}
     >
 
-      {drafts.isPending ? <Skeleton className="h-40" /> : (drafts.data || []).length === 0 ? (
-        <div className="card"><EmptyState icon={FileText} title="No reports yet" description="Start one for the period you are reporting on, then pull in the records it should cite." action={<Button variant="primary" onClick={() => setCreating(true)}>Start a report</Button>} /></div>
-      ) : (
-        <ul className="space-y-2">
-          {(drafts.data || []).map((d: any) => (
-            <li key={d.id}>
-              <button type="button" onClick={() => onOpen(d.id)} className="flex w-full items-center gap-3 rounded-lg border border-line bg-surface px-4 py-3 text-left transition-colors hover:border-line-strong hover:bg-surface-2">
-                <FileText className="h-4 w-4 shrink-0 text-ink-3" />
-                <span className="min-w-0 flex-1">
-                  <span className="block truncate text-sm font-medium text-ink">{d.title}</span>
-                  <span className="block text-xs text-ink-3">
-                    <DateText value={d.period_start} /> to <DateText value={d.period_end} />
-                    {d.subject_id !== identity?.user.id ? ' · for another Marine' : ''}
-                  </span>
-                </span>
-                <Badge tone={d.latest_revision ? 'accent' : 'neutral'}>{d.latest_revision ? `Revision ${d.latest_revision}` : 'Not saved yet'}</Badge>
-              </button>
-            </li>
-          ))}
-        </ul>
-      )}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
+        <div className="lg:col-span-2">
+          {drafts.isPending ? <Skeleton className="h-40" /> : (drafts.data || []).length === 0 ? (
+            <div className="card"><EmptyState icon={FileText} title="No reports yet" description="Start one for the period you are reporting on, then pull in the records it should cite." action={<Button variant="primary" onClick={() => setCreating(true)}>Start a report</Button>} /></div>
+          ) : (
+            <ul className="space-y-2">
+              {(drafts.data || []).map((d: any) => (
+                <li key={d.id}>
+                  <button type="button" onClick={() => onOpen(d.id)} className="lift flex w-full items-center gap-3 rounded-xl bg-surface px-4 py-3.5 text-left shadow-card transition-colors hover:bg-surface-2">
+                    <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-accent-soft text-accent"><FileText className="h-4 w-4" aria-hidden /></span>
+                    <span className="min-w-0 flex-1">
+                      <span className="block truncate text-sm font-medium text-ink">{d.title}</span>
+                      <span className="block text-xs text-ink-3">
+                        <DateText value={d.period_start} /> to <DateText value={d.period_end} />
+                        {d.subject_id !== identity?.user.id ? ' · for another Marine' : ''}
+                        {d.updated_at ? ` · changed ${timeAgo(d.updated_at)}` : ''}
+                      </span>
+                    </span>
+                    <Badge tone={d.latest_revision ? 'accent' : 'neutral'}>{d.latest_revision ? `Revision ${d.latest_revision}` : 'Not saved yet'}</Badge>
+                  </button>
+                </li>
+              ))}
+            </ul>
+          )}
+        </div>
+        {/* What a package is for, beside the list, so a first visit is not a blank page with one button. */}
+        <aside className="card self-start p-5" aria-labelledby="package-how">
+          <h2 id="package-how" className="text-md font-semibold text-ink">How a package works</h2>
+          <ol className="mt-3 space-y-3 text-sm text-ink-2">
+            {[
+              ['Choose the period', 'and the records the package should cite.'],
+              ['Write against them', 'with each line beside the entries it came from.'],
+              ['Save a revision', 'Vantage re-reads every cited record as it saves, and asks you to read any that changed first.'],
+              ['Export it', 'as a PDF: exactly the revision that was reviewed, for the reporting senior.'],
+            ].map(([lead, rest], i) => (
+              <li key={lead} className="flex gap-3">
+                <span className="fig flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-surface-2 text-xs font-semibold text-ink-2 ring-1 ring-line">{i + 1}</span>
+                <span><span className="font-medium text-ink">{lead}</span> {rest}</span>
+              </li>
+            ))}
+          </ol>
+          <Link to="/reports/analysis" className="mt-4 inline-flex items-center gap-1.5 text-sm font-medium text-accent hover:underline">See what your record shows first<ArrowRight className="h-3.5 w-3.5" aria-hidden /></Link>
+        </aside>
+      </div>
 
       <Dialog
         open={creating} onOpenChange={setCreating} title="Start a report" size="sm"

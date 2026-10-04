@@ -68,9 +68,9 @@ export default function Dashboard() {
                 {working.map((item) => <WorkRow key={item.id} item={item} />)}
                 {myTasks.slice(0, 4).map((t) => (
                   <li key={t.id}>
-                    <Link to={`/records/tasks/${t.id}`} className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-2">
+                    <Link to={`/records/tasks/${t.id}`} className="flex flex-col gap-1.5 px-4 py-3 transition-colors hover:bg-surface-2 sm:flex-row sm:items-start sm:gap-3">
                       <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-2"><Badge tone={t.priority === 'high' || t.priority === 'critical' ? 'warn' : 'neutral'}>Task</Badge><span className="truncate text-sm font-medium text-ink">{t.title}</span></span>
+                        <span className="flex items-start gap-2"><Badge tone={t.priority === 'high' || t.priority === 'critical' ? 'warn' : 'neutral'}>Task</Badge><span className="line-clamp-2 text-sm font-medium text-ink sm:line-clamp-1" title={t.title}>{t.title}</span></span>
                         {t.notes && <span className="mt-0.5 block truncate text-xs text-ink-3">{t.notes}</span>}
                       </span>
                       {t.due_date && <span className={cn('shrink-0 text-xs', t.due_date < todayIso() ? 'text-bad' : 'text-ink-3')}><DueText value={t.due_date} /></span>}

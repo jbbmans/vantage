@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { BookOpenCheck, Briefcase, Gauge, Menu as MenuIcon, Plus, type LucideIcon } from 'lucide-react';
+import { BookOpenCheck, Briefcase, Gauge, Menu as MenuIcon, Plus, Users, type LucideIcon } from 'lucide-react';
 import { groupFor } from '@/config/nav';
 import { cn } from '@/lib/utils';
 
@@ -10,11 +10,11 @@ const TYPING = (el: EventTarget | null) => {
 };
 
 /**
- * The phone's navigation, where a thumb reaches: Today, Work, a log button, the Record, and everything else behind
+ * The phone's navigation, where a thumb reaches: Today, Work, a log button, the Record (the Team, for a leader), and everything else behind
  * More (the drawer). Below the large breakpoint only; on a desk the rail does this. It steps aside while someone types,
  * since an on-screen keyboard pushes a fixed bar up over the field, and while the drawer is open.
  */
-export default function TabBar({ hidden, onLog, onMore }: { hidden: boolean; onLog: () => void; onMore: () => void }) {
+export default function TabBar({ hidden, leads, onLog, onMore }: { hidden: boolean; leads: boolean; onLog: () => void; onMore: () => void }) {
   const { pathname } = useLocation();
   const group = groupFor(pathname)?.id;
   const [typing, setTyping] = useState(false);
@@ -50,7 +50,8 @@ export default function TabBar({ hidden, onLog, onMore }: { hidden: boolean; onL
       <button type="button" className="tabbar-log" onClick={onLog} aria-label="Log what you did">
         <span><Plus aria-hidden /></span>
       </button>
-      {link('/record', 'Record', BookOpenCheck, group === 'record')}
+      {/* Somebody who leads a team checks it more than their own record; theirs is a tap away under More. */}
+      {leads ? link('/team/workload', 'Team', Users, group === 'team') : link('/record', 'Record', BookOpenCheck, group === 'record')}
       <button type="button" className="tabbar-item" onClick={onMore}><MenuIcon aria-hidden /><span>More</span></button>
     </nav>
   );

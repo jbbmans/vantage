@@ -236,7 +236,8 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
       </>}
     >
 
-      <div className="mb-3 flex flex-wrap items-center gap-2" role="group" aria-label="Whose work">
+      {/* One row that scrolls sideways on a phone, rather than two rows of pills before the first case. */}
+      <div className="scroll-x-quiet -mx-4 mb-3 flex items-center gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" role="group" aria-label="Whose work">
         {([
           ['open', 'All open work', { active: true, claimed: '', state: '', overdue: false }],
           ['nobody', 'Open to claim', { active: true, claimed: 'nobody', state: '', overdue: false }],
@@ -245,7 +246,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
           ['resolved', 'Resolved', { active: false, claimed: '', state: 'resolved', overdue: false }],
         ] as const).map(([key, label, patch]) => {
           const on = query.active === patch.active && query.claimed === patch.claimed && query.state === patch.state && query.overdue === patch.overdue;
-          return <Button key={key} size="sm" variant={on ? 'primary' : 'default'} aria-pressed={on} onClick={() => setQuery((q) => ({ ...q, ...patch, offset: 0 }))}>{label}</Button>;
+          return <Button key={key} size="sm" variant={on ? 'primary' : 'default'} className="shrink-0" aria-pressed={on} onClick={() => setQuery((q) => ({ ...q, ...patch, offset: 0 }))}>{label}</Button>;
         })}
       </div>
 
