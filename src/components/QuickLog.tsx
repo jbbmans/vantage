@@ -12,7 +12,7 @@ import { strength, weaknesses, composeBullet } from '../../shared/bullets';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { AiAction, ModelPicker } from '@/components/AiPanel';
-import { useCreateRecord, useIdentity, usePrefs, useTrack, useMetrics } from '@/lib/queries';
+import { useCreateRecord, useDeleteRecord, useIdentity, usePrefs, useTrack, useMetrics } from '@/lib/queries';
 import { draftKey, readDraft, writeDraft } from '@/lib/drafts';
 import { errorText, isOffline } from '@/lib/api';
 import { outbox } from '@/lib/outbox';
@@ -27,6 +27,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
   const prefs = usePrefs();
   const toast = useToast();
   const create = useCreateRecord('activities');
+  const remove = useDeleteRecord('activities');
   const { pending } = useContext(OutboxContext);
   const [text, setText] = useState(initialText);
   const [expanded, setExpanded] = useState(false);
@@ -82,7 +83,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     setSaving(true);
     const body = payload()!;
     try {
-      await create.mutateAsync(body);
+      const saved = await create.mutateAsync(body) as { id?: string } | undefined;
       capture.current?.completed({
         had_measure: body.quantity != null || body.dollar_amount != null,
         had_outcome: Boolean(record.result),
@@ -90,7 +91,8 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
         source: aiUsed ? 'ai_draft' : 'manual',
       });
       capture.current = null;
-      toast.success('Activity logged.');
+      // A slip of the thumb is one tap to take back: the entry goes to the recycle bin, as a delete does.
+      toast.success('Activity logged.', saved?.id ? { label: 'Undo', onClick: () => { remove.mutateAsync(saved.id!).then(() => toast.info('Entry removed. It is in the recycle bin for 30 days.')).catch((e) => toast.error(errorText(e))); } } : undefined);
       writeDraft(key, null);
       onOpenChange(false);
     } catch (err) {

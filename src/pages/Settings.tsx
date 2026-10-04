@@ -43,7 +43,10 @@ const ZONES = [
   'America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu', 'Pacific/Guam',
   'Asia/Tokyo', 'Asia/Seoul', 'Australia/Darwin', 'Europe/Madrid', 'Europe/Berlin', 'Europe/London', 'Asia/Bahrain', 'Africa/Djibouti', 'UTC',
 ];
-const zoneLabel = (tz: string) => { try { const name = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' }).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value; return `${tz.replace(/_/g, ' ')}${name ? ` · ${name}` : ''}`; } catch { return tz; } };
+// "New York · EDT", not "America/New York · EDT": the city is what people recognise, and the menu fits a phone.
+// Where Marines are, when the zone's own city is not it: Okinawa keeps Tokyo's time.
+const ZONE_PLACES: Record<string, string> = { 'Asia/Tokyo': 'Okinawa / Tokyo', 'Pacific/Honolulu': 'Hawaii', 'UTC': 'UTC' };
+const zoneLabel = (tz: string) => { const city = ZONE_PLACES[tz] ?? (tz.split('/').pop() || tz).replace(/_/g, ' '); try { const name = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' }).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value; return name && name !== city ? `${city} · ${name}` : city; } catch { return city; } };
 const timeZoneOptions = (current: string) => [...new Set([...ZONES, ...(current ? [current] : [])])].map((tz) => ({ value: tz, label: zoneLabel(tz) }));
 
 function Profile() {

@@ -15,6 +15,10 @@ _Updated 2026-10-04_
 - **Titles read whole on a phone.** Case and task rows put the due date under the title instead of beside it, and a title may take two lines before it is cut. The queue's "All open work · Open to claim · Mine · Overdue · Resolved" is one row that scrolls sideways.
 - **The demo banner is one line on a phone** ("Demo · Marine | Section lead · Start over"), giving back about half the first screen it took on every page.
 - **Packages explain themselves.** Beside the list, four steps say what a package is (choose the period, write against the records, save a revision that re-reads them, export what was reviewed), and each package says when it last changed.
+- **Undo after logging.** "Activity logged." carries Undo for the slip of a thumb; the entry goes to the recycle bin like any other delete.
+- **Cards that read like headings.** Today's outcome cards say "Dollars reconciled" and "Hours logged" instead of "Dollars, Reconciled" and "hours". A unit or value type an owner named keeps its own wording and case.
+- **Reminders that say how many.** The record card read "readiness fields incomplete"; it now reads "3 readiness fields incomplete · rifle qualification · MCMAP belt · PFT".
+- **Time zones by place.** Settings lists "New York · EDT" and "Okinawa / Tokyo · GMT+9" instead of raw zone names.
 
 ## What changed (2026-10-03 audit and upgrade)
 

@@ -216,7 +216,7 @@ function PersonalPanel({ summary }: { summary: any }) {
           </li>
         )}
         {reminders.map((a) => (
-          <li key={a.key}><Link to={a.to === '/readiness' ? '/career/readiness' : a.to} className="flex items-start gap-1.5 text-ink-2 hover:underline"><CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />{a.label}</Link></li>
+          <li key={a.key}><Link to={a.to === '/readiness' ? '/career/readiness' : a.to} className="flex items-start gap-1.5 text-ink-2 hover:underline"><CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden /><span>{a.count === null ? '' : `${a.count} `}{a.label}{a.detail && a.key === 'readiness' ? <span className="text-ink-3"> · {a.detail}</span> : null}</span></Link></li>
         ))}
         {!active.length && !nextStep && !reminders.length && <li className="text-ink-3">Set a goal or a career step and it shows here.</li>}
       </ul>

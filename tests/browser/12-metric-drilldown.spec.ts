@@ -42,7 +42,7 @@ test('a value type the instance excludes from the headline is reported on its ow
   expect(res.ok(), await res.text()).toBeTruthy();
 
   await page.goto('/');
-  const card = page.getByRole('button', { name: /Reviewed/ }).first();
+  const card = page.getByRole('button', { name: /reviewed/i }).first();
   await expect(card).toBeVisible();
   await expect(card).toContainText('Tracked on its own');
 });

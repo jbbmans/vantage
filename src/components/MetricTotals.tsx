@@ -22,6 +22,17 @@ export function metricUnitLabel(total: Pick<MetricTotal, 'kind' | 'unit' | 'metr
   return total.unit;
 }
 
+/**
+ * The label at the top of a card, set like a heading: "Dollars reconciled", "Hours logged". Only a one-word value type
+ * that reads as a verb ("Reconciled", "Executed") joins the metric's name; anything else an owner named ("Navy ERP")
+ * keeps its comma and its case. A unit someone typed keeps its own case ("km", "ULOs"); only an all-lowercase phrase of
+ * ordinary words gets a capital.
+ */
+function cardLabel(total: Pick<MetricTotal, 'kind' | 'unit' | 'metricLabel'>): string {
+  const label = metricUnitLabel(total).replace(/^([^,]+), ([A-Z][a-z]+ed)$/, (_, a: string, b: string) => `${a} ${b.toLowerCase()}`);
+  return /^[a-z]{4,}[a-z ]*$/.test(label) ? label[0].toUpperCase() + label.slice(1) : label;
+}
+
 function deltaLabel(current: number, prior: number | null): string | null {
   if (prior == null) return null;
   if (prior === 0) return current === 0 ? 'same as the period before' : 'nothing in the period before';
@@ -51,7 +62,7 @@ export function MetricCard({ total, prior, params, tone = 'headline' }: MetricCa
         )}
       >
         <span className="flex w-full items-center justify-between gap-2">
-          <span className="truncate text-base font-medium text-ink-2">{metricUnitLabel(total)}</span>
+          <span className="truncate text-base font-medium text-ink-2">{cardLabel(total)}</span>
           <ArrowUpRight className="h-3.5 w-3.5 shrink-0 text-ink-3 opacity-0 transition-opacity group-hover:opacity-100" />
         </span>
         <span className={cn('fig text-3xl font-semibold', tone === 'tracked' ? 'text-ink-2' : 'text-ink')}>{formatMetric(total)}</span>
