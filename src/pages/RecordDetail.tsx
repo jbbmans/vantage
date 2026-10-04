@@ -132,7 +132,7 @@ export default function RecordDetail() {
       <Comments table="activities" id={id} canModerate={can(identity, PERMISSIONS.MANAGE_RECORDS, a.unit_id)} />
 
       <RecordDialog<ActivityDraft> store="activities" open={Boolean(editing)} onOpenChange={(o) => { if (!o) setEditing(null); }} initial={editing} title="Edit activity" noun="Activity" size="lg" fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : null)} onSaved={() => qc.invalidateQueries({ queryKey: keys.record('activities', id) })} />
-      <ConfirmDialog open={confirm} onOpenChange={setConfirm} title="Delete this entry?" body="It moves to the recycle bin for 30 days and can be restored from this page." onConfirm={async () => { try { await remove.mutateAsync(id); toast.success('Entry deleted.'); navigate('/records'); } catch (e) { toast.error(api.errorText(e)); } }} />
+      <ConfirmDialog open={confirm} onOpenChange={setConfirm} title="Delete this entry?" body="It moves to the recycle bin for 30 days and can be restored from this page." onConfirm={async () => { try { await remove.mutateAsync(id); toast.success('Entry deleted.', { label: 'Undo', onClick: () => restore.mutateAsync(id).then(() => { toast.success('Entry restored.'); navigate(`/records/${id}`); }).catch((e) => toast.error(api.errorText(e))) }); navigate('/records'); } catch (e) { toast.error(api.errorText(e)); } }} />
     </div>
   );
 }

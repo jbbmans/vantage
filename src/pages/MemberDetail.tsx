@@ -13,7 +13,7 @@ import { keys, useIdentity, useOrg, useRoles, useTrack, useMetrics, useMetricsRe
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
 import { useForgetVisit, useRememberVisit } from '@/lib/recent';
-import { aggregateMetrics, formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
+import { DEFAULT_PERIOD, aggregateMetrics, formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
 import { trackForGrade, trackMeta, mapAreaToTrack } from '../../shared/evaluation';
 import { estimate } from '../../shared/jepes';
 import { humanize, fullName, cn } from '@/lib/utils';
@@ -40,7 +40,7 @@ export default function MemberDetail() {
   useRememberVisit(identity?.user.id, person && id !== identity?.user.id ? { to: `/team/${id}`, title: `${person.rank_abbr ? `${person.rank_abbr} ` : ''}${person.last_name}, ${person.first_name}`, kind: 'marine' } : null);
   const track = person ? trackForGrade(person.rank_grade) : myTrack;
   const metrics = useMemo(() => aggregateMetrics(data?.activities || [], cfg), [data, cfg]);
-  const memberParams = useMemo(() => { const r = rangeForPeriod('fiscalYear'); return { from: dayKey(r.start), to: dayKey(r.end), user_id: id }; }, [id]);
+  const memberParams = useMemo(() => { const r = rangeForPeriod(DEFAULT_PERIOD); return { from: dayKey(r.start), to: dayKey(r.end), user_id: id }; }, [id]);
   const memberMetrics = useMetricsReport(memberParams, Boolean(data));
   const est = useMemo(() => (readiness ? estimate(readiness) : null), [readiness]);
   const isSelf = id === identity?.user.id;
@@ -52,7 +52,7 @@ export default function MemberDetail() {
   if (isPending) return <div className="page space-y-3"><Skeleton className="h-10 w-72" /><Skeleton className="h-64" /></div>;
   if (error || !data || !person) return <div className="page"><div className="card"><EmptyState title="Cannot open this Marine" description={api.errorText(error)} action={<Button onClick={() => navigate('/team')}>Back to team</Button>} /></div></div>;
 
-  const download = async () => { try { const name = await api.downloadFile(api.reportPdfUrl({ user_id: id, unit_id: unitId, period: 'fiscalYear', limit: 12 }), 'vantage-report.pdf'); toast.success(`Downloaded ${name}.`); } catch (e) { toast.error(api.errorText(e)); } };
+  const download = async () => { try { const name = await api.downloadFile(api.reportPdfUrl({ user_id: id, unit_id: unitId, period: DEFAULT_PERIOD, limit: 12 }), 'vantage-report.pdf'); toast.success(`Downloaded ${name}.`); } catch (e) { toast.error(api.errorText(e)); } };
   const grant = async (roleId: string, unit: string) => { try { await api.grantRole(id, { role_id: roleId, unit_id: unit }); refetch(); qc.invalidateQueries({ queryKey: keys.team }); toast.success('Role granted. Their sessions were reset.'); } catch (e) { toast.error(api.errorText(e)); } };
   const revoke = async (roleId: string) => { try { await api.revokeRole(id, roleId); refetch(); qc.invalidateQueries({ queryKey: keys.team }); toast.success('Role removed.'); } catch (e) { toast.error(api.errorText(e)); } };
   const saveProfile = async () => { try { await api.updateMemberProfile(id, { first_name: profile.first_name, last_name: profile.last_name, middle_initial: profile.middle_initial || null, rank_id: profile.rank_id || null, mos: profile.mos || null, eas: profile.eas || null }); refetch(); qc.invalidateQueries({ queryKey: keys.team }); toast.success('Profile updated.'); setProfile(null); } catch (e) { toast.error(api.errorText(e)); } };

@@ -1,6 +1,16 @@
 # Progress
 
-_Updated 2026-10-03_
+_Updated 2026-10-04_
+
+## What changed (2026-10-04: everyday use)
+
+- **No empty October.** Activities, the JEPES/FITREP input page, Today's outcomes, a Marine's page and the goal metric list opened on the fiscal year, so on 1 October every one of them read as if nobody had done anything. They open on a rolling twelve months ("Last 12 months", a new period everywhere), and a saved choice still wins.
+- **A tab bar on phones.** Today, Work, a log button and the Record sit at the bottom where a thumb reaches, with everything else behind More. It steps aside while someone types and while the drawer is open, and toasts and the footer clear it. The header's log button is for wider screens now.
+- **Filters that fold.** On a phone the Activities filters sit behind one Filters button with a count, instead of six menus before the first entry. "JEPES" and "FITREP" keep their capitals in every label.
+- **Due dates in words.** "Due 07 Oct 26 · tomorrow", "1 day overdue", "in 4 days" on Today, the queue and every case row.
+- **⌘K does things.** Switch theme, keyboard shortcuts, import activities from a CSV, and download your record as a PDF, ranked above the catch-all "log this" when they match what was typed.
+- **Undo after delete.** Tasks, projects, goals, training, awards, counselings and an entry's own page offer Undo, as the activity list already did.
+- **Smaller things.** A case page is titled "Work / Case" (it said "Vantage"), and Quick Log drops the word that introduced a date ("…in DAI on Sep 30" no longer leaves "…in DAI on").
 
 ## What changed (2026-10-03 audit and upgrade)
 

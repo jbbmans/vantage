@@ -1,7 +1,7 @@
 import { Link } from 'react-router-dom';
 import { ArrowRight, Clock, Hourglass, OctagonAlert } from 'lucide-react';
 import { Badge, type Tone } from '@/components/ui/primitives';
-import { DateText } from '@/components/common';
+import { DueText } from '@/components/common';
 import { STAGE_LABEL, WAITING_LABEL, type Stage, type WaitingCategory } from '../../shared/caseModel';
 import { cn, todayIso } from '@/lib/utils';
 import type { AssignedItem } from '../../shared/caseView';
@@ -62,7 +62,7 @@ export function WorkRow({ item, showNext = true, trailing }: { item: WorkRowItem
           )}
         </span>
         <span className="flex shrink-0 flex-col items-end gap-1 text-xs text-ink-3">
-          {item.due_date && <span className={cn('flex items-center gap-1', overdue && 'text-bad')}><Clock className="h-3 w-3" aria-hidden />Due <DateText value={item.due_date} /></span>}
+          {item.due_date && <span className={cn('flex items-center gap-1', overdue && 'text-bad')}><Clock className="h-3 w-3" aria-hidden /><DueText value={item.due_date} done={['resolved', 'not_applicable'].includes(item.stage)} /></span>}
           {trailing}
         </span>
       </Link>

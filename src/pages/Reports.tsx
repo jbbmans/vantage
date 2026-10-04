@@ -11,7 +11,7 @@ import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
 import { packageToText } from '../../shared/bullets';
 import { comparisonToText, type Comparison, type Movement } from '../../shared/delta';
-import { formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
+import { DEFAULT_PERIOD, formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
 import { trackMeta, type Track } from '../../shared/evaluation';
 import { copyToClipboard, cn } from '@/lib/utils';
 import ReportAnalysis from './ReportAnalysis';
@@ -26,7 +26,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const subjectId = params.get('user') || '';
   const unitParam = params.get('unit') || '';
   const { data: team } = useTeam(Boolean(identity?.canLead));
-  const [period, setPeriod] = useParam('period', prefs.reportPeriod || 'fiscalYear');
+  const [period, setPeriod] = useParam('period', prefs.reportPeriod || DEFAULT_PERIOD);
   const [style, setStyle] = useState<'jepes' | 'fitrep' | 'resume'>(myTrack === 'fitrep' ? 'fitrep' : 'jepes');
   const [track, setTrack] = useState<Track | ''>('');
   const [view, setView] = useState<'narrative' | 'bullets' | 'delta' | 'analysis'>((prefs.reportView as never) || 'narrative');
@@ -130,7 +130,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
                 <div className="grid grid-cols-2 gap-3 sm:grid-cols-3">
                   {([['Entries', delta.headline.activities, formatNumber], ['Summable dollars', delta.headline.dollars, formatDollars], ['Reviewed dollars', delta.headline.reviewed, formatDollars], ['Quantity', delta.headline.quantity, formatNumber], ['With outcome', delta.headline.withOutcome, formatNumber], ['Awards', delta.extras.awards, formatNumber]] as Array<[string, Movement, (n: number) => string]>).map(([label, m, f]) => <MovementTile key={label} label={label} m={m} format={f} />)}
                 </div>
-                <h3 className="mb-2 mt-5 text-md font-semibold text-ink">By {meta.areaLabel.toLowerCase()}</h3>
+                <h3 className="mb-2 mt-5 text-md font-semibold text-ink">By {meta.areaLabel}</h3>
                 <ul className="space-y-1.5">{delta.byArea.map((a) => <li key={a.area} className="flex items-center justify-between gap-2 text-sm"><span className="text-ink">{a.area}</span><span className="flex items-center gap-2"><MovementInline m={a} format={formatNumber} /><span className="text-xs text-ink-3"><MovementInline m={a.dollars} format={formatDollars} /></span></span></li>)}</ul>
                 <h3 className="mb-2 mt-5 text-md font-semibold text-ink">By dollar type</h3>
                 <ul className="space-y-1.5">{delta.byDollarType.filter((d) => d.current || d.prior).map((d) => <li key={d.key} className="flex items-center justify-between text-sm"><span className="text-ink">{d.label}{!d.summable && <span className="ml-1 text-2xs text-ink-3">not summed</span>}</span><MovementInline m={d} format={formatDollars} /></li>)}</ul>

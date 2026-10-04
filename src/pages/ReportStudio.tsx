@@ -95,6 +95,7 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
             { value: 'fiscalYear', label: 'This fiscal year' },
             { value: 'lastFiscalYear', label: 'Last fiscal year' },
             { value: 'last90', label: 'Last 90 days' },
+            { value: 'last12', label: 'Last 12 months' },
             { value: 'year', label: 'This calendar year' },
           ]} />
         </Field>

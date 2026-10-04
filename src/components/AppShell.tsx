@@ -15,12 +15,13 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/compo
 import * as Popover from '@radix-ui/react-popover';
 import QuickLog from '@/components/QuickLog';
 import OutboxDialog from '@/components/OutboxDialog';
-import CommandPalette from '@/components/CommandPalette';
+import CommandPalette, { type PaletteAction } from '@/components/CommandPalette';
 import ShortcutsDialog from '@/components/ShortcutsDialog';
 import { ActivityBar } from '@/components/ui/motion';
 import SudoDialog, { type SudoRequest } from '@/components/SudoDialog';
 import IdleGuard from '@/components/IdleGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import TabBar from '@/components/TabBar';
 import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys, invalidateDomains, useTasks, useThreads, useRecordDrafts } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
@@ -31,9 +32,14 @@ import { useBuildWatch } from '@/lib/build';
 import { useView, roleLine, viewLabel } from '@/lib/view';
 
 /** What the header says about where you are: the group and the page, or a page and what it is for. */
+// A page about one thing (a case, an entry) is named for what it is, under its group, not "Vantage".
+const DETAIL_PAGES: Array<[RegExp, string]> = [[/^\/work\/items\/[^/]+/, 'Case'], [/^\/records\/[^/]+\/[^/]+/, 'Item'], [/^\/records\/[^/]+/, 'Entry'], [/^\/support\/[^/]+/, 'Request']];
+
 function placeOf(pathname: string): { title: string; detail: string; group?: string } {
   const page = pageFor(pathname);
   const group = groupFor(pathname);
+  const detail = DETAIL_PAGES.find(([re]) => re.test(pathname));
+  if (detail) return { title: detail[1], detail: '', group: group?.label };
   if (page && group && group.pages.length > 1) return { title: page.label, detail: page.hint, group: group.label };
   if (page) return { title: page.label, detail: page.hint };
   if (group) return { title: group.label, detail: group.hint };
@@ -329,6 +335,13 @@ export default function AppShell() {
   };
 
   const toggleTheme = () => { const next = theme === 'dark' ? 'light' : 'dark'; setTheme(next); savePrefs.mutate({ theme: next }); };
+  // What ⌘K can do besides go somewhere: the things people otherwise hunt through menus for.
+  const paletteActions: PaletteAction[] = [
+    { id: 'theme', title: theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme', keywords: 'theme dark light mode appearance', run: toggleTheme },
+    { id: 'shortcuts', title: 'Keyboard shortcuts', subtitle: 'Press ? anywhere', keywords: 'keys hotkeys help', run: () => setShortcuts(true) },
+    { id: 'import-activities', title: 'Import activities from a CSV', keywords: 'upload spreadsheet csv entries', run: () => navigate('/record/activities?import=1') },
+    { id: 'export-pdf', title: 'Download my record as a PDF', subtitle: 'The last 12 months, ready for a reporting senior', keywords: 'export pdf report jepes fitrep print', run: () => { api.downloadFile(api.reportPdfUrl({ period: 'last12', limit: 12 }), 'vantage-report.pdf').then((name) => toast.success(`Downloaded ${name}.`)).catch((e) => toast.error(api.errorText(e))); } },
+  ];
   function toggleRail() { setCollapsed((c) => { const n = !c; try { localStorage.setItem('vantage.rail', n ? 'collapsed' : 'open'); } catch {} return n; }); }
   const user = identity?.user;
   const who = [user?.rank?.abbr, user?.first_name, user?.last_name].filter(Boolean).join(' ');
@@ -519,8 +532,9 @@ export default function AppShell() {
               <button type="button" onClick={() => setPalette(true)} className="flex h-9 items-center gap-2 rounded-full bg-surface-2 px-3 text-sm text-ink-3 ring-1 ring-line transition-[box-shadow,color,background-color] hover:bg-surface hover:text-ink-2 hover:ring-line-strong md:w-64 lg:w-80" aria-label="Search">
                 <Search className="h-4 w-4 shrink-0" aria-hidden /><span className="hidden md:inline">Search work, records, reference…</span><span className="ml-auto hidden lg:inline"><Kbd>⌘K</Kbd></span>
               </button>
+              {/* Below the large breakpoint the tab bar carries this, in reach of a thumb. */}
               <button type="button" onClick={() => openQuickLog('')} aria-label="Log activity"
-                className="group flex h-9 items-center gap-2 rounded-full bg-accent pl-3 pr-1 text-sm font-medium text-accent-ink shadow-[inset_0_1px_0_rgb(255_255_255/.2),0_1px_2px_rgb(var(--accent)/.35),0_6px_16px_-6px_rgb(var(--accent)/.55)] transition-[filter,transform] hover:brightness-[1.06] xl:pl-4">
+                className="group hidden h-9 items-center gap-2 rounded-full bg-accent pl-3 pr-1 lg:flex text-sm font-medium text-accent-ink shadow-[inset_0_1px_0_rgb(255_255_255/.2),0_1px_2px_rgb(var(--accent)/.35),0_6px_16px_-6px_rgb(var(--accent)/.55)] transition-[filter,transform] hover:brightness-[1.06] xl:pl-4">
                 <span className="hidden xl:inline">Log activity</span>
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 transition-transform duration-200 group-hover:rotate-90"><Plus className="h-4 w-4" /></span>
               </button>
@@ -569,16 +583,17 @@ export default function AppShell() {
             {sectionStrip}
             <ErrorBoundary resetKey={location.pathname + location.search}><div key={location.pathname} className="animate-fade-up"><Outlet /></div></ErrorBoundary>
           </main>
-          <footer className="no-print flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-5 text-xs text-ink-3 sm:px-6 lg:px-10">
+          <footer className="no-print flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pb-[calc(1.25rem+var(--tabbar,0px))] pt-5 text-xs text-ink-3 sm:px-6 lg:px-10">
             <span className="flex items-center gap-1.5"><Mark size={12} />Vantage v{VERSION}</span>
             <span>Records stay on this deployment’s server.</span>
             <span className="hidden sm:inline">Not an official DoD or USMC system of record.</span>
           </footer>
         </div>
 
+        <TabBar hidden={drawer || quickLog || palette} onLog={() => openQuickLog('')} onMore={() => setDrawer(true)} />
         <QuickLog open={quickLog} onOpenChange={setQuickLog} initialText={quickLogSeed} />
         {userId && <OutboxDialog open={queueOpen} onOpenChange={setQueueOpen} userId={userId} onRetry={flush} />}
-        <CommandPalette open={palette} onOpenChange={setPalette} onQuickLog={openQuickLog} nav={visibleNav} />
+        <CommandPalette open={palette} onOpenChange={setPalette} onQuickLog={openQuickLog} nav={visibleNav} extra={paletteActions} />
         <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
         {!demo && <IdleGuard onSignOut={idleSignOut} />}
         <SudoDialog open={Boolean(sudoOpen)} onOpenChange={(o) => { if (!o) { sudoOpen?.cancel(); setSudoOpen(null); } }} onConfirmed={() => { const req = sudoOpen; setSudoOpen(null); req?.confirm(); }} />

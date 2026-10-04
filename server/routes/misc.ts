@@ -12,7 +12,7 @@ import { buildAnalysisReport } from '../services/analytics.ts';
 import { renderAnalysisPdf } from '../services/analyticsPdf.ts';
 import { renderReportPdf } from '../services/pdf.ts';
 import { comparePeriods } from '../../shared/delta.ts';
-import { rangeForPeriod } from '../../shared/metrics.ts';
+import { DEFAULT_PERIOD, rangeForPeriod } from '../../shared/metrics.ts';
 import { areasFor } from '../../shared/evaluation.ts';
 import { isoDate } from '../../shared/schemas.ts';
 import { rowsToCsv, ACTIVITY_CSV_COLUMNS, activityToCsvRow } from '../../shared/csv.ts';
@@ -36,7 +36,7 @@ miscRouter.post('/events', wrap((req, res) => {
 }));
 
 const reportQuery = z.object({
-  period: z.string().max(20).default('fiscalYear'), from: z.string().max(10).optional(), to: z.string().max(10).optional(),
+  period: z.string().max(20).default(DEFAULT_PERIOD), from: z.string().max(10).optional(), to: z.string().max(10).optional(),
   user_id: z.string().max(64).optional(), unit_id: z.string().max(64).optional(), style: z.enum(['jepes', 'fitrep', 'resume']).optional(),
   limit: z.coerce.number().int().min(1).max(50).optional(), track: z.enum(['jepes', 'fitrep']).optional(),
 });

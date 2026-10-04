@@ -138,7 +138,8 @@ export function parseQuickLog(text = '', now = new Date()): ParsedQuickLog {
   inferred.push(`category: ${category}`);
 
   let title = raw;
-  if (when.matched) title = title.replace(new RegExp(`\\s*\\b${escapeRe(when.matched)}\\b\\s*`, 'i'), ' ').trim();
+  // The date leaves the title with the word that introduced it: "…in DAI on Sep 30" is "…in DAI", not "…in DAI on".
+  if (when.matched) title = title.replace(new RegExp(`\\s*(?:\\b(?:on|dated|as of)\\s+)?\\b${escapeRe(when.matched)}\\b\\s*`, 'i'), ' ').trim();
   title = title.replace(/\s+/g, ' ').replace(/[,;]\s*$/, '');
 
   return { title: title || raw, quantities: deduped, dollar_amount, dollar_type, category, eval_area, system, date: when.date, inferred };

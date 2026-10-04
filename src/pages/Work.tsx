@@ -7,7 +7,7 @@ import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { DateText, PageShell, StatusBadge, useParam, onText } from '@/components/common';
-import { can, unitsWith, useDeleteRecord, useIdentity, useProjects, useTasks, useTeam, useUpdateRecord, usePrefs, useActivities } from '@/lib/queries';
+import { can, unitsWith, useDeleteRecord, useRestoreRecord, useIdentity, useProjects, useTasks, useTeam, useUpdateRecord, usePrefs, useActivities } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { WORK_STATUS, PRIORITIES } from '../../shared/constants';
 import { PERMISSIONS } from '../../shared/permissions';
@@ -30,6 +30,8 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
   const updateTask = useUpdateRecord('tasks');
   const deleteTask = useDeleteRecord('tasks');
   const deleteProject = useDeleteRecord('projects');
+  const restoreTask = useRestoreRecord('tasks');
+  const restoreProject = useRestoreRecord('projects');
   const [taskDraft, setTaskDraft] = useState<TaskDraft | null>(null);
   const [projectDraft, setProjectDraft] = useState<ProjectDraft | null>(null);
   const [confirm, setConfirm] = useState<{ store: 'tasks' | 'projects'; row: any } | null>(null);
@@ -158,7 +160,7 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
             <VisibilityPicker permission={PERMISSIONS.CREATE_SHARED_WORK} value={d.visibility} unitId={d.unit_id} onChange={(v) => { set('visibility', v.visibility); set('unit_id', v.unit_id ?? null); }} />
           </>
         )} />
-      <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title={`Delete this ${confirm?.store === 'tasks' ? 'task' : 'project'}?`} body="It moves to the recycle bin for 30 days." onConfirm={async () => { try { await (confirm!.store === 'tasks' ? deleteTask : deleteProject).mutateAsync(confirm!.row.id); toast.success('Deleted.'); } catch (e) { toast.error(api.errorText(e)); } }} />
+      <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title={`Delete this ${confirm?.store === 'tasks' ? 'task' : 'project'}?`} body="It moves to the recycle bin for 30 days." onConfirm={async () => { try { const { store, row } = confirm!; await (store === 'tasks' ? deleteTask : deleteProject).mutateAsync(row.id); toast.success(store === 'tasks' ? 'Task deleted.' : 'Project deleted.', { label: 'Undo', onClick: () => (store === 'tasks' ? restoreTask : restoreProject).mutateAsync(row.id).then(() => toast.success('Restored.')).catch((e) => toast.error(api.errorText(e))) }); } catch (e) { toast.error(api.errorText(e)); } }} />
     </PageShell>
   );
 }

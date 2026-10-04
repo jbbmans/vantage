@@ -8,7 +8,7 @@ import {
 import { Button, Input, Select, Badge, EmptyState, Skeleton, Field } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
-import { DateText, PageShell } from '@/components/common';
+import { DateText, DueText, PageShell, dueIn } from '@/components/common';
 import { StageBadge } from '@/components/work';
 import ImportWizard from '@/components/ImportWizard';
 import { useIdentity, useItemThreads, useThreads, invalidateCorrespondence, invalidateWork } from '@/lib/queries';
@@ -51,7 +51,8 @@ const DEFAULT_QUERY: Query = { state: '', active: true, claimed: '', q: '', sort
 
 /** The day before today on the viewer's calendar: due on or before it, and still open, is overdue. */
 const yesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return isoDay(d); };
-const isOverdue = (row: { due_date?: string | null; state?: string }) => Boolean(row.due_date && row.due_date < todayIso() && !['resolved', 'not_applicable'].includes(String(row.state)));
+const isClosedRow = (row: { state?: string }) => ['resolved', 'not_applicable'].includes(String(row.state));
+const isOverdue = (row: { due_date?: string | null; state?: string }) => Boolean(row.due_date && row.due_date < todayIso() && !isClosedRow(row));
 const PROCEDURE_FILTER = [
   { value: '', label: 'Any procedure' },
   ...PROCEDURE_LIST.map((p) => ({ value: p.key, label: p.short })),
@@ -322,7 +323,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                   </span>
                   <span className="mt-1 block text-sm text-ink">{row.title}</span>
                   <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
-                    {row.due_date && <span className={cn(isOverdue(row) && 'font-medium text-bad')}>{isOverdue(row) ? 'Overdue · ' : ''}Due <DateText value={row.due_date} /></span>}
+                    {row.due_date && <span className={cn(isOverdue(row) && 'font-medium text-bad')}><DueText value={row.due_date} done={isClosedRow(row)} /></span>}
                     {row.amount != null && <span className="fig">{formatDollarsExact(row.amount)}{row.amount_type ? ` ${row.amount_type}` : ''}</span>}
                     {row.claimed_by && <span>{row.claimed_by === identity?.user.id ? 'You have this' : `${[row.holder_rank, row.holder_name].filter(Boolean).join(' ')} has this`}</span>}
                   </span>
@@ -383,7 +384,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                           </td>
                           <td className="w-40 truncate px-3"><StageBadge stage={row.stage || row.state} waiting={row.waiting_category} /></td>
                           <td className={cn('w-24 px-3 text-xs', isOverdue(row) ? 'font-medium text-bad' : 'text-ink-3')}>
-                            <DateText value={row.due_date} fallback="—" />{isOverdue(row) && <span className="block text-2xs uppercase tracking-wide">Overdue</span>}
+                            <DateText value={row.due_date} fallback="—" />{(() => { const near = dueIn(row.due_date, isClosedRow(row)); return near ? <span className={cn('block text-2xs', near.days >= 0 && near.days <= 1 && 'font-medium text-warn')}>{near.words}</span> : null; })()}
                           </td>
                           <td className="fig w-28 px-3 text-right text-xs">{row.amount == null ? '' : formatDollarsExact(row.amount)}</td>
                           <td className="w-32 truncate px-3 text-xs text-ink-3">{row.claimed_by ? (mine ? 'You' : [row.holder_rank, row.holder_name].filter(Boolean).join(' ') || 'Someone else') : '—'}</td>

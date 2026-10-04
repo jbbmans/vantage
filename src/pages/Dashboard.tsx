@@ -5,7 +5,7 @@ import { Bell, Building2, CalendarClock, CheckCircle2, GraduationCap, Hand, Hist
 import { Badge, Button, EmptyState, Input, PageHeader, Panel, Progress, Skeleton } from '@/components/ui/primitives';
 import { BarList } from '@/components/charts';
 import { AiAction, AiResult } from '@/components/AiPanel';
-import { DateText, PeriodSelect } from '@/components/common';
+import { DateText, DueText, PeriodSelect } from '@/components/common';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import { WorkRow } from '@/components/work';
 import {
@@ -14,7 +14,7 @@ import {
 } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
-import { rangeForPeriod, dayKey, formatNumber } from '../../shared/metrics';
+import { DEFAULT_PERIOD, rangeForPeriod, dayKey, formatNumber } from '../../shared/metrics';
 import { todayActions } from '../../shared/health';
 import { cn, timeAgo, todayIso } from '@/lib/utils';
 import { useView } from '@/lib/view';
@@ -73,7 +73,7 @@ export default function Dashboard() {
                         <span className="flex items-center gap-2"><Badge tone={t.priority === 'high' || t.priority === 'critical' ? 'warn' : 'neutral'}>Task</Badge><span className="truncate text-sm font-medium text-ink">{t.title}</span></span>
                         {t.notes && <span className="mt-0.5 block truncate text-xs text-ink-3">{t.notes}</span>}
                       </span>
-                      {t.due_date && <span className={cn('shrink-0 text-xs', t.due_date < todayIso() ? 'text-bad' : 'text-ink-3')}>Due <DateText value={t.due_date} /></span>}
+                      {t.due_date && <span className={cn('shrink-0 text-xs', t.due_date < todayIso() ? 'text-bad' : 'text-ink-3')}><DueText value={t.due_date} /></span>}
                     </Link>
                   </li>
                 ))}
@@ -313,7 +313,7 @@ function Outcomes() {
   const savePrefs = useSavePrefs();
   const [review, setReview] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const { data: identity } = useIdentity();
-  const period = prefs.dashboardPeriod || 'fiscalYear';
+  const period = prefs.dashboardPeriod || DEFAULT_PERIOD;
   const range = useMemo(() => rangeForPeriod(period), [period]);
   const params = useMemo(() => ({ from: dayKey(range.start), to: dayKey(range.end), scope: 'me' }), [range]);
   const report = useMetricsReport(params);

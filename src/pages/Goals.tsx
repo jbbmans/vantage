@@ -9,10 +9,10 @@ import VisibilityPicker from '@/components/VisibilityPicker';
 import { AiAction } from '@/components/AiPanel';
 import { track } from '@/lib/telemetry';
 import { DateText, StatusBadge, onText } from '@/components/common';
-import { can, useDeleteRecord, useGoals, useIdentity, usePrefs, useMetrics, useGoalContributors, useMetricsReport } from '@/lib/queries';
+import { can, useDeleteRecord, useRestoreRecord, useGoals, useIdentity, usePrefs, useMetrics, useGoalContributors, useMetricsReport } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { GOAL_TYPES, GOAL_STATUS, categoryNames } from '../../shared/constants';
-import { formatNumber, formatDollars, rangeForPeriod, dayKey } from '../../shared/metrics';
+import { DEFAULT_PERIOD, formatNumber, formatDollars, rangeForPeriod, dayKey } from '../../shared/metrics';
 import { daysUntil } from '../../shared/evaluation';
 import { quantityMetricId, canonicalMetricId } from '../../shared/metricEngine';
 import { PERMISSIONS } from '../../shared/permissions';
@@ -49,13 +49,14 @@ export default function Goals() {
   const prefs = usePrefs();
   const { data: goals, isPending } = useGoals();
   const remove = useDeleteRecord('goals');
+  const restore = useRestoreRecord('goals');
   const [draft, setDraft] = useState<GoalDraft | null>(null);
   const [confirm, setConfirm] = useState<any>(null);
   const [counted, setCounted] = useState<any>(null);
   const [filter, setFilter] = useState<'active' | 'all'>('active');
   const me = identity?.user.id;
 
-  const yearParams = useMemo(() => { const r = rangeForPeriod('fiscalYear'); return { from: dayKey(r.start), to: dayKey(r.end), scope: 'me' }; }, []);
+  const yearParams = useMemo(() => { const r = rangeForPeriod(DEFAULT_PERIOD); return { from: dayKey(r.start), to: dayKey(r.end), scope: 'me' }; }, []);
   const catalogQuery = useMetricsReport(yearParams);
   const metricOptions = useMemo(() => {
     const seen = new Map<string, string>();
@@ -243,7 +244,7 @@ export default function Goals() {
       <ConfirmDialog
         open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }}
         title="Delete this goal?" body="It moves to the recycle bin for 30 days."
-        onConfirm={async () => { try { await remove.mutateAsync(confirm.id); toast.success('Goal deleted.'); } catch (e) { toast.error(api.errorText(e)); } }}
+        onConfirm={async () => { const id = confirm.id; try { await remove.mutateAsync(id); toast.success('Goal deleted.', { label: 'Undo', onClick: () => restore.mutateAsync(id).then(() => toast.success('Goal restored.')).catch((e) => toast.error(api.errorText(e))) }); } catch (e) { toast.error(api.errorText(e)); } }}
       />
     </div>
   );

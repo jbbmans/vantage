@@ -309,6 +309,38 @@ button:active:not(:disabled), a[role='button']:active { transform: scale(.98); }
 @keyframes marker-in { from { transform: scaleY(0); opacity: 0; } to { transform: none; opacity: 1; } }
 @keyframes check-pop { 0% { transform: scale(.6); } 55% { transform: scale(1.14); } 100% { transform: none; } }
 
+/* The phone's tab bar. --tabbar is its height while it is shown, so toasts and the footer clear it. */
+@media (max-width: 1023px) { html.has-tabbar { --tabbar: calc(4rem + env(safe-area-inset-bottom)); } }
+.tabbar {
+  position: fixed; inset: auto 0 0 0; z-index: 40; display: grid; grid-template-columns: repeat(5, minmax(0, 1fr)); align-items: end;
+  height: var(--tabbar, 4rem); padding: 0 .5rem env(safe-area-inset-bottom);
+  background: rgb(var(--surface) / .86); backdrop-filter: blur(18px) saturate(1.5); -webkit-backdrop-filter: blur(18px) saturate(1.5);
+  box-shadow: 0 -1px 0 rgb(var(--line)), 0 -12px 32px -24px rgb(var(--shadow-rgb) / .35);
+  animation: tabbar-in 320ms var(--ease-spring) both;
+}
+.tabbar-item {
+  position: relative; display: flex; height: 4rem; flex-direction: column; align-items: center; justify-content: center; gap: 3px;
+  border-radius: 14px; font-size: 11px; font-weight: 500; color: rgb(var(--ink-3)); -webkit-tap-highlight-color: transparent;
+}
+.tabbar-item svg { width: 21px; height: 21px; transition: transform var(--dur-base) var(--ease-spring); }
+.tabbar-item.is-active { color: rgb(var(--accent)); font-weight: 600; }
+.tabbar-item.is-active svg { transform: translateY(-1px); }
+.tabbar-item.is-active::before {
+  content: ''; position: absolute; top: 0; left: 50%; width: 22px; height: 3px; margin-left: -11px; border-radius: 0 0 3px 3px;
+  background: rgb(var(--accent)); animation: marker-in 320ms var(--ease-spring) both;
+}
+.tabbar-item:focus-visible, .tabbar-log:focus-visible { outline: 2px solid rgb(var(--accent) / .6); outline-offset: -4px; }
+.tabbar-log { display: flex; height: 4rem; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
+.tabbar-log > span {
+  display: flex; height: 48px; width: 48px; align-items: center; justify-content: center; margin-top: -1.25rem; border-radius: 16px;
+  background: rgb(var(--accent)); color: rgb(var(--accent-ink));
+  box-shadow: inset 0 1px 0 rgb(255 255 255 / .2), 0 2px 4px rgb(var(--accent) / .3), 0 10px 22px -8px rgb(var(--accent) / .6), 0 0 0 4px rgb(var(--surface));
+  transition: transform var(--dur-base) var(--ease-spring);
+}
+.tabbar-log svg { width: 22px; height: 22px; }
+.tabbar-log:active > span { transform: scale(.94); }
+@keyframes tabbar-in { from { transform: translateY(100%); } to { transform: none; } }
+
 [data-density='compact'] .card > .card-body { padding: .625rem .75rem; }
 [data-density='compact'] .row { min-height: 2.25rem; }
 [data-density='compact'] .page { row-gap: .75rem; }
@@ -327,6 +359,7 @@ button:active:not(:disabled), a[role='button']:active { transform: scale(.98); }
   #main .animate-fade-up, #main .animate-fade-up > .page > * { opacity: 1 !important; transform: none !important; }
   .stagger > *, .bar-grow, .view-badge, .view-label, .check-pop { opacity: 1 !important; transform: none !important; }
   .activity-bar { display: none; }
+  .tabbar { animation: none; }
 }
 @media print {
   :root { --canvas: 255 255 255; --surface: 255 255 255; --surface-2: 255 255 255; --surface-3: 255 255 255; --line: 190 190 190; --line-strong: 140 140 140; --ink: 0 0 0; --ink-2: 40 40 40; --ink-3: 90 90 90; }

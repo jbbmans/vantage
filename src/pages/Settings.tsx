@@ -14,6 +14,7 @@ import { ACCENTS, DEFAULT_ACCENT, VISIBILITIES } from '../../shared/constants';
 import { passwordProblem, passwordStrength } from '../../shared/password';
 import { copyToClipboard, downloadText, timeAgo, humanize, cn } from '@/lib/utils';
 import { resolveTheme, type ThemeMode } from '@/lib/theme';
+import { DEFAULT_PERIOD } from '../../shared/metrics';
 
 export default function Settings() {
   const { data: identity } = useIdentity();
@@ -239,7 +240,7 @@ function DataTab() {
     finally { setExporting(null); }
   };
   const exportCsv = async () => { try { const n = await api.downloadFile(api.reportCsvUrl({ period: 'all' }), 'vantage-activities.csv'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } };
-  const exportPdf = async () => { try { const n = await api.downloadFile(api.reportPdfUrl({ period: 'fiscalYear', limit: 12 }), 'vantage-report.pdf'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } };
+  const exportPdf = async () => { try { const n = await api.downloadFile(api.reportPdfUrl({ period: DEFAULT_PERIOD, limit: 12 }), 'vantage-report.pdf'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } };
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Export everything" subtitle="Your record belongs to you" className="lg:col-span-2">

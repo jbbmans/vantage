@@ -9,7 +9,7 @@ import { Comments } from '@/components/Comments';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, StatusBadge, useParam, onText, Table, DescriptionList } from '@/components/common';
-import { can, useAwards, useCounselings, useDeleteRecord, useIdentity, usePrefs, useTrainings, invalidateRecords } from '@/lib/queries';
+import { can, useAwards, useCounselings, useDeleteRecord, useRestoreRecord, useIdentity, usePrefs, useTrainings, invalidateRecords } from '@/lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import * as api from '@/lib/api';
 import { TRAINING_TYPES, TRAINING_STATUS, AWARD_TYPES, AWARD_STATUS, AWARD_NAMES, COUNSELING_TYPES } from '../../shared/constants';
@@ -107,6 +107,7 @@ export default function Career({ section }: { section: CareerSection }) {
   const { data: awards } = useAwards();
   const { data: counselings } = useCounselings();
   const delTraining = useDeleteRecord('trainings'); const delAward = useDeleteRecord('awards'); const delCounseling = useDeleteRecord('counselings');
+  const undoTraining = useRestoreRecord('trainings'); const undoAward = useRestoreRecord('awards'); const undoCounseling = useRestoreRecord('counselings');
   const [training, setTraining] = useState<TrainingDraft | null>(null);
   const [award, setAward] = useState<AwardDraft | null>(null);
   const [counseling, setCounseling] = useState<CounselingDraft | null>(null);
@@ -187,7 +188,7 @@ export default function Career({ section }: { section: CareerSection }) {
         {view?.kind === 'counseling' && <div className="space-y-3"><DescriptionList items={[['Counselor', view.row.counselor_name || (view.row.counselor_id === me ? 'You' : null)], ['Subject', view.row.subject_name || null], ['Follow-up', <DateText value={view.row.follow_up_date} fallback="" />], ['Acknowledged', view.row.acknowledged_at ? new Date(view.row.acknowledged_at).toLocaleString() : null]]} />{[['Summary', view.row.summary], ['Strengths', view.row.strengths], ['Areas to improve', view.row.improvements], ['Goals set', view.row.goals_set]].filter(([, v]) => v).map(([k, v]) => <section key={k}><h4 className="eyebrow mb-1">{k}</h4><p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-2">{v}</p></section>)}<p className="flex items-center gap-1 text-2xs text-ink-3"><Paperclip className="h-3 w-3" />Attachments for counselings are managed by the leader who recorded it.</p></div>}
         {view && <div className="mt-4"><Comments table={view.kind === 'award' ? 'awards' : 'counselings'} id={view.row.id} canModerate={Boolean(view.row.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, view.row.unit_id)} /></div>}
       </Dialog>
-      <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title="Delete this record?" body="It moves to the recycle bin for 30 days." onConfirm={async () => { const m = confirm!.store === 'trainings' ? delTraining : confirm!.store === 'awards' ? delAward : delCounseling; try { await m.mutateAsync(confirm!.row.id); toast.success('Deleted.'); } catch (e) { toast.error(api.errorText(e)); } }} />
+      <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title="Delete this record?" body="It moves to the recycle bin for 30 days." onConfirm={async () => { const { store, row } = confirm!; const m = store === 'trainings' ? delTraining : store === 'awards' ? delAward : delCounseling; const undo = store === 'trainings' ? undoTraining : store === 'awards' ? undoAward : undoCounseling; try { await m.mutateAsync(row.id); toast.success('Deleted.', { label: 'Undo', onClick: () => undo.mutateAsync(row.id).then(() => toast.success('Restored.')).catch((e) => toast.error(api.errorText(e))) }); } catch (e) { toast.error(api.errorText(e)); } }} />
     </div>
   );
 }

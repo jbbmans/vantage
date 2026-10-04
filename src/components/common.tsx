@@ -4,7 +4,8 @@ import { Badge, PageHeader, Select, type Tone } from '@/components/ui/primitives
 import { PERIOD_OPTIONS, formatDate, formatDollars } from '../../shared/metrics';
 import { categoryColor } from '../../shared/constants';
 import { useMetrics } from '@/lib/queries';
-import { humanize } from '@/lib/utils';
+import { humanize, cn } from '@/lib/utils';
+import { daysUntil } from '../../shared/evaluation';
 
 const STATUS_TONES: Record<string, Tone> = {
   completed: 'good', achieved: 'good', approved: 'good', presented: 'good', active: 'accent', in_progress: 'accent', submitted: 'info', recommended: 'info',
@@ -13,6 +14,26 @@ const STATUS_TONES: Record<string, Tone> = {
 export const StatusBadge = ({ value, className }: { value?: string | null; className?: string }) => value ? <Badge tone={STATUS_TONES[value] || 'neutral'} className={className}>{humanize(value)}</Badge> : null;
 
 export const DateText = ({ value, pattern, fallback = 'No date' }: { value?: string | null; pattern?: string; fallback?: string }) => <span className="fig">{value ? formatDate(value, pattern) : <span className="text-ink-3">{fallback}</span>}</span>;
+/** How near a due date is, in words, when it is near enough for words to help: "tomorrow", "3 days overdue". */
+export function dueIn(value?: string | null, done = false): { days: number; words: string } | null {
+  const days = value ? daysUntil(value) : null;
+  if (done || days == null) return null;
+  const words = days === 0 ? 'today' : days === 1 ? 'tomorrow' : days > 1 && days < 7 ? `in ${days} days`
+    : days === -1 ? '1 day overdue' : days < -1 && days > -100 ? `${-days} days overdue` : null;
+  return words ? { days, words } : null;
+}
+
+/** "Due 07 Oct 26 · tomorrow": the date as the record states it, and how close it is. */
+export function DueText({ value, done, prefix = 'Due ' }: { value?: string | null; done?: boolean; prefix?: string }) {
+  if (!value) return null;
+  const near = dueIn(value, done);
+  return (
+    <span title={formatDate(value, 'EEEE d MMMM yyyy')}>
+      {prefix}<DateText value={value} />{near && <span className={cn('ml-1', near.days < 0 ? 'font-medium' : near.days <= 1 ? 'font-medium text-warn' : 'text-ink-3')}>· {near.words}</span>}
+    </span>
+  );
+}
+
 export const Money = ({ value }: { value?: number | null }) => <span className="fig">{value == null ? '' : formatDollars(value)}</span>;
 export const CategoryDot = ({ category }: { category?: string | null }) => { const cfg = useMetrics(); return <span className="badge-dot" style={{ backgroundColor: categoryColor(category, cfg) }} aria-hidden />; };
 
