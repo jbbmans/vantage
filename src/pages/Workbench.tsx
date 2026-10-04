@@ -33,7 +33,7 @@ const COLUMNS = [
   { key: 'reference', label: 'Document', width: 'w-36' },
   { key: 'title', label: 'What it is', width: '' },
   { key: 'state', label: 'Stage', width: 'w-40' },
-  { key: 'due_date', label: 'Due', width: 'w-24' },
+  { key: 'due_date', label: 'Due', width: 'w-28' },
   { key: 'amount', label: 'Amount', width: 'w-28' },
   { key: 'claimed', label: 'Held by', width: 'w-32' },
 ];
@@ -383,8 +383,8 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                             </span>
                           </td>
                           <td className="w-40 truncate px-3"><StageBadge stage={row.stage || row.state} waiting={row.waiting_category} /></td>
-                          <td className={cn('w-24 px-3 text-xs', isOverdue(row) ? 'font-medium text-bad' : 'text-ink-3')}>
-                            <DateText value={row.due_date} fallback="—" />{(() => { const near = dueIn(row.due_date, isClosedRow(row)); return near ? <span className={cn('block text-2xs', near.days >= 0 && near.days <= 1 && 'font-medium text-warn')}>{near.words}</span> : null; })()}
+                          <td className={cn('w-28 px-3 text-xs', isOverdue(row) ? 'font-medium text-bad' : 'text-ink-3')}>
+                            <DateText value={row.due_date} fallback="—" />{(() => { const near = dueIn(row.due_date, isClosedRow(row)); return near ? <span className={cn('block whitespace-nowrap text-2xs', near.days >= 0 && near.days <= 1 && 'font-medium text-warn')}>{near.words}</span> : null; })()}
                           </td>
                           <td className="fig w-28 px-3 text-right text-xs">{row.amount == null ? '' : formatDollarsExact(row.amount)}</td>
                           <td className="w-32 truncate px-3 text-xs text-ink-3">{row.claimed_by ? (mine ? 'You' : [row.holder_rank, row.holder_name].filter(Boolean).join(' ') || 'Someone else') : '—'}</td>

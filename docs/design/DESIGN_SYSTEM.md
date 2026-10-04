@@ -76,7 +76,7 @@ the synthetic demo, with a segmented persona switch. An update banner appears wh
 published (the service worker and `/api/health` both carry the build's hash).
 
 Below the large breakpoint a **tab bar** (`src/components/TabBar.tsx`) holds Today, Work, a raised log button,
-the Record and More (the drawer). It is translucent like the header, marks the current destination with the
+the Record and More (the drawer). It is solid, so nothing scrolls through behind its labels, marks the current destination with the
 accent and a short top marker, and hides while a field has focus or the drawer is open. While it shows, `--tabbar`
 on the root is its height, so toasts and the footer sit above it.
 
