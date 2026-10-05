@@ -1,2 +1,3 @@
 # Raw run output (posts, personas, backend log) stays local; copy summary.md into docs when a run is worth keeping.
 runs/
+__pycache__/
