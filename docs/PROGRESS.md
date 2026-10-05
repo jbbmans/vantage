@@ -2,6 +2,41 @@
 
 _Updated 2026-10-05_
 
+## What changed (2026-10-05: MiroFish, cradle to grave)
+
+**A MiroFish simulation of Vantage, ready to run** (`sim/mirofish/`). [MiroFish](https://github.com/666ghj/MiroFish) builds a knowledge graph from seed material, makes the people in it into agents, and simulates them talking it through. The seed is the synthetic G-8 section living with Vantage for a whole enlistment, in eight stages:
+1. arrival;
+2. daily work;
+3. leading;
+4. the Record and JEPES;
+5. promotion and FITREP;
+6. transfer;
+7. separation;
+8. records disposition and the ISSM's review.
+
+`run.py` drives MiroFish end to end with no hand steps, and writes `summary.md`:
+- seed, ontology, graph, personas;
+- the simulation;
+- one interview question per stage, asked of every agent;
+- MiroFish's report.
+
+It was exercised as far as the outside services, against a local stand-in for the model with outbound traffic blocked. It needs `LLM_API_KEY` and `ZEP_API_KEY` in the environment to run for real. Only synthetic people and public product facts go to those providers.
+
+**The ground truth it is checked against** (`tests/server/lifecycle.test.ts`). One Marine goes through the same eight stages in the real application:
+- joins by code;
+- the personnel feed sets their rank;
+- claims and verifies a case and keeps the draft; Quick Logs;
+- the lead sees the counts, not the private entry;
+- JEPES input in Appendix E's form;
+- the feed promotes them to Sgt, and the same entries become MRO worksheet input;
+- leaves the unit, and held work is released while the record stays theirs;
+- exports and is separated by the feed;
+- nothing is disposed of by default, and the audit chain verifies.
+
+Writing it confirmed two behaviours the seed now states:
+- the Marine who verifies is credited with the verification, and whoever resolves is credited with the resolution;
+- leaving a unit ends the Marine's sessions.
+
 ## What changed (2026-10-05: FITREP, and the two open data bugs)
 
 **FITREP input, checked against the form and the MARADMINs.** marines.mil refused this environment, so MCO 1610.7B was not read directly. The form (NAVMC 10835), the A-PES MRO worksheet as reproduced in an NPS thesis, the NPS FITREP bulletin and MARADMINs 308/23, 634/23, 575/24, 630/24, 066/26 and 209/26 (on a verbatim mirror) were. What changed:
@@ -244,7 +279,7 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **599 / 599 pass** (2026-10-05) |
+| `npm test` (server suite, in-memory SQLite) | **607 / 607 pass** (2026-10-05) |
 | `npm run test:browser` (Playwright, Chromium, built client) | **104 / 104 pass** (2026-10-05) |
 | Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference, the public page and the security, privacy, accessibility and changes pages |
 | `npm audit` | 0 vulnerabilities |
