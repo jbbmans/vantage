@@ -217,12 +217,12 @@ test('B15: separation by the roster is undone when the next extract lists the Ma
   }
   const roster = (statuses: Record<number, string | null>) => ['EDIPI,Last,First,Rank,Status',
     ...Array.from({ length: 15 }, (_, k) => k + 1).filter((i) => statuses[i] !== null).map((i) => `${edipi(i)},M${i},Joe,Sgt,${statuses[i] ?? 'Active'}`)].join('\n');
-  const sync = (text: string) => { const p = parseRoster(text); const plan = planSync(app.ctx, p.rows, 'MCTFS', p.rejected); applySync(app.ctx, plan, null); return plan; };
+  const sync = (text: string) => { const p = parseRoster(text); const plan = planSync(app.ctx, 'G8', p.rows, 'MCTFS', p.rejected); applySync(app.ctx, plan, null); return plan; };
   const active = (name: string) => (app.ctx.db.prepare('SELECT active FROM users WHERE id = ?').get(people[name]) as { active: number }).active;
 
   sync(roster({}));
   // Four of fifteen leaving trips the mass-separation guard, explicit statuses included, and changes nothing.
-  const held = planSync(app.ctx, parseRoster(roster({ 1: 'Separated', 2: null, 3: null, 4: 'Discharged' })).rows, 'MCTFS');
+  const held = planSync(app.ctx, 'G8', parseRoster(roster({ 1: 'Separated', 2: null, 3: null, 4: 'Discharged' })).rows, 'MCTFS');
   assert.equal(held.massSeparation?.count, 4);
   assert.equal(held.separations.length, 0);
   assert.ok(!held.updates.some((u) => u.changes.some((c) => c.field === 'status')), 'a held-back separation stays active on the roster');
@@ -261,7 +261,7 @@ test('B15b: a first sighting already marked Separated turns off the account it m
   const roster = (statuses: Record<number, string>, count: number) => ['EDIPI,Last,First,Rank,Status',
     ...Array.from({ length: count }, (_, k) => k + 1).map((i) => `${edipi(i)},F${i},Joe,Sgt,${statuses[i] ?? 'Active'}`)].join('\n');
   // Every account this extract first lists, marked separated: the guard holds it, and nothing is written.
-  const held = planSync(app.ctx, parseRoster(roster({ 1: 'Separated', 2: 'Separated', 3: 'Separated' }, 6)).rows, 'MCTFS');
+  const held = planSync(app.ctx, 'G8', parseRoster(roster({ 1: 'Separated', 2: 'Separated', 3: 'Separated' }, 6)).rows, 'MCTFS');
   assert.equal(held.massSeparation?.count, 3);
   assert.equal(held.massSeparation?.activeBefore, 6);
   applySync(app.ctx, held, null);
@@ -269,7 +269,7 @@ test('B15b: a first sighting already marked Separated turns off the account it m
   assert.ok(!app.ctx.db.prepare('SELECT 1 FROM personnel_roster WHERE edipi = ?').get(edipi(1)), 'a held-back first sighting is not written, so the next extract raises it again');
 
   // One of six: written as separated, and the account turned off.
-  const plan = planSync(app.ctx, parseRoster(roster({ 1: 'Separated' }, 6)).rows, 'MCTFS');
+  const plan = planSync(app.ctx, 'G8', parseRoster(roster({ 1: 'Separated' }, 6)).rows, 'MCTFS');
   assert.equal(plan.massSeparation, undefined);
   assert.deepEqual(plan.separations.map((s) => [s.edipi, s.listed]), [[edipi(1), true]]);
   applySync(app.ctx, plan, null);
@@ -278,7 +278,7 @@ test('B15b: a first sighting already marked Separated turns off the account it m
   assert.equal((app.ctx.db.prepare('SELECT status FROM personnel_roster WHERE edipi = ?').get(edipi(1)) as { status: string }).status, 'separated');
 
   // Listed active the next time, the roster's deactivation is undone.
-  applySync(app.ctx, planSync(app.ctx, parseRoster(roster({}, 6)).rows, 'MCTFS'), null);
+  applySync(app.ctx, planSync(app.ctx, 'G8', parseRoster(roster({}, 6)).rows, 'MCTFS'), null);
   assert.equal(active(1), 1);
 });
 

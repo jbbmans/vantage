@@ -74,13 +74,13 @@ test('upstream failures are translated and the key lock is operator-visible', as
   const status = await app.call('GET', '/api/ai/status', { token: op.token });
   assert.equal(status.body.locked, true);
   assert.ok(!('unlock_url' in status.body));
-  const adminStatus = await app.call('GET', '/api/admin/ai', { token: op.token });
+  const adminStatus = await app.call('GET', '/api/platform/ai', { token: op.token });
   assert.equal(adminStatus.body.unlock_url, 'https://genai.mil/unlock/abc');
   const notified = app.ctx.db.prepare(`SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND kind = 'system'`).get(op.id) as { n: number };
   assert.equal(notified.n, 1);
   mode = 'ok';
   assert.equal((await app.call('POST', '/api/ai/assist', { token: op.token, body: { workflow: 'writing', input: { source: 'facts' } } })).body.code, 'ai_key_locked');
-  assert.equal((await app.call('POST', '/api/admin/ai/unlock', { token: op.token })).body.locked, false);
+  assert.equal((await app.call('POST', '/api/platform/ai/unlock', { token: op.token })).body.locked, false);
   assert.equal((await app.call('POST', '/api/ai/assist', { token: op.token, body: { workflow: 'writing', input: { source: 'facts' } } })).status, 200);
   resetAiState();
 });
@@ -88,11 +88,11 @@ test('upstream failures are translated and the key lock is operator-visible', as
 test('disabling AI at runtime blocks requests and usage is recorded per model', async () => {
   const usage = app.ctx.db.prepare('SELECT model, SUM(requests) AS n FROM ai_usage_daily GROUP BY model').all() as Array<{ model: string; n: number }>;
   assert.ok(usage.find((u) => u.model === 'model-alt')?.n === 1);
-  await app.call('PUT', '/api/admin/runtime', { token: op.token, body: { aiEnabled: false } });
+  await app.call('PUT', '/api/platform/runtime', { token: op.token, body: { aiEnabled: false } });
   const res = await app.call('POST', '/api/ai/assist', { token: op.token, body: { workflow: 'writing', input: { source: 'facts' } } });
   assert.equal(res.status, 503);
   assert.equal(res.body.code, 'ai_disabled');
-  await app.call('PUT', '/api/admin/runtime', { token: op.token, body: { aiEnabled: true } });
+  await app.call('PUT', '/api/platform/runtime', { token: op.token, body: { aiEnabled: true } });
 });
 
 test('the GenAI.mil network gate is reported as a hosting problem, for requests and for discovery', async () => {
@@ -102,14 +102,14 @@ test('the GenAI.mil network gate is reported as a hosting problem, for requests 
     assert.equal(res.status, 503);
     assert.equal(res.body.code, 'ai_network_blocked');
     assert.match(res.body.error, /DoD networks/);
-    const status = await app.call('GET', '/api/admin/ai', { token: op.token });
+    const status = await app.call('GET', '/api/platform/ai', { token: op.token });
     assert.equal(status.body.last_error_code, 'network_blocked');
     assert.equal(status.body.locked, false);
-    const discover = await app.call('POST', '/api/admin/ai/discover', { token: op.token });
+    const discover = await app.call('POST', '/api/platform/ai/discover', { token: op.token });
     assert.equal(discover.status, 503);
     assert.equal(discover.body.code, 'ai_network_blocked');
   } finally { mode = 'ok'; resetAiState(); }
-  const ok = await app.call('POST', '/api/admin/ai/discover', { token: op.token });
+  const ok = await app.call('POST', '/api/platform/ai/discover', { token: op.token });
   assert.equal(ok.status, 200, JSON.stringify(ok.body));
 });
 

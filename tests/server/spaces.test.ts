@@ -33,20 +33,21 @@ test('a member can stand up a unit of their own and owns it', async () => {
   assert.ok(perms['G8'] === undefined || perms['G8'] < (perms[made.body.id] || 0), 'and gains nothing in G8 by it');
 });
 
-test('the operator can switch self-service off, and then nobody else can', async () => {
-  const off = await app.call('PUT', '/api/admin/runtime', { token: op.token, body: { selfServiceUnits: false } });
+test('the platform can switch self-service organizations off, and then only Vantage staff create them', async () => {
+  const off = await app.call('PUT', '/api/platform/runtime', { token: op.token, body: { selfServiceUnits: false } });
   assert.equal(off.status, 200, JSON.stringify(off.body));
   const refused = await mkUnit(nguyen.token, 'Should Not Exist');
   assert.equal(refused.status, 403);
-  assert.match(refused.body.error, /Instance Operator/i);
-  // The operator is still not blocked by their own switch.
+  assert.equal(refused.body.code, 'org_creation_closed');
+  assert.match(refused.body.error, /set up by Vantage/i);
+  // Vantage staff who create organizations are not blocked by their own switch.
   const byOp = await mkUnit(op.token, 'Operator Unit');
   assert.equal(byOp.status, 201, JSON.stringify(byOp.body));
-  await app.call('PUT', '/api/admin/runtime', { token: op.token, body: { selfServiceUnits: true } });
+  await app.call('PUT', '/api/platform/runtime', { token: op.token, body: { selfServiceUnits: true } });
 });
 
 test('a person cannot stand up unlimited units', async () => {
-  await app.call('PUT', '/api/admin/runtime', { token: op.token, body: { selfServiceUnitLimit: 2 } });
+  await app.call('PUT', '/api/platform/runtime', { token: op.token, body: { selfServiceUnitLimit: 2 } });
   const fresh = await app.register('limited');
   const token = fresh.token;
   assert.equal((await mkUnit(token, 'Limited One')).status, 201);
@@ -54,7 +55,7 @@ test('a person cannot stand up unlimited units', async () => {
   const third = await mkUnit(token, 'Limited Three');
   assert.equal(third.status, 403);
   assert.match(third.body.error, /limit/i);
-  await app.call('PUT', '/api/admin/runtime', { token: op.token, body: { selfServiceUnitLimit: 5 } });
+  await app.call('PUT', '/api/platform/runtime', { token: op.token, body: { selfServiceUnitLimit: 5 } });
 });
 
 test('an invite code lets somebody in, once, and only while it is live', async () => {

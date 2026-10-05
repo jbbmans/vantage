@@ -189,8 +189,131 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       db.exec('CREATE UNIQUE INDEX IF NOT EXISTS idx_users_oidc ON users(oidc_issuer, oidc_subject) WHERE oidc_subject IS NOT NULL');
     },
   },
+  {
+    id: 15,
+    name: '015_organizations',
+    run: migrateToOrganizations,
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
+
+const columnsOf = (db: Db, table: string) => new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name));
+
+/**
+ * One central service, organizations as tenants (ADR-0006). Adds before it changes anything:
+ * - every top-level unit founds an organization, and every unit beneath it carries that organization;
+ * - former Instance Operators become platform owners; each organization's owners are its root unit's leader,
+ *   or the former operators where it had none;
+ * - the roster feed, retention schedules, holds and their runs become the first organization's.
+ * Audit entries are not rewritten: their hashes stay valid, and an organization's view derives older entries' org from
+ * their unit.
+ */
+function migrateToOrganizations(db: Db) {
+  const at = new Date().toISOString();
+  const add = (table: string, column: string, type: string) => { if (!columnsOf(db, table).has(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} ${type}`); };
+  add('units', 'org_id', 'TEXT');
+  add('member_roles', 'expires_at', 'TEXT');
+  add('audit_log', 'org_id', 'TEXT');
+  add('legal_holds', 'org_id', 'TEXT');
+  add('disposition_runs', 'org_id', 'TEXT');
+  add('personnel_sync_runs', 'org_id', 'TEXT');
+
+  const { roots, operators } = foundOrganizations(db, at);
+  db.exec('CREATE INDEX IF NOT EXISTS idx_units_org ON units(org_id)');
+
+  // The instance's governance data becomes the first organization's.
+  const first = [...roots.values()].filter((r) => r.active).sort((a, b) => a.created_at.localeCompare(b.created_at))[0]?.id ?? [...roots.keys()][0] ?? null;
+  if (!columnsOf(db, 'personnel_roster').has('org_id')) {
+    db.exec(`CREATE TABLE personnel_roster_v2 (
+      org_id TEXT NOT NULL, edipi TEXT NOT NULL, last_name TEXT NOT NULL, first_name TEXT NOT NULL, middle_initial TEXT, rank_id TEXT, mos TEXT, eas TEXT,
+      unit_code TEXT, billet TEXT, status TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'separated')), source TEXT NOT NULL, row_hash TEXT NOT NULL,
+      synced_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, removed_units TEXT, PRIMARY KEY (org_id, edipi))`);
+    if (first) db.prepare(`INSERT INTO personnel_roster_v2 (org_id, edipi, last_name, first_name, middle_initial, rank_id, mos, eas, unit_code, billet, status, source, row_hash, synced_at, created_at, updated_at)
+                           SELECT ?, edipi, last_name, first_name, middle_initial, rank_id, mos, eas, unit_code, billet, status, source, row_hash, synced_at, created_at, updated_at FROM personnel_roster`).run(first);
+    db.exec('DROP TABLE personnel_roster');
+    db.exec('ALTER TABLE personnel_roster_v2 RENAME TO personnel_roster');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_roster_status ON personnel_roster(status, unit_code)');
+    db.exec('CREATE INDEX IF NOT EXISTS idx_roster_name ON personnel_roster(last_name, first_name)');
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_roster_edipi ON personnel_roster(edipi)');
+  if (!columnsOf(db, 'retention_schedules').has('org_id')) {
+    db.exec(`CREATE TABLE retention_schedules_v2 (
+      id TEXT PRIMARY KEY, org_id TEXT NOT NULL, record_type TEXT NOT NULL, retain_days INTEGER NOT NULL CHECK (retain_days > 0),
+      disposition TEXT NOT NULL CHECK (disposition IN ('destroy', 'anonymize', 'review')), authority TEXT, notes TEXT,
+      enabled INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)), created_at TEXT NOT NULL, updated_at TEXT NOT NULL, UNIQUE (org_id, record_type))`);
+    if (first) db.prepare(`INSERT INTO retention_schedules_v2 (id, org_id, record_type, retain_days, disposition, authority, notes, enabled, created_at, updated_at)
+                           SELECT id, ?, record_type, retain_days, disposition, authority, notes, enabled, created_at, updated_at FROM retention_schedules`).run(first);
+    db.exec('DROP TABLE retention_schedules');
+    db.exec('ALTER TABLE retention_schedules_v2 RENAME TO retention_schedules');
+  }
+  if (first) {
+    for (const table of ['legal_holds', 'disposition_runs', 'personnel_sync_runs']) db.prepare(`UPDATE ${table} SET org_id = ? WHERE org_id IS NULL`).run(first);
+  }
+  db.exec('CREATE INDEX IF NOT EXISTS idx_holds_org ON legal_holds(org_id, released_at)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_audit_org ON audit_log(org_id, seq DESC)');
+  db.exec('CREATE INDEX IF NOT EXISTS idx_member_roles_expiry ON member_roles(expires_at) WHERE expires_at IS NOT NULL');
+  db.prepare("INSERT INTO meta (key, value) VALUES ('org_migration', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value")
+    .run(JSON.stringify({ at, organizations: roots.size, platformOwners: operators.length, governanceTo: first }));
+}
+
+/**
+ * Every unit without an organization joins the one at the top of its tree, which is founded if it does not exist; the
+ * triggers keep it so from then on. Former operators become platform owners, and each new organization's owner is its
+ * top unit's leader (the former operators where it had none). Safe to run again: it only fills what is missing. The
+ * migration runs it once; importing an archive from before organizations runs it on what the archive brought.
+ */
+export function foundOrganizations(db: Db, at = new Date().toISOString()) {
+  // Organizations from the top of each unit tree. A unit whose parent is gone is the top of its own tree.
+  const units = db.prepare('SELECT id, code, name, short_name, parent_id, owner_user_id, active, created_at FROM units').all() as Array<{ id: string; code: string; name: string; short_name: string | null; parent_id: string | null; owner_user_id: string | null; active: number; created_at: string }>;
+  const byId = new Map(units.map((u) => [u.id, u]));
+  const rootOf = (id: string) => {
+    let current = byId.get(id)!;
+    const seen = new Set<string>();
+    while (current.parent_id && byId.has(current.parent_id) && !seen.has(current.parent_id)) { seen.add(current.id); current = byId.get(current.parent_id)!; }
+    return current;
+  };
+  const insertOrg = db.prepare(`INSERT OR IGNORE INTO organizations (id, slug, name, short_name, status, root_unit_id, settings, created_at, updated_at)
+                                VALUES (?, ?, ?, ?, ?, ?, '{}', ?, ?)`);
+  const setOrg = db.prepare('UPDATE units SET org_id = ? WHERE id = ? AND org_id IS NULL');
+  const roots = new Map<string, (typeof units)[number]>();
+  for (const u of units) {
+    const root = rootOf(u.id);
+    roots.set(root.id, root);
+    setOrg.run(root.id, u.id);
+  }
+  for (const root of roots.values()) insertOrg.run(root.id, root.code, root.name, root.short_name, root.active ? 'active' : 'archived', root.id, root.created_at, at);
+
+  // Every unit belongs to an organization from now on: beneath a parent, the parent's; at the top, one it founds.
+  db.exec(`CREATE TRIGGER IF NOT EXISTS units_inherit_org AFTER INSERT ON units FOR EACH ROW WHEN NEW.org_id IS NULL AND NEW.parent_id IS NOT NULL
+    BEGIN UPDATE units SET org_id = (SELECT org_id FROM units WHERE id = NEW.parent_id) WHERE id = NEW.id; END`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS units_found_org AFTER INSERT ON units FOR EACH ROW WHEN NEW.org_id IS NULL AND NEW.parent_id IS NULL
+    BEGIN
+      INSERT OR IGNORE INTO organizations (id, slug, name, short_name, status, root_unit_id, settings, created_at, updated_at)
+        VALUES (NEW.id, NEW.code, NEW.name, NEW.short_name, 'active', NEW.id, '{}', NEW.created_at, NEW.created_at);
+      UPDATE units SET org_id = NEW.id WHERE id = NEW.id;
+    END`);
+  // A unit never changes organization by being moved: a parent in another organization is refused here as well as in code.
+  db.exec(`CREATE TRIGGER IF NOT EXISTS units_stay_in_org BEFORE UPDATE OF parent_id ON units FOR EACH ROW
+    WHEN NEW.parent_id IS NOT NULL AND NEW.org_id IS NOT NULL AND (SELECT org_id FROM units WHERE id = NEW.parent_id) IS NOT NEW.org_id
+    BEGIN SELECT RAISE(ABORT, 'a unit cannot move into another organization'); END`);
+
+  // Former operators run the platform now; organizations get owners of their own.
+  const operators = columnsOf(db, 'users').has('is_operator')
+    ? (db.prepare('SELECT id FROM users WHERE is_operator = 1').all() as Array<{ id: string }>).map((r) => r.id)
+    : [];
+  const platform = db.prepare("INSERT OR IGNORE INTO platform_roles (user_id, role, granted_by, created_at) VALUES (?, 'owner', NULL, ?)");
+  for (const id of operators) platform.run(id, at);
+  const owner = db.prepare("INSERT OR IGNORE INTO org_roles (org_id, user_id, role, granted_by, created_at) VALUES (?, ?, 'owner', NULL, ?)");
+  // Only an organization with no owner gets them here: one that has owners keeps the ones it has.
+  const hasOwner = db.prepare("SELECT 1 FROM org_roles WHERE org_id = ? AND role = 'owner'");
+  for (const root of roots.values()) {
+    if (hasOwner.get(root.id)) continue;
+    const owners = root.owner_user_id ? [root.owner_user_id] : operators;
+    for (const id of owners) owner.run(root.id, id, at);
+  }
+
+  return { roots, operators };
+}
 
 function isLegacyDatabase(db: Db): boolean {
   const hasUsers = db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'users'").get();

@@ -21,9 +21,11 @@ const ACCOUNT_SQL = `SELECT u.id, u.username, u.email, u.first_name, u.last_name
     (SELECT MAX(l.created_at) FROM email_log l WHERE l.user_id = u.id AND l.kind = 'sign_in' AND l.status IN ('sent', 'queued')) AS sent_at
   FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.active = 1`;
 
-/** Every active account but the sender's, split by whether there is an address to send to. */
-export function signInAudience(ctx: AppContext, actorId: string) {
-  const rows = ctx.db.prepare(`${ACCOUNT_SQL} AND u.id <> ? ORDER BY u.last_name COLLATE NOCASE, u.first_name COLLATE NOCASE`).all(actorId) as Account[];
+const IN_ORG = 'AND u.id IN (SELECT um.user_id FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE un.org_id = ?)';
+
+/** Every active member of the organization but the sender, split by whether there is an address to send to. */
+export function signInAudience(ctx: AppContext, actorId: string, orgId: string) {
+  const rows = ctx.db.prepare(`${ACCOUNT_SQL} ${IN_ORG} AND u.id <> ? ORDER BY u.last_name COLLATE NOCASE, u.first_name COLLATE NOCASE`).all(orgId, actorId) as Account[];
   const shape = (a: Account) => ({ id: a.id, username: a.username, name: `${a.rank_abbr ? `${a.rank_abbr} ` : ''}${a.last_name}, ${a.first_name}`, email: a.email, last_login_at: a.last_login_at, must_change_password: Boolean(a.must_change_password), sent_at: a.sent_at });
   return {
     emailEnabled: ctx.mailer.enabled,
@@ -70,9 +72,10 @@ export function composeSignInMail(ctx: AppContext, account: Account, sender: Ses
 
 export type SignInResult = { id: string; status: 'sent' | 'queued' | 'failed' | 'skipped'; error?: string };
 
-export async function sendSignInDetails(ctx: AppContext, sender: SessionUser, userId: string, ip?: string): Promise<SignInResult> {
-  const account = ctx.db.prepare(`${ACCOUNT_SQL} AND u.id = ?`).get(userId) as Account | undefined;
-  if (!account) return { id: userId, status: 'skipped', error: 'No such active account.' };
+/** Send one person their details: a member of the organization when one is given, any account for Vantage support. */
+export async function sendSignInDetails(ctx: AppContext, sender: SessionUser, userId: string, orgId: string | null, ip?: string): Promise<SignInResult> {
+  const account = ctx.db.prepare(`${ACCOUNT_SQL} ${orgId ? IN_ORG : ''} AND u.id = ?`).get(...(orgId ? [orgId] : []), userId) as Account | undefined;
+  if (!account) return { id: userId, status: 'skipped', error: orgId ? 'No such active member of this organization.' : 'No such active account.' };
   if (account.id === sender.id) return { id: userId, status: 'skipped', error: 'That is your own account.' };
   if (!account.email) return { id: userId, status: 'skipped', error: 'No email on file.' };
   if (!ctx.mailer.enabled) return { id: userId, status: 'failed', error: 'Email is not configured on this server.' };
@@ -87,6 +90,6 @@ export async function sendSignInDetails(ctx: AppContext, sender: SessionUser, us
   // An undelivered link is one nobody should hold.
   if (!result.ok) revokeTokens(ctx, 'reset', account.id);
   const status = !result.ok ? 'failed' : result.queued ? 'queued' : 'sent';
-  audit(ctx, { actor_id: sender.id, action: 'sign_in_details_sent', entity: 'user', entity_id: account.id, subject_id: account.id, detail: `${account.username}; ${status}${result.error ? `; ${result.error.slice(0, 200)}` : ''}`, ip });
+  audit(ctx, { actor_id: sender.id, action: 'sign_in_details_sent', entity: 'user', entity_id: account.id, subject_id: account.id, org_id: orgId, detail: `${account.username}; ${status}${result.error ? `; ${result.error.slice(0, 200)}` : ''}`, ip });
   return { id: account.id, status, ...(result.error ? { error: result.error } : {}) };
 }

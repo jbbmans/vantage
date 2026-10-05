@@ -78,7 +78,7 @@ test('a visitor lands on a synthetic Marine with no form, and sign-in routes are
       assert.equal(r.status, 403, path);
       assert.equal(r.body.code, 'demo_mode', path);
     }
-    assert.equal((await app.call('GET', '/api/admin/overview', { token })).status, 403);
+    assert.equal((await app.call('GET', '/api/platform/overview', { token })).status, 403);
     assert.equal((await app.call('POST', '/api/org/units', { token, body: { name: 'Escape' } })).status, 403);
     assert.equal((await app.call('GET', '/api/org/directory', { token })).status, 403);
 

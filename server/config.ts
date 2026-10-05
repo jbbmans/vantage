@@ -22,7 +22,7 @@ export interface AppConfig {
    * Where each face of Vantage lives: the public site, the application, and the owner console. One address
    * serves all three unless the deployment names separate ones (VANTAGE_SITE_URL, _APP_URL, _CONSOLE_URL).
    */
-  urls: { site: string; app: string; console: string };
+  urls: { site: string; app: string; console: string; admin: string };
   rpId: string;
   secret: string;
   /** Secrets this instance ran with before VANTAGE_SECRET, kept for one start so stored values can be re-sealed. */
@@ -293,8 +293,10 @@ export function loadConfig(env = process.env): AppConfig {
   const site = origin('VANTAGE_SITE_URL', env.VANTAGE_SITE_URL || env.VANTAGE_PUBLIC_URL || (production ? '' : 'http://localhost:5173'));
   const app = origin('VANTAGE_APP_URL', env.VANTAGE_APP_URL || site);
   const consoleUrl = origin('VANTAGE_CONSOLE_URL', env.VANTAGE_CONSOLE_URL || app);
+  // Vantage staff's dashboard: on the console's host at /admin unless it is given a host of its own.
+  const adminUrl = origin('VANTAGE_ADMIN_URL', env.VANTAGE_ADMIN_URL || consoleUrl);
   // Passkeys made on the application must also work on the console, so they belong to the domain both share.
-  const rpId = env.VANTAGE_RP_ID || sharedDomain(new URL(app).hostname, new URL(consoleUrl).hostname);
+  const rpId = env.VANTAGE_RP_ID || sharedDomain(sharedDomain(new URL(app).hostname, new URL(consoleUrl).hostname), new URL(adminUrl).hostname);
 
   const dbPath = env.VANTAGE_DB || (test ? ':memory:' : 'data/vantage.db');
   const emailProvider = (env.VANTAGE_EMAIL_PROVIDER || 'none') as AppConfig['email']['provider'];
@@ -330,12 +332,13 @@ export function loadConfig(env = process.env): AppConfig {
     },
     port: envNumber(env, 'PORT', 8787),
     databasePath: dbPath === ':memory:' || isAbsolute(dbPath) ? dbPath : resolve(ROOT, dbPath),
-    urls: { site, app, console: consoleUrl },
+    urls: { site, app, console: consoleUrl, admin: adminUrl },
     rpId,
     secret,
     previousSecrets,
     setupToken,
-    operatorUsernames: envList(env, 'VANTAGE_OPERATOR', []).map((s) => s.toLowerCase()),
+    // Bootstrap platform owners. VANTAGE_OPERATOR is the name this had when Vantage was installed per command.
+    operatorUsernames: [...envList(env, 'VANTAGE_PLATFORM_OWNERS', []), ...envList(env, 'VANTAGE_OPERATOR', [])].map((s) => s.toLowerCase()),
     timezone: env.VANTAGE_TIMEZONE || 'America/New_York',
     trustProxy: resolveTrustProxy(env.TRUST_PROXY, production),
     clientIp: clientIpSource(env.VANTAGE_CLIENT_IP),

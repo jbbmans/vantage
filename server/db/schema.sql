@@ -118,7 +118,9 @@ CREATE TABLE IF NOT EXISTS units (
   parent_id     TEXT REFERENCES units(id),
   owner_user_id TEXT REFERENCES users(id),
   active        INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
-  created_at    TEXT NOT NULL
+  created_at    TEXT NOT NULL,
+  -- The organization (tenant) the unit belongs to; set by trigger from the parent, or founding one at the top.
+  org_id        TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_units_parent ON units(parent_id);
 CREATE INDEX IF NOT EXISTS idx_units_owner ON units(owner_user_id);
@@ -155,6 +157,8 @@ CREATE TABLE IF NOT EXISTS member_roles (
   unit_id    TEXT NOT NULL REFERENCES units(id),
   granted_by TEXT REFERENCES users(id),
   created_at TEXT NOT NULL,
+  -- A grant held until a date (an acting billet); past it, the grant confers nothing.
+  expires_at TEXT,
   PRIMARY KEY (user_id, role_id)
 );
 CREATE INDEX IF NOT EXISTS idx_member_roles_unit ON member_roles(unit_id, user_id);
@@ -369,7 +373,9 @@ CREATE TABLE IF NOT EXISTS audit_log (
   ip         TEXT,
   at         TEXT NOT NULL,
   prev_hash  TEXT,
-  entry_hash TEXT NOT NULL
+  entry_hash TEXT NOT NULL,
+  -- The organization an entry belongs to, sealed into its hash when set. Entries from before organizations derive it from unit_id.
+  org_id     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_audit_subject ON audit_log(subject_id, seq DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_unit ON audit_log(unit_id, seq DESC);
@@ -745,7 +751,8 @@ CREATE INDEX IF NOT EXISTS idx_product_events_user ON product_events(user_id, oc
 CREATE INDEX IF NOT EXISTS idx_product_events_received ON product_events(received_at);
 
 CREATE TABLE IF NOT EXISTS personnel_roster (
-  edipi          TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL,
+  edipi          TEXT NOT NULL,
   last_name      TEXT NOT NULL,
   first_name     TEXT NOT NULL,
   middle_initial TEXT,
@@ -759,7 +766,10 @@ CREATE TABLE IF NOT EXISTS personnel_roster (
   row_hash       TEXT NOT NULL,
   synced_at      TEXT NOT NULL,
   created_at     TEXT NOT NULL,
-  updated_at     TEXT NOT NULL
+  updated_at     TEXT NOT NULL,
+  -- Memberships the feed ended when it separated this person, restored if a later extract lists them as active.
+  removed_units  TEXT,
+  PRIMARY KEY (org_id, edipi)
 );
 CREATE INDEX IF NOT EXISTS idx_roster_status ON personnel_roster(status, unit_code);
 CREATE INDEX IF NOT EXISTS idx_roster_name ON personnel_roster(last_name, first_name);
@@ -775,20 +785,23 @@ CREATE TABLE IF NOT EXISTS personnel_sync_runs (
   separated   INTEGER NOT NULL DEFAULT 0,
   conflicts   INTEGER NOT NULL DEFAULT 0,
   detail      TEXT NOT NULL DEFAULT '{}',
-  at          TEXT NOT NULL
+  at          TEXT NOT NULL,
+  org_id      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_sync_runs_at ON personnel_sync_runs(at);
 
 CREATE TABLE IF NOT EXISTS retention_schedules (
   id           TEXT PRIMARY KEY,
-  record_type  TEXT NOT NULL UNIQUE,
+  org_id       TEXT NOT NULL,
+  record_type  TEXT NOT NULL,
   retain_days  INTEGER NOT NULL CHECK (retain_days > 0),
   disposition  TEXT NOT NULL CHECK (disposition IN ('destroy', 'anonymize', 'review')),
   authority    TEXT,
   notes        TEXT,
   enabled      INTEGER NOT NULL DEFAULT 0 CHECK (enabled IN (0, 1)),
   created_at   TEXT NOT NULL,
-  updated_at   TEXT NOT NULL
+  updated_at   TEXT NOT NULL,
+  UNIQUE (org_id, record_type)
 );
 
 CREATE TABLE IF NOT EXISTS legal_holds (
@@ -800,7 +813,9 @@ CREATE TABLE IF NOT EXISTS legal_holds (
   placed_by   TEXT NOT NULL REFERENCES users(id),
   placed_at   TEXT NOT NULL,
   released_by TEXT REFERENCES users(id),
-  released_at TEXT
+  released_at TEXT,
+  -- The organization a hold belongs to. A hold with no organization is the platform's, and covers every organization.
+  org_id      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_holds_open ON legal_holds(released_at, scope);
 
@@ -814,7 +829,8 @@ CREATE TABLE IF NOT EXISTS disposition_runs (
   acted       INTEGER NOT NULL DEFAULT 0,
   held        INTEGER NOT NULL DEFAULT 0,
   detail      TEXT,
-  at          TEXT NOT NULL
+  at          TEXT NOT NULL,
+  org_id      TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_disposition_at ON disposition_runs(at);
 
@@ -1001,3 +1017,60 @@ CREATE TABLE IF NOT EXISTS career_profiles (
   civilian_interests TEXT,
   updated_at         TEXT NOT NULL
 );
+
+-- Organizations: the tenants of the central service (ADR-0006). Each owns a tree of units rooted at root_unit_id.
+CREATE TABLE IF NOT EXISTS organizations (
+  id               TEXT PRIMARY KEY,
+  slug             TEXT NOT NULL UNIQUE,
+  name             TEXT NOT NULL,
+  short_name       TEXT,
+  status           TEXT NOT NULL DEFAULT 'active' CHECK (status IN ('active', 'suspended', 'archived')),
+  root_unit_id     TEXT REFERENCES units(id),
+  settings         TEXT NOT NULL DEFAULT '{}',
+  created_by       TEXT REFERENCES users(id),
+  suspended_reason TEXT,
+  suspended_at     TEXT,
+  created_at       TEXT NOT NULL,
+  updated_at       TEXT NOT NULL
+);
+
+-- Vantage staff. Platform roles run the service; they confer nothing inside any organization.
+CREATE TABLE IF NOT EXISTS platform_roles (
+  user_id    TEXT NOT NULL REFERENCES users(id),
+  role       TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'support', 'auditor')),
+  granted_by TEXT REFERENCES users(id),
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (user_id, role)
+);
+
+-- An organization's owners, administrators, records officers and auditors.
+CREATE TABLE IF NOT EXISTS org_roles (
+  org_id     TEXT NOT NULL REFERENCES organizations(id),
+  user_id    TEXT NOT NULL REFERENCES users(id),
+  role       TEXT NOT NULL CHECK (role IN ('owner', 'admin', 'records', 'auditor')),
+  granted_by TEXT REFERENCES users(id),
+  expires_at TEXT,
+  created_at TEXT NOT NULL,
+  PRIMARY KEY (org_id, user_id, role)
+);
+CREATE INDEX IF NOT EXISTS idx_org_roles_user ON org_roles(user_id);
+
+-- Vantage access: the only way staff read an organization's data. Time-limited, read-only, approved by its owners.
+CREATE TABLE IF NOT EXISTS access_grants (
+  id            TEXT PRIMARY KEY,
+  org_id        TEXT NOT NULL REFERENCES organizations(id),
+  staff_user_id TEXT NOT NULL REFERENCES users(id),
+  reason        TEXT NOT NULL,
+  minutes       INTEGER NOT NULL CHECK (minutes BETWEEN 15 AND 1440),
+  status        TEXT NOT NULL CHECK (status IN ('pending', 'active', 'denied', 'revoked', 'expired', 'ended', 'withdrawn')),
+  requested_at  TEXT NOT NULL,
+  decided_by    TEXT REFERENCES users(id),
+  decided_at    TEXT,
+  decision_note TEXT,
+  starts_at     TEXT,
+  expires_at    TEXT,
+  ended_at      TEXT,
+  ended_by      TEXT REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_access_grants_org ON access_grants(org_id, status);
+CREATE INDEX IF NOT EXISTS idx_access_grants_staff ON access_grants(staff_user_id, status);

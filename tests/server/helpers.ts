@@ -3,6 +3,7 @@ import { loadConfig } from '../../server/config.ts';
 import { createApp, createContext } from '../../server/app.ts';
 import type { AppContext } from '../../server/context.ts';
 import { resetLimiters } from '../../server/auth/limiter.ts';
+import { addMember } from '../../server/services/org.ts';
 import { zonedDay } from '../../server/lib/clock.ts';
 
 export interface TestApp {
@@ -64,9 +65,16 @@ export async function startApp(env: Record<string, string> = {}): Promise<TestAp
   };
 }
 
+/**
+ * Seat someone in a unit. Through the API when the enroller may enroll them directly (they already lead them); a
+ * freshly registered account accepts a join code or invitation itself in the product, so tests seat it in the service.
+ */
 export async function enroll(app: TestApp, operatorToken: string, unitId: string, userId: string, roleKey?: string) {
   const res = await app.call('POST', `/api/org/units/${unitId}/members`, { token: operatorToken, body: { user_id: userId, role_id: roleKey ? `${unitId}:${roleKey}` : null } });
-  if (res.status !== 201) throw new Error(`enroll failed: ${res.status} ${JSON.stringify(res.body)}`);
+  if (res.status === 201) return;
+  if (res.body?.code !== 'invite_required') throw new Error(`enroll failed: ${res.status} ${JSON.stringify(res.body)}`);
+  addMember(app.ctx, userId, unitId, { invitedBy: null });
+  if (roleKey) app.ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, NULL, ?)').run(userId, `${unitId}:${roleKey}`, unitId, new Date().toISOString());
 }
 
 export function mockGenAi(handler: (body: any, url: string) => { status?: number; json?: unknown; html?: string }): Promise<{ url: string; close: () => void; calls: any[] }> {

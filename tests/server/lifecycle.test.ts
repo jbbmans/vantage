@@ -21,7 +21,7 @@ const post = (token: string, path: string, body: unknown = {}) => app.call('POST
 const get = (token: string, path: string) => app.call('GET', path, { token });
 const sync = (rows: string[]) => {
   const parsed = parseRoster(['EDIPI,Last,First,Grade,Status', ...rows].join('\n'));
-  const plan = planSync(app.ctx, parsed.rows, 'MCTFS', parsed.rejected);
+  const plan = planSync(app.ctx, 'G8', parsed.rows, 'MCTFS', parsed.rejected);
   applySync(app.ctx, plan, op.id);
   return plan;
 };
@@ -142,9 +142,9 @@ test('7. separation: the Marine takes their record, then the monthly extract tur
 
 test('8. the grave: nothing is disposed of by default, and the trail of all of it holds', async () => {
   await sudo(op.token);
-  const retention = await get(op.token, '/api/admin/retention');
+  const retention = await get(op.token, '/api/orgs/G8/retention');
   assert.equal(retention.status, 200, JSON.stringify(retention.body).slice(0, 200));
-  const run = await post(op.token, '/api/admin/retention/run', {});
+  const run = await post(op.token, '/api/orgs/G8/retention/run', {});
   assert.equal(run.status, 200, JSON.stringify(run.body).slice(0, 300));
   const kept = app.ctx.db.prepare('SELECT COUNT(*) AS n FROM activities WHERE user_id = ? AND deleted_at IS NULL').get(nguyen.id) as { n: number };
   assert.ok(kept.n >= 2, 'a retention run with no schedule turned on disposes of nothing');

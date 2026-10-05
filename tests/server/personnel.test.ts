@@ -7,7 +7,7 @@ const ROSTER = `DoD ID,Last,First,MI,Grade,PMOS,EAS,RUC,Status
 9876543210,Rivera,Ana,,LCpl,0311,2026-11-01,G8,Active`;
 
 const post = (app: any, token: string, body: string, qs = '') =>
-  app.call('POST', `/api/admin/personnel/sync?source=MCTFS${qs}`, { token, raw: Buffer.from(body), headers: { 'content-type': 'text/plain' } });
+  app.call('POST', `/api/orgs/G8/personnel/sync?source=MCTFS${qs}`, { token, raw: Buffer.from(body), headers: { 'content-type': 'text/plain' } });
 
 test('a roster plan reports what it would do and changes nothing', async () => {
   const app = await startApp();
@@ -108,9 +108,9 @@ test('two accounts cannot claim one EDIPI', async () => {
   try {
     const op = await app.setupOperator();
     const member = await app.register('rivera');
-    const first = await app.call('POST', '/api/admin/personnel/link', { token: op.token, body: { user_id: op.id, edipi: '1234567890' } });
+    const first = await app.call('POST', '/api/orgs/G8/personnel/link', { token: op.token, body: { user_id: op.id, edipi: '1234567890' } });
     assert.equal(first.status, 200);
-    const second = await app.call('POST', '/api/admin/personnel/link', { token: op.token, body: { user_id: member.id, edipi: '1234567890' } });
+    const second = await app.call('POST', '/api/orgs/G8/personnel/link', { token: op.token, body: { user_id: member.id, edipi: '1234567890' } });
     assert.equal(second.status, 400, 'the second link is refused');
   } finally { await app.close(); }
 });

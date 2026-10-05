@@ -2,10 +2,10 @@ import { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
-import { requireAuth, requireOperator, requireSudo } from '../auth/middleware.ts';
-import { unlockAccount } from '../auth/lockout.ts';
+import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross } from '../authz/scope.ts';
-import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, type RoleRow } from '../services/org.ts';
+import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, noticeRecordReach, type RoleRow } from '../services/org.ts';
+import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
@@ -22,8 +22,6 @@ import { mailAllowance, limiters } from '../auth/limiter.ts';
 import { sendTeamMessage, teamAudience } from '../services/teamMail.ts';
 import { zonedDay } from '../lib/clock.ts';
 import type { Request } from 'express';
-import { randomBytes } from 'node:crypto';
-import { hashPassword } from '../lib/crypto.ts';
 import { zoneOf } from '../lib/zone.ts';
 
 export const orgRouter = Router();
@@ -60,7 +58,7 @@ orgRouter.get('/units/:unitId/overview', wrap((req, res) => {
   const unitId = String(req.params.unitId);
   const scope = scopeFor(req.ctx, req.user, req);
   if (!getUnit(req.ctx, unitId)) throw notFound('No such unit.');
-  if (!req.user.is_operator && !scope.viewableUnitIds.includes(unitId)) throw forbidden('That unit is outside your chain of command.');
+  if (!scope.viewableUnitIds.includes(unitId)) throw forbidden('That unit is outside your chain of command.');
   const { from, to } = dashboardWindow(req);
   const goalUnits = [...new Set([...scope.readableUnitIds, ...scope.unitIds, ...ancestorIds(req.ctx, scope.unitIds)])];
   res.json(unitOverview(req.ctx, unitId, { from, to, full: can(scope, PERMISSIONS.VIEW_RECORDS, unitId), goalUnits }));
@@ -102,10 +100,12 @@ orgRouter.get('/directory', wrap((req, res) => {
   if (q.length < 2) throw badRequest('Enter at least two characters.', { fieldErrors: { q: 'Enter at least two characters.' } });
   const pattern = `${q.replace(/[\\%_]/g, '\\$&')}%`;
   const managed = unitsWith(scope, PERMISSIONS.MANAGE_MEMBERS);
-  const led = req.user.is_operator ? '' : `AND EXISTS (SELECT 1 FROM unit_members lm WHERE lm.user_id = u.id AND lm.unit_id IN (${managed.map(() => '?').join(',')}))`;
+  // Only people already in a unit the actor manages: an organization's administrators search their own organization, never
+  // the whole service. Anyone else joins by invitation.
+  const led = `AND EXISTS (SELECT 1 FROM unit_members lm WHERE lm.user_id = u.id AND lm.unit_id IN (SELECT value FROM json_each(?)))`;
   const rows = req.ctx.db.prepare(`SELECT u.id, u.username, u.first_name, u.last_name, r.abbr AS rank_abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id
     WHERE u.active = 1 AND (u.username LIKE ? ESCAPE '\\' OR u.last_name LIKE ? ESCAPE '\\' COLLATE NOCASE) ${led}
-      AND NOT EXISTS (SELECT 1 FROM unit_members um WHERE um.user_id = u.id AND um.unit_id = ?) ORDER BY u.last_name, u.first_name LIMIT 50`).all(pattern, pattern, ...(req.user.is_operator ? [] : managed), unitId) as Array<{ id: string }>;
+      AND NOT EXISTS (SELECT 1 FROM unit_members um WHERE um.user_id = u.id AND um.unit_id = ?) ORDER BY u.last_name, u.first_name LIMIT 50`).all(pattern, pattern, JSON.stringify(managed), unitId) as Array<{ id: string }>;
   res.json({ results: rows.filter((r) => mayEnrollDirectly(req.ctx, req.user, scope, r.id)).slice(0, 10) });
 }));
 
@@ -314,14 +314,33 @@ orgRouter.delete('/roles/:roleId', wrap((req, res) => {
 orgRouter.post('/team/:userId/roles', wrap((req, res) => {
   const ctx = req.ctx;
   const scope = scopeFor(ctx, req.user, req);
-  const { role_id, unit_id } = parse(z.object({ role_id: z.string().max(120), unit_id: z.string().max(64) }), req.body);
+  const { role_id, unit_id, expires_at } = parse(z.object({ role_id: z.string().max(120), unit_id: z.string().max(64), expires_at: z.string().max(40).nullish() }), req.body);
   const userId = String(req.params.userId);
   const role = ctx.db.prepare('SELECT * FROM roles WHERE id = ?').get(role_id) as RoleRow | undefined;
   validateRoleGrant(ctx, req.user, scope, role, unit_id, userId);
-  ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(userId, role_id, unit_id, req.user.id, now());
+  // Until a date: an acting billet, a leave period. An expired grant confers nothing; the sweep removes it.
+  const until = expires_at ? new Date(expires_at) : null;
+  if (until && (Number.isNaN(until.getTime()) || until.getTime() <= Date.now())) throw badRequest('An end date must be in the future.', { fieldErrors: { expires_at: 'Must be in the future.' } });
+  if (until && until.getTime() > Date.now() + 366 * 86_400_000) throw badRequest('A time-bound role lasts a year at most. Grant it without an end date instead.', { fieldErrors: { expires_at: 'Within a year.' } });
+  ctx.db.prepare(`INSERT INTO member_roles (user_id, role_id, unit_id, granted_by, created_at, expires_at) VALUES (?, ?, ?, ?, ?, ?)
+                  ON CONFLICT(user_id, role_id) DO UPDATE SET granted_by = excluded.granted_by, expires_at = excluded.expires_at`)
+    .run(userId, role_id, unit_id, req.user.id, now(), until ? until.toISOString() : null);
   const revoked = invalidateUserSessions(ctx, userId);
-  audit(ctx, { actor_id: req.user.id, action: 'grant_role', entity: 'role', entity_id: role_id, subject_id: userId, unit_id, detail: `${role!.name}; sessions revoked: ${revoked}`, ip: clientIp(req) });
-  res.json({ ok: true, sessionsRevoked: revoked });
+  audit(ctx, { actor_id: req.user.id, action: 'grant_role', entity: 'role', entity_id: role_id, subject_id: userId, unit_id, detail: `${role!.name}${until ? ` until ${until.toISOString().slice(0, 10)}` : ''}; sessions revoked: ${revoked}`, ip: clientIp(req) });
+  noticeRecordReach(ctx, req.user, scope, role!, unit_id, userId);
+  res.json({ ok: true, sessionsRevoked: revoked, expires_at: until ? until.toISOString() : null });
+}));
+
+/** "Why can they?": every grant behind what a member can do, in the units the caller manages roles or reads detail in. */
+orgRouter.get('/team/:userId/why', wrap((req, res) => {
+  const ctx = req.ctx;
+  const scope = scopeFor(ctx, req.user, req);
+  const userId = String(req.params.userId);
+  const units = userId === req.user.id
+    ? undefined
+    : [...new Set([...unitsWith(scope, PERMISSIONS.MANAGE_ROLES), ...unitsWith(scope, PERMISSIONS.VIEW_MEMBER_DETAIL)])];
+  if (units && !units.length) throw forbidden('You do not manage roles anywhere.');
+  res.json({ units: explainAccess(ctx, userId, units) });
 }));
 
 orgRouter.delete('/team/:userId/roles/:roleId', wrap((req, res) => {
@@ -404,7 +423,7 @@ orgRouter.put('/team/:userId/profile', wrap((req, res) => {
   const target = ctx.db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(id) as Record<string, unknown> | undefined;
   if (!target) throw notFound('No such Marine.');
   const units = detailUnitsFor(ctx, scope, id).filter((u) => can(scope, PERMISSIONS.MANAGE_MEMBERS, u));
-  if (!req.user.is_operator && !units.length) throw forbidden('You cannot edit that Marine’s profile.');
+  if (!units.length) throw forbidden('You cannot edit that Marine’s profile.');
   const body = parse(profileSchema.omit({ email: true }), req.body);
   if (body.rank_id && !ctx.db.prepare('SELECT 1 FROM ranks WHERE id = ?').get(body.rank_id)) throw badRequest('No such rank.', { fieldErrors: { rank_id: 'No such rank.' } });
   const entries = Object.entries(body).filter(([, v]) => v !== undefined);
@@ -413,75 +432,6 @@ orgRouter.put('/team/:userId/profile', wrap((req, res) => {
   audit(ctx, { actor_id: req.user.id, action: 'edit_member_profile', entity: 'user', entity_id: id, subject_id: id, unit_id: units[0] || null, detail: entries.map(([k]) => k).join(', '), ip: clientIp(req) });
   if (entries.some(([k]) => k === 'rank_id')) notify(ctx, id, { kind: 'profile', title: 'Profile updated by your leadership', message: `${req.user.first_name} ${req.user.last_name} updated: ${entries.map(([k]) => k).join(', ')}.`, actionUrl: '/settings' });
   res.json({ ok: true, changed: entries.map(([k]) => k) });
-}));
-
-orgRouter.post('/team/:userId/deactivate', requireOperator, requireSudo, wrap((req, res) => {
-  const ctx = req.ctx;
-  const id = String(req.params.userId);
-  if (id === req.user.id) throw badRequest('You cannot deactivate your own account.');
-  const target = ctx.db.prepare('SELECT id, active FROM users WHERE id = ?').get(id) as { id: string; active: number } | undefined;
-  if (!target) throw notFound('No such Marine.');
-  const owns = ctx.db.prepare('SELECT name FROM units WHERE owner_user_id = ? AND active = 1').all(id) as Array<{ name: string }>;
-  if (owns.length) throw badRequest(`That Marine leads ${owns.map((u) => u.name).join(', ')}. Transfer ownership first.`);
-  ctx.db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ?').run(now(), id);
-  const revoked = invalidateUserSessions(ctx, id);
-  audit(ctx, { actor_id: req.user.id, action: 'deactivate_member', entity: 'user', entity_id: id, subject_id: id, detail: `sessions revoked: ${revoked}`, ip: clientIp(req) });
-  res.json({ ok: true, sessionsRevoked: revoked });
-}));
-orgRouter.post('/team/:userId/reactivate', requireOperator, requireSudo, wrap((req, res) => {
-  const id = String(req.params.userId);
-  const r = req.ctx.db.prepare('UPDATE users SET active = 1, updated_at = ? WHERE id = ?').run(now(), id);
-  if (!r.changes) throw notFound('No such Marine.');
-  audit(req.ctx, { actor_id: req.user.id, action: 'reactivate_member', entity: 'user', entity_id: id, subject_id: id, ip: clientIp(req) });
-  res.json({ ok: true });
-}));
-orgRouter.post('/team/:userId/reset-mfa', requireOperator, requireSudo, wrap((req, res) => {
-  const ctx = req.ctx;
-  const id = String(req.params.userId);
-  if (!ctx.db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) throw notFound('No such Marine.');
-  ctx.db.transaction(() => {
-    ctx.db.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL, totp_pending = NULL, totp_last_step = NULL, updated_at = ? WHERE id = ?').run(now(), id);
-    ctx.db.prepare('DELETE FROM recovery_codes WHERE user_id = ?').run(id);
-    ctx.db.prepare('DELETE FROM passkeys WHERE user_id = ?').run(id);
-  })();
-  const revoked = invalidateUserSessions(ctx, id);
-  audit(ctx, { actor_id: req.user.id, action: 'reset_mfa', entity: 'user', entity_id: id, subject_id: id, detail: `sessions revoked: ${revoked}`, ip: clientIp(req) });
-  res.json({ ok: true, sessionsRevoked: revoked });
-}));
-orgRouter.post('/team/:userId/temporary-password', requireOperator, requireSudo, wrap((req, res) => {
-  const ctx = req.ctx;
-  const id = String(req.params.userId);
-  if (id === req.user.id) throw badRequest('Use Change password for your own account.');
-  if (!ctx.db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) throw notFound('No such Marine.');
-  const hex = randomBytes(10).toString('hex');
-  const password = `${hex.slice(0, 8)}-${hex.slice(8, 16)}-${hex.slice(16)}`;
-  // A new password is the administrator's answer to a locked account, so it unlocks it too.
-  ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 1, failed_sign_ins = 0, locked_until = NULL, updated_at = ? WHERE id = ?').run(hashPassword(password), now(), id);
-  const revoked = invalidateUserSessions(ctx, id);
-  audit(ctx, { actor_id: req.user.id, action: 'temporary_password', entity: 'user', entity_id: id, subject_id: id, detail: `sessions revoked: ${revoked}`, ip: clientIp(req) });
-  res.json({ ok: true, password, sessionsRevoked: revoked });
-}));
-orgRouter.post('/team/:userId/unlock', requireOperator, requireSudo, wrap((req, res) => {
-  const id = String(req.params.userId);
-  if (!req.ctx.db.prepare('SELECT 1 FROM users WHERE id = ?').get(id)) throw notFound('No such Marine.');
-  res.json({ ok: true, unlocked: unlockAccount(req.ctx, id, req.user.id, clientIp(req)) });
-}));
-orgRouter.post('/team/:userId/logout', requireOperator, requireSudo, wrap((req, res) => {
-  const id = String(req.params.userId);
-  const revoked = invalidateUserSessions(req.ctx, id);
-  audit(req.ctx, { actor_id: req.user.id, action: 'force_logout', entity: 'user', entity_id: id, subject_id: id, detail: `sessions revoked: ${revoked}`, ip: clientIp(req) });
-  res.json({ ok: true, sessionsRevoked: revoked });
-}));
-orgRouter.post('/team/:userId/operator', requireOperator, requireSudo, wrap((req, res) => {
-  const ctx = req.ctx;
-  const id = String(req.params.userId);
-  const grant = Boolean(req.body?.grant);
-  if (id === req.user.id && !grant) throw badRequest('You cannot remove your own operator authority.');
-  const r = ctx.db.prepare('UPDATE users SET is_operator = ?, updated_at = ? WHERE id = ? AND active = 1').run(grant ? 1 : 0, now(), id);
-  if (!r.changes) throw notFound('No such active Marine.');
-  invalidateUserSessions(ctx, id);
-  audit(ctx, { actor_id: req.user.id, action: grant ? 'grant_operator' : 'revoke_operator', entity: 'user', entity_id: id, subject_id: id, ip: clientIp(req) });
-  res.json({ ok: true });
 }));
 
 const joinCodeSchema = z.object({

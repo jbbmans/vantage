@@ -175,14 +175,14 @@ test('with roster provisioning, a Marine on the roster with no account gets one 
   try {
     await app.setupOperator();
     const at = new Date().toISOString();
-    app.ctx.db.prepare(`INSERT INTO personnel_roster (edipi, last_name, first_name, rank_id, mos, status, source, row_hash, synced_at, created_at, updated_at) VALUES ('1234567890', 'Avery', 'Jordan', 'LCpl', '3451', 'active', 'test', 'h', ?, ?, ?)`).run(at, at, at);
+    app.ctx.db.prepare(`INSERT INTO personnel_roster (org_id, edipi, last_name, first_name, rank_id, mos, status, source, row_hash, synced_at, created_at, updated_at) VALUES ('G8', '1234567890', 'Avery', 'Jordan', 'LCpl', '3451', 'active', 'test', 'h', ?, ?, ?)`).run(at, at, at);
     const r = await signIn(app, idp, claimsFor(idp.issuer, { sub: 'avery', email: 'jordan.avery@example.mil', edipi: '1234567890' }));
     assert.equal(r.callback!.status, 302);
     assert.equal(r.callback!.headers.get('location'), '/');
     const user = app.ctx.db.prepare("SELECT username, last_name, oidc_subject FROM users WHERE edipi = '1234567890'").get() as { username: string; last_name: string; oidc_subject: string };
     assert.deepEqual(user, { username: 'edipi-1234567890', last_name: 'Avery', oidc_subject: 'avery' });
     // Someone whose provider address another account already holds still gets in, without the address.
-    app.ctx.db.prepare(`INSERT INTO personnel_roster (edipi, last_name, first_name, rank_id, mos, status, source, row_hash, synced_at, created_at, updated_at) VALUES ('1234567891', 'Boletz', 'Jay', 'Pvt', '3451', 'active', 'test', 'h2', ?, ?, ?)`).run(at, at, at);
+    app.ctx.db.prepare(`INSERT INTO personnel_roster (org_id, edipi, last_name, first_name, rank_id, mos, status, source, row_hash, synced_at, created_at, updated_at) VALUES ('G8', '1234567891', 'Boletz', 'Jay', 'Pvt', '3451', 'active', 'test', 'h2', ?, ?, ?)`).run(at, at, at);
     const shared = await signIn(app, idp, claimsFor(idp.issuer, { sub: 'jay', email: 'boletz@example.mil', edipi: '1234567891' }));
     assert.equal(shared.callback!.headers.get('location'), '/');
     assert.equal((app.ctx.db.prepare("SELECT email FROM users WHERE edipi = '1234567891'").get() as { email: string | null }).email, null);

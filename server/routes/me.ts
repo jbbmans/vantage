@@ -18,7 +18,7 @@ import { mailAllowance } from '../auth/limiter.ts';
 import { audit } from '../services/audit.ts';
 import { layout } from '../services/mailLayout.ts';
 import { newId, now } from '../lib/ids.ts';
-import { ancestorIds, viewsFor } from '../services/org.ts';
+import { ancestorIds, orgSummaries, viewsFor } from '../services/org.ts';
 import { PERMISSION_LIST } from '../../shared/permissions.ts';
 import type { OrgResponse, Rank, Role, Unit } from '../../shared/types.ts';
 import { composeDigest, sendDigest } from '../services/digest.ts';
@@ -45,12 +45,16 @@ meRouter.get('/', wrap((req, res) => {
     unitIds: scope.unitIds,
     readableUnitIds: scope.readableUnitIds,
     viewableUnitIds: scope.viewableUnitIds,
-    ...viewsFor(ctx, scope, Boolean(req.user.is_operator)),
+    ...viewsFor(ctx, scope),
     ownedUnitIds: scope.ownedUnitIds,
     permissions: scope.permissions,
     positions: scope.positions,
     roles: scope.roles,
     canLead: scope.readableUnitIds.length > 0,
+    // The three tiers (ADR-0006): the organizations this person runs, and the platform roles of Vantage staff.
+    orgs: orgSummaries(ctx, scope),
+    platform: { roles: req.user.platform, permissions: req.user.platformPermissions },
+    vantageAccess: scope.vantageAccess,
     manageableUnits: unitsWith(scope, PERMISSIONS.MANAGE_UNITS),
     counselUnits: unitsWith(scope, PERMISSIONS.COUNSEL),
     exportUnits: unitsWith(scope, PERMISSIONS.EXPORT_DATA),
@@ -63,7 +67,7 @@ meRouter.get('/', wrap((req, res) => {
 meRouter.get('/org', wrap((req, res) => {
   const ctx = req.ctx;
   const scope = scopeFor(ctx, req.user, req);
-  const ids = req.user.is_operator ? (ctx.db.prepare('SELECT id FROM units WHERE active = 1').all() as Array<{ id: string }>).map((r) => r.id) : [...new Set([...ancestorIds(ctx, scope.unitIds), ...scope.viewableUnitIds])];
+  const ids = [...new Set([...ancestorIds(ctx, scope.unitIds), ...scope.viewableUnitIds])];
   const units = ids.length ? ctx.db.prepare(`SELECT * FROM units WHERE active = 1 AND id IN (${ids.map(() => '?').join(',')}) ORDER BY name`).all(...ids) as Unit[] : [];
   const roles = scope.unitIds.length ? ctx.db.prepare(`SELECT * FROM roles WHERE unit_id IN (${scope.unitIds.map(() => '?').join(',')}) ORDER BY position DESC, name`).all(...scope.unitIds) as Role[] : [];
   const body: OrgResponse = { ranks: ctx.db.prepare('SELECT * FROM ranks ORDER BY sort').all() as Rank[], units, roles, permissionCatalogue: PERMISSION_LIST.map((p) => ({ ...p, bit: PERMISSIONS[p.key] })) };

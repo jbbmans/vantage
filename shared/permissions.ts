@@ -62,3 +62,77 @@ export const ROLE_TEMPLATE: RoleTemplate[] = [
   { key: 'sncoic', name: 'SNCOIC', color: '#3b82f6', position: 60, is_default: false, permissions: SNCOIC_BITS, description: 'Runs unit administration: members, roles, sub-units, audit, and export.' },
   { key: 'unit-leader', name: 'Unit Leader', color: '#7c5cf0', position: 100, is_default: false, owner: true, permissions: OWNER_BITS, description: 'Every permission in this unit and the units beneath it. The unit owner receives this role.' },
 ];
+
+/**
+ * Three tiers of authority (ADR-0006). The unit permissions above flow down a chain of command. The two tiers below
+ * them are separate: organization roles run a command's tenancy, platform roles run the service. Neither implies the
+ * other, and neither confers a unit permission that reads records.
+ */
+
+export const ORG_PERMISSION_LIST = [
+  { key: 'org.view', label: 'Open the owner console', hint: 'See the organization’s overview and settings.' },
+  { key: 'org.settings', label: 'Organization settings', hint: 'Rename the organization and set how people join and sign in.' },
+  { key: 'org.owners', label: 'Owners and access policy', hint: 'Grant and remove organization roles, and choose whether Vantage support needs approval to look.' },
+  { key: 'org.members', label: 'Members', hint: 'Enroll, move and remove members anywhere in the organization; unlock and sign them out.' },
+  { key: 'org.units', label: 'Units', hint: 'Create, rename, move and archive units, and transfer a unit’s leadership.' },
+  { key: 'org.roles', label: 'Unit roles', hint: 'Define unit roles and grant them, below the Unit Leader. Does not read records.' },
+  { key: 'org.personnel', label: 'Personnel feed', hint: 'Load the roster extract that keeps names, ranks and EAS current, and separates people who left.' },
+  { key: 'org.export', label: 'Export structure', hint: 'Download the organization’s structure: units, unit roles, members and who holds which role. Shared work is exported unit by unit, by those whose unit role allows it.' },
+  { key: 'org.retention', label: 'Retention', hint: 'Set how long the organization’s records are kept, and run disposition.' },
+  { key: 'org.holds', label: 'Legal holds', hint: 'Place and release holds that stop records being disposed of.' },
+  { key: 'org.audit', label: 'Audit trail', hint: 'Read who did what in the organization, in its tamper-evident trail.' },
+  { key: 'org.privacy', label: 'Privacy inventory', hint: 'See what personal information the organization holds, and why.' },
+  { key: 'org.access', label: 'Approve Vantage access', hint: 'Approve, deny or end a Vantage support request to look at the organization’s data.' },
+] as const;
+export type OrgPermission = (typeof ORG_PERMISSION_LIST)[number]['key'];
+export type OrgRole = 'owner' | 'admin' | 'records' | 'auditor';
+
+const ALL_ORG = ORG_PERMISSION_LIST.map((p) => p.key) as OrgPermission[];
+export const ORG_ROLES: Record<OrgRole, { label: string; description: string; permissions: OrgPermission[] }> = {
+  owner: { label: 'Owner', description: 'Everything at organization level, including its owners and whether Vantage support needs approval.', permissions: ALL_ORG },
+  admin: { label: 'Administrator', description: 'Members, units, unit roles, the personnel feed and the structure export. Does not read Marines’ records.', permissions: ['org.view', 'org.settings', 'org.members', 'org.units', 'org.roles', 'org.personnel', 'org.export', 'org.audit'] },
+  records: { label: 'Records officer', description: 'Retention schedules, legal holds, the privacy inventory and the audit trail.', permissions: ['org.view', 'org.retention', 'org.holds', 'org.audit', 'org.privacy'] },
+  auditor: { label: 'Auditor', description: 'Reads the audit trail and the privacy inventory. Changes nothing.', permissions: ['org.view', 'org.audit', 'org.privacy'] },
+};
+export const ORG_ROLE_KEYS = Object.keys(ORG_ROLES) as OrgRole[];
+
+/**
+ * What organization owners and administrators hold in every unit of their organization: its structure. Never the
+ * permissions that read records, member detail or the access log.
+ */
+export const ORG_STRUCTURE_BITS = PERMISSIONS.VIEW_UNIT | PERMISSIONS.MANAGE_MEMBERS | PERMISSIONS.MANAGE_ROLES | PERMISSIONS.MANAGE_UNITS;
+/** What Vantage access grants in each unit of the organization: reading what is shared with it. Never member detail, never changes. */
+/** Unit permissions that read what Marines keep. Granting one to yourself through organization authority is watched. */
+export const RECORD_READING_BITS = PERMISSIONS.VIEW_RECORDS | PERMISSIONS.VIEW_MEMBER_DETAIL | PERMISSIONS.EXPORT_DATA | PERMISSIONS.ADMINISTRATOR;
+export const VANTAGE_ACCESS_BITS = PERMISSIONS.VIEW_UNIT | PERMISSIONS.VIEW_RECORDS | PERMISSIONS.VIEW_AUDIT;
+
+export const PLATFORM_PERMISSION_LIST = [
+  { key: 'platform.view', label: 'Open the admin dashboard', hint: 'See the service’s health and the organizations on it.' },
+  { key: 'platform.orgs', label: 'Organizations', hint: 'Create, rename, suspend and restore organizations, and name their first owner. Not their data.' },
+  { key: 'platform.settings', label: 'Platform settings', hint: 'The service’s name, sign-in announcement, registration policy and maintenance.' },
+  { key: 'platform.accounts', label: 'Account support', hint: 'Find an account and help it sign in: unlock, sign out, temporary password, reset a second factor.' },
+  { key: 'platform.staff', label: 'Vantage staff', hint: 'Grant and remove platform roles.' },
+  { key: 'platform.access', label: 'Request Vantage access', hint: 'Ask an organization for time-limited, read-only access to its data, with a reason.' },
+  { key: 'platform.support', label: 'Support queue', hint: 'Read and answer help requests that belong to no organization, such as sign-in trouble.' },
+  { key: 'platform.audit', label: 'Platform audit trail', hint: 'Read the platform’s own actions and verify the integrity of every trail.' },
+  { key: 'platform.email', label: 'Email', hint: 'How the service sends mail, and what it has sent.' },
+  { key: 'platform.ai', label: 'AI', hint: 'GenAI.mil models, budgets and whether AI is offered.' },
+  { key: 'platform.data', label: 'Backups and recovery', hint: 'Back up the whole service, and restore it.' },
+  { key: 'platform.usage', label: 'Usage', hint: 'How the service is used and where it fails, without anyone’s content.' },
+] as const;
+export type PlatformPermission = (typeof PLATFORM_PERMISSION_LIST)[number]['key'];
+export type PlatformRole = 'owner' | 'admin' | 'support' | 'auditor';
+
+const ALL_PLATFORM = PLATFORM_PERMISSION_LIST.map((p) => p.key) as PlatformPermission[];
+export const PLATFORM_ROLES: Record<PlatformRole, { label: string; description: string; permissions: PlatformPermission[] }> = {
+  owner: { label: 'Owner', description: 'Everything at platform level, including Vantage staff.', permissions: ALL_PLATFORM },
+  admin: { label: 'Administrator', description: 'Organizations, platform settings, account support, email, AI and integrity.', permissions: ALL_PLATFORM.filter((p) => p !== 'platform.staff' && p !== 'platform.data') },
+  support: { label: 'Support', description: 'Account sign-in help and the support queue; may request access to an organization.', permissions: ['platform.view', 'platform.accounts', 'platform.access', 'platform.support'] },
+  auditor: { label: 'Auditor', description: 'Reads the platform audit trail and verifies integrity. Changes nothing.', permissions: ['platform.view', 'platform.audit', 'platform.usage'] },
+};
+export const PLATFORM_ROLE_KEYS = Object.keys(PLATFORM_ROLES) as PlatformRole[];
+
+export const orgPermissionsOf = (roles: readonly string[]): OrgPermission[] =>
+  [...new Set(roles.flatMap((r) => ORG_ROLES[r as OrgRole]?.permissions ?? []))];
+export const platformPermissionsOf = (roles: readonly string[]): PlatformPermission[] =>
+  [...new Set(roles.flatMap((r) => PLATFORM_ROLES[r as PlatformRole]?.permissions ?? []))];

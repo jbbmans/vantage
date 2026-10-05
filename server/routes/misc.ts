@@ -21,7 +21,7 @@ import { hydrate } from '../services/records.ts';
 import { runAiWorkflow, aiStatus, AiError } from '../services/ai.ts';
 import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { audit } from '../services/audit.ts';
-import { notifyOperators } from '../services/notifications.ts';
+import { notifyStaff } from '../services/notifications.ts';
 import { now } from '../lib/ids.ts';
 import { isoDay, zonedNow } from '../lib/clock.ts';
 import { listItems } from '../services/work.ts';
@@ -265,7 +265,7 @@ miscRouter.post('/ai/assist', wrap(async (req, res) => {
     res.json(result);
   } catch (error) {
     if (error instanceof AiError) {
-      if (error.code === 'ai_key_locked') notifyOperators(ctx, { kind: 'system', title: 'GenAI.mil key needs unlock', message: 'AI assistance is paused until the GenAI.mil key lock is cleared in the Owner Console.', actionUrl: '/operator?tab=ai', dedupeKey: `genai-lock:${now().slice(0, 13)}` });
+      if (error.code === 'ai_key_locked') notifyStaff(ctx, 'platform.ai', { kind: 'system', title: 'GenAI.mil key needs unlock', message: 'AI assistance is paused until the GenAI.mil key lock is cleared in the admin dashboard.', actionUrl: '/admin/ai', dedupeKey: `genai-lock:${now().slice(0, 13)}` });
       audit(ctx, { actor_id: req.user.id, action: 'ai_assist_failed', entity: 'ai_request', detail: `${workflow || 'unknown'}; ${error.code}`, ip: clientIp(req) });
     }
     throw error;

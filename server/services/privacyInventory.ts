@@ -44,7 +44,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       edipi: 'identifier', last_name: 'identifier', first_name: 'identifier', middle_initial: 'identifier',
       rank_id: 'employment', mos: 'employment', eas: 'employment', unit_code: 'employment', billet: 'employment',
       status: 'employment', source: 'technical', row_hash: 'technical', synced_at: 'technical',
-      created_at: 'technical', updated_at: 'technical',
+      created_at: 'technical', updated_at: 'technical', org_id: 'employment', removed_units: 'employment',
     },
   },
   activities: {
@@ -114,7 +114,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     columns: {
       id: 'technical', seq: 'technical', actor_id: 'identifier', action: 'none', entity: 'none', entity_id: 'technical',
       subject_id: 'identifier', unit_id: 'employment', detail: 'technical', ip: 'technical', at: 'technical',
-      prev_hash: 'technical', entry_hash: 'technical',
+      prev_hash: 'technical', entry_hash: 'technical', org_id: 'employment',
     },
   },
   sessions: {
@@ -133,7 +133,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     access: 'The owner.',
     columns: {
       id: 'technical', record_type: 'none', retain_days: 'none', disposition: 'none', authority: 'none',
-      notes: 'none', enabled: 'none', created_at: 'technical', updated_at: 'technical',
+      notes: 'none', enabled: 'none', created_at: 'technical', updated_at: 'technical', org_id: 'technical',
     },
   },
   legal_holds: {
@@ -142,7 +142,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     access: 'The owner.',
     columns: {
       id: 'technical', scope: 'none', subject_id: 'identifier', record_type: 'none', reason: 'employment',
-      placed_by: 'identifier', placed_at: 'technical', released_by: 'identifier', released_at: 'technical',
+      placed_by: 'identifier', placed_at: 'technical', released_by: 'identifier', released_at: 'technical', org_id: 'technical',
     },
   },
   disposition_runs: {
@@ -151,7 +151,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     access: 'The owner.',
     columns: {
       id: 'technical', actor_id: 'identifier', dry_run: 'none', record_type: 'none', disposition: 'none',
-      eligible: 'none', acted: 'none', held: 'none', detail: 'technical', at: 'technical',
+      eligible: 'none', acted: 'none', held: 'none', detail: 'technical', at: 'technical', org_id: 'technical',
     },
   },
   personnel_sync_runs: {
@@ -160,7 +160,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     access: 'The owner.',
     columns: {
       id: 'technical', source: 'technical', actor_id: 'identifier', dry_run: 'none', rows_seen: 'none',
-      created: 'none', updated: 'none', separated: 'none', conflicts: 'none', detail: 'technical', at: 'technical',
+      created: 'none', updated: 'none', separated: 'none', conflicts: 'none', detail: 'technical', at: 'technical', org_id: 'technical',
     },
   },
   meta: {
@@ -215,7 +215,38 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     access: 'Members of the unit and its parents; the owner.',
     columns: {
       id: 'technical', code: 'employment', name: 'employment', short_name: 'employment', echelon: 'employment', location: 'employment',
-      parent_id: 'technical', owner_user_id: 'identifier', active: 'none', created_at: 'technical',
+      parent_id: 'technical', owner_user_id: 'identifier', active: 'none', created_at: 'technical', org_id: 'technical',
+    },
+  },
+  organizations: {
+    purpose: 'The organizations (commands) on the service: each one’s name, status and the unit at the top of its tree.',
+    authority: 'Organizational structure of the central service (ADR-0006).',
+    access: 'Its owners and administrators; Vantage staff see the name, status and counts, never its records.',
+    columns: {
+      id: 'technical', slug: 'employment', name: 'employment', short_name: 'employment', status: 'none', root_unit_id: 'technical',
+      settings: 'none', created_by: 'identifier', suspended_reason: 'none', suspended_at: 'technical', created_at: 'technical', updated_at: 'technical',
+    },
+  },
+  platform_roles: {
+    purpose: 'Which accounts are Vantage staff, and in what role.',
+    authority: 'Access control for operating the service; every grant and removal is audited.',
+    access: 'Platform owners; a person sees their own.',
+    columns: { user_id: 'identifier', role: 'employment', granted_by: 'identifier', created_at: 'technical' },
+  },
+  org_roles: {
+    purpose: 'Who owns, administers, keeps the records of, or audits each organization, and until when.',
+    authority: 'Access control within an organization; every grant and removal is audited.',
+    access: 'The organization’s owners; a person sees their own.',
+    columns: { org_id: 'technical', user_id: 'identifier', role: 'employment', granted_by: 'identifier', expires_at: 'technical', created_at: 'technical' },
+  },
+  access_grants: {
+    purpose: 'Each request by Vantage staff to read an organization’s data: why, for how long, who decided and when it ended.',
+    authority: 'Accountability for support access; kept as the evidence that staff saw only what an organization approved.',
+    access: 'The organization’s owners; Vantage platform owners and auditors.',
+    columns: {
+      id: 'technical', org_id: 'technical', staff_user_id: 'identifier', reason: 'technical', minutes: 'none', status: 'none',
+      requested_at: 'technical', decided_by: 'identifier', decided_at: 'technical', decision_note: 'technical', starts_at: 'technical',
+      expires_at: 'technical', ended_at: 'technical', ended_by: 'identifier',
     },
   },
   unit_members: {
@@ -237,7 +268,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     purpose: 'Which role each member holds in a unit, and who granted it.',
     authority: 'Access control; changes are audited.',
     access: 'Leaders of the unit; the person sees their own.',
-    columns: { user_id: 'identifier', role_id: 'employment', unit_id: 'employment', granted_by: 'identifier', created_at: 'technical' },
+    columns: { user_id: 'identifier', role_id: 'employment', unit_id: 'employment', granted_by: 'identifier', created_at: 'technical', expires_at: 'technical' },
   },
   projects: {
     purpose: 'Longer efforts a person or unit tracks, with the work and entries filed under them.',
@@ -573,10 +604,23 @@ export interface Inventory {
 
 const SENSITIVE: PiiCategory[] = ['identifier', 'contact', 'employment', 'performance', 'authentication'];
 
-export function buildInventory(ctx: AppContext): Inventory {
+/**
+ * The inventory from the live schema. For one organization (the owner console), each table's rows are counted as far
+ * as they are that organization's: by its units, or its org_id, or its members for accounts. A table that belongs to
+ * the service as a whole says so instead of counting other organizations' rows.
+ */
+export function buildInventory(ctx: AppContext, orgId?: string): Inventory {
   const { db } = ctx;
   const tables = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'table' AND name NOT LIKE 'sqlite_%' ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
-  const schedules = new Map(listSchedules(ctx).map((s) => [s.record_type, s]));
+  const schedules = new Map((orgId ? listSchedules(ctx, orgId) : []).map((s) => [s.record_type, s]));
+  const orgUnits = orgId ? JSON.stringify((db.prepare('SELECT id FROM units WHERE org_id = ?').all(orgId) as Array<{ id: string }>).map((u) => u.id)) : '[]';
+  const countRows = (table: string, live: string[]): number => {
+    if (!orgId) return (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n;
+    if (live.includes('org_id')) return (db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE org_id = ?`).get(orgId) as { n: number }).n;
+    if (live.includes('unit_id')) return (db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE unit_id IN (SELECT value FROM json_each(?))`).get(orgUnits) as { n: number }).n;
+    if (table === 'users') return (db.prepare('SELECT COUNT(DISTINCT user_id) AS n FROM unit_members WHERE unit_id IN (SELECT value FROM json_each(?))').get(orgUnits) as { n: number }).n;
+    return -1;
+  };
 
   const out: InventoryTable[] = [];
   const undeclared: string[] = [];
@@ -599,7 +643,7 @@ export function buildInventory(ctx: AppContext): Inventory {
 
     const schedule = schedules.get(table);
     let rows = 0;
-    try { rows = (db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n; } catch { rows = -1; }
+    try { rows = countRows(table, live); } catch { rows = -1; }
 
     out.push({
       table,
@@ -616,7 +660,7 @@ export function buildInventory(ctx: AppContext): Inventory {
 
   return {
     generatedAt: new Date().toISOString(),
-    instance: ctx.runtime.organizationName || ctx.runtime.displayName || 'Vantage',
+    instance: orgId ? ((db.prepare('SELECT name FROM organizations WHERE id = ?').get(orgId) as { name: string } | undefined)?.name ?? orgId) : (ctx.runtime.displayName || 'Vantage'),
     tables: out,
     summary: { tables: tables.length, declared: tables.length - undeclared.length, undeclared, unclassifiedColumns, staleColumns, piiTables },
   };
@@ -632,7 +676,7 @@ export function inventoryMarkdown(inv: Inventory): string {
 
   for (const t of inv.tables) {
     lines.push('', `## ${t.table}`, '');
-    lines.push(`- **Rows:** ${t.rows < 0 ? 'unknown' : t.rows.toLocaleString()}`);
+    lines.push(`- **Rows:** ${t.rows < 0 ? 'held for the service as a whole' : t.rows.toLocaleString()}`);
     lines.push(`- **Purpose:** ${t.purpose ?? '_not declared_'}`);
     lines.push(`- **Authority:** ${t.authority ?? '_not declared_'}`);
     lines.push(`- **Who can see it:** ${t.access ?? '_not declared_'}`);

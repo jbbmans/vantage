@@ -7,12 +7,16 @@ import { forwardAudit } from './auditSink.ts';
 export interface AuditEntry {
   actor_id?: string | null; action: string; entity?: string | null; entity_id?: string | null; subject_id?: string | null;
   unit_id?: string | null; detail?: string | null; ip?: string | null;
+  /** The organization the entry belongs to (ADR-0006). Taken from unit_id when not given; none for the platform's own actions. */
+  org_id?: string | null;
 }
 
 function entryHash(secret: string, row: Record<string, unknown>, previous: string): string {
   const canonical = JSON.stringify([
     previous || '', row.id, row.actor_id ?? null, row.action, row.entity ?? null, row.entity_id ?? null,
     row.subject_id ?? null, row.unit_id ?? null, row.detail ?? null, row.at, row.ip ?? null,
+    // Sealed in only when set, so every entry written before organizations still verifies as it was written.
+    ...(row.org_id ? [row.org_id] : []),
   ]);
   return hmac(secret, canonical);
 }
@@ -23,6 +27,7 @@ export function audit(ctx: AppContext, entry: AuditEntry) {
     id: newId(), actor_id: entry.actor_id ?? null, action: entry.action, entity: entry.entity ?? null, entity_id: entry.entity_id ?? null,
     subject_id: entry.subject_id ?? null, unit_id: entry.unit_id ?? null, detail: entry.detail ? String(entry.detail).slice(0, 1000) : null,
     ip: entry.ip ?? null, at: now(),
+    org_id: entry.org_id ?? (entry.unit_id ? ((db.prepare('SELECT org_id FROM units WHERE id = ?').get(entry.unit_id) as { org_id: string | null } | undefined)?.org_id ?? null) : null),
   };
   let prevHash: string | null = null;
   let hash = '';
@@ -31,8 +36,8 @@ export function audit(ctx: AppContext, entry: AuditEntry) {
     hash = entryHash(chainKey, row, head.hash);
     prevHash = head.hash || null;
     db.prepare(
-      `INSERT INTO audit_log (id, actor_id, action, entity, entity_id, subject_id, unit_id, detail, ip, at, prev_hash, entry_hash)
-       VALUES (@id, @actor_id, @action, @entity, @entity_id, @subject_id, @unit_id, @detail, @ip, @at, @prev_hash, @entry_hash)`
+      `INSERT INTO audit_log (id, actor_id, action, entity, entity_id, subject_id, unit_id, detail, ip, at, prev_hash, entry_hash, org_id)
+       VALUES (@id, @actor_id, @action, @entity, @entity_id, @subject_id, @unit_id, @detail, @ip, @at, @prev_hash, @entry_hash, @org_id)`
     ).run({ ...row, prev_hash: head.hash || null, entry_hash: hash });
     const count = head.count + 1;
     metaSet(db, 'audit_head', JSON.stringify({ hash, count, mac: hmac(chainKey, `audit-head:${hash}:${count}`) }));
@@ -77,4 +82,9 @@ export function resealAuditChain(ctx: AppContext) {
     }
     metaSet(db, 'audit_head', JSON.stringify({ hash: previous, count: rows.length, mac: hmac(chainKey, `audit-head:${previous}:${rows.length}`) }));
   })();
+}
+
+/** An organization's audit trail: entries attributed to it, and older entries whose unit is one of its units. */
+export function orgAuditClause(alias = 'al'): string {
+  return `(${alias}.org_id = ? OR (${alias}.org_id IS NULL AND ${alias}.unit_id IN (SELECT id FROM units WHERE org_id = ?)))`;
 }

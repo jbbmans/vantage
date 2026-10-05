@@ -5,7 +5,7 @@ import { now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { hmac } from '../lib/crypto.ts';
 import { loadRuntime } from '../runtime.ts';
-import { metaSet } from '../db/index.ts';
+import { foundOrganizations, metaSet } from '../db/index.ts';
 import { sealBacklog } from './caseSeal.ts';
 import { loadChainKey, resealStoredSecrets, secretsOf } from '../lib/keys.ts';
 
@@ -13,6 +13,8 @@ const keyCheck = (secret: string) => hmac(secret, 'vantage-instance-key-check');
 
 export const EXPORT_TABLES = [
   'ranks', 'users', 'readiness', 'units', 'unit_members', 'roles', 'member_roles', 'passkeys', 'recovery_codes',
+  // Tenancy and authority (ADR-0006): who runs the platform, which organizations exist, who owns them, who looked in.
+  'organizations', 'platform_roles', 'org_roles', 'access_grants',
   ...RECORD_TABLE_NAMES,
   'source_files', 'import_jobs', 'work_items', 'work_actions', 'work_events', 'work_event_seals', 'work_event_heads', 'work_views',
   // A person's own drafts and career plan move with the instance too.
@@ -50,6 +52,13 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   const activities = (ctx.db.prepare('SELECT COUNT(*) AS n FROM activities').get() as { n: number }).n;
   if (users > 1 || activities > 0) throw new Error('Import only into a fresh instance (one operator account, no records).');
   const counts: Record<string, number> = {};
+  // An archive from before organizations has none: its governance rows go to the oldest top unit's organization, the
+  // same rule the migration follows, and its units found their organizations once they are in.
+  const legacy = !archive.tables.organizations;
+  const firstRoot = legacy
+    ? ((archive.tables.units || []).filter((u) => !u.parent_id).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))[0]?.id as string | undefined) ?? null
+    : null;
+  const ORG_OWNED = new Set(['personnel_roster', 'retention_schedules', 'legal_holds', 'disposition_runs', 'personnel_sync_runs']);
   ctx.db.pragma('foreign_keys = OFF');
   try {
     ctx.db.transaction(() => {
@@ -63,11 +72,13 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
           insert.run(...columns.map((c) => {
             const v = row[c];
             if (v && typeof v === 'object' && '$bytes' in (v as object)) return Buffer.from(String((v as { $bytes: string }).$bytes), 'base64');
+            if (legacy && c === 'org_id' && v == null && ORG_OWNED.has(table)) return firstRoot;
             return v === undefined ? null : v;
           }));
         }
         counts[table] = rows.length;
       }
+      if (legacy) foundOrganizations(ctx.db);
       const violations = ctx.db.pragma('foreign_key_check') as unknown[];
       if (violations.length) throw new Error(`Archive has ${violations.length} foreign key violation(s): ${JSON.stringify(violations.slice(0, 3))}`);
     })();

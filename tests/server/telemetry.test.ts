@@ -17,7 +17,7 @@ before(async () => {
 after(async () => { await app.close(); });
 
 const send = (token: string, events: unknown[]) => app.call('POST', '/api/events', { token, body: { events } });
-const usage = async (token: string, days = 30) => app.call('GET', `/api/admin/usage?days=${days}`, { token });
+const usage = async (token: string, days = 30) => app.call('GET', `/api/platform/usage?days=${days}`, { token });
 
 const rows = (name: string) =>
   app.ctx.db.prepare('SELECT * FROM product_events WHERE name = ? ORDER BY received_at').all(name) as Array<Record<string, unknown>>;
@@ -137,7 +137,7 @@ test('the server counts an AI call itself, with the cost and not the prompt', as
 
 test('a refusal is counted as a refusal, without saying what was asked for', async () => {
   const before = rows('security.authorization_denied').length;
-  await app.call('GET', '/api/admin/overview', { token: peer.token });
+  await app.call('GET', '/api/platform/overview', { token: peer.token });
   const after = rows('security.authorization_denied');
   assert.equal(after.length, before + 1);
   const props = JSON.parse(String(after.at(-1)!.properties));

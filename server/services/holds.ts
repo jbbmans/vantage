@@ -3,12 +3,17 @@ import { newId, now } from '../lib/ids.ts';
 
 export interface HoldState { instance: boolean; types: Set<string>; users: Set<string> }
 
-export function holdState(ctx: AppContext): HoldState {
+/**
+ * The holds that bind a disposition. For one organization: its own holds and the platform's. With none named (the
+ * service's own sweeps), every open hold, whichever organization placed it. A hold on a person always counts.
+ */
+export function holdState(ctx: AppContext, orgId?: string): HoldState {
   const state: HoldState = { instance: false, types: new Set(), users: new Set() };
-  const rows = ctx.db.prepare('SELECT scope, subject_id, record_type FROM legal_holds WHERE released_at IS NULL').all() as Array<{ scope: string; subject_id: string | null; record_type: string | null }>;
+  const rows = ctx.db.prepare('SELECT scope, subject_id, record_type, org_id FROM legal_holds WHERE released_at IS NULL').all() as Array<{ scope: string; subject_id: string | null; record_type: string | null; org_id: string | null }>;
   for (const hold of rows) {
-    if (hold.scope === 'instance') state.instance = true;
-    else if (hold.scope === 'record_type' && hold.record_type) state.types.add(hold.record_type);
+    const binds = orgId === undefined || hold.org_id === null || hold.org_id === orgId;
+    if (hold.scope === 'instance') { if (binds) state.instance = true; }
+    else if (hold.scope === 'record_type' && hold.record_type) { if (binds) state.types.add(hold.record_type); }
     else if (hold.scope === 'user' && hold.subject_id) state.users.add(hold.subject_id);
   }
   return state;

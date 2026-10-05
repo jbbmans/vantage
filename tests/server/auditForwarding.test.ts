@@ -61,7 +61,7 @@ test('every audit record reaches a syslog collector with its chain hash, and a r
     assert.match(after, /kept_after_rollback/);
     assert.doesNotMatch(after, /rolled_back_on_purpose/, 'a record that never reached the chain is never sent');
 
-    const overview = await app.call('GET', '/api/admin/overview', { token: (await app.login('boletz')).body.token });
+    const overview = await app.call('GET', '/api/platform/overview', { token: (await app.login('boletz')).body.token });
     assert.ok([200, 403].includes(overview.status));
   } finally {
     closeAuditSink(app.ctx);

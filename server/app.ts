@@ -11,7 +11,7 @@ import { createMailer } from './services/email.ts';
 import { attachContext } from './auth/middleware.ts';
 import { SESSION_COOKIE, SIGNED_IN_COOKIE } from './auth/sessions.ts';
 import { HttpError } from './lib/errors.ts';
-import { hostPlan, facesOf, linksMeta, type HostPlan } from './lib/hosts.ts';
+import { hostPlan, facesOf, linksMeta, type Face, type HostPlan } from './lib/hosts.ts';
 import { sendError } from './lib/http.ts';
 import { VERSION } from './version.ts';
 import { authRouter } from './routes/auth.ts';
@@ -27,7 +27,9 @@ import { pruneEvents } from './services/usage.ts';
 import { pruneSources, reconcileInterruptedJobs } from './services/intake.ts';
 import { orgRouter } from './routes/org.ts';
 import { miscRouter } from './routes/misc.ts';
-import { adminRouter } from './routes/admin.ts';
+import { platformRouter } from './routes/platform.ts';
+import { sweepExpiries, warnEndingAccess } from './services/access.ts';
+import { orgsRouter } from './routes/orgs.ts';
 import { supportRouter, publicSupportRouter } from './routes/support.ts';
 import { pruneSessions } from './auth/sessions.ts';
 import { configureLimits, configureAiLimits, pruneLimiters } from './auth/limiter.ts';
@@ -60,9 +62,10 @@ export function createContext(config: AppConfig): AppContext {
   }
   configureLimits({ mutations: config.limits.mutationsPer15Minutes, registrations: config.limits.registrationsPer15Minutes });
   configureAiLimits({ global: config.ai.requestsPerMinute, perUser: config.ai.perUserRequestsPerMinute });
-  // Usernames named in VANTAGE_OPERATOR always hold operator authority.
+  // Usernames named in VANTAGE_PLATFORM_OWNERS (or the older VANTAGE_OPERATOR) always own the platform.
   if (config.operatorUsernames.length) {
-    db.prepare(`UPDATE users SET is_operator = 1 WHERE lower(username) IN (${config.operatorUsernames.map(() => '?').join(',')})`).run(...config.operatorUsernames);
+    db.prepare(`INSERT OR IGNORE INTO platform_roles (user_id, role, granted_by, created_at)
+                SELECT id, 'owner', NULL, ? FROM users WHERE lower(username) IN (SELECT value FROM json_each(?))`).run(now(), JSON.stringify(config.operatorUsernames));
   }
   pruneSessions(ctx);
   const interrupted = reconcileInterruptedJobs(ctx);
@@ -102,8 +105,26 @@ function inlineScriptHashes(distDir: string): string[] {
 /** Every path the application serves a page at; a sign-in link sent before a move still finds it. */
 const APP_PATH = /^\/(?:login|register|reset|invite|setup|goals|reference|maradmins|readiness|settings|governance|help|queue|correspondence|studio|assist)\/?$|^\/(?:work|record|records|activities|career|reports|team|support)(?:\/[^/]+){0,2}\/?$/;
 const CONSOLE_PATH = /^\/(?:operator|console)(?:\/.*)?$/;
-/** What the console's own pages call: signing in, the owner's identity, administration and the accounts and units it manages. */
-const CONSOLE_API = /^\/(?:admin|org|me)(?:\/|$)|^\/auth\/(?:setup|login|login\/mfa|passkey\/options|passkey\/verify|cac|logout|sudo|forgot|oidc\/start|oidc\/callback)$|^\/ranks$/;
+const ADMIN_PATH = /^\/admin(?:\/.*)?$/;
+/** What every console page calls: signing in, the person's identity, ranks. */
+const SIGN_IN_API = /^\/me(?:\/|$)|^\/auth\/(?:setup|login|login\/mfa|passkey\/options|passkey\/verify|cac|logout|sudo|forgot|oidc\/start|oidc\/callback)$|^\/ranks$/;
+
+/**
+ * Each host answers only the calls its own pages make (ADR-0006). The platform's administration answers only where the
+ * admin dashboard is served, and an organization's only where the owner console is: a session on the application
+ * never reaches either unless they share its host.
+ */
+export function apiAllowed(faces: ReadonlySet<Face>, path: string): boolean {
+  if (/^\/platform(?:\/|$)/.test(path)) return faces.has('admin');
+  if (/^\/orgs(?:\/|$)/.test(path)) return faces.has('console');
+  if (faces.has('app')) return true;
+  if (SIGN_IN_API.test(path)) return faces.has('console') || faces.has('admin');
+  // The owner console manages units and roles through the same calls the application's Team pages make.
+  if (/^\/org(?:\/|$)/.test(path)) return faces.has('console');
+  // Vantage support works its queue from the admin dashboard.
+  if (/^\/support(?:\/|$)/.test(path)) return faces.has('admin');
+  return false;
+}
 /** The public site's plain-language pages and the prerendered document that answers each (scripts/prerender.mjs). */
 export const TRUST_DOCUMENTS: Record<string, string> = { '/security': 'pages/security.html', '/accessibility': 'pages/accessibility.html', '/privacy': 'pages/privacy.html', '/changes': 'pages/changes.html' };
 
@@ -142,6 +163,12 @@ const APP_ROBOTS = 'User-agent: *\nAllow: /login\nAllow: /register\nAllow: /rese
 function consoleTarget(hosts: HostPlan, path: string, query: string): string {
   const rest = path.startsWith('/console') ? path.slice('/console'.length) : '';
   return hosts.url('console', `${hosts.consoleBase}${rest || '/'}${query}`);
+}
+
+/** The admin dashboard's address for an /admin path, on whichever host it lives. */
+function adminTarget(hosts: HostPlan, path: string, query: string): string {
+  const rest = path.startsWith('/admin') ? path.slice('/admin'.length) : '';
+  return hosts.url('admin', `${hosts.adminBase}${rest || '/'}${query}`);
 }
 
 export function createApp(ctx: AppContext) {
@@ -203,6 +230,7 @@ export function createApp(ctx: AppContext) {
     if (req.method !== 'GET' && req.method !== 'HEAD') return res.status(421).end();
     const query = req.originalUrl.slice(req.path.length);
     if (CONSOLE_PATH.test(req.path)) return res.redirect(301, consoleTarget(hosts, req.path, query));
+    if (ADMIN_PATH.test(req.path)) return res.redirect(301, adminTarget(hosts, req.path, query));
     return res.redirect(301, hosts.url(APP_PATH.test(req.path) ? 'app' : 'site', req.path + query));
   });
 
@@ -211,9 +239,7 @@ export function createApp(ctx: AppContext) {
     const path = req.path.toLowerCase().replace(/\/+$/, '');
     // Each host answers only the calls its own pages make: the public site none, the console only its own, and
     // administration nowhere but the console, so a session on the application can never reach it.
-    const faces = facesOf(res);
-    const allowed = faces.has('app') ? (faces.has('console') || !path.startsWith('/admin')) : faces.has('console') && CONSOLE_API.test(path);
-    if (!allowed) return res.status(404).json({ error: 'No such API route.', code: 'not_found' });
+    if (!apiAllowed(facesOf(res), path)) return res.status(404).json({ error: 'No such API route.', code: 'not_found' });
     if (ctx.runtime.maintenance && path.startsWith('/auth') && !MAINTENANCE_OPEN.has(path) && req.method !== 'GET') {
       res.setHeader('Cache-Control', 'no-store');
       return res.status(503).json({ error: 'Vantage is in scheduled maintenance. Try again shortly.', code: 'maintenance' });
@@ -240,7 +266,8 @@ export function createApp(ctx: AppContext) {
   app.use('/api/support', supportRouter);
   app.use('/api/public-support', publicSupportRouter);
   app.use('/api', miscRouter);
-  app.use('/api/admin', adminRouter);
+  app.use('/api/platform', platformRouter);
+  app.use('/api/orgs', orgsRouter);
 
   app.use('/api', (_req, res) => res.status(404).json({ error: 'No such API route.', code: 'not_found' }));
 
@@ -278,8 +305,10 @@ export function createApp(ctx: AppContext) {
     const trustPages = new Map(Object.entries(TRUST_DOCUMENTS).map(([path, file]) => [path, read(file)?.replace('<!--site-verification-->', siteVerification(config.search)) ?? null] as const));
     const consolePage = read('console.html');
     const consoleDocument = consolePage ? withLinks(consolePage) : null;
+    const adminPage = read('admin.html');
+    const adminDocument = adminPage ? withLinks(adminPage) : null;
     app.use((req, res, next) => {
-      if (/^\/(?:index|public|console)\.html$|^\/pages\//.test(req.path)) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+      if (/^\/(?:index|public|console|admin)\.html$|^\/pages\//.test(req.path)) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
       next();
     });
     // The public site's crawl rules belong to the public site. The application lets crawlers read its sign-in
@@ -320,6 +349,15 @@ export function createApp(ctx: AppContext) {
       const path = req.path;
       const query = req.originalUrl.slice(req.path.length);
       const page = (html: string) => res.type('html').send(html);
+
+      // The admin dashboard, for Vantage staff: the whole of a host of its own, or /admin on a shared one.
+      const adminPath = ADMIN_PATH.test(path);
+      if (faces.has('admin') && (hosts.adminBase === '' || adminPath) && config.accessMode === 'accounts') {
+        if (hosts.adminBase === '' && adminPath) return res.redirect(301, adminTarget(hosts, path, query));
+        res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+        return adminDocument ? page(adminDocument) : notFound(res);
+      }
+      if (adminPath && config.accessMode === 'accounts') return res.redirect(301, adminTarget(hosts, path, query));
 
       // The owner console: the whole of a host of its own, or /console on a shared one.
       const consolePath = CONSOLE_PATH.test(path);
@@ -365,6 +403,14 @@ export function startSchedulers(ctx: AppContext) {
   const every = (ms: number, fn: () => void) => { const t = setInterval(fn, ms); t.unref?.(); timers.push(t); };
   every(15 * 60_000, () => { pruneLimiters(); try { pruneSessions(ctx); } catch {} });
   every(6 * 60 * 60_000, () => { try { const r = purgeDeleted(ctx); if (r.records) console.log(`${now()} purged ${r.records} records from the recycle bin`); } catch (e) { console.warn(`Purge failed: ${(e as Error).message}`); } });
+  // Time-bound authority ends on time: expired roles and Vantage access leave the tables and enter the audit trail.
+  every(60_000, () => {
+    try {
+      const r = sweepExpiries(ctx);
+      warnEndingAccess(ctx);
+      if (r.accessExpired || r.unitRoles || r.orgRoles) console.log(`${now()} expiry sweep: ${r.accessExpired} access grants, ${r.unitRoles} unit roles, ${r.orgRoles} organization roles ended`);
+    } catch (e) { console.warn(`Expiry sweep failed: ${(e as Error).message}`); }
+  });
   every(60 * 60_000, () => { try { const n = releaseStaleClaims(ctx); if (n) console.log(`${now()} released ${n} stale work claims`); } catch (e) { console.warn(`Stale claim sweep failed: ${(e as Error).message}`); } });
   every(24 * 60 * 60_000, () => { try { anchorCaseHeads(ctx); } catch (e) { console.warn(`Case history anchor failed: ${(e as Error).message}`); } });
   every(24 * 60 * 60_000, () => { try { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); } catch (e) { console.warn(`Event prune failed: ${(e as Error).message}`); } });

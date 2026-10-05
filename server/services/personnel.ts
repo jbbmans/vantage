@@ -3,6 +3,9 @@ import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { badRequest } from '../lib/errors.ts';
 import { createHash } from 'node:crypto';
+import { addMember, removeMember } from './org.ts';
+import { invalidateUserSessions } from '../auth/sessions.ts';
+import { RECORD_TABLE_NAMES } from './records.ts';
 
 export const SOURCED_FIELDS = ['first_name', 'last_name', 'middle_initial', 'rank_id', 'mos', 'eas'] as const;
 export type SourcedField = (typeof SOURCED_FIELDS)[number];
@@ -127,6 +130,8 @@ export function parseRoster(text: string, maxRows = 200_000): ParseResult {
 
 export interface FieldChange { field: string; from: string | null; to: string | null }
 export interface SyncPlan {
+  /** The organization the extract is for (ADR-0006): its roster, its memberships. */
+  orgId: string;
   source: string;
   rowsSeen: number;
   massSeparation?: { count: number; activeBefore: number; share: number };
@@ -165,8 +170,21 @@ function rosterDate(raw: string): string | null {
   return date.getUTCMonth() === +mo - 1 && date.getUTCDate() === +d ? `${y}-${mo}-${d}` : null;
 }
 
+/**
+ * Whether an organization's extract speaks for this account: it belongs to one of the organization's units, or to no
+ * unit at all. An account that belongs only to other organizations is theirs to separate, not this one's.
+ */
+function speaksFor(ctx: AppContext, orgId: string, edipi: string, activeOnly: boolean): boolean {
+  return Boolean(ctx.db.prepare(
+    `SELECT 1 FROM users u WHERE u.edipi = ? ${activeOnly ? 'AND u.active = 1' : ''}
+       AND (EXISTS (SELECT 1 FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE um.user_id = u.id AND un.org_id = ?)
+            OR NOT EXISTS (SELECT 1 FROM unit_members um WHERE um.user_id = u.id))`
+  ).get(edipi, orgId));
+}
+
 export function planSync(
   ctx: AppContext,
+  orgId: string,
   rows: RosterRow[],
   source: string,
   rejected: ParseResult['rejected'] = [],
@@ -174,13 +192,13 @@ export function planSync(
 ): SyncPlan {
   const { db } = ctx;
   const existing = new Map<string, RosterDbRow>();
-  for (const r of db.prepare('SELECT * FROM personnel_roster').all() as RosterDbRow[]) existing.set(r.edipi, r);
+  for (const r of db.prepare('SELECT * FROM personnel_roster WHERE org_id = ?').all(orgId) as RosterDbRow[]) existing.set(r.edipi, r);
 
-  const plan: SyncPlan = { source, rowsSeen: rows.length, rejected, creates: [], updates: [], separations: [], conflicts: [], unchanged: 0 };
+  const plan: SyncPlan = { orgId, source, rowsSeen: rows.length, rejected, creates: [], updates: [], separations: [], conflicts: [], unchanged: 0 };
   const seen = new Set<string>();
   const rank = rankResolver(ctx);
-  const hasAccount = (edipi: string) => Boolean(db.prepare('SELECT 1 FROM users WHERE edipi = ?').get(edipi));
-  const activeAccount = (edipi: string) => Boolean(db.prepare('SELECT 1 FROM users WHERE edipi = ? AND active = 1').get(edipi));
+  const hasAccount = (edipi: string) => speaksFor(ctx, orgId, edipi, false);
+  const activeAccount = (edipi: string) => speaksFor(ctx, orgId, edipi, true);
   const marked: SyncPlan['separations'] = [];
   // People new to the roster whose EDIPI is already on an active account. The guard counts them as active before
   // this extract, as it does a roster row; those the extract marks separated wait on the guard before being written.
@@ -244,10 +262,44 @@ export function planSync(
     plan.separations.push(...leaving);
   }
 
-  for (const dup of db.prepare('SELECT edipi, COUNT(*) AS n FROM users WHERE edipi IS NOT NULL GROUP BY edipi HAVING n > 1').all() as Array<{ edipi: string; n: number }>) {
+  for (const dup of db.prepare(`SELECT edipi, COUNT(*) AS n FROM users WHERE edipi IN (SELECT edipi FROM personnel_roster WHERE org_id = ?) GROUP BY edipi HAVING n > 1`).all(orgId) as Array<{ edipi: string; n: number }>) {
     plan.conflicts.push({ edipi: dup.edipi, reason: `${dup.n} accounts claim this EDIPI` });
   }
   return plan;
+}
+
+/**
+ * The organization roster row that vouches for an EDIPI, for signing in with a card or the organization's provider:
+ * the most recently synced active row, if any organization lists them.
+ */
+export function rosterVouching(ctx: AppContext, edipi: string): (Record<string, string | null> & { org_id: string }) | undefined {
+  return ctx.db.prepare(`SELECT r.* FROM personnel_roster r JOIN organizations o ON o.id = r.org_id
+                          WHERE r.edipi = ? AND r.status = 'active' AND o.status = 'active' ORDER BY r.synced_at DESC LIMIT 1`).get(edipi) as (Record<string, string | null> & { org_id: string }) | undefined;
+}
+
+/** An account provisioned from an organization's roster joins it: the unit its row names, or the organization's top unit. */
+export function seatFromRoster(ctx: AppContext, userId: string, row: { org_id: string; unit_code?: string | null }) {
+  const unit = (row.unit_code
+    ? ctx.db.prepare('SELECT id FROM units WHERE org_id = ? AND active = 1 AND (code = ? COLLATE NOCASE OR short_name = ? COLLATE NOCASE) LIMIT 1').get(row.org_id, row.unit_code, row.unit_code) as { id: string } | undefined
+    : undefined) ?? ctx.db.prepare('SELECT root_unit_id AS id FROM organizations WHERE id = ?').get(row.org_id) as { id: string | null } | undefined;
+  if (unit?.id) addMember(ctx, userId, unit.id, { primary: true });
+  audit(ctx, { actor_id: null, action: 'personnel_provisioned', entity: 'users', entity_id: userId, subject_id: userId, org_id: row.org_id, unit_id: unit?.id ?? null, detail: 'account created from the roster at first sign-in' });
+}
+
+/** A plan as the console shows it: counts, and the first hundred of each kind of change. */
+export function summarizePlan(plan: SyncPlan) {
+  return {
+    source: plan.source,
+    rowsSeen: plan.rowsSeen,
+    massSeparation: plan.massSeparation ?? null,
+    unchanged: plan.unchanged,
+    counts: { creates: plan.creates.length, updates: plan.updates.length, separations: plan.separations.length, conflicts: plan.conflicts.length, rejected: plan.rejected.length },
+    creates: plan.creates.slice(0, 100).map((c) => ({ edipi: c.edipi, name: `${c.last_name}, ${c.first_name}`, rank_id: c.rank_id, unit_code: c.unit_code })),
+    updates: plan.updates.slice(0, 100),
+    separations: plan.separations.slice(0, 100),
+    conflicts: plan.conflicts.slice(0, 100),
+    rejected: plan.rejected.slice(0, 100),
+  };
 }
 
 export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | null): { runId: string } {
@@ -257,27 +309,60 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
 
   db.transaction(() => {
     const upsert = db.prepare(`
-      INSERT INTO personnel_roster (edipi, last_name, first_name, middle_initial, rank_id, mos, eas, unit_code, billet, status, source, row_hash, synced_at, created_at, updated_at)
-      VALUES (@edipi, @last_name, @first_name, @middle_initial, @rank_id, @mos, @eas, @unit_code, @billet, @status, @source, @row_hash, @at, @at, @at)
-      ON CONFLICT(edipi) DO UPDATE SET
+      INSERT INTO personnel_roster (org_id, edipi, last_name, first_name, middle_initial, rank_id, mos, eas, unit_code, billet, status, source, row_hash, synced_at, created_at, updated_at)
+      VALUES (@org_id, @edipi, @last_name, @first_name, @middle_initial, @rank_id, @mos, @eas, @unit_code, @billet, @status, @source, @row_hash, @at, @at, @at)
+      ON CONFLICT(org_id, edipi) DO UPDATE SET
         last_name = excluded.last_name, first_name = excluded.first_name, middle_initial = excluded.middle_initial,
         rank_id = excluded.rank_id, mos = excluded.mos, eas = excluded.eas, unit_code = excluded.unit_code,
         billet = excluded.billet, status = excluded.status, source = excluded.source,
         row_hash = excluded.row_hash, synced_at = excluded.synced_at, updated_at = excluded.updated_at`);
 
-    const write = (row: RosterRow) => upsert.run({ ...row, source: plan.source, row_hash: rowHash(row), at });
+    // What the feed takes away it can give back: memberships it ended, with their billets and roles, restored if a later
+    // extract lists the person as active again. Records frozen on the way out are thawed with them.
+    const endMemberships = (userId: string, edipi: string): number => {
+      const held = db.prepare(`SELECT um.unit_id, um.is_primary, um.billet FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE um.user_id = ? AND un.org_id = ?`)
+        .all(userId, plan.orgId) as Array<{ unit_id: string; is_primary: number; billet: string | null }>;
+      if (!held.length) return 0;
+      const removed = held.map((m) => ({
+        ...m,
+        roles: (db.prepare('SELECT role_id, expires_at FROM member_roles WHERE user_id = ? AND unit_id = ?').all(userId, m.unit_id) as Array<{ role_id: string; expires_at: string | null }>),
+        frozen_at: at,
+      }));
+      for (const m of held) removeMember(ctx, userId, m.unit_id, actorId);
+      db.prepare('UPDATE personnel_roster SET removed_units = ? WHERE org_id = ? AND edipi = ?').run(JSON.stringify(removed), plan.orgId, edipi);
+      return held.length;
+    };
+    const restoreMemberships = (edipi: string, userId: string) => {
+      const row = db.prepare('SELECT removed_units FROM personnel_roster WHERE org_id = ? AND edipi = ?').get(plan.orgId, edipi) as { removed_units: string | null } | undefined;
+      if (!row?.removed_units) return;
+      let removed: Array<{ unit_id: string; is_primary: number; billet: string | null; roles: Array<{ role_id: string; expires_at: string | null }>; frozen_at: string }> = [];
+      try { removed = JSON.parse(row.removed_units); } catch { removed = []; }
+      for (const m of removed) {
+        if (!db.prepare('SELECT 1 FROM units WHERE id = ? AND org_id = ? AND active = 1').get(m.unit_id, plan.orgId)) continue;
+        addMember(ctx, userId, m.unit_id, { primary: Boolean(m.is_primary), billet: m.billet });
+        for (const r of m.roles) db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at, expires_at) SELECT ?, id, unit_id, NULL, ?, ? FROM roles WHERE id = ? AND unit_id = ?').run(userId, at, r.expires_at, r.role_id, m.unit_id);
+        for (const table of RECORD_TABLE_NAMES) db.prepare(`UPDATE ${table} SET frozen_at = NULL, updated_at = ? WHERE user_id = ? AND unit_id = ? AND frozen_at = ?`).run(at, userId, m.unit_id, m.frozen_at);
+      }
+      db.prepare('UPDATE personnel_roster SET removed_units = NULL WHERE org_id = ? AND edipi = ?').run(plan.orgId, edipi);
+      audit(ctx, { actor_id: actorId, action: 'personnel_restored', entity: 'personnel_roster', entity_id: edipi, subject_id: userId, org_id: plan.orgId, detail: `${plan.source}: back on the roster; ${removed.length} membership${removed.length === 1 ? '' : 's'} restored` });
+    };
+
+    const write = (row: RosterRow) => upsert.run({ ...row, org_id: plan.orgId, source: plan.source, row_hash: rowHash(row), at });
 
     // Back on the extract as active. Undo a deactivation the roster made, and only that: if an operator
     // deactivated the account since (or before), that decision stands.
     const reactivate = (edipi: string) => {
       const account = db.prepare('SELECT id, active FROM users WHERE edipi = ?').get(edipi) as { id: string; active: number } | undefined;
-      if (!account || account.active) return;
-      const last = db.prepare(`SELECT action, detail FROM audit_log WHERE subject_id = ? AND action IN ('personnel_separated', 'deactivate_member', 'reactivate_member')
-                                ORDER BY seq DESC LIMIT 1`).get(account.id) as { action: string; detail: string | null } | undefined;
-      if (last?.action !== 'personnel_separated' || !last.detail?.endsWith('; account deactivated')) return;
+      if (!account) return;
+      restoreMemberships(edipi, account.id);
+      if (account.active) return;
+      const last = db.prepare(`SELECT action, detail, org_id FROM audit_log WHERE subject_id = ? AND action IN ('personnel_separated', 'deactivate_member', 'reactivate_member', 'deactivate_account', 'reactivate_account')
+                                ORDER BY seq DESC LIMIT 1`).get(account.id) as { action: string; detail: string | null; org_id: string | null } | undefined;
+      // Only this organization's own separation is this organization's to undo.
+      if (last?.action !== 'personnel_separated' || !last.detail?.endsWith('; account deactivated') || (last.org_id && last.org_id !== plan.orgId)) return;
       db.prepare('UPDATE users SET active = 1, updated_at = ? WHERE id = ?').run(at, account.id);
       audit(ctx, {
-        actor_id: actorId, action: 'personnel_reactivated', entity: 'personnel_roster', entity_id: edipi,
+        actor_id: actorId, action: 'personnel_reactivated', entity: 'personnel_roster', entity_id: edipi, org_id: plan.orgId,
         subject_id: account.id, detail: `${plan.source}: back on the roster as active; account reactivated`,
       });
     };
@@ -288,19 +373,20 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
 
     for (const update of plan.updates) {
       const merged = Object.fromEntries(update.changes.map((c) => [c.field, c.to]));
-      const prior = db.prepare('SELECT * FROM personnel_roster WHERE edipi = ?').get(update.edipi) as RosterDbRow;
+      const prior = db.prepare('SELECT * FROM personnel_roster WHERE org_id = ? AND edipi = ?').get(plan.orgId, update.edipi) as RosterDbRow;
       const row: RosterRow = { ...prior, ...merged } as RosterRow;
       write(row);
       byEdipi.set(update.edipi, row);
       audit(ctx, {
-        actor_id: actorId, action: 'personnel_sync_update', entity: 'personnel_roster', entity_id: update.edipi,
+        actor_id: actorId, action: 'personnel_sync_update', entity: 'personnel_roster', entity_id: update.edipi, org_id: plan.orgId,
         detail: `${plan.source}: ${update.changes.map((c) => `${c.field} ${c.from ?? '—'} → ${c.to ?? '—'}`).join('; ')}`,
       });
       if (update.changes.some((c) => c.field === 'status' && c.from === 'separated' && c.to === 'active')) reactivate(update.edipi);
     }
 
-    // Push the sourced fields onto any account that carries this EDIPI.
+    // Push the sourced fields onto the account that carries this EDIPI, if this organization's extract speaks for it.
     const applyToAccount = (row: RosterRow) => {
+      if (!speaksFor(ctx, plan.orgId, row.edipi, false)) return;
       const account = db.prepare('SELECT * FROM users WHERE edipi = ?').get(row.edipi) as Record<string, unknown> | undefined;
       if (!account) return;
       const changes: FieldChange[] = [];
@@ -315,7 +401,7 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
         .run(...changes.map((c) => c.to), at, at, account.id as string);
       audit(ctx, {
         actor_id: actorId, action: 'personnel_profile_updated', entity: 'users', entity_id: account.id as string,
-        subject_id: account.id as string,
+        subject_id: account.id as string, org_id: plan.orgId,
         detail: `${plan.source}: ${changes.map((c) => `${c.field} ${c.from ?? '—'} → ${c.to ?? '—'}`).join('; ')}`,
       });
     };
@@ -324,49 +410,56 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
     for (const sep of plan.separations) {
       // A listed row was written with its separated status above. A missing one keeps no hash, so the next
       // extract that lists them reads as a change (a return), not as unchanged.
-      if (!sep.listed) db.prepare("UPDATE personnel_roster SET status = 'separated', row_hash = '', synced_at = ?, updated_at = ? WHERE edipi = ?").run(at, at, sep.edipi);
+      if (!sep.listed) db.prepare("UPDATE personnel_roster SET status = 'separated', row_hash = '', synced_at = ?, updated_at = ? WHERE org_id = ? AND edipi = ?").run(at, at, plan.orgId, sep.edipi);
       const account = db.prepare('SELECT id FROM users WHERE edipi = ?').get(sep.edipi) as { id: string } | undefined;
-      const deactivated = account ? db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ? AND active = 1').run(at, account.id).changes > 0 : false;
+      // Leaving this organization ends the memberships in it, kept so a return can restore them. The account itself is
+      // turned off only when the person belongs to no other organization (ADR-0006).
+      const left = account ? endMemberships(account.id, sep.edipi) : 0;
+      const elsewhere = account ? Boolean(db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? LIMIT 1').get(account.id)) : false;
+      const deactivated = account && !elsewhere ? db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ? AND active = 1').run(at, account.id).changes > 0 : false;
+      if (deactivated) invalidateUserSessions(ctx, account!.id);
       audit(ctx, {
-        actor_id: actorId, action: 'personnel_separated', entity: 'personnel_roster', entity_id: sep.edipi,
-        subject_id: account?.id ?? null, detail: `${plan.source}: ${sep.listed ? 'marked separated in the extract' : 'no longer on the roster'}${deactivated ? '; account deactivated' : ''}`,
+        actor_id: actorId, action: 'personnel_separated', entity: 'personnel_roster', entity_id: sep.edipi, org_id: plan.orgId,
+        subject_id: account?.id ?? null, detail: `${plan.source}: ${sep.listed ? 'marked separated in the extract' : 'no longer on the roster'}${left ? `; left ${left} unit${left === 1 ? '' : 's'}` : ''}${deactivated ? '; account deactivated' : ''}`,
       });
     }
 
-    db.prepare(`INSERT INTO personnel_sync_runs (id, source, actor_id, dry_run, rows_seen, created, updated, separated, conflicts, detail, at)
-                VALUES (?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(runId, plan.source, actorId, plan.rowsSeen, plan.creates.length, plan.updates.length, plan.separations.length, plan.conflicts.length,
+    db.prepare(`INSERT INTO personnel_sync_runs (id, org_id, source, actor_id, dry_run, rows_seen, created, updated, separated, conflicts, detail, at)
+                VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(runId, plan.orgId, plan.source, actorId, plan.rowsSeen, plan.creates.length, plan.updates.length, plan.separations.length, plan.conflicts.length,
            JSON.stringify({ unchanged: plan.unchanged, rejected: plan.rejected.length }), at);
   })();
 
-  audit(ctx, { actor_id: actorId, action: 'personnel_sync', detail: `${plan.source}: +${plan.creates.length} ~${plan.updates.length} -${plan.separations.length}` });
+  audit(ctx, { actor_id: actorId, action: 'personnel_sync', org_id: plan.orgId, detail: `${plan.source}: +${plan.creates.length} ~${plan.updates.length} -${plan.separations.length}` });
   return { runId };
 }
 
-export function divergence(ctx: AppContext) {
+/** Accounts and roster entries that do not line up, for one organization: none of it is resolved automatically. */
+export function divergence(ctx: AppContext, orgId: string) {
   const { db } = ctx;
+  const members = `SELECT um.user_id FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE un.org_id = ?`;
   return {
     accountsWithoutRoster: db.prepare(`
       SELECT u.id, u.username, u.edipi, u.first_name, u.last_name FROM users u
-      WHERE u.edipi IS NOT NULL AND NOT EXISTS (SELECT 1 FROM personnel_roster r WHERE r.edipi = u.edipi)
-      ORDER BY u.last_name LIMIT 500`).all(),
+      WHERE u.id IN (${members}) AND u.edipi IS NOT NULL AND NOT EXISTS (SELECT 1 FROM personnel_roster r WHERE r.org_id = ? AND r.edipi = u.edipi)
+      ORDER BY u.last_name LIMIT 500`).all(orgId, orgId),
     accountsWithoutEdipi: db.prepare(`
-      SELECT id, username, first_name, last_name FROM users WHERE edipi IS NULL AND active = 1 ORDER BY last_name LIMIT 500`).all(),
+      SELECT id, username, first_name, last_name FROM users WHERE id IN (${members}) AND edipi IS NULL AND active = 1 ORDER BY last_name LIMIT 500`).all(orgId),
     rosterWithoutAccount: db.prepare(`
       SELECT r.edipi, r.last_name, r.first_name, r.rank_id, r.unit_code FROM personnel_roster r
-      WHERE r.status = 'active' AND NOT EXISTS (SELECT 1 FROM users u WHERE u.edipi = r.edipi)
-      ORDER BY r.last_name LIMIT 500`).all(),
+      WHERE r.org_id = ? AND r.status = 'active' AND NOT EXISTS (SELECT 1 FROM users u WHERE u.edipi = r.edipi)
+      ORDER BY r.last_name LIMIT 500`).all(orgId),
   };
 }
 
-export function rosterStats(ctx: AppContext) {
+export function rosterStats(ctx: AppContext, orgId: string) {
   const { db } = ctx;
-  const counts = db.prepare("SELECT status, COUNT(*) AS n FROM personnel_roster GROUP BY status").all() as Array<{ status: string; n: number }>;
-  const last = db.prepare('SELECT * FROM personnel_sync_runs ORDER BY at DESC LIMIT 1').get() as Record<string, unknown> | undefined;
+  const counts = db.prepare('SELECT status, COUNT(*) AS n FROM personnel_roster WHERE org_id = ? GROUP BY status').all(orgId) as Array<{ status: string; n: number }>;
+  const last = db.prepare('SELECT * FROM personnel_sync_runs WHERE org_id = ? ORDER BY at DESC LIMIT 1').get(orgId) as Record<string, unknown> | undefined;
   return {
     active: counts.find((c) => c.status === 'active')?.n || 0,
     separated: counts.find((c) => c.status === 'separated')?.n || 0,
-    linkedAccounts: (db.prepare("SELECT COUNT(*) AS n FROM users WHERE identity_source = 'roster'").get() as { n: number }).n,
+    linkedAccounts: (db.prepare(`SELECT COUNT(*) AS n FROM users u WHERE u.identity_source = 'roster' AND EXISTS (SELECT 1 FROM personnel_roster r WHERE r.org_id = ? AND r.edipi = u.edipi)`).get(orgId) as { n: number }).n,
     lastSync: last || null,
   };
 }
@@ -374,7 +467,8 @@ export function rosterStats(ctx: AppContext) {
 export function sourcedFieldsFor(ctx: AppContext, userId: string): SourcedField[] {
   const row = ctx.db.prepare('SELECT identity_source, edipi FROM users WHERE id = ?').get(userId) as { identity_source?: string; edipi?: string | null } | undefined;
   if (!row || row.identity_source !== 'roster' || !row.edipi) return [];
-  const roster = ctx.db.prepare('SELECT * FROM personnel_roster WHERE edipi = ?').get(row.edipi) as Record<string, unknown> | undefined;
+  // Whichever organization's feed spoke for them last.
+  const roster = ctx.db.prepare('SELECT * FROM personnel_roster WHERE edipi = ? ORDER BY synced_at DESC LIMIT 1').get(row.edipi) as Record<string, unknown> | undefined;
   if (!roster) return [];
   return SOURCED_FIELDS.filter((f) => roster[f] != null && roster[f] !== '');
 }

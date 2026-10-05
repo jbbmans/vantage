@@ -3,7 +3,7 @@ import { newId, now } from '../lib/ids.ts';
 import type { Request } from 'express';
 import type { AppContext } from '../context.ts';
 import type { CacConfig } from '../config.ts';
-import { isEdipi } from '../services/personnel.ts';
+import { isEdipi, rosterVouching, seatFromRoster } from '../services/personnel.ts';
 
 export interface CertIdentity {
   edipi: string;
@@ -143,8 +143,8 @@ export function resolveAccount(ctx: AppContext, identity: CertIdentity): CacReso
   if (!config.cac.autoProvisionFromRoster) {
     throw new CacError('No Vantage account is linked to that card. Ask your admin to link it.', 'cac_unlinked');
   }
-  const roster = db.prepare("SELECT * FROM personnel_roster WHERE edipi = ? AND status = 'active'").get(identity.edipi) as Record<string, string | null> | undefined;
-  if (!roster) throw new CacError('That card is not on this command’s roster.', 'cac_not_on_roster');
+  const roster = rosterVouching(ctx, identity.edipi);
+  if (!roster) throw new CacError('That card is not on the roster of any organization on Vantage.', 'cac_not_on_roster');
 
   const at = now();
   const id = newId();
@@ -152,6 +152,7 @@ export function resolveAccount(ctx: AppContext, identity: CertIdentity): CacReso
   db.prepare(`INSERT INTO users (id, username, password_hash, first_name, last_name, middle_initial, rank_id, mos, eas, edipi, identity_source, identity_synced_at, active, created_at, updated_at)
               VALUES (?, ?, '', ?, ?, ?, ?, ?, ?, ?, 'roster', ?, 1, ?, ?)`)
     .run(id, username, roster.first_name, roster.last_name, roster.middle_initial, roster.rank_id, roster.mos, roster.eas, identity.edipi, at, at, at);
+  seatFromRoster(ctx, id, roster);
   return { identity, userId: id, provisioned: true };
 }
 

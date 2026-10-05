@@ -75,7 +75,7 @@ test('the application serves sign-in at its root, and nothing of the site or the
   assert.match(robots.text, /Disallow: \/\n/);
 
   assert.equal((await at(APP, 'GET', '/api/me', { token: marine })).status, 200);
-  assert.equal((await at(APP, 'GET', '/api/admin/overview', { token: operator })).status, 404, 'administration is the console’s, even for an owner signed in on the app');
+  assert.equal((await at(APP, 'GET', '/api/platform/overview', { token: operator })).status, 404, 'administration is the console’s, even for an owner signed in on the app');
 });
 
 test('the console is for owners only, on its own host, and answers only the calls it makes', async () => {
@@ -88,7 +88,7 @@ test('the console is for owners only, on its own host, and answers only the call
   assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
   const token = signedIn.body.token;
   assert.equal((await at(CONSOLE, 'GET', '/api/me', { token })).status, 200);
-  assert.notEqual((await at(CONSOLE, 'GET', '/api/admin/overview', { token })).status, 404, 'administration answers on the console');
+  assert.notEqual((await at(CONSOLE, 'GET', '/api/platform/overview', { token })).status, 404, 'administration answers on the console');
   assert.equal((await at(CONSOLE, 'GET', '/api/records/activities', { token })).status, 404, 'the console does not serve the application’s records');
   assert.equal((await at(CONSOLE, 'POST', '/api/auth/register', { body: { username: 'sneaky', password: PASSWORD, first_name: 'S', last_name: 'N' } })).status, 404, 'nobody registers on the console');
 

@@ -1,12 +1,12 @@
 import type { AppContext, SessionUser } from '../context.ts';
-import { ROLE_TEMPLATE, PERMISSIONS, has, ALL_PERMISSIONS } from '../../shared/permissions.ts';
-import { can, isUnitOwner, positionIn, scopeFor, type Scope } from '../authz/scope.ts';
+import { ROLE_TEMPLATE, PERMISSIONS, has, ALL_PERMISSIONS, RECORD_READING_BITS } from '../../shared/permissions.ts';
+import { can, isUnitOwner, orgCan, orgOfUnit, positionIn, scopeFor, type Scope } from '../authz/scope.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { now, slug } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
-import { notify } from './notifications.ts';
+import { notify, notifyOrg } from './notifications.ts';
 import { releaseClaimsOnDeparture } from './work.ts';
 
 export interface UnitRow { id: string; code: string; name: string; short_name: string | null; echelon: string; location: string | null; parent_id: string | null; owner_user_id: string | null; active: number; created_at: string }
@@ -105,13 +105,14 @@ export function createUnit(ctx: AppContext, actor: SessionUser, scope: Scope, bo
   if (parentId) {
     if (!getUnit(ctx, parentId)) throw badRequest('No such parent unit.');
     if (!can(scope, PERMISSIONS.MANAGE_UNITS, parentId)) throw forbidden('You cannot create units under that parent.');
-  } else if (!actor.is_operator) {
-    if (!ctx.runtime.selfServiceUnits) throw forbidden('Only the Instance Operator can create a new top-level organization on this instance.', 'not_operator');
+  } else if (!actor.platformPermissions.includes('platform.orgs')) {
+    // A unit with no parent founds an organization. Self-service is the platform's policy; Vantage staff create them freely.
+    if (!ctx.runtime.selfServiceUnits) throw forbidden('New organizations are set up by Vantage. Ask through Support, or ask to join an existing unit.', 'org_creation_closed');
     const limit = ctx.runtime.selfServiceUnitLimit;
     const mine = (ctx.db.prepare(
             'SELECT COUNT(*) AS n FROM units WHERE owner_user_id = ? AND parent_id IS NULL AND active = 1'
     ).get(actor.id) as { n: number }).n;
-    if (mine >= limit) throw forbidden(`You have already created ${mine} ${mine === 1 ? 'unit' : 'units'}. That is the limit on this instance.`, 'unit_limit');
+    if (mine >= limit) throw forbidden(`You have already created ${mine} ${mine === 1 ? 'organization' : 'organizations'}. That is the limit.`, 'unit_limit');
   }
   const code = slug(String(body.code || body.short_name || name));
   if (!code) throw badRequest('That name produces an empty unit code.');
@@ -120,8 +121,13 @@ export function createUnit(ctx: AppContext, actor: SessionUser, scope: Scope, bo
     ctx.db.prepare('INSERT INTO units (id, code, name, short_name, echelon, location, parent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(code, code, name, body.short_name?.trim() || null, body.echelon || 'section', body.location?.trim() || null, parentId, now());
     claimUnit(ctx, code, actor.id);
+    // At the top, the person who founded the organization is its first owner.
+    if (!parentId) {
+      ctx.db.prepare('UPDATE organizations SET created_by = ? WHERE id = (SELECT org_id FROM units WHERE id = ?)').run(actor.id, code);
+      ctx.db.prepare("INSERT OR IGNORE INTO org_roles (org_id, user_id, role, granted_by, created_at) SELECT org_id, ?, 'owner', ?, ? FROM units WHERE id = ?").run(actor.id, actor.id, now(), code);
+    }
   })();
-  audit(ctx, { actor_id: actor.id, action: 'create_unit', entity: 'unit', entity_id: code, unit_id: code, detail: name, ip });
+  audit(ctx, { actor_id: actor.id, action: parentId ? 'create_unit' : 'create_organization', entity: 'unit', entity_id: code, unit_id: code, detail: name, ip });
   return getUnit(ctx, code)!;
 }
 
@@ -135,10 +141,11 @@ export function updateUnit(ctx: AppContext, actor: SessionUser, scope: Scope, un
   if (body.parent_id !== undefined) {
     const next = (body.parent_id as string | null) || null;
     if (next !== unit.parent_id) {
-      if (!next && !actor.is_operator) throw forbidden('Only the Instance Operator can detach a unit into a new top-level organization.');
+      if (!next) throw forbidden('A unit stays in its organization. To split one off into an organization of its own, ask Vantage support.', 'org_boundary');
       if (next) {
         if (!getUnit(ctx, next)) throw badRequest('No such parent unit.');
-        if (!actor.is_operator && !can(scope, PERMISSIONS.MANAGE_UNITS, next)) throw forbidden('You cannot move a unit under a parent you do not manage.');
+        if (orgOfUnit(ctx, next) !== orgOfUnit(ctx, unitId)) throw forbidden('A unit cannot move into another organization.', 'org_boundary');
+        if (!can(scope, PERMISSIONS.MANAGE_UNITS, next)) throw forbidden('You cannot move a unit under a parent you do not manage.');
         if (next === unitId || wouldCycle(ctx, unitId, next)) throw badRequest('A unit cannot be placed beneath itself or one of its descendants.');
       }
       parentId = next;
@@ -174,7 +181,7 @@ export function archiveUnit(ctx: AppContext, actor: SessionUser, scope: Scope, u
 export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: string, successorId: string, ip?: string) {
   const unit = getUnit(ctx, unitId);
   if (!unit) throw notFound('No such unit.');
-  if (!actor.is_operator && !isUnitOwner(ctx, actor.id, unitId)) throw forbidden('Only the current Unit Leader or Instance Operator can transfer ownership.');
+  if (!isUnitOwner(ctx, actor.id, unitId) && !orgCan(scopeFor(ctx, actor), 'org.units', orgOfUnit(ctx, unitId))) throw forbidden('Only the current Unit Leader or an owner or administrator of the organization can transfer leadership.');
   const successor = ctx.db.prepare('SELECT u.id, u.first_name, u.last_name FROM users u JOIN unit_members um ON um.user_id = u.id WHERE u.id = ? AND u.active = 1 AND um.unit_id = ?').get(successorId, unitId) as { id: string; first_name: string; last_name: string } | undefined;
   if (!successor) throw badRequest('Choose an active current member of this unit.', { fieldErrors: { user_id: 'Not a member of this unit.' } });
   if (successor.id === unit.owner_user_id) return { ok: true, already: true };
@@ -195,8 +202,35 @@ export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: s
 
 export interface RoleRow { id: string; unit_id: string; key: string | null; name: string; description: string | null; color: string | null; position: number; permissions: number; is_default: number; is_system: number }
 
+/**
+ * Organization owners and administrators staff every unit of their organization: they define and grant its roles below
+ * the Unit Leader, whatever those roles carry, without holding them. That is what running a command's access means
+ * (ADR-0006). Giving such a role to yourself is another matter: an administrator cannot, and an owner's other owners
+ * are told.
+ */
+export function orgStaffing(ctx: AppContext, scope: Scope, unitId: string): 'owner' | 'admin' | null {
+  const orgId = orgOfUnit(ctx, unitId);
+  if (!orgId || !orgCan(scope, 'org.roles', orgId)) return null;
+  return scope.orgs[orgId]!.roles.includes('owner') ? 'owner' : 'admin';
+}
+
+/** Tell an organization's owners when someone gives themselves a role that reads records. */
+export function noticeRecordReach(ctx: AppContext, actor: SessionUser, _scope: Scope, role: RoleRow, unitId: string, targetId: string) {
+  if (targetId !== actor.id || !(role.permissions & RECORD_READING_BITS)) return;
+  const orgId = orgOfUnit(ctx, unitId);
+  if (!orgId) return;
+  const unit = getUnit(ctx, unitId);
+  notifyOrg(ctx, orgId, 'org.owners', {
+    kind: 'system',
+    title: `${actor.first_name} ${actor.last_name} gave themselves ${role.name} in ${unit?.short_name || unit?.name || unitId}`,
+    message: 'That role reads Marines’ records. If it was not agreed, remove it from their roles and review the audit trail.',
+    actionUrl: '/console/people',
+  }, actor.id);
+}
+
 export function canManageRoleDefinition(ctx: AppContext, actor: SessionUser, scope: Scope, role: RoleRow): boolean {
   if (isUnitOwner(ctx, actor.id, role.unit_id)) return true;
+  if (orgStaffing(ctx, scope, role.unit_id)) return role.key !== 'unit-leader';
   if (!can(scope, PERMISSIONS.MANAGE_ROLES, role.unit_id)) return false;
   return role.position < positionIn(scope, role.unit_id);
 }
@@ -207,7 +241,7 @@ export function validateRoleDefinition(ctx: AppContext, actor: SessionUser, scop
   if (!Number.isInteger(def.position) || def.position < 0 || def.position > 99) throw badRequest('Position must be a whole number from 0 to 99.', { fieldErrors: { position: '0 to 99.' } });
   if (!Number.isInteger(def.permissions) || def.permissions < 0 || (def.permissions & ~ALL_PERMISSIONS) !== 0) throw badRequest('Unknown permission bits.');
   if (!getUnit(ctx, def.unit_id)) throw notFound('No such unit.');
-  const owner = isUnitOwner(ctx, actor.id, def.unit_id);
+  const owner = isUnitOwner(ctx, actor.id, def.unit_id) || Boolean(orgStaffing(ctx, scope, def.unit_id));
   if (!owner) {
     if (!can(scope, PERMISSIONS.MANAGE_ROLES, def.unit_id)) throw forbidden('You cannot manage roles in that unit.');
     const myPosition = positionIn(scope, def.unit_id);
@@ -224,8 +258,7 @@ export function validateRoleDefinition(ctx: AppContext, actor: SessionUser, scop
  * Enrolling an existing account directly skips that person's consent, so it is limited to people the actor
  * already leads: someone below them in a unit where they manage members. Everyone else joins by invitation.
  */
-export function mayEnrollDirectly(ctx: AppContext, actor: SessionUser, scope: Scope, targetId: string): boolean {
-  if (actor.is_operator) return true;
+export function mayEnrollDirectly(ctx: AppContext, _actor: SessionUser, scope: Scope, targetId: string): boolean {
   const target = scopeFor(ctx, { id: targetId });
   return target.unitIds.some((u) => can(scope, PERMISSIONS.MANAGE_MEMBERS, u) && positionIn(scope, u) > positionIn(target, u));
 }
@@ -234,7 +267,7 @@ export function mayEnrollDirectly(ctx: AppContext, actor: SessionUser, scope: Sc
 export function assertMayGrantRole(ctx: AppContext, actor: SessionUser, scope: Scope, role: RoleRow, unitId: string) {
   if (role.unit_id !== unitId) throw forbidden('That role belongs to another unit.', 'scope');
   if (role.key === 'unit-leader') throw badRequest('Unit Leader is granted by ownership transfer, not by invitation.');
-  if (isUnitOwner(ctx, actor.id, unitId)) return;
+  if (isUnitOwner(ctx, actor.id, unitId) || orgStaffing(ctx, scope, unitId)) return;
   if (!can(scope, PERMISSIONS.MANAGE_ROLES, unitId)) throw forbidden('You cannot grant roles in that unit.');
   if (role.position >= positionIn(scope, unitId)) throw forbidden('You cannot grant a role at or above your own.', 'hierarchy');
   const mine = scope.permissions[unitId] || 0;
@@ -248,6 +281,13 @@ export function validateRoleGrant(ctx: AppContext, actor: SessionUser, scope: Sc
   const targetScope = scopeFor(ctx, { id: targetId });
   if (!targetScope.unitIds.includes(unitId)) throw badRequest('That Marine is not a member of this unit.');
   if (isUnitOwner(ctx, actor.id, unitId)) return;
+  const staffing = orgStaffing(ctx, scope, unitId);
+  if (staffing) {
+    if (targetId === actor.id && staffing === 'admin' && (role.permissions & RECORD_READING_BITS)) {
+      throw forbidden('That role reads Marines’ records. An organization owner, or the unit’s chain of command, grants it to you.', 'self_grant');
+    }
+    return;
+  }
   if (!can(scope, PERMISSIONS.MANAGE_ROLES, unitId)) throw forbidden('You cannot manage roles in that unit.');
   if (role.position >= positionIn(scope, unitId)) throw forbidden('You cannot grant a role at or above your own.', 'hierarchy');
   const mine = scope.permissions[unitId] || 0;
@@ -312,9 +352,9 @@ export interface UnitView { id: string; name: string; short_name: string | null;
  * The views a person can switch between, in tree order: a command, then the teams beneath it. "full" means they
  * can read the unit's shared records; "overview" is the roster, goals and aggregate totals a member sees.
  */
-export function viewsFor(ctx: AppContext, scope: Scope, isOperator: boolean): { views: UnitView[]; defaultViewId: string | null } {
+export function viewsFor(ctx: AppContext, scope: Scope): { views: UnitView[]; defaultViewId: string | null } {
   const all = ctx.db.prepare('SELECT id, name, short_name, parent_id FROM units WHERE active = 1 ORDER BY name').all() as Array<{ id: string; name: string; short_name: string | null; parent_id: string | null }>;
-  const allowed = new Set(isOperator ? all.map((u) => u.id) : scope.viewableUnitIds);
+  const allowed = new Set(scope.viewableUnitIds);
   const byParent = new Map<string | null, typeof all>();
   const known = new Set(all.map((u) => u.id));
   for (const u of all) {
@@ -333,4 +373,24 @@ export function viewsFor(ctx: AppContext, scope: Scope, isOperator: boolean): { 
   // Someone who leads nothing starts on their own team, the deepest unit they belong to, even when the command is their primary unit.
   const own = views.filter((v) => v.member).sort((a, b) => b.depth - a.depth)[0];
   return { views, defaultViewId: led?.id ?? own?.id ?? (scope.primaryUnitId && allowed.has(scope.primaryUnitId) ? scope.primaryUnitId : views[0]?.id ?? null) };
+}
+
+export interface OrgSummary {
+  id: string; name: string; short_name: string | null; status: string; root_unit_id: string | null;
+  roles: string[]; permissions: string[]; expiresAt: string | null; member: boolean;
+}
+
+/** The organizations a person belongs to or holds a role in, with what they may do in each (ADR-0006). */
+export function orgSummaries(ctx: AppContext, scope: Scope): OrgSummary[] {
+  const ids = [...new Set([...scope.orgIds, ...Object.keys(scope.orgs)])];
+  if (!ids.length) return [];
+  const rows = ctx.db.prepare('SELECT id, name, short_name, status, root_unit_id FROM organizations WHERE id IN (SELECT value FROM json_each(?)) ORDER BY name')
+    .all(JSON.stringify(ids)) as Array<{ id: string; name: string; short_name: string | null; status: string; root_unit_id: string | null }>;
+  return rows.map((o) => ({
+    ...o,
+    roles: scope.orgs[o.id]?.roles ?? [],
+    permissions: scope.orgs[o.id]?.permissions ?? [],
+    expiresAt: scope.orgs[o.id]?.expiresAt ?? null,
+    member: scope.orgIds.includes(o.id),
+  }));
 }

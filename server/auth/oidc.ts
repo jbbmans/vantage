@@ -3,6 +3,7 @@ import type { AppContext } from '../context.ts';
 import { encryptSecret, decryptSecret, sha256 } from '../lib/crypto.ts';
 import { secretsOf } from '../lib/keys.ts';
 import { newId, now } from '../lib/ids.ts';
+import { rosterVouching, seatFromRoster } from '../services/personnel.ts';
 
 /**
  * Sign-in through the organization's identity provider over OpenID Connect: Microsoft Entra ID in GCC High or DoD,
@@ -197,7 +198,7 @@ export function resolveOidcAccount(ctx: AppContext, claims: OidcClaims): { userI
     return { userId: candidate.id, linked: true, provisioned: false };
   }
   if (cfg.autoProvisionFromRoster && /^\d{10}$/.test(edipi)) {
-    const roster = db.prepare("SELECT * FROM personnel_roster WHERE edipi = ? AND status = 'active'").get(edipi) as Record<string, string | null> | undefined;
+    const roster = rosterVouching(ctx, edipi);
     if (roster && !db.prepare('SELECT 1 FROM users WHERE edipi = ?').get(edipi)) {
       const id = newId();
       const at = now();
@@ -212,6 +213,7 @@ export function resolveOidcAccount(ctx: AppContext, claims: OidcClaims): { userI
         if (String((e as Error).message).includes('UNIQUE')) throw new OidcError('An account for that person could not be created because one with the same name already exists. Ask your administrator.', 'oidc_conflict');
         throw e;
       }
+      seatFromRoster(ctx, id, roster);
       return { userId: id, linked: true, provisioned: true };
     }
   }
