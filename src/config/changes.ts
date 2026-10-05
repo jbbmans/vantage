@@ -7,6 +7,20 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-10-05',
+    title: 'FITREP and fixes',
+    items: [
+      'FITREP input follows the MRO worksheet: a Section C draft of dash bullets with no headings, as Section C reads, and the worksheet’s PME and Other blocks beside it, each with its own Copy.',
+      'Each entry is read for the FITREP attribute it gives your reporting senior evidence for, and Readiness reads it the same way, so the coverage and the draft agree. Select a sentence to see its attribute.',
+      'JEPES command input you submitted, and FITREPs you wrote, land under Section H: Fulfillment of Evaluation Responsibilities.',
+      'Readiness no longer tells everyone to complete resident PME. It asks for your PME status, and tells a Sergeant with distance PME what else MARADMIN 630/24 requires.',
+      'Readiness puts the sections with no evidence on one card, says what evidence for each missing attribute looks like, and offers your annual period end date where a MARADMIN confirms it.',
+      'The demo’s section lead has a FITREP record of their own to explore.',
+      'A personnel extract that lists a Marine for the first time, already separated, turns off their account (within the mass-separation guard).',
+      'An import keyed by a document number no longer overwrites a case that came from a different report. The import wizard can key a sheet by two columns.',
+    ],
+  },
+  {
     date: '2026-10-04',
     title: 'Everyday use',
     items: [

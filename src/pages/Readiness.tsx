@@ -7,7 +7,7 @@ import { useToast } from '@/components/ui/toast';
 import { keys, useActivities, useIdentity, useReadiness, useTrack } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { PILLARS, ARQ_BANDS, estimate, recommend, fitnessClass, EFFORT_ORDER } from '../../shared/jepes';
-import { fitrepCoverage, recommendFitrep, daysUntil, FITREP_SECTIONS } from '../../shared/evaluation';
+import { fitrepCoverage, recommendFitrep, daysUntil, annualEnd, FITREP_SECTIONS } from '../../shared/evaluation';
 import { EVAL_REFERENCES, EVAL_VERIFIED, REC_KINDS } from '../../shared/evalRefs';
 import { RIFLE_QUALS, MCMAP_BELTS, DEGREES, PME_STATUS } from '../../shared/constants';
 import { areaBalance } from '../../shared/narrative';
@@ -37,6 +37,7 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
   const est = useMemo(() => estimate(profile), [profile]);
   const coverage = useMemo(() => fitrepCoverage(mine), [mine]);
   const daysToEnd = daysUntil(form.fitrep_period_end || null);
+  const annual = useMemo(() => annualEnd(String(readiness?.rank_grade || '')), [readiness?.rank_grade]);
   const recs = useMemo(() => (track === 'fitrep' ? recommendFitrep(profile, stats, { coverage, daysToEnd }) : recommend(profile, stats)), [track, profile, stats, coverage, daysToEnd]);
   const ref = EVAL_REFERENCES[track];
   const [effortSort, setEffortSort] = useState(false);
@@ -62,7 +63,12 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
               <Field label="Rifle (ARQ)"><Select value={form.rifle_qual || ''} onValueChange={set('rifle_qual')} options={RIFLE_QUALS.map((r) => ({ value: r, label: r }))} placeholder="Not entered" /></Field>
               <Field label="MCMAP belt"><Select value={form.mcmap_belt || ''} onValueChange={set('mcmap_belt')} options={MCMAP_BELTS.map((r) => ({ value: r, label: r }))} placeholder="Not entered" /></Field>
               <Field label="PME for grade"><Select value={form.pme_complete || ''} onValueChange={set('pme_complete')} options={PME_STATUS.map((r) => ({ value: r, label: humanize(r) }))} placeholder="Not entered" /></Field>
-              {track === 'fitrep' ? <Field label="Reporting period ends" hint={daysToEnd == null ? undefined : daysToEnd < 0 ? `Ended ${-daysToEnd}d ago` : daysToEnd === 0 ? 'Ends today' : `${daysToEnd}d left`}><Input type="date" value={form.fitrep_period_end || ''} onChange={(e) => set('fitrep_period_end')(e.target.value)} /></Field> : <Field label="MarineNet CEUs"><NumberInput value={form.ceus || ''} onChange={(e) => set('ceus')(e.target.value)} /></Field>}
+              {track === 'fitrep' ? <div>
+                <Field label="Reporting period ends" hint={daysToEnd == null ? undefined : daysToEnd < 0 ? `Ended ${-daysToEnd}d ago` : daysToEnd === 0 ? 'Ends today' : `${daysToEnd}d left`}>
+                  <Input type="date" value={form.fitrep_period_end || ''} onChange={(e) => set('fitrep_period_end')(e.target.value)} />
+                </Field>
+                {!form.fitrep_period_end && annual && <button type="button" className="mt-1 text-2xs text-accent hover:underline" title={annual.text} onClick={() => set('fitrep_period_end')(annual.date)}>Use the annual date, {annual.date}</button>}
+              </div> : <Field label="MarineNet CEUs"><NumberInput value={form.ceus || ''} onChange={(e) => set('ceus')(e.target.value)} /></Field>}
               {track === 'jepes' && <>
                 <Field label="College credits"><NumberInput value={form.college_credits || ''} onChange={(e) => set('college_credits')(e.target.value)} /></Field>
                 <Field label="Degree"><Select value={form.degree || ''} onValueChange={set('degree')} options={DEGREES.map((r) => ({ value: r, label: humanize(r) }))} placeholder="None" /></Field>
@@ -90,11 +96,12 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
             <Panel title="Attribute coverage" subtitle="Does your log evidence each section your RS marks?">
               <div className="space-y-3">{coverage.map((s) => (
                 <div key={s.key} className="rounded-lg border border-line p-3">
-                  <div className="flex items-baseline justify-between gap-2"><h3 className="text-md font-semibold text-ink">Section {s.section}: {s.key}</h3><span className="fig text-xs text-ink-3">{s.tagged} tagged</span></div>
+                  <div className="flex items-baseline justify-between gap-2"><h3 className="text-md font-semibold text-ink">Section {s.section}: {s.title}</h3><span className="fig text-xs text-ink-3" title={`${s.tagged} tagged here by you`}>{s.entries} {s.entries === 1 ? 'entry' : 'entries'}</span></div>
+                  {s.section === 'H' && <p className="text-2xs text-ink-3">For when you served as a reporting official in the period: the evaluations you conducted, or required others to conduct.</p>}
                   <ul className="mt-2 flex flex-wrap gap-1.5">{s.attributes.map((a) => <li key={a.attribute}><Badge tone={a.likely ? 'good' : 'warn'} title={a.examples.join(' · ')}>{a.attribute} · {a.likely}</Badge></li>)}</ul>
                 </div>
               ))}</div>
-              <p className="mt-3 text-2xs text-ink-3">Attribute matching is keyword-based. It flags gaps; it does not grade you. Sections and attributes per {FITREP_SECTIONS.length === 5 ? ref.citation : ref.order}.</p>
+              <p className="mt-3 text-2xs text-ink-3">Read from each entry’s verb and words, the same way the Section C draft reads them. It flags gaps; it does not grade you. Sections and attributes per {FITREP_SECTIONS.length === 5 ? ref.citation : ref.order}.</p>
             </Panel>
           )}
         </div>

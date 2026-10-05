@@ -1,8 +1,9 @@
 import {
-  ANNUAL_TRAINING, ATTRIBUTE_FOR_KIND, CLICHE, FILLER, FIRST_PERSON, IN_PROGRESS, KEEP_CASE, MEASURE_UNIT, NOMINAL_OPENERS, NOUN_FOLLOWERS, PASSIVE,
+  ANNUAL_TRAINING, AREA_FOR_KIND, CLICHE, FILLER, FIRST_PERSON, IN_PROGRESS, KEEP_CASE, MEASURE_UNIT, NOMINAL_OPENERS, NOUN_FOLLOWERS, PASSIVE,
   PEOPLE_UNIT, PERSONAL_NOUNS, PRAISE_ADVERBS, PRIOR_AWARD, ACRONYMS, NUMBER_WORDS, RESULT_LEADS, RS_JUDGMENT, SPECULATIVE, STRONG_RESULT, SUPERLATIVE, VAGUE, VERB_BY_LEMMA, VERB_FORMS,
   WEAK_OPENERS, type VerbEntry,
 } from './lexicon.ts';
+import { ATTRIBUTE_AREA, attributesOf, type Attribute } from './attributes.ts';
 import { isTimeUnit, unitKeyOf } from '../metricEngine.ts';
 import { DEFAULT_METRICS, isSummable, type MetricsConfig } from '../constants.ts';
 
@@ -13,9 +14,15 @@ export interface EntryInput {
   organization?: string | null; result?: string | null; date?: string | null;
 }
 
-/** The broad areas evaluation writing sorts work into; a track names them (see AreaNames). */
-export type AreaKind = 'mission' | 'leadership' | 'character' | 'intellect';
-export type AreaNames = Record<AreaKind, string>;
+/**
+ * The broad areas evaluation writing sorts work into; a track names them (see AreaNames). "evaluations" is FITREP
+ * Section H, the Marine's own evaluation duties; a track without that section files them under leadership.
+ */
+export type AreaKind = 'mission' | 'leadership' | 'character' | 'intellect' | 'evaluations';
+export type AreaNames = Record<Exclude<AreaKind, 'evaluations'>, string> & { evaluations?: string };
+
+/** What a track calls an area kind. */
+export const nameOf = (names: AreaNames, kind: AreaKind): string => (kind === 'evaluations' ? names.evaluations ?? names.leadership : names[kind]);
 
 export type QuantityKind = 'item' | 'time' | 'people' | 'measure';
 export type IssueCode = 'outcome' | 'weak_verb' | 'vague' | 'passive' | 'no_verb' | 'unmeasured' | 'long' | 'first_person' | 'area_inferred'
@@ -45,13 +52,18 @@ export interface Fact {
   result: string | null;
   system: string | null;
   organization: string | null;
-  attribute: string;
+  /** The FITREP attribute it gives the strongest evidence for, and every one it speaks to (shared/writer/attributes.ts). */
+  attribute: Attribute;
+  attributes: Attribute[];
   /** What reading changed, so the review can say so: "tense", "first person", "filler", "word order". */
   edits: string[];
   issues: Issue[];
   strongResult: boolean;
-  /** Why the writer holds this entry back from the input, and what that rests on. The Marine can keep it anyway. */
-  held: { reason: string; basis: 'order' | 'guidance' | 'style' | 'data'; cite?: string } | null;
+  /**
+   * Why the writer holds this entry back from the input, and what that rests on. The Marine can keep it anyway. A
+   * `route` is not a fault: on FITREP, PME and community involvement have blocks of their own on the MRO worksheet.
+   */
+  held: { reason: string; basis: 'order' | 'guidance' | 'style' | 'data'; cite?: string; route?: 'pme' | 'other' } | null;
 }
 
 const clean = (s: string) => s.replace(/\s+/g, ' ').trim();
@@ -173,13 +185,23 @@ function openingOf(text: string, category: string | null): Opening {
   return { verb: null, opener: '', rest: capitalize(text), edit: 'no verb' };
 }
 
-function inferArea(fact: Pick<Fact, 'verb' | 'people' | 'category' | 'quantity'>): AreaKind {
+function inferArea(fact: Pick<Fact, 'verb' | 'people' | 'category' | 'quantity'>, attribute: Attribute, track: 'jepes' | 'fitrep'): AreaKind {
+  const kind = fact.verb?.kind;
+  if (track === 'fitrep') {
+    // The section that marks the attribute, with two exceptions: improving your own billet's work is still the
+    // billet's work, and a tag of Leadership or Volunteer Service the Marine chose wins over a plain verb.
+    const area = ATTRIBUTE_AREA[attribute];
+    if (attribute === 'Initiative' && (kind === 'build' || kind === 'improve')) return 'mission';
+    if (area === 'mission' && fact.category === 'Leadership') return 'leadership';
+    if (area === 'mission' && fact.category === 'Volunteer Service') return 'character';
+    return area;
+  }
+  if (attribute === 'Evaluations') return 'evaluations';
   if (fact.category === 'Leadership') return 'leadership';
   if (fact.category === 'Volunteer Service') return 'character';
   if (fact.category === 'Training & PME') return 'intellect';
-  const kind = fact.verb?.kind;
   if (kind) {
-    const area = ATTRIBUTE_FOR_KIND[kind].area;
+    const area = AREA_FOR_KIND[kind];
     if (area === 'leadership' || area === 'character' || area === 'intellect') return area;
   }
   if (fact.people && fact.people > 0) return 'leadership';
@@ -189,7 +211,8 @@ function inferArea(fact: Pick<Fact, 'verb' | 'people' | 'category' | 'quantity'>
 /** Which broad area a named area is, whatever the track calls it. */
 export function areaKindOf(name: string | null | undefined, names: AreaNames): AreaKind | null {
   if (!name) return null;
-  for (const kind of Object.keys(names) as AreaKind[]) if (names[kind] === name) return kind;
+  for (const kind of Object.keys(names) as AreaKind[]) if (names[kind as keyof AreaNames] === name) return kind;
+  if (/evaluation/i.test(name)) return 'evaluations';
   if (/mission|mos/i.test(name)) return 'mission';
   if (/leader/i.test(name)) return 'leadership';
   if (/character/i.test(name)) return 'character';
@@ -202,8 +225,9 @@ export function areaKindOf(name: string | null | undefined, names: AreaNames): A
  * by what they measure, and notes what a reviewer would ask for. An entry with no area gets the one its own words
  * point to, and says so.
  */
-export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: readonly string[]; metrics?: MetricsConfig }): Fact {
+export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: readonly string[]; metrics?: MetricsConfig; track?: 'jepes' | 'fitrep' }): Fact {
   const metrics = opts.metrics ?? DEFAULT_METRICS;
+  const fitrep = opts.track === 'fitrep';
   const edits: string[] = [];
   const issues: Issue[] = [];
   const typed = tidy(stripEnd(clean(String(entry.title ?? ''))), { numerals: true });
@@ -262,13 +286,12 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
     edits.push('verb from value type');
   }
   const base = { verb: opening.verb, people, category, quantity };
+  const reading = attributesOf({ text: `${title} ${result}`, kind: opening.verb?.kind ?? null, lemma: opening.verb?.lemma ?? null, category, people });
+  const attribute = reading.primary;
   const given = opts.areas.includes(String(entry.eval_area)) ? String(entry.eval_area) : null;
   const givenKind = areaKindOf(given, opts.names);
-  const areaKind = givenKind ?? inferArea(base);
-  const area = given ?? opts.names[areaKind];
-
-  const kind = opening.verb?.kind ?? 'execute';
-  const attribute = ATTRIBUTE_FOR_KIND[kind].fitrep;
+  const areaKind = givenKind ?? inferArea(base, attribute, opts.track ?? 'jepes');
+  const area = given ?? nameOf(opts.names, areaKind);
   const strongResult = Boolean(result && STRONG_RESULT.test(result));
 
   // What the review should say about this entry.
@@ -284,7 +307,7 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
   if (!givenKind) issues.push({ code: 'area_inferred', message: `No area; placed under ${area} by what it says`, advice: 'Tag it yourself so it lands where you mean it to.' });
   const raw = `${entry.title ?? ''} ${entry.result ?? ''}`;
   const annual = ANNUAL_TRAINING.exec(raw);
-  if (annual) issues.push({ code: 'annual_training', message: `Required annual training (“${annual[0]}”)`, advice: 'MCO 1616.1 Appendix E: performing required annual training is not a billet accomplishment. Held back from the input.' });
+  if (annual) issues.push({ code: 'annual_training', message: `Required annual training (“${annual[0]}”)`, advice: fitrep ? 'Required annual training is not a billet accomplishment. Held back from the input.' : 'MCO 1616.1 Appendix E: performing required annual training is not a billet accomplishment. Held back from the input.' });
   const superlative = SUPERLATIVE.exec(raw);
   if (superlative) issues.push({ code: 'superlative', message: `“${superlative[1]}” rates the work instead of stating it`, advice: 'State the result and let the number carry it. FITREP Section C is to be void of superlatives.' });
   const cliche = CLICHE.exec(raw);
@@ -292,6 +315,17 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
   if (result && SPECULATIVE.test(result)) issues.push({ code: 'speculative', message: 'The outcome is a prediction', advice: 'State what happened, not what may: Section C lists results, not potential impact.' });
   const judgment = RS_JUDGMENT.exec(raw);
   if (judgment) issues.push({ code: 'rs_judgment', message: `“${judgment[0]}” is your reporting senior’s call`, advice: 'Input states what you did; rankings and recommendations are written by your reporting chain.' });
+
+  // The JEPES order's rules are cited on JEPES input; on FITREP input the same sense holds as style.
+  const appE = fitrep ? { basis: 'style' as const } : { basis: 'order' as const, cite: 'MCO 1616.1, App. E' };
+  const held: Fact['held'] = PRIOR_AWARD.test(raw) ? { reason: fitrep ? 'An award for actions in a previous reporting period is not an accomplishment of this one.' : 'An award for actions in a previous reporting period is not a billet accomplishment (MCO 1616.1, Appendix E).', ...appE }
+    : annual ? { reason: fitrep ? 'Required annual training is not a billet accomplishment.' : 'Required annual training is not a billet accomplishment (MCO 1616.1, Appendix E).', ...appE }
+    : IN_PROGRESS.test(clean(String(entry.title ?? ''))) ? { reason: 'Still in progress: log it as an accomplishment when it is done.', basis: 'style' }
+    : judgment ? { reason: 'Rankings and recommendations are your reporting chain’s to write; input states what you did.', basis: 'guidance', cite: fitrep ? 'MCO 1610.7B' : 'MCO 1616.1' }
+    : firstPersonLeft(`${title} ${result}`) ? { reason: 'Still says “I” or “me” where the writer could not take it out; reword the entry without the first person.', basis: 'guidance', cite: fitrep ? 'NAVMC 10835' : 'MCO 1616.1, App. E' }
+    : fitrep && attribute === 'Professional Military Education (PME)' ? { reason: 'PME and self-education have a block of their own on the MRO worksheet, so it is listed there.', basis: 'guidance', cite: 'MROW', route: 'pme' }
+    : fitrep && category === 'Volunteer Service' ? { reason: 'Community involvement goes in the worksheet’s Other block, so it is listed there.', basis: 'guidance', cite: 'MROW', route: 'other' }
+    : null;
 
   return {
     key: entry.id || `entry:${title.toLowerCase().slice(0, 40)}`,
@@ -301,13 +335,8 @@ export function readEntry(entry: EntryInput, opts: { names: AreaNames; areas: re
     quantity, money, people: people || null, result: result || null,
     system: entry.system ? clean(String(entry.system)) : null,
     organization: entry.organization ? clean(String(entry.organization)) : null,
-    attribute, edits, issues, strongResult,
-    held: PRIOR_AWARD.test(raw) ? { reason: 'An award for actions in a previous reporting period is not a billet accomplishment (MCO 1616.1, Appendix E).', basis: 'order', cite: 'MCO 1616.1, App. E' }
-      : annual ? { reason: 'Required annual training is not a billet accomplishment (MCO 1616.1, Appendix E).', basis: 'order', cite: 'MCO 1616.1, App. E' }
-      : IN_PROGRESS.test(clean(String(entry.title ?? ''))) ? { reason: 'Still in progress: log it as an accomplishment when it is done.', basis: 'style' }
-      : judgment ? { reason: 'Rankings and recommendations are your reporting chain’s to write; input states what you did.', basis: 'guidance', cite: 'MCO 1610.7B' }
-      : firstPersonLeft(`${title} ${result}`) ? { reason: 'Still says “I” or “me” where the writer could not take it out; reword the entry without the first person.', basis: 'guidance', cite: 'MCO 1616.1, App. E' }
-      : null,
+    attribute, attributes: reading.all, edits, issues, strongResult,
+    held,
   };
 }
 

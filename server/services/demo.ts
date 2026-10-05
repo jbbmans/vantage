@@ -135,6 +135,7 @@ export function createWorkspace(ctx: AppContext): WorkspaceRow {
     const workIds = seedWork(ctx, unitId, ids);
     const balanceIds = seedOpenBalances(ctx, unitId, ids);
     seedPersonalRecord(ctx, unitId, ids);
+    seedLeaderRecord(ctx, unitId, ids);
     seedSharedRecord(ctx, unitId, ids);
     sealBacklog(ctx, [...workIds, ...balanceIds]);
   })();
@@ -465,6 +466,41 @@ function seedPersonalRecord(ctx: AppContext, unitId: string, ids: Record<string,
   step.run(newId(), me, 'Collect Q4 JEPES supporting notes from verified work', 'evaluation', 'planned', dayOffset(20), 'Use the Record’s drafts; nothing is submitted automatically.', null, null, at, at);
   step.run(newId(), me, 'Ask SSgt Diaz what the lead analyst billet requires', 'military', 'planned', dayOffset(14), null, null, null, at, at);
   step.run(newId(), me, 'Look into the Certified Defense Financial Manager credential', 'certification', 'planned', null, 'Requirements and eligibility not checked yet.', 'American Society of Military Comptrollers', 'https://www.asmconline.org', at, at);
+}
+
+/**
+ * The section lead's own record. A SSgt reports on a fitness report, so this is what the FITREP side of Vantage reads:
+ * billet work, the Marines trained and looked after, PME, and the JEPES input the lead owed the section.
+ */
+function seedLeaderRecord(ctx: AppContext, unitId: string, ids: Record<string, string>) {
+  const at = now();
+  const me = ids.leader;
+  const activity = ctx.db.prepare(
+    `INSERT INTO activities (id, user_id, unit_id, visibility, date, title, category, eval_area, quantity, unit_label, dollar_amount, dollar_type, result, status, evidence_links, fingerprint, version, created_at, updated_at)
+     VALUES (?, ?, ?, 'private', ?, ?, ?, ?, ?, ?, ?, ?, ?, 'completed', '[]', ?, 1, ?, ?)`
+  );
+  const entries: Array<[number, string, string, string | null, number | null, string | null, number | null, string | null, string]> = [
+    [5, 'Closed FY26 year-end for the G-8 budget section', 'Fiscal & Financial', 'Mission Accomplishment', 412, 'documents', 4600000, 'obligated', 'Zero unresolved ULOs at the 30 Sep cutoff.'],
+    [20, 'Deobligated 37 dormant MIPRs with DFAS', 'Fiscal & Financial', 'Mission Accomplishment', 37, 'MIPRs', 182400, 'saved', 'Funds returned to the command before year-end.'],
+    [12, 'Trained 5 section Marines on DAI requisition amendments', 'Leadership', 'Leadership', 5, 'Marines', null, null, 'Rework fell from 9 to 2 amendments a month.'],
+    [30, 'Mentored 2 Cpls through Corporals Course DEP', 'Leadership', 'Leadership', 2, 'Marines', null, null, 'Both completed before the promotion board.'],
+    [40, 'Briefed the comptroller on the Q4 obligation plan', 'Leadership', null, null, null, null, null, 'Plan approved without change.'],
+    [45, 'Checked on every section Marine during the barracks move', 'Leadership', 'Leadership', 6, 'Marines', null, null, 'No missed duty or pay problems during the move.'],
+    [9, 'Volunteered for the no-notice audit response team', 'Fiscal & Financial', 'Individual Character', 120, 'documents', null, null, 'Produced all 120 supporting documents inside the 48-hour window.'],
+    [60, 'Completed the SNCO Academy Advanced Course DEP', 'Training & PME', 'Intellect and Wisdom', null, null, null, null, 'Graduated with a 92 average.'],
+    [25, 'Recommended moving UMT research to a daily triage', 'Fiscal & Financial', null, null, null, null, null, 'Overdue cases fell from 11 to 2 in a month.'],
+    [15, 'Submitted JEPES command input for 5 section Marines', 'Leadership', null, 5, 'Marines', null, null, 'All on time, each backed by logged entries.'],
+  ];
+  for (const [days, title, category, area, qty, unitLabel, dollars, dollarType, result] of entries) {
+    activity.run(newId(), me, unitId, dayOffset(-days), title, category, area, qty, unitLabel, dollars, dollarType, result, `demo:${title}`, at, at);
+  }
+  ctx.db.prepare(
+    `INSERT INTO trainings (id, user_id, unit_id, visibility, date, title, type, hours, provider, status, version, created_at, updated_at)
+     VALUES (?, ?, ?, 'private', ?, ?, 'pme', ?, ?, 'completed', 1, ?, ?)`
+  ).run(newId(), me, unitId, dayOffset(-60), 'SNCO Academy Advanced Course DEP', 40, 'MarineNet', at, at);
+  ctx.db.prepare(
+    `INSERT INTO readiness (user_id, pft_score, cft_score, rifle_qual, mcmap_belt, pme_complete, fitrep_period_end, updated_at) VALUES (?, 285, 294, 'Expert', 'Green', 'distance', ?, ?)`
+  ).run(me, dayOffset(38), at);
 }
 
 /**

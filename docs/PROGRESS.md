@@ -1,6 +1,36 @@
 # Progress
 
-_Updated 2026-10-04_
+_Updated 2026-10-05_
+
+## What changed (2026-10-05: FITREP, and the two open data bugs)
+
+**FITREP input, checked against the form and the MARADMINs.** marines.mil refused this environment, so MCO 1610.7B was not read directly. The form (NAVMC 10835), the A-PES MRO worksheet as reproduced in an NPS thesis, the NPS FITREP bulletin and MARADMINs 308/23, 634/23, 575/24, 630/24, 066/26 and 209/26 (on a verbatim mirror) were. What changed:
+- **The worksheet's form.** FITREP input is the MRO worksheet's: a Section C draft for its major accomplishments block, and its PME/self-education and Other blocks beside it (`shared/writer/worksheet.ts`, on Analysis and in the PDF).
+  - **Section C** is one list of dash bullets with no headings, as the NPS bulletin writes it. It is ordered by the section each line gives evidence for, D to H. The studio shows the section beside each group; Copy and the PDF leave it out.
+  - **Routing.** On FITREP, PME completions and Volunteer Service entries go to their own blocks instead of spending Section C's characters. They can still be kept in Section C.
+- **One reading of the fourteen attributes** (`shared/writer/attributes.ts`), from the verb and then the words that name an attribute:
+  - JEPES command input or FITREPs written are Evaluations, so Section H;
+  - a course is PME;
+  - "checked on", welfare and barracks are Ensuring Well-Being;
+  - decisions are Decision Making Ability; recommendations are Judgment;
+  - "no-notice" and "48-hour window" add Effectiveness Under Stress.
+  An untagged FITREP entry sits in its attribute's section. Readiness coverage is counted from the same reading, replacing a keyword list that disagreed with the draft. Attribute names are as the form prints them ("Ensuring Well-Being of Subordinates", "Professional Military Education (PME)").
+- **Section H.** It was missing from the writer: a Sgt's entry tagged Evaluation Responsibilities was reported as untagged and filed by its verb. It is now an area of its own. Readiness quotes the form ("serving as a reporting official") and treats H as applying only then.
+- **Advice corrected:**
+  - **PME.** "Complete resident PME for your grade" was shown to everyone, including Marines whose distance PME was complete. Readiness now asks for PME status when it is blank. When status is none, it quotes the PME attribute's baseline from the form. For a Sgt with distance PME, it cites MARADMIN 630/24: the distance program plus Sergeants School or its seminar.
+  - **Section references.** The outcome advice named Section I (the reporting senior's comments); it now names Section C.
+  - **Fitness.** Fitness scores are placed in Section A, item 8.
+  - **Empty sections.** Five near-identical "nothing tagged" cards became one. Missing attributes come with what evidence for each looks like (labelled coaching).
+- **Reporting period end.** When it is blank, Readiness says how annual periods end. It offers the date only where a MARADMIN confirms it (active Capt, Maj, LtCol, E-9: 634/23). The other grades follow MCO 1610.7B Appendix A, which was seen only in an excerpt.
+- **JEPES citations kept to JEPES.** On FITREP input, holds for annual training and earlier awards no longer cite MCO 1616.1. The AI draft prompt follows the same form.
+- **The demo's section lead (SSgt Diaz) has a FITREP record**, so the FITREP side can be explored.
+- **Smaller fixes.** Today's readiness reminders link straight to `/career/readiness`. The PDF names its sections in each order's terms.
+
+**The two open data bugs from the audit, fixed** (`docs/AUDIT-2026-10-03.md`):
+- **Separated on first sighting.** A personnel extract that lists someone for the first time, already Separated, now turns off the active account their EDIPI is on, within the mass-separation guard. Those accounts count as active before the extract, and a held row is not written, so the next extract raises it again.
+- **One document number, two reports.** An import row whose report shares under half its columns with the matched case's report is refused, not written over that case. The preview says how to bring both in. A re-export of the same report with a column added still updates. The import wizard can now key a sheet by a second column.
+
+**Types.** The import wizard and the roster console are typed; explicit `any` in the client went from 212 to 186. Typing the wizard found telemetry that always reported 0 unmapped columns (it read `.length` off a number).
 
 ## What changed (2026-10-04: the narrative writer)
 
@@ -138,11 +168,11 @@ roster members, and be the only way in (`VANTAGE_OIDC_EXCLUSIVE`). See `docs/cac
 **Types.** The case page, assigned work, team workload, the record stores, the roster, a member's page, the org and
 roles now have one shared response type each, which the server's builders are checked against, so a change on one
 side the other does not expect fails the typecheck. Doing so found a counseling list that offered "for <name>" from a
-field the server never sent (it sends it now). Explicit `any` went from 323 to 221 and cannot grow: `npm run lint`
+field the server never sent (it sends it now). Explicit `any` went from 323 to 221 (186 in the client by 2026-10-05) and cannot grow: `npm run lint`
 fails when a directory holds more than its budget in `scripts/any-budget.json`.
 
 **Still open.** PostgreSQL (and with it running more than one server process), SAML, and the remaining `any` in the
-owner console and import screens. Owner decisions outside the code are unchanged (below).
+owner console's retention and privacy panels. Owner decisions outside the code are unchanged (below).
 
 ## Earlier (2026-09-25)
 
@@ -214,8 +244,8 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **596 / 596 pass** (2026-10-04) |
-| `npm run test:browser` (Playwright, Chromium, built client) | **103 / 103 pass** (2026-10-04) |
+| `npm test` (server suite, in-memory SQLite) | **599 / 599 pass** (2026-10-05) |
+| `npm run test:browser` (Playwright, Chromium, built client) | **104 / 104 pass** (2026-10-05) |
 | Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference, the public page and the security, privacy, accessibility and changes pages |
 | `npm audit` | 0 vulnerabilities |
 

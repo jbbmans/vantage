@@ -13,6 +13,17 @@ function useAdmin<T = any>(key: string, fn: () => Promise<T>) {
   return useQuery<T>({ queryKey: ['admin', key], queryFn: () => withSudo(fn), retry: false });
 }
 
+/** A roster sync plan as the server summarises it (server/routes/admin.ts). */
+interface RosterPlan {
+  source: string; rowsSeen: number; unchanged: number;
+  massSeparation: { count: number; activeBefore: number; share: number } | null;
+  counts: { creates: number; updates: number; separations: number; conflicts: number; rejected: number };
+  updates: Array<{ edipi: string; name: string; changes: Array<{ field: string; from: string | null; to: string | null }> }>;
+  conflicts: Array<{ edipi: string; reason: string }>;
+  rejected: Array<{ line: number; reason: string }>;
+}
+interface GapRow { id?: string; username?: string; edipi?: string; first_name: string; last_name: string; rank_id?: string | null }
+
 export function PersonnelConsole() {
   const toast = useToast();
   const qc = useQueryClient();
@@ -20,7 +31,7 @@ export function PersonnelConsole() {
   const gaps = useAdmin('personnel-divergence', api.adminPersonnelDivergence);
   const [text, setText] = useState('');
   const [source, setSource] = useState('MCTFS');
-  const [plan, setPlan] = useState<any>(null);
+  const [plan, setPlan] = useState<RosterPlan | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmApply, setConfirmApply] = useState(false);
 
@@ -33,9 +44,8 @@ export function PersonnelConsole() {
       setPlan(res.plan);
       if (apply) { toast.success('Roster applied.'); setText(''); refresh(); }
     } catch (e) {
-      const payload = (e as any)?.payload || {};
-      if (payload.code === 'mass_separation') { setPlan((p: any) => p); toast.error(api.errorText(e)); }
-      else toast.error(api.errorText(e));
+      // A mass separation refused on apply is already on screen from the dry run that came before it.
+      toast.error(api.errorText(e));
     } finally { setBusy(false); setConfirmApply(false); }
   };
 
@@ -86,9 +96,9 @@ export function PersonnelConsole() {
           {plan.updates.length > 0 && (
             <div className="-mx-4 mb-3 -mt-1">
               <Table minWidth={520} head={<><th className="w-32">EDIPI</th><th>Name</th><th>Changes</th></>}>
-                {plan.updates.map((u: any) => (
+                {plan.updates.map((u) => (
                   <tr key={u.edipi}><td className="mono text-xs">{u.edipi}</td><td>{u.name}</td>
-                    <td className="text-xs text-ink-2">{u.changes.map((c: any) => `${humanize(c.field)}: ${c.from ?? '—'} → ${c.to ?? '—'}`).join('; ')}</td></tr>
+                    <td className="text-xs text-ink-2">{u.changes.map((c) => `${humanize(c.field)}: ${c.from ?? '—'} → ${c.to ?? '—'}`).join('; ')}</td></tr>
                 ))}
               </Table>
             </div>
@@ -96,13 +106,13 @@ export function PersonnelConsole() {
           {plan.rejected.length > 0 && (
             <div className="card p-3">
               <p className="mb-1 text-base font-medium text-ink">Rows that could not be read</p>
-              <ul className="space-y-0.5 text-xs text-ink-2">{plan.rejected.map((r: any) => <li key={r.line}>Line {r.line}: {r.reason}</li>)}</ul>
+              <ul className="space-y-0.5 text-xs text-ink-2">{plan.rejected.map((r) => <li key={r.line}>Line {r.line}: {r.reason}</li>)}</ul>
             </div>
           )}
           {plan.conflicts.length > 0 && (
             <div className="card mt-3 p-3">
               <p className="mb-1 text-base font-medium text-ink">Held for a person to look at</p>
-              <ul className="space-y-0.5 text-xs text-ink-2">{plan.conflicts.map((c: any) => <li key={c.edipi}><span className="mono">{c.edipi}</span> — {c.reason}</li>)}</ul>
+              <ul className="space-y-0.5 text-xs text-ink-2">{plan.conflicts.map((c) => <li key={c.edipi}><span className="mono">{c.edipi}</span> — {c.reason}</li>)}</ul>
             </div>
           )}
         </Panel>
@@ -111,9 +121,9 @@ export function PersonnelConsole() {
       <Panel title="Where the roster and the accounts disagree" subtitle="Each of these is somebody whose record could drift. None of them is fixed automatically.">
         {gaps.isPending ? <Skeleton className="h-24" /> : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <GapList title="Accounts with no EDIPI" rows={gaps.data?.accountsWithoutEdipi || []} render={(r: any) => `${r.last_name}, ${r.first_name} (@${r.username})`} empty="Every account is linked." />
-            <GapList title="Accounts the roster does not list" rows={gaps.data?.accountsWithoutRoster || []} render={(r: any) => `${r.last_name}, ${r.first_name} — ${r.edipi}`} empty="Every linked account is on the roster." />
-            <GapList title="On the roster with no account" rows={gaps.data?.rosterWithoutAccount || []} render={(r: any) => `${r.last_name}, ${r.first_name} — ${r.rank_id || '—'}`} empty="Everyone on the roster has an account." />
+            <GapList title="Accounts with no EDIPI" rows={gaps.data?.accountsWithoutEdipi || []} render={(r) => `${r.last_name}, ${r.first_name} (@${r.username})`} empty="Every account is linked." />
+            <GapList title="Accounts the roster does not list" rows={gaps.data?.accountsWithoutRoster || []} render={(r) => `${r.last_name}, ${r.first_name} — ${r.edipi}`} empty="Every linked account is on the roster." />
+            <GapList title="On the roster with no account" rows={gaps.data?.rosterWithoutAccount || []} render={(r) => `${r.last_name}, ${r.first_name} — ${r.rank_id || '—'}`} empty="Everyone on the roster has an account." />
           </div>
         )}
       </Panel>
@@ -128,7 +138,7 @@ export function PersonnelConsole() {
   );
 }
 
-function GapList({ title, rows, render, empty }: { title: string; rows: any[]; render: (r: any) => string; empty: string }) {
+function GapList({ title, rows, render, empty }: { title: string; rows: GapRow[]; render: (r: GapRow) => string; empty: string }) {
   return (
     <div>
       <p className="mb-1.5 text-base font-medium text-ink">{title} <span className="fig text-ink-3">{rows.length ? rows.length : ''}</span></p>

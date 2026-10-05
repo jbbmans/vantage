@@ -16,6 +16,7 @@ import { trackMeta, type Track } from '../../shared/evaluation';
 import { copyToClipboard, cn } from '@/lib/utils';
 import ReportAnalysis from './ReportAnalysis';
 import NarrativeStudio, { choicesToParams, useNarrativeChoices } from '@/components/NarrativeStudio';
+import type { WorksheetBlocks } from '../../shared/writer/worksheet';
 
 export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const toast = useToast();
@@ -46,6 +47,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const meta = trackMeta(effectiveTrack);
   const [choices, setChoices] = useNarrativeChoices(`${identity?.user.id || 'me'}.${effectiveTrack}.${report?.from || period}.${report?.to || ''}.${subjectId}`);
   const pkgText = useMemo(() => (report ? packageToText(report.pkg, `${meta.inputName} · ${report.subject} · ${report.label}`) : ''), [report, meta.inputName]);
+  const worksheet = (report?.worksheet ?? null) as WorksheetBlocks | null;
   const copy = async (text: string, what: string) => { if (await copyToClipboard(text)) toast.success(`${what} copied.`); else toast.error('Could not copy.'); };
   const download = async (kind: 'pdf' | 'csv' | 'analysis') => {
     try { const name = await api.downloadFile(kind === 'pdf' ? api.reportPdfUrl({ ...q, limit: 12, ...choicesToParams(choices) }) : kind === 'analysis' ? api.analysisPdfUrl({ ...q, limit: 12, ...choicesToParams(choices) }) : api.reportCsvUrl(q), kind === 'pdf' ? 'vantage-report.pdf' : kind === 'analysis' ? 'vantage-analysis.pdf' : 'vantage-activities.csv'); toast.success(`Downloaded ${name}.`); }
@@ -57,7 +59,9 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
       embedded={embedded}
       eyebrow="Reports"
       title={subject ? `${meta.inputName} for ${subject.rank_abbr || ''} ${subject.last_name}` : meta.inputName}
-      lede={`A narrative and a bullet package built from ${subject ? 'their shared' : 'your'} logged entries. Copy it, or export a PDF to hand to the reporting senior.`}
+      lede={effectiveTrack === 'fitrep'
+        ? `MRO worksheet input built from ${subject ? 'their shared' : 'your'} logged entries: the Section C draft, and the PME and Other blocks beside it. Copy each block, or export a PDF for the reporting senior.`
+        : `Billet accomplishments and a bullet package built from ${subject ? 'their shared' : 'your'} logged entries. Copy them, or export a PDF to hand to the reporting senior.`}
       actions={<>
         <Button onClick={() => download('csv')}><Download className="h-4 w-4" />CSV</Button>
         <Button onClick={() => download('analysis')}><FileDown className="h-4 w-4" />Analysis PDF</Button>
@@ -95,7 +99,14 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
             <NarrativeStudio
               report={report} title={effectiveTrack === 'fitrep' ? 'Section C draft' : 'Billet accomplishments'} choices={choices} setChoices={setChoices} onCopy={(t) => copy(t, 'Narrative')}
               aside={<>
-                <Panel title="Recognitions in period">{report.awards.length === 0 && report.trainings.length === 0 ? <p className="text-sm text-ink-3">No awards or training in this period.</p> : <ul className="space-y-1 text-sm">{report.awards.map((a: any, i: any) => <li key={`a${i}`} className="flex justify-between gap-2"><span className="truncate text-ink">{a.name}</span><span className="shrink-0 text-xs text-ink-3"><DateText value={a.date} /></span></li>)}{report.trainings.map((t: any, i: any) => <li key={`t${i}`} className="flex justify-between gap-2"><span className="truncate text-ink-2">{t.title}</span><span className="fig shrink-0 text-xs text-ink-3">{t.hours ? `${t.hours} h` : ''}</span></li>)}</ul>}</Panel>
+                {worksheet ? <>
+                  {([['PME and self-education', 'The worksheet’s PME/Self Education block: courses, PME and reading in the period.', worksheet.pme, 'PME block'],
+                    ['Other', 'The worksheet’s Other block: awards, commendatory correspondence, community involvement.', worksheet.other, 'Other block']] as const).map(([title, subtitle, lines, what]) => (
+                    <Panel key={title} title={title} subtitle={subtitle} action={lines.length ? <Button size="sm" variant="ghost" onClick={() => copy(lines.map((l) => `-${l}`).join('\n'), what)}><Copy className="h-3.5 w-3.5" />Copy</Button> : undefined}>
+                      {lines.length ? <ul className="space-y-1 font-mono text-sm text-ink">{lines.map((l, i) => <li key={i}>-{l}</li>)}</ul> : <p className="text-sm text-ink-3">Nothing in this period.</p>}
+                    </Panel>
+                  ))}
+                </> : <Panel title="Recognitions in period">{report.awards.length === 0 && report.trainings.length === 0 ? <p className="text-sm text-ink-3">No awards or training in this period.</p> : <ul className="space-y-1 text-sm">{report.awards.map((a: any, i: any) => <li key={`a${i}`} className="flex justify-between gap-2"><span className="truncate text-ink">{a.name}</span><span className="shrink-0 text-xs text-ink-3"><DateText value={a.date} /></span></li>)}{report.trainings.map((t: any, i: any) => <li key={`t${i}`} className="flex justify-between gap-2"><span className="truncate text-ink-2">{t.title}</span><span className="fig shrink-0 text-xs text-ink-3">{t.hours ? `${t.hours} h` : ''}</span></li>)}</ul>}</Panel>}
                 {identity?.instance.aiEnabled && !subjectId && (
                   <Panel title="AI narrative draft" subtitle="From the same entries; verify every figure" action={<ModelPicker className="h-8 w-40 text-xs" />}>
                     <AiAction workflow="report_narrative" input={{ from: report.from, to: report.to, track: effectiveTrack, character_limit: report.narrative.limit }} label="Draft narrative" onResult={(output, meta2) => setAiOut({ output, meta: meta2 })} size="md" />

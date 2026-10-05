@@ -253,13 +253,30 @@ test('ratings, clichés, predictions and the reporting senior’s judgments are 
   assert.ok(['judgment', 'superlative', 'cliche'].every((id) => typed.findings.some((x) => x.id === id)));
 });
 
-test('FITREP input is drafted for Section C: by section, at 1,232 characters', async () => {
+test('FITREP input is drafted as Section C reads: one list of dash bullets, section by section, at 1,232 characters', async () => {
   const { narrativeConfig } = await import('../../shared/evaluation.ts');
   const cfg = narrativeConfig('fitrep');
   assert.equal(cfg.limit, 1232);
   const n = writeNarrative(corpus.map((e) => ({ ...e, eval_area: e.eval_area === M ? 'Mission Accomplishment' : e.eval_area })), { ...cfg, format: 'bullets' });
   assert.ok(n.length <= 1232);
-  assert.ok(n.text.startsWith('Mission Accomplishment\n-'), n.text.slice(0, 60));
+  // No headings to spend characters on: every line is a bullet, Mission Accomplishment's first.
+  assert.ok(n.text.split('\n').every((line) => line.startsWith('-')), n.text);
+  assert.equal(n.sentences[0].area, 'Mission Accomplishment');
+  const para = writeNarrative(corpus.map((e) => ({ ...e, eval_area: e.eval_area === M ? 'Mission Accomplishment' : e.eval_area })), { ...cfg, format: 'paragraph' });
+  assert.doesNotMatch(para.text, /MISSION:|LEADERSHIP:/);
+
+  // PME and community involvement have blocks of their own on the MRO worksheet; they are routed there, not faulted.
+  const routed = writeNarrative([
+    { id: 'p', title: 'Completed the SNCO Academy Advanced Course DEP', category: 'Training & PME', result: 'Graduated with a 92 average.' },
+    { id: 'v', title: 'Volunteered 12 hours at the base food pantry', category: 'Volunteer Service', quantity: 12, unit_label: 'hours' },
+    { id: 'r', title: 'Reconciled 30 ULOs in DAI', quantity: 30, unit_label: 'ULOs', result: 'All cleared on the next report.' },
+  ], { ...cfg, format: 'bullets' });
+  assert.deepEqual(routed.held.map((h) => [h.key, h.route]), [['p', 'pme'], ['v', 'other']]);
+  assert.ok(!routed.review.findings.some((f) => f.id.startsWith('held:')), 'a routed entry is not a finding');
+  // The JEPES order is not cited on FITREP input.
+  const annual = readEntry({ id: 'a', title: 'Completed annual Cyber Awareness training' }, { names: cfg.names, areas: cfg.areas, track: 'fitrep' });
+  assert.equal(annual.held?.basis, 'style');
+  assert.equal(annual.held?.cite, undefined);
 });
 
 test('what real entries throw at it: work in progress, a first person it cannot remove, an outcome that repeats the title', () => {
@@ -319,4 +336,48 @@ test('an entry is coached while it is typed with the reviewer’s own notes, mos
   assert.match(annual.held!, /Appendix E/);
   const strong = coachEntry({ title: 'Reconciled 14 ULOs in DAI', quantity: 14, unit_label: 'ULOs', result: 'all cleared on the next report', eval_area: M });
   assert.deepEqual(strong.notes, []);
+});
+
+test('a FITREP entry is read for the attribute it evidences, and an untagged one sits in that attribute’s section', async () => {
+  const { narrativeConfig, fitrepCoverage } = await import('../../shared/evaluation.ts');
+  const cfg = narrativeConfig('fitrep');
+  const fit = (title: string, more: Record<string, unknown> = {}) => readEntry({ id: 'x', title, ...more }, { names: cfg.names, areas: cfg.areas, track: 'fitrep' });
+  const cases: Array<[string, Record<string, unknown>, string, string]> = [
+    ['Submitted JEPES command input for 5 section Marines', { result: 'All on time.' }, 'Evaluations', 'Evaluation Responsibilities'],
+    ['Completed the SNCO Academy Advanced Course DEP', { category: 'Training & PME' }, 'Professional Military Education (PME)', 'Intellect and Wisdom'],
+    ['Checked on every section Marine during the barracks move', { quantity: 6, unit_label: 'Marines' }, 'Ensuring Well-Being of Subordinates', 'Leadership'],
+    ['Recommended moving UMT research to a daily triage', { result: 'Overdue cases fell from 11 to 2.' }, 'Judgment', 'Intellect and Wisdom'],
+    ['Prioritized the Q4 UMT backlog by dollar value', {}, 'Decision Making Ability', 'Intellect and Wisdom'],
+    ['Trained 5 Marines on the DAI course material', {}, 'Developing Subordinates', 'Leadership'],
+    ['Volunteered for the no-notice audit response team', {}, 'Initiative', 'Individual Character'],
+    ['Reported a safety hazard on the flight line', {}, 'Courage', 'Individual Character'],
+    ['Built a UMT aging tracker', { result: 'Research time fell by half.' }, 'Initiative', 'Mission Accomplishment'],
+    ['Reconciled 30 ULOs in DAI', {}, 'Performance', 'Mission Accomplishment'],
+  ];
+  for (const [title, more, attribute, area] of cases) {
+    const f = fit(title, more);
+    assert.equal(f.attribute, attribute, title);
+    assert.equal(f.area, area, title);
+    assert.ok(!f.issues.some((i) => i.code === 'no_verb'), title);
+  }
+  // Stress shows as a second attribute; it does not take the sentence away from what the verb says.
+  assert.ok(fit('Volunteered for the no-notice audit response team').attributes.includes('Effectiveness Under Stress'));
+  // Tagged by the Marine, Section H is theirs to choose and is not reported as untagged.
+  const tagged = fit('Wrote 3 FITREPs as reporting senior', { eval_area: 'Evaluation Responsibilities' });
+  assert.equal(tagged.areaInferred, false);
+  assert.equal(tagged.area, 'Evaluation Responsibilities');
+  // On the JEPES lines, evaluation duty is leadership.
+  assert.equal(read('Submitted JEPES command input for 5 section Marines').area, 'Leadership');
+
+  // Readiness counts what the writer reads, so the coverage and the draft agree.
+  const cov = fitrepCoverage([
+    { title: 'Checked on every section Marine during the barracks move', quantity: 6, unit_label: 'Marines' },
+    { title: 'Submitted JEPES command input for 5 section Marines' },
+    { title: 'Received a Navy and Marine Corps Achievement Medal for actions in a previous period' },
+  ]);
+  const attr = (section: string, name: string) => cov.find((s) => s.section === section)!.attributes.find((a) => a.attribute === name)!.likely;
+  assert.equal(attr('F', 'Ensuring Well-Being of Subordinates'), 1);
+  assert.equal(attr('H', 'Evaluations'), 1);
+  assert.equal(cov.find((s) => s.section === 'H')!.entries, 1);
+  assert.equal(cov.reduce((n, s) => n + s.entries, 0), 2, 'an award for an earlier period is not evidence');
 });

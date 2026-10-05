@@ -21,7 +21,9 @@ export const EVAL_REFERENCES: Record<string, EvalReference> = {
     order: 'MCO 1610.7B',
     citation: 'MCO 1610.7B (5 Jun 2023)',
     url: 'https://www.marines.mil/News/Publications/MCPEL/Electronic-Library-Display/Article/1513503/mco-16107b/',
-    updates: [],
+    updates: [
+      { id: 'MARADMIN 634/23', note: 'Annual report end dates reset for active-component Capt, Maj, LtCol, SgtMaj and MGySgt', url: 'https://www.marines.mil/News/Messages/Messages-Display/Article/3618959/change-to-annual-fitness-report-schedule-for-active-component-captain-through-l/' },
+    ],
     authoritative: 'Your report is written by your Reporting Senior; the record of it lives on MOL.',
   },
   pftcft: {

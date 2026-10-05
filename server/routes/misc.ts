@@ -231,7 +231,7 @@ miscRouter.get('/reports/pdf', wrap(async (req, res) => {
   const title = `${report.track === 'fitrep' ? 'FITREP' : 'JEPES'} input`;
   const pdf = await renderReportPdf({
     title, subject: report.subject, unitLine: report.unit ? report.unit.short_name || report.unit.name : '', period: report.label, track: report.track,
-    generatedAt: report.generatedAt, narrative: withEdits(report.narrative, q.narrative), pkg: report.pkg, metrics: report.metrics, counts: report.counts, awards: report.awards, trainings: report.trainings,
+    generatedAt: report.generatedAt, narrative: withEdits(report.narrative, q.narrative), pkg: report.pkg, metrics: report.metrics, counts: report.counts, awards: report.awards, trainings: report.trainings, worksheet: report.worksheet,
   });
   audit(req.ctx, { actor_id: req.user.id, action: 'export_pdf', entity: 'user', entity_id: userId, subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: report.label, ip: clientIp(req) });
   const file = `vantage-${report.track}-input-${report.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`;

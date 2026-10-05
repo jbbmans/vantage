@@ -180,7 +180,12 @@ export function planSync(
   const seen = new Set<string>();
   const rank = rankResolver(ctx);
   const hasAccount = (edipi: string) => Boolean(db.prepare('SELECT 1 FROM users WHERE edipi = ?').get(edipi));
+  const activeAccount = (edipi: string) => Boolean(db.prepare('SELECT 1 FROM users WHERE edipi = ? AND active = 1').get(edipi));
   const marked: SyncPlan['separations'] = [];
+  // People new to the roster whose EDIPI is already on an active account. The guard counts them as active before
+  // this extract, as it does a roster row; those the extract marks separated wait on the guard before being written.
+  let firstSeenActive = 0;
+  const firstSeen: Array<{ row: RosterRow; sep: SyncPlan['separations'][number] }> = [];
 
   for (const raw of rows) {
     // A value Vantage cannot place is left as it is on the account, and said so, rather than failing the whole sync.
@@ -190,7 +195,16 @@ export function planSync(
     if (seen.has(row.edipi)) { plan.conflicts.push({ edipi: row.edipi, reason: 'the extract lists this EDIPI more than once' }); continue; }
     seen.add(row.edipi);
     const prior = existing.get(row.edipi);
-    if (!prior) { plan.creates.push(row); continue; }
+    if (!prior) {
+      if (activeAccount(row.edipi)) {
+        firstSeenActive += 1;
+        // First on the roster already separated: the account it matches is turned off, as it would be had an earlier
+        // extract listed them active.
+        if (row.status === 'separated') { firstSeen.push({ row, sep: { edipi: row.edipi, name: `${row.last_name}, ${row.first_name}`, hasAccount: true, listed: true } }); continue; }
+      }
+      plan.creates.push(row);
+      continue;
+    }
     // Rows separated before the hash was cleared on separation still carry their last active hash.
     if (prior.row_hash === rowHash(row) && prior.status === row.status) { plan.unchanged += 1; continue; }
     const changes: FieldChange[] = [];
@@ -205,13 +219,13 @@ export function planSync(
     if (prior.status === 'active' && row.status === 'separated') marked.push({ edipi: row.edipi, name: `${row.last_name}, ${row.first_name}`, hasAccount: hasAccount(row.edipi), listed: true });
   }
 
-  const activeBefore = [...existing.values()].filter((r) => r.status === 'active').length;
+  const activeBefore = [...existing.values()].filter((r) => r.status === 'active').length + firstSeenActive;
   const missing: SyncPlan['separations'] = [];
   for (const [edipi, prior] of existing) {
     if (seen.has(edipi) || prior.status === 'separated') continue;
     missing.push({ edipi, name: `${prior.last_name}, ${prior.first_name}`, hasAccount: hasAccount(edipi), listed: false });
   }
-  const leaving = [...missing, ...marked];
+  const leaving = [...missing, ...marked, ...firstSeen.map((f) => f.sep)];
   const share = activeBefore ? leaving.length / activeBefore : 0;
   if (leaving.length && share > MASS_SEPARATION_SHARE && !allowMassSeparation) {
     plan.massSeparation = { count: leaving.length, activeBefore, share };
@@ -223,7 +237,10 @@ export function planSync(
       update.changes = update.changes.filter((c) => c.field !== 'status');
       if (!update.changes.length) plan.updates.splice(plan.updates.indexOf(update), 1);
     }
+    // Not written at all, so the next extract that lists them raises it again.
+    for (const f of firstSeen) plan.conflicts.push({ edipi: f.row.edipi, reason: 'new to the roster, marked separated and matching an active account; held back pending confirmation' });
   } else {
+    plan.creates.push(...firstSeen.map((f) => f.row));
     plan.separations.push(...leaving);
   }
 

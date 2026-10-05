@@ -47,7 +47,7 @@ export function recordHealth({ activities = [], goals = [], profile = null, trac
   if (profile) {
     const fields = READINESS_FIELDS[track] || READINESS_FIELDS.jepes;
     const blank = fields.filter(([key]) => missing(profile[key]));
-    push('readiness', blank.length, 'readiness fields empty', `Not entered: ${blank.map(([, label]) => label).join(', ')}. Unknown is honest, but it plans nothing.`, '/readiness');
+    push('readiness', blank.length, 'readiness fields empty', `Not entered: ${blank.map(([, label]) => label).join(', ')}. Unknown is honest, but it plans nothing.`, '/career/readiness');
   }
   return issues;
 }
@@ -73,11 +73,11 @@ export function todayActions({
   if (profile) {
     const fields = READINESS_FIELDS[track] || READINESS_FIELDS.jepes;
     const blank = fields.filter(([key]) => missing(profile[key]));
-    if (blank.length) out.push({ key: 'readiness', count: blank.length, label: `readiness field${blank.length === 1 ? '' : 's'} incomplete`, detail: blank.slice(0, 3).map(([, label]) => label).join(' · '), to: '/readiness' });
+    if (blank.length) out.push({ key: 'readiness', count: blank.length, label: `readiness field${blank.length === 1 ? '' : 's'} incomplete`, detail: blank.slice(0, 3).map(([, label]) => label).join(' · '), to: '/career/readiness' });
   }
   if (track === 'fitrep' && fitrepPeriodEnd) {
     const d = daysUntil(fitrepPeriodEnd, now);
-    if (d !== null && d >= 0 && d <= 45) out.push({ key: 'fitrep-period', count: null, label: `FITREP period ends in ${d} day${d === 1 ? '' : 's'}`, detail: 'Get your input to your Reporting Senior before they sit down to write.', to: '/readiness' });
+    if (d !== null && d >= 0 && d <= 45) out.push({ key: 'fitrep-period', count: null, label: `FITREP period ends in ${d} day${d === 1 ? '' : 's'}`, detail: 'Get your input to your Reporting Senior before they sit down to write.', to: '/career/readiness' });
   }
   return out;
 }

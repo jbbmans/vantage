@@ -127,6 +127,38 @@ test('B11: a private import never lands in a unit, so preview and commit agree; 
   assert.equal(job.status, 'failed');
 });
 
+test('B11b: a different report keyed by the same document number does not overwrite the case; a re-export of the same report still updates it', async () => {
+  const upload = async (csv: string, name: string) => {
+    const r = await app.call('POST', '/api/work/sources', { token: op.token, raw: Buffer.from(csv), headers: { 'content-type': 'text/csv', 'x-filename': name, 'x-unit-id': 'G8', 'x-visibility': 'unit' } });
+    assert.equal(r.status, 201, JSON.stringify(r.body));
+    return r.body.id as string;
+  };
+  const plan = (id: string, mapping: Record<string, string>) => ({ source_file_id: id, sheet_name: '', header_row: 1, key_columns: ['Document Number'], mapping, unit_id: 'G8', visibility: 'unit' });
+  const umt = { 'Document Number': 'reference', Condition: 'title', 'UMT Amount': 'amount', 'Due Date': 'due_date' };
+  const first = await app.call('POST', '/api/work/imports', { token: op.token, body: plan(await upload('Document Number,Condition,UMT Amount,Due Date\r\nX0001,UMT open,1118.38,2026-10-15\r\nX0002,UMT open,50.00,2026-10-20\r\n', 'umt.csv'), umt) });
+  assert.equal(first.status, 201, JSON.stringify(first.body));
+  const amountOf = (key: string) => (app.ctx.db.prepare("SELECT amount, title FROM work_items WHERE unit_id = 'G8' AND natural_key = ? AND deleted_at IS NULL").get(key) as { amount: number; title: string });
+
+  // An open-obligations report that also keys by document number, with its own columns.
+  const ulo = await upload('Document Number,Vendor,Obligated,Expended,Fund Code,Line\r\nX0001,ACME Corp,9000.00,0.00,DH,1\r\n', 'ulo.csv');
+  const uloPlan = plan(ulo, { 'Document Number': 'reference', Vendor: 'title', Obligated: 'amount', Expended: 'keep', 'Fund Code': 'keep', Line: 'keep' });
+  const preview = await app.call('POST', '/api/work/imports/preview', { token: op.token, body: uloPlan });
+  assert.equal(preview.status, 200, JSON.stringify(preview.body));
+  assert.equal(preview.body.will_update.length, 0);
+  assert.equal(preview.body.rejections.length, 1);
+  assert.match(preview.body.rejections[0].reason, /different report/);
+  const committed = await app.call('POST', '/api/work/imports', { token: op.token, body: uloPlan });
+  assert.equal(committed.status, 201, JSON.stringify(committed.body));
+  assert.equal(committed.body.updated_rows, 0);
+  assert.deepEqual(amountOf('X0001'), { amount: 1118.38, title: 'UMT open' }, 'the UMT case is untouched');
+
+  // The UMT report again, re-exported with a column added: the same report, so its change lands.
+  const again = await upload('Document Number,Condition,UMT Amount,Due Date,Remarks\r\nX0001,UMT open,1000.00,2026-10-15,partial\r\nX0002,UMT open,50.00,2026-10-20,\r\n', 'umt2.csv');
+  const updated = await app.call('POST', '/api/work/imports', { token: op.token, body: plan(again, { ...umt, Remarks: 'keep' }) });
+  assert.equal(updated.status, 201, JSON.stringify(updated.body));
+  assert.equal(amountOf('X0001').amount, 1000);
+});
+
 test('B12: the case action form reads typed figures like Quick Log and refuses text that is not a number', () => {
   const page = readFileSync('src/pages/WorkItemPage.tsx', 'utf8');
   const form = page.slice(page.indexOf('function ActionForm'), page.indexOf('const FREE_KINDS'));
@@ -213,6 +245,41 @@ test('B15: separation by the roster is undone when the next extract lists the Ma
   assert.equal(active('charlieR'), 0, 'an operator’s deactivation is not the roster’s to undo');
   const reactivated = app.ctx.db.prepare("SELECT COUNT(*) AS n FROM audit_log WHERE action = 'personnel_reactivated'").get() as { n: number };
   assert.equal(reactivated.n, 2);
+});
+
+test('B15b: a first sighting already marked Separated turns off the account it matches, within the guard', async () => {
+  const edipi = (i: number) => String(3000000000 + i);
+  const ids: string[] = [];
+  // A command new to roster sync: nobody on it yet, six accounts that carry an EDIPI.
+  app.ctx.db.prepare('DELETE FROM personnel_roster').run();
+  for (let i = 1; i <= 6; i += 1) {
+    const id = (await app.register(`first${i}`)).id;
+    app.ctx.db.prepare('UPDATE users SET edipi = ? WHERE id = ?').run(edipi(i), id);
+    ids.push(id);
+  }
+  const active = (i: number) => (app.ctx.db.prepare('SELECT active FROM users WHERE id = ?').get(ids[i - 1]) as { active: number }).active;
+  const roster = (statuses: Record<number, string>, count: number) => ['EDIPI,Last,First,Rank,Status',
+    ...Array.from({ length: count }, (_, k) => k + 1).map((i) => `${edipi(i)},F${i},Joe,Sgt,${statuses[i] ?? 'Active'}`)].join('\n');
+  // Every account this extract first lists, marked separated: the guard holds it, and nothing is written.
+  const held = planSync(app.ctx, parseRoster(roster({ 1: 'Separated', 2: 'Separated', 3: 'Separated' }, 6)).rows, 'MCTFS');
+  assert.equal(held.massSeparation?.count, 3);
+  assert.equal(held.massSeparation?.activeBefore, 6);
+  applySync(app.ctx, held, null);
+  assert.equal(active(1), 1);
+  assert.ok(!app.ctx.db.prepare('SELECT 1 FROM personnel_roster WHERE edipi = ?').get(edipi(1)), 'a held-back first sighting is not written, so the next extract raises it again');
+
+  // One of six: written as separated, and the account turned off.
+  const plan = planSync(app.ctx, parseRoster(roster({ 1: 'Separated' }, 6)).rows, 'MCTFS');
+  assert.equal(plan.massSeparation, undefined);
+  assert.deepEqual(plan.separations.map((s) => [s.edipi, s.listed]), [[edipi(1), true]]);
+  applySync(app.ctx, plan, null);
+  assert.equal(active(1), 0, 'a first sighting marked Separated deactivates the matching account');
+  assert.equal(active(2), 1);
+  assert.equal((app.ctx.db.prepare('SELECT status FROM personnel_roster WHERE edipi = ?').get(edipi(1)) as { status: string }).status, 'separated');
+
+  // Listed active the next time, the roster's deactivation is undone.
+  applySync(app.ctx, planSync(app.ctx, parseRoster(roster({}, 6)).rows, 'MCTFS'), null);
+  assert.equal(active(1), 1);
 });
 
 test('B19: the personal activities.csv can be imported back', async () => {

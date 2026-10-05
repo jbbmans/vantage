@@ -7,7 +7,7 @@ import { reviewText, type Finding, type Review } from '../../shared/writer/revie
 import type { Sentence } from '../../shared/writer/compose';
 import type { CaseWork } from '../../shared/writer/compose';
 import { plain } from '../../shared/writer/realize';
-import { areaAmong, narrativeConfig, type Track } from '../../shared/evaluation';
+import { areaAmong, FITREP_SECTIONS, narrativeConfig, type Track } from '../../shared/evaluation';
 import type { MetricsConfig } from '../../shared/constants';
 import { cn } from '@/lib/utils';
 
@@ -103,13 +103,13 @@ function ReviewPanel({ review, edited }: { review: Review; edited: boolean }) {
   );
 }
 
-function SourceCard({ sentence, facts, onPin, onExclude, pinned }: { sentence: Sentence; facts: Narrative['facts']; onPin: () => void; onExclude: () => void; pinned: boolean }) {
+function SourceCard({ sentence, facts, onPin, onExclude, pinned, fitrep }: { sentence: Sentence; facts: Narrative['facts']; onPin: () => void; onExclude: () => void; pinned: boolean; fitrep: boolean }) {
   const from = facts.filter((f) => sentence.covers.includes(f.key));
   return (
     <div className="mt-4 rounded-xl border border-line bg-surface-2/60 p-4 text-sm" aria-live="polite">
       <div className="flex flex-wrap items-center gap-2">
         <Badge tone="accent">Score {sentence.score}</Badge>
-        {sentence.attribute && <Badge>{sentence.attribute}</Badge>}
+        {fitrep && sentence.attribute && <Badge title="The FITREP attribute this gives your reporting senior evidence for">{sentence.attribute}</Badge>}
         {sentence.compact && <Badge>Shortened to fit</Badge>}
         <span className="ml-auto flex gap-1">
           <Button size="xs" variant="ghost" onClick={onPin}>{pinned ? <><PinOff className="h-3.5 w-3.5" />Unpin</> : <><Pin className="h-3.5 w-3.5" />Always keep</>}</Button>
@@ -202,13 +202,16 @@ export default function NarrativeStudio({ report, title, choices, setChoices, on
                     {bullet ? `-${s.text}` : s.text}
                   </button>
                 );
+                // Section C carries no headings; the section each line evidences is shown as a guide, outside the text.
+                const guide = cfg.headings ? null : FITREP_SECTIONS.find((x) => x.key === a.area);
                 return narrative.format === 'bullets' ? (
                   <section key={a.area}>
-                    <h3 className="font-semibold">{cfg.headers[a.area] || a.area}</h3>
+                    {cfg.headings ? <h3 className="font-semibold">{cfg.headers[a.area] || a.area}</h3>
+                      : <p className="select-none font-sans text-2xs uppercase tracking-wide text-ink-3">{guide ? `Section ${guide.section} · ${guide.title}` : a.area}</p>}
                     <div className="mt-0.5 space-y-0.5">{a.sentences.map((s) => sentence(s, true))}</div>
                   </section>
                 ) : (
-                  <p key={a.area}><span className="mr-1 font-semibold tracking-wide">{a.label}:</span>{a.sentences.map((s) => sentence(s, false))}</p>
+                  <p key={a.area}>{cfg.headings && <span className="mr-1 font-semibold tracking-wide">{a.label}:</span>}{a.sentences.map((s) => sentence(s, false))}</p>
                 );
               })}
             </div>
@@ -218,17 +221,17 @@ export default function NarrativeStudio({ report, title, choices, setChoices, on
 
           <div className="mt-3 h-1.5 w-full overflow-hidden rounded-full bg-surface-3"><div className={cn('h-full transition-[width] duration-500', text.length <= limit ? 'bg-accent' : 'bg-bad')} style={{ width: `${Math.min(100, (text.length / limit) * 100)}%` }} /></div>
           {chosen && choices.edited == null && (
-            <SourceCard sentence={chosen} facts={narrative.facts} pinned={choices.pin.includes(chosen.key)}
+            <SourceCard fitrep={report.track === 'fitrep'} sentence={chosen} facts={narrative.facts} pinned={choices.pin.includes(chosen.key)}
               onPin={() => setChoices({ pin: toggle(choices.pin, chosen.key) })}
               onExclude={() => { setChoices({ exclude: [...choices.exclude, chosen.key], pin: choices.pin.filter((k) => k !== chosen.key) }); setSelected(null); }} />
           )}
-          {!chosen && narrative.text && choices.edited == null && <p className="mt-3 text-xs text-ink-3">Select a sentence to see where it came from and why it made the cut.</p>}
+          {!chosen && narrative.text && choices.edited == null && <p className="mt-3 text-xs text-ink-3">Select a sentence to see where it came from and why it made the cut.{!cfg.headings && narrative.format === 'bullets' && ' The section labels are a guide for you; Copy and the PDF leave them out, as Section C has none.'}</p>}
           <details className="mt-4 rounded-lg border border-line px-3 py-2 text-xs leading-relaxed text-ink-2">
             <summary className="cursor-pointer font-medium text-ink">How this is written</summary>
             {report.track === 'fitrep' ? (
               <div className="mt-2 space-y-2">
-                <p>Under MCO 1610.7B you route your accomplishments to your reporting senior on the Marine Reported-On Worksheet. Section C, billet accomplishments, lists results only: objective, without superlatives or potential impact. The Naval Postgraduate School’s FITREP bulletin (2025) puts Section C at 1,232 characters.</p>
-                <p>Vantage drafts that list by section, most significant first. The word picture in Section I, rankings and recommendations are your reporting senior’s to write; Vantage never writes them.</p>
+                <p>Under MCO 1610.7B your input reaches your reporting senior on the MRO worksheet (MROW). Its block for major accomplishments during the period feeds Section C, billet accomplishments: what you accomplished, as against Section B’s duties, results only and void of superlatives (NAVMC 10835). The Naval Postgraduate School’s FITREP bulletin (2025) writes Section C as dash bullets and puts it at 1,232 characters.</p>
+                <p>Vantage drafts it that way: one list of dash bullets with no headings, ordered by the section each line gives evidence for (D to H), so every section your reporting senior marks has something behind it. PME and self-education, and awards and community involvement, have blocks of their own on the worksheet, listed beside the draft. Section I, the marks, rankings and recommendations are your reporting chain’s to write; Vantage never writes them.</p>
               </div>
             ) : (
               <div className="mt-2 space-y-2">
@@ -255,7 +258,7 @@ export default function NarrativeStudio({ report, title, choices, setChoices, on
               <ul className="mt-2 divide-y divide-line border-t border-line">
                 {narrative.held.map((h) => (
                   <li key={h.key} className="flex items-start gap-3 py-2.5 text-sm">
-                    <span className="mt-0.5 w-8 shrink-0 text-2xs font-medium text-ink-3">Held</span>
+                    <span className="mt-0.5 w-12 shrink-0 text-2xs font-medium text-ink-3">{h.route === 'pme' ? 'PME block' : h.route === 'other' ? 'Other block' : 'Held'}</span>
                     <span className="min-w-0 flex-1"><span className="block text-ink-2">{h.text}</span><span className="block text-2xs text-ink-3">{h.reason}</span></span>
                     <Button size="xs" variant="ghost" onClick={() => setChoices({ pin: [...choices.pin, h.key] })}><Pin className="h-3.5 w-3.5" />Keep</Button>
                   </li>

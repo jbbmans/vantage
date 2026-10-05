@@ -147,6 +147,34 @@ test('the section lead sees workload with its definitions and limits', async ({ 
   await expect(page.getByText('Zero recorded activity is not evidence of zero work.')).toBeVisible();
 });
 
+test('the section lead’s FITREP input: a Section C draft by section, read the same way on Readiness', async ({ page }) => {
+  await page.goto('/');
+  await page.getByRole('button', { name: 'View as the section lead' }).click();
+  await expect(page.getByRole('heading', { name: 'G-8 BE' })).toBeVisible();
+
+  await page.goto('/reports/analysis');
+  await expect(page.getByRole('heading', { name: 'Section C draft' })).toBeVisible();
+  const narrative = page.getByTestId('narrative');
+  // Section C has no headings; the section each line evidences is a guide beside it. JEPES input the SSgt owed the
+  // section is an evaluation duty: Section H, not leadership.
+  await expect(narrative.getByRole('heading')).toHaveCount(0);
+  await expect(narrative.getByText('Section H · Fulfillment of Evaluation Responsibilities')).toBeVisible();
+  await expect(narrative).toContainText('-Submitted JEPES command input for 5 section Marines');
+  // The SNCO Academy goes in the worksheet's own PME block, not into Section C's characters.
+  await expect(narrative).not.toContainText('SNCO Academy');
+  await expect(page.locator('section', { has: page.getByRole('heading', { name: 'PME and self-education' }) })).toContainText('SNCO Academy Advanced Course DEP');
+  await narrative.getByRole('button', { name: /Checked on every section Marine/ }).click();
+  await expect(page.getByText('Ensuring Well-Being of Subordinates', { exact: true })).toBeVisible();
+
+  await page.goto('/career/readiness');
+  await expect(page.getByRole('heading', { name: 'FITREP readiness' })).toBeVisible();
+  const sectionH = page.locator('div.rounded-lg', { has: page.getByRole('heading', { name: 'Section H: Fulfillment of Evaluation Responsibilities' }) });
+  await expect(sectionH).toContainText('1 entry');
+  await expect(sectionH).toContainText('Evaluations · 1');
+  // Distance-education PME is PME complete for grade; nothing tells this SSgt to go resident.
+  await expect(page.getByText(/resident PME/i)).toHaveCount(0);
+});
+
 test('a section lead with no spreadsheet to hand imports the synthetic sample sheet', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('button', { name: 'View as the section lead' }).click();
