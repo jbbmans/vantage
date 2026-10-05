@@ -28,7 +28,7 @@ const STATUS: Record<string, { label: string; tone: 'good' | 'bad' | 'warn' | 'n
 export default function EmailConsole() {
   const toast = useToast();
   const qc = useQueryClient();
-  const { data, isPending, error } = useQuery<Setup>({ queryKey: ['admin', 'email'], queryFn: () => withSudo(api.adminEmail), retry: false });
+  const { data, isPending, error } = useQuery<Setup>({ queryKey: ['admin', 'email'], queryFn: () => withSudo(api.platformEmail), retry: false });
   const [checked, setChecked] = useState<Setup | null>(null);
   const [checking, setChecking] = useState(false);
   const [to, setTo] = useState('');
@@ -41,7 +41,7 @@ export default function EmailConsole() {
   const check = async () => {
     setChecking(true);
     try {
-      const result = await withSudo(api.adminEmailCheck);
+      const result = await withSudo(api.platformEmailCheck);
       setChecked(result);
       qc.setQueryData(['admin', 'email'], result);
     }
@@ -52,7 +52,7 @@ export default function EmailConsole() {
     setSending(true);
     let refresh = false;
     try {
-      const r = await withSudo(() => api.adminEmailTest(to || undefined));
+      const r = await withSudo(() => api.platformEmailTest(to || undefined));
       refresh = true;
       toast.success(r.queued ? 'The receiving server asked to try again later. It is queued and retried automatically.' : view?.provider === 'direct' ? 'Delivered to the receiving server.' : `Handed to ${view?.provider}.`);
     } catch (e) {

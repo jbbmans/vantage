@@ -22,7 +22,8 @@ const LABEL = { sent: 'Sent', queued: 'Queued', failed: 'Failed', skipped: 'Skip
  * Emails everyone their username and a one-time link to choose a password. The browser sends in small batches so
  * progress is visible, a provider's rate limit is respected, and closing the dialog stops before the next batch.
  */
-export default function SignInDetails({ onDone }: { onDone: () => void }) {
+/** Email each member of an organization their username and a link to choose their own password. */
+export default function SignInDetails({ orgId, onDone }: { orgId: string; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const [audience, setAudience] = useState<Audience | null>(null);
   const [loading, setLoading] = useState(false);
@@ -36,7 +37,7 @@ export default function SignInDetails({ onDone }: { onDone: () => void }) {
 
   const load = async () => {
     setLoading(true);
-    try { setAudience(await withSudo(api.adminSignInAudience)); } catch (e) { toast.error(api.errorText(e)); setOpen(false); } finally { setLoading(false); }
+    try { setAudience(await withSudo(() => api.orgSignInAudience(orgId))); } catch (e) { toast.error(api.errorText(e)); setOpen(false); } finally { setLoading(false); }
   };
   const begin = () => { setAudience(null); setOutcomes({}); setSentTo(null); setScope('all'); setOpen(true); void load(); };
 
@@ -56,7 +57,7 @@ export default function SignInDetails({ onDone }: { onDone: () => void }) {
     let broken = false;
     for (let i = 0; i < ids.length && !stop.current; i += CHUNK) {
       try {
-        const { results } = await withSudo(() => api.adminSendSignInDetails(ids.slice(i, i + CHUNK))) as { results: Array<{ id: string } & Outcome> };
+        const { results } = await withSudo(() => api.orgSendSignInDetails(orgId, ids.slice(i, i + CHUNK))) as { results: Array<{ id: string } & Outcome> };
         for (const r of results) collected[r.id] = { status: r.status, error: r.error };
         setOutcomes({ ...collected });
       } catch (e) {
@@ -71,8 +72,7 @@ export default function SignInDetails({ onDone }: { onDone: () => void }) {
     const failed = values.filter((o) => o.status === 'failed').length;
     if (failed) toast.error(`${delivered} sent, ${failed} failed. The reason is beside each name.`);
     else if (!broken) toast.success(`Sign-in details sent to ${delivered} ${delivered === 1 ? 'person' : 'people'}${stop.current ? ' before you stopped' : ''}.`);
-    qc.invalidateQueries({ queryKey: ['admin', 'email'] });
-    qc.invalidateQueries({ queryKey: ['admin', 'overview'] });
+    qc.invalidateQueries({ queryKey: ['org', orgId] });
     onDone();
   };
 

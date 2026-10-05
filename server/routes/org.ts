@@ -369,7 +369,7 @@ orgRouter.get('/team', wrap((req, res) => {
   const allowed = new Set(scope.readableUnitIds);
   const people = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.middle_initial, u.mos, u.rank_id, r.abbr AS rank_abbr, r.grade AS rank_grade, r.sort AS rank_sort FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.active = 1 AND u.id IN (${ids.map(() => '?').join(',')}) ORDER BY r.sort DESC, u.last_name`).all(...ids) as Array<Omit<TeamPerson, 'memberships' | 'roles' | 'canOpen'>>;
   const memberships = ctx.db.prepare(`SELECT um.user_id, um.unit_id, um.is_primary, um.billet, u.name AS unit_name, u.short_name AS unit_short FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id IN (${ids.map(() => '?').join(',')}) AND u.active = 1`).all(...ids) as Array<{ user_id: string; unit_id: string; is_primary: number; billet: string | null; unit_name: string; unit_short: string | null }>;
-  const roleRows = scope.readableUnitIds.length ? ctx.db.prepare(`SELECT mr.user_id, mr.unit_id, r.id, r.name, r.color, r.position, r.key FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id IN (${ids.map(() => '?').join(',')}) AND mr.unit_id IN (${scope.readableUnitIds.map(() => '?').join(',')}) ORDER BY r.position DESC`).all(...ids, ...scope.readableUnitIds) as Array<{ user_id: string; unit_id: string; id: string; name: string; color: string | null; position: number; key: string | null }> : [];
+  const roleRows = scope.readableUnitIds.length ? ctx.db.prepare(`SELECT mr.user_id, mr.unit_id, r.id, r.name, r.color, r.position, r.key FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id IN (${ids.map(() => '?').join(',')}) AND mr.unit_id IN (${scope.readableUnitIds.map(() => '?').join(',')}) AND (mr.expires_at IS NULL OR mr.expires_at > ?) ORDER BY r.position DESC`).all(...ids, ...scope.readableUnitIds, now()) as Array<{ user_id: string; unit_id: string; id: string; name: string; color: string | null; position: number; key: string | null }> : [];
   const roster = people.map((p): TeamPerson => ({
     ...p,
     memberships: memberships.filter((m) => m.user_id === p.id && (m.user_id === req.user.id || allowed.has(m.unit_id))),
@@ -407,7 +407,8 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
   const body: MemberDetailResponse = {
     person,
     memberships: ctx.db.prepare(`SELECT um.unit_id, um.is_primary, um.billet, um.joined_at, u.name AS unit_name, u.short_name AS unit_short FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND u.active = 1 ${isSelf ? '' : `AND um.unit_id IN (${ph})`}`).all(id, ...(isSelf ? [] : units)) as MemberDetailResponse['memberships'],
-    roles: ctx.db.prepare(`SELECT mr.unit_id, r.id, r.name, r.color, r.position, r.permissions, r.key FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id = ? ${isSelf ? '' : `AND mr.unit_id IN (${ph})`} ORDER BY r.position DESC`).all(id, ...(isSelf ? [] : units)) as MemberDetailResponse['roles'],
+    roles: ctx.db.prepare(`SELECT mr.unit_id, r.id, r.name, r.color, r.position, r.permissions, r.key, mr.expires_at FROM member_roles mr JOIN roles r ON r.id = mr.role_id
+                           WHERE mr.user_id = ? AND (mr.expires_at IS NULL OR mr.expires_at > ?) ${isSelf ? '' : `AND mr.unit_id IN (${ph})`} ORDER BY r.position DESC`).all(id, now(), ...(isSelf ? [] : units)) as MemberDetailResponse['roles'],
     detailUnits: units,
     canCounsel: units.filter((u) => can(scope, PERMISSIONS.COUNSEL, u)),
     canManageMembers: units.filter((u) => can(scope, PERMISSIONS.MANAGE_MEMBERS, u)),

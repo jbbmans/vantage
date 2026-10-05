@@ -1,353 +1,371 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Save, RefreshCw, Unlock, Mail, Download, Upload, Database, ShieldCheck, Users, Building2, ScrollText, Wrench, Sparkles, KeyRound, LogOut, Copy, Send, IdCard } from 'lucide-react';
-import { Button, Field, Input, Select, Textarea, Panel, Badge, Switch, Skeleton, Stat, EmptyState } from '@/components/ui/primitives';
+import { Building2, CalendarClock, Download, HelpCircle, IdCard, KeyRound, LogOut, Save, ScrollText, ShieldAlert, Unlock, UserMinus, UserPlus, Users } from 'lucide-react';
+import { Badge, Button, EmptyState, Field, Input, Panel, Select, Skeleton, Stat, Switch, Textarea } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { withSudo } from '@/components/SudoDialog';
 import { Table } from '@/components/common';
-import { keys, useIdentity, signOutEverywhere } from '@/lib/queries';
-import * as api from '@/lib/api';
-import UsageConsole from '@/components/UsageConsole';
-export { UsageConsole };
 import AccountImport from '@/components/AccountImport';
 import SignInDetails from '@/components/SignInDetails';
-import EmailConsole from '@/components/EmailConsole';
-export { EmailConsole };
-import { PersonnelConsole, RetentionConsole, PrivacyConsole } from '@/components/GovernanceConsole';
-export { PersonnelConsole, RetentionConsole, PrivacyConsole };
-import { copyToClipboard, downloadText, formatStamp, humanize, timeAgo } from '@/lib/utils';
-import { DEFAULT_METRICS, CATEGORY_PALETTE, type MetricsConfig } from '../../shared/constants';
+import WhyList from '@/components/WhyList';
+import { keys, useIdentity } from '@/lib/queries';
+import * as api from '@/lib/api';
+import { formatStamp, humanize, timeAgo } from '@/lib/utils';
+import {
+  ACCESS_LABEL, ACCESS_TONE, endOfDay, personName, remaining, tomorrowKey,
+  type AccessGrant, type OrgCounts, type OrgMember, type OrgRoleHolder, type OrgRoleKey, type OrgSummary, type OrgUnit, type PermissionCatalogEntry,
+  type PublicOrg, type RoleCatalogEntry, type UnitExplanation,
+} from '@/lib/tenancy';
 
-function useAdmin<T = any>(key: string, fn: () => Promise<T>) { return useQuery<T>({ queryKey: ['admin', key], queryFn: () => withSudo(fn), retry: false }); }
+/** One organization's data, behind a recent password confirmation like the rest of the console. */
+function useOrg<T>(orgId: string, key: string, fn: () => Promise<T>) {
+  return useQuery<T>({ queryKey: ['org', orgId, key], queryFn: () => withSudo(fn), retry: false });
+}
 
-export function Overview() {
-  const { data, isPending, error, refetch } = useAdmin('overview', api.adminOverview);
+function useAct() {
   const toast = useToast();
+  return async <T,>(label: string, fn: () => Promise<T>, after?: () => void): Promise<T | null> => {
+    try { const r = await withSudo(fn); toast.success(label); after?.(); return r; } catch (e) { toast.error(api.errorText(e)); return null; }
+  };
+}
+
+const Failed = ({ error, retry }: { error: unknown; retry: () => void }) => <div className="card"><EmptyState title="Could not load" description={api.errorText(error)} action={<Button onClick={retry}>Retry</Button>} /></div>;
+
+// ——— Overview ———
+
+interface OverviewData {
+  organization: PublicOrg; counts: OrgCounts;
+  mine: { roles: OrgRoleKey[]; permissions: string[]; expiresAt: string | null };
+  holds: number; lastSync: { source: string; at: string; created: number; updated: number; separated: number } | null;
+  catalog: { roles: Record<OrgRoleKey, RoleCatalogEntry>; permissions: PermissionCatalogEntry[] };
+}
+
+export function Overview({ orgId }: { orgId: string }) {
+  const { data, isPending, error, refetch } = useOrg<OverviewData>(orgId, 'overview', () => api.orgOverview(orgId));
   if (isPending) return <Skeleton className="h-64" />;
-  if (error || !data) return <div className="card"><EmptyState title="Could not load" description={api.errorText(error)} action={<Button onClick={() => refetch()}>Retry</Button>} /></div>;
-  const mb = (n: number | null) => (n == null ? '—' : `${(n / 1_048_576).toFixed(1)} MB`);
+  if (error || !data) return <Failed error={error} retry={() => refetch()} />;
+  const { counts, mine, catalog } = data;
+  const may = new Set(mine.permissions);
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Active accounts" value={data.users} hint={`${data.operators} owner${data.operators === 1 ? '' : 's'} · ${data.inactiveUsers} inactive`} icon={Users} />
-        <Stat label="Units" value={data.units} icon={Building2} />
-        <Stat label="Records" value={data.records} hint={`${data.attachments} attachments`} icon={ScrollText} />
-        <Stat label="Database" value={mb(data.database.sizeBytes)} hint={`of ${mb(data.database.maxBytes)} safety threshold`} icon={Database} tone={data.database.sizeBytes && data.database.sizeBytes > data.database.maxBytes * 0.8 ? 'warn' : undefined} />
+        <Stat label="Members" value={counts.members} hint={counts.lastActive ? `last active ${timeAgo(counts.lastActive)}` : 'nobody has signed in yet'} icon={Users} to="people" />
+        <Stat label="Units" value={counts.units} icon={Building2} to="units" />
+        <Stat label="Owners" value={counts.owners} hint={counts.owners < 2 ? 'a second owner covers leave and moves' : undefined} tone={counts.owners < 2 ? 'warn' : undefined} icon={ShieldAlert} />
+        <Stat label="Vantage access" value={counts.pendingAccess} hint={counts.pendingAccess ? 'waiting on your answer' : 'nothing waiting'} tone={counts.pendingAccess ? 'warn' : undefined} icon={KeyRound} to="access" />
       </div>
-      <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Panel title="Instance"><dl className="space-y-1.5 text-sm">{[['Version', `${data.version} · schema ${data.schemaVersion}`], ['Node', data.node], ['Uptime', `${Math.round(data.uptime / 3600)} h`], ...(data.siteUrl && data.siteUrl !== data.publicUrl ? [['Public site', data.siteUrl]] : []), ['App', data.publicUrl], ...(data.consoleUrl && data.consoleUrl !== data.publicUrl ? [['Owner console', data.consoleUrl]] : []), ['Passkey domain', data.rpId], ['Time zone', data.timezone], ['Sessions open', data.sessions], ['MFA users', `${data.mfaUsers} authenticator · ${data.passkeyUsers} passkey`]].map(([k, v]) => <div key={String(k)} className="flex justify-between gap-3"><dt className="text-ink-3">{k}</dt><dd className="fig truncate text-right text-ink">{String(v)}</dd></div>)}</dl></Panel>
-        <Panel title="Email" subtitle={data.email.enabled ? `${data.email.provider} · from ${data.email.from}` : 'not configured'} action={data.email.enabled ? <Button size="sm" onClick={async () => { try { await withSudo(() => api.adminEmailTest()); toast.success('Test email sent to you.'); } catch (e) { toast.error(api.errorText(e)); } }}><Mail className="h-3.5 w-3.5" />Send test</Button> : undefined}>
-          {!data.email.enabled ? <p className="text-sm text-ink-2">Turn email on to send reset links, invitations and digests. The Email tab shows how to send from your own domain with no email service.</p> : !data.email.recent.length ? <p className="text-sm text-ink-3">No email sent yet.</p> : <ul className="space-y-1 text-xs">{data.email.recent.map((m: any, i: any) => <li key={i} className="flex justify-between gap-2"><span className="truncate text-ink">{m.kind} → {m.to_address}</span><span className={m.status === 'sent' ? 'text-good' : m.status === 'queued' ? 'text-warn' : 'text-bad'}>{m.status}{m.error ? `: ${m.error}` : ''}</span></li>)}</ul>}
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Panel title="Your role here" subtitle={mine.expiresAt ? `Until ${new Date(mine.expiresAt).toLocaleDateString()}` : undefined}>
+          <ul className="space-y-2">{mine.roles.map((r) => <li key={r}><p className="text-sm font-semibold text-ink">{catalog.roles[r].label}</p><p className="text-xs text-ink-2">{catalog.roles[r].description}</p></li>)}</ul>
+          <p className="mt-3 text-xs font-semibold text-ink-2">You can</p>
+          <ul className="mt-1 space-y-1">{catalog.permissions.filter((p) => may.has(p.key)).map((p) => <li key={p.key} className="text-xs text-ink-2"><span className="font-medium text-ink">{p.label}.</span> {p.hint}</li>)}</ul>
+          <p className="mt-3 text-2xs text-ink-3">An organization role runs the organization. It does not read Marines’ records: that comes only from a unit role, in the units it is granted in.</p>
         </Panel>
-        <Panel title="Audit chain" subtitle="Tamper-evident log">
-          <p className="text-sm"><Badge tone={data.audit.ok ? 'good' : 'bad'}>{data.audit.ok ? 'Intact' : 'Broken'}</Badge> <span className="fig text-ink-2">{data.audit.count} entries</span></p>
-          {!data.audit.ok && <p className="mt-2 text-xs text-bad">{data.audit.reason}. Restore from a backup taken before that point and investigate.</p>}
-          <AuditForwarding status={data.auditForwarding} />
-          <CaseHistories />
-          <p className="mt-3 text-sm text-ink-2">MARADMIN feed: {data.maradmins.enabled ? `${data.maradmins.count} cached · last sync ${data.maradmins.lastSuccess ? timeAgo(data.maradmins.lastSuccess) : 'never'}` : 'off'}{data.maradmins.lastError ? <span className="block text-xs text-warn">{data.maradmins.lastError}</span> : null}</p>
-          {data.maradmins.enabled && <Button size="sm" className="mt-2" onClick={async () => { try { const r = await withSudo(() => api.adminSyncMaradmins()); toast.success(`Synced: ${r.inserted ?? 0} new, ${r.updated ?? 0} updated.`); refetch(); } catch (e) { toast.error(api.errorText(e)); } }}><RefreshCw className="h-3.5 w-3.5" />Sync now</Button>}
-        </Panel>
-      </div>
-    </div>
-  );
-}
-
-/** Where the audit records go besides this database. Without a copy off the host, the chain proves nothing against whoever holds the host. */
-function AuditForwarding({ status }: { status?: { stdout: boolean; syslog: null | { target: string; connected: boolean; sent: number; dropped: number; queued: number; lastError: string | null } } }) {
-  if (!status) return null;
-  const off = !status.stdout && !status.syslog;
-  return (
-    <div className="mt-3 border-t border-line pt-3 text-sm">
-      <p className="text-ink-2">Copies off this host</p>
-      {off
-        ? <p className="mt-1 text-xs text-warn">None. Somebody holding this server and its secret could rewrite the chain unseen. Set VANTAGE_AUDIT_SYSLOG to your SIEM, or VANTAGE_AUDIT_STDOUT=true where the platform keeps container logs.</p>
-        : <ul className="mt-1 space-y-0.5 text-xs text-ink-2">
-            {status.stdout && <li>Standard output, one JSON line per record</li>}
-            {status.syslog && <li><Badge tone={status.syslog.lastError ? 'warn' : 'good'}>{status.syslog.lastError ? 'Retrying' : 'Sending'}</Badge> <span className="fig">{status.syslog.target} · {status.syslog.sent} sent{status.syslog.queued ? ` · ${status.syslog.queued} waiting` : ''}{status.syslog.dropped ? ` · ${status.syslog.dropped} dropped` : ''}</span>{status.syslog.lastError && <span className="block text-warn">{status.syslog.lastError}</span>}</li>}
-          </ul>}
-    </div>
-  );
-}
-
-/** Every case's history is sealed entry by entry, and the heads are written into the audit chain each day. */
-function CaseHistories() {
-  const toast = useToast();
-  const [result, setResult] = useState<any>(null); const [busy, setBusy] = useState(false);
-  const check = async () => { setBusy(true); try { setResult((await withSudo(() => api.adminIntegrity())).cases); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
-  const anchor = async () => { try { const r = await withSudo(() => api.adminAnchorCases()); toast.success(`${r.cases} case ${r.cases === 1 ? 'history' : 'histories'} written into the audit chain.`); } catch (e) { toast.error(api.errorText(e)); } };
-  return (
-    <div className="mt-3 border-t border-line pt-3">
-      <p className="text-sm text-ink-2">Case histories</p>
-      {result && <p className="mt-1 text-sm"><Badge tone={result.ok ? 'good' : 'bad'}>{result.ok ? 'Intact' : 'Broken'}</Badge> <span className="fig text-ink-2">{result.checked} checked{result.unsealed ? ` · ${result.unsealed} from before sealing` : ''}</span></p>}
-      {result && !result.ok && <ul className="mt-1 space-y-0.5 text-xs text-bad">{result.broken.map((b: { work_item_id: string; reason?: string }) => <li key={b.work_item_id}><a className="link" href={`/work/items/${b.work_item_id}`}>Case {b.work_item_id.slice(0, 8)}</a>: {b.reason}</li>)}</ul>}
-      <div className="mt-2 flex flex-wrap gap-2"><Button size="sm" onClick={check} loading={busy}><ShieldCheck className="h-3.5 w-3.5" />Check them</Button><Button size="sm" variant="ghost" onClick={anchor}>Anchor now</Button></div>
-    </div>
-  );
-}
-
-export function RuntimeSettings() {
-  const { data, isPending, refetch } = useAdmin('overview', api.adminOverview);
-  const toast = useToast(); const qc = useQueryClient();
-  const [form, setForm] = useState<any>(null); const [busy, setBusy] = useState(false);
-  useEffect(() => { if (data?.runtime && !form) setForm({ ...data.runtime }); }, [data, form]);
-  if (isPending || !form) return <Skeleton className="h-64" />;
-  const save = async () => { setBusy(true); try { await withSudo(() => api.adminRuntime({ displayName: form.displayName, organizationName: form.organizationName, announcement: form.announcement, selfRegistration: form.selfRegistration, attachmentsEnabled: form.attachmentsEnabled, maradminsEnabled: form.maradminsEnabled, maintenance: form.maintenance })); qc.invalidateQueries({ queryKey: keys.me }); refetch(); toast.success('Settings saved.'); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
-  return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Panel title="Identity" action={<Button size="sm" variant="primary" onClick={save} loading={busy}><Save className="h-4 w-4" />Save</Button>}>
-        <div className="space-y-3">
-          <Field label="Display name" hint="shown on the sign-in page and in authenticator apps"><Input value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} /></Field>
-          <Field label="Organization"><Input value={form.organizationName} onChange={(e) => setForm({ ...form, organizationName: e.target.value })} /></Field>
-          <Field label="Announcement" hint="banner for everyone; blank hides it"><Textarea rows={2} value={form.announcement} onChange={(e) => setForm({ ...form, announcement: e.target.value })} maxLength={240} /></Field>
-        </div>
-      </Panel>
-      <Panel title="Switches" action={<Button size="sm" variant="primary" onClick={save} loading={busy}><Save className="h-4 w-4" />Save</Button>}>
-        <Switch checked={form.selfRegistration} onChange={(v) => setForm({ ...form, selfRegistration: v })} label="Self-registration" description="Anyone who can reach the site can create an account. Off means invitation only." />
-        <Switch checked={form.attachmentsEnabled} onChange={(v) => setForm({ ...form, attachmentsEnabled: v })} label="Attachments" description="PDF and image files on records. Stored in the database; counts toward the size threshold." />
-        <Switch checked={form.maradminsEnabled} onChange={(v) => setForm({ ...form, maradminsEnabled: v })} label="MARADMIN feed" description="Fetches public message titles from marines.mil on a schedule." />
-        <Switch checked={form.maintenance} onChange={(v) => setForm({ ...form, maintenance: v })} label="Maintenance mode" description="Blocks everyone but owners. Use it around a restore or a move." />
-      </Panel>
-    </div>
-  );
-}
-
-export function MetricsSettings() {
-  const { data, isPending, refetch } = useAdmin('overview', api.adminOverview);
-  const toast = useToast(); const qc = useQueryClient();
-  const [form, setForm] = useState<MetricsConfig | null>(null); const [busy, setBusy] = useState(false); const [dirty, setDirty] = useState(false);
-  useEffect(() => { if (data?.runtime?.metrics && !form) setForm(structuredClone(data.runtime.metrics)); }, [data, form]);
-  if (isPending || !form) return <Skeleton className="h-64" />;
-  const update = (patch: Partial<MetricsConfig>) => { setForm({ ...form, ...patch }); setDirty(true); };
-  const slug = (label: string) => label.trim().toLowerCase().replace(/[^a-z0-9]+/g, '_').replace(/^_+|_+$/g, '').slice(0, 30);
-  const save = async () => {
-    setBusy(true);
-    try {
-      const cleaned: MetricsConfig = { ...form, value_types: form.value_types.filter((t) => t.label.trim()).map((t) => ({ ...t, key: t.key || slug(t.label), label: t.label.trim(), verb: (t.verb || t.label).trim().toLowerCase(), definition: (t.definition || '').trim() })), categories: form.categories.filter((c) => c.name.trim()).map((c) => ({ ...c, name: c.name.trim() })), unit_suggestions: form.unit_suggestions.map((u) => u.trim()).filter(Boolean) };
-      await withSudo(() => api.adminRuntime({ metrics: cleaned }));
-      qc.invalidateQueries({ queryKey: keys.me }); refetch(); setForm(cleaned); setDirty(false);
-      toast.success('Metrics saved. Forms and reports use the new definitions now.');
-    } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }
-  };
-  const summable = form.value_types.filter((t) => t.summable).map((t) => t.label).join(', ');
-  return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Panel title="Money metric" subtitle="The headline number and what it is called" action={<Button size="sm" variant="primary" onClick={save} loading={busy} disabled={!dirty}><Save className="h-4 w-4" />Save metrics</Button>}>
-        <div className="grid grid-cols-[1fr_6rem] gap-3">
-          <Field label="Label" hint="appears on stat cards and reports, e.g. Dollars, Funds, Hours billed"><Input value={form.currency_label} onChange={(e) => update({ currency_label: e.target.value })} maxLength={30} /></Field>
-          <Field label="Symbol" hint="prefix"><Input value={form.currency_symbol} onChange={(e) => update({ currency_symbol: e.target.value })} maxLength={4} /></Field>
-        </div>
-        <p className="mt-3 text-xs leading-relaxed text-ink-3">Headline totals add up the types marked <strong className="text-ink-2">counts toward headline</strong>{summable ? ` (${summable})` : ''}; the rest are shown separately so money that only crossed a desk is never claimed as money moved.</p>
-        <div className="mt-4 flex items-center justify-between"><p className="text-xs font-semibold text-ink-2">Value types</p><Button size="xs" variant="ghost" onClick={() => update({ value_types: [...form.value_types, { key: '', label: '', verb: '', summable: true, definition: '' }] })} disabled={form.value_types.length >= 20}>Add type</Button></div>
-        <ul className="mt-2 space-y-2">
-          {form.value_types.map((t, i) => (
-            <li key={i} className="rounded-md border border-line p-2">
-              <div className="grid grid-cols-[1fr_1fr_auto] items-end gap-2">
-                <Field label="Label"><Input aria-label={`Value type ${i + 1} label`} value={t.label} onChange={(e) => { const v = [...form.value_types]; v[i] = { ...t, label: e.target.value, key: t.key || slug(e.target.value) }; update({ value_types: v }); }} placeholder="Reconciled" /></Field>
-                <Field label="Verb" hint="in bullets"><Input aria-label={`Value type ${i + 1} verb`} value={t.verb} onChange={(e) => { const v = [...form.value_types]; v[i] = { ...t, verb: e.target.value }; update({ value_types: v }); }} placeholder="reconciled" /></Field>
-                <button type="button" className="mb-2 text-xs text-ink-3 hover:text-bad" onClick={() => update({ value_types: form.value_types.filter((_, j) => j !== i) })} aria-label={`Remove value type ${t.label || i + 1}`} disabled={form.value_types.length <= 1}>Remove</button>
-              </div>
-              <Input aria-label={`Value type ${i + 1} definition`} className="mt-2" value={t.definition} onChange={(e) => { const v = [...form.value_types]; v[i] = { ...t, definition: e.target.value }; update({ value_types: v }); }} placeholder="What counts as this type" maxLength={200} />
-              <div className="mt-1 flex items-center justify-between gap-2"><span className="mono text-2xs text-ink-3">key {t.key || slug(t.label) || '…'}</span><Switch checked={t.summable} onChange={(v) => { const list = [...form.value_types]; list[i] = { ...t, summable: v }; update({ value_types: list }); }} label={<span className="text-xs">Counts toward headline</span>} /></div>
-            </li>
-          ))}
-        </ul>
-      </Panel>
-      <div className="space-y-4">
-        <Panel title="Categories" subtitle="How entries are grouped on dashboards and in reports" action={<Button size="xs" variant="ghost" onClick={() => update({ categories: [...form.categories, { name: '', color: CATEGORY_PALETTE[form.categories.length % CATEGORY_PALETTE.length] }] })} disabled={form.categories.length >= 40}>Add category</Button>}>
-          <ul className="space-y-1.5">
-            {form.categories.map((c, i) => (
-              <li key={i} className="flex items-center gap-2">
-                <input type="color" aria-label={`Category ${i + 1} color`} value={c.color} onChange={(e) => { const v = [...form.categories]; v[i] = { ...c, color: e.target.value }; update({ categories: v }); }} className="h-8 w-8 shrink-0 cursor-pointer rounded-md border border-line bg-transparent p-0.5" />
-                <Input aria-label={`Category ${i + 1} name`} value={c.name} onChange={(e) => { const v = [...form.categories]; v[i] = { ...c, name: e.target.value }; update({ categories: v }); }} placeholder="Category name" maxLength={60} />
-                <button type="button" className="text-xs text-ink-3 hover:text-bad" onClick={() => update({ categories: form.categories.filter((_, j) => j !== i) })} aria-label={`Remove category ${c.name || i + 1}`} disabled={form.categories.length <= 1}>Remove</button>
-              </li>
-            ))}
-          </ul>
-          <p className="mt-2 text-2xs text-ink-3">Existing entries keep their category name even if you remove it here; they simply stop being offered for new entries.</p>
-        </Panel>
-        <Panel title="Unit suggestions" subtitle="Offered while typing an action unit">
-          <Textarea aria-label="Unit suggestions" rows={3} value={form.unit_suggestions.join(', ')} onChange={(e) => update({ unit_suggestions: e.target.value.split(/[,\n]/).map((u) => u.trim()).filter(Boolean).slice(0, 60) })} placeholder="ULOs, MIPRs, documents, hours" />
-        </Panel>
-        <Panel title="Reset">
-          <div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-ink-2">Back to the G-8 comptroller defaults: dollars, five value types, ten categories.</p><Button onClick={() => { setForm(structuredClone(DEFAULT_METRICS)); setDirty(true); }}>Load defaults</Button></div>
+        <Panel title="Records and the feed">
+          <dl className="space-y-1.5 text-sm">
+            <div className="flex justify-between gap-3"><dt className="text-ink-3">Personnel feed</dt><dd className="text-right text-ink">{data.lastSync ? `${data.lastSync.source} · ${timeAgo(data.lastSync.at)}` : 'never loaded'}</dd></div>
+            {data.lastSync && <div className="flex justify-between gap-3"><dt className="text-ink-3">Last load</dt><dd className="fig text-right text-ink">{data.lastSync.created} new · {data.lastSync.updated} changed · {data.lastSync.separated} separated</dd></div>}
+            <div className="flex justify-between gap-3"><dt className="text-ink-3">Open legal holds</dt><dd className="fig text-right text-ink">{data.holds}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-ink-3">Vantage access</dt><dd className="text-right text-ink">{data.organization.settings.vantageAccess === 'approval' ? 'Asks an owner first' : 'Tells the owners'}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-ink-3">On Vantage since</dt><dd className="text-right text-ink">{new Date(data.organization.created_at).toLocaleDateString()}</dd></div>
+          </dl>
         </Panel>
       </div>
     </div>
   );
 }
 
-export function AiSettings() {
-  const { data, isPending, refetch } = useAdmin('ai', api.adminAi);
-  const toast = useToast(); const qc = useQueryClient();
-  const [models, setModels] = useState<string[] | null>(null); const [def, setDef] = useState(''); const [enabled, setEnabled] = useState<boolean | null>(null); const [add, setAdd] = useState(''); const [discovered, setDiscovered] = useState<string[] | null>(null); const [busy, setBusy] = useState(false);
-  const [probeKey, setProbeKey] = useState(''); const [probe, setProbe] = useState<{ tone: 'good' | 'bad' | 'warn'; text: string } | null>(null); const [probing, setProbing] = useState(false);
-  useEffect(() => { if (data && models == null) { setModels(data.models); setDef(data.default_model); setEnabled(data.enabled); } }, [data, models]);
-  if (isPending || !data || models == null) return <Skeleton className="h-64" />;
-  const blocked = data.last_error_code === 'network_blocked';
-  const lastError = data.last_error_code ? (blocked ? 'GenAI.mil refused the last call because this server is outside DoD networks.' : `The last call failed (${data.last_error_code}) ${timeAgo(data.last_error_at)}.`) : null;
-  const probeFromBrowser = async () => {
-    setProbing(true); setProbe(null);
-    try {
-      const res = await fetch(`${data.base_url}/models`, { headers: { authorization: `Bearer ${probeKey.trim()}` } });
-      if (res.ok) { const body = await res.json().catch(() => ({})); const n = Array.isArray(body?.data) ? body.data.length : 0; setProbe({ tone: 'good', text: `Reachable from this browser · ${n} models offered. Calls made from a device on this network would work.` }); }
-      else setProbe({ tone: res.status === 401 || res.status === 403 ? 'warn' : 'bad', text: res.status === 401 || res.status === 403 ? `Reachable from this browser, but GenAI.mil rejected that key (${res.status}).` : `GenAI.mil answered ${res.status} from this browser. A 503 means this device is outside DoD networks too.` });
-    } catch { setProbe({ tone: 'bad', text: 'This browser could not reach GenAI.mil at all: the network blocks it, or the gateway does not allow calls from web pages.' }); }
-    finally { setProbing(false); }
-  };
-  const save = async () => { setBusy(true); try { await withSudo(() => api.adminRuntime({ aiEnabled: Boolean(enabled), aiModels: models, aiDefaultModel: def })); qc.invalidateQueries({ queryKey: keys.me }); qc.invalidateQueries({ queryKey: keys.aiStatus }); refetch(); toast.success('AI settings saved.'); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
-  return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Panel title="GenAI.mil" subtitle={data.configured ? `key ${data.key_fingerprint} · ${data.base_url}` : 'no key configured'} action={<Button size="sm" variant="primary" onClick={save} loading={busy}><Save className="h-4 w-4" />Save</Button>}>
-        {!data.configured && <p className="mb-3 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink">No GenAI.mil key on this server. On Render, open the service → Environment, add VANTAGE_GENAI_API_KEY with your GenAI.mil key, save, and let it redeploy. The switch below unlocks once the key is present.</p>}
-        <Switch checked={Boolean(enabled)} onChange={setEnabled} label="AI assistance on" description="Users see drafting help and can pick a model from the list below." disabled={!data.configured} />
-        {lastError && <div className={`mt-3 rounded-md border px-3 py-2 text-sm text-ink ${blocked ? 'border-bad/40 bg-bad/5' : 'border-warn/40 bg-warn/10'}`}><p className="font-medium">{lastError}</p>{blocked && <p className="mt-1 text-xs text-ink-2">GenAI.mil only accepts calls from DoD networks. A server on Render, or any commercial host, is outside them, so every AI request fails whatever the key. AI will work once Vantage runs on a DoD-network host. Use the check below to see whether the device you are on can reach the gateway.</p>}</div>}
-        {data.locked && <div className="mt-3 flex items-center justify-between gap-2 rounded-md border border-bad/40 bg-bad/5 px-3 py-2 text-sm"><span className="text-ink">Key locked by the gateway since {timeAgo(data.locked_at)}{data.unlock_url ? <a className="link ml-1" href={data.unlock_url} target="_blank" rel="noopener noreferrer">unlock at GenAI.mil</a> : ''}.</span><Button size="sm" onClick={async () => { try { await withSudo(() => api.adminAiUnlock()); refetch(); toast.success('Lock cleared. The next request will tell.'); } catch (e) { toast.error(api.errorText(e)); } }}><Unlock className="h-3.5 w-3.5" />Clear</Button></div>}
-        <div className="mt-4">
-          <p className="mb-1.5 text-xs font-semibold text-ink-2">Models users may choose</p>
-          <ul className="space-y-1">{models.map((m) => <li key={m} className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-1.5 text-sm"><span className="mono text-ink">{m}</span><span className="flex items-center gap-2">{def === m ? <Badge tone="accent">Default</Badge> : <button type="button" className="text-xs text-accent hover:underline" onClick={() => setDef(m)}>Make default</button>}<button type="button" className="text-ink-3 hover:text-bad" onClick={() => { const next = models.filter((x) => x !== m); setModels(next); if (def === m) setDef(next[0] || ''); }} aria-label={`Remove ${m}`} disabled={models.length <= 1}>×</button></span></li>)}</ul>
-          <div className="mt-2 flex gap-2"><Input aria-label="Model id" placeholder="gemini-2.5-pro" value={add} onChange={(e) => setAdd(e.target.value)} /><Button onClick={() => { const v = add.trim(); if (v && !models.includes(v)) { setModels([...models, v]); if (!def) setDef(v); } setAdd(''); }}>Add</Button><Button onClick={async () => { try { const r = await withSudo(() => api.adminAiDiscover()); setDiscovered(r.models || []); toast.success(`${(r.models || []).length} models offered by the gateway.`); } catch (e) { toast.error(api.errorText(e)); } }}><RefreshCw className="h-4 w-4" />Discover</Button></div>
-          {discovered && <div className="mt-2 flex flex-wrap gap-1">{discovered.filter((m) => !models.includes(m)).map((m) => <button key={m} type="button" className="rounded-full border border-line px-2 py-0.5 font-mono text-2xs hover:border-accent" onClick={() => setModels([...models, m])}>+ {m}</button>)}{discovered.every((m) => models.includes(m)) && <span className="text-xs text-ink-3">Everything the gateway offers is already listed.</span>}</div>}
-          <p className="mt-2 text-2xs text-ink-3">GenAI.mil fronts several model families (Gemini, Grok, GPT). Discover lists what your key can reach.</p>
-        </div>
-      </Panel>
-      <Panel title="Reach check" subtitle="From this browser, not the server">
-        <p className="text-sm text-ink-2">Paste a GenAI.mil key and Vantage asks the gateway for its model list directly from this browser. Nothing is stored; the result only tells you whether this device’s network can reach GenAI.mil.</p>
-        <form className="mt-3 flex gap-2" onSubmit={(e) => { e.preventDefault(); void probeFromBrowser(); }}>
-          <Input aria-label="GenAI.mil key for the reach check" type="password" autoComplete="off" spellCheck={false} placeholder="genai key…" value={probeKey} onChange={(e) => setProbeKey(e.target.value)} />
-          <Button type="submit" loading={probing} disabled={!probeKey.trim()}>Test from this browser</Button>
-        </form>
-        {probe && <p role="status" className={`mt-3 rounded-md border px-3 py-2 text-sm text-ink ${probe.tone === 'good' ? 'border-good/40 bg-good/10' : probe.tone === 'warn' ? 'border-warn/40 bg-warn/10' : 'border-bad/40 bg-bad/5'}`}>{probe.text}</p>}
-        <p className="mt-2 text-2xs text-ink-3">Server: {data.base_url}{data.last_error_at ? ` · last server-side failure ${timeAgo(data.last_error_at)}` : ''}</p>
-      </Panel>
-      <Panel title="Usage" subtitle="Today, across everyone">
-        <div className="grid grid-cols-3 gap-3"><Stat label="Requests" value={data.daily.requests} /><Stat label="Tokens" value={Number(data.daily.total_tokens).toLocaleString()} hint={`budget ${Number(data.daily.budget_tokens).toLocaleString()}`} /><Stat label="Failures" value={data.daily.failures} tone={data.daily.failures ? 'warn' : undefined} /></div>
-        <h3 className="mb-1.5 mt-4 text-xs font-semibold text-ink-2">Last 30 days by model</h3>
-        {!data.by_model_30d?.length ? <p className="text-sm text-ink-3">No requests yet.</p> : <Table minWidth={320} head={<><th>Model</th><th className="text-right">Requests</th><th className="text-right">Tokens</th><th className="text-right">Failures</th></>}>{data.by_model_30d.map((m: any) => <tr key={m.model}><td className="mono text-xs">{m.model}</td><td className="fig text-right">{m.requests}</td><td className="fig text-right">{Number(m.total_tokens).toLocaleString()}</td><td className="fig text-right">{m.failures}</td></tr>)}</Table>}
-        {data.last_error_code && <p className="mt-3 text-xs text-warn">Last gateway error: {data.last_error_code} {timeAgo(data.last_error_at)}.</p>}
-        <p className="mt-3 flex items-start gap-1.5 text-2xs text-ink-3"><Sparkles className="mt-0.5 h-3 w-3 shrink-0" />Workflows: {data.workflows.map((w: any) => w.label).join(', ')}.</p>
-      </Panel>
-    </div>
-  );
-}
+// ——— People: members, organization roles, and "why can they?" ———
 
-export function Accounts() {
-  const { data, isPending, refetch } = useAdmin('users', api.adminUsers);
-  const { data: identity } = useIdentity(); const toast = useToast(); const qc = useQueryClient();
-  const [q, setQ] = useState(''); const [temp, setTemp] = useState<{ user: any; password: string } | null>(null); const [confirm, setConfirm] = useState<{ kind: string; user: any } | null>(null);
-  // CAC sign-in binds on the EDIPI alone, so an account made by invitation or registration needs one linked first.
-  const [cac, setCac] = useState<{ user: any; edipi: string } | null>(null);
-  if (isPending) return <Skeleton className="h-64" />;
+export function People({ org }: { org: OrgSummary }) {
+  const can = (p: string) => org.permissions.includes(p);
+  const { data: identity } = useIdentity();
+  const qc = useQueryClient();
+  const act = useAct();
+  const [q, setQ] = useState('');
+  const [debounced, setDebounced] = useState('');
+  useEffect(() => { const t = setTimeout(() => setDebounced(q.trim()), 250); return () => clearTimeout(t); }, [q]);
+  const members = useQuery<{ members: OrgMember[] }>({ queryKey: ['org', org.id, 'members', debounced], queryFn: () => withSudo(() => api.orgMembers(org.id, debounced)), retry: false, placeholderData: (prev) => prev });
+  const roles = useOrg<{ holders: OrgRoleHolder[]; catalog: { roles: Record<OrgRoleKey, RoleCatalogEntry> } }>(org.id, 'roles', () => api.orgRoles(org.id));
+  const [why, setWhy] = useState<OrgMember | null>(null);
+  const [confirm, setConfirm] = useState<{ kind: 'unlock' | 'logout' | 'remove'; member: OrgMember } | null>(null);
+  const [granting, setGranting] = useState(false);
+  const [grant, setGrant] = useState<{ user_id: string; role: OrgRoleKey; until: string }>({ user_id: '', role: 'admin', until: '' });
+  const [revoke, setRevoke] = useState<OrgRoleHolder | null>(null);
+  // CAC sign-in finds an account by its EDIPI alone, so an account made by invitation or registration needs one linked.
+  const [cac, setCac] = useState<{ member: OrgMember; edipi: string } | null>(null);
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['org', org.id] }); };
   const saveEdipi = async () => {
     if (!cac) return;
     const edipi = cac.edipi.trim() || null;
-    const r = await act(edipi ? `EDIPI linked to ${cac.user.username}` : `EDIPI cleared from ${cac.user.username}`, () => api.adminPersonnelLink(cac.user.id, edipi));
+    const r = await act(edipi ? `EDIPI linked to ${cac.member.username}.` : `EDIPI cleared from ${cac.member.username}.`, () => api.orgPersonnelLink(org.id, cac.member.id, edipi), refresh);
     if (r) setCac(null);
   };
-  const users: any[] = (data?.users || []).filter((u: any) => !q.trim() || `${u.username} ${u.first_name} ${u.last_name} ${u.email || ''}`.toLowerCase().includes(q.trim().toLowerCase()));
-  const act = async (label: string, fn: () => Promise<any>) => { try { const r = await withSudo(fn); toast.success(`${label}${r?.sessionsRevoked ? ` · ${r.sessionsRevoked} sessions signed out` : ''}.`); refetch(); qc.invalidateQueries({ queryKey: keys.team }); return r; } catch (e) { toast.error(api.errorText(e)); } };
+  const rolesOf = (userId: string) => (roles.data?.holders ?? []).filter((h) => h.user_id === userId);
+
   const run = async () => {
-    if (!confirm) return; const u = confirm.user;
-    if (confirm.kind === 'deactivate') await act(`${u.username} deactivated`, () => api.deactivateMember(u.id));
-    if (confirm.kind === 'reset-mfa') await act('MFA and passkeys cleared', () => api.resetMemberMfa(u.id));
-    if (confirm.kind === 'temp') { const r = await act('Temporary password issued', () => api.temporaryPassword(u.id)); if (r?.password) setTemp({ user: u, password: r.password }); }
-    if (confirm.kind === 'operator') await act(u.is_operator ? 'Owner authority removed' : 'Owner authority granted', () => api.setOperator(u.id, !u.is_operator));
-    if (confirm.kind === 'sign-in') {
-      try {
-        const { results: [r] } = await withSudo(() => api.adminSendSignInDetails([u.id]));
-        if (r.status === 'sent' || r.status === 'queued') toast.success(r.status === 'queued' ? `The receiving server asked to try later. ${u.username}’s sign-in details are queued.` : `Sign-in details sent to ${u.email}.`);
-        else toast.error(r.error || 'The sign-in details could not be sent.');
-        refetch();
-      } catch (e) { toast.error(api.errorText(e)); }
-    }
+    if (!confirm) return;
+    const { kind, member } = confirm;
+    setConfirm(null);
+    if (kind === 'remove') await act(`${personName(member)} left the organization.`, () => api.orgRemoveMember(org.id, member.id), refresh);
+    else await act(kind === 'unlock' ? 'Unlocked.' : 'Signed out everywhere.', () => api.orgMemberAction(org.id, member.id, kind), refresh);
   };
+
+  return (
+    <div className="space-y-4">
+      {can('org.owners') || roles.data ? (
+        <Panel title="Organization roles" subtitle="Who runs the organization. These roles manage its structure; none of them reads Marines’ records." action={can('org.owners') ? <Button size="sm" variant="primary" onClick={() => setGranting(true)}><UserPlus className="h-4 w-4" />Grant a role</Button> : undefined}>
+          {roles.isPending ? <Skeleton className="h-24" /> : !roles.data?.holders.length ? <p className="text-sm text-ink-3">Nobody holds an organization role.</p> : (
+            <div className="-mx-4 -mt-1">
+              <Table minWidth={620} head={<><th>Person</th><th className="w-36">Role</th><th className="w-40">Until</th><th className="w-40">Granted by</th><th className="w-24"></th></>}>
+                {roles.data.holders.map((h) => (
+                  <tr key={`${h.user_id}:${h.role}`}>
+                    <td><span className="block font-medium text-ink">{personName(h)}</span><span className="block text-xs text-ink-3">@{h.username}{h.member ? '' : ' · no longer a member'}</span></td>
+                    <td><Badge tone={h.role === 'owner' ? 'accent' : 'neutral'}>{roles.data!.catalog.roles[h.role].label}</Badge></td>
+                    <td className="text-xs text-ink-2">{h.expires_at ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" />{new Date(h.expires_at).toLocaleDateString()}</span> : 'No end date'}</td>
+                    <td className="text-xs text-ink-3">{h.granted_by_name || 'Vantage'} · {timeAgo(h.created_at)}</td>
+                    <td className="text-right">{can('org.owners') && h.user_id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setRevoke(h)}>Remove</Button>}</td>
+                  </tr>
+                ))}
+              </Table>
+            </div>
+          )}
+        </Panel>
+      ) : null}
+
+      <div className="flex flex-wrap items-center gap-2">
+        <Input aria-label="Search people" placeholder="Search by name or username…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" />
+        <span className="text-xs text-ink-3">{members.data ? `${members.data.members.length} shown` : ''}</span>
+        {can('org.members') && <span className="ml-auto flex flex-wrap gap-2"><SignInDetails orgId={org.id} onDone={refresh} /><AccountImport orgId={org.id} onDone={refresh} /></span>}
+      </div>
+      <div className="card" style={{ overflow: 'hidden' }}>
+        {members.isPending ? <Skeleton className="h-64" /> : members.error ? <EmptyState title="Could not load people" description={api.errorText(members.error)} /> : !members.data?.members.length ? <EmptyState icon={Users} title="Nobody here yet" description="Bring people in with a join code or invitation from a unit, or import a roster." /> : (
+          <Table minWidth={960} head={<><th>Person</th><th>Units and unit roles</th><th className="w-32">Sign-in</th><th className="w-24">Status</th><th className="w-72"></th></>}>
+            {members.data.members.map((m) => {
+              const held = rolesOf(m.id);
+              return (
+                <tr key={m.id}>
+                  <td>
+                    <span className="block font-medium text-ink">{personName(m)}{held.map((h) => <Badge key={h.role} tone="accent" className="ml-2">{roles.data?.catalog.roles[h.role].label}</Badge>)}</span>
+                    <span className="block text-xs text-ink-3">@{m.username}{m.edipi ? ' · CAC linked' : ''}{m.other_orgs ? ` · also in ${m.other_orgs} other organization${m.other_orgs === 1 ? '' : 's'}` : ''}</span>
+                  </td>
+                  <td className="text-xs text-ink-2">{m.units.map((u) => <span key={u.unit_id} className="block"><span className="font-medium text-ink">{u.unit}</span>{u.billet ? `, ${u.billet}` : ''}{u.roles ? <span className="text-ink-3"> · {u.roles}</span> : ''}</span>)}</td>
+                  <td className="text-xs text-ink-3">{m.last_login_at ? timeAgo(m.last_login_at) : 'never'}<span className="block">{m.totp_enabled || m.passkeys ? 'second factor on' : <span className="text-warn">no second factor</span>}</span></td>
+                  <td>{!m.active ? <Badge tone="bad">Off</Badge> : m.locked_until ? <Badge tone="warn" title={`Locked until ${formatStamp(m.locked_until)}`}>Locked</Badge> : <Badge tone="good">Active</Badge>}</td>
+                  <td className="text-right"><span className="flex flex-wrap justify-end gap-1">
+                    <Button size="xs" variant="ghost" onClick={() => setWhy(m)}><HelpCircle className="h-3 w-3" />Why can they?</Button>
+                    {can('org.personnel') && <Button size="xs" variant="ghost" aria-label={`EDIPI for ${m.username}`} onClick={() => setCac({ member: m, edipi: m.edipi || '' })}><IdCard className="h-3 w-3" />EDIPI</Button>}
+                    {can('org.members') && m.id !== identity?.user.id && <>
+                      {m.locked_until && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'unlock', member: m })}><Unlock className="h-3 w-3" />Unlock</Button>}
+                      <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'logout', member: m })}><LogOut className="h-3 w-3" />Sign out</Button>
+                      <Button size="xs" variant="ghost" className="text-bad" onClick={() => setConfirm({ kind: 'remove', member: m })}><UserMinus className="h-3 w-3" />Remove</Button>
+                    </>}
+                  </span></td>
+                </tr>
+              );
+            })}
+          </Table>
+        )}
+      </div>
+      <p className="text-xs text-ink-3">A forgotten password or a lost authenticator is Vantage support’s to reset, because an account can belong to more than one organization. You can unlock a member and sign them out; they reset their own password from the sign-in page.</p>
+
+      <WhyDialog orgId={org.id} member={why} onClose={() => setWhy(null)} />
+      <Dialog open={Boolean(cac)} onOpenChange={(o) => { if (!o) setCac(null); }} title={`EDIPI for ${cac?.member.username}`} description="The ten-digit DoD ID on their card. Certificate sign-in finds the account by it. Leave it empty to unlink." size="sm"
+        footer={<><Button variant="ghost" onClick={() => setCac(null)}>Cancel</Button><Button variant="primary" disabled={Boolean(cac?.edipi.trim()) && !/^\d{10}$/.test(cac?.edipi.trim() || '')} onClick={saveEdipi}>Save</Button></>}>
+        <Field label="EDIPI" hint="Ten digits"><Input autoFocus inputMode="numeric" autoComplete="off" maxLength={10} className="mono" value={cac?.edipi ?? ''} onChange={(e) => setCac((c) => (c ? { ...c, edipi: e.target.value.replace(/\D/g, '') } : c))} /></Field>
+      </Dialog>
+      <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} danger={confirm?.kind === 'remove'}
+        title={confirm?.kind === 'remove' ? `Take ${confirm ? personName(confirm.member) : ''} out of the organization?` : confirm?.kind === 'unlock' ? 'Unlock this account?' : 'Sign them out everywhere?'}
+        body={confirm?.kind === 'remove' ? 'They leave every unit of the organization: their unit roles and organization roles end, the work they held is released, and what they shared stays with the units. Their account and their own records stay theirs.' : confirm?.kind === 'unlock' ? 'The failed-attempt lock is lifted now.' : 'Every open session ends. Nothing else changes.'}
+        confirmLabel={confirm?.kind === 'remove' ? 'Remove' : confirm?.kind === 'unlock' ? 'Unlock' : 'Sign out'} onConfirm={run} />
+      <ConfirmDialog open={Boolean(revoke)} onOpenChange={(o) => { if (!o) setRevoke(null); }} title={`Remove ${revoke ? personName(revoke) : ''} as ${revoke ? roles.data?.catalog.roles[revoke.role].label : ''}?`} body="They are signed out and the role ends now. An organization always keeps at least one owner." confirmLabel="Remove"
+        onConfirm={async () => { if (revoke) await act('Role removed.', () => api.orgRevokeRole(org.id, revoke.user_id, revoke.role), refresh); setRevoke(null); }} />
+      <Dialog open={granting} onOpenChange={setGranting} title="Grant an organization role" size="sm" description="To a member of the organization. Another owner grants your own."
+        footer={<><Button variant="ghost" onClick={() => setGranting(false)}>Cancel</Button><Button variant="primary" disabled={!grant.user_id} onClick={async () => {
+          const r = await act('Role granted. They are told, and pick it up at their next sign-in.', () => api.orgGrantRole(org.id, { user_id: grant.user_id, role: grant.role, expires_at: endOfDay(grant.until) }), refresh);
+          if (r) { setGranting(false); setGrant({ user_id: '', role: 'admin', until: '' }); }
+        }}>Grant</Button></>}>
+        <div className="space-y-3">
+          <Field label="Person"><Select value={grant.user_id} onValueChange={(v) => setGrant({ ...grant, user_id: v })} placeholder="Choose a member" options={(members.data?.members ?? []).filter((m) => m.active && m.id !== identity?.user.id).map((m) => ({ value: m.id, label: `${personName(m)} (@${m.username})` }))} /></Field>
+          <Field label="Role"><Select value={grant.role} onValueChange={(v) => setGrant({ ...grant, role: v as OrgRoleKey })} options={Object.entries(roles.data?.catalog.roles ?? {}).map(([key, r]) => ({ value: key, label: r.label }))} /></Field>
+          <p className="text-xs text-ink-3">{roles.data?.catalog.roles[grant.role]?.description}</p>
+          <Field label="Until" hint="optional: for an acting billet or a leave period"><Input type="date" value={grant.until} min={tomorrowKey()} onChange={(e) => setGrant({ ...grant, until: e.target.value })} /></Field>
+        </div>
+      </Dialog>
+    </div>
+  );
+}
+
+/** "Why can they?": every grant behind a member's authority in the organization's units. */
+export function WhyDialog({ orgId, member, onClose }: { orgId: string; member: { id: string; first_name: string; last_name: string; rank_abbr?: string | null } | null; onClose: () => void }) {
+  const { data, isPending, error } = useQuery<{ units: UnitExplanation[]; orgRoles: Array<{ role: string; label: string; expires_at: string | null; granted_by_name: string | null }> }>({
+    queryKey: ['org', orgId, 'why', member?.id], queryFn: () => withSudo(() => api.orgWhy(orgId, member!.id)), enabled: Boolean(member), retry: false,
+  });
+  return (
+    <Dialog open={Boolean(member)} onOpenChange={(o) => { if (!o) onClose(); }} size="lg" title={member ? `Why can ${personName({ ...member, rank_abbr: member.rank_abbr ?? null })} do what they can?` : ''}
+      description="Every grant behind their authority, unit by unit: the role and where it was granted, authority reaching down the chain, unit leadership, organization administration and Vantage access, each with its end date.">
+      {isPending ? <Skeleton className="h-40" /> : error ? <p className="text-sm text-bad">{api.errorText(error)}</p> : (
+        <div className="space-y-3">
+          {data!.orgRoles.length > 0 && <p className="text-sm text-ink-2">Organization roles: {data!.orgRoles.map((r) => `${r.label}${r.expires_at ? ` until ${new Date(r.expires_at).toLocaleDateString()}` : ''}`).join(', ')}.</p>}
+          <WhyList units={data!.units} />
+        </div>
+      )}
+    </Dialog>
+  );
+}
+
+// ——— Units ———
+
+export function Units({ org }: { org: OrgSummary }) {
+  const can = (p: string) => org.permissions.includes(p);
+  const { data, isPending, error, refetch } = useOrg<{ units: OrgUnit[] }>(org.id, 'units', () => api.orgUnits(org.id));
+  const members = useOrg<{ members: OrgMember[] }>(org.id, 'members-all', () => api.orgMembers(org.id));
+  const act = useAct();
+  const [leading, setLeading] = useState<OrgUnit | null>(null);
+  const [leader, setLeader] = useState('');
+  if (isPending) return <Skeleton className="h-64" />;
+  if (error || !data) return <Failed error={error} retry={() => refetch()} />;
+  const byId = new Map(data.units.map((u) => [u.id, u]));
+  const depth = (u: OrgUnit) => { let d = 0; let p = u.parent_id; while (p && byId.has(p) && d < 10) { d += 1; p = byId.get(p)!.parent_id; } return d; };
+  const ordered: OrgUnit[] = [];
+  const walk = (parent: string | null) => data.units.filter((u) => u.parent_id === parent || (parent === null && u.parent_id && !byId.has(u.parent_id))).sort((a, b) => a.name.localeCompare(b.name)).forEach((u) => { if (!ordered.includes(u)) { ordered.push(u); walk(u.id); } });
+  walk(null);
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-center gap-2"><Input aria-label="Search accounts" placeholder="Search accounts…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" /><span className="text-xs text-ink-3">{users.length} shown</span><span className="ml-auto flex flex-wrap gap-2"><SignInDetails onDone={() => refetch()} /><AccountImport onDone={() => refetch()} /></span></div>
       <div className="card" style={{ overflow: 'hidden' }}>
-        <Table minWidth={860} head={<><th>Account</th><th className="w-32">Security</th><th className="w-20 text-center">Units</th><th className="w-28">Last sign-in</th><th className="w-24">Status</th><th className="w-64"></th></>}>
-          {users.map((u) => (
+        <Table minWidth={720} head={<><th>Unit</th><th className="w-48">Leader</th><th className="w-20 text-right">Members</th><th className="w-24">Status</th><th className="w-36"></th></>}>
+          {ordered.map((u) => (
             <tr key={u.id}>
-              <td><span className="block font-medium text-ink">{u.rank_abbr || ''} {u.last_name}, {u.first_name}{u.is_operator ? <Badge tone="accent" className="ml-2">Owner</Badge> : null}</span><span className="block text-xs text-ink-3">@{u.username}{u.email ? ` · ${u.email}` : ''}</span></td>
-              <td className="text-xs text-ink-2">{u.totp_enabled ? 'Authenticator' : ''}{u.totp_enabled && u.passkeys ? ' · ' : ''}{u.passkeys ? `${u.passkeys} passkey${u.passkeys === 1 ? '' : 's'}` : ''}{!u.totp_enabled && !u.passkeys ? <span className="text-warn">Password only</span> : ''}{u.must_change_password ? <span className="block text-warn">Temp password</span> : null}{u.edipi ? <span className="block">CAC linked</span> : null}</td>
-              <td className="fig text-center">{u.units}</td><td className="text-xs text-ink-3">{u.last_login_at ? timeAgo(u.last_login_at) : 'never'}</td><td>{!u.active ? <Badge tone="bad">Inactive</Badge> : u.locked_until ? <Badge tone="warn" title={`Locked after failed attempts until ${formatStamp(u.locked_until)}`}>Locked</Badge> : <Badge tone="good">Active</Badge>}</td>
-              <td className="text-right"><span className="flex flex-wrap justify-end gap-1">
-                {u.active && u.locked_until && <Button size="xs" variant="ghost" onClick={() => act(`${u.username} unlocked`, () => api.unlockAccount(u.id))}>Unlock</Button>}
-                {u.active ? <>{u.id !== identity?.user.id && u.email && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'sign-in', user: u })}><Send className="h-3 w-3" />Email sign-in</Button>}{u.id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'temp', user: u })}><KeyRound className="h-3 w-3" />Temp password</Button>}<Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'reset-mfa', user: u })}>Reset MFA</Button><Button size="xs" variant="ghost" onClick={() => setCac({ user: u, edipi: u.edipi || '' })} aria-label={`EDIPI for ${u.username}`}><IdCard className="h-3 w-3" />EDIPI</Button><Button size="xs" variant="ghost" onClick={() => act('Signed out everywhere', () => api.forceLogout(u.id))}><LogOut className="h-3 w-3" /></Button>{u.id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'operator', user: u })}>{u.is_operator ? 'Remove owner' : 'Make owner'}</Button>}{u.id !== identity?.user.id && <Button size="xs" variant="ghost" className="text-bad" onClick={() => setConfirm({ kind: 'deactivate', user: u })}>Deactivate</Button>}</> : <Button size="xs" onClick={() => act('Reactivated', () => api.reactivateMember(u.id))}>Reactivate</Button>}
-              </span></td>
+              <td><span className="block font-medium text-ink" style={{ paddingLeft: `${depth(u) * 1.25}rem` }}>{depth(u) ? '└ ' : ''}{u.name}</span><span className="block text-xs text-ink-3" style={{ paddingLeft: `${depth(u) * 1.25}rem` }}>{u.short_name ? `${u.short_name} · ` : ''}{u.code}{u.echelon ? ` · ${u.echelon}` : ''}</span></td>
+              <td className="text-xs">{u.owner_user_id ? `${u.owner_first} ${u.owner_last}` : u.parent_id ? <span className="text-ink-3">led from above</span> : <Badge tone="warn">No leader</Badge>}</td>
+              <td className="fig text-right">{u.members}</td>
+              <td>{u.active ? <Badge tone="good">Active</Badge> : <Badge tone="neutral">Archived</Badge>}</td>
+              <td className="text-right">{can('org.units') && u.active ? <Button size="xs" variant="ghost" onClick={() => { setLeading(u); setLeader(''); }}>Set leader</Button> : null}</td>
             </tr>
           ))}
         </Table>
       </div>
-      <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} danger={confirm?.kind === 'deactivate'} confirmLabel={confirm?.kind === 'deactivate' ? 'Deactivate' : confirm?.kind === 'sign-in' ? 'Send' : 'Continue'} title={confirm ? { deactivate: `Deactivate ${confirm.user.username}?`, 'reset-mfa': `Reset MFA for ${confirm.user.username}?`, temp: `Issue a temporary password to ${confirm.user.username}?`, 'sign-in': `Email ${confirm.user.username} their sign-in details?`, operator: confirm.user.is_operator ? `Remove owner authority from ${confirm.user.username}?` : `Make ${confirm.user.username} an owner?` }[confirm.kind] || '' : ''} body={confirm ? { deactivate: 'They cannot sign in; their records stay. Reactivate any time.', 'reset-mfa': 'Their authenticator, recovery codes, and passkeys are removed and every session signed out. Use this when a phone is lost.', temp: 'Their current password stops working, every session is signed out, and they must set a new password on next sign-in. Hand the temporary password over in person.', 'sign-in': `${confirm.user.email} gets their username and a one-time link, good for 72 hours, to choose a password. Their current password keeps working until they use it, and any earlier link stops working.`, operator: 'Owners can open this console, manage every account, and move the instance. Give it to the fewest people possible.' }[confirm.kind] : ''} onConfirm={run} />
-      <Dialog open={Boolean(cac)} onOpenChange={(o) => { if (!o) setCac(null); }} title={`EDIPI for ${cac?.user.username}`} description="The ten-digit DoD ID on the card. Certificate sign-in finds the account by it. Leave it empty to unlink." size="sm"
-        footer={<><Button variant="ghost" onClick={() => setCac(null)}>Cancel</Button><Button variant="primary" disabled={Boolean(cac?.edipi.trim()) && !/^\d{10}$/.test(cac?.edipi.trim() || '')} onClick={saveEdipi}>Save</Button></>}>
-        <Field label="EDIPI" hint="Ten digits"><Input autoFocus inputMode="numeric" autoComplete="off" maxLength={10} className="mono" value={cac?.edipi ?? ''} onChange={(e) => setCac((c) => (c ? { ...c, edipi: e.target.value.replace(/\D/g, '') } : c))} /></Field>
+      <p className="mt-3 text-xs text-ink-3">Units are created, renamed and moved from the Team page in the app, under the unit they belong to. A unit leader holds every permission in their unit and the units beneath it.</p>
+      <Dialog open={Boolean(leading)} onOpenChange={(o) => { if (!o) setLeading(null); }} title={`Leader for ${leading?.name}`} size="sm" description="The leader holds the Unit Leader role. A former leader loses it and is signed out."
+        footer={<><Button variant="ghost" onClick={() => setLeading(null)}>Cancel</Button><Button variant="primary" disabled={!leader} onClick={async () => { if (!leading) return; const r = await act('Leader set.', () => api.orgSetLeader(org.id, leading.id, leader), () => refetch()); if (r) setLeading(null); }}>Set leader</Button></>}>
+        <Field label="Member"><Select value={leader} onValueChange={setLeader} placeholder="Choose a member" options={(members.data?.members ?? []).filter((m) => m.active).map((m) => ({ value: m.id, label: `${personName(m)} (@${m.username})` }))} /></Field>
       </Dialog>
-      <Dialog open={Boolean(temp)} onOpenChange={(o) => { if (!o) setTemp(null); }} title={`Temporary password for ${temp?.user.username}`} description="Shown once. It expires when they set their own." size="sm" footer={<Button variant="primary" onClick={async () => { if (await copyToClipboard(temp!.password)) toast.success('Copied.'); }}><Copy className="h-4 w-4" />Copy</Button>}><p className="mono select-all rounded-md border border-line bg-surface-2 px-3 py-2 text-center text-lg text-ink">{temp?.password}</p></Dialog>
     </>
   );
 }
 
-export function UnitsAdmin() {
-  const { data, isPending, refetch } = useAdmin('units', api.adminUnits);
-  const { data: users } = useAdmin('users', api.adminUsers);
-  const toast = useToast(); const qc = useQueryClient();
-  const [claim, setClaim] = useState<any>(null); const [owner, setOwner] = useState('');
+// ——— Vantage access ———
+
+export function VantageAccess({ org }: { org: OrgSummary }) {
+  const can = (p: string) => org.permissions.includes(p);
+  const { data, isPending, error, refetch } = useOrg<{ grants: AccessGrant[] }>(org.id, 'access', () => api.orgAccess(org.id));
+  const act = useAct();
+  const [deciding, setDeciding] = useState<{ grant: AccessGrant; approve: boolean; note: string } | null>(null);
+  const [, tick] = useState(0);
+  useEffect(() => { const t = setInterval(() => tick((n) => n + 1), 30_000); return () => clearInterval(t); }, []);
   if (isPending) return <Skeleton className="h-64" />;
+  if (error || !data) return <Failed error={error} retry={() => refetch()} />;
+  const pending = data.grants.filter((g) => g.status === 'pending');
+  const active = data.grants.filter((g) => g.status === 'active');
+  const past = data.grants.filter((g) => g.status !== 'pending' && g.status !== 'active');
+  const hours = (m: number) => (m >= 60 ? `${Math.round(m / 6) / 10} hours` : `${m} minutes`);
   return (
-    <>
-      <div className="card" style={{ overflow: 'hidden' }}>
-        <Table head={<><th>Unit</th><th className="w-28">Echelon</th><th className="w-20 text-center">Members</th><th className="w-40">Leader</th><th className="w-24">Status</th><th className="w-32"></th></>}>
-          {(data?.units || []).map((u: any) => <tr key={u.id}><td><span className="block font-medium text-ink">{u.name}</span><span className="block text-xs text-ink-3">{u.short_name ? `${u.short_name} · ` : ''}{u.code}{u.parent_id ? ` · under ${u.parent_id}` : ''}</span></td><td className="text-xs">{humanize(u.echelon)}</td><td className="fig text-center">{u.members}</td><td className="text-xs">{u.owner_last ? `${u.owner_last}, ${u.owner_first}` : <span className="text-warn">Unclaimed</span>}</td><td>{u.active ? <Badge tone="good">Active</Badge> : <Badge>Archived</Badge>}</td><td className="text-right">{u.active ? <Button size="xs" onClick={() => { setClaim(u); setOwner(''); }}>{u.owner_user_id ? 'Reassign leader' : 'Assign leader'}</Button> : null}</td></tr>)}
-        </Table>
-      </div>
-      <Dialog open={Boolean(claim)} onOpenChange={(o) => { if (!o) setClaim(null); }} title={`Leader for ${claim?.name}`} description="Use this when a unit is orphaned. The chosen account gets the Unit Leader role." size="sm" footer={<><Button variant="ghost" onClick={() => setClaim(null)}>Cancel</Button><Button variant="primary" onClick={async () => { try { await withSudo(() => api.adminClaimUnit(claim.id, owner || undefined)); refetch(); qc.invalidateQueries({ queryKey: keys.me }); toast.success('Leader assigned.'); setClaim(null); } catch (e) { toast.error(api.errorText(e)); } }}>Assign</Button></>}>
-        <Field label="Account" hint="blank assigns yourself"><Select value={owner || '__me'} onValueChange={(v) => setOwner(v === '__me' ? '' : v)} options={[{ value: '__me', label: 'Me' }, ...(users?.users || []).filter((x: any) => x.active).map((x: any) => ({ value: x.id, label: `${x.rank_abbr || ''} ${x.last_name}, ${x.first_name} (@${x.username})` }))]} /></Field>
+    <div className="space-y-4">
+      <Panel title="Waiting on you" subtitle="Approving opens your units and the work shared with them to this person, read-only, for the time shown. Never member detail, never private entries, never changes.">
+        {!pending.length ? <p className="text-sm text-ink-3">No request is waiting.</p> : <ul className="divide-y divide-line">{pending.map((g) => (
+          <li key={g.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
+            <span className="min-w-0"><span className="block font-medium text-ink">{g.staff_name}, Vantage support · for {hours(g.minutes)}</span><span className="block text-sm text-ink-2">“{g.reason}”</span><span className="block text-2xs text-ink-3">asked {timeAgo(g.requested_at)} · lapses unanswered after a day</span></span>
+            {can('org.access') && <span className="flex gap-2"><Button size="sm" variant="ghost" onClick={() => setDeciding({ grant: g, approve: false, note: '' })}>Deny</Button><Button size="sm" variant="primary" onClick={() => setDeciding({ grant: g, approve: true, note: '' })}>Approve</Button></span>}
+          </li>
+        ))}</ul>}
+      </Panel>
+      <Panel title="Open now">
+        {!active.length ? <p className="text-sm text-ink-3">Nobody from Vantage can see inside your organization.</p> : <ul className="divide-y divide-line">{active.map((g) => (
+          <li key={g.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
+            <span className="min-w-0"><span className="block font-medium text-ink">{g.staff_name} · ends {remaining(g.expires_at)}</span><span className="block text-sm text-ink-2">“{g.reason}”</span><span className="block text-2xs text-ink-3">{g.decided_by_name ? `approved by ${g.decided_by_name}` : 'began at once, as your settings allow'}</span></span>
+            {can('org.access') && <Button size="sm" variant="danger" onClick={() => act('Access ended.', () => api.orgRevokeAccess(org.id, g.id), () => refetch())}>End now</Button>}
+          </li>
+        ))}</ul>}
+      </Panel>
+      <Panel title="History" subtitle="Every request, decision and end is also in your audit trail.">
+        {!past.length ? <p className="text-sm text-ink-3">None yet.</p> : (
+          <div className="-mx-4 -mt-1"><Table minWidth={640} head={<><th>Who and why</th><th className="w-44">Outcome</th><th className="w-32">When</th></>}>
+            {past.map((g) => <tr key={g.id}><td><span className="block text-sm text-ink">{g.staff_name}</span><span className="block text-xs text-ink-3">{g.reason}</span></td><td><Badge tone={ACCESS_TONE[g.status]}>{ACCESS_LABEL[g.status]}</Badge>{g.decided_by_name ? <span className="mt-0.5 block text-2xs text-ink-3">by {g.decided_by_name}</span> : null}</td><td className="text-xs text-ink-3">{timeAgo(g.ended_at || g.decided_at || g.requested_at)}</td></tr>)}
+          </Table></div>
+        )}
+      </Panel>
+      <Dialog open={Boolean(deciding)} onOpenChange={(o) => { if (!o) setDeciding(null); }} size="sm" title={deciding?.approve ? `Let ${deciding.grant.staff_name} look, for ${hours(deciding.grant.minutes)}?` : 'Deny this request?'}
+        description={deciding?.approve ? 'Read-only: your units and the work shared with them. You can end it at any time.' : 'Vantage support is told. They can ask again.'}
+        footer={<><Button variant="ghost" onClick={() => setDeciding(null)}>Cancel</Button><Button variant={deciding?.approve ? 'primary' : 'danger'} onClick={async () => { if (!deciding) return; const r = await act(deciding.approve ? 'Approved.' : 'Denied.', () => api.orgDecideAccess(org.id, deciding.grant.id, deciding.approve, deciding.note || undefined), () => refetch()); if (r) setDeciding(null); }}>{deciding?.approve ? 'Approve' : 'Deny'}</Button></>}>
+        {deciding && <Field label="Note" hint="optional; Vantage support reads it"><Textarea rows={2} value={deciding.note} onChange={(e) => setDeciding({ ...deciding, note: e.target.value })} maxLength={500} placeholder={deciding.approve ? 'Only look at September.' : 'Call the S-6 instead.'} /></Field>}
       </Dialog>
-    </>
+    </div>
   );
 }
 
-export function AuditLog() {
-  const { data, isPending } = useAdmin('audit', () => api.adminAudit(300));
+// ——— Audit trail ———
+
+interface AuditRow { id: string; seq: number; action: string; entity: string | null; unit_id: string | null; detail: string | null; at: string; ip: string | null; actor_name: string | null; actor_username: string | null; subject_name: string | null; actor_is_staff: number | null }
+
+export function AuditTrail({ orgId }: { orgId: string }) {
+  const { data, isPending, error, refetch } = useOrg<{ rows: AuditRow[]; chain: { ok: boolean } }>(orgId, 'audit', () => api.orgAudit(orgId, 500));
   const [q, setQ] = useState('');
   if (isPending) return <Skeleton className="h-64" />;
-  const rows: any[] = (data?.rows || []).filter((r: any) => !q.trim() || `${r.action} ${r.actor_username || ''} ${r.subject_username || ''} ${r.entity || ''} ${r.detail || ''}`.toLowerCase().includes(q.trim().toLowerCase()));
+  if (error || !data) return <Failed error={error} retry={() => refetch()} />;
+  const rows = data.rows.filter((r) => !q.trim() || `${r.action} ${r.actor_name || ''} ${r.subject_name || ''} ${r.detail || ''} ${r.unit_id || ''}`.toLowerCase().includes(q.trim().toLowerCase()));
   return (
     <>
-      <div className="mb-3 flex flex-wrap items-center gap-2"><Input aria-label="Filter audit" placeholder="Filter…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" /><Badge tone={data?.chain?.ok ? 'good' : 'bad'}>{data?.chain?.ok ? 'Chain intact' : 'Chain broken'}</Badge><span className="text-xs text-ink-3">latest 300</span><Button size="sm" variant="ghost" className="ml-auto" onClick={() => downloadText(`vantage-audit-${new Date().toISOString().slice(0, 10)}.json`, JSON.stringify(data?.rows || [], null, 2), 'application/json')}><Download className="h-3.5 w-3.5" />Download</Button></div>
+      <div className="mb-3 flex flex-wrap items-center gap-2"><Input aria-label="Filter the audit trail" placeholder="Filter…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" /><Badge tone={data.chain.ok ? 'good' : 'bad'}>{data.chain.ok ? 'Chain intact' : 'Chain broken'}</Badge><span className="text-xs text-ink-3">{rows.length} entries</span></div>
       <div className="card" style={{ overflow: 'hidden' }}>
-        <Table minWidth={900} head={<><th className="w-14">#</th><th className="w-40">When</th><th className="w-32">Actor</th><th className="w-44">Action</th><th className="w-32">Subject</th><th className="w-28">Unit</th><th>Detail</th><th className="w-28">IP</th></>}>
-          {rows.map((r) => <tr key={r.id}><td className="fig text-xs text-ink-3">{r.seq}</td><td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td><td className="text-xs">{r.actor_username || 'system'}</td><td className="text-xs text-ink">{humanize(r.action)}{r.entity ? <span className="text-ink-3"> · {r.entity}</span> : ''}</td><td className="text-xs">{r.subject_username || ''}</td><td className="text-xs text-ink-3">{r.unit_id || ''}</td><td className="max-w-xs truncate text-xs text-ink-2" title={r.detail}>{r.detail}</td><td className="fig text-2xs text-ink-3">{r.ip || ''}</td></tr>)}
-        </Table>
+        {!rows.length ? <EmptyState icon={ScrollText} title="Nothing recorded yet" /> : (
+          <Table minWidth={900} head={<><th className="w-36">When</th><th className="w-40">Who</th><th className="w-48">Action</th><th className="w-36">About</th><th className="w-24">Unit</th><th>Detail</th></>}>
+            {rows.map((r) => <tr key={r.id}><td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td><td className="text-xs">{r.actor_name || r.actor_username || 'Vantage'}{r.actor_is_staff ? <Badge tone="warn" className="ml-1">Vantage staff</Badge> : null}</td><td className="text-xs text-ink">{humanize(r.action)}</td><td className="text-xs text-ink-2">{r.subject_name || ''}</td><td className="text-xs text-ink-3">{r.unit_id || ''}</td><td className="text-xs text-ink-2">{r.detail}</td></tr>)}
+          </Table>
+        )}
       </div>
     </>
   );
 }
 
-export function DataAdmin() {
-  const { data: overview } = useAdmin('overview', api.adminOverview);
-  const browserOff = overview?.browserBackups === false;
-  const toast = useToast(); const [busy, setBusy] = useState(''); const [importFile, setImportFile] = useState<File | null>(null); const [confirmImport, setConfirmImport] = useState(false);
-  const backup = async () => { setBusy('backup'); try { const n = await api.downloadFile('/api/admin/backup', 'vantage-backup.db'); toast.success(`Downloaded ${n}.`); } catch (e: any) { if (e?.code === 'sudo_required') { try { await withSudo(() => api.adminOverview()); const n = await api.downloadFile('/api/admin/backup', 'vantage-backup.db'); toast.success(`Downloaded ${n}.`); } catch (e2) { toast.error(api.errorText(e2)); } } else toast.error(api.errorText(e)); } finally { setBusy(''); } };
-  const exportJson = async () => { setBusy('export'); try { await withSudo(() => api.adminOverview()); const n = await api.downloadFile('/api/admin/export', 'vantage-instance.json'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(''); } };
-  const runImport = async () => { if (!importFile) return; setBusy('import'); try { const archive = JSON.parse(await importFile.text()); const r = await withSudo(() => api.adminImport(archive)); toast.success(`Imported: ${Object.entries(r.counts || {}).map(([k, v]) => `${v} ${k}`).join(', ')}. ${r.note}`); setTimeout(() => signOutEverywhere(), 2500); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(''); } };
-  const toggleMaintenance = async (on: boolean) => { try { await withSudo(() => api.adminMaintenance(on)); toast.success(on ? 'Maintenance on. Only owners can sign in.' : 'Maintenance off.'); } catch (e) { toast.error(api.errorText(e)); } };
+// ——— Settings ———
+
+export function Settings({ org }: { org: OrgSummary }) {
+  const can = (p: string) => org.permissions.includes(p);
+  const { data, isPending, refetch } = useOrg<OverviewData>(org.id, 'overview', () => api.orgOverview(org.id));
+  const qc = useQueryClient();
+  const act = useAct();
+  const toast = useToast();
+  const [form, setForm] = useState<{ name: string; short_name: string; vantageAccess: 'approval' | 'notify' } | null>(null);
+  useEffect(() => { if (data && !form) setForm({ name: data.organization.name, short_name: data.organization.short_name || '', vantageAccess: data.organization.settings.vantageAccess }); }, [data, form]);
+  if (isPending || !data || !form) return <Skeleton className="h-64" />;
+  const save = (patch: Record<string, unknown>) => act('Saved.', () => api.orgUpdate(org.id, patch), () => { refetch(); qc.invalidateQueries({ queryKey: keys.me }); });
+  const exportStructure = async () => { try { await withSudo(() => api.orgOverview(org.id)); const n = await api.downloadFile(api.orgExportUrl(org.id), `vantage-${org.id.toLowerCase()}.json`); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } };
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Panel title="Backup" subtitle="A consistent copy of the SQLite database">
-        <p className="text-sm text-ink-2">The file holds every record, password hash and sealed secret on this instance. Every other owner is notified each time one is downloaded.</p>
-        {browserOff
-          ? <p className="mt-3 text-sm text-warn">Downloading through the browser is turned off on this instance (VANTAGE_BROWSER_BACKUPS=false). Back up on the server; see Operations in the documentation.</p>
-          : <Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button>}
+      {can('org.settings') && (
+        <Panel title="Name" action={<Button size="sm" variant="primary" onClick={() => save({ name: form.name, short_name: form.short_name || null })}><Save className="h-4 w-4" />Save</Button>}>
+          <div className="space-y-3">
+            <Field label="Organization name" hint="also the name of its top unit"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={120} /></Field>
+            <Field label="Short name"><Input value={form.short_name} onChange={(e) => setForm({ ...form, short_name: e.target.value })} maxLength={40} /></Field>
+          </div>
+        </Panel>
+      )}
+      <Panel title="Vantage access" subtitle="When Vantage support needs to look inside your organization to fix something.">
+        <Switch checked={form.vantageAccess === 'approval'} disabled={!can('org.owners')} onChange={(v) => { const next = v ? 'approval' : 'notify'; setForm({ ...form, vantageAccess: next }); void save({ settings: { vantageAccess: next } }); }}
+          label="Ask an owner first" description={form.vantageAccess === 'approval' ? 'Support asks; nothing opens until an owner approves. Recommended.' : 'Support may look at once, read-only, and your owners are told and can end it.'} />
+        {!can('org.owners') && <p className="mt-2 text-xs text-ink-3">Only an owner changes this.</p>}
       </Panel>
-      <Panel title="Move to another host" subtitle="Portable JSON of the whole instance">
-        <p className="text-sm text-ink-2">Export everything (accounts, units, roles, records, attachments, audit log) as one JSON file. Import it into a fresh Vantage anywhere: Render, a VM, a laptop. Passwords, passkeys, and authenticators carry over.</p>
-        <div className="mt-3 flex flex-wrap gap-2"><Button onClick={exportJson} loading={busy === 'export'}><Download className="h-4 w-4" />Export instance</Button><label className="inline-flex"><input type="file" aria-label="Choose an instance export" accept="application/json,.json" className="sr-only" onChange={(e) => setImportFile(e.target.files?.[0] || null)} /><Button asChild><span><Upload className="h-4 w-4" />{importFile ? importFile.name : 'Choose export to import'}</span></Button></label>{importFile && <Button variant="danger" onClick={() => setConfirmImport(true)} loading={busy === 'import'}>Import and replace</Button>}</div>
+      {can('org.export') && (
+        <Panel title="Structure export" subtitle="Your units, unit roles, members and who holds which role, as one file.">
+          <p className="text-sm text-ink-2">The work shared with a unit is exported from that unit in the app, by those whose unit role allows it. An organization role does not read records, so this file holds none.</p>
+          <Button className="mt-3" onClick={exportStructure}><Download className="h-4 w-4" />Download structure</Button>
+        </Panel>
+      )}
+      <Panel title="Your units on Vantage" subtitle="Members bring their own account and keep it when they move.">
+        <p className="text-sm text-ink-2">Your organization’s records live on Vantage’s central service, separate from every other organization’s. Vantage staff see your organization as a name and its counts; anything more opens only through Vantage access, above.</p>
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-ink-3"><IdCard className="h-3.5 w-3.5" />To close the organization or recover a lost owner account, contact Vantage support.</p>
       </Panel>
-      <Panel title="Maintenance" className="lg:col-span-2"><div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-ink-2">Turn maintenance on before restoring or moving so nobody writes into a database you are about to replace.</p><span className="flex gap-2"><Button onClick={() => toggleMaintenance(true)}><Wrench className="h-4 w-4" />Turn on</Button><Button onClick={() => toggleMaintenance(false)}>Turn off</Button></span></div></Panel>
-      <ConfirmDialog open={confirmImport} onOpenChange={setConfirmImport} title="Replace this instance with the export?" body="Everything currently here is deleted and replaced by the file's contents. Every session, including yours, is reset. Take a backup first." confirmLabel="Replace everything" onConfirm={runImport} />
     </div>
   );
 }

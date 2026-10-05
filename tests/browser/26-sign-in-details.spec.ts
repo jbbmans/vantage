@@ -1,20 +1,21 @@
 import { test, expect } from '@playwright/test';
-import { ensureSetup, loginAs, confirmSudoIfAsked, OPERATOR, PASSWORD, unique } from './fixtures';
+import { ensureSetup, loginAs, confirmSudoIfAsked, joinUnit, OPERATOR, PASSWORD, unique } from './fixtures';
 
 const H = { 'x-vantage-client': '1' };
 
-test('an owner emails everyone their sign-in details and sees each result', async ({ page, request }) => {
+test('an owner emails everyone in the organization their sign-in details and sees each result', async ({ page, request }) => {
   await ensureSetup(request);
+  await loginAs(page, OPERATOR.username);
   const withMail = unique('mailable');
   const noMail = unique('nomail');
   for (const [username, email] of [[withMail, `${withMail}@example.mil`], [noMail, undefined]] as const) {
     const reg = await request.post('/api/auth/register', { headers: H, data: { username, password: PASSWORD, first_name: 'Sign', last_name: 'In', rank_id: 'LCpl', ...(email ? { email } : {}) } });
     expect(reg.ok(), await reg.text()).toBeTruthy();
+    await joinUnit(page.request, request);
     await request.post('/api/auth/logout', { headers: H });
   }
 
-  await loginAs(page, OPERATOR.username);
-  await page.goto('/operator?tab=users');
+  await page.goto('/console/people');
   await confirmSudoIfAsked(page);
   await page.getByRole('button', { name: 'Email sign-in details' }).click();
   await confirmSudoIfAsked(page);

@@ -91,7 +91,7 @@ const SHAREABLE = /^\/(?:og\.png|favicon\.(?:ico|svg)|apple-touch-icon\.png|icon
 
 function inlineScriptHashes(distDir: string): string[] {
   const hashes = new Set<string>();
-  for (const name of ['index.html', 'public.html', 'console.html']) {
+  for (const name of ['index.html', 'public.html', 'console.html', 'admin.html']) {
     // A build in progress may not have written the file yet: skip it rather than fail to start.
     let html: string;
     try { html = readFileSync(join(distDir, name), 'utf8'); } catch { continue; }
@@ -165,6 +165,19 @@ function consoleTarget(hosts: HostPlan, path: string, query: string): string {
   return hosts.url('console', `${hosts.consoleBase}${rest || '/'}${query}`);
 }
 
+/**
+ * /operator?tab=… was the single owner console of a self-hosted instance. Its tabs now live in two places: what runs
+ * the service in the admin dashboard, what runs an organization in the owner console. Old links land on the right one.
+ */
+const ADMIN_TABS: Record<string, string> = { overview: '', settings: 'settings', ai: 'ai', metrics: 'metrics', users: 'accounts', units: 'orgs', email: 'email', usage: 'usage', audit: 'audit', data: 'data' };
+const CONSOLE_TABS: Record<string, string> = { personnel: 'personnel', retention: 'retention', privacy: 'privacy' };
+function operatorTarget(hosts: HostPlan, query: string): string {
+  const tab = new URLSearchParams(query.replace(/^\?/, '')).get('tab') || '';
+  if (tab in CONSOLE_TABS) return consoleTarget(hosts, `/console/${CONSOLE_TABS[tab]}`, '');
+  if (tab in ADMIN_TABS) return adminTarget(hosts, `/admin${ADMIN_TABS[tab] ? `/${ADMIN_TABS[tab]}` : ''}`, '');
+  return consoleTarget(hosts, '/console', '');
+}
+
 /** The admin dashboard's address for an /admin path, on whichever host it lives. */
 function adminTarget(hosts: HostPlan, path: string, query: string): string {
   const rest = path.startsWith('/admin') ? path.slice('/admin'.length) : '';
@@ -229,6 +242,7 @@ export function createApp(ctx: AppContext) {
     if (req.path.startsWith('/api/')) return res.status(421).json({ error: `Vantage is at ${config.urls.app} now. Reload the page.`, code: 'moved' });
     if (req.method !== 'GET' && req.method !== 'HEAD') return res.status(421).end();
     const query = req.originalUrl.slice(req.path.length);
+    if (req.path === '/operator') return res.redirect(301, operatorTarget(hosts, query));
     if (CONSOLE_PATH.test(req.path)) return res.redirect(301, consoleTarget(hosts, req.path, query));
     if (ADMIN_PATH.test(req.path)) return res.redirect(301, adminTarget(hosts, req.path, query));
     return res.redirect(301, hosts.url(APP_PATH.test(req.path) ? 'app' : 'site', req.path + query));
@@ -362,10 +376,12 @@ export function createApp(ctx: AppContext) {
       // The owner console: the whole of a host of its own, or /console on a shared one.
       const consolePath = CONSOLE_PATH.test(path);
       if (faces.has('console') && (hosts.consoleBase === '' || consolePath) && config.accessMode === 'accounts') {
-        if (path === '/operator' || (hosts.consoleBase === '' && consolePath)) return res.redirect(301, consoleTarget(hosts, path, query));
+        if (path === '/operator') return res.redirect(301, operatorTarget(hosts, query));
+        if (hosts.consoleBase === '' && consolePath) return res.redirect(301, consoleTarget(hosts, path, query));
         res.setHeader('X-Robots-Tag', 'noindex, nofollow');
         return consoleDocument ? page(consoleDocument) : notFound(res);
       }
+      if (path === '/operator' && config.accessMode === 'accounts') return res.redirect(301, operatorTarget(hosts, query));
       if (consolePath && config.accessMode === 'accounts') return res.redirect(301, consoleTarget(hosts, path, query));
 
       // The public site. / is the public page on a host of its own; on a host shared with the application, only

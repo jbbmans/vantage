@@ -78,7 +78,7 @@ platformRouter.get('/overview', requirePlatform('platform.view'), wrap((req, res
     },
     support: { open: count("SELECT COUNT(*) AS n FROM support_tickets WHERE state NOT IN ('resolved', 'closed') AND unit_id IS NULL AND deleted_at IS NULL") },
     database: { sizeBytes, maxBytes: req.ctx.config.limits.maxDatabaseBytes },
-    email: { provider: req.ctx.mailer.provider, enabled: req.ctx.mailer.enabled, from: req.ctx.config.email.from },
+    email: { provider: req.ctx.mailer.provider, enabled: req.ctx.mailer.enabled, from: req.ctx.config.email.from, recent: db.prepare('SELECT to_address, kind, status, error, created_at FROM email_log ORDER BY created_at DESC LIMIT 10').all() },
     maradmins: maradminSyncState(req.ctx),
     runtime: req.ctx.runtime,
     urls: req.ctx.config.urls, rpId: req.ctx.config.rpId, timezone: req.ctx.config.timezone,

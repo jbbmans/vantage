@@ -16,7 +16,8 @@ interface Plan { accounts: Planned[]; units: Array<{ name: string; parent: strin
 const TONE = { create: 'good', exists: 'neutral', error: 'bad' } as const;
 const LABEL = { create: 'New', exists: 'Exists', error: 'Skipped' } as const;
 
-export default function AccountImport({ onDone }: { onDone: () => void }) {
+/** Bring a roster of people into one organization: their accounts, the units named under its top unit, and their roles. */
+export default function AccountImport({ orgId, onDone }: { orgId: string; onDone: () => void }) {
   const [open, setOpen] = useState(false);
   const [file, setFile] = useState<File | null>(null);
   const [plan, setPlan] = useState<Plan | null>(null);
@@ -29,13 +30,13 @@ export default function AccountImport({ onDone }: { onDone: () => void }) {
   const reset = () => { setFile(null); setPlan(null); setDone(null); if (input.current) input.current.value = ''; };
   const preview = async (f: File) => {
     setFile(f); setPlan(null); setDone(null); setBusy(true);
-    try { setPlan(await withSudo(() => api.adminImportAccounts(f, false))); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }
+    try { setPlan(await withSudo(() => api.orgImportAccounts(orgId, f, false))); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }
   };
   const apply = async () => {
     if (!file) return;
     setBusy(true);
     try {
-      const result: Plan = await withSudo(() => api.adminImportAccounts(file, true));
+      const result: Plan = await withSudo(() => api.orgImportAccounts(orgId, file, true));
       setDone(result);
       toast.success(`${result.created} ${result.created === 1 ? 'account' : 'accounts'} created.`);
       qc.invalidateQueries({ queryKey: keys.team }); qc.invalidateQueries({ queryKey: keys.me }); onDone();

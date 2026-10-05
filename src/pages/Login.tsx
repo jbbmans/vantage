@@ -58,7 +58,7 @@ const SSO_ERRORS: Record<string, string> = {
   oidc_unreachable: 'Your organization’s sign-in service could not be reached. Try again in a minute.',
   oidc_misconfigured: 'Organization sign-in is not set up correctly here. Tell the owner.',
   consent_required: 'Read and accept the notice first.',
-  console_owners_only: 'The owner console is for the people who run this Vantage. Sign in to the app instead.',
+  console_owners_only: 'This console is not for your account. Sign in to the app instead.',
   throttled: 'Too many sign-in attempts. Wait a few minutes and try again.',
 };
 
@@ -86,9 +86,13 @@ function PasswordMeter({ value }: { value: string }) {
   );
 }
 
-/** The sign-in screen of the application, or (variant="console") of the owner console, which only owners use. */
-export default function Login({ serverError, onRetry, variant = 'app' }: { serverError: string | null; onRetry: () => void; variant?: 'app' | 'console' }) {
-  const owners = variant === 'console';
+/**
+ * The sign-in screen of the application, of the owner console (variant="console", for an organization's owners and
+ * administrators) or of the Vantage admin dashboard (variant="admin", for Vantage staff).
+ */
+export default function Login({ serverError, onRetry, variant = 'app' }: { serverError: string | null; onRetry: () => void; variant?: 'app' | 'console' | 'admin' }) {
+  const owners = variant !== 'app';
+  const faceName = variant === 'admin' ? 'Vantage admin' : 'Owner console';
   const qc = useQueryClient();
   const toast = useToast();
   const ranks = useRanks();
@@ -260,9 +264,10 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
   const offline = typeof navigator !== 'undefined' && !navigator.onLine;
 
   const heading: Record<Mode, [string, string, string]> = {
-    login: owners ? ['Owner console', 'Sign in', 'For the people who run this Vantage. Everyone else signs in to the app.'] : ['Welcome back', 'Sign in', 'Continue to your Vantage workspace.'],
+    login: variant === 'admin' ? ['Vantage admin', 'Sign in', 'For Vantage staff. Commands sign in to the app or their owner console.']
+      : owners ? ['Owner console', 'Sign in', 'For the people who run an organization on Vantage. Everyone else signs in to the app.'] : ['Welcome back', 'Sign in', 'Continue to your Vantage workspace.'],
     mfa: ['Secure sign-in', 'Second step', 'Enter the six-digit code from your authenticator app, or a recovery code.'],
-    setup: ['First launch', 'Set up Vantage', 'Create the owner account and the first unit. This only happens once.'],
+    setup: ['First launch', 'Set up Vantage', 'Create the first Vantage owner account and the first organization. This only happens once.'],
     register: ['Join Vantage', 'Create your account', 'Self-registration is open on this deployment.'],
     forgot: ['Account recovery', 'Reset your password', 'Enter your username or email. If email is configured, a one-time link follows.'],
     reset: tokenInfo?.purpose === 'sign_in'
@@ -329,7 +334,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
           <div className={cn('auth-brand-lockup', !(status?.displayName && status.displayName !== 'Vantage') && 'auth-brand-lockup-default')}>
             <div className="auth-mark-wrap"><img src="/mark.svg" alt="" /></div>
             <p>{status?.displayName && status.displayName !== 'Vantage' ? status.displayName : 'VANTAGE'}</p>
-            <span>{owners ? 'Owner console' : status?.displayName && status.displayName !== 'Vantage' ? 'Powered by Vantage' : 'Performance · Productivity · Readiness'}</span>
+            <span>{owners ? faceName : status?.displayName && status.displayName !== 'Vantage' ? 'Powered by Vantage' : 'Performance · Productivity · Readiness'}</span>
           </div>
 
           <div className="auth-card">
