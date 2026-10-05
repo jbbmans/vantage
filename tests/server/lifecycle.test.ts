@@ -7,9 +7,9 @@ import { verifyAuditChain } from '../../server/services/audit.ts';
 import { recommendFitrep } from '../../shared/evaluation.ts';
 
 /**
- * One Marine through Vantage, cradle to grave, in the real application: the eight stages of
- * sim/mirofish/seed/vantage-lifecycle.md, in order. It is the ground truth the MiroFish simulation's findings are
- * checked against: a claim about the product that this contradicts is the simulation's error.
+ * One Marine through Vantage, cradle to grave, in the real application, in order: arrival, daily work, leading, the
+ * Record and JEPES, promotion and FITREP, transfer, separation, and records disposition. Each stage builds on the last,
+ * so a break anywhere in the lifecycle shows up where it happens.
  */
 
 let app: TestApp;

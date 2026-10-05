@@ -2,38 +2,19 @@
 
 _Updated 2026-10-05_
 
-## What changed (2026-10-05: MiroFish, cradle to grave)
+## What changed (2026-10-05: cradle to grave)
 
-**A MiroFish simulation of Vantage, ready to run** (`sim/mirofish/`). [MiroFish](https://github.com/666ghj/MiroFish) builds a knowledge graph from seed material, makes the people in it into agents, and simulates them talking it through. The seed is the synthetic G-8 section living with Vantage for a whole enlistment, in eight stages:
-1. arrival;
-2. daily work;
-3. leading;
-4. the Record and JEPES;
-5. promotion and FITREP;
-6. transfer;
-7. separation;
-8. records disposition and the ISSM's review.
+**One Marine through the whole lifecycle** (`tests/server/lifecycle.test.ts`). The test takes one Marine through eight stages in the real application, each building on the last:
+1. joins by code, and the personnel feed sets their rank;
+2. claims and verifies a case and keeps the draft, and Quick Logs;
+3. the lead sees the counts, not the private entry;
+4. JEPES input is written in Appendix E's form;
+5. the feed promotes them to Sgt, and the same entries become MRO worksheet input;
+6. they leave the unit: held work is released, and the record stays theirs;
+7. they export their record, and the feed separates them;
+8. nothing is disposed of by default, and the audit chain verifies.
 
-`run.py` drives MiroFish end to end with no hand steps, and writes `summary.md`:
-- seed, ontology, graph, personas;
-- the simulation;
-- one interview question per stage, asked of every agent;
-- MiroFish's report.
-
-It was exercised as far as the outside services, against a local stand-in for the model with outbound traffic blocked. It needs `LLM_API_KEY` and `ZEP_API_KEY` in the environment to run for real. Only synthetic people and public product facts go to those providers.
-
-**The ground truth it is checked against** (`tests/server/lifecycle.test.ts`). One Marine goes through the same eight stages in the real application:
-- joins by code;
-- the personnel feed sets their rank;
-- claims and verifies a case and keeps the draft; Quick Logs;
-- the lead sees the counts, not the private entry;
-- JEPES input in Appendix E's form;
-- the feed promotes them to Sgt, and the same entries become MRO worksheet input;
-- leaves the unit, and held work is released while the record stays theirs;
-- exports and is separated by the feed;
-- nothing is disposed of by default, and the audit chain verifies.
-
-Writing it confirmed two behaviours the seed now states:
+Writing it confirmed two behaviours:
 - the Marine who verifies is credited with the verification, and whoever resolves is credited with the resolution;
 - leaving a unit ends the Marine's sessions.
 
