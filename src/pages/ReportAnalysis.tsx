@@ -62,7 +62,7 @@ export default function ReportAnalysis({ q, areaLabel, onDownload }: { q: Q; are
       </div>
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Panel title={`By ${areaLabel.toLowerCase()}`}>
+        <Panel title={`By ${areaLabel}`}>
           <BarList items={a.byArea.map((x) => ({ label: x.name, value: x.entries, hint: `${x.share}% · ${x.outcomeRate}% with outcome` }))} />
           <ul className="mt-2 space-y-1 text-xs text-ink-3">{a.byArea.map((x) => <li key={x.name} className="flex justify-between"><span>{x.name}</span><Delta m={x.movement} /></li>)}</ul>
         </Panel>

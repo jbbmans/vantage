@@ -382,7 +382,12 @@ export interface PreviewResult {
 
 const CHANGE_FIELDS: Array<keyof NormalizedRow> = ['title', 'reference', 'due_date', 'amount', 'amount_type', 'quantity', 'unit_label', 'state'];
 
-export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, plan: ImportPlan, sourceId: string): PreviewResult {
+// Private work belongs to its owner, not a unit. Keys are unique per unit regardless of owner, so a private
+// row placed in a unit could collide with someone else's case that the preview (own rows only) never sees.
+const placed = (plan: ImportPlan): ImportPlan => (plan.visibility === 'private' ? { ...plan, unit_id: null } : plan);
+
+export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, requested: ImportPlan, sourceId: string): PreviewResult {
+  const plan = placed(requested);
   const source = readableSource(ctx, user, scope, sourceId);
   assertCanPlace(scope, plan.unit_id, plan.visibility);
   if (plan.visibility === 'unit' && plan.unit_id && !can(scope, PERMISSIONS.CREATE_SHARED_WORK, plan.unit_id)) {
@@ -445,10 +450,11 @@ export function runImport(
   ctx: AppContext,
   user: SessionUser,
   scope: Scope,
-  plan: ImportPlan,
+  requested: ImportPlan,
   sourceId: string,
   idempotencyKey: string | null,
 ): ImportJobRow {
+  const plan = placed(requested);
   if (idempotencyKey) {
     const prior = ctx.db.prepare('SELECT * FROM import_jobs WHERE idempotency_key = ?').get(`${user.id}:${idempotencyKey}`) as ImportJobRow | undefined;
     if (prior) return prior;
@@ -507,6 +513,12 @@ export function runImport(
   } catch (e) {
     ctx.db.prepare(`UPDATE import_jobs SET status = 'failed', error = ?, finished_at = ?, updated_at = ? WHERE id = ?`)
       .run(String((e as Error).message).slice(0, 500), now(), now(), jobId);
+    // A case the preview could not match (someone else's, in the same unit) already holds one of these keys.
+    if ((e as { code?: string }).code === 'SQLITE_CONSTRAINT_UNIQUE') {
+      const taken = ctx.db.prepare('SELECT 1 FROM work_items WHERE unit_id IS ? AND natural_key = ? AND deleted_at IS NULL');
+      const keys = preview.will_insert.map((r) => r.natural_key).filter((k) => taken.get(plan.unit_id, k)).slice(0, 20);
+      throw conflict('Another case in this unit already uses some of these key values, so nothing was imported. Import privately, or ask whoever owns those cases.', 'import_key_conflict', { keys });
+    }
     throw e;
   }
 

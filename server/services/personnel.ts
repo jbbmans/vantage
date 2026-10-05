@@ -133,7 +133,8 @@ export interface SyncPlan {
   rejected: Array<{ line: number; reason: string }>;
   creates: RosterRow[];
   updates: Array<{ edipi: string; name: string; changes: FieldChange[] }>;
-  separations: Array<{ edipi: string; name: string; hasAccount: boolean }>;
+  /** `listed`: on the extract with a separated status, rather than missing from it. */
+  separations: Array<{ edipi: string; name: string; hasAccount: boolean; listed: boolean }>;
   conflicts: Array<{ edipi: string; reason: string }>;
   unchanged: number;
 }
@@ -178,6 +179,8 @@ export function planSync(
   const plan: SyncPlan = { source, rowsSeen: rows.length, rejected, creates: [], updates: [], separations: [], conflicts: [], unchanged: 0 };
   const seen = new Set<string>();
   const rank = rankResolver(ctx);
+  const hasAccount = (edipi: string) => Boolean(db.prepare('SELECT 1 FROM users WHERE edipi = ?').get(edipi));
+  const marked: SyncPlan['separations'] = [];
 
   for (const raw of rows) {
     // A value Vantage cannot place is left as it is on the account, and said so, rather than failing the whole sync.
@@ -188,7 +191,8 @@ export function planSync(
     seen.add(row.edipi);
     const prior = existing.get(row.edipi);
     if (!prior) { plan.creates.push(row); continue; }
-    if (prior.row_hash === rowHash(row)) { plan.unchanged += 1; continue; }
+    // Rows separated before the hash was cleared on separation still carry their last active hash.
+    if (prior.row_hash === rowHash(row) && prior.status === row.status) { plan.unchanged += 1; continue; }
     const changes: FieldChange[] = [];
     for (const field of ['last_name', 'first_name', 'middle_initial', 'rank_id', 'mos', 'eas', 'unit_code', 'billet', 'status'] as const) {
       const from = (prior[field] ?? null) as string | null;
@@ -197,21 +201,30 @@ export function planSync(
     }
     if (changes.length) plan.updates.push({ edipi: row.edipi, name: `${row.last_name}, ${row.first_name}`, changes });
     else plan.unchanged += 1;
+    // An extract that marks someone separated separates them as surely as leaving them off it does.
+    if (prior.status === 'active' && row.status === 'separated') marked.push({ edipi: row.edipi, name: `${row.last_name}, ${row.first_name}`, hasAccount: hasAccount(row.edipi), listed: true });
   }
 
   const activeBefore = [...existing.values()].filter((r) => r.status === 'active').length;
-  const missing: Array<{ edipi: string; name: string; hasAccount: boolean }> = [];
+  const missing: SyncPlan['separations'] = [];
   for (const [edipi, prior] of existing) {
     if (seen.has(edipi) || prior.status === 'separated') continue;
-    const account = db.prepare('SELECT id FROM users WHERE edipi = ?').get(edipi) as { id: string } | undefined;
-    missing.push({ edipi, name: `${prior.last_name}, ${prior.first_name}`, hasAccount: Boolean(account) });
+    missing.push({ edipi, name: `${prior.last_name}, ${prior.first_name}`, hasAccount: hasAccount(edipi), listed: false });
   }
-  const share = activeBefore ? missing.length / activeBefore : 0;
-  if (missing.length && share > MASS_SEPARATION_SHARE && !allowMassSeparation) {
-    plan.massSeparation = { count: missing.length, activeBefore, share };
+  const leaving = [...missing, ...marked];
+  const share = activeBefore ? leaving.length / activeBefore : 0;
+  if (leaving.length && share > MASS_SEPARATION_SHARE && !allowMassSeparation) {
+    plan.massSeparation = { count: leaving.length, activeBefore, share };
     for (const m of missing) plan.conflicts.push({ edipi: m.edipi, reason: 'missing from the extract, held back pending confirmation' });
+    for (const m of marked) {
+      plan.conflicts.push({ edipi: m.edipi, reason: 'marked separated in the extract, held back pending confirmation' });
+      // Held back means still active on the roster too, so the next extract raises it again.
+      const update = plan.updates.find((u) => u.edipi === m.edipi)!;
+      update.changes = update.changes.filter((c) => c.field !== 'status');
+      if (!update.changes.length) plan.updates.splice(plan.updates.indexOf(update), 1);
+    }
   } else {
-    plan.separations.push(...missing);
+    plan.separations.push(...leaving);
   }
 
   for (const dup of db.prepare('SELECT edipi, COUNT(*) AS n FROM users WHERE edipi IS NOT NULL GROUP BY edipi HAVING n > 1').all() as Array<{ edipi: string; n: number }>) {
@@ -236,6 +249,21 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
         row_hash = excluded.row_hash, synced_at = excluded.synced_at, updated_at = excluded.updated_at`);
 
     const write = (row: RosterRow) => upsert.run({ ...row, source: plan.source, row_hash: rowHash(row), at });
+
+    // Back on the extract as active. Undo a deactivation the roster made, and only that: if an operator
+    // deactivated the account since (or before), that decision stands.
+    const reactivate = (edipi: string) => {
+      const account = db.prepare('SELECT id, active FROM users WHERE edipi = ?').get(edipi) as { id: string; active: number } | undefined;
+      if (!account || account.active) return;
+      const last = db.prepare(`SELECT action, detail FROM audit_log WHERE subject_id = ? AND action IN ('personnel_separated', 'deactivate_member', 'reactivate_member')
+                                ORDER BY seq DESC LIMIT 1`).get(account.id) as { action: string; detail: string | null } | undefined;
+      if (last?.action !== 'personnel_separated' || !last.detail?.endsWith('; account deactivated')) return;
+      db.prepare('UPDATE users SET active = 1, updated_at = ? WHERE id = ?').run(at, account.id);
+      audit(ctx, {
+        actor_id: actorId, action: 'personnel_reactivated', entity: 'personnel_roster', entity_id: edipi,
+        subject_id: account.id, detail: `${plan.source}: back on the roster as active; account reactivated`,
+      });
+    };
     for (const row of plan.creates) write(row);
 
     const byEdipi = new Map<string, RosterRow>();
@@ -251,6 +279,7 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
         actor_id: actorId, action: 'personnel_sync_update', entity: 'personnel_roster', entity_id: update.edipi,
         detail: `${plan.source}: ${update.changes.map((c) => `${c.field} ${c.from ?? '—'} → ${c.to ?? '—'}`).join('; ')}`,
       });
+      if (update.changes.some((c) => c.field === 'status' && c.from === 'separated' && c.to === 'active')) reactivate(update.edipi);
     }
 
     // Push the sourced fields onto any account that carries this EDIPI.
@@ -276,12 +305,14 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
     for (const row of byEdipi.values()) applyToAccount(row);
 
     for (const sep of plan.separations) {
-      db.prepare("UPDATE personnel_roster SET status = 'separated', synced_at = ?, updated_at = ? WHERE edipi = ?").run(at, at, sep.edipi);
+      // A listed row was written with its separated status above. A missing one keeps no hash, so the next
+      // extract that lists them reads as a change (a return), not as unchanged.
+      if (!sep.listed) db.prepare("UPDATE personnel_roster SET status = 'separated', row_hash = '', synced_at = ?, updated_at = ? WHERE edipi = ?").run(at, at, sep.edipi);
       const account = db.prepare('SELECT id FROM users WHERE edipi = ?').get(sep.edipi) as { id: string } | undefined;
-      if (account) db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ?').run(at, account.id);
+      const deactivated = account ? db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ? AND active = 1').run(at, account.id).changes > 0 : false;
       audit(ctx, {
         actor_id: actorId, action: 'personnel_separated', entity: 'personnel_roster', entity_id: sep.edipi,
-        subject_id: account?.id ?? null, detail: `${plan.source}: no longer on the roster${account ? '; account deactivated' : ''}`,
+        subject_id: account?.id ?? null, detail: `${plan.source}: ${sep.listed ? 'marked separated in the extract' : 'no longer on the roster'}${deactivated ? '; account deactivated' : ''}`,
       });
     }
 

@@ -190,6 +190,7 @@ function Contributions({ params }: { params: { from: string; to: string } }) {
 
 function Drafts() {
   const toast = useToast();
+  const navigate = useNavigate();
   const qc = useQueryClient();
   const drafts = useRecordDrafts();
   const [openId, setOpenId] = useParam('open');
@@ -198,13 +199,20 @@ function Drafts() {
 
   if (drafts.isPending) return <Skeleton className="h-64" />;
   if (drafts.isError) return <QueryFailure error={drafts.error} what="Your drafts" onRetry={() => drafts.refetch()} />;
+  const privacy = <p className="mb-3 flex items-start gap-2 text-xs text-ink-3"><Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />Drafts are yours alone. No leader, reviewer or administrator can open them, and nothing is sent anywhere.</p>;
+  // Nothing to edit yet: the whole width says where drafts come from, rather than a narrow card beside an empty editor.
+  if (!drafts.data?.length) return (
+    <div>
+      {privacy}
+      <div className="card"><EmptyState icon={PenLine} title="No drafts yet" description="Open a case you worked on and choose “Prepare a private draft from my work”. Vantage writes the entry from what you recorded, and you word it before it joins your record."
+        action={<Button variant="primary" onClick={() => navigate('/work/queue?claimed=me')}>Open my work<ArrowRight className="h-4 w-4" /></Button>} /></div>
+    </div>
+  );
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-[20rem_minmax(0,1fr)]">
       <div>
-        <p className="mb-3 flex items-start gap-2 text-xs text-ink-3"><Lock className="mt-0.5 h-3.5 w-3.5 shrink-0" aria-hidden />Drafts are yours alone. No leader, reviewer or administrator can open them, and nothing is sent anywhere.</p>
-        {!drafts.data?.length ? (
-          <div className="card"><EmptyState icon={PenLine} title="No drafts yet" description="Open work you contributed to and choose “Prepare a private draft from my work”." /></div>
-        ) : (
+        {privacy}
+        {(
           <ul className="card divide-y divide-line overflow-hidden p-0">
             {drafts.data.map((d) => (
               <li key={d.id}>

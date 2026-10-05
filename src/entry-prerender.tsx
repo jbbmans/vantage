@@ -4,6 +4,7 @@ import PublicSite from '@/pages/PublicSite';
 
 export { structuredData, sitemapVideos } from '@/lib/seo';
 export { SITE } from '@/config/site';
+export { TRUST_PAGES } from '@/pages/public/TrustPages';
 
 /** The public page as HTML, rendered by the same tree src/public-main.tsx hydrates. */
 export function renderPublicSite(url = '/'): string {

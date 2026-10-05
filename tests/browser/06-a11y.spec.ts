@@ -24,6 +24,17 @@ test('public display page has no serious accessibility violations', async ({ pag
   expect(serious(results.violations)).toEqual([]);
 });
 
+test('the plain-language pages have no serious accessibility violations', async ({ page, request }) => {
+  await ensureSetup(request);
+  await logout(page);
+  for (const path of ['/security', '/privacy', '/accessibility', '/changes']) {
+    await page.goto(path);
+    await expect(page.getByRole('heading', { level: 1 })).toBeVisible();
+    const results = await new AxeBuilder({ page }).analyze();
+    expect(serious(results.violations), path).toEqual([]);
+  }
+});
+
 test('core pages have no serious accessibility violations in light and dark themes', async ({ page, request }) => {
   test.setTimeout(240_000);
   await ensureSetup(request);

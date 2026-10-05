@@ -11,6 +11,7 @@ import { applyAccent, applyDensity, applyTheme, storedTheme } from '@/lib/theme'
 import AppLoader from '@/components/AppLoader';
 import type { TeamSection } from '@/lib/teamAccess';
 import { MOVED, movedTo } from '@/config/nav';
+import { Compass, Search } from 'lucide-react';
 import { LINKS, consoleHref, siteHref } from '@/lib/links';
 
 // Signed-out and one-off screens load on demand; a visitor to the public page gets public.html instead.
@@ -48,7 +49,17 @@ const Screen = ({ children }: { children: React.ReactNode }) => <Suspense fallba
 
 function NotFound() {
   const navigate = useNavigate();
-  return <div className="mx-auto max-w-md"><div className="card"><EmptyState title="No page here" description="That address does not match anything in Vantage." action={<Button onClick={() => navigate('/')}>Back to Dashboard</Button>} /></div></div>;
+  const search = () => window.dispatchEvent(new Event('vantage:open-palette'));
+  return (
+    <div className="mx-auto max-w-md">
+      {/* The page's own heading, so a screen reader announces where it landed; the card says what to do next. */}
+      <h1 className="sr-only">Page not found</h1>
+      <div className="card">
+        <EmptyState icon={Compass} title="No page here" description="That address does not match anything in Vantage. It may have moved, or the link may be incomplete."
+          action={<><Button variant="primary" onClick={() => navigate('/')}>Back to Today</Button><Button onClick={search}><Search className="h-4 w-4" aria-hidden />Search</Button></>} />
+      </div>
+    </div>
+  );
 }
 
 function NavigateBridge() {
@@ -62,7 +73,7 @@ function NavigateBridge() {
 }
 
 /** Routes that render the public page for anybody, signed in or not. */
-const PUBLIC_ROUTES = ['/display', '/about'];
+const PUBLIC_ROUTES = ['/display', '/about', '/security', '/accessibility', '/privacy', '/changes'];
 const isPublicRoute = (pathname: string) => PUBLIC_ROUTES.includes(pathname);
 
 /** A page that lives on another host (the public site, the owner console): the browser goes there. */
@@ -223,11 +234,12 @@ function AppRoutes() {
         {TEAM_PAGES.map(([path, section]) => <Route key={path} path={`team/${path}`} element={<D><Team section={section} /></D>} />)}
         <Route path="team/:id" element={<D><MemberDetail /></D>} />
         <Route path="settings" element={<D><Settings /></D>} />
-        <Route path="governance" element={<D><DemoGovernance /></D>} />
+        {/* The demo's stand-in for the owner console, and support, each exist in one mode only; the other gets a 404, not a page whose calls fail. */}
+        <Route path="governance" element={identity.data.demo ? <D><DemoGovernance /></D> : <NotFound />} />
         <Route path="operator" element={<ToConsole />} />
         <Route path="help" element={<D><Help /></D>} />
-        <Route path="support" element={<D><Support /></D>} />
-        <Route path="support/:id" element={<D><Support /></D>} />
+        <Route path="support" element={identity.data.demo ? <NotFound /> : <D><Support /></D>} />
+        <Route path="support/:id" element={identity.data.demo ? <NotFound /> : <D><Support /></D>} />
         {Object.keys(MOVED).map((from) => (
           <Route key={from} path={from.slice(1)} element={<Here />} />
         ))}

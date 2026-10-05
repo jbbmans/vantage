@@ -10,8 +10,10 @@ import { recentVisits } from '@/lib/recent';
 import { cn } from '@/lib/utils';
 
 interface Item { id: string; title: string; subtitle?: string | null; kind: string; to?: string; run?: () => void }
+/** Something the palette can do rather than open; matched on its title and its keywords. */
+export interface PaletteAction { id: string; title: string; subtitle?: string; keywords?: string; run: () => void }
 
-export default function CommandPalette({ open, onOpenChange, onQuickLog, nav }: { open: boolean; onOpenChange: (o: boolean) => void; onQuickLog: (seed?: string) => void; nav: NavPage[] }) {
+export default function CommandPalette({ open, onOpenChange, onQuickLog, nav, extra = [] }: { open: boolean; onOpenChange: (o: boolean) => void; onQuickLog: (seed?: string) => void; nav: NavPage[]; extra?: PaletteAction[] }) {
   const navigate = useNavigate();
   const [query, setQuery] = useState('');
   const [results, setResults] = useState<Item[]>([]);
@@ -38,14 +40,19 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav }: 
 
   const items = useMemo<Item[]>(() => {
     const q = query.trim().toLowerCase();
-    const actions: Item[] = [{ id: 'act-log', title: q && !/^(go|open|nav)/.test(q) && q.length > 6 ? `Log activity: “${query.trim()}”` : 'Log activity', subtitle: 'Press N anywhere', kind: 'action', run: () => onQuickLog(q.length > 6 ? query.trim() : '') }];
+    // A typed apostrophe is straight; titles are set with curly ones (“What’s new”). Either finds either.
+    const plain = (s: string) => s.replace(/[‘’]/g, "'");
+    const more: Item[] = extra.filter((a) => !q || plain(`${a.title} ${a.keywords || ''}`.toLowerCase()).includes(plain(q))).map((a) => ({ id: `act-${a.id}`, title: a.title, subtitle: a.subtitle, kind: 'action', run: a.run }));
+    const log: Item = { id: 'act-log', title: q && !/^(go|open|nav)/.test(q) && q.length > 6 ? `Log activity: “${query.trim()}”` : 'Log activity', subtitle: 'Press N anywhere', kind: 'action', run: () => onQuickLog(q.length > 6 ? query.trim() : '') };
+    // An action named by what was typed ("dark", "pdf") comes before the catch-all "log this sentence".
+    const actions: Item[] = q ? (more.length ? [...more, log] : [log]) : [log];
     const pages = nav.filter((n) => !q || `${n.label} ${n.hint}`.toLowerCase().includes(q)).map((n) => ({ id: `nav-${n.to}`, title: n.label, subtitle: n.key ? `G then ${n.key.toUpperCase()} · ${n.hint}` : n.hint, kind: 'page', to: n.to }));
     const switches = views.length > 1 ? views.filter((v) => v.id !== view?.id && (!q || `view ${viewLabel(v)} ${v.name}`.toLowerCase().includes(q))).map((v) => ({ id: `view-${v.id}`, title: `View ${viewLabel(v)}`, subtitle: v.teams ? `Whole command · ${v.teams} ${v.teams === 1 ? 'team' : 'teams'}` : v.level === 'full' ? 'Team' : 'Team overview', kind: 'view', run: () => setView(v.id) })) : [];
     const recent = recentVisits(identity?.user.id).slice(0, 5).map((r) => ({ id: `recent-${r.to}`, title: r.title, subtitle: r.kind === 'case' ? 'Case you opened' : r.kind === 'marine' ? 'Marine you opened' : 'Entry you opened', kind: 'recent', to: r.to }));
-    if (!q) return [...recent, ...actions, ...pages, ...switches.slice(0, 3)];
+    if (!q) return [...recent, ...actions, ...pages, ...switches.slice(0, 3), ...more];
     return /^(view|switch)/.test(q) ? [...switches, ...actions, ...pages, ...results, ...reference] : [...results, ...reference, ...actions, ...switches, ...pages];
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [query, results, reference, nav, onQuickLog, views, view, setView, open, identity?.user.id]);
+  }, [query, results, reference, nav, onQuickLog, views, view, setView, open, identity?.user.id, extra]);
 
   useEffect(() => { setActive(0); }, [items.length]);
 
@@ -64,7 +71,7 @@ export default function CommandPalette({ open, onOpenChange, onQuickLog, nav }: 
           <DialogPrimitive.Title className="sr-only">Search and jump</DialogPrimitive.Title>
           <div className="flex items-center gap-3 border-b border-line px-5">
             <Search className="h-[18px] w-[18px] text-ink-3" />
-            <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onKey} placeholder="Search work, records, people, the FMRA reference, or jump to a page…" className="h-14 flex-1 bg-transparent text-md text-ink outline-none placeholder:text-ink-3" aria-label="Search" role="combobox" aria-expanded aria-controls="palette-list" aria-activedescendant={items[active]?.id} />
+            <input autoFocus value={query} onChange={(e) => setQuery(e.target.value)} onKeyDown={onKey} placeholder="Search work, records, people, the FMRA reference, or jump to a page…" className="h-14 flex-1 bg-transparent text-md text-ink outline-none placeholder:text-ink-3 focus-visible:shadow-none" aria-label="Search" role="combobox" aria-expanded aria-controls="palette-list" aria-activedescendant={items[active]?.id} />
             <kbd className="kbd">Esc</kbd>
           </div>
           <ul id="palette-list" role="listbox" className="max-h-[52vh] overflow-y-auto p-2">

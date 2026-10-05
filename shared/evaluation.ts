@@ -1,3 +1,4 @@
+import { startOfDay } from 'date-fns';
 import { JEPES_CORE } from './constants.ts';
 import { EVAL_REFERENCES } from './evalRefs.ts';
 
@@ -10,7 +11,7 @@ export const TRACKS: Record<Track, { key: Track; name: string; inputName: string
   },
   fitrep: {
     key: 'fitrep', name: 'FITREP', inputName: 'FITREP input', system: 'Performance Evaluation System (fitness reports)',
-    order: EVAL_REFERENCES.fitrep.citation, narrativeLimit: 2000, balanceLabel: 'Attribute coverage', areaLabel: 'FITREP section', readinessTitle: 'FITREP readiness',
+    order: EVAL_REFERENCES.fitrep.citation, narrativeLimit: 1232, balanceLabel: 'Attribute coverage', areaLabel: 'FITREP section', readinessTitle: 'FITREP readiness',
   },
 };
 
@@ -44,20 +45,32 @@ export function areaOptions(track: Track): Array<{ value: string; label: string 
   return [{ value: 'Unassigned', label: 'Unassigned' }, ...JEPES_CORE.map((a) => ({ value: a, label: a }))];
 }
 
+/**
+ * How each track's input is written. JEPES: accomplishments under the three command input lines, by the names MCO
+ * 1616.1 gives them, as Appendix E's dash bullets. The order sets no length; 1,000 keeps it readable. FITREP: billet
+ * accomplishments for the MRO worksheet, by section, at Section C's 1,232 characters (NPS FITREP bulletin, 2025).
+ */
 export function narrativeConfig(track: Track) {
   if (track === 'fitrep') {
     return {
       areas: FITREP_AREA_KEYS,
       labels: { 'Mission Accomplishment': 'MISSION', 'Individual Character': 'CHARACTER', Leadership: 'LEADERSHIP', 'Intellect and Wisdom': 'INTELLECT', 'Evaluation Responsibilities': 'EVALUATIONS' } as Record<string, string>,
+      headers: { 'Mission Accomplishment': 'Mission Accomplishment', 'Individual Character': 'Individual Character', Leadership: 'Leadership', 'Intellect and Wisdom': 'Intellect and Wisdom', 'Evaluation Responsibilities': 'Fulfillment of Evaluation Responsibilities' } as Record<string, string>,
+      names: { mission: 'Mission Accomplishment', leadership: 'Leadership', character: 'Individual Character', intellect: 'Intellect and Wisdom' },
       fallbackArea: 'Mission Accomplishment',
       limit: TRACKS.fitrep.narrativeLimit,
+      track: 'fitrep' as const,
     };
   }
   return {
     areas: [...JEPES_CORE],
     labels: { 'Individual Character': 'CHARACTER', 'MOS / Mission Accomplishment': 'MISSION', Leadership: 'LEADERSHIP' } as Record<string, string>,
+    headers: { 'Individual Character': 'Individual Character', 'MOS / Mission Accomplishment': 'MOS and/or Mission Accomplishment', Leadership: 'Leadership' } as Record<string, string>,
+    // Courses and PME count toward a JEPES line, not a line of their own; they read as character, the Marine's own effort.
+    names: { mission: 'MOS / Mission Accomplishment', leadership: 'Leadership', character: 'Individual Character', intellect: 'Individual Character' },
     fallbackArea: 'MOS / Mission Accomplishment',
     limit: TRACKS.jepes.narrativeLimit,
+    track: 'jepes' as const,
   };
 }
 
@@ -73,6 +86,19 @@ export function mapAreaToTrack(area: string | null | undefined, track: Track): s
   if (valid.includes(area)) return area;
   const mapped = track === 'fitrep' ? JEPES_TO_FITREP[area] : FITREP_TO_JEPES[area];
   return mapped || 'Unassigned';
+}
+
+/**
+ * The area an entry counts under in a breakdown over `areas`. An entry keeps the name of the track it was logged
+ * under, so a Sgt's "MOS / Mission Accomplishment" (the Quick Log default) is FITREP "Mission Accomplishment".
+ */
+export function areaAmong(area: string | null | undefined, areas: readonly string[]): string {
+  if (area && areas.includes(area)) return area;
+  for (const track of ['fitrep', 'jepes'] as const) {
+    const mapped = mapAreaToTrack(area, track);
+    if (areas.includes(mapped)) return mapped;
+  }
+  return 'Unassigned';
 }
 
 const ATTRIBUTE_HINTS: Record<string, string[]> = {
@@ -153,9 +179,13 @@ export function recommendFitrep(profile: Record<string, unknown> = {}, activityS
   return out.sort((a, b) => b.priority - a.priority);
 }
 
+/** Calendar days from today to a YYYY-MM-DD where the reader is: 0 on the day itself, whatever the hour. */
 export function daysUntil(dateStr?: string | null, now = new Date()): number | null {
   if (!dateStr) return null;
-  const d = new Date(dateStr);
+  // new Date('2026-10-31') is UTC midnight, a day early west of Greenwich; read the day as local.
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})$/.exec(dateStr);
+  const d = ymd ? new Date(+ymd[1], +ymd[2] - 1, +ymd[3]) : new Date(dateStr);
   if (Number.isNaN(d.getTime())) return null;
-  return Math.ceil((d.getTime() - now.getTime()) / 86_400_000);
+  // Round, not ceil: a day across a DST change is 23 or 25 hours.
+  return Math.round((startOfDay(d).getTime() - startOfDay(now).getTime()) / 86_400_000);
 }

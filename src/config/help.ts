@@ -184,6 +184,16 @@ export const HELP: HelpSection[] = [
         also: ['jepes', 'fitrep', 'pdf', 'narrative', 'bullets'],
       },
       {
+        id: 'narrative-writer',
+        q: 'How is my JEPES or FITREP narrative written?',
+        a: [
+          'For JEPES, as the billet accomplishments MCO 1616.1 Appendix E describes. They sit under the three command input lines (Individual Character; MOS and/or Mission Accomplishment; Leadership), each a dash, a past-tense verb, the number and the result, with acronyms spelled out once. Required annual training is held back, as the order says it is not an accomplishment. For FITREP, as a Section C draft by section: results only, no superlatives, 1,232 characters.',
+          'The writer weighs every entry, gives each area its strongest sentence first, totals the same work when it would not all fit, and credits your case histories. On Analysis, select any sentence to see the entries behind it and why it made the cut. You can keep it, leave it out, ask for another wording or edit the text yourself. The reviewer grades the result and says what would make it stronger, and whether each point comes from an order, guidance or style.',
+          'It writes your input, not your evaluation: marks, word pictures, rankings and recommendations are your reporting chain’s. It runs on this server and sends nothing anywhere.',
+        ],
+        also: ['narrative', 'writer', 'jepes', 'fitrep', 'billet accomplishments', 'section c', 'appendix e', 'reviewer', 'bullets'],
+      },
+      {
         id: 'provenance',
         q: 'What happens if a record changes after I cited it?',
         a: [

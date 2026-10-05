@@ -5,7 +5,7 @@ import { Bell, Building2, CalendarClock, CheckCircle2, GraduationCap, Hand, Hist
 import { Badge, Button, EmptyState, Input, PageHeader, Panel, Progress, Skeleton } from '@/components/ui/primitives';
 import { BarList } from '@/components/charts';
 import { AiAction, AiResult } from '@/components/AiPanel';
-import { DateText, PeriodSelect } from '@/components/common';
+import { DateText, DueText, PeriodSelect } from '@/components/common';
 import { MetricTotalsGrid } from '@/components/MetricTotals';
 import { WorkRow } from '@/components/work';
 import {
@@ -14,8 +14,9 @@ import {
 } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { WAITING_LABEL, type WaitingCategory } from '../../shared/caseModel';
-import { rangeForPeriod, dayKey, formatNumber } from '../../shared/metrics';
+import { DEFAULT_PERIOD, rangeForPeriod, dayKey, formatDate, formatNumber } from '../../shared/metrics';
 import { todayActions } from '../../shared/health';
+import { goalPace } from '../../shared/metricEngine';
 import { cn, timeAgo, todayIso } from '@/lib/utils';
 import { useView } from '@/lib/view';
 import { UnitPulse, TeamStrip, useUnitOverview } from '@/components/UnitOverview';
@@ -39,11 +40,12 @@ export default function Dashboard() {
   const working = (assigned.data || []).filter((a) => !['waiting', 'blocked'].includes(a.stage));
   const waiting = (assigned.data || []).filter((a) => ['waiting', 'blocked'].includes(a.stage));
 
-  const lede = assigned.isPending ? '' : [
-    `${working.length} ${working.length === 1 ? 'item' : 'items'} in your hands`,
+  const parts = [
+    working.length ? `${working.length} ${working.length === 1 ? 'item' : 'items'} in your hands` : null,
     waiting.length ? `${waiting.length} waiting on someone else` : null,
     myTasks.length ? `${myTasks.length} ${myTasks.length === 1 ? 'task' : 'tasks'} open` : null,
-  ].filter(Boolean).join(', ') + '.';
+  ].filter(Boolean);
+  const lede = assigned.isPending ? '' : parts.length ? `${parts.join(', ')}.` : 'Nothing in your hands right now. Claim work from the queue, or log what you did.';
 
   return (
     <div className="page">
@@ -67,12 +69,12 @@ export default function Dashboard() {
                 {working.map((item) => <WorkRow key={item.id} item={item} />)}
                 {myTasks.slice(0, 4).map((t) => (
                   <li key={t.id}>
-                    <Link to={`/records/tasks/${t.id}`} className="flex items-start gap-3 px-4 py-3 transition-colors hover:bg-surface-2">
+                    <Link to={`/records/tasks/${t.id}`} className="flex flex-col gap-1.5 px-4 py-3 transition-colors hover:bg-surface-2 sm:flex-row sm:items-start sm:gap-3">
                       <span className="min-w-0 flex-1">
-                        <span className="flex items-center gap-2"><Badge tone={t.priority === 'high' || t.priority === 'critical' ? 'warn' : 'neutral'}>Task</Badge><span className="truncate text-sm font-medium text-ink">{t.title}</span></span>
+                        <span className="flex items-start gap-2"><Badge tone={t.priority === 'high' || t.priority === 'critical' ? 'warn' : 'neutral'}>Task</Badge><span className="line-clamp-2 text-sm font-medium text-ink sm:line-clamp-1" title={t.title}>{t.title}</span></span>
                         {t.notes && <span className="mt-0.5 block truncate text-xs text-ink-3">{t.notes}</span>}
                       </span>
-                      {t.due_date && <span className={cn('shrink-0 text-xs', t.due_date < todayIso() ? 'text-bad' : 'text-ink-3')}>Due <DateText value={t.due_date} /></span>}
+                      {t.due_date && <span className={cn('shrink-0 text-xs', t.due_date < todayIso() ? 'text-bad' : 'text-ink-3')}><DueText value={t.due_date} /></span>}
                     </Link>
                   </li>
                 ))}
@@ -202,10 +204,14 @@ function PersonalPanel({ summary }: { summary: any }) {
       <ul className="space-y-3 text-sm">
         {active.map((g) => {
           const pct = g.progress?.percent ?? (g.target_value ? Math.min(100, (Number(g.current_value) / Number(g.target_value)) * 100) : 0);
+          const pace = goalPace(g, { percent: pct, met: g.progress?.met ?? pct >= 100 });
           return (
             <li key={g.id}>
-              <Link to="/goals" className="flex items-baseline justify-between gap-2 hover:underline"><span className="flex items-center gap-1.5 truncate text-ink"><Target className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />{g.title}</span><span className="fig shrink-0 text-xs text-ink-3">{formatNumber(Number(g.current_value))}{g.target_value ? ` / ${formatNumber(Number(g.target_value))}` : ''}</span></Link>
-              <Progress value={pct} className="mt-1" tone={pct >= 100 ? 'good' : 'accent'} label={`${g.title} progress`} />
+              <Link to="/goals" className="flex items-baseline justify-between gap-2 hover:underline"><span className="flex items-center gap-1.5 truncate text-ink"><Target className="h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />{g.title}</span><span className="fig shrink-0 text-xs text-ink-3">{pace?.pace === 'behind' && <span className="font-medium text-warn">Behind pace · </span>}{formatNumber(Number(g.current_value))}{g.target_value ? ` / ${formatNumber(Number(g.target_value))}` : ''}</span></Link>
+              <div className="relative mt-1">
+                <Progress value={pct} tone={pct >= 100 ? 'good' : pace?.pace === 'behind' ? 'warn' : 'accent'} label={`${g.title} progress`} />
+                {pace && <span className="absolute -top-[3px] h-3 w-0.5 -translate-x-1/2 rounded-full bg-ink-3/70" style={{ left: `${pace.expected}%` }} aria-hidden />}
+              </div>
             </li>
           );
         })}
@@ -215,7 +221,7 @@ function PersonalPanel({ summary }: { summary: any }) {
           </li>
         )}
         {reminders.map((a) => (
-          <li key={a.key}><Link to={a.to === '/readiness' ? '/career/readiness' : a.to} className="flex items-start gap-1.5 text-ink-2 hover:underline"><CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden />{a.label}</Link></li>
+          <li key={a.key}><Link to={a.to === '/readiness' ? '/career/readiness' : a.to} className="flex items-start gap-1.5 text-ink-2 hover:underline"><CalendarClock className="mt-0.5 h-3.5 w-3.5 shrink-0 text-ink-3" aria-hidden /><span>{a.count === null ? '' : `${a.count} `}{a.label}{a.detail && a.key === 'readiness' ? <span className="text-ink-3"> · {a.detail}</span> : null}</span></Link></li>
         ))}
         {!active.length && !nextStep && !reminders.length && <li className="text-ink-3">Set a goal or a career step and it shows here.</li>}
       </ul>
@@ -251,13 +257,15 @@ function SectionOverview({ unitId }: { unitId: string }) {
             <ul className="divide-y divide-line">{w.data.attention.slice(0, 5).map((item) => <WorkRow key={item.id} item={item} />)}</ul>
           )}
         </Panel>
-        <Panel title="Who holds what" subtitle={`Open work held now, with documents researched since ${w.data.window.from}`}>
-          {w.data.members_visible ? (
-            <BarList
-              items={w.data.members.filter((m) => m.assigned || m.documents_researched).map((m) => ({ label: `${m.rank_abbr ? `${m.rank_abbr} ` : ''}${m.name}`, value: m.assigned, hint: `${m.documents_researched} documents researched${m.waiting ? `, ${m.waiting} waiting` : ''}${m.blocked ? `, ${m.blocked} blocked` : ''}` }))}
-              format={(v) => `${v} held`}
-            />
-          ) : <p className="text-sm text-ink-3">Your role shows section totals only.</p>}
+        <Panel title="Who holds what" subtitle={`Open work held now, with documents researched since ${formatDate(w.data.window.from)}`}>
+          {!w.data.members_visible ? <p className="text-sm text-ink-3">Your role shows section totals only.</p>
+            : !w.data.members.some((m) => m.assigned || m.documents_researched) ? <p className="text-sm text-ink-3">Nobody holds open work, and nothing has been researched in this window.</p>
+            : (
+              <BarList
+                items={w.data.members.filter((m) => m.assigned || m.documents_researched).map((m) => ({ label: `${m.rank_abbr ? `${m.rank_abbr} ` : ''}${m.name}`, value: m.assigned, hint: `${m.documents_researched} documents researched${m.waiting ? `, ${m.waiting} waiting` : ''}${m.blocked ? `, ${m.blocked} blocked` : ''}` }))}
+                format={(v) => `${v} held`}
+              />
+            )}
           <p className="mt-3 text-xs text-ink-3">Counts show what was recorded. They do not measure effort or quality, and zero recorded is not zero work.</p>
         </Panel>
       </div>
@@ -310,7 +318,7 @@ function Outcomes() {
   const savePrefs = useSavePrefs();
   const [review, setReview] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const { data: identity } = useIdentity();
-  const period = prefs.dashboardPeriod || 'fiscalYear';
+  const period = prefs.dashboardPeriod || DEFAULT_PERIOD;
   const range = useMemo(() => rangeForPeriod(period), [period]);
   const params = useMemo(() => ({ from: dayKey(range.start), to: dayKey(range.end), scope: 'me' }), [range]);
   const report = useMetricsReport(params);

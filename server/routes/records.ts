@@ -3,7 +3,7 @@ import express from 'express';
 import { wrap, clientIp } from '../lib/http.ts';
 import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
-import { scopeFor } from '../authz/scope.ts';
+import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
 import { canEdit, canRead } from '../authz/records.ts';
 import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress } from '../services/records.ts';
 import { inspectAttachment, attachmentDisposition } from '../services/attachments.ts';
@@ -47,6 +47,9 @@ recordsRouter.get('/:table', wrap((req, res) => {
 
 recordsRouter.get('/goals/:id/contributors', wrap((req, res) => {
   const raw = readableRecord(req.ctx, req.user, 'goals', String(req.params.id), req) as Record<string, unknown>;
+  // A unit-wide goal's contributors are other people's entries, by title and amount: only for someone who could open
+  // them anyway. A member who can see the goal still sees its progress, which is a total.
+  if (raw.measure_scope === 'unit' && !can(scopeFor(req.ctx, req.user, req), PERMISSIONS.VIEW_RECORDS, raw.unit_id as string | null)) return res.json([]);
   res.json(goalContributors(req.ctx, raw as never));
 }));
 

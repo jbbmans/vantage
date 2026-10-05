@@ -1,5 +1,6 @@
 import { formatDollarsExact, formatNumber, formatDTG } from './metrics.ts';
 import { JEPES_CORE, DEFAULT_METRICS, isSummable, type MetricsConfig } from './constants.ts';
+import { areaAmong } from './evaluation.ts';
 
 export type BulletStyle = 'jepes' | 'fitrep' | 'resume';
 
@@ -46,13 +47,12 @@ function titleIsAction(title = ''): boolean {
   return PAST_VERBS.test(title) || (/ed$/i.test(first) && first.length > 4);
 }
 
-export function unitFor(unit = 'items', n: number | string | null | undefined): string {
-  if (Number(n) !== 1) return unit;
-  if (/ies$/i.test(unit)) return unit.replace(/ies$/i, 'y');
-  if (/(ch|sh|ss|x|z)es$/i.test(unit)) return unit.replace(/es$/i, '');
-  if (/s$/.test(unit) && !/ss$/i.test(unit)) return unit.slice(0, -1);
-  return unit;
-}
+export { unitFor } from './writer/units.ts';
+import { readEntry, type EntryInput } from './writer/facts.ts';
+import { sentenceFor } from './writer/realize.ts';
+
+const SINGLE = { names: { mission: 'MOS / Mission Accomplishment', leadership: 'Leadership', character: 'Individual Character', intellect: 'Individual Character' }, areas: JEPES_CORE };
+import { unitFor } from './writer/units.ts';
 
 const capitalize = (s = '') => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
@@ -86,22 +86,42 @@ function lowerFirst(s = ''): string {
   return s.charAt(0).toLowerCase() + s.slice(1);
 }
 
+const SCALE: Record<string, number> = { k: 1e3, thousand: 1e3, m: 1e6, mm: 1e6, million: 1e6, b: 1e9, billion: 1e9 };
+
+/** Whether the title already names this amount ("$48,250", "$1.2 million"), so the bullet does not say it twice. */
+function titleStatesAmount(title: string, amount: number): boolean {
+  if (!amount) return false;
+  for (const m of title.matchAll(/\$\s?(\d[\d,]*(?:\.\d+)?)\s*(k|thousand|mm|m|million|b|billion)?\b/gi)) {
+    const value = Number(m[1].replace(/,/g, '')) * (m[2] ? SCALE[m[2].toLowerCase()] : 1);
+    if (Math.abs(value - amount) < 0.005) return true;
+  }
+  return false;
+}
+
+/**
+ * One entry as a bullet. JEPES and FITREP bullets come from the narrative writer (shared/writer), so an entry reads
+ * the same in Quick Log, on its page, in the package and in the narrative; the résumé style keeps civilian phrasing.
+ */
 export function composeBullet(a: BulletSource = {}, opts: { style?: BulletStyle; includeDate?: boolean } = {}): string {
   const { style = 'jepes', includeDate = false } = opts;
+  if (style !== 'resume') {
+    const text = sentenceFor(readEntry(a as EntryInput, SINGLE), 'full', 0, 'bullets');
+    return includeDate && a.date ? `${text.replace(/\.$/, '')} (${formatDTG(a.date)}).` : text;
+  }
   const title = String(a.title || '').trim().replace(/\.$/, '');
   const titleLower = title.toLowerCase();
   const inTitle = (needle: unknown) => Boolean(needle) && titleLower.includes(String(needle).toLowerCase());
 
   const amount = a.dollar_amount ? Number(a.dollar_amount) : 0;
   const rawMoney = amount ? formatDollarsExact(amount) : null;
-  const money = rawMoney && !(inTitle(rawMoney.slice(1)) || inTitle(String(a.dollar_amount))) ? rawMoney : null;
+  const money = rawMoney && !(inTitle(rawMoney.slice(1)) || inTitle(String(a.dollar_amount)) || titleStatesAmount(title, amount)) ? rawMoney : null;
 
   const hasQty = a.quantity != null && a.quantity !== '' && (Number(a.quantity) !== 1 || Boolean(rawMoney));
   const unitLabel = unitFor(a.unit_label || 'items', a.quantity);
   const showQty = hasQty && !inTitle(`${formatNumber(Number(a.quantity))} ${unitLabel}`);
   const qty = showQty ? `${formatNumber(Number(a.quantity))} ${unitLabel}` : null;
-  const joiner = style === 'fitrep' ? 'valued at' : 'totaling';
-  const measure = qty && money ? `${qty} ${joiner} ${money}` : qty || money || null;
+  // From here on, the résumé: civilian verbs, acronyms written out, the result as a consequence.
+  const measure = qty && money ? `${qty} totaling ${money}` : qty || money || null;
 
   const parts: string[] = [];
   if (title && titleIsAction(title)) {
@@ -110,19 +130,16 @@ export function composeBullet(a: BulletSource = {}, opts: { style?: BulletStyle;
   } else {
     const verb = leadVerb(a, style);
     parts.push(measure ? `${verb} ${measure}` : `${verb} ${lowerFirst(title || 'assigned task')}`);
-    if (measure && title) parts.push(`${style === 'fitrep' ? 'supporting' : 'in support of'} ${lowerFirst(title)}`);
+    if (measure && title) parts.push(`in support of ${lowerFirst(title)}`);
   }
   if (a.system && !inTitle(a.system)) parts.push(`via ${a.system}`);
-  if (a.organization && style === 'jepes' && !inTitle(a.organization)) parts.push(`for ${a.organization}`);
 
   let sentence = parts.join(' ').replace(/\s+,/g, ',').replace(/,\s*,/g, ',').replace(/\s+/g, ' ').trim().replace(/,$/, '');
   if (a.result) {
     const result = lowerFirst(String(a.result).trim().replace(/\.$/, ''));
-    sentence += style === 'resume' ? `, resulting in ${result}` : `; ${result}`;
+    sentence += `, resulting in ${result}`;
   }
-  if (style === 'fitrep') sentence = compress(sentence);
-  if (style === 'resume') sentence = expandAcronyms(sentence);
-  if (includeDate && a.date) sentence += ` (${formatDTG(a.date)})`;
+  sentence = expandAcronyms(sentence);
   sentence = capitalize(sentence);
   if (!/[.!?]$/.test(sentence)) sentence += '.';
   return sentence;
@@ -182,8 +199,10 @@ export function weaknesses(a: BulletSource = {}): string[] {
 }
 
 export function groupByAreas<T extends BulletSource>(activities: T[] = [], areas: readonly string[] = JEPES_CORE) {
-  const groups = areas.map((area) => ({ area, activities: activities.filter((a) => a.eval_area === area) }));
-  const unassigned = activities.filter((a) => !a.eval_area || !areas.includes(a.eval_area));
+  // By the area's name in this breakdown's track: a Sgt's JEPES-named entries are still Mission Accomplishment.
+  const home = activities.map((a) => areaAmong(a.eval_area, areas));
+  const groups = areas.map((area) => ({ area, activities: activities.filter((_, i) => home[i] === area) }));
+  const unassigned = activities.filter((_, i) => !areas.includes(home[i]));
   if (unassigned.length) groups.push({ area: 'Unassigned', activities: unassigned });
   return groups;
 }

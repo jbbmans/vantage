@@ -20,6 +20,7 @@ import { teamWorkload, parseWindow } from '../services/record.ts';
 import { PROCEDURES, PROCEDURE_LIST, PROCEDURE_VERSIONS, suggestProcedure } from '../../shared/procedures.ts';
 import { STAGES } from '../../shared/caseModel.ts';
 import { zoneOf } from '../lib/zone.ts';
+import { isoDate } from '../../shared/schemas.ts';
 
 export const workRouter = Router();
 workRouter.use(requireAuth);
@@ -127,11 +128,14 @@ workRouter.get('/items', wrap((req, res) => {
   }));
 }));
 
+// Overdue checks compare YYYY-MM-DD text, so any other format reads as overdue or never due. Blank clears.
+const optionalDay = isoDate.or(z.literal('')).nullable().optional();
+
 const createSchema = z.object({
   unit_id: z.string().max(64).nullable().optional(),
   title: z.string().max(300),
   reference: z.string().max(200).nullable().optional(),
-  due_date: z.string().max(40).nullable().optional(),
+  due_date: optionalDay,
   project_id: z.string().max(64).nullable().optional(),
   visibility: z.enum(['private', 'unit']).optional(),
 });
@@ -141,7 +145,7 @@ workRouter.post('/items', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   res.status(201).json(createItem(req.ctx, req.user, scope, {
     unit_id: q.unit_id ?? null, title: q.title, reference: q.reference ?? null,
-    due_date: q.due_date ?? null, project_id: q.project_id ?? null, visibility: q.visibility,
+    due_date: q.due_date || null, project_id: q.project_id ?? null, visibility: q.visibility,
   }));
 }));
 
@@ -171,7 +175,7 @@ const patchSchema = z.object({
   acknowledge_source_change: z.boolean().optional(),
   title: z.string().max(300).optional(),
   reference: z.string().max(200).nullable().optional(),
-  due_date: z.string().max(40).nullable().optional(),
+  due_date: optionalDay,
   project_id: z.string().max(64).nullable().optional(),
   version: z.coerce.number().int().optional(),
 });
@@ -188,7 +192,7 @@ workRouter.patch('/items/:id', wrap((req, res) => {
 const actionSchema = z.object({
   kind: z.enum(ACTION_KINDS).default('worked'),
   note: z.string().max(5000).nullable().optional(),
-  occurred_at: z.string().max(10).nullable().optional(),
+  occurred_at: optionalDay,
   quantity: z.coerce.number().nullable().optional(),
   unit_label: z.string().max(60).nullable().optional(),
   dollar_amount: z.coerce.number().nullable().optional(),

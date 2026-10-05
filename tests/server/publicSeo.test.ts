@@ -155,7 +155,9 @@ test('the public page tells every engine one consistent story, in its head, its 
   }
 
   const sitemap = readFileSync(join(PROJECT_ROOT, 'dist/sitemap.xml'), 'utf8');
-  assert.equal([...sitemap.matchAll(/<loc>/g)].length, 1, 'only the canonical page belongs in the sitemap');
+  // The public page once, and each plain-language page (security, privacy, accessibility) at its own address.
+  const locs = [...sitemap.matchAll(/<loc>([^<]+)<\/loc>/g)].map((m) => new URL(m[1]).pathname);
+  assert.deepEqual(locs.sort(), ['/', '/accessibility', '/changes', '/privacy', '/security'], 'only canonical pages belong in the sitemap');
   assert.match(sitemap, new RegExp(`<lastmod>${SITE.updated}</lastmod>`));
   assert.equal([...sitemap.matchAll(/<video:video>/g)].length, videos.length);
   assert.doesNotMatch(sitemap.replace(/&(amp|lt|gt|quot|apos);/g, ''), /&/, 'every & in the sitemap is escaped');

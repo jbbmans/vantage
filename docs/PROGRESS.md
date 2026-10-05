@@ -1,6 +1,106 @@
 # Progress
 
-_Updated 2026-10-02_
+_Updated 2026-10-04_
+
+## What changed (2026-10-04: the narrative writer)
+
+The JEPES and FITREP narrative is written by a new engine, `shared/writer/` (design and sources: `docs/product/NARRATIVE_WRITER.md`). The old builder headlined each area with a generic "Processed N things", pasted titles in strength order and cut what did not fit. The writer:
+
+- **Writes in the order's own form.** JEPES input is MCO 1616.1 Appendix E's billet accomplishments: under the three command input lines (Individual Character; MOS and/or Mission Accomplishment; Leadership), a dash, a past-tense verb, the number and the result, acronyms spelled out once. FITREP input is a Section C draft by section, at Section C's 1,232 characters (NPS bulletin), objective and without superlatives. Paragraph form stays one click away.
+- **Reads each entry.**
+  - Tense ("Reconciling" becomes "Reconciled") and word order ("14 ULOs reconciled" becomes "Reconciled 14 ULOs") are put right.
+  - First person, filler and praise adverbs go.
+  - A noun phrase gets a plain verb ("Brief to the CO" becomes "Delivered brief to the CO").
+  - "Helped" stays "Helped": a stronger verb would change the claim.
+  - The entries themselves are untouched.
+- **Weighs, groups and plans.**
+  - Each entry is scored, with reasons.
+  - Every area with work gets its best sentence first.
+  - Several plans are tried, and the one that says the most within the limit is kept.
+  - The same work is totalled when it would not all fit, or would repeat.
+  - Totals account for counted work left out.
+  - Case-history credit appears in its own sentence: "Researched 39 documents (2-Way UMT); recorded 66 verified outcomes and resolved 33 cases."
+- **Holds back what the order excludes.** Required annual training is set aside with the rule, and can be kept anyway.
+- **Never writes the reporting chain's judgments.** It writes no rankings, recommendations or word pictures. The reviewer flags them if typed.
+- **Reviews its own writing.** A 100-point grade (areas, outcomes, numbers, openings, length) and findings, each naming the entries that would fix it and what it rests on: an order (MCO 1616.1, NAVMC 10835), guidance (NPS bulletin, Marine Corps Gazette) or style. "Helped" is marked as a preference, because no order forbids it.
+
+**Tested against real typing.** Messy entries from four MOSs (motor transport, admin, infantry, supply) and a harsher batch found real faults, all now fixed and covered by tests:
+- **No invented claims.**
+  - A title with no verb is never given one ("Completed working on…" claimed something unfinished).
+  - Work in progress is held until it is done.
+  - Unknown past tenses read as verbs ("Licensed 8 Marines", "Drove in the convoy").
+  - A verbless title with the Marine's own classification becomes "Reconciled 30 ULOs … in support of FY26 year-end close".
+- **No double counting.** The same entry logged twice (same words, numbers and day) counts once and is held as "looks logged twice".
+- **Held back by rule.** Awards for a previous period are held (Appendix E). So are entries still saying "I" or ranking the Marine.
+- **Weak lines don't fill a slot.** A line like "Responsible for the armory keys" no longer fills an area just to fill it; the reviewer asks for real work instead.
+- **Typing cleaned up:**
+  - shouting capitals are set in sentence case, keeping acronyms ("ULOs");
+  - a second sentence is joined to the first;
+  - "!!!" and emoji are removed; output is plain ASCII;
+  - number words become numerals ("twelve MIPRs" → "12 MIPRs");
+  - "my degree" reads "degree";
+  - "with a 3.8 GPA";
+  - an outcome that only repeats the title is dropped;
+  - no "(1 Marine)".
+
+**One phrasing everywhere.** Quick Log's preview, an entry's page and the Bullets tab now use the writer, and Quick Log coaches with the reviewer's own notes as you type. The notes come most useful first: what is held back and why, then the outcome, a vague word, a weak opening.
+
+The **narrative studio** on Analysis writes live in the browser:
+- **Explains every sentence:** select one to see its sources, score, attribute and why it made the cut.
+- **Lets the Marine shape it:** Always keep or Leave out, Another wording (never changes a figure), Best fit/Full/Compact, Bullets/Paragraph, length, and spell-out.
+- **Edits by hand,** with a live review as you type.
+- **Keeps what was left out** in a Left out list, held entries included.
+- **The PDF takes the same choices,** or the edited text.
+
+The optional AI draft is instructed with the same rules.
+
+## What changed (2026-10-04: everyday use)
+
+- **No empty October.** Activities, the JEPES/FITREP input page, Today's outcomes, a Marine's page and the goal metric list opened on the fiscal year, so on 1 October every one of them read as if nobody had done anything. They open on a rolling twelve months ("Last 12 months", a new period everywhere), and a saved choice still wins.
+- **A tab bar on phones.** Today, Work, a log button and the Record sit at the bottom where a thumb reaches, with everything else behind More. It steps aside while someone types and while the drawer is open, and toasts and the footer clear it. The header's log button is for wider screens now.
+- **Filters that fold.** On a phone the Activities filters sit behind one Filters button with a count, instead of six menus before the first entry. "JEPES" and "FITREP" keep their capitals in every label.
+- **Due dates in words.** "Due 07 Oct 26 · tomorrow", "1 day overdue", "in 4 days" on Today, the queue and every case row.
+- **⌘K does things.** Switch theme, keyboard shortcuts, import activities from a CSV, and download your record as a PDF, ranked above the catch-all "log this" when they match what was typed.
+- **Undo after delete.** Tasks, projects, goals, training, awards, counselings and an entry's own page offer Undo, as the activity list already did.
+- **Smaller things.** A case page is titled "Work / Case" (it said "Vantage"), and Quick Log drops the word that introduced a date ("…in DAI on Sep 30" no longer leaves "…in DAI on").
+- **The bar follows the role.** Somebody who leads a team gets Team in the tab bar where a Marine gets the Record; the Record stays under More.
+- **Titles read whole on a phone.** Case and task rows put the due date under the title instead of beside it, and a title may take two lines before it is cut. The queue's "All open work · Open to claim · Mine · Overdue · Resolved" is one row that scrolls sideways.
+- **The demo banner is one line on a phone** ("Demo · Marine | Section lead · Start over"), giving back about half the first screen it took on every page.
+- **Packages explain themselves.** Beside the list, four steps say what a package is (choose the period, write against the records, save a revision that re-reads them, export what was reviewed), and each package says when it last changed.
+- **Undo after logging.** "Activity logged." carries Undo for the slip of a thumb; the entry goes to the recycle bin like any other delete.
+- **Cards that read like headings.** Today's outcome cards say "Dollars reconciled" and "Hours logged" instead of "Dollars, Reconciled" and "hours". A unit or value type an owner named keeps its own wording and case.
+- **Reminders that say how many.** The record card read "readiness fields incomplete"; it now reads "3 readiness fields incomplete · rifle qualification · MCMAP belt · PFT".
+- **Time zones by place.** Settings lists "New York · EDT" and "Okinawa / Tokyo · GMT+9" instead of raw zone names.
+- **What's new, in the app and on the site.** The user menu, ⌘K and the version in the footer open a dated list of the changes a Marine would notice (`src/config/changes.ts`). A small dot on the avatar marks it until it has been read, for people who were here before the latest change. The same list is a public page, `/changes`, prerendered, in the sitemap, and linked from the site's menu and footer.
+- **⌘K forgives apostrophes.** "what's new" typed with a straight apostrophe finds "What’s new".
+- **The plain-language pages are checked like the rest.** Security, privacy, accessibility and what's new now run through axe in the browser suite, and their bulleted lists show their bullets again (the CSS reset had removed them).
+- **Goals know their pace.** A goal that builds over its period (increase or decrease) says "Ahead of pace", "On pace" or "Behind pace" against the share of its period gone, within ten points, with a tick on its bar where an even pace would be; a behind goal's bar turns amber, on the Goals page and on Today. It says nothing in the first tenth of a period, after it ends, once it is met, or for a threshold (a PFT score) or a completion goal (`goalPace` in `shared/metricEngine.ts`). The countdown reads "30 days left" rather than "(30d left)", and the figures read "21 of 30 UMTs" and "60 of 100% complete" instead of repeating the unit.
+- **Tasks say who.** A Marine without the roster saw "→ Assigned from Assigned" on a task their section lead set. Task rows now carry the setter's and holder's names (only on rows the reader can already open, and never their own), so it reads "from SSgt Diaz". Titles take two lines on a phone and due dates say "tomorrow" or "in 3 days".
+- **Projects and stat cards.** A project opens from its title (the stray "Open" link is gone), counts read "2 of 5 tasks done" or "No tasks yet", and its due date says how close it is. Stat cards let a label and a hint take two lines, so three across a phone read "Training hours" and "Awards in progress" instead of "Training ho…".
+- **Steadier timing tests.** One full server run failed once, straight after a production build, and did not fail again in five more full runs. The likeliest cause was the speed tests added in the audit, whose budgets (50–400 ms) were tight for a busy machine. Each now has 10–30 times its usual time and still fails on the slowdowns it guards against: the Quick Log test uses 20,000 figures (30 ms linear, seconds if quadratic).
+- **The roster fits a phone.** On a phone the six-column table left a name two words wide and the controls off the screen; it is a list now (name, billet · MOS · team, roles, and the same controls). Each "Open" names whom it opens, for a screen reader.
+- **Each Team page says what it is for.** Workload, Roster, Unit dashboard, Roles, Units and Access log each have their own one-line lede instead of the overview's paragraph; the privacy promise stays on the overview and the roster.
+- **Age of open work, said exactly.** "One to four weeks" counted 7 to 30 days; the rows now read "Under 7 days", "7 to 30 days" and "Over 30 days", each with a bar for its share, over 30 days in amber.
+- **One way to write a date.** Today's "Who holds what" read "since 2026-09-05", a package's heading "2026-07-07 to 2026-10-04", and award, counseling, access-log, conflict and entry-history times used the browser's own format ("9/18/2026, 9:31:02 AM"). All now read the way the rest of Vantage does ("05 Sep 26", "28 Sep 26 1432").
+- **Smaller things.** Drafts with nothing in them use the full width and offer "Open my work"; the unit dashboard no longer says "the rest need a result written" at 100%.
+- **Quick Log hears the outcome.** "…in DAI on Sep 30, all cleared on the next report" used to leave Result empty and the preview asking "so what?". A closing clause that says what came of the work (after a comma, semicolon or dash, opening with "resulting in", "which", "so", "saving", "clearing", "all", "each", "zero", "no" and the like) fills Result and leaves the title, while a list such as "for G-8, S-4 and S-1" stays put (`parseQuickLog`'s `result`).
+- **A bullet says a figure once.** A title that already named its amount ("$48,250", "$1.2 million") got it again at the end ("…, $48,250.00."); the bullet now compares the title's figures by value.
+- **An entry's gaps are one tap from the fix.** On an entry's page each gap ("No quantity (how many?)") opens Edit, and a missing area reads "Untagged" there as it does in the list (it said "Unassigned" on one and "Untagged" on the other).
+- **Smaller things.** Activities' delete is a trash icon named for its entry ("Delete Cleared 4 2-Way UMTs…") instead of an anonymous "×", and the Career cards (training hours, awards, counselings) open their tabs.
+- **The narrative's opening line makes sense.** The JEPES/FITREP narrative opened "MISSION: Processed 10 km, 6 hours and 4 UMTs valued at $6K." Its headline now counts work products only ("Processed 4 UMTs valued at $6K."); a hike's kilometres, points and percentages are left to the sentences about those entries, and hours appear only when nothing countable was logged ("Completed 3 documented actions over 22 hours."). The PDF uses the same text.
+- **Each package section says what it wants.** Every section's empty box said "Write what changed because of the work, in the units it was measured in.", Leadership and Individual character included. Mission, Leadership, Character, Intellect and Wisdom, and Evaluation responsibilities each have their own prompt.
+- **⌘K's search box has no stray outline.** The global focus ring drew a hard rectangle into the palette's top edge; the caret and the highlighted result already show where focus is.
+
+## What changed (2026-10-03 audit and upgrade)
+
+A second outside review, of the live site and the code, found two high-severity security problems and fixed them:
+an unauthenticated request that could freeze the server (an exponential password-policy pattern), and a goal "measured
+across the unit" that let a member read entries they could not open. It also fixed four denial-of-service and
+disclosure issues (workbook reader, email sanitizer, lockout name disclosure, rate limits behind Cloudflare), more
+than twenty correctness bugs (among them FITREP packages losing every Quick Log entry, roster sync deactivating people
+for good, Quick Log dating "Sep 30" as today), and the live site's broken pages. The public site gained security,
+privacy and accessibility pages, `security.txt`, a hero and a "built for your role" section aimed at the Marines it is
+for, and a real footer. Details, verification and what is left for the owner: `docs/AUDIT-2026-10-03.md`.
 
 ## What changed (2026-10-02 audit)
 
@@ -114,9 +214,9 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **533 / 533 pass** (2026-10-02) |
-| `npm run test:browser` (Playwright, Chromium, built client) | **100 / 100 pass** (2026-10-02) |
-| Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference and the public page |
+| `npm test` (server suite, in-memory SQLite) | **596 / 596 pass** (2026-10-04) |
+| `npm run test:browser` (Playwright, Chromium, built client) | **103 / 103 pass** (2026-10-04) |
+| Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference, the public page and the security, privacy, accessibility and changes pages |
 | `npm audit` | 0 vulnerabilities |
 
 ### Not verified

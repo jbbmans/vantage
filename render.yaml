@@ -51,6 +51,13 @@ services:
         sync: false
       - key: TRUST_PROXY
         value: "true"
+      # The site is served through Cloudflare: rate limits and the audit trail use the visitor's address from
+      # CF-Connecting-IP, accepted only from Cloudflare's own edge addresses (server/lib/http.ts).
+      - key: VANTAGE_CLIENT_IP
+        value: cloudflare
+      # Optional: an address for vulnerability reports, listed first in /.well-known/security.txt.
+      - key: VANTAGE_SECURITY_CONTACT
+        sync: false
       - key: VANTAGE_TIMEZONE
         value: America/Chicago
       - key: VANTAGE_SECRET

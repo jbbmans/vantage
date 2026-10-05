@@ -52,7 +52,7 @@ export const HOME: NavPage = { to: '/', label: 'Today', icon: Gauge, end: true, 
 
 export const GROUPS: NavGroup[] = [
   {
-    id: 'work', label: 'Work', icon: Briefcase, key: 'w', hint: 'Taskers, tasks and the correspondence behind them', pages: [
+    id: 'work', label: 'Work', icon: Briefcase, key: 'w', hint: 'Taskers, tasks and the correspondence behind them', also: ['/work/items'], pages: [
       { to: '/work/queue', label: 'Queue', icon: Inbox, hint: 'Work to claim, and the work you hold' },
       { to: '/work/tasks', label: 'Tasks', icon: ListChecks, hint: 'Your to-dos and the ones assigned to you', count: 'tasks' },
       { to: '/work/projects', label: 'Projects', icon: FolderKanban, hint: 'Taskers and projects with their tasks' },

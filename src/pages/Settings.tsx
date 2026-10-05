@@ -12,8 +12,9 @@ import { keys, useIdentity, useOrg, usePrefs, useSavePrefs, signOutEverywhere } 
 import * as api from '@/lib/api';
 import { ACCENTS, DEFAULT_ACCENT, VISIBILITIES } from '../../shared/constants';
 import { passwordProblem, passwordStrength } from '../../shared/password';
-import { copyToClipboard, downloadText, timeAgo, humanize, cn } from '@/lib/utils';
+import { copyToClipboard, downloadText, formatStamp, timeAgo, humanize, cn } from '@/lib/utils';
 import { resolveTheme, type ThemeMode } from '@/lib/theme';
+import { DEFAULT_PERIOD } from '../../shared/metrics';
 
 export default function Settings() {
   const { data: identity } = useIdentity();
@@ -24,7 +25,7 @@ export default function Settings() {
   }, [verify]);
   if (!identity) return <Skeleton className="h-64" />;
   return (
-    <div className="page max-w-5xl">
+    <div className="page page-narrow">
       <PageHeader eyebrow="Settings" title={`${identity.user.first_name} ${identity.user.last_name}`} lede={`@${identity.user.username}${identity.user.rank ? ` · ${identity.user.rank.name}` : ''}`} />
       {identity.user.must_change_password ? <div className="mb-4 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink">You signed in with a temporary password. Set a new one under Security before doing anything else.</div> : null}
       <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[{ value: 'profile', label: 'Profile' }, { value: 'security', label: 'Security' }, { value: 'appearance', label: 'Appearance' }, { value: 'digest', label: 'Weekly digest' }, { value: 'data', label: 'Your data' }]} />
@@ -42,7 +43,10 @@ const ZONES = [
   'America/New_York', 'America/Chicago', 'America/Denver', 'America/Phoenix', 'America/Los_Angeles', 'America/Anchorage', 'Pacific/Honolulu', 'Pacific/Guam',
   'Asia/Tokyo', 'Asia/Seoul', 'Australia/Darwin', 'Europe/Madrid', 'Europe/Berlin', 'Europe/London', 'Asia/Bahrain', 'Africa/Djibouti', 'UTC',
 ];
-const zoneLabel = (tz: string) => { try { const name = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' }).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value; return `${tz.replace(/_/g, ' ')}${name ? ` · ${name}` : ''}`; } catch { return tz; } };
+// "New York · EDT", not "America/New York · EDT": the city is what people recognise, and the menu fits a phone.
+// Where Marines are, when the zone's own city is not it: Okinawa keeps Tokyo's time.
+const ZONE_PLACES: Record<string, string> = { 'Asia/Tokyo': 'Okinawa / Tokyo', 'Pacific/Honolulu': 'Hawaii', 'UTC': 'UTC' };
+const zoneLabel = (tz: string) => { const city = ZONE_PLACES[tz] ?? (tz.split('/').pop() || tz).replace(/_/g, ' '); try { const name = new Intl.DateTimeFormat('en-US', { timeZone: tz, timeZoneName: 'short' }).formatToParts(new Date()).find((p) => p.type === 'timeZoneName')?.value; return name && name !== city ? `${city} · ${name}` : city; } catch { return city; } };
 const timeZoneOptions = (current: string) => [...new Set([...ZONES, ...(current ? [current] : [])])].map((tz) => ({ value: tz, label: zoneLabel(tz) }));
 
 function Profile() {
@@ -68,10 +72,10 @@ function Profile() {
           <Field label="First name" error={errors.first_name}><Input value={form.first_name} onChange={(e) => setForm({ ...form, first_name: e.target.value })} /></Field>
           <Field label="Last name" error={errors.last_name}><Input value={form.last_name} onChange={(e) => setForm({ ...form, last_name: e.target.value })} /></Field>
           <Field label="MI"><Input value={form.middle_initial} maxLength={4} onChange={(e) => setForm({ ...form, middle_initial: e.target.value })} /></Field>
-          <Field label="Rank" hint="decides JEPES vs FITREP" error={errors.rank_id}><Select value={form.rank_id || '__none'} onValueChange={(v) => setForm({ ...form, rank_id: v === '__none' ? '' : v })} options={[{ value: '__none', label: 'Not set' }, ...(org?.ranks || []).map((r) => ({ value: r.id, label: `${r.abbr} · ${r.name}` }))]} /></Field>
+          <Field label="Rank" hint="sets JEPES or FITREP" error={errors.rank_id}><Select value={form.rank_id || '__none'} onValueChange={(v) => setForm({ ...form, rank_id: v === '__none' ? '' : v })} options={[{ value: '__none', label: 'Not set' }, ...(org?.ranks || []).map((r) => ({ value: r.id, label: `${r.abbr} · ${r.name}` }))]} /></Field>
           <Field label="MOS"><Input value={form.mos} onChange={(e) => setForm({ ...form, mos: e.target.value })} /></Field>
           <Field label="EAS"><Input type="date" value={form.eas} onChange={(e) => setForm({ ...form, eas: e.target.value })} /></Field>
-          <Field label="Time zone" hint="decides your today and what is overdue" error={errors.timezone}>
+          <Field label="Time zone" className="col-span-2" hint="decides your today and what is overdue" error={errors.timezone}>
             <Select value={form.timezone || '__instance'} onValueChange={(v) => setForm({ ...form, timezone: v === '__instance' ? '' : v })}
               options={[{ value: '__instance', label: `Unit default (${zoneLabel(identity!.instance.timezone || '')})` }, ...timeZoneOptions(form.timezone)]} />
           </Field>
@@ -155,7 +159,7 @@ function Security() {
         <ul className="space-y-1.5">{(sessions?.sessions || []).map((s: any) => <li key={s.id} className="flex items-center justify-between gap-2 rounded-md border border-line px-3 py-2 text-sm"><span><span className="flex items-center gap-2 text-ink">{s.current ? <Badge tone="accent">This device</Badge> : null}<span className="truncate">{describeAgent(s.user_agent)}</span></span><span className="block text-2xs text-ink-3">{s.method} · {s.ip || 'unknown IP'} · active {timeAgo(s.last_used_at || s.created_at)}</span></span>{!s.current && <Button size="xs" variant="ghost" onClick={async () => { try { await api.revokeSession(s.id); refetchSessions(); } catch (e) { toast.error(api.errorText(e)); } }}>Sign out</Button>}</li>)}</ul>
       </Panel>
       <Panel className="lg:col-span-2" title="Who has looked at your record" subtitle="Every open of your data by someone else" padded={false}>
-        {!audit?.length ? <EmptyState icon={ShieldCheck} title="Nobody but you" description="Leaders opening your shared records will show up here." /> : <Table head={<><th className="w-40">When</th><th className="w-40">Who</th><th>What</th></>}>{audit.map((r: any) => <tr key={r.id}><td className="fig text-xs text-ink-3">{new Date(r.at).toLocaleString()}</td><td className="text-xs">{r.rank_abbr || ''} {r.last_name || 'System'}</td><td className="text-xs text-ink">{humanize(r.action)}{r.entity ? ` · ${r.entity}` : ''}{r.detail ? <span className="text-ink-3"> · {r.detail}</span> : ''}</td></tr>)}</Table>}
+        {!audit?.length ? <EmptyState icon={ShieldCheck} title="Nobody but you" description="Leaders opening your shared records will show up here." /> : <Table head={<><th className="w-40">When</th><th className="w-40">Who</th><th>What</th></>}>{audit.map((r: any) => <tr key={r.id}><td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td><td className="text-xs">{r.rank_abbr || ''} {r.last_name || 'System'}</td><td className="text-xs text-ink">{humanize(r.action)}{r.entity ? ` · ${r.entity}` : ''}{r.detail ? <span className="text-ink-3"> · {r.detail}</span> : ''}</td></tr>)}</Table>}
       </Panel>
 
       <Dialog open={Boolean(totp)} onOpenChange={(o) => { if (!o) setTotp(null); }} title="Set up your authenticator" description="Scan, then enter the code the app shows." size="sm" footer={<><Button variant="ghost" onClick={() => setTotp(null)}>Cancel</Button><Button variant="primary" onClick={confirmTotp} disabled={code.replace(/\s/g, '').length < 6}>Turn on</Button></>}>
@@ -239,7 +243,7 @@ function DataTab() {
     finally { setExporting(null); }
   };
   const exportCsv = async () => { try { const n = await api.downloadFile(api.reportCsvUrl({ period: 'all' }), 'vantage-activities.csv'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } };
-  const exportPdf = async () => { try { const n = await api.downloadFile(api.reportPdfUrl({ period: 'fiscalYear', limit: 12 }), 'vantage-report.pdf'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } };
+  const exportPdf = async () => { try { const n = await api.downloadFile(api.reportPdfUrl({ period: DEFAULT_PERIOD, limit: 12 }), 'vantage-report.pdf'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } };
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Export everything" subtitle="Your record belongs to you" className="lg:col-span-2">

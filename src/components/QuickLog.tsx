@@ -8,11 +8,12 @@ import { useToast } from '@/components/ui/toast';
 import { parseQuickLog, primaryQuantity } from '../../shared/quickLog';
 import { EVAL_AREAS, categoryNames, categoryColor, valueType } from '../../shared/constants';
 import { formatDollarsExact } from '../../shared/metrics';
-import { strength, weaknesses, composeBullet } from '../../shared/bullets';
+import { strength } from '../../shared/bullets';
+import { coachEntry } from '../../shared/writer/coach';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { AiAction, ModelPicker } from '@/components/AiPanel';
-import { useCreateRecord, useIdentity, usePrefs, useTrack, useMetrics } from '@/lib/queries';
+import { useCreateRecord, useDeleteRecord, useIdentity, usePrefs, useTrack, useMetrics } from '@/lib/queries';
 import { draftKey, readDraft, writeDraft } from '@/lib/drafts';
 import { errorText, isOffline } from '@/lib/api';
 import { outbox } from '@/lib/outbox';
@@ -27,6 +28,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
   const prefs = usePrefs();
   const toast = useToast();
   const create = useCreateRecord('activities');
+  const remove = useDeleteRecord('activities');
   const { pending } = useContext(OutboxContext);
   const [text, setText] = useState(initialText);
   const [expanded, setExpanded] = useState(false);
@@ -55,12 +57,13 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     if (!parsed) return null;
     const { quantity, unit } = primaryQuantity(parsed.quantities);
     return {
-      title: parsed.title, date: format(parsed.date, 'yyyy-MM-dd'), category: parsed.category, eval_area: parsed.eval_area, quantity, unit_label: unit,
-      dollar_amount: parsed.dollar_amount, dollar_type: valueType(parsed.dollar_type, cfg) ? parsed.dollar_type : fallbackType, system: parsed.system || '', organization: '', result: '', notes: '', status: 'completed',
+      // Save the area the select shows: the parser only knows JEPES names, and a Sgt's package reads FITREP ones.
+      title: parsed.title, date: format(parsed.date, 'yyyy-MM-dd'), category: parsed.category, eval_area: mapAreaToTrack(parsed.eval_area, track), quantity, unit_label: unit,
+      dollar_amount: parsed.dollar_amount, dollar_type: valueType(parsed.dollar_type, cfg) ? parsed.dollar_type : fallbackType, system: parsed.system || '', organization: '', result: parsed.result || '', notes: '', status: 'completed',
       visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null,
       ...overrides,
     } as Record<string, any>;
-  }, [parsed, overrides, prefs.defaultVisibility, identity?.homeUnitId, cfg, fallbackType]);
+  }, [parsed, overrides, prefs.defaultVisibility, identity?.homeUnitId, cfg, fallbackType, track]);
 
   const set = (k: string) => (v: unknown) => setOverrides((o) => ({ ...o, [k]: v }));
   const setEvent = (k: string) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) => set(k)(e.target.value);
@@ -81,7 +84,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     setSaving(true);
     const body = payload()!;
     try {
-      await create.mutateAsync(body);
+      const saved = await create.mutateAsync(body) as { id?: string } | undefined;
       capture.current?.completed({
         had_measure: body.quantity != null || body.dollar_amount != null,
         had_outcome: Boolean(record.result),
@@ -89,7 +92,8 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
         source: aiUsed ? 'ai_draft' : 'manual',
       });
       capture.current = null;
-      toast.success('Activity logged.');
+      // A slip of the thumb is one tap to take back: the entry goes to the recycle bin, as a delete does.
+      toast.success('Activity logged.', saved?.id ? { label: 'Undo', onClick: () => { remove.mutateAsync(saved.id!).then(() => toast.info('Entry removed. It is in the recycle bin for 30 days.')).catch((e) => toast.error(errorText(e))); } } : undefined);
       writeDraft(key, null);
       onOpenChange(false);
     } catch (err) {
@@ -112,7 +116,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
       if (out[src] != null && out[src] !== '') next[dst] = out[src];
     }
     if (categoryNames(cfg).includes(out.category)) next.category = out.category;
-    if (EVAL_AREAS.includes(out.evaluation_area)) next.eval_area = out.evaluation_area;
+    if (EVAL_AREAS.includes(out.evaluation_area)) next.eval_area = mapAreaToTrack(out.evaluation_area, track);
     if (valueType(out.dollar_type, cfg)) next.dollar_type = out.dollar_type;
     setOverrides((o) => ({ ...o, ...next }));
     setExpanded(true);
@@ -121,7 +125,8 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
   };
 
   const s = record ? strength(record) : 0;
-  const gaps = record ? weaknesses(record) : [];
+  // The bullet as the narrative will write it, and the reviewer's notes for it, while it is being typed.
+  const coach = useMemo(() => (record ? coachEntry(record) : null), [record]);
   const offline = typeof navigator !== 'undefined' && !navigator.onLine;
 
   return (
@@ -166,8 +171,13 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
             </div>
             <div className="card p-4">
               <div className="mb-2 flex items-center justify-between"><span className="eyebrow">Bullet preview</span><span className="flex items-center gap-1" aria-label={`Strength ${s} of 4`}>{[0, 1, 2, 3].map((i) => <span key={i} className={cn('h-1.5 w-5 rounded-full', i < s ? 'bg-accent' : 'bg-surface-3')} />)}<span className="fig ml-1 text-2xs text-ink-3">{s}/4</span></span></div>
-              <p className="flex items-start gap-2 text-base leading-relaxed text-ink"><Dot color={categoryColor(record!.category, cfg)} className="mt-2" /><span>{composeBullet(record!)}</span></p>
-              {gaps.length > 0 && <p className="mt-2 flex items-start gap-1.5 text-xs leading-relaxed text-ink-3"><Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-accent" /><span>To strengthen: {gaps.join(' · ')}</span></p>}
+              <p className="flex items-start gap-2 text-base leading-relaxed text-ink"><Dot color={categoryColor(record!.category, cfg)} className="mt-2" /><span>{coach!.bullet}</span></p>
+              {coach!.held && <p className="mt-2 rounded-md bg-warn/10 px-2.5 py-1.5 text-xs leading-relaxed text-ink">{coach!.held} It is saved to your record, and held out of your evaluation input.</p>}
+              {coach!.notes.length > 0 && (
+                <ul className="mt-2 space-y-1 text-xs leading-relaxed text-ink-3">
+                  {coach!.notes.slice(0, 3).map((n) => <li key={n.code} className="flex items-start gap-1.5"><Sparkles className="mt-0.5 h-3 w-3 shrink-0 text-accent" aria-hidden /><span><span className="font-medium text-ink-2">{n.message}.</span> {n.advice}</span></li>)}
+                </ul>
+              )}
               {record!.dollar_amount ? <p className="fig mt-2 text-2xs text-ink-3">Recorded to the cent as {formatDollarsExact(Number(String(record!.dollar_amount).replace(/[$,]/g, '')) || 0)}</p> : null}
             </div>
           </>

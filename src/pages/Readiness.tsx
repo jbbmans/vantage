@@ -11,7 +11,7 @@ import { fitrepCoverage, recommendFitrep, daysUntil, FITREP_SECTIONS } from '../
 import { EVAL_REFERENCES, EVAL_VERIFIED, REC_KINDS } from '../../shared/evalRefs';
 import { RIFLE_QUALS, MCMAP_BELTS, DEGREES, PME_STATUS } from '../../shared/constants';
 import { areaBalance } from '../../shared/narrative';
-import { areasFor } from '../../shared/evaluation';
+import { areasFor, areaAmong } from '../../shared/evaluation';
 import { humanize, cn } from '@/lib/utils';
 
 const STATE_TONE: Record<string, string> = { top: 'text-good', solid: 'text-ink', attention: 'text-warn', missing: 'text-ink-3', external: 'text-info' };
@@ -31,7 +31,8 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
   const submit = () => save.mutate(Object.fromEntries(['pft_score', 'cft_score', 'rifle_qual', 'mcmap_belt', 'ceus', 'college_credits', 'degree', 'pme_complete', 'cmd_character', 'cmd_mos', 'cmd_leadership', 'fitrep_period_end'].map((k) => [k, form[k] === '' || form[k] == null ? null : form[k]])));
 
   const mine = useMemo(() => (activities || []).filter((a) => a.user_id === identity?.user.id), [activities, identity?.user.id]);
-  const stats = useMemo(() => ({ total: mine.length, withOutcome: mine.filter((a) => a.result).length, thinAreas: areaBalance(mine as never, areasFor('jepes')).filter((b) => b.count === 0).map((b) => b.area) }), [mine]);
+  // An entry keeps the area name of the track it was logged under; JEPES balance reads each by its JEPES name.
+  const stats = useMemo(() => ({ total: mine.length, withOutcome: mine.filter((a) => a.result).length, thinAreas: areaBalance(mine.map((a) => ({ ...a, eval_area: areaAmong(a.eval_area, areasFor('jepes')) })) as never, areasFor('jepes')).filter((b) => b.count === 0).map((b) => b.area) }), [mine]);
   const profile = useMemo(() => ({ ...(readiness || {}), ...Object.fromEntries(Object.entries(form).map(([k, v]) => [k, v === '' ? null : v])) }), [readiness, form]);
   const est = useMemo(() => estimate(profile), [profile]);
   const coverage = useMemo(() => fitrepCoverage(mine), [mine]);
@@ -61,7 +62,7 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
               <Field label="Rifle (ARQ)"><Select value={form.rifle_qual || ''} onValueChange={set('rifle_qual')} options={RIFLE_QUALS.map((r) => ({ value: r, label: r }))} placeholder="Not entered" /></Field>
               <Field label="MCMAP belt"><Select value={form.mcmap_belt || ''} onValueChange={set('mcmap_belt')} options={MCMAP_BELTS.map((r) => ({ value: r, label: r }))} placeholder="Not entered" /></Field>
               <Field label="PME for grade"><Select value={form.pme_complete || ''} onValueChange={set('pme_complete')} options={PME_STATUS.map((r) => ({ value: r, label: humanize(r) }))} placeholder="Not entered" /></Field>
-              {track === 'fitrep' ? <Field label="Reporting period ends" hint={daysToEnd != null ? `${daysToEnd} days` : undefined}><Input type="date" value={form.fitrep_period_end || ''} onChange={(e) => set('fitrep_period_end')(e.target.value)} /></Field> : <Field label="MarineNet CEUs"><NumberInput value={form.ceus || ''} onChange={(e) => set('ceus')(e.target.value)} /></Field>}
+              {track === 'fitrep' ? <Field label="Reporting period ends" hint={daysToEnd == null ? undefined : daysToEnd < 0 ? `Ended ${-daysToEnd}d ago` : daysToEnd === 0 ? 'Ends today' : `${daysToEnd}d left`}><Input type="date" value={form.fitrep_period_end || ''} onChange={(e) => set('fitrep_period_end')(e.target.value)} /></Field> : <Field label="MarineNet CEUs"><NumberInput value={form.ceus || ''} onChange={(e) => set('ceus')(e.target.value)} /></Field>}
               {track === 'jepes' && <>
                 <Field label="College credits"><NumberInput value={form.college_credits || ''} onChange={(e) => set('college_credits')(e.target.value)} /></Field>
                 <Field label="Degree"><Select value={form.degree || ''} onValueChange={set('degree')} options={DEGREES.map((r) => ({ value: r, label: humanize(r) }))} placeholder="None" /></Field>

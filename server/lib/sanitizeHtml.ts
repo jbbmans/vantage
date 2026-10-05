@@ -44,6 +44,10 @@ export function sanitizeEmailHtml(input: string, limits: { maxBytes?: number } =
   let blockedRemoteImages = false;
   let blockedActiveContent = false;
   const open: string[] = [];
+  // How many of each tag are open, so a closing tag with nothing to close costs nothing, and the lowercase copy
+  // the void-content search reads: made once, not once per tag (which made a long message quadratic).
+  const depth = new Map<string, number>();
+  const lower = source.toLowerCase();
 
   let i = 0;
   while (i < source.length) {
@@ -74,7 +78,7 @@ export function sanitizeEmailHtml(input: string, limits: { maxBytes?: number } =
       if (tag === 'script' || tag === 'iframe' || tag === 'object' || tag === 'embed' || tag === 'form') blockedActiveContent = true;
       if (closing) { i = gt + 1; continue; }
       // Skip the element and everything it contains.
-      const close = source.toLowerCase().indexOf(`</${tag}`, gt);
+      const close = lower.indexOf(`</${tag}`, gt);
       i = close === -1 ? source.length : (source.indexOf('>', close) + 1 || source.length);
       continue;
     }
@@ -101,8 +105,11 @@ export function sanitizeEmailHtml(input: string, limits: { maxBytes?: number } =
     }
 
     if (closing) {
-      const at = open.lastIndexOf(tag);
-      if (at !== -1) { for (let k = open.length - 1; k >= at; k -= 1) out += `</${open[k]}>`; open.length = at; }
+      const at = depth.get(tag) ? open.lastIndexOf(tag) : -1;
+      if (at !== -1) {
+        for (let k = open.length - 1; k >= at; k -= 1) { out += `</${open[k]}>`; depth.set(open[k], (depth.get(open[k]) || 1) - 1); }
+        open.length = at;
+      }
       i = gt + 1;
       continue;
     }
@@ -121,9 +128,12 @@ export function sanitizeEmailHtml(input: string, limits: { maxBytes?: number } =
       rendered += ` ${key}="${escapeAttr(value)}"`;
     }
     if (SELF_CLOSING.has(tag)) { out += `${rendered}>`; i = gt + 1; continue; }
+    // Past any depth a real message reaches, further nesting is dropped rather than tracked.
+    if (open.length >= MAX_DEPTH) { i = gt + 1; continue; }
     rendered += '>';
     out += rendered;
     open.push(tag);
+    depth.set(tag, (depth.get(tag) || 0) + 1);
     i = gt + 1;
   }
 
@@ -131,14 +141,38 @@ export function sanitizeEmailHtml(input: string, limits: { maxBytes?: number } =
   return { html: out, blockedRemoteImages, blockedActiveContent };
 }
 
-/** A readable plain-text rendering, for search and for a preview line. */
-export function htmlToText(html: string): string {
-  return String(html || '')
-    .replace(/<(script|style)[\s\S]*?<\/\1>/gi, ' ')
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|h[1-6]|blockquote|table)>/gi, '\n\n')
-    .replace(/<\/(tr|li)>/gi, '\n')
-    .replace(/<[^>]+>/g, ' ')
+const MAX_DEPTH = 256;
+const BREAK_AFTER = new Set(['p', 'div', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6', 'blockquote', 'table']);
+
+/**
+ * A readable plain-text rendering, for search and for a preview line. One pass forward: the patterns this replaces
+ * searched to the end of the text from every unclosed "<script" or "<", which made a crafted message quadratic.
+ */
+export function htmlToText(html: string, limits: { maxBytes?: number } = {}): string {
+  const source = String(html || '').slice(0, limits.maxBytes ?? 512 * 1024);
+  const lower = source.toLowerCase();
+  let out = '';
+  let i = 0;
+  while (i < source.length) {
+    const lt = source.indexOf('<', i);
+    if (lt === -1) { out += source.slice(i); break; }
+    out += source.slice(i, lt);
+    const gt = source.indexOf('>', lt + 1);
+    if (gt === -1) { out += source.slice(lt); break; }
+    const name = /^(\/?)\s*([a-z][a-z0-9]*)/.exec(lower.slice(lt + 1, Math.min(gt, lt + 40)));
+    const tag = name?.[2] || '';
+    const closing = name?.[1] === '/';
+    i = gt + 1;
+    if (!closing && (tag === 'script' || tag === 'style')) {
+      const close = lower.indexOf(`</${tag}>`, gt);
+      if (close !== -1) i = close + tag.length + 3;
+      out += ' ';
+    } else if (tag === 'br' && !closing) out += '\n';
+    else if (closing && BREAK_AFTER.has(tag)) out += '\n\n';
+    else if (closing && (tag === 'tr' || tag === 'li')) out += '\n';
+    else out += ' ';
+  }
+  return out
     .replace(/&nbsp;/gi, ' ')
     .replace(/&amp;/gi, '&')
     .replace(/&lt;/gi, '<')

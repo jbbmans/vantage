@@ -60,6 +60,25 @@ export function contributionCounts(ctx: AppContext, userId: string, w: Window, u
   };
 }
 
+/**
+ * Case-history credit for the evaluation narrative: documents researched, outcomes verified and cases resolved in the
+ * window, and the procedures they were worked under, most worked first. The same counts as the Record page.
+ */
+export function caseworkFor(ctx: AppContext, userId: string, w: Window, unitId: string | null = null) {
+  const c = contributionCounts(ctx, userId, w, unitId);
+  const [lo, hi] = bounds(ctx.config.timezone, w);
+  const units = unitId == null ? null : JSON.stringify([unitId]);
+  const rows = ctx.db.prepare(
+    `SELECT wi.procedure_key AS key, COUNT(DISTINCT e.work_item_id) AS n FROM work_events e JOIN work_items wi ON wi.id = e.work_item_id
+      WHERE e.actor_id = ? AND e.occurred_at BETWEEN ? AND ?${units ? ` AND ${SHARED}` : ''} AND e.kind IN (${RESEARCH}) AND wi.procedure_key IS NOT NULL
+      GROUP BY wi.procedure_key ORDER BY n DESC`
+  ).all(userId, lo, hi, ...(units ? [units] : [])) as Array<{ key: string; n: number }>;
+  return {
+    researched: c.documents_researched, verified: c.verified_outcomes, resolved: c.resolved_work,
+    procedures: rows.filter((r) => PROCEDURES[r.key]).map((r) => PROCEDURES[r.key].short),
+  };
+}
+
 type ItemRow = WorkItemRow & { project_name?: string | null };
 
 export function assignedWork(ctx: AppContext, user: SessionUser) {

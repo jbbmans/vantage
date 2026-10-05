@@ -57,7 +57,7 @@ export default function Help() {
   const unrecorded = VIDEOS.filter((v) => !v.src).length;
 
   return (
-    <div className="page max-w-5xl">
+    <div className="page page-narrow">
       <PageHeader
         eyebrow="Field guide"
         title="How Vantage works"

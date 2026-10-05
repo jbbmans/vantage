@@ -9,7 +9,10 @@ const PREDICTABLE_TERMS = [
   'administrator', 'admin', 'changeme', 'letmein', 'marinecorps', 'password', 'qwerty', 'semperfi', 'temporary',
   'usmc', 'vantage', 'welcome',
 ];
-const SIMPLE_SUFFIX = /^(?:\d{1,8}|19\d{2}|20\d{2}|[!@#$%^&*._-]+)*$/;
+// What may surround a predictable term and still leave it predictable: digits and symbols only (a year, a count, a
+// "!"). One flat character class: a nested repetition here backtracked exponentially on a long run of digits, so a
+// single crafted password stalled the server's event loop for every caller (and the browser's, as you typed).
+const SIMPLE_SUFFIX = /^[\d!@#$%^&*._-]*$/;
 
 export function passwordProblem(value: unknown): string | null {
   if (value === undefined || value === null || value === '') return 'Required.';

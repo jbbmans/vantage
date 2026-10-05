@@ -173,13 +173,14 @@ export function EmptyState({ icon: Icon, title, description, action, className }
 
 export function Stat({ label, value, hint, tone, to, icon: Icon }: { label: string; value: React.ReactNode; hint?: React.ReactNode; tone?: 'accent' | 'good' | 'warn' | 'bad'; to?: string; icon?: React.ComponentType<{ className?: string }> }) {
   const body = (
-    <div className="card card-hover flex h-full min-w-0 flex-col justify-between p-5">
+    <div className="card card-hover flex h-full min-w-0 flex-col justify-between p-4 sm:p-5">
       <div className="flex items-start justify-between gap-2">
-        <p className="truncate text-sm font-medium text-ink-2">{label}</p>
+        {/* Two lines before an ellipsis: three cards across a phone leave a label about ten characters. */}
+        <p className="line-clamp-2 text-sm font-medium leading-snug text-ink-2">{label}</p>
         {Icon && <span className="flex h-7 w-7 items-center justify-center rounded-lg bg-surface-2 text-ink-3"><Icon className="h-3.5 w-3.5 shrink-0" /></span>}
       </div>
       <p className={cn('stat-value mt-5', tone === 'accent' && 'text-accent', tone === 'good' && 'text-good', tone === 'warn' && 'text-warn', tone === 'bad' && 'text-bad')}>{value}</p>
-      {hint && <p className="mt-1.5 truncate text-xs text-ink-3">{hint}</p>}
+      {hint && <p className="mt-1.5 line-clamp-2 text-xs text-ink-3">{hint}</p>}
     </div>
   );
   return to ? <a href={to} onClick={(e) => { e.preventDefault(); window.dispatchEvent(new CustomEvent('vantage:navigate', { detail: to })); }} className="block h-full">{body}</a> : body;

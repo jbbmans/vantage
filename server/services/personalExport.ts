@@ -109,7 +109,9 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string): { buffe
   entries.push({ name: 'memberships.csv', data: rowsToCsv(archive.memberships.map(flat)) });
   entries.push({ name: 'roles.csv', data: rowsToCsv(archive.roles.map(flat)) });
   for (const [table, rows] of Object.entries(archive.records)) {
-    if (table === 'activities') entries.push({ name: 'activities.csv', data: `\uFEFF${rowsToCsv(rows.map((r) => ({ ...activityToCsvRow(r), 'Visibility': r.visibility, 'Unit': r.unit_id, 'Deleted at': r.deleted_at })), [...ACTIVITY_CSV_COLUMNS.map((c) => c.header), 'Visibility', 'Unit', 'Deleted at'])}` });
+    // Visibility is already one of the import columns, and a bare "Unit" is an import alias for the action
+    // unit; either would make the person's own export unimportable (duplicate or ambiguous headers).
+    if (table === 'activities') entries.push({ name: 'activities.csv', data: `\uFEFF${rowsToCsv(rows.map((r) => ({ ...activityToCsvRow(r), 'Unit ID': r.unit_id, 'Deleted at': r.deleted_at })), [...ACTIVITY_CSV_COLUMNS.map((c) => c.header), 'Unit ID', 'Deleted at'])}` });
     else entries.push({ name: `${table}.csv`, data: rowsToCsv(rows.map(flat)) });
   }
   entries.push({ name: 'attachments.csv', data: rowsToCsv(archive.attachments.map(flat)) });

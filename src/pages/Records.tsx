@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Download, Upload, Search, LayoutList, LayoutGrid, Lock, Users, AlertTriangle, RotateCcw } from 'lucide-react';
+import { Plus, Download, Upload, Search, LayoutList, LayoutGrid, Lock, Users, AlertTriangle, RotateCcw, SlidersHorizontal, Trash2 } from 'lucide-react';
 import { Panel, Button, Input, Select, Segmented, EmptyState, Badge, Skeleton, Tooltip } from '@/components/ui/primitives';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { ConfirmDialog } from '@/components/ui/Dialog';
@@ -14,7 +14,7 @@ import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
 import { categoryNames } from '../../shared/constants';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
-import { activitiesInRange, rangeForPeriod, formatDollars, formatNumber, aggregateMetrics } from '../../shared/metrics';
+import { DEFAULT_PERIOD, activitiesInRange, rangeForPeriod, formatDollars, formatNumber, aggregateMetrics } from '../../shared/metrics';
 import { findDuplicates } from '../../shared/duplicates';
 import { strength } from '../../shared/bullets';
 import { cn } from '@/lib/utils';
@@ -34,7 +34,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
   const remove = useDeleteRecord('activities');
   const restore = useRestoreRecord('activities');
   const [q, setQ] = useState('');
-  const [period, setPeriod] = useParam('period', prefs.reportPeriod || 'fiscalYear');
+  const [period, setPeriod] = useParam('period', prefs.reportPeriod || DEFAULT_PERIOD);
   const [from] = useParam('from'); const [to] = useParam('to');
   const [category, setCategory] = useParam('category', 'all');
   const [area, setArea] = useParam('area', 'all');
@@ -43,6 +43,8 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
   const rows = quality === 'deleted' ? deletedRows : liveRows;
   const [owner, setOwner] = useParam('owner', 'all');
   const [sort, setSort] = useState<Sort>('date');
+  const [showFilters, setShowFilters] = useState(false);
+  const activeFilters = [category, area, quality, owner].filter((v) => v !== 'all').length;
   const [view, setView] = useState<'list' | 'cards'>(() => (window.innerWidth < 640 ? 'cards' : 'list'));
   const [editing, setEditing] = useState<ActivityDraft | null>(null);
   const [coaching, setCoaching] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
@@ -90,7 +92,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
   const restoreRow = async (a: any) => { try { await restore.mutateAsync(a.id); toast.success('Entry restored.'); } catch (e) { toast.error(api.errorText(e)); } };
 
   const qualityOptions = [
-    { value: 'all', label: 'All entries' }, { value: 'needs-detail', label: 'Missing an outcome' }, { value: 'untagged', label: `Untagged ${trackMeta(track).areaLabel.toLowerCase()}` },
+    { value: 'all', label: 'All entries' }, { value: 'needs-detail', label: 'Missing an outcome' }, { value: 'untagged', label: `No ${trackMeta(track).areaLabel}` },
     { value: 'no-numbers', label: 'No quantity or value' }, { value: 'duplicates', label: `Possible duplicates${dupIds.size ? ` (${dupIds.size})` : ''}` },
     { value: 'deleted', label: 'Recycle bin (30 days)' },
   ];
@@ -111,13 +113,19 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
       <div className="card mb-3 p-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search records" className="pl-8" placeholder="Title, result, or system…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-          {from && to ? <Badge tone="accent">{from === to ? from : `${from} → ${to}`}<button type="button" className="ml-1 hover:text-ink" onClick={() => navigate('/record/activities')} aria-label="Clear date filter">×</button></Badge> : <PeriodSelect value={period} onChange={(v) => { setPeriod(v); savePrefs.mutate({ reportPeriod: v }); }} className="w-40" />}
-          <Select aria-label="Category" className="w-44" value={category} onValueChange={setCategory} options={[{ value: 'all', label: 'All categories' }, ...categoryNames(cfg).map((c) => ({ value: c, label: c }))]} />
-          <Select aria-label={trackMeta(track).areaLabel} className="w-48" value={area} onValueChange={setArea} options={[{ value: 'all', label: `All ${trackMeta(track).areaLabel.toLowerCase()}s` }, ...areaOptions(track)]} />
-          <Select aria-label="Quality filter" className="w-52" value={quality} onValueChange={setQuality} options={qualityOptions} />
-          {hasShared && <Select aria-label="Owner" className="w-36" value={owner} onValueChange={setOwner} options={[{ value: 'all', label: 'Everyone' }, { value: 'mine', label: 'Mine' }, { value: 'unit', label: 'Shared with me' }]} />}
-          <Select aria-label="Sort" className="w-36" value={sort} onValueChange={(v) => setSort(v as Sort)} options={[{ value: 'date', label: 'Newest first' }, { value: 'value', label: 'Highest value' }, { value: 'strength', label: 'Strongest' }, { value: 'updated', label: 'Recently edited' }]} />
-          <Segmented size="sm" label="Layout" value={view} onChange={setView} options={[{ value: 'list', label: <LayoutList className="h-4 w-4" />, ariaLabel: 'List' }, { value: 'cards', label: <LayoutGrid className="h-4 w-4" />, ariaLabel: 'Cards' }]} />
+          {/* On a phone the filters fold behind one button, so the entries are on the first screen, not under six menus. */}
+          <Button className="sm:hidden" onClick={() => setShowFilters((v) => !v)} aria-expanded={showFilters} aria-controls="record-filters">
+            <SlidersHorizontal className="h-4 w-4" />Filters{activeFilters ? <span className="fig ml-0.5 rounded-full bg-accent px-1.5 text-2xs text-accent-ink">{activeFilters}</span> : null}
+          </Button>
+          <div id="record-filters" className={cn('max-sm:grid max-sm:w-full max-sm:grid-cols-2 max-sm:gap-2 sm:contents', !showFilters && 'max-sm:hidden')}>
+            {from && to ? <Badge tone="accent">{from === to ? from : `${from} → ${to}`}<button type="button" className="ml-1 hover:text-ink" onClick={() => navigate('/record/activities')} aria-label="Clear date filter">×</button></Badge> : <PeriodSelect value={period} onChange={(v) => { setPeriod(v); savePrefs.mutate({ reportPeriod: v }); }} className="max-sm:w-full sm:w-40" />}
+            <Select aria-label="Category" className="max-sm:w-full sm:w-44" value={category} onValueChange={setCategory} options={[{ value: 'all', label: 'All categories' }, ...categoryNames(cfg).map((c) => ({ value: c, label: c }))]} />
+            <Select aria-label={trackMeta(track).areaLabel} className="max-sm:w-full sm:w-48" value={area} onValueChange={setArea} options={[{ value: 'all', label: `All ${trackMeta(track).areaLabel}s` }, ...areaOptions(track)]} />
+            <Select aria-label="Quality filter" className="max-sm:w-full sm:w-52" value={quality} onValueChange={setQuality} options={qualityOptions} />
+            {hasShared && <Select aria-label="Owner" className="max-sm:w-full sm:w-36" value={owner} onValueChange={setOwner} options={[{ value: 'all', label: 'Everyone' }, { value: 'mine', label: 'Mine' }, { value: 'unit', label: 'Shared with me' }]} />}
+            <Select aria-label="Sort" className="max-sm:w-full sm:w-36" value={sort} onValueChange={(v) => setSort(v as Sort)} options={[{ value: 'date', label: 'Newest first' }, { value: 'value', label: 'Highest value' }, { value: 'strength', label: 'Strongest' }, { value: 'updated', label: 'Recently edited' }]} />
+            <Segmented size="sm" label="Layout" className="max-sm:justify-self-start" value={view} onChange={setView} options={[{ value: 'list', label: <LayoutList className="h-4 w-4" />, ariaLabel: 'List' }, { value: 'cards', label: <LayoutGrid className="h-4 w-4" />, ariaLabel: 'Cards' }]} />
+          </div>
         </div>
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-ink-3"><span className="fig text-ink">{filtered.length}</span> entries · <span className="fig text-ink">{formatDollars(metrics.totalDollars)}</span> summable · <span className="fig text-ink">{metrics.withOutcome}</span> with an outcome</p>
@@ -156,7 +164,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
                   <td className="fig text-right text-xs">{a.quantity != null ? `${formatNumber(a.quantity)} ${a.unit_label || ''}` : ''}</td>
                   <td className="fig text-right text-xs">{a.dollar_amount != null ? formatDollars(a.dollar_amount) : ''}</td>
                   <td><Tooltip content={a.visibility === 'unit' ? `Shared with ${unitName(identity, a.unit_id, org)}` : 'Only you'}><span className="inline-flex text-ink-3">{a.visibility === 'unit' ? <Users className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}</span></Tooltip></td>
-                  <td className="text-right"><span className="inline-flex items-center gap-1"><Tooltip content={`Bullet strength ${s}/5`}><span className={cn('fig text-2xs', s >= 4 ? 'text-good' : s >= 2 ? 'text-ink-3' : 'text-warn')}>{s}/5</span></Tooltip>{a.deleted_at ? <Button size="xs" variant="soft" onClick={() => restoreRow(a)}><RotateCcw className="h-3 w-3" />Restore</Button> : canEditRow(a) && <><Button size="xs" variant="ghost" onClick={() => setEditing(toActivityDraft(a))}>Edit</Button><Button size="xs" variant="ghost" className="text-ink-3 hover:text-bad" onClick={() => setConfirm(a)} aria-label="Delete">×</Button></>}</span></td>
+                  <td className="text-right"><span className="inline-flex items-center gap-1"><Tooltip content={`Bullet strength ${s}/5`}><span className={cn('fig text-2xs', s >= 4 ? 'text-good' : s >= 2 ? 'text-ink-3' : 'text-warn')}>{s}/5</span></Tooltip>{a.deleted_at ? <Button size="xs" variant="soft" onClick={() => restoreRow(a)}><RotateCcw className="h-3 w-3" />Restore</Button> : canEditRow(a) && <><Button size="xs" variant="ghost" onClick={() => setEditing(toActivityDraft(a))}>Edit</Button><Button size="xs" variant="ghost" className="text-ink-3 hover:text-bad" onClick={() => setConfirm(a)} aria-label={`Delete ${a.title}`}><Trash2 className="h-3.5 w-3.5" /></Button></>}</span></td>
                 </tr>
               );
             })}

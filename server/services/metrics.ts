@@ -131,11 +131,12 @@ export function metricsReport(ctx: AppContext, user: SessionUser, scope: Scope, 
   const buckets = monthlyBuckets(opts.from, opts.to);
 
   const dimensionTotals = (dimension: string): MetricBreakdown[] => {
-    const values = new Set<string>();
-    for (const m of selectMeasures(measures, base)) values.add(m.dimensions[dimension] ?? 'Unassigned');
+    // No value and the literal "Unassigned" (what an unknown area is saved as) are one bucket, so the rows sum to the headline.
+    const valueOf = (m: Measure) => m.dimensions[dimension] ?? 'Unassigned';
+    const values = new Set(selectMeasures(measures, base).map(valueOf));
     return [...values].sort().map((value) => ({
       dimension, value,
-      totals: totals(measures, { ...base, filters: { ...base.filters, [dimension]: value === 'Unassigned' ? null : value } }),
+      totals: totals(measures.filter((m) => valueOf(m) === value), base),
     })).filter((b) => b.totals.length);
   };
 

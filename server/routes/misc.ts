@@ -12,8 +12,9 @@ import { buildAnalysisReport } from '../services/analytics.ts';
 import { renderAnalysisPdf } from '../services/analyticsPdf.ts';
 import { renderReportPdf } from '../services/pdf.ts';
 import { comparePeriods } from '../../shared/delta.ts';
-import { rangeForPeriod } from '../../shared/metrics.ts';
+import { DEFAULT_PERIOD, rangeForPeriod } from '../../shared/metrics.ts';
 import { areasFor } from '../../shared/evaluation.ts';
+import { plain } from '../../shared/writer/realize.ts';
 import { isoDate } from '../../shared/schemas.ts';
 import { rowsToCsv, ACTIVITY_CSV_COLUMNS, activityToCsvRow } from '../../shared/csv.ts';
 import { hydrate } from '../services/records.ts';
@@ -36,10 +37,24 @@ miscRouter.post('/events', wrap((req, res) => {
 }));
 
 const reportQuery = z.object({
-  period: z.string().max(20).default('fiscalYear'), from: z.string().max(10).optional(), to: z.string().max(10).optional(),
+  period: z.string().max(20).default(DEFAULT_PERIOD), from: z.string().max(10).optional(), to: z.string().max(10).optional(),
   user_id: z.string().max(64).optional(), unit_id: z.string().max(64).optional(), style: z.enum(['jepes', 'fitrep', 'resume']).optional(),
   limit: z.coerce.number().int().min(1).max(50).optional(), track: z.enum(['jepes', 'fitrep']).optional(),
+  // How the narrative was written on screen, so the PDF says the same: wording, pins, exclusions, density, length,
+  // or the text itself when it was edited by hand.
+  seed: z.coerce.number().int().min(0).max(1_000_000).optional(), density: z.enum(['auto', 'full', 'compact']).optional(),
+  exclude: z.string().max(4000).optional(), pin: z.string().max(4000).optional(), chars: z.coerce.number().int().min(200).max(5000).optional(),
+  narrative: z.string().max(5000).optional(), format: z.enum(['paragraph', 'bullets']).optional(), spell: z.enum(['0', '1']).optional(),
 });
+
+const keys = (v?: string) => (v ? v.split(',').map((k) => k.trim()).filter(Boolean).slice(0, 200) : undefined);
+const narrativeChoices = (q: z.infer<typeof reportQuery>) => ({ seed: q.seed, density: q.density, exclude: keys(q.exclude), pin: keys(q.pin), chars: q.chars, format: q.format, spell: q.spell === undefined ? undefined : q.spell === '1' });
+/** The narrative as the Marine left it: edited text replaces the written text, plain characters only. */
+const withEdits = <T extends { text: string; length: number; limit: number; fits: boolean }>(n: T, edited?: string): T => {
+  if (!edited) return n;
+  const text = plain(edited).replace(/[^\x20-\x7e\n]/g, '').trim();
+  return { ...n, text, length: text.length, fits: text.length <= n.limit };
+};
 
 function reportTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
   const q = parse(reportQuery, req.query);
@@ -176,7 +191,7 @@ miscRouter.get('/metrics/contributors', wrap((req, res) => {
 
 miscRouter.get('/reports', wrap((req, res) => {
   const { q, userId, unitId } = reportTarget(req);
-  const report = buildReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit, track: q.track });
+  const report = buildReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit, track: q.track, narrative: narrativeChoices(q) });
   res.json(report);
 }));
 
@@ -201,8 +216,8 @@ miscRouter.get('/reports/analysis', wrap((req, res) => {
 miscRouter.get('/reports/analysis.pdf', wrap(async (req, res) => {
   const { q, userId, unitId } = reportTarget(req);
   const report = buildAnalysisReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, track: q.track });
-  const base = buildReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit ?? 12, track: q.track });
-  const pdf = await renderAnalysisPdf({ report, narrative: base.narrative, pkg: base.pkg });
+  const base = buildReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit ?? 12, track: q.track, narrative: narrativeChoices(q) });
+  const pdf = await renderAnalysisPdf({ report, narrative: withEdits(base.narrative, q.narrative), pkg: base.pkg });
   audit(req.ctx, { actor_id: req.user.id, action: 'export_pdf', entity: 'user', entity_id: userId, subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: `analysis; ${report.label}`, ip: clientIp(req) });
   const file = `vantage-analysis-${report.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`;
   res.setHeader('Content-Type', 'application/pdf');
@@ -212,11 +227,11 @@ miscRouter.get('/reports/analysis.pdf', wrap(async (req, res) => {
 
 miscRouter.get('/reports/pdf', wrap(async (req, res) => {
   const { q, userId, unitId } = reportTarget(req);
-  const report = buildReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit ?? 12, track: q.track });
+  const report = buildReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit ?? 12, track: q.track, narrative: narrativeChoices(q) });
   const title = `${report.track === 'fitrep' ? 'FITREP' : 'JEPES'} input`;
   const pdf = await renderReportPdf({
     title, subject: report.subject, unitLine: report.unit ? report.unit.short_name || report.unit.name : '', period: report.label, track: report.track,
-    generatedAt: report.generatedAt, narrative: report.narrative, pkg: report.pkg, metrics: report.metrics, counts: report.counts, awards: report.awards, trainings: report.trainings,
+    generatedAt: report.generatedAt, narrative: withEdits(report.narrative, q.narrative), pkg: report.pkg, metrics: report.metrics, counts: report.counts, awards: report.awards, trainings: report.trainings,
   });
   audit(req.ctx, { actor_id: req.user.id, action: 'export_pdf', entity: 'user', entity_id: userId, subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: report.label, ip: clientIp(req) });
   const file = `vantage-${report.track}-input-${report.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`;

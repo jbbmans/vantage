@@ -21,7 +21,7 @@ test('the owner renames the money metric and adds a value type; forms and stat c
   expect(created.ok(), await created.text()).toBeTruthy();
 
   await page.goto('/');
-  await expect(page.getByRole('button', { name: /Funds, Executed/ })).toBeVisible();
+  await expect(page.getByRole('button', { name: /Funds executed/ })).toBeVisible();
 
   const dialog = await quickLog(page, 'Executed 3 contract modifications worth $5,000 for G-8');
   await dialog.getByRole('button', { name: /Organization, system, notes/ }).click();

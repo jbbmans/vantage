@@ -8,7 +8,7 @@ import {
 import { Button, Input, Select, Badge, EmptyState, Skeleton, Field } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
-import { DateText, PageShell } from '@/components/common';
+import { DateText, DueText, PageShell, dueIn } from '@/components/common';
 import { StageBadge } from '@/components/work';
 import ImportWizard from '@/components/ImportWizard';
 import { useIdentity, useItemThreads, useThreads, invalidateCorrespondence, invalidateWork } from '@/lib/queries';
@@ -33,7 +33,7 @@ const COLUMNS = [
   { key: 'reference', label: 'Document', width: 'w-36' },
   { key: 'title', label: 'What it is', width: '' },
   { key: 'state', label: 'Stage', width: 'w-40' },
-  { key: 'due_date', label: 'Due', width: 'w-24' },
+  { key: 'due_date', label: 'Due', width: 'w-28' },
   { key: 'amount', label: 'Amount', width: 'w-28' },
   { key: 'claimed', label: 'Held by', width: 'w-32' },
 ];
@@ -51,7 +51,8 @@ const DEFAULT_QUERY: Query = { state: '', active: true, claimed: '', q: '', sort
 
 /** The day before today on the viewer's calendar: due on or before it, and still open, is overdue. */
 const yesterday = () => { const d = new Date(); d.setDate(d.getDate() - 1); return isoDay(d); };
-const isOverdue = (row: { due_date?: string | null; state?: string }) => Boolean(row.due_date && row.due_date < todayIso() && !['resolved', 'not_applicable'].includes(String(row.state)));
+const isClosedRow = (row: { state?: string }) => ['resolved', 'not_applicable'].includes(String(row.state));
+const isOverdue = (row: { due_date?: string | null; state?: string }) => Boolean(row.due_date && row.due_date < todayIso() && !isClosedRow(row));
 const PROCEDURE_FILTER = [
   { value: '', label: 'Any procedure' },
   ...PROCEDURE_LIST.map((p) => ({ value: p.key, label: p.short })),
@@ -228,14 +229,15 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
       embedded={embedded}
       eyebrow="Work"
       title="Queue"
-      lede={list.isPending ? 'Loading the queue.' : `${formatNumber(total)} ${total === 1 ? 'item' : 'items'} in this view. You hold ${heldByMe}.`}
+      lede={list.isPending ? 'Loading the queue.' : total ? `${formatNumber(total)} ${total === 1 ? 'item' : 'items'} in this view. ${heldByMe ? `You hold ${formatNumber(heldByMe)}.` : 'You hold none of them.'}` : 'Nothing in this view.'}
       actions={<>
         <Button onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import a spreadsheet</Button>
         <Button onClick={refresh} aria-label="Refresh the queue"><RefreshCw className={cn('h-4 w-4', list.isFetching && 'animate-spin')} />Refresh</Button>
       </>}
     >
 
-      <div className="mb-3 flex flex-wrap items-center gap-2" role="group" aria-label="Whose work">
+      {/* One row that scrolls sideways on a phone, rather than two rows of pills before the first case. */}
+      <div className="scroll-x-quiet -mx-4 mb-3 flex items-center gap-2 overflow-x-auto px-4 sm:mx-0 sm:flex-wrap sm:overflow-visible sm:px-0" role="group" aria-label="Whose work">
         {([
           ['open', 'All open work', { active: true, claimed: '', state: '', overdue: false }],
           ['nobody', 'Open to claim', { active: true, claimed: 'nobody', state: '', overdue: false }],
@@ -244,7 +246,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
           ['resolved', 'Resolved', { active: false, claimed: '', state: 'resolved', overdue: false }],
         ] as const).map(([key, label, patch]) => {
           const on = query.active === patch.active && query.claimed === patch.claimed && query.state === patch.state && query.overdue === patch.overdue;
-          return <Button key={key} size="sm" variant={on ? 'primary' : 'default'} aria-pressed={on} onClick={() => setQuery((q) => ({ ...q, ...patch, offset: 0 }))}>{label}</Button>;
+          return <Button key={key} size="sm" variant={on ? 'primary' : 'default'} className="shrink-0" aria-pressed={on} onClick={() => setQuery((q) => ({ ...q, ...patch, offset: 0 }))}>{label}</Button>;
         })}
       </div>
 
@@ -322,7 +324,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                   </span>
                   <span className="mt-1 block text-sm text-ink">{row.title}</span>
                   <span className="mt-1 flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-ink-3">
-                    {row.due_date && <span className={cn(isOverdue(row) && 'font-medium text-bad')}>{isOverdue(row) ? 'Overdue · ' : ''}Due <DateText value={row.due_date} /></span>}
+                    {row.due_date && <span className={cn(isOverdue(row) && 'font-medium text-bad')}><DueText value={row.due_date} done={isClosedRow(row)} /></span>}
                     {row.amount != null && <span className="fig">{formatDollarsExact(row.amount)}{row.amount_type ? ` ${row.amount_type}` : ''}</span>}
                     {row.claimed_by && <span>{row.claimed_by === identity?.user.id ? 'You have this' : `${[row.holder_rank, row.holder_name].filter(Boolean).join(' ')} has this`}</span>}
                   </span>
@@ -382,8 +384,8 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                             </span>
                           </td>
                           <td className="w-40 truncate px-3"><StageBadge stage={row.stage || row.state} waiting={row.waiting_category} /></td>
-                          <td className={cn('w-24 px-3 text-xs', isOverdue(row) ? 'font-medium text-bad' : 'text-ink-3')}>
-                            <DateText value={row.due_date} fallback="—" />{isOverdue(row) && <span className="block text-2xs uppercase tracking-wide">Overdue</span>}
+                          <td className={cn('w-28 px-3 text-xs', isOverdue(row) ? 'font-medium text-bad' : 'text-ink-3')}>
+                            <DateText value={row.due_date} fallback="—" />{(() => { const near = dueIn(row.due_date, isClosedRow(row)); return near ? <span className={cn('block whitespace-nowrap text-2xs', near.days >= 0 && near.days <= 1 && 'font-medium text-warn')}>{near.words}</span> : null; })()}
                           </td>
                           <td className="fig w-28 px-3 text-right text-xs">{row.amount == null ? '' : formatDollarsExact(row.amount)}</td>
                           <td className="w-32 truncate px-3 text-xs text-ink-3">{row.claimed_by ? (mine ? 'You' : [row.holder_rank, row.holder_name].filter(Boolean).join(' ') || 'Someone else') : '—'}</td>

@@ -7,6 +7,12 @@ import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee,
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
 import { valueType } from '../../shared/constants.ts';
 
+/** A goal that measures a whole unit reads its members' shared entries, so setting one takes the right to view them. */
+function unitMeasureAllowed(scope: Scope, unitId: string | null | undefined) {
+  if (!unitId) throw badRequest('Choose the unit this goal measures.', { fieldErrors: { unit_id: 'Required for a unit-wide goal.' } });
+  if (!can(scope, PERMISSIONS.VIEW_RECORDS, unitId)) throw forbidden('Only someone who can view this unit’s shared records can set a goal measured across it.', 'unit_measure_forbidden');
+}
+
 function checkValueType(ctx: AppContext, table: string, data: Record<string, unknown>) {
   if (table === 'goals') {
     validateTypedGoal(ctx, data as never, data.target_value as number | null | undefined);
@@ -75,6 +81,7 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   const rows = ctx.db.prepare(`SELECT t.* FROM ${table} t WHERE ${where.join(' AND ')} ORDER BY ${spec.orderBy} LIMIT ? OFFSET ?`).all(...params, limit, offset) as Array<Record<string, unknown>>;
   const hydrated = rows.map((r) => hydrate(r, table)!);
   if (table === 'counselings') return withSubjectNames(ctx, user.id, hydrated);
+  if (table === 'tasks') return withTaskPeople(ctx, user.id, hydrated);
   return table === 'goals' ? withGoalProgress(ctx, hydrated as never) : hydrated;
 }
 
@@ -87,6 +94,23 @@ function withSubjectNames(ctx: AppContext, viewerId: string, rows: Array<Record<
   ).all(...ids) as Array<{ id: string; first_name: string; last_name: string; abbr: string | null }>)
     .map((u) => [u.id, `${u.abbr ? `${u.abbr} ` : ''}${u.last_name}, ${u.first_name}`]));
   return rows.map((r) => (r.user_id !== viewerId && names.has(String(r.user_id)) ? { ...r, subject_name: names.get(String(r.user_id)) } : r));
+}
+
+/**
+ * Who set a task and who holds it, for someone who can read the task but not the roster (a Marine sees "from SSgt
+ * Diaz", not an id). Only the two people on a row the viewer may already read; the viewer's own name is left off.
+ */
+function withTaskPeople(ctx: AppContext, viewerId: string, rows: Array<Record<string, unknown>>): Array<Record<string, unknown>> {
+  const ids = [...new Set(rows.flatMap((r) => [r.user_id, r.assignee_id]).filter((id): id is string => typeof id === 'string' && id !== viewerId))];
+  if (!ids.length) return rows;
+  const names = new Map((ctx.db.prepare(
+    `SELECT u.id, u.last_name, r.abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id IN (${ids.map(() => '?').join(',')})`
+  ).all(...ids) as Array<{ id: string; last_name: string; abbr: string | null }>).map((u) => [u.id, `${u.abbr ? `${u.abbr} ` : ''}${u.last_name}`]));
+  return rows.map((r) => ({
+    ...r,
+    ...(r.user_id !== viewerId && names.has(String(r.user_id)) ? { owner_name: names.get(String(r.user_id)) } : {}),
+    ...(r.assignee_id && r.assignee_id !== viewerId && names.has(String(r.assignee_id)) ? { assignee_name: names.get(String(r.assignee_id)) } : {}),
+  }));
 }
 
 export function withGoalProgress<T extends Record<string, unknown>>(ctx: AppContext, goals: T[]): T[] {
@@ -152,6 +176,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (unitId && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(unitId)) throw badRequest('No such unit.', { fieldErrors: { unit_id: 'No such unit.' } });
   if (visibility === 'unit' && !unitId) throw badRequest('Choose a unit before sharing this record.', { fieldErrors: { unit_id: 'Required to share.' } });
   if (!onBehalf && !canPlace(scope, visibility, unitId, spec.shareFlag, Boolean(spec.personal))) throw forbidden('You cannot place a record in that unit.');
+  if (table === 'goals' && data.measure_scope === 'unit') unitMeasureAllowed(scope, unitId);
   if (spec.assignee && visibility !== 'unit' && data.assignee_id && data.assignee_id !== user.id) data.assignee_id = null;
   if (spec.assignee) {
     const problem = assigneeProblem(ctx, scope, user.id, data.assignee_id as string | null, unitId);
@@ -222,6 +247,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (finalVisibility === 'unit' && !finalUnit) throw badRequest('Choose a unit before sharing this record.', { fieldErrors: { unit_id: 'Required to share.' } });
   if (finalUnit && finalUnit !== row.unit_id && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(finalUnit)) throw badRequest('No such unit.');
   if (scopeChanged && !canPlace(scope, finalVisibility, finalUnit, spec.shareFlag, Boolean(spec.personal))) throw forbidden('You cannot place a record in that unit.');
+  if (table === 'goals' && (data.measure_scope ?? row.measure_scope) === 'unit' && ['measure_scope', 'unit_id', 'filters', 'metric_id'].some((k) => data[k] !== undefined)) unitMeasureAllowed(scope, finalUnit);
   if (spec.assignee && finalVisibility !== 'unit') { const who = (data.assignee_id as string | null | undefined) ?? (row.assignee_id as string | null); if (who && who !== user.id) data.assignee_id = null; }
   if (spec.assignee && (data.assignee_id !== undefined || scopeChanged)) {
     const problem = assigneeProblem(ctx, scope, user.id, (data.assignee_id as string | null | undefined) ?? (row.assignee_id as string | null), finalUnit);

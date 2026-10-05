@@ -35,9 +35,16 @@ export interface MetricTotal {
   contributors: string[];
 }
 
+/**
+ * One key for a unit's singular and plural, read as unitFor in bullets.ts reads a plural ("discrepancies",
+ * "boxes", "ULOs"). The singulars of the -ie and -ches/-xes words fold the same way, so "calorie" and "calories" meet.
+ */
 export function unitKeyOf(unit: string | null | undefined): string {
   const text = (String(unit ?? '').trim() || 'items').toLowerCase();
-  return text.endsWith('s') && text.length > 3 ? text.slice(0, -1) : text;
+  if (text.length <= 3) return text;
+  if (/ies?$/.test(text)) return text.replace(/ies?$/, 'y');
+  if (/(ch|sh|ss|x|z)es?$/.test(text)) return text.replace(/es?$/, '');
+  return /[^s]s$/.test(text) ? text.slice(0, -1) : text;
 }
 
 /** Hours typed as a count ("volunteered 6 hours") are the same measure as hours logged, so they total together. */
@@ -47,8 +54,16 @@ export const isTimeUnit = (unit: string | null | undefined) => TIME_UNIT_KEYS.ha
 export const durationMetricId = () => 'duration:hours';
 export const moneyMetricId = (type: string | null | undefined) => `money:${String(type ?? '').trim().toLowerCase() || 'unclassified'}`;
 export const quantityMetricId = (unit: string | null | undefined) => (isTimeUnit(unit) ? durationMetricId() : `quantity:${unitKeyOf(unit)}`);
-/** Metric ids saved before hours were merged (a goal, a link) still find their figure. */
-export const canonicalMetricId = (id: string) => (/^quantity:/.test(id) && isTimeUnit(id.slice('quantity:'.length)) ? durationMetricId() : id);
+/**
+ * Metric ids saved under an older key (a goal, a link) still find their figure: hours from before they merged, and
+ * units from when only a trailing "s" was dropped ("quantity:discrepancie", "quantity:classe", "quantity:clas").
+ */
+export function canonicalMetricId(id: string): string {
+  if (!id.startsWith('quantity:')) return id;
+  const key = id.slice('quantity:'.length);
+  // No current key that long ends in a single "s"; the old one for "class" did.
+  return quantityMetricId(key.length > 3 && /[^s]s$/.test(key) ? `${key}s` : key);
+}
 
 export interface OutcomeRow {
   id: string;
@@ -267,6 +282,40 @@ export function progress(input: ProgressInput): ProgressResult {
   const span = target - baseline;
   const met = current >= target;
   return { current, percent: span <= 0 ? (met ? 100 : 0) : clampPercent(((current - baseline) / span) * 100), met, outcomes, contributors };
+}
+
+/** A calendar day as a whole number, from "2026-10-04" or a local Date, so a DST change never shifts a count. */
+const dayNumber = (v: string | Date | null | undefined): number | null => {
+  if (v instanceof Date) return Date.UTC(v.getFullYear(), v.getMonth(), v.getDate()) / 86_400_000;
+  const ymd = /^(\d{4})-(\d{2})-(\d{2})/.exec(v || '');
+  return ymd ? Date.UTC(+ymd[1], +ymd[2] - 1, +ymd[3]) / 86_400_000 : null;
+};
+
+export type Pace = 'ahead' | 'on' | 'behind';
+export interface PaceResult { pace: Pace; /** Where an even pace would have it by now, 0–100. */ expected: number }
+
+/**
+ * Whether a goal that builds over its period is where it should be by now: its progress against the share of the
+ * period gone, within ten points either way. Only for goals that move a little at a time (increase, decrease); a
+ * threshold such as a PFT score starts most of the way there, and a completion is done or not. It says nothing in the
+ * first tenth of the period, when one entry swings it, once the period is over, or once the goal is met.
+ */
+export function goalPace(
+  goal: { direction?: string | null; status?: string | null; period_start?: string | null; period_end?: string | null },
+  result: { percent: number; met: boolean },
+  now = new Date(),
+): PaceResult | null {
+  if (result.met || (goal.status && goal.status !== 'active')) return null;
+  if (goal.direction !== 'increase' && goal.direction !== 'decrease') return null;
+  const start = dayNumber(goal.period_start);
+  const end = dayNumber(goal.period_end);
+  const today = dayNumber(now)!;
+  if (start == null || end == null || end < start) return null;
+  // The end day is the period's last day, so a period from the 1st to the 30th is 30 days long.
+  const gone = (today - start) / (end - start + 1);
+  if (gone < 0.1 || gone >= 1) return null;
+  const expected = Math.round(gone * 100);
+  return { pace: result.percent >= expected + 10 ? 'ahead' : result.percent <= expected - 10 ? 'behind' : 'on', expected };
 }
 
 const clampPercent = (n: number) => (Number.isFinite(n) ? Math.max(0, Math.min(100, Math.round(n * 10) / 10)) : 0);

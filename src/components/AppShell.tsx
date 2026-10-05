@@ -4,7 +4,7 @@ import { installTelemetry, track } from '@/lib/telemetry';
 import { useQueryClient } from '@tanstack/react-query';
 import {
   AlertTriangle, Bell, Building2, Check, ChevronDown, ChevronsLeft, ChevronsRight, ChevronsUpDown, CloudOff, FlaskConical, Keyboard, LifeBuoy, LogOut, Menu as MenuIcon, Moon,
-  Plus, RefreshCw, Search, Settings2, Sun, Users, WifiOff, X,
+  Plus, RefreshCw, Search, Settings2, Sparkles, Sun, Users, WifiOff, X,
 } from 'lucide-react';
 import { FOOTER, GROUPS, HOME, groupFor, pageFor, type Count, type NavGroup, type NavPage, type Requirement } from '@/config/nav';
 import { teamSections } from '@/lib/teamAccess';
@@ -15,25 +15,32 @@ import { Menu, MenuContent, MenuItem, MenuSeparator, MenuTrigger } from '@/compo
 import * as Popover from '@radix-ui/react-popover';
 import QuickLog from '@/components/QuickLog';
 import OutboxDialog from '@/components/OutboxDialog';
-import CommandPalette from '@/components/CommandPalette';
+import CommandPalette, { type PaletteAction } from '@/components/CommandPalette';
 import ShortcutsDialog from '@/components/ShortcutsDialog';
 import { ActivityBar } from '@/components/ui/motion';
 import SudoDialog, { type SudoRequest } from '@/components/SudoDialog';
 import IdleGuard from '@/components/IdleGuard';
 import ErrorBoundary from '@/components/ErrorBoundary';
+import TabBar from '@/components/TabBar';
 import { useIdentity, useNotifications, useSavePrefs, signOutEverywhere, keys, invalidateDomains, useTasks, useThreads, useRecordDrafts } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { useToast } from '@/components/ui/toast';
 import { flushOutbox, onOutboxChange, outbox } from '@/lib/outbox';
 import { resolveTheme, storedTheme } from '@/lib/theme';
 import { VERSION } from '@/lib/version';
+import WhatsNewDialog, { useWhatsNew } from '@/components/WhatsNewDialog';
 import { useBuildWatch } from '@/lib/build';
 import { useView, roleLine, viewLabel } from '@/lib/view';
 
 /** What the header says about where you are: the group and the page, or a page and what it is for. */
+// A page about one thing (a case, an entry) is named for what it is, under its group, not "Vantage".
+const DETAIL_PAGES: Array<[RegExp, string]> = [[/^\/work\/items\/[^/]+/, 'Case'], [/^\/records\/[^/]+\/[^/]+/, 'Item'], [/^\/records\/[^/]+/, 'Entry'], [/^\/support\/[^/]+/, 'Request']];
+
 function placeOf(pathname: string): { title: string; detail: string; group?: string } {
   const page = pageFor(pathname);
   const group = groupFor(pathname);
+  const detail = DETAIL_PAGES.find(([re]) => re.test(pathname));
+  if (detail) return { title: detail[1], detail: '', group: group?.label };
   if (page && group && group.pages.length > 1) return { title: page.label, detail: page.hint, group: group.label };
   if (page) return { title: page.label, detail: page.hint };
   if (group) return { title: group.label, detail: group.hint };
@@ -232,6 +239,9 @@ export default function AppShell() {
   const [quickLogSeed, setQuickLogSeed] = useState('');
   const [palette, setPalette] = useState(false);
   const [shortcuts, setShortcuts] = useState(false);
+  const [whatsNew, setWhatsNew] = useState(false);
+  const news = useWhatsNew(identity?.user?.created_at);
+  const openWhatsNew = () => { setWhatsNew(true); news.markSeen(); };
   const [sudoOpen, setSudoOpen] = useState<null | SudoRequest>(null);
   const [theme, setTheme] = useState<'light' | 'dark'>(() => resolveTheme(identity?.prefs.theme || storedTheme()));
   const updateReady = useBuildWatch();
@@ -313,8 +323,10 @@ export default function AppShell() {
         window.setTimeout(() => window.removeEventListener('keydown', second, true), 1200);
       }
     };
+    const openPalette = () => setPalette(true);
     window.addEventListener('keydown', onKey);
-    return () => window.removeEventListener('keydown', onKey);
+    window.addEventListener('vantage:open-palette', openPalette);
+    return () => { window.removeEventListener('keydown', onKey); window.removeEventListener('vantage:open-palette', openPalette); };
   }, [navigate, openQuickLog, goKeys, identity?.views, collapsed]);
 
   const switchPersona = async (persona: 'marine' | 'leader') => {
@@ -327,6 +339,14 @@ export default function AppShell() {
   };
 
   const toggleTheme = () => { const next = theme === 'dark' ? 'light' : 'dark'; setTheme(next); savePrefs.mutate({ theme: next }); };
+  // What ⌘K can do besides go somewhere: the things people otherwise hunt through menus for.
+  const paletteActions: PaletteAction[] = [
+    { id: 'theme', title: theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme', keywords: 'theme dark light mode appearance', run: toggleTheme },
+    { id: 'shortcuts', title: 'Keyboard shortcuts', subtitle: 'Press ? anywhere', keywords: 'keys hotkeys help', run: () => setShortcuts(true) },
+    { id: 'whats-new', title: 'What’s new in Vantage', subtitle: `v${VERSION}`, keywords: 'changes changelog release notes updates version', run: openWhatsNew },
+    { id: 'import-activities', title: 'Import activities from a CSV', keywords: 'upload spreadsheet csv entries', run: () => navigate('/record/activities?import=1') },
+    { id: 'export-pdf', title: 'Download my record as a PDF', subtitle: 'The last 12 months, ready for a reporting senior', keywords: 'export pdf report jepes fitrep print', run: () => { api.downloadFile(api.reportPdfUrl({ period: 'last12', limit: 12 }), 'vantage-report.pdf').then((name) => toast.success(`Downloaded ${name}.`)).catch((e) => toast.error(api.errorText(e))); } },
+  ];
   function toggleRail() { setCollapsed((c) => { const n = !c; try { localStorage.setItem('vantage.rail', n ? 'collapsed' : 'open'); } catch {} return n; }); }
   const user = identity?.user;
   const who = [user?.rank?.abbr, user?.first_name, user?.last_name].filter(Boolean).join(' ');
@@ -346,6 +366,7 @@ export default function AppShell() {
         {user?.is_operator && !demo ? <MenuItem onSelect={() => navigate('/operator')}>Owner console</MenuItem> : null}
         <MenuItem onSelect={toggleTheme} icon={theme === 'dark' ? Sun : Moon}>{theme === 'dark' ? 'Light theme' : 'Dark theme'}</MenuItem>
         <MenuItem icon={Keyboard} onSelect={() => setShortcuts(true)}>Keyboard shortcuts</MenuItem>
+        <MenuItem icon={Sparkles} onSelect={openWhatsNew}>What’s new{news.unseen && <><span className="sr-only"> (new)</span><span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" aria-hidden /></>}</MenuItem>
         {!demo && <MenuItem icon={LifeBuoy} onSelect={() => navigate('/support')}>Ask for help</MenuItem>}
         <MenuSeparator />
         {demo
@@ -469,8 +490,8 @@ export default function AppShell() {
             {!collapsed ? (
               <div className="flex items-center gap-1">
                 {accountMenu(
-                  <button type="button" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-left transition-colors hover:bg-white/[.06]" aria-label="Account menu">
-                    <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-white/10 text-2xs font-semibold text-white ring-1 ring-white/10">{initials(user?.first_name, user?.last_name)}</span>
+                  <button type="button" className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] px-2 py-1.5 text-left transition-colors hover:bg-white/[.06]" aria-label={news.unseen ? 'Account menu. Something new in Vantage' : 'Account menu'}>
+                    <span className="relative flex h-8 w-8 shrink-0 items-center justify-center rounded-[9px] bg-white/10 text-2xs font-semibold text-white ring-1 ring-white/10">{initials(user?.first_name, user?.last_name)}{news.unseen && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-rail" aria-hidden />}</span>
                     <span className="min-w-0">
                       <span className="block truncate text-sm font-medium text-white">{who}</span>
                       <span className="block truncate text-2xs text-white/50">{roleLine(identity, view)}</span>
@@ -517,37 +538,41 @@ export default function AppShell() {
               <button type="button" onClick={() => setPalette(true)} className="flex h-9 items-center gap-2 rounded-full bg-surface-2 px-3 text-sm text-ink-3 ring-1 ring-line transition-[box-shadow,color,background-color] hover:bg-surface hover:text-ink-2 hover:ring-line-strong md:w-64 lg:w-80" aria-label="Search">
                 <Search className="h-4 w-4 shrink-0" aria-hidden /><span className="hidden md:inline">Search work, records, reference…</span><span className="ml-auto hidden lg:inline"><Kbd>⌘K</Kbd></span>
               </button>
+              {/* Below the large breakpoint the tab bar carries this, in reach of a thumb. */}
               <button type="button" onClick={() => openQuickLog('')} aria-label="Log activity"
-                className="group flex h-9 items-center gap-2 rounded-full bg-accent pl-3 pr-1 text-sm font-medium text-accent-ink shadow-[inset_0_1px_0_rgb(255_255_255/.2),0_1px_2px_rgb(var(--accent)/.35),0_6px_16px_-6px_rgb(var(--accent)/.55)] transition-[filter,transform] hover:brightness-[1.06] xl:pl-4">
+                className="group hidden h-9 items-center gap-2 rounded-full bg-accent pl-3 pr-1 lg:flex text-sm font-medium text-accent-ink shadow-[inset_0_1px_0_rgb(255_255_255/.2),0_1px_2px_rgb(var(--accent)/.35),0_6px_16px_-6px_rgb(var(--accent)/.55)] transition-[filter,transform] hover:brightness-[1.06] xl:pl-4">
                 <span className="hidden xl:inline">Log activity</span>
                 <span className="flex h-7 w-7 items-center justify-center rounded-full bg-white/15 transition-transform duration-200 group-hover:rotate-90"><Plus className="h-4 w-4" /></span>
               </button>
               <NotificationBell onNavigate={(to) => navigate(to)} />
               {accountMenu(
-                <button type="button" className="flex h-9 w-9 items-center justify-center rounded-[10px] bg-rail-active text-xs font-semibold text-white ring-1 ring-black/5 transition-[filter] hover:brightness-125 lg:hidden" aria-label="Account menu">{initials(user?.first_name, user?.last_name)}</button>,
+                <button type="button" className="relative flex h-9 w-9 items-center justify-center rounded-[10px] bg-rail-active text-xs font-semibold text-white ring-1 ring-black/5 transition-[filter] hover:brightness-125 lg:hidden" aria-label={news.unseen ? 'Account menu. Something new in Vantage' : 'Account menu'}>{initials(user?.first_name, user?.last_name)}{news.unseen && <span className="absolute -right-1 -top-1 h-2.5 w-2.5 rounded-full bg-accent ring-2 ring-surface" aria-hidden />}</button>,
               )}
             </div>
           </header>
 
           {demo && (
             <div role="region" aria-label="Synthetic demo" className="no-print flex flex-wrap items-center gap-x-4 gap-y-2 border-b border-accent/15 bg-gradient-to-r from-accent-soft/80 via-accent-soft/40 to-transparent px-4 py-2 text-sm text-ink sm:px-6 lg:px-8">
-              <span className="flex items-center gap-2 font-medium"><span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent/10 text-accent"><FlaskConical className="h-3.5 w-3.5" aria-hidden /></span>Synthetic demo</span>
-              <span className="text-ink-2">
+              {/* One row on a phone: what this is, whose eyes, and a way to start again. The sentence is for wider screens. */}
+              <span className="flex items-center gap-2 font-medium"><span className="flex h-6 w-6 items-center justify-center rounded-md bg-accent/10 text-accent"><FlaskConical className="h-3.5 w-3.5" aria-hidden /></span><span className="sm:hidden">Demo</span><span className="hidden sm:inline">Synthetic demo</span></span>
+              <span className="hidden text-ink-2 sm:inline">
                 You are {who}, {demo.workspace?.persona === 'leader' ? 'the section lead' : 'a budget analyst'}.
                 <span className="hidden md:inline"> Everything here is invented; changes last {demo.ttl_hours} hours.</span>
               </span>
-              <span className="flex items-center gap-1 md:ml-auto">
+              <span className="ml-auto flex items-center gap-1">
                 <span className="flex rounded-full bg-surface p-0.5 ring-1 ring-line">
                   <button type="button" onClick={() => demo.workspace?.persona === 'leader' && switchPersona('marine')} aria-pressed={demo.workspace?.persona !== 'leader'}
+                    aria-label={demo.workspace?.persona === 'leader' ? 'View as the Marine' : 'The Marine'}
                     className={cn('rounded-full px-3 py-1 text-xs font-medium transition-colors', demo.workspace?.persona !== 'leader' ? 'bg-rail-active text-white' : 'text-ink-2 hover:text-ink')}>
-                    {demo.workspace?.persona === 'leader' ? 'View as the Marine' : 'The Marine'}
+                    <span className="sm:hidden">Marine</span><span className="hidden sm:inline">{demo.workspace?.persona === 'leader' ? 'View as the Marine' : 'The Marine'}</span>
                   </button>
                   <button type="button" onClick={() => demo.workspace?.persona !== 'leader' && switchPersona('leader')} aria-pressed={demo.workspace?.persona === 'leader'}
+                    aria-label={demo.workspace?.persona === 'leader' ? 'The section lead' : 'View as the section lead'}
                     className={cn('rounded-full px-3 py-1 text-xs font-medium transition-colors', demo.workspace?.persona === 'leader' ? 'bg-rail-active text-white' : 'text-ink-2 hover:text-ink')}>
-                    {demo.workspace?.persona === 'leader' ? 'The section lead' : 'View as the section lead'}
+                    <span className="sm:hidden">Section lead</span><span className="hidden sm:inline">{demo.workspace?.persona === 'leader' ? 'The section lead' : 'View as the section lead'}</span>
                   </button>
                 </span>
-                <button type="button" onClick={startOver} className="ml-1 rounded-full px-3 py-1 text-xs font-medium text-ink-2 hover:bg-surface hover:text-ink">Start over</button>
+                <button type="button" onClick={startOver} className="ml-1 rounded-full px-2.5 py-1 text-xs font-medium text-ink-2 hover:bg-surface hover:text-ink sm:px-3">Start over</button>
               </span>
             </div>
           )}
@@ -567,17 +592,19 @@ export default function AppShell() {
             {sectionStrip}
             <ErrorBoundary resetKey={location.pathname + location.search}><div key={location.pathname} className="animate-fade-up"><Outlet /></div></ErrorBoundary>
           </main>
-          <footer className="no-print flex flex-wrap items-center gap-x-4 gap-y-1 px-4 py-5 text-xs text-ink-3 sm:px-6 lg:px-10">
-            <span className="flex items-center gap-1.5"><Mark size={12} />Vantage v{VERSION}</span>
+          <footer className="no-print flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pb-[calc(1.25rem+var(--tabbar,0px))] pt-5 text-xs text-ink-3 sm:px-6 lg:px-10">
+            <button type="button" onClick={openWhatsNew} className="flex items-center gap-1.5 rounded transition-colors hover:text-ink" aria-label={`Vantage v${VERSION}. What’s new`} title="What’s new"><Mark size={12} />Vantage v{VERSION}</button>
             <span>Records stay on this deployment’s server.</span>
             <span className="hidden sm:inline">Not an official DoD or USMC system of record.</span>
           </footer>
         </div>
 
+        <TabBar hidden={drawer || quickLog || palette} leads={teams.has('workload')} onLog={() => openQuickLog('')} onMore={() => setDrawer(true)} />
         <QuickLog open={quickLog} onOpenChange={setQuickLog} initialText={quickLogSeed} />
         {userId && <OutboxDialog open={queueOpen} onOpenChange={setQueueOpen} userId={userId} onRetry={flush} />}
-        <CommandPalette open={palette} onOpenChange={setPalette} onQuickLog={openQuickLog} nav={visibleNav} />
+        <CommandPalette open={palette} onOpenChange={setPalette} onQuickLog={openQuickLog} nav={visibleNav} extra={paletteActions} />
         <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
+        <WhatsNewDialog open={whatsNew} onOpenChange={setWhatsNew} />
         {!demo && <IdleGuard onSignOut={idleSignOut} />}
         <SudoDialog open={Boolean(sudoOpen)} onOpenChange={(o) => { if (!o) { sudoOpen?.cancel(); setSudoOpen(null); } }} onConfirmed={() => { const req = sudoOpen; setSudoOpen(null); req?.confirm(); }} />
       </div>

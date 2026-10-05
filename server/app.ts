@@ -104,6 +104,38 @@ const APP_PATH = /^\/(?:login|register|reset|invite|setup|goals|reference|maradm
 const CONSOLE_PATH = /^\/(?:operator|console)(?:\/.*)?$/;
 /** What the console's own pages call: signing in, the owner's identity, administration and the accounts and units it manages. */
 const CONSOLE_API = /^\/(?:admin|org|me)(?:\/|$)|^\/auth\/(?:setup|login|login\/mfa|passkey\/options|passkey\/verify|cac|logout|sudo|forgot|oidc\/start|oidc\/callback)$|^\/ranks$/;
+/** The public site's plain-language pages and the prerendered document that answers each (scripts/prerender.mjs). */
+export const TRUST_DOCUMENTS: Record<string, string> = { '/security': 'pages/security.html', '/accessibility': 'pages/accessibility.html', '/privacy': 'pages/privacy.html', '/changes': 'pages/changes.html' };
+
+/** security.txt (RFC 9116) for this deployment. Expires six months after it is served; the RFC asks for under a year. */
+export function securityTxt(site: string, contact: string | null, at = new Date()): string {
+  const base = site.replace(/\/$/, '');
+  const expires = new Date(at.getTime() + 180 * 24 * 60 * 60 * 1000);
+  expires.setUTCHours(0, 0, 0, 0);
+  return [
+    ...(contact ? [`Contact: ${contact}`] : []),
+    `Contact: ${base}/login?help=security`,
+    `Expires: ${expires.toISOString().replace('.000Z', 'Z')}`,
+    `Policy: ${base}/security#report`,
+    'Preferred-Languages: en',
+    `Canonical: ${base}/.well-known/security.txt`,
+    '',
+  ].join('\n');
+}
+
+/** The answer for an address that is nothing here: on brand, readable without scripts, light or dark with the device. */
+const NOT_FOUND_HTML = `<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><meta name="color-scheme" content="light dark"><title>Page not found · Vantage</title><link rel="icon" href="/favicon.svg" type="image/svg+xml"><style>
+:root{--bg:#f4f6f9;--card:#fff;--ink:#0b1526;--ink2:#3a4658;--line:rgba(11,21,38,.1);--accent:#1f55d6}
+@media (prefers-color-scheme:dark){:root{--bg:#07152a;--card:#0f2140;--ink:#eaf0f8;--ink2:#aebbd0;--line:rgba(255,255,255,.1);--accent:#7aa2ff}}
+*{box-sizing:border-box}body{margin:0;min-height:100dvh;display:grid;place-items:center;padding:24px;background:var(--bg);color:var(--ink);font-family:Geist,Inter,ui-sans-serif,system-ui,-apple-system,"Segoe UI",sans-serif;-webkit-font-smoothing:antialiased}
+main{width:min(100%,440px);padding:36px 32px;border-radius:24px;background:var(--card);box-shadow:0 0 0 1px var(--line),0 24px 60px -30px rgba(7,21,42,.35);text-align:center}
+.mark{display:inline-flex;align-items:center;gap:10px;font-weight:700;letter-spacing:.16em;font-size:13px}.mark img{width:28px;height:28px}
+.code{margin:28px 0 0;font-size:13px;font-weight:600;letter-spacing:.14em;text-transform:uppercase;color:var(--accent)}
+h1{margin:8px 0 0;font-size:28px;line-height:1.15;letter-spacing:-.03em}p{margin:12px 0 0;font-size:15px;line-height:1.6;color:var(--ink2)}
+nav{margin-top:28px;display:flex;flex-wrap:wrap;justify-content:center;gap:10px}a{color:inherit}
+nav a{display:inline-flex;align-items:center;padding:11px 18px;border-radius:999px;font-weight:600;font-size:14px;text-decoration:none;box-shadow:inset 0 0 0 1px var(--line)}
+nav a:first-child{background:var(--accent);color:#fff;box-shadow:none}nav a:focus-visible{outline:2px solid var(--accent);outline-offset:3px}
+</style></head><body><main><span class="mark"><img src="/favicon.svg" alt="" width="28" height="28">VANTAGE</span><p class="code">404</p><h1>Page not found</h1><p>This address does not match anything here. It may have moved, or the link may be incomplete.</p><nav><a href="/">Go to Vantage</a><a href="/login">Sign in</a></nav></main></body></html>`;
 const APP_ROBOTS = 'User-agent: *\nAllow: /login\nAllow: /register\nAllow: /reset\nAllow: /invite\nDisallow: /\n';
 
 /** The console address for an old /operator?tab= link or a /console path, on whichever host the console lives. */
@@ -235,17 +267,19 @@ export function createApp(ctx: AppContext) {
 
   if (shellHtml) {
     // Only public marketing routes are indexable, before any JavaScript runs.
-    const publicRoutes = new Set(['/', '/display', '/about']);
+    const publicRoutes = new Set(['/', '/display', '/about', ...Object.keys(TRUST_DOCUMENTS)]);
     // Each document says where the other faces live, for the links between them.
     const withLinks = (html: string) => html.replace('</head>', `    ${linksMeta(hosts.links)}\n  </head>`);
     // The application shell is noindex in its source; the public page is its own document, public.html.
     const shell = withLinks(shellHtml);
     const read = (name: string) => { try { return readFileSync(join(distDir, name), 'utf8'); } catch { return null; } };
     const publicPage = read('public.html')?.replace('<!--site-verification-->', siteVerification(config.search)) ?? null;
+    // The plain-language pages, each prerendered into a document of its own by scripts/prerender.mjs.
+    const trustPages = new Map(Object.entries(TRUST_DOCUMENTS).map(([path, file]) => [path, read(file)?.replace('<!--site-verification-->', siteVerification(config.search)) ?? null] as const));
     const consolePage = read('console.html');
     const consoleDocument = consolePage ? withLinks(consolePage) : null;
     app.use((req, res, next) => {
-      if (/^\/(?:index|public|console)\.html$/.test(req.path)) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
+      if (/^\/(?:index|public|console)\.html$|^\/pages\//.test(req.path)) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
       next();
     });
     // The public site's crawl rules belong to the public site. The application lets crawlers read its sign-in
@@ -254,6 +288,13 @@ export function createApp(ctx: AppContext) {
       const faces = facesOf(res);
       if (faces.has('site')) return next();
       res.type('text/plain').send(faces.has('app') ? APP_ROBOTS : 'User-agent: *\nDisallow: /\n');
+    });
+    // RFC 9116: where to report a vulnerability. Generated, so its expiry is always ahead of it and its links name this
+    // deployment; an owner's own contact (VANTAGE_SECURITY_CONTACT) comes first when one is set.
+    app.get(['/.well-known/security.txt', '/security.txt'], (req, res) => {
+      if (req.path === '/security.txt') return res.redirect(301, '/.well-known/security.txt');
+      res.type('text/plain').setHeader('Cache-Control', 'public, max-age=86400');
+      res.send(securityTxt(config.urls.site, config.securityContact));
     });
     app.get(/^\/(?:sitemap\.xml|llms\.txt)$/, (req, res, next) => (facesOf(res).has('site') ? next() : res.redirect(301, hosts.url('site', req.path))));
     app.use('/assets', express.static(join(distDir, 'assets'), { immutable: true, maxAge: '1y', index: false }));
@@ -267,7 +308,7 @@ export function createApp(ctx: AppContext) {
       else if (req.path.startsWith('/brand/')) res.setHeader('Cache-Control', 'public, max-age=604800, stale-while-revalidate=86400');
     } }));
 
-    const notFound = (res: Response) => res.status(404).type('html').send(`<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><meta name="robots" content="noindex"><title>Page not found | VANTAGE</title></head><body><main><h1>Page not found</h1><p>This address does not exist.</p><a href="/">Return to VANTAGE</a></main></body></html>`);
+    const notFound = (res: Response) => res.status(404).type('html').send(NOT_FOUND_HTML);
     // Once somebody has an account the instance never goes back to first-time setup, so the answer is kept.
     let setUp = false;
     const instanceSetUp = () => (setUp ||= Boolean(ctx.db.prepare('SELECT 1 FROM users LIMIT 1').get()));
@@ -295,15 +336,24 @@ export function createApp(ctx: AppContext) {
         if (faces.has('site')) {
           const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
           const servePublic = path !== '/' || !faces.has('app') || (!signedIn && config.accessMode === 'accounts' && instanceSetUp());
-          if (servePublic && publicPage) return page(publicPage);
+          const document = trustPages.get(path) ?? publicPage;
+          if (servePublic && document) return page(document);
           if (!faces.has('app')) return notFound(res);
         } else if (path !== '/') return res.redirect(301, hosts.url('site', path + query));
       }
 
       // The application.
       res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-      if (!publicRoutes.has(path) && !APP_PATH.test(path)) return notFound(res);
+      if (!publicRoutes.has(path) && !APP_PATH.test(path)) {
+        // Somebody signed in who follows a bad link keeps the app around them: the shell, answered 404, shows its
+        // own "no page here" with the navigation still there. A file-like path, or anyone else, gets the plain page.
+        const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
+        if (signedIn && faces.has('app') && !/\.[a-z0-9]{1,8}$/i.test(path)) return res.status(404).type('html').send(shell);
+        return notFound(res);
+      }
       if (!faces.has('app')) return res.redirect(301, hosts.url('app', path + query));
+      // The service worker keeps only this document as the app's offline copy (public/sw.js).
+      res.setHeader('X-Vantage-Document', 'app');
       return page(shell);
     });
   }

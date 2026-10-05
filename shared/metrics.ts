@@ -1,6 +1,6 @@
 import {
   startOfDay, endOfDay, startOfWeek, endOfWeek, startOfMonth, endOfMonth, startOfYear, endOfYear,
-  subDays, parseISO, isValid, format,
+  subDays, subMonths, addDays, parseISO, isValid, format,
 } from 'date-fns';
 import { FISCAL_YEAR_START_MONTH, DEFAULT_METRICS, isSummable, type MetricsConfig } from './constants.ts';
 import type { DateRange } from './types.ts';
@@ -42,13 +42,20 @@ export function fiscalQuarterRange(ref = new Date()): DateRange & { label: strin
 }
 
 
-export type PeriodKey = 'week' | 'month' | 'quarter' | 'fiscalQuarter' | 'lastFiscalQuarter' | 'fiscalYear' | 'lastFiscalYear' | 'year' | 'last30' | 'last90' | 'all';
+export type PeriodKey = 'week' | 'month' | 'quarter' | 'fiscalQuarter' | 'lastFiscalQuarter' | 'fiscalYear' | 'lastFiscalYear' | 'year' | 'last30' | 'last90' | 'last12' | 'all';
+
+/**
+ * Where a list or a report opens when nobody has chosen. A rolling year: "Fiscal year" opens on a nearly empty page
+ * every October, as if a Marine had done nothing, until they think to widen it.
+ */
+export const DEFAULT_PERIOD: PeriodKey = 'last12';
 
 export const PERIOD_OPTIONS: Array<{ value: PeriodKey; label: string; short: string }> = [
   { value: 'week', label: 'This week', short: 'WK' },
   { value: 'month', label: 'This month', short: 'MO' },
   { value: 'last30', label: 'Last 30 days', short: '30D' },
   { value: 'last90', label: 'Last 90 days', short: '90D' },
+  { value: 'last12', label: 'Last 12 months', short: '12M' },
   { value: 'fiscalQuarter', label: 'Fiscal quarter', short: 'FQ' },
   { value: 'lastFiscalQuarter', label: 'Last fiscal quarter', short: 'LFQ' },
   { value: 'fiscalYear', label: 'Fiscal year', short: 'FY' },
@@ -63,10 +70,14 @@ export function rangeForPeriod(key: PeriodKey | string, ref = new Date()): DateR
       return { start: startOfWeek(ref, { weekStartsOn: 1 }), end: endOfWeek(ref, { weekStartsOn: 1 }), label: 'This week' };
     case 'month':
       return { start: startOfMonth(ref), end: endOfMonth(ref), label: format(ref, 'MMMM yyyy') };
+    // A rolling window runs through tomorrow: somebody east of the server (Okinawa, on a Chicago instance) dates
+    // today's work a day ahead of the server's today for most of the day, and that entry belongs in "the last 30 days".
     case 'last30':
-      return { start: startOfDay(subDays(ref, 29)), end: endOfDay(ref), label: 'Last 30 days' };
+      return { start: startOfDay(subDays(ref, 29)), end: endOfDay(addDays(ref, 1)), label: 'Last 30 days' };
     case 'last90':
-      return { start: startOfDay(subDays(ref, 89)), end: endOfDay(ref), label: 'Last 90 days' };
+      return { start: startOfDay(subDays(ref, 89)), end: endOfDay(addDays(ref, 1)), label: 'Last 90 days' };
+    case 'last12':
+      return { start: startOfDay(addDays(subMonths(ref, 12), 1)), end: endOfDay(addDays(ref, 1)), label: 'Last 12 months' };
     case 'quarter': {
       const q = Math.floor(ref.getMonth() / 3);
       return {
@@ -126,16 +137,18 @@ export function aggregateMetrics(list: MetricSource[] = [], cfg: MetricsConfig =
   let withOutcome = 0;
 
   for (const a of list) {
+    // Reviewed dollars passed through without a balance change; they are no one area's impact, as in the headline.
+    const impact = isSummable(a.dollar_type, cfg) ? Number(a.dollar_amount) || 0 : 0;
     const cat = a.category || 'Other';
     byCategory[cat] ||= { count: 0, dollars: 0, quantity: 0 };
     byCategory[cat].count += 1;
-    byCategory[cat].dollars += Number(a.dollar_amount) || 0;
+    byCategory[cat].dollars += impact;
     byCategory[cat].quantity += Number(a.quantity) || 0;
 
     const area = a.eval_area || 'Unassigned';
     byArea[area] ||= { count: 0, dollars: 0, quantity: 0 };
     byArea[area].count += 1;
-    byArea[area].dollars += Number(a.dollar_amount) || 0;
+    byArea[area].dollars += impact;
     byArea[area].quantity += Number(a.quantity) || 0;
 
     if (a.result && String(a.result).trim()) withOutcome += 1;

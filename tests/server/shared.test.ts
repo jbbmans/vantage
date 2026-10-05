@@ -58,8 +58,8 @@ test('formatters', () => {
 
 test('bullets fold figures into one defensible line', () => {
   const text = B.composeBullet({ title: 'FY26 year-end close', category: 'Fiscal & Financial', quantity: 30, unit_label: 'ULOs', dollar_amount: 1118.38, dollar_type: 'reconciled', system: 'DAI', organization: 'G-8', result: 'cleared the section backlog' });
-  assert.ok(text.startsWith('Reconciled 30 ULOs totaling $1,118.38'), text);
-  assert.ok(text.includes('via DAI') && text.includes('for G-8') && text.endsWith('cleared the section backlog.'), text);
+  // The writer's bullet: the Marine's own classification ("reconciled") supplies the verb a bare title lacks.
+  assert.match(text, /^Reconciled 30 ULOs (worth|totaling|valued at) \$1,118 in DAI for G-8, in support of FY26 year-end close; cleared the section backlog\.$/);
   assert.ok(B.composeBullet({ title: 'ULO reconciliation drill', category: 'Fiscal & Financial' }).includes('ULO'));
   const resume = B.composeBullet({ title: 'Processed 12 MIPRs', category: 'Fiscal & Financial' }, { style: 'resume' });
   assert.ok(resume.includes('military interdepartmental purchase requests'), resume);
@@ -166,6 +166,20 @@ test('password policy and strength', () => {
   assert.equal(passwordProblem('cobalt-orbit-velvet-anchor-927'), null);
   assert.ok(passwordStrength('cobalt-orbit-velvet-anchor-927').score >= 3);
   assert.equal(passwordStrength('abc').score, 0);
+  assert.ok(passwordProblem('Admin2026!!!!!!!!'), 'a predictable term with a year and symbols is still predictable');
+  assert.ok(passwordProblem('1234567890admin1234'), 'digits on both sides of a predictable term');
+});
+
+test('the password policy answers in linear time, whatever is typed', () => {
+  // A long run of digits after a predictable term, ending in a letter, once backtracked exponentially: 34
+  // characters held the event loop for seconds, unauthenticated, on every route that checks a password.
+  for (const value of ['admin' + '1'.repeat(240) + 'x', 'password' + '9'.repeat(240) + '!a', 'x'.repeat(256)]) {
+    const started = performance.now();
+    passwordProblem(value);
+    passwordStrength(value);
+    // Generous for a loaded machine; the old pattern never finished on 240 digits.
+    assert.ok(performance.now() - started < 500, `${value.slice(0, 12)}… took ${Math.round(performance.now() - started)} ms`);
+  }
 });
 
 test('schemas coerce and validate', () => {

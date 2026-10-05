@@ -119,7 +119,7 @@ export function UnitOverviewPanel({ unitId }: { unitId: string }) {
       {t.withheld && <p className="text-xs text-ink-3"><Withheld min={data.minimum_contributors} /> Leaders of this unit see the full figures.</p>}
       {whole && <Panel title="Teams" subtitle="Open a team to see it on its own"><TeamStrip data={data} /></Panel>}
       <div className="grid grid-cols-1 gap-4 xl:grid-cols-5">
-        <Panel title="Goals" subtitle="What this unit and its command are working toward" className="xl:col-span-2" padded={false}>
+        <Panel title="Goals" subtitle="What this unit and its command are working toward" className="self-start xl:col-span-2" padded={false}>
           {data.goals.length === 0 ? <p className="px-4 py-3 text-sm text-ink-3">No shared goals yet.</p> : (
             <ul className="stagger divide-y divide-line">
               {data.goals.map((g, i) => {

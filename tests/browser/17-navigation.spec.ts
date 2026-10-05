@@ -97,3 +97,26 @@ test('every page in the sidebar opens without an error boundary', async ({ page,
   }
   expect(errors, errors.join('\n')).toEqual([]);
 });
+
+test('what changed is a click away, marked until it has been read', async ({ page, request }) => {
+  await ensureSetup(request);
+  await loginAs(page, OPERATOR.username);
+  // Somebody who last read an older list sees the mark on their avatar.
+  await page.evaluate(() => localStorage.setItem('vantage.seen-changes', '2000-01-01'));
+  await page.reload();
+  const account = page.getByRole('button', { name: /Account menu/ }).first();
+  await expect(account).toHaveAccessibleName(/Something new/);
+
+  await page.getByRole('button', { name: /^Vantage v/ }).click();
+  const dialog = page.getByRole('dialog', { name: 'What’s new' });
+  await expect(dialog).toBeVisible();
+  await expect(dialog.getByRole('heading', { level: 3 }).first()).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(account).toHaveAccessibleName('Account menu');
+
+  // ⌘K finds it too.
+  await page.keyboard.press('Meta+k');
+  await page.getByRole('combobox', { name: 'Search' }).fill("what's new");
+  await page.getByRole('option', { name: /What’s new in Vantage/ }).click();
+  await expect(dialog).toBeVisible();
+});

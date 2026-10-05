@@ -32,8 +32,12 @@ export function composeDigest(ctx: AppContext, user: DigestUser, at = new Date()
   const acts = db.prepare(`SELECT title, dollar_amount, dollar_type, result FROM activities WHERE user_id = ? AND deleted_at IS NULL AND date >= ? ORDER BY date DESC`).all(user.id, since) as Array<{ title: string; dollar_amount: number | null; dollar_type: string | null; result: string | null }>;
   const dollars = acts.reduce((n, a) => n + (isSummable(a.dollar_type, ctx.runtime.metrics) ? Number(a.dollar_amount) || 0 : 0), 0);
   const noOutcome = acts.filter((a) => !a.result).length;
-  const overdue = db.prepare(`SELECT title, due_date FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND status <> 'completed' AND deleted_at IS NULL AND due_date < ? ORDER BY due_date LIMIT 5`).all(user.id, user.id, todayIso) as Array<{ title: string; due_date: string }>;
-  const dueSoon = db.prepare(`SELECT title, due_date FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND status <> 'completed' AND deleted_at IS NULL AND due_date >= ? AND due_date <= ? ORDER BY due_date LIMIT 5`).all(user.id, user.id, todayIso, soon) as Array<{ title: string; due_date: string }>;
+  const openTasks = `FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND status <> 'completed' AND deleted_at IS NULL`;
+  const overdue = db.prepare(`SELECT title, due_date ${openTasks} AND due_date < ? ORDER BY due_date LIMIT 5`).all(user.id, user.id, todayIso) as Array<{ title: string; due_date: string }>;
+  const dueSoon = db.prepare(`SELECT title, due_date ${openTasks} AND due_date >= ? AND due_date <= ? ORDER BY due_date LIMIT 5`).all(user.id, user.id, todayIso, soon) as Array<{ title: string; due_date: string }>;
+  // Only five of each are listed; the subject and figures count them all.
+  const overdueCount = (db.prepare(`SELECT COUNT(*) AS n ${openTasks} AND due_date < ?`).get(user.id, user.id, todayIso) as { n: number }).n;
+  const dueSoonCount = (db.prepare(`SELECT COUNT(*) AS n ${openTasks} AND due_date >= ? AND due_date <= ?`).get(user.id, user.id, todayIso, soon) as { n: number }).n;
   const goals = withGoalProgress(ctx, db.prepare(`SELECT * FROM goals WHERE (user_id = ? OR assignee_id = ?) AND status = 'active' AND deleted_at IS NULL AND period_end >= ? AND period_end <= ? ORDER BY period_end LIMIT 5`).all(user.id, user.id, todayIso, soon) as Array<{ title: string; period_end: string; current_value: number; target_value: number | null; metric: string; user_id: string }>);
   const maradmins = db.prepare(`SELECT number, title FROM maradmins WHERE published_at >= ? ORDER BY published_at DESC LIMIT 6`).all(new Date(at.getTime() - 7 * 86_400_000).toISOString()) as Array<{ number: string; title: string }>;
   const followUps = db.prepare(`SELECT c.follow_up_date, u.first_name, u.last_name FROM counselings c JOIN users u ON u.id = c.user_id WHERE c.counselor_id = ? AND c.deleted_at IS NULL AND c.follow_up_date >= ? AND c.follow_up_date <= ? ORDER BY c.follow_up_date LIMIT 5`).all(user.id, todayIso, soon) as Array<{ follow_up_date: string; first_name: string; last_name: string }>;
@@ -49,7 +53,7 @@ export function composeDigest(ctx: AppContext, user: DigestUser, at = new Date()
   if (followUps.length) sections.push({ heading: 'Counseling follow-ups', lines: followUps.map((f) => `${f.first_name} ${f.last_name} on ${f.follow_up_date}`) });
   if (maradmins.length) sections.push({ heading: 'New MARADMINs', lines: maradmins.map((m) => `${m.number}: ${m.title}`) });
 
-  const subject = `Vantage weekly: ${acts.length} logged${overdue.length ? `, ${overdue.length} overdue` : ''}`;
+  const subject = `Vantage weekly: ${acts.length} logged${overdueCount ? `, ${overdueCount} overdue` : ''}`;
   const content = layout({
     eyebrow: 'Weekly digest',
     title: `Your week, ${user.first_name}`,
@@ -57,15 +61,15 @@ export function composeDigest(ctx: AppContext, user: DigestUser, at = new Date()
     stats: [
       { label: acts.length === 1 ? 'entry logged' : 'entries logged', value: String(acts.length) },
       ...(dollars ? [{ label: 'headline impact', value: formatDollars(dollars), tone: 'good' as const }] : []),
-      { label: 'overdue tasks', value: String(overdue.length), ...(overdue.length ? { tone: 'bad' as const } : {}) },
-      { label: 'due in 14 days', value: String(dueSoon.length), ...(dueSoon.length ? { tone: 'warn' as const } : {}) },
+      { label: 'overdue tasks', value: String(overdueCount), ...(overdueCount ? { tone: 'bad' as const } : {}) },
+      { label: 'due in 14 days', value: String(dueSoonCount), ...(dueSoonCount ? { tone: 'warn' as const } : {}) },
     ],
     sections,
     cta: { label: 'Open Vantage', url: `${ctx.config.urls.app}/` },
     footer: 'You receive this weekly digest because it is enabled in Settings. Turn it off there at any time.',
     origin: ctx.config.urls.app,
   });
-  return { subject, ...content, stats: { activities: acts.length, overdue: overdue.length } };
+  return { subject, ...content, stats: { activities: acts.length, overdue: overdueCount } };
 }
 
 export async function sendDigest(ctx: AppContext, user: DigestUser) {

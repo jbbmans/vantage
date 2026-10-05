@@ -115,8 +115,10 @@ test('a typed goal tracks itself and opens into what counted', async ({ page }) 
   await page.goto('/goals');
   const card = page.getByRole('article').filter({ hasText: 'Twenty goal-checks this quarter' });
   await expect(card).toBeVisible();
-  await expect(card).toContainText('10 goal-checks');
+  await expect(card).toContainText('10 of 20 goal-checks');
   await expect(card).toContainText('50%');
+  // Half the target on the period's last day is behind an even pace.
+  await expect(card).toContainText('Behind pace');
 
   await card.getByRole('button', { name: 'What counted?' }).click();
   const dialog = page.getByRole('dialog', { name: /What counted toward/ });

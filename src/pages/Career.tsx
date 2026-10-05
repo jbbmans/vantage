@@ -9,13 +9,13 @@ import { Comments } from '@/components/Comments';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, StatusBadge, useParam, onText, Table, DescriptionList } from '@/components/common';
-import { can, useAwards, useCounselings, useDeleteRecord, useIdentity, usePrefs, useTrainings, invalidateRecords } from '@/lib/queries';
+import { can, useAwards, useCounselings, useDeleteRecord, useRestoreRecord, useIdentity, usePrefs, useTrainings, invalidateRecords } from '@/lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import * as api from '@/lib/api';
 import { TRAINING_TYPES, TRAINING_STATUS, AWARD_TYPES, AWARD_STATUS, AWARD_NAMES, COUNSELING_TYPES } from '../../shared/constants';
-import { formatNumber } from '../../shared/metrics';
+import { formatDate, formatNumber } from '../../shared/metrics';
 import { PERMISSIONS } from '../../shared/permissions';
-import { humanize, todayIso } from '@/lib/utils';
+import { formatStamp, humanize, todayIso } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/primitives';
 
 const CareerPlan = lazy(() => import('./CareerPlan'));
@@ -107,6 +107,7 @@ export default function Career({ section }: { section: CareerSection }) {
   const { data: awards } = useAwards();
   const { data: counselings } = useCounselings();
   const delTraining = useDeleteRecord('trainings'); const delAward = useDeleteRecord('awards'); const delCounseling = useDeleteRecord('counselings');
+  const undoTraining = useRestoreRecord('trainings'); const undoAward = useRestoreRecord('awards'); const undoCounseling = useRestoreRecord('counselings');
   const [training, setTraining] = useState<TrainingDraft | null>(null);
   const [award, setAward] = useState<AwardDraft | null>(null);
   const [counseling, setCounseling] = useState<CounselingDraft | null>(null);
@@ -139,9 +140,9 @@ export default function Career({ section }: { section: CareerSection }) {
       </PageHeader>
       {tab === 'plan' && <Suspense fallback={<Skeleton className="h-64" />}><CareerPlan /></Suspense>}
       {['training', 'awards', 'counseling'].includes(tab) && <div className="mb-4 grid grid-cols-3 gap-3">
-        <Stat label="Training hours" value={formatNumber(hours)} hint={`${(trainings || []).length} entries`} />
-        <Stat label="Awards in progress" value={(awards || []).filter((a) => ['recommended', 'submitted', 'approved'].includes(a.status)).length} hint={`${(awards || []).filter((a) => a.status === 'presented').length} presented`} />
-        <Stat label="Counselings" value={(counselings || []).length} hint={(counselings || []).some((c) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'one awaits your acknowledgement' : 'up to date'} tone={(counselings || []).some((c) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'warn' : undefined} />
+        <Stat label="Training hours" value={formatNumber(hours)} hint={`${(trainings || []).length} ${(trainings || []).length === 1 ? 'entry' : 'entries'}`} to={tab === 'training' ? undefined : '/career/training'} />
+        <Stat label="Awards in progress" value={(awards || []).filter((a) => ['recommended', 'submitted', 'approved'].includes(a.status)).length} hint={`${(awards || []).filter((a) => a.status === 'presented').length} presented`} to={tab === 'awards' ? undefined : '/career/awards'} />
+        <Stat label="Counselings" value={(counselings || []).length} hint={(counselings || []).some((c) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'one awaits your acknowledgement' : 'up to date'} tone={(counselings || []).some((c) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'warn' : undefined} to={tab === 'counseling' ? undefined : '/career/counseling'} />
       </div>}
 
       {tab === 'training' && ((trainings || []).length === 0 ? <div className="card"><EmptyState icon={GraduationCap} title="No training logged" description="PME, MarineNet courses, certifications, college. Hours here feed training-hour goals and the evaluation package." action={<Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}>Log training</Button>} /></div> : (
@@ -181,13 +182,13 @@ export default function Career({ section }: { section: CareerSection }) {
         )} />
       <RecordDialog<CounselingDraft> store="counselings" open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling} title={counseling?.id ? 'Edit counseling' : 'Record counseling'} noun="Counseling" size="lg" validate={(d) => (!d.summary.trim() ? 'A summary is required.' : null)} fields={(d, set, errors) => <CounselingFields d={d} set={set} errors={errors} />} />
 
-      <Dialog open={Boolean(view)} onOpenChange={(o) => { if (!o) { setView(null); setOpenId(''); } }} title={view?.kind === 'award' ? view.row.name : `${humanize(view?.row?.type || '')} counseling`} description={view?.row?.date ? new Date(`${view.row.date}T00:00:00`).toLocaleDateString() : undefined}
+      <Dialog open={Boolean(view)} onOpenChange={(o) => { if (!o) { setView(null); setOpenId(''); } }} title={view?.kind === 'award' ? view.row.name : `${humanize(view?.row?.type || '')} counseling`} description={view?.row?.date ? formatDate(view.row.date, 'd MMMM yyyy') : undefined}
         footer={view?.kind === 'counseling' && view.row.user_id === me && view.row.counselor_id && view.row.counselor_id !== me && !view.row.acknowledged_at ? <><span className="mr-auto text-xs text-ink-3">Acknowledging confirms you read it, not that you agree.</span><Button variant="primary" onClick={() => acknowledge(view.row)}><CheckCircle2 className="h-4 w-4" />Acknowledge</Button></> : undefined}>
         {view?.kind === 'award' && <DescriptionList items={[['Status', <StatusBadge value={view.row.status} />], ['Type', humanize(view.row.type)], ['Recommending official', view.row.recommending_official], ['Approving authority', view.row.approving_authority], ['Submitted', <DateText value={view.row.submitted_at} fallback="" />], ['Approved', <DateText value={view.row.approved_at} fallback="" />], ['Presented', <DateText value={view.row.presented_at} fallback="" />], ['Citation', view.row.citation ? <span className="whitespace-pre-wrap">{view.row.citation}</span> : null], ['Notes', view.row.notes]]} />}
-        {view?.kind === 'counseling' && <div className="space-y-3"><DescriptionList items={[['Counselor', view.row.counselor_name || (view.row.counselor_id === me ? 'You' : null)], ['Subject', view.row.subject_name || null], ['Follow-up', <DateText value={view.row.follow_up_date} fallback="" />], ['Acknowledged', view.row.acknowledged_at ? new Date(view.row.acknowledged_at).toLocaleString() : null]]} />{[['Summary', view.row.summary], ['Strengths', view.row.strengths], ['Areas to improve', view.row.improvements], ['Goals set', view.row.goals_set]].filter(([, v]) => v).map(([k, v]) => <section key={k}><h4 className="eyebrow mb-1">{k}</h4><p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-2">{v}</p></section>)}<p className="flex items-center gap-1 text-2xs text-ink-3"><Paperclip className="h-3 w-3" />Attachments for counselings are managed by the leader who recorded it.</p></div>}
+        {view?.kind === 'counseling' && <div className="space-y-3"><DescriptionList items={[['Counselor', view.row.counselor_name || (view.row.counselor_id === me ? 'You' : null)], ['Subject', view.row.subject_name || null], ['Follow-up', <DateText value={view.row.follow_up_date} fallback="" />], ['Acknowledged', view.row.acknowledged_at ? formatStamp(view.row.acknowledged_at) : null]]} />{[['Summary', view.row.summary], ['Strengths', view.row.strengths], ['Areas to improve', view.row.improvements], ['Goals set', view.row.goals_set]].filter(([, v]) => v).map(([k, v]) => <section key={k}><h4 className="eyebrow mb-1">{k}</h4><p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-2">{v}</p></section>)}<p className="flex items-center gap-1 text-2xs text-ink-3"><Paperclip className="h-3 w-3" />Attachments for counselings are managed by the leader who recorded it.</p></div>}
         {view && <div className="mt-4"><Comments table={view.kind === 'award' ? 'awards' : 'counselings'} id={view.row.id} canModerate={Boolean(view.row.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, view.row.unit_id)} /></div>}
       </Dialog>
-      <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title="Delete this record?" body="It moves to the recycle bin for 30 days." onConfirm={async () => { const m = confirm!.store === 'trainings' ? delTraining : confirm!.store === 'awards' ? delAward : delCounseling; try { await m.mutateAsync(confirm!.row.id); toast.success('Deleted.'); } catch (e) { toast.error(api.errorText(e)); } }} />
+      <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title="Delete this record?" body="It moves to the recycle bin for 30 days." onConfirm={async () => { const { store, row } = confirm!; const m = store === 'trainings' ? delTraining : store === 'awards' ? delAward : delCounseling; const undo = store === 'trainings' ? undoTraining : store === 'awards' ? undoAward : undoCounseling; try { await m.mutateAsync(row.id); toast.success('Deleted.', { label: 'Undo', onClick: () => undo.mutateAsync(row.id).then(() => toast.success('Restored.')).catch((e) => toast.error(api.errorText(e))) }); } catch (e) { toast.error(api.errorText(e)); } }} />
     </div>
   );
 }

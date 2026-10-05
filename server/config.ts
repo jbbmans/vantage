@@ -31,6 +31,8 @@ export interface AppConfig {
   operatorUsernames: string[];
   timezone: string;
   trustProxy: boolean | number | string;
+  /** "cloudflare": take CF-Connecting-IP, but only from a peer inside Cloudflare's published ranges. */
+  clientIp: 'proxy' | 'cloudflare';
   /** Idle limits follow the Application Security and Development STIG: 15 minutes, and 10 for an instance operator. */
   sessions: { idleMinutes: number; operatorIdleMinutes: number; absoluteHours: number; maxActive: number; sudoMinutes: number };
   limits: { mutationsPer15Minutes: number; registrationsPer15Minutes: number; maxRecordsPerUser: number; maxDatabaseBytes: number };
@@ -49,6 +51,8 @@ export interface AppConfig {
     /** Tell IndexNow engines (Bing and so Edge, DuckDuckGo and Yahoo; Yandex; Seznam; Naver) when the public page changes. */
     indexNow: boolean; indexNowEndpoint: string;
   };
+  /** Where security.txt sends a vulnerability report first: a mailto: or https: address, or null for the request form only. */
+  securityContact: string | null;
   m365: { clientId: string; clientSecret: string; tenant: string; redirectUri: string; endpointOverride: string | null };
   selfRegistration: boolean;
   cac: CacConfig;
@@ -232,6 +236,22 @@ function envList(env: NodeJS.ProcessEnv, name: string, fallback: string[]): stri
   return raw.split(',').map((s) => s.trim()).filter(Boolean);
 }
 
+/** A security.txt Contact: one mailto: or https: URI on a single line, or nothing. Anything else stops the start. */
+function securityContact(raw: string | undefined): string | null {
+  const value = String(raw ?? '').trim();
+  if (!value) return null;
+  if (!/^(?:mailto:[^\s@]+@[^\s@]+|https:\/\/[^\s]+)$/i.test(value)) throw new Error('VANTAGE_SECURITY_CONTACT must be one mailto: or https: address.');
+  return value;
+}
+
+/** Where a request's client address comes from: the proxy chain (TRUST_PROXY), or Cloudflare's header when Cloudflare is the peer. */
+function clientIpSource(raw: string | undefined): 'proxy' | 'cloudflare' {
+  const value = String(raw ?? '').trim().toLowerCase();
+  if (!value || value === 'proxy') return 'proxy';
+  if (value === 'cloudflare') return 'cloudflare';
+  throw new Error('VANTAGE_CLIENT_IP must be "proxy" or "cloudflare".');
+}
+
 /** A verification token goes into an HTML attribute, so only the characters the engines issue are accepted. */
 function verificationToken(env: NodeJS.ProcessEnv, name: string): string {
   const raw = (env[name] || '').trim();
@@ -318,6 +338,7 @@ export function loadConfig(env = process.env): AppConfig {
     operatorUsernames: envList(env, 'VANTAGE_OPERATOR', []).map((s) => s.toLowerCase()),
     timezone: env.VANTAGE_TIMEZONE || 'America/New_York',
     trustProxy: resolveTrustProxy(env.TRUST_PROXY, production),
+    clientIp: clientIpSource(env.VANTAGE_CLIENT_IP),
     sessions: {
       idleMinutes: envNumber(env, 'VANTAGE_IDLE_MINUTES', 15),
       operatorIdleMinutes: envNumber(env, 'VANTAGE_OPERATOR_IDLE_MINUTES', 10),
@@ -382,6 +403,7 @@ export function loadConfig(env = process.env): AppConfig {
       indexNow: accessMode === 'accounts' && envBool(env, 'VANTAGE_INDEXNOW', false),
       indexNowEndpoint: (test && env.VANTAGE_INDEXNOW_URL) || 'https://api.indexnow.org/indexnow',
     },
+    securityContact: securityContact(env.VANTAGE_SECURITY_CONTACT),
     maradmins: {
       enabled: envBool(env, 'VANTAGE_MARADMIN_ENABLED', false),
       refreshMinutes: envNumber(env, 'VANTAGE_MARADMIN_REFRESH_MINUTES', 30),
