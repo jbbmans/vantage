@@ -103,10 +103,23 @@ def poll(what: str, fetch, done, failed, every: float = 10, limit: float = 4 * 3
         time.sleep(every)
 
 
-def start_backend(mirofish: Path, port: int, out: Path) -> subprocess.Popen:
+def ensure_mirofish(mirofish: Path) -> None:
+    """Fetches and installs MiroFish when it is not there yet, so a fresh machine needs only the keys."""
     backend = mirofish / 'backend'
     if not (backend / 'run.py').exists():
-        sys.exit(f'No MiroFish backend at {backend}. Clone https://github.com/666ghj/MiroFish there, or pass --mirofish.')
+        if mirofish.exists() and any(mirofish.iterdir()):
+            sys.exit(f'{mirofish} exists but holds no MiroFish backend; pass --mirofish with an empty or MiroFish directory.')
+        log(f'Fetching MiroFish into {mirofish}')
+        mirofish.parent.mkdir(parents=True, exist_ok=True)
+        subprocess.run(['git', 'clone', '--depth', '1', 'https://github.com/666ghj/mirofish', str(mirofish)], check=True, env={**os.environ, 'GIT_LFS_SKIP_SMUDGE': '1'})
+    if not (backend / '.venv').exists():
+        log('Installing its backend (uv sync); this takes a few minutes the first time')
+        subprocess.run(['uv', 'sync'], cwd=backend, check=True)
+
+
+def start_backend(mirofish: Path, port: int, out: Path) -> subprocess.Popen:
+    backend = mirofish / 'backend'
+    ensure_mirofish(mirofish)
     env = {**os.environ, 'FLASK_PORT': str(port), 'FLASK_HOST': '127.0.0.1', 'FLASK_DEBUG': 'False', 'PYTHONUNBUFFERED': '1'}
     logf = open(out / 'backend.log', 'w', encoding='utf-8')
     log(f'Starting the MiroFish backend on port {port} (log: {out / "backend.log"})')

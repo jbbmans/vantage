@@ -22,11 +22,7 @@ They hold no Vantage data and nothing from a real deployment. Keep it that way: 
    - optionally `LLM_BASE_URL` and `LLM_MODEL_NAME`, for any OpenAI-compatible provider (MiroFish defaults to OpenAI with `gpt-4o-mini`).
 
    Start a new session so they are loaded.
-2. **MiroFish.** Clone and install it once (Python 3.11 or 3.12, and `uv`):
-   ```bash
-   GIT_LFS_SKIP_SMUDGE=1 git clone --depth 1 https://github.com/666ghj/mirofish /home/user/666ghj/mirofish
-   (cd /home/user/666ghj/mirofish/backend && uv sync)
-   ```
+2. **MiroFish.** The runner fetches it into `/home/user/666ghj/mirofish` (or `$MIROFISH_DIR`) and installs its backend with `uv` the first time; that needs Python 3.11 or 3.12 and a few minutes.
 3. **Run.**
    ```bash
    python3 sim/mirofish/run.py --rounds 20
