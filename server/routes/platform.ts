@@ -210,7 +210,7 @@ platformRouter.post('/orgs', requirePlatform('platform.orgs'), wrap((req, res) =
 
 platformRouter.get('/orgs/:orgId', requirePlatform('platform.view'), wrap((req, res) => {
   const org = getOrg(req.ctx, String(req.params.orgId));
-  if (!org) throw notFound('No such organization.');
+  if (!org) throw notFound('No such Unit Instance.');
   const recentAccess = accessForPlatform(req.ctx).filter((g) => g.org_id === org.id).slice(0, 20);
   res.json({ organization: publicOrg(org), counts: orgCounts(req.ctx, org.id), roles: orgRoleHolders(req.ctx, org.id).map(({ username: _u, ...r }) => r), access: recentAccess });
 }));
@@ -310,7 +310,7 @@ platformRouter.post('/accounts/:userId/deactivate', requirePlatform('platform.ac
   const target = accountTarget(req);
   if (target.id === req.user.id) throw badRequest('You cannot deactivate your own account.');
   const leads = ctx.db.prepare('SELECT name FROM units WHERE owner_user_id = ? AND active = 1').all(target.id) as Array<{ name: string }>;
-  if (leads.length) throw badRequest(`They lead ${leads.map((u) => u.name).join(', ')}. That organization transfers the leadership first.`);
+  if (leads.length) throw badRequest(`They lead ${leads.map((u) => u.name).join(', ')}. That Unit Instance transfers the leadership first.`);
   ctx.db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ?').run(now(), target.id);
   const revoked = invalidateUserSessions(ctx, target.id);
   audit(ctx, { actor_id: req.user.id, action: 'deactivate_account', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `${String(req.body?.reason || '').slice(0, 200)}; sessions revoked: ${revoked}`, ip: ip(req) });

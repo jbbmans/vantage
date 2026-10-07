@@ -144,7 +144,7 @@ export function resolveAccount(ctx: AppContext, identity: CertIdentity): CacReso
     throw new CacError('No Vantage account is linked to that card. Ask your admin to link it.', 'cac_unlinked');
   }
   const roster = rosterVouching(ctx, identity.edipi);
-  if (!roster) throw new CacError('That card is not on the roster of any organization on Vantage.', 'cac_not_on_roster');
+  if (!roster) throw new CacError('That card is not on the roster of any Unit Instance on Vantage.', 'cac_not_on_roster');
 
   const at = now();
   const id = newId();

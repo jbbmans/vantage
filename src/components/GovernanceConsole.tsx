@@ -84,7 +84,7 @@ export function PersonnelConsole({ orgId }: { orgId: string }) {
             <div className="card mb-3 border-warn/50 bg-warn/5 p-3" role="alert">
               <p className="flex items-center gap-2 text-base font-semibold text-ink"><AlertTriangle className="h-4 w-4 text-warn" />This would separate {plan.massSeparation.count} of {plan.massSeparation.activeBefore} people</p>
               <p className="mt-1 text-sm text-ink-2">That usually means the extract is partial rather than that the command emptied. Those people are held back; nothing about them changes unless you confirm.</p>
-              <Button className="mt-2" onClick={() => run(true, true)} loading={busy}>The extract really is the whole organization — separate them</Button>
+              <Button className="mt-2" onClick={() => run(true, true)} loading={busy}>The extract really is the whole Unit Instance — separate them</Button>
             </div>
           )}
           <div className="mb-3 flex flex-wrap gap-2">
@@ -193,7 +193,7 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
     <div className="space-y-4">
       {holds.some((h: any) => h.scope === 'instance') && (
         <div className="card border-warn/50 bg-warn/5 p-3" role="alert">
-          <p className="flex items-center gap-2 text-base font-semibold text-ink"><ShieldAlert className="h-4 w-4 text-warn" />A hold over the whole organization is open</p>
+          <p className="flex items-center gap-2 text-base font-semibold text-ink"><ShieldAlert className="h-4 w-4 text-warn" />A hold over the whole Unit Instance is open</p>
           <p className="mt-1 text-sm text-ink-2">Nothing is disposed of while it stands, whatever the schedules below say.</p>
         </div>
       )}
@@ -309,7 +309,7 @@ export function RetentionConsole({ orgId }: { orgId: string }) {
             <div className="space-y-3">
               <Field label="Covers">
                 <Select value={holdDraft.scope} onValueChange={(v) => setHoldDraft({ ...holdDraft, scope: v })}
-                  options={[{ value: 'instance', label: 'Everything the organization holds' }, { value: 'record_type', label: 'One kind of record' }, { value: 'user', label: 'One person' }]} />
+                  options={[{ value: 'instance', label: 'Everything the Unit Instance holds' }, { value: 'record_type', label: 'One kind of record' }, { value: 'user', label: 'One person' }]} />
               </Field>
               {holdDraft.scope === 'record_type' && (
                 <Field label="Record type"><Select value={holdDraft.record_type} onValueChange={(v) => setHoldDraft({ ...holdDraft, record_type: v })} options={holdableTypes.map((t: string) => ({ value: t, label: humanize(t) }))} /></Field>

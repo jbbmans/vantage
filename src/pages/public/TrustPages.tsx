@@ -62,7 +62,7 @@ const SECURITY: TrustPage = {
       id: 'access', title: 'Who can see what',
       body: <>
         <p>A Marine’s record is private until they share an entry with a unit. Leaders see what was shared with the units they lead, and the units beneath them; access flows down the chain of command and never up. Leaving a unit ends access to its work at once, and work that was held goes back to the queue with the reason recorded.</p>
-        <p>No role in the application, including an organization’s owners and Vantage staff, can open another person’s private entries. When a leader opens a member’s record, that is itself logged in the unit’s access log. Team totals drawn from fewer than three people are withheld so a total cannot be used to single someone out.</p>
+        <p>No role in the application, including a Unit Instance’s owners and Vantage staff, can open another person’s private entries. When a leader opens a member’s record, that is itself logged in the unit’s access log. Team totals drawn from fewer than three people are withheld so a total cannot be used to single someone out.</p>
       </>,
     },
     {
@@ -171,7 +171,7 @@ const PRIVACY: TrustPage = {
   description: 'What Vantage keeps about a person, who can see it, how long it is kept, and what it never collects: no trackers, no advertising, no selling of data.',
   eyebrow: 'Privacy',
   heading: 'Your record is yours.',
-  lede: 'What Vantage keeps, why, who can see it and for how long. Your command’s organization on Vantage decides some of this; where it does, the page says so.',
+  lede: 'What Vantage keeps, why, who can see it and for how long. Your command’s Unit Instance decides some of this; where it does, the page says so.',
   updated: '2026-10-07',
   sections: [
     {
@@ -221,7 +221,7 @@ const PRIVACY: TrustPage = {
           <li>Delete an entry and it goes to a recycle bin for thirty days, then is removed for good, unless a legal hold applies.</li>
           <li>Ask Vantage support, through the request form or Support, to turn your account off.</li>
         </ul>
-        <p>Retention schedules and legal holds over the work shared with your units are set by your organization and state the authority they follow. Do not enter classified information, and keep sensitive personal details (such as Social Security numbers or medical specifics) out of free text.</p>
+        <p>Retention schedules and legal holds over the work shared with your units are set by your Unit Instance and state the authority they follow. Do not enter classified information, and keep sensitive personal details (such as Social Security numbers or medical specifics) out of free text.</p>
       </>,
     },
     {

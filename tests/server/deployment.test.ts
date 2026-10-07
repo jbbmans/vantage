@@ -197,7 +197,7 @@ test('a database that already holds several Unit Instances will not start as ded
     assert.equal((await app.call('POST', '/api/platform/orgs', { token: op.token, body: { name: 'MARFORRES G-3', code: 'G3' } })).status, 201);
 
     // Nor can an archive of a shared deployment be restored into a dedicated one: the import is refused whole.
-    const archive = exportInstance(app.ctx);
+    const archive = exportInstance(app.ctx) as Parameters<typeof importInstance>[1];
     const dedicated = await startApp({ VANTAGE_TOPOLOGY: 'dedicated' });
     try {
       const admin = await dedicated.setupOperator();

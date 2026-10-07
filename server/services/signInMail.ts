@@ -75,7 +75,7 @@ export type SignInResult = { id: string; status: 'sent' | 'queued' | 'failed' | 
 /** Send one person their details: a member of the organization when one is given, any account for Vantage support. */
 export async function sendSignInDetails(ctx: AppContext, sender: SessionUser, userId: string, orgId: string | null, ip?: string): Promise<SignInResult> {
   const account = ctx.db.prepare(`${ACCOUNT_SQL} ${orgId ? IN_ORG : ''} AND u.id = ?`).get(...(orgId ? [orgId] : []), userId) as Account | undefined;
-  if (!account) return { id: userId, status: 'skipped', error: orgId ? 'No such active member of this organization.' : 'No such active account.' };
+  if (!account) return { id: userId, status: 'skipped', error: orgId ? 'No such active member of this Unit Instance.' : 'No such active account.' };
   if (account.id === sender.id) return { id: userId, status: 'skipped', error: 'That is your own account.' };
   if (!account.email) return { id: userId, status: 'skipped', error: 'No email on file.' };
   if (!ctx.mailer.enabled) return { id: userId, status: 'failed', error: 'Email is off on Vantage right now.' };

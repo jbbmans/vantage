@@ -17,8 +17,8 @@ Production targets MCEN, not the public internet ([ADR-0007](engineering/ADR/000
   from a manifest. It runs as a named Vantage Administrator, is idempotent, and is audited.
 - **Outbound connections.** Every outbound connection is listed in the admin dashboard's overview, with
   how MCEN treats it.
-- **Naming.** The admin dashboard and the owner console say Unit Instance. API, tables and audit names
-  are unchanged.
+- **Naming.** The admin dashboard, the owner console, server messages and permission labels say Unit
+  Instance. API paths, tables, audit action names and the export format are unchanged.
 - **Open questions.** I-13 to I-22 are added to INFRASTRUCTURE_QUESTIONS.md.
 
 ## What changed (2026-10-07: one central service, three tiers of authority, two consoles)

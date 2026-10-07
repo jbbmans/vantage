@@ -184,7 +184,11 @@ is configured. Fonts and scripts are local.
 - **Still open, and not invented here.** The isolation model, storage backend, relay, hostnames,
   identity path, SIEM, deployment mechanism and approvals are listed in
   [INFRASTRUCTURE_QUESTIONS.md](../INFRASTRUCTURE_QUESTIONS.md), I-13 to I-22.
-- **Server wording lags the UI.** Server-side messages and some app wording still say
-  "organization". Changing those, and the role names, is part of Task 4.
+- **What still says "organization".** Messages, permission labels and help text say "Unit Instance".
+  What keeps the old word is stored or machine-facing: table and column names, API paths, audit action
+  names, the `vantage-organization/1` export format, and the database trigger that stops a unit moving
+  between Unit Instances. "Organization" in the sense of an identity provider ("Sign in with your
+  organization") or a record's organization field is a different meaning and stays. The role names
+  themselves are Task 4's.
 - [deployment-scale.md](../../deployment-scale.md) argued for one instance per command. That is the
   `dedicated` topology here, now one supported choice rather than an unstated assumption.
