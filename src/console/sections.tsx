@@ -60,7 +60,7 @@ export function Overview({ orgId }: { orgId: string }) {
           <ul className="space-y-2">{mine.roles.map((r) => <li key={r}><p className="text-sm font-semibold text-ink">{catalog.roles[r].label}</p><p className="text-xs text-ink-2">{catalog.roles[r].description}</p></li>)}</ul>
           <p className="mt-3 text-xs font-semibold text-ink-2">You can</p>
           <ul className="mt-1 space-y-1">{catalog.permissions.filter((p) => may.has(p.key)).map((p) => <li key={p.key} className="text-xs text-ink-2"><span className="font-medium text-ink">{p.label}.</span> {p.hint}</li>)}</ul>
-          <p className="mt-3 text-2xs text-ink-3">An organization role runs the organization. It does not read Marines’ records: that comes only from a unit role, in the units it is granted in.</p>
+          <p className="mt-3 text-2xs text-ink-3">A Unit Instance role runs the Unit Instance. It does not read Marines’ records: that comes only from a unit role, in the units it is granted in.</p>
         </Panel>
         <Panel title="Records and the feed">
           <dl className="space-y-1.5 text-sm">
@@ -108,15 +108,15 @@ export function People({ org }: { org: OrgSummary }) {
     if (!confirm) return;
     const { kind, member } = confirm;
     setConfirm(null);
-    if (kind === 'remove') await act(`${personName(member)} left the organization.`, () => api.orgRemoveMember(org.id, member.id), refresh);
+    if (kind === 'remove') await act(`${personName(member)} left the Unit Instance.`, () => api.orgRemoveMember(org.id, member.id), refresh);
     else await act(kind === 'unlock' ? 'Unlocked.' : 'Signed out everywhere.', () => api.orgMemberAction(org.id, member.id, kind), refresh);
   };
 
   return (
     <div className="space-y-4">
       {can('org.owners') || roles.data ? (
-        <Panel title="Organization roles" subtitle="Who runs the organization. These roles manage its structure; none of them reads Marines’ records." action={can('org.owners') ? <Button size="sm" variant="primary" onClick={() => setGranting(true)}><UserPlus className="h-4 w-4" />Grant a role</Button> : undefined}>
-          {roles.isPending ? <Skeleton className="h-24" /> : !roles.data?.holders.length ? <p className="text-sm text-ink-3">Nobody holds an organization role.</p> : (
+        <Panel title="Unit Instance roles" subtitle="Who runs the Unit Instance. These roles manage its structure; none of them reads Marines’ records." action={can('org.owners') ? <Button size="sm" variant="primary" onClick={() => setGranting(true)}><UserPlus className="h-4 w-4" />Grant a role</Button> : undefined}>
+          {roles.isPending ? <Skeleton className="h-24" /> : !roles.data?.holders.length ? <p className="text-sm text-ink-3">Nobody holds a Unit Instance role.</p> : (
             <div className="-mx-4 -mt-1">
               <Table minWidth={620} head={<><th>Person</th><th className="w-36">Role</th><th className="w-40">Until</th><th className="w-40">Granted by</th><th className="w-24"></th></>}>
                 {roles.data.holders.map((h) => (
@@ -148,7 +148,7 @@ export function People({ org }: { org: OrgSummary }) {
                 <tr key={m.id}>
                   <td>
                     <span className="block font-medium text-ink">{personName(m)}{held.map((h) => <Badge key={h.role} tone="accent" className="ml-2">{roles.data?.catalog.roles[h.role].label}</Badge>)}</span>
-                    <span className="block text-xs text-ink-3">@{m.username}{m.edipi ? ' · CAC linked' : ''}{m.other_orgs ? ` · also in ${m.other_orgs} other organization${m.other_orgs === 1 ? '' : 's'}` : ''}</span>
+                    <span className="block text-xs text-ink-3">@{m.username}{m.edipi ? ' · CAC linked' : ''}{m.other_orgs ? ` · also in ${m.other_orgs} other Unit Instance${m.other_orgs === 1 ? '' : 's'}` : ''}</span>
                   </td>
                   <td className="text-xs text-ink-2">{m.units.map((u) => <span key={u.unit_id} className="block"><span className="font-medium text-ink">{u.unit}</span>{u.billet ? `, ${u.billet}` : ''}{u.roles ? <span className="text-ink-3"> · {u.roles}</span> : ''}</span>)}</td>
                   <td className="text-xs text-ink-3">{m.last_login_at ? timeAgo(m.last_login_at) : 'never'}<span className="block">{m.totp_enabled || m.passkeys ? 'second factor on' : <span className="text-warn">no second factor</span>}</span></td>
@@ -168,7 +168,7 @@ export function People({ org }: { org: OrgSummary }) {
           </Table>
         )}
       </div>
-      <p className="text-xs text-ink-3">A forgotten password or a lost authenticator is Vantage support’s to reset, because an account can belong to more than one organization. You can unlock a member and sign them out; they reset their own password from the sign-in page.</p>
+      <p className="text-xs text-ink-3">A forgotten password or a lost authenticator is Vantage support’s to reset, because an account can belong to more than one Unit Instance. You can unlock a member and sign them out; they reset their own password from the sign-in page.</p>
 
       <WhyDialog orgId={org.id} member={why} onClose={() => setWhy(null)} />
       <Dialog open={Boolean(cac)} onOpenChange={(o) => { if (!o) setCac(null); }} title={`EDIPI for ${cac?.member.username}`} description="The ten-digit DoD ID on their card. Certificate sign-in finds the account by it. Leave it empty to unlink." size="sm"
@@ -176,12 +176,12 @@ export function People({ org }: { org: OrgSummary }) {
         <Field label="EDIPI" hint="Ten digits"><Input autoFocus inputMode="numeric" autoComplete="off" maxLength={10} className="mono" value={cac?.edipi ?? ''} onChange={(e) => setCac((c) => (c ? { ...c, edipi: e.target.value.replace(/\D/g, '') } : c))} /></Field>
       </Dialog>
       <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} danger={confirm?.kind === 'remove'}
-        title={confirm?.kind === 'remove' ? `Take ${confirm ? personName(confirm.member) : ''} out of the organization?` : confirm?.kind === 'unlock' ? 'Unlock this account?' : 'Sign them out everywhere?'}
-        body={confirm?.kind === 'remove' ? 'They leave every unit of the organization: their unit roles and organization roles end, the work they held is released, and what they shared stays with the units. Their account and their own records stay theirs.' : confirm?.kind === 'unlock' ? 'The failed-attempt lock is lifted now.' : 'Every open session ends. Nothing else changes.'}
+        title={confirm?.kind === 'remove' ? `Take ${confirm ? personName(confirm.member) : ''} out of the Unit Instance?` : confirm?.kind === 'unlock' ? 'Unlock this account?' : 'Sign them out everywhere?'}
+        body={confirm?.kind === 'remove' ? 'They leave every unit of the Unit Instance: their unit roles and Unit Instance roles end, the work they held is released, and what they shared stays with the units. Their account and their own records stay theirs.' : confirm?.kind === 'unlock' ? 'The failed-attempt lock is lifted now.' : 'Every open session ends. Nothing else changes.'}
         confirmLabel={confirm?.kind === 'remove' ? 'Remove' : confirm?.kind === 'unlock' ? 'Unlock' : 'Sign out'} onConfirm={run} />
-      <ConfirmDialog open={Boolean(revoke)} onOpenChange={(o) => { if (!o) setRevoke(null); }} title={`Remove ${revoke ? personName(revoke) : ''} as ${revoke ? roles.data?.catalog.roles[revoke.role].label : ''}?`} body="They are signed out and the role ends now. An organization always keeps at least one owner." confirmLabel="Remove"
+      <ConfirmDialog open={Boolean(revoke)} onOpenChange={(o) => { if (!o) setRevoke(null); }} title={`Remove ${revoke ? personName(revoke) : ''} as ${revoke ? roles.data?.catalog.roles[revoke.role].label : ''}?`} body="They are signed out and the role ends now. A Unit Instance always keeps at least one owner." confirmLabel="Remove"
         onConfirm={async () => { if (revoke) await act('Role removed.', () => api.orgRevokeRole(org.id, revoke.user_id, revoke.role), refresh); setRevoke(null); }} />
-      <Dialog open={granting} onOpenChange={setGranting} title="Grant an organization role" size="sm" description="To a member of the organization. Another owner grants your own."
+      <Dialog open={granting} onOpenChange={setGranting} title="Grant a Unit Instance role" size="sm" description="To a member of the Unit Instance. Another owner grants your own."
         footer={<><Button variant="ghost" onClick={() => setGranting(false)}>Cancel</Button><Button variant="primary" disabled={!grant.user_id} onClick={async () => {
           const r = await act('Role granted. They are told, and pick it up at their next sign-in.', () => api.orgGrantRole(org.id, { user_id: grant.user_id, role: grant.role, expires_at: endOfDay(grant.until) }), refresh);
           if (r) { setGranting(false); setGrant({ user_id: '', role: 'admin', until: '' }); }
@@ -204,10 +204,10 @@ export function WhyDialog({ orgId, member, onClose }: { orgId: string; member: {
   });
   return (
     <Dialog open={Boolean(member)} onOpenChange={(o) => { if (!o) onClose(); }} size="lg" title={member ? `Why can ${personName({ ...member, rank_abbr: member.rank_abbr ?? null })} do what they can?` : ''}
-      description="Every grant behind their authority, unit by unit: the role and where it was granted, authority reaching down the chain, unit leadership, organization administration and Vantage access, each with its end date.">
+      description="Every grant behind their authority, unit by unit: the role and where it was granted, authority reaching down the chain, unit leadership, Unit Instance administration and Vantage access, each with its end date.">
       {isPending ? <Skeleton className="h-40" /> : error ? <p className="text-sm text-bad">{api.errorText(error)}</p> : (
         <div className="space-y-3">
-          {data!.orgRoles.length > 0 && <p className="text-sm text-ink-2">Organization roles: {data!.orgRoles.map((r) => `${r.label}${r.expires_at ? ` until ${new Date(r.expires_at).toLocaleDateString()}` : ''}`).join(', ')}.</p>}
+          {data!.orgRoles.length > 0 && <p className="text-sm text-ink-2">Unit Instance roles: {data!.orgRoles.map((r) => `${r.label}${r.expires_at ? ` until ${new Date(r.expires_at).toLocaleDateString()}` : ''}`).join(', ')}.</p>}
           <WhyList units={data!.units} />
         </div>
       )}
@@ -281,7 +281,7 @@ export function VantageAccess({ org }: { org: OrgSummary }) {
         ))}</ul>}
       </Panel>
       <Panel title="Open now">
-        {!active.length ? <p className="text-sm text-ink-3">Nobody from Vantage can see inside your organization.</p> : <ul className="divide-y divide-line">{active.map((g) => (
+        {!active.length ? <p className="text-sm text-ink-3">Nobody from Vantage can see inside your Unit Instance.</p> : <ul className="divide-y divide-line">{active.map((g) => (
           <li key={g.id} className="flex flex-wrap items-start justify-between gap-3 py-3">
             <span className="min-w-0"><span className="block font-medium text-ink">{g.staff_name} · ends {remaining(g.expires_at)}</span><span className="block text-sm text-ink-2">“{g.reason}”</span><span className="block text-2xs text-ink-3">{g.decided_by_name ? `approved by ${g.decided_by_name}` : 'began at once, as your settings allow'}</span></span>
             {can('org.access') && <Button size="sm" variant="danger" onClick={() => act('Access ended.', () => api.orgRevokeAccess(org.id, g.id), () => refetch())}>End now</Button>}
@@ -346,25 +346,25 @@ export function Settings({ org }: { org: OrgSummary }) {
       {can('org.settings') && (
         <Panel title="Name" action={<Button size="sm" variant="primary" onClick={() => save({ name: form.name, short_name: form.short_name || null })}><Save className="h-4 w-4" />Save</Button>}>
           <div className="space-y-3">
-            <Field label="Organization name" hint="also the name of its top unit"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={120} /></Field>
+            <Field label="Unit Instance name" hint="also the name of its top unit"><Input value={form.name} onChange={(e) => setForm({ ...form, name: e.target.value })} maxLength={120} /></Field>
             <Field label="Short name"><Input value={form.short_name} onChange={(e) => setForm({ ...form, short_name: e.target.value })} maxLength={40} /></Field>
           </div>
         </Panel>
       )}
-      <Panel title="Vantage access" subtitle="When Vantage support needs to look inside your organization to fix something.">
+      <Panel title="Vantage access" subtitle="When Vantage support needs to look inside your Unit Instance to fix something.">
         <Switch checked={form.vantageAccess === 'approval'} disabled={!can('org.owners')} onChange={(v) => { const next = v ? 'approval' : 'notify'; setForm({ ...form, vantageAccess: next }); void save({ settings: { vantageAccess: next } }); }}
           label="Ask an owner first" description={form.vantageAccess === 'approval' ? 'Support asks; nothing opens until an owner approves. Recommended.' : 'Support may look at once, read-only, and your owners are told and can end it.'} />
         {!can('org.owners') && <p className="mt-2 text-xs text-ink-3">Only an owner changes this.</p>}
       </Panel>
       {can('org.export') && (
         <Panel title="Structure export" subtitle="Your units, unit roles, members and who holds which role, as one file.">
-          <p className="text-sm text-ink-2">The work shared with a unit is exported from that unit in the app, by those whose unit role allows it. An organization role does not read records, so this file holds none.</p>
+          <p className="text-sm text-ink-2">The work shared with a unit is exported from that unit in the app, by those whose unit role allows it. A Unit Instance role does not read records, so this file holds none.</p>
           <Button className="mt-3" onClick={exportStructure}><Download className="h-4 w-4" />Download structure</Button>
         </Panel>
       )}
       <Panel title="Your units on Vantage" subtitle="Members bring their own account and keep it when they move.">
-        <p className="text-sm text-ink-2">Your organization’s records live on Vantage’s central service, separate from every other organization’s. Vantage staff see your organization as a name and its counts; anything more opens only through Vantage access, above.</p>
-        <p className="mt-2 flex items-center gap-1.5 text-xs text-ink-3"><IdCard className="h-3.5 w-3.5" />To close the organization or recover a lost owner account, contact Vantage support.</p>
+        <p className="text-sm text-ink-2">Your Unit Instance’s records are kept apart from every other Unit Instance’s on this Vantage deployment. Vantage staff see your Unit Instance as a name and its counts; anything more opens only through Vantage access, above.</p>
+        <p className="mt-2 flex items-center gap-1.5 text-xs text-ink-3"><IdCard className="h-3.5 w-3.5" />To close the Unit Instance or recover a lost owner account, contact Vantage support.</p>
       </Panel>
     </div>
   );
