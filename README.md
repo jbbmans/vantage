@@ -17,11 +17,13 @@ Five destinations: **Today · Work · Record · Goals · Career**, the **Referen
 
 See `docs/product/` for the product, `docs/domain/` for the financial model and SME questions, `docs/PROGRESS.md` for status, and `docs/demo/BOARD_DEMO.md` for the demonstration script.
 
-## One service, organizations as tenants
+## Where Vantage runs: MCEN, with Unit Instances
 
-Vantage runs as one central service at vantageusmc.com, operated by the Vantage team, for many commands ([ADR-0006](docs/engineering/ADR/0006-centralized-tenancy-and-authority.md)).
+Vantage's production target is an enterprise deployment on the Marine Corps Enterprise Network, run by Vantage Administrators for many commands ([ADR-0007](docs/engineering/ADR/0007-mcen-enterprise-deployment-and-unit-instances.md), [docs/deploy-mcen.md](docs/deploy-mcen.md)). `VANTAGE_DEPLOYMENT_PROFILE=mcen` refuses the public-internet services and serves no public site.
 
-- **Organizations.** Each command or staff section is an organization: a tree of units with its own members, roles, personnel feed, retention schedules, legal holds and audit trail, kept apart from every other organization's.
+The public site at vantageusmc.com on Render is the legacy deployment (`legacy-public`, [docs/deploy-render.md](docs/deploy-render.md)). It keeps working until it is retired, and it is not the target. The tenancy and authority model below comes from [ADR-0006](docs/engineering/ADR/0006-centralized-tenancy-and-authority.md). In code, a Unit Instance is still called an organization (`organizations`, `/api/orgs`).
+
+- **Unit Instances.** Each command or staff section is a Unit Instance: a tree of units with its own members, roles, personnel feed, retention schedules, legal holds and audit trail, kept apart from every other Unit Instance's. A deployment either shares one database among many (`VANTAGE_TOPOLOGY=shared`) or holds exactly one (`dedicated`). Vantage Administrators provision them in the admin dashboard or with `npm run provision-instance`.
 - **Accounts belong to the Marine.** One account follows a person between commands; their private entries, career plan and export stay theirs.
 - **Three tiers of authority, none implying another.**
 

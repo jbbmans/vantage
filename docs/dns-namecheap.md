@@ -1,5 +1,7 @@
 # DNS for vantageusmc.com
 
+> **Legacy deployment.** This page is for the pre-MCEN public site at vantageusmc.com (`VANTAGE_DEPLOYMENT_PROFILE=legacy-public`). It is not the production target; see [deploy-mcen.md](deploy-mcen.md) and [ADR-0007](engineering/ADR/0007-mcen-enterprise-deployment-and-unit-instances.md).
+
 Namecheap is the registrar. Cloudflare hosts the DNS: the domain's nameservers are
 `brodie.ns.cloudflare.com` and `susan.ns.cloudflare.com`, set in Namecheap under **Domain List → Manage →
 Nameservers → Custom DNS**. Every record below is edited in Cloudflare. Namecheap's **Advanced DNS** host

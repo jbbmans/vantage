@@ -59,9 +59,12 @@ buys the wrong database.
 Corps-wide reach is satisfied by either shape:
 
 - **Federated.** One instance per command, on the boundary above. Reach comes from deploying many
-  instances; a higher echelon is fed by exports and submitted reports. This is what the current
-  build does, today, at the measured sizes.
+  instances; a higher echelon is fed by exports and submitted reports. Since ADR-0007 this is
+  `VANTAGE_TOPOLOGY=dedicated`: each deployment's database holds exactly one Unit Instance, and the
+  database refuses a second.
 - **Central.** One live database holding every Marine's records, with commands as scopes inside it.
+  This is `VANTAGE_TOPOLOGY=shared`, the ADR-0006 model and today's default. Which one MCEN hosts is
+  open (INFRASTRUCTURE_QUESTIONS.md, I-13).
 
 They are the same product to a user and a different problem to an engineer. Federated is a
 deployment exercise with the code that already exists. Central is a port.

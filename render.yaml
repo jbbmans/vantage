@@ -1,3 +1,5 @@
+# LEGACY DEPLOYMENT. This blueprint runs the pre-MCEN public site at vantageusmc.com, and it keeps running until the
+# site is retired. It is not the production target: production is MCEN (docs/deploy-mcen.md, ADR-0007).
 services:
   - type: web
     name: vantage
@@ -27,6 +29,9 @@ services:
     envVars:
       - key: NODE_ENV
         value: production
+      # The public site's own rules: a public page, Cloudflare, Resend and IndexNow. The mcen profile refuses all four.
+      - key: VANTAGE_DEPLOYMENT_PROFILE
+        value: legacy-public
       - key: PORT
         value: "8787"
       - key: VANTAGE_DB

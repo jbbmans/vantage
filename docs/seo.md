@@ -1,5 +1,7 @@
 # Search engines
 
+> **Legacy deployment.** This page is for the pre-MCEN public site at vantageusmc.com (`VANTAGE_DEPLOYMENT_PROFILE=legacy-public`). It is not the production target; see [deploy-mcen.md](deploy-mcen.md) and [ADR-0007](engineering/ADR/0007-mcen-enterprise-deployment-and-unit-instances.md).
+
 What the code does for search, and the steps only the site's owner can take.
 
 ## What the code does

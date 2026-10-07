@@ -1,5 +1,7 @@
 # Email
 
+> On MCEN (`VANTAGE_DEPLOYMENT_PROFILE=mcen`) mail goes only through the enterprise relay: `smtp` with `SMTP_URL`, or `none`. Resend and direct delivery below are for the legacy public site and development; see [deploy-mcen.md](deploy-mcen.md).
+
 Email is optional but enables password reset links, invitation emails, email-change confirmation, the weekly digest, and leaders' messages to their team. Without it, leaders send invite links by hand, the owner issues temporary passwords, and team messages arrive in Vantage only.
 
 ## From your own domain, with no email service (direct)
