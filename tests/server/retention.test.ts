@@ -263,6 +263,8 @@ test('an entry drafted from work can be purged and destroyed: its links are let 
     app.ctx.db.prepare('INSERT INTO record_drafts (id, user_id, title, activity_id, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?)').run('draft-1', op.id, 'Clear ULO 1', binned.activityId, new Date().toISOString(), new Date().toISOString());
     attach(binned.activityId);
     assert.equal((await app.call('DELETE', `/api/records/activities/${binned.activityId}`, { token: op.token })).status, 200);
+    // A second ago, so the purge's cutoff (strictly earlier than now) cannot fall in the same millisecond as the delete.
+    app.ctx.db.prepare('UPDATE activities SET deleted_at = ? WHERE id = ?').run(new Date(Date.now() - 1000).toISOString(), binned.activityId);
     const purged = purgeDeleted(app.ctx, 0);
     assert.equal(purged.records, 1);
     assert.equal(purged.attachments, 1);
