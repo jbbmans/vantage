@@ -99,19 +99,30 @@ jobs:
           tags: vantage:ci
           cache-from: type=gha
           cache-to: type=gha,mode=max
-      - name: Image boots and serves the site
+      - name: Image boots and serves the legacy public site
         run: |
           docker run -d --name vantage -p 8787:8787 \
             -e VANTAGE_SECRET="$(openssl rand -hex 32)" -e VANTAGE_SETUP_TOKEN="$(openssl rand -hex 16)" \
-            -e VANTAGE_PUBLIC_URL=https://vantageusmc.com vantage:ci
+            -e VANTAGE_DEPLOYMENT_PROFILE=legacy-public -e VANTAGE_PUBLIC_URL=https://vantageusmc.com vantage:ci
           for i in $(seq 30); do curl -fsS http://127.0.0.1:8787/api/health && break; sleep 1; done
           curl -fsS -o /dev/null http://127.0.0.1:8787/
           curl -fsS -o /dev/null http://127.0.0.1:8787/og.png
+      # The production target (ADR-0007): the same image as an MCEN deployment, with no public site.
+      - name: Image boots as an MCEN deployment
+        run: |
+          docker run -d --name vantage-mcen -p 8788:8787 \
+            -e VANTAGE_SECRET="$(openssl rand -hex 32)" -e VANTAGE_SETUP_TOKEN="$(openssl rand -hex 16)" \
+            -e VANTAGE_DEPLOYMENT_PROFILE=mcen -e VANTAGE_APP_URL=https://vantage.example.mil vantage:ci
+          for i in $(seq 30); do curl -fsS http://127.0.0.1:8788/api/health && break; sleep 1; done
+          curl -fsS http://127.0.0.1:8788/api/health | grep -q '"profile":"mcen"'
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: vantage.example.mil' http://127.0.0.1:8788/)" = 200
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: vantage.example.mil' http://127.0.0.1:8788/about)" = 404
+          test "$(curl -s -o /dev/null -w '%{http_code}' -H 'Host: vantage.example.mil' http://127.0.0.1:8788/sitemap.xml)" = 404
       - if: failure()
-        run: docker logs vantage
+        run: docker logs vantage; docker logs vantage-mcen || true
       # The image that ships is scanned: fixable high and critical findings in its OS packages or Node modules fail.
       - name: Scan the image
-        uses: aquasecurity/trivy-action@0.28.0
+        uses: aquasecurity/trivy-action@v0.36.0
         with:
           image-ref: vantage:ci
           severity: CRITICAL,HIGH

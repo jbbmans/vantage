@@ -35,8 +35,8 @@ const SECURITY: TrustPage = {
   description: 'How Vantage protects the records it keeps: sign-in, access by unit membership, sealed histories, a strict browser policy, and how to report a vulnerability.',
   eyebrow: 'Security',
   heading: 'Built so a record can answer for itself.',
-  lede: 'What protects the work and records people keep in Vantage, how one organization is kept apart from another, and how to tell us about a weakness.',
-  updated: '2026-10-05',
+  lede: 'What protects the work and records people keep in Vantage, how one Unit Instance is kept apart from another, and how to tell us about a weakness.',
+  updated: '2026-10-07',
   sections: [
     {
       id: 'glance', title: 'At a glance',
@@ -62,7 +62,7 @@ const SECURITY: TrustPage = {
       id: 'access', title: 'Who can see what',
       body: <>
         <p>A Marine’s record is private until they share an entry with a unit. Leaders see what was shared with the units they lead, and the units beneath them; access flows down the chain of command and never up. Leaving a unit ends access to its work at once, and work that was held goes back to the queue with the reason recorded.</p>
-        <p>No role in the application, including an organization’s owners and Vantage staff, can open another person’s private entries. When a leader opens a member’s record, that is itself logged in the unit’s access log. Team totals drawn from fewer than three people are withheld so a total cannot be used to single someone out.</p>
+        <p>No role in the application, including a Unit Instance’s owners and Vantage staff, can open another person’s private entries. When a leader opens a member’s record, that is itself logged in the unit’s access log. Team totals drawn from fewer than three people are withheld so a total cannot be used to single someone out.</p>
       </>,
     },
     {
@@ -87,12 +87,12 @@ const SECURITY: TrustPage = {
     {
       id: 'deployment', title: 'For your ISSM',
       body: <>
-        <p>Vantage is one central service, run by the Vantage team. Each command on it is an <strong>organization</strong>: its units, members, roster feed, retention schedules, legal holds and audit trail are its own and kept apart from every other organization’s.</p>
+        <p>Vantage is an enterprise application built to be hosted on the Marine Corps Enterprise Network. Each command on it is a <strong>Unit Instance</strong>: its units, members, roster feed, retention schedules, legal holds and audit trail are its own and kept apart from every other Unit Instance’s. A deployment either shares one database among many Unit Instances or holds exactly one, in which case the database itself refuses a second.</p>
         <ul>
-          <li><strong>Three kinds of authority, none implying another.</strong> Vantage staff run the service. An organization’s owners and administrators run its structure: members, units, roles and the roster feed, without reading Marines’ records. Unit roles in the chain of command read what is shared with their units.</li>
-          <li><strong>Vantage staff do not see inside an organization</strong> unless its owners approve a request, which names a reason and lasts at most a day. That access is read-only, can be ended by an owner at any time, and every step is in the organization’s own audit trail.</li>
+          <li><strong>Three kinds of authority, none implying another.</strong> Vantage Administrators run the service. A Unit Instance’s owners and administrators run its structure: members, units, roles and the roster feed, without reading Marines’ records. Unit roles in the chain of command read what is shared with their units.</li>
+          <li><strong>Vantage Administrators do not see inside a Unit Instance</strong> unless its owners approve a request, which names a reason and lasts at most a day. That access is read-only, can be ended by an owner at any time, and every step is in the Unit Instance’s own audit trail.</li>
           <li><strong>Grants can end on a date</strong> (an acting billet, a leave period), and anyone who manages roles can see why a person can do what they can.</li>
-          <li>It runs as one Node.js process behind TLS and makes no outbound requests by default. AI, the MARADMIN feed and search-engine notices are each off until Vantage turns them on.</li>
+          <li>It runs as one Node.js process behind TLS and makes no outbound requests by default. AI, the MARADMIN feed, mail and search-engine notices are each off until they are turned on, and an MCEN deployment will not start with a public-internet service such as a commercial mail API or search-engine notices switched on. The admin dashboard lists every outbound connection.</li>
           <li>When AI is turned on it goes only to GenAI.mil, the key stays on the server, and a request carries only the fields that workflow needs.</li>
           <li>Records management is built in: retention schedules with their authority, legal holds that stop every path that could delete, and disposition evidence for every run.</li>
           <li>A privacy-impact data inventory is generated from the live database schema, so it cannot quietly stop being true.</li>
@@ -171,8 +171,8 @@ const PRIVACY: TrustPage = {
   description: 'What Vantage keeps about a person, who can see it, how long it is kept, and what it never collects: no trackers, no advertising, no selling of data.',
   eyebrow: 'Privacy',
   heading: 'Your record is yours.',
-  lede: 'What Vantage keeps, why, who can see it and for how long. Your command’s organization on Vantage decides some of this; where it does, the page says so.',
-  updated: '2026-10-05',
+  lede: 'What Vantage keeps, why, who can see it and for how long. Your command’s Unit Instance decides some of this; where it does, the page says so.',
+  updated: '2026-10-07',
   sections: [
     {
       id: 'never', title: 'What Vantage never does',
@@ -197,8 +197,8 @@ const PRIVACY: TrustPage = {
     {
       id: 'sees', title: 'Who can see it',
       body: <>
-        <p>Entries are private until you share one with a unit. Leaders see what was shared with the units they lead, and every time a leader opens a member’s record it is logged. Your organization’s owners and administrators manage its people and units, not your records. Vantage staff see your organization as a name and its counts; they look at shared work only when your organization’s owners approve it, read-only and for a set time, and that is in your organization’s audit trail.</p>
-        <p>Your account is yours, not your command’s: it moves with you between organizations, and your private entries, career plan and readiness stay with it. The Vantage team runs the servers and could read the database directly, as anyone who runs a server can; the application itself gives no one a way to open your private entries.</p>
+        <p>Entries are private until you share one with a unit. Leaders see what was shared with the units they lead, and every time a leader opens a member’s record it is logged. Your Unit Instance’s owners and administrators manage its people and units, not your records. Vantage Administrators see your Unit Instance as a name and its counts; they look at shared work only when its owners approve it, read-only and for a set time, and that is in the Unit Instance’s audit trail.</p>
+        <p>Your account is yours, not your command’s: it moves with you between Unit Instances, and your private entries, career plan and readiness stay with it. Whoever runs the servers could read the database directly, as anyone who runs a server can; the application itself gives no one a way to open your private entries.</p>
       </>,
     },
     {
@@ -221,7 +221,7 @@ const PRIVACY: TrustPage = {
           <li>Delete an entry and it goes to a recycle bin for thirty days, then is removed for good, unless a legal hold applies.</li>
           <li>Ask Vantage support, through the request form or Support, to turn your account off.</li>
         </ul>
-        <p>Retention schedules and legal holds over the work shared with your units are set by your organization and state the authority they follow. Do not enter classified information, and keep sensitive personal details (such as Social Security numbers or medical specifics) out of free text.</p>
+        <p>Retention schedules and legal holds over the work shared with your units are set by your Unit Instance and state the authority they follow. Do not enter classified information, and keep sensitive personal details (such as Social Security numbers or medical specifics) out of free text.</p>
       </>,
     },
     {

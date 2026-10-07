@@ -1,5 +1,7 @@
 # Deploying on Render
 
+> **Legacy deployment.** This page is for the pre-MCEN public site at vantageusmc.com (`VANTAGE_DEPLOYMENT_PROFILE=legacy-public`). It is not the production target; see [deploy-mcen.md](deploy-mcen.md) and [ADR-0007](engineering/ADR/0007-mcen-enterprise-deployment-and-unit-instances.md).
+
 The whole system is one web service with a persistent disk. Budget: the Starter plan plus a 1 GB disk, which is what the previous version cost.
 
 ## First deploy

@@ -596,7 +596,7 @@ export default function AppShell() {
           </main>
           <footer className="no-print flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pb-[calc(1.25rem+var(--tabbar,0px))] pt-5 text-xs text-ink-3 sm:px-6 lg:px-10">
             <button type="button" onClick={openWhatsNew} className="flex items-center gap-1.5 rounded transition-colors hover:text-ink" aria-label={`Vantage v${VERSION}. What’s new`} title="What’s new"><Mark size={12} />Vantage v{VERSION}</button>
-            <span>Your organization’s records are kept apart from every other’s.</span>
+            <span>Your Unit Instance’s records are kept apart from every other’s.</span>
             <span className="hidden sm:inline">Not an official DoD or USMC system of record.</span>
           </footer>
         </div>

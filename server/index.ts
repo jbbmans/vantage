@@ -12,7 +12,11 @@ const app = createApp(ctx);
 const stopSchedulers = startSchedulers(ctx);
 
 const banner = (scheme: string, extra = '') =>
-  `Vantage v${VERSION} listening on ${scheme}://0.0.0.0:${config.port} (${config.production ? 'production' : 'development'}) db=${config.databasePath}${extra}`;
+  `Vantage v${VERSION} listening on ${scheme}://0.0.0.0:${config.port} (${config.production ? 'production' : 'development'}) profile=${config.deployment.profile} topology=${config.deployment.topology} db=${config.databasePath}${extra}`;
+
+if (config.production && config.deployment.inferred) {
+  console.warn('VANTAGE_DEPLOYMENT_PROFILE is not set, so this production start runs as legacy-public, the pre-MCEN public site. Set it to mcen for an MCEN deployment, or to legacy-public to keep this one and silence this warning. See docs/deploy-mcen.md.');
+}
 
 const tlsOptions = () => ({
   cert: readFileSync(requireEnv('CAC_TLS_CERT')),

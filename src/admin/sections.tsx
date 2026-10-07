@@ -29,13 +29,13 @@ export function Overview() {
   return (
     <div className="space-y-4">
       <div className="grid grid-cols-2 gap-3 lg:grid-cols-4">
-        <Stat label="Organizations" value={data.organizations.active} hint={`${data.organizations.suspended} suspended · ${data.organizations.archived} archived${data.organizations.withoutOwner ? ` · ${data.organizations.withoutOwner} without an owner` : ''}`} icon={Building2} tone={data.organizations.withoutOwner ? 'warn' : undefined} />
+        <Stat label="Unit Instances" value={data.organizations.active} hint={`${data.organizations.suspended} suspended · ${data.organizations.archived} archived${data.organizations.withoutOwner ? ` · ${data.organizations.withoutOwner} without an owner` : ''}`} icon={Building2} tone={data.organizations.withoutOwner ? 'warn' : undefined} />
         <Stat label="Active accounts" value={data.users} hint={`${data.inactiveUsers} inactive${data.lockedUsers ? ` · ${data.lockedUsers} locked` : ''} · ${data.staff} Vantage staff`} icon={Users} />
-        <Stat label="Vantage access" value={data.access.active} hint={`${data.access.pending} waiting on an organization · support queue ${data.support.open}`} icon={KeyRound} />
+        <Stat label="Vantage access" value={data.access.active} hint={`${data.access.pending} waiting on a Unit Instance · support queue ${data.support.open}`} icon={KeyRound} />
         <Stat label="Database" value={mb(data.database.sizeBytes)} hint={`of ${mb(data.database.maxBytes)} safety threshold`} icon={Database} tone={data.database.sizeBytes && data.database.sizeBytes > data.database.maxBytes * 0.8 ? 'warn' : undefined} />
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Panel title="Service"><dl className="space-y-1.5 text-sm">{[['Version', `${data.version} · schema ${data.schemaVersion}`], ['Node', data.node], ['Uptime', `${Math.round(data.uptime / 3600)} h`], ['Public site', data.urls.site], ['App', data.urls.app], ['Owner console', data.urls.console], ['Admin dashboard', data.urls.admin], ['Passkey domain', data.rpId], ['Units', data.units], ['Time zone', data.timezone], ['Sessions open', data.sessions], ['MFA users', `${data.mfaUsers} authenticator · ${data.passkeyUsers} passkey`]].map(([k, v]) => <div key={String(k)} className="flex justify-between gap-3"><dt className="text-ink-3">{k}</dt><dd className="fig truncate text-right text-ink">{String(v)}</dd></div>)}</dl></Panel>
+        <Panel title="Service"><dl className="space-y-1.5 text-sm">{[['Version', `${data.version} · schema ${data.schemaVersion}`], ['Node', data.node], ['Uptime', `${Math.round(data.uptime / 3600)} h`], ...(data.deployment?.publicSite === false ? [] : [['Public site', data.urls.site]]), ['App', data.urls.app], ['Owner console', data.urls.console], ['Admin dashboard', data.urls.admin], ['Passkey domain', data.rpId], ['Units', data.units], ['Time zone', data.timezone], ['Sessions open', data.sessions], ['MFA users', `${data.mfaUsers} authenticator · ${data.passkeyUsers} passkey`]].map(([k, v]) => <div key={String(k)} className="flex justify-between gap-3"><dt className="text-ink-3">{k}</dt><dd className="fig truncate text-right text-ink">{String(v)}</dd></div>)}</dl></Panel>
         <Panel title="Email" subtitle={data.email.enabled ? `${data.email.provider} · from ${data.email.from}` : 'not configured'} action={data.email.enabled ? <Button size="sm" onClick={async () => { try { await withSudo(() => api.platformEmailTest()); toast.success('Test email sent to you.'); } catch (e) { toast.error(api.errorText(e)); } }}><Mail className="h-3.5 w-3.5" />Send test</Button> : undefined}>
           {!data.email.enabled ? <p className="text-sm text-ink-2">Turn email on to send reset links, invitations and digests. The Email tab shows how to send from your own domain with no email service.</p> : !data.email.recent.length ? <p className="text-sm text-ink-3">No email sent yet.</p> : <ul className="space-y-1 text-xs">{data.email.recent.map((m: any, i: any) => <li key={i} className="flex justify-between gap-2"><span className="truncate text-ink">{m.kind} → {m.to_address}</span><span className={m.status === 'sent' ? 'text-good' : m.status === 'queued' ? 'text-warn' : 'text-bad'}>{m.status}{m.error ? `: ${m.error}` : ''}</span></li>)}</ul>}
         </Panel>
@@ -48,7 +48,35 @@ export function Overview() {
           {data.maradmins.enabled && <Button size="sm" className="mt-2" onClick={async () => { try { const r = await withSudo(() => api.platformSyncMaradmins()); toast.success(`Synced: ${r.inserted ?? 0} new, ${r.updated ?? 0} updated.`); refetch(); } catch (e) { toast.error(api.errorText(e)); } }}><RefreshCw className="h-3.5 w-3.5" />Sync now</Button>}
         </Panel>
       </div>
+      {data.deployment && <Deployment posture={data.deployment} />}
     </div>
+  );
+}
+
+interface DeploymentPosture {
+  profile: 'mcen' | 'legacy-public' | 'development'; inferred: boolean; topology: 'shared' | 'dedicated'; publicSite: boolean; unitInstances: number;
+  locked: string[]; notes: string[];
+  outbound: Array<{ id: string; purpose: string; destination: string; enabled: boolean; settings: string[]; mcen: 'refused' | 'approval' | 'enterprise' }>;
+}
+const PROFILE_LABEL: Record<DeploymentPosture['profile'], string> = { mcen: 'MCEN', 'legacy-public': 'Legacy public site', development: 'Development' };
+const MCEN_LABEL: Record<DeploymentPosture['outbound'][number]['mcen'], [string, 'good' | 'warn' | 'bad']> = { enterprise: ['Enterprise service', 'good'], approval: ['Needs an approved connection', 'warn'], refused: ['Refused on MCEN', 'bad'] };
+
+/** Where this deployment runs, how many Unit Instances it may hold, and every connection it can open beyond itself (ADR-0007). */
+function Deployment({ posture }: { posture: DeploymentPosture }) {
+  return (
+    <Panel title="Deployment" subtitle={`${PROFILE_LABEL[posture.profile]}${posture.inferred ? ' (not set, inferred)' : ''} · ${posture.topology === 'dedicated' ? 'dedicated to one Unit Instance' : `shared by ${posture.unitInstances} Unit ${posture.unitInstances === 1 ? 'Instance' : 'Instances'}`}`}>
+      {posture.notes.length > 0 && <ul className="mb-3 space-y-0.5 text-xs text-warn">{posture.notes.map((n) => <li key={n}>{n}</li>)}</ul>}
+      {posture.locked.length > 0 && <p className="mb-3 text-xs text-ink-2">Held off by this profile: {posture.locked.map(humanize).join(', ')}.</p>}
+      <p className="text-sm text-ink-2">Outbound connections</p>
+      <ul className="mt-1 space-y-1 text-xs">
+        {posture.outbound.map((c) => (
+          <li key={c.id} className="flex flex-wrap items-baseline justify-between gap-2">
+            <span className="text-ink">{c.purpose} <span className="fig text-ink-3">{c.enabled ? c.destination : 'off'}</span></span>
+            <span className="flex items-center gap-2"><Badge tone={c.enabled ? 'good' : undefined}>{c.enabled ? 'On' : 'Off'}</Badge><Badge tone={MCEN_LABEL[c.mcen][1]}>{MCEN_LABEL[c.mcen][0]}</Badge></span>
+          </li>
+        ))}
+      </ul>
+    </Panel>
   );
 }
 
@@ -91,22 +119,24 @@ export function RuntimeSettings() {
   const [form, setForm] = useState<any>(null); const [busy, setBusy] = useState(false);
   useEffect(() => { if (data?.runtime && !form) setForm({ ...data.runtime }); }, [data, form]);
   if (isPending || !form) return <Skeleton className="h-64" />;
+  // Settings the deployment profile holds off (MCEN: ADR-0007); the server refuses them too.
+  const locked = (key: string) => Boolean(data?.deployment?.locked?.includes(key));
   const save = async () => { setBusy(true); try { await withSudo(() => api.platformRuntime({ displayName: form.displayName, announcement: form.announcement, selfRegistration: form.selfRegistration, selfServiceUnits: form.selfServiceUnits, selfServiceUnitLimit: Number(form.selfServiceUnitLimit) || 0, attachmentsEnabled: form.attachmentsEnabled, maradminsEnabled: form.maradminsEnabled, maintenance: form.maintenance })); qc.invalidateQueries({ queryKey: keys.me }); refetch(); toast.success('Settings saved.'); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Identity" action={<Button size="sm" variant="primary" onClick={save} loading={busy}><Save className="h-4 w-4" />Save</Button>}>
         <div className="space-y-3">
           <Field label="Display name" hint="shown on the sign-in page and in authenticator apps"><Input value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} /></Field>
-          <Field label="Announcement" hint="a banner for everyone, in every organization; blank hides it"><Textarea rows={2} value={form.announcement} onChange={(e) => setForm({ ...form, announcement: e.target.value })} maxLength={240} /></Field>
+          <Field label="Announcement" hint="a banner for everyone, in every Unit Instance; blank hides it"><Textarea rows={2} value={form.announcement} onChange={(e) => setForm({ ...form, announcement: e.target.value })} maxLength={240} /></Field>
         </div>
       </Panel>
       <Panel title="Switches" action={<Button size="sm" variant="primary" onClick={save} loading={busy}><Save className="h-4 w-4" />Save</Button>}>
-        <Switch checked={form.selfRegistration} onChange={(v) => setForm({ ...form, selfRegistration: v })} label="Self-registration" description="Anyone who can reach the site can create an account, which joins an organization by invitation or join code. Off means invitation only." />
-        <Switch checked={form.selfServiceUnits} onChange={(v) => setForm({ ...form, selfServiceUnits: v })} label="Self-service organizations" description="A signed-in person can start an organization of their own and becomes its owner. Off means Vantage staff set organizations up." />
-        {form.selfServiceUnits && <Field label="Organizations one person may start"><Input inputMode="numeric" value={String(form.selfServiceUnitLimit ?? '')} onChange={(e) => setForm({ ...form, selfServiceUnitLimit: e.target.value.replace(/\D/g, '').slice(0, 3) })} /></Field>}
+        <Switch checked={form.selfRegistration} onChange={(v) => setForm({ ...form, selfRegistration: v })} disabled={locked('selfRegistration')} label="Self-registration" description="Anyone who can reach the site can create an account, which joins a Unit Instance by invitation or join code. Off means invitation only." />
+        <Switch checked={form.selfServiceUnits} onChange={(v) => setForm({ ...form, selfServiceUnits: v })} disabled={locked('selfServiceUnits')} label="Self-service Unit Instances" description="A signed-in person can start a Unit Instance of their own and becomes its owner. Off means Vantage staff set Unit Instances up." />
+        {form.selfServiceUnits && <Field label="Unit Instances one person may start"><Input inputMode="numeric" value={String(form.selfServiceUnitLimit ?? '')} onChange={(e) => setForm({ ...form, selfServiceUnitLimit: e.target.value.replace(/\D/g, '').slice(0, 3) })} /></Field>}
         <Switch checked={form.attachmentsEnabled} onChange={(v) => setForm({ ...form, attachmentsEnabled: v })} label="Attachments" description="PDF and image files on records. Stored in the database; counts toward the size threshold." />
         <Switch checked={form.maradminsEnabled} onChange={(v) => setForm({ ...form, maradminsEnabled: v })} label="MARADMIN feed" description="Fetches public message titles from marines.mil on a schedule." />
-        <Switch checked={form.maintenance} onChange={(v) => setForm({ ...form, maintenance: v })} label="Maintenance mode" description="Blocks everyone but Vantage staff, in every organization. Use it around a restore." />
+        <Switch checked={form.maintenance} onChange={(v) => setForm({ ...form, maintenance: v })} label="Maintenance mode" description="Blocks everyone but Vantage staff, in every Unit Instance. Use it around a restore." />
       </Panel>
     </div>
   );
@@ -259,13 +289,13 @@ export function DataAdmin() {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Backup" subtitle="A consistent copy of the SQLite database">
-        <p className="text-sm text-ink-2">The file holds every organization’s records, every password hash and every sealed secret. Every other platform owner is told each time one is downloaded.</p>
+        <p className="text-sm text-ink-2">The file holds every Unit Instance’s records, every password hash and every sealed secret. Every other platform owner is told each time one is downloaded.</p>
         {browserOff
           ? <p className="mt-3 text-sm text-warn">Downloading through the browser is turned off (VANTAGE_BROWSER_BACKUPS=false). Backups are taken on the server; see Operations in the documentation.</p>
           : <Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button>}
       </Panel>
       <Panel title="Disaster recovery" subtitle="The whole service as one portable file">
-        <p className="text-sm text-ink-2">Everything (organizations, accounts, units, roles, records, attachments, the audit trail) as one JSON file, for restoring the service onto a fresh host under the same VANTAGE_SECRET. Passwords, passkeys and authenticators carry over.</p>
+        <p className="text-sm text-ink-2">Everything (Unit Instances, accounts, units, roles, records, attachments, the audit trail) as one JSON file, for restoring the service onto a fresh host under the same VANTAGE_SECRET. Passwords, passkeys and authenticators carry over.</p>
         <div className="mt-3 flex flex-wrap gap-2"><Button onClick={exportJson} loading={busy === 'export'}><Download className="h-4 w-4" />Export the service</Button><label className="inline-flex"><input type="file" aria-label="Choose a service export" accept="application/json,.json" className="sr-only" onChange={(e) => setImportFile(e.target.files?.[0] || null)} /><Button asChild><span><Upload className="h-4 w-4" />{importFile ? importFile.name : 'Choose export to import'}</span></Button></label>{importFile && <Button variant="danger" onClick={() => setConfirmImport(true)} loading={busy === 'import'}>Import and replace</Button>}</div>
       </Panel>
       <Panel title="Maintenance" className="lg:col-span-2"><div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-ink-2">Turn maintenance on before restoring or moving so nobody writes into a database you are about to replace.</p><span className="flex gap-2"><Button onClick={() => toggleMaintenance(true)}><Wrench className="h-4 w-4" />Turn on</Button><Button onClick={() => toggleMaintenance(false)}>Turn off</Button></span></div></Panel>

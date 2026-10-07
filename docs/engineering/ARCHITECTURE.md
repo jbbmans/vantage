@@ -56,9 +56,14 @@ write.
 Environment variables, validated at startup (`server/config.ts`). Dangerous combinations are refused:
 - production without a 32+ character secret, a setup token, or an HTTPS public URL;
 - CAC proxy mode without a shared secret;
-- demo mode in production or alongside CAC, email, AI or the MARADMIN feed.
+- demo mode in production or alongside CAC, email, AI or the MARADMIN feed;
+- under `VANTAGE_DEPLOYMENT_PROFILE=mcen`, any public-internet service of the legacy site (IndexNow,
+  search verification, Cloudflare client addresses, Resend or direct mail, self-registration, no consent
+  banner, a separate public-site address);
+- `VANTAGE_TOPOLOGY=dedicated` on a database that already holds more than one Unit Instance.
 
-See `.env.example`.
+Deployment profiles, topology and the three configuration boundaries (infrastructure, enterprise, Unit
+Instance) are in [ADR-0007](ADR/0007-mcen-enterprise-deployment-and-unit-instances.md). See `.env.example`.
 
 ## Tests
 

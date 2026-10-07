@@ -42,12 +42,12 @@ function record(ctx: AppContext, actorId: string | null, g: Pick<AccessGrant, 'i
 const until = (minutes: number, from = Date.now()) => new Date(from + minutes * 60_000).toISOString();
 
 export function requestAccess(ctx: AppContext, staff: SessionUser, orgId: string, input: { reason: string; minutes?: number | null }, ip?: string): AccessGrant {
-  if (!staff.platformPermissions.includes('platform.access')) throw forbidden('Your Vantage role cannot ask for access to an organization.', 'not_staff');
+  if (!staff.platformPermissions.includes('platform.access')) throw forbidden('Your Vantage role cannot ask for access to a Unit Instance.', 'not_staff');
   const org = getOrg(ctx, orgId);
-  if (!org) throw notFound('No such organization.');
-  if (org.status !== 'active') throw badRequest('That organization is not active.');
+  if (!org) throw notFound('No such Unit Instance.');
+  if (org.status !== 'active') throw badRequest('That Unit Instance is not active.');
   const reason = input.reason.trim();
-  if (reason.length < 10) throw badRequest('Say what you need to look at and why: the organization’s owners read it.', { fieldErrors: { reason: 'At least 10 characters.' } });
+  if (reason.length < 10) throw badRequest('Say what you need to look at and why: the Unit Instance’s owners read it.', { fieldErrors: { reason: 'At least 10 characters.' } });
   const minutes = Math.round(input.minutes ?? ACCESS_DEFAULT_MINUTES);
   if (minutes < 15 || minutes > ACCESS_MAX_MINUTES) throw badRequest('Access lasts from 15 minutes to 24 hours.', { fieldErrors: { minutes: '15 to 1440.' } });
   const open = ctx.db.prepare("SELECT id FROM access_grants WHERE org_id = ? AND staff_user_id = ? AND status IN ('pending', 'active') AND (expires_at IS NULL OR expires_at > ?)").get(orgId, staff.id, now()) as { id: string } | undefined;
@@ -63,7 +63,7 @@ export function requestAccess(ctx: AppContext, staff: SessionUser, orgId: string
   notifyOrg(ctx, orgId, 'org.access', {
     kind: 'system',
     title: immediate ? `Vantage support is looking at ${org.name}` : `Vantage support asks to look at ${org.name}`,
-    message: `${staff.first_name} ${staff.last_name}, for ${hours}: “${reason.slice(0, 200)}”${immediate ? ' Your organization is set to be told rather than asked; you can end it now.' : ' Approve or deny it in the owner console.'}`,
+    message: `${staff.first_name} ${staff.last_name}, for ${hours}: “${reason.slice(0, 200)}”${immediate ? ' Your Unit Instance is set to be told rather than asked; you can end it now.' : ' Approve or deny it in the owner console.'}`,
     actionUrl: '/console/access',
     dedupeKey: `access:${id}`,
   });

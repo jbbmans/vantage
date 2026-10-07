@@ -109,7 +109,7 @@ export function placeHold(ctx: AppContext, orgId: string | null, input: { scope:
   if (input.scope === 'record_type' && !(HOLDABLE_TYPES as readonly string[]).includes(String(input.record_type))) throw badRequest(`A hold cannot name ${input.record_type}: nothing by that name is kept here.`);
   const id = newId(); const at = now();
   if (orgId && input.scope === 'user' && !ctx.db.prepare('SELECT 1 FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND u.org_id = ?').get(input.subject_id, orgId)) {
-    throw badRequest('A hold can name only a person in this organization.');
+    throw badRequest('A hold can name only a person in this Unit Instance.');
   }
   ctx.db.prepare(`INSERT INTO legal_holds (id, scope, subject_id, record_type, reason, placed_by, placed_at, org_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, input.scope, input.subject_id ?? null, input.record_type ?? null, input.reason.trim().slice(0, 1000), actorId, at, orgId);
@@ -145,7 +145,7 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
     ctx.db.prepare(`INSERT INTO disposition_runs (id, actor_id, dry_run, record_type, disposition, eligible, acted, held, detail, at, org_id)
                     VALUES (?, ?, ?, '(all)', 'review', 0, 0, 0, ?, ?, ?)`)
       .run(newId(), opts.actorId, opts.dryRun ? 1 : 0, 'an organization-wide legal hold is open', stamp, opts.orgId);
-    return { lines: [], blocked: 'An organization-wide legal hold is open. Nothing is disposed of while it stands.' };
+    return { lines: [], blocked: 'A legal hold over the whole Unit Instance is open. Nothing is disposed of while it stands.' };
   }
 
   // Only what the organization holds: records shared with its units.

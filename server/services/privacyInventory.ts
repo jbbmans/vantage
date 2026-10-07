@@ -219,7 +219,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     },
   },
   organizations: {
-    purpose: 'The organizations (commands) on the service: each one’s name, status and the unit at the top of its tree.',
+    purpose: 'The Unit Instances (commands) on the service: each one’s name, status and the unit at the top of its tree.',
     authority: 'Organizational structure of the central service (ADR-0006).',
     access: 'Its owners and administrators; Vantage staff see the name, status and counts, never its records.',
     columns: {
@@ -234,15 +234,15 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     columns: { user_id: 'identifier', role: 'employment', granted_by: 'identifier', created_at: 'technical' },
   },
   org_roles: {
-    purpose: 'Who owns, administers, keeps the records of, or audits each organization, and until when.',
-    authority: 'Access control within an organization; every grant and removal is audited.',
-    access: 'The organization’s owners; a person sees their own.',
+    purpose: 'Who owns, administers, keeps the records of, or audits each Unit Instance, and until when.',
+    authority: 'Access control within a Unit Instance; every grant and removal is audited.',
+    access: 'The Unit Instance’s owners; a person sees their own.',
     columns: { org_id: 'technical', user_id: 'identifier', role: 'employment', granted_by: 'identifier', expires_at: 'technical', created_at: 'technical' },
   },
   access_grants: {
-    purpose: 'Each request by Vantage staff to read an organization’s data: why, for how long, who decided and when it ended.',
-    authority: 'Accountability for support access; kept as the evidence that staff saw only what an organization approved.',
-    access: 'The organization’s owners; Vantage platform owners and auditors.',
+    purpose: 'Each request by Vantage staff to read a Unit Instance’s data: why, for how long, who decided and when it ended.',
+    authority: 'Accountability for support access; kept as the evidence that staff saw only what a Unit Instance approved.',
+    access: 'The Unit Instance’s owners; Vantage platform owners and auditors.',
     columns: {
       id: 'technical', org_id: 'technical', staff_user_id: 'identifier', reason: 'technical', minutes: 'none', status: 'none',
       requested_at: 'technical', decided_by: 'identifier', decided_at: 'technical', decision_note: 'technical', starts_at: 'technical',

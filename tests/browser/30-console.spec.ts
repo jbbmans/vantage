@@ -14,7 +14,7 @@ test('the owner opens the console from the app: its own pages, its own shell, an
   await sections.getByRole('link', { name: 'People' }).click();
   await expect(page).toHaveURL(/\/console\/G8\/people$/);
   await expect(page.getByRole('heading', { name: 'People' })).toBeVisible();
-  await expect(page.getByRole('heading', { name: 'Organization roles' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'Unit Instance roles' })).toBeVisible();
   await expect(page.getByRole('link', { name: 'Today' }), 'none of the app’s pages are in the console').toHaveCount(0);
   await page.getByRole('link', { name: 'Open the app' }).click();
   await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
@@ -48,10 +48,10 @@ test('Vantage staff open the admin dashboard from the app; it is a different con
   await confirmSudoIfAsked(page);
   await expect(page.getByRole('heading', { name: 'The service', level: 1 })).toBeVisible();
   const sections = page.getByRole('navigation', { name: 'Sections' });
-  await sections.getByRole('link', { name: 'Organizations' }).click();
+  await sections.getByRole('link', { name: 'Unit Instances' }).click();
   await expect(page).toHaveURL(/\/admin\/orgs$/);
   await expect(page.getByRole('cell', { name: /G-8 Comptroller/ })).toBeVisible();
-  await expect(sections.getByRole('link', { name: 'People' }), 'an organization’s people are its owners’, not the platform’s').toHaveCount(0);
+  await expect(sections.getByRole('link', { name: 'People' }), 'a Unit Instance’s people are its owners’, not the platform’s').toHaveCount(0);
 });
 
 test('a Marine who finds the admin dashboard is told it is for Vantage staff', async ({ page }) => {

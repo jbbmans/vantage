@@ -2,6 +2,25 @@
 
 _Updated 2026-10-07_
 
+## What changed (2026-10-07: MCEN target, Unit Instances, deployment profiles)
+
+Production targets MCEN, not the public internet ([ADR-0007](engineering/ADR/0007-mcen-enterprise-deployment-and-unit-instances.md), [deploy-mcen.md](deploy-mcen.md)).
+
+- **Deployment profiles.** `VANTAGE_DEPLOYMENT_PROFILE` is `mcen`, `legacy-public` or `development`.
+  - `mcen` refuses the legacy site's public-internet services and serves no public site.
+  - `mcen` defaults to the DoD consent banner, with self-registration and browser backups off.
+  - `mcen` holds self-registration and self-service Unit Instances off at runtime.
+  - Unset in production means `legacy-public`, with a warning, so the Render site keeps running.
+- **Topology.** `VANTAGE_TOPOLOGY=dedicated` limits a deployment to one Unit Instance, enforced by a
+  temporary trigger on the database connection.
+- **Provisioning.** `npm run provision-instance` provisions a Unit Instance and its first Unit Manager
+  from a manifest. It runs as a named Vantage Administrator, is idempotent, and is audited.
+- **Outbound connections.** Every outbound connection is listed in the admin dashboard's overview, with
+  how MCEN treats it.
+- **Naming.** The admin dashboard, the owner console, server messages and permission labels say Unit
+  Instance. API paths, tables, audit action names and the export format are unchanged.
+- **Open questions.** I-13 to I-22 are added to INFRASTRUCTURE_QUESTIONS.md.
+
 ## What changed (2026-10-07: one central service, three tiers of authority, two consoles)
 
 Vantage is no longer installed per command. It runs as one service for many commands ([ADR-0006](engineering/ADR/0006-centralized-tenancy-and-authority.md)).

@@ -8,15 +8,16 @@ export interface Change { date: string; title: string; items: string[] }
 export const CHANGES: Change[] = [
   {
     date: '2026-10-07',
-    title: 'Organizations, and who can do what',
+    title: 'Unit Instances, and who can do what',
     items: [
-      'Vantage is one service now, and your command is an organization on it: its units, people, roster feed, retention and audit trail are its own, kept apart from every other command’s.',
+      'Your command on Vantage is a Unit Instance: its units, people, roster feed, retention and audit trail are its own, kept apart from every other command’s.',
       'Your account is yours, not your command’s. It moves with you, and your private entries, career plan and export stay with it.',
-      'The owner console runs one organization at a time, for its owners and administrators: people and roles, units and leaders, the personnel feed, retention and holds. Organization roles manage the structure; they do not read anyone’s records.',
-      'Vantage staff have a console of their own, the admin dashboard. They see your organization as a name and its counts, and look inside only when your owners approve it: read-only, for a few hours, and in your audit trail.',
+      'The owner console runs one Unit Instance at a time, for its owners and administrators: people and roles, units and leaders, the personnel feed, retention and holds. Its roles manage the structure; they do not read anyone’s records.',
+      'Vantage staff have a console of their own, the admin dashboard. They see your Unit Instance as a name and its counts, and look inside only when your owners approve it: read-only, for a few hours, and in your audit trail.',
       'A role can be granted until a date, for an acting billet or a leave period, and it ends on its own.',
-      '“Why can they?” on a Marine’s Roles tab, and in the owner console, names every grant behind what someone can do: the role and where it was granted, the chain of command, leadership, and organization administration.',
-      'A forgotten password or a lost authenticator is now Vantage support’s to reset (Need help? on the sign-in page), because an account can belong to more than one organization.',
+      '“Why can they?” on a Marine’s Roles tab, and in the owner console, names every grant behind what someone can do: the role and where it was granted, the chain of command, leadership, and Unit Instance administration.',
+      'A forgotten password or a lost authenticator is now Vantage support’s to reset (Need help? on the sign-in page), because an account can belong to more than one Unit Instance.',
+      'Vantage is being readied to run on the Marine Corps Enterprise Network. There, it has no public website, shows the DoD notice before sign-in, and accounts come from an invitation, the personnel roster or a CAC rather than signing up.',
     ],
   },
   {

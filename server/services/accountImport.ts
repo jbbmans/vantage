@@ -109,7 +109,7 @@ function findUnit(ctx: AppContext, orgId: string, rootId: string, name: string, 
 
 const rootOf = (ctx: AppContext, orgId: string) => {
   const org = ctx.db.prepare("SELECT root_unit_id FROM organizations WHERE id = ? AND status = 'active'").get(orgId) as { root_unit_id: string | null } | undefined;
-  if (!org?.root_unit_id) throw badRequest('That organization has no top unit to import into.');
+  if (!org?.root_unit_id) throw badRequest('That Unit Instance has no top unit to import into.');
   return org.root_unit_id;
 };
 
@@ -175,7 +175,7 @@ export function planAccounts(ctx: AppContext, orgId: string, rows: RosterRow[]):
     const team = v.team || null;
     if (command) noteUnit(command, null);
     if (team) noteUnit(team, command);
-    if (!command && !team) warnings.push('No unit is named, so the account joins the organization’s top unit.');
+    if (!command && !team) warnings.push('No unit is named, so the account joins the Unit Instance’s top unit.');
 
     const exists = USERNAME.test(username) && Boolean(ctx.db.prepare('SELECT 1 FROM users WHERE username = ? COLLATE NOCASE').get(username));
     accounts.push({

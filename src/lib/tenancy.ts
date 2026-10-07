@@ -57,7 +57,7 @@ export interface RoleCatalogEntry { label: string; description: string; permissi
 export interface PermissionCatalogEntry { key: string; label: string; hint: string }
 
 export const ACCESS_TONE: Record<AccessGrant['status'], Tone> = { pending: 'warn', active: 'accent', denied: 'neutral', revoked: 'bad', expired: 'neutral', ended: 'neutral', withdrawn: 'neutral' };
-export const ACCESS_LABEL: Record<AccessGrant['status'], string> = { pending: 'Waiting', active: 'Open', denied: 'Denied', revoked: 'Ended by the organization', expired: 'Expired', ended: 'Finished', withdrawn: 'Withdrawn' };
+export const ACCESS_LABEL: Record<AccessGrant['status'], string> = { pending: 'Waiting', active: 'Open', denied: 'Denied', revoked: 'Ended by the Unit Instance', expired: 'Expired', ended: 'Finished', withdrawn: 'Withdrawn' };
 export const ORG_STATUS_TONE: Record<OrgStatus, Tone> = { active: 'good', suspended: 'warn', archived: 'neutral' };
 
 export const personName = (p: { rank_abbr?: string | null; first_name: string; last_name: string }) => `${p.rank_abbr ? `${p.rank_abbr} ` : ''}${p.first_name} ${p.last_name}`.trim();

@@ -8,6 +8,7 @@ import { invalidateUserSessions } from '../auth/sessions.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
 import { notify, notifyOrg } from './notifications.ts';
 import { releaseClaimsOnDeparture } from './work.ts';
+import { assertCanFoundUnitInstance } from './deployment.ts';
 
 export interface UnitRow { id: string; code: string; name: string; short_name: string | null; echelon: string; location: string | null; parent_id: string | null; owner_user_id: string | null; active: number; created_at: string }
 
@@ -107,13 +108,14 @@ export function createUnit(ctx: AppContext, actor: SessionUser, scope: Scope, bo
     if (!can(scope, PERMISSIONS.MANAGE_UNITS, parentId)) throw forbidden('You cannot create units under that parent.');
   } else if (!actor.platformPermissions.includes('platform.orgs')) {
     // A unit with no parent founds an organization. Self-service is the platform's policy; Vantage staff create them freely.
-    if (!ctx.runtime.selfServiceUnits) throw forbidden('New organizations are set up by Vantage. Ask through Support, or ask to join an existing unit.', 'org_creation_closed');
+    if (!ctx.runtime.selfServiceUnits) throw forbidden('New Unit Instances are set up by Vantage Administrators. Ask through Support, or ask to join an existing unit.', 'org_creation_closed');
     const limit = ctx.runtime.selfServiceUnitLimit;
     const mine = (ctx.db.prepare(
             'SELECT COUNT(*) AS n FROM units WHERE owner_user_id = ? AND parent_id IS NULL AND active = 1'
     ).get(actor.id) as { n: number }).n;
     if (mine >= limit) throw forbidden(`You have already created ${mine} ${mine === 1 ? 'organization' : 'organizations'}. That is the limit.`, 'unit_limit');
   }
+  if (!parentId) assertCanFoundUnitInstance(ctx);
   const code = slug(String(body.code || body.short_name || name));
   if (!code) throw badRequest('That name produces an empty unit code.');
   if (ctx.db.prepare('SELECT 1 FROM units WHERE id = ?').get(code)) throw conflict('That unit code already exists.', 'duplicate_code');
@@ -146,10 +148,10 @@ export function updateUnit(ctx: AppContext, actor: SessionUser, scope: Scope, un
   if (body.parent_id !== undefined) {
     const next = (body.parent_id as string | null) || null;
     if (next !== unit.parent_id) {
-      if (!next) throw forbidden('A unit stays in its organization. To split one off into an organization of its own, ask Vantage support.', 'org_boundary');
+      if (!next) throw forbidden('A unit stays in its Unit Instance. To split one off into a Unit Instance of its own, ask Vantage support.', 'org_boundary');
       if (next) {
         if (!getUnit(ctx, next)) throw badRequest('No such parent unit.');
-        if (orgOfUnit(ctx, next) !== orgOfUnit(ctx, unitId)) throw forbidden('A unit cannot move into another organization.', 'org_boundary');
+        if (orgOfUnit(ctx, next) !== orgOfUnit(ctx, unitId)) throw forbidden('A unit cannot move into another Unit Instance.', 'org_boundary');
         if (!can(scope, PERMISSIONS.MANAGE_UNITS, next)) throw forbidden('You cannot move a unit under a parent you do not manage.');
         if (next === unitId || wouldCycle(ctx, unitId, next)) throw badRequest('A unit cannot be placed beneath itself or one of its descendants.');
       }
@@ -186,7 +188,7 @@ export function archiveUnit(ctx: AppContext, actor: SessionUser, scope: Scope, u
 export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: string, successorId: string, ip?: string) {
   const unit = getUnit(ctx, unitId);
   if (!unit) throw notFound('No such unit.');
-  if (!isUnitOwner(ctx, actor.id, unitId) && !orgCan(scopeFor(ctx, actor), 'org.units', orgOfUnit(ctx, unitId))) throw forbidden('Only the current Unit Leader or an owner or administrator of the organization can transfer leadership.');
+  if (!isUnitOwner(ctx, actor.id, unitId) && !orgCan(scopeFor(ctx, actor), 'org.units', orgOfUnit(ctx, unitId))) throw forbidden('Only the current Unit Leader or an owner or administrator of the Unit Instance can transfer leadership.');
   const successor = ctx.db.prepare('SELECT u.id, u.first_name, u.last_name FROM users u JOIN unit_members um ON um.user_id = u.id WHERE u.id = ? AND u.active = 1 AND um.unit_id = ?').get(successorId, unitId) as { id: string; first_name: string; last_name: string } | undefined;
   if (!successor) throw badRequest('Choose an active current member of this unit.', { fieldErrors: { user_id: 'Not a member of this unit.' } });
   if (successor.id === unit.owner_user_id) return { ok: true, already: true };
@@ -234,7 +236,7 @@ export function guardSelfReach(ctx: AppContext, actor: SessionUser, scope: Scope
   const orgId = orgOfUnit(ctx, unitId);
   if (!orgId) return null;
   if (!scope.orgs[orgId]?.roles.includes('owner')) {
-    throw forbidden(`${act.you} would give you a role that reads Marines’ records. An organization owner, or the unit’s chain of command, does that for you.`, 'self_grant');
+    throw forbidden(`${act.you} would give you a role that reads Marines’ records. A Unit Instance owner, or the unit’s chain of command, does that for you.`, 'self_grant');
   }
   const unit = getUnit(ctx, unitId);
   return () => notifyOrg(ctx, orgId, 'org.owners', {

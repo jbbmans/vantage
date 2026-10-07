@@ -3,7 +3,7 @@
   "private": true,
   "version": "5.0.0",
   "type": "module",
-  "description": "Self-hosted performance, readiness, and career-record workspace for Marine Corps teams.",
+  "description": "Enterprise performance, readiness, and career-record application for Marine Corps Unit Instances, built for MCEN hosting.",
   "author": "John Bernard Boletz",
   "license": "UNLICENSED",
   "engines": {
@@ -23,6 +23,7 @@
     "pretest:browser": "npm run build",
     "check": "npm run lint && npm run typecheck && npm run build && npm test",
     "recover-operator": "node scripts/recover-operator.ts",
+    "provision-instance": "node scripts/provision-instance.ts",
     "factory-reset": "node scripts/factory-reset.ts",
     "backup": "node scripts/backup.ts",
     "icons": "node scripts/icons.mjs",

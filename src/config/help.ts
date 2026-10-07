@@ -81,7 +81,7 @@ export const HELP: HelpSection[] = [
         id: 'who-can-see',
         q: 'Who can see my records?',
         a: [
-          'Every record is private by default. Only you can see it. Leaders, unit owners, your organization’s owners and Vantage staff cannot read a private entry through the application.',
+          'Every record is private by default. Only you can see it. Leaders, unit owners, your Unit Instance’s owners and Vantage staff cannot read a private entry through the application.',
           'Marking a record "shared with unit" makes it visible to members of that unit who hold a role carrying the View shared records permission, and feeds the unit dashboard.',
           'Every time a leader opens your record the access is written to an audit log you can read yourself under Settings → Security. You do not have to ask anyone what they looked at.',
         ],

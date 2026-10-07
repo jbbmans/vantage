@@ -58,7 +58,7 @@ function openSession(req: Request, res: Response, user: { id: string }, method: 
     const allowed = (faces.has('admin') && staff) || (faces.has('console') && orgRole);
     if (!allowed) {
       audit(ctx, { actor_id: user.id, action: 'console_sign_in_refused', ip: clientIp(req), detail: method });
-      throw forbidden(faces.has('admin') ? `The admin dashboard is for Vantage staff. Sign in at ${ctx.config.urls.app} instead.` : `The owner console is for the people who run an organization on Vantage. Sign in at ${ctx.config.urls.app} instead.`, 'console_owners_only');
+      throw forbidden(faces.has('admin') ? `The admin dashboard is for Vantage staff. Sign in at ${ctx.config.urls.app} instead.` : `The owner console is for the people who run a Unit Instance on Vantage. Sign in at ${ctx.config.urls.app} instead.`, 'console_owners_only');
     }
   }
   clearFailures(ctx, user.id);
@@ -142,7 +142,7 @@ authRouter.post('/setup', wrap((req, res) => {
 authRouter.post('/register', wrap((req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
-  if (ctx.config.cac.exclusive) throw forbidden('Vantage requires a CAC here. Accounts are created from your organization’s personnel roster.', 'cac_required');
+  if (ctx.config.cac.exclusive) throw forbidden('Vantage requires a CAC here. Accounts are created from your Unit Instance’s personnel roster.', 'cac_required');
   if (ctx.config.oidc.exclusive) throw forbidden(`Vantage signs in through your organization here. Use ${ctx.config.oidc.label}.`, 'oidc_required');
   if (!ctx.runtime.selfRegistration) throw notFound('Self-registration is not enabled. Ask a leader for an invitation.');
   if (userCount(ctx) === 0) throw conflict('The deployment must be initialized before accounts can self-register.', 'setup_required');

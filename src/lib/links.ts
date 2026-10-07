@@ -1,7 +1,8 @@
 /** Where the other faces of Vantage live, as the server wrote them into this document (server/lib/hosts.ts). */
-export interface Links { site: string; app: string; console: string; admin: string; split: boolean }
+/** publicSite is false where the deployment serves no public site (MCEN, ADR-0007): / is the application's front door. */
+export interface Links { site: string; app: string; console: string; admin: string; split: boolean; publicSite: boolean }
 
-const ONE_HOST: Links = { site: '', app: '', console: '/console', admin: '/admin', split: false };
+const ONE_HOST: Links = { site: '', app: '', console: '/console', admin: '/admin', split: false, publicSite: true };
 
 export const LINKS: Links = (() => {
   if (typeof document === 'undefined') return ONE_HOST;

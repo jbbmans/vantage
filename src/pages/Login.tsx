@@ -27,7 +27,7 @@ import { passwordProblem, passwordStrength, MIN_PASSWORD_LENGTH } from '../../sh
 import { applyTheme, resolveTheme, storedTheme } from '@/lib/theme';
 import { VERSION } from '@/lib/version';
 import { cn } from '@/lib/utils';
-import { appHref, siteHref } from '@/lib/links';
+import { LINKS, appHref, siteHref } from '@/lib/links';
 
 type Mode = 'login' | 'mfa' | 'setup' | 'register' | 'forgot' | 'reset' | 'invite' | 'help';
 
@@ -322,7 +322,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
         <div className="auth-top-actions">
           {owners
             ? <a href={appHref('/')} className="auth-overview-link">Open the app <ArrowRight /></a>
-            : <a href={siteHref('/display')} className="auth-overview-link">About Vantage <ArrowRight /></a>}
+            : LINKS.publicSite ? <a href={siteHref('/display')} className="auth-overview-link">About Vantage <ArrowRight /></a> : null}
           <button type="button" onClick={toggleTheme} className="auth-theme" aria-label="Toggle theme">
             {theme === 'dark' ? <Sun /> : <Moon />}
           </button>

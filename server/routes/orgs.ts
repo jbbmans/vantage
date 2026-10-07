@@ -36,8 +36,8 @@ const inOrg = (...permissions: OrgPermission[]) => (req: Request, _res: Response
   const org = getOrg(req.ctx, orgId);
   // An organization the caller holds no role in is not found, rather than forbidden: its existence is not theirs to learn.
   const scope = scopeFor(req.ctx, req.user, req);
-  if (!org || !scope.orgs[orgId]) return next(notFound('No such organization.'));
-  if (!permissions.some((p) => orgCan(scope, p, orgId))) return next(forbidden('Your organization role does not cover that.', 'org_permission'));
+  if (!org || !scope.orgs[orgId]) return next(notFound('No such Unit Instance.'));
+  if (!permissions.some((p) => orgCan(scope, p, orgId))) return next(forbidden('Your Unit Instance role does not cover that.', 'org_permission'));
   req.org = org;
   next();
 };
@@ -75,7 +75,7 @@ orgsRouter.patch('/:orgId', inOrg('org.settings', 'org.owners'), wrap((req, res)
   const org = orgOf(req);
   // Whether Vantage support must ask is the owners' decision; the name and short name are the administrators' too.
   if (body.settings && !orgCan(scope, 'org.owners', org.id)) throw forbidden('Only an owner sets the Vantage access policy.', 'org_permission');
-  if ((body.name !== undefined || body.short_name !== undefined) && !orgCan(scope, 'org.settings', org.id)) throw forbidden('Your organization role does not cover renaming it.', 'org_permission');
+  if ((body.name !== undefined || body.short_name !== undefined) && !orgCan(scope, 'org.settings', org.id)) throw forbidden('Your Unit Instance role does not cover renaming it.', 'org_permission');
   res.json(updateOrganization(req.ctx, req.user, org.id, { name: body.name, short_name: body.short_name, settings: body.settings as { vantageAccess: 'approval' | 'notify' } | undefined }, ip(req)));
 }));
 
@@ -102,7 +102,7 @@ orgsRouter.get('/:orgId/members', inOrg('org.members', 'org.owners', 'org.roles'
 
 const memberOf = (req: Request) => {
   const userId = String(req.params.userId);
-  if (!isOrgMember(req.ctx, orgOf(req).id, userId)) throw notFound('No such member of this organization.');
+  if (!isOrgMember(req.ctx, orgOf(req).id, userId)) throw notFound('No such member of this Unit Instance.');
   return userId;
 };
 
@@ -188,7 +188,7 @@ orgsRouter.post('/:orgId/personnel/sync', inOrg('org.personnel'), rosterBody, wr
   }
   if (plan.massSeparation) {
     throw badRequest(
-      `That extract would separate ${plan.massSeparation.count} of ${plan.massSeparation.activeBefore} people on the roster. If the extract really is the whole organization, re-send it with confirm_separations=1.`,
+      `That extract would separate ${plan.massSeparation.count} of ${plan.massSeparation.activeBefore} people on the roster. If the extract really is the whole Unit Instance, re-send it with confirm_separations=1.`,
       { code: 'mass_separation', massSeparation: plan.massSeparation },
     );
   }
@@ -200,7 +200,7 @@ orgsRouter.post('/:orgId/personnel/link', inOrg('org.personnel'), wrap((req, res
   const ctx = req.ctx;
   const org = orgOf(req);
   const { user_id, edipi } = parse(z.object({ user_id: z.string().max(64), edipi: z.string().max(32).nullable() }), req.body);
-  if (!isOrgMember(ctx, org.id, user_id)) throw badRequest('Link only members of this organization.');
+  if (!isOrgMember(ctx, org.id, user_id)) throw badRequest('Link only members of this Unit Instance.');
   if (edipi !== null) {
     if (!isEdipi(edipi)) throw badRequest('An EDIPI is exactly ten digits.', { fieldErrors: { edipi: 'Ten digits.' } });
     const taken = ctx.db.prepare('SELECT id FROM users WHERE edipi = ? AND id <> ?').get(edipi, user_id) as { id: string } | undefined;

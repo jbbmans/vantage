@@ -5,6 +5,24 @@ const ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export type AccessMode = 'accounts' | 'demo';
 
+/**
+ * The environment a deployment answers to (ADR-0007). mcen: the Marine Corps Enterprise Network, the production target,
+ * which refuses the public-internet services the legacy site used. legacy-public: the public site at vantageusmc.com that
+ * ran before MCEN, kept working until it is retired. development: a workstation, a test run, or a non-production demo.
+ */
+export type DeploymentProfile = 'mcen' | 'legacy-public' | 'development';
+/** shared: one service hosts many Unit Instances. dedicated: this service and its database hold exactly one. */
+export type InstanceTopology = 'shared' | 'dedicated';
+
+export interface DeploymentConfig {
+  profile: DeploymentProfile;
+  /** True when VANTAGE_DEPLOYMENT_PROFILE was not set and the profile was inferred from NODE_ENV. */
+  inferred: boolean;
+  topology: InstanceTopology;
+  /** Whether the public marketing site (/, /about, /display, sitemap.xml, llms.txt) is served. Never on MCEN. */
+  publicSite: boolean;
+}
+
 export interface DemoConfig {
   /** How long a visitor's workspace lasts before it is removed. */
   ttlHours: number;
@@ -14,6 +32,7 @@ export interface DemoConfig {
 export interface AppConfig {
   production: boolean;
   test: boolean;
+  deployment: DeploymentConfig;
   accessMode: AccessMode;
   demo: DemoConfig;
   port: number;
@@ -119,10 +138,11 @@ export interface SecurityConfig {
   browserBackups: boolean;
 }
 
-function readSecurityConfig(env: NodeJS.ProcessEnv, production: boolean, test: boolean): SecurityConfig {
+function readSecurityConfig(env: NodeJS.ProcessEnv, production: boolean, test: boolean, profile: DeploymentProfile): SecurityConfig {
   const passwordIterations = envNumber(env, 'VANTAGE_PBKDF2_ITERATIONS', test ? 1_000 : 600_000);
   if (production && passwordIterations < 210_000) throw new Error('VANTAGE_PBKDF2_ITERATIONS must be at least 210000 in production.');
-  const banner = (env.VANTAGE_CONSENT_BANNER || 'off').trim().toLowerCase();
+  // A DoD information system shows the Notice and Consent Banner, so on MCEN it is on unless custom text replaces it.
+  const banner = (env.VANTAGE_CONSENT_BANNER || (profile === 'mcen' ? 'dod' : 'off')).trim().toLowerCase();
   if (!['off', 'dod', 'custom'].includes(banner)) throw new Error('VANTAGE_CONSENT_BANNER must be off, dod, or custom.');
   const consentText = String(env.VANTAGE_CONSENT_TEXT || '').trim();
   if (banner === 'custom' && !consentText) throw new Error('VANTAGE_CONSENT_BANNER=custom needs the notice in VANTAGE_CONSENT_TEXT.');
@@ -132,7 +152,8 @@ function readSecurityConfig(env: NodeJS.ProcessEnv, production: boolean, test: b
     lockoutMinutes: Math.max(1, envNumber(env, 'VANTAGE_LOCKOUT_MINUTES', 15)),
     consentBanner: banner as SecurityConfig['consentBanner'],
     consentText,
-    browserBackups: envBool(env, 'VANTAGE_BROWSER_BACKUPS', true),
+    // On MCEN, backups are the hosting environment's job; a whole-database download through a browser is opt-in.
+    browserBackups: envBool(env, 'VANTAGE_BROWSER_BACKUPS', profile !== 'mcen'),
   };
 }
 
@@ -259,6 +280,36 @@ function verificationToken(env: NodeJS.ProcessEnv, name: string): string {
   return raw;
 }
 
+const PROFILES: readonly DeploymentProfile[] = ['mcen', 'legacy-public', 'development'];
+
+/** Which profile and topology this deployment runs under. Unset in production keeps the legacy site running, and says so. */
+export function readDeploymentConfig(env: NodeJS.ProcessEnv, production: boolean): DeploymentConfig {
+  const raw = String(env.VANTAGE_DEPLOYMENT_PROFILE ?? '').trim().toLowerCase();
+  if (raw && !PROFILES.includes(raw as DeploymentProfile)) throw new Error('VANTAGE_DEPLOYMENT_PROFILE must be mcen, legacy-public, or development.');
+  const profile = (raw || (production ? 'legacy-public' : 'development')) as DeploymentProfile;
+  if (profile === 'development' && production) throw new Error('VANTAGE_DEPLOYMENT_PROFILE=development cannot run with NODE_ENV=production. Use mcen.');
+  const topology = String(env.VANTAGE_TOPOLOGY ?? '').trim().toLowerCase() || 'shared';
+  if (topology !== 'shared' && topology !== 'dedicated') throw new Error('VANTAGE_TOPOLOGY must be shared or dedicated.');
+  return { profile, inferred: !raw, topology, publicSite: profile !== 'mcen' };
+}
+
+/**
+ * What the MCEN profile refuses, all at once so one start names every problem. Each is a public-internet service or an
+ * open door the legacy site used; on MCEN, traffic, mail and accounts go through the enterprise's own controls.
+ */
+function mcenRefusals(env: NodeJS.ProcessEnv, values: { accessMode: string; emailProvider: string; clientIp: string; site: string; app: string }): string[] {
+  const problems: string[] = [];
+  if (values.accessMode === 'demo') problems.push('VANTAGE_ACCESS_MODE=demo: the synthetic demo is a non-production instance of its own.');
+  if (envBool(env, 'VANTAGE_INDEXNOW', false)) problems.push('VANTAGE_INDEXNOW: search-engine notices belong to the public site, which MCEN does not serve.');
+  if ((env.VANTAGE_GOOGLE_SITE_VERIFICATION || '').trim() || (env.VANTAGE_BING_SITE_VERIFICATION || '').trim()) problems.push('VANTAGE_GOOGLE_SITE_VERIFICATION / VANTAGE_BING_SITE_VERIFICATION: there is no public site to verify.');
+  if (values.clientIp === 'cloudflare') problems.push('VANTAGE_CLIENT_IP=cloudflare: client addresses come from the enterprise proxy chain (TRUST_PROXY), not Cloudflare.');
+  if (values.emailProvider === 'resend' || values.emailProvider === 'direct') problems.push(`VANTAGE_EMAIL_PROVIDER=${values.emailProvider}: mail leaves through the enterprise relay. Use smtp with SMTP_URL, or none.`);
+  if (envBool(env, 'VANTAGE_SELF_REGISTRATION', false)) problems.push('VANTAGE_SELF_REGISTRATION=true: accounts come from invitations, the personnel roster or CAC provisioning.');
+  if ((env.VANTAGE_CONSENT_BANNER || '').trim().toLowerCase() === 'off') problems.push('VANTAGE_CONSENT_BANNER=off: a DoD information system shows the Notice and Consent Banner (dod, or custom text).');
+  if (values.site !== values.app) problems.push('VANTAGE_SITE_URL / VANTAGE_PUBLIC_URL: MCEN serves no public site, so the site address is the application\'s. Leave both unset, or equal to VANTAGE_APP_URL.');
+  return problems;
+}
+
 function resolveTrustProxy(raw: string | undefined, production: boolean): boolean | number | string {
   if (raw === undefined || raw === '') return production ? 1 : false;
   const v = raw.trim().toLowerCase();
@@ -272,6 +323,7 @@ export function loadConfig(env = process.env): AppConfig {
   const production = env.NODE_ENV === 'production';
   const test = env.VANTAGE_TEST === '1';
   if (production && test) throw new Error('VANTAGE_TEST must never be enabled in production.');
+  const deployment = readDeploymentConfig(env, production);
 
   let secret = String(env.VANTAGE_SECRET || '');
   if (secret.length < 32) {
@@ -290,7 +342,9 @@ export function loadConfig(env = process.env): AppConfig {
     return url;
   };
   // VANTAGE_PUBLIC_URL names the one address of a single-host deployment; the three below split it.
-  const site = origin('VANTAGE_SITE_URL', env.VANTAGE_SITE_URL || env.VANTAGE_PUBLIC_URL || (production ? '' : 'http://localhost:5173'));
+  // On MCEN there is no public site: its address is the application's, so VANTAGE_APP_URL alone is enough.
+  const siteFallback = deployment.profile === 'mcen' ? env.VANTAGE_APP_URL : undefined;
+  const site = origin('VANTAGE_SITE_URL', env.VANTAGE_SITE_URL || env.VANTAGE_PUBLIC_URL || siteFallback || (production ? '' : 'http://localhost:5173'));
   const app = origin('VANTAGE_APP_URL', env.VANTAGE_APP_URL || site);
   const consoleUrl = origin('VANTAGE_CONSOLE_URL', env.VANTAGE_CONSOLE_URL || app);
   // Vantage staff's dashboard: on the console's host at /admin unless it is given a host of its own.
@@ -320,11 +374,18 @@ export function loadConfig(env = process.env): AppConfig {
     if (envBool(env, 'VANTAGE_MARADMIN_ENABLED', false)) throw new Error('The synthetic demo makes no outbound requests. Set VANTAGE_MARADMIN_ENABLED=false.');
     if (env.VANTAGE_M365_CLIENT_ID) throw new Error('The synthetic demo reads no mailboxes. Unset VANTAGE_M365_CLIENT_ID.');
     if (env.VANTAGE_OIDC_ISSUER) throw new Error('The synthetic demo has no sign-in. Unset VANTAGE_OIDC_ISSUER.');
+    if (deployment.topology === 'dedicated') throw new Error('The synthetic demo gives every visitor a unit of their own. It cannot run with VANTAGE_TOPOLOGY=dedicated.');
+  }
+  const clientIp = clientIpSource(env.VANTAGE_CLIENT_IP);
+  if (deployment.profile === 'mcen') {
+    const problems = mcenRefusals(env, { accessMode, emailProvider, clientIp, site, app });
+    if (problems.length) throw new Error(`VANTAGE_DEPLOYMENT_PROFILE=mcen refuses:\n- ${problems.join('\n- ')}`);
   }
 
   return {
     production,
     test,
+    deployment,
     accessMode: accessMode as AccessMode,
     demo: {
       ttlHours: Math.min(Math.max(envNumber(env, 'VANTAGE_DEMO_TTL_HOURS', 24), 1), 168),
@@ -341,7 +402,7 @@ export function loadConfig(env = process.env): AppConfig {
     operatorUsernames: [...envList(env, 'VANTAGE_PLATFORM_OWNERS', []), ...envList(env, 'VANTAGE_OPERATOR', [])].map((s) => s.toLowerCase()),
     timezone: env.VANTAGE_TIMEZONE || 'America/New_York',
     trustProxy: resolveTrustProxy(env.TRUST_PROXY, production),
-    clientIp: clientIpSource(env.VANTAGE_CLIENT_IP),
+    clientIp,
     sessions: {
       idleMinutes: envNumber(env, 'VANTAGE_IDLE_MINUTES', 15),
       // Vantage staff and organization consoles; VANTAGE_OPERATOR_IDLE_MINUTES was its name before organizations.
@@ -415,10 +476,11 @@ export function loadConfig(env = process.env): AppConfig {
     },
     m365: readM365Config(env, production, test, app),
     // A demo visitor is handed a synthetic person; nobody registers.
-    selfRegistration: accessMode === 'demo' ? false : envBool(env, 'VANTAGE_SELF_REGISTRATION', true),
+    // On MCEN nobody signs themselves up: accounts come from an invitation, the roster or CAC provisioning.
+    selfRegistration: accessMode === 'demo' || deployment.profile === 'mcen' ? false : envBool(env, 'VANTAGE_SELF_REGISTRATION', true),
     cac: readCacConfig(env, production),
     audit: readAuditConfig(env),
-    security: readSecurityConfig(env, production, test),
+    security: readSecurityConfig(env, production, test, deployment.profile),
     oidc: readOidcConfig(env, production, test),
   };
 }

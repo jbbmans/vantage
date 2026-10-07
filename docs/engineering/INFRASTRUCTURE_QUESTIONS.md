@@ -11,9 +11,19 @@ answered by G-6, NETACT-RES or the hosting organization.
 | I-04 | Which PostgreSQL version is available, who administers it, and does it require TLS? | Database target | SQLite today (ADR-0003) |
 | I-05 | Which identity path is approved: CAC client certificates at the reverse proxy, an OIDC/SAML provider, or an authenticating proxy that forwards identity headers? | Identity boundary | Local accounts; CAC direct and proxy modes exist, off by default |
 | I-06 | Who terminates TLS, and with which certificates? | Transport; cookie security | App expects a reverse proxy; `TRUST_PROXY` must name it |
-| I-07 | Is there an approved malware scanner (for example clamd) on the host? | Uploads | `VANTAGE_SCANNER_COMMAND`; without it uploads are marked "not scanned" |
-| I-08 | Where must logs go (syslog, SIEM, files), and in what format? | Operations | Structured lines to stdout |
+| I-07 | Is there an approved malware scanner (for example clamd) on the host? | Uploads | `VANTAGE_CLAMD` (a clamd address) or `VANTAGE_SCANNER_COMMAND`; without either, uploads are marked "not scanned" unless `VANTAGE_SCAN_REQUIRED=true` refuses them |
+| I-08 | Where must logs go (syslog, SIEM, files), and in what format? | Operations | Audit records to a syslog collector (`VANTAGE_AUDIT_SYSLOG`, udp/tcp/tls, RFC 5424) and/or stdout (`VANTAGE_AUDIT_STDOUT`) |
 | I-09 | Backup: who runs it, where it lands, what retention applies? | Recovery | Documented file-level backup of SQLite |
-| I-10 | Is any public egress permitted? (Default: none needed.) | Features | AI and the MARADMIN feed are off by default |
+| I-10 | Is any public egress permitted? (Default: none needed.) | Features | None by default. The MCEN profile refuses the public-internet services and lists every outbound connection in the admin dashboard (ADR-0007, I-18, I-19, I-22) |
 | I-11 | How must third-party dependencies be delivered (offline mirror, prebuilt artifact, SBOM format)? | Build | `package-lock.json`; SBOM to be generated as CycloneDX |
 | I-12 | Which data categories may the pilot hold (CUI, PII)? Who authorizes it? | Data handling | Synthetic only until authorized |
+| I-13 | Which Unit Instance isolation model will MCEN host: separate deployments, separate databases, separate schemas, or one strongly isolated shared database? | The data boundary between commands | `VANTAGE_TOPOLOGY=shared` (many Unit Instances, isolated by `org_id` and authorization) or `dedicated` (the database holds exactly one); ADR-0007 |
+| I-14 | Where may attachments and imported files be stored (database, approved file share, object store)? | File-storage boundary, backup size | Stored as BLOBs in the same database as the records (`attachments.content`, `source_files.content`) |
+| I-15 | Which enterprise mail relay will Vantage use, with what authentication, TLS and sender domain? | Sign-in links, invitations, notices | `VANTAGE_EMAIL_PROVIDER=smtp` with `SMTP_URL`, or `none`; the MCEN profile refuses Resend and direct MX delivery |
+| I-16 | Which hostname or hostnames will Vantage answer on, and does the admin dashboard need a host of its own? | Cookies, passkeys, CAC proxy rules | `VANTAGE_APP_URL`, with optional `VANTAGE_CONSOLE_URL` and `VANTAGE_ADMIN_URL`; no public site under MCEN |
+| I-17 | How is Vantage deployed and changed on MCEN (pipeline, change control, who presses the button)? | Release and rollback | A container image (`Dockerfile`) or a native Node service; `render.yaml` is the legacy public site only |
+| I-18 | Is GenAI.mil approved for this enclave, and which data may be sent to it? | AI features | Off by default; core functions never depend on it; the MCEN profile lists it as needing an approved connection |
+| I-19 | Is the marines.mil MARADMIN feed reachable from the enclave, or is there an approved mirror? | MARADMIN reference | Off by default; `VANTAGE_MARADMIN_SOURCE` can point at a mirror |
+| I-20 | Who are Vantage Administrators on MCEN, and how is the first one established? | Platform authority | First-run setup with `VANTAGE_SETUP_TOKEN`; `VANTAGE_PLATFORM_OWNERS` names bootstrap owners |
+| I-21 | How is a new Unit Instance requested and approved, and by whom? | Provisioning | A Vantage Administrator provisions one in the admin dashboard or with `scripts/provision-instance.ts` from a manifest |
+| I-22 | Are Outlook mailbox connections wanted on MCEN, in which Microsoft cloud, and under whose app registration? | Correspondence intake | Off unless `VANTAGE_M365_CLIENT_ID` is set |
