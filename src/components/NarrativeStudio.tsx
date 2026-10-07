@@ -239,7 +239,7 @@ export default function NarrativeStudio({ report, title, choices, setChoices, on
                 <p>Vantage writes them in the order’s own form: a dash, a past-tense verb, the numbers, the result, with acronyms spelled out once. The order sets no length; 1,000 characters keeps it readable. Your marks and comments come from your chain.</p>
               </div>
             )}
-            <p className="mt-2 text-ink-3">The writer tidies tense, first person and filler in the text it writes; your entries stay as you logged them. It runs on this server and sends nothing anywhere.</p>
+            <p className="mt-2 text-ink-3">The writer tidies tense, first person and filler in the text it writes; your entries stay as you logged them. It runs inside Vantage and sends nothing anywhere.</p>
           </details>
         </Panel>
 

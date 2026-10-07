@@ -142,8 +142,8 @@ authRouter.post('/setup', wrap((req, res) => {
 authRouter.post('/register', wrap((req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
-  if (ctx.config.cac.exclusive) throw forbidden('This instance requires a CAC. Accounts are created from the personnel roster.', 'cac_required');
-  if (ctx.config.oidc.exclusive) throw forbidden(`This instance signs in through your organization. Use ${ctx.config.oidc.label}.`, 'oidc_required');
+  if (ctx.config.cac.exclusive) throw forbidden('Vantage requires a CAC here. Accounts are created from your organization’s personnel roster.', 'cac_required');
+  if (ctx.config.oidc.exclusive) throw forbidden(`Vantage signs in through your organization here. Use ${ctx.config.oidc.label}.`, 'oidc_required');
   if (!ctx.runtime.selfRegistration) throw notFound('Self-registration is not enabled. Ask a leader for an invitation.');
   if (userCount(ctx) === 0) throw conflict('The deployment must be initialized before accounts can self-register.', 'setup_required');
   const limited = limiters.registerIp.limited(ip);
@@ -170,8 +170,8 @@ const loginSchema = z.object({ username: z.string().max(40), password: z.string(
 authRouter.post('/login', wrap(async (req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
-  if (ctx.config.cac.exclusive) throw forbidden('This instance requires a CAC. Sign in with your card.', 'cac_required');
-  if (ctx.config.oidc.exclusive) throw forbidden(`This instance signs in through your organization. Use ${ctx.config.oidc.label}.`, 'oidc_required');
+  if (ctx.config.cac.exclusive) throw forbidden('Vantage requires a CAC here. Sign in with your card.', 'cac_required');
+  if (ctx.config.oidc.exclusive) throw forbidden(`Vantage signs in through your organization here. Use ${ctx.config.oidc.label}.`, 'oidc_required');
   const { username, password } = parse(loginSchema, req.body);
   const name = username.trim().toLowerCase();
   const ipLimit = limiters.loginIp.limited(ip);

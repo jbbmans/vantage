@@ -39,7 +39,7 @@ export function networkBlocked(status: number, contentType: string | null, body:
   const html = /text\/html/i.test(contentType || '') || /^\s*<!doctype html/i.test(body);
   return html && /outside of Do[DW] networks|Unauthorized Access - GenAI\.mil/i.test(body);
 }
-const NETWORK_BLOCKED_MESSAGE = 'GenAI.mil refused this server: the gateway only accepts calls from DoD networks, and this Vantage server is hosted outside them.';
+const NETWORK_BLOCKED_MESSAGE = 'GenAI.mil refused this server: the gateway only accepts calls from DoD networks, and Vantage is hosted outside them.';
 
 const str = (v: unknown, max = 8000) => String(v ?? '').trim().slice(0, max);
 const int = (v: unknown, fallback: number, min: number, max: number) => { const n = Number(v); return Number.isInteger(n) && n >= min && n <= max ? n : fallback; };
@@ -208,9 +208,9 @@ const INSTRUCTIONS: Record<string, string> = {
 const FINANCIAL_RULES = `When the evidence concerns funds, balances, obligations, invoices, UMTs or other financial conditions: ${AI_GUARDRAILS}`;
 
 function preflight(ctx: AppContext, userId: string) {
-  if (!ctx.runtime.aiEnabled) throw new AiError('AI assistance is disabled by the Instance Operator.', 503, 'ai_disabled');
-  if (!ctx.config.ai.apiKey) throw new AiError('GenAI.mil is not configured on this server.', 503, 'ai_not_configured');
-  if (state.lockedAt) throw new AiError('GenAI.mil is temporarily locked. The Instance Operator must unlock the API key.', 503, 'ai_key_locked');
+  if (!ctx.runtime.aiEnabled) throw new AiError('AI assistance is turned off on Vantage.', 503, 'ai_disabled');
+  if (!ctx.config.ai.apiKey) throw new AiError('GenAI.mil is not set up on Vantage.', 503, 'ai_not_configured');
+  if (state.lockedAt) throw new AiError('GenAI.mil is temporarily locked. Vantage staff must unlock the API key.', 503, 'ai_key_locked');
   const g = limiters.aiGlobal.limited('global');
   if (g) throw new AiError('AI request limit reached. Try again shortly.', 429, 'rate_limit', { retryAfter: g.retryAfter });
   const u = limiters.aiUser.limited(userId);
@@ -319,7 +319,7 @@ async function runAiWorkflowInner(ctx: AppContext, user: SessionUser, workflow: 
       if (response.status === 401 && body?.error?.unlock_url) {
         state.lockedAt = state.lastErrorAt;
         state.unlockUrl = safeUnlockUrl(body.error.unlock_url);
-        throw new AiError('GenAI.mil is temporarily locked. The Instance Operator must unlock the API key.', 503, 'ai_key_locked');
+        throw new AiError('GenAI.mil is temporarily locked. Vantage staff must unlock the API key.', 503, 'ai_key_locked');
       }
       if (response.status === 429) throw new AiError('GenAI.mil rate limit reached. Try again later.', 429, 'upstream_rate_limit', { retryAfter: Number(response.headers.get('retry-after') || body?.error?.retry_after_seconds) || 60 });
       if (response.status === 401 || response.status === 403 || response.status === 404) throw new AiError('The configured GenAI.mil key or model is not authorized.', 503, 'ai_not_authorized');
@@ -342,7 +342,7 @@ async function runAiWorkflowInner(ctx: AppContext, user: SessionUser, workflow: 
 }
 
 export async function discoverModels(ctx: AppContext): Promise<string[]> {
-  if (!ctx.config.ai.apiKey) throw new AiError('GenAI.mil is not configured on this server.', 503, 'ai_not_configured');
+  if (!ctx.config.ai.apiKey) throw new AiError('GenAI.mil is not set up on Vantage.', 503, 'ai_not_configured');
   let response: Response;
   try { response = await fetch(`${ctx.config.ai.baseUrl}/models`, { headers: { authorization: `Bearer ${ctx.config.ai.apiKey}` }, signal: AbortSignal.timeout(15_000) }); }
   catch (error) {

@@ -545,7 +545,8 @@ export function purgeWorkspace(ctx: AppContext, wsId: string) {
     db.transaction(() => {
       const list = (xs: string[]) => xs.map(() => '?').join(',');
       // Rows that name the unit or the people without a foreign key.
-      db.prepare(`DELETE FROM audit_log WHERE unit_id = ? OR actor_id IN (${list(users)}) OR subject_id IN (${list(users)})`).run(ws.unit_id, ...users, ...users);
+      // The workspace's unit founded an organization of the same id (ADR-0006); its own entries go with it.
+      db.prepare(`DELETE FROM audit_log WHERE unit_id = ? OR org_id = ? OR actor_id IN (${list(users)}) OR subject_id IN (${list(users)})`).run(ws.unit_id, ws.unit_id, ...users, ...users);
       db.prepare(`DELETE FROM product_events WHERE unit_id = ? OR user_id IN (${list(users)})`).run(ws.unit_id, ...users);
       db.prepare('DELETE FROM demo_workspaces WHERE id = ?').run(wsId);
       db.prepare(`DELETE FROM users WHERE id IN (${list(users)})`).run(...users);

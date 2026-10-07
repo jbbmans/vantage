@@ -9,7 +9,7 @@
 | **Goals** | What am I working toward, and how far have I come? | Active / all goals, typed or by hand | `/goals` |
 | **Career** | Where do I stand, and what are my next steps? | Plan and next steps, Training, Awards, Counseling, Readiness | `/career` |
 | Team (leaders) | Who carries what, and what is stuck? | Workload, Roster, Unit dashboard, Invitations, Roles, Units, Access log | `/team` |
-| More | Evaluation input, messages, settings, help | Reports, MARADMINs (when enabled), Settings, Owner console (operators), Field guide | — |
+| More | Evaluation input, messages, settings, help | Reports, MARADMINs (when enabled), Settings, Owner console (organization roles), Vantage admin (staff), Field guide | — |
 
 ## Placement rules
 

@@ -280,7 +280,7 @@ meRouter.get('/digest/preview', wrap((req, res) => {
   res.json({ subject: digest.subject, text: digest.text, stats: digest.stats, emailEnabled: req.ctx.mailer.enabled, hasEmail: Boolean(req.user.email) });
 }));
 meRouter.post('/digest/send-now', wrap(async (req, res) => {
-  if (!req.ctx.mailer.enabled) throw badRequest('Email is not configured on this server.');
+  if (!req.ctx.mailer.enabled) throw badRequest('Email is off on Vantage right now.');
   mailAllowance(req.user.id);
   if (!req.user.email) throw badRequest('Add an email address to your profile first.');
   const result = await sendDigest(req.ctx, { id: req.user.id, email: req.user.email, first_name: req.user.first_name, last_name: req.user.last_name, prefs: req.user.prefs, digest_last_sent_at: null });
@@ -291,7 +291,7 @@ meRouter.post('/digest/send-now', wrap(async (req, res) => {
 meRouter.post('/email/verify', requireSudo, wrap(async (req, res) => {
   const ctx = req.ctx;
   const { email } = parse(z.object({ email: emailField }), req.body);
-  if (!ctx.mailer.enabled) throw badRequest('Email is not configured on this server.');
+  if (!ctx.mailer.enabled) throw badRequest('Email is off on Vantage right now.');
   if (ctx.db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE AND id <> ?').get(email, req.user.id)) throw badRequest('That email is already in use.', { fieldErrors: { email: 'Already in use.' } });
   mailAllowance(req.user.id);
   const { token } = issueToken(ctx, 'email_change', { userId: req.user.id, email, ttlMinutes: 60 });

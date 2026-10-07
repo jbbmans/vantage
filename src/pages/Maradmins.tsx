@@ -35,7 +35,7 @@ export default function Maradmins({ embedded }: { embedded?: boolean } = {}) {
 
   if (!identity?.instance.maradminsEnabled) return (
     <PageShell embedded={embedded} eyebrow="MARADMINs" title="Message feed">
-      <div className="card"><EmptyState icon={ScrollText} title="The MARADMIN feed is off on this deployment" description="The owner can enable it in the Owner console. Vantage only ever caches public message titles." /></div>
+      <div className="card"><EmptyState icon={ScrollText} title="The MARADMIN feed is off" description="Vantage staff turn it on for the service. Vantage only ever caches public message titles." /></div>
     </PageShell>
   );
 

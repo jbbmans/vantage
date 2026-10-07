@@ -33,7 +33,7 @@ export interface AppConfig {
   trustProxy: boolean | number | string;
   /** "cloudflare": take CF-Connecting-IP, but only from a peer inside Cloudflare's published ranges. */
   clientIp: 'proxy' | 'cloudflare';
-  /** Idle limits follow the Application Security and Development STIG: 15 minutes, and 10 for an instance operator. */
+  /** Idle limits follow the Application Security and Development STIG: 15 minutes, and 10 for Vantage staff. */
   sessions: { idleMinutes: number; operatorIdleMinutes: number; absoluteHours: number; maxActive: number; sudoMinutes: number };
   limits: { mutationsPer15Minutes: number; registrationsPer15Minutes: number; maxRecordsPerUser: number; maxDatabaseBytes: number };
   attachments: { enabled: boolean; maxBytes: number; maxPerRecord: number; allowedTypes: string[] };
@@ -344,7 +344,8 @@ export function loadConfig(env = process.env): AppConfig {
     clientIp: clientIpSource(env.VANTAGE_CLIENT_IP),
     sessions: {
       idleMinutes: envNumber(env, 'VANTAGE_IDLE_MINUTES', 15),
-      operatorIdleMinutes: envNumber(env, 'VANTAGE_OPERATOR_IDLE_MINUTES', 10),
+      // Vantage staff and organization consoles; VANTAGE_OPERATOR_IDLE_MINUTES was its name before organizations.
+      operatorIdleMinutes: envNumber(env, 'VANTAGE_STAFF_IDLE_MINUTES', envNumber(env, 'VANTAGE_OPERATOR_IDLE_MINUTES', 10)),
       absoluteHours: envNumber(env, 'VANTAGE_SESSION_HOURS', 12),
       maxActive: envNumber(env, 'VANTAGE_MAX_SESSIONS', 8),
       sudoMinutes: envNumber(env, 'VANTAGE_SUDO_MINUTES', 10),

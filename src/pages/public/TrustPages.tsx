@@ -35,8 +35,8 @@ const SECURITY: TrustPage = {
   description: 'How Vantage protects the records it keeps: sign-in, access by unit membership, sealed histories, a strict browser policy, and how to report a vulnerability.',
   eyebrow: 'Security',
   heading: 'Built so a record can answer for itself.',
-  lede: 'What protects the work and records people keep in Vantage, what a deployment decides for itself, and how to tell us about a weakness.',
-  updated: '2026-10-03',
+  lede: 'What protects the work and records people keep in Vantage, how one organization is kept apart from another, and how to tell us about a weakness.',
+  updated: '2026-10-05',
   sections: [
     {
       id: 'glance', title: 'At a glance',
@@ -55,14 +55,14 @@ const SECURITY: TrustPage = {
       id: 'sign-in', title: 'Signing in',
       body: <>
         <p>Every account has a password of at least fifteen characters, checked against common and repeated patterns and stored only as a PBKDF2-HMAC-SHA256 hash. A passkey (WebAuthn), an authenticator app with single-use recovery codes, or a Common Access Card adds the second factor. A deployment can also hand sign-in to its organization’s identity provider over OpenID Connect, with PKCE, a single-use state and nonce, and the token checked against the provider’s keys.</p>
-        <p>Sensitive changes (email, second factors, passkeys, the owner console) ask for the password again. Everyone can see the devices they are signed in on and end any of them. A deployment can require the DoD Notice and Consent Banner before anyone signs in, and the server enforces it, not only the page.</p>
+        <p>Sensitive changes (email, second factors, passkeys, the owner console) ask for the password again. Everyone can see the devices they are signed in on and end any of them. Vantage can require the DoD Notice and Consent Banner before anyone signs in, and the server enforces it, not only the page.</p>
       </>,
     },
     {
       id: 'access', title: 'Who can see what',
       body: <>
         <p>A Marine’s record is private until they share an entry with a unit. Leaders see what was shared with the units they lead, and the units beneath them; access flows down the chain of command and never up. Leaving a unit ends access to its work at once, and work that was held goes back to the queue with the reason recorded.</p>
-        <p>No role in the application, including the instance owner, can open another person’s private entries. When a leader opens a member’s record, that is itself logged in the unit’s access log. Team totals drawn from fewer than three people are withheld so a total cannot be used to single someone out.</p>
+        <p>No role in the application, including an organization’s owners and Vantage staff, can open another person’s private entries. When a leader opens a member’s record, that is itself logged in the unit’s access log. Team totals drawn from fewer than three people are withheld so a total cannot be used to single someone out.</p>
       </>,
     },
     {
@@ -81,21 +81,24 @@ const SECURITY: TrustPage = {
     {
       id: 'files', title: 'Files and imports',
       body: <>
-        <p>Attachments and imported spreadsheets and email have size limits, and a workbook is charged for its real expanded size, not what it claims. A deployment can scan every upload with ClamAV and refuse what could not be scanned. Imported email is shown with remote images and active content blocked.</p>
+        <p>Attachments and imported spreadsheets and email have size limits, and a workbook is charged for its real expanded size, not what it claims. Vantage can scan every upload with ClamAV and refuse what could not be scanned. Imported email is shown with remote images and active content blocked.</p>
       </>,
     },
     {
       id: 'deployment', title: 'For your ISSM',
       body: <>
-        <p>Vantage is an independent project. It holds no FedRAMP authorization and no Authority to Operate of its own; a command that runs it does so inside its own environment, under that environment’s controls and its own authorization process. To help with that:</p>
+        <p>Vantage is one central service, run by the Vantage team. Each command on it is an <strong>organization</strong>: its units, members, roster feed, retention schedules, legal holds and audit trail are its own and kept apart from every other organization’s.</p>
         <ul>
-          <li>It runs as one Node.js process with a local volume behind your own TLS proxy, and makes no outbound requests by default. AI, the MARADMIN feed and search-engine notices are each off until an owner turns them on.</li>
+          <li><strong>Three kinds of authority, none implying another.</strong> Vantage staff run the service. An organization’s owners and administrators run its structure: members, units, roles and the roster feed, without reading Marines’ records. Unit roles in the chain of command read what is shared with their units.</li>
+          <li><strong>Vantage staff do not see inside an organization</strong> unless its owners approve a request, which names a reason and lasts at most a day. That access is read-only, can be ended by an owner at any time, and every step is in the organization’s own audit trail.</li>
+          <li><strong>Grants can end on a date</strong> (an acting billet, a leave period), and anyone who manages roles can see why a person can do what they can.</li>
+          <li>It runs as one Node.js process behind TLS and makes no outbound requests by default. AI, the MARADMIN feed and search-engine notices are each off until Vantage turns them on.</li>
           <li>When AI is turned on it goes only to GenAI.mil, the key stays on the server, and a request carries only the fields that workflow needs.</li>
           <li>Records management is built in: retention schedules with their authority, legal holds that stop every path that could delete, and disposition evidence for every run.</li>
           <li>A privacy-impact data inventory is generated from the live database schema, so it cannot quietly stop being true.</li>
           <li>Every build is linted, type-checked and tested; dependencies are audited; a CycloneDX software bill of materials is published; the code is scanned with CodeQL and the image with Trivy; the base image is pinned by digest.</li>
         </ul>
-        <p>The public site at this address is a demonstration host run on commercial infrastructure. It is not accredited for classified information or Controlled Unclassified Information.</p>
+        <p>Vantage is an independent project. It holds no FedRAMP authorization and no Authority to Operate. The service runs on commercial infrastructure and is not accredited for classified information or Controlled Unclassified Information; do not enter either.</p>
       </>,
     },
     {
@@ -115,7 +118,7 @@ const ACCESSIBILITY: TrustPage = {
   eyebrow: 'Accessibility',
   heading: 'Usable by everyone who has to use it.',
   lede: 'Vantage aims to conform to the Web Content Accessibility Guidelines (WCAG) 2.2 at Level AA, which is also the standard Section 508 points to.',
-  updated: '2026-10-03',
+  updated: '2026-10-05',
   sections: [
     {
       id: 'testing', title: 'How it is tested',
@@ -168,8 +171,8 @@ const PRIVACY: TrustPage = {
   description: 'What Vantage keeps about a person, who can see it, how long it is kept, and what it never collects: no trackers, no advertising, no selling of data.',
   eyebrow: 'Privacy',
   heading: 'Your record is yours.',
-  lede: 'What Vantage keeps, why, who can see it and for how long. Each deployment is run by its own owner, who decides some of this; where they do, the page says so.',
-  updated: '2026-10-03',
+  lede: 'What Vantage keeps, why, who can see it and for how long. Your command’s organization on Vantage decides some of this; where it does, the page says so.',
+  updated: '2026-10-05',
   sections: [
     {
       id: 'never', title: 'What Vantage never does',
@@ -187,14 +190,15 @@ const PRIVACY: TrustPage = {
           <li><strong>Your account:</strong> name, username, rank, MOS, units and roles, and an email address if you give one (for reset links and the weekly digest).</li>
           <li><strong>Your work and record:</strong> what you log, the work you claim and act on, goals, training, awards, counselings, readiness dates and the files you attach.</li>
           <li><strong>Security records:</strong> sign-in times, the address and browser of each session, and an audit log of access and changes.</li>
-          <li><strong>Usage counts:</strong> which screens are opened and whether a save worked, so the owner can see whether Vantage is working. These never contain anything you typed, are reported only as counts across people, and are deleted after about thirteen months.</li>
+          <li><strong>Usage counts:</strong> which screens are opened and whether a save worked, so Vantage can see whether it is working. These never contain anything you typed, are reported only as counts across people, and are deleted after about thirteen months.</li>
         </ul>
       </>,
     },
     {
       id: 'sees', title: 'Who can see it',
       body: <>
-        <p>Entries are private until you share one with a unit. Leaders see what was shared with the units they lead, and every time a leader opens a member’s record it is logged. The deployment’s owner runs the server and could read its database directly, as anyone who runs a server can; the application itself gives no one, the owner included, a way to open your private entries.</p>
+        <p>Entries are private until you share one with a unit. Leaders see what was shared with the units they lead, and every time a leader opens a member’s record it is logged. Your organization’s owners and administrators manage its people and units, not your records. Vantage staff see your organization as a name and its counts; they look at shared work only when your organization’s owners approve it, read-only and for a set time, and that is in your organization’s audit trail.</p>
+        <p>Your account is yours, not your command’s: it moves with you between organizations, and your private entries, career plan and readiness stay with it. The Vantage team runs the servers and could read the database directly, as anyone who runs a server can; the application itself gives no one a way to open your private entries.</p>
       </>,
     },
     {
@@ -204,9 +208,9 @@ const PRIVACY: TrustPage = {
       </>,
     },
     {
-      id: 'others', title: 'Services a deployment may use',
+      id: 'others', title: 'Services Vantage may use',
       body: <>
-        <p>Off by default, and each a choice the owner makes: <strong>email</strong> (sent directly from the deployment’s own domain, or through a mail provider it names), <strong>AI drafting</strong> (only through GenAI.mil, sending only the fields the task needs, never another person’s private data, and nothing saved until you save it), and <strong>organization sign-in</strong> through your command’s identity provider.</p>
+        <p>Off by default, and each a choice Vantage makes for the service: <strong>email</strong> (sent directly from Vantage’s own domain, or through a mail provider it names), <strong>AI drafting</strong> (only through GenAI.mil, sending only the fields the task needs, never another person’s private data, and nothing saved until you save it), and <strong>organization sign-in</strong> through your command’s identity provider.</p>
       </>,
     },
     {
@@ -215,9 +219,9 @@ const PRIVACY: TrustPage = {
         <ul>
           <li>Download everything tied to your account, at any time, from Settings → Your data: one JSON file and a CSV for each kind of record, with your attachments.</li>
           <li>Delete an entry and it goes to a recycle bin for thirty days, then is removed for good, unless a legal hold applies.</li>
-          <li>Ask your unit leader or the owner to turn your account off.</li>
+          <li>Ask Vantage support, through the request form or Support, to turn your account off.</li>
         </ul>
-        <p>Retention schedules and legal holds are set by the deployment’s owner and state the authority they follow. Do not enter classified information, and keep sensitive personal details (such as Social Security numbers or medical specifics) out of free text.</p>
+        <p>Retention schedules and legal holds over the work shared with your units are set by your organization and state the authority they follow. Do not enter classified information, and keep sensitive personal details (such as Social Security numbers or medical specifics) out of free text.</p>
       </>,
     },
     {

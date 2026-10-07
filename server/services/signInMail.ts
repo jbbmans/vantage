@@ -78,7 +78,7 @@ export async function sendSignInDetails(ctx: AppContext, sender: SessionUser, us
   if (!account) return { id: userId, status: 'skipped', error: orgId ? 'No such active member of this organization.' : 'No such active account.' };
   if (account.id === sender.id) return { id: userId, status: 'skipped', error: 'That is your own account.' };
   if (!account.email) return { id: userId, status: 'skipped', error: 'No email on file.' };
-  if (!ctx.mailer.enabled) return { id: userId, status: 'failed', error: 'Email is not configured on this server.' };
+  if (!ctx.mailer.enabled) return { id: userId, status: 'failed', error: 'Email is off on Vantage right now.' };
 
   // Only the newest link works, whichever way it was sent.
   revokeTokens(ctx, 'reset', account.id);

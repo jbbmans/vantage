@@ -103,7 +103,7 @@ export default function SignInDetails({ orgId, onDone }: { orgId: string; onDone
         {loading || !audience ? <p className="py-8 text-center text-sm text-ink-3">Reading accounts…</p> : (
           <>
             {!audience.emailEnabled && (
-              <p role="alert" className="mb-3 rounded-md border border-bad/40 bg-bad/5 px-3 py-2 text-sm text-ink">Email is not configured on this server, so nothing can be sent. Set it up on the Email tab first.</p>
+              <p role="alert" className="mb-3 rounded-md border border-bad/40 bg-bad/5 px-3 py-2 text-sm text-ink">Email is off on Vantage right now, so nothing can be sent. Set it up on the Email tab first.</p>
             )}
             {!sentTo && (
               <div className="mb-3 flex flex-wrap items-center gap-3">

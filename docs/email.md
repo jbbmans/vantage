@@ -7,7 +7,7 @@ Email is optional but enables password reset links, invitation emails, email-cha
 Vantage can deliver its own mail. For each recipient it looks up the receiving domain's mail servers and hands the message to them on port 25, the way mail servers talk to each other. Every message is signed with DKIM using a key Vantage generates on first use and keeps, encrypted with `VANTAGE_SECRET`, in its own database. No account, API key or relay is involved.
 
 1. On Render set `VANTAGE_EMAIL_PROVIDER=direct` and `VANTAGE_EMAIL_FROM="Vantage <no-reply@vantageusmc.com>"`. Set `VANTAGE_EMAIL_REPLY_TO` to an address that receives mail (see [Replies](#replies)). Redeploy.
-2. Open **Owner console → Email** and press **Check everything**. It tests whether the server can reach mail servers on port 25, finds the address it sends from, and reads your DNS.
+2. Open **Admin dashboard → Email** and press **Check everything**. It tests whether the server can reach mail servers on port 25, finds the address it sends from, and reads your DNS.
 3. Add the three records it shows in Cloudflare, which hosts `vantageusmc.com`'s DNS (**DNS → Records → Add record**, type TXT; the host column is the **Name** field):
 
    | Name | Value |
@@ -42,7 +42,7 @@ Resend's records sit on their own names (`resend._domainkey`, and an MX and SPF 
 1. Create a Resend account, add `vantageusmc.com` as a domain, and copy the DNS records it gives you into Cloudflare (see [dns-namecheap.md](dns-namecheap.md)).
 2. Create an API key with sending permission.
 3. On Render set `VANTAGE_EMAIL_PROVIDER=resend`, `RESEND_API_KEY=<key>`, and `VANTAGE_EMAIL_FROM="Vantage <no-reply@vantageusmc.com>"`.
-4. Redeploy, then use **Owner console → Overview → Send test**.
+4. Redeploy, then use **Admin dashboard → Overview → Send test**.
 
 Resend accepts a few requests a second. When it answers 429 (or is briefly unavailable), Vantage waits as told and tries again up to four times under one idempotency key, so a roster-wide send finishes and no one gets a message twice.
 
@@ -59,7 +59,7 @@ Any SMTP relay works: `VANTAGE_EMAIL_PROVIDER=smtp` and `SMTP_URL=smtps://user:p
 ## What gets sent
 
 - Reset links: 30-minute, single-use, only when the account has an email.
-- Sign-in details: from **Owner console → Accounts → Email sign-in details**, everyone (or only those who have never signed in, or those not sent one yet) gets their username, the sign-in page, their unit, and a single-use link to choose a password that lasts 72 hours. No password is ever emailed: passwords are stored only as hashes, and nobody's current password changes until they use the link. Sending again replaces the earlier link. Accounts without an address are listed so the owner can hand them a temporary password instead. **Email sign-in** on any row sends to one person.
+- Sign-in details: from **Owner console → People → Email sign-in details**, everyone in the organization (or only those who have never signed in, or those not sent one yet) gets their username, the sign-in page, their unit, and a single-use link to choose a password that lasts 72 hours. No password is ever emailed: passwords are stored only as hashes, and nobody's current password changes until they use the link. Sending again replaces the earlier link. Accounts without an address are listed so the owner can hand them a temporary password instead. **Email sign-in** on any row sends to one person.
 - Invitations: 7-day link, sent when the leader supplies an address.
 - Email change: confirmation link before the address changes.
 - Weekly digest: opt-in per user, at their chosen day and hour in the instance time zone; what they logged, what is overdue, and what is closing.

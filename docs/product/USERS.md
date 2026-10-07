@@ -13,7 +13,8 @@ findings.
 | Reviewer | Review decisions and verifications with their evidence | Every decision carries a rationale, every verification a reference; history shows who, when and where each value came from. A dedicated reviewer role is not yet built (ROADMAP). |
 | Command leadership | Evidence that the tool is used and the work moves | Section workload and resolved/verified counts; the usage console reports adoption without naming people |
 | Administrator (unit) | Manage members, roles and units without reading private records | Team → Roster, Roles, Units, Invitations; private entries, drafts and career plans never appear |
-| Operator (instance) | Keep the instance healthy, backed up and configured | Owner console: settings, accounts, audit chain, backup, governance, usage; no read access to private records |
+| Organization owner or administrator | Run a command's organization: people, units, roles, roster feed, retention | Owner console, one organization at a time; organization roles never read records |
+| Vantage staff | Keep the service healthy, backed up and configured; help people sign in | Admin dashboard: organizations as containers, accounts, staff, access requests, settings, audit, backup; sees inside an organization only with its approval |
 
 ## What junior Marines reported, and the response
 

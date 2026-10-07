@@ -76,9 +76,10 @@ with `ssl_verify_client optional;` and `ssl_client_certificate /etc/ssl/dod-bund
 
 ### Linking accounts
 
-A card signs in only where an account already carries its EDIPI. Link them in **Owner console →
-Personnel**, or let the roster do it. Turning on `CAC_AUTO_PROVISION` creates the account on first
-sign-in — but only for someone the roster already lists as active. A valid DoD certificate proves
+A card signs in only where an account already carries its EDIPI. An organization links its members in
+**Owner console → People → EDIPI**, or lets the roster do it. Turning on `CAC_AUTO_PROVISION` creates the account on first
+sign-in — but only for someone an organization's roster already lists as active, and seats the new account in that
+organization (the unit its row names, or its top unit). A valid DoD certificate proves
 somebody is in the Department; it does not prove they belong to this command, and the roster is what
 says that.
 
@@ -116,8 +117,8 @@ password and MFA), and is sent back already signed in. Vantage never sees their 
 | `VANTAGE_OIDC_EXCLUSIVE` | Turn password sign-in and self-registration off. Passkeys and CAC, where enabled, still work. |
 
 Register these redirect URIs with the provider, one for each face that people sign in on:
-`https://<app host>/api/auth/oidc/callback` and, if the owner console has its own host,
-`https://<console host>/api/auth/oidc/callback`.
+`https://<app host>/api/auth/oidc/callback` and, for each console with a host of its own,
+`https://<console host>/api/auth/oidc/callback` and `https://<admin host>/api/auth/oidc/callback`.
 
 The demo refuses organization sign-in, and a plain `http` issuer is refused outside the test suite.
 
@@ -138,7 +139,7 @@ provider, and the server refuses a sign-in that did not.
 Rank, unit, MOS and EAS are facts an upstream system owns. Typed in by hand they drift, and the tool
 then loses every argument with the official record.
 
-**Owner console → Personnel** takes a roster extract as CSV, TSV or JSON. An EDIPI column is
+Each organization loads its own: **Owner console → Personnel feed** takes a roster extract as CSV, TSV or JSON. An EDIPI column is
 required; other columns are matched by the names personnel systems usually export (`Grade`, `PMOS`,
 `RUC`, and so on).
 
@@ -158,7 +159,7 @@ entries with no account. None of it is resolved automatically; each one is a per
 
 ## Records management
 
-**Owner console → Retention.**
+**Owner console → Retention** (an organization's records officers), over the work shared with its units. Vantage staff can place a hold over the whole service in **Admin dashboard → Legal holds**.
 
 A schedule states how long a kind of record is kept, what happens then, and the authority it is kept
 under — a citation field rather than a comment, because a schedule without one is somebody's guess.
@@ -182,7 +183,7 @@ Properties worth knowing:
 
 ## The privacy inventory
 
-**Owner console → Privacy** builds a data inventory from the live database every time it is opened:
+**Owner console → Privacy** (and, for the whole service, **Admin dashboard → Privacy**) builds a data inventory from the live database every time it is opened:
 every table, what it is for, the authority for holding it, who can see it, its retention, and each
 column's category of personal information. Export it as Markdown for a PIA package.
 

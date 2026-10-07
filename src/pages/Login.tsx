@@ -210,7 +210,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
   });
   const submitForgot = () => run(async () => {
     const result = await api.forgotPassword(form.identifier);
-    toast.info(result.emailEnabled ? 'If that account has an email on file, a reset link is on its way.' : 'Email is not configured on this server. Ask your unit leader or the owner for a temporary password.');
+    toast.info(result.emailEnabled ? 'If that account has an email on file, a reset link is on its way.' : 'Email is off on Vantage right now. Ask Vantage support through Need help? for a temporary password.');
     setMode('login');
   });
   const submitHelp = () => run(async () => {
@@ -268,7 +268,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
       : owners ? ['Owner console', 'Sign in', 'For the people who run an organization on Vantage. Everyone else signs in to the app.'] : ['Welcome back', 'Sign in', 'Continue to your Vantage workspace.'],
     mfa: ['Secure sign-in', 'Second step', 'Enter the six-digit code from your authenticator app, or a recovery code.'],
     setup: ['First launch', 'Set up Vantage', 'Create the first Vantage owner account and the first organization. This only happens once.'],
-    register: ['Join Vantage', 'Create your account', 'Self-registration is open on this deployment.'],
+    register: ['Join Vantage', 'Create your account', 'Then join your unit with a join code or invitation from your leader.'],
     forgot: ['Account recovery', 'Reset your password', 'Enter your username or email. If email is configured, a one-time link follows.'],
     reset: tokenInfo?.purpose === 'sign_in'
       ? ['Welcome to Vantage', 'Choose your password', `You sign in as ${tokenInfo.username}. Choose a password to finish; you are signed in as soon as it is saved.`]
@@ -441,7 +441,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
             {!gated && mode === 'forgot' && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); submitForgot(); }}>
                 <Field label="Username or email"><Input autoFocus value={form.identifier} onChange={set('identifier')} autoCapitalize="none" /></Field>
-                {status && !status.emailEnabled && <p className="text-xs text-ink-3">Email is not configured here. Your unit leader or the owner can issue a temporary password from the Team page instead.</p>}
+                {status && !status.emailEnabled && <p className="text-xs text-ink-3">Email is off on Vantage right now. Ask Vantage support through Need help? and they can set you a temporary password.</p>}
                 <Button type="submit" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={!form.identifier}><Mail className="h-4 w-4" /> Send reset link</Button>
                 <p className="text-sm text-ink-3">Still stuck? <button type="button" className="link" onClick={() => setMode('help')}>Ask for help</button></p>
               </form>

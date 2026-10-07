@@ -1,6 +1,38 @@
 # Progress
 
-_Updated 2026-10-05_
+_Updated 2026-10-07_
+
+## What changed (2026-10-07: one central service, three tiers of authority, two consoles)
+
+Vantage is no longer installed per command. It runs as one service for many commands ([ADR-0006](engineering/ADR/0006-centralized-tenancy-and-authority.md)).
+
+**Tenancy.**
+- Organizations are tenants (`organizations`, `units.org_id`). Triggers keep every new unit in its parent's organization, make a top-level unit found one, and refuse a move between organizations.
+- The roster feed, retention schedules, holds, disposition runs and the audit trail carry their organization. Audit entries seal it into the hash only when set, so older entries still verify.
+- Migration `015_organizations` converts a single-instance database in place: each top-level unit becomes an organization, former operators become platform owners, and each organization's owner is its top unit's leader (the former operators where it had none). An instance archive from before organizations is adopted the same way on import.
+
+**Authority** (`shared/permissions.ts`, `server/authz/scope.ts`).
+- Platform roles (owner, admin, support, auditor) replace the Instance Operator flag, which is no longer read.
+- Organization roles (owner, admin, records, auditor) hold only the structural unit bits, never record reading. Organization owners and admins staff any role below Unit Leader. An admin cannot give themselves a role that reads records; an owner who does is reported to the other owners.
+- Vantage access (`server/services/access.ts`) is the only way staff see inside an organization: requested with a reason, approved by an owner (or notify-only, by the organization's choice), read-only, at most 24 hours, revocable, audited in both trails.
+- Unit and organization roles can end on a date. Scope ignores an expired grant at once; a sweep every minute removes it and audits the end.
+- "Why can they?" (`server/services/explain.ts`) lists every source of a person's permissions in each unit.
+- One organization's roster extract cannot change or separate an account that belongs only to another. Separation ends that organization's memberships (restorable on return) and deactivates the account only when it belongs nowhere else.
+- Direct enrollment of an account the enroller does not already lead is refused for everyone; people join by invitation or join code.
+- CAC and OIDC roster provisioning seat the new account in the organization whose roster lists it.
+
+**Two consoles, two APIs.**
+- The admin dashboard (`admin.html`, `/admin`, `/api/platform`) is for Vantage staff. The owner console (`/console/:orgId`, `/api/orgs/:orgId`) is for an organization's owners, administrators, records officers and auditors.
+- Each API answers only on its own face's host. `VANTAGE_ADMIN_URL` gives the dashboard a host of its own, and old `/operator?tab=` links land on whichever console now holds the tab.
+- `/api/admin` and the account actions under `/api/org/team` are gone. Account resets moved to `/api/platform/accounts`.
+
+**Tests.**
+- `tests/server/tenancy.test.ts` covers tenant isolation, the access flow (approve, revoke, notify mode, expiry), organization-role staffing and self-grants, time-bound roles, the explainer, a roster scoped to its own people, and support's limits.
+- The 015 migration is tested from a legacy-shaped database.
+- `hosts.test.ts` covers an admin dashboard with a host of its own.
+- Browser specs cover both consoles and the redirects between them.
+- Existing tests now seat people through join codes or the service layer, since direct enrollment needs consent.
+
 
 ## What changed (2026-10-05: cradle to grave)
 
