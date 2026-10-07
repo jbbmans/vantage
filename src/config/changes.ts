@@ -18,6 +18,7 @@ export const CHANGES: Change[] = [
       '“Why can they?” on a Marine’s Roles tab, and in the owner console, names every grant behind what someone can do: the role and where it was granted, the chain of command, leadership, and Unit Instance administration.',
       'A forgotten password or a lost authenticator is now Vantage support’s to reset (Need help? on the sign-in page), because an account can belong to more than one Unit Instance.',
       'Vantage is being readied to run on the Marine Corps Enterprise Network. There, it has no public website, shows the DoD notice before sign-in, and accounts come from an invitation, the personnel roster or a CAC rather than signing up.',
+      'If you serve in two commands, you work in both, and neither sees the other. Nobody can move a Marine, a record, a project, a contact, a report or an imported sheet from one command into the other, and a Marine joins a new command by invitation rather than being pulled in.',
     ],
   },
   {

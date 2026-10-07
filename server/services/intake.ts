@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import { statSync } from 'node:fs';
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
-import { can, isMember, PERMISSIONS } from '../authz/scope.ts';
+import { assertSameInstance, can, isMember, PERMISSIONS } from '../authz/scope.ts';
 import { record } from './telemetry.ts';
 import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
@@ -409,6 +409,8 @@ export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, 
   if (plan.visibility === 'unit' && plan.unit_id && !can(scope, PERMISSIONS.CREATE_SHARED_WORK, plan.unit_id)) {
     throw forbidden('You cannot bring shared work into that unit.');
   }
+  // A file shared with a unit is that unit's: it is imported into its own Unit Instance, never another (ADR-0008).
+  if (source.visibility === 'unit') assertSameInstance(ctx, source.unit_id, plan.unit_id, 'That upload belongs to another Unit Instance. Import it there, or upload your own copy here.');
   if (source.scan_status === 'quarantined') throw conflict('This upload is still being scanned.');
   if (source.scan_status === 'rejected') throw forbidden('The malware scanner rejected this upload.');
 

@@ -1,6 +1,7 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
 import { can, isMember, PERMISSIONS } from '../authz/scope.ts';
+import { assertFileableProject } from '../authz/records.ts';
 import { audit } from './audit.ts';
 import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
@@ -239,16 +240,7 @@ export function createItem(
     throw forbidden('You are not a member of that unit.');
   }
 
-  let projectId: string | null = null;
-  if (input.project_id) {
-    const project = ctx.db.prepare('SELECT id, user_id, unit_id, visibility FROM projects WHERE id = ? AND deleted_at IS NULL')
-      .get(String(input.project_id)) as { id: string; user_id: string; unit_id: string | null; visibility: string } | undefined;
-    if (!project) throw badRequest('No such project.');
-    const reachable = project.user_id === user.id
-      || (project.visibility === 'unit' && project.unit_id && (isMember(scope, project.unit_id) || can(scope, PERMISSIONS.VIEW_RECORDS, project.unit_id)));
-    if (!reachable) throw forbidden('That is not a project you can file work under.');
-    projectId = project.id;
-  }
+  const projectId = input.project_id ? assertFileableProject(ctx, scope, user.id, String(input.project_id), unitId).id : null;
 
   const id = newId();
   const at = now();
@@ -378,13 +370,7 @@ export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
     if (patch.project_id !== undefined) {
       if (!mayEditFields(scope, user, row)) throw forbidden('Filing this work under a project is not yours to do.');
       if (patch.project_id) {
-        const project = ctx.db.prepare('SELECT id, user_id, unit_id, visibility FROM projects WHERE id = ? AND deleted_at IS NULL')
-          .get(String(patch.project_id)) as { id: string; user_id: string; unit_id: string | null; visibility: string } | undefined;
-        if (!project) throw badRequest('No such project.');
-        const reachable = project.user_id === user.id
-          || (project.visibility === 'unit' && project.unit_id && (isMember(scope, project.unit_id) || can(scope, PERMISSIONS.VIEW_RECORDS, project.unit_id)));
-        if (!reachable) throw forbidden('That is not a project you can file work under.');
-        sets.push('project_id = ?'); params.push(project.id);
+        sets.push('project_id = ?'); params.push(assertFileableProject(ctx, scope, user.id, String(patch.project_id), row.unit_id).id);
       } else {
         sets.push('project_id = NULL');
       }

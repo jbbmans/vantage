@@ -194,6 +194,11 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
     name: '015_organizations',
     run: migrateToOrganizations,
   },
+  {
+    id: 16,
+    name: '016_unit_instance_isolation',
+    run: instanceBoundaryTriggers,
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 
@@ -313,6 +318,51 @@ export function foundOrganizations(db: Db, at = new Date().toISOString()) {
   }
 
   return { roots, operators };
+}
+
+/**
+ * The Unit Instance boundary, kept by the database as well as by the code that enforces it (ADR-0008). Authorization
+ * is decided in the server; these triggers are the second line, so that a defect or a hand-written statement cannot
+ * quietly move a unit between organizations or link one instance's rows to another's. PostgreSQL row-level security
+ * is the equivalent for a PostgreSQL deployment; on SQLite, which has no RLS, triggers are what the engine offers.
+ *
+ * A row with no unit belongs to no instance and is left alone, and a reference to a row that is not there yet passes:
+ * an archive is restored table by table, and these triggers refuse only a pairing that is really across the boundary.
+ */
+export function instanceBoundaryTriggers(db: Db) {
+  // A unit's organization is set once, when it is created. Nothing moves it afterwards.
+  db.exec(`CREATE TRIGGER IF NOT EXISTS units_org_immutable BEFORE UPDATE OF org_id ON units FOR EACH ROW
+    WHEN OLD.org_id IS NOT NULL AND NEW.org_id IS NOT OLD.org_id
+    BEGIN SELECT RAISE(ABORT, 'a unit cannot change organization'); END`);
+
+  // An entry filed under a project, and a piece of work filed under one, stay inside the project's instance.
+  const crossProject = (column: string) => `NEW.project_id IS NOT NULL AND NEW.${column} IS NOT NULL AND EXISTS (
+    SELECT 1 FROM projects p JOIN units pu ON pu.id = p.unit_id
+     WHERE p.id = NEW.project_id AND pu.org_id IS NOT (SELECT org_id FROM units WHERE id = NEW.${column}))`;
+  for (const [table, column] of [['activities', 'unit_id'], ['tasks', 'unit_id'], ['work_items', 'unit_id']] as const) {
+    // A database old enough to predate the project link has nothing to keep consistent yet; 007 adds the column.
+    if (!columnsOf(db, table).has('project_id')) continue;
+    for (const [suffix, event] of [['insert', 'INSERT'], ['update', `UPDATE OF project_id, ${column}`]] as const) {
+      db.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_project_same_org_${suffix} BEFORE ${event} ON ${table} FOR EACH ROW
+        WHEN ${crossProject(column)}
+        BEGIN SELECT RAISE(ABORT, 'a project in another organization cannot be linked here'); END`);
+    }
+  }
+
+  // Correspondence names a contact and points at work: both from its own instance.
+  for (const [suffix, event] of [['insert', 'INSERT'], ['update', 'UPDATE OF contact_id, unit_id']] as const) {
+    db.exec(`CREATE TRIGGER IF NOT EXISTS threads_contact_same_org_${suffix} BEFORE ${event} ON threads FOR EACH ROW
+      WHEN NEW.contact_id IS NOT NULL AND NEW.unit_id IS NOT NULL AND EXISTS (
+        SELECT 1 FROM contacts c JOIN units cu ON cu.id = c.unit_id
+         WHERE c.id = NEW.contact_id AND cu.org_id IS NOT (SELECT org_id FROM units WHERE id = NEW.unit_id))
+      BEGIN SELECT RAISE(ABORT, 'a contact in another organization cannot be used here'); END`);
+  }
+  db.exec(`CREATE TRIGGER IF NOT EXISTS thread_links_same_org BEFORE INSERT ON thread_links FOR EACH ROW
+    WHEN EXISTS (
+      SELECT 1 FROM threads t JOIN units tu ON tu.id = t.unit_id
+        JOIN work_items w ON w.id = NEW.work_item_id JOIN units wu ON wu.id = w.unit_id
+       WHERE t.id = NEW.thread_id AND tu.org_id IS NOT wu.org_id)
+    BEGIN SELECT RAISE(ABORT, 'correspondence and work in different organizations cannot be linked'); END`);
 }
 
 function isLegacyDatabase(db: Db): boolean {

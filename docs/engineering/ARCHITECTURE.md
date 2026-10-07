@@ -65,6 +65,11 @@ Environment variables, validated at startup (`server/config.ts`). Dangerous comb
 Deployment profiles, topology and the three configuration boundaries (infrastructure, enterprise, Unit
 Instance) are in [ADR-0007](ADR/0007-mcen-enterprise-deployment-and-unit-instances.md). See `.env.example`.
 
+The Unit Instance is a security boundary in the backend, not only a label: operations naming two units,
+and references carried by id, are checked for the instance they belong to, and migration 016 keeps the
+same rules in the database. See [ADR-0008](ADR/0008-unit-instance-data-isolation.md), which also records
+why PostgreSQL row-level security waits for the PostgreSQL adapter.
+
 ## Tests
 
 - `tests/server/`: node:test, HTTP level, in-memory SQLite. 361+ cases, including the case model,

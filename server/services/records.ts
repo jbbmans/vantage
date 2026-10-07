@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import type { AppContext, SessionUser } from '../context.ts';
 import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
 import { withTypedProgress, validateTypedGoal } from './goals.ts';
-import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor } from '../authz/scope.ts';
-import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS } from '../authz/records.ts';
+import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor, assertSameInstance } from '../authz/scope.ts';
+import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject } from '../authz/records.ts';
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
 import { valueType } from '../../shared/constants.ts';
 
@@ -148,6 +148,18 @@ function assigneeProblem(ctx: AppContext, scope: Scope, userId: string, assignee
   return null;
 }
 
+/**
+ * An entry's project link, checked whenever it is set or the entry moves: a new link must be to a project the author
+ * can file under, and a kept link must not end up pointing into another Unit Instance (ADR-0008).
+ */
+function checkProjectLink(ctx: AppContext, scope: Scope, userId: string, table: RecordTable, projectId: string | null, previous: string | null, unitId: string | null, moved: boolean) {
+  if (!TABLES[table].fields.includes('project_id') || !projectId) return;
+  if (projectId !== previous) { assertFileableProject(ctx, scope, userId, projectId, unitId); return; }
+  if (!moved) return;
+  const project = ctx.db.prepare('SELECT unit_id FROM projects WHERE id = ?').get(projectId) as { unit_id: string | null } | undefined;
+  assertSameInstance(ctx, project?.unit_id, unitId, 'This entry is filed under a project in another Unit Instance. Take it off the project before moving it.');
+}
+
 export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTable, body: unknown, reqKey: object, ip?: string) {
   const spec = TABLES[table];
   const data = parse(RECORD_SCHEMAS[table] as never, body) as Record<string, unknown>;
@@ -182,6 +194,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     const problem = assigneeProblem(ctx, scope, user.id, data.assignee_id as string | null, unitId);
     if (problem) throw badRequest(problem, { fieldErrors: { assignee_id: problem } });
   }
+  checkProjectLink(ctx, scope, user.id, table, (data.project_id as string | null | undefined) ?? null, null, unitId, false);
 
   const id = newId();
   const cols = ['id', 'user_id', 'unit_id', 'visibility', 'created_at', 'updated_at'];
@@ -244,6 +257,8 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const finalUnit = data.unit_id === undefined ? row.unit_id : ((data.unit_id as string | null) || null);
   const scopeChanged = finalUnit !== row.unit_id || finalVisibility !== row.visibility;
   if (scopeChanged && row.user_id !== user.id && row.counselor_id !== user.id) throw forbidden('A record manager may correct content but may not change another Marine’s disclosure scope.', 'scope_owner_only');
+  // A counselor may re-place what they wrote, inside the Unit Instance it was written in. Only its owner takes it across.
+  if (scopeChanged && row.user_id !== user.id) assertSameInstance(ctx, row.unit_id, finalUnit, 'Only the Marine this record belongs to can move it into another Unit Instance.');
   if (finalVisibility === 'unit' && !finalUnit) throw badRequest('Choose a unit before sharing this record.', { fieldErrors: { unit_id: 'Required to share.' } });
   if (finalUnit && finalUnit !== row.unit_id && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(finalUnit)) throw badRequest('No such unit.');
   if (scopeChanged && !canPlace(scope, finalVisibility, finalUnit, spec.shareFlag, Boolean(spec.personal))) throw forbidden('You cannot place a record in that unit.');
@@ -253,6 +268,8 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     const problem = assigneeProblem(ctx, scope, user.id, (data.assignee_id as string | null | undefined) ?? (row.assignee_id as string | null), finalUnit);
     if (problem) throw badRequest(problem, { fieldErrors: { assignee_id: problem } });
   }
+  const keptProject = (row as Record<string, unknown>).project_id as string | null | undefined ?? null;
+  checkProjectLink(ctx, scope, user.id, table, data.project_id === undefined ? keptProject : ((data.project_id as string | null) || null), keptProject, finalUnit, scopeChanged);
 
   const sets = ['updated_at = ?', 'version = version + 1'];
   const vals: unknown[] = [now()];
@@ -339,11 +356,18 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
     if (!result.success) throw badRequest(`Row ${i + 1}: ${result.error.issues[0]?.message || 'invalid'} (${result.error.issues[0]?.path.join('.')})`, { row: i });
     const data = result.data as Record<string, unknown>;
     if (data.dollar_type && !valueType(String(data.dollar_type), ctx.runtime.metrics)) throw badRequest(`Row ${i + 1}: unknown value type “${String(data.dollar_type)}”. This instance uses: ${ctx.runtime.metrics.value_types.map((t) => t.key).join(', ')}.`, { row: i });
-    const existing = typeof id === 'string' && id ? (ctx.db.prepare('SELECT unit_id, visibility FROM activities WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(id, user.id) as { unit_id: string | null; visibility: string } | undefined) : undefined;
+    const existing = typeof id === 'string' && id ? (ctx.db.prepare('SELECT unit_id, visibility, project_id FROM activities WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(id, user.id) as { unit_id: string | null; visibility: string; project_id: string | null } | undefined) : undefined;
     const visibility = (data.visibility as string | undefined) ?? existing?.visibility ?? 'private';
     const unitId = data.unit_id !== undefined ? ((data.unit_id as string | null) || null) : existing ? existing.unit_id : (scope.homeUnitId ?? null);
     if (visibility === 'unit' && !unitId) throw badRequest(`Row ${i + 1}: shared activities need a unit.`, { row: i });
     if (!canPlace(scope, visibility, unitId, PERMISSIONS.CREATE_SHARED_WORK, true)) throw forbidden(`Row ${i + 1}: you cannot import into that unit.`);
+    try {
+      const kept = (existing as { project_id?: string | null } | undefined)?.project_id ?? null;
+      checkProjectLink(ctx, scope, user.id, 'activities', data.project_id === undefined ? kept : ((data.project_id as string | null) || null), kept, unitId, Boolean(existing) && (existing!.unit_id !== unitId || existing!.visibility !== visibility));
+    } catch (error) {
+      if (error instanceof HttpError) throw new HttpError(error.status, `Row ${i + 1}: ${error.message}`, error.code, { row: i });
+      throw error;
+    }
     planned.push({ id: typeof id === 'string' && id ? id : undefined, exists: Boolean(existing), data, visibility, unitId });
   });
   const capacity = capacityProblem(ctx, user.id, planned.filter((p) => !p.exists).length);

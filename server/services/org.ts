@@ -1,6 +1,6 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import { ROLE_TEMPLATE, PERMISSIONS, has, ALL_PERMISSIONS, RECORD_READING_BITS } from '../../shared/permissions.ts';
-import { can, isUnitOwner, orgCan, orgOfUnit, positionIn, scopeFor, type Scope } from '../authz/scope.ts';
+import { assertSameInstance, can, isUnitOwner, orgCan, orgOfUnit, positionIn, scopeFor, type Scope } from '../authz/scope.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { now, slug } from '../lib/ids.ts';
 import { audit } from './audit.ts';
@@ -49,9 +49,17 @@ export function seedRoles(ctx: AppContext, unitId: string) {
 export const ownerRoleId = (unitId: string) => `${unitId}:${ROLE_TEMPLATE.find((r) => r.owner)!.key}`.slice(0, 120);
 export const defaultRoleId = (ctx: AppContext, unitId: string) => (ctx.db.prepare('SELECT id FROM roles WHERE unit_id = ? AND is_default = 1 LIMIT 1').get(unitId) as { id: string } | undefined)?.id ?? null;
 
+/** The Unit Instance a person's primary unit sits in, when they have one. */
+export function primaryOrgOf(ctx: AppContext, userId: string): { unitId: string; orgId: string | null } | null {
+  const row = ctx.db.prepare('SELECT um.unit_id, u.org_id FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND um.is_primary = 1 LIMIT 1')
+    .get(userId) as { unit_id: string; org_id: string | null } | undefined;
+  return row ? { unitId: row.unit_id, orgId: row.org_id } : null;
+}
+
 export function addMember(ctx: AppContext, userId: string, unitId: string, { invitedBy = null, primary = false, billet = null }: { invitedBy?: string | null; primary?: boolean; billet?: string | null } = {}) {
-  const hasPrimary = ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND is_primary = 1').get(userId);
-  const isPrimary = primary || !hasPrimary ? 1 : 0;
+  const current = primaryOrgOf(ctx, userId);
+  // Enrollment in one Unit Instance never takes the primary unit a person holds in another: that one is theirs to move.
+  const isPrimary = !current || (primary && current.orgId === orgOfUnit(ctx, unitId)) ? 1 : 0;
   ctx.db.transaction(() => {
     if (isPrimary) ctx.db.prepare('UPDATE unit_members SET is_primary = 0 WHERE user_id = ?').run(userId);
     ctx.db.prepare(
@@ -76,7 +84,9 @@ export function removeMember(ctx: AppContext, userId: string, unitId: string, ac
     const wasPrimary = ctx.db.prepare('SELECT is_primary FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, unitId) as { is_primary: number } | undefined;
     ctx.db.prepare('DELETE FROM unit_members WHERE user_id = ? AND unit_id = ?').run(userId, unitId);
     if (wasPrimary?.is_primary) {
-      const next = ctx.db.prepare('SELECT unit_id FROM unit_members WHERE user_id = ? ORDER BY joined_at LIMIT 1').get(userId) as { unit_id: string } | undefined;
+      // The primary unit stays in the Unit Instance it was in while the person still belongs to one of its units.
+      const next = ctx.db.prepare('SELECT um.unit_id FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? ORDER BY (u.org_id IS ?) DESC, um.joined_at LIMIT 1')
+        .get(userId, orgOfUnit(ctx, unitId)) as { unit_id: string } | undefined;
       if (next) ctx.db.prepare('UPDATE unit_members SET is_primary = 1 WHERE user_id = ? AND unit_id = ?').run(userId, next.unit_id);
     }
     return { roles, recordsFrozen, claimsReleased };
@@ -276,10 +286,14 @@ export function validateRoleDefinition(ctx: AppContext, actor: SessionUser, scop
 /**
  * Enrolling an existing account directly skips that person's consent, so it is limited to people the actor
  * already leads: someone below them in a unit where they manage members. Everyone else joins by invitation.
+ * Leading someone in one Unit Instance is no claim on them in another (ADR-0008): the unit where the actor leads
+ * them must sit in the same organization as the unit they are being enrolled in.
  */
-export function mayEnrollDirectly(ctx: AppContext, _actor: SessionUser, scope: Scope, targetId: string): boolean {
+export function mayEnrollDirectly(ctx: AppContext, _actor: SessionUser, scope: Scope, targetId: string, destinationUnitId: string): boolean {
+  const destinationOrg = orgOfUnit(ctx, destinationUnitId);
+  if (!destinationOrg) return false;
   const target = scopeFor(ctx, { id: targetId });
-  return target.unitIds.some((u) => can(scope, PERMISSIONS.MANAGE_MEMBERS, u) && positionIn(scope, u) > positionIn(target, u));
+  return target.unitIds.some((u) => target.unitOrg[u] === destinationOrg && can(scope, PERMISSIONS.MANAGE_MEMBERS, u) && positionIn(scope, u) > positionIn(target, u));
 }
 
 /** A role may be handed out only by someone who could have defined it: below their position, within their own permissions. */
@@ -325,6 +339,8 @@ export interface MoveResult { roles: string[]; rolesSkipped: string[]; entriesMo
 export function moveMember(ctx: AppContext, actor: SessionUser, scope: Scope, userId: string, fromId: string, toId: string, { entries = 'stay', billet }: { entries?: 'stay' | 'move'; billet?: string | null } = {}): MoveResult {
   if (fromId === toId) throw badRequest('Pick a different team.');
   if (!getUnit(ctx, fromId) || !getUnit(ctx, toId)) throw notFound('No such unit.');
+  // A move carries the Marine's roles and, when asked, their entries: never into another Unit Instance (ADR-0008).
+  assertSameInstance(ctx, fromId, toId, 'A Marine cannot be moved into another Unit Instance. That organization enrolls them by invitation; their records here stay here.');
   if (userId === actor.id) throw forbidden('A second authorized person must change your own membership.', 'self_membership_change');
   if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, fromId) || !can(scope, PERMISSIONS.MANAGE_MEMBERS, toId)) throw forbidden('You need to manage members of both teams to move a Marine between them.');
   const membership = ctx.db.prepare('SELECT is_primary, billet FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, fromId) as { is_primary: number; billet: string | null } | undefined;
@@ -346,8 +362,9 @@ export function moveMember(ctx: AppContext, actor: SessionUser, scope: Scope, us
         entriesMoved += ctx.db.prepare(`UPDATE ${table} SET unit_id = ?, updated_at = ?, version = version + 1 WHERE user_id = ? AND unit_id = ? AND deleted_at IS NULL AND frozen_at IS NULL`).run(toId, at, userId, fromId).changes;
       }
     }
-    const removed = removeMember(ctx, userId, fromId, actor.id);
+    // Seated in the new team before leaving the old one, so a primary unit passes straight across and never to another instance.
     addMember(ctx, userId, toId, { invitedBy: actor.id, primary: Boolean(membership.is_primary), billet: billet === undefined ? membership.billet : billet });
+    const removed = removeMember(ctx, userId, fromId, actor.id);
     for (const h of held) {
       const role = ctx.db.prepare('SELECT * FROM roles WHERE unit_id = ? AND key = ?').get(toId, h.key) as RoleRow | undefined;
       try {

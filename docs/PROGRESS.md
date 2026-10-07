@@ -2,6 +2,27 @@
 
 _Updated 2026-10-07_
 
+## What changed (2026-10-07: Unit Instance data isolation)
+
+The Unit Instance is enforced as a backend security boundary ([ADR-0008](engineering/ADR/0008-unit-instance-data-isolation.md)).
+
+- **Where two units meet, both must be in one Unit Instance.** Member moves, direct enrollment and the
+  enrollment directory, the primary unit, project links on entries, tasks and queue items, re-placing
+  another Marine's record, thread contacts and thread links, importing a shared upload, a report
+  revision's citations, and a report or export asked for against another Marine's unit. Refusals carry
+  the code `cross_instance`.
+- **Someone who serves in two Unit Instances** works in each with the authority they hold there, and
+  carries nothing, and no reference to anything, from one into the other.
+- **Migration 016** adds triggers that refuse, in the database, a change to a unit's organization and a
+  cross-instance project link, thread contact or thread link.
+- **PostgreSQL row-level security** is evaluated and deferred to the PostgreSQL adapter, with the policy
+  written down in ADR-0008 (SQLite has no RLS; triggers are the equivalent here).
+- **`tests/server/unitIsolation.test.ts`** proves it: two Unit Instances, a Marine in each, a leader with
+  authority in both, and 13 cases across personnel, records and ids, attachments, reports, exports,
+  metrics, imports, correspondence, Report Studio, membership, the audit trail and the triggers.
+- One behavior changed: a leader who founds a top-level unit of their own can no longer enrol a Marine
+  they lead elsewhere into it directly. That Marine joins by invitation or join code.
+
 ## What changed (2026-10-07: MCEN target, Unit Instances, deployment profiles)
 
 Production targets MCEN, not the public internet ([ADR-0007](engineering/ADR/0007-mcen-enterprise-deployment-and-unit-instances.md), [deploy-mcen.md](deploy-mcen.md)).

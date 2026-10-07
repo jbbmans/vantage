@@ -1,6 +1,6 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
-import { can, detailUnitsFor, PERMISSIONS } from '../authz/scope.ts';
+import { can, detailUnitsFor, PERMISSIONS, sameInstance } from '../authz/scope.ts';
 import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
@@ -82,6 +82,13 @@ export function readableDraft(ctx: AppContext, user: SessionUser, scope: Scope, 
   throw forbidden('That report is not yours to open.');
 }
 
+/**
+ * A report placed in a unit carries only records from that unit's Unit Instance, or records placed in no unit
+ * (ADR-0008). Someone who leads a Marine in two organizations cannot carry one's records into the other's report.
+ */
+const citable = (ctx: AppContext, draft: ReportDraft, row: { unit_id?: unknown }) =>
+  !draft.unit_id || !row.unit_id || sameInstance(ctx, draft.unit_id, String(row.unit_id));
+
 function assertAuthor(draft: ReportDraft, user: SessionUser) {
   if (draft.user_id !== user.id) throw forbidden('Only the person writing this report can save a revision of it.');
 }
@@ -102,7 +109,7 @@ export function availableSources(ctx: AppContext, user: SessionUser, scope: Scop
       `SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL AND ${dateCol} >= ? AND ${dateCol} <= ? ORDER BY ${dateCol} DESC LIMIT 400`
     ).all(draft.subject_id, draft.period_start, draft.period_end) as Array<Record<string, unknown>>;
     for (const row of rows) {
-      if (!canRead(scope, user.id, row as never)) continue;
+      if (!canRead(scope, user.id, row as never) || !citable(ctx, draft, row)) continue;
       out.push(snapshotOf(table, row));
     }
   }
@@ -182,6 +189,7 @@ export function saveRevision(ctx: AppContext, user: SessionUser, scope: Scope, d
       }
       if (!canRead(scope, user.id, row as never)) throw forbidden('This report cites a record you cannot read.');
       if (String(row.user_id) !== draft.subject_id) throw badRequest('A report can only cite records belonging to the person it is about.');
+      if (!citable(ctx, draft, row)) throw forbidden('This report cites a record from another Unit Instance.', 'cross_instance');
       const actual = Number(row.version) || 1;
       if (actual !== Number(ref.version)) {
         stale.push({ table: ref.table, id: ref.id, title: String(row.title || ''), expected_version: Number(ref.version), actual_version: actual, reason: 'Its facts changed after this wording was written.' });

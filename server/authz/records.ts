@@ -1,5 +1,6 @@
 import type { AppContext } from '../context.ts';
-import { PERMISSIONS, can, isMember, type Scope } from './scope.ts';
+import { PERMISSIONS, can, isMember, assertSameInstance, type Scope } from './scope.ts';
+import { badRequest, forbidden } from '../lib/errors.ts';
 
 export interface RecordRow { id: string; user_id: string; unit_id: string | null; visibility: string; frozen_at?: string | null; counselor_id?: string | null; assignee_id?: string | null; acknowledged_at?: string | null }
 
@@ -45,4 +46,19 @@ export function canPlace(scope: Scope, visibility: string, unitId: string | null
   if (visibility === 'private') return !unitId || isMember(scope, unitId) || can(scope, shareFlag, unitId);
   if (!unitId) return false;
   return personal ? isMember(scope, unitId) || can(scope, shareFlag, unitId) : can(scope, shareFlag, unitId);
+}
+
+/**
+ * The project an entry, a task or a piece of work may be filed under: one the caller owns, or a shared one in a unit
+ * they belong to or read, and never one in another Unit Instance than the unit the entry sits in (ADR-0008).
+ */
+export function assertFileableProject(ctx: AppContext, scope: Scope, userId: string, projectId: string, unitId: string | null) {
+  const project = ctx.db.prepare('SELECT id, user_id, unit_id, visibility FROM projects WHERE id = ? AND deleted_at IS NULL')
+    .get(projectId) as { id: string; user_id: string; unit_id: string | null; visibility: string } | undefined;
+  if (!project) throw badRequest('No such project.', { fieldErrors: { project_id: 'No such project.' } });
+  const reachable = project.user_id === userId
+    || (project.visibility === 'unit' && project.unit_id && (isMember(scope, project.unit_id) || can(scope, PERMISSIONS.VIEW_RECORDS, project.unit_id)));
+  if (!reachable) throw forbidden('That is not a project you can file work under.');
+  assertSameInstance(ctx, project.unit_id, unitId, 'That project belongs to another Unit Instance.');
+  return project;
 }

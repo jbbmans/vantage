@@ -4,7 +4,7 @@ import { ingest, record } from '../services/telemetry.ts';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
-import { scopeFor, can, PERMISSIONS, detailUnitsFor } from '../authz/scope.ts';
+import { assertSameInstance, scopeFor, can, PERMISSIONS, detailUnitsFor } from '../authz/scope.ts';
 import { buildReport } from '../services/reports.ts';
 import { metricsReport, metricContributors, defaultPeriod } from '../services/metrics.ts';
 import { createDraft, listDrafts, readableDraft, listRevisions, getRevision, availableSources, saveRevision, revisionDrift, renderRevisionText, StaleSourceError } from '../services/reportStudio.ts';
@@ -65,6 +65,9 @@ function reportTarget(req: Parameters<Parameters<typeof wrap>[0]>[0]) {
     const units = detailUnitsFor(req.ctx, scope, q.user_id);
     if (!units.length) throw forbidden('You cannot build a report for that Marine.');
     userId = q.user_id;
+    // A unit the caller cannot open this Marine in falls back to one they can, inside the same Unit Instance. A unit
+    // from another instance is not a near miss: it is refused rather than quietly answered with this one's figures.
+    if (q.unit_id && !units.includes(q.unit_id)) assertSameInstance(req.ctx, q.unit_id, units[0], 'That Marine is not yours to report on in that Unit Instance.');
     unitId = q.unit_id && units.includes(q.unit_id) ? q.unit_id : units[0];
     audit(req.ctx, { actor_id: req.user.id, action: 'build_report', entity: 'user', entity_id: userId, subject_id: userId, unit_id: unitId, ip: clientIp(req) });
   }
