@@ -205,6 +205,16 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       if (Object.keys(found).length) metaSet(db, 'instance_boundary_violations', JSON.stringify({ at: new Date().toISOString(), found }));
     },
   },
+  {
+    id: 17,
+    name: '017_attachment_unit',
+    run: (db) => {
+      // A file keeps the unit its record sat in when it was added, as a comment does, so a move across the boundary is
+      // judged by where the file was added and not by where its uploader serves now (ADR-0008).
+      if (!columnsOf(db, 'attachments').has('unit_id')) db.exec('ALTER TABLE attachments ADD COLUMN unit_id TEXT REFERENCES units(id)');
+      stampAttachmentUnits(db);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 
@@ -419,6 +429,29 @@ export function instanceBoundaryViolations(db: Db): Record<string, number> {
     if (n) found[kind] = n;
   }
   return found;
+}
+
+/**
+ * Lifts the boundary's triggers, for a caller that puts them back with `instanceBoundaryTriggers` in the same
+ * transaction: an archive is restored table by table, so its rows are checked whole once they are all in.
+ */
+export function dropInstanceBoundaryTriggers(db: Db) {
+  const triggers = db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%cross_instance:%'").all() as Array<{ name: string }>;
+  for (const { name } of triggers) db.exec(`DROP TRIGGER "${name}"`);
+}
+
+/** The record types that take attachments, each with the unit its row sits in. */
+const ATTACHMENT_HOSTS = ['activities', 'awards', 'counselings', 'trainings', 'tasks', 'projects', 'goals'] as const;
+
+/**
+ * Files attached before they kept a unit take the one their record sits in now. For a record moved before the boundary
+ * was kept that is where the file is already read, so nothing new crosses; one in no unit keeps none, and a move is then
+ * judged by whether its uploader serves where it goes (ADR-0008).
+ */
+export function stampAttachmentUnits(db: Db) {
+  for (const table of ATTACHMENT_HOSTS) {
+    db.prepare(`UPDATE attachments SET unit_id = (SELECT r.unit_id FROM ${table} r WHERE r.id = attachments.record_id) WHERE record_table = ? AND unit_id IS NULL`).run(table);
+  }
 }
 
 function isLegacyDatabase(db: Db): boolean {

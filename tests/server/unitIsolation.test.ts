@@ -4,7 +4,7 @@ import { startApp, enroll, type TestApp } from './helpers.ts';
 import { addMember, moveMember, mayEnrollDirectly } from '../../server/services/org.ts';
 import { scopeFor } from '../../server/authz/scope.ts';
 import { exportInstance, importInstance } from '../../server/services/exports.ts';
-import { instanceBoundaryTriggers, instanceBoundaryViolations } from '../../server/db/index.ts';
+import { instanceBoundaryTriggers, instanceBoundaryViolations, metaGet } from '../../server/db/index.ts';
 
 /**
  * Task 2: the Unit Instance is a backend security boundary (ADR-0008). Unit A cannot read, write, export, report on
@@ -163,14 +163,15 @@ test('IDs cannot be manipulated to cross boundaries', async () => {
 });
 
 test('nobody else’s record can be moved into another Unit Instance', async () => {
-  // Reyes may correct a G8 Marine's shared entry as a record manager, and holds sharing rights in G1 as well. They
-  // still cannot re-place that entry there: another Marine's record never crosses the boundary.
+  // Reyes may correct a G8 Marine's shared entry as a record manager, and holds sharing rights in G1 as well. A record
+  // manager never changes where another Marine's entry is shared, in one instance or across two.
   const across = await put(reyes.token, `/api/records/activities/${g8.activity}`, { unit_id: 'MANPOWER', visibility: 'unit' });
   assert.equal(across.status, 403, JSON.stringify(across.body));
+  assert.equal(across.body.code, 'scope_owner_only');
   const row = app.ctx.db.prepare('SELECT unit_id FROM activities WHERE id = ?').get(g8.activity) as { unit_id: string };
   assert.equal(row.unit_id, 'FISCAL', 'the entry stayed where its author put it');
 
-  // A counseling written in G8 cannot be re-placed in G1 by the counselor who wrote it either.
+  // A counselor may re-place a counseling they wrote, but not into another Unit Instance: that refusal is the boundary's.
   const counseling = await post(reyes.token, '/api/records/counselings', { user_id: g8marine.id, date: '2026-09-06', type: 'quarterly', summary: 'Quarterly counseling in G8.', unit_id: 'FISCAL', visibility: 'unit' });
   assert.equal(counseling.status, 201, JSON.stringify(counseling.body));
   const moved = await put(reyes.token, `/api/records/counselings/${counseling.body.id}`, { unit_id: 'MANPOWER', visibility: 'unit' });
@@ -245,12 +246,17 @@ test('an import cannot inject records into another Unit Instance', async () => {
   assert.equal(uploaded.status, 201, JSON.stringify(uploaded.body));
   const sourceId = (uploaded.body.source?.id ?? uploaded.body.id) as string;
 
-  const plan = { source_file_id: sourceId, sheet_name: 'g1.csv', header_row: 1, mapping: { title: 'document' }, key_columns: ['document'], unit_id: 'G8', visibility: 'unit' };
+  // Reyes can read the sheet through G1 and import into G8, so only the boundary stands between the two.
+  const plan = { source_file_id: sourceId, sheet_name: 'g1.csv', header_row: 1, mapping: { document: 'title' }, key_columns: ['document'], unit_id: 'G8', visibility: 'unit' };
   const preview = await post(reyes.token, '/api/work/imports/preview', plan);
-  assert.ok([400, 403, 404].includes(preview.status), `the other instance’s upload is not importable here (got ${preview.status})`);
+  assert.equal(preview.status, 403, JSON.stringify(preview.body));
+  assert.equal(preview.body.code, 'cross_instance');
   const run = await post(reyes.token, '/api/work/imports', plan);
-  assert.ok([400, 403, 404].includes(run.status));
+  assert.equal(run.status, 403, JSON.stringify(run.body));
+  assert.equal(run.body.code, 'cross_instance');
   assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM work_items WHERE unit_id = ? AND title = ?').get('G8', 'G1-1') as { n: number }).n, 0);
+  const home = await post(reyes.token, '/api/work/imports/preview', { ...plan, unit_id: 'G1' });
+  assert.equal(home.status, 200, `the same plan imports into the sheet’s own instance: ${JSON.stringify(home.body)}`);
 
   // An activity import names its own unit, and a unit of the other instance is refused.
   const activityImport = await post(g8marine.token, '/api/records/activities/import', { rows: [{ title: 'Imported across', date: '2026-09-04', visibility: 'unit', unit_id: 'MANPOWER' }] });
@@ -259,15 +265,33 @@ test('an import cannot inject records into another Unit Instance', async () => {
 });
 
 test('correspondence and work cannot be linked across Unit Instances', async () => {
-  const linked = await post(reyes.token, `/api/correspondence/threads/${g8.thread}/links`, { work_item_id: g1.work });
-  assert.ok([403, 404].includes(linked.status), `work from the other instance cannot be linked (got ${linked.status})`);
-  assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM thread_links WHERE thread_id = ? AND work_item_id = ?').get(g8.thread, g1.work) as { n: number }).n, 0);
+  // Everything here is Reyes's own or open to Reyes, on one side or the other, so the boundary is all that refuses it.
+  const made = async (path: string, body: unknown) => {
+    const res = await post(reyes.token, path, body);
+    assert.equal(res.status, 201, `${path}: ${JSON.stringify(res.body)}`);
+    return res.body.id as string;
+  };
+  const thread = await made('/api/correspondence/threads', { subject: 'Reyes G8 query', visibility: 'unit', unit_id: 'G8' });
+  const work = await made('/api/work/items', { title: 'Reyes G1 follow-up', unit_id: 'G1', visibility: 'unit' });
+  const contact = await made('/api/correspondence/contacts', { name: 'Reyes G1 vendor', visibility: 'unit', unit_id: 'G1' });
 
-  // A thread here cannot name a contact there, and a shared contact cannot be moved across by a leader.
-  const thread = await post(reyes.token, '/api/correspondence/threads', { subject: 'Across', visibility: 'unit', unit_id: 'G8', contact_id: g1.contact });
-  assert.ok([403, 404].includes(thread.status), `a contact from the other instance is refused (got ${thread.status})`);
-  const moved = await put(reyes.token, `/api/correspondence/contacts/${g8.contact}`, { name: 'G8 vendor', visibility: 'unit', unit_id: 'MANPOWER' });
-  assert.ok([403, 404].includes(moved.status), `and a shared contact stays in its instance (got ${moved.status})`);
+  // The service refuses each one itself, before the engine would (whose refusal reads "would join records").
+  const linked = await post(reyes.token, `/api/correspondence/threads/${thread}/links`, { work_item_id: work });
+  assert.equal(linked.status, 403, JSON.stringify(linked.body));
+  assert.equal(linked.body.code, 'cross_instance');
+  assert.match(linked.body.error, /That work belongs to another Unit Instance/);
+  assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM thread_links WHERE thread_id = ?').get(thread) as { n: number }).n, 0);
+
+  // A thread here cannot name a contact there.
+  const named = await post(reyes.token, '/api/correspondence/threads', { subject: 'Across', visibility: 'unit', unit_id: 'G8', contact_id: contact });
+  assert.equal(named.status, 403, JSON.stringify(named.body));
+  assert.equal(named.body.code, 'cross_instance');
+  assert.match(named.body.error, /That contact belongs to another Unit Instance/);
+  // And a leader in both instances cannot move a G8 Marine's shared contact into G1, where only its author could take it.
+  const moved = await put(reyes.token, `/api/correspondence/contacts/${g8.contact}`, { name: 'G8 vendor', visibility: 'unit', unit_id: 'G1' });
+  assert.equal(moved.status, 403, JSON.stringify(moved.body));
+  assert.equal(moved.body.code, 'cross_instance');
+  assert.equal((app.ctx.db.prepare('SELECT unit_id FROM contacts WHERE id = ?').get(g8.contact) as { unit_id: string }).unit_id, 'FISCAL');
 
   // A link written straight into the database is refused by the engine itself.
   assert.throws(
@@ -356,6 +380,31 @@ test('a project cannot move out from under work filed in another Unit Instance, 
   assert.equal((await put(reyes.token, path, { unit_id: 'G8', visibility: 'unit' })).status, 200, 'back where its work is, it goes');
   assert.throws(() => app.ctx.db.prepare('UPDATE projects SET unit_id = ? WHERE id = ?').run('G1', project.body.id), /cross_instance: work in another Unit Instance is filed under this project/);
 
+  // Unplaced work counts too: it is its owner's, and G8's owner serves in no unit of G1.
+  const tracker = await post(reyes.token, '/api/records/projects', { name: 'Reyes G8 tracker', visibility: 'unit', unit_id: 'G8' });
+  assert.equal(tracker.status, 201, JSON.stringify(tracker.body));
+  const unplaced = await post(op.token, '/api/work/items', { title: 'Op private follow-up', visibility: 'private', project_id: tracker.body.id });
+  assert.equal(unplaced.status, 201, JSON.stringify(unplaced.body));
+  assert.equal(unplaced.body.unit_id ?? unplaced.body.item?.unit_id ?? null, null);
+  const away = await put(reyes.token, `/api/records/projects/${tracker.body.id}`, { unit_id: 'G1', visibility: 'unit' });
+  assert.equal(away.status, 403, JSON.stringify(away.body));
+  assert.equal(away.body.code, 'cross_instance');
+  // Had it got there some other way, the link would still not show a project its holder can no longer read.
+  app.ctx.db.prepare('UPDATE projects SET unit_id = ? WHERE id = ?').run('G1', tracker.body.id);
+  try {
+    const detail = await get(op.token, `/api/work/items/${unplaced.body.id}`);
+    assert.equal(detail.status, 200, JSON.stringify(detail.body));
+    assert.equal(detail.body.project, null);
+    const listed = await get(op.token, '/api/work/items');
+    assert.equal(listed.status, 200, JSON.stringify(listed.body));
+    const item = (listed.body.items as Array<{ id: string; project_name: string | null }>).find((i) => i.id === unplaced.body.id);
+    assert.ok(item, 'their own work is still listed');
+    assert.equal(item.project_name, null);
+  } finally {
+    app.ctx.db.prepare('UPDATE projects SET unit_id = ? WHERE id = ?').run('G8', tracker.body.id);
+  }
+  assert.equal((await get(op.token, `/api/work/items/${unplaced.body.id}`)).body.project?.name, 'Reyes G8 tracker', 'back where they read it, it is named');
+
   // A contact stays where the correspondence that names it is, even when its own author moves it.
   const contact = await post(reyes.token, '/api/correspondence/contacts', { name: 'Reyes vendor', visibility: 'unit', unit_id: 'G8' });
   assert.equal(contact.status, 201, JSON.stringify(contact.body));
@@ -388,8 +437,15 @@ test('an owner moving their own record across carries no one else’s comments, 
   const across = await put(reyes.token, path, { unit_id: 'G1', visibility: 'unit' });
   assert.equal(across.status, 403, JSON.stringify(across.body));
   assert.equal(across.body.code, 'cross_instance');
+  // Re-importing the entry by its id is the same move, and is refused the same way.
+  const reimport = () => post(reyes.token, '/api/records/activities/import', { rows: [{ id: commented.body.id, title: 'Reyes reviewed the G8 close-out', date: '2026-09-08', visibility: 'unit', unit_id: 'G1' }] });
+  const imported = await reimport();
+  assert.equal(imported.status, 403, JSON.stringify(imported.body));
+  assert.equal(imported.body.code, 'cross_instance');
   assert.equal((await put(reyes.token, path, { unit_id: null, visibility: 'private' })).status, 200, 'their own record may leave every unit');
   assert.equal((await put(reyes.token, path, { unit_id: 'G1', visibility: 'unit' })).status, 403, 'but the G8 comment still cannot follow it into G1');
+  assert.equal((await reimport()).status, 403, 'by import either');
+  assert.equal((app.ctx.db.prepare('SELECT unit_id FROM activities WHERE id = ?').get(commented.body.id) as { unit_id: string | null }).unit_id, null);
   assert.doesNotMatch(JSON.stringify((await get(g1lead.token, `${path}/comments`)).body), /commander note/);
 
   // With nothing of anyone else's on it, their own record goes, and each trail says so without naming the other side.
@@ -398,6 +454,69 @@ test('an owner moving their own record across carries no one else’s comments, 
   assert.equal((await put(reyes.token, `/api/records/activities/${plain.body.id}`, { unit_id: 'G1', visibility: 'unit' })).status, 200);
   const trail = app.ctx.db.prepare("SELECT org_id, detail FROM audit_log WHERE entity_id = ? AND action = 'edit' ORDER BY seq").all(plain.body.id) as Array<{ org_id: string; detail: string }>;
   assert.deepEqual(trail.map((t) => [t.org_id, t.detail]), [['G1', 'author edit; moved in from another Unit Instance'], ['G8', 'author edit; moved out to another Unit Instance']]);
+
+  // Moved by import, it is written in both trails the same way.
+  const logged = await post(reyes.token, '/api/records/activities', { title: 'Reyes logged a G8 review', date: '2026-09-08', visibility: 'unit', unit_id: 'G8' });
+  assert.equal(logged.status, 201, JSON.stringify(logged.body));
+  const viaImport = await post(reyes.token, '/api/records/activities/import', { rows: [{ id: logged.body.id, title: 'Reyes logged a G8 review', date: '2026-09-08', visibility: 'unit', unit_id: 'G1' }] });
+  assert.equal(viaImport.status, 200, JSON.stringify(viaImport.body));
+  assert.equal(viaImport.body.updated, 1);
+  const imported2 = app.ctx.db.prepare("SELECT org_id, detail FROM audit_log WHERE entity_id = ? AND action = 'edit' ORDER BY seq").all(logged.body.id) as Array<{ org_id: string; detail: string }>;
+  assert.deepEqual(imported2.map((t) => [t.org_id, t.detail]), [['G1', 'import; moved in from another Unit Instance'], ['G8', 'import; moved out to another Unit Instance']]);
+});
+
+test('a file goes only where it was added, whoever added it and wherever they serve now', async () => {
+  app.ctx.runtime.attachmentsEnabled = true;
+  const d = await dualMarine();
+  const entry = await post(d.token, '/api/records/activities', { title: 'Dual balanced the G8 ULO ledger', date: '2026-09-10', visibility: 'unit', unit_id: 'FISCAL' });
+  assert.equal(entry.status, 201, JSON.stringify(entry.body));
+  const path = `/api/records/activities/${entry.body.id}`;
+  const attach = (token: string, name: string, text: string) => app.call('POST', `${path}/attachments`, {
+    token, raw: Buffer.from(text), headers: { 'content-type': 'text/plain', 'x-vantage-filename': name },
+  });
+
+  // Reyes serves in G1 as well, so where Reyes serves says nothing about where this file was added: in G8.
+  const ledger = await attach(reyes.token, 'g8-ledger.txt', 'G8 ONLY: ledger of unliquidated obligations');
+  assert.equal(ledger.status, 201, JSON.stringify(ledger.body));
+  // A leader who added evidence here and has since left every unit.
+  const pcs = await app.register('pcs');
+  await enroll(app, op.token, 'FISCAL', pcs.id, 'sncoic');
+  const evidence = await attach((await login('pcs')), 'g8-evidence.txt', 'G8 evidence from a leader who has since left');
+  assert.equal(evidence.status, 201, JSON.stringify(evidence.body));
+  assert.equal((await del(op.token, `/api/org/units/FISCAL/members/${pcs.id}`)).status, 200);
+
+  const across = await put(d.token, path, { unit_id: 'MANPOWER', visibility: 'unit' });
+  assert.equal(across.status, 403, JSON.stringify(across.body));
+  assert.equal(across.body.code, 'cross_instance');
+  assert.equal((await put(d.token, path, { unit_id: null, visibility: 'private' })).status, 200);
+  const twoSteps = await put(d.token, path, { unit_id: 'MANPOWER', visibility: 'unit' });
+  assert.equal(twoSteps.status, 403, JSON.stringify(twoSteps.body));
+  assert.equal(twoSteps.body.code, 'cross_instance');
+  // Back in the instance both files were added in, it goes: the leader who left is not taken for one from elsewhere.
+  const home = await put(d.token, path, { unit_id: 'FISCAL', visibility: 'unit' });
+  assert.equal(home.status, 200, JSON.stringify(home.body));
+
+  // With one Unit Instance, a record in no unit came from nowhere else, even with a file that predates where files say.
+  const single = await startApp();
+  try {
+    const owner = await single.setupOperator();
+    assert.equal((await single.call('POST', '/api/org/units', { token: owner.token, body: { name: 'G8 Fiscal', short_name: 'FISCAL', code: 'fiscal', parent_id: 'G8' } })).status, 201);
+    const marine = await single.register('marine');
+    await enroll(single, owner.token, 'FISCAL', marine.id);
+    const lead = await single.register('lead');
+    await enroll(single, owner.token, 'FISCAL', lead.id, 'sncoic');
+    single.ctx.runtime.attachmentsEnabled = true;
+    const made = await single.call('POST', '/api/records/activities', { token: marine.token, body: { title: 'Shared, then private', date: '2026-09-10', visibility: 'unit', unit_id: 'FISCAL' } });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    const at = `/api/records/activities/${made.body.id}`;
+    const leadToken = (await single.login('lead')).body.token as string;
+    assert.equal((await single.call('POST', `${at}/attachments`, { token: leadToken, raw: Buffer.from('evidence'), headers: { 'content-type': 'text/plain', 'x-vantage-filename': 'e.txt' } })).status, 201);
+    single.ctx.db.prepare('UPDATE attachments SET unit_id = NULL WHERE record_id = ?').run(made.body.id);
+    assert.equal((await single.call('DELETE', `/api/org/units/FISCAL/members/${lead.id}`, { token: owner.token })).status, 200);
+    assert.equal((await single.call('PUT', at, { token: marine.token, body: { unit_id: null, visibility: 'private' } })).status, 200);
+    const back = await single.call('PUT', at, { token: marine.token, body: { unit_id: 'FISCAL', visibility: 'unit' } });
+    assert.equal(back.status, 200, JSON.stringify(back.body));
+  } finally { await single.close(); }
 });
 
 test('a report about another Marine speaks for one Unit Instance, and its target falls back only inside one', async () => {
@@ -456,29 +575,62 @@ test('a leader in one Unit Instance is not told where else a Marine serves', asy
   );
 });
 
-test('an archive that joins records across Unit Instances is refused whole, and one from before organizations restores', async () => {
+test('an archive restores as its instance was kept: crossings in it are counted, and the boundary holds from then on', async () => {
   type Archive = { tables: Record<string, Array<Record<string, unknown>>> };
+  // A task is restored after the project it names, and an activity before it, so the engine alone would see only one.
+  const task = await post(op.token, '/api/records/tasks', { title: 'G8 task in the archive', visibility: 'unit', unit_id: 'G8' });
+  assert.equal(task.status, 201, JSON.stringify(task.body));
+  app.ctx.runtime.attachmentsEnabled = true;
+  const file = await app.call('POST', `/api/records/activities/${g8.activity}/attachments`, {
+    token: g8marine.token, raw: Buffer.from('G8 receipt'), headers: { 'content-type': 'text/plain', 'x-vantage-filename': 'g8-receipt.txt' },
+  });
+  assert.equal(file.status, 201, JSON.stringify(file.body));
   const archive = JSON.parse(JSON.stringify(exportInstance(app.ctx))) as Archive;
-  const into = async (a: Archive) => {
+  const restore = async (a: Archive, check: (db: TestApp['ctx']['db']) => void) => {
     const fresh = await startApp();
     try {
       const freshOp = await fresh.setupOperator();
-      return importInstance(fresh.ctx, a as never, freshOp.id);
+      const counts = importInstance(fresh.ctx, a as never, freshOp.id);
+      assert.ok(counts.activities > 0 && counts.projects > 0, JSON.stringify(counts));
+      check(fresh.ctx.db);
     } finally { await fresh.close(); }
   };
+  const crossingsOf = (db: TestApp['ctx']['db']) => (JSON.parse(metaGet(db, 'instance_boundary_violations') ?? '{}') as { found?: Record<string, number> }).found;
+  const holds = (db: TestApp['ctx']['db']) => assert.throws(
+    () => db.prepare('UPDATE work_items SET project_id = ? WHERE id = ?').run(g1.project, g8.work),
+    /cross_instance: a project in another Unit Instance/, 'the boundary is kept from the moment the archive is in',
+  );
 
-  // An activity is restored before the project it names, so only a look at the whole archive can see this crossing.
   const crossed = structuredClone(archive);
   crossed.tables.activities.find((a) => a.id === g8.activity)!.project_id = g1.project;
-  await assert.rejects(into(crossed), /joins records across Unit Instances/);
+  crossed.tables.tasks.find((t) => t.id === task.body.id)!.project_id = g1.project;
+  await restore(crossed, (db) => {
+    assert.deepEqual(crossingsOf(db), { activities_project: 1, tasks_project: 1 }, 'what it brought across is counted');
+    assert.equal((db.prepare('SELECT project_id FROM tasks WHERE id = ?').get(task.body.id) as { project_id: string }).project_id, g1.project, 'and kept, not lost');
+    const entry = db.prepare("SELECT detail FROM audit_log WHERE action = 'instance_import'").get() as { detail: string };
+    assert.match(entry.detail, /joined across Unit Instances: \{"activities_project":1,"tasks_project":1\}/);
+    holds(db);
+  });
 
-  // An archive from before organizations: none in it, and child units listed before their parents. It founds them on the
-  // way in, and the boundary does not mistake a unit still waiting for its organization for one in another.
-  const legacy = structuredClone(archive);
+  // An archive from before organizations: none in it, child units listed before their parents, and files that do not say
+  // where they were added. G8 and G1 are both top units in it, so they found two instances on the way in.
+  const legacy = structuredClone(crossed);
   for (const table of ['organizations', 'org_roles', 'platform_roles', 'access_grants']) delete legacy.tables[table];
   legacy.tables.units = legacy.tables.units.map((u): Record<string, unknown> => ({ ...u, org_id: null })).sort((a, b) => Number(!a.parent_id) - Number(!b.parent_id));
-  const counts = await into(legacy);
-  assert.ok(counts.activities > 0 && counts.projects > 0, JSON.stringify(counts));
+  legacy.tables.attachments = legacy.tables.attachments.map(({ unit_id: _unit, ...rest }) => rest);
+  await restore(legacy, (db) => {
+    assert.deepEqual(db.prepare('SELECT id FROM organizations ORDER BY id').all().map((o) => (o as { id: string }).id), ['G1', 'G8']);
+    assert.deepEqual(crossingsOf(db), { activities_project: 1, tasks_project: 1 });
+    const unplaced = db.prepare('SELECT COUNT(*) AS n FROM attachments f JOIN activities r ON r.id = f.record_id WHERE f.unit_id IS NOT r.unit_id').get() as { n: number };
+    assert.equal(unplaced.n, 0, 'each file takes the unit its record sits in');
+    holds(db);
+  });
+
+  // With nothing across, nothing is counted.
+  await restore(archive, (db) => {
+    assert.equal(metaGet(db, 'instance_boundary_violations'), null);
+    holds(db);
+  });
 });
 
 test('a crossing made before the boundary was kept is counted, can still be edited, and the engine’s refusal reads as one', async () => {
@@ -506,7 +658,7 @@ test('a crossing made before the boundary was kept is counted, can still be edit
   assert.deepEqual(instanceBoundaryViolations(app.ctx.db), {});
 });
 
-test('a personnel feed gives back the primary unit it moved, and never reaches an account that runs the service', async () => {
+test('a personnel feed gives back the primary unit it moved, and never reaches staff who sit in none of its units', async () => {
   const other = await startApp();
   try {
     const owner = await other.setupOperator();

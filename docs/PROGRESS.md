@@ -9,20 +9,24 @@ The Unit Instance is enforced as a backend security boundary ([ADR-0008](enginee
 - **Where two units meet, both must be in one Unit Instance.** Member moves, direct enrollment and the
   enrollment directory, the primary unit, project links on entries, tasks and queue items, re-placing
   another Marine's record, thread contacts and thread links, importing a shared upload, a report
-  revision's citations, a report or export asked for against another Marine's unit, linking an EDIPI,
-  and importing an instance archive. Refusals carry the code `cross_instance`.
+  revision's citations, a report or export asked for against another Marine's unit, and linking an
+  EDIPI. Refusals carry the code `cross_instance`. A comment or file goes with its record only within
+  the instance it was added in.
 - **Someone who serves in two Unit Instances** works in each with the authority they hold there, and
   carries nothing, and no reference to anything, from one into the other.
 - **Migration 016** adds triggers that refuse, in the database, a change to a unit's organization and a
   cross-instance project link, thread contact or thread link, from both ends. It changes no row; links
   already across are counted into `meta.instance_boundary_violations`. An engine refusal reaches the
-  client as a 403 `cross_instance` and is written to the audit trail.
+  client as a 403 `cross_instance` and is written to the audit trail. An instance archive restores the
+  same way: links it brings across are kept and counted.
+- **Migration 017** records on each attachment the unit its record sat in when it was added, as comments
+  already do, and fills it for existing files from their record's unit. It changes no other row.
 - **PostgreSQL row-level security** is evaluated and deferred to the PostgreSQL adapter, with the policy
   written down in ADR-0008 (SQLite has no RLS; triggers are the equivalent here).
 - **`tests/server/unitIsolation.test.ts`** proves it: two Unit Instances, a Marine in each, a leader with
-  authority in both, and 22 cases across personnel, records and ids, attachments, reports, exports,
+  authority in both, and 23 cases across personnel, records and ids, attachments, reports, exports,
   metrics, imports, correspondence, Report Studio, membership, identity, archives, the audit trail and
-  the triggers. Nine of them prove the ways across that the code and security reviews found.
+  the triggers. Ten of them prove the ways across that the code and security reviews found.
 - Two behaviors changed: a leader who founds a top-level unit of their own can no longer enrol a Marine
   they lead elsewhere into it directly (that Marine joins by invitation or join code), and an
   organization can no longer link the EDIPI of an account that also serves in another Unit Instance or

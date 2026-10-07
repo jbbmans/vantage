@@ -47,16 +47,16 @@ Every operation that names two units, or a unit and a row from another unit, ass
 | Enrolling an account directly (`mayEnrollDirectly`, the directory, `POST members`) | the actor must lead them in a unit of the destination's own instance |
 | The primary unit (`addMember`, `PUT members/:userId`, the fallback in `removeMember`, the personnel feed's restore) | enrollment or departure in one instance never takes or moves the primary unit held in another; the refusal does not say where it is held; a feed that moved a primary unit when a Marine left its roster gives it back when they return |
 | An entry, task or queue item filed under a project (`assertFileableProject`) | the project's unit and the row's unit in one instance, checked on create, on edit and when the row moves |
-| Moving a project (`updateRecord`) | only where everything filed under it can follow: a project with another person's work filed under it stays in that work's instance |
+| Moving a project (`updateRecord`) | only where everything filed under it can follow, its owner's own work included: work filed in another instance, or anyone else's unplaced work whose owner does not serve in the destination, keeps it where it is; the owner takes their own entries off it, or moves them, first. A queue item names its project only to someone who may read that project |
 | Re-placing a record somebody else wrote (`updateRecord`) | a record manager or counselor may correct and re-place it inside its own instance only; only its Marine takes it out of every unit, so "out, then across" is not a way round; a record placed nowhere is placed only in an instance its Marine serves in |
-| Moving one's own record to another instance (`updateRecord`) | refused while it carries anyone else's comments or attachments, or anyone else's work filed under it; both instances' trails record the move without naming the other side |
+| Moving one's own record to another instance (`updateRecord`, and `importActivities` re-importing an entry by its id) | refused while it carries anyone else's comments or attachments added in another instance, or anyone else's work filed under it. A comment or file is judged by the unit its record sat in when it was added (`comments.unit_id`, `attachments.unit_id`); one added where there was no unit, by whether its author serves in the destination. A record in no unit is treated as possibly from another instance, unless the service holds only one. Both instances' trails record the move without naming the other side |
 | A contact on a thread, a thread or contact moved, a thread linked to work (`correspondence`) | one instance, from both ends: a contact stays where the threads naming it are; a thread shows only links to work its reader may open |
 | Importing an uploaded sheet (`previewImport`) | a file shared with a unit is imported only into its own instance |
 | A report revision's citations, and the sources offered (`reportStudio`) | a report placed in a unit cites only that instance's records; a report about another Marine placed in no unit cites one instance's records |
 | A report or export asked for against another Marine's unit (`reportTarget`) | it falls back only to a unit the caller leads them in inside the requested unit's instance; with none there it is refused, never answered with another instance's figures |
 | Linking an EDIPI (`POST /api/orgs/:orgId/personnel/link`) | refused for another account that serves in another instance or holds a platform role, because the EDIPI is the CAC sign-in key; a changed EDIPI ends that account's sessions |
-| The personnel feed (`personnel.ts`) | never renames or deactivates an account that holds a platform role |
-| Importing an instance archive (`importInstance`) | refused whole if, once loaded, it joins records across instances (`instanceBoundaryViolations`) |
+| The personnel feed (`personnel.ts`) | never renames or deactivates an account that holds a platform role and sits in none of the organization's units, and never deactivates any account that holds a platform role |
+| Importing an instance archive (`importInstance`) | restored as its instance was kept: rows it brings already joined across instances are kept and counted (`instanceBoundaryViolations`) into `meta.instance_boundary_violations` and the import's audit entry, as migration 016 does for a live database, and the triggers hold for every change after |
 
 Refusals carry the code `cross_instance`, so a client can tell them from an ordinary permission
 refusal. Two deliberately do not, because the code itself would tell the caller something: direct
@@ -89,9 +89,12 @@ exist so that a defect or a hand-written statement cannot quietly cross the boun
 a pairing that is really across it: two units whose organizations are both known and differ (`<>`,
 which is not true when either side is NULL). A row with no unit is left alone, a unit an archive has
 not yet given its organization is not taken to differ, and a reference to a row that is not in the
-database yet passes, because an archive is restored table by table; `importInstance` therefore checks
-the whole archive once it is in. An update is checked only when it changes the reference or a unit,
-so a row joined across before this migration can still be edited.
+database yet passes. `importInstance` lifts the triggers while an archive loads table by table, counts
+what it brought across once it is all in, and puts them back before it commits. An update is checked
+only when it changes the reference or a unit, so a row joined across before this migration can still
+be edited. On the side of the row pointed at, the triggers guard `UPDATE`; deleting a project,
+contact, thread or queue item and inserting it again under the same id is not checked there, and no
+code path does that.
 
 Each trigger's message begins `cross_instance:`. The API answers such an engine refusal as a 403 with
 the code `cross_instance`, not a server error, and writes `cross_instance_refused` to the audit trail
@@ -100,7 +103,16 @@ with who asked, so a request that only the engine stopped is still seen.
 The migration runs in the runner's transaction, creates its triggers with `IF NOT EXISTS`, and changes
 no row. Rows already joined across the boundary when it runs are left as they are, so nothing is lost,
 and counted by kind into `meta.instance_boundary_violations`, so an operator can find them. A
-single-instance database, which is every database before ADR-0006's organizations, cannot hold one.
+database from before ADR-0006's organizations can hold one: it could have several top-level units,
+each of which became its own instance, and nothing then checked a project link between them.
+
+Migration `017_attachment_unit` adds `attachments.unit_id`, set at upload from the record's unit as
+`comments.unit_id` already is, so a move is judged by where a file was added rather than by where its
+uploader serves now. It adds the column only if it is missing and fills it for existing files from the
+unit their record sits in now. For a record moved across before the boundary was kept, that is where
+the file is already read, so nothing new crosses; a file on a record in no unit keeps none. It changes
+no other row and deletes nothing, and running it again changes nothing. An archive whose files carry
+no unit gets the same fill on import.
 
 ### 3. PostgreSQL row-level security: evaluated, deferred to the PostgreSQL work
 
@@ -131,10 +143,11 @@ PL/pgSQL is already part of step 3.
   and could previously enrol a Marine they lead elsewhere into it directly. That is now an enrollment
   across the boundary: the Marine joins by invitation or join code, as anyone outside an instance
   does. `tests/server/securityHardening.test.ts` records both halves of this rule.
-- An archive written before this ADR by a multi-instance deployment could, in principle, carry a
-  cross-instance project link, contact or thread link. Importing it is refused whole, with the
-  crossings it found, rather than loading data the boundary forbids. A single-instance archive, which
-  is every archive the legacy format can hold, cannot contain one, and still restores.
+- An archive can carry a cross-instance project link, contact or thread link: one written before
+  this ADR by a deployment with several organizations, one from before organizations by a deployment
+  with several top-level units, or a backup of a database migration 016 kept such rows in. It restores
+  with those rows kept and counted, as an in-place upgrade keeps them, so a backup always restores; the
+  boundary holds for every change after.
 - `reportTarget` no longer answers a unit id from another instance with the caller's own unit. Within
   one instance it still falls back as before.
 - An organization's administrator can no longer link or change the EDIPI of an account that also
