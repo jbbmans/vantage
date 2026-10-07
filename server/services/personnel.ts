@@ -3,7 +3,7 @@ import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { badRequest } from '../lib/errors.ts';
 import { createHash } from 'node:crypto';
-import { addMember, removeMember } from './org.ts';
+import { addMember, removeMember, setPrimaryUnit } from './org.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
 
@@ -172,13 +172,15 @@ function rosterDate(raw: string): string | null {
 
 /**
  * Whether an organization's extract speaks for this account: it belongs to one of the organization's units, or to no
- * unit at all. An account that belongs only to other organizations is theirs to separate, not this one's.
+ * unit at all. An account that belongs only to other organizations is theirs to separate, not this one's, and an account
+ * that runs the service (a platform role) and sits in no unit belongs to no organization's feed (ADR-0008).
  */
 function speaksFor(ctx: AppContext, orgId: string, edipi: string, activeOnly: boolean): boolean {
   return Boolean(ctx.db.prepare(
     `SELECT 1 FROM users u WHERE u.edipi = ? ${activeOnly ? 'AND u.active = 1' : ''}
        AND (EXISTS (SELECT 1 FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE um.user_id = u.id AND un.org_id = ?)
-            OR NOT EXISTS (SELECT 1 FROM unit_members um WHERE um.user_id = u.id))`
+            OR (NOT EXISTS (SELECT 1 FROM unit_members um WHERE um.user_id = u.id)
+                AND NOT EXISTS (SELECT 1 FROM platform_roles pr WHERE pr.user_id = u.id)))`
   ).get(edipi, orgId));
 }
 
@@ -340,6 +342,9 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
       for (const m of removed) {
         if (!db.prepare('SELECT 1 FROM units WHERE id = ? AND org_id = ? AND active = 1').get(m.unit_id, plan.orgId)) continue;
         addMember(ctx, userId, m.unit_id, { primary: Boolean(m.is_primary), billet: m.billet });
+        // The primary unit this organization's own extract moved away goes back with the rest, even when it went to another
+        // Unit Instance meanwhile: giving back what the same feed took is not taking from another instance (ADR-0008).
+        if (m.is_primary) setPrimaryUnit(ctx, userId, m.unit_id);
         for (const r of m.roles) db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at, expires_at) SELECT ?, id, unit_id, NULL, ?, ? FROM roles WHERE id = ? AND unit_id = ?').run(userId, at, r.expires_at, r.role_id, m.unit_id);
         for (const table of RECORD_TABLE_NAMES) db.prepare(`UPDATE ${table} SET frozen_at = NULL, updated_at = ? WHERE user_id = ? AND unit_id = ? AND frozen_at = ?`).run(at, userId, m.unit_id, m.frozen_at);
       }
@@ -415,7 +420,8 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
       // Leaving this organization ends the memberships in it, kept so a return can restore them. The account itself is
       // turned off only when the person belongs to no other organization (ADR-0006).
       const left = account ? endMemberships(account.id, sep.edipi) : 0;
-      const elsewhere = account ? Boolean(db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? LIMIT 1').get(account.id)) : false;
+      // Nor is an account that runs the service turned off by one organization's extract.
+      const elsewhere = account ? Boolean(db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? UNION ALL SELECT 1 FROM platform_roles WHERE user_id = ? LIMIT 1').get(account.id, account.id)) : false;
       const deactivated = account && !elsewhere ? db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ? AND active = 1').run(at, account.id).changes > 0 : false;
       if (deactivated) invalidateUserSessions(ctx, account!.id);
       audit(ctx, {

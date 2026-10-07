@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import type { AppContext, SessionUser } from '../context.ts';
 import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
 import { withTypedProgress, validateTypedGoal } from './goals.ts';
-import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor, assertSameInstance } from '../authz/scope.ts';
+import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor, assertSameInstance, sameInstance, orgOfUnit } from '../authz/scope.ts';
 import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject } from '../authz/records.ts';
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
 import { valueType } from '../../shared/constants.ts';
@@ -160,6 +160,41 @@ function checkProjectLink(ctx: AppContext, scope: Scope, userId: string, table: 
   assertSameInstance(ctx, project?.unit_id, unitId, 'This entry is filed under a project in another Unit Instance. Take it off the project before moving it.');
 }
 
+/**
+ * Where somebody other than its owner may re-place a record (ADR-0008): inside the Unit Instance it sits in, and never
+ * out of every unit, which would be a way across in two steps. One already in no unit goes only where its Marine serves.
+ */
+function assertReplaceableByOther(ctx: AppContext, row: RecordRow, unitId: string | null) {
+  if (!unitId) {
+    if (row.unit_id) throw forbidden('Only the Marine this record belongs to can take it out of its unit.', 'scope_owner_only');
+    return;
+  }
+  if (row.unit_id) return assertSameInstance(ctx, row.unit_id, unitId, 'Only the Marine this record belongs to can move it into another Unit Instance.');
+  if (!scopeFor(ctx, { id: row.user_id }).unitIds.some((u) => sameInstance(ctx, u, unitId))) throw forbidden('This record can be placed only in a Unit Instance its Marine serves in.', 'cross_instance');
+}
+
+/**
+ * What a record would carry with it out of its Unit Instance (ADR-0008): other people's comments and attachments, and
+ * for a project, the work filed under it. None of that leaves the instance it was written in, even with its owner.
+ */
+function assertCarriesNothingAcross(ctx: AppContext, table: RecordTable, row: RecordRow, unitId: string) {
+  const servesThere = (userId: string) => scopeFor(ctx, { id: userId }).unitIds.some((u) => sameInstance(ctx, u, unitId));
+  const comments = ctx.db.prepare('SELECT DISTINCT author_id, unit_id FROM comments WHERE record_table = ? AND record_id = ? AND author_id <> ? AND deleted_at IS NULL')
+    .all(table, row.id, row.user_id) as Array<{ author_id: string; unit_id: string | null }>;
+  const uploaders = ctx.db.prepare('SELECT DISTINCT uploaded_by FROM attachments WHERE record_table = ? AND record_id = ? AND uploaded_by <> ? AND deleted_at IS NULL')
+    .all(table, row.id, row.user_id) as Array<{ uploaded_by: string }>;
+  if (comments.some((c) => (c.unit_id ? !sameInstance(ctx, c.unit_id, unitId) : !servesThere(c.author_id))) || uploaders.some((u) => !servesThere(u.uploaded_by))) {
+    throw forbidden('Other people commented on this record or attached files to it in another Unit Instance, so it stays there. Start a new entry for what is yours instead.', 'cross_instance');
+  }
+  if (table !== 'projects') return;
+  const org = orgOfUnit(ctx, unitId);
+  for (const child of ['activities', 'tasks', 'work_items']) {
+    if (ctx.db.prepare(`SELECT 1 FROM ${child} c JOIN units cu ON cu.id = c.unit_id WHERE c.project_id = ? AND cu.org_id IS NOT ? LIMIT 1`).get(row.id, org)) {
+      throw forbidden('Work from another Unit Instance is filed under this project, so it cannot move there.', 'cross_instance');
+    }
+  }
+}
+
 export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTable, body: unknown, reqKey: object, ip?: string) {
   const spec = TABLES[table];
   const data = parse(RECORD_SCHEMAS[table] as never, body) as Record<string, unknown>;
@@ -258,7 +293,9 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const scopeChanged = finalUnit !== row.unit_id || finalVisibility !== row.visibility;
   if (scopeChanged && row.user_id !== user.id && row.counselor_id !== user.id) throw forbidden('A record manager may correct content but may not change another Marine’s disclosure scope.', 'scope_owner_only');
   // A counselor may re-place what they wrote, inside the Unit Instance it was written in. Only its owner takes it across.
-  if (scopeChanged && row.user_id !== user.id) assertSameInstance(ctx, row.unit_id, finalUnit, 'Only the Marine this record belongs to can move it into another Unit Instance.');
+  if (scopeChanged && row.user_id !== user.id) assertReplaceableByOther(ctx, row, finalUnit);
+  const leavesInstance = Boolean(finalUnit) && finalUnit !== row.unit_id && (!row.unit_id || !sameInstance(ctx, row.unit_id, finalUnit));
+  if (leavesInstance) assertCarriesNothingAcross(ctx, table, row, finalUnit!);
   if (finalVisibility === 'unit' && !finalUnit) throw badRequest('Choose a unit before sharing this record.', { fieldErrors: { unit_id: 'Required to share.' } });
   if (finalUnit && finalUnit !== row.unit_id && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(finalUnit)) throw badRequest('No such unit.');
   if (scopeChanged && !canPlace(scope, finalVisibility, finalUnit, spec.shareFlag, Boolean(spec.personal))) throw forbidden('You cannot place a record in that unit.');
@@ -297,7 +334,15 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     if (table === 'activities' && String((error as Error).message).includes('UNIQUE')) throw conflict('An identical activity already exists for that date.', 'duplicate');
     throw error;
   }
-  audit(ctx, { actor_id: user.id, action: 'edit', entity: table, entity_id: id, subject_id: row.user_id !== user.id ? row.user_id : null, unit_id: finalUnit, detail: row.user_id === user.id ? 'author edit' : 'manager edit', ip });
+  // A move is written where the record went and, when that is another Unit Instance, where it left too: each
+  // instance's trail says what crossed its edge, without naming the other side (ADR-0008).
+  const how = row.user_id === user.id ? 'author edit' : 'manager edit';
+  const fromOrg = orgOfUnit(ctx, row.unit_id);
+  const crossed = finalUnit !== row.unit_id && Boolean(fromOrg) && Boolean(finalUnit) && !sameInstance(ctx, row.unit_id, finalUnit);
+  const moved = finalUnit === row.unit_id ? '' : crossed ? '; moved in from another Unit Instance' : `; moved from ${row.unit_id ?? 'no unit'} to ${finalUnit ?? 'no unit'}`;
+  const subjectId = row.user_id !== user.id ? row.user_id : null;
+  audit(ctx, { actor_id: user.id, action: 'edit', entity: table, entity_id: id, subject_id: subjectId, unit_id: finalUnit ?? row.unit_id, detail: `${how}${moved}`, ip });
+  if (crossed) audit(ctx, { actor_id: user.id, action: 'edit', entity: table, entity_id: id, subject_id: subjectId, unit_id: row.unit_id, detail: `${how}; moved out to another Unit Instance`, ip });
   if (spec.assignee && data.assignee_id && data.assignee_id !== row.assignee_id && data.assignee_id !== user.id) {
     notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || row.title || ''), actionUrl: `/records/${table}/${id}`, dedupeKey: `${table}:${id}:assigned:${data.assignee_id}` });
   }

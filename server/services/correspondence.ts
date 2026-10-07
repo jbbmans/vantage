@@ -67,6 +67,11 @@ export function saveContact(ctx: AppContext, user: SessionUser, scope: Scope, in
     if (!writable(scope, user, existing as never)) throw forbidden('That contact is not yours to edit.');
     // A leader may tidy a shared contact; only the person who added it may take it into another Unit Instance (ADR-0008).
     if (existing.owner_id !== user.id) assertSameInstance(ctx, existing.unit_id as string | null, unitId, 'Only the person who added this contact can move it into another Unit Instance.');
+    // Even its owner moves it only where the correspondence that names it is.
+    if (unitId && unitId !== existing.unit_id && ctx.db.prepare(`SELECT 1 FROM threads t JOIN units tu ON tu.id = t.unit_id
+      WHERE t.contact_id = ? AND tu.org_id IS NOT (SELECT org_id FROM units WHERE id = ?) LIMIT 1`).get(id, unitId)) {
+      throw forbidden('Correspondence in another Unit Instance names this contact, so it cannot move there.', 'cross_instance');
+    }
     ctx.db.prepare('UPDATE contacts SET name = ?, email = ?, organization = ?, role = ?, phone = ?, notes = ?, visibility = ?, unit_id = ?, version = version + 1, updated_at = ? WHERE id = ?')
       .run(...fields, visibility, unitId, at, id);
     return ctx.db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
@@ -79,7 +84,7 @@ export function saveContact(ctx: AppContext, user: SessionUser, scope: Scope, in
 
 /** A contact shown on a thread: one with no unit, or one in the thread's own Unit Instance (or a thread with no unit). */
 const SAME_INSTANCE_CONTACT = `(c.unit_id IS NULL OR t.unit_id IS NULL
-  OR (SELECT org_id FROM units WHERE id = c.unit_id) IS (SELECT org_id FROM units WHERE id = t.unit_id))`;
+  OR (SELECT org_id FROM units WHERE id = c.unit_id) = (SELECT org_id FROM units WHERE id = t.unit_id))`;
 
 export interface ThreadFilters { state?: string | null; unitId?: string | null; contactId?: string | null; workItemId?: string | null; dueOnly?: boolean; q?: string | null }
 

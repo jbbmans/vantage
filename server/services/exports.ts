@@ -5,7 +5,7 @@ import { now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { hmac } from '../lib/crypto.ts';
 import { loadRuntime } from '../runtime.ts';
-import { foundOrganizations, metaSet } from '../db/index.ts';
+import { foundOrganizations, instanceBoundaryViolations, metaSet } from '../db/index.ts';
 import { sealBacklog } from './caseSeal.ts';
 import { loadChainKey, resealStoredSecrets, secretsOf } from '../lib/keys.ts';
 
@@ -79,6 +79,9 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
         counts[table] = rows.length;
       }
       if (legacy) foundOrganizations(ctx.db);
+      // The triggers pass a reference to a row not loaded yet, so the archive is checked whole once it is in (ADR-0008).
+      const crossings = instanceBoundaryViolations(ctx.db);
+      if (Object.keys(crossings).length) throw new Error(`Archive joins records across Unit Instances, which Vantage no longer allows: ${JSON.stringify(crossings)}. Take those links off in the source instance and export it again.`);
       const violations = ctx.db.pragma('foreign_key_check') as unknown[];
       if (violations.length) throw new Error(`Archive has ${violations.length} foreign key violation(s): ${JSON.stringify(violations.slice(0, 3))}`);
     })();

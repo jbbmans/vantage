@@ -201,13 +201,22 @@ orgsRouter.post('/:orgId/personnel/link', inOrg('org.personnel'), wrap((req, res
   const org = orgOf(req);
   const { user_id, edipi } = parse(z.object({ user_id: z.string().max(64), edipi: z.string().max(32).nullable() }), req.body);
   if (!isOrgMember(ctx, org.id, user_id)) throw badRequest('Link only members of this Unit Instance.');
+  // The EDIPI is how an account signs in with a CAC. Somebody else's account that also serves in another Unit Instance,
+  // or that runs the service, carries authority beyond this one: re-keying its sign-in is not this organization's to do,
+  // or one organization's administrator could sign in as a leader of another (ADR-0008). Your own account is yours.
+  const beyond = user_id !== req.user.id && ctx.db.prepare(`SELECT 1 FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND u.org_id IS NOT ?
+    UNION ALL SELECT 1 FROM platform_roles WHERE user_id = ? LIMIT 1`).get(user_id, org.id, user_id);
+  if (beyond) throw forbidden('This account also holds authority outside this Unit Instance, so its EDIPI cannot be changed from here.', 'cross_instance');
+  const before = (ctx.db.prepare('SELECT edipi FROM users WHERE id = ?').get(user_id) as { edipi: string | null } | undefined)?.edipi ?? null;
   if (edipi !== null) {
     if (!isEdipi(edipi)) throw badRequest('An EDIPI is exactly ten digits.', { fieldErrors: { edipi: 'Ten digits.' } });
     const taken = ctx.db.prepare('SELECT id FROM users WHERE edipi = ? AND id <> ?').get(edipi, user_id) as { id: string } | undefined;
     if (taken) throw badRequest('Another account already carries that EDIPI.', { fieldErrors: { edipi: 'Already linked to another account.' } });
   }
   ctx.db.prepare("UPDATE users SET edipi = ?, identity_source = CASE WHEN ? IS NULL THEN 'local' ELSE identity_source END, updated_at = ? WHERE id = ?").run(edipi, edipi, now(), user_id);
-  audit(ctx, { actor_id: req.user.id, action: edipi ? 'personnel_link' : 'personnel_unlink', entity: 'users', entity_id: user_id, subject_id: user_id, org_id: org.id, detail: edipi ? `EDIPI ${edipi}` : 'EDIPI cleared', ip: ip(req) });
+  // Somebody else's changed sign-in key ends the sessions opened under the old one.
+  const revoked = edipi !== before && user_id !== req.user.id ? invalidateUserSessions(ctx, user_id) : 0;
+  audit(ctx, { actor_id: req.user.id, action: edipi ? 'personnel_link' : 'personnel_unlink', entity: 'users', entity_id: user_id, subject_id: user_id, org_id: org.id, detail: `${edipi ? `EDIPI ${edipi}` : 'EDIPI cleared'}; sessions revoked: ${revoked}`, ip: ip(req) });
   res.json({ ok: true });
 }));
 

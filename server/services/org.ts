@@ -71,6 +71,17 @@ export function addMember(ctx: AppContext, userId: string, unitId: string, { inv
   })();
 }
 
+/**
+ * Make one of a person's units their primary unit. Whether the move is the caller's to make is decided where it is asked
+ * for: a leader here cannot take a primary unit held in another Unit Instance (ADR-0008).
+ */
+export function setPrimaryUnit(ctx: AppContext, userId: string, unitId: string) {
+  ctx.db.transaction(() => {
+    ctx.db.prepare('UPDATE unit_members SET is_primary = 0 WHERE user_id = ?').run(userId);
+    ctx.db.prepare('UPDATE unit_members SET is_primary = 1 WHERE user_id = ? AND unit_id = ?').run(userId, unitId);
+  })();
+}
+
 export function removeMember(ctx: AppContext, userId: string, unitId: string, actorId: string | null = null) {
   return ctx.db.transaction(() => {
     const frozenAt = now();
@@ -338,11 +349,12 @@ export interface MoveResult { roles: string[]; rolesSkipped: string[]; entriesMo
  */
 export function moveMember(ctx: AppContext, actor: SessionUser, scope: Scope, userId: string, fromId: string, toId: string, { entries = 'stay', billet }: { entries?: 'stay' | 'move'; billet?: string | null } = {}): MoveResult {
   if (fromId === toId) throw badRequest('Pick a different team.');
+  if (userId === actor.id) throw forbidden('A second authorized person must change your own membership.', 'self_membership_change');
+  // Authority first: someone who manages neither team learns nothing here about which units exist or belong together.
+  if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, fromId) || !can(scope, PERMISSIONS.MANAGE_MEMBERS, toId)) throw forbidden('You need to manage members of both teams to move a Marine between them.');
   if (!getUnit(ctx, fromId) || !getUnit(ctx, toId)) throw notFound('No such unit.');
   // A move carries the Marine's roles and, when asked, their entries: never into another Unit Instance (ADR-0008).
   assertSameInstance(ctx, fromId, toId, 'A Marine cannot be moved into another Unit Instance. That organization enrolls them by invitation; their records here stay here.');
-  if (userId === actor.id) throw forbidden('A second authorized person must change your own membership.', 'self_membership_change');
-  if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, fromId) || !can(scope, PERMISSIONS.MANAGE_MEMBERS, toId)) throw forbidden('You need to manage members of both teams to move a Marine between them.');
   const membership = ctx.db.prepare('SELECT is_primary, billet FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, fromId) as { is_primary: number; billet: string | null } | undefined;
   if (!membership) throw notFound('That Marine is not a member of this unit.');
   if (ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, toId)) throw conflict('That Marine is already on the other team.', 'already_member');

@@ -10,7 +10,8 @@ import type { AppContext } from './context.ts';
 import { createMailer } from './services/email.ts';
 import { attachContext } from './auth/middleware.ts';
 import { SESSION_COOKIE, SIGNED_IN_COOKIE } from './auth/sessions.ts';
-import { HttpError } from './lib/errors.ts';
+import { HttpError, forbidden } from './lib/errors.ts';
+import { audit } from './services/audit.ts';
 import { hostPlan, facesOf, linksMeta, type Face, type HostPlan } from './lib/hosts.ts';
 import { sendError } from './lib/http.ts';
 import { VERSION } from './version.ts';
@@ -312,9 +313,17 @@ export function createApp(ctx: AppContext) {
     return known.includes(segment) ? segment : 'other';
   };
 
-  app.use((err: unknown, req: Request, res: Response, _next: NextFunction) => {
+  /** A refusal the database raised at the Unit Instance boundary: a refusal, not a failure (ADR-0008). */
+  const boundaryRefusal = (err: unknown) => err instanceof Error && (err as { code?: string }).code === 'SQLITE_CONSTRAINT_TRIGGER' && err.message.startsWith('cross_instance:');
+
+  app.use((caught: unknown, req: Request, res: Response, _next: NextFunction) => {
+    const err = boundaryRefusal(caught) ? forbidden('That would join records from two Unit Instances.', 'cross_instance') : caught;
     if (err instanceof HttpError) {
       if (err.status === 403) record(ctx, 'security.authorization_denied', { route: routeFamily(req.path) });
+      // A refusal at the boundary goes in the audit trail with who asked, so reaching across it is seen, not just counted.
+      if (err.code === 'cross_instance') {
+        try { audit(ctx, { actor_id: req.user?.id ?? null, action: 'cross_instance_refused', entity: 'request', detail: `${req.method} ${req.path}: ${err.message}` }); } catch { /* the refusal stands */ }
+      }
       if (err.status >= 500) record(ctx, 'reliability.request_failed', { status: err.status, route: routeFamily(req.path) });
       return sendError(res, err);
     }
