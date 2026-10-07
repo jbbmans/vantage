@@ -1,18 +1,17 @@
 import { test, expect, type Browser, type Page } from '@playwright/test';
-import { ensureSetup, loginAs, confirmSudoIfAsked, unique, OPERATOR, PASSWORD } from './fixtures';
+import { ensureSetup, loginAs, confirmSudoIfAsked, joinUnit, unique, OPERATOR, PASSWORD } from './fixtures';
 
 const H = { 'x-vantage-client': '1' };
 
-/** A Marine registered on their own, then enrolled in G8 by the owner signed in on `page`. */
+/** A Marine registered on their own, who joined G8 with a join code from the owner signed in on `page`. */
 async function enrolledMarine(page: Page, browser: Browser, last: string) {
   const username = unique(last.toLowerCase());
   const other = await browser.newContext();
   const res = await other.request.post('/api/auth/register', { headers: H, data: { username, password: PASSWORD, first_name: 'Sam', last_name: last, rank_id: 'LCpl' } });
   expect(res.ok(), await res.text()).toBeTruthy();
   const me = await (await other.request.get('/api/me')).json();
+  await joinUnit(page.request, other.request);
   await other.close();
-  const enrolled = await page.request.post('/api/org/units/G8/members', { headers: H, data: { user_id: me.user.id } });
-  expect(enrolled.ok(), await enrolled.text()).toBeTruthy();
   return { id: me.user.id as string, username };
 }
 
@@ -100,8 +99,9 @@ test('a contact can be corrected after it is saved', async ({ page }) => {
 test('the owner links an account to its EDIPI so it can sign in with a CAC', async ({ page, browser }) => {
   const last = `Nguyen${unique('')}`;
   const marine = await enrolledMarine(page, browser, last);
-  await page.goto('/operator?tab=users');
-  await page.getByLabel('Search accounts').fill(marine.username);
+  await page.goto('/console/people');
+  await confirmSudoIfAsked(page);
+  await page.getByLabel('Search people').fill(marine.username);
   await page.getByRole('button', { name: `EDIPI for ${marine.username}` }).click();
   const dialog = page.getByRole('dialog', { name: `EDIPI for ${marine.username}` });
   await dialog.getByLabel('EDIPI').fill(`12${Date.now().toString().slice(-8)}`);
@@ -140,10 +140,10 @@ test('a leader makes a join code and a Marine joins the unit with it from Settin
   await expect(page.getByRole('row').filter({ hasText: note })).toContainText('1');
 });
 
-test('the owner checks every case history from the console, and can anchor them on demand', async ({ page }) => {
+test('Vantage staff check every case history from the admin dashboard, and can anchor them on demand', async ({ page }) => {
   const made = await page.request.post('/api/work/items', { headers: H, data: { unit_id: 'G8', title: `Sealed history ${unique('')}` } });
   expect(made.ok(), await made.text()).toBeTruthy();
-  await page.goto('/operator');
+  await page.goto('/admin');
   await confirmSudoIfAsked(page);
   await page.getByRole('button', { name: 'Check them' }).click();
   await confirmSudoIfAsked(page);

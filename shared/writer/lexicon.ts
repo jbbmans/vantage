@@ -5,7 +5,7 @@
  * the claim ("helped" into "led") is only ever suggested, never substituted.
  */
 
-/** What a verb says the Marine did. Each kind leans toward an evaluation attribute (see ATTRIBUTE_FOR_KIND). */
+/** What a verb says the Marine did. Each kind leans toward an area (AREA_FOR_KIND) and a FITREP attribute (attributes.ts). */
 export type VerbKind =
   | 'execute' | 'finance' | 'fix' | 'analyze' | 'build' | 'improve' | 'plan' | 'lead' | 'develop' | 'care'
   | 'communicate' | 'qualify' | 'learn' | 'serve' | 'support' | 'maintain' | 'admin';
@@ -26,7 +26,7 @@ const VERBS: Array<[string, string, VerbKind, 1 | 2 | 3]> = [
   ['submit', 'submitted', 'execute', 2], ['finish', '', 'execute', 2], ['conduct', '', 'execute', 2], ['perform', '', 'execute', 2],
   ['run', 'ran', 'execute', 2], ['operate', '', 'execute', 2], ['handle', '', 'execute', 1], ['issue', '', 'execute', 2],
   ['ship', 'shipped', 'execute', 2], ['receive', '', 'execute', 2], ['inventory', 'inventoried', 'execute', 2], ['inspect', '', 'execute', 2],
-  ['account', '', 'execute', 2], ['dispatch', '', 'execute', 2], ['coordinate', '', 'plan', 2], ['schedule', '', 'plan', 2],
+  ['account', '', 'execute', 2], ['check', '', 'execute', 2], ['dispatch', '', 'execute', 2], ['coordinate', '', 'plan', 2], ['schedule', '', 'plan', 2],
   // Money.
   ['reconcile', '', 'finance', 3], ['obligate', '', 'finance', 3], ['deobligate', '', 'finance', 3], ['commit', 'committed', 'finance', 2],
   ['disburse', '', 'finance', 3], ['certify', 'certified', 'finance', 3], ['validate', '', 'finance', 3], ['audit', '', 'finance', 3],
@@ -175,25 +175,11 @@ export const MEASURE_UNIT = /^(?:km|kms|kilomet(?:er|re)s?|mi|miles?|met(?:er|re
 /** Words in a result that mark a measured or decisive outcome: a number, a percentage, a zero, a first. */
 export const STRONG_RESULT = /(\d|%|\bzero\b|\bno (?:errors|discrepancies|findings|defects|returns|rejects)\b|\b(?:first|only|record|fastest|ahead of|under budget|on time|before the deadline|100)\b)/i;
 
-/** The evaluation attribute each kind of work speaks to, for the FITREP sections and the JEPES command input. */
-export const ATTRIBUTE_FOR_KIND: Record<VerbKind, { fitrep: string; area: 'mission' | 'leadership' | 'character' | 'intellect' }> = {
-  execute: { fitrep: 'Performance', area: 'mission' },
-  finance: { fitrep: 'Performance', area: 'mission' },
-  fix: { fitrep: 'Performance', area: 'mission' },
-  maintain: { fitrep: 'Performance', area: 'mission' },
-  admin: { fitrep: 'Performance', area: 'mission' },
-  analyze: { fitrep: 'Judgment', area: 'mission' },
-  build: { fitrep: 'Initiative', area: 'mission' },
-  improve: { fitrep: 'Initiative', area: 'mission' },
-  plan: { fitrep: 'Performance', area: 'mission' },
-  qualify: { fitrep: 'Proficiency', area: 'mission' },
-  lead: { fitrep: 'Leading Subordinates', area: 'leadership' },
-  develop: { fitrep: 'Developing Subordinates', area: 'leadership' },
-  care: { fitrep: 'Ensuring Well-being of Subordinates', area: 'leadership' },
-  communicate: { fitrep: 'Communication Skills', area: 'leadership' },
-  learn: { fitrep: 'Professional Military Education', area: 'intellect' },
-  serve: { fitrep: 'Initiative', area: 'character' },
-  support: { fitrep: 'Performance', area: 'mission' },
+/** The broad area each kind of work belongs to on the JEPES lines. FITREP attributes are read in attributes.ts. */
+export const AREA_FOR_KIND: Record<VerbKind, 'mission' | 'leadership' | 'character' | 'intellect'> = {
+  execute: 'mission', finance: 'mission', fix: 'mission', maintain: 'mission', admin: 'mission', analyze: 'mission',
+  build: 'mission', improve: 'mission', plan: 'mission', qualify: 'mission', lead: 'leadership', develop: 'leadership',
+  care: 'leadership', communicate: 'leadership', learn: 'intellect', serve: 'character', support: 'mission',
 };
 
 /** Lowercase words kept as written at the start of a clause: acronyms and proper nouns are handled by case already. */

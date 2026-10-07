@@ -8,6 +8,7 @@ import { applyAccent, applyDensity, applyTheme } from './theme.ts';
 import { trackForGrade, type Track } from '../../shared/evaluation.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
 import type { MetricTotal } from '../../shared/metricEngine.ts';
+import type { OrgSummary } from './tenancy.ts';
 import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
 import type { RecordRows } from '../../shared/types';
 
@@ -21,7 +22,7 @@ export const queryClient = new QueryClient({
 export interface UnitView { id: string; name: string; short_name: string | null; parent_id: string | null; depth: number; level: 'full' | 'overview'; member: boolean; teams: number }
 
 export interface Identity {
-  user: { id: string; username: string; email: string | null; first_name: string; last_name: string; middle_initial: string | null; rank_id: string | null; mos: string | null; eas: string | null; is_operator: number; totp_enabled: number; must_change_password: number; last_login_at: string | null; created_at: string; passkeys: number; rank: { id: string; grade: string; abbr: string; name: string } | null };
+  user: { id: string; username: string; email: string | null; first_name: string; last_name: string; middle_initial: string | null; rank_id: string | null; mos: string | null; eas: string | null; totp_enabled: number; must_change_password: number; last_login_at: string | null; created_at: string; passkeys: number; rank: { id: string; grade: string; abbr: string; name: string } | null };
   prefs: Prefs;
   memberships: Array<{ unit_id: string; is_primary: number; billet: string | null; joined_at: string; unit_name: string; unit_short: string | null; unit_code: string; parent_id: string | null }>;
   primaryUnitId: string | null; homeUnitId: string | null; unitIds: string[]; readableUnitIds: string[]; ownedUnitIds: string[]; viewableUnitIds: string[];
@@ -29,6 +30,12 @@ export interface Identity {
   permissions: Record<string, number>; positions: Record<string, number>;
   roles: Array<{ unit_id: string; id: string; name: string; color: string | null; position: number; permissions: number }>;
   canLead: boolean; manageableUnits: string[]; counselUnits: string[]; exportUnits: string[];
+  /** Organizations the person belongs to or holds a role in (ADR-0006). */
+  orgs: OrgSummary[];
+  /** Vantage staff roles: they run the service and confer nothing inside an organization. */
+  platform: { roles: string[]; permissions: string[] };
+  /** Read-only access an organization approved for this staff member, while it lasts. */
+  vantageAccess: Array<{ grantId: string; orgId: string; expiresAt: string; reason: string }>;
   session: { id: string; method: string; sudoUntil: string | null };
   demo: null | { mode: 'demo'; ttl_hours: number; workspace: { expires_at: string; persona: 'marine' | 'leader' | null } | null; personas: Record<string, { label: string; description: string }>; flagship: { reference: string; note: string; values: Array<{ field: string; label: string; display: string; reference?: string }>; scenario: string } };
   instance: { accessMode?: 'accounts' | 'demo'; displayName: string; organizationName: string; announcement: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean; metrics: MetricsConfig; timezone?: string };

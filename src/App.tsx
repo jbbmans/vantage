@@ -12,7 +12,7 @@ import AppLoader from '@/components/AppLoader';
 import type { TeamSection } from '@/lib/teamAccess';
 import { MOVED, movedTo } from '@/config/nav';
 import { Compass, Search } from 'lucide-react';
-import { LINKS, consoleHref, siteHref } from '@/lib/links';
+import { LINKS, adminHref, consoleHref, siteHref } from '@/lib/links';
 
 // Signed-out and one-off screens load on demand; a visitor to the public page gets public.html instead.
 const Login = lazy(() => import('@/pages/Login'));
@@ -82,10 +82,21 @@ function Elsewhere({ href, label }: { href: string; label: string }) {
   return <AppLoader label={label} />;
 }
 
-/** The owner console is its own app; /operator, from old links and notifications, opens it at the same tab. */
+/**
+ * The owner console and the admin dashboard are apps of their own. A link into either from inside the application (a
+ * notification's /console/access, the menu's /admin, an old /operator) leaves the application for it.
+ */
 function ToConsole() {
-  const { search } = useLocation();
-  return <Elsewhere href={consoleHref(`/${search}`)} label="Opening the owner console…" />;
+  const { pathname, search } = useLocation();
+  // An old /operator?tab= link is the server's to sort between the two consoles.
+  if (pathname.startsWith('/operator')) return <Elsewhere href={`/operator${search}`} label="Opening the console…" />;
+  const rest = pathname.replace(/^\/console/, '') || '/';
+  return <Elsewhere href={consoleHref(`${rest}${search}`)} label="Opening the owner console…" />;
+}
+function ToAdmin() {
+  const { pathname, search } = useLocation();
+  const rest = pathname.replace(/^\/admin/, '') || '/';
+  return <Elsewhere href={adminHref(`${rest}${search}`)} label="Opening the admin dashboard…" />;
 }
 
 /**
@@ -237,6 +248,8 @@ function AppRoutes() {
         {/* The demo's stand-in for the owner console, and support, each exist in one mode only; the other gets a 404, not a page whose calls fail. */}
         <Route path="governance" element={identity.data.demo ? <D><DemoGovernance /></D> : <NotFound />} />
         <Route path="operator" element={<ToConsole />} />
+        <Route path="console/*" element={<ToConsole />} />
+        <Route path="admin/*" element={<ToAdmin />} />
         <Route path="help" element={<D><Help /></D>} />
         <Route path="support" element={identity.data.demo ? <NotFound /> : <D><Support /></D>} />
         <Route path="support/:id" element={identity.data.demo ? <NotFound /> : <D><Support /></D>} />

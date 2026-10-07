@@ -134,7 +134,7 @@ const ROLES: Array<{ icon: typeof UserRound; who: string; title: string; text: s
   { icon: Compass, who: 'E-5 and up', title: 'FITREP input', text: 'Bullets by evaluation area, drafted from entries you can open and check, never from memory.', href: '#product' },
   { icon: Users, who: 'Section and command leaders', title: 'Workload without a roll call', text: 'Who holds what, what is waiting and what is blocked, from the work itself. People are never labelled.', href: '#product' },
   { icon: Landmark, who: 'Financial management analysts', title: 'Balances, read in order', text: 'Open balances diagnosed in lifecycle order, with cited procedures and evidence gates.', href: '#analysts' },
-  { icon: Server, who: 'Owners and ISSMs', title: 'Runs on your own host', text: 'One process, no outbound calls by default, CAC and Entra ID, an audit chain you can verify.', href: '/security#deployment' },
+  { icon: Server, who: 'Owners and ISSMs', title: 'Your command, kept apart', text: 'An organization of your own: your people, units and audit trail. Vantage looks in only when you approve.', href: '/security#deployment' },
 ];
 
 function RoleStrip() {
@@ -335,7 +335,7 @@ function Landing() {
               ) : <a className="ps-ghost" href="#experience">Try Quick Log</a>}
             </div>
             <ul className="ps-proof" aria-label="At a glance">
-              <li><WifiOff strokeWidth={1.75} aria-hidden />Self-hosted, no trackers</li>
+              <li><WifiOff strokeWidth={1.75} aria-hidden />No trackers, no ads</li>
               <li><Lock strokeWidth={1.75} aria-hidden />Private by default</li>
               <li><ScrollText strokeWidth={1.75} aria-hidden />Every line cites its entry</li>
             </ul>
@@ -461,7 +461,7 @@ function Landing() {
           <li><Users strokeWidth={1.5} aria-hidden /><h3>Membership is the key</h3><p>Leave a unit and its work stops being yours to open: held cases go back to the queue, and your own history stays with you.</p></li>
           <li><ShieldCheck strokeWidth={1.5} aria-hidden /><h3>Sign-in that fits</h3><p>Passkeys, authenticator codes and CAC, with the sessions you are signed into shown and ended from one place.</p></li>
           <li><BookOpen strokeWidth={1.5} aria-hidden /><h3>Retention with holds</h3><p>Schedules state the authority they keep records under, and a legal hold stops every path that could delete what it covers.</p></li>
-          <li><WifiOff strokeWidth={1.5} aria-hidden /><h3>No trackers, no egress needed</h3><p>No analytics, tag manager or advertising scripts. Vantage runs on a network with no public internet, on your own host.</p></li>
+          <li><WifiOff strokeWidth={1.5} aria-hidden /><h3>No trackers, no egress needed</h3><p>No analytics, tag manager or advertising scripts, and no outbound calls unless Vantage turns a feature on.</p></li>
         </ul>
         <p className="ps-more" data-reveal><a href="/security">How Vantage is secured, for you and your ISSM <ArrowRight strokeWidth={1.75} aria-hidden /></a><a href="/privacy">What it keeps about you <ArrowRight strokeWidth={1.75} aria-hidden /></a></p>
       </section>

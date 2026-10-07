@@ -1,7 +1,9 @@
+import type { PlatformPermission, PlatformRole } from '../shared/permissions.ts';
 import type { Db } from './db/index.ts';
 import type { AppConfig } from './config.ts';
 import type { Mailer } from './services/email.ts';
 import type { MetricsConfig } from '../shared/constants.ts';
+import type { OrgRow } from './services/organizations.ts';
 
 export interface AppContext {
   db: Db;
@@ -32,8 +34,11 @@ export interface RuntimeSettings {
 
 export interface SessionUser {
   id: string; username: string; email: string | null; first_name: string; last_name: string; middle_initial: string | null;
-  rank_id: string | null; mos: string | null; eas: string | null; is_operator: number; active: number; must_change_password: number;
+  rank_id: string | null; mos: string | null; eas: string | null; active: number; must_change_password: number;
   totp_enabled: number; prefs: string; last_login_at: string | null; created_at: string; updated_at: string;
+  /** Vantage staff roles (ADR-0006). They run the service and confer nothing inside an organization. */
+  platform: PlatformRole[];
+  platformPermissions: PlatformPermission[];
   /** The person's own timezone, when they set one. */
   timezone?: string | null;
 }
@@ -44,5 +49,7 @@ declare module 'express-serve-static-core' {
     user: SessionUser;
     sessionId: string;
     sessionRow: { id: string; sudo_until: string | null; method: string; expires_at?: string };
+    /** The organization an owner-console route names, once the caller's organization role there is checked. */
+    org?: OrgRow;
   }
 }

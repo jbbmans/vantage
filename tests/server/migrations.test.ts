@@ -112,3 +112,59 @@ test('008 gives every work item a stage from its state and carries existing acti
     again.close();
   } finally { cleanup(); }
 });
+
+test('015 turns a single-instance database into organizations: top units found them, operators run the platform, leaders own them', () => {
+  const at = '2026-01-01T00:00:00.000Z';
+  const { path, cleanup } = atVersion(14, (db) => {
+    // The shape before organizations: no org columns, an instance-wide roster and schedules.
+    for (const [table, column] of [['units', 'org_id'], ['member_roles', 'expires_at'], ['audit_log', 'org_id'], ['legal_holds', 'org_id'], ['disposition_runs', 'org_id'], ['personnel_sync_runs', 'org_id']]) {
+      db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+    }
+    db.exec('DROP TABLE personnel_roster');
+    db.exec(`CREATE TABLE personnel_roster (edipi TEXT PRIMARY KEY, last_name TEXT NOT NULL, first_name TEXT NOT NULL, middle_initial TEXT, rank_id TEXT, mos TEXT, eas TEXT,
+      unit_code TEXT, billet TEXT, status TEXT NOT NULL DEFAULT 'active', source TEXT NOT NULL, row_hash TEXT NOT NULL, synced_at TEXT NOT NULL, created_at TEXT NOT NULL, updated_at TEXT NOT NULL, removed_units TEXT)`);
+    db.exec('DROP TABLE retention_schedules');
+    db.exec(`CREATE TABLE retention_schedules (id TEXT PRIMARY KEY, record_type TEXT NOT NULL UNIQUE, retain_days INTEGER NOT NULL, disposition TEXT NOT NULL,
+      authority TEXT, notes TEXT, enabled INTEGER NOT NULL DEFAULT 0, created_at TEXT NOT NULL, updated_at TEXT NOT NULL)`);
+    const user = db.prepare('INSERT INTO users (id, username, password_hash, first_name, last_name, is_operator, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    user.run('u-op', 'operator', 'x', 'Op', 'Erator', 1, at, at);
+    user.run('u-lead', 'leader', 'x', 'Lea', 'Der', 0, at, at);
+    const unit = db.prepare('INSERT INTO units (id, code, name, parent_id, owner_user_id, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+    unit.run('G8', 'G8', 'G-8 Comptroller', null, 'u-lead', at);
+    unit.run('T1', 'T1', 'Budget', 'G8', null, at);
+    unit.run('OTHER', 'OTHER', 'Another command', null, null, '2026-02-01T00:00:00.000Z');
+    db.prepare("INSERT INTO personnel_roster (edipi, last_name, first_name, status, source, row_hash, synced_at, created_at, updated_at) VALUES ('1234567890', 'Doe', 'Pat', 'active', 'MCTFS', 'h', ?, ?, ?)").run(at, at, at);
+    db.prepare("INSERT INTO retention_schedules (id, record_type, retain_days, disposition, created_at, updated_at) VALUES ('s1', 'activities', 365, 'destroy', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO legal_holds (id, scope, reason, placed_by, placed_at) VALUES ('h1', 'instance', 'IG inquiry', 'u-op', ?)").run(at);
+  });
+  try {
+    const db = openDatabase(path);
+    const orgs = db.prepare('SELECT id, slug, root_unit_id, status FROM organizations ORDER BY id').all();
+    assert.deepEqual(orgs.map((o) => ({ ...(o as object) })), [
+      { id: 'G8', slug: 'G8', root_unit_id: 'G8', status: 'active' },
+      { id: 'OTHER', slug: 'OTHER', root_unit_id: 'OTHER', status: 'active' },
+    ]);
+    const orgOf = (id: string) => (db.prepare('SELECT org_id FROM units WHERE id = ?').get(id) as { org_id: string }).org_id;
+    assert.equal(orgOf('T1'), 'G8', 'a unit belongs to the organization at the top of its tree');
+    assert.deepEqual(db.prepare('SELECT user_id, role FROM platform_roles').all().map((r) => ({ ...(r as object) })), [{ user_id: 'u-op', role: 'owner' }], 'the operator runs the platform');
+    const owners = db.prepare("SELECT org_id, user_id FROM org_roles WHERE role = 'owner' ORDER BY org_id").all().map((r) => ({ ...(r as object) }));
+    assert.deepEqual(owners, [{ org_id: 'G8', user_id: 'u-lead' }, { org_id: 'OTHER', user_id: 'u-op' }], 'a led command is owned by its leader; an unled one by the former operator, so none is left without');
+    assert.equal((db.prepare("SELECT org_id FROM personnel_roster WHERE edipi = '1234567890'").get() as { org_id: string }).org_id, 'G8', 'the instance roster becomes the oldest organization’s');
+    assert.equal((db.prepare("SELECT org_id FROM retention_schedules WHERE id = 's1'").get() as { org_id: string }).org_id, 'G8');
+    assert.equal((db.prepare("SELECT org_id FROM legal_holds WHERE id = 'h1'").get() as { org_id: string }).org_id, 'G8');
+
+    // From now on the database keeps it so on its own.
+    db.prepare("INSERT INTO units (id, code, name, parent_id, created_at) VALUES ('T2', 'T2', 'Disbursing', 'T1', ?)").run(at);
+    assert.equal(orgOf('T2'), 'G8', 'a new unit joins its parent’s organization');
+    db.prepare("INSERT INTO units (id, code, name, created_at) VALUES ('NEW', 'NEW', 'New command', ?)").run(at);
+    assert.equal(orgOf('NEW'), 'NEW', 'a new top unit founds its own');
+    assert.ok(db.prepare("SELECT 1 FROM organizations WHERE id = 'NEW'").get());
+    assert.throws(() => db.prepare("UPDATE units SET parent_id = 'OTHER' WHERE id = 'T1'").run(), /another organization/, 'and no unit moves between organizations');
+    db.close();
+
+    // A second boot changes nothing.
+    const again = openDatabase(path);
+    assert.equal((again.prepare('SELECT COUNT(*) AS n FROM org_roles').get() as { n: number }).n, 2);
+    again.close();
+  } finally { cleanup(); }
+});

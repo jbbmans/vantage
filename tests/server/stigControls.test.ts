@@ -70,7 +70,7 @@ test('browser backups can be turned off, and when on every other owner hears abo
   const closed = await startApp({ VANTAGE_BROWSER_BACKUPS: 'false' });
   try {
     const op = await closed.setupOperator();
-    const res = await closed.call('GET', '/api/admin/export', { token: op.token });
+    const res = await closed.call('GET', '/api/platform/export', { token: op.token });
     assert.equal(res.status, 403);
     assert.equal(res.body.code, 'browser_backups_off');
   } finally { await closed.close(); }
@@ -79,9 +79,9 @@ test('browser backups can be turned off, and when on every other owner hears abo
   try {
     const op = await open.setupOperator();
     const second = await open.register('secondowner');
-    open.ctx.db.prepare('UPDATE users SET is_operator = 1 WHERE id = ?').run(second.id);
-    assert.equal((await open.call('GET', '/api/admin/export', { token: op.token })).status, 200);
-    const told = open.ctx.db.prepare("SELECT title FROM notifications WHERE user_id = ? AND title LIKE '%downloaded the instance archive%'").get(second.id);
+    open.ctx.db.prepare("INSERT INTO platform_roles (user_id, role, created_at) VALUES (?, 'owner', ?)").run(second.id, new Date().toISOString());
+    assert.equal((await open.call('GET', '/api/platform/export', { token: op.token })).status, 200);
+    const told = open.ctx.db.prepare("SELECT title FROM notifications WHERE user_id = ? AND title LIKE '%downloaded the service archive%'").get(second.id);
     assert.ok(told, 'the other owner is notified');
     assert.equal(open.ctx.db.prepare("SELECT 1 FROM notifications WHERE user_id = ? AND title LIKE '%downloaded%'").get(op.id), undefined, 'not the one who did it');
   } finally { await open.close(); }
@@ -137,16 +137,16 @@ test('direct delivery never connects to a private, loopback or link-local addres
   for (const a of ['8.8.8.8', '2607:f8b0:4004::1a', '::ffff:1.1.1.1']) assert.equal(isPublicAddress(a), true, a);
 });
 
-test('an owner can unlock a locked account', async () => {
+test('Vantage support can unlock a locked account', async () => {
   const app: TestApp = await startApp();
   try {
     const op = await app.setupOperator();
     const m = await app.register('lockedout');
     for (let i = 0; i < 3; i += 1) await app.login('lockedout', 'not-the-password');
     assert.equal((await app.login('lockedout')).status, 429);
-    const users = await app.call('GET', '/api/admin/users', { token: op.token });
-    assert.ok(users.body.users.find((u: { id: string; locked_until: string | null }) => u.id === m.id).locked_until, 'the console shows the lock');
-    assert.equal((await app.call('POST', `/api/org/team/${m.id}/unlock`, { token: op.token })).body.unlocked, true);
+    const users = await app.call('GET', '/api/platform/accounts', { token: op.token });
+    assert.ok(users.body.accounts.find((u: { id: string; locked_until: string | null }) => u.id === m.id).locked_until, 'the admin dashboard shows the lock');
+    assert.equal((await app.call('POST', `/api/platform/accounts/${m.id}/unlock`, { token: op.token })).body.unlocked, true);
     assert.equal((await app.login('lockedout')).status, 200);
     assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'account_unlock'").get());
   } finally { await app.close(); }

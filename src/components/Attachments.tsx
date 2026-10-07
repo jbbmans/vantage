@@ -31,7 +31,7 @@ export function Attachments({ table, id, canEdit }: { table: api.Store; id: stri
   return (
     <Panel
       title="Files"
-      subtitle={enabled ? 'Kept on this server, never sent anywhere else' : 'disabled on this deployment'}
+      subtitle={enabled ? 'Kept in Vantage, never sent anywhere else' : 'turned off on Vantage'}
       action={canEdit && enabled
         ? <Button size="sm" loading={uploading} onClick={() => fileInput.current?.click()}><Paperclip className="h-3.5 w-3.5" />Add</Button>
         : undefined}

@@ -47,7 +47,7 @@ export interface NarrativeOptions {
   names?: AreaNames;
   seed?: number; density?: Density | 'auto'; exclude?: readonly string[]; pin?: readonly string[];
   casework?: CaseWork | null; recentFrom?: string | null;
-  format?: Format; headers?: Record<string, string>; spellOut?: boolean; track?: 'jepes' | 'fitrep';
+  format?: Format; headers?: Record<string, string>; headings?: boolean; spellOut?: boolean; track?: 'jepes' | 'fitrep';
 }
 
 export type Narrative = WrittenNarrative;
@@ -69,7 +69,7 @@ export function composeNarrative(activities: BulletSource[] = [], opts: Narrativ
   return writeNarrative(activities as EntryInput[], {
     areas, labels, limit, periodLabel, metrics, names: opts.names ?? areaNamesFor(areas, fallbackArea),
     seed: opts.seed, density: opts.density, exclude: opts.exclude, pin: opts.pin, casework: opts.casework, recentFrom: opts.recentFrom,
-    format: opts.format, headers: opts.headers, spellOut: opts.spellOut, track: opts.track,
+    format: opts.format, headers: opts.headers, headings: opts.headings, spellOut: opts.spellOut, track: opts.track,
   });
 }
 

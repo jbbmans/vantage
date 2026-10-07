@@ -3,8 +3,8 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { installTelemetry, track } from '@/lib/telemetry';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle, Bell, Building2, Check, ChevronDown, ChevronsLeft, ChevronsRight, ChevronsUpDown, CloudOff, FlaskConical, Keyboard, LifeBuoy, LogOut, Menu as MenuIcon, Moon,
-  Plus, RefreshCw, Search, Settings2, Sparkles, Sun, Users, WifiOff, X,
+  AlertTriangle, Bell, Building2, Check, ChevronDown, ChevronsLeft, ChevronsRight, ChevronsUpDown, CloudOff, FlaskConical, KeyRound, Keyboard, LifeBuoy, LogOut, Menu as MenuIcon, Moon,
+  Plus, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Sun, Users, WifiOff, X,
 } from 'lucide-react';
 import { FOOTER, GROUPS, HOME, groupFor, pageFor, type Count, type NavGroup, type NavPage, type Requirement } from '@/config/nav';
 import { teamSections } from '@/lib/teamAccess';
@@ -202,7 +202,7 @@ function surfaceOf(pathname: string, search: string): string {
   if (under('/reference')) { const tab = new URLSearchParams(search).get('tab'); return tab === 'diagnose' || !tab ? 'diagnose' : 'reference'; }
   const map: Record<string, string> = {
     '': 'dashboard', records: 'records', record: 'records', goals: 'goals', career: 'career',
-    maradmins: 'maradmins', team: 'team', settings: 'settings', operator: 'operator', help: 'help', support: 'help',
+    maradmins: 'maradmins', team: 'team', settings: 'settings', operator: 'operator', console: 'operator', admin: 'operator', help: 'help', support: 'help',
   };
   return map[pathname.split('/')[1] || ''] || 'dashboard';
 }
@@ -281,7 +281,8 @@ export default function AppShell() {
     if (when.notDemo && identity?.demo) return false;
     if (when.demo && !identity?.demo) return false;
     if (when.unit && !identity?.views?.length) return false;
-    if (when.operator && !identity?.user.is_operator) return false;
+    if (when.orgRole && !identity?.orgs?.some((o) => o.status === 'active' && o.permissions.includes('org.view'))) return false;
+    if (when.staff && !identity?.platform?.roles.length) return false;
     if (when.maradmins && !identity?.instance.maradminsEnabled) return false;
     if (when.team && !teams.has(when.team)) return false;
     return true;
@@ -363,7 +364,8 @@ export default function AppShell() {
           </span>
         </div>
         <MenuItem icon={Settings2} onSelect={() => navigate('/settings')}>Settings</MenuItem>
-        {user?.is_operator && !demo ? <MenuItem onSelect={() => navigate('/operator')}>Owner console</MenuItem> : null}
+        {!demo && identity?.orgs?.some((o) => o.status === 'active' && o.permissions.includes('org.view')) ? <MenuItem icon={ShieldCheck} onSelect={() => navigate('/console')}>Owner console</MenuItem> : null}
+        {!demo && identity?.platform?.roles.length ? <MenuItem icon={KeyRound} onSelect={() => navigate('/admin')}>Vantage admin</MenuItem> : null}
         <MenuItem onSelect={toggleTheme} icon={theme === 'dark' ? Sun : Moon}>{theme === 'dark' ? 'Light theme' : 'Dark theme'}</MenuItem>
         <MenuItem icon={Keyboard} onSelect={() => setShortcuts(true)}>Keyboard shortcuts</MenuItem>
         <MenuItem icon={Sparkles} onSelect={openWhatsNew}>What’s new{news.unseen && <><span className="sr-only"> (new)</span><span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" aria-hidden /></>}</MenuItem>
@@ -594,7 +596,7 @@ export default function AppShell() {
           </main>
           <footer className="no-print flex flex-wrap items-center gap-x-4 gap-y-1 px-4 pb-[calc(1.25rem+var(--tabbar,0px))] pt-5 text-xs text-ink-3 sm:px-6 lg:px-10">
             <button type="button" onClick={openWhatsNew} className="flex items-center gap-1.5 rounded transition-colors hover:text-ink" aria-label={`Vantage v${VERSION}. What’s new`} title="What’s new"><Mark size={12} />Vantage v{VERSION}</button>
-            <span>Records stay on this deployment’s server.</span>
+            <span>Your organization’s records are kept apart from every other’s.</span>
             <span className="hidden sm:inline">Not an official DoD or USMC system of record.</span>
           </footer>
         </div>

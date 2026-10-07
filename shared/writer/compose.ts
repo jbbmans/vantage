@@ -28,13 +28,15 @@ export interface WriterOptions {
   format?: Format;
   /** The heading over each area in bullet form. */
   headers?: Record<string, string>;
+  /** Whether the text carries a heading (bullets) or label (paragraph) per area. Section C is one list with none. */
+  headings?: boolean;
   /** Spell out standard acronyms on their first use. */
   spellOut?: boolean;
   track?: 'jepes' | 'fitrep';
 }
 
 /** An entry a rule keeps out of the input, and the rule. */
-export interface Held { key: string; area: string; text: string; reason: string; basis: 'order' | 'guidance' | 'style' | 'data'; cite?: string; sources: string[] }
+export interface Held { key: string; area: string; text: string; reason: string; basis: 'order' | 'guidance' | 'style' | 'data'; cite?: string; sources: string[]; route?: 'pme' | 'other' }
 
 export type SentenceKind = 'entry' | 'group' | 'summary' | 'casework';
 
@@ -179,7 +181,7 @@ function caseworkCandidate(c: CaseWork, area: string): Candidate | null {
 
 interface Chosen { c: Candidate; compact: boolean; pinned: boolean }
 
-interface Layout { areas: readonly string[]; labels: Record<string, string>; headers: Record<string, string>; format: Format; spell: boolean }
+interface Layout { areas: readonly string[]; labels: Record<string, string>; headers: Record<string, string>; headings: boolean; format: Format; spell: boolean }
 
 function assemble(chosen: Chosen[], layout: Layout): { text: string; ordered: Chosen[]; texts: Map<string, string> } {
   const { areas } = layout;
@@ -206,9 +208,10 @@ function assemble(chosen: Chosen[], layout: Layout): { text: string; ordered: Ch
   for (const area of areas) {
     const mine = ordered.filter((x) => x.c.area === area).map((x) => texts.get(x.c.key)!);
     if (!mine.length) continue;
+    const lines = mine.map((t) => `-${t}`).join('\n');
     blocks.push(layout.format === 'bullets'
-      ? `${layout.headers[area] || area}\n${mine.map((t) => `-${t}`).join('\n')}`
-      : `${layout.labels[area] || area.toUpperCase()}: ${mine.join(' ')}`);
+      ? (layout.headings ? `${layout.headers[area] || area}\n${lines}` : lines)
+      : (layout.headings ? `${layout.labels[area] || area.toUpperCase()}: ${mine.join(' ')}` : mine.join(' ')));
   }
   const text = layout.format === 'bullets' ? blocks.join('\n').trim() : blocks.join(' ').replace(/\s{2,}/g, ' ').trim();
   return { text, ordered, texts };
@@ -276,7 +279,7 @@ export function writeNarrative(entries: EntryInput[], opts: WriterOptions): Writ
   const seed = opts.seed ?? 0;
   const exclude = new Set(opts.exclude || []);
   const format: Format = opts.format ?? 'paragraph';
-  const read = entries.map((e) => readEntry(e, { names: opts.names, areas: opts.areas, metrics })).filter((f) => !exclude.has(f.key));
+  const read = entries.map((e) => readEntry(e, { names: opts.names, areas: opts.areas, metrics, track: opts.track })).filter((f) => !exclude.has(f.key));
   // The same work logged twice (same words, numbers and day) counts once; a total built on both would claim double.
   const seen = new Map<string, Fact>();
   for (const f of read) {
@@ -286,12 +289,12 @@ export function writeNarrative(entries: EntryInput[], opts: WriterOptions): Writ
     else if (!first) seen.set(key, f);
   }
   // What a rule keeps out (required annual training) is set aside with the rule, never written and never lost.
-  const held: Held[] = read.filter((f) => f.held && !(opts.pin || []).includes(f.key)).map((f) => ({ key: f.key, area: f.area, text: sentenceFor(f, 'full', seed, format), reason: f.held!.reason, basis: f.held!.basis, cite: f.held!.cite, sources: f.sources }));
+  const held: Held[] = read.filter((f) => f.held && !(opts.pin || []).includes(f.key)).map((f) => ({ key: f.key, area: f.area, text: sentenceFor(f, 'full', seed, format), reason: f.held!.reason, basis: f.held!.basis, cite: f.held!.cite, sources: f.sources, route: f.held!.route }));
   const facts = read.filter((f) => !f.held || (opts.pin || []).includes(f.key));
   const areas = [...opts.areas];
   for (const f of facts) if (!areas.includes(f.area)) areas.push(f.area);
   const o: WriterOptions = { ...opts, areas };
-  const layout: Layout = { areas, labels: opts.labels, headers: opts.headers || {}, format, spell: Boolean(opts.spellOut) };
+  const layout: Layout = { areas, labels: opts.labels, headers: opts.headers || {}, headings: opts.headings ?? true, format, spell: Boolean(opts.spellOut) };
 
   const peakByUnit = new Map<string, number>();
   for (const f of facts) if (f.quantity?.kind === 'item') peakByUnit.set(f.quantity.unit.toLowerCase(), Math.max(peakByUnit.get(f.quantity.unit.toLowerCase()) || 0, f.quantity.n));

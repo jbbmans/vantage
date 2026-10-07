@@ -47,7 +47,7 @@ export default function RecordDetail() {
 
   const bullet = useMemo(() => (a ? composeBullet(a, { style, includeDate: style !== 'resume' }) : ''), [a, style]);
   // The writer's notes for this entry: the same coaching Quick Log and the narrative reviewer give.
-  const coach = useMemo(() => (a ? coachEntry(a) : null), [a]);
+  const coach = useMemo(() => (a ? coachEntry(a, track) : null), [a, track]);
   const gaps = useMemo(() => [...(coach?.held ? [coach.held] : []), ...(coach?.notes || []).map((n) => n.message), ...(a && (!a.eval_area || a.eval_area === 'Unassigned') ? ['Untagged: no evaluation area'] : [])], [coach, a]);
   const score = a ? strength(a) : 0;
   const mine = a?.user_id === identity?.user.id;
@@ -120,7 +120,7 @@ export default function RecordDetail() {
         </div>
 
         <div className="space-y-4">
-          <Panel title="Attachments" subtitle={identity?.instance.attachmentsEnabled ? 'PDFs and images, kept on this server' : 'disabled on this deployment'} action={canEdit && identity?.instance.attachmentsEnabled && !a.deleted_at ? <Button size="sm" loading={uploading} onClick={() => fileInput.current?.click()}><Paperclip className="h-3.5 w-3.5" />Add</Button> : undefined}>
+          <Panel title="Attachments" subtitle={identity?.instance.attachmentsEnabled ? 'PDFs and images, kept in Vantage' : 'turned off on Vantage'} action={canEdit && identity?.instance.attachmentsEnabled && !a.deleted_at ? <Button size="sm" loading={uploading} onClick={() => fileInput.current?.click()}><Paperclip className="h-3.5 w-3.5" />Add</Button> : undefined}>
             <input ref={fileInput} type="file" className="sr-only" aria-label="Attach a file" tabIndex={-1} accept={(files?.allowedTypes || []).join(',')} onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); }} />
             {!identity?.instance.attachmentsEnabled ? <p className="text-sm text-ink-3">Use evidence links instead.</p> : !files?.attachments?.length ? <p className="text-sm text-ink-3">No files yet. Attach the LOA, the screenshot, or the signed sheet. Max {Math.round((files?.maxBytes || 0) / 1_048_576) || 8} MB each.</p> : (
               <ul className="space-y-1.5">{files.attachments.map((f: any) => (

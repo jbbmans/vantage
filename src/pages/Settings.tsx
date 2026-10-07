@@ -224,7 +224,7 @@ function Digest() {
   const days = ['Sunday', 'Monday', 'Tuesday', 'Wednesday', 'Thursday', 'Friday', 'Saturday'];
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Panel title="Weekly email" subtitle={identity!.instance.emailEnabled ? 'what you logged, what is overdue, what is closing' : 'email is not configured on this server'}>
+      <Panel title="Weekly email" subtitle={identity!.instance.emailEnabled ? 'what you logged, what is overdue, what is closing' : 'email is off on Vantage right now'}>
         <Switch checked={digest.enabled} onChange={(v) => save.mutate({ digest: { ...digest, enabled: v } })} label="Send me a weekly digest" description={identity!.user.email ? `To ${identity!.user.email}` : 'Add an email in Profile first.'} disabled={!identity!.instance.emailEnabled || !identity!.user.email} />
         <div className="mt-3 grid grid-cols-2 gap-3"><Field label="Day"><Select value={String(digest.weekday)} onValueChange={(v) => save.mutate({ digest: { ...digest, weekday: Number(v) } })} options={days.map((d, i) => ({ value: String(i), label: d }))} /></Field><Field label="Hour" hint="server time zone"><Select value={String(digest.hour)} onValueChange={(v) => save.mutate({ digest: { ...digest, hour: Number(v) } })} options={Array.from({ length: 24 }, (_, h) => ({ value: String(h), label: `${String(h).padStart(2, '0')}:00` }))} /></Field></div>
         <Button className="mt-3" onClick={async () => { setSending(true); try { await api.digestSendNow(); toast.success('Digest sent.'); } catch (e) { toast.error(api.errorText(e)); } finally { setSending(false); } }} loading={sending} disabled={!identity!.instance.emailEnabled || !identity!.user.email}><Mail className="h-4 w-4" />Send one now</Button>

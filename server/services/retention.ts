@@ -10,6 +10,7 @@ export type Disposition = 'destroy' | 'anonymize' | 'review';
 
 export interface RetentionSchedule {
   id: string;
+  org_id: string;
   record_type: string;
   retain_days: number;
   disposition: Disposition;
@@ -30,6 +31,8 @@ export interface LegalHold {
   placed_at: string;
   released_by: string | null;
   released_at: string | null;
+  /** The organization the hold is for; none for a platform-wide hold, which covers every organization. */
+  org_id: string | null;
 }
 
 /** The date column that starts the retention clock for each kind of record. */
@@ -59,56 +62,67 @@ export const RETAINABLE_TYPES = RECORD_TABLE_NAMES.filter((t) => CLOCK[t]);
 
 export const HOLDABLE_TYPES = [...RECORD_TABLE_NAMES, 'work_items', 'source_files'] as const;
 
-export function listSchedules(ctx: AppContext): RetentionSchedule[] {
-  return ctx.db.prepare('SELECT * FROM retention_schedules ORDER BY record_type').all() as RetentionSchedule[];
+/**
+ * An organization's schedules govern what it holds: the records shared with its units. A Marine's private entries are
+ * theirs, not the organization's, and no organization's schedule reaches them (ADR-0006).
+ */
+export function listSchedules(ctx: AppContext, orgId: string): RetentionSchedule[] {
+  return ctx.db.prepare('SELECT * FROM retention_schedules WHERE org_id = ? ORDER BY record_type').all(orgId) as RetentionSchedule[];
 }
 
 export function saveSchedule(
   ctx: AppContext,
+  orgId: string,
   input: { record_type: string; retain_days: number; disposition: Disposition; authority?: string | null; notes?: string | null; enabled?: boolean },
   actorId: string,
 ): RetentionSchedule {
   if (!RETAINABLE_TYPES.includes(input.record_type as RecordTable)) throw badRequest(`No retention clock is defined for ${input.record_type}.`);
   if (!Number.isInteger(input.retain_days) || input.retain_days < 1) throw badRequest('Retention has to be at least one day.');
   const at = now();
-  const existing = ctx.db.prepare('SELECT * FROM retention_schedules WHERE record_type = ?').get(input.record_type) as RetentionSchedule | undefined;
+  const existing = ctx.db.prepare('SELECT * FROM retention_schedules WHERE org_id = ? AND record_type = ?').get(orgId, input.record_type) as RetentionSchedule | undefined;
   const id = existing?.id || newId();
   ctx.db.prepare(`
-    INSERT INTO retention_schedules (id, record_type, retain_days, disposition, authority, notes, enabled, created_at, updated_at)
-    VALUES (@id, @record_type, @retain_days, @disposition, @authority, @notes, @enabled, @at, @at)
-    ON CONFLICT(record_type) DO UPDATE SET
+    INSERT INTO retention_schedules (id, org_id, record_type, retain_days, disposition, authority, notes, enabled, created_at, updated_at)
+    VALUES (@id, @org_id, @record_type, @retain_days, @disposition, @authority, @notes, @enabled, @at, @at)
+    ON CONFLICT(org_id, record_type) DO UPDATE SET
       retain_days = excluded.retain_days, disposition = excluded.disposition, authority = excluded.authority,
       notes = excluded.notes, enabled = excluded.enabled, updated_at = excluded.updated_at`)
-    .run({ id, record_type: input.record_type, retain_days: input.retain_days, disposition: input.disposition,
+    .run({ id, org_id: orgId, record_type: input.record_type, retain_days: input.retain_days, disposition: input.disposition,
            authority: input.authority ?? null, notes: input.notes ?? null, enabled: input.enabled ? 1 : 0, at });
   audit(ctx, {
-    actor_id: actorId, action: 'retention_schedule_saved', entity: 'retention_schedules', entity_id: id,
+    actor_id: actorId, action: 'retention_schedule_saved', entity: 'retention_schedules', entity_id: id, org_id: orgId,
     detail: `${input.record_type}: ${input.retain_days}d ${input.disposition}${input.enabled ? ' enabled' : ' disabled'}${input.authority ? ` (${input.authority})` : ''}`,
   });
   return ctx.db.prepare('SELECT * FROM retention_schedules WHERE id = ?').get(id) as RetentionSchedule;
 }
 
-export function openHolds(ctx: AppContext): LegalHold[] {
-  return ctx.db.prepare('SELECT * FROM legal_holds WHERE released_at IS NULL ORDER BY placed_at DESC').all() as LegalHold[];
+/** The open holds that bind an organization: its own, and any platform-wide hold. With no organization, every open hold. */
+export function openHolds(ctx: AppContext, orgId?: string | null): LegalHold[] {
+  if (orgId === undefined) return ctx.db.prepare('SELECT * FROM legal_holds WHERE released_at IS NULL ORDER BY placed_at DESC').all() as LegalHold[];
+  return ctx.db.prepare('SELECT * FROM legal_holds WHERE released_at IS NULL AND (org_id IS ? OR org_id IS NULL) ORDER BY placed_at DESC').all(orgId) as LegalHold[];
 }
 
-export function placeHold(ctx: AppContext, input: { scope: LegalHold['scope']; subject_id?: string | null; record_type?: string | null; reason: string }, actorId: string): LegalHold {
+export function placeHold(ctx: AppContext, orgId: string | null, input: { scope: LegalHold['scope']; subject_id?: string | null; record_type?: string | null; reason: string }, actorId: string): LegalHold {
   if (!input.reason?.trim()) throw badRequest('A hold needs a reason.');
   if (input.scope === 'user' && !input.subject_id) throw badRequest('A user hold needs the person it covers.');
   if (input.scope === 'record_type' && !input.record_type) throw badRequest('A record-type hold needs the record type it covers.');
   if (input.scope === 'record_type' && !(HOLDABLE_TYPES as readonly string[]).includes(String(input.record_type))) throw badRequest(`A hold cannot name ${input.record_type}: nothing by that name is kept here.`);
   const id = newId(); const at = now();
-  ctx.db.prepare(`INSERT INTO legal_holds (id, scope, subject_id, record_type, reason, placed_by, placed_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
-    .run(id, input.scope, input.subject_id ?? null, input.record_type ?? null, input.reason.trim().slice(0, 1000), actorId, at);
-  audit(ctx, { actor_id: actorId, action: 'legal_hold_placed', entity: 'legal_holds', entity_id: id, subject_id: input.subject_id ?? null, detail: `${input.scope}: ${input.reason.slice(0, 200)}` });
+  if (orgId && input.scope === 'user' && !ctx.db.prepare('SELECT 1 FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND u.org_id = ?').get(input.subject_id, orgId)) {
+    throw badRequest('A hold can name only a person in this organization.');
+  }
+  ctx.db.prepare(`INSERT INTO legal_holds (id, scope, subject_id, record_type, reason, placed_by, placed_at, org_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(id, input.scope, input.subject_id ?? null, input.record_type ?? null, input.reason.trim().slice(0, 1000), actorId, at, orgId);
+  audit(ctx, { actor_id: actorId, action: 'legal_hold_placed', entity: 'legal_holds', entity_id: id, subject_id: input.subject_id ?? null, org_id: orgId, detail: `${input.scope}: ${input.reason.slice(0, 200)}` });
   return ctx.db.prepare('SELECT * FROM legal_holds WHERE id = ?').get(id) as LegalHold;
 }
 
-export function releaseHold(ctx: AppContext, id: string, actorId: string): void {
-  const hold = ctx.db.prepare('SELECT * FROM legal_holds WHERE id = ? AND released_at IS NULL').get(id) as LegalHold | undefined;
+export function releaseHold(ctx: AppContext, orgId: string | null, id: string, actorId: string): void {
+  // An organization releases only its own holds; a platform-wide hold is the platform's to release.
+  const hold = ctx.db.prepare('SELECT * FROM legal_holds WHERE id = ? AND released_at IS NULL AND org_id IS ?').get(id, orgId) as LegalHold | undefined;
   if (!hold) throw badRequest('No open hold with that id.');
   ctx.db.prepare('UPDATE legal_holds SET released_by = ?, released_at = ? WHERE id = ?').run(actorId, now(), id);
-  audit(ctx, { actor_id: actorId, action: 'legal_hold_released', entity: 'legal_holds', entity_id: id, subject_id: hold.subject_id, detail: hold.reason.slice(0, 200) });
+  audit(ctx, { actor_id: actorId, action: 'legal_hold_released', entity: 'legal_holds', entity_id: id, subject_id: hold.subject_id, org_id: orgId, detail: hold.reason.slice(0, 200) });
 }
 
 export interface DispositionLine {
@@ -122,20 +136,22 @@ export interface DispositionLine {
   skipped?: string;
 }
 
-export function runDisposition(ctx: AppContext, opts: { dryRun: boolean; actorId: string | null; at?: Date }): { lines: DispositionLine[]; blocked: string | null } {
+export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: boolean; actorId: string | null; at?: Date }): { lines: DispositionLine[]; blocked: string | null } {
   const at = opts.at ?? new Date();
-  const holds = holdState(ctx);
+  const holds = holdState(ctx, opts.orgId);
   const stamp = now();
 
   if (holds.instance) {
-    ctx.db.prepare(`INSERT INTO disposition_runs (id, actor_id, dry_run, record_type, disposition, eligible, acted, held, detail, at)
-                    VALUES (?, ?, ?, '(all)', 'review', 0, 0, 0, ?, ?)`)
-      .run(newId(), opts.actorId, opts.dryRun ? 1 : 0, 'an instance-wide legal hold is open', stamp);
-    return { lines: [], blocked: 'An instance-wide legal hold is open. Nothing is disposed of while it stands.' };
+    ctx.db.prepare(`INSERT INTO disposition_runs (id, actor_id, dry_run, record_type, disposition, eligible, acted, held, detail, at, org_id)
+                    VALUES (?, ?, ?, '(all)', 'review', 0, 0, 0, ?, ?, ?)`)
+      .run(newId(), opts.actorId, opts.dryRun ? 1 : 0, 'an organization-wide legal hold is open', stamp, opts.orgId);
+    return { lines: [], blocked: 'An organization-wide legal hold is open. Nothing is disposed of while it stands.' };
   }
 
+  // Only what the organization holds: records shared with its units.
+  const orgUnits = JSON.stringify((ctx.db.prepare('SELECT id FROM units WHERE org_id = ?').all(opts.orgId) as Array<{ id: string }>).map((u) => u.id));
   const lines: DispositionLine[] = [];
-  for (const schedule of listSchedules(ctx)) {
+  for (const schedule of listSchedules(ctx, opts.orgId)) {
     if (!schedule.enabled) continue;
     const clock = CLOCK[schedule.record_type];
     if (!clock) continue;
@@ -152,12 +168,13 @@ export function runDisposition(ctx: AppContext, opts: { dryRun: boolean; actorId
     // An anonymized row stays past the cutoff for good. It is done, not due again at every run.
     const columns = schedule.disposition === 'anonymize' ? identifyingColumns(ctx, table) : [];
     const done = columns.length ? ` AND NOT (${columns.map((c) => `${c} IS ?`).join(' AND ')})` : '';
-    const due = `${clock} IS NOT NULL AND ${clock} < ?${exclusion}${done}`;
-    const params = [cutoff, ...heldUsers, ...columns.map(() => REDACTED)];
+    const owned = ` AND visibility = 'unit' AND unit_id IN (SELECT value FROM json_each(?))`;
+    const due = `${clock} IS NOT NULL AND ${clock} < ?${owned}${exclusion}${done}`;
+    const params = [cutoff, orgUnits, ...heldUsers, ...columns.map(() => REDACTED)];
 
     const eligible = (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${due}`).get(...params) as { n: number }).n;
     const held = heldUsers.length
-      ? (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${clock} IS NOT NULL AND ${clock} < ? AND user_id IN (${heldUsers.map(() => '?').join(',')})`).get(cutoff, ...heldUsers) as { n: number }).n
+      ? (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${table} WHERE ${clock} IS NOT NULL AND ${clock} < ?${owned} AND user_id IN (${heldUsers.map(() => '?').join(',')})`).get(cutoff, orgUnits, ...heldUsers) as { n: number }).n
       : 0;
 
     let acted = 0;
@@ -174,17 +191,17 @@ export function runDisposition(ctx: AppContext, opts: { dryRun: boolean; actorId
     }
 
     lines.push({ record_type: schedule.record_type, disposition: schedule.disposition, retain_days: schedule.retain_days, cutoff, eligible, held, acted });
-    ctx.db.prepare(`INSERT INTO disposition_runs (id, actor_id, dry_run, record_type, disposition, eligible, acted, held, detail, at)
-                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
-      .run(newId(), opts.actorId, opts.dryRun ? 1 : 0, schedule.record_type, schedule.disposition, eligible, acted, held, `cutoff ${cutoff}${schedule.authority ? `; ${schedule.authority}` : ''}`, stamp);
+    ctx.db.prepare(`INSERT INTO disposition_runs (id, actor_id, dry_run, record_type, disposition, eligible, acted, held, detail, at, org_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+      .run(newId(), opts.actorId, opts.dryRun ? 1 : 0, schedule.record_type, schedule.disposition, eligible, acted, held, `cutoff ${cutoff}${schedule.authority ? `; ${schedule.authority}` : ''}`, stamp, opts.orgId);
   }
 
   if (!opts.dryRun && lines.some((l) => l.acted > 0)) {
-    audit(ctx, { actor_id: opts.actorId, action: 'disposition_run', detail: lines.filter((l) => l.acted).map((l) => `${l.record_type}: ${l.disposition} ${l.acted}`).join('; ') });
+    audit(ctx, { actor_id: opts.actorId, action: 'disposition_run', org_id: opts.orgId, detail: lines.filter((l) => l.acted).map((l) => `${l.record_type}: ${l.disposition} ${l.acted}`).join('; ') });
   }
   return { lines, blocked: null };
 }
 
-export function dispositionHistory(ctx: AppContext, limit = 100) {
-  return ctx.db.prepare('SELECT * FROM disposition_runs ORDER BY at DESC LIMIT ?').all(limit);
+export function dispositionHistory(ctx: AppContext, orgId: string, limit = 100) {
+  return ctx.db.prepare('SELECT * FROM disposition_runs WHERE org_id = ? ORDER BY at DESC LIMIT ?').all(orgId, limit);
 }

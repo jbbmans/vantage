@@ -1,6 +1,84 @@
 # Progress
 
-_Updated 2026-10-04_
+_Updated 2026-10-07_
+
+## What changed (2026-10-07: one central service, three tiers of authority, two consoles)
+
+Vantage is no longer installed per command. It runs as one service for many commands ([ADR-0006](engineering/ADR/0006-centralized-tenancy-and-authority.md)).
+
+**Tenancy.**
+- Organizations are tenants (`organizations`, `units.org_id`). Triggers keep every new unit in its parent's organization, make a top-level unit found one, and refuse a move between organizations.
+- The roster feed, retention schedules, holds, disposition runs and the audit trail carry their organization. Audit entries seal it into the hash only when set, so older entries still verify.
+- Migration `015_organizations` converts a single-instance database in place: each top-level unit becomes an organization, former operators become platform owners, and each organization's owner is its top unit's leader (the former operators where it had none). An instance archive from before organizations is adopted the same way on import.
+
+**Authority** (`shared/permissions.ts`, `server/authz/scope.ts`).
+- Platform roles (owner, admin, support, auditor) replace the Instance Operator flag, which is no longer read.
+- Organization roles (owner, admin, records, auditor) hold only the structural unit bits, never record reading. Organization owners and admins staff any role below Unit Leader. An admin cannot give themselves a role that reads records; an owner who does is reported to the other owners.
+- Vantage access (`server/services/access.ts`) is the only way staff see inside an organization: requested with a reason, approved by an owner (or notify-only, by the organization's choice), read-only, at most 24 hours, revocable, audited in both trails.
+- Unit and organization roles can end on a date. Scope ignores an expired grant at once; a sweep every minute removes it and audits the end.
+- "Why can they?" (`server/services/explain.ts`) lists every source of a person's permissions in each unit.
+- One organization's roster extract cannot change or separate an account that belongs only to another. Separation ends that organization's memberships (restorable on return) and deactivates the account only when it belongs nowhere else.
+- Direct enrollment of an account the enroller does not already lead is refused for everyone; people join by invitation or join code.
+- CAC and OIDC roster provisioning seat the new account in the organization whose roster lists it.
+
+**Two consoles, two APIs.**
+- The admin dashboard (`admin.html`, `/admin`, `/api/platform`) is for Vantage staff. The owner console (`/console/:orgId`, `/api/orgs/:orgId`) is for an organization's owners, administrators, records officers and auditors.
+- Each API answers only on its own face's host. `VANTAGE_ADMIN_URL` gives the dashboard a host of its own, and old `/operator?tab=` links land on whichever console now holds the tab.
+- `/api/admin` and the account actions under `/api/org/team` are gone. Account resets moved to `/api/platform/accounts`.
+
+**Tests.**
+- `tests/server/tenancy.test.ts` covers tenant isolation, the access flow (approve, revoke, notify mode, expiry), organization-role staffing and self-grants, time-bound roles, the explainer, a roster scoped to its own people, and support's limits.
+- The 015 migration is tested from a legacy-shaped database.
+- `hosts.test.ts` covers an admin dashboard with a host of its own.
+- Browser specs cover both consoles and the redirects between them.
+- Existing tests now seat people through join codes or the service layer, since direct enrollment needs consent.
+
+
+## What changed (2026-10-05: cradle to grave)
+
+**One Marine through the whole lifecycle** (`tests/server/lifecycle.test.ts`). The test takes one Marine through eight stages in the real application, each building on the last:
+1. joins by code, and the personnel feed sets their rank;
+2. claims and verifies a case and keeps the draft, and Quick Logs;
+3. the lead sees the counts, not the private entry;
+4. JEPES input is written in Appendix E's form;
+5. the feed promotes them to Sgt, and the same entries become MRO worksheet input;
+6. they leave the unit: held work is released, and the record stays theirs;
+7. they export their record, and the feed separates them;
+8. nothing is disposed of by default, and the audit chain verifies.
+
+Writing it confirmed two behaviours:
+- the Marine who verifies is credited with the verification, and whoever resolves is credited with the resolution;
+- leaving a unit ends the Marine's sessions.
+
+## What changed (2026-10-05: FITREP, and the two open data bugs)
+
+**FITREP input, checked against the form and the MARADMINs.** marines.mil refused this environment, so MCO 1610.7B was not read directly. The form (NAVMC 10835), the A-PES MRO worksheet as reproduced in an NPS thesis, the NPS FITREP bulletin and MARADMINs 308/23, 634/23, 575/24, 630/24, 066/26 and 209/26 (on a verbatim mirror) were. What changed:
+- **The worksheet's form.** FITREP input is the MRO worksheet's: a Section C draft for its major accomplishments block, and its PME/self-education and Other blocks beside it (`shared/writer/worksheet.ts`, on Analysis and in the PDF).
+  - **Section C** is one list of dash bullets with no headings, as the NPS bulletin writes it. It is ordered by the section each line gives evidence for, D to H. The studio shows the section beside each group; Copy and the PDF leave it out.
+  - **Routing.** On FITREP, PME completions and Volunteer Service entries go to their own blocks instead of spending Section C's characters. They can still be kept in Section C.
+- **One reading of the fourteen attributes** (`shared/writer/attributes.ts`), from the verb and then the words that name an attribute:
+  - JEPES command input or FITREPs written are Evaluations, so Section H;
+  - a course is PME;
+  - "checked on", welfare and barracks are Ensuring Well-Being;
+  - decisions are Decision Making Ability; recommendations are Judgment;
+  - "no-notice" and "48-hour window" add Effectiveness Under Stress.
+  An untagged FITREP entry sits in its attribute's section. Readiness coverage is counted from the same reading, replacing a keyword list that disagreed with the draft. Attribute names are as the form prints them ("Ensuring Well-Being of Subordinates", "Professional Military Education (PME)").
+- **Section H.** It was missing from the writer: a Sgt's entry tagged Evaluation Responsibilities was reported as untagged and filed by its verb. It is now an area of its own. Readiness quotes the form ("serving as a reporting official") and treats H as applying only then.
+- **Advice corrected:**
+  - **PME.** "Complete resident PME for your grade" was shown to everyone, including Marines whose distance PME was complete. Readiness now asks for PME status when it is blank. When status is none, it quotes the PME attribute's baseline from the form. For a Sgt with distance PME, it cites MARADMIN 630/24: the distance program plus Sergeants School or its seminar.
+  - **Section references.** The outcome advice named Section I (the reporting senior's comments); it now names Section C.
+  - **Fitness.** Fitness scores are placed in Section A, item 8.
+  - **Empty sections.** Five near-identical "nothing tagged" cards became one. Missing attributes come with what evidence for each looks like (labelled coaching).
+- **Reporting period end.** When it is blank, Readiness says how annual periods end. It offers the date only where a MARADMIN confirms it (active Capt, Maj, LtCol, E-9: 634/23). The other grades follow MCO 1610.7B Appendix A, which was seen only in an excerpt.
+- **JEPES citations kept to JEPES.** On FITREP input, holds for annual training and earlier awards no longer cite MCO 1616.1. The AI draft prompt follows the same form.
+- **The demo's section lead (SSgt Diaz) has a FITREP record**, so the FITREP side can be explored.
+- **Smaller fixes.** Today's readiness reminders link straight to `/career/readiness`. The PDF names its sections in each order's terms.
+
+**The two open data bugs from the audit, fixed** (`docs/AUDIT-2026-10-03.md`):
+- **Separated on first sighting.** A personnel extract that lists someone for the first time, already Separated, now turns off the active account their EDIPI is on, within the mass-separation guard. Those accounts count as active before the extract, and a held row is not written, so the next extract raises it again.
+- **One document number, two reports.** An import row whose report shares under half its columns with the matched case's report is refused, not written over that case. The preview says how to bring both in. A re-export of the same report with a column added still updates. The import wizard can now key a sheet by a second column.
+
+**Types.** The import wizard and the roster console are typed; explicit `any` in the client went from 212 to 186. Typing the wizard found telemetry that always reported 0 unmapped columns (it read `.length` off a number).
 
 ## What changed (2026-10-04: the narrative writer)
 
@@ -138,11 +216,11 @@ roster members, and be the only way in (`VANTAGE_OIDC_EXCLUSIVE`). See `docs/cac
 **Types.** The case page, assigned work, team workload, the record stores, the roster, a member's page, the org and
 roles now have one shared response type each, which the server's builders are checked against, so a change on one
 side the other does not expect fails the typecheck. Doing so found a counseling list that offered "for <name>" from a
-field the server never sent (it sends it now). Explicit `any` went from 323 to 221 and cannot grow: `npm run lint`
+field the server never sent (it sends it now). Explicit `any` went from 323 to 221 (186 in the client by 2026-10-05) and cannot grow: `npm run lint`
 fails when a directory holds more than its budget in `scripts/any-budget.json`.
 
 **Still open.** PostgreSQL (and with it running more than one server process), SAML, and the remaining `any` in the
-owner console and import screens. Owner decisions outside the code are unchanged (below).
+owner console's retention and privacy panels. Owner decisions outside the code are unchanged (below).
 
 ## Earlier (2026-09-25)
 
@@ -214,8 +292,8 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **596 / 596 pass** (2026-10-04) |
-| `npm run test:browser` (Playwright, Chromium, built client) | **103 / 103 pass** (2026-10-04) |
+| `npm test` (server suite, in-memory SQLite) | **607 / 607 pass** (2026-10-05) |
+| `npm run test:browser` (Playwright, Chromium, built client) | **104 / 104 pass** (2026-10-05) |
 | Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference, the public page and the security, privacy, accessibility and changes pages |
 | `npm audit` | 0 vulnerabilities |
 

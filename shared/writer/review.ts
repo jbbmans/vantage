@@ -1,5 +1,5 @@
 import { CLICHE, FIRST_PERSON, GLOSSARY, PASSIVE, RS_JUDGMENT, SUPERLATIVE, VAGUE, WEAK_OPENERS } from './lexicon.ts';
-import type { AreaKind, AreaNames, Fact } from './facts.ts';
+import { nameOf, type AreaKind, type AreaNames, type Fact } from './facts.ts';
 import type { Held, Sentence } from './compose.ts';
 
 export type FindingTone = 'fix' | 'consider' | 'good';
@@ -38,6 +38,7 @@ export const AREA_PROMPTS: Record<AreaKind, { ask: string; prompt: string }> = {
   leadership: { ask: 'Did you train, mentor, brief or look after anyone, or lead a detail, a working party or PT? Log it with how many Marines.', prompt: 'Trained ' },
   character: { ask: 'Extra work taken on unasked, volunteering, sustained effort, doing the right thing when it cost something. Log one with what it showed.', prompt: 'Volunteered ' },
   intellect: { ask: 'Courses, PME and certifications, and decisions you made or recommended that held up.', prompt: 'Completed ' },
+  evaluations: { ask: 'Evaluations you were responsible for (FITREPs as reporting senior or reviewing officer, JEPES command input, proficiency and conduct marks): how many, and whether they were on time.', prompt: 'Submitted ' },
 };
 
 const grade = (score: number, any: boolean): Review['grade'] => (!any ? 'Empty' : score >= 85 ? 'Strong' : score >= 70 ? 'Solid' : score >= 50 ? 'Needs work' : 'Thin');
@@ -45,7 +46,7 @@ const pct = (n: number, d: number) => (d ? n / d : 0);
 const short = (s: string, n = 60) => (s.length > n ? `${s.slice(0, n - 1).trimEnd()}…` : s);
 
 function kindOf(area: string, names: AreaNames): AreaKind {
-  for (const k of Object.keys(names) as AreaKind[]) if (names[k] === area) return k;
+  for (const k of Object.keys(names) as AreaKind[]) if (nameOf(names, k) === area) return k;
   return 'mission';
 }
 
@@ -78,6 +79,8 @@ export function reviewWriting(n: Written, ctx: { areas: readonly string[]; label
 
   if (!n.fits) findings.push({ id: 'over', tone: 'fix', basis: 'data', title: `${n.length - n.limit} characters over the limit`, detail: 'Pinned sentences are kept even when they do not fit. Unpin one, or leave one out.' });
   for (const h of n.held) {
+    // Routed to another block of the worksheet: nothing to fix.
+    if (h.route) continue;
     findings.push({ id: `held:${h.key}`, tone: 'consider', basis: h.basis, cite: h.cite, title: `Held back: “${short(h.text, 52)}”`, detail: `${h.reason} Keep it from Left out if your chain wants it anyway.`, sources: h.sources, area: h.area });
   }
 

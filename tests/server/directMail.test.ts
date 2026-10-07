@@ -2,7 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { createServer, type Server, type Socket } from 'node:net';
 import { createHash, createPublicKey, verify } from 'node:crypto';
-import { startApp, type TestApp } from './helpers.ts';
+import { startApp, enroll, type TestApp } from './helpers.ts';
 import { dkimKey, requiredRecords, probePath, heloName, mergeSpf, smtpErrorMessage } from '../../server/services/directMail.ts';
 import { createMailer } from '../../server/services/email.ts';
 
@@ -163,7 +163,7 @@ test('the path check rejects SMTP refusals and early disconnects', async (t) => 
 });
 
 test('mail goes straight to the receiving server, DKIM-signed for the domain, with a reply address', async () => {
-  const res = await app.call('POST', '/api/admin/email/test', { token: op.token, body: { to: 'avery@example.test' } });
+  const res = await app.call('POST', '/api/platform/email/test', { token: op.token, body: { to: 'avery@example.test' } });
   assert.equal(res.status, 200, JSON.stringify(res.body));
   const got = mx.received.at(-1)!;
   assert.equal(got.from, 'no-reply@vantage.test');
@@ -180,13 +180,13 @@ test('mail goes straight to the receiving server, DKIM-signed for the domain, wi
 
 test('a refusal is final, and a “try later” is queued encrypted and retried', async () => {
   mx.reply('550 5.1.1 no such user');
-  const refused = await app.call('POST', '/api/admin/email/test', { token: op.token, body: { to: 'nobody@example.test' } });
+  const refused = await app.call('POST', '/api/platform/email/test', { token: op.token, body: { to: 'nobody@example.test' } });
   assert.equal(refused.status, 400);
   assert.match(refused.body.error, /550/);
   assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM email_queue').get() as { n: number }).n, 0, 'a permanent refusal is not retried');
 
   mx.reply('451 4.7.1 greylisted, try again later');
-  const later = await app.call('POST', '/api/admin/email/test', { token: op.token, body: { to: 'later@example.test' } });
+  const later = await app.call('POST', '/api/platform/email/test', { token: op.token, body: { to: 'later@example.test' } });
   assert.equal(later.status, 200);
   assert.equal(later.body.queued, true);
   const row = app.ctx.db.prepare('SELECT * FROM email_queue').get() as { payload: string; log_id: string };
@@ -205,7 +205,7 @@ test('a refusal is final, and a “try later” is queued encrypted and retried'
 });
 
 test('the owner sees the records and the path in one place', async () => {
-  const res = await app.call('GET', '/api/admin/email', { token: op.token });
+  const res = await app.call('GET', '/api/platform/email', { token: op.token });
   assert.equal(res.status, 200);
   assert.equal(res.body.provider, 'direct');
   assert.equal(res.body.domain, 'vantage.test');
@@ -262,10 +262,7 @@ test('switching providers still expires queued mail before its next scheduled at
 test('a leader emails the team: one copy each, replies to the leader, and everyone sees it in Vantage', async () => {
   const withEmail = await app.register('teamwithmail', { email: 'with.mail@example.test' });
   const noEmail = await app.register('teamnomail');
-  for (const u of [withEmail, noEmail]) {
-    const r = await app.call('POST', '/api/org/units/G8/members', { token: op.token, body: { user_id: u.id } });
-    assert.equal(r.status, 201, JSON.stringify(r.body));
-  }
+  for (const u of [withEmail, noEmail]) await enroll(app, op.token, 'G8', u.id);
   const audience = await app.call('GET', '/api/org/units/G8/message', { token: op.token });
   assert.deepEqual(audience.body, { members: 2, withEmail: 1, appOnly: 1, emailEnabled: true, limit: 300 });
 

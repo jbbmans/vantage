@@ -30,10 +30,10 @@ with the reason.
 | Team: roster, unit dashboard, invitations, roles, units, access log | `/team` | KEEP | Unchanged. | `04-team`, `org.test.ts` |
 | Team: workload | Team → Workload (default tab), leader Today | new | Unassigned, waiting, blocked and aging work, per-person counts beside definitions and limits. | `record.test.ts`, `22-demo` |
 | Settings: security (passkeys, TOTP, sessions), appearance, personal export | `/settings` | KEEP | Personal export now also includes contributions, drafts and the career plan. | `03-security`, `09-export` |
-| Owner console: settings, AI allowlist, accounts, audit chain, backup, export/import, usage, governance (retention, holds, roster, privacy inventory) | `/operator` | KEEP | New tables are registered in the privacy inventory and the instance export. | `18-governance`, `16-usage` |
-| Support queue | Settings / owner console | KEEP | Closed in the synthetic demo. | `support.test.ts` |
+| Owner console → split (ADR-0006): the **admin dashboard** (`/admin`) has settings, AI allowlist, accounts' sign-in help, audit chain, backup, export/import, usage; the **owner console** (`/console/:org`) has each organization's people, roles, units, roster, retention, holds, privacy inventory and audit | `/operator` redirects by tab | KEEP | New tables are registered in the privacy inventory and the instance export. | `18-governance`, `16-usage` |
+| Support queue | Support / admin dashboard | KEEP | Closed in the synthetic demo. | `support.test.ts` |
 | CAC / PIV sign-in (direct mTLS, trusted proxy) | Sign-in | KEEP | Off by default. Test certificates regenerated: the originals expired two days after issue. | `cac.test.ts` |
-| Authoritative personnel roster | Owner console | KEEP | Unchanged. | `personnel.test.ts` |
+| Authoritative personnel roster | Owner console | KEEP | Per organization now; an extract speaks only for its own people. | `personnel.test.ts` |
 | GenAI.mil assistance | Contextual buttons | KEEP | Off by default; refused in the synthetic demo. | `07-ai`, `ai.test.ts` |
 | Offline Quick Log outbox | Service worker + IndexedDB | KEEP | Unchanged. | `05-offline` |
 | Public site, `/display`, `/about`, prerender | Signed-out accounts instance | KEEP | A demonstration adapter, not part of the enterprise core. Four of its tests were already failing on `main` (see PROGRESS). | `20-public-site` |

@@ -1,6 +1,6 @@
 import { test, expect, devices } from '@playwright/test';
 import type { Locator } from '@playwright/test';
-import { ensureSetup, loginAs, OPERATOR } from './fixtures';
+import { ensureSetup, confirmSudoIfAsked, loginAs, OPERATOR } from './fixtures';
 
 test.use({ ...devices['Pixel 7'] });
 
@@ -45,9 +45,10 @@ test('a tab strip too wide for the screen scrolls, and shows the tab you are on'
   await active.waitFor();
   await assertOnScreen(active, 'the page you are on');
 
-  // The owner console's sections, a strip of their own on a phone, keep the page you are on in view the same way.
-  await page.goto('/operator?tab=data');
-  const section = page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Backup and move' });
+  // The admin dashboard's sections, a strip of their own on a phone, keep the page you are on in view the same way.
+  await page.goto('/admin/data');
+  await confirmSudoIfAsked(page);
+  const section = page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Backup and recovery' });
   await section.waitFor();
   await assertOnScreen(section, 'the console section you are on');
 });

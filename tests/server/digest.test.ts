@@ -34,7 +34,7 @@ test('digest preview composes the week and sends on the configured slot only', a
 });
 
 test('the operator can send themselves a test email', async () => {
-  const t = await app.call('POST', '/api/admin/email/test', { token: op.token, body: {} });
+  const t = await app.call('POST', '/api/platform/email/test', { token: op.token, body: {} });
   assert.equal(t.status, 200);
   assert.equal(app.ctx.mailer.outbox.at(-1)!.subject, 'Vantage email test');
 });

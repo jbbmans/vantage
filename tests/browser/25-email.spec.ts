@@ -10,13 +10,13 @@ test('email checks retain DNS results while test sends refresh the queue and vis
     records, path: null, queue: { waiting: 0, oldest: null as string | null },
     recent: [] as Array<{ to_address: string; kind: string; status: string; error: string; created_at: string }>,
   };
-  await page.route('**/api/admin/email', (route) => route.fulfill({ json: setup }));
-  await page.route('**/api/admin/email/check', (route) => route.fulfill({ json: {
+  await page.route('**/api/platform/email', (route) => route.fulfill({ json: setup }));
+  await page.route('**/api/platform/email/check', (route) => route.fulfill({ json: {
     ...setup, records: records.map((r) => ({ ...r, status: 'ok' })), dnsHost: { name: 'Cloudflare', nameservers: [] },
     path: { checkedAt: new Date().toISOString(), open: false, ip: null, ptr: null, forwardConfirmed: false, server: 'mx.example.test', error: '421 try later' },
   } }));
   let attempts = 0;
-  await page.route('**/api/admin/email/test', async (route) => {
+  await page.route('**/api/platform/email/test', async (route) => {
     attempts++;
     setup.queue = { waiting: 1, oldest: new Date().toISOString() };
     setup.recent.unshift({ to_address: 'recipient@example.test', kind: 'test', status: attempts === 1 ? 'queued' : 'failed', error: attempts === 1 ? '451 greylisted, try later' : '550 no such user', created_at: new Date().toISOString() });
@@ -46,14 +46,14 @@ test('canceling a test email password confirmation does not reopen the dialog', 
   let needsSudo = false;
   let settingsReads = 0;
   const sudoRequired = { status: 403, json: { error: 'Confirm your password to continue.', code: 'sudo_required' } };
-  await page.route('**/api/admin/email', async (route) => {
+  await page.route('**/api/platform/email', async (route) => {
     settingsReads++;
     await route.fulfill(needsSudo ? sudoRequired : { json: {
       provider: 'memory', from: 'Vantage <no-reply@example.test>', domain: 'example.test', replyTo: null,
       helo: null, records: [], path: null, queue: { waiting: 0, oldest: null }, recent: [],
     } });
   });
-  await page.route('**/api/admin/email/test', (route) => route.fulfill(sudoRequired));
+  await page.route('**/api/platform/email/test', (route) => route.fulfill(sudoRequired));
   await page.goto('/operator?tab=email');
   const send = page.getByRole('button', { name: 'Send test', exact: true });
   await expect(send).toBeVisible();

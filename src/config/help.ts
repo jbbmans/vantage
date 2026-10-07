@@ -81,7 +81,7 @@ export const HELP: HelpSection[] = [
         id: 'who-can-see',
         q: 'Who can see my records?',
         a: [
-          'Every record is private by default. Only you can see it. Leaders, unit owners and the instance operator cannot read a private entry through the application.',
+          'Every record is private by default. Only you can see it. Leaders, unit owners, your organization’s owners and Vantage staff cannot read a private entry through the application.',
           'Marking a record "shared with unit" makes it visible to members of that unit who hold a role carrying the View shared records permission, and feeds the unit dashboard.',
           'Every time a leader opens your record the access is written to an audit log you can read yourself under Settings → Security. You do not have to ask anyone what they looked at.',
         ],
@@ -187,9 +187,9 @@ export const HELP: HelpSection[] = [
         id: 'narrative-writer',
         q: 'How is my JEPES or FITREP narrative written?',
         a: [
-          'For JEPES, as the billet accomplishments MCO 1616.1 Appendix E describes. They sit under the three command input lines (Individual Character; MOS and/or Mission Accomplishment; Leadership), each a dash, a past-tense verb, the number and the result, with acronyms spelled out once. Required annual training is held back, as the order says it is not an accomplishment. For FITREP, as a Section C draft by section: results only, no superlatives, 1,232 characters.',
+          'For JEPES, as the billet accomplishments MCO 1616.1 Appendix E describes. They sit under the three command input lines (Individual Character; MOS and/or Mission Accomplishment; Leadership), each a dash, a past-tense verb, the number and the result, with acronyms spelled out once. Required annual training is held back, as the order says it is not an accomplishment. For FITREP, as the MRO worksheet asks: a Section C draft of major accomplishments, one list of dash bullets ordered by the section each line gives evidence for, results only, no superlatives, 1,232 characters; and beside it the worksheet’s PME and Other blocks. Readiness reads each entry for the same FITREP attribute the draft does.',
           'The writer weighs every entry, gives each area its strongest sentence first, totals the same work when it would not all fit, and credits your case histories. On Analysis, select any sentence to see the entries behind it and why it made the cut. You can keep it, leave it out, ask for another wording or edit the text yourself. The reviewer grades the result and says what would make it stronger, and whether each point comes from an order, guidance or style.',
-          'It writes your input, not your evaluation: marks, word pictures, rankings and recommendations are your reporting chain’s. It runs on this server and sends nothing anywhere.',
+          'It writes your input, not your evaluation: marks, word pictures, rankings and recommendations are your reporting chain’s. It runs inside Vantage and sends nothing anywhere.',
         ],
         also: ['narrative', 'writer', 'jepes', 'fitrep', 'billet accomplishments', 'section c', 'appendix e', 'reviewer', 'bullets'],
       },

@@ -46,7 +46,7 @@ const Row = ({ label: text, value }: { label: string; value: React.ReactNode }) 
 
 export default function UsageConsole() {
   const [days, setDays] = useState('30');
-  const query = useQuery({ queryKey: ['admin-usage', days], queryFn: () => api.adminUsage({ days: Number(days) }), staleTime: 60_000 });
+  const query = useQuery({ queryKey: ['admin-usage', days], queryFn: () => api.platformUsage({ days: Number(days) }), staleTime: 60_000 });
 
   if (query.isPending) return <div className="space-y-3">{[0, 1, 2].map((i) => <Skeleton key={i} className="h-32" />)}</div>;
   if (query.isError) return <div className="card"><EmptyState icon={Activity} title="Could not read usage" description={api.errorText(query.error)} /></div>;

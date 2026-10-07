@@ -18,7 +18,7 @@ const linkIn = (text: string) => decodeURIComponent(text.match(/reset\?token=([^
 before(async () => {
   app = await startApp();
   op = await app.setupOperator();
-  const r = await app.call('POST', '/api/admin/accounts/import?apply=1', { token: op.token, raw: Buffer.from(CSV), headers: { 'content-type': 'text/csv', 'x-vantage-filename': 'roster.csv' } });
+  const r = await app.call('POST', '/api/orgs/G8/accounts/import?apply=1', { token: op.token, raw: Buffer.from(CSV), headers: { 'content-type': 'text/csv', 'x-vantage-filename': 'roster.csv' } });
   assert.equal(r.status, 200, JSON.stringify(r.body));
 });
 after(() => app.close());
@@ -26,7 +26,7 @@ after(() => app.close());
 const idOf = (username: string) => (app.ctx.db.prepare('SELECT id FROM users WHERE username = ?').get(username) as { id: string }).id;
 
 test('the audience is every other active account, split by whether there is an address', async () => {
-  const r = await app.call('GET', '/api/admin/accounts/sign-in-details', { token: op.token });
+  const r = await app.call('GET', '/api/orgs/G8/accounts/sign-in-details', { token: op.token });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.emailEnabled, true);
   assert.equal(r.body.linkHours, 72);
@@ -38,7 +38,7 @@ test('the audience is every other active account, split by whether there is an a
 
 test('each person gets their username and a one-time link that signs them in with a password they choose', async () => {
   const before = app.ctx.mailer.outbox.length;
-  const r = await app.call('POST', '/api/admin/accounts/sign-in-details', { token: op.token, body: { userIds: [idOf('avery.stone'), idOf('casey.north'), op.id] } });
+  const r = await app.call('POST', '/api/orgs/G8/accounts/sign-in-details', { token: op.token, body: { userIds: [idOf('avery.stone'), idOf('casey.north'), op.id] } });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.deepEqual(r.body.results.map((x: { status: string }) => x.status), ['sent', 'skipped', 'skipped']);
   assert.match(r.body.results[1].error, /No email/);
@@ -76,21 +76,21 @@ test('each person gets their username and a one-time link that signs them in wit
 
 test('sending again replaces the earlier link, and the audience remembers who was sent one', async () => {
   const id = idOf('blake.rivers');
-  await app.call('POST', '/api/admin/accounts/sign-in-details', { token: op.token, body: { userIds: [id] } });
+  await app.call('POST', '/api/orgs/G8/accounts/sign-in-details', { token: op.token, body: { userIds: [id] } });
   const first = linkIn(app.ctx.mailer.outbox.at(-1)!.text);
-  await app.call('POST', '/api/admin/accounts/sign-in-details', { token: op.token, body: { userIds: [id, id] } });
+  await app.call('POST', '/api/orgs/G8/accounts/sign-in-details', { token: op.token, body: { userIds: [id, id] } });
   assert.equal(app.ctx.mailer.outbox.filter((m) => m.to === 'blake.rivers@example.mil').length, 2, 'a repeated id is sent once');
   const second = linkIn(app.ctx.mailer.outbox.at(-1)!.text);
   assert.equal((await app.call('GET', `/api/auth/reset?token=${encodeURIComponent(first)}`)).body.valid, false);
   assert.equal((await app.call('GET', `/api/auth/reset?token=${encodeURIComponent(second)}`)).body.valid, true);
 
-  const audience = await app.call('GET', '/api/admin/accounts/sign-in-details', { token: op.token });
+  const audience = await app.call('GET', '/api/orgs/G8/accounts/sign-in-details', { token: op.token });
   const blake = audience.body.recipients.find((p: { username: string }) => p.username === 'blake.rivers');
   assert.ok(blake.sent_at);
 });
 
 test('someone who already signs in is told their password still works', async () => {
-  await app.call('POST', '/api/admin/accounts/sign-in-details', { token: op.token, body: { userIds: [idOf('avery.stone')] } });
+  await app.call('POST', '/api/orgs/G8/accounts/sign-in-details', { token: op.token, body: { userIds: [idOf('avery.stone')] } });
   const mail = app.ctx.mailer.outbox.at(-1)!;
   assert.match(mail.text, /Your Vantage sign-in, SSgt Stone/);
   assert.match(mail.text, /keep using it/);
@@ -98,12 +98,13 @@ test('someone who already signs in is told their password still works', async ()
 
 test('only an owner who recently confirmed their password may send, and batches are bounded', async () => {
   const marine = await app.register('plainmarine', { email: 'plain@example.mil' });
-  assert.equal((await app.call('GET', '/api/admin/accounts/sign-in-details', { token: marine.token })).status, 403);
-  assert.equal((await app.call('POST', '/api/admin/accounts/sign-in-details', { token: marine.token, body: { userIds: [idOf('avery.stone')] } })).status, 403);
+  // Someone with no role in the organization is not told it exists.
+  assert.equal((await app.call('GET', '/api/orgs/G8/accounts/sign-in-details', { token: marine.token })).status, 404);
+  assert.equal((await app.call('POST', '/api/orgs/G8/accounts/sign-in-details', { token: marine.token, body: { userIds: [idOf('avery.stone')] } })).status, 404);
   const tooMany = Array.from({ length: 26 }, (_, i) => `id-${i}`);
-  assert.equal((await app.call('POST', '/api/admin/accounts/sign-in-details', { token: op.token, body: { userIds: tooMany } })).status, 400);
+  assert.equal((await app.call('POST', '/api/orgs/G8/accounts/sign-in-details', { token: op.token, body: { userIds: tooMany } })).status, 400);
   app.ctx.db.prepare('UPDATE sessions SET sudo_until = NULL').run();
-  const stale = await app.call('POST', '/api/admin/accounts/sign-in-details', { token: op.token, body: { userIds: [idOf('avery.stone')] } });
+  const stale = await app.call('POST', '/api/orgs/G8/accounts/sign-in-details', { token: op.token, body: { userIds: [idOf('avery.stone')] } });
   assert.equal(stale.status, 403);
   assert.equal(stale.body.code, 'sudo_required');
   await app.call('POST', '/api/auth/sudo', { token: op.token, body: { password: PASSWORD } });

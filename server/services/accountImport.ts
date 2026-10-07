@@ -6,8 +6,7 @@ import { hashPassword } from '../lib/crypto.ts';
 import { newId, now, slug } from '../lib/ids.ts';
 import { passwordProblem } from '../../shared/password.ts';
 import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
-import { addMember, claimUnit, seedRoles } from './org.ts';
-import { can, scopeFor, PERMISSIONS } from '../authz/scope.ts';
+import { addMember, seedRoles } from './org.ts';
 import { audit } from './audit.ts';
 
 export const MAX_ACCOUNT_ROWS = 500;
@@ -97,12 +96,22 @@ export interface AccountPlan {
 const USERNAME = /^[a-z0-9._-]{3,40}$/;
 const EMAIL = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
-function findUnit(ctx: AppContext, name: string, parentId: string | null): string | null {
+/**
+ * A unit of the organization by name. A command is a unit directly under the organization's top unit (or the top unit
+ * itself); a team is a unit under that command. Units of other organizations are never matched.
+ */
+function findUnit(ctx: AppContext, orgId: string, rootId: string, name: string, parentId: string | null): string | null {
   const wanted = key(name);
-  const candidates = ctx.db.prepare(`SELECT id, name, short_name, code FROM units WHERE active = 1 AND ${parentId ? 'parent_id = ?' : 'parent_id IS NULL'}`)
-    .all(...(parentId ? [parentId] : [])) as Array<{ id: string; name: string; short_name: string | null; code: string }>;
+  const candidates = ctx.db.prepare(`SELECT id, name, short_name, code FROM units WHERE active = 1 AND org_id = ? AND ${parentId ? 'parent_id = ?' : '(parent_id = ? OR id = ?)'}`)
+    .all(orgId, ...(parentId ? [parentId] : [rootId, rootId])) as Array<{ id: string; name: string; short_name: string | null; code: string }>;
   return candidates.find((u) => [u.name, u.short_name, u.code].some((v) => v && key(v) === wanted))?.id ?? null;
 }
+
+const rootOf = (ctx: AppContext, orgId: string) => {
+  const org = ctx.db.prepare("SELECT root_unit_id FROM organizations WHERE id = ? AND status = 'active'").get(orgId) as { root_unit_id: string | null } | undefined;
+  if (!org?.root_unit_id) throw badRequest('That organization has no top unit to import into.');
+  return org.root_unit_id;
+};
 
 function roleFor(name: string): { key: string; label: string } | null {
   const wanted = key(name || 'Marine');
@@ -117,7 +126,8 @@ function rankFor(ctx: AppContext, value: string): string | null {
   return rows.find((r) => [r.id, r.abbr, r.name, r.grade].some((v) => key(v) === wanted))?.id ?? null;
 }
 
-export function planAccounts(ctx: AppContext, rows: RosterRow[]): AccountPlan {
+export function planAccounts(ctx: AppContext, orgId: string, rows: RosterRow[]): AccountPlan {
+  const rootId = rootOf(ctx, orgId);
   const seenUsers = new Set<string>();
   const seenEmails = new Set<string>();
   const units = new Map<string, UnitRef & { exists: boolean }>();
@@ -128,7 +138,7 @@ export function planAccounts(ctx: AppContext, rows: RosterRow[]): AccountPlan {
     const k = unitKey(name, parent);
     if (units.has(k)) return;
     const parentId = parent ? units.get(unitKey(parent, null))?.id ?? null : null;
-    const id = parent && !parentId ? null : findUnit(ctx, name, parentId);
+    const id = parent && !parentId ? null : findUnit(ctx, orgId, rootId, name, parentId);
     units.set(k, { name, parent, id, exists: Boolean(id) });
   };
 
@@ -165,14 +175,14 @@ export function planAccounts(ctx: AppContext, rows: RosterRow[]): AccountPlan {
     const team = v.team || null;
     if (command) noteUnit(command, null);
     if (team) noteUnit(team, command);
-    if (!command && !team) warnings.push('No unit is named, so the account is created without a membership.');
+    if (!command && !team) warnings.push('No unit is named, so the account joins the organization’s top unit.');
 
     const exists = USERNAME.test(username) && Boolean(ctx.db.prepare('SELECT 1 FROM users WHERE username = ? COLLATE NOCASE').get(username));
     accounts.push({
       line, username, name: `${v.last_name}, ${v.first_name}`.trim(), rank_id: rankId, email, command, team,
       role: role?.label || v.role, billet: v.billet || null,
       status: problems.length ? 'error' : exists ? 'exists' : 'create',
-      problems, warnings: exists && !problems.length ? ['An account with this username already exists; it is left as it is.'] : warnings,
+      problems, warnings: exists && !problems.length ? ['An account with this username already exists; it is left as it is. Invite its owner with a join code instead.'] : warnings,
       generated_password: !v.password,
     });
   }
@@ -197,12 +207,13 @@ const passphrase = () => {
 };
 
 /**
- * Creates every account the plan marks for creation, the units they name (owned by the importer), their rank,
- * role and billet. Everyone signs in with a temporary password and must set their own. Rows with a problem are
- * skipped; nothing is written unless the whole batch succeeds.
+ * Creates every account the plan marks for creation in the organization, the units they name (under its top unit,
+ * governed from above), their rank, role and billet. Everyone signs in with a temporary password and must set their
+ * own. Rows with a problem are skipped; nothing is written unless the whole batch succeeds.
  */
-export function applyAccounts(ctx: AppContext, actor: SessionUser, rows: RosterRow[], ip?: string) {
-  const plan = planAccounts(ctx, rows);
+export function applyAccounts(ctx: AppContext, actor: SessionUser, orgId: string, rows: RosterRow[], ip?: string) {
+  const rootId = rootOf(ctx, orgId);
+  const plan = planAccounts(ctx, orgId, rows);
   const byLine = new Map(rows.map((r) => [r.line, r.values]));
   const unitIds = new Map<string, string>();
   const generated: Array<{ username: string; password: string }> = [];
@@ -219,17 +230,16 @@ export function applyAccounts(ctx: AppContext, actor: SessionUser, rows: RosterR
     const cacheKey = `${parentId || ''}/${key(name)}`;
     const cached = unitIds.get(cacheKey);
     if (cached) return cached;
-    let id = findUnit(ctx, name, parentId);
+    let id = findUnit(ctx, orgId, rootId, name, parentId);
     if (!id) {
       const base = slug(name) || 'UNIT';
       id = base;
       for (let n = 2; ctx.db.prepare('SELECT 1 FROM units WHERE id = ?').get(id); n += 1) id = `${base}-${n}`.slice(0, 40);
       const short = name.length <= 16 ? name : null;
+      // A new unit sits inside the organization, governed from above: by its top unit's leader and its administrators.
       ctx.db.prepare('INSERT INTO units (id, code, name, short_name, echelon, parent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?)')
-        .run(id, id, name.slice(0, 120), short, parentId ? 'section' : 'command', parentId, now());
-      // A team under a command the importer already leads is governed from above; only a new command gets an owner.
-      if (parentId && can(scopeFor(ctx, actor), PERMISSIONS.ADMINISTRATOR, parentId)) seedRoles(ctx, id);
-      else claimUnit(ctx, id, actor.id);
+        .run(id, id, name.slice(0, 120), short, parentId ? 'section' : 'command', parentId ?? rootId, now());
+      seedRoles(ctx, id);
       audit(ctx, { actor_id: actor.id, action: 'create_unit', entity: 'unit', entity_id: id, unit_id: id, detail: `${name}; account import`, ip });
     }
     unitIds.set(cacheKey, id);
@@ -243,13 +253,14 @@ export function applyAccounts(ctx: AppContext, actor: SessionUser, rows: RosterR
       const v = byLine.get(a.line)!;
       const commandId = a.command ? ensureUnit(a.command, null) : null;
       const teamId = a.team ? ensureUnit(a.team, commandId) : null;
-      const unitId = teamId || commandId;
+      const unitId = teamId || commandId || rootId;
       const id = newId();
       ctx.db.prepare(`INSERT INTO users (id, username, email, password_hash, first_name, last_name, rank_id, must_change_password, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
         .run(id, a.username, a.email, hashes.get(a.line), v.first_name, v.last_name, a.rank_id, now(), now());
       if (commandId) addMember(ctx, id, commandId, { invitedBy: actor.id, primary: true, billet: teamId ? null : a.billet });
       if (teamId) addMember(ctx, id, teamId, { invitedBy: actor.id, primary: !commandId, billet: a.billet });
+      if (!commandId && !teamId) addMember(ctx, id, rootId, { invitedBy: actor.id, primary: true, billet: a.billet });
       if (unitId) {
         const role = roleFor(v.role);
         if (role && role.key !== 'marine') {

@@ -7,6 +7,7 @@ import { hydrate } from './records.ts';
 import { isoDay, zonedDay, zonedNow } from '../lib/clock.ts';
 import { caseworkFor } from './record.ts';
 import type { Density, Format } from '../../shared/writer/realize.ts';
+import { worksheetBlocks } from '../../shared/writer/worksheet.ts';
 
 export interface ReportScope { userId: string; unitId?: string | null }
 
@@ -27,7 +28,7 @@ export function buildReport(ctx: AppContext, opts: { userId: string; unitId?: st
   const params = opts.unitId ? [opts.userId, opts.unitId] : [opts.userId];
   const activities = (ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL AND date >= ? AND date <= ? ORDER BY date DESC`).all(...params, from, to) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
   const awards = ctx.db.prepare(`SELECT name, date, status FROM awards WHERE ${where} AND deleted_at IS NULL AND date >= ? AND date <= ? ORDER BY date DESC`).all(...params, from, to) as Array<{ name: string; date: string | null; status: string }>;
-  const trainings = ctx.db.prepare(`SELECT title, date, hours FROM trainings WHERE ${where} AND deleted_at IS NULL AND date >= ? AND date <= ? ORDER BY date DESC`).all(...params, from, to) as Array<{ title: string; date: string | null; hours: number | null }>;
+  const trainings = ctx.db.prepare(`SELECT title, date, hours, status FROM trainings WHERE ${where} AND deleted_at IS NULL AND date >= ? AND date <= ? ORDER BY date DESC`).all(...params, from, to) as Array<{ title: string; date: string | null; hours: number | null; status: string | null }>;
   const cfg = narrativeConfig(track);
   const metricsConfig = ctx.runtime.metrics;
   // The narrative reads areas by name as the package does (groupByAreas): a Sgt's JEPES-named entries are FITREP ones.
@@ -44,13 +45,15 @@ export function buildReport(ctx: AppContext, opts: { userId: string; unitId?: st
     // Appendix E's bullets, acronyms spelled out once: the form the order shows, unless the Marine chose otherwise.
     format: n.format ?? 'bullets', spellOut: n.spell ?? true,
   });
+  // FITREP input goes on the MRO worksheet, whose PME and Other blocks sit beside Section C.
+  const worksheet = track === 'fitrep' ? worksheetBlocks({ activities: onTrack as never, trainings, awards, metrics: metricsConfig }) : null;
   const pkg = buildPackage(activities as never, { periodLabel: label, style: opts.style || (track === 'fitrep' ? 'fitrep' : 'jepes'), limitPerArea: opts.limit ?? 8, areas: areasFor(track), metrics: metricsConfig });
   const metrics = aggregateMetrics(activities as never, metricsConfig);
   const unit = opts.unitId ? (ctx.db.prepare('SELECT name, short_name FROM units WHERE id = ?').get(opts.unitId) as { name: string; short_name: string | null } | undefined) : undefined;
   return {
     from, to, label, track, person, unit,
     subject: `${person?.rank_abbr || ''} ${person?.first_name || ''} ${person?.last_name || ''}`.replace(/\s+/g, ' ').trim(),
-    narrative, casework, recentFrom, pkg, metrics, metricsConfig, activities, awards, trainings,
+    narrative, casework, recentFrom, pkg, metrics, metricsConfig, activities, awards, trainings, worksheet,
     counts: { activities: activities.length, awards: awards.length, trainingHours: trainings.reduce((n, t) => n + (Number(t.hours) || 0), 0) },
     generatedAt: zonedDay(ctx.config.timezone),
   };

@@ -39,7 +39,7 @@ export function networkBlocked(status: number, contentType: string | null, body:
   const html = /text\/html/i.test(contentType || '') || /^\s*<!doctype html/i.test(body);
   return html && /outside of Do[DW] networks|Unauthorized Access - GenAI\.mil/i.test(body);
 }
-const NETWORK_BLOCKED_MESSAGE = 'GenAI.mil refused this server: the gateway only accepts calls from DoD networks, and this Vantage server is hosted outside them.';
+const NETWORK_BLOCKED_MESSAGE = 'GenAI.mil refused this server: the gateway only accepts calls from DoD networks, and Vantage is hosted outside them.';
 
 const str = (v: unknown, max = 8000) => String(v ?? '').trim().slice(0, max);
 const int = (v: unknown, fallback: number, min: number, max: number) => { const n = Number(v); return Number.isInteger(n) && n >= min && n <= max ? n : fallback; };
@@ -199,7 +199,7 @@ const INSTRUCTIONS: Record<string, string> = {
   personal_review: 'Return JSON with keys summary, highlights (array), gaps (array), next_actions (array), goal_observations (array), and cautions (array). Base every statement on the supplied facts and do not rate the person.',
   record_quality: 'Return JSON with keys summary, issues (array of objects with record_title, missing_fields, suggestion), strongest_records (array), and cautions (array). Do not change records or invent missing facts.',
   // The same rules the built-in writer follows (shared/writer): the Marine's input, never the reporting senior's judgment.
-  report_narrative: 'Return JSON with keys narrative, bullets (array), facts_used (array), omitted_facts (array), and cautions (array). Write the Marine\'s accomplishments input, not an evaluation. For track jepes, group bullets under the three command input lines of MCO 1616.1 (Individual Character; MOS and/or Mission Accomplishment; Leadership); for track fitrep, write a Section C billet accomplishments draft by section. Each bullet starts with a dash and a past-tense verb, has no pronouns, states the number and the result, and spells an acronym out on first use. Be objective: no superlatives, no personal qualities, no predicted or potential impact, no rankings, and no promotion or assignment recommendations. Leave out required annual training. Stay inside character_limit, use only supplied activity facts, and never fabricate impact.',
+  report_narrative: 'Return JSON with keys narrative, bullets (array), facts_used (array), omitted_facts (array), and cautions (array). Write the Marine\'s accomplishments input, not an evaluation. For track jepes, group bullets under the three command input lines of MCO 1616.1 (Individual Character; MOS and/or Mission Accomplishment; Leadership); for track fitrep, write a Section C billet accomplishments draft as one list of dash bullets with no headings, ordered Mission Accomplishment, Individual Character, Leadership, Intellect and Wisdom, then Fulfillment of Evaluation Responsibilities, and leave PME completions and community involvement out of it (the MRO worksheet has its own blocks for them). Each bullet starts with a dash and a past-tense verb, has no pronouns, states the number and the result, and spells an acronym out on first use. Be objective: no superlatives, no personal qualities, no predicted or potential impact, no rankings, and no promotion or assignment recommendations. Leave out required annual training. Stay inside character_limit, use only supplied activity facts, and never fabricate impact.',
   maradmin_summary: 'Return JSON with keys plain_language, who_is_affected (array), required_actions (array), deadlines (array), key_points (array), and cautions (array). State when the cached excerpt is insufficient and direct the reader to the official message.',
   command_brief: 'Return JSON with keys executive_summary, highlights (array), watch_items (array), recommended_questions (array), and caveats (array). Analyze only aggregate exact-unit values. Do not infer individual performance, readiness, causes, classification, or identities.',
   case_brief: 'Return JSON with keys observed_condition, financial_meaning, possible_causes (array), required_research (array), responsible_role, next_action, wait_and_verification, references_and_limits (array), and missing_inputs (array). Use only the supplied case entries and reference_reading. Treat every cause as a possibility to research, never a finding. A figure marked not_shown is unknown, not zero. Do not state that anything is resolved unless a verification with a reference says so.',
@@ -208,9 +208,9 @@ const INSTRUCTIONS: Record<string, string> = {
 const FINANCIAL_RULES = `When the evidence concerns funds, balances, obligations, invoices, UMTs or other financial conditions: ${AI_GUARDRAILS}`;
 
 function preflight(ctx: AppContext, userId: string) {
-  if (!ctx.runtime.aiEnabled) throw new AiError('AI assistance is disabled by the Instance Operator.', 503, 'ai_disabled');
-  if (!ctx.config.ai.apiKey) throw new AiError('GenAI.mil is not configured on this server.', 503, 'ai_not_configured');
-  if (state.lockedAt) throw new AiError('GenAI.mil is temporarily locked. The Instance Operator must unlock the API key.', 503, 'ai_key_locked');
+  if (!ctx.runtime.aiEnabled) throw new AiError('AI assistance is turned off on Vantage.', 503, 'ai_disabled');
+  if (!ctx.config.ai.apiKey) throw new AiError('GenAI.mil is not set up on Vantage.', 503, 'ai_not_configured');
+  if (state.lockedAt) throw new AiError('GenAI.mil is temporarily locked. Vantage staff must unlock the API key.', 503, 'ai_key_locked');
   const g = limiters.aiGlobal.limited('global');
   if (g) throw new AiError('AI request limit reached. Try again shortly.', 429, 'rate_limit', { retryAfter: g.retryAfter });
   const u = limiters.aiUser.limited(userId);
@@ -319,7 +319,7 @@ async function runAiWorkflowInner(ctx: AppContext, user: SessionUser, workflow: 
       if (response.status === 401 && body?.error?.unlock_url) {
         state.lockedAt = state.lastErrorAt;
         state.unlockUrl = safeUnlockUrl(body.error.unlock_url);
-        throw new AiError('GenAI.mil is temporarily locked. The Instance Operator must unlock the API key.', 503, 'ai_key_locked');
+        throw new AiError('GenAI.mil is temporarily locked. Vantage staff must unlock the API key.', 503, 'ai_key_locked');
       }
       if (response.status === 429) throw new AiError('GenAI.mil rate limit reached. Try again later.', 429, 'upstream_rate_limit', { retryAfter: Number(response.headers.get('retry-after') || body?.error?.retry_after_seconds) || 60 });
       if (response.status === 401 || response.status === 403 || response.status === 404) throw new AiError('The configured GenAI.mil key or model is not authorized.', 503, 'ai_not_authorized');
@@ -342,7 +342,7 @@ async function runAiWorkflowInner(ctx: AppContext, user: SessionUser, workflow: 
 }
 
 export async function discoverModels(ctx: AppContext): Promise<string[]> {
-  if (!ctx.config.ai.apiKey) throw new AiError('GenAI.mil is not configured on this server.', 503, 'ai_not_configured');
+  if (!ctx.config.ai.apiKey) throw new AiError('GenAI.mil is not set up on Vantage.', 503, 'ai_not_configured');
   let response: Response;
   try { response = await fetch(`${ctx.config.ai.baseUrl}/models`, { headers: { authorization: `Bearer ${ctx.config.ai.apiKey}` }, signal: AbortSignal.timeout(15_000) }); }
   catch (error) {

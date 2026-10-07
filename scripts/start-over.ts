@@ -9,6 +9,7 @@ import { audit } from '../server/services/audit.ts';
 import { readRoster, applyAccounts, type RosterRow } from '../server/services/accountImport.ts';
 import { passwordProblem } from '../shared/password.ts';
 import type { SessionUser } from '../server/context.ts';
+import { withPlatform } from '../server/authz/platform.ts';
 
 const USAGE = `Usage:
   VANTAGE_START_OVER=1 VANTAGE_ADMIN_PASSWORD='<password>' node scripts/start-over.ts ERASE-EVERYTHING \\
@@ -68,10 +69,14 @@ try {
   db.transaction(() => {
     for (const table of tables) db.prepare(`DELETE FROM "${table}"`).run();
     db.prepare("DELETE FROM meta WHERE key = 'audit_head'").run();
-    db.prepare(`INSERT INTO users (id, username, password_hash, first_name, last_name, is_operator, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?)`)
+    db.prepare(`INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(adminId, username, hashPassword(password), firstName, lastName, now(), now());
+    db.prepare("INSERT INTO platform_roles (user_id, role, granted_by, created_at) VALUES (?, 'owner', NULL, ?)").run(adminId, now());
+    // The first unit founds the first organization; its leader owns it.
     db.prepare('INSERT INTO units (id, code, name, short_name, echelon, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(unitId, unitId, unitName, unitShort, 'command', now());
     claimUnit(ctx, unitId, adminId);
+    db.prepare("INSERT INTO org_roles (org_id, user_id, role, granted_by, created_at) VALUES (?, ?, 'owner', NULL, ?)").run(unitId, adminId, now());
+    db.prepare('UPDATE organizations SET created_by = ? WHERE id = ?').run(adminId, unitId);
     const broken = db.pragma('foreign_key_check') as unknown[];
     if (broken.length) throw new Error(`The erase left ${broken.length} dangling references; nothing was changed.`);
   })();
@@ -79,11 +84,11 @@ try {
   db.pragma('foreign_keys = ON');
 }
 audit(ctx, { actor_id: adminId, action: 'setup', entity: 'instance', unit_id: unitId, detail: `started over from the shell; ${tables.length} tables emptied` });
-console.log(`Erased all accounts, units and records. ${username} is the Instance Operator and leads ${unitName}.`);
+console.log(`Erased all accounts, units and records. ${username} is a platform owner, and owns and leads ${unitName}.`);
 
 if (roster.length) {
-  const admin = db.prepare('SELECT * FROM users WHERE id = ?').get(adminId) as SessionUser;
-  const result = applyAccounts(ctx, admin, roster, 'shell');
+  const admin = withPlatform(ctx, db.prepare('SELECT * FROM users WHERE id = ?').get(adminId) as SessionUser);
+  const result = applyAccounts(ctx, admin, unitId, roster, 'shell');
   audit(ctx, { actor_id: adminId, action: 'accounts_imported', entity: 'instance', detail: `${result.created} created; ${result.counts.error} skipped; ${result.counts.new_units} new units; from the shell` });
   console.log(`Imported ${result.created} accounts. New units: ${result.units.filter((u) => !u.exists).map((u) => (u.parent ? `${u.parent} > ${u.name}` : u.name)).join(', ') || 'none'}.`);
   for (const a of result.accounts) {

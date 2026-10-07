@@ -386,6 +386,22 @@ const CHANGE_FIELDS: Array<keyof NormalizedRow> = ['title', 'reference', 'due_da
 // row placed in a unit could collide with someone else's case that the preview (own rows only) never sees.
 const placed = (plan: ImportPlan): ImportPlan => (plan.visibility === 'private' ? { ...plan, unit_id: null } : plan);
 
+const headerName = (h: string) => h.toLowerCase().replace(/[^a-z0-9]/g, '');
+/**
+ * Whether a row comes from the same report as the case its key matches. Two reports can key their rows by the same
+ * document number (a UMT report and an open-obligations report, say); a row from the other one must not overwrite
+ * the case. A case keeps every column of the report it came from, so the columns tell them apart: a re-export with a
+ * column added or renamed still shares most of them. A case with no columns on file (typed, or seeded) is no evidence
+ * either way.
+ */
+export function sameReport(caseColumns: string[], rowColumns: string[]): boolean {
+  const a = new Set(caseColumns.map(headerName).filter(Boolean));
+  const b = new Set(rowColumns.map(headerName).filter(Boolean));
+  if (!a.size || !b.size) return true;
+  const shared = [...a].filter((h) => b.has(h)).length;
+  return shared / (a.size + b.size - shared) >= 0.5;
+}
+
 export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, requested: ImportPlan, sourceId: string): PreviewResult {
   const plan = placed(requested);
   const source = readableSource(ctx, user, scope, sourceId);
@@ -418,8 +434,16 @@ export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, 
     const match = byKey.get(row.natural_key);
     if (!match) { willInsert.push(row); continue; }
     if (match.row_hash === row.row_hash) { unchanged += 1; continue; }
-    const changes = CHANGE_FIELDS.filter((f) => String(match[f] ?? '') !== String(row[f] ?? ''));
     const before = JSON.parse(String(match.data || '{}')) as Record<string, string>;
+    if (!sameReport(Object.keys(before), Object.keys(row.data))) {
+      rejections.push({
+        source_row: row.source_row,
+        value: row.natural_key.split(KEY_SEPARATOR).join(' / '),
+        reason: `A case from a different report already uses this identifier (“${String(match.title).slice(0, 80)}”), so it was left as it is. To bring both in, key this sheet by more than one column (the document number and its line, say), or import it privately.`,
+      });
+      continue;
+    }
+    const changes = CHANGE_FIELDS.filter((f) => String(match[f] ?? '') !== String(row[f] ?? ''));
     const revisions: Array<{ field: string; from: string | null; to: string | null }> = changes.map((f) => ({ field: f, from: match[f] == null ? null : String(match[f]), to: row[f] == null ? null : String(row[f]) }));
     for (const key of new Set([...Object.keys(before), ...Object.keys(row.data)])) {
       if ((before[key] ?? null) !== (row.data[key] ?? null)) revisions.push({ field: key, from: before[key] ?? null, to: row.data[key] ?? null });

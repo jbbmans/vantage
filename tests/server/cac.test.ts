@@ -148,11 +148,13 @@ test('auto-provisioning creates an account only for someone the roster lists', a
   try {
     await app.setupOperator();
     const at = new Date().toISOString();
-    app.ctx.db.prepare(`INSERT INTO personnel_roster (edipi, last_name, first_name, rank_id, status, source, row_hash, synced_at, created_at, updated_at)
-                        VALUES ('1234567890','Boletz','John','Cpl','active','MCTFS','h',?,?,?)`).run(at, at, at);
+    app.ctx.db.prepare(`INSERT INTO personnel_roster (org_id, edipi, last_name, first_name, rank_id, status, source, row_hash, synced_at, created_at, updated_at)
+                        VALUES ('G8','1234567890','Boletz','John','Cpl','active','MCTFS','h',?,?,?)`).run(at, at, at);
 
     const ok = await app.call('POST', '/api/auth/cac', { headers: asProxy(USER) });
     assert.equal(ok.status, 200, 'on the roster: provisioned and signed in');
+    const seated = app.ctx.db.prepare("SELECT um.unit_id FROM unit_members um JOIN users u ON u.id = um.user_id WHERE u.edipi = '1234567890'").all() as Array<{ unit_id: string }>;
+    assert.deepEqual(seated.map((m) => m.unit_id), ['G8'], 'the organization whose roster lists them is the one they join');
 
     const off = await app.call('POST', '/api/auth/cac', { headers: asProxy(OTHER) });
     assert.equal(off.status, 401);

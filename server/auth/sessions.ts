@@ -1,25 +1,27 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import { sha256 } from '../lib/crypto.ts';
 import { randomToken, now } from '../lib/ids.ts';
+import { withPlatform } from '../authz/platform.ts';
 
 export const SESSION_COOKIE = 'vantage_session';
 export const SIGNED_IN_COOKIE = 'vantage_signed_in';
 
 export const sessionDigest = (token: string) => sha256(`session:${token}`);
 
-/** How long a session may sit unused. An operator's is never longer than anyone else's. */
-export const idleMinutesFor = (config: AppContext['config'], isOperator: boolean | number) =>
+/** How long a session may sit unused. Vantage staff's is never longer than anyone else's. */
+export const idleMinutesFor = (config: AppContext['config'], isStaff: boolean | number) =>
   // A synthetic demo holds nothing real, and its workspace is thrown away when the session ends.
   config.accessMode === 'demo' ? config.demo.ttlHours * 60
-    : isOperator ? Math.min(config.sessions.operatorIdleMinutes, config.sessions.idleMinutes) : config.sessions.idleMinutes;
+    : isStaff ? Math.min(config.sessions.operatorIdleMinutes, config.sessions.idleMinutes) : config.sessions.idleMinutes;
+
+const holdsPlatformRole = (ctx: AppContext, userId: string) => Boolean(ctx.db.prepare('SELECT 1 FROM platform_roles WHERE user_id = ? LIMIT 1').get(userId));
 
 export function createSession(ctx: AppContext, userId: string, { ip, userAgent, method = 'password', sudo = false }: { ip?: string | null; userAgent?: string | null; method?: string; sudo?: boolean }) {
   const { db, config } = ctx;
   const token = randomToken(32);
   const id = sessionDigest(token);
   const created = Date.now();
-  const operator = (db.prepare('SELECT is_operator FROM users WHERE id = ?').get(userId) as { is_operator: number } | undefined)?.is_operator ?? 0;
-  const idle = new Date(created + idleMinutesFor(config, operator) * 60_000);
+  const idle = new Date(created + idleMinutesFor(config, holdsPlatformRole(ctx, userId)) * 60_000);
   const absolute = new Date(created + config.sessions.absoluteHours * 3_600_000);
   const sudoUntil = sudo ? new Date(created + config.sessions.sudoMinutes * 60_000).toISOString() : null;
   db.transaction(() => {
@@ -88,9 +90,10 @@ export function resolveSession(ctx: AppContext, token: string | undefined, { tou
   }
   let expiresAt = row.expires_at;
   if (touch && nowMs - new Date(row.last_used_at).getTime() > 15_000) {
-    expiresAt = new Date(Math.min(nowMs + idleMinutesFor(config, row.is_operator) * 60_000, new Date(row.absolute_expires_at).getTime())).toISOString();
+    expiresAt = new Date(Math.min(nowMs + idleMinutesFor(config, holdsPlatformRole(ctx, row.id)) * 60_000, new Date(row.absolute_expires_at).getTime())).toISOString();
     db.prepare('UPDATE sessions SET last_used_at = ?, expires_at = ? WHERE id = ?').run(new Date(nowMs).toISOString(), expiresAt, id);
   }
-  const { password_hash: _p, totp_secret: _t, totp_pending: _tp, totp_last_step: _ts, expires_at: _e, absolute_expires_at: _a, last_used_at: _l, sudo_until, method, failed_sign_ins: _f, locked_until: _lu, ...user } = row as typeof row & { failed_sign_ins?: number; locked_until?: string | null };
-  return { user: user as SessionUser, session: { id, sudo_until, method, expires_at: expiresAt } };
+  // The old Instance Operator flag is no longer read anywhere (ADR-0006): authority comes from the role tables.
+  const { password_hash: _p, totp_secret: _t, totp_pending: _tp, totp_last_step: _ts, expires_at: _e, absolute_expires_at: _a, last_used_at: _l, sudo_until, method, failed_sign_ins: _f, locked_until: _lu, is_operator: _op, ...user } = row as typeof row & { failed_sign_ins?: number; locked_until?: string | null; is_operator?: number };
+  return { user: withPlatform(ctx, user) as unknown as SessionUser, session: { id, sudo_until, method, expires_at: expiresAt } };
 }

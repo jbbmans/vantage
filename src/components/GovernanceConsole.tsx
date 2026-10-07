@@ -9,33 +9,45 @@ import { Table, DateText } from '@/components/common';
 import * as api from '@/lib/api';
 import { downloadText, humanize, timeAgo } from '@/lib/utils';
 
-function useAdmin<T = any>(key: string, fn: () => Promise<T>) {
-  return useQuery<T>({ queryKey: ['admin', key], queryFn: () => withSudo(fn), retry: false });
+/** One organization's governance data, behind a recent password confirmation like the rest of the owner console. */
+function useOrgData<T = any>(orgId: string, key: string, fn: () => Promise<T>) {
+  return useQuery<T>({ queryKey: ['org', orgId, key], queryFn: () => withSudo(fn), retry: false });
 }
 
-export function PersonnelConsole() {
+/** A roster sync plan as the server summarises it (summarizePlan in server/services/personnel.ts). */
+interface RosterPlan {
+  source: string; rowsSeen: number; unchanged: number;
+  massSeparation: { count: number; activeBefore: number; share: number } | null;
+  counts: { creates: number; updates: number; separations: number; conflicts: number; rejected: number };
+  updates: Array<{ edipi: string; name: string; changes: Array<{ field: string; from: string | null; to: string | null }> }>;
+  conflicts: Array<{ edipi: string; reason: string }>;
+  rejected: Array<{ line: number; reason: string }>;
+}
+interface GapRow { id?: string; username?: string; edipi?: string; first_name: string; last_name: string; rank_id?: string | null }
+
+/** The organization's personnel feed: the roster extract that keeps names, ranks and EAS dates current. */
+export function PersonnelConsole({ orgId }: { orgId: string }) {
   const toast = useToast();
   const qc = useQueryClient();
-  const stats = useAdmin('personnel', api.adminPersonnel);
-  const gaps = useAdmin('personnel-divergence', api.adminPersonnelDivergence);
+  const stats = useOrgData(orgId, 'personnel', () => api.orgPersonnel(orgId));
+  const gaps = useOrgData(orgId, 'personnel-divergence', () => api.orgPersonnelDivergence(orgId));
   const [text, setText] = useState('');
   const [source, setSource] = useState('MCTFS');
-  const [plan, setPlan] = useState<any>(null);
+  const [plan, setPlan] = useState<RosterPlan | null>(null);
   const [busy, setBusy] = useState(false);
   const [confirmApply, setConfirmApply] = useState(false);
 
-  const refresh = () => { qc.invalidateQueries({ queryKey: ['admin', 'personnel'] }); qc.invalidateQueries({ queryKey: ['admin', 'personnel-divergence'] }); };
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['org', orgId, 'personnel'] }); qc.invalidateQueries({ queryKey: ['org', orgId, 'personnel-divergence'] }); };
 
   const run = async (apply: boolean, confirmSeparations = false) => {
     setBusy(true);
     try {
-      const res = await withSudo(() => api.adminPersonnelSync(text, source, { apply, confirmSeparations }));
+      const res = await withSudo(() => api.orgPersonnelSync(orgId, text, source, { apply, confirmSeparations }));
       setPlan(res.plan);
       if (apply) { toast.success('Roster applied.'); setText(''); refresh(); }
     } catch (e) {
-      const payload = (e as any)?.payload || {};
-      if (payload.code === 'mass_separation') { setPlan((p: any) => p); toast.error(api.errorText(e)); }
-      else toast.error(api.errorText(e));
+      // A mass separation refused on apply is already on screen from the dry run that came before it.
+      toast.error(api.errorText(e));
     } finally { setBusy(false); setConfirmApply(false); }
   };
 
@@ -72,7 +84,7 @@ export function PersonnelConsole() {
             <div className="card mb-3 border-warn/50 bg-warn/5 p-3" role="alert">
               <p className="flex items-center gap-2 text-base font-semibold text-ink"><AlertTriangle className="h-4 w-4 text-warn" />This would separate {plan.massSeparation.count} of {plan.massSeparation.activeBefore} people</p>
               <p className="mt-1 text-sm text-ink-2">That usually means the extract is partial rather than that the command emptied. Those people are held back; nothing about them changes unless you confirm.</p>
-              <Button className="mt-2" onClick={() => run(true, true)} loading={busy}>The extract really is the whole command — separate them</Button>
+              <Button className="mt-2" onClick={() => run(true, true)} loading={busy}>The extract really is the whole organization — separate them</Button>
             </div>
           )}
           <div className="mb-3 flex flex-wrap gap-2">
@@ -86,9 +98,9 @@ export function PersonnelConsole() {
           {plan.updates.length > 0 && (
             <div className="-mx-4 mb-3 -mt-1">
               <Table minWidth={520} head={<><th className="w-32">EDIPI</th><th>Name</th><th>Changes</th></>}>
-                {plan.updates.map((u: any) => (
+                {plan.updates.map((u) => (
                   <tr key={u.edipi}><td className="mono text-xs">{u.edipi}</td><td>{u.name}</td>
-                    <td className="text-xs text-ink-2">{u.changes.map((c: any) => `${humanize(c.field)}: ${c.from ?? '—'} → ${c.to ?? '—'}`).join('; ')}</td></tr>
+                    <td className="text-xs text-ink-2">{u.changes.map((c) => `${humanize(c.field)}: ${c.from ?? '—'} → ${c.to ?? '—'}`).join('; ')}</td></tr>
                 ))}
               </Table>
             </div>
@@ -96,13 +108,13 @@ export function PersonnelConsole() {
           {plan.rejected.length > 0 && (
             <div className="card p-3">
               <p className="mb-1 text-base font-medium text-ink">Rows that could not be read</p>
-              <ul className="space-y-0.5 text-xs text-ink-2">{plan.rejected.map((r: any) => <li key={r.line}>Line {r.line}: {r.reason}</li>)}</ul>
+              <ul className="space-y-0.5 text-xs text-ink-2">{plan.rejected.map((r) => <li key={r.line}>Line {r.line}: {r.reason}</li>)}</ul>
             </div>
           )}
           {plan.conflicts.length > 0 && (
             <div className="card mt-3 p-3">
               <p className="mb-1 text-base font-medium text-ink">Held for a person to look at</p>
-              <ul className="space-y-0.5 text-xs text-ink-2">{plan.conflicts.map((c: any) => <li key={c.edipi}><span className="mono">{c.edipi}</span> — {c.reason}</li>)}</ul>
+              <ul className="space-y-0.5 text-xs text-ink-2">{plan.conflicts.map((c) => <li key={c.edipi}><span className="mono">{c.edipi}</span> — {c.reason}</li>)}</ul>
             </div>
           )}
         </Panel>
@@ -111,9 +123,9 @@ export function PersonnelConsole() {
       <Panel title="Where the roster and the accounts disagree" subtitle="Each of these is somebody whose record could drift. None of them is fixed automatically.">
         {gaps.isPending ? <Skeleton className="h-24" /> : (
           <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-            <GapList title="Accounts with no EDIPI" rows={gaps.data?.accountsWithoutEdipi || []} render={(r: any) => `${r.last_name}, ${r.first_name} (@${r.username})`} empty="Every account is linked." />
-            <GapList title="Accounts the roster does not list" rows={gaps.data?.accountsWithoutRoster || []} render={(r: any) => `${r.last_name}, ${r.first_name} — ${r.edipi}`} empty="Every linked account is on the roster." />
-            <GapList title="On the roster with no account" rows={gaps.data?.rosterWithoutAccount || []} render={(r: any) => `${r.last_name}, ${r.first_name} — ${r.rank_id || '—'}`} empty="Everyone on the roster has an account." />
+            <GapList title="Accounts with no EDIPI" rows={gaps.data?.accountsWithoutEdipi || []} render={(r) => `${r.last_name}, ${r.first_name} (@${r.username})`} empty="Every account is linked." />
+            <GapList title="Accounts the roster does not list" rows={gaps.data?.accountsWithoutRoster || []} render={(r) => `${r.last_name}, ${r.first_name} — ${r.edipi}`} empty="Every linked account is on the roster." />
+            <GapList title="On the roster with no account" rows={gaps.data?.rosterWithoutAccount || []} render={(r) => `${r.last_name}, ${r.first_name} — ${r.rank_id || '—'}`} empty="Everyone on the roster has an account." />
           </div>
         )}
       </Panel>
@@ -128,7 +140,7 @@ export function PersonnelConsole() {
   );
 }
 
-function GapList({ title, rows, render, empty }: { title: string; rows: any[]; render: (r: any) => string; empty: string }) {
+function GapList({ title, rows, render, empty }: { title: string; rows: GapRow[]; render: (r: GapRow) => string; empty: string }) {
   return (
     <div>
       <p className="mb-1.5 text-base font-medium text-ink">{title} <span className="fig text-ink-3">{rows.length ? rows.length : ''}</span></p>
@@ -141,25 +153,26 @@ function GapList({ title, rows, render, empty }: { title: string; rows: any[]; r
   );
 }
 
-export function RetentionConsole() {
+/** The organization's retention schedules, legal holds and disposition runs, over the work shared with its units. */
+export function RetentionConsole({ orgId }: { orgId: string }) {
   const toast = useToast();
   const qc = useQueryClient();
-  const data = useAdmin('retention', api.adminRetention);
+  const data = useOrgData(orgId, 'retention', () => api.orgRetention(orgId));
   const [draft, setDraft] = useState<any>(null);
   const [holdDraft, setHoldDraft] = useState<any>(null);
   const [preview, setPreview] = useState<any>(null);
   const [confirmRun, setConfirmRun] = useState(false);
   const [busy, setBusy] = useState(false);
-  const refresh = () => qc.invalidateQueries({ queryKey: ['admin', 'retention'] });
+  const refresh = () => qc.invalidateQueries({ queryKey: ['org', orgId, 'retention'] });
 
   const save = async (schedule: any) => {
-    try { await withSudo(() => api.adminSaveSchedule(schedule)); toast.success('Schedule saved.'); setDraft(null); setPreview(null); refresh(); }
+    try { await withSudo(() => api.orgSaveSchedule(orgId, schedule)); toast.success('Schedule saved.'); setDraft(null); setPreview(null); refresh(); }
     catch (e) { toast.error(api.errorText(e)); }
   };
   const run = async (apply: boolean) => {
     setBusy(true);
     try {
-      const res = await withSudo(() => api.adminRunDisposition(apply));
+      const res = await withSudo(() => api.orgRunDisposition(orgId, apply));
       setPreview(res);
       if (res.blocked) toast.error(res.blocked);
       else if (apply) { toast.success('Disposition applied.'); refresh(); }
@@ -180,7 +193,7 @@ export function RetentionConsole() {
     <div className="space-y-4">
       {holds.some((h: any) => h.scope === 'instance') && (
         <div className="card border-warn/50 bg-warn/5 p-3" role="alert">
-          <p className="flex items-center gap-2 text-base font-semibold text-ink"><ShieldAlert className="h-4 w-4 text-warn" />An instance-wide legal hold is open</p>
+          <p className="flex items-center gap-2 text-base font-semibold text-ink"><ShieldAlert className="h-4 w-4 text-warn" />A hold over the whole organization is open</p>
           <p className="mt-1 text-sm text-ink-2">Nothing is disposed of while it stands, whatever the schedules below say.</p>
         </div>
       )}
@@ -240,7 +253,7 @@ export function RetentionConsole() {
                   <span className="block text-xs text-ink-2">{h.reason}</span>
                   <span className="block text-2xs text-ink-3">placed {timeAgo(h.placed_at)}</span>
                 </span>
-                <Button size="xs" variant="ghost" onClick={async () => { try { await withSudo(() => api.adminReleaseHold(h.id)); toast.success('Hold released.'); refresh(); } catch (e) { toast.error(api.errorText(e)); } }}>Release</Button>
+                <Button size="xs" variant="ghost" onClick={async () => { try { await withSudo(() => api.orgReleaseHold(orgId, h.id)); toast.success('Hold released.'); refresh(); } catch (e) { toast.error(api.errorText(e)); } }}>Release</Button>
               </li>
             ))}
           </ul>
@@ -291,12 +304,12 @@ export function RetentionConsole() {
           open onOpenChange={() => setHoldDraft(null)}
           title="Place a legal hold"
           confirmLabel="Place the hold"
-          onConfirm={async () => { try { await withSudo(() => api.adminPlaceHold({ ...holdDraft, subject_id: holdDraft.subject_id || null, record_type: holdDraft.record_type || null })); toast.success('Hold placed.'); setHoldDraft(null); refresh(); } catch (e) { toast.error(api.errorText(e)); } }}
+          onConfirm={async () => { try { await withSudo(() => api.orgPlaceHold(orgId, { ...holdDraft, subject_id: holdDraft.subject_id || null, record_type: holdDraft.record_type || null })); toast.success('Hold placed.'); setHoldDraft(null); refresh(); } catch (e) { toast.error(api.errorText(e)); } }}
           body={
             <div className="space-y-3">
               <Field label="Covers">
                 <Select value={holdDraft.scope} onValueChange={(v) => setHoldDraft({ ...holdDraft, scope: v })}
-                  options={[{ value: 'instance', label: 'Everything on this instance' }, { value: 'record_type', label: 'One kind of record' }, { value: 'user', label: 'One person' }]} />
+                  options={[{ value: 'instance', label: 'Everything the organization holds' }, { value: 'record_type', label: 'One kind of record' }, { value: 'user', label: 'One person' }]} />
               </Field>
               {holdDraft.scope === 'record_type' && (
                 <Field label="Record type"><Select value={holdDraft.record_type} onValueChange={(v) => setHoldDraft({ ...holdDraft, record_type: v })} options={holdableTypes.map((t: string) => ({ value: t, label: humanize(t) }))} /></Field>
@@ -318,9 +331,17 @@ export function RetentionConsole() {
   );
 }
 
-/** `demo` shows the schema-derived inventory a demo visitor may see, without row counts or the export. */
-export function PrivacyConsole({ demo = false }: { demo?: boolean } = {}) {
-  const inv = useQuery<any>({ queryKey: ['admin', 'privacy-inventory', demo], queryFn: () => (demo ? api.demoGovernance().then((r: any) => r.inventory) : withSudo(api.adminPrivacyInventory)), retry: false });
+/**
+ * The privacy inventory: one organization's (orgId), the whole service's (for Vantage staff, neither given), or the
+ * schema-derived one a demo visitor may see, without row counts or the export (`demo`).
+ */
+export function PrivacyConsole({ demo = false, orgId }: { demo?: boolean; orgId?: string } = {}) {
+  const inv = useQuery<any>({
+    queryKey: ['privacy-inventory', demo ? 'demo' : orgId ?? 'platform'],
+    queryFn: () => (demo ? api.demoGovernance().then((r: any) => r.inventory) : withSudo(orgId ? () => api.orgPrivacyInventory(orgId) : api.platformPrivacyInventory)),
+    retry: false,
+  });
+  const markdownUrl = orgId ? api.orgPrivacyInventoryUrl(orgId) : '/api/platform/privacy/inventory?format=markdown';
   const [open, setOpen] = useState<string | null>(null);
   if (inv.isPending) return <Skeleton className="h-64" />;
   if (inv.error) return <div className="card"><EmptyState icon={ShieldAlert} title="Could not build the inventory" description={api.errorText(inv.error)} /></div>;
@@ -337,7 +358,7 @@ export function PrivacyConsole({ demo = false }: { demo?: boolean } = {}) {
       <Panel
         title="Data inventory"
         subtitle="Built from the live database every time it is opened, so it cannot quietly stop being true the way a written document does."
-        action={demo ? undefined : <Button onClick={async () => { const md = await withSudo(() => fetch('/api/admin/privacy/inventory?format=markdown', { credentials: 'same-origin', headers: { 'x-vantage-client': '1' } }).then((r) => r.text())); downloadText('vantage-data-inventory.md', md); }}><Download className="h-4 w-4" />Export for the PIA</Button>}
+        action={demo ? undefined : <Button onClick={async () => { const md = await withSudo(() => fetch(markdownUrl, { credentials: 'same-origin', headers: { 'x-vantage-client': '1' } }).then((r) => r.text())); downloadText('vantage-data-inventory.md', md); }}><Download className="h-4 w-4" />Export for the PIA</Button>}
       >
         <div className="-mx-4 -mt-1">
           <Table minWidth={680} head={<><th>Table</th><th className="w-24 text-right">Rows</th><th>Purpose</th><th className="w-40">Retention</th><th className="w-24">Gaps</th></>}>

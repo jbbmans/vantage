@@ -17,6 +17,8 @@ import { DEFAULT_PERIOD, aggregateMetrics, formatDollars, formatNumber, rangeFor
 import { trackForGrade, trackMeta, mapAreaToTrack } from '../../shared/evaluation';
 import { estimate } from '../../shared/jepes';
 import { humanize, fullName, cn } from '@/lib/utils';
+import WhyList from '@/components/WhyList';
+import { endOfDay, tomorrowKey, type UnitExplanation } from '@/lib/tenancy';
 
 export default function MemberDetail() {
   const cfg = useMetrics();
@@ -46,14 +48,16 @@ export default function MemberDetail() {
   const isSelf = id === identity?.user.id;
   const unitId = data?.detailUnits?.[0] ?? null;
   const canCounsel = Boolean(data?.canCounsel?.length) && !isSelf;
-  const canManage = Boolean(data?.canManageMembers?.length) || Boolean(identity?.user.is_operator);
+  const canManage = Boolean(data?.canManageMembers?.length);
+  const [until, setUntil] = useState('');
+  const why = useQuery<{ units: UnitExplanation[] }>({ queryKey: ['why', id], queryFn: () => api.whyCan(id!), enabled: Boolean(id) && tab === 'roles', retry: false });
   const unitLabel = (u: string) => { const x = (org?.units || []).find((y) => y.id === u); return x ? x.short_name || x.name : u; };
 
   if (isPending) return <div className="page space-y-3"><Skeleton className="h-10 w-72" /><Skeleton className="h-64" /></div>;
   if (error || !data || !person) return <div className="page"><div className="card"><EmptyState title="Cannot open this Marine" description={api.errorText(error)} action={<Button onClick={() => navigate('/team')}>Back to team</Button>} /></div></div>;
 
   const download = async () => { try { const name = await api.downloadFile(api.reportPdfUrl({ user_id: id, unit_id: unitId, period: DEFAULT_PERIOD, limit: 12 }), 'vantage-report.pdf'); toast.success(`Downloaded ${name}.`); } catch (e) { toast.error(api.errorText(e)); } };
-  const grant = async (roleId: string, unit: string) => { try { await api.grantRole(id, { role_id: roleId, unit_id: unit }); refetch(); qc.invalidateQueries({ queryKey: keys.team }); toast.success('Role granted. Their sessions were reset.'); } catch (e) { toast.error(api.errorText(e)); } };
+  const grant = async (roleId: string, unit: string) => { try { await api.grantRole(id, { role_id: roleId, unit_id: unit, expires_at: endOfDay(until) }); refetch(); why.refetch(); qc.invalidateQueries({ queryKey: keys.team }); toast.success(until ? `Role granted until ${new Date(`${until}T12:00:00`).toLocaleDateString()}. Their sessions were reset.` : 'Role granted. Their sessions were reset.'); } catch (e) { toast.error(api.errorText(e)); } };
   const revoke = async (roleId: string) => { try { await api.revokeRole(id, roleId); refetch(); qc.invalidateQueries({ queryKey: keys.team }); toast.success('Role removed.'); } catch (e) { toast.error(api.errorText(e)); } };
   const saveProfile = async () => { try { await api.updateMemberProfile(id, { first_name: profile.first_name, last_name: profile.last_name, middle_initial: profile.middle_initial || null, rank_id: profile.rank_id || null, mos: profile.mos || null, eas: profile.eas || null }); refetch(); qc.invalidateQueries({ queryKey: keys.team }); toast.success('Profile updated.'); setProfile(null); } catch (e) { toast.error(api.errorText(e)); } };
   const pendingAck = data.counselings.filter((c) => !c.acknowledged_at && c.counselor_id && c.counselor_id !== c.user_id).length;
@@ -120,8 +124,9 @@ export default function MemberDetail() {
 
       {tab === 'roles' && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Panel title="Held roles">{!data.roles.length ? <p className="text-sm text-ink-3">Only the default Marine role.</p> : <ul className="space-y-2">{data.roles.map((r) => <li key={`${r.unit_id}-${r.id}`} className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2"><span className="badge-dot" style={{ backgroundColor: r.color || '#6b7a8f' }} /><span className="text-ink">{r.name}</span><span className="text-xs text-ink-3">{unitLabel(r.unit_id)}</span></span>{canManage && !isSelf && r.key !== 'unit-leader' && !(rolesData?.roles || []).find((x) => x.id === r.id)?.is_default && <Button size="xs" variant="ghost" onClick={() => revoke(r.id)}>Remove</Button>}</li>)}</ul>}</Panel>
-          {canManage && !isSelf && <Panel title="Grant a role" subtitle="Only roles below your own position; granting resets their sessions"><ul className="space-y-1.5">{(rolesData?.roles || []).filter((r) => data.detailUnits.includes(r.unit_id) && r.editable && !r.is_default && r.key !== 'unit-leader' && !data.roles.some((h) => h.id === r.id)).map((r) => <li key={r.id} className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2"><span className="badge-dot" style={{ backgroundColor: r.color || '#6b7a8f' }} /><span className="text-ink">{r.name}</span><span className="text-xs text-ink-3">{unitLabel(r.unit_id)}</span></span><Button size="xs" onClick={() => grant(r.id, r.unit_id)}>Grant</Button></li>)}</ul></Panel>}
+          <Panel title="Held roles">{!data.roles.length ? <p className="text-sm text-ink-3">Only the default Marine role.</p> : <ul className="space-y-2">{data.roles.map((r) => <li key={`${r.unit_id}-${r.id}`} className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2"><span className="badge-dot" style={{ backgroundColor: r.color || '#6b7a8f' }} /><span className="text-ink">{r.name}</span><span className="text-xs text-ink-3">{unitLabel(r.unit_id)}</span>{r.expires_at ? <Badge tone="warn">until {new Date(r.expires_at).toLocaleDateString()}</Badge> : null}</span>{canManage && !isSelf && r.key !== 'unit-leader' && !(rolesData?.roles || []).find((x) => x.id === r.id)?.is_default && <Button size="xs" variant="ghost" onClick={() => revoke(r.id)}>Remove</Button>}</li>)}</ul>}</Panel>
+          {canManage && !isSelf && <Panel title="Grant a role" subtitle="Only roles below your own position; granting resets their sessions"><Field label="Until" hint="optional: an acting billet or a leave period ends on its own" className="mb-3"><Input type="date" value={until} min={tomorrowKey()} onChange={(e) => setUntil(e.target.value)} /></Field><ul className="space-y-1.5">{(rolesData?.roles || []).filter((r) => data.detailUnits.includes(r.unit_id) && r.editable && !r.is_default && r.key !== 'unit-leader' && !data.roles.some((h) => h.id === r.id)).map((r) => <li key={r.id} className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2"><span className="badge-dot" style={{ backgroundColor: r.color || '#6b7a8f' }} /><span className="text-ink">{r.name}</span><span className="text-xs text-ink-3">{unitLabel(r.unit_id)}</span></span><Button size="xs" onClick={() => grant(r.id, r.unit_id)}>Grant</Button></li>)}</ul></Panel>}
+          <Panel title="Why can they?" subtitle="Every grant behind what they can do, in the units you manage" className="lg:col-span-2">{why.isPending ? <Skeleton className="h-24" /> : why.error ? <p className="text-sm text-ink-3">{api.errorText(why.error)}</p> : <WhyList units={why.data?.units ?? []} />}</Panel>
         </div>
       )}
 

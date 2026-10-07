@@ -4,11 +4,15 @@ import type { Narrative } from '../../shared/narrative.ts';
 import type { Metrics } from '../../shared/metrics.ts';
 import { formatDollarsExact, formatNumber } from '../../shared/metrics.ts';
 import { drawMark } from '../lib/pdfMark.ts';
+import { FITREP_SECTIONS } from '../../shared/evaluation.ts';
+import type { WorksheetBlocks } from '../../shared/writer/worksheet.ts';
 
 export interface ReportPdfInput {
   title: string; subject: string; unitLine: string; period: string; track: string; generatedAt: string;
   narrative: Narrative; pkg: PackageGroup[]; metrics: Metrics; counts: { activities: number; awards: number; trainingHours: number };
   awards?: Array<{ name: string; date: string | null; status: string }>;
+  /** FITREP: the MRO worksheet's PME and Other blocks. */
+  worksheet?: WorksheetBlocks | null;
   trainings?: Array<{ title: string; date: string | null; hours: number | null }>;
 }
 
@@ -61,24 +65,34 @@ export function renderReportPdf(input: ReportPdfInput): Promise<Buffer> {
     doc.x = doc.page.margins.left;
     doc.y = startY + Math.ceil(stats.length / 2) * 16 + 4;
 
-    h2(`${input.track === 'fitrep' ? 'FITREP' : 'JEPES'} narrative input`);
+    h2(input.track === 'fitrep' ? 'Section C draft: billet accomplishments' : 'Billet accomplishments (MCO 1616.1, Appendix E)');
     if (input.narrative.text) {
       body(input.narrative.text, { align: 'left' });
       doc.moveDown(0.2);
       meta(`${input.narrative.length} of ${input.narrative.limit} characters${input.narrative.omitted ? ` · ${input.narrative.omitted} supporting facts withheld for length` : ''}`);
     } else body('No activities were logged in this period.');
 
-    h2('Accomplishments by area');
+    if (input.worksheet) {
+      // The worksheet's own blocks, in its order, after Section C.
+      for (const [heading, lines] of [['PME and self-education', input.worksheet.pme], ['Other: awards, commendatory correspondence, community involvement', input.worksheet.other]] as const) {
+        if (!lines.length) continue;
+        h2(heading);
+        for (const line of lines) body(`-${line}`, { paragraphGap: 2 });
+      }
+    }
+
+    h2(input.track === 'fitrep' ? 'Accomplishments by section' : 'Accomplishments by command input line');
     for (const group of input.pkg) {
       if (!group.count) continue;
       doc.moveDown(0.3);
-      doc.font('Helvetica-Bold').fontSize(10).fillColor(INK).text(`${group.area}  (${group.count})`);
+      const section = input.track === 'fitrep' ? FITREP_SECTIONS.find((x) => x.key === group.area)?.section : undefined;
+      doc.font('Helvetica-Bold').fontSize(10).fillColor(INK).text(`${section ? `Section ${section}: ` : ''}${group.area}  (${group.count})`);
       if (group.rollup) { doc.font('Helvetica-Oblique').fontSize(9.5).fillColor(MUTED).text(group.rollup, { lineGap: 1.5 }); doc.moveDown(0.15); }
       for (const b of group.bullets) body(`•  ${b.text}`, { indent: 0, paragraphGap: 2 });
       if (group.withheld) meta(`…and ${group.withheld} more not shown at the current limit.`);
     }
 
-    if (input.awards?.length || input.trainings?.length) {
+    if (!input.worksheet && (input.awards?.length || input.trainings?.length)) {
       h2('Career record in period');
       for (const a of input.awards || []) body(`•  ${a.name} (${a.status.replace('_', ' ')}${a.date ? `, ${a.date}` : ''})`);
       for (const t of input.trainings || []) body(`•  ${t.title}${t.hours ? `, ${formatNumber(t.hours)} h` : ''}${t.date ? `, ${t.date}` : ''}`);

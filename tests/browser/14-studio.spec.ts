@@ -1,5 +1,5 @@
-import { test, expect } from '@playwright/test';
-import { ensureSetup, loginAs, logout, registerAs, unique, OPERATOR } from './fixtures';
+import { test, expect, request as playwrightRequest } from '@playwright/test';
+import { ensureSetup, joinUnit, loginAs, logout, registerAs, unique, OPERATOR, PASSWORD } from './fixtures';
 
 const H = { 'x-vantage-client': '1' };
 const today = () => new Date().toISOString().slice(0, 10);
@@ -146,9 +146,13 @@ test('a report written about somebody is theirs to read, not to rewrite', async 
   const subjectName = unique('subj');
   await registerAs(page, subjectName, { rank_id: 'Cpl' });
   const subject = await (await page.request.get('/api/me')).json();
+  const leader = await playwrightRequest.newContext({ baseURL: page.url().replace(/^(https?:\/\/[^/]+).*$/, '$1') });
+  const signedIn = await leader.post('/api/auth/login', { headers: H, data: { username: OPERATOR.username, password: PASSWORD } });
+  expect(signedIn.ok(), await signedIn.text()).toBeTruthy();
+  await joinUnit(leader, page.request);
+  await leader.dispose();
   await logout(page);
   await loginAs(page, OPERATOR.username);
-  await page.request.post('/api/org/units/G8/members', { headers: H, data: { user_id: subject.user.id } });
 
   const created = await page.request.post('/api/studio/reports', {
     headers: H,

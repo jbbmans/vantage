@@ -9,12 +9,13 @@ let op: { token: string; id: string; unitId: string };
 before(async () => { app = await startApp(); op = await app.setupOperator(); });
 after(async () => { await app.close(); });
 
-test('setup runs once and makes the first account an operator with a unit', async () => {
+test('setup runs once and makes the first account a platform owner who owns and leads the first organization', async () => {
   assert.equal((await app.call('GET', '/api/auth/setup')).body.needsSetup, false);
   const again = await app.call('POST', '/api/auth/setup', { body: { username: 'x', password: PASSWORD, first_name: 'a', last_name: 'b', unit_name: 'c' } });
   assert.equal(again.status, 409);
   const me = await app.call('GET', '/api/me', { token: op.token });
-  assert.equal(me.body.user.is_operator, 1);
+  assert.deepEqual(me.body.platform.roles, ['owner']);
+  assert.deepEqual(me.body.orgs.map((o: { id: string; roles: string[] }) => [o.id, o.roles]), [['G8', ['owner']]]);
   assert.equal(me.body.primaryUnitId, 'G8');
   assert.deepEqual(me.body.ownedUnitIds, ['G8']);
   assert.ok(me.body.canLead);
@@ -180,13 +181,13 @@ test('maintenance mode blocks registration and non-owner requests but lets owner
     const op = await m.setupOperator();
     const user = await m.register('maint');
     await m.call('POST', '/api/auth/sudo', { token: op.token, body: { password: PASSWORD } });
-    assert.equal((await m.call('POST', '/api/admin/maintenance', { token: op.token, body: { enabled: true } })).status, 200);
+    assert.equal((await m.call('POST', '/api/platform/maintenance', { token: op.token, body: { enabled: true } })).status, 200);
     assert.equal((await m.call('POST', '/api/auth/register', { body: { username: 'late', password: PASSWORD, first_name: 'L', last_name: 'M' } })).status, 503);
     assert.equal((await m.call('GET', '/api/records/activities', { token: user.token })).status, 503);
     assert.equal((await m.call('GET', '/api/me', { token: user.token })).status, 200);
     assert.equal((await m.login('maint')).status, 200);
     assert.equal((await m.call('GET', '/api/records/activities', { token: op.token })).status, 200);
-    assert.equal((await m.call('POST', '/api/admin/maintenance', { token: op.token, body: { enabled: false } })).status, 200);
+    assert.equal((await m.call('POST', '/api/platform/maintenance', { token: op.token, body: { enabled: false } })).status, 200);
     assert.equal((await m.call('GET', '/api/records/activities', { token: user.token })).status, 200);
   } finally { await m.close(); }
 });

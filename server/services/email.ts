@@ -124,7 +124,7 @@ export function createMailer(config: AppConfig, db: Db): Mailer {
     outbox,
     retryQueued,
     async send(mail) {
-      if (!transport) { log(mail, 'skipped', 'no provider'); return { ok: false, error: 'Email is not configured on this server.' }; }
+      if (!transport) { log(mail, 'skipped', 'no provider'); return { ok: false, error: 'Email is off on Vantage right now.' }; }
       try {
         const result = await transport(mail);
         if (result && result.queued) return result;

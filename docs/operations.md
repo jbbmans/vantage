@@ -1,19 +1,22 @@
 # Operations
 
+This is the Vantage team's run book for the central service. Commands do not run Vantage; what an organization's
+owners do for themselves is in the owner console, and is noted where it touches these steps.
+
 ## Backups
 
 Render disks are not backed up for you. Take a consistent copy of the SQLite file (SQLite's online backup API, safe while the app runs) weekly and before every upgrade, and store it somewhere the data classification allows.
 
 - **On the server** (the way to do it on an accredited host): `VANTAGE_DB=/data/vantage.db npm run backup -- /backups/vantage-$(date +%F).db`. The copy is written readable by its owner only; encrypt it before it leaves the host.
-- **From the browser**: **Owner console → Backup and move → Download backup**. Every other owner is notified each time a backup or instance archive is downloaded. Set `VANTAGE_BROWSER_BACKUPS=false` to close this path where policy requires backups to stay on the server.
+- **From the browser**: **Admin dashboard → Backup and recovery → Download backup** (platform owners). Every other platform owner is notified each time a backup or service archive is downloaded. Set `VANTAGE_BROWSER_BACKUPS=false` to close this path where policy requires backups to stay on the server.
 
 Restoring a `.db` file: turn on maintenance mode, replace `/data/vantage.db` (a Render shell: `render ssh`, then `cp`), delete any `-wal` and `-shm` siblings, restart the service.
 
-## Moving to another host
+## Moving the service to another host
 
-1. **Owner console → Export instance.** One JSON file with everything: accounts (password hashes, TOTP secrets, passkeys), units, roles, memberships, every record, attachments, notifications, audit log.
-2. Stand up Vantage on the new host (Docker image, or `npm ci && npm run build && npm start`). Use the same `VANTAGE_PUBLIC_URL` (or `VANTAGE_SITE_URL`, `VANTAGE_APP_URL` and `VANTAGE_CONSOLE_URL`) and the same `VANTAGE_SECRET` (or the new secret with the old one as `VANTAGE_SECRET_PREVIOUS`, see [Changing the secret](#changing-the-secret)), otherwise TOTP secrets cannot be decrypted and the audit chain will not verify. Passkeys survive only if the hostname is unchanged.
-3. Complete setup on the new host with any throwaway owner account, then **Import** the JSON. The import replaces everything, including that throwaway account, and resets every session.
+1. **Admin dashboard → Backup and recovery → Export the service.** One JSON file with everything: organizations and their roles, platform staff, accounts (password hashes, TOTP secrets, passkeys), units, roles, memberships, every record, attachments, notifications, Vantage access history, the audit trail.
+2. Stand up Vantage on the new host (Docker image, or `npm ci && npm run build && npm start`). Use the same `VANTAGE_PUBLIC_URL` (or `VANTAGE_SITE_URL`, `VANTAGE_APP_URL`, `VANTAGE_CONSOLE_URL` and `VANTAGE_ADMIN_URL`) and the same `VANTAGE_SECRET` (or the new secret with the old one as `VANTAGE_SECRET_PREVIOUS`, see [Changing the secret](#changing-the-secret)), otherwise TOTP secrets cannot be decrypted and the audit chain will not verify. Passkeys survive only if the hostname is unchanged.
+3. Complete setup on the new host with any throwaway account, then **Import** the JSON from the admin dashboard. The import replaces everything, including that throwaway account, and resets every session.
 4. Point DNS at the new host.
 
 ## Changing the secret
@@ -46,17 +49,17 @@ who has the whole server has both. What catches them is a copy they do not contr
   ships container logs somewhere you keep.
 
 Each record carries its `entry_hash`, so a collector's copy can be compared with the chain at any time. The daily
-anchor of every case history's head is an audit record and travels the same way. The Owner console's Audit chain
+anchor of every case history's head is an audit record and travels the same way. The admin dashboard's Audit chain
 panel says where copies go, how many were sent, and warns when there are none.
 
 ## Adding people from a roster
 
-**Owner console → Accounts → Import accounts** takes an `.xlsx` or `.csv` with a header row. `Username`, `First Name` and `Last Name` are required; `Rank`, `L2 Command` (or `Command`), `Fire Team` (or `Team`, `Unit`, `Section`), `Email`, `Temporary Password`, `Role` and `Billet` are used when present. The file is read and every row is shown first: what will be created, what already exists, and what is skipped and why. Nothing is written until you confirm.
+An organization's administrators do this themselves: **Owner console → People → Import accounts** takes an `.xlsx` or `.csv` with a header row. `Username`, `First Name` and `Last Name` are required; `Rank`, `L2 Command` (or `Command`), `Fire Team` (or `Team`, `Unit`, `Section`), `Email`, `Temporary Password`, `Role` and `Billet` are used when present. The file is read and every row is shown first: what will be created, what already exists, and what is skipped and why. Nothing is written until you confirm.
 
-- Each command and team is matched to an existing unit by name or short name, or created, with the team placed under its command. Units the import creates are led by the owner who ran it: a new command directly, and a new team through the command above it, so the owner is not listed as a member of every team.
+- Each command and team is matched to a unit of that organization by name or short name, or created inside it: a command directly under the organization's top unit (or the top unit itself, if the roster names it), a team under its command. New units are governed from above, by the top unit's leader and the organization's administrators. A row that names no unit joins the top unit. Units of other organizations are never matched.
 - Roles are the unit's role names (`Marine`, `NCO`, `Fire Team Leader`, `SNCO`, `SNCOIC`). Unit Leader goes with ownership and cannot be imported.
 - Every account starts on its temporary password and must choose its own at first sign-in. A row with no temporary password gets one, shown once after the import with a download.
-- A username that already exists is left as it is, so the same roster can be imported again safely.
+- A username that already exists is left as it is (it may belong to someone in another organization), so the same roster can be imported again safely. Invite that person with a join code instead.
 
 The roster holds names, email addresses and passwords. Keep it out of the repository and delete it once everyone has signed in.
 
@@ -77,21 +80,26 @@ VANTAGE_START_OVER=1 VANTAGE_ADMIN_PASSWORD='<owner password>' node scripts/star
 rm /tmp/roster.csv
 ```
 
-The owner account is `vantage.admin` (`--admin` to change it), named Vantage Admin (`--first`, `--last`). Name the unit what the roster calls its command, so the import files people under it. Nothing is erased if the password is too weak, the arguments are wrong, or the roster cannot be read. Once the new setup is confirmed, delete the backup: `rm /data/vantage-before-start-over-*.db`.
+The new account is `vantage.admin` (`--admin` to change it), named Vantage Admin (`--first`, `--last`): a platform owner, and owner and leader of the first organization. Name the unit what the roster calls its command, so the import files people under it. Nothing is erased if the password is too weak, the arguments are wrong, or the roster cannot be read. Once the new setup is confirmed, delete the backup: `rm /data/vantage-before-start-over-*.db`.
 
 Without a shell, the same result takes three steps: `VANTAGE_FACTORY_RESET=1 node scripts/factory-reset.ts ERASE-EVERYTHING` and **Manual Deploy → Restart service**; first-run setup on the site, which asks for the **Deployment setup token** (Render → Environment → `VANTAGE_SETUP_TOKEN`); then **Import accounts** as above.
 
-## Recovering owner access
+## Recovering access
 
-If every owner is locked out: `VANTAGE_RECOVERY=1 npm run recover-operator -- <username>` on the server grants owner authority, clears that account's authenticator, and prints a temporary password. On Render use `render ssh vantage` then `cd /app && VANTAGE_RECOVERY=1 node scripts/recover-operator.ts <username>`. Sessions for that user are reset; sign in with the temporary password and set a new one.
+- **An organization with no owner left** (moved, separated, locked out): **Admin dashboard → Organizations → Name owner** names one, and only for an organization with none. An organization that has owners names its own.
+- **Every platform owner locked out:** `VANTAGE_RECOVERY=1 npm run recover-operator -- <username>` on the server makes that account a platform owner, clears its authenticator, and prints a temporary password. On Render use `render ssh vantage` then `cd /app && VANTAGE_RECOVERY=1 node scripts/recover-operator.ts <username>`. Sessions for that user are reset; sign in with the temporary password and set a new one.
 
 ## Lost phone
 
-The owner (or any user for themselves after signing in with a recovery code) can clear MFA. **Owner console → Accounts → Reset MFA** removes the authenticator, recovery codes, and passkeys, and signs the user out everywhere. Then **Temp password** if the password is lost too.
+Anyone can clear their own after signing in with a recovery code. Otherwise it is Vantage support's: **Admin dashboard → Accounts → Reset 2FA** removes the authenticator, recovery codes and passkeys, signs the person out everywhere, and tells them. Then **Temp password** if the password is lost too. An account can belong to more than one organization, so an organization's owners can unlock and sign out their members but not reset their credentials. A platform owner's own account is recovered only by another platform owner.
 
 ## Maintenance mode
 
-**Owner console → Settings → Maintenance** blocks everyone but owners with a 503, including registration, invitations, and password resets. Non-owners can still sign in, but every other request is refused until it is turned off. Turn it on before a restore or a move.
+**Admin dashboard → Settings → Maintenance** blocks everyone but Vantage staff with a 503, in every organization, including registration, invitations, and password resets. Others can still sign in, but every other request is refused until it is turned off. Turn it on before a restore or a move.
+
+## Vantage access to an organization
+
+Staff never see inside an organization by holding a platform role. **Admin dashboard → Organizations → Ask for access** (or Vantage access) names the reason and the length (four hours by default, never more than a day). The organization's owners approve or deny it in **Owner console → Vantage access**; an organization can instead choose to be told rather than asked. Access is read-only, covers its units and the work shared with them (never member detail or private entries), ends on its own or when an owner ends it, and every step is in both the organization's audit trail and the platform's. A request nobody answers lapses after a day.
 
 ## Upgrading from Vantage 4
 

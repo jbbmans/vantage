@@ -17,12 +17,12 @@ export const SITE = {
 } as const;
 
 export const FAQS: ReadonlyArray<readonly [string, string]> = [
-  ['What is Vantage?', 'Vantage is a self-hosted performance, productivity, readiness, work-management, reporting and decision-support platform. It turns day-to-day operational work into clear, traceable records, and those records into the views and reports a Marine and their leaders actually use.'],
-  ['Who is Vantage for?', 'Individual Marines, NCOs and team leaders, staff sections such as a comptroller’s budget and execution shop, command teams, and the people who run a deployment. Each sees the part of the picture their role allows.'],
+  ['What is Vantage?', 'Vantage is a performance, productivity, readiness, work-management, reporting and decision-support service for Marines and their commands, at vantageusmc.com. It turns day-to-day operational work into clear, traceable records, and those records into the views and reports a Marine and their leaders actually use.'],
+  ['Who is Vantage for?', 'Individual Marines, NCOs and team leaders, staff sections such as a comptroller’s budget and execution shop, command teams, and the people who run a command’s organization on Vantage. Each sees the part of the picture their role allows.'],
   ['Is Vantage an official Marine Corps system?', 'No. Vantage is an independent software project and is not an official Department of Defense or U.S. Marine Corps system of record. It complements approved processes and systems; it does not replace them, and it never writes to them.'],
   ['What can teams track?', 'Work actions and outcomes, configurable value metrics, projects, spreadsheet-driven queues, cases that follow cited procedures, goals, correspondence, readiness dates, training, awards, counselings and report drafts.'],
   ['Does it help financial management analysts?', 'Yes. Imported open balances are read in lifecycle order (commitment, obligation, delivered, paid), the open condition is named, and each case can follow a versioned procedure with its evidence gates. The reference content it uses is training material, and Vantage labels it that way rather than presenting it as policy.'],
   ['Can it support Marine Corps performance documentation?', 'Vantage organises source records and drafts material that can help prepare JEPES or FITREP input. Official submissions still belong in the authoritative systems and processes.'],
   ['How does Vantage handle accountability?', 'Every case keeps an append-only history that is sealed and signed, access follows current unit membership, and important changes are attributable in a hash-chained audit log. Outputs can be traced back to the facts used to make them.'],
-  ['Does Vantage use AI?', 'Only when the deployment owner enables it, and only through GenAI.mil. AI sits inside the workflows where it helps, never as a separate destination, and everything it drafts is something a person reviews.'],
+  ['Does Vantage use AI?', 'Only when Vantage turns it on, and only through GenAI.mil. AI sits inside the workflows where it helps, never as a separate destination, and everything it drafts is something a person reviews.'],
 ];

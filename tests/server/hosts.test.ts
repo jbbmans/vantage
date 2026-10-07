@@ -53,7 +53,7 @@ test('the public site serves the public page and sends everything of the applica
   assert.equal(login.location, `http://${APP}/login`);
   const reset = await at(SITE, 'GET', '/reset?token=abc');
   assert.equal(reset.location, `http://${APP}/reset?token=abc`, 'the link in an email keeps its token');
-  assert.equal((await at(SITE, 'GET', '/operator?tab=users')).location, `http://${CONSOLE}/?tab=users`);
+  assert.equal((await at(SITE, 'GET', '/operator?tab=users')).location, `http://${CONSOLE}/admin/accounts`, 'an old console tab that runs the service opens in the admin dashboard');
 
   assert.equal((await at(SITE, 'GET', '/api/me', { token: operator })).status, 404, 'the public site answers no API calls');
   assert.equal((await at(SITE, 'GET', '/api/health')).status, 200, 'the health check answers on every host');
@@ -67,7 +67,9 @@ test('the application serves sign-in at its root, and nothing of the site or the
   assert.match(root.text, /<meta name="vantage-links" content="[^"]*https?:\/\/dev\.vantage\.test/, 'the app knows where the console is');
 
   assert.equal((await at(APP, 'GET', '/about')).location, `http://${SITE}/about`);
-  assert.equal((await at(APP, 'GET', '/operator?tab=users')).location, `http://${CONSOLE}/?tab=users`);
+  assert.equal((await at(APP, 'GET', '/operator?tab=users')).location, `http://${CONSOLE}/admin/accounts`);
+  assert.equal((await at(APP, 'GET', '/operator?tab=retention')).location, `http://${CONSOLE}/retention`, 'one that runs an organization, in the owner console');
+  assert.equal((await at(APP, 'GET', '/admin/orgs')).location, `http://${CONSOLE}/admin/orgs`);
   assert.equal((await at(APP, 'GET', '/console/accounts')).location, `http://${CONSOLE}/accounts`);
   assert.equal((await at(APP, 'GET', '/sitemap.xml')).location, `http://${SITE}/sitemap.xml`);
   const robots = await at(APP, 'GET', '/robots.txt');
@@ -75,7 +77,8 @@ test('the application serves sign-in at its root, and nothing of the site or the
   assert.match(robots.text, /Disallow: \/\n/);
 
   assert.equal((await at(APP, 'GET', '/api/me', { token: marine })).status, 200);
-  assert.equal((await at(APP, 'GET', '/api/admin/overview', { token: operator })).status, 404, 'administration is the console’s, even for an owner signed in on the app');
+  assert.equal((await at(APP, 'GET', '/api/platform/overview', { token: operator })).status, 404, 'the platform’s API answers only on the admin dashboard’s host, even for staff signed in on the app');
+  assert.equal((await at(APP, 'GET', '/api/orgs/G8/overview', { token: operator })).status, 404, 'and an organization’s, only on the owner console’s');
 });
 
 test('the console is for owners only, on its own host, and answers only the calls it makes', async () => {
@@ -88,13 +91,17 @@ test('the console is for owners only, on its own host, and answers only the call
   assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
   const token = signedIn.body.token;
   assert.equal((await at(CONSOLE, 'GET', '/api/me', { token })).status, 200);
-  assert.notEqual((await at(CONSOLE, 'GET', '/api/admin/overview', { token })).status, 404, 'administration answers on the console');
+  assert.notEqual((await at(CONSOLE, 'GET', '/api/platform/overview', { token })).status, 404, 'the admin dashboard shares this host, so the platform’s API answers');
+  assert.equal((await at(CONSOLE, 'GET', '/api/orgs/G8/overview', { token })).status, 200, 'and the owner console’s');
   assert.equal((await at(CONSOLE, 'GET', '/api/records/activities', { token })).status, 404, 'the console does not serve the application’s records');
   assert.equal((await at(CONSOLE, 'POST', '/api/auth/register', { body: { username: 'sneaky', password: PASSWORD, first_name: 'S', last_name: 'N' } })).status, 404, 'nobody registers on the console');
 
   const robots = await at(CONSOLE, 'GET', '/robots.txt');
   assert.equal(robots.text, 'User-agent: *\nDisallow: /\n');
-  assert.equal((await at(CONSOLE, 'GET', '/operator?tab=email')).location, `http://${CONSOLE}/?tab=email`);
+  assert.equal((await at(CONSOLE, 'GET', '/operator?tab=email')).location, `http://${CONSOLE}/admin/email`);
+  const admin = await at(CONSOLE, 'GET', '/admin/orgs');
+  assert.equal(admin.status, 200);
+  assert.match(admin.text, /Vantage admin/, 'the admin dashboard is its own document');
   assert.equal((await at(CONSOLE, 'GET', '/login')).robots, 'noindex, nofollow', 'any page on the console host is the console');
 });
 
@@ -120,4 +127,41 @@ test('links in email point at the application', async () => {
   const mail = app.ctx.mailer.outbox.at(-1);
   assert.ok(mail, 'a reset was sent');
   assert.match(mail.text, /http:\/\/secure\.vantage\.test\/reset\?token=/);
+});
+
+test('with a host of its own, the admin dashboard is the only face that answers the platform, and only staff sign in there', async () => {
+  const ADMIN = 'admin.vantage.test';
+  const own = await startApp({ VANTAGE_SITE_URL: `http://${SITE}`, VANTAGE_APP_URL: `http://${APP}`, VANTAGE_CONSOLE_URL: `http://${CONSOLE}`, VANTAGE_ADMIN_URL: `http://${ADMIN}`, TRUST_PROXY: 'true' });
+  const call = async (host: string, method: string, path: string, opts: { token?: string; body?: unknown } = {}) => {
+    const res = await fetch(own.base + path, { method, redirect: 'manual', headers: { 'x-forwarded-host': host, 'x-vantage-client': '1', ...(opts.body !== undefined ? { 'content-type': 'application/json' } : {}), ...(opts.token ? { authorization: `Bearer ${opts.token}` } : {}) }, body: opts.body !== undefined ? JSON.stringify(opts.body) : undefined });
+    const text = await res.text();
+    let body: any = text;
+    try { body = JSON.parse(text); } catch { /* a page */ }
+    return { status: res.status, location: res.headers.get('location'), text, body };
+  };
+  try {
+    const setup = await call(APP, 'POST', '/api/auth/setup', { body: { username: 'boletz', password: PASSWORD, first_name: 'John', last_name: 'Boletz', unit_name: 'G-8 Comptroller', unit_short_name: 'G8' } });
+    assert.equal(setup.status, 200, JSON.stringify(setup.body));
+    // An organization owner who is not Vantage staff.
+    await call(APP, 'POST', '/api/auth/register', { body: { username: 'owner2', password: PASSWORD, first_name: 'Org', last_name: 'Owner' } });
+    const ownerId = (own.ctx.db.prepare("SELECT id FROM users WHERE username = 'owner2'").get() as { id: string }).id;
+    own.ctx.db.prepare("INSERT INTO unit_members (user_id, unit_id, is_primary, joined_at) VALUES (?, 'G8', 1, ?)").run(ownerId, new Date().toISOString());
+    own.ctx.db.prepare("INSERT INTO org_roles (org_id, user_id, role, created_at) VALUES ('G8', ?, 'owner', ?)").run(ownerId, new Date().toISOString());
+
+    const page = await call(ADMIN, 'GET', '/');
+    assert.equal(page.status, 200);
+    assert.match(page.text, /Vantage admin/);
+    assert.equal((await call(ADMIN, 'GET', '/admin/orgs')).location, `http://${ADMIN}/orgs`, 'its own host serves it at the root');
+    const refused = await call(ADMIN, 'POST', '/api/auth/login', { body: { username: 'owner2', password: PASSWORD } });
+    assert.equal(refused.status, 403, 'an organization owner is not Vantage staff');
+    const staff = await call(ADMIN, 'POST', '/api/auth/login', { body: { username: 'boletz', password: PASSWORD } });
+    assert.equal(staff.status, 200, JSON.stringify(staff.body));
+    assert.equal((await call(ADMIN, 'GET', '/api/platform/overview', { token: staff.body.token })).status, 200);
+    assert.equal((await call(ADMIN, 'GET', '/api/orgs/G8/overview', { token: staff.body.token })).status, 404, 'the admin dashboard does not answer for an organization');
+
+    const console = await call(CONSOLE, 'POST', '/api/auth/login', { body: { username: 'owner2', password: PASSWORD } });
+    assert.equal(console.status, 200, 'the owner signs in to the owner console');
+    assert.equal((await call(CONSOLE, 'GET', '/api/platform/overview', { token: console.body.token })).status, 404, 'where the platform’s API does not answer');
+    assert.equal((await call(CONSOLE, 'GET', '/api/orgs/G8/overview', { token: console.body.token })).status, 200);
+  } finally { await own.close(); }
 });

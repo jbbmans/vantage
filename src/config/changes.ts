@@ -7,6 +7,33 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-10-07',
+    title: 'Organizations, and who can do what',
+    items: [
+      'Vantage is one service now, and your command is an organization on it: its units, people, roster feed, retention and audit trail are its own, kept apart from every other command’s.',
+      'Your account is yours, not your command’s. It moves with you, and your private entries, career plan and export stay with it.',
+      'The owner console runs one organization at a time, for its owners and administrators: people and roles, units and leaders, the personnel feed, retention and holds. Organization roles manage the structure; they do not read anyone’s records.',
+      'Vantage staff have a console of their own, the admin dashboard. They see your organization as a name and its counts, and look inside only when your owners approve it: read-only, for a few hours, and in your audit trail.',
+      'A role can be granted until a date, for an acting billet or a leave period, and it ends on its own.',
+      '“Why can they?” on a Marine’s Roles tab, and in the owner console, names every grant behind what someone can do: the role and where it was granted, the chain of command, leadership, and organization administration.',
+      'A forgotten password or a lost authenticator is now Vantage support’s to reset (Need help? on the sign-in page), because an account can belong to more than one organization.',
+    ],
+  },
+  {
+    date: '2026-10-05',
+    title: 'FITREP and fixes',
+    items: [
+      'FITREP input follows the MRO worksheet: a Section C draft of dash bullets with no headings, as Section C reads, and the worksheet’s PME and Other blocks beside it, each with its own Copy.',
+      'Each entry is read for the FITREP attribute it gives your reporting senior evidence for, and Readiness reads it the same way, so the coverage and the draft agree. Select a sentence to see its attribute.',
+      'JEPES command input you submitted, and FITREPs you wrote, land under Section H: Fulfillment of Evaluation Responsibilities.',
+      'Readiness no longer tells everyone to complete resident PME. It asks for your PME status, and tells a Sergeant with distance PME what else MARADMIN 630/24 requires.',
+      'Readiness puts the sections with no evidence on one card, says what evidence for each missing attribute looks like, and offers your annual period end date where a MARADMIN confirms it.',
+      'The demo’s section lead has a FITREP record of their own to explore.',
+      'A personnel extract that lists a Marine for the first time, already separated, turns off their account (within the mass-separation guard).',
+      'An import keyed by a document number no longer overwrites a case that came from a different report. The import wizard can key a sheet by two columns.',
+    ],
+  },
+  {
     date: '2026-10-04',
     title: 'Everyday use',
     items: [

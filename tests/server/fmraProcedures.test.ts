@@ -237,7 +237,7 @@ test('a case history is sealed, and a changed, removed or inserted entry breaks 
   db.prepare(`INSERT INTO work_events (id, work_item_id, unit_id, actor_id, kind, body, occurred_at, created_at) VALUES ('forged-1', ?, 'G8', ?, 'note', '{"text":"forged"}', ?, ?)`)
     .run(other, avery.id, new Date().toISOString(), new Date().toISOString());
   assert.equal(caseIntegrity(app.ctx, other).status, 'broken', 'an entry written around Vantage is not in the chain');
-  const audit = await app.call('GET', '/api/admin/integrity', { token: op.token });
+  const audit = await app.call('GET', '/api/platform/integrity', { token: op.token });
   assert.equal(audit.status, 200, JSON.stringify(audit.body));
   assert.equal(audit.body.cases.ok, false);
   assert.ok(audit.body.cases.broken.length >= 2);
@@ -266,7 +266,7 @@ test('removing a history’s seals, or every entry under a head, is reported as 
       CREATE TRIGGER work_event_seals_append_only_delete BEFORE DELETE ON work_event_seals FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1' BEGIN SELECT RAISE(ABORT, 'work_event_seals is append-only'); END;`);
   }
 
-  const all = await app.call('GET', '/api/admin/integrity', { token: op.token });
+  const all = await app.call('GET', '/api/platform/integrity', { token: op.token });
   const ids = all.body.cases.broken.map((b: { work_item_id: string }) => b.work_item_id);
   assert.ok(ids.includes(stripped) && ids.includes(emptied), JSON.stringify(all.body.cases));
 });

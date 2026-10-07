@@ -78,7 +78,7 @@ test('a visitor lands on a synthetic Marine with no form, and sign-in routes are
       assert.equal(r.status, 403, path);
       assert.equal(r.body.code, 'demo_mode', path);
     }
-    assert.equal((await app.call('GET', '/api/admin/overview', { token })).status, 403);
+    assert.equal((await app.call('GET', '/api/platform/overview', { token })).status, 403);
     assert.equal((await app.call('POST', '/api/org/units', { token, body: { name: 'Escape' } })).status, 403);
     assert.equal((await app.call('GET', '/api/org/directory', { token })).status, 403);
 
@@ -191,6 +191,7 @@ test('reset and expiry remove a workspace whole and leave the audit chain intact
     assert.equal(purgeExpired(app.ctx), 2);
     assert.equal((await app.call('GET', '/api/me', { token: reset.body.token })).status, 401);
     assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n, 0);
+    assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM organizations').get() as { n: number }).n, 0, 'each workspace’s organization goes with it');
   } finally { await app.close(); }
 });
 

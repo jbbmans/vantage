@@ -3,6 +3,7 @@ import type { AppContext } from '../context.ts';
 import { resolveSession, SESSION_COOKIE } from './sessions.ts';
 import { limiters } from './limiter.ts';
 import { HttpError, unauthorized, forbidden } from '../lib/errors.ts';
+import type { PlatformPermission } from '../../shared/permissions.ts';
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -28,7 +29,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
     const allowed = ['/api/me', '/api/me/password', '/api/auth/logout'];
     if (!allowed.includes(req.originalUrl.split('?')[0])) return next(new HttpError(403, 'Change the temporary password before using Vantage.', 'password_change_required'));
   }
-  if (ctx.runtime.maintenance && !resolved.user.is_operator) {
+  if (ctx.runtime.maintenance && !resolved.user.platform.length) {
     const allowed = ['/api/me', '/api/auth/logout', '/api/auth/sudo'];
     if (!allowed.includes(req.originalUrl.split('?')[0])) return next(new HttpError(503, 'Vantage is in scheduled maintenance. Try again shortly.', 'maintenance'));
   }
@@ -40,10 +41,11 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
-export function requireOperator(req: Request, _res: Response, next: NextFunction) {
-  if (!req.user?.is_operator) return next(forbidden('That is an Instance Operator action.', 'not_operator'));
+/** A Vantage staff action: the account holds a platform role that carries this permission (ADR-0006). */
+export const requirePlatform = (permission: PlatformPermission) => (req: Request, _res: Response, next: NextFunction) => {
+  if (!req.user?.platformPermissions.includes(permission)) return next(forbidden('That is a Vantage staff action.', 'not_staff'));
   next();
-}
+};
 
 /** Step-up: the session must have re-authenticated recently. */
 export function requireSudo(req: Request, _res: Response, next: NextFunction) {

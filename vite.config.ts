@@ -61,11 +61,13 @@ export default defineConfig({
     sourcemap: false,
     target: 'es2022',
     rollupOptions: {
-      // Three documents: the application, the public page (which loads only what it renders), and the owner console.
+      // Four documents: the application, the public page (which loads only what it renders), the owner console (an
+      // organization's owners) and the admin dashboard (Vantage staff).
       input: {
         index: fileURLToPath(new URL('./index.html', import.meta.url)),
         public: fileURLToPath(new URL('./public.html', import.meta.url)),
         console: fileURLToPath(new URL('./console.html', import.meta.url)),
+        admin: fileURLToPath(new URL('./admin.html', import.meta.url)),
       },
       output: {
         // The framework both documents share changes least, so it is cached on its own.

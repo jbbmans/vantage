@@ -6,6 +6,7 @@ import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { notify } from './notifications.ts';
 import { ancestorIds } from './org.ts';
+import { platformCan, staffWith, withPlatform } from '../authz/platform.ts';
 
 export const TICKET_STATES = ['open', 'in_progress', 'waiting_on_requester', 'resolved', 'closed'] as const;
 export const TICKET_CATEGORIES = ['sign_in', 'account', 'data', 'bug', 'request', 'other'] as const;
@@ -20,16 +21,21 @@ export interface TicketRow {
 
 const supportUnits = (scope: Scope) => unitsWith(scope, PERMISSIONS.VIEW_SUPPORT);
 
-export const worksQueue = (user: SessionUser, scope: Scope) =>
-  Boolean(user.is_operator) || supportUnits(scope).length > 0;
+/**
+ * Two queues that never mix (ADR-0006): a ticket raised in a unit is that organization's, worked by whoever holds
+ * VIEW_SUPPORT there; a ticket that belongs to no unit (sign-in trouble from the sign-in page, a security report) is
+ * Vantage support's.
+ */
+export const worksQueue = (user: Pick<SessionUser, 'platformPermissions'>, scope: Scope) =>
+  platformCan(user, 'platform.support') || supportUnits(scope).length > 0;
 
 /** Whether this person may work *this* ticket. */
-export const worksTicket = (user: SessionUser, scope: Scope, row: Pick<TicketRow, 'unit_id'>) =>
-  Boolean(user.is_operator) || (Boolean(row.unit_id) && supportUnits(scope).includes(row.unit_id!));
+export const worksTicket = (user: Pick<SessionUser, 'platformPermissions'>, scope: Scope, row: Pick<TicketRow, 'unit_id'>) =>
+  row.unit_id ? supportUnits(scope).includes(row.unit_id) : platformCan(user, 'platform.support');
 
-/** Everyone who works a ticket in this unit: the operators, and whoever holds VIEW_SUPPORT here or above. */
+/** Everyone who works a ticket: for a unit's, whoever holds VIEW_SUPPORT there or above; for one with no unit, Vantage support. */
 function queueFor(ctx: AppContext, unitId: string | null): string[] {
-  const people = new Set((ctx.db.prepare('SELECT id FROM users WHERE is_operator = 1 AND active = 1').all() as Array<{ id: string }>).map((u) => u.id));
+  const people = new Set<string>(unitId ? [] : staffWith(ctx, 'platform.support'));
   if (unitId) {
     const candidates = ctx.db.prepare(`SELECT DISTINCT um.user_id AS id FROM unit_members um JOIN users u ON u.id = um.user_id
       WHERE u.active = 1 AND um.unit_id IN (SELECT value FROM json_each(?))`).all(JSON.stringify(ancestorIds(ctx, [unitId]))) as Array<{ id: string }>;
@@ -90,9 +96,10 @@ export function listTickets(ctx: AppContext, user: SessionUser, scope: Scope, op
   const units = supportUnits(scope);
   if (opts.mine || !worksQueue(user, scope)) {
     where.push('t.requester_id = ?'); params.push(user.id);
-  } else if (!user.is_operator) {
-    // Their own, plus the units they actually work. Never the unscoped ones.
-    where.push(`(t.requester_id = ? OR t.unit_id IN (${units.map(() => '?').join(',') || 'NULL'}))`);
+  } else {
+    // Their own, the units they actually work, and for Vantage support the tickets that belong to no unit.
+    const platform = platformCan(user, 'platform.support');
+    where.push(`(t.requester_id = ? OR t.unit_id IN (${units.map(() => '?').join(',') || 'NULL'})${platform ? ' OR t.unit_id IS NULL' : ''})`);
     params.push(user.id, ...units);
   }
   if (opts.state) { where.push('t.state = ?'); params.push(opts.state); }
@@ -190,9 +197,9 @@ export function updateTicket(
   let assignedTo: string | null = null;
   if (patch.assigned_to !== undefined) {
     if (patch.assigned_to) {
-      const who = ctx.db.prepare('SELECT id, is_operator FROM users WHERE id = ? AND active = 1').get(patch.assigned_to) as { id: string; is_operator: number } | undefined;
+      const who = ctx.db.prepare('SELECT id FROM users WHERE id = ? AND active = 1').get(patch.assigned_to) as { id: string } | undefined;
       if (!who) throw badRequest('No such person.');
-      if (!worksTicket({ ...who, id: who.id } as SessionUser, scopeFor(ctx, { id: who.id }), row)) {
+      if (!worksTicket(withPlatform(ctx, who), scopeFor(ctx, { id: who.id }), row)) {
         throw badRequest('That person cannot work this queue, so the ticket cannot be assigned to them.');
       }
       sets.push('assigned_to = ?'); params.push(patch.assigned_to);

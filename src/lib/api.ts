@@ -139,8 +139,6 @@ export const restoreRecord = (store: Store, id: string) => api.post(`/records/${
 export const importActivities = (rows: unknown[]) => api.post('/records/activities/import', { rows });
 export const acknowledgeCounseling = (id: string) => api.post(`/records/counselings/${encodeURIComponent(id)}/acknowledge`);
 export const attachments = (store: Store, id: string) => api.get(`/records/${store}/${encodeURIComponent(id)}/attachments`);
-export const adminImportAccounts = (file: File, apply: boolean) =>
-  request('POST', `/admin/accounts/import${apply ? '?apply=1' : ''}`, file, { headers: { 'content-type': file.type || 'application/octet-stream', 'x-vantage-filename': encodeURIComponent(file.name) } });
 export const uploadAttachment = (store: Store, id: string, file: File) => request('POST', `/records/${store}/${encodeURIComponent(id)}/attachments`, file, { headers: { 'content-type': file.type || 'application/octet-stream', 'x-vantage-filename': encodeURIComponent(file.name) } });
 export const deleteAttachment = (store: Store, id: string, attachmentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`);
 export const attachmentUrl = (store: Store, id: string, attachmentId: string) => `/api/records/${store}/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`;
@@ -189,13 +187,8 @@ export const unitOverview = (id: string) => api.get(`/org/units/${encodeURICompo
 export const unitDashboard = (id: string, from?: string, to?: string) => api.get(`/org/units/${encodeURIComponent(id)}/dashboard${from && to ? `?from=${from}&to=${to}` : ''}`);
 export const unitAudit = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/audit`);
 export const unitExport = (id: string) => api.get(`/org/units/${encodeURIComponent(id)}/export`);
-export const deactivateMember = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/deactivate`);
-export const reactivateMember = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/reactivate`);
-export const resetMemberMfa = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/reset-mfa`);
-export const temporaryPassword = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/temporary-password`);
-export const forceLogout = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/logout`);
-export const unlockAccount = (id: string) => api.post(`/org/team/${encodeURIComponent(id)}/unlock`);
-export const setOperator = (id: string, grant: boolean) => api.post(`/org/team/${encodeURIComponent(id)}/operator`, { grant });
+/** "Why can they?": every grant behind someone's authority, in the units the caller manages. */
+export const whyCan = (userId: string) => api.get(`/org/team/${encodeURIComponent(userId)}/why`);
 
 const qs = (params: Record<string, string | number | undefined | null>) => Object.entries(params).filter(([, v]) => v !== undefined && v !== null && v !== '').map(([k, v]) => `${k}=${encodeURIComponent(String(v))}`).join('&');
 export const goalContributors = (id: string) => api.get(`/records/goals/${encodeURIComponent(id)}/contributors`);
@@ -244,42 +237,82 @@ export const maradmins = (wait = false) => api.get(`/maradmins${wait ? '?wait=1'
 export const maradminState = (id: string, payload: unknown) => api.put(`/maradmins/${encodeURIComponent(id)}/state`, payload);
 export const search = (q: string) => api.get(`/search?q=${encodeURIComponent(q)}`);
 
-export const adminOverview = () => api.get('/admin/overview');
-export const adminRuntime = (patch: unknown) => api.put('/admin/runtime', patch);
-export const adminAi = () => api.get('/admin/ai');
-export const adminAiDiscover = () => api.post('/admin/ai/discover');
-export const adminAiUnlock = () => api.post('/admin/ai/unlock');
-export const adminSyncMaradmins = () => api.post('/admin/maradmins/sync');
-export const adminIntegrity = () => api.get('/admin/integrity');
-export const adminAnchorCases = () => api.post('/admin/integrity/anchor');
-export const adminEmailTest = (to?: string) => api.post('/admin/email/test', { to });
-export const adminEmail = () => api.get('/admin/email');
-export const adminEmailCheck = () => api.post('/admin/email/check', {});
-export const adminUsers = () => api.get('/admin/users');
-export const adminSignInAudience = () => api.get('/admin/accounts/sign-in-details');
-export const adminSendSignInDetails = (userIds: string[]) => api.post('/admin/accounts/sign-in-details', { userIds });
-export const adminUnits = () => api.get('/admin/units');
-export const adminClaimUnit = (id: string, ownerId?: string) => api.post(`/admin/units/${encodeURIComponent(id)}/claim`, { owner_user_id: ownerId });
-export const adminAudit = (limit = 200) => api.get(`/admin/audit?limit=${limit}`);
+// ——— Vantage admin dashboard (/api/platform): the service, for Vantage staff ———
+const enc = encodeURIComponent;
+export const platformMe = () => api.get('/platform/me');
+export const platformOverview = () => api.get('/platform/overview');
+export const platformRuntime = (patch: unknown) => api.put('/platform/runtime', patch);
+export const platformMaintenance = (enabled: boolean) => api.post('/platform/maintenance', { enabled });
+export const platformAi = () => api.get('/platform/ai');
+export const platformAiDiscover = () => api.post('/platform/ai/discover');
+export const platformAiUnlock = () => api.post('/platform/ai/unlock');
+export const platformSyncMaradmins = () => api.post('/platform/maradmins/sync');
+export const platformIntegrity = () => api.get('/platform/integrity');
+export const platformAnchorCases = () => api.post('/platform/integrity/anchor');
+export const platformEmail = () => api.get('/platform/email');
+export const platformEmailCheck = () => api.post('/platform/email/check', {});
+export const platformEmailTest = (to?: string) => api.post('/platform/email/test', { to });
+export const platformOrgs = () => api.get('/platform/orgs');
+export const platformOrg = (orgId: string) => api.get(`/platform/orgs/${enc(orgId)}`);
+export const platformCreateOrg = (body: unknown) => api.post('/platform/orgs', body);
+export const platformUpdateOrg = (orgId: string, body: unknown) => api.patch(`/platform/orgs/${enc(orgId)}`, body);
+export const platformOrgStatus = (orgId: string, status: string, reason?: string) => api.post(`/platform/orgs/${enc(orgId)}/status`, { status, reason });
+export const platformNameOwner = (orgId: string, userId: string) => api.post(`/platform/orgs/${enc(orgId)}/owner`, { user_id: userId });
+export const platformAccounts = (q = '', filter = '') => api.get(`/platform/accounts?${qs({ q, filter })}`);
+export const platformAccountAction = (userId: string, action: 'unlock' | 'logout' | 'temporary-password' | 'reset-mfa' | 'deactivate' | 'reactivate', body: unknown = {}) =>
+  api.post(`/platform/accounts/${enc(userId)}/${action}`, body);
+export const platformSendSignInDetails = (userIds: string[]) => api.post('/platform/accounts/sign-in-details', { userIds });
+export const platformStaff = () => api.get('/platform/staff');
+export const platformGrantStaff = (body: { user_id?: string; username?: string; role: string }) => api.post('/platform/staff', body);
+export const platformRevokeStaff = (userId: string, role: string) => api.del(`/platform/staff/${enc(userId)}/${enc(role)}`);
+export const platformAccess = (status = '') => api.get(`/platform/access?${qs({ status })}`);
+export const platformRequestAccess = (body: { org_id: string; reason: string; minutes?: number }) => api.post('/platform/access', body);
+export const platformEndAccess = (id: string) => api.post(`/platform/access/${enc(id)}/end`);
+export const platformAudit = (limit = 300) => api.get(`/platform/audit?limit=${limit}`);
+export const platformUsage = (params: Record<string, string | number | undefined | null>) => api.get(`/platform/usage?${qs(params)}`);
+export const platformPrivacyInventory = () => api.get('/platform/privacy/inventory');
+export const platformHolds = () => api.get('/platform/holds');
+export const platformPlaceHold = (body: unknown) => api.post('/platform/holds', body);
+export const platformReleaseHold = (id: string) => api.del(`/platform/holds/${enc(id)}`);
+export const platformImport = (archive: unknown) => api.post('/platform/import', archive);
 
-// Authoritative personnel
-export const adminPersonnel = () => api.get('/admin/personnel');
-export const adminPersonnelDivergence = () => api.get('/admin/personnel/divergence');
-export const adminPersonnelSync = (text: string, source: string, opts: { apply?: boolean; confirmSeparations?: boolean } = {}) =>
-  request<any>('POST', `/admin/personnel/sync?source=${encodeURIComponent(source)}${opts.apply ? '&apply=1' : ''}${opts.confirmSeparations ? '&confirm_separations=1' : ''}`,
+// ——— Owner console (/api/orgs/:orgId): one organization, for its owners and administrators ———
+const orgPath = (orgId: string, path = '') => `/orgs/${enc(orgId)}${path}`;
+export const myOrgs = () => api.get('/orgs');
+export const orgOverview = (orgId: string) => api.get(orgPath(orgId, '/overview'));
+export const orgUpdate = (orgId: string, body: unknown) => api.patch(orgPath(orgId), body);
+export const orgRoles = (orgId: string) => api.get(orgPath(orgId, '/roles'));
+export const orgGrantRole = (orgId: string, body: { user_id: string; role: string; expires_at?: string | null }) => api.post(orgPath(orgId, '/roles'), body);
+export const orgRevokeRole = (orgId: string, userId: string, role: string) => api.del(orgPath(orgId, `/roles/${enc(userId)}/${enc(role)}`));
+export const orgMembers = (orgId: string, q = '') => api.get(orgPath(orgId, `/members?${qs({ q })}`));
+export const orgWhy = (orgId: string, userId: string) => api.get(orgPath(orgId, `/members/${enc(userId)}/why`));
+export const orgMemberAction = (orgId: string, userId: string, action: 'unlock' | 'logout') => api.post(orgPath(orgId, `/members/${enc(userId)}/${action}`));
+export const orgRemoveMember = (orgId: string, userId: string) => api.del(orgPath(orgId, `/members/${enc(userId)}`));
+export const orgUnits = (orgId: string) => api.get(orgPath(orgId, '/units'));
+export const orgSetLeader = (orgId: string, unitId: string, userId: string) => api.post(orgPath(orgId, `/units/${enc(unitId)}/leader`), { user_id: userId });
+export const orgImportAccounts = (orgId: string, file: File, apply: boolean) =>
+  request('POST', orgPath(orgId, `/accounts/import${apply ? '?apply=1' : ''}`), file, { headers: { 'content-type': file.type || 'application/octet-stream', 'x-vantage-filename': enc(file.name) } });
+export const orgSignInAudience = (orgId: string) => api.get(orgPath(orgId, '/accounts/sign-in-details'));
+export const orgSendSignInDetails = (orgId: string, userIds: string[]) => api.post(orgPath(orgId, '/accounts/sign-in-details'), { userIds });
+export const orgPersonnel = (orgId: string) => api.get(orgPath(orgId, '/personnel'));
+export const orgPersonnelDivergence = (orgId: string) => api.get(orgPath(orgId, '/personnel/divergence'));
+export const orgPersonnelSync = (orgId: string, text: string, source: string, opts: { apply?: boolean; confirmSeparations?: boolean } = {}) =>
+  request<any>('POST', orgPath(orgId, `/personnel/sync?source=${enc(source)}${opts.apply ? '&apply=1' : ''}${opts.confirmSeparations ? '&confirm_separations=1' : ''}`),
     new Blob([text], { type: 'text/plain' }), { headers: { 'content-type': 'text/plain' } });
-export const adminPersonnelLink = (userId: string, edipi: string | null) => api.post('/admin/personnel/link', { user_id: userId, edipi });
-
-// Records management and privacy
-export const adminRetention = () => api.get('/admin/retention');
-export const adminSaveSchedule = (body: unknown) => api.put('/admin/retention/schedule', body);
-export const adminPlaceHold = (body: unknown) => api.post('/admin/retention/holds', body);
-export const adminReleaseHold = (id: string) => api.del(`/admin/retention/holds/${encodeURIComponent(id)}`);
-export const adminRunDisposition = (apply: boolean) => api.post(`/admin/retention/run${apply ? '?apply=1' : ''}`);
-export const adminPrivacyInventory = () => api.get('/admin/privacy/inventory');
+export const orgPersonnelLink = (orgId: string, userId: string, edipi: string | null) => api.post(orgPath(orgId, '/personnel/link'), { user_id: userId, edipi });
+export const orgRetention = (orgId: string) => api.get(orgPath(orgId, '/retention'));
+export const orgSaveSchedule = (orgId: string, body: unknown) => api.put(orgPath(orgId, '/retention/schedule'), body);
+export const orgRunDisposition = (orgId: string, apply: boolean) => api.post(orgPath(orgId, `/retention/run${apply ? '?apply=1' : ''}`));
+export const orgPlaceHold = (orgId: string, body: unknown) => api.post(orgPath(orgId, '/holds'), body);
+export const orgReleaseHold = (orgId: string, id: string) => api.del(orgPath(orgId, `/holds/${enc(id)}`));
+export const orgPrivacyInventory = (orgId: string) => api.get(orgPath(orgId, '/privacy/inventory'));
+export const orgPrivacyInventoryUrl = (orgId: string) => `/api${orgPath(orgId, '/privacy/inventory?format=markdown')}`;
+export const orgAudit = (orgId: string, limit = 300) => api.get(orgPath(orgId, `/audit?limit=${limit}`));
+export const orgExportUrl = (orgId: string) => `/api${orgPath(orgId, '/export')}`;
+export const orgAccess = (orgId: string) => api.get(orgPath(orgId, '/access'));
+export const orgDecideAccess = (orgId: string, id: string, approve: boolean, note?: string) => api.post(orgPath(orgId, `/access/${enc(id)}/${approve ? 'approve' : 'deny'}`), { note });
+export const orgRevokeAccess = (orgId: string, id: string) => api.post(orgPath(orgId, `/access/${enc(id)}/revoke`));
 export const demoGovernance = () => api.get('/demo/governance');
-export const adminImport = (archive: unknown) => api.post('/admin/import', archive);
-export const adminMaintenance = (enabled: boolean) => api.post('/admin/maintenance', { enabled });
 
 export async function downloadFile(url: string, fallbackName: string) {
   const res = await fetch(url, { credentials: 'same-origin' });
@@ -330,7 +363,6 @@ export const syncConnector = (id: string, body: Record<string, unknown> = {}) =>
 /** Fire-and-forget. keepalive lets a batch finish after the page is gone. */
 export const sendEvents = (events: unknown[], keepalive = false) =>
   request('POST', '/events', { events }, keepalive ? { keepalive: true } : {});
-export const adminUsage = (params: Record<string, string | number | undefined | null>) => api.get(`/admin/usage?${qs(params)}`);
 
 const itemPath = (id: string) => `/work/items/${encodeURIComponent(id)}`;
 export const recordEntry = (id: string, body: Record<string, unknown>, idempotencyKey: string) =>

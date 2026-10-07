@@ -129,7 +129,7 @@ export function getRecord(ctx: AppContext, table: RecordTable, id: string, { inc
 
 function capacityProblem(ctx: AppContext, userId: string, additional = 1): string | null {
   const total = RECORD_TABLE_NAMES.reduce((sum, t) => sum + (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE user_id = ?`).get(userId) as { n: number }).n, 0);
-  if (total + additional > ctx.config.limits.maxRecordsPerUser) return `This account has reached its ${ctx.config.limits.maxRecordsPerUser.toLocaleString()}-record limit. Contact the Instance Operator.`;
+  if (total + additional > ctx.config.limits.maxRecordsPerUser) return `This account has reached its ${ctx.config.limits.maxRecordsPerUser.toLocaleString()}-record limit. Contact Vantage support if you need more.`;
   try {
     if (ctx.db.name !== ':memory:' && statSync(ctx.db.name).size >= ctx.config.limits.maxDatabaseBytes) return 'The database has reached its configured safety threshold. New records are paused to preserve recovery headroom.';
   } catch {}

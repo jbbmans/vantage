@@ -132,7 +132,7 @@ test('membership management respects hierarchy and freezes records on removal', 
   assert.equal(dir.status, 200);
   assert.ok(!dir.body.results.some((r: any) => r.id === other.id), 'an account the SNCOIC does not lead joins by invitation');
   const opDir = await app.call('GET', '/api/org/directory?unit_id=G8&q=oth', { token: (await app.login('boletz')).body.token });
-  assert.ok(opDir.body.results.some((r: any) => r.id === other.id), 'the Instance Operator can still enroll any account');
+  assert.ok(!opDir.body.results.some((r: any) => r.id === other.id), 'nobody, an organization owner included, pulls in an account they do not lead: it joins by invitation');
   assert.equal((await app.call('GET', '/api/org/directory?unit_id=G8&q=oth', { token: m })).status, 403);
   const billet = await app.call('PUT', `/api/org/units/G8/members/${marine.id}`, { token: sn, body: { billet: 'Fiscal Clerk' } });
   assert.equal(billet.status, 200);
@@ -193,57 +193,63 @@ test('audit log and export are permission-gated and chain-verified', async () =>
 
 test('operator console: runtime settings, users, lifecycle, export/import, backup', async () => {
   const opToken = (await app.login('boletz')).body.token;
-  assert.equal((await app.call('GET', '/api/admin/overview', { token: (await app.login('sncoic')).body.token })).status, 403);
-  const overview = await app.call('GET', '/api/admin/overview', { token: opToken });
+  assert.equal((await app.call('GET', '/api/platform/overview', { token: (await app.login('sncoic')).body.token })).status, 403);
+  const overview = await app.call('GET', '/api/platform/overview', { token: opToken });
   assert.equal(overview.status, 200);
   assert.ok(overview.body.users >= 5);
-  const rt = await app.call('PUT', '/api/admin/runtime', { token: opToken, body: { announcement: 'Drill weekend', aiModels: ['model-fast', 'model-large'], aiDefaultModel: 'model-large' } });
+  const rt = await app.call('PUT', '/api/platform/runtime', { token: opToken, body: { announcement: 'Drill weekend', aiModels: ['model-fast', 'model-large'], aiDefaultModel: 'model-large' } });
   assert.equal(rt.status, 200);
   assert.equal(rt.body.aiDefaultModel, 'model-large');
   assert.equal((await app.call('GET', '/api/auth/setup')).body.announcement, 'Drill weekend');
-  assert.equal((await app.call('PUT', '/api/admin/runtime', { token: opToken, body: { aiModels: ['bad model!'] } })).status, 400);
-  const users = await app.call('GET', '/api/admin/users', { token: opToken });
-  assert.ok(users.body.users.some((u: any) => u.username === 'other'));
-  const temp = await app.call('POST', `/api/org/team/${other.id}/temporary-password`, { token: opToken });
+  assert.equal((await app.call('PUT', '/api/platform/runtime', { token: opToken, body: { aiModels: ['bad model!'] } })).status, 400);
+  const users = await app.call('GET', '/api/platform/accounts', { token: opToken });
+  assert.ok(users.body.accounts.some((u: any) => u.username === 'other'));
+  const temp = await app.call('POST', `/api/platform/accounts/${other.id}/temporary-password`, { token: opToken });
   assert.equal(temp.status, 200);
   const otherLogin = await app.login('other', temp.body.password);
   assert.equal(otherLogin.body.mustChangePassword, true);
   assert.equal((await app.call('GET', '/api/records/activities', { token: otherLogin.body.token })).status, 403);
   assert.equal((await app.call('POST', '/api/me/password', { token: otherLogin.body.token, body: { current_password: temp.body.password, new_password: PASSWORD } })).status, 200);
-  assert.equal((await app.call('POST', `/api/org/team/${other.id}/deactivate`, { token: opToken })).status, 200);
+  assert.equal((await app.call('POST', `/api/platform/accounts/${other.id}/deactivate`, { token: opToken })).status, 200);
   assert.equal((await app.login('other')).status, 401);
-  assert.equal((await app.call('POST', `/api/org/team/${other.id}/reactivate`, { token: opToken })).status, 200);
-  assert.equal((await app.call('POST', `/api/org/team/${op.id}/deactivate`, { token: opToken })).status, 400);
-  const grant = await app.call('POST', `/api/org/team/${sncoic.id}/operator`, { token: opToken, body: { grant: true } });
-  assert.equal(grant.status, 200);
-  assert.equal((await app.call('GET', '/api/me', { token: (await app.login('sncoic')).body.token })).body.user.is_operator, 1);
-  await app.call('POST', `/api/org/team/${sncoic.id}/operator`, { token: opToken, body: { grant: false } });
-  const exp = await app.call('GET', '/api/admin/export', { token: opToken });
+  assert.equal((await app.call('POST', `/api/platform/accounts/${other.id}/reactivate`, { token: opToken })).status, 200);
+  assert.equal((await app.call('POST', `/api/platform/accounts/${op.id}/deactivate`, { token: opToken })).status, 400);
+  // Vantage staff sign in with a second factor; a platform owner names them, never themselves.
+  assert.equal((await app.call('POST', '/api/platform/staff', { token: opToken, body: { user_id: sncoic.id, role: 'support' } })).body.code, 'mfa_required');
+  app.ctx.db.prepare('UPDATE users SET totp_enabled = 1 WHERE id = ?').run(sncoic.id);
+  assert.equal((await app.call('POST', '/api/platform/staff', { token: opToken, body: { user_id: op.id, role: 'support' } })).status, 403);
+  const grant = await app.call('POST', '/api/platform/staff', { token: opToken, body: { user_id: sncoic.id, role: 'support' } });
+  assert.equal(grant.status, 201, JSON.stringify(grant.body));
+  app.ctx.db.prepare('UPDATE users SET totp_enabled = 0 WHERE id = ?').run(sncoic.id);
+  assert.deepEqual((await app.call('GET', '/api/me', { token: (await app.login('sncoic')).body.token })).body.platform.roles, ['support']);
+  assert.equal((await app.call('DELETE', `/api/platform/staff/${sncoic.id}/support`, { token: opToken })).status, 200);
+  assert.equal((await app.call('DELETE', `/api/platform/staff/${op.id}/owner`, { token: opToken })).body.code, 'last_owner');
+  const exp = await app.call('GET', '/api/platform/export', { token: opToken });
   assert.equal(exp.status, 200);
   assert.equal(exp.body.format, 'vantage-instance/1');
   assert.ok(exp.body.tables.users.length >= 5);
   assert.equal(exp.body.tables.sessions, undefined);
-  const notFresh = await app.call('POST', '/api/admin/import', { token: opToken, body: exp.body });
+  const notFresh = await app.call('POST', '/api/platform/import', { token: opToken, body: exp.body });
   assert.equal(notFresh.status, 400);
-  const audit = await app.call('GET', '/api/admin/audit?limit=20', { token: opToken });
+  const audit = await app.call('GET', '/api/platform/audit?limit=20', { token: opToken });
   assert.equal(audit.body.rows.length, 20);
-  assert.equal((await app.call('GET', '/api/admin/backup', { token: opToken })).status, 400);
-  const maint = await app.call('POST', '/api/admin/maintenance', { token: opToken, body: { enabled: true } });
+  assert.equal((await app.call('GET', '/api/platform/backup', { token: opToken })).status, 400);
+  const maint = await app.call('POST', '/api/platform/maintenance', { token: opToken, body: { enabled: true } });
   assert.equal(maint.body.maintenance, true);
   assert.equal((await app.call('GET', '/api/records/activities', { token: opToken })).status, 200);
   assert.equal((await app.call('GET', '/api/records/activities', { token: (await app.login('marine')).body.token })).status, 503);
-  await app.call('POST', '/api/admin/maintenance', { token: opToken, body: { enabled: false } });
+  await app.call('POST', '/api/platform/maintenance', { token: opToken, body: { enabled: false } });
   app.ctx.db.prepare('UPDATE sessions SET sudo_until = NULL').run();
-  assert.equal((await app.call('GET', '/api/admin/overview', { token: opToken })).status, 403);
+  assert.equal((await app.call('GET', '/api/platform/overview', { token: opToken })).status, 403);
 });
 
 test('instance import restores an archive into a fresh instance', async () => {
   const opToken = (await app.login('boletz')).body.token;
-  const archive = (await app.call('GET', '/api/admin/export', { token: opToken })).body;
+  const archive = (await app.call('GET', '/api/platform/export', { token: opToken })).body;
   const fresh = await startApp();
   try {
     const freshOp = await fresh.setupOperator();
-    const res = await fresh.call('POST', '/api/admin/import', { token: freshOp.token, body: archive });
+    const res = await fresh.call('POST', '/api/platform/import', { token: freshOp.token, body: archive });
     assert.equal(res.status, 200, JSON.stringify(res.body));
     assert.equal(res.body.counts.users, archive.tables.users.length);
     const login = await fresh.login('sncoic');
@@ -267,15 +273,16 @@ test('private counselings never reach the unit dashboard', async () => {
 test('operator lifecycle actions require a fresh password confirmation', async () => {
   const opToken = (await app.login('boletz')).body.token;
   app.ctx.db.prepare('UPDATE sessions SET sudo_until = NULL').run();
-  const stale = await app.call('POST', `/api/org/team/${other.id}/logout`, { token: opToken });
+  const stale = await app.call('POST', `/api/platform/accounts/${other.id}/logout`, { token: opToken });
   assert.equal(stale.status, 403);
   assert.equal(stale.body.code, 'sudo_required');
-  assert.equal((await app.call('POST', `/api/org/team/${other.id}/reset-mfa`, { token: opToken })).status, 403);
+  assert.equal((await app.call('POST', `/api/platform/accounts/${other.id}/reset-mfa`, { token: opToken })).status, 403);
   await app.call('POST', '/api/auth/sudo', { token: opToken, body: { password: PASSWORD } });
-  assert.equal((await app.call('POST', `/api/org/team/${other.id}/logout`, { token: opToken })).status, 200);
+  assert.equal((await app.call('POST', `/api/platform/accounts/${other.id}/logout`, { token: opToken })).status, 200);
 });
 
 test('reassigning a unit leader from the owner console strips the former leader', async () => {
+  // The owner console names a unit's leader for its organization; the former leader loses the Unit Leader role.
   const opToken = (await app.login('boletz')).body.token;
   const unit = await app.call('POST', '/api/org/units', { token: opToken, body: { name: 'Disbursing', short_name: 'DISB', parent_id: op.unitId } });
   assert.equal(unit.status, 201, JSON.stringify(unit.body));
@@ -283,12 +290,12 @@ test('reassigning a unit leader from the owner console strips the former leader'
   await app.call('POST', `/api/org/units/${unitId}/members`, { token: opToken, body: { user_id: sncoic.id } });
   await app.call('POST', `/api/org/units/${unitId}/members`, { token: opToken, body: { user_id: nco.id } });
   await app.call('POST', '/api/auth/sudo', { token: opToken, body: { password: PASSWORD } });
-  assert.equal((await app.call('POST', `/api/admin/units/${unitId}/claim`, { token: opToken, body: { owner_user_id: sncoic.id } })).status, 200);
+  assert.equal((await app.call('POST', `/api/orgs/G8/units/${unitId}/leader`, { token: opToken, body: { user_id: sncoic.id } })).status, 200);
   const sncoicToken = (await app.login('sncoic')).body.token;
   assert.ok((await app.call('GET', '/api/me', { token: sncoicToken })).body.ownedUnitIds.includes(unitId));
   const opAgain = (await app.login('boletz')).body.token;
   await app.call('POST', '/api/auth/sudo', { token: opAgain, body: { password: PASSWORD } });
-  assert.equal((await app.call('POST', `/api/admin/units/${unitId}/claim`, { token: opAgain, body: { owner_user_id: nco.id } })).status, 200);
+  assert.equal((await app.call('POST', `/api/orgs/G8/units/${unitId}/leader`, { token: opAgain, body: { user_id: nco.id } })).status, 200);
   const sncoicAfter = (await app.login('sncoic')).body.token;
   const me = await app.call('GET', '/api/me', { token: sncoicAfter });
   assert.ok(!me.body.ownedUnitIds.includes(unitId));
@@ -336,7 +343,7 @@ test('an owner can redefine the money metric, value types, and categories; forms
     categories: [{ name: 'Contracting', color: '#1f9d6a' }, { name: 'Other', color: '#54627a' }],
     unit_suggestions: ['contracts', 'modifications'],
   };
-  const saved = await app.call('PUT', '/api/admin/runtime', { token: opToken, body: { metrics: custom } });
+  const saved = await app.call('PUT', '/api/platform/runtime', { token: opToken, body: { metrics: custom } });
   assert.equal(saved.status, 200, JSON.stringify(saved.body));
   assert.equal(saved.body.metrics.currency_label, 'Funds');
   const me = await app.call('GET', '/api/me', { token: opToken });
@@ -360,16 +367,16 @@ test('an owner can redefine the money metric, value types, and categories; forms
   assert.equal(Math.round(dash.body.totals.reviewed - before.reviewed), 700);
 
   // Validation: every instance needs a headline type, keys must be unique.
-  const noHeadline = await app.call('PUT', '/api/admin/runtime', { token: opToken, body: { metrics: { ...custom, value_types: [{ key: 'x', label: 'X', summable: false }] } } });
+  const noHeadline = await app.call('PUT', '/api/platform/runtime', { token: opToken, body: { metrics: { ...custom, value_types: [{ key: 'x', label: 'X', summable: false }] } } });
   assert.equal(noHeadline.status, 400);
-  const dupKeys = await app.call('PUT', '/api/admin/runtime', { token: opToken, body: { metrics: { ...custom, value_types: [{ key: 'a', label: 'A', summable: true }, { key: 'a', label: 'B', summable: true }] } } });
+  const dupKeys = await app.call('PUT', '/api/platform/runtime', { token: opToken, body: { metrics: { ...custom, value_types: [{ key: 'a', label: 'A', summable: true }, { key: 'a', label: 'B', summable: true }] } } });
   assert.equal(dupKeys.status, 400);
 
   // Settings survive a restart of the runtime.
   const { loadRuntime } = await import('../../server/app.ts');
   assert.equal(loadRuntime(app.ctx.db, app.ctx.config).metrics.currency_symbol, '€');
   const { DEFAULT_METRICS } = await import('../../shared/constants.ts');
-  await app.call('PUT', '/api/admin/runtime', { token: opToken, body: { metrics: DEFAULT_METRICS } });
+  await app.call('PUT', '/api/platform/runtime', { token: opToken, body: { metrics: DEFAULT_METRICS } });
 });
 
 test('digest windows and AI dates follow the instance timezone', async () => {

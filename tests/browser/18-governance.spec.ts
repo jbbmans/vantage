@@ -47,7 +47,8 @@ test('the privacy inventory reads the live schema and names its gaps', async ({ 
 test('the owner imports accounts from a roster: a preview first, then the accounts', async ({ page, request }) => {
   await ensureSetup(request);
   await loginAs(page, OPERATOR.username);
-  await page.goto('/operator?tab=users');
+  await page.goto('/console/people');
+  await confirmSudoIfAsked(page);
   const tag = Date.now().toString(36);
   const roster = [
     'Rank,First Name,Last Name,L2 Command,Fire Team,Username,Temporary Password,Role',

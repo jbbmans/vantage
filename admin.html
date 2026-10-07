@@ -1,0 +1,40 @@
+<!doctype html>
+<html lang="en" data-theme="light" data-accent="ocean">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+    <meta name="color-scheme" content="light dark" />
+    <meta name="theme-color" content="#0B2D5B" />
+    <meta name="application-name" content="Vantage" />
+    <meta name="apple-mobile-web-app-capable" content="yes" />
+    <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+    <meta name="apple-mobile-web-app-title" content="Vantage admin" />
+    <meta name="referrer" content="strict-origin-when-cross-origin" />
+
+    <!-- The Vantage admin dashboard: its own document, for Vantage staff who run the service. -->
+    <title>Vantage admin</title>
+    <meta name="robots" content="noindex, nofollow" />
+
+    <!-- Written by `npm run icons` from shared/brand.ts; the build stamps __ICONS__ with their content hash. -->
+    <link rel="icon" href="/favicon.ico?v=__ICONS__" sizes="48x48" />
+    <link rel="icon" href="/favicon.svg?v=__ICONS__" type="image/svg+xml" />
+    <link rel="icon" href="/icon-192.png?v=__ICONS__" type="image/png" sizes="192x192" />
+    <link rel="apple-touch-icon" href="/apple-touch-icon.png?v=__ICONS__" />
+    <link rel="preload" href="/fonts/geist-normal.woff2" as="font" type="font/woff2" crossorigin />
+
+    <script>
+      try {
+        var mode = localStorage.getItem('vantage.theme') || 'light';
+        var dark = mode === 'dark' || (mode === 'system' && window.matchMedia && window.matchMedia('(prefers-color-scheme: dark)').matches);
+        document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light');
+        var accent = localStorage.getItem('vantage.accent');
+        if (accent) document.documentElement.setAttribute('data-accent', accent);
+      } catch (e) {}
+    </script>
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>Vantage needs JavaScript enabled.</noscript>
+    <script type="module" src="/src/admin-main.tsx"></script>
+  </body>
+</html>

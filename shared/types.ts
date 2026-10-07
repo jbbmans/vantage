@@ -149,7 +149,8 @@ export interface MemberDetailResponse {
     email?: string | null;
   };
   memberships: Array<{ unit_id: string; is_primary: number; billet: string | null; joined_at: string; unit_name: string; unit_short: string | null }>;
-  roles: Array<{ unit_id: string; id: string; name: string; color: string | null; position: number; permissions: number; key: string | null }>;
+  /** Held unit roles; a time-bound one carries the moment it ends. */
+  roles: Array<{ unit_id: string; id: string; name: string; color: string | null; position: number; permissions: number; key: string | null; expires_at?: string | null }>;
   detailUnits: string[];
   canCounsel: string[];
   canManageMembers: string[];

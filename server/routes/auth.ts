@@ -49,13 +49,16 @@ function openSession(req: Request, res: Response, user: { id: string }, method: 
   const ctx = req.ctx;
   // The router refused anything unaccepted before it ran; this is the backstop for any future way in.
   if (consentFor(ctx) && !(opts.consented ?? req.get('x-vantage-consent') === '1')) throw forbidden('Read and accept the notice before signing in.', 'consent_required');
-  // A console on a host of its own is for the people who run the instance, and nobody else signs in there.
+  // A console on a host of its own is for the people it serves, and nobody else signs in there: the owner console for
+  // an organization's owners, administrators, records officers and auditors; the admin dashboard for Vantage staff.
   const faces = facesOf(res);
-  if (faces.has('console') && !faces.has('app')) {
-    const owner = ctx.db.prepare('SELECT is_operator FROM users WHERE id = ?').get(user.id) as { is_operator: number } | undefined;
-    if (!owner?.is_operator) {
+  if (!faces.has('app') && (faces.has('console') || faces.has('admin'))) {
+    const staff = Boolean(ctx.db.prepare('SELECT 1 FROM platform_roles WHERE user_id = ? LIMIT 1').get(user.id));
+    const orgRole = Boolean(ctx.db.prepare("SELECT 1 FROM org_roles WHERE user_id = ? AND (expires_at IS NULL OR expires_at > ?) LIMIT 1").get(user.id, now()));
+    const allowed = (faces.has('admin') && staff) || (faces.has('console') && orgRole);
+    if (!allowed) {
       audit(ctx, { actor_id: user.id, action: 'console_sign_in_refused', ip: clientIp(req), detail: method });
-      throw forbidden(`The owner console is for the people who run this Vantage. Sign in at ${ctx.config.urls.app} instead.`, 'console_owners_only');
+      throw forbidden(faces.has('admin') ? `The admin dashboard is for Vantage staff. Sign in at ${ctx.config.urls.app} instead.` : `The owner console is for the people who run an organization on Vantage. Sign in at ${ctx.config.urls.app} instead.`, 'console_owners_only');
     }
   }
   clearFailures(ctx, user.id);
@@ -122,12 +125,16 @@ authRouter.post('/setup', wrap((req, res) => {
   if (!unitId) throw badRequest('That unit name produces an empty code.', { fieldErrors: { unit_name: 'Use letters or numbers.' } });
   const id = newId();
   ctx.db.transaction(() => {
-    ctx.db.prepare(`INSERT INTO users (id, username, email, password_hash, first_name, last_name, middle_initial, rank_id, mos, is_operator, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
+    ctx.db.prepare(`INSERT INTO users (id, username, email, password_hash, first_name, last_name, middle_initial, rank_id, mos, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
       .run(id, body.username, body.email || null, hashPassword(body.password), body.first_name, body.last_name, body.middle_initial || null, body.rank_id || null, body.mos || null, now(), now());
+    // The first account owns the service, and the first organization (its first unit founds it, ADR-0006).
+    ctx.db.prepare("INSERT INTO platform_roles (user_id, role, granted_by, created_at) VALUES (?, 'owner', NULL, ?)").run(id, now());
     ctx.db.prepare('INSERT INTO units (id, code, name, short_name, echelon, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(unitId, unitId, body.unit_name, body.unit_short_name || null, 'command', now());
     claimUnit(ctx, unitId, id);
+    ctx.db.prepare("INSERT INTO org_roles (org_id, user_id, role, granted_by, created_at) SELECT org_id, ?, 'owner', NULL, ? FROM units WHERE id = ?").run(id, now(), unitId);
+    ctx.db.prepare('UPDATE organizations SET created_by = ? WHERE id = (SELECT org_id FROM units WHERE id = ?)').run(id, unitId);
   })();
-  audit(ctx, { actor_id: id, action: 'setup', entity: 'instance', unit_id: unitId, ip });
+  audit(ctx, { actor_id: id, action: 'setup', entity: 'platform', unit_id: unitId, ip });
   const user = ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow;
   return finishSignIn(req, res, user, 'password', 'setup');
 }));
@@ -135,8 +142,8 @@ authRouter.post('/setup', wrap((req, res) => {
 authRouter.post('/register', wrap((req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
-  if (ctx.config.cac.exclusive) throw forbidden('This instance requires a CAC. Accounts are created from the personnel roster.', 'cac_required');
-  if (ctx.config.oidc.exclusive) throw forbidden(`This instance signs in through your organization. Use ${ctx.config.oidc.label}.`, 'oidc_required');
+  if (ctx.config.cac.exclusive) throw forbidden('Vantage requires a CAC here. Accounts are created from your organization’s personnel roster.', 'cac_required');
+  if (ctx.config.oidc.exclusive) throw forbidden(`Vantage signs in through your organization here. Use ${ctx.config.oidc.label}.`, 'oidc_required');
   if (!ctx.runtime.selfRegistration) throw notFound('Self-registration is not enabled. Ask a leader for an invitation.');
   if (userCount(ctx) === 0) throw conflict('The deployment must be initialized before accounts can self-register.', 'setup_required');
   const limited = limiters.registerIp.limited(ip);
@@ -163,8 +170,8 @@ const loginSchema = z.object({ username: z.string().max(40), password: z.string(
 authRouter.post('/login', wrap(async (req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
-  if (ctx.config.cac.exclusive) throw forbidden('This instance requires a CAC. Sign in with your card.', 'cac_required');
-  if (ctx.config.oidc.exclusive) throw forbidden(`This instance signs in through your organization. Use ${ctx.config.oidc.label}.`, 'oidc_required');
+  if (ctx.config.cac.exclusive) throw forbidden('Vantage requires a CAC here. Sign in with your card.', 'cac_required');
+  if (ctx.config.oidc.exclusive) throw forbidden(`Vantage signs in through your organization here. Use ${ctx.config.oidc.label}.`, 'oidc_required');
   const { username, password } = parse(loginSchema, req.body);
   const name = username.trim().toLowerCase();
   const ipLimit = limiters.loginIp.limited(ip);

@@ -27,7 +27,7 @@ after(() => app.close());
 
 test('a preview reports every row and writes nothing', async () => {
   const users = (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
-  const r = await app.call('POST', '/api/admin/accounts/import', { token: op.token, raw: Buffer.from(CSV), headers: csv });
+  const r = await app.call('POST', '/api/orgs/G8/accounts/import', { token: op.token, raw: Buffer.from(CSV), headers: csv });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.deepEqual(r.body.counts, { create: 4, exists: 0, error: 3, new_units: 3 });
   const byUser = Object.fromEntries(r.body.accounts.map((a: { username: string }) => [a.username, a]));
@@ -42,7 +42,7 @@ test('a preview reports every row and writes nothing', async () => {
 });
 
 test('applying creates the accounts, their units, ranks, roles and billets, all on temporary passwords', async () => {
-  const r = await app.call('POST', '/api/admin/accounts/import?apply=1', { token: op.token, raw: Buffer.from(CSV), headers: csv });
+  const r = await app.call('POST', '/api/orgs/G8/accounts/import?apply=1', { token: op.token, raw: Buffer.from(CSV), headers: csv });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.created, 4);
   assert.deepEqual(r.body.generated.map((g: { username: string }) => g.username), ['casey.north']);
@@ -51,13 +51,14 @@ test('applying creates the accounts, their units, ranks, roles and billets, all 
   assert.deepEqual(avery, { rank_id: 'SSgt', email: 'avery.stone@example.mil', must_change_password: 1 });
   const memberships = app.ctx.db.prepare(`SELECT m.unit_id, m.is_primary, m.billet, un.parent_id FROM unit_members m JOIN units un ON un.id = m.unit_id JOIN users u ON u.id = m.user_id WHERE u.username = 'avery.stone' ORDER BY m.is_primary DESC`).all();
   assert.deepEqual(memberships, [
-    { unit_id: 'TEST-COMMAND', is_primary: 1, billet: null, parent_id: null },
+    { unit_id: 'TEST-COMMAND', is_primary: 1, billet: null, parent_id: 'G8' },
     { unit_id: 'ALPHA-CELL', is_primary: 0, billet: 'Section chief', parent_id: 'TEST-COMMAND' },
-  ], 'the command is their primary unit; the team carries their billet');
+  ], 'the command is their primary unit, inside the organization; the team carries their billet');
   const roles = app.ctx.db.prepare(`SELECT mr.unit_id || ':' || r.key AS k FROM member_roles mr JOIN roles r ON r.id = mr.role_id JOIN users u ON u.id = mr.user_id WHERE u.username = 'avery.stone' ORDER BY k`).all().map((x) => (x as { k: string }).k);
   assert.deepEqual(roles, ['ALPHA-CELL:fire-team-leader', 'ALPHA-CELL:marine', 'TEST-COMMAND:marine'], 'a leader role sits on the team they lead, not the whole command');
   const owners = Object.fromEntries((app.ctx.db.prepare(`SELECT id, owner_user_id FROM units WHERE id IN ('TEST-COMMAND', 'ALPHA-CELL', 'BRAVO-CELL')`).all() as Array<{ id: string; owner_user_id: string | null }>).map((o) => [o.id, o.owner_user_id]));
-  assert.deepEqual(owners, { 'TEST-COMMAND': op.id, 'ALPHA-CELL': null, 'BRAVO-CELL': null }, 'the importer leads the command it creates, and governs its teams from there');
+  assert.deepEqual(owners, { 'TEST-COMMAND': null, 'ALPHA-CELL': null, 'BRAVO-CELL': null }, 'new units sit inside the organization and are governed from above');
+  assert.equal((app.ctx.db.prepare("SELECT org_id FROM units WHERE id = 'BRAVO-CELL'").get() as { org_id: string }).org_id, 'G8');
   const me = await app.call('GET', '/api/me', { token: op.token });
   assert.ok(me.body.permissions['ALPHA-CELL'] & PERMISSIONS.ADMINISTRATOR);
   assert.ok(!me.body.unitIds.includes('ALPHA-CELL'), 'without joining the team roster');
@@ -68,12 +69,12 @@ test('applying creates the accounts, their units, ranks, roles and billets, all 
   const generated = r.body.generated[0].password as string;
   assert.equal((await app.login('casey.north', generated)).status, 200);
 
-  const again = await app.call('POST', '/api/admin/accounts/import?apply=1', { token: op.token, raw: Buffer.from(CSV), headers: csv });
+  const again = await app.call('POST', '/api/orgs/G8/accounts/import?apply=1', { token: op.token, raw: Buffer.from(CSV), headers: csv });
   assert.equal(again.body.created, 0, 'importing the same roster twice changes nothing');
   assert.equal(again.body.counts.exists, 4);
 });
 
-test('an .xlsx roster works, and only a recently confirmed Instance Operator may import', async () => {
+test('an .xlsx roster works, and only an organization administrator who recently confirmed their password may import', async () => {
   const shared = ['Username', 'First Name', 'Last Name', 'Rank', 'jordan.lee', 'Jordan', 'Lee', 'Cpl'];
   const row = (n: number, cells: number[]) => `<row r="${n}">${cells.map((s, i) => `<c r="${'ABCD'[i]}${n}" t="s"><v>${s}</v></c>`).join('')}</row>`;
   const book = buildZip([
@@ -87,15 +88,15 @@ test('an .xlsx roster works, and only a recently confirmed Instance Operator may
 
   const marine = await app.register('plainmarine');
   await enroll(app, op.token, 'G8', marine.id);
-  const denied = await app.call('POST', '/api/admin/accounts/import', { token: (await app.login('plainmarine')).body.token, raw: book, headers: xlsx });
-  assert.equal(denied.status, 403);
+  const denied = await app.call('POST', '/api/orgs/G8/accounts/import', { token: (await app.login('plainmarine')).body.token, raw: book, headers: xlsx });
+  assert.equal(denied.status, 404, 'an organization they hold no role in is not theirs to see');
 
   app.ctx.db.prepare('UPDATE sessions SET sudo_until = NULL').run();
-  const stale = await app.call('POST', '/api/admin/accounts/import', { token: op.token, raw: book, headers: xlsx });
+  const stale = await app.call('POST', '/api/orgs/G8/accounts/import', { token: op.token, raw: book, headers: xlsx });
   assert.equal(stale.body.code, 'sudo_required');
   await app.call('POST', '/api/auth/sudo', { token: op.token, body: { password: PASSWORD } });
 
-  const r = await app.call('POST', '/api/admin/accounts/import?apply=1', { token: op.token, raw: book, headers: xlsx });
+  const r = await app.call('POST', '/api/orgs/G8/accounts/import?apply=1', { token: op.token, raw: book, headers: xlsx });
   assert.equal(r.status, 200, JSON.stringify(r.body));
   assert.equal(r.body.created, 1);
   assert.equal(r.body.generated.length, 1);
@@ -103,7 +104,7 @@ test('an .xlsx roster works, and only a recently confirmed Instance Operator may
 });
 
 test('a file with no usable header is refused plainly', async () => {
-  const r = await app.call('POST', '/api/admin/accounts/import', { token: op.token, raw: Buffer.from('Name,Rank\nSmith,Cpl'), headers: csv });
+  const r = await app.call('POST', '/api/orgs/G8/accounts/import', { token: op.token, raw: Buffer.from('Name,Rank\nSmith,Cpl'), headers: csv });
   assert.equal(r.status, 400);
   assert.match(r.body.error, /Username/);
 });

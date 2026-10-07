@@ -37,20 +37,34 @@ const PROCEDURE_OPTIONS = [
 
 type Step = 'file' | 'sheet' | 'mapping' | 'preview' | 'done';
 
+// What the server sends at each step (server/services/intake.ts), as far as this wizard reads it.
+interface ImportSheet { name: string; rows: number; columns: number; sample: string[][]; truncated: boolean }
+interface ImportSource { id: string; scan_status: string; scanner?: string | null; scan_detail?: string | null }
+interface Inspection { source: ImportSource; sheets: ImportSheet[]; notes: string[] }
+interface ImportRejection { source_row: number; reason: string; value?: string }
+interface ImportPreview {
+  total_rows: number; unchanged: number; rejections: ImportRejection[]; procedures?: Record<string, number>;
+  will_insert: Array<{ natural_key: string }>;
+  will_update: Array<{ existing_id: string; natural_key: string; claimed_by: string | null; changes: string[] }>;
+}
+interface ImportJob { inserted_rows: number; updated_rows: number; unchanged_rows: number; rejected_rows: number; procedures_applied?: number }
+
 export default function ImportWizard({ onClose, onImported }: { onClose: () => void; onImported: () => void }) {
   const toast = useToast();
   const { data: identity } = useIdentity();
   const fileInput = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>('file');
   const [busy, setBusy] = useState(false);
-  const [source, setSource] = useState<any>(null);
-  const [inspection, setInspection] = useState<any>(null);
+  const [source, setSource] = useState<ImportSource | null>(null);
+  const [inspection, setInspection] = useState<Inspection | null>(null);
   const [sheetName, setSheetName] = useState('');
   const [headerRow, setHeaderRow] = useState(1);
   const [keyColumn, setKeyColumn] = useState('');
+  // A second column, for a sheet whose first identifier repeats across lines (a document number and its line).
+  const [keyColumn2, setKeyColumn2] = useState('');
   const [mapping, setMapping] = useState<Record<string, string>>({});
-  const [preview, setPreview] = useState<any>(null);
-  const [job, setJob] = useState<any>(null);
+  const [preview, setPreview] = useState<ImportPreview | null>(null);
+  const [job, setJob] = useState<ImportJob | null>(null);
   const [unitId, setUnitId] = useState(identity?.homeUnitId || '');
   const [procedure, setProcedure] = useState('none');
   const [runKey] = useState(() => `import-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`);
@@ -65,7 +79,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
     track('import.abandoned', { state: where }, { form_ms: Date.now() - openedAt.current });
   }, []);
 
-  const sheet = useMemo(() => (inspection?.sheets || []).find((s: any) => s.name === sheetName) || inspection?.sheets?.[0], [inspection, sheetName]);
+  const sheet = useMemo(() => (inspection?.sheets || []).find((s) => s.name === sheetName) || inspection?.sheets?.[0], [inspection, sheetName]);
   const headers: string[] = useMemo(() => {
     const row = sheet?.sample?.[headerRow - 1] || [];
     return row.map((h: string, i: number) => (h || '').trim() || `Column ${i + 1}`);
@@ -82,9 +96,9 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
   const pick = async (file: File) => {
     setBusy(true);
     try {
-      const uploaded = await api.uploadSource(file, { unitId: unitId || null, visibility: unitId ? 'unit' : 'private' });
+      const uploaded: ImportSource = await api.uploadSource(file, { unitId: unitId || null, visibility: unitId ? 'unit' : 'private' });
       setSource(uploaded);
-      const detail = await api.inspectSource(uploaded.id);
+      const detail: Inspection = await api.inspectSource(uploaded.id);
       setInspection(detail);
       setSheetName(detail.sheets[0]?.name || '');
       setStep('sheet');
@@ -117,10 +131,10 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
   };
 
   const plan = () => ({
-    source_file_id: source.id,
+    source_file_id: source?.id ?? '',
     sheet_name: sheet?.name || '',
     header_row: headerRow,
-    key_columns: [keyColumn],
+    key_columns: [keyColumn, keyColumn2].filter((k, i, all) => k && all.indexOf(k) === i),
     mapping,
     unit_id: unitId || null,
     visibility: unitId ? 'unit' : 'private',
@@ -130,14 +144,14 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
   const runPreview = async () => {
     setBusy(true);
     try {
-      const result = await api.previewImport(plan());
+      const result: ImportPreview = await api.previewImport(plan());
       setPreview(result);
       setStep('preview');
       track('import.previewed', {
         rows: result.total_rows || 0,
         mapped_columns: Object.keys(mapping).length,
-        unmapped_columns: Math.max(0, (inspection?.sheets?.find((x: any) => x.name === sheetName)?.columns?.length || 0) - Object.keys(mapping).length),
-        damaged_identifiers: (result.rejections || []).filter((r: any) => /digits|scientific|rounded/i.test(String(r.reason || ''))).length,
+        unmapped_columns: Math.max(0, (inspection?.sheets?.find((x) => x.name === sheetName)?.columns || 0) - Object.keys(mapping).length),
+        damaged_identifiers: (result.rejections || []).filter((r) => /digits|scientific|rounded/i.test(String(r.reason || ''))).length,
       });
     }
     catch (e) { toast.error(api.errorText(e)); }
@@ -147,7 +161,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
   const run = async () => {
     setBusy(true);
     try {
-      const result = await api.runImport(plan(), runKey);
+      const result: ImportJob = await api.runImport(plan(), runKey);
       finished.current = true;
       setJob(result);
       setStep('done');
@@ -225,7 +239,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
           )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Sheet">
-              <Select value={sheet?.name || ''} onValueChange={setSheetName} options={inspection.sheets.map((s: any) => ({ value: s.name, label: `${s.name} (${formatNumber(s.rows)} rows)` }))} />
+              <Select value={sheet?.name || ''} onValueChange={setSheetName} options={inspection.sheets.map((s) => ({ value: s.name, label: `${s.name} (${formatNumber(s.rows)} rows)` }))} />
             </Field>
             <Field label="Heading row" hint="The row that names the columns.">
               <NumberInput value={String(headerRow)} min={1} max={20} onChange={(e) => setHeaderRow(Math.max(1, Number(e.target.value) || 1))} />
@@ -241,6 +255,10 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
           <Field label="Which column identifies each row" hint="This is how a reimport recognises the same piece of work. It is taken exactly as written.">
             <Select value={keyColumn} onValueChange={setKeyColumn} options={headers.map((h) => ({ value: h, label: h }))} />
           </Field>
+          <Field label="And, if one column is not enough" hint="For a sheet that repeats the first identifier on several lines, such as a document number with a line number, or another report keyed by the same document number.">
+            <Select aria-label="Second identifying column" value={keyColumn2 || 'none'} onValueChange={(v) => setKeyColumn2(v === 'none' ? '' : v)}
+              options={[{ value: 'none', label: 'No second column' }, ...headers.filter((h) => h !== keyColumn).map((h) => ({ value: h, label: h }))]} />
+          </Field>
           <div className="overflow-hidden rounded-md border border-line">
             <table className="w-full text-sm">
               <thead className="bg-surface-2">
@@ -249,7 +267,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
               <tbody>
                 {headers.map((h, i) => (
                   <tr key={h} className="border-t border-line">
-                    <td className="px-3 py-1.5 text-ink">{h}{h === keyColumn && <Badge tone="accent" className="ml-2">Identifier</Badge>}</td>
+                    <td className="px-3 py-1.5 text-ink">{h}{(h === keyColumn || h === keyColumn2) && <Badge tone="accent" className="ml-2">Identifier</Badge>}</td>
                     <td className="px-3 py-1.5">
                       <Select
                         aria-label={`What ${h} means`} className="w-52"
@@ -299,7 +317,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
             <div className="rounded-xl px-3.5 py-2.5 ring-1 ring-inset ring-line">
               <p className="eyebrow">Procedures for the new rows</p>
               <ul className="mt-1.5 flex flex-wrap gap-1.5">
-                {Object.entries(preview.procedures as Record<string, number>).sort((a, b) => b[1] - a[1]).map(([key, n]) => (
+                {Object.entries(preview.procedures).sort((a, b) => b[1] - a[1]).map(([key, n]) => (
                   <li key={key} className="chip">{key === 'none' ? 'No procedure fits' : PROCEDURES[key]?.short || key} · {formatNumber(n)}</li>
                 ))}
               </ul>
@@ -312,7 +330,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
             </p>
           )}
 
-          {preview.will_update.some((r: any) => r.claimed_by) && (
+          {preview.will_update.some((r) => r.claimed_by) && (
             <p className="rounded-md border border-warn/40 bg-warn/5 px-3 py-2 text-sm text-ink">
               Some of these rows are being worked right now. Their claims are kept, and the person holding each one is told the source changed.
             </p>
@@ -322,7 +340,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
             <div>
               <h3 className="mb-2 flex items-center gap-2 text-md font-semibold text-ink"><ShieldAlert className="h-4 w-4 text-warn" />Rows Vantage will not import</h3>
               <ul className="max-h-48 space-y-1 overflow-y-auto text-xs">
-                {preview.rejections.slice(0, 50).map((r: any, i: any) => (
+                {preview.rejections.slice(0, 50).map((r, i) => (
                   <li key={`${r.source_row}-${i}`} className="rounded-md border border-line px-3 py-1.5">
                     <span className="font-medium text-ink">Row {r.source_row}{r.value ? `: ${r.value}` : ''}</span>
                     <span className="block text-ink-3">{r.reason}</span>
@@ -336,7 +354,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
             <details className="rounded-md border border-line">
               <summary className="cursor-pointer px-3 py-2 text-sm font-medium text-ink">What changed on the {preview.will_update.length} updated rows</summary>
               <ul className="space-y-1 px-3 pb-3 text-xs">
-                {preview.will_update.slice(0, 50).map((r: any) => (
+                {preview.will_update.slice(0, 50).map((r) => (
                   <li key={r.existing_id} className="border-b border-line py-1">
                     <span className="fig font-medium text-ink">{r.natural_key}</span>
                     <span className="ml-2 text-ink-3">{r.changes.join(', ') || 'a kept column'}</span>
@@ -351,7 +369,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
       {step === 'done' && job && (
         <div className="space-y-3">
           <p className="flex items-center gap-2 text-sm text-good"><Check className="h-4 w-4" />{formatNumber(job.inserted_rows)} new, {formatNumber(job.updated_rows)} updated, {formatNumber(job.unchanged_rows)} already matched.</p>
-          {job.procedures_applied > 0 && <p className="text-sm text-ink-2">{formatNumber(job.procedures_applied)} new {job.procedures_applied === 1 ? 'case follows' : 'cases follow'} a procedure, with the sheet’s figures already on them.</p>}
+          {(job.procedures_applied ?? 0) > 0 && <p className="text-sm text-ink-2">{formatNumber(job.procedures_applied)} new {job.procedures_applied === 1 ? 'case follows' : 'cases follow'} a procedure, with the sheet’s figures already on them.</p>}
           {job.rejected_rows > 0 && <p className="text-sm text-warn">{formatNumber(job.rejected_rows)} rows were refused. They are listed on this import in your history.</p>}
           <p className="text-xs text-ink-3">The original file is kept exactly as uploaded, so this import can be repeated or checked later.</p>
         </div>
@@ -362,7 +380,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
   );
 }
 
-function ScanNotice({ source }: { source: any }) {
+function ScanNotice({ source }: { source: ImportSource | null }) {
   if (!source) return null;
   if (source.scan_status === 'clean') {
     return <p className="flex items-center gap-2 rounded-md border border-good/40 bg-good/5 px-3 py-2 text-xs text-ink"><ShieldCheck className="h-4 w-4 text-good" />Scanned clean by {source.scanner}.</p>;
@@ -373,14 +391,14 @@ function ScanNotice({ source }: { source: any }) {
   return <p className="flex items-center gap-2 rounded-md border border-bad/40 bg-bad/5 px-3 py-2 text-xs text-ink"><ShieldAlert className="h-4 w-4 text-bad" />{source.scan_detail}</p>;
 }
 
-function SamplePreview({ sheet, headerRow }: { sheet: any; headerRow: number }) {
+function SamplePreview({ sheet, headerRow }: { sheet: ImportSheet | undefined; headerRow: number }) {
   if (!sheet?.sample?.length) return null;
-  const width = sheet.sample.reduce((n: number, r: string[]) => Math.max(n, r.length), 0);
+  const width = sheet.sample.reduce((n, r) => Math.max(n, r.length), 0);
   return (
     <div className="overflow-x-auto rounded-md border border-line">
       <table className="w-full text-xs">
         <tbody>
-          {sheet.sample.slice(0, 8).map((row: string[], r: number) => (
+          {sheet.sample.slice(0, 8).map((row, r) => (
             <tr key={r} className={cn('border-b border-line', r === headerRow - 1 && 'bg-accent/5 font-semibold text-ink')}>
               <td className="w-10 px-2 py-1 text-right text-ink-3">{r + 1}</td>
               {Array.from({ length: width }, (_, c) => (

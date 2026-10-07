@@ -48,3 +48,15 @@ export async function quickLog(page: Page, text: string) {
   await dialog.getByLabel('What did you do?').fill(text);
   return dialog;
 }
+
+/**
+ * Seat an account in a unit the way the product does: a leader (signed in on `leader`) makes a join code and the Marine
+ * (signed in on `member`) joins with it. Nobody is pulled into a unit without their own step.
+ */
+export async function joinUnit(leader: APIRequestContext, member: APIRequestContext, unitId = 'G8') {
+  const made = await leader.post(`/api/org/units/${unitId}/join-codes`, { headers: H, data: { max_uses: 1 } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const { code } = await made.json();
+  const joined = await member.post(`/api/org/join-codes/${encodeURIComponent(code)}/join`, { headers: H });
+  expect(joined.ok(), await joined.text()).toBeTruthy();
+}

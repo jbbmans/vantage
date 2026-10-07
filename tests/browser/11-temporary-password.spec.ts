@@ -12,7 +12,7 @@ test('a Marine signing in with a temporary password is held at the password scre
 
   await loginAs(page, OPERATOR.username);
   await page.request.post('/api/auth/sudo', { headers: H, data: { password: PASSWORD } });
-  const issued = await page.request.post(`/api/org/team/${id}/temporary-password`, { headers: H });
+  const issued = await page.request.post(`/api/platform/accounts/${id}/temporary-password`, { headers: H });
   expect(issued.ok(), await issued.text()).toBeTruthy();
   const temp = (await issued.json()).password as string;
   await logout(page);

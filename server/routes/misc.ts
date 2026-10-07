@@ -21,7 +21,7 @@ import { hydrate } from '../services/records.ts';
 import { runAiWorkflow, aiStatus, AiError } from '../services/ai.ts';
 import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { audit } from '../services/audit.ts';
-import { notifyOperators } from '../services/notifications.ts';
+import { notifyStaff } from '../services/notifications.ts';
 import { now } from '../lib/ids.ts';
 import { isoDay, zonedNow } from '../lib/clock.ts';
 import { listItems } from '../services/work.ts';
@@ -231,7 +231,7 @@ miscRouter.get('/reports/pdf', wrap(async (req, res) => {
   const title = `${report.track === 'fitrep' ? 'FITREP' : 'JEPES'} input`;
   const pdf = await renderReportPdf({
     title, subject: report.subject, unitLine: report.unit ? report.unit.short_name || report.unit.name : '', period: report.label, track: report.track,
-    generatedAt: report.generatedAt, narrative: withEdits(report.narrative, q.narrative), pkg: report.pkg, metrics: report.metrics, counts: report.counts, awards: report.awards, trainings: report.trainings,
+    generatedAt: report.generatedAt, narrative: withEdits(report.narrative, q.narrative), pkg: report.pkg, metrics: report.metrics, counts: report.counts, awards: report.awards, trainings: report.trainings, worksheet: report.worksheet,
   });
   audit(req.ctx, { actor_id: req.user.id, action: 'export_pdf', entity: 'user', entity_id: userId, subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: report.label, ip: clientIp(req) });
   const file = `vantage-${report.track}-input-${report.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`;
@@ -265,7 +265,7 @@ miscRouter.post('/ai/assist', wrap(async (req, res) => {
     res.json(result);
   } catch (error) {
     if (error instanceof AiError) {
-      if (error.code === 'ai_key_locked') notifyOperators(ctx, { kind: 'system', title: 'GenAI.mil key needs unlock', message: 'AI assistance is paused until the GenAI.mil key lock is cleared in the Owner Console.', actionUrl: '/operator?tab=ai', dedupeKey: `genai-lock:${now().slice(0, 13)}` });
+      if (error.code === 'ai_key_locked') notifyStaff(ctx, 'platform.ai', { kind: 'system', title: 'GenAI.mil key needs unlock', message: 'AI assistance is paused until the GenAI.mil key lock is cleared in the admin dashboard.', actionUrl: '/admin/ai', dedupeKey: `genai-lock:${now().slice(0, 13)}` });
       audit(ctx, { actor_id: req.user.id, action: 'ai_assist_failed', entity: 'ai_request', detail: `${workflow || 'unknown'}; ${error.code}`, ip: clientIp(req) });
     }
     throw error;
