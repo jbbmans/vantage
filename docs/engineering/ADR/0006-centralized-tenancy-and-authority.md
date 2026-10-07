@@ -65,8 +65,9 @@ roles and sub-units. That is the structural part of the unit permission set. It 
 shared records, member detail or the access log.
 
 A command's administrator (often the S-6 or the ISSM's delegate) is therefore not, by holding that role,
-a reader of every counseling in the command. If they give themselves a unit role that reads records, the
-grant is audited and the organization's other owners are told.
+a reader of every counseling in the command. They staff other people's roles; they cannot give themselves
+reach into records by any door (a role, a unit's leadership, their own join code, widening a role they
+hold). An owner can, and the grant is audited and the organization's other owners are told.
 
 ### Vantage access: the only way staff see an organization's data
 

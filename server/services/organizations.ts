@@ -1,10 +1,11 @@
 import type { AppContext, SessionUser } from '../context.ts';
-import { ORG_ROLES, ORG_ROLE_KEYS, listPermissions, type OrgRole } from '../../shared/permissions.ts';
+import { ORG_ROLES, ORG_ROLE_KEYS, PERMISSIONS, listPermissions, type OrgRole } from '../../shared/permissions.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { now, slug } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { notify, notifyOrg } from './notifications.ts';
-import { claimUnit, removeMember } from './org.ts';
+import { claimUnit, guardSelfReach, removeMember } from './org.ts';
+import { scopeFor } from '../authz/scope.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 
 /**
@@ -220,6 +221,10 @@ export function orgMembers(ctx: AppContext, orgId: string, q = '') {
 /** Take someone out of every unit of the organization: their claims are released, their account is theirs to keep. */
 export function removeFromOrg(ctx: AppContext, actor: SessionUser, orgId: string, userId: string, ip?: string) {
   if (userId === actor.id) throw forbidden('A second authorized person must change your own membership.', 'self_membership_change');
+  // Taking someone out also ends their organization roles, so only an owner may do it to a role holder, and never to the last owner.
+  const held = (ctx.db.prepare('SELECT role FROM org_roles WHERE org_id = ? AND user_id = ?').all(orgId, userId) as Array<{ role: string }>).map((r) => r.role);
+  if (held.length && !scopeFor(ctx, actor).orgs[orgId]?.roles.includes('owner')) throw forbidden('They hold an organization role. An owner removes them.', 'org_permission');
+  if (held.includes('owner') && liveOwners(ctx, orgId).length === 1) throw badRequest('They are the organization’s only owner. Name another owner first.', { code: 'last_owner' });
   const leads = ctx.db.prepare('SELECT name FROM units WHERE org_id = ? AND owner_user_id = ? AND active = 1').all(orgId, userId) as Array<{ name: string }>;
   if (leads.length) throw badRequest(`They lead ${leads.map((u) => u.name).join(', ')}. Transfer that leadership first.`);
   const units = ctx.db.prepare('SELECT um.unit_id FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE un.org_id = ? AND um.user_id = ?').all(orgId, userId) as Array<{ unit_id: string }>;
@@ -245,9 +250,12 @@ export function setUnitLeader(ctx: AppContext, actor: SessionUser, orgId: string
   const unit = ctx.db.prepare('SELECT id, name FROM units WHERE id = ? AND org_id = ? AND active = 1').get(unitId, orgId) as { id: string; name: string } | undefined;
   if (!unit) throw notFound('No such unit in this organization.');
   if (!isOrgMember(ctx, orgId, userId)) throw badRequest('A unit’s leader must be a member of the organization.', { fieldErrors: { user_id: 'Not a member.' } });
+  // Leading a unit reads its records: naming yourself is the self-grant an administrator cannot make.
+  const notice = guardSelfReach(ctx, actor, scopeFor(ctx, actor), unitId, PERMISSIONS.ADMINISTRATOR, userId, { you: `Making yourself leader of ${unit.name}`, they: 'made themselves its leader' });
   const { previous, sessionsRevoked } = claimUnit(ctx, unitId, userId);
   audit(ctx, { actor_id: actor.id, action: 'unit_leader_set', entity: 'unit', entity_id: unitId, unit_id: unitId, org_id: orgId, subject_id: userId, detail: `${previous || 'unled'} -> ${userId}`, ip });
   notify(ctx, userId, { kind: 'unit', title: `You now lead ${unit.name}`, message: 'Sign in again to pick up the new authority.', actionUrl: '/team' });
+  notice?.();
   return { ok: true, sessionsRevoked };
 }
 

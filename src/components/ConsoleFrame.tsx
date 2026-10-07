@@ -179,7 +179,7 @@ export function ConsoleLayout({ identity, badge, railLabel, headerLabel, eyebrow
           </ErrorBoundary>
         </div></main>
       </div>
-      {/* A console session ends after 10 idle minutes; ask before it does. */}
+      {/* Warn before an idle session ends (10 minutes for Vantage staff, 15 for everyone else). */}
       <IdleGuard onSignOut={() => { void signOutOfConsole(); }} />
       <SudoDialog open={Boolean(sudo)} onOpenChange={(o) => { if (!o) { sudo?.cancel(); setSudo(null); } }} onConfirmed={() => { const req = sudo; setSudo(null); req?.confirm(); }} />
     </div>

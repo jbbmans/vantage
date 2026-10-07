@@ -127,6 +127,31 @@ test('organization administrators staff the units without reading records, and c
   assert.equal((await app.call('DELETE', `/api/orgs/G8/roles/${op.id}/owner`, { token: op.token })).body.code, 'last_owner');
 });
 
+test('an administrator finds no side door into records: leading a unit, their own join code, widening a role they hold, removing an owner', async () => {
+  rivera.token = await login('rivera');
+  const lead = await post(rivera.token, '/api/orgs/G8/units/G8/leader', { user_id: rivera.id });
+  assert.equal(lead.status, 403, JSON.stringify(lead.body));
+  assert.equal(lead.body.code, 'self_grant');
+  const team = await post(rivera.token, '/api/org/units', { name: 'Side Door Cell', parent_id: 'G8' });
+  assert.equal(team.status, 201, 'structure is theirs to run');
+  assert.equal((await post(rivera.token, `/api/org/units/${team.body.id}/owner`, { user_id: rivera.id })).status >= 400, true, 'nor through a leadership transfer');
+
+  const code = await post(rivera.token, `/api/org/units/${team.body.id}/join-codes`, { role_id: `${team.body.id}:snco` });
+  assert.equal(code.status, 201, 'a join code for someone else is staffing');
+  const self = await post(rivera.token, `/api/org/join-codes/${encodeURIComponent(code.body.code)}/join`);
+  assert.equal(self.status, 403, 'redeeming it themselves is not');
+  assert.equal(self.body.code, 'self_grant');
+  assert.equal(app.ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(rivera.id, team.body.id), undefined, 'and nothing was half-done');
+
+  const marineRole = app.ctx.db.prepare("SELECT permissions FROM roles WHERE id = 'G8:marine'").get() as { permissions: number };
+  const widen = await app.call('PUT', '/api/org/roles/G8:marine', { token: rivera.token, body: { permissions: marineRole.permissions | (1 << 2) } });
+  assert.equal(widen.status, 403, 'widening a role they hold to read member detail is giving it to themselves');
+  assert.equal((app.ctx.db.prepare("SELECT permissions FROM roles WHERE id = 'G8:marine'").get() as { permissions: number }).permissions, marineRole.permissions);
+
+  const kick = await app.call('DELETE', `/api/orgs/G8/members/${op.id}`, { token: rivera.token });
+  assert.equal(kick.status, 403, 'an administrator does not remove an owner from the organization');
+});
+
 test('an owner giving themselves a role that reads records is allowed, and the other owners are told', async () => {
   assert.equal((await post(op.token, '/api/orgs/G8/roles', { user_id: nguyen.id, role: 'owner' })).status, 201);
   nguyen.token = await login('nguyen');

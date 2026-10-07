@@ -4,7 +4,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross } from '../authz/scope.ts';
-import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, noticeRecordReach, type RoleRow } from '../services/org.ts';
+import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, type RoleRow } from '../services/org.ts';
 import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
@@ -283,6 +283,9 @@ orgRouter.put('/roles/:roleId', wrap((req, res) => {
   const body = parse(roleBody.partial().omit({ unit_id: true }), req.body);
   const def = { name: body.name ?? role.name, position: body.position ?? role.position, permissions: body.permissions ?? role.permissions, unit_id: role.unit_id };
   const { name } = validateRoleDefinition(ctx, req.user, scope, def, role);
+  // Widening a role you hold is giving it to yourself.
+  const holds = Boolean(ctx.db.prepare('SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = ?').get(req.user.id, role.id));
+  const notice = holds && !isUnitOwner(ctx, req.user.id, role.unit_id) ? guardSelfReach(ctx, req.user, scope, role.unit_id, def.permissions & ~role.permissions, req.user.id, { you: `Widening ${role.name}, which you hold,`, they: `widened ${role.name}, which they hold,` }) : null;
   let revoked = 0;
   ctx.db.transaction(() => {
     ctx.db.prepare('UPDATE roles SET name = ?, description = ?, color = ?, position = ?, permissions = ? WHERE id = ?').run(name, body.description === undefined ? role.description : body.description || null, body.color === undefined ? role.color : body.color || null, def.position, def.permissions, role.id);
@@ -291,6 +294,7 @@ orgRouter.put('/roles/:roleId', wrap((req, res) => {
     }
   })();
   audit(ctx, { actor_id: req.user.id, action: 'edit_role', entity: 'role', entity_id: role.id, unit_id: role.unit_id, detail: `sessions revoked: ${revoked}`, ip: clientIp(req) });
+  notice?.();
   res.json({ ...(ctx.db.prepare('SELECT * FROM roles WHERE id = ?').get(role.id) as RoleRow), sessionsRevoked: revoked });
 }));
 
@@ -327,7 +331,7 @@ orgRouter.post('/team/:userId/roles', wrap((req, res) => {
     .run(userId, role_id, unit_id, req.user.id, now(), until ? until.toISOString() : null);
   const revoked = invalidateUserSessions(ctx, userId);
   audit(ctx, { actor_id: req.user.id, action: 'grant_role', entity: 'role', entity_id: role_id, subject_id: userId, unit_id, detail: `${role!.name}${until ? ` until ${until.toISOString().slice(0, 10)}` : ''}; sessions revoked: ${revoked}`, ip: clientIp(req) });
-  noticeRecordReach(ctx, req.user, scope, role!, unit_id, userId);
+  guardSelfReach(ctx, req.user, scope, unit_id, role!.permissions, userId, { you: `Granting yourself ${role!.name}`, they: `gave themselves ${role!.name}` })?.();
   res.json({ ok: true, sessionsRevoked: revoked, expires_at: until ? until.toISOString() : null });
 }));
 

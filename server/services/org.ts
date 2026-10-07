@@ -117,10 +117,15 @@ export function createUnit(ctx: AppContext, actor: SessionUser, scope: Scope, bo
   const code = slug(String(body.code || body.short_name || name));
   if (!code) throw badRequest('That name produces an empty unit code.');
   if (ctx.db.prepare('SELECT 1 FROM units WHERE id = ?').get(code)) throw conflict('That unit code already exists.', 'duplicate_code');
+  // Whoever creates a unit through the chain of command leads it. Someone who may only through an organization role
+  // (its structure, not its records) does not: the unit is led from above until its leader is named.
+  const unitBits = parentId ? (scope.sources[parentId] || []).filter((x) => x.kind !== 'org' && x.kind !== 'vantage').reduce((b, x) => b | x.bits, 0) : 0;
+  const ledFromAbove = Boolean(parentId) && !has(unitBits, PERMISSIONS.MANAGE_UNITS);
   ctx.db.transaction(() => {
     ctx.db.prepare('INSERT INTO units (id, code, name, short_name, echelon, location, parent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(code, code, name, body.short_name?.trim() || null, body.echelon || 'section', body.location?.trim() || null, parentId, now());
-    claimUnit(ctx, code, actor.id);
+    if (ledFromAbove) seedRoles(ctx, code);
+    else claimUnit(ctx, code, actor.id);
     // At the top, the person who founded the organization is its first owner.
     if (!parentId) {
       ctx.db.prepare('UPDATE organizations SET created_by = ? WHERE id = (SELECT org_id FROM units WHERE id = ?)').run(actor.id, code);
@@ -185,6 +190,7 @@ export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: s
   const successor = ctx.db.prepare('SELECT u.id, u.first_name, u.last_name FROM users u JOIN unit_members um ON um.user_id = u.id WHERE u.id = ? AND u.active = 1 AND um.unit_id = ?').get(successorId, unitId) as { id: string; first_name: string; last_name: string } | undefined;
   if (!successor) throw badRequest('Choose an active current member of this unit.', { fieldErrors: { user_id: 'Not a member of this unit.' } });
   if (successor.id === unit.owner_user_id) return { ok: true, already: true };
+  const notice = isUnitOwner(ctx, actor.id, unitId) ? null : guardSelfReach(ctx, actor, scopeFor(ctx, actor), unitId, PERMISSIONS.ADMINISTRATOR, successor.id, { you: `Making yourself leader of ${unit.name}`, they: 'made themselves its leader' });
   let sessionsRevoked = 0;
   ctx.db.transaction(() => {
     ctx.db.prepare('UPDATE units SET owner_user_id = ? WHERE id = ?').run(successor.id, unitId);
@@ -197,6 +203,7 @@ export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: s
   })();
   audit(ctx, { actor_id: actor.id, action: 'transfer_ownership', entity: 'unit', entity_id: unitId, subject_id: successor.id, unit_id: unitId, detail: `${unit.owner_user_id || 'unowned'} -> ${successor.id}`, ip });
   notify(ctx, successor.id, { kind: 'unit', title: `You now lead ${unit.short_name || unit.name}`, message: 'Sign in again to pick up the new authority.', actionUrl: '/team', dedupeKey: `owner:${unitId}:${successor.id}` });
+  notice?.();
   return { ok: true, sessionsRevoked };
 }
 
@@ -214,16 +221,26 @@ export function orgStaffing(ctx: AppContext, scope: Scope, unitId: string): 'own
   return scope.orgs[orgId]!.roles.includes('owner') ? 'owner' : 'admin';
 }
 
-/** Tell an organization's owners when someone gives themselves a role that reads records. */
-export function noticeRecordReach(ctx: AppContext, actor: SessionUser, _scope: Scope, role: RoleRow, unitId: string, targetId: string) {
-  if (targetId !== actor.id || !(role.permissions & RECORD_READING_BITS)) return;
+/**
+ * Reach into Marines' records that a person would give themselves through organization authority: by granting
+ * themselves a role, leading a unit, redeeming their own join code, or widening a role they hold. What they already
+ * hold in the unit through the chain of command is not new reach. An administrator is refused; an owner may, and the
+ * returned notice tells the other owners once the change is made.
+ */
+export function guardSelfReach(ctx: AppContext, actor: SessionUser, scope: Scope, unitId: string, bits: number, targetId: string, act: { you: string; they: string }): (() => void) | null {
+  if (targetId !== actor.id || !(bits & RECORD_READING_BITS)) return null;
+  const fromUnit = (scope.sources[unitId] || []).filter((s) => s.kind !== 'org' && s.kind !== 'vantage').reduce((b, s) => b | s.bits, 0);
+  if (has(fromUnit, PERMISSIONS.ADMINISTRATOR) || (bits & RECORD_READING_BITS & ~fromUnit) === 0) return null;
   const orgId = orgOfUnit(ctx, unitId);
-  if (!orgId) return;
+  if (!orgId) return null;
+  if (!scope.orgs[orgId]?.roles.includes('owner')) {
+    throw forbidden(`${act.you} would give you a role that reads Marines’ records. An organization owner, or the unit’s chain of command, does that for you.`, 'self_grant');
+  }
   const unit = getUnit(ctx, unitId);
-  notifyOrg(ctx, orgId, 'org.owners', {
+  return () => notifyOrg(ctx, orgId, 'org.owners', {
     kind: 'system',
-    title: `${actor.first_name} ${actor.last_name} gave themselves ${role.name} in ${unit?.short_name || unit?.name || unitId}`,
-    message: 'That role reads Marines’ records. If it was not agreed, remove it from their roles and review the audit trail.',
+    title: `${actor.first_name} ${actor.last_name} ${act.they} in ${unit?.short_name || unit?.name || unitId}`,
+    message: 'That reads Marines’ records. If it was not agreed, undo it and review the audit trail.',
     actionUrl: '/console/people',
   }, actor.id);
 }
@@ -281,11 +298,8 @@ export function validateRoleGrant(ctx: AppContext, actor: SessionUser, scope: Sc
   const targetScope = scopeFor(ctx, { id: targetId });
   if (!targetScope.unitIds.includes(unitId)) throw badRequest('That Marine is not a member of this unit.');
   if (isUnitOwner(ctx, actor.id, unitId)) return;
-  const staffing = orgStaffing(ctx, scope, unitId);
-  if (staffing) {
-    if (targetId === actor.id && staffing === 'admin' && (role.permissions & RECORD_READING_BITS)) {
-      throw forbidden('That role reads Marines’ records. An organization owner, or the unit’s chain of command, grants it to you.', 'self_grant');
-    }
+  if (orgStaffing(ctx, scope, unitId)) {
+    guardSelfReach(ctx, actor, scope, unitId, role.permissions, targetId, { you: `Granting yourself ${role.name}`, they: `gave themselves ${role.name}` });
     return;
   }
   if (!can(scope, PERMISSIONS.MANAGE_ROLES, unitId)) throw forbidden('You cannot manage roles in that unit.');
