@@ -8,6 +8,7 @@ import { invalidateUserSessions } from '../auth/sessions.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
 import { notify, notifyOrg } from './notifications.ts';
 import { releaseClaimsOnDeparture } from './work.ts';
+import { assertCanFoundUnitInstance } from './deployment.ts';
 
 export interface UnitRow { id: string; code: string; name: string; short_name: string | null; echelon: string; location: string | null; parent_id: string | null; owner_user_id: string | null; active: number; created_at: string }
 
@@ -114,6 +115,7 @@ export function createUnit(ctx: AppContext, actor: SessionUser, scope: Scope, bo
     ).get(actor.id) as { n: number }).n;
     if (mine >= limit) throw forbidden(`You have already created ${mine} ${mine === 1 ? 'organization' : 'organizations'}. That is the limit.`, 'unit_limit');
   }
+  if (!parentId) assertCanFoundUnitInstance(ctx);
   const code = slug(String(body.code || body.short_name || name));
   if (!code) throw badRequest('That name produces an empty unit code.');
   if (ctx.db.prepare('SELECT 1 FROM units WHERE id = ?').get(code)) throw conflict('That unit code already exists.', 'duplicate_code');

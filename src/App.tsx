@@ -72,8 +72,9 @@ function NavigateBridge() {
   return null;
 }
 
-/** Routes that render the public page for anybody, signed in or not. */
-const PUBLIC_ROUTES = ['/display', '/about', '/security', '/accessibility', '/privacy', '/changes'];
+/** Routes that render the public page for anybody, signed in or not. Without a public site (MCEN), only the plain-language pages. */
+const TRUST_ROUTES = ['/security', '/accessibility', '/privacy', '/changes'];
+const PUBLIC_ROUTES = LINKS.publicSite ? ['/display', '/about', ...TRUST_ROUTES] : TRUST_ROUTES;
 const isPublicRoute = (pathname: string) => PUBLIC_ROUTES.includes(pathname);
 
 /** A page that lives on another host (the public site, the owner console): the browser goes there. */
@@ -109,8 +110,8 @@ function SignedOutHome({ serverError, onRetry }: { serverError: string | null; o
     setupStatus().then((status) => setState(status.needsSetup ? 'setup' : 'public')).catch(() => setState('public'));
   }, []);
   if (state === 'loading') return <AppLoader />;
-  // Where the public site has a host of its own, the application's front door is sign-in.
-  return <Screen>{state === 'setup' || LINKS.site ? <Login serverError={serverError} onRetry={onRetry} /> : <PublicSite />}</Screen>;
+  // Where the public site has a host of its own, or there is none (MCEN), the application's front door is sign-in.
+  return <Screen>{state === 'setup' || LINKS.site || !LINKS.publicSite ? <Login serverError={serverError} onRetry={onRetry} /> : <PublicSite />}</Screen>;
 }
 
 let demoStarting: { attempt: number; promise: Promise<unknown> } | null = null;

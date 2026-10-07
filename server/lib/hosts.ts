@@ -22,7 +22,7 @@ export interface HostPlan {
   facesFor: (req: Request) => ReadonlySet<Face> | null;
   url: (face: Face, path?: string) => string;
   /** What the client needs to link from one face to another, for a meta tag in each HTML document. */
-  links: { site: string; app: string; console: string; admin: string; split: boolean };
+  links: { site: string; app: string; console: string; admin: string; split: boolean; publicSite: boolean };
 }
 
 export function hostPlan(config: AppConfig): HostPlan {
@@ -56,6 +56,7 @@ export function hostPlan(config: AppConfig): HostPlan {
       console: split ? url('console', consoleBase) : '/console',
       admin: split ? url('admin', adminBase) : '/admin',
       split,
+      publicSite: config.deployment.publicSite,
     },
   };
 }

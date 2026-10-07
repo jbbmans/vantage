@@ -43,6 +43,7 @@ import { loadRuntime } from './runtime.ts';
 import { loadChainKey, resealStoredSecrets } from './lib/keys.ts';
 import { configurePasswordHashing } from './lib/crypto.ts';
 import { announcePublicPage, indexNowKey } from './services/indexNow.ts';
+import { applyRuntimeLocks, installTopologyGuard } from './services/deployment.ts';
 export { loadRuntime };
 
 export function createContext(config: AppConfig): AppContext {
@@ -54,12 +55,15 @@ export function createContext(config: AppConfig): AppContext {
   const runtime = loadRuntime(db, config);
   const ctx: AppContext = { db, config, chainKey, mailer: createMailer(config, db), runtime, saveRuntime: () => metaSet(db, 'runtime', JSON.stringify(runtime)) };
   assertDatabaseMatchesMode(ctx);
+  // A dedicated deployment's database holds one Unit Instance; the database connection refuses a second (ADR-0007).
+  installTopologyGuard(db, config.deployment);
   if (config.accessMode === 'demo') {
     runtime.selfServiceUnits = false;
     runtime.selfRegistration = false;
     runtime.aiEnabled = false;
     runtime.maradminsEnabled = false;
   }
+  applyRuntimeLocks(config, runtime);
   configureLimits({ mutations: config.limits.mutationsPer15Minutes, registrations: config.limits.registrationsPer15Minutes });
   configureAiLimits({ global: config.ai.requestsPerMinute, perUser: config.ai.perUserRequestsPerMinute });
   // Usernames named in VANTAGE_PLATFORM_OWNERS (or the older VANTAGE_OPERATOR) always own the platform.
@@ -84,6 +88,19 @@ function siteVerification({ googleVerification, bingVerification }: AppConfig['s
     googleVerification && `<meta name="google-site-verification" content="${googleVerification}" />`,
     bingVerification && `<meta name="msvalidate.01" content="${bingVerification}" />`,
   ].filter(Boolean).join('\n    ');
+}
+
+/**
+ * A document as a deployment without a public site serves it (MCEN, ADR-0007): nothing in it is published, so it keeps
+ * no canonical address, link-preview card, structured data or search-engine directive from the public site's build.
+ */
+export function unpublished(html: string): string {
+  return html
+    .replace(/\s*<link rel="canonical"[^>]*>/g, '')
+    .replace(/\s*<meta (?:property="og:|name="twitter:)[^>]*>/g, '')
+    .replace(/\s*<script type="application\/ld\+json">[\s\S]*?<\/script>/g, '')
+    .replace(/<meta name="robots" content="[^"]*"/, '<meta name="robots" content="noindex, nofollow"')
+    .replace('<!--site-verification-->', '');
 }
 
 /** The brand images other sites legitimately embed: link previews, search results, bookmarks, email. */
@@ -187,6 +204,9 @@ function adminTarget(hosts: HostPlan, path: string, query: string): string {
 export function createApp(ctx: AppContext) {
   const { config } = ctx;
   const app = express();
+  // Without a public site (MCEN), / is the application's front door like any other page of it.
+  const { publicSite } = config.deployment;
+  const isAppPath = (path: string) => APP_PATH.test(path) || (!publicSite && path === '/');
   const distDir = join(PROJECT_ROOT, 'dist');
   const scriptSrc = ["'self'", ...inlineScriptHashes(distDir)].join(' ');
   // Read once, and tolerate a build in progress: the API serves without the client rather than failing to start.
@@ -226,7 +246,7 @@ export function createApp(ctx: AppContext) {
   app.get('/api/health', (req, res) => {
     try {
       ctx.db.prepare('SELECT 1').get();
-      res.json({ ok: true, version: VERSION, build, client: clientBuild, uptime: Math.round(process.uptime()), maintenance: ctx.runtime.maintenance, mode: ctx.config.accessMode });
+      res.json({ ok: true, version: VERSION, build, client: clientBuild, uptime: Math.round(process.uptime()), maintenance: ctx.runtime.maintenance, mode: ctx.config.accessMode, profile: ctx.config.deployment.profile });
     } catch (error) {
       console.error('Health check failed:', error);
       res.status(503).json({ ok: false, error: 'Database health check failed.' });
@@ -245,7 +265,7 @@ export function createApp(ctx: AppContext) {
     if (req.path === '/operator') return res.redirect(301, operatorTarget(hosts, query));
     if (CONSOLE_PATH.test(req.path)) return res.redirect(301, consoleTarget(hosts, req.path, query));
     if (ADMIN_PATH.test(req.path)) return res.redirect(301, adminTarget(hosts, req.path, query));
-    return res.redirect(301, hosts.url(APP_PATH.test(req.path) ? 'app' : 'site', req.path + query));
+    return res.redirect(301, hosts.url(isAppPath(req.path) ? 'app' : 'site', req.path + query));
   });
 
   const MAINTENANCE_OPEN = new Set(['/auth/login', '/auth/login/mfa', '/auth/passkey/options', '/auth/passkey/verify', '/auth/logout', '/auth/sudo']);
@@ -307,16 +327,18 @@ export function createApp(ctx: AppContext) {
   });
 
   if (shellHtml) {
-    // Only public marketing routes are indexable, before any JavaScript runs.
-    const publicRoutes = new Set(['/', '/display', '/about', ...Object.keys(TRUST_DOCUMENTS)]);
+    // Only public marketing routes are indexable, before any JavaScript runs. Without a public site, none are, and
+    // only the plain-language pages (security, accessibility, privacy, changes) remain, for users and their ISSM.
+    const publicRoutes = new Set([...(publicSite ? ['/', '/display', '/about'] : []), ...Object.keys(TRUST_DOCUMENTS)]);
     // Each document says where the other faces live, for the links between them.
     const withLinks = (html: string) => html.replace('</head>', `    ${linksMeta(hosts.links)}\n  </head>`);
+    const served = (html: string) => (publicSite ? html.replace('<!--site-verification-->', siteVerification(config.search)) : unpublished(html));
     // The application shell is noindex in its source; the public page is its own document, public.html.
-    const shell = withLinks(shellHtml);
+    const shell = withLinks(publicSite ? shellHtml : unpublished(shellHtml));
     const read = (name: string) => { try { return readFileSync(join(distDir, name), 'utf8'); } catch { return null; } };
-    const publicPage = read('public.html')?.replace('<!--site-verification-->', siteVerification(config.search)) ?? null;
+    const publicPage = publicSite ? read('public.html')?.replace('<!--site-verification-->', siteVerification(config.search)) ?? null : null;
     // The plain-language pages, each prerendered into a document of its own by scripts/prerender.mjs.
-    const trustPages = new Map(Object.entries(TRUST_DOCUMENTS).map(([path, file]) => [path, read(file)?.replace('<!--site-verification-->', siteVerification(config.search)) ?? null] as const));
+    const trustPages = new Map(Object.entries(TRUST_DOCUMENTS).map(([path, file]) => [path, (() => { const html = read(file); return html ? served(html) : null; })()] as const));
     const consolePage = read('console.html');
     const consoleDocument = consolePage ? withLinks(consolePage) : null;
     const adminPage = read('admin.html');
@@ -329,6 +351,7 @@ export function createApp(ctx: AppContext) {
     // pages' noindex and nothing else; the console is closed to them.
     app.get('/robots.txt', (_req, res, next) => {
       const faces = facesOf(res);
+      if (!publicSite) return res.type('text/plain').send('User-agent: *\nDisallow: /\n');
       if (faces.has('site')) return next();
       res.type('text/plain').send(faces.has('app') ? APP_ROBOTS : 'User-agent: *\nDisallow: /\n');
     });
@@ -339,6 +362,8 @@ export function createApp(ctx: AppContext) {
       res.type('text/plain').setHeader('Cache-Control', 'public, max-age=86400');
       res.send(securityTxt(config.urls.site, config.securityContact));
     });
+    // Without a public site there is nothing to map or describe, and its prerendered page is not served either.
+    if (!publicSite) app.get(/^\/(?:sitemap\.xml|llms\.txt|public\.html)$/, (_req, res) => res.status(404).type('html').send(NOT_FOUND_HTML));
     app.get(/^\/(?:sitemap\.xml|llms\.txt)$/, (req, res, next) => (facesOf(res).has('site') ? next() : res.redirect(301, hosts.url('site', req.path))));
     app.use('/assets', express.static(join(distDir, 'assets'), { immutable: true, maxAge: '1y', index: false }));
     app.use(express.static(distDir, { index: false, maxAge: '1h', setHeaders: (res, path) => {
@@ -391,6 +416,7 @@ export function createApp(ctx: AppContext) {
           const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);
           const servePublic = path !== '/' || !faces.has('app') || (!signedIn && config.accessMode === 'accounts' && instanceSetUp());
           const document = trustPages.get(path) ?? publicPage;
+          if (!publicSite) res.setHeader('X-Robots-Tag', 'noindex, nofollow');
           if (servePublic && document) return page(document);
           if (!faces.has('app')) return notFound(res);
         } else if (path !== '/') return res.redirect(301, hosts.url('site', path + query));
@@ -398,7 +424,7 @@ export function createApp(ctx: AppContext) {
 
       // The application.
       res.setHeader('X-Robots-Tag', 'noindex, nofollow');
-      if (!publicRoutes.has(path) && !APP_PATH.test(path)) {
+      if (!publicRoutes.has(path) && !isAppPath(path)) {
         // Somebody signed in who follows a bad link keeps the app around them: the shell, answered 404, shows its
         // own "no page here" with the navigation still there. A file-like path, or anyone else, gets the plain page.
         const signedIn = Boolean(req.cookies?.[SESSION_COOKIE] || req.cookies?.[SIGNED_IN_COOKIE]);

@@ -7,6 +7,7 @@ import { notify, notifyOrg } from './notifications.ts';
 import { claimUnit, guardSelfReach, removeMember } from './org.ts';
 import { scopeFor } from '../authz/scope.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
+import { assertCanFoundUnitInstance } from './deployment.ts';
 
 /**
  * Organizations: the tenants of the central service (ADR-0006). An organization is a tree of units with its own
@@ -72,7 +73,7 @@ export const publicOrg = (o: OrgRow) => ({
  * A new organization, from the admin dashboard: its root unit (whose insert founds it), and its first owner when one is
  * named. Vantage staff who create it are not made its owner; the command's own people run it.
  */
-export function createOrganization(ctx: AppContext, actor: SessionUser, input: { name: string; short_name?: string | null; code?: string | null; owner_user_id?: string | null }, ip?: string) {
+export function createOrganization(ctx: AppContext, actor: Pick<SessionUser, 'id'>, input: { name: string; short_name?: string | null; code?: string | null; owner_user_id?: string | null }, ip?: string) {
   const name = input.name.trim();
   if (!name || name.length > 120) throw badRequest('An organization needs a name under 120 characters.', { fieldErrors: { name: 'Required (limit 120 characters).' } });
   const code = slug(String(input.code || input.short_name || name));
@@ -84,6 +85,7 @@ export function createOrganization(ctx: AppContext, actor: SessionUser, input: {
     ? ctx.db.prepare('SELECT id, first_name, last_name FROM users WHERE id = ? AND active = 1').get(input.owner_user_id) as { id: string; first_name: string; last_name: string } | undefined
     : undefined;
   if (input.owner_user_id && !owner) throw badRequest('The first owner must be an active account.', { fieldErrors: { owner_user_id: 'No such active account.' } });
+  assertCanFoundUnitInstance(ctx);
   const at = now();
   ctx.db.transaction(() => {
     ctx.db.prepare("INSERT INTO units (id, code, name, short_name, echelon, created_at) VALUES (?, ?, ?, ?, 'command', ?)").run(code, code, name, input.short_name?.trim() || null, at);
@@ -182,7 +184,7 @@ export function revokeOrgRole(ctx: AppContext, actor: SessionUser, orgId: string
  * Vantage staff may name an owner only for an organization that has none (the last one left, say). An organization
  * with owners names its own: the platform never adds itself, or anyone, to a running command.
  */
-export function nameFirstOwner(ctx: AppContext, actor: SessionUser, orgId: string, userId: string, ip?: string) {
+export function nameFirstOwner(ctx: AppContext, actor: Pick<SessionUser, 'id'>, orgId: string, userId: string, ip?: string) {
   const org = getOrg(ctx, orgId);
   if (!org) throw notFound('No such organization.');
   if (liveOwners(ctx, orgId).length) throw conflict('This organization has owners; they name any others.', 'has_owners');

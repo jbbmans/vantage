@@ -36,6 +36,7 @@ import { hashPassword } from '../lib/crypto.ts';
 import { createOrganization, getOrg, listOrganizations, nameFirstOwner, orgCounts, orgRoleHolders, publicOrg, setOrgStatus, updateOrganization } from '../services/organizations.ts';
 import { accessForPlatform, endAccess, requestAccess, ACCESS_DEFAULT_MINUTES, ACCESS_MAX_MINUTES } from '../services/access.ts';
 import { platformRolesOf } from '../authz/platform.ts';
+import { assertRuntimePatchAllowed, deploymentPosture } from '../services/deployment.ts';
 
 /**
  * The Vantage admin dashboard's API (ADR-0006): the service, for Vantage staff. Organizations appear here as
@@ -85,6 +86,7 @@ platformRouter.get('/overview', requirePlatform('platform.view'), wrap((req, res
     audit: verifyAuditChain(req.ctx),
     auditForwarding: auditForwardingStatus(req.ctx),
     browserBackups: req.ctx.config.security.browserBackups,
+    deployment: deploymentPosture(req.ctx),
   });
 }));
 
@@ -115,6 +117,7 @@ const runtimeSchema = z.object({
 platformRouter.put('/runtime', requirePlatform('platform.settings'), wrap((req, res) => {
   const ctx = req.ctx;
   const patch = parse(runtimeSchema, req.body);
+  assertRuntimePatchAllowed(ctx.config, patch);
   const { metrics, ...rest } = patch;
   Object.assign(ctx.runtime, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
   if (metrics) {
