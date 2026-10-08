@@ -194,6 +194,27 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
     name: '015_organizations',
     run: migrateToOrganizations,
   },
+  {
+    id: 16,
+    name: '016_unit_instance_isolation',
+    run: (db) => {
+      instanceBoundaryTriggers(db);
+      // Rows joined across the boundary before it was kept stay as they are, so nothing is lost, and are counted, so an
+      // operator can find them (ADR-0008). Their owners can still edit them; only a new crossing is refused.
+      const found = instanceBoundaryViolations(db);
+      if (Object.keys(found).length) metaSet(db, 'instance_boundary_violations', JSON.stringify({ at: new Date().toISOString(), found }));
+    },
+  },
+  {
+    id: 17,
+    name: '017_attachment_unit',
+    run: (db) => {
+      // A file keeps the unit its record sat in when it was added, as a comment does, so a move across the boundary is
+      // judged by where the file was added and not by where its uploader serves now (ADR-0008).
+      if (!columnsOf(db, 'attachments').has('unit_id')) db.exec('ALTER TABLE attachments ADD COLUMN unit_id TEXT REFERENCES units(id)');
+      stampAttachmentUnits(db);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 
@@ -313,6 +334,124 @@ export function foundOrganizations(db: Db, at = new Date().toISOString()) {
   }
 
   return { roots, operators };
+}
+
+/** The organization of a unit, as SQL over an expression that names one. */
+const orgOf = (unit: string) => `(SELECT org_id FROM units WHERE id = ${unit})`;
+/** Two units across the boundary: both organizations known, and different. `<>` is not true when either is NULL. */
+const across = (a: string, b: string) => `${orgOf(a)} <> ${orgOf(b)}`;
+const projectUnit = (id: string) => `(SELECT unit_id FROM projects WHERE id = ${id})`;
+const contactUnit = (id: string) => `(SELECT unit_id FROM contacts WHERE id = ${id})`;
+const threadUnit = (id: string) => `(SELECT unit_id FROM threads WHERE id = ${id})`;
+const itemUnit = (id: string) => `(SELECT unit_id FROM work_items WHERE id = ${id})`;
+const PROJECT_CHILDREN = ['activities', 'tasks', 'work_items'] as const;
+/** The tables that file rows under a project in this database. One built by hand at an older version may lack the column. */
+const filedUnderProjects = (db: Db) => PROJECT_CHILDREN.filter((t) => columnsOf(db, t).has('project_id'));
+
+/**
+ * The Unit Instance boundary, kept by the database as well as by the code that enforces it (ADR-0008). Authorization
+ * is decided in the server; these triggers are the second line, so that a defect or a hand-written statement cannot
+ * quietly move a unit between organizations or link one instance's rows to another's. PostgreSQL row-level security
+ * is the equivalent for a PostgreSQL deployment; on SQLite, which has no RLS, triggers are what the engine offers.
+ *
+ * They refuse only a pairing that is really across the boundary: two units whose organizations are both known and
+ * differ. A row with no unit belongs to no instance, a unit an archive has not yet given its organization is not known
+ * to differ, and a reference to a row that is not there yet passes, because an archive is restored table by table and
+ * `instanceBoundaryViolations` checks it whole once it is in. Both ends of each reference are kept: the row that points,
+ * and the row pointed at, which cannot move out from under it. An update is checked only when it changes the reference
+ * or a unit, so a row joined across before this migration can still be edited. Each refusal begins `cross_instance:`,
+ * which the API answers as a refusal rather than a server error.
+ */
+export function instanceBoundaryTriggers(db: Db) {
+  const refuse = (why: string) => `BEGIN SELECT RAISE(ABORT, 'cross_instance: ${why}'); END`;
+  // A unit's organization is set once, when it is created. Nothing moves it afterwards.
+  db.exec(`CREATE TRIGGER IF NOT EXISTS units_org_immutable BEFORE UPDATE OF org_id ON units FOR EACH ROW
+    WHEN OLD.org_id IS NOT NULL AND NEW.org_id IS NOT OLD.org_id
+    ${refuse('a unit cannot change Unit Instance')}`);
+
+  // An entry, a task or a queue item filed under a project stays inside the project's instance...
+  const children = filedUnderProjects(db);
+  for (const table of children) {
+    const crossing = `NEW.project_id IS NOT NULL AND ${across('NEW.unit_id', projectUnit('NEW.project_id'))}`;
+    db.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_project_same_org_insert BEFORE INSERT ON ${table} FOR EACH ROW
+      WHEN ${crossing}
+      ${refuse('a project in another Unit Instance cannot be linked here')}`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_project_same_org_update BEFORE UPDATE OF project_id, unit_id ON ${table} FOR EACH ROW
+      WHEN (NEW.project_id IS NOT OLD.project_id OR NEW.unit_id IS NOT OLD.unit_id) AND ${crossing}
+      ${refuse('a project in another Unit Instance cannot be linked here')}`);
+  }
+  // ...and a project moves only where everything filed under it can follow.
+  if (children.length) db.exec(`CREATE TRIGGER IF NOT EXISTS projects_children_same_org BEFORE UPDATE OF unit_id ON projects FOR EACH ROW
+    WHEN NEW.unit_id IS NOT OLD.unit_id AND (${children.map((t) => `EXISTS (SELECT 1 FROM ${t} c WHERE c.project_id = NEW.id AND ${across('c.unit_id', 'NEW.unit_id')})`).join(' OR ')})
+    ${refuse('work in another Unit Instance is filed under this project')}`);
+
+  // Correspondence names a contact from its own instance, and the contact stays where its threads are.
+  const contactCrossing = `NEW.contact_id IS NOT NULL AND ${across('NEW.unit_id', contactUnit('NEW.contact_id'))}`;
+  db.exec(`CREATE TRIGGER IF NOT EXISTS threads_contact_same_org_insert BEFORE INSERT ON threads FOR EACH ROW
+    WHEN ${contactCrossing}
+    ${refuse('a contact in another Unit Instance cannot be used here')}`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS threads_contact_same_org_update BEFORE UPDATE OF contact_id, unit_id ON threads FOR EACH ROW
+    WHEN (NEW.contact_id IS NOT OLD.contact_id OR NEW.unit_id IS NOT OLD.unit_id) AND ${contactCrossing}
+    ${refuse('a contact in another Unit Instance cannot be used here')}`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS contacts_threads_same_org BEFORE UPDATE OF unit_id ON contacts FOR EACH ROW
+    WHEN NEW.unit_id IS NOT OLD.unit_id AND EXISTS (SELECT 1 FROM threads t WHERE t.contact_id = NEW.id AND ${across('t.unit_id', 'NEW.unit_id')})
+    ${refuse('correspondence in another Unit Instance names this contact')}`);
+
+  // A thread points at work in its own instance, and neither end of the link moves out from under the other.
+  const linkCrossing = across(threadUnit('NEW.thread_id'), itemUnit('NEW.work_item_id'));
+  db.exec(`CREATE TRIGGER IF NOT EXISTS thread_links_same_org BEFORE INSERT ON thread_links FOR EACH ROW
+    WHEN ${linkCrossing}
+    ${refuse('correspondence and work in different Unit Instances cannot be linked')}`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS thread_links_same_org_update BEFORE UPDATE OF thread_id, work_item_id ON thread_links FOR EACH ROW
+    WHEN ${linkCrossing}
+    ${refuse('correspondence and work in different Unit Instances cannot be linked')}`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS threads_links_same_org BEFORE UPDATE OF unit_id ON threads FOR EACH ROW
+    WHEN NEW.unit_id IS NOT OLD.unit_id AND EXISTS (SELECT 1 FROM thread_links l WHERE l.thread_id = NEW.id AND ${across(itemUnit('l.work_item_id'), 'NEW.unit_id')})
+    ${refuse('this correspondence is linked to work in another Unit Instance')}`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS work_items_links_same_org BEFORE UPDATE OF unit_id ON work_items FOR EACH ROW
+    WHEN NEW.unit_id IS NOT OLD.unit_id AND EXISTS (SELECT 1 FROM thread_links l WHERE l.work_item_id = NEW.id AND ${across(threadUnit('l.thread_id'), 'NEW.unit_id')})
+    ${refuse('this work is linked to correspondence in another Unit Instance')}`);
+}
+
+/**
+ * Rows already joined across the boundary, by kind, leaving out the kinds with none. Migration 016 records what it found
+ * on the way in, and an instance archive that brings any is refused, so neither is a silent pass (ADR-0008).
+ */
+export function instanceBoundaryViolations(db: Db): Record<string, number> {
+  const checks: Record<string, string> = {
+    ...Object.fromEntries(filedUnderProjects(db).map((t) => [`${t}_project`, `SELECT COUNT(*) AS n FROM ${t} x JOIN projects p ON p.id = x.project_id WHERE ${across('x.unit_id', 'p.unit_id')}`])),
+    threads_contact: `SELECT COUNT(*) AS n FROM threads t JOIN contacts c ON c.id = t.contact_id WHERE ${across('t.unit_id', 'c.unit_id')}`,
+    thread_links: `SELECT COUNT(*) AS n FROM thread_links l JOIN threads t ON t.id = l.thread_id JOIN work_items w ON w.id = l.work_item_id WHERE ${across('t.unit_id', 'w.unit_id')}`,
+  };
+  const found: Record<string, number> = {};
+  for (const [kind, sql] of Object.entries(checks)) {
+    const { n } = db.prepare(sql).get() as { n: number };
+    if (n) found[kind] = n;
+  }
+  return found;
+}
+
+/**
+ * Lifts the boundary's triggers, for a caller that puts them back with `instanceBoundaryTriggers` in the same
+ * transaction: an archive is restored table by table, so its rows are checked whole once they are all in.
+ */
+export function dropInstanceBoundaryTriggers(db: Db) {
+  const triggers = db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%cross_instance:%'").all() as Array<{ name: string }>;
+  for (const { name } of triggers) db.exec(`DROP TRIGGER "${name}"`);
+}
+
+/** The record types that take attachments, each with the unit its row sits in. */
+const ATTACHMENT_HOSTS = ['activities', 'awards', 'counselings', 'trainings', 'tasks', 'projects', 'goals'] as const;
+
+/**
+ * Files attached before they kept a unit take the one their record sits in now. For a record moved before the boundary
+ * was kept that is where the file is already read, so nothing new crosses; one in no unit keeps none, and a move is then
+ * judged by whether its uploader serves where it goes (ADR-0008).
+ */
+export function stampAttachmentUnits(db: Db) {
+  for (const table of ATTACHMENT_HOSTS) {
+    db.prepare(`UPDATE attachments SET unit_id = (SELECT r.unit_id FROM ${table} r WHERE r.id = attachments.record_id) WHERE record_table = ? AND unit_id IS NULL`).run(table);
+  }
 }
 
 function isLegacyDatabase(db: Db): boolean {

@@ -2,8 +2,8 @@ import { createHash } from 'node:crypto';
 import type { AppContext, SessionUser } from '../context.ts';
 import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
 import { withTypedProgress, validateTypedGoal } from './goals.ts';
-import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor } from '../authz/scope.ts';
-import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS } from '../authz/records.ts';
+import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor, assertSameInstance, sameInstance, orgOfUnit } from '../authz/scope.ts';
+import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject } from '../authz/records.ts';
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
 import { valueType } from '../../shared/constants.ts';
 
@@ -148,6 +148,76 @@ function assigneeProblem(ctx: AppContext, scope: Scope, userId: string, assignee
   return null;
 }
 
+/**
+ * An entry's project link, checked whenever it is set or the entry moves: a new link must be to a project the author
+ * can file under, and a kept link must not end up pointing into another Unit Instance (ADR-0008).
+ */
+function checkProjectLink(ctx: AppContext, scope: Scope, userId: string, table: RecordTable, projectId: string | null, previous: string | null, unitId: string | null, moved: boolean) {
+  if (!TABLES[table].fields.includes('project_id') || !projectId) return;
+  if (projectId !== previous) { assertFileableProject(ctx, scope, userId, projectId, unitId); return; }
+  if (!moved) return;
+  const project = ctx.db.prepare('SELECT unit_id FROM projects WHERE id = ?').get(projectId) as { unit_id: string | null } | undefined;
+  assertSameInstance(ctx, project?.unit_id, unitId, 'This entry is filed under a project in another Unit Instance. Take it off the project before moving it.');
+}
+
+/**
+ * Where somebody other than its owner may re-place a record (ADR-0008): inside the Unit Instance it sits in, and never
+ * out of every unit, which would be a way across in two steps. One already in no unit goes only where its Marine serves.
+ */
+function assertReplaceableByOther(ctx: AppContext, row: RecordRow, unitId: string | null) {
+  if (!unitId) {
+    if (row.unit_id) throw forbidden('Only the Marine this record belongs to can take it out of its unit.', 'scope_owner_only');
+    return;
+  }
+  if (row.unit_id) return assertSameInstance(ctx, row.unit_id, unitId, 'Only the Marine this record belongs to can move it into another Unit Instance.');
+  if (!scopeFor(ctx, { id: row.user_id }).unitIds.some((u) => sameInstance(ctx, u, unitId))) throw forbidden('This record can be placed only in a Unit Instance its Marine serves in.', 'cross_instance');
+}
+
+/**
+ * Whether putting a record from one unit into another may take it out of a Unit Instance (ADR-0008). A record in no unit
+ * may have left one to get there, unless the service holds only one.
+ */
+function mayLeaveInstance(ctx: AppContext, from: string | null, to: string | null): to is string {
+  if (!to || to === from) return false;
+  if (from) return !sameInstance(ctx, from, to);
+  return (ctx.db.prepare('SELECT COUNT(*) AS n FROM organizations').get() as { n: number }).n > 1;
+}
+
+/**
+ * What a record would carry with it out of its Unit Instance (ADR-0008): other people's comments and attachments, and
+ * for a project, the work filed under it. None of that leaves the instance it was written in, even with its owner.
+ * Each is judged by the unit it was added in; one added where there was no unit, by whether its author serves there.
+ */
+function assertCarriesNothingAcross(ctx: AppContext, table: RecordTable, row: RecordRow, unitId: string) {
+  const servesThere = (userId: string) => scopeFor(ctx, { id: userId }).unitIds.some((u) => sameInstance(ctx, u, unitId));
+  const crosses = (added: { who: string; unit_id: string | null }) => (added.unit_id ? !sameInstance(ctx, added.unit_id, unitId) : !servesThere(added.who));
+  const added = ctx.db.prepare(`SELECT author_id AS who, unit_id FROM comments WHERE record_table = ? AND record_id = ? AND author_id <> ? AND deleted_at IS NULL
+                                UNION SELECT uploaded_by, unit_id FROM attachments WHERE record_table = ? AND record_id = ? AND uploaded_by <> ? AND deleted_at IS NULL`)
+    .all(table, row.id, row.user_id, table, row.id, row.user_id) as Array<{ who: string; unit_id: string | null }>;
+  if (added.some(crosses)) {
+    throw forbidden('Other people commented on this record or attached files to it in another Unit Instance, so it stays there. Start a new entry for what is yours instead.', 'cross_instance');
+  }
+  if (table !== 'projects') return;
+  // Work filed under a project goes only where it already is. The owner's own unplaced work belongs to no instance;
+  // anyone else's is theirs, and stays out of an instance they do not serve in.
+  for (const [child, owner] of [['activities', 'user_id'], ['tasks', 'user_id'], ['work_items', 'owner_id']]) {
+    const filed = ctx.db.prepare(`SELECT DISTINCT ${owner} AS who, unit_id FROM ${child} WHERE project_id = ? AND (unit_id IS NOT NULL OR ${owner} <> ?)`)
+      .all(row.id, row.user_id) as Array<{ who: string; unit_id: string | null }>;
+    if (filed.some(crosses)) throw forbidden('Work from another Unit Instance is filed under this project, so it cannot move there.', 'cross_instance');
+  }
+}
+
+/**
+ * The trail of an edit: where the record now sits, and when it crossed from one Unit Instance into another, where it
+ * left as well. Each instance's trail says what crossed its edge without naming the other side (ADR-0008).
+ */
+function auditEdit(ctx: AppContext, e: { actorId: string; table: RecordTable; id: string; subjectId: string | null; from: string | null; to: string | null; how: string; ip?: string }) {
+  const crossed = e.to !== e.from && Boolean(orgOfUnit(ctx, e.from)) && Boolean(e.to) && !sameInstance(ctx, e.from, e.to);
+  const moved = e.to === e.from ? '' : crossed ? '; moved in from another Unit Instance' : `; moved from ${e.from ?? 'no unit'} to ${e.to ?? 'no unit'}`;
+  audit(ctx, { actor_id: e.actorId, action: 'edit', entity: e.table, entity_id: e.id, subject_id: e.subjectId, unit_id: e.to ?? e.from, detail: `${e.how}${moved}`, ip: e.ip });
+  if (crossed) audit(ctx, { actor_id: e.actorId, action: 'edit', entity: e.table, entity_id: e.id, subject_id: e.subjectId, unit_id: e.from, detail: `${e.how}; moved out to another Unit Instance`, ip: e.ip });
+}
+
 export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTable, body: unknown, reqKey: object, ip?: string) {
   const spec = TABLES[table];
   const data = parse(RECORD_SCHEMAS[table] as never, body) as Record<string, unknown>;
@@ -182,6 +252,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     const problem = assigneeProblem(ctx, scope, user.id, data.assignee_id as string | null, unitId);
     if (problem) throw badRequest(problem, { fieldErrors: { assignee_id: problem } });
   }
+  checkProjectLink(ctx, scope, user.id, table, (data.project_id as string | null | undefined) ?? null, null, unitId, false);
 
   const id = newId();
   const cols = ['id', 'user_id', 'unit_id', 'visibility', 'created_at', 'updated_at'];
@@ -244,6 +315,9 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const finalUnit = data.unit_id === undefined ? row.unit_id : ((data.unit_id as string | null) || null);
   const scopeChanged = finalUnit !== row.unit_id || finalVisibility !== row.visibility;
   if (scopeChanged && row.user_id !== user.id && row.counselor_id !== user.id) throw forbidden('A record manager may correct content but may not change another Marine’s disclosure scope.', 'scope_owner_only');
+  // A counselor may re-place what they wrote, inside the Unit Instance it was written in. Only its owner takes it across.
+  if (scopeChanged && row.user_id !== user.id) assertReplaceableByOther(ctx, row, finalUnit);
+  if (mayLeaveInstance(ctx, row.unit_id, finalUnit)) assertCarriesNothingAcross(ctx, table, row, finalUnit);
   if (finalVisibility === 'unit' && !finalUnit) throw badRequest('Choose a unit before sharing this record.', { fieldErrors: { unit_id: 'Required to share.' } });
   if (finalUnit && finalUnit !== row.unit_id && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(finalUnit)) throw badRequest('No such unit.');
   if (scopeChanged && !canPlace(scope, finalVisibility, finalUnit, spec.shareFlag, Boolean(spec.personal))) throw forbidden('You cannot place a record in that unit.');
@@ -253,6 +327,8 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     const problem = assigneeProblem(ctx, scope, user.id, (data.assignee_id as string | null | undefined) ?? (row.assignee_id as string | null), finalUnit);
     if (problem) throw badRequest(problem, { fieldErrors: { assignee_id: problem } });
   }
+  const keptProject = (row as Record<string, unknown>).project_id as string | null | undefined ?? null;
+  checkProjectLink(ctx, scope, user.id, table, data.project_id === undefined ? keptProject : ((data.project_id as string | null) || null), keptProject, finalUnit, scopeChanged);
 
   const sets = ['updated_at = ?', 'version = version + 1'];
   const vals: unknown[] = [now()];
@@ -280,7 +356,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     if (table === 'activities' && String((error as Error).message).includes('UNIQUE')) throw conflict('An identical activity already exists for that date.', 'duplicate');
     throw error;
   }
-  audit(ctx, { actor_id: user.id, action: 'edit', entity: table, entity_id: id, subject_id: row.user_id !== user.id ? row.user_id : null, unit_id: finalUnit, detail: row.user_id === user.id ? 'author edit' : 'manager edit', ip });
+  auditEdit(ctx, { actorId: user.id, table, id, subjectId: row.user_id !== user.id ? row.user_id : null, from: row.unit_id, to: finalUnit, how: row.user_id === user.id ? 'author edit' : 'manager edit', ip });
   if (spec.assignee && data.assignee_id && data.assignee_id !== row.assignee_id && data.assignee_id !== user.id) {
     notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || row.title || ''), actionUrl: `/records/${table}/${id}`, dedupeKey: `${table}:${id}:assigned:${data.assignee_id}` });
   }
@@ -339,11 +415,20 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
     if (!result.success) throw badRequest(`Row ${i + 1}: ${result.error.issues[0]?.message || 'invalid'} (${result.error.issues[0]?.path.join('.')})`, { row: i });
     const data = result.data as Record<string, unknown>;
     if (data.dollar_type && !valueType(String(data.dollar_type), ctx.runtime.metrics)) throw badRequest(`Row ${i + 1}: unknown value type “${String(data.dollar_type)}”. This instance uses: ${ctx.runtime.metrics.value_types.map((t) => t.key).join(', ')}.`, { row: i });
-    const existing = typeof id === 'string' && id ? (ctx.db.prepare('SELECT unit_id, visibility FROM activities WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(id, user.id) as { unit_id: string | null; visibility: string } | undefined) : undefined;
+    const existing = typeof id === 'string' && id ? (ctx.db.prepare('SELECT * FROM activities WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(id, user.id) as (RecordRow & { project_id: string | null }) | undefined) : undefined;
     const visibility = (data.visibility as string | undefined) ?? existing?.visibility ?? 'private';
     const unitId = data.unit_id !== undefined ? ((data.unit_id as string | null) || null) : existing ? existing.unit_id : (scope.homeUnitId ?? null);
     if (visibility === 'unit' && !unitId) throw badRequest(`Row ${i + 1}: shared activities need a unit.`, { row: i });
     if (!canPlace(scope, visibility, unitId, PERMISSIONS.CREATE_SHARED_WORK, true)) throw forbidden(`Row ${i + 1}: you cannot import into that unit.`);
+    try {
+      const kept = existing?.project_id ?? null;
+      checkProjectLink(ctx, scope, user.id, 'activities', data.project_id === undefined ? kept : ((data.project_id as string | null) || null), kept, unitId, Boolean(existing) && (existing!.unit_id !== unitId || existing!.visibility !== visibility));
+      // Re-placing one's own entry by import is the same move as editing it, and carries no more across (ADR-0008).
+      if (existing && !existing.frozen_at && mayLeaveInstance(ctx, existing.unit_id, unitId)) assertCarriesNothingAcross(ctx, 'activities', existing, unitId);
+    } catch (error) {
+      if (error instanceof HttpError) throw new HttpError(error.status, `Row ${i + 1}: ${error.message}`, error.code, { row: i });
+      throw error;
+    }
     planned.push({ id: typeof id === 'string' && id ? id : undefined, exists: Boolean(existing), data, visibility, unitId });
   });
   const capacity = capacityProblem(ctx, user.id, planned.filter((p) => !p.exists).length);
@@ -359,7 +444,8 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
           const vals: unknown[] = [now(), activityFingerprint(user.id, p.data as never), p.visibility, p.unitId];
           for (const f of spec.fields) { if (p.data[f] === undefined) continue; sets.push(`${f} = ?`); vals.push(spec.json.includes(f) ? JSON.stringify(p.data[f] ?? []) : p.data[f]); }
           try { ctx.db.prepare(`UPDATE activities SET ${sets.join(', ')} WHERE id = ?`).run(...vals, p.id); updated += 1; }
-          catch (error) { if (String((error as Error).message).includes('UNIQUE')) duplicates.push(i); else throw error; }
+          catch (error) { if (String((error as Error).message).includes('UNIQUE')) { duplicates.push(i); return; } throw error; }
+          if (p.unitId !== existing.unit_id) auditEdit(ctx, { actorId: user.id, table: 'activities', id: p.id, subjectId: null, from: existing.unit_id, to: p.unitId, how: 'import', ip });
           return;
         }
       }

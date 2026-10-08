@@ -134,8 +134,9 @@ recordsRouter.post('/:table/:id/attachments', attachmentBody, wrap(async (req, r
   }
   const id = newId();
   try {
-    ctx.db.prepare('INSERT INTO attachments (id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, table, row.id, req.user.id, inspected.filename, inspected.mime, inspected.size, inspected.sha256, req.body, now());
+    // The file keeps the unit its record sits in now, so a later move is judged by where it was added (ADR-0008).
+    ctx.db.prepare('INSERT INTO attachments (id, record_table, record_id, uploaded_by, unit_id, original_name, mime_type, size_bytes, sha256, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, table, row.id, req.user.id, row.unit_id ?? null, inspected.filename, inspected.mime, inspected.size, inspected.sha256, req.body, now());
   } catch (error) {
     if (String((error as Error).message).includes('UNIQUE')) throw conflict('That exact file is already attached.', 'duplicate_attachment');
     throw error;

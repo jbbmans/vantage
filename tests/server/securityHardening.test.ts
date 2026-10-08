@@ -43,7 +43,8 @@ test('a unit of your own does not let you enroll, look up or read a Marine you d
 });
 
 test('a leader may enroll the Marines they lead, but not the commander above them', async () => {
-  const side = await app.call('POST', '/api/org/units', { token: sncoic.token, body: { name: 'Side cell', short_name: 'SIDE' } });
+  // A cell inside their own command: enrolling there is enrolling inside one Unit Instance (ADR-0008).
+  const side = await app.call('POST', '/api/org/units', { token: sncoic.token, body: { name: 'Side cell', short_name: 'SIDE', parent_id: 'G8' } });
   assert.equal(side.status, 201, JSON.stringify(side.body));
   const token = (await app.login('sncoic')).body.token;
 
@@ -54,6 +55,16 @@ test('a leader may enroll the Marines they lead, but not the commander above the
   const commander = await app.call('POST', '/api/org/units/SIDE/members', { token, body: { user_id: op.id } });
   assert.equal(commander.status, 403);
   assert.equal(commander.body.code, 'invite_required');
+
+  // A unit of their own at the top founds another Unit Instance, and leading someone here is no claim on them there:
+  // that Marine joins it by invitation, as anyone outside an instance does.
+  const own = await app.call('POST', '/api/org/units', { token, body: { name: 'Own cell', short_name: 'OWNCELL' } });
+  assert.equal(own.status, 201, JSON.stringify(own.body));
+  const after = (await app.login('sncoic')).body.token;
+  assert.deepEqual((await app.call('GET', '/api/org/directory?unit_id=OWNCELL&q=mar', { token: after })).body.results, []);
+  const pulled = await app.call('POST', '/api/org/units/OWNCELL/members', { token: after, body: { user_id: marine.id } });
+  assert.equal(pulled.status, 403);
+  assert.equal(pulled.body.code, 'invite_required');
 });
 
 test('a role carrying permissions you do not hold cannot be granted, invited or put on a join code', async () => {

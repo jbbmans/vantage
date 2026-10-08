@@ -5,7 +5,7 @@ import { now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { hmac } from '../lib/crypto.ts';
 import { loadRuntime } from '../runtime.ts';
-import { foundOrganizations, metaSet } from '../db/index.ts';
+import { dropInstanceBoundaryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, metaSet, stampAttachmentUnits } from '../db/index.ts';
 import { sealBacklog } from './caseSeal.ts';
 import { loadChainKey, resealStoredSecrets, secretsOf } from '../lib/keys.ts';
 
@@ -59,9 +59,14 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
     ? ((archive.tables.units || []).filter((u) => !u.parent_id).sort((a, b) => String(a.created_at).localeCompare(String(b.created_at)))[0]?.id as string | undefined) ?? null
     : null;
   const ORG_OWNED = new Set(['personnel_roster', 'retention_schedules', 'legal_holds', 'disposition_runs', 'personnel_sync_runs']);
+  // Files attached before they kept a unit get the one their record sits in, as migration 017 gives a live database's.
+  const unstamped = (archive.tables.attachments || []).some((a) => !('unit_id' in a));
+  let crossings: Record<string, number> = {};
   ctx.db.pragma('foreign_keys = OFF');
   try {
     ctx.db.transaction(() => {
+      // The boundary's triggers are lifted while the archive loads table by table, and put back before it commits.
+      dropInstanceBoundaryTriggers(ctx.db);
       for (const table of [...NOT_EXPORTED, ...[...EXPORT_TABLES].reverse()]) ctx.db.prepare(`DELETE FROM ${table}`).run();
       for (const table of EXPORT_TABLES) {
         const rows = archive.tables![table] || [];
@@ -79,6 +84,13 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
         counts[table] = rows.length;
       }
       if (legacy) foundOrganizations(ctx.db);
+      if (unstamped) stampAttachmentUnits(ctx.db);
+      // Rows the archive brings already joined across the boundary are kept and counted, as migration 016 keeps a live
+      // database's: a backup restores as the instance it came from was kept, and nothing new crosses from here (ADR-0008).
+      crossings = instanceBoundaryViolations(ctx.db);
+      if (Object.keys(crossings).length) metaSet(ctx.db, 'instance_boundary_violations', JSON.stringify({ at: now(), found: crossings }));
+      else ctx.db.prepare("DELETE FROM meta WHERE key = 'instance_boundary_violations'").run();
+      instanceBoundaryTriggers(ctx.db);
       const violations = ctx.db.pragma('foreign_key_check') as unknown[];
       if (violations.length) throw new Error(`Archive has ${violations.length} foreign key violation(s): ${JSON.stringify(violations.slice(0, 3))}`);
     })();
@@ -93,6 +105,7 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   // without seals can only mean its seals were removed.
   sealBacklog(ctx);
   metaSet(ctx.db, 'case_seals_backfilled', now());
-  audit(ctx, { actor_id: null, action: 'instance_import', entity: 'instance', detail: `by ${actorId}; ${JSON.stringify(counts)}`.slice(0, 900) });
+  const crossed = Object.keys(crossings).length ? `; joined across Unit Instances: ${JSON.stringify(crossings)}` : '';
+  audit(ctx, { actor_id: null, action: 'instance_import', entity: 'instance', detail: `by ${actorId}${crossed}; ${JSON.stringify(counts)}`.slice(0, 900) });
   return counts;
 }

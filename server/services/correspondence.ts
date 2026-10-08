@@ -1,13 +1,13 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
-import { can, isMember, PERMISSIONS } from '../authz/scope.ts';
+import { assertSameInstance, can, isMember, PERMISSIONS } from '../authz/scope.ts';
 import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
 import { parseEml, looksLikeOutlookMsg, EmlError, type ParsedEmail } from '../lib/eml.ts';
 import { sanitizeEmailHtml, htmlToText } from '../lib/sanitizeHtml.ts';
-import { readableItem } from './work.ts';
+import { readable as readableWork, readableItem, type WorkItemRow } from './work.ts';
 
 export const THREAD_STATES = ['draft', 'sent', 'awaiting_reply', 'response_received', 'ksd_received', 'resolved'] as const;
 export type ThreadState = (typeof THREAD_STATES)[number];
@@ -65,6 +65,13 @@ export function saveContact(ctx: AppContext, user: SessionUser, scope: Scope, in
     const existing = ctx.db.prepare('SELECT * FROM contacts WHERE id = ? AND deleted_at IS NULL').get(id) as Record<string, unknown> | undefined;
     if (!existing) throw notFound('No such contact.');
     if (!writable(scope, user, existing as never)) throw forbidden('That contact is not yours to edit.');
+    // A leader may tidy a shared contact; only the person who added it may take it into another Unit Instance (ADR-0008).
+    if (existing.owner_id !== user.id) assertSameInstance(ctx, existing.unit_id as string | null, unitId, 'Only the person who added this contact can move it into another Unit Instance.');
+    // Even its owner moves it only where the correspondence that names it is.
+    if (unitId && unitId !== existing.unit_id && ctx.db.prepare(`SELECT 1 FROM threads t JOIN units tu ON tu.id = t.unit_id
+      WHERE t.contact_id = ? AND tu.org_id IS NOT (SELECT org_id FROM units WHERE id = ?) LIMIT 1`).get(id, unitId)) {
+      throw forbidden('Correspondence in another Unit Instance names this contact, so it cannot move there.', 'cross_instance');
+    }
     ctx.db.prepare('UPDATE contacts SET name = ?, email = ?, organization = ?, role = ?, phone = ?, notes = ?, visibility = ?, unit_id = ?, version = version + 1, updated_at = ? WHERE id = ?')
       .run(...fields, visibility, unitId, at, id);
     return ctx.db.prepare('SELECT * FROM contacts WHERE id = ?').get(id);
@@ -74,6 +81,10 @@ export function saveContact(ctx: AppContext, user: SessionUser, scope: Scope, in
     .run(newContactId, user.id, unitId, visibility, ...fields, at, at);
   return ctx.db.prepare('SELECT * FROM contacts WHERE id = ?').get(newContactId);
 }
+
+/** A contact shown on a thread: one with no unit, or one in the thread's own Unit Instance (or a thread with no unit). */
+const SAME_INSTANCE_CONTACT = `(c.unit_id IS NULL OR t.unit_id IS NULL
+  OR (SELECT org_id FROM units WHERE id = c.unit_id) = (SELECT org_id FROM units WHERE id = t.unit_id))`;
 
 export interface ThreadFilters { state?: string | null; unitId?: string | null; contactId?: string | null; workItemId?: string | null; dueOnly?: boolean; q?: string | null }
 
@@ -96,7 +107,7 @@ export function listThreads(ctx: AppContext, user: SessionUser, scope: Scope, fi
     `SELECT t.*, c.name AS contact_name, c.organization AS contact_organization,
             (SELECT COUNT(*) FROM thread_messages m WHERE m.thread_id = t.id) AS message_count,
             (SELECT COUNT(*) FROM thread_links l WHERE l.thread_id = t.id) AS linked_items
-       FROM threads t LEFT JOIN contacts c ON c.id = t.contact_id
+       FROM threads t LEFT JOIN contacts c ON c.id = t.contact_id AND ${SAME_INSTANCE_CONTACT}
       WHERE ${where.join(' AND ')}
       ORDER BY (t.follow_up_at IS NULL), t.follow_up_at, t.updated_at DESC LIMIT 300`
   ).all(...params) as Array<Record<string, unknown>>;
@@ -114,6 +125,7 @@ export function createThread(ctx: AppContext, user: SessionUser, scope: Scope, i
     const contact = ctx.db.prepare('SELECT * FROM contacts WHERE id = ? AND deleted_at IS NULL').get(contactId) as Record<string, unknown> | undefined;
     if (!contact) throw notFound('No such contact.');
     if (!readable(scope, user, contact as never)) throw forbidden('That contact is not one you can use.');
+    assertSameInstance(ctx, contact.unit_id as string | null, unitId, 'That contact belongs to another Unit Instance.');
   }
   const id = newId();
   const at = now();
@@ -138,12 +150,17 @@ export function threadDetail(ctx: AppContext, user: SessionUser, scope: Scope, i
   const thread = readableThread(ctx, user, scope, id);
   const messages = (ctx.db.prepare('SELECT * FROM thread_messages WHERE thread_id = ? ORDER BY COALESCE(sent_at, created_at) ASC').all(id) as Array<Record<string, unknown>>)
     .map((m) => ({ ...m, to_emails: JSON.parse(String(m.to_emails || '[]')), cc_emails: JSON.parse(String(m.cc_emails || '[]')), attachments: JSON.parse(String(m.attachments || '[]')) }));
-  const links = ctx.db.prepare(
-    `SELECT l.id, l.work_item_id, l.created_at, w.natural_key, w.title, w.state
+  // A link names the work it points at, so it is shown only to someone who could open that work.
+  const links = (ctx.db.prepare(
+    `SELECT l.id AS link_id, l.created_at AS linked_at, w.*
        FROM thread_links l JOIN work_items w ON w.id = l.work_item_id
       WHERE l.thread_id = ? AND w.deleted_at IS NULL ORDER BY w.natural_key`
-  ).all(id) as Array<Record<string, unknown>>;
-  const contact = thread.contact_id ? ctx.db.prepare('SELECT * FROM contacts WHERE id = ?').get(thread.contact_id) : null;
+  ).all(id) as Array<WorkItemRow & { link_id: string; linked_at: string }>)
+    .filter((w) => readableWork(scope, user, w))
+    .map((w) => ({ id: w.link_id, work_item_id: w.id, created_at: w.linked_at, natural_key: w.natural_key, title: w.title, state: w.state }));
+  const contact = thread.contact_id
+    ? ctx.db.prepare(`SELECT c.* FROM contacts c JOIN threads t ON t.id = ? WHERE c.id = ? AND ${SAME_INSTANCE_CONTACT}`).get(thread.id, thread.contact_id) ?? null
+    : null;
   return { thread, messages, links, contact };
 }
 
@@ -334,6 +351,7 @@ export function linkThread(ctx: AppContext, user: SessionUser, scope: Scope, thr
   const thread = readableThread(ctx, user, scope, threadId);
   if (!writable(scope, user, thread)) throw forbidden('That correspondence is not yours to link.');
   const item = readableItem(ctx, user, scope, workItemId);
+  assertSameInstance(ctx, thread.unit_id, item.unit_id, 'That work belongs to another Unit Instance than this correspondence.');
   const existing = ctx.db.prepare('SELECT id FROM thread_links WHERE thread_id = ? AND work_item_id = ?').get(threadId, workItemId);
   if (existing) return { linked: false, work_item_id: item.id };
   ctx.db.prepare('INSERT INTO thread_links (id, thread_id, work_item_id, created_by, created_at) VALUES (?, ?, ?, ?, ?)')

@@ -349,6 +349,8 @@ CREATE TABLE IF NOT EXISTS attachments (
   record_table  TEXT NOT NULL,
   record_id     TEXT NOT NULL,
   uploaded_by   TEXT NOT NULL REFERENCES users(id),
+  -- The unit its record sat in when the file was added, as a comment keeps (ADR-0008).
+  unit_id       TEXT REFERENCES units(id),
   original_name TEXT NOT NULL,
   mime_type     TEXT NOT NULL,
   size_bytes    INTEGER NOT NULL,

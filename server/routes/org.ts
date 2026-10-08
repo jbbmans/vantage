@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
-import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross } from '../authz/scope.ts';
-import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, type RoleRow } from '../services/org.ts';
+import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross, sameInstance } from '../authz/scope.ts';
+import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, primaryOrgOf, setPrimaryUnit, type RoleRow } from '../services/org.ts';
 import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
@@ -99,14 +99,15 @@ orgRouter.get('/directory', wrap((req, res) => {
   if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot enroll members in that unit.');
   if (q.length < 2) throw badRequest('Enter at least two characters.', { fieldErrors: { q: 'Enter at least two characters.' } });
   const pattern = `${q.replace(/[\\%_]/g, '\\$&')}%`;
-  const managed = unitsWith(scope, PERMISSIONS.MANAGE_MEMBERS);
+  // Only units in the destination's Unit Instance: leading people in another organization is no claim on them here.
+  const managed = unitsWith(scope, PERMISSIONS.MANAGE_MEMBERS).filter((u) => sameInstance(req.ctx, u, unitId));
   // Only people already in a unit the actor manages: an organization's administrators search their own organization, never
   // the whole service. Anyone else joins by invitation.
   const led = `AND EXISTS (SELECT 1 FROM unit_members lm WHERE lm.user_id = u.id AND lm.unit_id IN (SELECT value FROM json_each(?)))`;
   const rows = req.ctx.db.prepare(`SELECT u.id, u.username, u.first_name, u.last_name, r.abbr AS rank_abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id
     WHERE u.active = 1 AND (u.username LIKE ? ESCAPE '\\' OR u.last_name LIKE ? ESCAPE '\\' COLLATE NOCASE) ${led}
       AND NOT EXISTS (SELECT 1 FROM unit_members um WHERE um.user_id = u.id AND um.unit_id = ?) ORDER BY u.last_name, u.first_name LIMIT 50`).all(pattern, pattern, JSON.stringify(managed), unitId) as Array<{ id: string }>;
-  res.json({ results: rows.filter((r) => mayEnrollDirectly(req.ctx, req.user, scope, r.id)).slice(0, 10) });
+  res.json({ results: rows.filter((r) => mayEnrollDirectly(req.ctx, req.user, scope, r.id, unitId)).slice(0, 10) });
 }));
 
 orgRouter.post('/units/:unitId/members', wrap((req, res) => {
@@ -119,7 +120,7 @@ orgRouter.post('/units/:unitId/members', wrap((req, res) => {
   if (user_id === req.user.id) throw forbidden('A second authorized person must change your own membership.', 'self_membership_change');
   const target = ctx.db.prepare('SELECT id, first_name, last_name FROM users WHERE id = ? AND active = 1').get(user_id) as { id: string; first_name: string; last_name: string } | undefined;
   if (!target) throw badRequest('No such active account.', { fieldErrors: { user_id: 'No such active account.' } });
-  if (!mayEnrollDirectly(ctx, req.user, scope, user_id)) throw forbidden('You can enroll directly only Marines you already lead. Send this Marine an invitation or a join code instead; they accept it themselves.', 'invite_required');
+  if (!mayEnrollDirectly(ctx, req.user, scope, user_id, unitId)) throw forbidden('You can enroll directly only Marines you already lead in this Unit Instance. Send this Marine an invitation or a join code instead; they accept it themselves.', 'invite_required');
   const role = role_id ? (ctx.db.prepare('SELECT * FROM roles WHERE id = ?').get(role_id) as RoleRow | undefined) : undefined;
   ctx.db.transaction(() => {
     addMember(ctx, user_id, unitId, { invitedBy: req.user.id, primary: Boolean(primary), billet: billet || null });
@@ -143,9 +144,13 @@ orgRouter.put('/units/:unitId/members/:userId', wrap((req, res) => {
   if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot manage members in that unit.');
   if (!ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, unitId)) throw notFound('That Marine is not a member of this unit.');
   if (userId !== req.user.id && !isUnitOwner(ctx, req.user.id, unitId) && positionIn(scopeFor(ctx, { id: userId }), unitId) >= positionIn(scope, unitId)) throw forbidden('You cannot change the membership of a Marine at or above your own position.', 'hierarchy');
+  // A primary unit in another Unit Instance is not a leader's here to take (ADR-0008). The refusal does not say where it
+  // is: which other commands a Marine serves in is not this leader's to learn.
+  const heldIn = primaryOrgOf(ctx, userId)?.unitId;
+  if (body.primary && userId !== req.user.id && heldIn && !sameInstance(ctx, heldIn, unitId)) throw forbidden('You cannot make this their primary unit.');
   ctx.db.transaction(() => {
     if (body.billet !== undefined) ctx.db.prepare('UPDATE unit_members SET billet = ? WHERE user_id = ? AND unit_id = ?').run(body.billet || null, userId, unitId);
-    if (body.primary) { ctx.db.prepare('UPDATE unit_members SET is_primary = 0 WHERE user_id = ?').run(userId); ctx.db.prepare('UPDATE unit_members SET is_primary = 1 WHERE user_id = ? AND unit_id = ?').run(userId, unitId); }
+    if (body.primary) setPrimaryUnit(ctx, userId, unitId);
   })();
   audit(ctx, { actor_id: req.user.id, action: 'edit_membership', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, ip: clientIp(req) });
   res.json({ ok: true });

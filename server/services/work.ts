@@ -1,6 +1,7 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
 import { can, isMember, PERMISSIONS } from '../authz/scope.ts';
+import { assertFileableProject, readableClause } from '../authz/records.ts';
 import { audit } from './audit.ts';
 import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
@@ -133,12 +134,14 @@ export function listItems(ctx: AppContext, user: SessionUser, scope: Scope, opts
 
   const clause = where.join(' AND ');
   const total = (ctx.db.prepare(`SELECT COUNT(*) AS n FROM work_items w WHERE ${clause}`).get(...params) as { n: number }).n;
+  // A project is named only to someone who may read it, so a link cannot show a project that has since moved away.
+  const project = readableClause(ctx, scope, user.id, 'p', { memberReadable: true });
   const rows = ctx.db.prepare(
     `SELECT w.*, h.first_name || ' ' || h.last_name AS holder_name, hr.abbr AS holder_rank, p.name AS project_name
        FROM work_items w LEFT JOIN users h ON h.id = w.claimed_by LEFT JOIN ranks hr ON hr.id = h.rank_id
-       LEFT JOIN projects p ON p.id = w.project_id AND p.deleted_at IS NULL
+       LEFT JOIN projects p ON p.id = w.project_id AND p.deleted_at IS NULL AND ${project.clause}
       WHERE ${clause} ORDER BY (w.${column} IS NULL), w.${column} ${direction}, w.natural_key ASC LIMIT ? OFFSET ?`
-  ).all(...params, limit, offset) as WorkItemRow[];
+  ).all(...project.params, ...params, limit, offset) as WorkItemRow[];
 
   return { total, limit, offset, items: rows.map(hydrate) };
 }
@@ -153,8 +156,9 @@ export function itemDetail(ctx: AppContext, user: SessionUser, scope: Scope, id:
   const source = row.source_file_id
     ? (ctx.db.prepare('SELECT id, filename, created_at, sha256 FROM source_files WHERE id = ?').get(row.source_file_id) as WorkItemDetail['source'] | undefined) ?? null
     : null;
+  const readableProject = readableClause(ctx, scope, user.id, 'p', { memberReadable: true });
   const project = row.project_id
-    ? (ctx.db.prepare('SELECT id, name, target_date FROM projects WHERE id = ? AND deleted_at IS NULL').get(row.project_id) as WorkItemDetail['project'] | undefined) ?? null
+    ? (ctx.db.prepare(`SELECT p.id, p.name, p.target_date FROM projects p WHERE p.id = ? AND p.deleted_at IS NULL AND ${readableProject.clause}`).get(row.project_id, ...readableProject.params) as WorkItemDetail['project'] | undefined) ?? null
     : null;
   return { item: hydrate(row), actions, source, project, contributors: contributors(ctx, id), case: caseView(ctx, user, scope, row) };
 }
@@ -239,16 +243,7 @@ export function createItem(
     throw forbidden('You are not a member of that unit.');
   }
 
-  let projectId: string | null = null;
-  if (input.project_id) {
-    const project = ctx.db.prepare('SELECT id, user_id, unit_id, visibility FROM projects WHERE id = ? AND deleted_at IS NULL')
-      .get(String(input.project_id)) as { id: string; user_id: string; unit_id: string | null; visibility: string } | undefined;
-    if (!project) throw badRequest('No such project.');
-    const reachable = project.user_id === user.id
-      || (project.visibility === 'unit' && project.unit_id && (isMember(scope, project.unit_id) || can(scope, PERMISSIONS.VIEW_RECORDS, project.unit_id)));
-    if (!reachable) throw forbidden('That is not a project you can file work under.');
-    projectId = project.id;
-  }
+  const projectId = input.project_id ? assertFileableProject(ctx, scope, user.id, String(input.project_id), unitId).id : null;
 
   const id = newId();
   const at = now();
@@ -378,13 +373,7 @@ export function updateItem(ctx: AppContext, user: SessionUser, scope: Scope, id:
     if (patch.project_id !== undefined) {
       if (!mayEditFields(scope, user, row)) throw forbidden('Filing this work under a project is not yours to do.');
       if (patch.project_id) {
-        const project = ctx.db.prepare('SELECT id, user_id, unit_id, visibility FROM projects WHERE id = ? AND deleted_at IS NULL')
-          .get(String(patch.project_id)) as { id: string; user_id: string; unit_id: string | null; visibility: string } | undefined;
-        if (!project) throw badRequest('No such project.');
-        const reachable = project.user_id === user.id
-          || (project.visibility === 'unit' && project.unit_id && (isMember(scope, project.unit_id) || can(scope, PERMISSIONS.VIEW_RECORDS, project.unit_id)));
-        if (!reachable) throw forbidden('That is not a project you can file work under.');
-        sets.push('project_id = ?'); params.push(project.id);
+        sets.push('project_id = ?'); params.push(assertFileableProject(ctx, scope, user.id, String(patch.project_id), row.unit_id).id);
       } else {
         sets.push('project_id = NULL');
       }

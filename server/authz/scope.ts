@@ -1,6 +1,7 @@
 import type { AppContext } from '../context.ts';
 import { PERMISSIONS, ALL_PERMISSIONS, ORG_STRUCTURE_BITS, VANTAGE_ACCESS_BITS, ORG_ROLE_KEYS, has, orgPermissionsOf, type OrgPermission, type OrgRole } from '../../shared/permissions.ts';
 import { now } from '../lib/ids.ts';
+import { forbidden } from '../lib/errors.ts';
 
 export { PERMISSIONS, has };
 
@@ -221,6 +222,25 @@ export const orgCan = (scope: Scope, permission: OrgPermission, orgId: string | 
 export function orgOfUnit(ctx: AppContext, unitId: string | null | undefined): string | null {
   if (!unitId) return null;
   return (ctx.db.prepare('SELECT org_id FROM units WHERE id = ?').get(unitId) as { org_id: string | null } | undefined)?.org_id ?? null;
+}
+
+/**
+ * Do two units belong to the same Unit Instance (ADR-0008)? A unit with no organization matches nothing, so a
+ * missing or unknown unit never counts as "the same".
+ */
+export function sameInstance(ctx: AppContext, a: string | null | undefined, b: string | null | undefined): boolean {
+  const org = orgOfUnit(ctx, a);
+  return Boolean(org) && org === orgOfUnit(ctx, b);
+}
+
+/**
+ * Data never moves or links across a Unit Instance boundary, whatever the person's authority on each side: someone
+ * who serves in two organizations may act in each, never carry one's records, people or work into the other.
+ * Passes when either side has no unit (a person's own unplaced data belongs to no instance).
+ */
+export function assertSameInstance(ctx: AppContext, a: string | null | undefined, b: string | null | undefined, message: string) {
+  if (!a || !b || a === b) return;
+  if (!sameInstance(ctx, a, b)) throw forbidden(message, 'cross_instance');
 }
 
 export function isUnitOwner(ctx: AppContext, userId: string, unitId: string | null | undefined): boolean {

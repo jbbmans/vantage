@@ -1,6 +1,6 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
-import { can, detailUnitsFor, PERMISSIONS } from '../authz/scope.ts';
+import { can, detailUnitsFor, PERMISSIONS, sameInstance, orgOfUnit } from '../authz/scope.ts';
 import { record } from './telemetry.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
@@ -82,6 +82,24 @@ export function readableDraft(ctx: AppContext, user: SessionUser, scope: Scope, 
   throw forbidden('That report is not yours to open.');
 }
 
+/**
+ * A report placed in a unit carries only records from that unit's Unit Instance, or records placed in no unit
+ * (ADR-0008). Someone who leads a Marine in two organizations cannot carry one's records into the other's report.
+ */
+const citable = (ctx: AppContext, draft: ReportDraft, row: { unit_id?: unknown }) =>
+  !draft.unit_id || !row.unit_id || sameInstance(ctx, draft.unit_id, String(row.unit_id));
+
+/**
+ * A report about another Marine placed in no unit still speaks for one Unit Instance: what it cites comes from one, so a
+ * leader in two cannot join both commands' records of the same Marine in one document (ADR-0008). Your own report on
+ * yourself may cite all of your own records.
+ */
+function assertOneInstance(ctx: AppContext, draft: ReportDraft, rows: Array<{ unit_id?: unknown }>) {
+  if (draft.unit_id || draft.subject_id === draft.user_id) return;
+  const instances = new Set(rows.filter((r) => r.unit_id).map((r) => orgOfUnit(ctx, String(r.unit_id))));
+  if (instances.size > 1) throw forbidden('A report about another Marine cites records from one Unit Instance. Place it in a unit, or cite one instance’s records.', 'cross_instance');
+}
+
 function assertAuthor(draft: ReportDraft, user: SessionUser) {
   if (draft.user_id !== user.id) throw forbidden('Only the person writing this report can save a revision of it.');
 }
@@ -102,7 +120,7 @@ export function availableSources(ctx: AppContext, user: SessionUser, scope: Scop
       `SELECT * FROM ${table} WHERE user_id = ? AND deleted_at IS NULL AND ${dateCol} >= ? AND ${dateCol} <= ? ORDER BY ${dateCol} DESC LIMIT 400`
     ).all(draft.subject_id, draft.period_start, draft.period_end) as Array<Record<string, unknown>>;
     for (const row of rows) {
-      if (!canRead(scope, user.id, row as never)) continue;
+      if (!canRead(scope, user.id, row as never) || !citable(ctx, draft, row)) continue;
       out.push(snapshotOf(table, row));
     }
   }
@@ -174,6 +192,7 @@ export function saveRevision(ctx: AppContext, user: SessionUser, scope: Scope, d
 
     const stale: StaleSource[] = [];
     const snapshots: SourceSnapshot[] = [];
+    const cited: Array<Record<string, unknown>> = [];
     for (const ref of input.sources) {
       const row = getRecord(ctx, ref.table, ref.id) as Record<string, unknown> | null;
       if (!row) {
@@ -182,6 +201,8 @@ export function saveRevision(ctx: AppContext, user: SessionUser, scope: Scope, d
       }
       if (!canRead(scope, user.id, row as never)) throw forbidden('This report cites a record you cannot read.');
       if (String(row.user_id) !== draft.subject_id) throw badRequest('A report can only cite records belonging to the person it is about.');
+      if (!citable(ctx, draft, row)) throw forbidden('This report cites a record from another Unit Instance.', 'cross_instance');
+      cited.push(row);
       const actual = Number(row.version) || 1;
       if (actual !== Number(ref.version)) {
         stale.push({ table: ref.table, id: ref.id, title: String(row.title || ''), expected_version: Number(ref.version), actual_version: actual, reason: 'Its facts changed after this wording was written.' });
@@ -189,6 +210,7 @@ export function saveRevision(ctx: AppContext, user: SessionUser, scope: Scope, d
       }
       snapshots.push(snapshotOf(ref.table, row));
     }
+    assertOneInstance(ctx, draft, cited);
     if (stale.length) {
       record(ctx, 'report.stale_source_rejected', { sources: input.sources.length, stale: stale.length }, { id: user.id });
       throw new StaleSourceError(stale);

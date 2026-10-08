@@ -168,3 +168,39 @@ test('015 turns a single-instance database into organizations: top units found t
     again.close();
   } finally { cleanup(); }
 });
+
+test('017 gives each file the unit its record sits in, keeps every file, and leaves one on an unplaced record without', () => {
+  const at = '2026-01-01T00:00:00.000Z';
+  const { path, cleanup } = atVersion(16, (db) => {
+    // The shape before 017: files that do not say where they were added. An organization and its top unit name each other.
+    db.pragma('foreign_keys = OFF');
+    db.exec('DROP TABLE attachments');
+    db.exec(`CREATE TABLE attachments (id TEXT PRIMARY KEY, record_table TEXT NOT NULL, record_id TEXT NOT NULL, uploaded_by TEXT NOT NULL REFERENCES users(id),
+      original_name TEXT NOT NULL, mime_type TEXT NOT NULL, size_bytes INTEGER NOT NULL, sha256 TEXT NOT NULL, content BLOB NOT NULL, created_at TEXT NOT NULL, deleted_at TEXT)`);
+    const user = db.prepare('INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)');
+    user.run('u-marine', 'marine', 'x', 'Pat', 'Doe', at, at);
+    user.run('u-lead', 'leader', 'x', 'Lea', 'Der', at, at);
+    db.prepare("INSERT INTO organizations (id, slug, name, status, root_unit_id, settings, created_at, updated_at) VALUES ('G8', 'G8', 'G-8', 'active', 'G8', '{}', ?, ?)").run(at, at);
+    const unit = db.prepare('INSERT INTO units (id, code, name, parent_id, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+    unit.run('G8', 'G8', 'G-8 Comptroller', null, 'G8', at);
+    unit.run('T1', 'T1', 'Budget', 'G8', 'G8', at);
+    const entry = db.prepare('INSERT INTO activities (id, user_id, unit_id, visibility, date, title, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)');
+    entry.run('shared', 'u-marine', 'T1', 'unit', '2026-01-01', 'Shared entry', at, at);
+    entry.run('unplaced', 'u-marine', null, 'private', '2026-01-01', 'Private entry', at, at);
+    const file = db.prepare("INSERT INTO attachments (id, record_table, record_id, uploaded_by, original_name, mime_type, size_bytes, sha256, content, created_at) VALUES (?, 'activities', ?, 'u-lead', ?, 'text/plain', 1, ?, x'00', ?)");
+    file.run('f-shared', 'shared', 'evidence.txt', 'h1', at);
+    file.run('f-unplaced', 'unplaced', 'note.txt', 'h2', at);
+  });
+  try {
+    const db = openDatabase(path);
+    const files = db.prepare('SELECT id, unit_id FROM attachments ORDER BY id').all().map((r) => ({ ...(r as object) }));
+    assert.deepEqual(files, [{ id: 'f-shared', unit_id: 'T1' }, { id: 'f-unplaced', unit_id: null }], 'every file is kept; one on a placed record takes its unit');
+    assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    db.close();
+
+    // A second boot changes nothing.
+    const again = openDatabase(path);
+    assert.deepEqual(again.prepare('SELECT id, unit_id FROM attachments ORDER BY id').all().map((r) => ({ ...(r as object) })), files);
+    again.close();
+  } finally { cleanup(); }
+});
