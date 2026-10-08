@@ -222,7 +222,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
   organizations: {
     purpose: 'The Unit Instances (commands) on the service: each one’s name, status and the unit at the top of its tree.',
     authority: 'Organizational structure of the central service (ADR-0006).',
-    access: 'Its owners and administrators; Vantage staff see the name, status and counts, never its records.',
+    access: 'Its Unit Managers; Vantage staff see the name, status and counts, never its records.',
     columns: {
       id: 'technical', slug: 'employment', name: 'employment', short_name: 'employment', status: 'none', root_unit_id: 'technical',
       settings: 'none', created_by: 'identifier', suspended_reason: 'none', suspended_at: 'technical', created_at: 'technical', updated_at: 'technical',
@@ -231,19 +231,19 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
   platform_roles: {
     purpose: 'Which accounts are Vantage staff, and in what role.',
     authority: 'Access control for operating the service; every grant and removal is audited.',
-    access: 'Platform owners; a person sees their own.',
+    access: 'Lead Vantage Administrators; a person sees their own.',
     columns: { user_id: 'identifier', role: 'employment', granted_by: 'identifier', created_at: 'technical' },
   },
   org_roles: {
     purpose: 'Who owns, administers, keeps the records of, or audits each Unit Instance, and until when.',
     authority: 'Access control within a Unit Instance; every grant and removal is audited.',
-    access: 'The Unit Instance’s owners; a person sees their own.',
+    access: 'The Unit Instance’s Lead Unit Managers; a person sees their own.',
     columns: { org_id: 'technical', user_id: 'identifier', role: 'employment', granted_by: 'identifier', expires_at: 'technical', created_at: 'technical' },
   },
   access_grants: {
     purpose: 'Each request by Vantage staff to read a Unit Instance’s data: why, for how long, who decided and when it ended.',
     authority: 'Accountability for support access; kept as the evidence that staff saw only what a Unit Instance approved.',
-    access: 'The Unit Instance’s owners; Vantage platform owners and auditors.',
+    access: 'The Unit Instance’s Lead Unit Managers; Lead Vantage Administrators and Vantage Auditors.',
     columns: {
       id: 'technical', org_id: 'technical', staff_user_id: 'identifier', reason: 'technical', minutes: 'none', status: 'none',
       requested_at: 'technical', decided_by: 'identifier', decided_at: 'technical', decision_note: 'technical', starts_at: 'technical',
@@ -616,7 +616,7 @@ export interface Inventory {
 const SENSITIVE: PiiCategory[] = ['identifier', 'contact', 'employment', 'performance', 'authentication'];
 
 /**
- * The inventory from the live schema. For one organization (the owner console), each table's rows are counted as far
+ * The inventory from the live schema. For one organization (the Unit Manager console), each table's rows are counted as far
  * as they are that organization's: by its units, or its org_id, or its members for accounts. A table that belongs to
  * the service as a whole says so instead of counting other organizations' rows.
  */

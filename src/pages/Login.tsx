@@ -48,15 +48,15 @@ interface Status {
 
 /** Why an organization sign-in came back without a session; the server sends the code, not the words. */
 const SSO_ERRORS: Record<string, string> = {
-  oidc_unlinked: 'Your organization account is not linked to a Vantage account here. Ask your unit leader or the owner to add you, then sign in again.',
-  oidc_conflict: 'That Vantage account is already linked to a different organization account. Ask the owner to check it.',
-  oidc_inactive: 'That Vantage account is turned off. Ask your unit leader or the owner.',
+  oidc_unlinked: 'Your organization account is not linked to a Vantage account here. Ask your unit leader or Vantage support to add you, then sign in again.',
+  oidc_conflict: 'That Vantage account is already linked to a different organization account. Ask Vantage support to check it.',
+  oidc_inactive: 'That Vantage account is turned off. Ask your unit leader or Vantage support.',
   oidc_denied: 'Your organization did not sign you in. Try again, or ask your help desk.',
   oidc_expired: 'The sign-in took too long. Try again.',
   oidc_state: 'That sign-in was already used or has expired. Start again.',
-  oidc_bad_token: 'Your organization’s answer could not be verified, so you were not signed in. If this keeps happening, tell the owner.',
+  oidc_bad_token: 'Your organization’s answer could not be verified, so you were not signed in. If this keeps happening, tell Vantage support.',
   oidc_unreachable: 'Your organization’s sign-in service could not be reached. Try again in a minute.',
-  oidc_misconfigured: 'Organization sign-in is not set up correctly here. Tell the owner.',
+  oidc_misconfigured: 'Organization sign-in is not set up correctly here. Tell Vantage support.',
   consent_required: 'Read and accept the notice first.',
   console_owners_only: 'This console is not for your account. Sign in to the app instead.',
   throttled: 'Too many sign-in attempts. Wait a few minutes and try again.',
@@ -87,12 +87,12 @@ function PasswordMeter({ value }: { value: string }) {
 }
 
 /**
- * The sign-in screen of the application, of the owner console (variant="console", for an organization's owners and
- * administrators) or of the Vantage admin dashboard (variant="admin", for Vantage staff).
+ * The sign-in screen of the application, of the Unit Manager console (variant="console", for the people who hold a Unit
+ * Instance's roles) or of the Vantage Administrator console (variant="admin", for Vantage staff).
  */
 export default function Login({ serverError, onRetry, variant = 'app' }: { serverError: string | null; onRetry: () => void; variant?: 'app' | 'console' | 'admin' }) {
   const owners = variant !== 'app';
-  const faceName = variant === 'admin' ? 'Vantage admin' : 'Owner console';
+  const faceName = variant === 'admin' ? 'Vantage Administrator console' : 'Unit Manager console';
   const qc = useQueryClient();
   const toast = useToast();
   const ranks = useRanks();
@@ -268,10 +268,10 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
   const offline = typeof navigator !== 'undefined' && !navigator.onLine;
 
   const heading: Record<Mode, [string, string, string]> = {
-    login: variant === 'admin' ? ['Vantage admin', 'Sign in', 'For Vantage staff. Commands sign in to the app or their owner console.']
-      : owners ? ['Owner console', 'Sign in', 'For the people who run an organization on Vantage. Everyone else signs in to the app.'] : ['Welcome back', 'Sign in', 'Continue to your Vantage workspace.'],
+    login: variant === 'admin' ? ['Vantage Administrator console', 'Sign in', 'For Vantage staff. Commands sign in to the app or their Unit Manager console.']
+      : owners ? ['Unit Manager console', 'Sign in', 'For the people who run a Unit Instance on Vantage. Everyone else signs in to the app.'] : ['Welcome back', 'Sign in', 'Continue to your Vantage workspace.'],
     mfa: ['Secure sign-in', 'Second step', 'Enter the six-digit code from your authenticator app, or a recovery code.'],
-    setup: ['First launch', 'Set up Vantage', 'Create the first Vantage owner account and the first organization. This only happens once.'],
+    setup: ['First launch', 'Set up Vantage', 'Create the first Lead Vantage Administrator account and the first Unit Instance. This only happens once.'],
     register: ['Join Vantage', 'Create your account', 'Then join your unit with a join code or invitation from your leader.'],
     forgot: ['Account recovery', 'Reset your password', 'Enter your username or email. If email is configured, a one-time link follows.'],
     reset: tokenInfo?.purpose === 'sign_in'
@@ -356,7 +356,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
 
             {status?.announcement && <div className="auth-notice accent">{status.announcement}</div>}
             {owners && status?.needsSetup && <div className="auth-notice accent">Vantage is not set up yet. <a className="link" href={appHref('/setup')}>Set it up in the app</a>, then come back here.</div>}
-            {status?.maintenance && <div className="auth-notice warn">Vantage is in maintenance. Only the owner can sign in right now.</div>}
+            {status?.maintenance && <div className="auth-notice warn">Vantage is in maintenance. Only Vantage staff can sign in right now.</div>}
             {(serverError || statusError) && (
               <div className="auth-notice error">
                 <WifiOff /><span>{serverError || statusError}</span>
@@ -438,7 +438,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
                   </div>
                 )}
                 <Button type="submit" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={Boolean(passwordProblem(form.password)) || !form.username || !form.first_name || !form.last_name || (mode === 'invite' && tokenInfo && !tokenInfo.valid)}>
-                  {mode === 'setup' ? 'Create owner account' : mode === 'register' ? 'Create account' : 'Join and sign in'} <ArrowRight className="h-4 w-4" />
+                  {mode === 'setup' ? 'Create Lead Vantage Administrator account' : mode === 'register' ? 'Create account' : 'Join and sign in'} <ArrowRight className="h-4 w-4" />
                 </Button>
               </form>
             )}

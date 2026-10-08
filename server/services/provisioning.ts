@@ -8,16 +8,17 @@ import { assertCanFoundUnitInstance } from './deployment.ts';
 import { createOrganization, getOrg, nameFirstOwner, orgRoleHolders } from './organizations.ts';
 
 /**
- * Provisioning a Unit Instance from a manifest (ADR-0007): what a Vantage Administrator does in the admin dashboard, made
- * repeatable for whatever MCEN's provisioning process turns out to be. It reuses the same service calls, so a Unit
- * Instance made here is the same as one made there, audited to the administrator who ran it. Running a manifest again
- * changes nothing that is already true.
+ * Provisioning a Unit Instance from a manifest (ADR-0007): what a Vantage Administrator does in the Vantage Administrator
+ * console, made repeatable for whatever MCEN's provisioning process turns out to be. It reuses the same service calls, so a
+ * Unit Instance made here is the same as one made there, audited to the Vantage Administrator who ran it. Running a
+ * manifest again changes nothing that is already true. The Vantage Administrator running it is never its Lead Unit
+ * Manager (ADR-0010).
  */
 export const unitInstanceManifest = z.object({
   name: z.string().trim().min(1).max(120),
   code: z.string().trim().max(40).optional(),
   short_name: z.string().trim().max(40).optional(),
-  /** The first Unit Manager (an owner of the Unit Instance): an existing active account, by username or DoD ID. */
+  /** The first Lead Unit Manager: an existing active account, by username or DoD ID, never the one running the manifest. */
   manager: z.string().trim().min(1).max(80).optional(),
 }).strict();
 export type UnitInstanceManifest = z.infer<typeof unitInstanceManifest>;
@@ -29,7 +30,7 @@ export interface ProvisionResult {
   dryRun: boolean;
 }
 
-/** The administrator a script acts as, who must hold platform.orgs: the same permission the admin dashboard asks for. */
+/** The Vantage Administrator a script acts as, who must hold platform.orgs: the same permission the console asks for. */
 export function provisioningActor(ctx: AppContext, username: string) {
   const user = ctx.db.prepare('SELECT id, username FROM users WHERE username = ? COLLATE NOCASE AND active = 1').get(username.trim()) as { id: string; username: string } | undefined;
   if (!user) throw new Error(`No active account named ${username}.`);
@@ -52,6 +53,7 @@ export function provisionUnitInstance(ctx: AppContext, actor: { id: string }, in
   if (!code) throw new Error('The manifest name produces an empty code. Give the Unit Instance a code.');
   // Everything that could refuse is checked before anything is written, so a failed run leaves nothing half made.
   const manager = manifest.manager ? findManager(ctx, manifest.manager) : null;
+  if (manager?.id === actor.id) throw new Error('A Vantage Administrator never names themselves a Unit Instance’s Lead Unit Manager (ADR-0010). Name the person the command designated. Nothing was changed.');
   const existing = getOrg(ctx, code);
 
   if (!existing) {
@@ -62,12 +64,13 @@ export function provisionUnitInstance(ctx: AppContext, actor: { id: string }, in
     return { unitInstance: { id: made.id, name: made.name, status: made.status }, action: 'created', manager: manager ? 'named' : 'none', dryRun };
   }
 
-  if (existing.name !== manifest.name) throw new Error(`Unit Instance ${code} exists as "${existing.name}", not "${manifest.name}". Rename it in the admin dashboard, or use another code.`);
+  if (existing.name !== manifest.name) throw new Error(`Unit Instance ${code} exists as "${existing.name}", not "${manifest.name}". Rename it in the Vantage Administrator console, or use another code.`);
   const summary = { id: existing.id, name: existing.name, status: existing.status };
   if (!manager) return { unitInstance: summary, action: 'exists', manager: 'none', dryRun };
-  const owners = orgRoleHolders(ctx, code).filter((r) => r.role === 'owner');
+  // Only Lead Unit Managers still in the Unit Instance count: one who has left it confers nothing (ADR-0010).
+  const owners = orgRoleHolders(ctx, code).filter((r) => r.role === 'owner' && r.member);
   if (owners.some((o) => o.user_id === manager.id)) return { unitInstance: summary, action: 'exists', manager: 'already_manager', dryRun };
-  // Managers name any further managers themselves; the platform names one only for a Unit Instance that has none.
+  // Lead Unit Managers name any others themselves; Vantage names one only for a Unit Instance that has none.
   if (owners.length) return { unitInstance: summary, action: 'exists', manager: 'has_managers', dryRun };
   if (dryRun) return { unitInstance: summary, action: 'exists', manager: 'would_name', dryRun };
   nameFirstOwner(ctx, actor, code, manager.id);

@@ -80,7 +80,7 @@ on every connection, so both paths see the card without more configuration.
 
 ### Confirming a sensitive change with the card
 
-Changes that ask for a recent confirmation (security settings, exports, the admin dashboard, joining
+Changes that ask for a recent confirmation (security settings, exports, the Vantage Administrator console, joining
 another command) accept the card in place of a password: **Confirm with your CAC** in the dialog, which
 calls `POST /api/auth/cac/step-up`. The card goes through the same checks as a sign-in, and it must
 carry the EDIPI the signed-in account carries. Somebody else's valid card is refused, and so is any card
@@ -91,7 +91,7 @@ before this they could not confirm anything.
 ### Linking accounts
 
 A card signs in only where an account already carries its EDIPI. An organization links its members in
-**Owner console → People → EDIPI**, or lets the roster do it. Turning on `CAC_AUTO_PROVISION` creates the account on first
+**Unit Manager console → People → EDIPI**, or lets the roster do it. Turning on `CAC_AUTO_PROVISION` creates the account on first
 sign-in — but only for someone an organization's roster already lists as active, and seats the new account in that
 organization (the unit its row names, or its top unit). A valid DoD certificate proves
 somebody is in the Department; it does not prove they belong to this command, and the roster is what
@@ -100,7 +100,7 @@ says that.
 **A proven EDIPI is the person's sign-in key** (ADR-0009). The first time their card signs in or
 confirms a change, or the organization's identity provider asserts the EDIPI, Vantage records that it
 is proven (`users.edipi_verified_at`). From then on no Unit Instance can change or clear it, not even
-on its own administrators' accounts. Vantage support corrects it in the admin dashboard
+on its own administrators' accounts. Vantage support corrects it in the Vantage Administrator console
 (**Accounts → CAC link**), with a reason; the person's sessions end and they are told. An EDIPI typed
 in by an administrator and never used is not proven yet, so the person's own Unit Instance can still
 correct a typing mistake. Each link and correction tells the person, so a card linked to their account
@@ -167,7 +167,7 @@ provider, and the server refuses a sign-in that did not.
 Rank, unit, MOS and EAS are facts an upstream system owns. Typed in by hand they drift, and the tool
 then loses every argument with the official record.
 
-Each organization loads its own: **Owner console → Personnel feed** takes a roster extract as CSV, TSV or JSON. An EDIPI column is
+Each organization loads its own: **Unit Manager console → Personnel feed** takes a roster extract as CSV, TSV or JSON. An EDIPI column is
 required; other columns are matched by the names personnel systems usually export (`Grade`, `PMOS`,
 `RUC`, and so on).
 
@@ -187,7 +187,7 @@ entries with no account. None of it is resolved automatically; each one is a per
 
 ## Records management
 
-**Owner console → Retention** (an organization's records officers), over the work shared with its units. Vantage staff can place a hold over the whole service in **Admin dashboard → Legal holds**.
+**Unit Manager console → Retention** (an organization's records officers), over the work shared with its units. Vantage staff can place a hold over the whole service in **Vantage Administrator console → Legal holds**.
 
 A schedule states how long a kind of record is kept, what happens then, and the authority it is kept
 under — a citation field rather than a comment, because a schedule without one is somebody's guess.
@@ -211,7 +211,7 @@ Properties worth knowing:
 
 ## The privacy inventory
 
-**Owner console → Privacy** (and, for the whole service, **Admin dashboard → Privacy**) builds a data inventory from the live database every time it is opened:
+**Unit Manager console → Privacy** (and, for the whole service, **Vantage Administrator console → Privacy**) builds a data inventory from the live database every time it is opened:
 every table, what it is for, the authority for holding it, who can see it, its retention, and each
 column's category of personal information. Export it as Markdown for a PIA package.
 

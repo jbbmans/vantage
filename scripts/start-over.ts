@@ -84,7 +84,7 @@ try {
   db.pragma('foreign_keys = ON');
 }
 audit(ctx, { actor_id: adminId, action: 'setup', entity: 'instance', unit_id: unitId, detail: `started over from the shell; ${tables.length} tables emptied` });
-console.log(`Erased all accounts, units and records. ${username} is a platform owner, and owns and leads ${unitName}.`);
+console.log(`Erased all accounts, units and records. ${username} is Lead Vantage Administrator, and Lead Unit Manager and leader of ${unitName}. Hand the last two over (docs/deploy-mcen.md).`);
 
 if (roster.length) {
   const admin = withPlatform(ctx, db.prepare('SELECT * FROM users WHERE id = ?').get(adminId) as SessionUser);

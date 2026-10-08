@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Copy, KeyRound, LogOut, Plus, Search, Send, ShieldAlert, ShieldCheck, Unlock, UserMinus, UserPlus } from 'lucide-react';
+import { Building2, Copy, KeyRound, LogOut, Plus, Search, Send, ShieldAlert, ShieldCheck, Unlock, UserMinus, UserPlus, Users } from 'lucide-react';
 import { Badge, Button, EmptyState, Field, Input, Panel, Select, Skeleton, Textarea } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -11,8 +11,9 @@ import * as api from '@/lib/api';
 import { copyToClipboard, formatStamp, humanize, timeAgo } from '@/lib/utils';
 import {
   ACCESS_LABEL, ACCESS_TONE, ORG_STATUS_TONE, personName, remaining,
-  type AccessGrant, type OrgListing, type OrgStatus, type PlatformAccount, type PlatformRoleKey, type RoleCatalogEntry,
+  type AccessGrant, type OrgListing, type OrgRoleHolder, type OrgStatus, type PlatformAccount, type PlatformRoleKey, type RoleCatalogEntry,
 } from '@/lib/tenancy';
+import { ORG_ROLES, type UnitManagerRole } from '../../shared/permissions';
 import { useAdmin } from './sections';
 
 /** What the signed-in staff member may do here, from their platform roles. */
@@ -29,7 +30,7 @@ function useAct() {
   };
 }
 
-/** Find an account by username, name, email or EDIPI, for naming an owner or a staff member. */
+/** Find an account by username, name, email or EDIPI, for naming a Lead Unit Manager or a staff member. */
 function AccountPicker({ value, onChange, label = 'Account' }: { value: PlatformAccount | null; onChange: (a: PlatformAccount | null) => void; label?: string }) {
   const [q, setQ] = useState('');
   const [debounced, setDebounced] = useState('');
@@ -80,6 +81,7 @@ export function Organizations() {
   const [owner, setOwner] = useState<PlatformAccount | null>(null);
   const [status, setStatus] = useState<{ org: OrgListing; to: OrgStatus; reason: string } | null>(null);
   const [naming, setNaming] = useState<OrgListing | null>(null);
+  const [managing, setManaging] = useState<OrgListing | null>(null);
   const [asking, setAsking] = useState<OrgListing | null>(null);
   const [q, setQ] = useState('');
   if (isPending) return <Skeleton className="h-64" />;
@@ -99,8 +101,8 @@ export function Organizations() {
         {can('platform.orgs') && <Button className="ml-auto" variant="primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" />New Unit Instance</Button>}
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
-        {!shown.length ? <EmptyState icon={Building2} title="No Unit Instances" description="A Unit Instance is a command or staff section on Vantage, with its own owners, units, roster feed and audit trail." /> : (
-          <Table minWidth={900} head={<><th>Unit Instance</th><th className="w-24">Status</th><th className="w-20 text-right">Members</th><th className="w-16 text-right">Units</th><th className="w-48">Owners</th><th className="w-28">Last active</th><th className="w-60"></th></>}>
+        {!shown.length ? <EmptyState icon={Building2} title="No Unit Instances" description="A Unit Instance is a command or staff section on Vantage, with its own Unit Managers, units, roster feed and audit trail." /> : (
+          <Table minWidth={900} head={<><th>Unit Instance</th><th className="w-24">Status</th><th className="w-20 text-right">Members</th><th className="w-16 text-right">Units</th><th className="w-48">Lead Unit Managers</th><th className="w-28">Last active</th><th className="w-60"></th></>}>
             {shown.map((o) => (
               <tr key={o.id}>
                 <td>
@@ -108,14 +110,15 @@ export function Organizations() {
                   <span className="block text-xs text-ink-3">{o.short_name ? `${o.short_name} · ` : ''}{o.slug}{o.settings.vantageAccess === 'notify' ? ' · told, not asked, about Vantage access' : ''}</span>
                   {o.status !== 'active' && o.suspended_reason && <span className="block text-xs text-warn">{o.suspended_reason}</span>}
                 </td>
-                <td><Badge tone={ORG_STATUS_TONE[o.status]}>{humanize(o.status)}</Badge>{o.counts.pendingAccess ? <Badge tone="warn" className="ml-1" title="Vantage access requests waiting on its owners">{o.counts.pendingAccess}</Badge> : null}</td>
+                <td><Badge tone={ORG_STATUS_TONE[o.status]}>{humanize(o.status)}</Badge>{o.counts.pendingAccess ? <Badge tone="warn" className="ml-1" title="Vantage access requests waiting on its Lead Unit Managers">{o.counts.pendingAccess}</Badge> : null}</td>
                 <td className="fig text-right">{o.counts.members}</td>
                 <td className="fig text-right">{o.counts.units}</td>
-                <td className="text-xs">{o.owners.length ? o.owners.map(personName).join(', ') : <Badge tone="bad">No owner</Badge>}</td>
+                <td className="text-xs">{o.owners.length ? o.owners.map(personName).join(', ') : <Badge tone="bad">No Lead Unit Manager</Badge>}</td>
                 <td className="text-xs text-ink-3">{o.counts.lastActive ? timeAgo(o.counts.lastActive) : 'never'}</td>
                 <td className="text-right"><span className="flex flex-wrap justify-end gap-1">
                   {can('platform.access') && o.status === 'active' && <Button size="xs" variant="ghost" onClick={() => setAsking(o)}><KeyRound className="h-3 w-3" />Ask for access</Button>}
-                  {can('platform.orgs') && !o.owners.length && <Button size="xs" variant="ghost" onClick={() => setNaming(o)}><UserPlus className="h-3 w-3" />Name owner</Button>}
+                  {can('platform.orgs') && !o.owners.length && <Button size="xs" variant="ghost" onClick={() => setNaming(o)}><UserPlus className="h-3 w-3" />Name Lead Unit Manager</Button>}
+                  {can('platform.managers') && <Button size="xs" variant="ghost" onClick={() => setManaging(o)}><Users className="h-3 w-3" />Unit Managers</Button>}
                   {can('platform.orgs') && (o.status === 'active'
                     ? <Button size="xs" variant="ghost" onClick={() => setStatus({ org: o, to: 'suspended', reason: '' })}>Suspend</Button>
                     : <Button size="xs" variant="ghost" onClick={() => setStatus({ org: o, to: 'active', reason: '' })}>Restore</Button>)}
@@ -125,9 +128,9 @@ export function Organizations() {
           </Table>
         )}
       </div>
-      <p className="mt-3 text-xs text-ink-3">Vantage sees a Unit Instance as a container: its name, its counts and its owners. What is inside it opens only through an access request its owners approve.</p>
+      <p className="mt-3 text-xs text-ink-3">Vantage sees a Unit Instance as a container: its name, its counts and its Lead Unit Managers. What is inside it opens only through an access request its Lead Unit Managers approve.</p>
 
-      <Dialog open={creating} onOpenChange={setCreating} title="New Unit Instance" description="A command or staff section. Its first owner sets up its units, members, roles and personnel feed in the owner console." size="sm"
+      <Dialog open={creating} onOpenChange={setCreating} title="New Unit Instance" description="A command or staff section. Its first Lead Unit Manager sets up its units, members, roles and personnel feed in the Unit Manager console." size="sm"
         footer={<><Button variant="ghost" onClick={() => setCreating(false)}>Cancel</Button><Button variant="primary" disabled={!draft.name.trim()} onClick={create}>Create</Button></>}>
         <div className="space-y-3">
           <Field label="Name" required><Input autoFocus value={draft.name} onChange={(e) => setDraft({ ...draft, name: e.target.value })} placeholder="MARFORRES G-8 Comptroller" maxLength={120} /></Field>
@@ -135,18 +138,19 @@ export function Organizations() {
             <Field label="Short name"><Input value={draft.short_name} onChange={(e) => setDraft({ ...draft, short_name: e.target.value })} placeholder="G-8" maxLength={40} /></Field>
             <Field label="Code" hint="letters and digits; from the name if blank"><Input value={draft.code} onChange={(e) => setDraft({ ...draft, code: e.target.value.toUpperCase() })} placeholder="MFR-G8" maxLength={40} /></Field>
           </div>
-          <AccountPicker label="First owner" value={owner} onChange={setOwner} />
-          <p className="text-xs text-ink-3">You are not made its owner. The command’s own people run it.</p>
+          <AccountPicker label="First Lead Unit Manager" value={owner} onChange={setOwner} />
+          <p className="text-xs text-ink-3">Name the person the command designated, never yourself. You hold no role in it; the command’s own people run it.</p>
         </div>
       </Dialog>
 
       <Dialog open={Boolean(status)} onOpenChange={(o) => { if (!o) setStatus(null); }} title={status?.to === 'active' ? `Restore ${status?.org.name}?` : `Suspend ${status?.org.name}?`} size="sm"
-        description={status?.to === 'active' ? 'Its units and roles work again.' : 'Its units and Unit Instance roles confer nothing while suspended, and any Vantage access into it ends. Members keep their own records. Its owners are told why.'}
+        description={status?.to === 'active' ? 'Its units and roles work again.' : 'Its units and Unit Instance roles confer nothing while suspended, and any Vantage access into it ends. Members keep their own records. Everyone who holds a role in it is told why.'}
         footer={<><Button variant="ghost" onClick={() => setStatus(null)}>Cancel</Button><Button variant={status?.to === 'active' ? 'primary' : 'danger'} disabled={status?.to !== 'active' && !status?.reason.trim()} onClick={async () => { if (!status) return; const r = await act(status.to === 'active' ? 'Unit Instance restored.' : 'Unit Instance suspended.', () => api.platformOrgStatus(status.org.id, status.to, status.reason || undefined), () => refetch()); if (r) setStatus(null); }}>{status?.to === 'active' ? 'Restore' : 'Suspend'}</Button></>}>
-        {status && status.to !== 'active' && <Field label="Reason" hint="the Unit Instance’s owners read this"><Textarea rows={3} value={status.reason} onChange={(e) => setStatus({ ...status, reason: e.target.value })} maxLength={500} /></Field>}
+        {status && status.to !== 'active' && <Field label="Reason" hint="everyone who holds a role in the Unit Instance reads this"><Textarea rows={3} value={status.reason} onChange={(e) => setStatus({ ...status, reason: e.target.value })} maxLength={500} /></Field>}
       </Dialog>
 
       <NameOwner org={naming} onClose={() => setNaming(null)} onDone={() => refetch()} />
+      <Managers org={managing} onClose={() => setManaging(null)} onDone={() => refetch()} />
       <AskAccess org={asking} onClose={() => setAsking(null)} />
     </>
   );
@@ -156,10 +160,52 @@ function NameOwner({ org, onClose, onDone }: { org: OrgListing | null; onClose: 
   const act = useAct();
   const [who, setWho] = useState<PlatformAccount | null>(null);
   return (
-    <Dialog open={Boolean(org)} onOpenChange={(o) => { if (!o) { setWho(null); onClose(); } }} title={`Name an owner for ${org?.name}`} size="sm"
-      description="Only for a Unit Instance with no owner left. One that has owners names its own."
-      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!who} onClick={async () => { if (!org || !who) return; const r = await act(`${personName(who)} owns ${org.name}.`, () => api.platformNameOwner(org.id, who.id), onDone); if (r) { setWho(null); onClose(); } }}>Name owner</Button></>}>
-      <AccountPicker value={who} onChange={setWho} label="Owner" />
+    <Dialog open={Boolean(org)} onOpenChange={(o) => { if (!o) { setWho(null); onClose(); } }} title={`Name a Lead Unit Manager for ${org?.name}`} size="sm"
+      description="Only for a Unit Instance with no Lead Unit Manager left, and never yourself. One that has Lead Unit Managers names its own. Someone who is not yet a member joins its top unit."
+      footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!who} onClick={async () => { if (!org || !who) return; const r = await act(`${personName(who)} is Lead Unit Manager of ${org.name}.`, () => api.platformNameOwner(org.id, who.id), onDone); if (r) { setWho(null); onClose(); } }}>Name Lead Unit Manager</Button></>}>
+      <AccountPicker value={who} onChange={setWho} label="Lead Unit Manager" />
+    </Dialog>
+  );
+}
+
+/**
+ * Unit Manager assignment (John, 2026-10-08; ADR-0010 §5): a Vantage Administrator adds and removes Lead Unit Managers and
+ * Unit Managers in any Unit Instance, never themselves, members of it only, and its Lead Unit Managers are told each time.
+ */
+function Managers({ org, onClose, onDone }: { org: OrgListing | null; onClose: () => void; onDone: () => void }) {
+  const act = useAct();
+  const { data: identity } = useIdentity();
+  const [who, setWho] = useState<PlatformAccount | null>(null);
+  const [role, setRole] = useState<UnitManagerRole>('admin');
+  const holders = useQuery<{ roles: OrgRoleHolder[] }>({ queryKey: ['admin', 'org-managers', org?.id], queryFn: () => withSudo(() => api.platformOrg(org!.id)), enabled: Boolean(org), retry: false });
+  const managers = (holders.data?.roles ?? []).filter((h) => h.role === 'owner' || h.role === 'admin');
+  const close = () => { setWho(null); setRole('admin'); onClose(); };
+  const changed = () => { holders.refetch(); onDone(); };
+  const self = who?.id === identity?.user.id;
+  return (
+    <Dialog open={Boolean(org)} onOpenChange={(o) => { if (!o) close(); }} title={`Unit Managers of ${org?.name}`} size="md"
+      description="Add or remove a Lead Unit Manager or Unit Manager, never yourself. Only members of the Unit Instance can hold one. Its Lead Unit Managers are told each time, and it is in both audit trails."
+      footer={<Button variant="ghost" onClick={close}>Done</Button>}>
+      <div className="space-y-4">
+        {holders.isPending ? <Skeleton className="h-20" /> : !managers.length ? <p className="text-sm text-ink-3">No Lead Unit Manager or Unit Manager.</p> : (
+          <ul className="divide-y divide-line rounded-md border border-line">
+            {managers.map((h) => (
+              <li key={`${h.user_id}:${h.role}`} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                <span><span className="font-medium text-ink">{personName(h)}</span> <span className="text-ink-3">{ORG_ROLES[h.role].label}</span>{!h.member && <Badge tone="warn" className="ml-1" title="Not a member of the Unit Instance, so the role confers nothing">not a member</Badge>}</span>
+                {h.user_id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => act(`${personName(h)} is no longer ${ORG_ROLES[h.role].label}.`, () => api.platformRemoveManager(org!.id, h.user_id, h.role as UnitManagerRole), changed)}><UserMinus className="h-3 w-3" />Remove</Button>}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="space-y-2">
+          <AccountPicker value={who} onChange={setWho} label="Add someone" />
+          <div className="flex items-end gap-2">
+            <Field label="Role" className="flex-1"><Select value={role} onValueChange={(v) => setRole(v as UnitManagerRole)} options={[{ value: 'admin', label: ORG_ROLES.admin.label }, { value: 'owner', label: ORG_ROLES.owner.label }]} /></Field>
+            <Button variant="primary" disabled={!who || self} onClick={async () => { if (!org || !who) return; const r = await act(`${personName(who)} is ${ORG_ROLES[role].label} of ${org.name}.`, () => api.platformAssignManager(org.id, who.id, role), changed); if (r) setWho(null); }}><UserPlus className="h-4 w-4" />Assign</Button>
+          </div>
+          {self && <p className="text-xs text-warn">You never assign yourself a Unit Instance role. Another Vantage Administrator, or its Lead Unit Managers, does.</p>}
+        </div>
+      </div>
     </Dialog>
   );
 }
@@ -171,14 +217,14 @@ export function AskAccess({ org, onClose }: { org: { id: string; name: string } 
   const [hours, setHours] = useState('4');
   return (
     <Dialog open={Boolean(org)} onOpenChange={(o) => { if (!o) onClose(); }} title={`Ask to look at ${org?.name}`} size="sm"
-      description="Its owners decide. Access is read-only (its units and the work shared with them, never member detail or private entries) and ends on its own."
+      description="Its Lead Unit Managers decide. Access is read-only (its units and the work shared with them, never member detail or private entries) and ends on its own."
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={reason.trim().length < 10} onClick={async () => {
         if (!org) return;
-        const r = await act('Request sent to its owners.', () => api.platformRequestAccess({ org_id: org.id, reason: reason.trim(), minutes: Math.round(Number(hours) * 60) }), () => qc.invalidateQueries({ queryKey: ['admin'] }));
+        const r = await act('Request sent to its Lead Unit Managers.', () => api.platformRequestAccess({ org_id: org.id, reason: reason.trim(), minutes: Math.round(Number(hours) * 60) }), () => qc.invalidateQueries({ queryKey: ['admin'] }));
         if (r) { setReason(''); onClose(); }
       }}><Send className="h-4 w-4" />Ask</Button></>}>
       <div className="space-y-3">
-        <Field label="Why" hint="name the ticket and what you need to see; the owners read it"><Textarea autoFocus rows={3} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={1000} placeholder="Ticket 1042: the G-8 dashboard total does not match the report. I need to look at September’s shared entries." /></Field>
+        <Field label="Why" hint="name the ticket and what you need to see; its Lead Unit Managers read it"><Textarea autoFocus rows={3} value={reason} onChange={(e) => setReason(e.target.value)} maxLength={1000} placeholder="Ticket 1042: the G-8 dashboard total does not match the report. I need to look at September’s shared entries." /></Field>
         <Field label="For"><Select value={hours} onValueChange={setHours} options={[{ value: '0.5', label: '30 minutes' }, { value: '1', label: '1 hour' }, { value: '4', label: '4 hours' }, { value: '8', label: '8 hours' }, { value: '24', label: '24 hours (the most)' }]} /></Field>
       </div>
     </Dialog>
@@ -369,7 +415,7 @@ export function Access() {
   const head = <><th>Unit Instance and reason</th><th className="w-36">Staff</th><th className="w-40">State</th><th className="w-40">When</th><th className="w-24"></th></>;
   return (
     <div className="space-y-4">
-      <Panel title="Open" subtitle="Read-only, time-limited, and approved by the Unit Instance’s owners unless it chose to be told instead." action={can('platform.access') ? (
+      <Panel title="Open" subtitle="Read-only, time-limited, and approved by the Unit Instance’s Lead Unit Managers unless it chose to be told instead." action={can('platform.access') ? (
         <span className="flex items-center gap-2">
           <Select aria-label="Unit Instance" className="w-56" value={pick} onValueChange={setPick} placeholder="Choose a Unit Instance" options={(orgs.data?.organizations ?? []).filter((o) => o.status === 'active').map((o) => ({ value: o.id, label: o.name }))} />
           <Button size="sm" variant="primary" disabled={!pick} onClick={() => { const o = orgs.data?.organizations.find((x) => x.id === pick); if (o) setAsking({ id: o.id, name: o.name }); }}><KeyRound className="h-4 w-4" />Ask</Button>
@@ -395,7 +441,7 @@ export function PlatformHolds() {
   if (isPending || !data) return <Skeleton className="h-48" />;
   return (
     <Panel title="Platform legal holds" subtitle="A hold on the service itself binds every Unit Instance: nothing it covers is disposed of, whatever a Unit Instance’s schedule says." action={<Button size="sm" onClick={() => setDraft({ scope: 'instance', record_type: '', reason: '', who: null })}><ShieldAlert className="h-4 w-4" />Place a hold</Button>}>
-      {!data.holds.length ? <p className="text-sm text-ink-3">No platform hold is open. Unit Instances place their own in the owner console.</p> : (
+      {!data.holds.length ? <p className="text-sm text-ink-3">No platform hold is open. Unit Instances place their own in the Unit Manager console.</p> : (
         <ul className="divide-y divide-line">{data.holds.map((h) => (
           <li key={h.id} className="flex items-start justify-between gap-3 py-2">
             <span><span className="block text-base font-medium text-ink">{h.scope === 'instance' ? 'Everything on Vantage' : h.scope === 'user' ? 'One person, everywhere' : `Every ${humanize(h.record_type)}`}</span><span className="block text-xs text-ink-2">{h.reason}</span><span className="block text-2xs text-ink-3">placed {timeAgo(h.placed_at)}</span></span>

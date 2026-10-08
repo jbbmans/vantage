@@ -12,7 +12,7 @@ export const LINKS: Links = (() => {
   } catch { return ONE_HOST; }
 })();
 
-/** A path on the public site, the application, the owner console or the admin dashboard: absolute when it lives on another host. */
+/** A path on the public site, the application, the Unit Manager console or the Vantage Administrator console: absolute when it lives on another host. */
 export const siteHref = (path = '/') => `${LINKS.site}${path}`;
 export const appHref = (path = '/') => `${LINKS.app}${path}`;
 export const consoleHref = (path = '/') => `${LINKS.console}${path}`;

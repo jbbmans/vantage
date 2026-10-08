@@ -10,9 +10,9 @@ import type { TeamSection } from '@/lib/teamAccess';
 export interface Requirement {
   /** Belongs to, or leads, at least one unit. */
   unit?: boolean;
-  /** Holds an organization role: owner, administrator, records officer or auditor (the owner console). */
+  /** Holds a Unit Instance role: Lead Unit Manager, Unit Manager, Records Officer or Unit Auditor (the Unit Manager console). */
   orgRole?: boolean;
-  /** Vantage staff (the admin dashboard). */
+  /** Vantage staff (the Vantage Administrator console). */
   staff?: boolean;
   maradmins?: boolean;
   /** Not offered in the synthetic demo. */
@@ -110,10 +110,10 @@ export const GROUPS: NavGroup[] = [
 
 export const FOOTER: NavPage[] = [
   { to: '/settings', label: 'Settings', icon: Settings2, key: 's', hint: 'Your profile, security and preferences' },
-  { to: '/console', label: 'Owner console', icon: ShieldCheck, key: 'o', hint: 'Run your organization: people, units, roles, the roster feed', when: { orgRole: true, notDemo: true } },
-  { to: '/admin', label: 'Vantage admin', icon: KeyRound, hint: 'Run the service', when: { staff: true, notDemo: true } },
-  // The demo has no owner console (every visitor shares the instance); this shows what one governs instead.
-  { to: '/governance', label: 'Owner console', icon: ShieldCheck, hint: 'What an owner governs', when: { demo: true } },
+  { to: '/console', label: 'Unit Manager console', icon: ShieldCheck, key: 'o', hint: 'Run your Unit Instance: people, units, roles, the roster feed', when: { orgRole: true, notDemo: true } },
+  { to: '/admin', label: 'Vantage Administrator console', icon: KeyRound, hint: 'Run the service', when: { staff: true, notDemo: true } },
+  // The demo has no Unit Manager console (every visitor shares the instance); this shows what one governs instead.
+  { to: '/governance', label: 'Unit Manager console', icon: ShieldCheck, hint: 'What a Unit Manager governs', when: { demo: true } },
 ];
 
 /** Every page, for the command palette, the shortcuts and the header. */

@@ -81,7 +81,7 @@ export const HELP: HelpSection[] = [
         id: 'who-can-see',
         q: 'Who can see my records?',
         a: [
-          'Every record is private by default. Only you can see it. Leaders, unit owners, your Unit Instance’s owners and Vantage staff cannot read a private entry through the application.',
+          'Every record is private by default. Only you can see it. Leaders, Unit Managers and Vantage staff cannot read a private entry through the application.',
           'Marking a record "shared with unit" makes it visible to members of that unit who hold a role carrying the View shared records permission, and feeds the unit dashboard.',
           'Every time a leader opens your record the access is written to an audit log you can read yourself under Settings → Security. You do not have to ask anyone what they looked at.',
         ],
@@ -307,14 +307,14 @@ export const HELP: HelpSection[] = [
   {
     id: 'deployment',
     title: 'Running a deployment',
-    lede: 'For the owner: configuration, governance and scale.',
+    lede: 'For Vantage Administrators and Unit Managers: configuration, governance and scale.',
     topic: 'admin',
     answers: [
       {
         id: 'metrics-config',
         q: 'We are not a comptroller shop. Can we change what is measured?',
         a: [
-          'Yes. The owner console renames the money metric, defines the value types and which of them roll into a headline total, and sets the activity categories and unit suggestions.',
+          'Yes. The Unit Manager console renames the money metric, defines the value types and which of them roll into a headline total, and sets the activity categories and unit suggestions.',
           'Records keep whatever key they were saved with, so retiring a type never rewrites history.',
         ],
         also: ['dollars', 'customise', 'categories', 'configure'],
@@ -332,7 +332,7 @@ export const HELP: HelpSection[] = [
         id: 'legal-hold',
         q: 'How do I freeze records against disposition?',
         a: [
-          'Place a legal hold in the owner console. A hold names its scope and its reason, and held records are skipped by disposition until it is released.',
+          'Place a legal hold in the Unit Manager console. A hold names its scope and its reason, and held records are skipped by disposition until it is released.',
         ],
         also: ['preserve', 'litigation', 'freeze'],
       },
@@ -340,7 +340,7 @@ export const HELP: HelpSection[] = [
         id: 'privacy-inventory',
         q: 'I need a data inventory for a privacy assessment.',
         a: [
-          'The owner console builds one from the live database every time you open it, and exports as Markdown for a PIA.',
+          'The Unit Manager console builds one from the live database every time you open it, and exports as Markdown for a PIA.',
           'It is read from the schema rather than maintained by hand, so it cannot quietly stop being true the way a written document does. It also reports its own gaps.',
         ],
         also: ['pia', 'privacy act', 'inventory', 'sorn'],
@@ -359,7 +359,7 @@ export const HELP: HelpSection[] = [
         id: 'cac',
         q: 'Can people sign in with a CAC?',
         a: [
-          'Yes, and it is off until the owner turns it on, because it needs mTLS terminated in front of the application.',
+          'Yes, and it is off until Vantage staff turn it on, because it needs mTLS terminated in front of the application.',
           'Identity comes from the certificate with EDIPI as the only join key — no name matching, because two Marines share a name and nobody shares a DoD ID.',
         ],
         also: ['piv', 'smart card', 'certificate', 'edipi'],
@@ -368,7 +368,7 @@ export const HELP: HelpSection[] = [
         id: 'ai',
         q: 'Is the AI on, and where does the text go?',
         a: [
-          'It is off unless the owner enables it, and it runs against the GenAI.mil gateway rather than a commercial provider.',
+          'It is off unless Vantage staff enable it, and it runs against the GenAI.mil gateway rather than a commercial provider.',
           'Nothing generated is authoritative. It drafts; a person reviews and decides. Where AI is offered it sits on the page you are already working on rather than in a destination of its own.',
         ],
         also: ['genai', 'assist', 'llm'],

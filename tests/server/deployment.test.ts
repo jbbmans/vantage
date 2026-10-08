@@ -119,7 +119,7 @@ test('on MCEN there is no public site: / is the application, and nothing is publ
   } finally { await app.close(); }
 });
 
-test('on MCEN nobody signs themselves up or founds a Unit Instance, and the admin dashboard cannot reopen either', async () => {
+test('on MCEN nobody signs themselves up or founds a Unit Instance, and the Vantage Administrator console cannot reopen either', async () => {
   const app = await startApp(MCEN_TEST);
   try {
     const op = (await setup(app)).body as { token: string };
@@ -127,6 +127,9 @@ test('on MCEN nobody signs themselves up or founds a Unit Instance, and the admi
     assert.equal(app.ctx.runtime.selfServiceUnits, false);
     const register = await app.call('POST', '/api/auth/register', { headers: consent, body: { username: 'rivera', password: PASSWORD, first_name: 'Ana', last_name: 'Rivera', rank_id: 'LCpl' } });
     assert.equal(register.status, 404, 'self-registration is not there to use');
+    const founded = await app.call('POST', '/api/org/units', { token: op.token, body: { name: 'Second Command', code: 'SECOND' } });
+    assert.equal(founded.status, 403, 'Vantage staff do not found one in the app either (ADR-0010)');
+    assert.equal(founded.body.code, 'org_creation_closed');
     for (const key of ['selfServiceUnits', 'selfRegistration']) {
       const res = await app.call('PUT', '/api/platform/runtime', { token: op.token, body: { [key]: true } });
       assert.equal(res.status, 403, key);

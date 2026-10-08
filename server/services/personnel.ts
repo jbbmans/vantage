@@ -6,6 +6,8 @@ import { createHash } from 'node:crypto';
 import { addMember, primaryOrgOf, removeMember, setPrimaryUnit } from './org.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
+import { seatedOrgRole } from '../authz/scope.ts';
+import { ORG_ROLES, type OrgRole } from '../../shared/permissions.ts';
 
 export const SOURCED_FIELDS = ['first_name', 'last_name', 'middle_initial', 'rank_id', 'mos', 'eas'] as const;
 export type SourcedField = (typeof SOURCED_FIELDS)[number];
@@ -145,6 +147,14 @@ export interface SyncPlan {
 }
 
 interface RosterDbRow extends RosterRow { row_hash: string }
+
+interface RemovedOrgRole { role: OrgRole; granted_by: string | null; expires_at: string | null }
+/**
+ * What a separation took, kept on the roster row so a return gives it back: each membership with its roles. The Unit
+ * Instance roles it ended ride on the first one (`orgRoles`), so the list keeps the shape earlier versions read and
+ * restore from.
+ */
+type RemovedMemberships = Array<{ unit_id: string; is_primary: number; billet: string | null; roles: Array<{ role_id: string; expires_at: string | null }>; frozen_at: string; orgRoles?: RemovedOrgRole[] }>;
 
 export const MASS_SEPARATION_SHARE = 0.2;
 
@@ -299,6 +309,37 @@ export function seatFromRoster(ctx: AppContext, userId: string, row: { org_id: s
   audit(ctx, { actor_id: null, action: 'personnel_provisioned', entity: 'users', entity_id: userId, subject_id: userId, org_id: row.org_id, unit_id: unit?.id ?? null, detail: 'account created from the roster at first sign-in' });
 }
 
+/**
+ * A separation that would end someone's Unit Instance role is a Lead Unit Manager's to run, and never leaves the Unit
+ * Instance without one (ADR-0010). Otherwise it is held back, as a mass separation is, so the next extract raises it again.
+ */
+export function holdBackRoleHolders(ctx: AppContext, plan: SyncPlan, mayEndRoles: boolean) {
+  const rolesOf = (edipi: string) => (ctx.db.prepare('SELECT r.role FROM org_roles r JOIN users u ON u.id = r.user_id WHERE u.edipi = ? AND r.org_id = ?')
+    .all(edipi, plan.orgId) as Array<{ role: string }>).map((r) => r.role);
+  const leads = (ctx.db.prepare(`SELECT u.edipi FROM org_roles r JOIN users u ON u.id = r.user_id WHERE r.org_id = ? AND r.role = 'owner' AND u.active = 1
+                                  AND (r.expires_at IS NULL OR r.expires_at > ?) AND ${seatedOrgRole('r')}`).all(plan.orgId, now()) as Array<{ edipi: string | null }>).map((r) => r.edipi);
+  const leaving = new Set(plan.separations.map((s) => s.edipi));
+  const lastLeads = leads.every((e) => e !== null && leaving.has(e));
+  for (const sep of [...plan.separations]) {
+    const roles = rolesOf(sep.edipi);
+    if (!roles.length) continue;
+    const reason = !mayEndRoles ? 'holds a Unit Instance role, which a separation ends; held back for a Lead Unit Manager to run the extract'
+      : roles.includes('owner') && lastLeads ? 'the Unit Instance’s last Lead Unit Manager; held back until another is named' : null;
+    if (!reason) continue;
+    plan.separations.splice(plan.separations.indexOf(sep), 1);
+    plan.conflicts.push({ edipi: sep.edipi, reason });
+    // Held back means still active on the roster, so the next extract raises it again.
+    const update = plan.updates.find((u) => u.edipi === sep.edipi);
+    if (update) {
+      update.changes = update.changes.filter((c) => c.field !== 'status');
+      if (!update.changes.length) plan.updates.splice(plan.updates.indexOf(update), 1);
+    }
+    const created = plan.creates.findIndex((c) => c.edipi === sep.edipi && c.status === 'separated');
+    if (created >= 0) plan.creates.splice(created, 1);
+  }
+  return plan;
+}
+
 /** A plan as the console shows it: counts, and the first hundred of each kind of change. */
 export function summarizePlan(plan: SyncPlan) {
   return {
@@ -336,20 +377,24 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
       const held = db.prepare(`SELECT um.unit_id, um.is_primary, um.billet FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE um.user_id = ? AND un.org_id = ?`)
         .all(userId, plan.orgId) as Array<{ unit_id: string; is_primary: number; billet: string | null }>;
       if (!held.length) return 0;
-      const removed = held.map((m) => ({
+      const units = held.map((m) => ({
         ...m,
         roles: (db.prepare('SELECT role_id, expires_at FROM member_roles WHERE user_id = ? AND unit_id = ?').all(userId, m.unit_id) as Array<{ role_id: string; expires_at: string | null }>),
         frozen_at: at,
       }));
+      // Leaving the last unit ends their Unit Instance roles as any departure does (ADR-0010). They are kept with the
+      // memberships, so the restore below gives them back if the separation was the extract's mistake.
+      const orgRoles = db.prepare('SELECT role, granted_by, expires_at FROM org_roles WHERE org_id = ? AND user_id = ?').all(plan.orgId, userId) as RemovedOrgRole[];
       for (const m of held) removeMember(ctx, userId, m.unit_id, actorId, 'roster_separation');
-      db.prepare('UPDATE personnel_roster SET removed_units = ? WHERE org_id = ? AND edipi = ?').run(JSON.stringify(removed), plan.orgId, edipi);
+      const kept: RemovedMemberships = units.map((m, i) => (i === 0 && orgRoles.length ? { ...m, orgRoles } : m));
+      db.prepare('UPDATE personnel_roster SET removed_units = ? WHERE org_id = ? AND edipi = ?').run(JSON.stringify(kept), plan.orgId, edipi);
       return held.length;
     };
     const restoreMemberships = (edipi: string, userId: string) => {
       const row = db.prepare('SELECT removed_units FROM personnel_roster WHERE org_id = ? AND edipi = ?').get(plan.orgId, edipi) as { removed_units: string | null } | undefined;
       if (!row?.removed_units) return;
-      let removed: Array<{ unit_id: string; is_primary: number; billet: string | null; roles: Array<{ role_id: string; expires_at: string | null }>; frozen_at: string }> = [];
-      try { removed = JSON.parse(row.removed_units); } catch { removed = []; }
+      let removed: RemovedMemberships = [];
+      try { const parsed = JSON.parse(row.removed_units); if (Array.isArray(parsed)) removed = parsed; } catch { /* nothing to restore */ }
       for (const m of removed) {
         if (!db.prepare('SELECT 1 FROM units WHERE id = ? AND org_id = ? AND active = 1').get(m.unit_id, plan.orgId)) continue;
         addMember(ctx, userId, m.unit_id, { primary: Boolean(m.is_primary), billet: m.billet, reason: 'roster_restored' });
@@ -358,6 +403,14 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
         if (m.is_primary) setPrimaryUnit(ctx, userId, m.unit_id);
         for (const r of m.roles) db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at, expires_at) SELECT ?, id, unit_id, NULL, ?, ? FROM roles WHERE id = ? AND unit_id = ?').run(userId, at, r.expires_at, r.role_id, m.unit_id);
         for (const table of RECORD_TABLE_NAMES) db.prepare(`UPDATE ${table} SET frozen_at = NULL, updated_at = ? WHERE user_id = ? AND unit_id = ? AND frozen_at = ?`).run(at, userId, m.unit_id, m.frozen_at);
+      }
+      // Back in a unit of the Unit Instance, the roles the separation ended come back with them, unless one has run out.
+      if (db.prepare('SELECT 1 FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE um.user_id = ? AND un.org_id = ? LIMIT 1').get(userId, plan.orgId)) {
+        for (const r of removed.flatMap((m) => m.orgRoles ?? [])) {
+          if (r.expires_at && r.expires_at <= at) continue;
+          const back = db.prepare('INSERT OR IGNORE INTO org_roles (org_id, user_id, role, granted_by, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(plan.orgId, userId, r.role, r.granted_by, r.expires_at, at).changes;
+          if (back) audit(ctx, { actor_id: actorId, action: 'org_role_restored', entity: 'organization', entity_id: plan.orgId, org_id: plan.orgId, subject_id: userId, detail: `${r.role} (${ORG_ROLES[r.role]?.label ?? r.role}): ${plan.source}: back on the roster` });
+        }
       }
       db.prepare('UPDATE personnel_roster SET removed_units = NULL WHERE org_id = ? AND edipi = ?').run(plan.orgId, edipi);
       audit(ctx, { actor_id: actorId, action: 'personnel_restored', entity: 'personnel_roster', entity_id: edipi, subject_id: userId, org_id: plan.orgId, detail: `${plan.source}: back on the roster; ${removed.length} membership${removed.length === 1 ? '' : 's'} restored` });

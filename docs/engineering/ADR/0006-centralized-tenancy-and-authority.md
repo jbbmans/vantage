@@ -1,6 +1,6 @@
 # ADR-0006 · One central service, organizations as tenants, three tiers of authority
 
-**Status:** accepted · **Date:** 2026-10-05
+**Status:** accepted · **Date:** 2026-10-05 · **Amended by:** [ADR-0007](0007-mcen-enterprise-deployment-and-unit-instances.md), [ADR-0010](0010-vantage-administrator-and-unit-manager.md) (role names; an owner may no longer give themselves a role that reads records; organization roles last only while their holder is a member)
 
 ## Context
 

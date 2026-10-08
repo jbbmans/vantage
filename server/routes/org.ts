@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
-import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross, sameInstance, orgOfUnit } from '../authz/scope.ts';
-import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, primaryOrgOf, setPrimaryUnit, type RoleRow } from '../services/org.ts';
+import { scopeFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross, sameInstance, orgOfUnit } from '../authz/scope.ts';
+import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, chainBits, primaryOrgOf, setPrimaryUnit, type RoleRow } from '../services/org.ts';
 import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
@@ -18,6 +18,7 @@ import { unitDashboard, unitOverview } from '../services/dashboard.ts';
 import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
 import type { Activity, Award, Counseling, Goal, MemberDetailResponse, Role, RolesResponse, Task, TeamPerson, TeamResponse, Training } from '../../shared/types.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
+import { assertMayEndInstanceRoles } from '../services/organizations.ts';
 import { mailAllowance, limiters } from '../auth/limiter.ts';
 import { sendTeamMessage, teamAudience } from '../services/teamMail.ts';
 import { zonedDay } from '../lib/clock.ts';
@@ -41,7 +42,15 @@ orgRouter.post('/units', wrap((req, res) => {
   res.status(201).json(createUnit(req.ctx, req.user, scope, req.body || {}, clientIp(req)));
 }));
 orgRouter.put('/units/:unitId', wrap((req, res) => res.json(updateUnit(req.ctx, req.user, scopeFor(req.ctx, req.user, req), String(req.params.unitId), req.body || {}, clientIp(req)))));
-orgRouter.delete('/units/:unitId', wrap((req, res) => { archiveUnit(req.ctx, req.user, scopeFor(req.ctx, req.user, req), String(req.params.unitId), clientIp(req)); res.json({ ok: true }); }));
+orgRouter.delete('/units/:unitId', wrap((req, res) => {
+  const unitId = String(req.params.unitId);
+  // Archiving the last unit you belong to in a Unit Instance takes you out of it, and your Unit Instance roles with you
+  // (ADR-0010), so its last Lead Unit Manager cannot. Archiving its top unit closes the instance itself, which is not that.
+  const member = req.ctx.db.prepare('SELECT 1 FROM unit_members m JOIN units u ON u.id = m.unit_id WHERE m.user_id = ? AND m.unit_id = ? AND u.parent_id IS NOT NULL').get(req.user.id, unitId);
+  if (member && lastUnitInInstance(req.ctx, req.user.id, unitId)) assertMayEndInstanceRoles(req.ctx, req.user, orgOfUnit(req.ctx, unitId), req.user.id);
+  archiveUnit(req.ctx, req.user, scopeFor(req.ctx, req.user, req), unitId, clientIp(req));
+  res.json({ ok: true });
+}));
 orgRouter.post('/units/:unitId/owner', wrap((req, res) => res.json(transferOwnership(req.ctx, req.user, String(req.params.unitId), String(req.body?.user_id || ''), clientIp(req)))));
 
 orgRouter.get('/units/:unitId/dashboard', wrap((req, res) => {
@@ -203,6 +212,8 @@ orgRouter.delete('/units/:unitId/members/:userId', wrap((req, res) => {
   if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot remove members from that unit.');
   if (isUnitOwner(ctx, userId, unitId)) throw badRequest('That Marine leads this unit. Transfer ownership first.', { code: 'last_owner' });
   if (userId !== req.user.id && !isUnitOwner(ctx, req.user.id, unitId) && positionIn(scopeFor(ctx, { id: userId }), unitId) >= positionIn(scope, unitId)) throw forbidden('You cannot remove a Marine whose role is at or above your own.', 'hierarchy');
+  // Their last unit in the Unit Instance takes them out of it, and ends any Unit Instance role they hold there (ADR-0010).
+  if (lastUnitInInstance(ctx, userId, unitId)) assertMayEndInstanceRoles(ctx, req.user, orgOfUnit(ctx, unitId), userId);
   const removed = removeMember(ctx, userId, unitId, req.user.id);
   const revoked = invalidateUserSessions(ctx, userId);
   audit(ctx, { actor_id: req.user.id, action: 'remove_member', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, detail: `roles: ${removed.roles}; records frozen: ${removed.recordsFrozen}; work released: ${removed.claimsReleased}; sessions revoked: ${revoked}`, ip: clientIp(req) });
@@ -294,7 +305,7 @@ orgRouter.put('/roles/:roleId', wrap((req, res) => {
   const { name } = validateRoleDefinition(ctx, req.user, scope, def, role);
   // Widening a role you hold is giving it to yourself.
   const holds = Boolean(ctx.db.prepare('SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = ?').get(req.user.id, role.id));
-  const notice = holds && !isUnitOwner(ctx, req.user.id, role.unit_id) ? guardSelfReach(ctx, req.user, scope, role.unit_id, def.permissions & ~role.permissions, req.user.id, { you: `Widening ${role.name}, which you hold,`, they: `widened ${role.name}, which they hold,` }) : null;
+  if (holds && !isUnitOwner(ctx, req.user.id, role.unit_id)) guardSelfReach(ctx, req.user, scope, role.unit_id, def.permissions & ~role.permissions, req.user.id, `Widening ${role.name}, which you hold,`);
   let revoked = 0;
   ctx.db.transaction(() => {
     ctx.db.prepare('UPDATE roles SET name = ?, description = ?, color = ?, position = ?, permissions = ? WHERE id = ?').run(name, body.description === undefined ? role.description : body.description || null, body.color === undefined ? role.color : body.color || null, def.position, def.permissions, role.id);
@@ -303,7 +314,6 @@ orgRouter.put('/roles/:roleId', wrap((req, res) => {
     }
   })();
   audit(ctx, { actor_id: req.user.id, action: 'edit_role', entity: 'role', entity_id: role.id, unit_id: role.unit_id, detail: `sessions revoked: ${revoked}`, ip: clientIp(req) });
-  notice?.();
   res.json({ ...(ctx.db.prepare('SELECT * FROM roles WHERE id = ?').get(role.id) as RoleRow), sessionsRevoked: revoked });
 }));
 
@@ -331,6 +341,10 @@ orgRouter.post('/team/:userId/roles', wrap((req, res) => {
   const userId = String(req.params.userId);
   const role = ctx.db.prepare('SELECT * FROM roles WHERE id = ?').get(role_id) as RoleRow | undefined;
   validateRoleGrant(ctx, req.user, scope, role, unit_id, userId);
+  // validateRoleGrant refuses granting yourself authority the chain of command has not given you (ADR-0010). Nor is a new end date on a role you hold: making your own acting billet permanent is another person's call.
+  if (userId === req.user.id && !has(chainBits(scope, unit_id), PERMISSIONS.ADMINISTRATOR) && ctx.db.prepare('SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = ?').get(userId, role_id)) {
+    throw forbidden(`You already hold ${role!.name}. Another Unit Manager, or the unit’s chain of command, changes its end date.`, 'self_grant');
+  }
   // Until a date: an acting billet, a leave period. An expired grant confers nothing; the sweep removes it.
   const until = expires_at ? new Date(expires_at) : null;
   if (until && (Number.isNaN(until.getTime()) || until.getTime() <= Date.now())) throw badRequest('An end date must be in the future.', { fieldErrors: { expires_at: 'Must be in the future.' } });
@@ -340,7 +354,6 @@ orgRouter.post('/team/:userId/roles', wrap((req, res) => {
     .run(userId, role_id, unit_id, req.user.id, now(), until ? until.toISOString() : null);
   const revoked = invalidateUserSessions(ctx, userId);
   audit(ctx, { actor_id: req.user.id, action: 'grant_role', entity: 'role', entity_id: role_id, subject_id: userId, unit_id, detail: `${role!.name}${until ? ` until ${until.toISOString().slice(0, 10)}` : ''}; sessions revoked: ${revoked}`, ip: clientIp(req) });
-  guardSelfReach(ctx, req.user, scope, unit_id, role!.permissions, userId, { you: `Granting yourself ${role!.name}`, they: `gave themselves ${role!.name}` })?.();
   res.json({ ok: true, sessionsRevoked: revoked, expires_at: until ? until.toISOString() : null });
 }));
 

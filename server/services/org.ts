@@ -1,12 +1,12 @@
 import type { AppContext, SessionUser } from '../context.ts';
-import { ROLE_TEMPLATE, PERMISSIONS, has, ALL_PERMISSIONS, RECORD_READING_BITS } from '../../shared/permissions.ts';
+import { ROLE_TEMPLATE, PERMISSIONS, has, ALL_PERMISSIONS, RECORD_READING_BITS, ORG_ROLES, type OrgRole } from '../../shared/permissions.ts';
 import { assertSameInstance, can, isUnitOwner, orgCan, orgOfUnit, positionIn, scopeFor, type Scope } from '../authz/scope.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { now, slug } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
-import { notify, notifyOrg } from './notifications.ts';
+import { notify } from './notifications.ts';
 import { releaseClaimsOnDeparture } from './work.ts';
 import { assertCanFoundUnitInstance } from './deployment.ts';
 import { noteMembershipEnd, noteMembershipStart, type EndReason, type StartReason } from './membership.ts';
@@ -89,8 +89,37 @@ export function setPrimaryUnit(ctx: AppContext, userId: string, unitId: string) 
   })();
 }
 
-/** promote: false leaves the primary unit for the caller to place, as a move does, so it passes straight across. */
-export function removeMember(ctx: AppContext, userId: string, unitId: string, actorId: string | null = null, reason: EndReason = 'removed', { promote = true }: { promote?: boolean } = {}) {
+/**
+ * Unit Instance roles are held by members (ADR-0010). When someone leaves the last unit they had in a Unit Instance, the
+ * roles they held there end with it, each on the record. Returns the roles ended.
+ */
+export function endInstanceRolesOnDeparture(ctx: AppContext, userId: string, orgId: string | null, actorId: string | null, reason: EndReason): OrgRole[] {
+  if (!orgId) return [];
+  if (ctx.db.prepare('SELECT 1 FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND u.org_id = ? LIMIT 1').get(userId, orgId)) return [];
+  const held = (ctx.db.prepare('SELECT role FROM org_roles WHERE org_id = ? AND user_id = ?').all(orgId, userId) as Array<{ role: OrgRole }>).map((r) => r.role);
+  if (!held.length) return [];
+  ctx.db.prepare('DELETE FROM org_roles WHERE org_id = ? AND user_id = ?').run(orgId, userId);
+  for (const role of held) {
+    audit(ctx, { actor_id: actorId, action: 'org_role_ended', entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: userId, detail: `${role} (${ORG_ROLES[role]?.label ?? role}): left the Unit Instance (${reason})` });
+  }
+  return held;
+}
+
+/**
+ * True when `unitId` is the only unit of its Unit Instance this person belongs to, so removing them from it takes them out
+ * of the instance, and with it any Unit Instance role they hold there.
+ */
+export function lastUnitInInstance(ctx: AppContext, userId: string, unitId: string): boolean {
+  return !ctx.db.prepare('SELECT 1 FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND um.unit_id <> ? AND u.org_id IS (SELECT org_id FROM units WHERE id = ?) LIMIT 1').get(userId, unitId, unitId);
+}
+
+/**
+ * promote: false leaves the primary unit for the caller to place, as a move does, so it passes straight across.
+ * endInstanceRoles: false keeps Unit Instance roles while the person is out of the instance (they confer nothing until
+ * they are back): a move between its units, which seats them again at once. Every departure ends them, a roster
+ * separation included; the feed keeps what it ended so its restore can give it back (ADR-0010).
+ */
+export function removeMember(ctx: AppContext, userId: string, unitId: string, actorId: string | null = null, reason: EndReason = 'removed', { promote = true, endInstanceRoles = true }: { promote?: boolean; endInstanceRoles?: boolean } = {}) {
   return ctx.db.transaction(() => {
     const frozenAt = now();
     let recordsFrozen = 0;
@@ -109,7 +138,8 @@ export function removeMember(ctx: AppContext, userId: string, unitId: string, ac
         .get(userId, orgOfUnit(ctx, unitId)) as { unit_id: string } | undefined;
       if (next) ctx.db.prepare('UPDATE unit_members SET is_primary = 1 WHERE user_id = ? AND unit_id = ?').run(userId, next.unit_id);
     }
-    return { roles, recordsFrozen, claimsReleased };
+    const instanceRolesEnded = endInstanceRoles ? endInstanceRolesOnDeparture(ctx, userId, orgOfUnit(ctx, unitId), actorId, reason) : [];
+    return { roles, recordsFrozen, claimsReleased, instanceRolesEnded };
   })();
 }
 
@@ -136,14 +166,16 @@ export function createUnit(ctx: AppContext, actor: SessionUser, scope: Scope, bo
   if (parentId) {
     if (!getUnit(ctx, parentId)) throw badRequest('No such parent unit.');
     if (!can(scope, PERMISSIONS.MANAGE_UNITS, parentId)) throw forbidden('You cannot create units under that parent.');
-  } else if (!actor.platformPermissions.includes('platform.orgs')) {
-    // A unit with no parent founds an organization. Self-service is the platform's policy; Vantage staff create them freely.
-    if (!ctx.runtime.selfServiceUnits) throw forbidden('New Unit Instances are set up by Vantage Administrators. Ask through Support, or ask to join an existing unit.', 'org_creation_closed');
+  } else {
+    // A unit with no parent founds a Unit Instance whose founder becomes its Lead Unit Manager. That is self-service: the
+    // platform's policy, the same for everyone, staff included, and always off under MCEN. Vantage Administrators create
+    // Unit Instances in their own console instead, which gives them no role inside one (ADR-0010).
+    if (!ctx.runtime.selfServiceUnits) throw forbidden('New Unit Instances are set up by Vantage Administrators in the Vantage Administrator console. Ask through Support, or ask to join an existing unit.', 'org_creation_closed');
     const limit = ctx.runtime.selfServiceUnitLimit;
     const mine = (ctx.db.prepare(
             'SELECT COUNT(*) AS n FROM units WHERE owner_user_id = ? AND parent_id IS NULL AND active = 1'
     ).get(actor.id) as { n: number }).n;
-    if (mine >= limit) throw forbidden(`You have already created ${mine} ${mine === 1 ? 'organization' : 'organizations'}. That is the limit.`, 'unit_limit');
+    if (mine >= limit) throw forbidden(`You have already created ${mine} ${mine === 1 ? 'Unit Instance' : 'Unit Instances'}. That is the limit.`, 'unit_limit');
   }
   if (!parentId) assertCanFoundUnitInstance(ctx);
   const code = slug(String(body.code || body.short_name || name));
@@ -158,7 +190,7 @@ export function createUnit(ctx: AppContext, actor: SessionUser, scope: Scope, bo
       .run(code, code, name, body.short_name?.trim() || null, body.echelon || 'section', body.location?.trim() || null, parentId, now());
     if (ledFromAbove) seedRoles(ctx, code);
     else claimUnit(ctx, code, actor.id, 'unit_created');
-    // At the top, the person who founded the organization is its first owner.
+    // At the top, the person who founded the Unit Instance is its first Lead Unit Manager.
     if (!parentId) {
       ctx.db.prepare('UPDATE organizations SET created_by = ? WHERE id = (SELECT org_id FROM units WHERE id = ?)').run(actor.id, code);
       ctx.db.prepare("INSERT OR IGNORE INTO org_roles (org_id, user_id, role, granted_by, created_at) SELECT org_id, ?, 'owner', ?, ? FROM units WHERE id = ?").run(actor.id, actor.id, now(), code);
@@ -218,11 +250,11 @@ export function archiveUnit(ctx: AppContext, actor: SessionUser, scope: Scope, u
 export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: string, successorId: string, ip?: string) {
   const unit = getUnit(ctx, unitId);
   if (!unit) throw notFound('No such unit.');
-  if (!isUnitOwner(ctx, actor.id, unitId) && !orgCan(scopeFor(ctx, actor), 'org.units', orgOfUnit(ctx, unitId))) throw forbidden('Only the current Unit Leader or an owner or administrator of the Unit Instance can transfer leadership.');
+  if (!isUnitOwner(ctx, actor.id, unitId) && !orgCan(scopeFor(ctx, actor), 'org.units', orgOfUnit(ctx, unitId))) throw forbidden('Only the current Unit Leader or a Unit Manager of the Unit Instance can transfer leadership.');
   const successor = ctx.db.prepare('SELECT u.id, u.first_name, u.last_name FROM users u JOIN unit_members um ON um.user_id = u.id WHERE u.id = ? AND u.active = 1 AND um.unit_id = ?').get(successorId, unitId) as { id: string; first_name: string; last_name: string } | undefined;
   if (!successor) throw badRequest('Choose an active current member of this unit.', { fieldErrors: { user_id: 'Not a member of this unit.' } });
   if (successor.id === unit.owner_user_id) return { ok: true, already: true };
-  const notice = isUnitOwner(ctx, actor.id, unitId) ? null : guardSelfReach(ctx, actor, scopeFor(ctx, actor), unitId, PERMISSIONS.ADMINISTRATOR, successor.id, { you: `Making yourself leader of ${unit.name}`, they: 'made themselves its leader' });
+  if (!isUnitOwner(ctx, actor.id, unitId)) guardSelfReach(ctx, actor, scopeFor(ctx, actor), unitId, PERMISSIONS.ADMINISTRATOR, successor.id, `Making yourself leader of ${unit.name}`);
   let sessionsRevoked = 0;
   ctx.db.transaction(() => {
     ctx.db.prepare('UPDATE units SET owner_user_id = ? WHERE id = ?').run(successor.id, unitId);
@@ -235,46 +267,40 @@ export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: s
   })();
   audit(ctx, { actor_id: actor.id, action: 'transfer_ownership', entity: 'unit', entity_id: unitId, subject_id: successor.id, unit_id: unitId, detail: `${unit.owner_user_id || 'unowned'} -> ${successor.id}`, ip });
   notify(ctx, successor.id, { kind: 'unit', title: `You now lead ${unit.short_name || unit.name}`, message: 'Sign in again to pick up the new authority.', actionUrl: '/team', dedupeKey: `owner:${unitId}:${successor.id}` });
-  notice?.();
   return { ok: true, sessionsRevoked };
 }
 
 export interface RoleRow { id: string; unit_id: string; key: string | null; name: string; description: string | null; color: string | null; position: number; permissions: number; is_default: number; is_system: number }
 
 /**
- * Organization owners and administrators staff every unit of their organization: they define and grant its roles below
- * the Unit Leader, whatever those roles carry, without holding them. That is what running a command's access means
- * (ADR-0006). Giving such a role to yourself is another matter: an administrator cannot, and an owner's other owners
- * are told.
+ * Unit Managers staff every unit of their Unit Instance: they define and grant its roles below the Unit Leader, whatever
+ * those roles carry, without holding them. That is what running a command's access means (ADR-0006). It is the
+ * granular permission that decides, `org.roles`, never the role's name (ADR-0010). Giving such a role to yourself is
+ * another matter: see guardSelfReach.
  */
-export function orgStaffing(ctx: AppContext, scope: Scope, unitId: string): 'owner' | 'admin' | null {
-  const orgId = orgOfUnit(ctx, unitId);
-  if (!orgId || !orgCan(scope, 'org.roles', orgId)) return null;
-  return scope.orgs[orgId]!.roles.includes('owner') ? 'owner' : 'admin';
+export function orgStaffing(ctx: AppContext, scope: Scope, unitId: string): boolean {
+  return orgCan(scope, 'org.roles', orgOfUnit(ctx, unitId));
 }
 
+/** What a person holds in a unit through the chain of command: their roles there and above it, and leadership. */
+export const chainBits = (scope: Scope, unitId: string) =>
+  (scope.sources[unitId] || []).filter((s) => s.kind !== 'org' && s.kind !== 'vantage').reduce((b, s) => b | s.bits, 0);
+
 /**
- * Reach into Marines' records that a person would give themselves through organization authority: by granting
- * themselves a role, leading a unit, redeeming their own join code, or widening a role they hold. What they already
- * hold in the unit through the chain of command is not new reach. An administrator is refused; an owner may, and the
- * returned notice tells the other owners once the change is made.
+ * Authority a person would give themselves through Unit Instance authority: by granting themselves a role, leading a
+ * unit, redeeming their own join code or invitation, or widening a role they hold. What they already hold in the unit
+ * through the chain of command is not new, and seeing the unit is what Unit Instance authority already gives. Anything
+ * else is, whether it reads records or only leads to them (managing units, then leading the one you make): nobody
+ * elevates themselves (ADR-0010). A Lead Unit Manager is refused as a Unit Manager is; another Unit Manager, or the
+ * unit's chain of command, grants it instead.
  */
-export function guardSelfReach(ctx: AppContext, actor: SessionUser, scope: Scope, unitId: string, bits: number, targetId: string, act: { you: string; they: string }): (() => void) | null {
-  if (targetId !== actor.id || !(bits & RECORD_READING_BITS)) return null;
-  const fromUnit = (scope.sources[unitId] || []).filter((s) => s.kind !== 'org' && s.kind !== 'vantage').reduce((b, s) => b | s.bits, 0);
-  if (has(fromUnit, PERMISSIONS.ADMINISTRATOR) || (bits & RECORD_READING_BITS & ~fromUnit) === 0) return null;
-  const orgId = orgOfUnit(ctx, unitId);
-  if (!orgId) return null;
-  if (!scope.orgs[orgId]?.roles.includes('owner')) {
-    throw forbidden(`${act.you} would give you a role that reads Marines’ records. A Unit Instance owner, or the unit’s chain of command, does that for you.`, 'self_grant');
-  }
-  const unit = getUnit(ctx, unitId);
-  return () => notifyOrg(ctx, orgId, 'org.owners', {
-    kind: 'system',
-    title: `${actor.first_name} ${actor.last_name} ${act.they} in ${unit?.short_name || unit?.name || unitId}`,
-    message: 'That reads Marines’ records. If it was not agreed, undo it and review the audit trail.',
-    actionUrl: '/console/people',
-  }, actor.id);
+export function guardSelfReach(_ctx: AppContext, actor: SessionUser, scope: Scope, unitId: string, bits: number, targetId: string, act: string): void {
+  if (targetId !== actor.id) return;
+  const fromUnit = chainBits(scope, unitId);
+  const added = bits & ~fromUnit & ~PERMISSIONS.VIEW_UNIT;
+  if (has(fromUnit, PERMISSIONS.ADMINISTRATOR) || !added) return;
+  const what = added & RECORD_READING_BITS ? 'a role that reads Marines’ records' : 'unit authority the chain of command has not given you';
+  throw forbidden(`${act} would give you ${what}. Another Unit Manager, or the unit’s chain of command, does that for you.`, 'self_grant');
 }
 
 export function canManageRoleDefinition(ctx: AppContext, actor: SessionUser, scope: Scope, role: RoleRow): boolean {
@@ -290,7 +316,7 @@ export function validateRoleDefinition(ctx: AppContext, actor: SessionUser, scop
   if (!Number.isInteger(def.position) || def.position < 0 || def.position > 99) throw badRequest('Position must be a whole number from 0 to 99.', { fieldErrors: { position: '0 to 99.' } });
   if (!Number.isInteger(def.permissions) || def.permissions < 0 || (def.permissions & ~ALL_PERMISSIONS) !== 0) throw badRequest('Unknown permission bits.');
   if (!getUnit(ctx, def.unit_id)) throw notFound('No such unit.');
-  const owner = isUnitOwner(ctx, actor.id, def.unit_id) || Boolean(orgStaffing(ctx, scope, def.unit_id));
+  const owner = isUnitOwner(ctx, actor.id, def.unit_id) || orgStaffing(ctx, scope, def.unit_id);
   if (!owner) {
     if (!can(scope, PERMISSIONS.MANAGE_ROLES, def.unit_id)) throw forbidden('You cannot manage roles in that unit.');
     const myPosition = positionIn(scope, def.unit_id);
@@ -335,7 +361,7 @@ export function validateRoleGrant(ctx: AppContext, actor: SessionUser, scope: Sc
   if (!targetScope.unitIds.includes(unitId)) throw badRequest('That Marine is not a member of this unit.');
   if (isUnitOwner(ctx, actor.id, unitId)) return;
   if (orgStaffing(ctx, scope, unitId)) {
-    guardSelfReach(ctx, actor, scope, unitId, role.permissions, targetId, { you: `Granting yourself ${role.name}`, they: `gave themselves ${role.name}` });
+    guardSelfReach(ctx, actor, scope, unitId, role.permissions, targetId, `Granting yourself ${role.name}`);
     return;
   }
   if (!can(scope, PERMISSIONS.MANAGE_ROLES, unitId)) throw forbidden('You cannot manage roles in that unit.');
@@ -385,7 +411,7 @@ export function moveMember(ctx: AppContext, actor: SessionUser, scope: Scope, us
     }
     // Out of the old team with its primary unit left unplaced, then seated in the new one, which takes it: the primary unit
     // passes straight across, never to another instance, and each team's history shows one move rather than a re-shuffle.
-    const removed = removeMember(ctx, userId, fromId, actor.id, 'transfer', { promote: false });
+    const removed = removeMember(ctx, userId, fromId, actor.id, 'transfer', { promote: false, endInstanceRoles: false });
     addMember(ctx, userId, toId, { invitedBy: actor.id, primary: Boolean(membership.is_primary), billet: billet === undefined ? membership.billet : billet, reason: 'transfer' });
     for (const h of held) {
       const role = ctx.db.prepare('SELECT * FROM roles WHERE unit_id = ? AND key = ?').get(toId, h.key) as RoleRow | undefined;

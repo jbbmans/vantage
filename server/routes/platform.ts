@@ -7,10 +7,10 @@ import { join } from 'node:path';
 import { chmodSync, statSync, unlinkSync } from 'node:fs';
 import { normalizeMetrics } from '../../shared/constants.ts';
 import { setCurrencySymbol } from '../../shared/metrics.ts';
-import { PLATFORM_ROLE_KEYS, PLATFORM_ROLES, PLATFORM_PERMISSION_LIST, ORG_ROLES, ORG_PERMISSION_LIST, type PlatformRole } from '../../shared/permissions.ts';
+import { PLATFORM_ROLE_KEYS, PLATFORM_ROLES, PLATFORM_PERMISSION_LIST, ORG_ROLES, ORG_PERMISSION_LIST, UNIT_MANAGER_ROLES, type PlatformRole } from '../../shared/permissions.ts';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
-import { notify, notifyStaff } from '../services/notifications.ts';
+import { notify, notifyOrg, notifyStaff } from '../services/notifications.ts';
 import { requireAuth, requirePlatform, requireSudo } from '../auth/middleware.ts';
 import { audit, verifyAuditChain } from '../services/audit.ts';
 import { auditForwardingStatus } from '../services/auditSink.ts';
@@ -23,7 +23,7 @@ import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
 import { layout } from '../services/mailLayout.ts';
 import { checkRecords, dnsHostOf, domainOf, heloName, lastPath, probePath, requiredRecords } from '../services/directMail.ts';
-import type { AppContext } from '../context.ts';
+import type { AppContext, SessionUser } from '../context.ts';
 import { usageReport, MIN_COHORT } from '../services/usage.ts';
 import { EVENTS } from '../services/telemetry.ts';
 import { openHolds, placeHold, releaseHold, HOLDABLE_TYPES } from '../services/retention.ts';
@@ -34,18 +34,19 @@ import { invalidateUserSessions } from '../auth/sessions.ts';
 import { unlockAccount } from '../auth/lockout.ts';
 import { hashPassword } from '../lib/crypto.ts';
 import { isEdipi } from '../services/personnel.ts';
-import { createOrganization, getOrg, listOrganizations, nameFirstOwner, orgCounts, orgRoleHolders, publicOrg, setOrgStatus, updateOrganization } from '../services/organizations.ts';
+import { assignManager, createOrganization, getOrg, listOrganizations, nameFirstOwner, orgCounts, orgRoleHolders, publicOrg, removeManager, setOrgStatus, updateOrganization } from '../services/organizations.ts';
 import { accessForPlatform, endAccess, requestAccess, ACCESS_DEFAULT_MINUTES, ACCESS_MAX_MINUTES } from '../services/access.ts';
 import { platformRolesOf } from '../authz/platform.ts';
+import { seatedOrgRole } from '../authz/scope.ts';
 import { assertRuntimePatchAllowed, deploymentPosture } from '../services/deployment.ts';
 
 /**
- * The Vantage admin dashboard's API (ADR-0006): the service, for Vantage staff. Organizations appear here as
- * containers (names, counts, owners, status), never as their contents. Seeing inside one takes that organization's
+ * The Vantage Administrator console's API (ADR-0006, ADR-0010): the service, for Vantage staff. Unit Instances appear
+ * here as containers (names, counts, Lead Unit Managers, status), never as their contents. Seeing inside one takes that organization's
  * approval, through an access request.
  */
 export const platformRouter = Router();
-platformRouter.use(requireAuth, (req, _res, next) => next(req.user.platform.length ? undefined : forbidden('The Vantage admin dashboard is for Vantage staff.', 'not_staff')), requireSudo);
+platformRouter.use(requireAuth, (req, _res, next) => next(req.user.platform.length ? undefined : forbidden('The Vantage Administrator console is for Vantage staff.', 'not_staff')), requireSudo);
 
 const ip = (req: Request) => clientIp(req);
 
@@ -66,7 +67,7 @@ platformRouter.get('/overview', requirePlatform('platform.view'), wrap((req, res
       active: count("SELECT COUNT(*) AS n FROM organizations WHERE status = 'active'"),
       suspended: count("SELECT COUNT(*) AS n FROM organizations WHERE status = 'suspended'"),
       archived: count("SELECT COUNT(*) AS n FROM organizations WHERE status = 'archived'"),
-      withoutOwner: count(`SELECT COUNT(*) AS n FROM organizations o WHERE o.status = 'active' AND NOT EXISTS (SELECT 1 FROM org_roles r JOIN users u ON u.id = r.user_id WHERE r.org_id = o.id AND r.role = 'owner' AND u.active = 1)`),
+      withoutOwner: count(`SELECT COUNT(*) AS n FROM organizations o WHERE o.status = 'active' AND NOT EXISTS (SELECT 1 FROM org_roles r JOIN users u ON u.id = r.user_id WHERE r.org_id = o.id AND r.role = 'owner' AND u.active = 1 AND ${seatedOrgRole('r')})`),
     },
     users: count('SELECT COUNT(*) AS n FROM users WHERE active = 1'), inactiveUsers: count('SELECT COUNT(*) AS n FROM users WHERE active = 0'),
     lockedUsers: (db.prepare('SELECT COUNT(*) AS n FROM users WHERE locked_until > ?').get(now()) as { n: number }).n,
@@ -192,7 +193,7 @@ platformRouter.post('/email/test', requirePlatform('platform.email'), wrap(async
     intro: 'If you are reading this, Vantage can reach this inbox. Reset links, invitations, sign-in details and digests will arrive the same way.',
     details: [{ label: 'Sent from', value: ctx.config.urls.app }, { label: 'Provider', value: ctx.mailer.provider }, { label: 'From address', value: ctx.config.email.from }, { label: 'Sent at', value: new Date().toLocaleString('en-US', { timeZone: ctx.config.timezone, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) }],
     note: 'Check that this message did not land in spam. For direct delivery, open the message headers and look for “dkim=pass”.',
-    footer: 'Vantage staff sent this test from the admin dashboard.',
+    footer: 'Vantage staff sent this test from the Vantage Administrator console.',
     origin: ctx.config.urls.app,
   });
   const result = await ctx.mailer.send({ to, subject: 'Vantage email test', text: mail.text, html: mail.html, kind: 'test', userId: req.user.id });
@@ -231,6 +232,17 @@ platformRouter.post('/orgs/:orgId/owner', requirePlatform('platform.orgs'), wrap
   res.json({ roles: nameFirstOwner(req.ctx, req.user, String(req.params.orgId), body.user_id, ip(req)) });
 }));
 
+// Unit Manager assignment (John, 2026-10-08; ADR-0010 §5): any time, never yourself, members of the Unit Instance only.
+platformRouter.post('/orgs/:orgId/managers', requirePlatform('platform.managers'), wrap((req, res) => {
+  const body = parse(z.object({ user_id: z.string().max(64), role: z.enum(UNIT_MANAGER_ROLES) }), req.body);
+  res.json({ roles: assignManager(req.ctx, req.user, String(req.params.orgId), body, ip(req)).map(({ username: _u, ...r }) => r) });
+}));
+
+platformRouter.delete('/orgs/:orgId/managers/:userId/:role', requirePlatform('platform.managers'), wrap((req, res) => {
+  const role = parse(z.enum(UNIT_MANAGER_ROLES), String(req.params.role));
+  res.json({ roles: removeManager(req.ctx, req.user, String(req.params.orgId), String(req.params.userId), role, ip(req)).map(({ username: _u, ...r }) => r) });
+}));
+
 // ——— Accounts: sign-in help. Who someone is and how they sign in; never what they keep. ———
 
 platformRouter.get('/accounts', requirePlatform('platform.accounts'), wrap((req, res) => {
@@ -260,11 +272,27 @@ const accountTarget = (req: Request) => {
   const id = String(req.params.userId);
   const row = req.ctx.db.prepare('SELECT id, username, active FROM users WHERE id = ?').get(id) as { id: string; username: string; active: number } | undefined;
   if (!row) throw notFound('No such account.');
-  // A platform owner's account is recovered only by another owner: support cannot take over the people above it.
+  // A staff member's account is recovered only by a Lead Vantage Administrator: support cannot take over the people above it.
   const theirRoles = platformRolesOf(req.ctx, id);
-  if (theirRoles.length && id !== req.user.id && !req.user.platformPermissions.includes('platform.staff')) throw forbidden('Only a platform owner changes another staff member’s sign-in.', 'staff_account');
+  if (theirRoles.length && id !== req.user.id && !req.user.platformPermissions.includes('platform.staff')) throw forbidden('Only a Lead Vantage Administrator changes another staff member’s sign-in.', 'staff_account');
   return row;
 };
+
+/**
+ * Vantage support changing someone's sign-in is written into the audit trail of every Unit Instance they serve in, and
+ * where they hold a Unit Instance role or lead a unit, its Lead Unit Managers are told: otherwise staff could sign in as a
+ * Unit Manager without the instance ever knowing (ADR-0010). Requiring a second person for these steps is Task 7's.
+ */
+function tellInstancesOfSupport(ctx: AppContext, actor: SessionUser, targetId: string, what: string, from?: string | null) {
+  const person = ctx.db.prepare('SELECT first_name, last_name FROM users WHERE id = ?').get(targetId) as { first_name: string; last_name: string };
+  const orgs = ctx.db.prepare('SELECT DISTINCT u.org_id FROM unit_members m JOIN units u ON u.id = m.unit_id WHERE m.user_id = ? AND u.org_id IS NOT NULL').all(targetId) as Array<{ org_id: string }>;
+  for (const { org_id } of orgs) {
+    audit(ctx, { actor_id: actor.id, action: 'vantage_account_support', entity: 'user', entity_id: targetId, subject_id: targetId, org_id, detail: `Vantage support ${what}`, ip: from });
+    const authority = ctx.db.prepare(`SELECT 1 FROM org_roles WHERE org_id = ? AND user_id = ? AND (expires_at IS NULL OR expires_at > ?)
+      UNION ALL SELECT 1 FROM units WHERE org_id = ? AND owner_user_id = ? AND active = 1 LIMIT 1`).get(org_id, targetId, now(), org_id, targetId);
+    if (authority) notifyOrg(ctx, org_id, 'org.owners', { kind: 'security', title: `Vantage support ${what} for ${person.first_name} ${person.last_name}`, message: 'They hold authority in this Unit Instance. If nobody here asked for it, raise it with Vantage.', actionUrl: '/console/audit' }, targetId);
+  }
+}
 
 platformRouter.post('/accounts/:userId/unlock', requirePlatform('platform.accounts'), wrap((req, res) => {
   const target = accountTarget(req);
@@ -288,6 +316,7 @@ platformRouter.post('/accounts/:userId/temporary-password', requirePlatform('pla
   ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 1, failed_sign_ins = 0, locked_until = NULL, updated_at = ? WHERE id = ?').run(hashPassword(password), now(), target.id);
   const revoked = invalidateUserSessions(ctx, target.id);
   audit(ctx, { actor_id: req.user.id, action: 'temporary_password', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
+  tellInstancesOfSupport(ctx, req.user, target.id, 'set a temporary password', ip(req));
   notify(ctx, target.id, { kind: 'security', title: 'Vantage support set a temporary password on your account', message: 'If you did not ask for this, contact Vantage support.', actionUrl: '/settings' });
   res.json({ ok: true, password, sessionsRevoked: revoked });
 }));
@@ -302,6 +331,7 @@ platformRouter.post('/accounts/:userId/reset-mfa', requirePlatform('platform.acc
   })();
   const revoked = invalidateUserSessions(ctx, target.id);
   audit(ctx, { actor_id: req.user.id, action: 'reset_mfa', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
+  tellInstancesOfSupport(ctx, req.user, target.id, 'reset the second factor', ip(req));
   notify(ctx, target.id, { kind: 'security', title: 'Vantage support reset your second factor', message: 'Set up an authenticator or passkey again from Settings.', actionUrl: '/settings' });
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
@@ -321,6 +351,7 @@ platformRouter.post('/accounts/:userId/edipi', requirePlatform('platform.account
   ctx.db.prepare("UPDATE users SET edipi = ?, edipi_verified_at = NULL, identity_source = CASE WHEN ? IS NULL THEN 'local' ELSE identity_source END, updated_at = ? WHERE id = ?").run(edipi, edipi, now(), target.id);
   const revoked = invalidateUserSessions(ctx, target.id);
   audit(ctx, { actor_id: req.user.id, action: 'edipi_corrected', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `${before ?? 'none'} → ${edipi ?? 'none'}; ${reason}; sessions revoked: ${revoked}`.slice(0, 900), ip: ip(req) });
+  tellInstancesOfSupport(ctx, req.user, target.id, edipi ? 'changed the linked CAC' : 'removed the linked CAC', ip(req));
   notify(ctx, target.id, { kind: 'security', title: 'Vantage support changed the CAC linked to your account', message: edipi ? `Your account now signs in with the card whose DoD ID ends ${edipi.slice(-4)}. If that is not your card, contact Vantage support.` : 'No card signs in to your account now. If you did not ask for this, contact Vantage support.', actionUrl: '/settings' });
   res.json({ ok: true, changed: true, sessionsRevoked: revoked });
 }));
@@ -334,6 +365,7 @@ platformRouter.post('/accounts/:userId/deactivate', requirePlatform('platform.ac
   ctx.db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ?').run(now(), target.id);
   const revoked = invalidateUserSessions(ctx, target.id);
   audit(ctx, { actor_id: req.user.id, action: 'deactivate_account', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `${String(req.body?.reason || '').slice(0, 200)}; sessions revoked: ${revoked}`, ip: ip(req) });
+  tellInstancesOfSupport(ctx, req.user, target.id, 'deactivated the account', ip(req));
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
 
@@ -341,6 +373,7 @@ platformRouter.post('/accounts/:userId/reactivate', requirePlatform('platform.ac
   const target = accountTarget(req);
   req.ctx.db.prepare('UPDATE users SET active = 1, updated_at = ? WHERE id = ?').run(now(), target.id);
   audit(req.ctx, { actor_id: req.user.id, action: 'reactivate_account', entity: 'user', entity_id: target.id, subject_id: target.id, ip: ip(req) });
+  tellInstancesOfSupport(req.ctx, req.user, target.id, 'reactivated the account', ip(req));
   res.json({ ok: true });
 }));
 
@@ -370,14 +403,14 @@ platformRouter.post('/staff', requirePlatform('platform.staff'), wrap((req, res)
     ? ctx.db.prepare('SELECT id, first_name, last_name, totp_enabled FROM users WHERE id = ? AND active = 1').get(body.user_id)
     : ctx.db.prepare('SELECT id, first_name, last_name, totp_enabled FROM users WHERE username = ? COLLATE NOCASE AND active = 1').get(String(body.username || ''))) as { id: string; first_name: string; last_name: string; totp_enabled: number } | undefined;
   if (!user) throw notFound('No such active account.');
-  if (user.id === req.user.id) throw forbidden('Another platform owner changes your own staff roles.', 'self_grant');
+  if (user.id === req.user.id) throw forbidden('Another Lead Vantage Administrator changes your own staff roles.', 'self_grant');
   const passkeys = (ctx.db.prepare('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?').get(user.id) as { n: number }).n;
   if (!user.totp_enabled && !passkeys) throw badRequest('Vantage staff sign in with a second factor. They set one up in Settings first.', { code: 'mfa_required' });
   const r = ctx.db.prepare('INSERT OR IGNORE INTO platform_roles (user_id, role, granted_by, created_at) VALUES (?, ?, ?, ?)').run(user.id, body.role, req.user.id, now());
   if (!r.changes) throw conflict('They already hold that role.');
   invalidateUserSessions(ctx, user.id);
   audit(ctx, { actor_id: req.user.id, action: 'staff_role_granted', entity: 'platform', entity_id: user.id, subject_id: user.id, detail: body.role, ip: ip(req) });
-  notifyStaff(ctx, 'platform.staff', { kind: 'system', title: `${user.first_name} ${user.last_name} is now Vantage ${PLATFORM_ROLES[body.role].label.toLowerCase()}`, message: `Granted by ${req.user.first_name} ${req.user.last_name}.`, actionUrl: '/admin/staff' }, req.user.id);
+  notifyStaff(ctx, 'platform.staff', { kind: 'system', title: `${user.first_name} ${user.last_name} is now ${PLATFORM_ROLES[body.role].label}`, message: `Granted by ${req.user.first_name} ${req.user.last_name}.`, actionUrl: '/admin/staff' }, req.user.id);
   res.status(201).json({ ok: true });
 }));
 
@@ -387,7 +420,7 @@ platformRouter.delete('/staff/:userId/:role', requirePlatform('platform.staff'),
   const role = String(req.params.role);
   if (role === 'owner') {
     const owners = (ctx.db.prepare("SELECT p.user_id FROM platform_roles p JOIN users u ON u.id = p.user_id WHERE p.role = 'owner' AND u.active = 1").all() as Array<{ user_id: string }>).map((r) => r.user_id);
-    if (owners.includes(userId) && owners.length === 1) throw badRequest('The platform always keeps at least one owner.', { code: 'last_owner' });
+    if (owners.includes(userId) && owners.length === 1) throw badRequest('Vantage always keeps at least one Lead Vantage Administrator.', { code: 'last_owner' });
   }
   const r = ctx.db.prepare('DELETE FROM platform_roles WHERE user_id = ? AND role = ?').run(userId, role);
   if (!r.changes) throw notFound('They do not hold that role.');
@@ -472,12 +505,12 @@ platformRouter.delete('/holds/:id', requirePlatform('platform.data'), wrap((req,
   res.json({ ok: true });
 }));
 
-// ——— Disaster recovery: the whole service. Platform owners only. ———
+// ——— Disaster recovery: the whole service. Lead Vantage Administrators only. ———
 
 /**
  * The database and the archive hold every Marine's records, password hashes and sealed secrets. On the production
  * host they are taken on the server (docs/operations.md) and VANTAGE_BROWSER_BACKUPS=false closes this door. Where it
- * stays open, every other platform owner is told each time it is used.
+ * stays open, every other Lead Vantage Administrator is told each time it is used.
  */
 function browserCopy(req: Request, what: string) {
   if (!req.ctx.config.security.browserBackups) throw forbidden(`Downloading ${what} through the browser is turned off. Take it on the server; see Operations in the documentation.`, 'browser_backups_off');

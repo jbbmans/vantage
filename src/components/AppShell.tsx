@@ -364,8 +364,8 @@ export default function AppShell() {
           </span>
         </div>
         <MenuItem icon={Settings2} onSelect={() => navigate('/settings')}>Settings</MenuItem>
-        {!demo && identity?.orgs?.some((o) => o.status === 'active' && o.permissions.includes('org.view')) ? <MenuItem icon={ShieldCheck} onSelect={() => navigate('/console')}>Owner console</MenuItem> : null}
-        {!demo && identity?.platform?.roles.length ? <MenuItem icon={KeyRound} onSelect={() => navigate('/admin')}>Vantage admin</MenuItem> : null}
+        {!demo && identity?.orgs?.some((o) => o.status === 'active' && o.permissions.includes('org.view')) ? <MenuItem icon={ShieldCheck} onSelect={() => navigate('/console')}>Unit Manager console</MenuItem> : null}
+        {!demo && identity?.platform?.roles.length ? <MenuItem icon={KeyRound} onSelect={() => navigate('/admin')}>Vantage Administrator console</MenuItem> : null}
         <MenuItem onSelect={toggleTheme} icon={theme === 'dark' ? Sun : Moon}>{theme === 'dark' ? 'Light theme' : 'Dark theme'}</MenuItem>
         <MenuItem icon={Keyboard} onSelect={() => setShortcuts(true)}>Keyboard shortcuts</MenuItem>
         <MenuItem icon={Sparkles} onSelect={openWhatsNew}>What’s new{news.unseen && <><span className="sr-only"> (new)</span><span className="ml-auto h-1.5 w-1.5 rounded-full bg-accent" aria-hidden /></>}</MenuItem>

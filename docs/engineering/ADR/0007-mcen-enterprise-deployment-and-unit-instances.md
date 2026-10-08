@@ -1,6 +1,6 @@
 # ADR-0007 · MCEN enterprise deployment, Unit Instances, and deployment profiles
 
-**Status:** accepted · **Date:** 2026-10-07 · **Amends:** [ADR-0006](0006-centralized-tenancy-and-authority.md)
+**Status:** accepted · **Date:** 2026-10-07 · **Amends:** [ADR-0006](0006-centralized-tenancy-and-authority.md) · **Amended by:** [ADR-0010](0010-vantage-administrator-and-unit-manager.md) (the role names it left open)
 
 ## Context
 

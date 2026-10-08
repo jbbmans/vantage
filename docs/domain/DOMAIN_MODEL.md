@@ -8,7 +8,8 @@ The product never shows them to users.
 - **Unit Instance** (`organizations`, `units.org_id`): a command's own tree of units, members, roles,
   roster feed, retention, holds and audit trail, kept apart from every other. The code and the API call
   it an organization (ADR-0006); the product calls it a Unit Instance (ADR-0007). Vantage
-  Administrators (`platform_roles`) provision it, and Unit Managers (`org_roles` owner and admin) run it.
+  Administrators (`platform_roles` owner and admin) provision it, and Unit Managers (`org_roles` owner,
+  shown as Lead Unit Manager, and admin) run it while they belong to it (ADR-0010).
 - **Unit** (`units`): a node in a flexible tree (`parent_id`). Any depth, any echelon name.
 - **Account** (`users`): the person, for a whole career (ADR-0009). Its id, sign-in methods, EDIPI
   (`edipi`, proven when `edipi_verified_at` is set), profile and records stay the same through every

@@ -77,6 +77,12 @@ An account is the person for a whole career; memberships change around it and ar
 the existing account, a proven EDIPI is changed only by Vantage support, and an account shared by two
 Unit Instances is governed once. See [ADR-0009](ADR/0009-identity-and-unit-membership.md).
 
+Authority has three tiers with explicit names: Vantage Administrators and other Vantage staff run the
+service (`platform_roles`), Unit Managers run one Unit Instance's structure (`org_roles`, only while they
+belong to it), and unit roles in the chain of command read what is shared with their units. Checks ask for
+permissions, never role names, and no one at either upper tier can widen their own reach. See
+[ADR-0010](ADR/0010-vantage-administrator-and-unit-manager.md).
+
 ## Tests
 
 - `tests/server/`: node:test, HTTP level, in-memory SQLite. 361+ cases, including the case model,

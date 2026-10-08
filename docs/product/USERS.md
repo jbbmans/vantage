@@ -12,9 +12,9 @@ findings.
 | Officer (3404) / section OIC | Understand section throughput and bottlenecks without judging individuals | Section totals count distinct documents; limitations stated on the page |
 | Reviewer | Review decisions and verifications with their evidence | Every decision carries a rationale, every verification a reference; history shows who, when and where each value came from. A dedicated reviewer role is not yet built (ROADMAP). |
 | Command leadership | Evidence that the tool is used and the work moves | Section workload and resolved/verified counts; the usage console reports adoption without naming people |
-| Administrator (unit) | Manage members, roles and units without reading private records | Team → Roster, Roles, Units, Invitations; private entries, drafts and career plans never appear |
-| Organization owner or administrator | Run a command's organization: people, units, roles, roster feed, retention | Owner console, one organization at a time; organization roles never read records |
-| Vantage staff | Keep the service healthy, backed up and configured; help people sign in | Admin dashboard: organizations as containers, accounts, staff, access requests, settings, audit, backup; sees inside an organization only with its approval |
+| Unit Leader or roster manager | Manage members, roles and units without reading private records | Team → Roster, Roles, Units, Invitations; private entries, drafts and career plans never appear |
+| Lead Unit Manager or Unit Manager | Run a command's Unit Instance: people, units, roles, roster feed, retention | Unit Manager console, one Unit Instance at a time; Unit Instance roles never read records |
+| Vantage staff (Vantage Administrators, Vantage Support, Vantage Auditors) | Keep the service healthy, backed up and configured; help people sign in; name who runs each Unit Instance | Vantage Administrator console: Unit Instances as containers and their Unit Managers, accounts, staff, access requests, settings, audit, backup; sees inside a Unit Instance only with its approval |
 
 ## What junior Marines reported, and the response
 

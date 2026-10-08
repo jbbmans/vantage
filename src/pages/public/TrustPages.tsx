@@ -44,7 +44,7 @@ const SECURITY: TrustPage = {
         ['Passwords', '15 characters or more, hashed with PBKDF2-HMAC-SHA256'],
         ['Second factors', 'Passkeys, authenticator codes with recovery codes, or CAC/PIV'],
         ['Organization sign-in', 'OpenID Connect, including Entra ID in commercial, GCC High and DoD clouds'],
-        ['Sessions', 'End after 15 idle minutes (10 for owners); a background poll cannot keep one alive'],
+        ['Sessions', 'End after 15 idle minutes (10 for Lead Vantage Administrators); a background poll cannot keep one alive'],
         ['Failed sign-ins', 'Three in a row pause the account for 15 minutes'],
         ['Records', 'Private by default; shared with a unit only when the author chooses'],
         ['History', 'Case histories and the audit log are hash-chained and signed'],
@@ -55,20 +55,20 @@ const SECURITY: TrustPage = {
       id: 'sign-in', title: 'Signing in',
       body: <>
         <p>Every account has a password of at least fifteen characters, checked against common and repeated patterns and stored only as a PBKDF2-HMAC-SHA256 hash. A passkey (WebAuthn), an authenticator app with single-use recovery codes, or a Common Access Card adds the second factor. A deployment can also hand sign-in to its organization’s identity provider over OpenID Connect, with PKCE, a single-use state and nonce, and the token checked against the provider’s keys.</p>
-        <p>Sensitive changes (email, second factors, passkeys, the owner console) ask for the password again. Everyone can see the devices they are signed in on and end any of them. Vantage can require the DoD Notice and Consent Banner before anyone signs in, and the server enforces it, not only the page.</p>
+        <p>Sensitive changes (email, second factors, passkeys, the Unit Manager console) ask for the password again. Everyone can see the devices they are signed in on and end any of them. Vantage can require the DoD Notice and Consent Banner before anyone signs in, and the server enforces it, not only the page.</p>
       </>,
     },
     {
       id: 'access', title: 'Who can see what',
       body: <>
         <p>A Marine’s record is private until they share an entry with a unit. Leaders see what was shared with the units they lead, and the units beneath them; access flows down the chain of command and never up. Leaving a unit ends access to its work at once, and work that was held goes back to the queue with the reason recorded.</p>
-        <p>No role in the application, including a Unit Instance’s owners and Vantage staff, can open another person’s private entries. When a leader opens a member’s record, that is itself logged in the unit’s access log. Team totals drawn from fewer than three people are withheld so a total cannot be used to single someone out.</p>
+        <p>No role in the application, including a Unit Instance’s Unit Managers and Vantage staff, can open another person’s private entries. When a leader opens a member’s record, that is itself logged in the unit’s access log. Team totals drawn from fewer than three people are withheld so a total cannot be used to single someone out.</p>
       </>,
     },
     {
       id: 'integrity', title: 'Integrity you can check',
       body: <>
-        <p>Every entry on a case is appended to a per-case chain that is sealed with a keyed hash and a signed head. Each day the heads are anchored in a hash-chained audit log of sign-ins, access and changes. The owner console verifies both chains; a changed, removed or inserted entry shows as broken, never as merely unsealed. Audit records can also be sent off the host to a syslog collector or SIEM as they are written.</p>
+        <p>Every entry on a case is appended to a per-case chain that is sealed with a keyed hash and a signed head. Each day the heads are anchored in a hash-chained audit log of sign-ins, access and changes. The Unit Manager console verifies both chains; a changed, removed or inserted entry shows as broken, never as merely unsealed. Audit records can also be sent off the host to a syslog collector or SIEM as they are written.</p>
         <p>Corrections are added, never edited in place: the original stays in the history, marked as corrected, and anything calculated from it is shown as stale.</p>
       </>,
     },
@@ -89,10 +89,10 @@ const SECURITY: TrustPage = {
       body: <>
         <p>Vantage is an enterprise application built to be hosted on the Marine Corps Enterprise Network. Each command on it is a <strong>Unit Instance</strong>: its units, members, roster feed, retention schedules, legal holds and audit trail are its own and kept apart from every other Unit Instance’s. A deployment either shares one database among many Unit Instances or holds exactly one, in which case the database itself refuses a second.</p>
         <ul>
-          <li><strong>Three kinds of authority, none implying another.</strong> Vantage Administrators run the service. A Unit Instance’s owners and administrators run its structure: members, units, roles and the roster feed, without reading Marines’ records. Unit roles in the chain of command read what is shared with their units.</li>
-          <li><strong>Vantage Administrators do not see inside a Unit Instance</strong> unless its owners approve a request, which names a reason and lasts at most a day. That access is read-only, can be ended by an owner at any time, and every step is in the Unit Instance’s own audit trail.</li>
+          <li><strong>Three kinds of authority, none implying another.</strong> Vantage Administrators run the service. A Unit Instance’s Unit Managers run its structure: members, units, roles and the roster feed, without reading Marines’ records, and none can give themselves more. Unit roles in the chain of command read what is shared with their units.</li>
+          <li><strong>Vantage Administrators do not see inside a Unit Instance</strong> unless its Lead Unit Managers approve a request, which names a reason and lasts at most a day. That access is read-only, can be ended by a Lead Unit Manager at any time, and every step is in the Unit Instance’s own audit trail.</li>
           <li><strong>Grants can end on a date</strong> (an acting billet, a leave period), and anyone who manages roles can see why a person can do what they can.</li>
-          <li>It runs as one Node.js process behind TLS and makes no outbound requests by default. AI, the MARADMIN feed, mail and search-engine notices are each off until they are turned on, and an MCEN deployment will not start with a public-internet service such as a commercial mail API or search-engine notices switched on. The admin dashboard lists every outbound connection.</li>
+          <li>It runs as one Node.js process behind TLS and makes no outbound requests by default. AI, the MARADMIN feed, mail and search-engine notices are each off until they are turned on, and an MCEN deployment will not start with a public-internet service such as a commercial mail API or search-engine notices switched on. The Vantage Administrator console lists every outbound connection.</li>
           <li>When AI is turned on it goes only to GenAI.mil, the key stays on the server, and a request carries only the fields that workflow needs.</li>
           <li>Records management is built in: retention schedules with their authority, legal holds that stop every path that could delete, and disposition evidence for every run.</li>
           <li>A privacy-impact data inventory is generated from the live database schema, so it cannot quietly stop being true.</li>
@@ -197,7 +197,7 @@ const PRIVACY: TrustPage = {
     {
       id: 'sees', title: 'Who can see it',
       body: <>
-        <p>Entries are private until you share one with a unit. Leaders see what was shared with the units they lead, and every time a leader opens a member’s record it is logged. Your Unit Instance’s owners and administrators manage its people and units, not your records. Vantage Administrators see your Unit Instance as a name and its counts; they look at shared work only when its owners approve it, read-only and for a set time, and that is in the Unit Instance’s audit trail.</p>
+        <p>Entries are private until you share one with a unit. Leaders see what was shared with the units they lead, and every time a leader opens a member’s record it is logged. Your Unit Instance’s Unit Managers manage its people and units, not your records. Vantage Administrators see your Unit Instance as a name and its counts; they look at shared work only when its Lead Unit Managers approve it, read-only and for a set time, and that is in the Unit Instance’s audit trail.</p>
         <p>Your account is yours, not your command’s: it moves with you between Unit Instances, and your private entries, career plan and readiness stay with it. Whoever runs the servers could read the database directly, as anyone who runs a server can; the application itself gives no one a way to open your private entries.</p>
       </>,
     },

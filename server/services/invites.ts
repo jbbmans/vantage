@@ -114,9 +114,9 @@ export function redeemInvite(ctx: AppContext, user: SessionUser, code: string, i
     const already = ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(user.id, row.unit_id);
     if (already) throw conflict(`You are already in ${unit.name}.`);
 
-    // A code you made cannot be your own way into a role that reads records (organization administration does not read them).
+    // A code you made cannot be your own way into a role that reads records (Unit Instance authority does not read them).
     const role = row.role_id ? ctx.db.prepare('SELECT name, permissions FROM roles WHERE id = ?').get(row.role_id) as { name: string; permissions: number } | undefined : undefined;
-    const notice = role && row.created_by === user.id ? guardSelfReach(ctx, user, scopeFor(ctx, user), row.unit_id, role.permissions, user.id, { you: `Joining with your own code for ${role.name}`, they: `joined with their own code for ${role.name}` }) : null;
+    if (role && row.created_by === user.id) guardSelfReach(ctx, user, scopeFor(ctx, user), row.unit_id, role.permissions, user.id, `Joining with your own code for ${role.name}`);
     addMember(ctx, user.id, row.unit_id, { invitedBy: row.created_by, reason: 'join_code' });
     if (row.role_id) {
       ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)')
@@ -126,7 +126,6 @@ export function redeemInvite(ctx: AppContext, user: SessionUser, code: string, i
     ctx.db.prepare('INSERT INTO unit_invite_uses (id, invite_id, user_id, created_at) VALUES (?, ?, ?, ?)')
       .run(newId(), row.id, user.id, now());
     audit(ctx, { actor_id: user.id, action: 'unit_invite_redeemed', entity: 'unit', entity_id: row.unit_id, subject_id: user.id, unit_id: row.unit_id, ip });
-    notice?.();
     return { unit_id: unit.id, unit_name: unit.name };
   })();
 }

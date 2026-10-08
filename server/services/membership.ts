@@ -11,7 +11,7 @@ import type { MembershipPeriod } from '../../shared/types.ts';
 /** Why a period began. The triggers write billet_changed, primary_changed and recorded themselves. */
 export type StartReason =
   | 'enrolled' | 'invitation' | 'join_code' | 'roster' | 'roster_restored' | 'transfer' | 'account_import' | 'unit_created'
-  | 'leader_assigned' | 'demo' | 'billet_changed' | 'primary_changed' | 'recorded';
+  | 'leader_assigned' | 'manager_assigned' | 'demo' | 'billet_changed' | 'primary_changed' | 'recorded';
 
 /** Why a period ended. superseded is the triggers' own: an open period found under a membership that was just opened. */
 export type EndReason =

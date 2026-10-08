@@ -20,7 +20,7 @@ import { audit } from '../services/audit.ts';
 import { layout } from '../services/mailLayout.ts';
 import { newId, now } from '../lib/ids.ts';
 import { claimUnit, addMember, guardSelfReach } from '../services/org.ts';
-import { scopeFor } from '../authz/scope.ts';
+import { scopeFor, seatedOrgRole } from '../authz/scope.ts';
 import { slug } from '../lib/ids.ts';
 import type { Request, Response } from 'express';
 import type { AppContext } from '../context.ts';
@@ -51,16 +51,16 @@ function openSession(req: Request, res: Response, user: { id: string }, method: 
   const ctx = req.ctx;
   // The router refused anything unaccepted before it ran; this is the backstop for any future way in.
   if (consentFor(ctx) && !(opts.consented ?? req.get('x-vantage-consent') === '1')) throw forbidden('Read and accept the notice before signing in.', 'consent_required');
-  // A console on a host of its own is for the people it serves, and nobody else signs in there: the owner console for
-  // an organization's owners, administrators, records officers and auditors; the admin dashboard for Vantage staff.
+  // A console on a host of its own is for the people it serves, and nobody else signs in there: the Unit Manager console
+  // for those who hold a role in a Unit Instance they still belong to; the Vantage Administrator console for Vantage staff.
   const faces = facesOf(res);
   if (!faces.has('app') && (faces.has('console') || faces.has('admin'))) {
     const staff = Boolean(ctx.db.prepare('SELECT 1 FROM platform_roles WHERE user_id = ? LIMIT 1').get(user.id));
-    const orgRole = Boolean(ctx.db.prepare("SELECT 1 FROM org_roles WHERE user_id = ? AND (expires_at IS NULL OR expires_at > ?) LIMIT 1").get(user.id, now()));
+    const orgRole = Boolean(ctx.db.prepare(`SELECT 1 FROM org_roles r WHERE r.user_id = ? AND (r.expires_at IS NULL OR r.expires_at > ?) AND ${seatedOrgRole('r')} LIMIT 1`).get(user.id, now()));
     const allowed = (faces.has('admin') && staff) || (faces.has('console') && orgRole);
     if (!allowed) {
       audit(ctx, { actor_id: user.id, action: 'console_sign_in_refused', ip: clientIp(req), detail: method });
-      throw forbidden(faces.has('admin') ? `The admin dashboard is for Vantage staff. Sign in at ${ctx.config.urls.app} instead.` : `The owner console is for the people who run a Unit Instance on Vantage. Sign in at ${ctx.config.urls.app} instead.`, 'console_owners_only');
+      throw forbidden(faces.has('admin') ? `The Vantage Administrator console is for Vantage staff. Sign in at ${ctx.config.urls.app} instead.` : `The Unit Manager console is for the people who run a Unit Instance on Vantage. Sign in at ${ctx.config.urls.app} instead.`, 'console_owners_only');
     }
   }
   clearFailures(ctx, user.id);
@@ -441,15 +441,12 @@ authRouter.post('/invite/claim', requireAuth, requireSudo, wrap((req, res) => {
   if (ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(req.user.id, unit.id)) throw conflict(`You already belong to ${unit.short_name || unit.name}.`, 'already_member');
   const role = pending.payload.role_id ? ctx.db.prepare('SELECT id, name, permissions FROM roles WHERE id = ? AND unit_id = ?').get(String(pending.payload.role_id), unit.id) as { id: string; name: string; permissions: number } | undefined : undefined;
   // An invitation you sent cannot be your own way into a role that reads records, as with your own join code.
-  const notice = role && pending.created_by === req.user.id
-    ? guardSelfReach(ctx, req.user, scopeFor(ctx, req.user), unit.id, role.permissions, req.user.id, { you: `Accepting your own invitation for ${role.name}`, they: `accepted their own invitation for ${role.name}` })
-    : null;
+  if (role && pending.created_by === req.user.id) guardSelfReach(ctx, req.user, scopeFor(ctx, req.user), unit.id, role.permissions, req.user.id, `Accepting your own invitation for ${role.name}`);
   ctx.db.transaction(() => {
     if (!consumeToken(ctx, 'invite', token)) throw badRequest('That invitation was just used. Ask your leader for a new one.');
     addMember(ctx, req.user.id, unit.id, { invitedBy: pending.created_by, primary: true, billet: pending.payload.billet ? String(pending.payload.billet) : null, reason: 'invitation' });
     if (role) ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(req.user.id, role.id, unit.id, pending.created_by, now());
   })();
-  notice?.();
   const primary = Boolean((ctx.db.prepare('SELECT is_primary FROM unit_members WHERE user_id = ? AND unit_id = ?').get(req.user.id, unit.id) as { is_primary: number }).is_primary);
   audit(ctx, { actor_id: req.user.id, action: 'invite_accepted', entity: 'user', entity_id: req.user.id, subject_id: req.user.id, unit_id: unit.id, ip, detail: `existing account${primary ? '; primary unit' : ''}` });
   res.json({ ok: true, unit_id: unit.id, unit_name: unit.short_name || unit.name, primary });

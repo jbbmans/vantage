@@ -17,7 +17,7 @@ export { PersonnelConsole, RetentionConsole, PrivacyConsole };
 import { downloadText, formatStamp, humanize, timeAgo } from '@/lib/utils';
 import { DEFAULT_METRICS, CATEGORY_PALETTE, type MetricsConfig } from '../../shared/constants';
 
-/** Platform data, behind a recent password confirmation like everything in the admin dashboard. */
+/** Platform data, behind a recent password confirmation like everything in the Vantage Administrator console. */
 export function useAdmin<T = any>(key: string, fn: () => Promise<T>) { return useQuery<T>({ queryKey: ['admin', key], queryFn: () => withSudo(fn), retry: false }); }
 
 export function Overview() {
@@ -35,7 +35,7 @@ export function Overview() {
         <Stat label="Database" value={mb(data.database.sizeBytes)} hint={`of ${mb(data.database.maxBytes)} safety threshold`} icon={Database} tone={data.database.sizeBytes && data.database.sizeBytes > data.database.maxBytes * 0.8 ? 'warn' : undefined} />
       </div>
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
-        <Panel title="Service"><dl className="space-y-1.5 text-sm">{[['Version', `${data.version} · schema ${data.schemaVersion}`], ['Node', data.node], ['Uptime', `${Math.round(data.uptime / 3600)} h`], ...(data.deployment?.publicSite === false ? [] : [['Public site', data.urls.site]]), ['App', data.urls.app], ['Owner console', data.urls.console], ['Admin dashboard', data.urls.admin], ['Passkey domain', data.rpId], ['Units', data.units], ['Time zone', data.timezone], ['Sessions open', data.sessions], ['MFA users', `${data.mfaUsers} authenticator · ${data.passkeyUsers} passkey`]].map(([k, v]) => <div key={String(k)} className="flex justify-between gap-3"><dt className="text-ink-3">{k}</dt><dd className="fig truncate text-right text-ink">{String(v)}</dd></div>)}</dl></Panel>
+        <Panel title="Service"><dl className="space-y-1.5 text-sm">{[['Version', `${data.version} · schema ${data.schemaVersion}`], ['Node', data.node], ['Uptime', `${Math.round(data.uptime / 3600)} h`], ...(data.deployment?.publicSite === false ? [] : [['Public site', data.urls.site]]), ['App', data.urls.app], ['Unit Manager console', data.urls.console], ['Vantage Administrator console', data.urls.admin], ['Passkey domain', data.rpId], ['Units', data.units], ['Time zone', data.timezone], ['Sessions open', data.sessions], ['MFA users', `${data.mfaUsers} authenticator · ${data.passkeyUsers} passkey`]].map(([k, v]) => <div key={String(k)} className="flex justify-between gap-3"><dt className="text-ink-3">{k}</dt><dd className="fig truncate text-right text-ink">{String(v)}</dd></div>)}</dl></Panel>
         <Panel title="Email" subtitle={data.email.enabled ? `${data.email.provider} · from ${data.email.from}` : 'not configured'} action={data.email.enabled ? <Button size="sm" onClick={async () => { try { await withSudo(() => api.platformEmailTest()); toast.success('Test email sent to you.'); } catch (e) { toast.error(api.errorText(e)); } }}><Mail className="h-3.5 w-3.5" />Send test</Button> : undefined}>
           {!data.email.enabled ? <p className="text-sm text-ink-2">Turn email on to send reset links, invitations and digests. The Email tab shows how to send from your own domain with no email service.</p> : !data.email.recent.length ? <p className="text-sm text-ink-3">No email sent yet.</p> : <ul className="space-y-1 text-xs">{data.email.recent.map((m: any, i: any) => <li key={i} className="flex justify-between gap-2"><span className="truncate text-ink">{m.kind} → {m.to_address}</span><span className={m.status === 'sent' ? 'text-good' : m.status === 'queued' ? 'text-warn' : 'text-bad'}>{m.status}{m.error ? `: ${m.error}` : ''}</span></li>)}</ul>}
         </Panel>
@@ -289,7 +289,7 @@ export function DataAdmin() {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Backup" subtitle="A consistent copy of the SQLite database">
-        <p className="text-sm text-ink-2">The file holds every Unit Instance’s records, every password hash and every sealed secret. Every other platform owner is told each time one is downloaded.</p>
+        <p className="text-sm text-ink-2">The file holds every Unit Instance’s records, every password hash and every sealed secret. Every other Lead Vantage Administrator is told each time one is downloaded.</p>
         {browserOff
           ? <p className="mt-3 text-sm text-warn">Downloading through the browser is turned off (VANTAGE_BROWSER_BACKUPS=false). Backups are taken on the server; see Operations in the documentation.</p>
           : <Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button>}

@@ -53,7 +53,7 @@ test('the public site serves the public page and sends everything of the applica
   assert.equal(login.location, `http://${APP}/login`);
   const reset = await at(SITE, 'GET', '/reset?token=abc');
   assert.equal(reset.location, `http://${APP}/reset?token=abc`, 'the link in an email keeps its token');
-  assert.equal((await at(SITE, 'GET', '/operator?tab=users')).location, `http://${CONSOLE}/admin/accounts`, 'an old console tab that runs the service opens in the admin dashboard');
+  assert.equal((await at(SITE, 'GET', '/operator?tab=users')).location, `http://${CONSOLE}/admin/accounts`, 'an old console tab that runs the service opens in the Vantage Administrator console');
 
   assert.equal((await at(SITE, 'GET', '/api/me', { token: operator })).status, 404, 'the public site answers no API calls');
   assert.equal((await at(SITE, 'GET', '/api/health')).status, 200, 'the health check answers on every host');
@@ -68,7 +68,7 @@ test('the application serves sign-in at its root, and nothing of the site or the
 
   assert.equal((await at(APP, 'GET', '/about')).location, `http://${SITE}/about`);
   assert.equal((await at(APP, 'GET', '/operator?tab=users')).location, `http://${CONSOLE}/admin/accounts`);
-  assert.equal((await at(APP, 'GET', '/operator?tab=retention')).location, `http://${CONSOLE}/retention`, 'one that runs an organization, in the owner console');
+  assert.equal((await at(APP, 'GET', '/operator?tab=retention')).location, `http://${CONSOLE}/retention`, 'one that runs an organization, in the Unit Manager console');
   assert.equal((await at(APP, 'GET', '/admin/orgs')).location, `http://${CONSOLE}/admin/orgs`);
   assert.equal((await at(APP, 'GET', '/console/accounts')).location, `http://${CONSOLE}/accounts`);
   assert.equal((await at(APP, 'GET', '/sitemap.xml')).location, `http://${SITE}/sitemap.xml`);
@@ -77,11 +77,11 @@ test('the application serves sign-in at its root, and nothing of the site or the
   assert.match(robots.text, /Disallow: \/\n/);
 
   assert.equal((await at(APP, 'GET', '/api/me', { token: marine })).status, 200);
-  assert.equal((await at(APP, 'GET', '/api/platform/overview', { token: operator })).status, 404, 'the platform’s API answers only on the admin dashboard’s host, even for staff signed in on the app');
-  assert.equal((await at(APP, 'GET', '/api/orgs/G8/overview', { token: operator })).status, 404, 'and an organization’s, only on the owner console’s');
+  assert.equal((await at(APP, 'GET', '/api/platform/overview', { token: operator })).status, 404, 'the platform’s API answers only on the Vantage Administrator console’s host, even for staff signed in on the app');
+  assert.equal((await at(APP, 'GET', '/api/orgs/G8/overview', { token: operator })).status, 404, 'and an organization’s, only on the Unit Manager console’s');
 });
 
-test('the console is for owners only, on its own host, and answers only the calls it makes', async () => {
+test('the console is for Unit Managers only, on its own host, and answers only the calls it makes', async () => {
   const refused = await at(CONSOLE, 'POST', '/api/auth/login', { body: { username: 'rivera', password: PASSWORD } });
   assert.equal(refused.status, 403);
   assert.equal(refused.body.code, 'console_owners_only');
@@ -91,8 +91,8 @@ test('the console is for owners only, on its own host, and answers only the call
   assert.equal(signedIn.status, 200, JSON.stringify(signedIn.body));
   const token = signedIn.body.token;
   assert.equal((await at(CONSOLE, 'GET', '/api/me', { token })).status, 200);
-  assert.notEqual((await at(CONSOLE, 'GET', '/api/platform/overview', { token })).status, 404, 'the admin dashboard shares this host, so the platform’s API answers');
-  assert.equal((await at(CONSOLE, 'GET', '/api/orgs/G8/overview', { token })).status, 200, 'and the owner console’s');
+  assert.notEqual((await at(CONSOLE, 'GET', '/api/platform/overview', { token })).status, 404, 'the Vantage Administrator console shares this host, so the platform’s API answers');
+  assert.equal((await at(CONSOLE, 'GET', '/api/orgs/G8/overview', { token })).status, 200, 'and the Unit Manager console’s');
   assert.equal((await at(CONSOLE, 'GET', '/api/records/activities', { token })).status, 404, 'the console does not serve the application’s records');
   assert.equal((await at(CONSOLE, 'POST', '/api/auth/register', { body: { username: 'sneaky', password: PASSWORD, first_name: 'S', last_name: 'N' } })).status, 404, 'nobody registers on the console');
 
@@ -101,7 +101,7 @@ test('the console is for owners only, on its own host, and answers only the call
   assert.equal((await at(CONSOLE, 'GET', '/operator?tab=email')).location, `http://${CONSOLE}/admin/email`);
   const admin = await at(CONSOLE, 'GET', '/admin/orgs');
   assert.equal(admin.status, 200);
-  assert.match(admin.text, /Vantage admin/, 'the admin dashboard is its own document');
+  assert.match(admin.text, /Vantage Administrator console/, 'the Vantage Administrator console is its own document');
   assert.equal((await at(CONSOLE, 'GET', '/login')).robots, 'noindex, nofollow', 'any page on the console host is the console');
 });
 
@@ -129,7 +129,7 @@ test('links in email point at the application', async () => {
   assert.match(mail.text, /http:\/\/secure\.vantage\.test\/reset\?token=/);
 });
 
-test('with a host of its own, the admin dashboard is the only face that answers the platform, and only staff sign in there', async () => {
+test('with a host of its own, the Vantage Administrator console is the only face that answers the platform, and only staff sign in there', async () => {
   const ADMIN = 'admin.vantage.test';
   const own = await startApp({ VANTAGE_SITE_URL: `http://${SITE}`, VANTAGE_APP_URL: `http://${APP}`, VANTAGE_CONSOLE_URL: `http://${CONSOLE}`, VANTAGE_ADMIN_URL: `http://${ADMIN}`, TRUST_PROXY: 'true' });
   const call = async (host: string, method: string, path: string, opts: { token?: string; body?: unknown } = {}) => {
@@ -150,17 +150,17 @@ test('with a host of its own, the admin dashboard is the only face that answers 
 
     const page = await call(ADMIN, 'GET', '/');
     assert.equal(page.status, 200);
-    assert.match(page.text, /Vantage admin/);
+    assert.match(page.text, /Vantage Administrator console/);
     assert.equal((await call(ADMIN, 'GET', '/admin/orgs')).location, `http://${ADMIN}/orgs`, 'its own host serves it at the root');
     const refused = await call(ADMIN, 'POST', '/api/auth/login', { body: { username: 'owner2', password: PASSWORD } });
     assert.equal(refused.status, 403, 'an organization owner is not Vantage staff');
     const staff = await call(ADMIN, 'POST', '/api/auth/login', { body: { username: 'boletz', password: PASSWORD } });
     assert.equal(staff.status, 200, JSON.stringify(staff.body));
     assert.equal((await call(ADMIN, 'GET', '/api/platform/overview', { token: staff.body.token })).status, 200);
-    assert.equal((await call(ADMIN, 'GET', '/api/orgs/G8/overview', { token: staff.body.token })).status, 404, 'the admin dashboard does not answer for an organization');
+    assert.equal((await call(ADMIN, 'GET', '/api/orgs/G8/overview', { token: staff.body.token })).status, 404, 'the Vantage Administrator console does not answer for an organization');
 
     const console = await call(CONSOLE, 'POST', '/api/auth/login', { body: { username: 'owner2', password: PASSWORD } });
-    assert.equal(console.status, 200, 'the owner signs in to the owner console');
+    assert.equal(console.status, 200, 'the Lead Unit Manager signs in to the Unit Manager console');
     assert.equal((await call(CONSOLE, 'GET', '/api/platform/overview', { token: console.body.token })).status, 404, 'where the platform’s API does not answer');
     assert.equal((await call(CONSOLE, 'GET', '/api/orgs/G8/overview', { token: console.body.token })).status, 200);
   } finally { await own.close(); }

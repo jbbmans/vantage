@@ -44,7 +44,7 @@ boundary the authorization already follows means:
   database holding every Marine's counseling history is a much harder case to make to an AO, not an
   easier one.
 - **No shared blast radius.** A mistake, an outage, or a restore touches one command.
-- **Portability that already exists.** The Owner console's instance export and import moves a whole
+- **Portability that already exists.** The Unit Manager console's instance export and import moves a whole
   instance between hosts, which is what a command reorganizing actually needs.
 
 Rolling several instances up for a higher echelon is a reporting problem, not a database problem,

@@ -16,7 +16,7 @@ records are not served while custom nameservers are set, so changes there do not
 | CNAME | `secure` | the same hostname | Proxied |
 | CNAME | `dev` | the same hostname | Proxied |
 
-`www` is the public page, `secure` the app and `dev` the owner console; the bare domain redirects to `www`. All four
+`www` is the public page, `secure` the app and `dev` the Unit Manager console; the bare domain redirects to `www`. All four
 reach the same Render service, which answers each by the name it was asked for (see
 [deploy-render.md](deploy-render.md#custom-domains-one-address-for-each-face)).
 

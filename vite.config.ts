@@ -61,8 +61,8 @@ export default defineConfig({
     sourcemap: false,
     target: 'es2022',
     rollupOptions: {
-      // Four documents: the application, the public page (which loads only what it renders), the owner console (an
-      // organization's owners) and the admin dashboard (Vantage staff).
+      // Four documents: the application, the public page (which loads only what it renders), the Unit Manager console (a
+      // Unit Instance's Unit Managers) and the Vantage Administrator console (Vantage staff).
       input: {
         index: fileURLToPath(new URL('./index.html', import.meta.url)),
         public: fileURLToPath(new URL('./public.html', import.meta.url)),

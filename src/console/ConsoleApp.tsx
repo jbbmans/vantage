@@ -8,10 +8,11 @@ import { LINKS, adminHref } from '@/lib/links';
 import type { Identity } from '@/lib/queries';
 import type { OrgSummary } from '@/lib/tenancy';
 import { remaining } from '@/lib/tenancy';
+import { ORG_ROLES, type OrgRole } from '../../shared/permissions';
 import * as Sections from './sections';
 
 /**
- * The owner console (ADR-0006): one organization at a time, for the people who hold its organization roles. Each page
+ * The Unit Manager console (ADR-0006, ADR-0010): one Unit Instance at a time, for the people who hold its Unit Instance roles. Each page
  * shows only to the roles that can use it; nothing here reads a Marine's records.
  */
 const consoleOrgs = (identity: Identity) => identity.orgs.filter((o) => o.status === 'active' && o.permissions.includes('org.view'));
@@ -53,14 +54,14 @@ function OrgConsole({ identity }: { identity: Identity }) {
   const switcher = orgs.length > 1
     ? <Select aria-label="Unit Instance" value={current.id} onValueChange={(id) => navigate(`/${id}${rest.length ? `/${rest.join('/')}` : ''}`)} options={orgs.map((o) => ({ value: o.id, label: o.short_name || o.name }))} />
     : <p className="truncate px-2 text-xs text-white/60 lg:text-white/60">{current.name}</p>;
-  const roleLabel = current.roles.map((r) => ({ owner: 'Owner', admin: 'Administrator', records: 'Records officer', auditor: 'Auditor' })[r]).join(', ');
+  const roleLabel = current.roles.map((r) => ORG_ROLES[r as OrgRole]?.label ?? r).join(', ');
   const access = identity.vantageAccess.length > 0;
   return (
     <ConsoleLayout
       identity={identity}
-      badge="Owner"
-      railLabel="Owner console"
-      eyebrow="Owner console"
+      badge="Unit Manager"
+      railLabel="Unit Manager console"
+      eyebrow="Unit Manager console"
       headerLabel={<>{current.name} · {roleLabel}{current.expiresAt ? ` until ${new Date(current.expiresAt).toLocaleDateString()}` : ''}</>}
       sections={sectionsFor(current)}
       prefix={`/${current.id}`}
@@ -75,11 +76,11 @@ export default function ConsoleApp() {
     <ConsoleFrame
       // One address for everything puts the console under /console; a host of its own puts it at the root.
       basename={LINKS.split && !LINKS.console.endsWith('/console') ? '/' : '/console'}
-      documentTitle="Owner console | Vantage"
-      loaderLabel="Opening the owner console…"
+      documentTitle="Unit Manager console | Vantage"
+      loaderLabel="Opening the Unit Manager console…"
       variant="console"
       admits={(identity) => consoleOrgs(identity).length > 0}
-      denied={{ title: 'This is the owner console', description: 'It is for the owners and administrators of a Unit Instance on Vantage. Your work is in the app; your leader or your Unit Instance’s owner can tell you who runs it.' }}
+      denied={{ title: 'This is the Unit Manager console', description: 'It is for the Unit Managers, Records Officers and Unit Auditors of a Unit Instance on Vantage. Your work is in the app; your leader can tell you who your Unit Managers are.' }}
     >
       {(identity) => <OrgConsole identity={identity} />}
     </ConsoleFrame>

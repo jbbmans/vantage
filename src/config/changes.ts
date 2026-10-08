@@ -8,6 +8,16 @@ export interface Change { date: string; title: string; items: string[] }
 export const CHANGES: Change[] = [
   {
     date: '2026-10-08',
+    title: 'Unit Managers and Vantage Administrators',
+    items: [
+      'The people who run your Unit Instance are its Unit Managers. A Lead Unit Manager also decides who holds those roles and whether Vantage support must ask before looking. The console they use is now the Unit Manager console.',
+      'Vantage staff are Vantage Administrators, Vantage Support and Vantage Auditors, and their console is the Vantage Administrator console. None of them reads your records by holding that role.',
+      'Nobody gives themselves more reach. A Unit Manager cannot grant themselves a role that reads Marines’ records, name themselves a unit’s leader, or join with their own code for such a role: another Unit Manager or the chain of command does it, and the audit trail shows who.',
+      'A Vantage Administrator never names themselves your Unit Instance’s Lead Unit Manager, and a Unit Instance role lasts only while its holder belongs to a unit of it.',
+    ],
+  },
+  {
+    date: '2026-10-08',
     title: 'One account through every transfer',
     items: [
       'When you transfer, your new command invites the email address you already use. Sign in and accept it, and you join with your own account: your record, private entries, career plan and history come with you.',
@@ -23,10 +33,10 @@ export const CHANGES: Change[] = [
     items: [
       'Your command on Vantage is a Unit Instance: its units, people, roster feed, retention and audit trail are its own, kept apart from every other command’s.',
       'Your account is yours, not your command’s. It moves with you, and your private entries, career plan and export stay with it.',
-      'The owner console runs one Unit Instance at a time, for its owners and administrators: people and roles, units and leaders, the personnel feed, retention and holds. Its roles manage the structure; they do not read anyone’s records.',
-      'Vantage staff have a console of their own, the admin dashboard. They see your Unit Instance as a name and its counts, and look inside only when your owners approve it: read-only, for a few hours, and in your audit trail.',
+      'The Unit Manager console runs one Unit Instance at a time, for its Lead Unit Managers and Unit Managers: people and roles, units and leaders, the personnel feed, retention and holds. Its roles manage the structure; they do not read anyone’s records.',
+      'Vantage staff have a console of their own, the Vantage Administrator console. They see your Unit Instance as a name and its counts, and look inside only when your Lead Unit Managers approve it: read-only, for a few hours, and in your audit trail.',
       'A role can be granted until a date, for an acting billet or a leave period, and it ends on its own.',
-      '“Why can they?” on a Marine’s Roles tab, and in the owner console, names every grant behind what someone can do: the role and where it was granted, the chain of command, leadership, and Unit Instance administration.',
+      '“Why can they?” on a Marine’s Roles tab, and in the Unit Manager console, names every grant behind what someone can do: the role and where it was granted, the chain of command, leadership, and Unit Instance administration.',
       'A forgotten password or a lost authenticator is now Vantage support’s to reset (Need help? on the sign-in page), because an account can belong to more than one Unit Instance.',
       'Vantage is being readied to run on the Marine Corps Enterprise Network. There, it has no public website, shows the DoD notice before sign-in, and accounts come from an invitation, the personnel roster or a CAC rather than signing up.',
       'If you serve in two commands, you work in both, and neither sees the other. Nobody can move a Marine, a record, a project, a contact, a report or an imported sheet from one command into the other, and a Marine joins a new command by invitation rather than being pulled in.',

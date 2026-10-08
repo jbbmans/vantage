@@ -2,6 +2,43 @@
 
 _Updated 2026-10-08_
 
+## What changed (2026-10-08: Vantage Administrator and Unit Manager)
+
+The roles are explicit and nobody elevates themselves ([ADR-0010](engineering/ADR/0010-vantage-administrator-and-unit-manager.md)).
+
+- **Names.** Platform roles read Lead Vantage Administrator, Vantage Administrator, Vantage Support and
+  Vantage Auditor. Unit Instance roles read Lead Unit Manager, Unit Manager, Records Officer and Unit
+  Auditor. The unit permission `ADMINISTRATOR` reads "Full unit authority". The consoles are the Unit
+  Manager console and the Vantage Administrator console. Stored keys, permission keys and paths are
+  unchanged. `UNIT_MANAGER_ROLES`, `VANTAGE_ADMINISTRATOR_ROLES` and `ORG_STRUCTURE_GRANTS` in
+  `shared/permissions.ts` name them for code.
+- **Permissions decide.** What a Unit Instance permission confers in units is mapped one to one
+  (`org.members`, `org.units`, `org.roles`), and removing a role holder asks for `org.owners`.
+- **Scoped to membership.** A Unit Instance role confers nothing while its holder belongs to no unit of the
+  instance (`seatedOrgRole`), and ends when they leave their last unit (audited `org_role_ended`), a
+  roster separation included. The feed keeps the ended roles with the separated memberships and gives
+  them back on restore (`org_role_restored`). Counts, notices and console sign-in count only members.
+- **No self-elevation.** Nobody gives themselves, through Unit Instance authority, unit authority the
+  chain of command has not given them: a role that reads records, or one that only makes units or
+  manages members. Lead Unit Managers included (ADR-0006 allowed it with a notice). Nobody extends a
+  unit role they hold. A Unit Manager cannot link a CAC to another role holder's account. A Vantage
+  Administrator cannot name themselves a Lead Unit Manager, and `platform.orgs` no longer skips the
+  self-service switch or its limit.
+- **Removing role holders.** Taking someone else who holds a Unit Instance role out of their last unit
+  needs a Lead Unit Manager, by removal or through the roster feed, which holds such separations back
+  when someone else runs it. Nothing takes out the last Lead Unit Manager.
+- **Unit Manager assignment** (John, 2026-10-08, answering I-27). Vantage Administrators add and remove
+  Lead Unit Managers and Unit Managers in any Unit Instance, never themselves, members only, never the
+  last Lead Unit Manager (`platform.managers`; **Unit Managers** on each Unit Instance in the Vantage
+  Administrator console). The person and the instance's Lead Unit Managers are told; both audit trails
+  record it.
+- **Vantage support visibility.** A temporary password, second-factor reset, EDIPI correction,
+  deactivation or reactivation is recorded in every Unit Instance the person belongs to, and told to its
+  Lead Unit Managers when the person holds authority there. Preventing it with a second person is Task 7.
+- **`tests/server/roleModel.test.ts`**: the role matrix for both catalogues, every self-elevation door,
+  membership scoping, the roster feed's ending and restoring of roles, Unit Manager assignment, CAC
+  links, account-support visibility and the last Lead Unit Manager.
+
 ## What changed (2026-10-08: one identity, unit membership history, CAC step-up)
 
 Identity is separated from unit membership ([ADR-0009](engineering/ADR/0009-identity-and-unit-membership.md)).

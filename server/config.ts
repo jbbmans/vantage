@@ -38,7 +38,7 @@ export interface AppConfig {
   port: number;
   databasePath: string;
   /**
-   * Where each face of Vantage lives: the public site, the application, and the owner console. One address
+   * Where each face of Vantage lives: the public site, the application, and the Unit Manager console. One address
    * serves all three unless the deployment names separate ones (VANTAGE_SITE_URL, _APP_URL, _CONSOLE_URL).
    */
   urls: { site: string; app: string; console: string; admin: string };
