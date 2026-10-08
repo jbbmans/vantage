@@ -35,6 +35,7 @@ const Reports = lazy(() => import('@/pages/Reports'));
 const Team = lazy(() => import('@/pages/Team'));
 const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
 const Settings = lazy(() => import('@/pages/Settings'));
+const AcceptInvitation = lazy(() => import('@/pages/AcceptInvitation'));
 const DemoGovernance = lazy(() => import('@/pages/DemoGovernance'));
 const Help = lazy(() => import('@/pages/Help'));
 const Support = lazy(() => import('@/pages/Support'));
@@ -246,6 +247,7 @@ function AppRoutes() {
         {TEAM_PAGES.map(([path, section]) => <Route key={path} path={`team/${path}`} element={<D><Team section={section} /></D>} />)}
         <Route path="team/:id" element={<D><MemberDetail /></D>} />
         <Route path="settings" element={<D><Settings /></D>} />
+        <Route path="invite" element={<InvitationRoute />} />
         {/* The demo's stand-in for the owner console, and support, each exist in one mode only; the other gets a 404, not a page whose calls fail. */}
         <Route path="governance" element={identity.data.demo ? <D><DemoGovernance /></D> : <NotFound />} />
         <Route path="operator" element={<ToConsole />} />
@@ -258,7 +260,7 @@ function AppRoutes() {
           <Route key={from} path={from.slice(1)} element={<Here />} />
         ))}
         <Route path="activities/:id" element={<RedirectRecord />} />
-        {['login', 'register', 'reset', 'invite', 'setup'].map((path) => (
+        {['login', 'register', 'reset', 'setup'].map((path) => (
           <Route key={path} path={path} element={<Navigate to="/" replace />} />
         ))}
         <Route path="*" element={<NotFound />} />
@@ -278,6 +280,15 @@ export default function App() {
       </ToastProvider>
     </TooltipProvider>
   );
+}
+
+/**
+ * An invitation opened while signed in, or returned to after signing in to accept it (ADR-0009). Signing in rewrites the
+ * address without telling the router; an invitation accepted by creating an account goes on to where that left it.
+ */
+function InvitationRoute() {
+  if (window.location.pathname !== '/invite') return <Navigate to={`${window.location.pathname}${window.location.search}`} replace />;
+  return <D><AcceptInvitation /></D>;
 }
 
 /** An address that moved (a tab that became a page, a page merged into another) goes where it lives now. */

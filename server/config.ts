@@ -323,7 +323,15 @@ export function loadConfig(env = process.env): AppConfig {
   const production = env.NODE_ENV === 'production';
   const test = env.VANTAGE_TEST === '1';
   if (production && test) throw new Error('VANTAGE_TEST must never be enabled in production.');
+  // Test mode accepts session tokens in an Authorization header and hands them back at sign-in, which is the test suite's
+  // way in and nobody else's (ADR-0009). Two settings have to say so: one stray variable is not enough to turn it on.
+  if (test && env.NODE_ENV !== 'test') throw new Error('VANTAGE_TEST=1 is for the test suite only, and needs NODE_ENV=test as well.');
   const deployment = readDeploymentConfig(env, production);
+  // MCEN is the production target. Run without NODE_ENV=production, Vantage would fall back to development settings (a
+  // built-in secret, no setup token, cookies without Secure), so the profile refuses that outside the test suite.
+  if (deployment.profile === 'mcen' && !production && !test) {
+    throw new Error('VANTAGE_DEPLOYMENT_PROFILE=mcen needs NODE_ENV=production. Use VANTAGE_DEPLOYMENT_PROFILE=development to try Vantage on a workstation.');
+  }
 
   let secret = String(env.VANTAGE_SECRET || '');
   if (secret.length < 32) {

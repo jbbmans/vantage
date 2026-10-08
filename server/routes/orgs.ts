@@ -22,6 +22,9 @@ import { explainAccess } from '../services/explain.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { unlockAccount } from '../auth/lockout.ts';
 import { now } from '../lib/ids.ts';
+import { notify } from '../services/notifications.ts';
+import { authorityBeyond, tellOtherInstances } from '../services/identity.ts';
+import { membershipHistory } from '../services/membership.ts';
 
 /**
  * The owner console's API (ADR-0006): one organization, for the people who hold its organization roles. Every route
@@ -115,15 +118,35 @@ orgsRouter.get('/:orgId/members/:userId/why', inOrg('org.members', 'org.owners',
   res.json({ units: explainAccess(req.ctx, userId, units), orgRoles });
 }));
 
+/**
+ * Where a member has served in this Unit Instance, and when (ADR-0009): its own units only. A former member's history
+ * is still this instance's to read; which other commands they served in is not.
+ */
+orgsRouter.get('/:orgId/members/:userId/history', inOrg('org.members', 'org.audit'), wrap((req, res) => {
+  const org = orgOf(req);
+  const userId = String(req.params.userId);
+  const history = membershipHistory(req.ctx, userId, [org.id]);
+  if (!history.length && !isOrgMember(req.ctx, org.id, userId)) throw notFound('No such member of this Unit Instance.');
+  res.json({ history });
+}));
+
 orgsRouter.post('/:orgId/members/:userId/unlock', inOrg('org.members'), wrap((req, res) => {
   const userId = memberOf(req);
+  // An unlock lets guessing start again. On an account that also serves in another Unit Instance, or runs the service,
+  // that is not this organization's to allow: the lock lapses on its own, a reset link lifts it, or Vantage support does.
+  if (userId !== req.user.id && authorityBeyond(req.ctx, userId, orgOf(req).id)) throw forbidden('This account also holds authority outside this Unit Instance. Its lock lifts by itself, with a password reset link, or through Vantage support.', 'cross_instance');
   res.json({ ok: true, unlocked: unlockAccount(req.ctx, userId, req.user.id, ip(req)) });
 }));
 
 orgsRouter.post('/:orgId/members/:userId/logout', inOrg('org.members'), wrap((req, res) => {
   const userId = memberOf(req);
+  const org = orgOf(req);
+  // Ending sessions only ever protects an account, so any Unit Instance the person serves in may do it. They are told,
+  // and so is every other instance they serve in, since the sessions it ended were theirs too.
   const revoked = invalidateUserSessions(req.ctx, userId);
-  audit(req.ctx, { actor_id: req.user.id, action: 'force_logout', entity: 'user', entity_id: userId, subject_id: userId, org_id: orgOf(req).id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
+  audit(req.ctx, { actor_id: req.user.id, action: 'force_logout', entity: 'user', entity_id: userId, subject_id: userId, org_id: org.id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
+  tellOtherInstances(req.ctx, userId, org.id, `ended this account's sessions (${revoked})`, ip(req));
+  if (userId !== req.user.id) notify(req.ctx, userId, { kind: 'security', title: `${org.name} signed you out everywhere`, message: 'Sign in again to carry on. If you did not expect this, ask your administrator why.', actionUrl: '/settings' });
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
 
@@ -203,20 +226,27 @@ orgsRouter.post('/:orgId/personnel/link', inOrg('org.personnel'), wrap((req, res
   if (!isOrgMember(ctx, org.id, user_id)) throw badRequest('Link only members of this Unit Instance.');
   // The EDIPI is how an account signs in with a CAC. Somebody else's account that also serves in another Unit Instance,
   // or that runs the service, carries authority beyond this one: re-keying its sign-in is not this organization's to do,
-  // or one organization's administrator could sign in as a leader of another (ADR-0008). Your own account is yours.
-  const beyond = user_id !== req.user.id && ctx.db.prepare(`SELECT 1 FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? AND u.org_id IS NOT ?
-    UNION ALL SELECT 1 FROM platform_roles WHERE user_id = ? LIMIT 1`).get(user_id, org.id, user_id);
-  if (beyond) throw forbidden('This account also holds authority outside this Unit Instance, so its EDIPI cannot be changed from here.', 'cross_instance');
-  const before = (ctx.db.prepare('SELECT edipi FROM users WHERE id = ?').get(user_id) as { edipi: string | null } | undefined)?.edipi ?? null;
+  // or one organization's administrator could sign in as a leader of another (ADR-0008).
+  if (user_id !== req.user.id && authorityBeyond(ctx, user_id, org.id)) throw forbidden('This account also holds authority outside this Unit Instance, so its EDIPI cannot be changed from here.', 'cross_instance');
+  const current = ctx.db.prepare('SELECT edipi, edipi_verified_at FROM users WHERE id = ?').get(user_id) as { edipi: string | null; edipi_verified_at: string | null } | undefined;
+  const before = current?.edipi ?? null;
+  // Once the person's own card has proven an EDIPI, it is their sign-in key: no administrator moves it, not even their
+  // own, or one could free their card's EDIPI and link it to somebody else's account to sign in as them (ADR-0009).
+  // Vantage support corrects a proven EDIPI, on the record.
+  if (before && current?.edipi_verified_at && edipi !== before) throw forbidden('This EDIPI was proven by the person’s own card. Only Vantage support changes it.', 'edipi_verified');
   if (edipi !== null) {
     if (!isEdipi(edipi)) throw badRequest('An EDIPI is exactly ten digits.', { fieldErrors: { edipi: 'Ten digits.' } });
     const taken = ctx.db.prepare('SELECT id FROM users WHERE edipi = ? AND id <> ?').get(edipi, user_id) as { id: string } | undefined;
     if (taken) throw badRequest('Another account already carries that EDIPI.', { fieldErrors: { edipi: 'Already linked to another account.' } });
   }
-  ctx.db.prepare("UPDATE users SET edipi = ?, identity_source = CASE WHEN ? IS NULL THEN 'local' ELSE identity_source END, updated_at = ? WHERE id = ?").run(edipi, edipi, now(), user_id);
-  // Somebody else's changed sign-in key ends the sessions opened under the old one.
+  ctx.db.prepare("UPDATE users SET edipi = ?, edipi_verified_at = CASE WHEN edipi IS ? THEN edipi_verified_at END, identity_source = CASE WHEN ? IS NULL THEN 'local' ELSE identity_source END, updated_at = ? WHERE id = ?").run(edipi, edipi, edipi, now(), user_id);
+  // Somebody else's changed sign-in key ends the sessions opened under the old one, and they are told: a card they do not
+  // hold now signing in as them is something only they would notice.
   const revoked = edipi !== before && user_id !== req.user.id ? invalidateUserSessions(ctx, user_id) : 0;
   audit(ctx, { actor_id: req.user.id, action: edipi ? 'personnel_link' : 'personnel_unlink', entity: 'users', entity_id: user_id, subject_id: user_id, org_id: org.id, detail: `${edipi ? `EDIPI ${edipi}` : 'EDIPI cleared'}; sessions revoked: ${revoked}`, ip: ip(req) });
+  if (edipi !== before && user_id !== req.user.id) {
+    notify(ctx, user_id, { kind: 'security', title: edipi ? 'A CAC was linked to your account' : 'The CAC link on your account was removed', message: `${org.name} ${edipi ? `linked the card with DoD ID ending ${edipi.slice(-4)}` : 'removed the card link'}. If that is not your card, contact your administrator or Vantage support.`, actionUrl: '/settings' });
+  }
   res.json({ ok: true });
 }));
 

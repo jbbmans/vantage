@@ -172,10 +172,13 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
     }
   }, [mode, params]);
 
+  // An invitation stays in the address through sign-in, so an existing account lands on it and accepts it (ADR-0009).
+  const inviteToken = path.startsWith('/invite') ? params.get('token') : null;
   const finish = () => {
     qc.invalidateQueries({ queryKey: keys.me });
     const authPath = ['/login', '/register', '/reset', '/invite', '/setup'].some((p) => path.startsWith(p));
-    window.history.replaceState(null, '', authPath ? '/' : `${window.location.pathname}${window.location.search}`);
+    const accepted = mode === 'invite' && !noPassword;
+    window.history.replaceState(null, '', inviteToken && !accepted ? `/invite?token=${encodeURIComponent(inviteToken)}` : authPath ? '/' : `${window.location.pathname}${window.location.search}`);
   };
 
   const fail = (e: unknown) => {
@@ -236,6 +239,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
     const query = new URLSearchParams();
     if (consented) query.set('consent', '1');
     if (!/^\/(login|register|reset|invite|setup)(\/|$)/.test(path)) query.set('return', `${path}${window.location.search}`);
+    else if (inviteToken) query.set('return', `/invite?token=${encodeURIComponent(inviteToken)}`);
     setBusy(true);
     const qs = query.toString();
     window.location.assign(`/api/auth/oidc/start${qs ? `?${qs}` : ''}`);
@@ -274,7 +278,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
       ? ['Welcome to Vantage', 'Choose your password', `You sign in as ${tokenInfo.username}. Choose a password to finish; you are signed in as soon as it is saved.`]
       : ['Account recovery', 'Choose a new password', tokenInfo?.email ? `Resetting the account for ${tokenInfo.email}.` : 'This link works once and expires after 30 minutes.'],
     help: ['Account recovery', 'Ask for help', 'Tell the people who run Vantage here what is wrong. You need no account to ask, and nobody will ever ask for your password.'],
-    invite: ['Your invitation', 'Accept your invitation', tokenInfo?.unit ? `${tokenInfo.invitedBy || 'A leader'} invited you to ${tokenInfo.unit}.` : 'Create your account to join the unit.'],
+    invite: ['Your invitation', 'Accept your invitation', `${tokenInfo?.unit ? `${tokenInfo.invitedBy || 'A leader'} invited you to ${tokenInfo.unit}. ` : ''}${noPassword ? 'Sign in to accept it.' : 'New to Vantage? Create your account below.'}`],
   };
 
   const passwordInput = (
@@ -369,7 +373,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
               </div>
             )}
 
-            {!gated && mode === 'login' && noPassword && (
+            {!gated && (mode === 'login' || mode === 'invite') && noPassword && (
               <div className="auth-form">
                 {status?.sso?.enabled && <Button type="button" variant="primary" size="lg" className="auth-submit" loading={busy} disabled={offline} onClick={organization}><Building2 className="h-4 w-4" /> {status.sso.label}</Button>}
                 {status?.cac?.enabled && <Button type="button" variant={status?.sso?.enabled ? 'outline' : 'primary'} size="lg" className={status?.sso?.enabled ? 'auth-passkey' : 'auth-submit'} loading={busy && !status?.sso?.enabled} disabled={offline || (busy && Boolean(status?.sso?.enabled))} onClick={cac}><CreditCard className="h-4 w-4" /> Sign in with your CAC</Button>}
@@ -412,9 +416,10 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
               </form>
             )}
 
-            {!gated && (mode === 'setup' || mode === 'register' || mode === 'invite') && (
+            {!gated && (mode === 'setup' || mode === 'register' || (mode === 'invite' && !noPassword)) && (
               <form className="auth-form" onSubmit={(e) => { e.preventDefault(); (mode === 'setup' ? submitSetup : mode === 'register' ? submitRegister : submitInvite)(); }}>
                 {mode === 'invite' && tokenInfo && !tokenInfo.valid && <div className="auth-notice error compact">This invitation is invalid or has expired. Ask your leader for a new one.</div>}
+                {mode === 'invite' && tokenInfo?.valid && <div className="auth-notice accent compact">Already use Vantage? <button type="button" className="link" onClick={() => { setMode('login'); setError(''); }}>Sign in to accept it</button> with the account you have, so your record and history stay together.</div>}
                 {mode === 'setup' && status?.requiresSetupToken && <Field label="Deployment setup token" hint="from the server environment" error={fieldErrors.setup_token}><Input autoFocus value={form.setup_token} onChange={set('setup_token')} autoComplete="off" /></Field>}
                 <div className="auth-two-col">
                   <Field label="First name" required error={fieldErrors.first_name}><Input value={form.first_name} onChange={set('first_name')} autoComplete="given-name" /></Field>

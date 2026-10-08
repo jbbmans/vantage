@@ -1,5 +1,5 @@
 import { test, expect } from '@playwright/test';
-import { ensureSetup, loginAs, logout, quickLog, unique, OPERATOR, PASSWORD } from './fixtures';
+import { ensureSetup, loginAs, logout, quickLog, registerAs, unique, OPERATOR, PASSWORD } from './fixtures';
 
 test('a leader invites a Marine by link, sees their shared work on the unit dashboard, and counsels them', async ({ browser, page, request }) => {
   await ensureSetup(request);
@@ -74,4 +74,36 @@ test('a plain member cannot open the team page or another Marine’s record', as
   expect(forbidden.ok()).toBeTruthy();
   const roster = await forbidden.json();
   expect(roster.roster.length).toBe(1);
+});
+
+test('a Marine who already uses Vantage accepts an invitation with the account they have, signing in from the link', async ({ browser, page, request }) => {
+  await ensureSetup(request);
+  await loginAs(page, OPERATOR.username);
+  const username = unique('hale');
+  const email = `${username}@example.mil`;
+  const marine = await browser.newContext();
+  const mp = await marine.newPage();
+  await registerAs(mp, username, { email });
+  const before = await (await mp.request.get('/api/me')).json();
+  await logout(mp);
+
+  // The leader invites the address the Marine already uses: allowed, because the Marine joins with that account.
+  const made = await page.request.post('/api/org/units/G8/invites', { headers: { 'x-vantage-client': '1' }, data: { email } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const { url } = await made.json();
+
+  await mp.goto(url);
+  await expect(mp.getByRole('heading', { name: 'Accept your invitation' })).toBeVisible();
+  await mp.getByRole('button', { name: 'Sign in to accept it' }).click();
+  await mp.getByLabel('Username', { exact: true }).fill(username);
+  await mp.getByLabel('Password', { exact: true }).fill(PASSWORD);
+  await mp.getByRole('button', { name: 'Sign in', exact: true }).click();
+  await expect(mp.getByRole('heading', { name: 'Join G8' })).toBeVisible();
+  await mp.getByRole('button', { name: /Join G8/ }).click();
+  await expect(mp.getByRole('status').filter({ hasText: 'You joined G8' })).toBeVisible();
+  const after = await (await mp.request.get('/api/me')).json();
+  expect(after.user.id).toBe(before.user.id);
+  expect(after.unitIds).toContain('G8');
+  await marine.close();
+  await logout(page);
 });

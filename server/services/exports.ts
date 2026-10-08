@@ -5,7 +5,7 @@ import { now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { hmac } from '../lib/crypto.ts';
 import { loadRuntime } from '../runtime.ts';
-import { dropInstanceBoundaryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, metaSet, stampAttachmentUnits } from '../db/index.ts';
+import { dropInstanceBoundaryTriggers, dropMembershipHistoryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, membershipHistoryTriggers, metaSet, openMissingMembershipPeriods, stampAttachmentUnits } from '../db/index.ts';
 import { sealBacklog } from './caseSeal.ts';
 import { loadChainKey, resealStoredSecrets, secretsOf } from '../lib/keys.ts';
 
@@ -13,6 +13,8 @@ const keyCheck = (secret: string) => hmac(secret, 'vantage-instance-key-check');
 
 export const EXPORT_TABLES = [
   'ranks', 'users', 'readiness', 'units', 'unit_members', 'roles', 'member_roles', 'passkeys', 'recovery_codes',
+  // Who belonged where, and when (ADR-0009): a moved instance keeps its people's histories.
+  'unit_membership_periods',
   // Tenancy and authority (ADR-0006): who runs the platform, which organizations exist, who owns them, who looked in.
   'organizations', 'platform_roles', 'org_roles', 'access_grants',
   ...RECORD_TABLE_NAMES,
@@ -65,8 +67,10 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   ctx.db.pragma('foreign_keys = OFF');
   try {
     ctx.db.transaction(() => {
-      // The boundary's triggers are lifted while the archive loads table by table, and put back before it commits.
+      // The boundary's triggers are lifted while the archive loads table by table, and put back before it commits. So are
+      // the membership history's: the archive brings its own history, and loading its memberships is not anybody joining.
       dropInstanceBoundaryTriggers(ctx.db);
+      dropMembershipHistoryTriggers(ctx.db);
       for (const table of [...NOT_EXPORTED, ...[...EXPORT_TABLES].reverse()]) ctx.db.prepare(`DELETE FROM ${table}`).run();
       for (const table of EXPORT_TABLES) {
         const rows = archive.tables![table] || [];
@@ -85,6 +89,9 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       }
       if (legacy) foundOrganizations(ctx.db);
       if (unstamped) stampAttachmentUnits(ctx.db);
+      // An archive from before the history opens a period for each membership it holds, as migration 018 does.
+      openMissingMembershipPeriods(ctx.db);
+      membershipHistoryTriggers(ctx.db);
       // Rows the archive brings already joined across the boundary are kept and counted, as migration 016 keeps a live
       // database's: a backup restores as the instance it came from was kept, and nothing new crosses from here (ADR-0008).
       crossings = instanceBoundaryViolations(ctx.db);

@@ -128,7 +128,7 @@ export function createWorkspace(ctx: AppContext): WorkspaceRow {
     seedRoles(ctx, unitId);
     ctx.db.prepare('UPDATE units SET owner_user_id = ? WHERE id = ?').run(ids.leader, unitId);
     for (const p of PEOPLE) {
-      addMember(ctx, ids[p.key], unitId, { primary: true, billet: p.billet });
+      addMember(ctx, ids[p.key], unitId, { primary: true, billet: p.billet, reason: 'demo' });
       const roleId = p.role === 'sncoic' ? ownerRoleId(unitId) : `${unitId}:${p.role}`;
       if (p.role !== 'marine') ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(ids[p.key], roleId, unitId, ids.leader, at);
     }

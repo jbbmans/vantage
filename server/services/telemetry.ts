@@ -82,7 +82,7 @@ export const EVENTS: Record<string, EventSpec> = {
   'reliability.client_error': { family: 'reliability', properties: { surface: oneOf('dashboard', 'records', 'queue', 'tasks', 'goals', 'correspondence', 'studio', 'reports', 'career', 'readiness', 'maradmins', 'team', 'settings', 'operator', 'help', 'reference', 'diagnose'), recovered: bool } },
   'reliability.offline_queue': { family: 'reliability', properties: { queued: num, replayed: num, failed: num } },
 
-  'security.step_up': { family: 'security', serverOnly: true, properties: { granted: bool, method: oneOf('password', 'totp', 'passkey') } },
+  'security.step_up': { family: 'security', serverOnly: true, properties: { granted: bool, method: oneOf('password', 'totp', 'passkey', 'cac') } },
   'security.authorization_denied': { family: 'security', serverOnly: true, properties: { route: oneOf('records', 'work', 'imports', 'correspondence', 'studio', 'metrics', 'reports', 'org', 'auth', 'admin', 'ai', 'other') } },
 
   'quality.record_missing_measure': { family: 'quality', serverOnly: true, properties: { missing: oneOf('quantity', 'outcome', 'area', 'unit') } },

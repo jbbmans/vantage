@@ -46,7 +46,7 @@ line, not the only one.
 | Variable | Meaning |
 | --- | --- |
 | `CAC_MODE` | `off` (default), `direct`, `proxy` |
-| `CAC_EXCLUSIVE` | `true` stops passwords and self-registration being accepted at all |
+| `CAC_EXCLUSIVE` | `true` stops passwords being accepted at all: sign-in, self-registration, password resets, creating an account from an invitation, emailed sign-in details, and the password step-up. The card confirms sensitive changes instead |
 | `CAC_CA_BUNDLE` | PEM bundle of issuing CAs. Required for `direct` |
 | `CAC_TLS_CERT`, `CAC_TLS_KEY` | this server's own certificate. Required for `direct` |
 | `CAC_CRL_DIR` | directory of the issuing CAs' CRLs (DER `.crl` as DoD publishes them, or PEM). Required for `direct`. A card whose serial is listed, or whose issuer has no CRL in the directory, is refused. Keep it fresh with a scheduled download; Vantage reloads it within ten minutes of a change, and keeps the previous set if a refresh is unreadable |
@@ -74,6 +74,20 @@ location /api/auth/cac {
 
 with `ssl_verify_client optional;` and `ssl_client_certificate /etc/ssl/dod-bundle.pem;` on the server.
 
+`location /api/auth/cac` is a prefix match, so it also forwards the card for `/api/auth/cac/step-up`. If
+the gateway lists exact paths instead, add that one. In `direct` mode the server asks for a certificate
+on every connection, so both paths see the card without more configuration.
+
+### Confirming a sensitive change with the card
+
+Changes that ask for a recent confirmation (security settings, exports, the admin dashboard, joining
+another command) accept the card in place of a password: **Confirm with your CAC** in the dialog, which
+calls `POST /api/auth/cac/step-up`. The card goes through the same checks as a sign-in, and it must
+carry the EDIPI the signed-in account carries. Somebody else's valid card is refused, and so is any card
+on an account with no linked card. Every refusal is on the audit trail as `cac_step_up_refused`, and
+every confirmation as `cac_step_up`. Accounts the card or the roster created have no password, so
+before this they could not confirm anything.
+
 ### Linking accounts
 
 A card signs in only where an account already carries its EDIPI. An organization links its members in
@@ -82,6 +96,19 @@ sign-in — but only for someone an organization's roster already lists as activ
 organization (the unit its row names, or its top unit). A valid DoD certificate proves
 somebody is in the Department; it does not prove they belong to this command, and the roster is what
 says that.
+
+**A proven EDIPI is the person's sign-in key** (ADR-0009). The first time their card signs in or
+confirms a change, or the organization's identity provider asserts the EDIPI, Vantage records that it
+is proven (`users.edipi_verified_at`). From then on no Unit Instance can change or clear it, not even
+on its own administrators' accounts. Vantage support corrects it in the admin dashboard
+(**Accounts → CAC link**), with a reason; the person's sessions end and they are told. An EDIPI typed
+in by an administrator and never used is not proven yet, so the person's own Unit Instance can still
+correct a typing mistake. Each link and correction tells the person, so a card linked to their account
+that is not theirs is something they hear about.
+
+**A Marine who transfers keeps their account and its EDIPI.** The new command invites their address,
+and they sign in and accept the invitation there. Their card works at the new command from the moment
+they join.
 
 ## Organization sign-in (Entra ID and other OIDC providers)
 
@@ -114,7 +141,7 @@ password and MFA), and is sent back already signed in. Vantage never sees their 
 | `VANTAGE_OIDC_EDIPI_CLAIM` | The claim that carries the EDIPI. Required with `VANTAGE_OIDC_LINK=edipi`. |
 | `VANTAGE_OIDC_TRUST_EMAIL` | Treat the provider's address as verified even without `email_verified`. On by default for Entra ID, whose tenant controls its users' addresses. |
 | `VANTAGE_OIDC_AUTO_PROVISION` | Create the account on first sign-in for someone the personnel roster lists as active (needs the EDIPI claim). |
-| `VANTAGE_OIDC_EXCLUSIVE` | Turn password sign-in and self-registration off. Passkeys and CAC, where enabled, still work. |
+| `VANTAGE_OIDC_EXCLUSIVE` | Turn password sign-in, self-registration, password resets and account creation from an invitation off. Passkeys and CAC, where enabled, still work. |
 
 Register these redirect URIs with the provider, one for each face that people sign in on:
 `https://<app host>/api/auth/oidc/callback` and, for each console with a host of its own,
@@ -129,7 +156,8 @@ configured) and records the provider's subject on it. After that the account is 
 a changed address at the provider does not lose the link. An account already linked to one subject is never
 re-linked to another with the same address; that sign-in is refused and audited. With
 `VANTAGE_OIDC_AUTO_PROVISION`, a person with no account gets one only if the roster lists their EDIPI as
-active, for the same reason as with a CAC: the provider proves who someone is, the roster says they belong here.
+active, for the same reason as with a CAC: the provider proves who someone is, the roster says they belong here. When `VANTAGE_OIDC_EDIPI_CLAIM` carries the
+EDIPI the account holds, the sign-in proves that EDIPI just as a card would.
 
 If the DoD consent banner is on, the person accepts it on the Vantage sign-in page before leaving for the
 provider, and the server refuses a sign-in that did not.

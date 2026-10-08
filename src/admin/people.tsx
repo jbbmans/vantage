@@ -210,6 +210,13 @@ export function Accounts() {
   const { data, isPending, error, refetch } = useQuery<{ accounts: PlatformAccount[] }>({ queryKey: ['admin', 'accounts', debounced, filter], queryFn: () => withSudo(() => api.platformAccounts(debounced, filter)), retry: false, placeholderData: (prev) => prev });
   const [confirm, setConfirm] = useState<{ kind: AccountAction; user: PlatformAccount } | null>(null);
   const [temp, setTemp] = useState<{ user: PlatformAccount; password: string } | null>(null);
+  const [card, setCard] = useState<{ user: PlatformAccount; edipi: string; reason: string } | null>(null);
+  const saveCard = async () => {
+    if (!card) return;
+    const { user, edipi, reason } = card;
+    const done = await act(`CAC link changed: ${user.username}.`, () => api.platformCorrectEdipi(user.id, { edipi: edipi.trim() || null, reason: reason.trim() }), () => refetch());
+    if (done) setCard(null);
+  };
 
   const run = async () => {
     if (!confirm) return;
@@ -243,7 +250,7 @@ export function Accounts() {
                 <tr key={u.id}>
                   <td>
                     <span className="block font-medium text-ink">{personName(u)}{u.platform_roles ? <Badge tone="accent" className="ml-2">Vantage {u.platform_roles}</Badge> : null}</span>
-                    <span className="block text-xs text-ink-3">@{u.username}{u.email ? ` · ${u.email}` : ''}</span>
+                    <span className="block text-xs text-ink-3">@{u.username}{u.email ? ` · ${u.email}` : ''}{u.edipi ? ` · CAC …${u.edipi.slice(-4)} ${u.edipi_verified_at ? '(proven)' : '(not yet proven)'}` : ''}</span>
                   </td>
                   <td className="text-xs text-ink-2">{u.organizations || <span className="text-ink-3">none</span>}</td>
                   <td className="text-xs text-ink-2">{[u.totp_enabled ? 'Authenticator' : '', u.passkeys ? `${u.passkeys} passkey${u.passkeys === 1 ? '' : 's'}` : ''].filter(Boolean).join(' · ') || <span className="text-warn">none</span>}</td>
@@ -256,6 +263,7 @@ export function Accounts() {
                       <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'logout', user: u })}><LogOut className="h-3 w-3" />Sign out</Button>
                       <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'temporary-password', user: u })}>Temp password</Button>
                       {(u.totp_enabled || u.passkeys) ? <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'reset-mfa', user: u })}>Reset 2FA</Button> : null}
+                      <Button size="xs" variant="ghost" onClick={() => setCard({ user: u, edipi: u.edipi || '', reason: '' })}>CAC link</Button>
                       <Button size="xs" variant="ghost" className="text-bad" onClick={() => setConfirm({ kind: 'deactivate', user: u })}>Deactivate</Button>
                     </> : <Button size="xs" variant="ghost" onClick={() => setConfirm({ kind: 'reactivate', user: u })}>Reactivate</Button>}
                   </span>}</td>
@@ -269,6 +277,13 @@ export function Accounts() {
       <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title={confirm ? ACTION_COPY[confirm.kind].title : ''} danger={Boolean(confirm && ACTION_COPY[confirm.kind].danger)}
         body={confirm ? <><p className="text-sm text-ink-2">{ACTION_COPY[confirm.kind].body}</p><p className="mt-2 text-sm font-medium text-ink">{personName(confirm.user)} · @{confirm.user.username}</p></> : null}
         confirmLabel={confirm ? ACTION_COPY[confirm.kind].confirm : ''} onConfirm={run} />
+      <Dialog open={Boolean(card)} onOpenChange={(o) => { if (!o) setCard(null); }} title={`CAC link for ${card?.user.username}`} description="The EDIPI their card signs in with. Change it only when it is wrong: they are signed out everywhere, told it happened, and prove the new one with their card." size="sm"
+        footer={<><Button variant="ghost" onClick={() => setCard(null)}>Cancel</Button><Button variant="primary" disabled={!card || card.reason.trim().length < 10 || (card.edipi.trim() !== '' && !/^\d{10}$/.test(card.edipi.trim()))} onClick={saveCard}>Save</Button></>}>
+        {card && <div className="space-y-3">
+          <Field label="EDIPI" hint="ten digits; empty removes the card link"><Input inputMode="numeric" className="mono" maxLength={10} value={card.edipi} onChange={(e) => setCard({ ...card, edipi: e.target.value.replace(/\D/g, '') })} /></Field>
+          <Field label="Why" hint="the ticket and what was wrong; it goes in the audit trail"><Textarea rows={3} maxLength={300} value={card.reason} onChange={(e) => setCard({ ...card, reason: e.target.value })} placeholder="Ticket 2210: the roster typo put another Marine’s DoD ID on this account." /></Field>
+        </div>}
+      </Dialog>
       <Dialog open={Boolean(temp)} onOpenChange={(o) => { if (!o) setTemp(null); }} title={`Temporary password for ${temp?.user.username}`} description="Shown once. Give it to them by a channel you trust; they choose their own at sign-in." size="sm"
         footer={<Button variant="primary" onClick={async () => { if (temp && await copyToClipboard(temp.password)) toast.success('Copied.'); }}><Copy className="h-4 w-4" />Copy</Button>}>
         <p className="mono select-all rounded-md border border-line bg-surface-2 px-3 py-2 text-md text-ink">{temp?.password}</p>

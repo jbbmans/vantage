@@ -36,6 +36,13 @@ meRouter.get('/', wrap((req, res) => {
   let prefs = {};
   try { prefs = JSON.parse(req.user.prefs || '{}'); } catch {}
   const { prefs: _p, ...user } = req.user;
+  // How this person can confirm it is them for a sensitive change: their password where one is set and accepted here,
+  // their card where one is linked (ADR-0009). Neither means signing in again, which confirms it too.
+  const credentials = ctx.db.prepare("SELECT password_hash <> '' AS has_password, edipi IS NOT NULL AS has_card FROM users WHERE id = ?").get(req.user.id) as { has_password: number; has_card: number };
+  const stepUp = [
+    ...(credentials.has_password && !ctx.config.cac.exclusive ? ['password' as const] : []),
+    ...(credentials.has_card && ctx.config.cac.mode !== 'off' ? ['cac' as const] : []),
+  ];
   res.json({
     user: { ...user, rank, passkeys },
     prefs,
@@ -58,7 +65,7 @@ meRouter.get('/', wrap((req, res) => {
     manageableUnits: unitsWith(scope, PERMISSIONS.MANAGE_UNITS),
     counselUnits: unitsWith(scope, PERMISSIONS.COUNSEL),
     exportUnits: unitsWith(scope, PERMISSIONS.EXPORT_DATA),
-    session: { id: req.sessionId.slice(0, 12), method: req.sessionRow.method, sudoUntil: req.sessionRow.sudo_until },
+    session: { id: req.sessionId.slice(0, 12), method: req.sessionRow.method, sudoUntil: req.sessionRow.sudo_until, stepUp },
     demo: ctx.config.accessMode === 'demo' ? demoStatus(ctx, req.user.id) : null,
     instance: { accessMode: ctx.config.accessMode, displayName: ctx.runtime.displayName, organizationName: ctx.runtime.organizationName, announcement: ctx.runtime.announcement, emailEnabled: ctx.mailer.enabled, attachmentsEnabled: ctx.runtime.attachmentsEnabled, aiEnabled: ctx.runtime.aiEnabled && Boolean(ctx.config.ai.apiKey), maradminsEnabled: ctx.runtime.maradminsEnabled, selfServiceUnits: ctx.runtime.selfServiceUnits, metrics: ctx.runtime.metrics, timezone: ctx.config.timezone },
   });

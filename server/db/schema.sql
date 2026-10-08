@@ -136,6 +136,26 @@ CREATE TABLE IF NOT EXISTS unit_members (
 );
 CREATE INDEX IF NOT EXISTS idx_unit_members_unit ON unit_members(unit_id);
 
+-- unit_members says who belongs where now; this says who belonged where, and when (ADR-0009). Database triggers keep it
+-- (migration 018), so every way a membership starts, changes or ends is written: one row per stretch of the same unit,
+-- billet and primary flag, open while ended_at is NULL. The person's identity (users) never changes with it.
+CREATE TABLE IF NOT EXISTS unit_membership_periods (
+  id           INTEGER PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users(id),
+  unit_id      TEXT NOT NULL REFERENCES units(id),
+  billet       TEXT,
+  is_primary   INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
+  started_at   TEXT NOT NULL,
+  ended_at     TEXT,
+  start_reason TEXT,
+  end_reason   TEXT,
+  started_by   TEXT REFERENCES users(id),
+  ended_by     TEXT REFERENCES users(id)
+);
+CREATE INDEX IF NOT EXISTS idx_membership_periods_user ON unit_membership_periods(user_id, started_at);
+CREATE INDEX IF NOT EXISTS idx_membership_periods_unit ON unit_membership_periods(unit_id, started_at);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_membership_periods_open ON unit_membership_periods(user_id, unit_id) WHERE ended_at IS NULL;
+
 CREATE TABLE IF NOT EXISTS roles (
   id          TEXT PRIMARY KEY,
   unit_id     TEXT NOT NULL REFERENCES units(id),

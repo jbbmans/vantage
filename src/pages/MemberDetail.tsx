@@ -20,6 +20,13 @@ import { humanize, fullName, cn } from '@/lib/utils';
 import WhyList from '@/components/WhyList';
 import { endOfDay, tomorrowKey, type UnitExplanation } from '@/lib/tenancy';
 
+/** Plain words for why a membership period began or ended (server/services/membership.ts). */
+const PERIOD_REASONS: Record<'start' | 'end', Record<string, string>> = {
+  start: { enrolled: 'Added by a leader', invitation: 'Accepted an invitation', join_code: 'Joined with a code', roster: 'Seated from the personnel roster', roster_restored: 'Restored by the personnel roster', transfer: 'Moved in', account_import: 'Imported with accounts', unit_created: 'Founded the unit', leader_assigned: 'Named its leader', demo: 'Demo', billet_changed: 'Billet changed', primary_changed: 'Primary unit changed', recorded: 'Joined before history was kept' },
+  end: { removed: 'Removed', removed_from_instance: 'Removed from the command', roster_separation: 'Separated on the personnel roster', transfer: 'Moved out', left: 'Left', billet_changed: 'Billet changed', primary_changed: 'Primary unit changed', superseded: 'Replaced' },
+};
+const periodReason = (reason: string | null, edge: 'start' | 'end') => (reason && PERIOD_REASONS[edge][reason]) || (edge === 'start' ? 'Joined' : 'Ended');
+
 export default function MemberDetail() {
   const cfg = useMetrics();
   const { id = '' } = useParams();
@@ -127,6 +134,14 @@ export default function MemberDetail() {
           <Panel title="Held roles">{!data.roles.length ? <p className="text-sm text-ink-3">Only the default Marine role.</p> : <ul className="space-y-2">{data.roles.map((r) => <li key={`${r.unit_id}-${r.id}`} className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2"><span className="badge-dot" style={{ backgroundColor: r.color || '#6b7a8f' }} /><span className="text-ink">{r.name}</span><span className="text-xs text-ink-3">{unitLabel(r.unit_id)}</span>{r.expires_at ? <Badge tone="warn">until {new Date(r.expires_at).toLocaleDateString()}</Badge> : null}</span>{canManage && !isSelf && r.key !== 'unit-leader' && !(rolesData?.roles || []).find((x) => x.id === r.id)?.is_default && <Button size="xs" variant="ghost" onClick={() => revoke(r.id)}>Remove</Button>}</li>)}</ul>}</Panel>
           {canManage && !isSelf && <Panel title="Grant a role" subtitle="Only roles below your own position; granting resets their sessions"><Field label="Until" hint="optional: an acting billet or a leave period ends on its own" className="mb-3"><Input type="date" value={until} min={tomorrowKey()} onChange={(e) => setUntil(e.target.value)} /></Field><ul className="space-y-1.5">{(rolesData?.roles || []).filter((r) => data.detailUnits.includes(r.unit_id) && r.editable && !r.is_default && r.key !== 'unit-leader' && !data.roles.some((h) => h.id === r.id)).map((r) => <li key={r.id} className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2"><span className="badge-dot" style={{ backgroundColor: r.color || '#6b7a8f' }} /><span className="text-ink">{r.name}</span><span className="text-xs text-ink-3">{unitLabel(r.unit_id)}</span></span><Button size="xs" onClick={() => grant(r.id, r.unit_id)}>Grant</Button></li>)}</ul></Panel>}
           <Panel title="Why can they?" subtitle="Every grant behind what they can do, in the units you manage" className="lg:col-span-2">{why.isPending ? <Skeleton className="h-24" /> : why.error ? <p className="text-sm text-ink-3">{api.errorText(why.error)}</p> : <WhyList units={why.data?.units ?? []} />}</Panel>
+          <Panel title="Unit history" subtitle={isSelf ? 'Every unit you have belonged to, and when' : 'Their units in this command, and when; the same account throughout'} className="lg:col-span-2" padded={false}>
+            {!(data.history ?? []).length ? <EmptyState title="No unit history yet" /> : <ul>{(data.history ?? []).map((p) => (
+              <li key={p.id} className="row flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">
+                <span><span className="block text-ink">{p.unit_short || p.unit_name}{p.billet ? ` · ${p.billet}` : ''}{p.is_primary ? <Badge tone="accent" className="ml-2">Primary</Badge> : null}</span><span className="block text-xs text-ink-3">{periodReason(p.start_reason, 'start')}{p.ended_at ? ` · ${periodReason(p.end_reason, 'end')}` : ''}</span></span>
+                <span className="fig text-xs text-ink-3">{new Date(p.started_at).toLocaleDateString()} – {p.ended_at ? new Date(p.ended_at).toLocaleDateString() : 'present'}</span>
+              </li>
+            ))}</ul>}
+          </Panel>
         </div>
       )}
 

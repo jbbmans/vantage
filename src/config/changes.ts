@@ -7,6 +7,17 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-10-08',
+    title: 'One account through every transfer',
+    items: [
+      'When you transfer, your new command invites the email address you already use. Sign in and accept it, and you join with your own account: your record, private entries, career plan and history come with you.',
+      'The Roles tab on your page in Team shows every unit you have belonged to and when, with your billets and primary unit. Leaders see the part inside their own command, never where else you served.',
+      'If your CAC is linked, Confirm with your CAC works wherever Vantage asks you to confirm it is you, so accounts made from a card or the roster no longer need a password for that.',
+      'Once your card has signed you in, its link to your account is yours: your command cannot move it. Vantage support corrects it if your card is reissued, and you are told whenever it changes.',
+      'If you serve in two commands, your profile is kept by the one that holds your primary unit, and only Vantage support or your own reset link unlocks your account.',
+    ],
+  },
+  {
     date: '2026-10-07',
     title: 'Unit Instances, and who can do what',
     items: [

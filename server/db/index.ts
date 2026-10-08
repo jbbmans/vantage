@@ -215,6 +215,23 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       stampAttachmentUnits(db);
     },
   },
+  {
+    id: 18,
+    name: '018_identity_and_membership_history',
+    run: (db) => {
+      // When the account's EDIPI was last proven by its card (ADR-0009). Accounts whose card already signed in under the
+      // EDIPI they carry now are proven from the audit log; any other EDIPI was typed in by someone and stays unproven.
+      const users = columnsOf(db, 'users');
+      if (!users.has('edipi_verified_at')) db.exec('ALTER TABLE users ADD COLUMN edipi_verified_at TEXT');
+      if (users.has('edipi')) db.exec(`UPDATE users SET edipi_verified_at = (
+          SELECT MAX(a.at) FROM audit_log a WHERE a.actor_id = users.id AND a.action IN ('cac_verified', 'cac_provisioned')
+             AND (a.detail = 'edipi=' || users.edipi OR a.detail LIKE 'edipi=' || users.edipi || ' %'))
+        WHERE edipi IS NOT NULL AND edipi_verified_at IS NULL`);
+      // The table comes from schema.sql. Memberships held before it existed open their first period at the joined date.
+      membershipHistoryTriggers(db);
+      openMissingMembershipPeriods(db);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 
@@ -438,6 +455,51 @@ export function instanceBoundaryViolations(db: Db): Record<string, number> {
 export function dropInstanceBoundaryTriggers(db: Db) {
   const triggers = db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%cross_instance:%'").all() as Array<{ name: string }>;
   for (const { name } of triggers) db.exec(`DROP TRIGGER "${name}"`);
+}
+
+const MEMBERSHIP_TRIGGERS = ['unit_membership_opened', 'unit_membership_changed', 'unit_membership_closed'] as const;
+const AT_NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
+
+/**
+ * Membership history is written by the database (ADR-0009), so no way of joining, moving or leaving a unit (a route, the
+ * personnel feed, an import, a script) can change unit_members without leaving its period behind. The service fills in
+ * why and by whom afterwards, in the same transaction (server/services/membership.ts).
+ */
+export function membershipHistoryTriggers(db: Db) {
+  db.exec(`CREATE TRIGGER IF NOT EXISTS unit_membership_opened AFTER INSERT ON unit_members FOR EACH ROW
+    BEGIN
+      UPDATE unit_membership_periods SET ended_at = NEW.joined_at, end_reason = 'superseded'
+       WHERE user_id = NEW.user_id AND unit_id = NEW.unit_id AND ended_at IS NULL;
+      INSERT INTO unit_membership_periods (user_id, unit_id, billet, is_primary, started_at, started_by)
+      VALUES (NEW.user_id, NEW.unit_id, NEW.billet, NEW.is_primary, NEW.joined_at, NEW.invited_by);
+    END`);
+  // A new billet or a primary flag that moved closes one period and opens the next; an update that changes neither is no change.
+  const why = "CASE WHEN OLD.billet IS NOT NEW.billet THEN 'billet_changed' ELSE 'primary_changed' END";
+  db.exec(`CREATE TRIGGER IF NOT EXISTS unit_membership_changed AFTER UPDATE OF billet, is_primary ON unit_members FOR EACH ROW
+    WHEN OLD.billet IS NOT NEW.billet OR OLD.is_primary IS NOT NEW.is_primary
+    BEGIN
+      UPDATE unit_membership_periods SET ended_at = ${AT_NOW}, end_reason = ${why}
+       WHERE user_id = OLD.user_id AND unit_id = OLD.unit_id AND ended_at IS NULL;
+      INSERT INTO unit_membership_periods (user_id, unit_id, billet, is_primary, started_at, start_reason)
+      VALUES (NEW.user_id, NEW.unit_id, NEW.billet, NEW.is_primary, ${AT_NOW}, ${why});
+    END`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS unit_membership_closed AFTER DELETE ON unit_members FOR EACH ROW
+    BEGIN
+      UPDATE unit_membership_periods SET ended_at = ${AT_NOW}
+       WHERE user_id = OLD.user_id AND unit_id = OLD.unit_id AND ended_at IS NULL;
+    END`);
+}
+
+/** Lifted while an instance archive loads, which brings its own history, and put back before it commits. */
+export function dropMembershipHistoryTriggers(db: Db) {
+  for (const name of MEMBERSHIP_TRIGGERS) db.exec(`DROP TRIGGER IF EXISTS ${name}`);
+}
+
+/** Every current membership with no open period gets one from its joined date: memberships older than the history. */
+export function openMissingMembershipPeriods(db: Db): number {
+  return db.prepare(`INSERT INTO unit_membership_periods (user_id, unit_id, billet, is_primary, started_at, start_reason, started_by)
+    SELECT um.user_id, um.unit_id, um.billet, um.is_primary, um.joined_at, 'recorded', um.invited_by FROM unit_members um
+     WHERE NOT EXISTS (SELECT 1 FROM unit_membership_periods p WHERE p.user_id = um.user_id AND p.unit_id = um.unit_id AND p.ended_at IS NULL)`).run().changes;
 }
 
 /** The record types that take attachments, each with the unit its row sits in. */

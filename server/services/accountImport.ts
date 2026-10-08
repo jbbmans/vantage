@@ -258,9 +258,9 @@ export function applyAccounts(ctx: AppContext, actor: SessionUser, orgId: string
       ctx.db.prepare(`INSERT INTO users (id, username, email, password_hash, first_name, last_name, rank_id, must_change_password, created_at, updated_at)
                       VALUES (?, ?, ?, ?, ?, ?, ?, 1, ?, ?)`)
         .run(id, a.username, a.email, hashes.get(a.line), v.first_name, v.last_name, a.rank_id, now(), now());
-      if (commandId) addMember(ctx, id, commandId, { invitedBy: actor.id, primary: true, billet: teamId ? null : a.billet });
-      if (teamId) addMember(ctx, id, teamId, { invitedBy: actor.id, primary: !commandId, billet: a.billet });
-      if (!commandId && !teamId) addMember(ctx, id, rootId, { invitedBy: actor.id, primary: true, billet: a.billet });
+      if (commandId) addMember(ctx, id, commandId, { invitedBy: actor.id, primary: true, billet: teamId ? null : a.billet, reason: 'account_import' });
+      if (teamId) addMember(ctx, id, teamId, { invitedBy: actor.id, primary: !commandId, billet: a.billet, reason: 'account_import' });
+      if (!commandId && !teamId) addMember(ctx, id, rootId, { invitedBy: actor.id, primary: true, billet: a.billet, reason: 'account_import' });
       if (unitId) {
         const role = roleFor(v.role);
         if (role && role.key !== 'marine') {
