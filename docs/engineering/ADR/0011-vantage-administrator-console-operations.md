@@ -134,8 +134,8 @@ or mail then.
   holders, since it reaches out and refreshes the discovery sign-in uses. Audited as `oidc_checked`.
   It reaches only the configured issuer.
 - **Lockout policy**, accounts locked now, open sessions by method.
-- **Second factors:** Vantage staff with no authenticator or passkey (attention), and Unit Managers who
-  sign in with a password alone (a note).
+- **Second factors:** Vantage staff with no authenticator, passkey or proven CAC (attention), and Unit
+  Managers who sign in with a password alone (a note).
 - **The last 24 hours** from the platform trail: sign-ins by method, lockouts, cards refused,
   organization sign-ins refused, people turned away from a console, card confirmations refused.
 
@@ -153,8 +153,11 @@ All of it is counts, dates and configuration. Nobody is named; account support f
 - **Environment flags**, read-only: the public site, browser backups, the consent banner, CAC only,
   organization sign-in only, provisioning from CAC or organization sign-in, spreadsheet intake and a
   required malware scan.
-- **The audit trail keeps before and after.** `edit_configuration` now records each switch or short value
-  as `key: before → after` (for example `attachmentsEnabled: true → false`), and longer settings by name.
+- **The audit trail keeps before and after.** `edit_configuration` now records only the settings whose
+  value changed, each switch, number or text as `key: before → after` (for example
+  `attachmentsEnabled: true → false`; text cut to 40 characters), and lists by name. Its `entity_id`
+  names the changed settings, and Feature flags reads who last changed a flag from that, never from the
+  text, so an announcement that mentions a flag is not a change to it.
 
 Flags are service-wide. A Unit Instance's own settings are its Unit Managers' (Task 6), and nothing here
 turns a feature on for one Unit Instance.
@@ -172,6 +175,10 @@ turns a feature on for one Unit Instance.
   the message and the expected end in the deployment's time zone. The reason stays with staff and the
   audit trail. Maintenance ends only when somebody ends it; an expected end that passes needs attention.
 - **Ending** may leave a note. Ending when it is off changes and records nothing.
+- **Signing in stays open to staff by every method**, the card included, so a deployment where only a
+  card signs in can still end it. No account is made during maintenance, from a card or organization
+  sign-in, as registration is closed.
+- **Past the expected end**, everyone else is told it is taking longer than planned, not a time gone by.
 - **Audited and told.** `maintenance_on` records the reason and the expected end; `maintenance_off`
   records how long it lasted and the note. The other staff are told each time.
 - **Database tasks**, an allowlist (`MAINTENANCE_TASKS`), never a statement typed in: check the database

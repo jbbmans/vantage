@@ -71,7 +71,8 @@ const lastSignIn = (ctx: AppContext, method: string) =>
 function coverage(ctx: AppContext) {
   const t = now();
   const passwordOnly = `u.totp_enabled = 0 AND NOT EXISTS (SELECT 1 FROM passkeys k WHERE k.user_id = u.id)`;
-  const staff = ctx.db.prepare(`SELECT COUNT(DISTINCT u.id) AS n, COUNT(DISTINCT CASE WHEN ${passwordOnly} THEN u.id END) AS weak
+  // A card that has signed its holder in is a second factor of its own (possession and PIN), for staff as for Unit Managers.
+  const staff = ctx.db.prepare(`SELECT COUNT(DISTINCT u.id) AS n, COUNT(DISTINCT CASE WHEN ${passwordOnly} AND u.edipi_verified_at IS NULL THEN u.id END) AS weak
       FROM platform_roles p JOIN users u ON u.id = p.user_id WHERE u.active = 1`).get() as { n: number; weak: number };
   const managers = ctx.db.prepare(`SELECT COUNT(DISTINCT u.id) AS n, COUNT(DISTINCT CASE WHEN ${passwordOnly} AND u.edipi_verified_at IS NULL THEN u.id END) AS weak
       FROM org_roles r JOIN users u ON u.id = r.user_id WHERE u.active = 1 AND (r.expires_at IS NULL OR r.expires_at > ?) AND ${seatedOrgRole('r')}`).get(t) as { n: number; weak: number };
@@ -110,7 +111,7 @@ export function signInChecks(ctx: AppContext, at = Date.now()): HealthCheck[] {
     }
   }
   const cover = coverage(ctx);
-  if (cover.staffWithoutSecondFactor) checks.push({ id: 'staff_second_factor', label: 'Staff second factor', status: 'warn', summary: `${cover.staffWithoutSecondFactor} of ${cover.staff} Vantage staff have no authenticator or passkey.` });
+  if (cover.staffWithoutSecondFactor) checks.push({ id: 'staff_second_factor', label: 'Staff second factor', status: 'warn', summary: `${cover.staffWithoutSecondFactor} of ${cover.staff} Vantage staff have no authenticator, passkey or proven CAC.` });
   if (methods.password && cover.managersPasswordOnly) checks.push({ id: 'manager_password_only', label: 'Unit Manager sign-in', status: 'info', summary: `${cover.managersPasswordOnly} of ${cover.managers} Unit Managers sign in with a password alone: no authenticator, passkey or proven CAC.` });
   return checks;
 }

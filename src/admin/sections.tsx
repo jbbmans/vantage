@@ -285,8 +285,20 @@ export function AuditLog() {
   const [loading, setLoading] = useState(''); const [actions, setActions] = useState<string[]>([]);
   const toast = useToast();
   useEffect(() => { setOlder({ rows: [], next: null }); if (data?.actions) setActions(data.actions); }, [data]);
-  if (isPending) return <Skeleton className="h-64" />;
-  if (error || !data) return <div className="card"><EmptyState title="Could not load" description={api.errorText(error)} action={<Button onClick={() => refetch()}>Retry</Button>} /></div>;
+  const filtered = Boolean(filter.q || filter.action || filter.from || filter.to);
+  // The filter stays on screen while a page loads or fails, so focus stays put and Clear is always at hand.
+  const form = (
+    <form className="mb-3 flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); setFilter({ ...draft, q: draft.q.trim() }); }}>
+      <Field label="Search" className="min-w-[12rem] flex-1"><Input placeholder="Action, detail, username, IP or ID" value={draft.q} onChange={(e) => setDraft({ ...draft, q: e.target.value })} maxLength={80} /></Field>
+      <Field label="Action" className="w-52"><Select aria-label="Action" value={draft.action || 'all'} onValueChange={(v) => setDraft({ ...draft, action: v === 'all' ? '' : v })} options={[{ value: 'all', label: 'Every action' }, ...actions.map((a) => ({ value: a, label: humanize(a) }))]} /></Field>
+      <Field label="From (UTC)" className="w-40"><Input type="date" value={draft.from} onChange={(e) => setDraft({ ...draft, from: e.target.value })} /></Field>
+      <Field label="To (UTC)" className="w-40"><Input type="date" value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} /></Field>
+      <Button type="submit" variant="primary">Apply</Button>
+      {filtered && <Button type="button" variant="ghost" onClick={() => { setDraft(NO_FILTER); setFilter(NO_FILTER); }}>Clear</Button>}
+    </form>
+  );
+  if (isPending) return <>{form}<Skeleton className="h-64" /></>;
+  if (error || !data) return <>{form}<div className="card"><EmptyState title="Could not load" description={api.errorText(error)} action={<Button onClick={() => refetch()}>Retry</Button>} /></div></>;
   const rows = [...data.rows, ...older.rows];
   const next = older.rows.length ? older.next : data.next;
   const loadOlder = async () => {
@@ -300,17 +312,9 @@ export function AuditLog() {
     try { const name = await withSudo(() => api.downloadFile(api.platformAuditExportUrl(filter, format), `vantage-platform-audit.${format}`)); toast.success(`Downloaded ${name}. The download is in the audit trail.`); }
     catch (e) { toast.error(api.errorText(e)); } finally { setLoading(''); }
   };
-  const filtered = Boolean(filter.q || filter.action || filter.from || filter.to);
   return (
     <>
-      <form className="mb-3 flex flex-wrap items-end gap-2" onSubmit={(e) => { e.preventDefault(); setFilter({ ...draft, q: draft.q.trim() }); }}>
-        <Field label="Search" className="min-w-[12rem] flex-1"><Input placeholder="Action, detail, username, IP or ID" value={draft.q} onChange={(e) => setDraft({ ...draft, q: e.target.value })} maxLength={80} /></Field>
-        <Field label="Action" className="w-52"><Select aria-label="Action" value={draft.action || 'all'} onValueChange={(v) => setDraft({ ...draft, action: v === 'all' ? '' : v })} options={[{ value: 'all', label: 'Every action' }, ...actions.map((a) => ({ value: a, label: humanize(a) }))]} /></Field>
-        <Field label="From (UTC)" className="w-40"><Input type="date" value={draft.from} onChange={(e) => setDraft({ ...draft, from: e.target.value })} /></Field>
-        <Field label="To (UTC)" className="w-40"><Input type="date" value={draft.to} onChange={(e) => setDraft({ ...draft, to: e.target.value })} /></Field>
-        <Button type="submit" variant="primary">Apply</Button>
-        {filtered && <Button type="button" variant="ghost" onClick={() => { setDraft(NO_FILTER); setFilter(NO_FILTER); }}>Clear</Button>}
-      </form>
+      {form}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {data.chain && <Badge tone={data.chain.ok ? 'good' : 'bad'}>{data.chain.ok ? `Chain intact · ${data.chain.count} entries` : 'Chain broken'}</Badge>}
         <span className="text-xs text-ink-3">{rows.length} shown{filtered ? ', filtered' : ''}, newest first</span>
@@ -336,8 +340,8 @@ export function DataAdmin() {
   const backup = async () => { setBusy('backup'); try { const n = await api.downloadFile('/api/platform/backup', 'vantage-backup.db'); toast.success(`Downloaded ${n}.`); } catch (e: any) { if (e?.code === 'sudo_required') { try { await withSudo(() => api.platformOverview()); const n = await api.downloadFile('/api/platform/backup', 'vantage-backup.db'); toast.success(`Downloaded ${n}.`); } catch (e2) { toast.error(api.errorText(e2)); } } else toast.error(api.errorText(e)); } finally { setBusy(''); } };
   const exportJson = async () => { setBusy('export'); try { await withSudo(() => api.platformOverview()); const n = await api.downloadFile('/api/platform/export', 'vantage-service.json'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(''); } };
   const runImport = async () => { if (!importFile) return; setBusy('import'); try { const archive = JSON.parse(await importFile.text()); const r = await withSudo(() => api.platformImport(archive)); toast.success(`Imported: ${Object.entries(r.counts || {}).map(([k, v]) => `${v} ${k}`).join(', ')}. ${r.note}`); setTimeout(() => signOutEverywhere(), 2500); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(''); } };
-  const { data: operations } = useAdmin<{ backups: { state: 'fresh' | 'stale' | 'never'; last: { at: string; method: 'browser' | 'server' } | null; maxAgeHours: number } }>('operations', api.platformOperations);
-  const backups = operations?.backups;
+  // From the overview, which this page already reads: Operations would verify the whole audit chain again for one badge.
+  const backups = overview?.backups as { state: 'fresh' | 'stale' | 'never'; last: { at: string; method: 'browser' | 'server' } | null; maxAgeHours: number } | undefined;
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Backup" subtitle="A consistent copy of the SQLite database">

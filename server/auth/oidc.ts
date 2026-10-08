@@ -209,6 +209,8 @@ export function resolveOidcAccount(ctx: AppContext, claims: OidcClaims): { userI
     return { userId: candidate.id, linked: true, provisioned: false };
   }
   if (cfg.autoProvisionFromRoster && /^\d{10}$/.test(edipi)) {
+    // During maintenance nobody new is made from the roster, as with a card or registration (ADR-0011).
+    if (ctx.runtime.maintenance) throw new OidcError('Vantage is in maintenance. Accounts are made again once it ends.', 'maintenance');
     const roster = rosterVouching(ctx, edipi);
     if (roster && !db.prepare('SELECT 1 FROM users WHERE edipi = ?').get(edipi)) {
       const id = newId();

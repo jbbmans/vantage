@@ -190,6 +190,13 @@ test('with roster provisioning, a Marine on the roster with no account gets one 
     assert.equal((app.ctx.db.prepare("SELECT email FROM users WHERE edipi = '1234567891'").get() as { email: string | null }).email, null);
     const nobody = await signIn(app, idp, claimsFor(idp.issuer, { sub: 'x', email: 'x@example.mil', edipi: '9999999999' }));
     assert.equal(nobody.callback!.headers.get('location'), '/login?sso_error=oidc_unlinked');
+    // During maintenance nobody new is made, as with a card or registration (ADR-0011); people who have accounts still sign in.
+    app.ctx.db.prepare(`INSERT INTO personnel_roster (org_id, edipi, last_name, first_name, rank_id, mos, status, source, row_hash, synced_at, created_at, updated_at) VALUES ('G8', '1234567892', 'Rivera', 'Ana', 'Sgt', '3451', 'active', 'test', 'h3', ?, ?, ?)`).run(at, at, at);
+    app.ctx.runtime.maintenance = true;
+    const waiting = await signIn(app, idp, claimsFor(idp.issuer, { sub: 'ana', email: 'ana.rivera@example.mil', edipi: '1234567892' }));
+    assert.equal(waiting.callback!.headers.get('location'), '/login?sso_error=maintenance');
+    assert.equal(app.ctx.db.prepare("SELECT 1 FROM users WHERE edipi = '1234567892'").get(), undefined);
+    app.ctx.runtime.maintenance = false;
   } finally { await app.close(); await idp.close(); }
 });
 

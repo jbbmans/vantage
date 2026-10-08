@@ -101,6 +101,8 @@ platformRouter.get('/overview', requirePlatform('platform.view'), wrap((req, res
     deployment: deploymentPosture(req.ctx),
     health: { status: health.status, checkedAt: health.checkedAt, attention: health.checks.filter((c) => c.status === 'warn' || c.status === 'fail') },
     build: versionStatus(req.ctx).build,
+    // How fresh the last backup is, for Backup and recovery; who took it is on Operations, for those who may see it.
+    backups: (({ state, last, maxAgeHours }) => ({ state, last: last && { at: last.at, method: last.method }, maxAgeHours }))(backupStatus(req.ctx)),
   });
 }));
 
@@ -159,15 +161,17 @@ const runtimeSchema = z.object({
   }).optional(),
 });
 
-/** A settings change as the audit trail keeps it: each switch or short value before and after, the rest by name. */
-function describeChange(before: Record<string, unknown>, patch: Record<string, unknown>): string {
+/**
+ * A settings change as the audit trail keeps it: the settings whose value changed, whether sent or adjusted to fit (a
+ * default model no longer offered), each switch, number or text before and after (text cut to 40 characters), and
+ * lists by name. A save that changes nothing names nothing.
+ */
+function describeChange(before: Record<string, unknown>, after: Record<string, unknown>): { keys: string[]; detail: string } {
   const shown = (v: unknown) => (typeof v === 'string' ? JSON.stringify(v.length > 40 ? `${v.slice(0, 40)}…` : v) : String(v));
-  return Object.keys(patch).map((key) => {
-    const was = before[key];
-    const after = patch[key];
-    const scalar = (v: unknown) => typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string';
-    return scalar(was) && scalar(after) ? `${key}: ${shown(was)} → ${shown(after)}` : key;
-  }).join(', ');
+  const scalar = (v: unknown) => typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string';
+  const keys = Object.keys({ ...before, ...after }).filter((key) => JSON.stringify(before[key]) !== JSON.stringify(after[key]));
+  const detail = keys.map((key) => (scalar(before[key]) && scalar(after[key]) ? `${key}: ${shown(before[key])} → ${shown(after[key])}` : key)).join(', ');
+  return { keys, detail: detail || 'no change' };
 }
 
 platformRouter.put('/runtime', requirePlatform('platform.settings'), wrap((req, res) => {
@@ -176,7 +180,7 @@ platformRouter.put('/runtime', requirePlatform('platform.settings'), wrap((req, 
   if (req.body && typeof req.body === 'object' && 'maintenance' in req.body) throw badRequest('Start and end maintenance from the Maintenance page.', { code: 'use_maintenance' });
   const patch = parse(runtimeSchema, req.body);
   assertRuntimePatchAllowed(ctx.config, patch);
-  const before = { ...ctx.runtime } as unknown as Record<string, unknown>;
+  const before = structuredClone(ctx.runtime) as unknown as Record<string, unknown>;
   const { metrics, ...rest } = patch;
   Object.assign(ctx.runtime, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
   if (metrics) {
@@ -191,8 +195,9 @@ platformRouter.put('/runtime', requirePlatform('platform.settings'), wrap((req, 
   if (!ctx.runtime.aiModels.length) ctx.runtime.aiModels = [...ctx.config.ai.models];
   if (!ctx.runtime.aiModels.includes(ctx.runtime.aiDefaultModel)) ctx.runtime.aiDefaultModel = ctx.runtime.aiModels[0];
   ctx.saveRuntime();
-  // entity_id names the settings changed, from the schema's keys alone, so Feature flags can say who last changed each one.
-  audit(ctx, { actor_id: req.user.id, action: 'edit_configuration', entity: 'platform', entity_id: Object.keys(patch).join(','), detail: describeChange(before, patch), ip: ip(req) });
+  // entity_id names the settings that changed, runtime keys alone, so Feature flags can say who last changed each one.
+  const change = describeChange(before, ctx.runtime as unknown as Record<string, unknown>);
+  audit(ctx, { actor_id: req.user.id, action: 'edit_configuration', entity: 'platform', entity_id: change.keys.join(',') || null, detail: change.detail, ip: ip(req) });
   res.json(ctx.runtime);
 }));
 

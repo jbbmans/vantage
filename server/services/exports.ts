@@ -31,6 +31,13 @@ export const EXPORT_TABLES = [
   'audit_log', 'notifications', 'maradmins', 'maradmin_user_state', 'ai_usage_daily', 'product_events', 'email_log', 'meta',
 ] as const;
 
+/**
+ * meta keys that describe this database and host rather than the service's data: its schema, the migrations and releases
+ * that ran on it, and the backups taken of it (ADR-0011). An import keeps this host's, so Operations does not report
+ * the old host's history, a backup this database never had, or a schema the archive's build ran.
+ */
+const HOST_META = ['schema_version', 'migration_history', 'migration_history_since', 'release_history', 'backup_history', 'last_backup_at'] as const;
+
 /** Tables left out of the archive on purpose: sign-ins, links and queued mail that belong to the old host. */
 export const NOT_EXPORTED = ['sessions', 'tokens', 'email_queue', 'connector_auth_states', 'oidc_states', 'demo_workspaces'] as const;
 
@@ -71,6 +78,7 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       // the membership history's: the archive brings its own history, and loading its memberships is not anybody joining.
       dropInstanceBoundaryTriggers(ctx.db);
       dropMembershipHistoryTriggers(ctx.db);
+      const hostMeta = ctx.db.prepare(`SELECT key, value FROM meta WHERE key IN (${HOST_META.map(() => '?').join(',')})`).all(...HOST_META) as Array<{ key: string; value: string }>;
       for (const table of [...NOT_EXPORTED, ...[...EXPORT_TABLES].reverse()]) ctx.db.prepare(`DELETE FROM ${table}`).run();
       for (const table of EXPORT_TABLES) {
         const rows = archive.tables![table] || [];
@@ -87,6 +95,8 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
         }
         counts[table] = rows.length;
       }
+      ctx.db.prepare(`DELETE FROM meta WHERE key IN (${HOST_META.map(() => '?').join(',')})`).run(...HOST_META);
+      for (const { key, value } of hostMeta) metaSet(ctx.db, key, value);
       if (legacy) foundOrganizations(ctx.db);
       if (unstamped) stampAttachmentUnits(ctx.db);
       // An archive from before the history opens a period for each membership it holds, as migration 018 does.

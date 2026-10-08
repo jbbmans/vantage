@@ -114,7 +114,7 @@ Anyone can clear their own after signing in with a recovery code. Otherwise it i
 | Check references between records | `PRAGMA foreign_key_check` | any time |
 | Fold the write-ahead log into the database | `PRAGMA wal_checkpoint(TRUNCATE)` | any time |
 | Refresh query statistics | `PRAGMA optimize` | any time |
-| Clear expired sessions | the nightly session prune, now | any time |
+| Clear expired sessions | the session prune that runs every 15 minutes, now | any time |
 | Verify the audit trail and case histories | the audit chain and every case history | any time |
 | Compact the database | `VACUUM` | only during maintenance, and only with free disk of about twice the database (its working copy goes to disk, not memory) |
 

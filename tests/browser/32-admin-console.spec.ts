@@ -101,3 +101,17 @@ test('the platform audit trail filters on the server and downloads what it shows
   await page.getByRole('button', { name: 'CSV' }).click();
   expect((await download).suggestedFilename()).toMatch(/^vantage-platform-audit-\d{4}-\d{2}-\d{2}\.csv$/);
 });
+
+test('the operations pages fit tablet and phone widths without sideways scrolling', async ({ page }) => {
+  test.setTimeout(120_000);
+  await loginAs(page, OPERATOR.username);
+  for (const [w, h] of [[768, 1024], [390, 844]]) {
+    await page.setViewportSize({ width: w, height: h });
+    for (const [path, heading] of [['operations', 'Operations'], ['sign-in', 'Sign-in health'], ['flags', 'Feature flags'], ['maintenance', 'Maintenance'], ['audit', 'Platform audit trail']]) {
+      await openAdmin(page, path, heading);
+      await page.waitForLoadState('networkidle');
+      const overflow = await page.evaluate(() => document.documentElement.scrollWidth - document.documentElement.clientWidth);
+      expect(overflow, `/admin/${path} at ${w}px`).toBeLessThanOrEqual(1);
+    }
+  }
+});

@@ -32,9 +32,10 @@ export function backupHistory(db: Db): BackupRecord[] {
 
 export function recordBackup(db: Db, record: Omit<BackupRecord, 'at'> & { at?: string }) {
   const entry: BackupRecord = { at: record.at ?? new Date().toISOString(), method: record.method, bytes: record.bytes, by: record.by, file: record.file };
+  // IMMEDIATE takes the write lock before reading, so the script and the running service cannot interleave and lose one.
   db.transaction(() => {
     metaSet(db, 'backup_history', JSON.stringify([...backupHistory(db), entry].slice(-KEPT)));
     metaSet(db, 'last_backup_at', entry.at);
-  })();
+  }).immediate();
   return entry;
 }

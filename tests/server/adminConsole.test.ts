@@ -128,7 +128,8 @@ test('a database ahead of the build is flagged, and an older one records the mig
 test('backups taken on the server and through the browser are recorded, and an old one goes stale', async () => {
   const dir = mkdtempSync(join(tmpdir(), 'vantage-backup-'));
   const path = join(dir, 'vantage.db');
-  const fileApp = await startApp({ VANTAGE_DB: path });
+  // Dedicated, so compacting is shown to keep the guard that holds it to one Unit Instance.
+  const fileApp = await startApp({ VANTAGE_DB: path, VANTAGE_TOPOLOGY: 'dedicated' });
   try {
     const owner = await fileApp.setupOperator();
     // npm run backup: the copy is made, and the live database records it.
@@ -162,6 +163,8 @@ test('backups taken on the server and through the browser are recorded, and an o
     assert.equal(vacuum.body.ok, true);
     assert.match(vacuum.body.summary, /KB/);
     assert.equal(fileApp.ctx.db.pragma('temp_store', { simple: true }), 2, 'temporary tables go back to memory after the run');
+    const at = new Date().toISOString();
+    assert.throws(() => fileApp.ctx.db.prepare("INSERT INTO units (id, code, name, echelon, created_at) VALUES ('X1', 'X1', 'X', 'command', ?)").run(at), /dedicated_topology/, 'the dedicated guard survives compacting');
     assert.equal((await fileApp.call('POST', '/api/platform/maintenance', { token: owner.token, body: { enabled: false } })).status, 200);
   } finally { await fileApp.close(); rmSync(dir, { recursive: true, force: true }); }
 });
@@ -196,6 +199,11 @@ test('controlled maintenance takes a reason, tells everyone else what and until 
   assert.match(setup.body.maintenanceNotice.message, /Vantage is being restored/);
   assert.equal(setup.body.maintenanceNotice.until, until);
   assert.ok(!setup.text.includes(MARKER), 'the reason stays with Vantage staff');
+  // Once the expected end has passed, everyone is told it is running long, not a time already gone.
+  app.ctx.runtime.maintenanceWindow!.until = new Date(Date.now() - 60_000).toISOString();
+  assert.equal((await get(marine.token, '/api/records/activities')).body.error, 'Vantage is being restored. It is taking longer than planned. Try again shortly.');
+  assert.equal((await app.call('GET', '/api/auth/setup')).body.maintenanceNotice.until, null);
+  app.ctx.runtime.maintenanceWindow!.until = until;
   assert.equal((await get(op.token, '/api/records/activities')).status, 200, 'Vantage staff keep working');
   // The other staff are told; the one who started it is not.
   const told = (id: string) => app.ctx.db.prepare("SELECT COUNT(*) AS n FROM notifications WHERE user_id = ? AND title LIKE '%closed Vantage for maintenance'").get(id) as { n: number };
@@ -260,6 +268,12 @@ test('feature flags say who changed them; a locked flag cannot be turned on and 
   assert.equal((await app.call('PUT', '/api/platform/runtime', { token: staff.admin!.token, body: { announcement: 'attachmentsEnabled: true, aiEnabled: true' } })).status, 200);
   const again = (await get(staff.auditor!.token, '/api/platform/flags')).body.runtime.find((f: { key: string }) => f.key === 'attachmentsEnabled');
   assert.equal(again.changedBy, 'John Boletz', 'the announcement is not shown as a change to the flag');
+  // A save that sends a flag at the value it already has does not change it.
+  assert.equal((await app.call('PUT', '/api/platform/runtime', { token: staff.admin!.token, body: { attachmentsEnabled: false, announcement: 'Sent with the form' } })).status, 200);
+  const sent = app.ctx.db.prepare("SELECT entity_id, detail FROM audit_log WHERE action = 'edit_configuration' ORDER BY seq DESC LIMIT 1").get() as { entity_id: string; detail: string };
+  assert.equal(sent.entity_id, 'announcement');
+  assert.equal(sent.detail, 'announcement: "attachmentsEnabled: true, aiEnabled: tru…" → "Sent with the form"', 'only what changed is recorded, text cut to 40 characters');
+  assert.equal((await get(staff.auditor!.token, '/api/platform/flags')).body.runtime.find((f: { key: string }) => f.key === 'attachmentsEnabled').changedBy, 'John Boletz');
   await app.call('PUT', '/api/platform/runtime', { token: op.token, body: { announcement: '' } });
   assert.ok(flags.runtime.find((f: { key: string }) => f.key === 'aiEnabled').blockedBy, 'AI cannot run without a model key');
   assert.ok(flags.environment.some((f: { key: string }) => f.key === 'browserBackups'));
@@ -423,4 +437,25 @@ test('the backup history lives in the database it describes, and keeps the last 
     assert.equal(backupHistory(db).at(-1)!.file, 'copy-24.db');
     db.close();
   } finally { rmSync(dir, { recursive: true, force: true }); }
+});
+
+test('a service archive brings the data and leaves this host its own schema, migrations, releases and backups', async () => {
+  const archive = (await get(op.token, '/api/platform/export')).body;
+  // As if it came from an older build on a host that was backed up last week.
+  const meta = archive.tables.meta as Array<{ key: string; value: string }>;
+  const put = (key: string, value: string) => { const row = meta.find((m) => m.key === key); if (row) row.value = value; else meta.push({ key, value }); };
+  put('schema_version', '17');
+  put('backup_history', JSON.stringify([{ at: '2026-10-01T00:00:00.000Z', method: 'server', bytes: 1, by: null, file: 'old-host.db' }]));
+  put('release_history', JSON.stringify([{ version: '0.0.1', build: 'old-host', client: null, firstSeen: '2026-01-01T00:00:00.000Z' }]));
+  const fresh = await startApp();
+  try {
+    const freshOp = await fresh.setupOperator();
+    const before = { releases: releaseHistory(fresh.ctx), migrations: migrationStatus(fresh.ctx).catalog.filter((m) => m.run).length };
+    const res = await fresh.call('POST', '/api/platform/import', { token: freshOp.token, body: archive });
+    assert.equal(res.status, 200, JSON.stringify(res.body));
+    assert.equal(migrationStatus(fresh.ctx).state, 'current', 'the schema is this database’s, not the archive build’s');
+    assert.equal(migrationStatus(fresh.ctx).catalog.filter((m) => m.run).length, before.migrations);
+    assert.deepEqual(releaseHistory(fresh.ctx), before.releases);
+    assert.equal(backupStatus(fresh.ctx).state, 'never', 'a backup of the old host is not one of this database');
+  } finally { await fresh.close(); }
 });

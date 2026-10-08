@@ -60,6 +60,7 @@ const SSO_ERRORS: Record<string, string> = {
   oidc_unreachable: 'Your organization’s sign-in service could not be reached. Try again in a minute.',
   oidc_misconfigured: 'Organization sign-in is not set up correctly here. Tell Vantage support.',
   consent_required: 'Read and accept the notice first.',
+  maintenance: 'Vantage is in maintenance, and new accounts are made again once it ends. Try again then.',
   console_owners_only: 'This console is not for your account. Sign in to the app instead.',
   throttled: 'Too many sign-in attempts. Wait a few minutes and try again.',
 };

@@ -8,6 +8,7 @@ import { pruneSessions } from '../auth/sessions.ts';
 import { audit, verifyAuditChain } from './audit.ts';
 import { verifyAllCases } from './caseSeal.ts';
 import { notifyStaff } from './notifications.ts';
+import { installTopologyGuard } from './deployment.ts';
 
 /**
  * Controlled maintenance (ADR-0011): closing the service to everyone but Vantage staff, always with a reason, and the
@@ -30,6 +31,8 @@ export function maintenanceNotice(ctx: AppContext): string {
   const window = ctx.runtime.maintenanceWindow;
   const said = window?.message ? sentence(window.message) : 'Vantage is in scheduled maintenance.';
   if (!window?.until) return `${said} Try again shortly.`;
+  // Past the expected end it says so, rather than naming a time already gone. Staff see the overrun on Operations.
+  if (Date.parse(window.until) <= Date.now()) return `${said} It is taking longer than planned. Try again shortly.`;
   const by = new Date(window.until).toLocaleString('en-US', { timeZone: ctx.config.timezone, month: 'short', day: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' });
   return `${said} It is expected to end by ${by}.`;
 }
@@ -37,7 +40,8 @@ export function maintenanceNotice(ctx: AppContext): string {
 /** The part of the window anyone may see before signing in: never the reason, which is for staff and the audit trail. */
 export function publicMaintenance(ctx: AppContext) {
   if (!ctx.runtime.maintenance) return null;
-  return { message: maintenanceNotice(ctx), until: ctx.runtime.maintenanceWindow?.until ?? null };
+  const until = ctx.runtime.maintenanceWindow?.until ?? null;
+  return { message: maintenanceNotice(ctx), until: until && Date.parse(until) > Date.now() ? until : null };
 }
 
 export function startMaintenance(ctx: AppContext, actor: SessionUser, input: MaintenanceStart, ip?: string | null): MaintenanceWindow {
@@ -175,10 +179,14 @@ export const MAINTENANCE_TASKS: Record<string, MaintenanceTask> = {
         if (free < need) return { ok: false, summary: `Not run: compacting needs about ${Math.ceil(need / 1_048_576)} MB free ${where}, and there are ${Math.floor(free / 1_048_576)} MB.`, detail: [] };
       }
       // The connection keeps temporary tables in memory; for this run the working copy goes to disk instead, so a large
-      // database is not copied into the server's memory.
+      // database is not copied into the server's memory. Changing temp_store drops every temporary object on the
+      // connection, so the dedicated deployment's guard, the only one, is put back however the run ends.
       const tempStore = ctx.db.pragma('temp_store', { simple: true }) as number;
       ctx.db.pragma('temp_store = FILE');
-      try { ctx.db.exec('VACUUM'); } finally { ctx.db.pragma(`temp_store = ${Number(tempStore)}`); }
+      try { ctx.db.exec('VACUUM'); } finally {
+        ctx.db.pragma(`temp_store = ${Number(tempStore)}`);
+        installTopologyGuard(ctx.db, ctx.config.deployment);
+      }
       ctx.db.pragma('wal_checkpoint(TRUNCATE)');
       const after = statSync(ctx.db.name).size;
       return { ok: true, summary: `The database file went from ${Math.round(before / 1024)} KB to ${Math.round(after / 1024)} KB.`, detail: [] };

@@ -225,7 +225,7 @@ export function SignInHealth() {
         )}
         <Panel title="Second factors" subtitle="Who could be signed in with a password alone">
           <dl className="space-y-1.5 text-sm">
-            <div className="flex justify-between gap-3"><dt className="text-ink-3">Vantage staff without an authenticator or passkey</dt><dd className={`fig ${coverage.staffWithoutSecondFactor ? 'text-warn' : 'text-ink'}`}>{coverage.staffWithoutSecondFactor} of {coverage.staff}</dd></div>
+            <div className="flex justify-between gap-3"><dt className="text-ink-3">Vantage staff without an authenticator, passkey or proven CAC</dt><dd className={`fig ${coverage.staffWithoutSecondFactor ? 'text-warn' : 'text-ink'}`}>{coverage.staffWithoutSecondFactor} of {coverage.staff}</dd></div>
             <div className="flex justify-between gap-3"><dt className="text-ink-3">Unit Managers with a password alone</dt><dd className="fig text-ink">{coverage.managersPasswordOnly} of {coverage.managers}</dd></div>
           </dl>
           <p className="mt-2 text-xs text-ink-3">Counts only. Account support finds the people themselves.</p>
