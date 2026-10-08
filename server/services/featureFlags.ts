@@ -31,9 +31,17 @@ function blockedBy(ctx: AppContext, key: RuntimeFlagKey): string | null {
 }
 
 /** The newest settings change that named this flag, from the platform trail. */
+/**
+ * The last change to one setting. It matches the setting names the entry records (entity_id), never its text: an
+ * announcement that mentions a flag's name is not a change to that flag. Entries from before the names were recorded
+ * hold only the names, comma-separated, in their detail.
+ */
 function lastChange(ctx: AppContext, key: string) {
   return (ctx.db.prepare(`SELECT al.at, al.detail, u.first_name || ' ' || u.last_name AS by FROM audit_log al LEFT JOIN users u ON u.id = al.actor_id
-     WHERE al.action = 'edit_configuration' AND al.org_id IS NULL AND al.unit_id IS NULL AND instr(al.detail, ?) > 0 ORDER BY al.seq DESC LIMIT 1`).get(key) as { at: string; detail: string; by: string | null } | undefined) ?? null;
+     WHERE al.action = 'edit_configuration' AND al.org_id IS NULL AND al.unit_id IS NULL
+       AND (instr(',' || al.entity_id || ',', ',' || ? || ',') > 0
+         OR (al.entity_id IS NULL AND instr(',' || replace(al.detail, ' ', '') || ',', ',' || ? || ',') > 0))
+     ORDER BY al.seq DESC LIMIT 1`).get(key, key) as { at: string; detail: string; by: string | null } | undefined) ?? null;
 }
 
 export function featureFlags(ctx: AppContext) {

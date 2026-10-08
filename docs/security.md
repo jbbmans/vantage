@@ -63,10 +63,10 @@ A Unit Instance is what this section calls an organization ([ADR-0007](engineeri
   The reason stays with staff; everyone else reads the message.
 - **No statement is typed in.** Database tasks are a fixed list; compacting runs only during maintenance
   and only with room on the disk. Each run is audited.
-- **The audit export is audited** (`platform_audit_exported`, with the filter and row count), capped at
-  50,000 rows, and its CSV writes a cell a spreadsheet would run as a formula as text (`shared/csv.ts`).
-- **Checking the organization sign-in provider** reaches only the configured issuer and the keys it
-  names, and is audited (`oidc_checked`).
+- **The audit export is audited** (`platform_audit_exported`, with the filter and row count). Above
+  50,000 rows it is refused with a request to narrow the dates, never cut short. Its CSV writes a cell a spreadsheet would run as a formula as text (`shared/csv.ts`).
+- **Checking the organization sign-in provider** is `platform.settings`, reaches only the configured issuer
+  and the keys it names, and is audited (`oidc_checked`).
 - **Least visibility.** No operations read touches a record, comment, file or work item, and sign-in
   health is counts. Recent email names recipients only to `platform.email`; who took a backup only to
   `platform.data` and `platform.audit`. `tests/server/adminConsole.test.ts` checks that a marker written

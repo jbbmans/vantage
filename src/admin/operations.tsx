@@ -169,6 +169,7 @@ const METHOD_LABEL: Record<string, string> = { password: 'Password', 'password+t
 export function SignInHealth() {
   const { data, isPending, error, refetch, isFetching } = useAdmin<SignInReport>('sign-in-health', api.platformSignInHealth);
   const toast = useToast();
+  const can = usePlatformCan();
   const [probe, setProbe] = useState<ProviderCheck | null>(null); const [probing, setProbing] = useState(false);
   if (isPending) return <Skeleton className="h-64" />;
   if (error || !data) return <Failed error={error} retry={() => refetch()} />;
@@ -217,7 +218,7 @@ export function SignInHealth() {
           </Panel>
         )}
         {oidc.enabled && (
-          <Panel title="Organization sign-in" subtitle={oidc.issuerHost ?? undefined} action={<Button size="sm" onClick={checkProvider} loading={probing}><Fingerprint className="h-3.5 w-3.5" />Check the provider</Button>}>
+          <Panel title="Organization sign-in" subtitle={oidc.issuerHost ?? undefined} action={can('platform.settings') ? <Button size="sm" onClick={checkProvider} loading={probing}><Fingerprint className="h-3.5 w-3.5" />Check the provider</Button> : undefined}>
             <p className="text-sm text-ink-2">Last organization sign-in {oidc.lastSignIn ? timeAgo(oidc.lastSignIn) : 'never'}. First sign-ins link by {oidc.linkBy === 'none' ? 'nothing: each opens its own account' : oidc.linkBy === 'edipi' ? 'EDIPI' : 'email address'}.</p>
             {probe && <p role="status" className={`mt-3 rounded-md border px-3 py-2 text-sm text-ink ${probe.ok ? 'border-good/40 bg-good/10' : 'border-bad/40 bg-bad/5'}`}>{probe.ok ? `Reached the provider at ${probe.authorizationHost}; it publishes ${probe.keys} signing ${probe.keys === 1 ? 'key' : 'keys'}.` : `Could not use the provider: ${probe.error}`}</p>}
           </Panel>

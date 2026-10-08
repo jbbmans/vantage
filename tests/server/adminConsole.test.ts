@@ -161,6 +161,7 @@ test('backups taken on the server and through the browser are recorded, and an o
     assert.equal(vacuum.status, 200);
     assert.equal(vacuum.body.ok, true);
     assert.match(vacuum.body.summary, /KB/);
+    assert.equal(fileApp.ctx.db.pragma('temp_store', { simple: true }), 2, 'temporary tables go back to memory after the run');
     assert.equal((await fileApp.call('POST', '/api/platform/maintenance', { token: owner.token, body: { enabled: false } })).status, 200);
   } finally { await fileApp.close(); rmSync(dir, { recursive: true, force: true }); }
 });
@@ -255,6 +256,11 @@ test('feature flags say who changed them; a locked flag cannot be turned on and 
   const attachments = flags.runtime.find((f: { key: string }) => f.key === 'attachmentsEnabled');
   assert.equal(attachments.on, false);
   assert.equal(attachments.changedBy, 'John Boletz');
+  // Text that mentions a flag's name is not a change to it.
+  assert.equal((await app.call('PUT', '/api/platform/runtime', { token: staff.admin!.token, body: { announcement: 'attachmentsEnabled: true, aiEnabled: true' } })).status, 200);
+  const again = (await get(staff.auditor!.token, '/api/platform/flags')).body.runtime.find((f: { key: string }) => f.key === 'attachmentsEnabled');
+  assert.equal(again.changedBy, 'John Boletz', 'the announcement is not shown as a change to the flag');
+  await app.call('PUT', '/api/platform/runtime', { token: op.token, body: { announcement: '' } });
   assert.ok(flags.runtime.find((f: { key: string }) => f.key === 'aiEnabled').blockedBy, 'AI cannot run without a model key');
   assert.ok(flags.environment.some((f: { key: string }) => f.key === 'browserBackups'));
   assert.equal((await app.call('PUT', '/api/platform/runtime', { token: staff.auditor!.token, body: { attachmentsEnabled: true } })).status, 403, 'auditors read flags and change none');
@@ -307,6 +313,7 @@ test('sign-in health reads the revocation lists and CAs from their files, and fa
   const text = JSON.stringify(report);
   for (const name of ['lockme', 'opsmarine', 'boletz', 'vadmin']) assert.ok(!text.includes(name), `${name} is not named`);
   assert.equal((await post(op.token, '/api/platform/sign-in-health/oidc-check')).body.code, 'oidc_off');
+  assert.equal((await post(staff.auditor!.token, '/api/platform/sign-in-health/oidc-check')).status, 403, 'reaching out to the provider is for the staff who configure the service');
 });
 
 test('the platform audit trail filters, pages and exports on the server, and an export is itself audited', async () => {
@@ -323,6 +330,7 @@ test('the platform audit trail filters, pages and exports on the server, and an 
   const tomorrow = new Date(Date.now() + 86_400_000).toISOString().slice(0, 10);
   assert.equal((await get(staff.auditor!.token, `/api/platform/audit?from=${tomorrow}`)).body.rows.length, 0);
   assert.equal((await get(staff.auditor!.token, '/api/platform/audit?from=2026-13-45x')).status, 400);
+  assert.equal((await get(staff.auditor!.token, '/api/platform/audit?to=2026-02-30')).status, 400, 'a day that does not exist is refused, not a server error');
   // Nothing an organization does internally is in the platform trail.
   assert.ok((await get(staff.auditor!.token, '/api/platform/audit?limit=1000')).body.rows.every((r: { org_id: string | null; unit_id: string | null }) => !r.org_id && !r.unit_id));
 

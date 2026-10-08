@@ -116,7 +116,7 @@ Anyone can clear their own after signing in with a recovery code. Otherwise it i
 | Refresh query statistics | `PRAGMA optimize` | any time |
 | Clear expired sessions | the nightly session prune, now | any time |
 | Verify the audit trail and case histories | the audit chain and every case history | any time |
-| Compact the database | `VACUUM` | only during maintenance, and only with free disk of 1.2 times the database |
+| Compact the database | `VACUUM` | only during maintenance, and only with free disk of about twice the database (its working copy goes to disk, not memory) |
 
 Compacting holds the database for its whole run. Take a backup first.
 

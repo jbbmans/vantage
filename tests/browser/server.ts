@@ -41,6 +41,8 @@ const config = loadConfig({
   ...process.env, NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_DB: ':memory:', VANTAGE_EMAIL_PROVIDER: 'memory', VANTAGE_MARADMIN_ENABLED: 'false',
   VANTAGE_SECRET: 'browser-test-secret-browser-test-secret-1234', VANTAGE_PUBLIC_URL: `http://localhost:${port}`, VANTAGE_OPERATOR: '', VANTAGE_SELF_REGISTRATION: 'true',
   VANTAGE_AI_ENABLED: 'true', VANTAGE_GENAI_API_KEY: 'browser-test-genai-key', VANTAGE_GENAI_BASE_URL: aiBaseUrl, VANTAGE_GENAI_MODELS: 'model-fast,model-pro,model-alt',
+  // Every spec registers its people from this one address, more than one connection may in production.
+  VANTAGE_REGISTRATIONS_PER_15_MINUTES: '200',
 } as NodeJS.ProcessEnv);
 const ctx = createContext(config);
 const app = createApp(ctx);

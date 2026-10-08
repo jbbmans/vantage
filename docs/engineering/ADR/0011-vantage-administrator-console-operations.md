@@ -130,7 +130,8 @@ or mail then.
   has expired).
 - **CAC in proxy mode.** The gateway checks revocation; Vantage cannot see its lists and says so.
 - **Organization sign-in.** The issuer's host, how first sign-ins link, and **Check the provider**: the
-  discovery document read fresh and the keys it publishes (`probeProvider`). Audited as `oidc_checked`.
+  discovery document read fresh and the keys it publishes (`probeProvider`), for `platform.settings`
+  holders, since it reaches out and refreshes the discovery sign-in uses. Audited as `oidc_checked`.
   It reaches only the configured issuer.
 - **Lockout policy**, accounts locked now, open sessions by method.
 - **Second factors:** Vantage staff with no authenticator or passkey (attention), and Unit Managers who
@@ -177,7 +178,9 @@ turns a feature on for one Unit Instance.
   for damage (`quick_check`), check references (`foreign_key_check`), fold the write-ahead log in
   (`wal_checkpoint(TRUNCATE)`), refresh query statistics (`optimize`), clear expired sessions, verify the
   audit trail and case histories, and compact the database (`VACUUM`). Compacting holds the database for
-  its whole run, so it runs only during maintenance, and only with free disk of 1.2 times the database.
+  its whole run, so it runs only during maintenance, and only with free disk of about twice the database
+  (its working copy and the write-ahead log). For that run the working copy goes to disk, not the
+  server's memory (`temp_store = FILE`).
   Each run is audited as `maintenance_task` with its result. Results are counts and table names.
 - **Who sees what.** Every staff role sees the window and the history; only `platform.maintenance` acts.
 
@@ -186,9 +189,10 @@ turns a feature on for one Unit Instance.
 - `GET /api/platform/audit` filters on the server, by text (action, detail, usernames, an exact IP or
   entity id), action and UTC dates, and pages back with `before`. The chain is verified, and the list of
   actions read, on the first page only.
-- `GET /api/platform/audit/export?format=csv|json` exports the filtered trail (up to 50,000 rows) and is
-  itself audited as `platform_audit_exported` with the filter and the row count. CSV cells a spreadsheet
-  would run as formulas are written as text.
+- `GET /api/platform/audit/export?format=csv|json` exports the filtered trail and is
+  itself audited as `platform_audit_exported` with the filter and the row count. More than 50,000
+  matching entries are refused with a request to narrow the dates: a file is complete or not made. CSV
+  cells a spreadsheet would run as formulas are written as text (`shared/csv.ts`).
 - The platform trail stays what ADR-0006 made it: what staff did, sign-ins and access requests. A Unit
   Instance's internal actions stay in its own trail.
 

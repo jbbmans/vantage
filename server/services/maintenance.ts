@@ -1,4 +1,5 @@
 import { statfsSync, statSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { dirname } from 'node:path';
 import type { AppContext, MaintenanceWindow, SessionUser } from '../context.ts';
 import { badRequest, conflict } from '../lib/errors.ts';
@@ -156,14 +157,28 @@ export const MAINTENANCE_TASKS: Record<string, MaintenanceTask> = {
   },
   vacuum: {
     label: 'Compact the database',
-    hint: 'Rebuilds the database file to give back the space deleted rows left behind. It holds the database for the whole run and needs free disk as large as the database, so it runs only during maintenance.',
+    hint: 'Rebuilds the database file to give back the space deleted rows left behind. It holds the database for the whole run and needs free disk of about twice the database, so it runs only during maintenance.',
     needsMaintenance: true,
     run: (ctx) => {
       if (ctx.db.name === ':memory:') return { ok: true, summary: 'An in-memory database has nothing to compact.', detail: [] };
       const before = statSync(ctx.db.name).size;
-      const disk = statfsSync(dirname(ctx.db.name));
-      if (disk.bavail * disk.bsize < before * 1.2) return { ok: false, summary: `Not run: compacting needs about ${Math.ceil((before * 1.2) / 1_048_576)} MB free beside the database, and the disk has ${Math.floor((disk.bavail * disk.bsize) / 1_048_576)} MB.`, detail: [] };
-      ctx.db.exec('VACUUM');
+      // VACUUM builds its working copy in SQLite's temporary folder, then writes it back through the write-ahead log
+      // beside the database: about the database's size in each place, twice it when they share a disk.
+      const home = dirname(ctx.db.name);
+      const temp = process.env.SQLITE_TMPDIR || tmpdir();
+      const needs: Array<[string, string, number]> = statSync(home).dev === statSync(temp).dev
+        ? [[home, 'beside the database', before * 2.2]]
+        : [[home, 'beside the database', before * 1.2], [temp, `in ${temp}`, before * 1.2]];
+      for (const [dir, where, need] of needs) {
+        const disk = statfsSync(dir);
+        const free = disk.bavail * disk.bsize;
+        if (free < need) return { ok: false, summary: `Not run: compacting needs about ${Math.ceil(need / 1_048_576)} MB free ${where}, and there are ${Math.floor(free / 1_048_576)} MB.`, detail: [] };
+      }
+      // The connection keeps temporary tables in memory; for this run the working copy goes to disk instead, so a large
+      // database is not copied into the server's memory.
+      const tempStore = ctx.db.pragma('temp_store', { simple: true }) as number;
+      ctx.db.pragma('temp_store = FILE');
+      try { ctx.db.exec('VACUUM'); } finally { ctx.db.pragma(`temp_store = ${Number(tempStore)}`); }
       ctx.db.pragma('wal_checkpoint(TRUNCATE)');
       const after = statSync(ctx.db.name).size;
       return { ok: true, summary: `The database file went from ${Math.round(before / 1024)} KB to ${Math.round(after / 1024)} KB.`, detail: [] };

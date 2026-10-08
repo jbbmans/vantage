@@ -124,7 +124,8 @@ platformRouter.get('/operations', requirePlatform('platform.view'), wrap((req, r
 platformRouter.get('/sign-in-health', requirePlatform('platform.view'), wrap((req, res) => res.json(signInHealth(req.ctx))));
 
 /** Reaches the configured identity provider the way a sign-in would, on demand. */
-platformRouter.post('/sign-in-health/oidc-check', requirePlatform('platform.view'), wrap(async (req, res) => {
+// It reaches out to the provider and refreshes the discovery the sign-in uses, so it is for the staff who configure the service.
+platformRouter.post('/sign-in-health/oidc-check', requirePlatform('platform.settings'), wrap(async (req, res) => {
   const ctx = req.ctx;
   if (!ctx.config.oidc.enabled) throw badRequest('Organization sign-in is not configured here.', { code: 'oidc_off' });
   let result: { ok: boolean; issuer?: string; authorizationHost?: string; keys?: number; error?: string };
@@ -190,7 +191,8 @@ platformRouter.put('/runtime', requirePlatform('platform.settings'), wrap((req, 
   if (!ctx.runtime.aiModels.length) ctx.runtime.aiModels = [...ctx.config.ai.models];
   if (!ctx.runtime.aiModels.includes(ctx.runtime.aiDefaultModel)) ctx.runtime.aiDefaultModel = ctx.runtime.aiModels[0];
   ctx.saveRuntime();
-  audit(ctx, { actor_id: req.user.id, action: 'edit_configuration', entity: 'platform', detail: describeChange(before, patch), ip: ip(req) });
+  // entity_id names the settings changed, from the schema's keys alone, so Feature flags can say who last changed each one.
+  audit(ctx, { actor_id: req.user.id, action: 'edit_configuration', entity: 'platform', entity_id: Object.keys(patch).join(','), detail: describeChange(before, patch), ip: ip(req) });
   res.json(ctx.runtime);
 }));
 
@@ -530,11 +532,14 @@ platformRouter.post('/access/:id/end', requirePlatform('platform.access'), wrap(
  * The platform's own trail: what Vantage staff did, sign-ins, and every access request. An organization's internal
  * actions (its units, its roles, its records) stay in its own trail.
  */
+/** A calendar day, YYYY-MM-DD, that exists: 2026-02-30 does not. */
+const auditDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date: YYYY-MM-DD.')
+  .refine((d) => { const t = Date.parse(`${d}T00:00:00.000Z`); return Number.isFinite(t) && new Date(t).toISOString().startsWith(d); }, 'That date does not exist.');
 const auditQuery = z.object({
   q: z.string().trim().max(80).optional(),
   action: z.string().trim().max(60).optional(),
-  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date: YYYY-MM-DD.').optional(),
-  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date: YYYY-MM-DD.').optional(),
+  from: auditDay.optional(),
+  to: auditDay.optional(),
   before: z.coerce.number().int().positive().optional(),
   limit: z.coerce.number().int().min(1).max(1000).optional(),
 });
@@ -574,16 +579,20 @@ platformRouter.get('/audit', requirePlatform('platform.audit'), wrap((req, res) 
 
 export const AUDIT_EXPORT_MAX = 50_000;
 const CSV_COLUMNS = ['seq', 'at', 'action', 'actor_username', 'actor_id', 'subject_username', 'subject_id', 'entity', 'entity_id', 'detail', 'ip', 'prev_hash', 'entry_hash'];
-/** The platform trail as a file, for an assessor or the SIEM team. Downloading it is itself audited. */
+/**
+ * The platform trail as a file, for an assessor or the SIEM team. Downloading it is itself audited. A file is complete
+ * or not made: more entries than one file holds are refused with a request to narrow the dates, never cut short.
+ */
 platformRouter.get('/audit/export', requirePlatform('platform.audit'), wrap((req, res) => {
   const format = String(req.query.format || 'csv') === 'json' ? 'json' : 'csv';
   const q = parse(auditQuery.omit({ before: true, limit: true }), req.query);
-  const rows = platformAuditRows(req, q, AUDIT_EXPORT_MAX);
+  const rows = platformAuditRows(req, q, AUDIT_EXPORT_MAX + 1);
+  if (rows.length > AUDIT_EXPORT_MAX) throw badRequest(`More than ${AUDIT_EXPORT_MAX.toLocaleString('en-US')} entries match. Narrow the dates and export each range.`, { code: 'export_too_large' });
   const filter = [q.action && `action=${q.action}`, q.q && `q=${q.q}`, q.from && `from=${q.from}`, q.to && `to=${q.to}`].filter(Boolean).join(' ');
   audit(req.ctx, { actor_id: req.user.id, action: 'platform_audit_exported', entity: 'audit_log', detail: `${rows.length} rows as ${format}${filter ? `; ${filter}` : ''}`, ip: ip(req) });
   const name = `vantage-platform-audit-${now().slice(0, 10)}.${format}`;
   res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
-  if (format === 'json') return res.json({ exportedAt: now(), filter: q, truncated: rows.length === AUDIT_EXPORT_MAX, rows });
+  if (format === 'json') return res.json({ exportedAt: now(), filter: q, rows });
   // rowsToCsv writes a cell a spreadsheet would run as a formula as text, as every other export does.
   res.type('text/csv').send(rowsToCsv(rows, CSV_COLUMNS));
 }));

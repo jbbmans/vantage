@@ -207,3 +207,30 @@ test('every certificate decision is on the audit trail', async () => {
     assert.match(verified!.detail || '', /serial=/, 'the certificate serial is kept so a card can be traced');
   } finally { await app.close(); }
 });
+
+test('during maintenance a card still signs staff in and confirms it is them, but makes no new account', async () => {
+  const app = await startApp({ ...proxyEnv, CAC_EXCLUSIVE: 'true', CAC_AUTO_PROVISION: 'true' });
+  try {
+    const op = await app.setupOperator();
+    app.ctx.db.prepare("UPDATE users SET edipi = '1234567890' WHERE id = ?").run(op.id);
+    const at = new Date().toISOString();
+    app.ctx.db.prepare(`INSERT INTO personnel_roster (org_id, edipi, last_name, first_name, rank_id, status, source, row_hash, synced_at, created_at, updated_at)
+                        VALUES ('G8','9998887770','Rivera','Ana','Sgt','active','MCTFS','h',?,?,?)`).run(at, at, at);
+    app.ctx.runtime.maintenance = true;
+
+    // Where only a card signs in, the card is the only way back in to end maintenance.
+    const card = await app.call('POST', '/api/auth/cac', { headers: asProxy(USER) });
+    assert.equal(card.status, 200, 'staff sign in with their card');
+    const stepUp = await app.call('POST', '/api/auth/cac/step-up', { token: op.token, headers: asProxy(USER) });
+    assert.equal(stepUp.status, 200, 'and confirm it is them with it');
+
+    // A roster Marine with no account yet waits until maintenance ends, as registration does.
+    const fresh = await app.call('POST', '/api/auth/cac', { headers: asProxy(OTHER) });
+    assert.equal(fresh.status, 503);
+    assert.equal(fresh.body.code, 'maintenance');
+    assert.equal((app.ctx.db.prepare("SELECT COUNT(*) AS n FROM users WHERE edipi = '9998887770'").get() as { n: number }).n, 0, 'no account was made');
+
+    app.ctx.runtime.maintenance = false;
+    assert.equal((await app.call('POST', '/api/auth/cac', { headers: asProxy(OTHER) })).status, 200, 'afterwards the roster provisions them as before');
+  } finally { await app.close(); }
+});

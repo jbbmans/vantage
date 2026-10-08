@@ -273,7 +273,10 @@ export function createApp(ctx: AppContext) {
     return res.redirect(301, hosts.url(isAppPath(req.path) ? 'app' : 'site', req.path + query));
   });
 
-  const MAINTENANCE_OPEN = new Set(['/auth/login', '/auth/login/mfa', '/auth/passkey/options', '/auth/passkey/verify', '/auth/logout', '/auth/sudo']);
+  // Signing in and confirming it is you stay open during maintenance, by every method staff may be required to use: where
+  // only a card signs in, closing the card routes would leave nobody able to end it. requireAuth refuses everyone but
+  // staff once they are signed in.
+  const MAINTENANCE_OPEN = new Set(['/auth/login', '/auth/login/mfa', '/auth/passkey/options', '/auth/passkey/verify', '/auth/logout', '/auth/sudo', '/auth/cac', '/auth/cac/step-up']);
   app.use('/api', (req, res, next) => {
     const path = req.path.toLowerCase().replace(/\/+$/, '');
     // Each host answers only the calls its own pages make: the public site none, the console only its own, and

@@ -13,8 +13,8 @@ export function readCrls(dir: string): Array<string | Buffer> {
     if (!statSync(path).isFile() || !/\.(crl|pem|der)$/i.test(name)) continue;
     const bytes = readFileSync(path);
     const text = bytes.toString('latin1');
-    if (text.includes('-----BEGIN X509 CRL-----')) {
-      for (const block of text.match(/-----BEGIN X509 CRL-----[\s\S]+?-----END X509 CRL-----/g) || []) out.push(block);
+    if (text.includes(PEM_BEGIN)) {
+      for (const block of pemBlocks(text)) out.push(block);
     } else if (!text.includes('-----BEGIN') && bytes[0] === 0x30) {
       // DER: an ASN.1 SEQUENCE. A PEM file holding something else (a certificate, a key) is not a CRL and is skipped.
       out.push(`-----BEGIN X509 CRL-----\n${bytes.toString('base64').match(/.{1,64}/g)!.join('\n')}\n-----END X509 CRL-----\n`);
@@ -22,6 +22,22 @@ export function readCrls(dir: string): Array<string | Buffer> {
   }
   if (!out.length) throw new Error(`CAC_CRL_DIR (${dir}) holds no CRL files (.crl, .pem or .der).`);
   return out;
+}
+
+const PEM_BEGIN = '-----BEGIN X509 CRL-----';
+const PEM_END = '-----END X509 CRL-----';
+
+/** Each PEM CRL block in a file, found by position: a regular expression rescans the file for every unmatched BEGIN. */
+function pemBlocks(text: string): string[] {
+  const blocks: string[] = [];
+  let at = text.indexOf(PEM_BEGIN);
+  while (at >= 0) {
+    const end = text.indexOf(PEM_END, at + PEM_BEGIN.length);
+    if (end < 0) break;
+    blocks.push(text.slice(at, end + PEM_END.length));
+    at = text.indexOf(PEM_BEGIN, end + PEM_END.length);
+  }
+  return blocks;
 }
 
 /** The newest modification time in the directory, to notice when a refresh job has replaced the CRLs. */
@@ -38,22 +54,33 @@ export function crlStamp(dir: string): number {
  */
 export interface CrlValidity { file: string; issuer: string | null; thisUpdate: string | null; nextUpdate: string | null; error: string | null }
 
+/** Each file's reading, until the file changes: a DoD CRL runs to megabytes, and the console asks on every page load. */
+const inventoryCache = new Map<string, { stamp: string; entries: CrlValidity[] }>();
+
 export function crlInventory(dir: string): CrlValidity[] {
   const out: CrlValidity[] = [];
   let names: string[];
-  try { names = readdirSync(dir); } catch (e) { return [{ file: dir, issuer: null, thisUpdate: null, nextUpdate: null, error: `unreadable: ${(e as Error).message}` }]; }
+  try { names = readdirSync(dir); } catch { return [{ file: dir, issuer: null, thisUpdate: null, nextUpdate: null, error: 'The directory cannot be read.' }]; }
   for (const name of names.sort()) {
     const path = join(dir, name);
     try {
-      if (!statSync(path).isFile() || !/\.(crl|pem|der)$/i.test(name)) continue;
+      const stat = statSync(path);
+      if (!stat.isFile() || !/\.(crl|pem|der)$/i.test(name)) continue;
+      const stamp = `${stat.mtimeMs}:${stat.size}`;
+      const cached = inventoryCache.get(path);
+      if (cached?.stamp === stamp) { out.push(...cached.entries); continue; }
       const bytes = readFileSync(path);
       const text = bytes.toString('latin1');
-      const blocks = text.includes('-----BEGIN X509 CRL-----')
-        ? (text.match(/-----BEGIN X509 CRL-----([\s\S]+?)-----END X509 CRL-----/g) || []).map((b) => Buffer.from(b.replace(/-----[^-]+-----|\s/g, ''), 'base64'))
+      const blocks = text.includes(PEM_BEGIN)
+        ? pemBlocks(text).map((b) => Buffer.from(b.slice(PEM_BEGIN.length, -PEM_END.length).replace(/\s/g, ''), 'base64'))
         : !text.includes('-----BEGIN') && bytes[0] === 0x30 ? [bytes] : [];
-      for (const der of blocks) out.push({ file: name, ...crlDates(der), error: null });
+      const entries: CrlValidity[] = blocks.map((der) => {
+        try { return { file: name, ...crlDates(der), error: null }; } catch (e) { return { file: name, issuer: null, thisUpdate: null, nextUpdate: null, error: (e as Error).message.slice(0, 120) }; }
+      });
+      inventoryCache.set(path, { stamp, entries });
+      out.push(...entries);
     } catch (e) {
-      out.push({ file: name, issuer: null, thisUpdate: null, nextUpdate: null, error: (e as Error).message });
+      out.push({ file: name, issuer: null, thisUpdate: null, nextUpdate: null, error: (e as Error).message.slice(0, 120) });
     }
   }
   return out;
@@ -80,7 +107,7 @@ function element(der: Buffer, at: number): { tag: number; start: number; end: nu
 function asn1Time(der: Buffer, el: { tag: number; start: number; end: number }): string {
   const text = der.subarray(el.start, el.end).toString('latin1');
   const m = el.tag === 0x17 ? /^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z$/.exec(text) : /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\.\d+)?Z$/.exec(text);
-  if (!m) throw new Error(`not a CRL: unreadable time ${JSON.stringify(text)}`);
+  if (!m) throw new Error('not a CRL: unreadable time');
   const year = el.tag === 0x17 ? (Number(m[1]) < 50 ? 2000 : 1900) + Number(m[1]) : Number(m[1]);
   return new Date(Date.UTC(year, Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6]))).toISOString();
 }
@@ -91,7 +118,7 @@ function commonName(der: Buffer, name: { start: number; end: number }): string |
   const at = der.subarray(name.start, name.end).indexOf(oid);
   if (at < 0) return null;
   const value = element(der, name.start + at + oid.length);
-  return der.subarray(value.start, value.end).toString('utf8');
+  return der.subarray(value.start, value.end).toString('utf8').slice(0, 200);
 }
 
 /** CertificateList → TBSCertList → [version], signature, issuer, thisUpdate, [nextUpdate]. */
