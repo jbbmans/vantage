@@ -37,6 +37,8 @@ export interface PlatformAccount {
   id: string; username: string; email: string | null; first_name: string; last_name: string; rank_abbr: string | null; active: number;
   totp_enabled: number; must_change_password: number; last_login_at: string | null; locked_until: string | null; created_at: string;
   passkeys: number; organizations: string | null; platform_roles: string | null;
+  /** The CAC sign-in key, and when the person's own card last proved it (ADR-0009). */
+  edipi?: string | null; edipi_verified_at?: string | null;
 }
 
 export interface OrgMember {

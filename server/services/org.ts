@@ -9,6 +9,7 @@ import { RECORD_TABLE_NAMES } from './records.ts';
 import { notify, notifyOrg } from './notifications.ts';
 import { releaseClaimsOnDeparture } from './work.ts';
 import { assertCanFoundUnitInstance } from './deployment.ts';
+import { noteMembershipEnd, noteMembershipStart, type EndReason, type StartReason } from './membership.ts';
 
 export interface UnitRow { id: string; code: string; name: string; short_name: string | null; echelon: string; location: string | null; parent_id: string | null; owner_user_id: string | null; active: number; created_at: string }
 
@@ -56,16 +57,22 @@ export function primaryOrgOf(ctx: AppContext, userId: string): { unitId: string;
   return row ? { unitId: row.unit_id, orgId: row.org_id } : null;
 }
 
-export function addMember(ctx: AppContext, userId: string, unitId: string, { invitedBy = null, primary = false, billet = null }: { invitedBy?: string | null; primary?: boolean; billet?: string | null } = {}) {
+/**
+ * Seat a person in a unit. The account is not touched: whoever they were before, they are still (ADR-0009). `reason`
+ * is written on the membership period this opens, and only when it opens one: re-seating a member changes no history.
+ */
+export function addMember(ctx: AppContext, userId: string, unitId: string, { invitedBy = null, primary = false, billet = null, reason = null }: { invitedBy?: string | null; primary?: boolean; billet?: string | null; reason?: StartReason | null } = {}) {
   const current = primaryOrgOf(ctx, userId);
   // Enrollment in one Unit Instance never takes the primary unit a person holds in another: that one is theirs to move.
   const isPrimary = !current || (primary && current.orgId === orgOfUnit(ctx, unitId)) ? 1 : 0;
   ctx.db.transaction(() => {
+    const joining = !ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, unitId);
     if (isPrimary) ctx.db.prepare('UPDATE unit_members SET is_primary = 0 WHERE user_id = ?').run(userId);
     ctx.db.prepare(
       `INSERT INTO unit_members (user_id, unit_id, is_primary, billet, joined_at, invited_by) VALUES (?, ?, ?, ?, ?, ?)
        ON CONFLICT(user_id, unit_id) DO UPDATE SET is_primary = MAX(unit_members.is_primary, excluded.is_primary), billet = COALESCE(excluded.billet, unit_members.billet)`
     ).run(userId, unitId, isPrimary, billet, now(), invitedBy);
+    if (joining && reason) noteMembershipStart(ctx, userId, unitId, reason, invitedBy);
     const def = defaultRoleId(ctx, unitId);
     if (def) ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(userId, def, unitId, invitedBy, now());
   })();
@@ -82,7 +89,8 @@ export function setPrimaryUnit(ctx: AppContext, userId: string, unitId: string) 
   })();
 }
 
-export function removeMember(ctx: AppContext, userId: string, unitId: string, actorId: string | null = null) {
+/** promote: false leaves the primary unit for the caller to place, as a move does, so it passes straight across. */
+export function removeMember(ctx: AppContext, userId: string, unitId: string, actorId: string | null = null, reason: EndReason = 'removed', { promote = true }: { promote?: boolean } = {}) {
   return ctx.db.transaction(() => {
     const frozenAt = now();
     let recordsFrozen = 0;
@@ -93,8 +101,9 @@ export function removeMember(ctx: AppContext, userId: string, unitId: string, ac
     for (const table of ['tasks', 'goals']) ctx.db.prepare(`UPDATE ${table} SET assignee_id = NULL, updated_at = ?, version = version + 1 WHERE assignee_id = ? AND unit_id = ? AND deleted_at IS NULL`).run(frozenAt, userId, unitId);
     const claimsReleased = releaseClaimsOnDeparture(ctx, userId, unitId, actorId);
     const wasPrimary = ctx.db.prepare('SELECT is_primary FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, unitId) as { is_primary: number } | undefined;
-    ctx.db.prepare('DELETE FROM unit_members WHERE user_id = ? AND unit_id = ?').run(userId, unitId);
-    if (wasPrimary?.is_primary) {
+    // The membership ends; its period stays, saying when, why and by whom (ADR-0009).
+    if (ctx.db.prepare('DELETE FROM unit_members WHERE user_id = ? AND unit_id = ?').run(userId, unitId).changes) noteMembershipEnd(ctx, userId, unitId, reason, actorId);
+    if (wasPrimary?.is_primary && promote) {
       // The primary unit stays in the Unit Instance it was in while the person still belongs to one of its units.
       const next = ctx.db.prepare('SELECT um.unit_id FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? ORDER BY (u.org_id IS ?) DESC, um.joined_at LIMIT 1')
         .get(userId, orgOfUnit(ctx, unitId)) as { unit_id: string } | undefined;
@@ -104,12 +113,12 @@ export function removeMember(ctx: AppContext, userId: string, unitId: string, ac
   })();
 }
 
-export function claimUnit(ctx: AppContext, unitId: string, ownerId: string) {
+export function claimUnit(ctx: AppContext, unitId: string, ownerId: string, reason: StartReason = 'leader_assigned') {
   const previous = (ctx.db.prepare('SELECT owner_user_id FROM units WHERE id = ?').get(unitId) as { owner_user_id: string | null } | undefined)?.owner_user_id || null;
   let sessionsRevoked = 0;
   ctx.db.transaction(() => {
     seedRoles(ctx, unitId);
-    addMember(ctx, ownerId, unitId, { primary: false });
+    addMember(ctx, ownerId, unitId, { primary: false, reason });
     ctx.db.prepare('UPDATE units SET owner_user_id = ? WHERE id = ?').run(ownerId, unitId);
     ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(ownerId, ownerRoleId(unitId), unitId, ownerId, now());
     if (previous && previous !== ownerId) {
@@ -148,7 +157,7 @@ export function createUnit(ctx: AppContext, actor: SessionUser, scope: Scope, bo
     ctx.db.prepare('INSERT INTO units (id, code, name, short_name, echelon, location, parent_id, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
       .run(code, code, name, body.short_name?.trim() || null, body.echelon || 'section', body.location?.trim() || null, parentId, now());
     if (ledFromAbove) seedRoles(ctx, code);
-    else claimUnit(ctx, code, actor.id);
+    else claimUnit(ctx, code, actor.id, 'unit_created');
     // At the top, the person who founded the organization is its first owner.
     if (!parentId) {
       ctx.db.prepare('UPDATE organizations SET created_by = ? WHERE id = (SELECT org_id FROM units WHERE id = ?)').run(actor.id, code);
@@ -200,7 +209,7 @@ export function archiveUnit(ctx: AppContext, actor: SessionUser, scope: Scope, u
   const onlyOwner = members.length === 1 && members[0].user_id === actor.id && unit.owner_user_id === actor.id;
   if (members.length && !onlyOwner) throw badRequest('Marines still belong to that unit. Remove or transfer them first.');
   ctx.db.transaction(() => {
-    if (onlyOwner) removeMember(ctx, actor.id, unitId, actor.id);
+    if (onlyOwner) removeMember(ctx, actor.id, unitId, actor.id, 'left');
     ctx.db.prepare('UPDATE units SET active = 0, owner_user_id = NULL WHERE id = ?').run(unitId);
   })();
   audit(ctx, { actor_id: actor.id, action: 'archive_unit', entity: 'unit', entity_id: unitId, unit_id: unitId, ip });
@@ -374,9 +383,10 @@ export function moveMember(ctx: AppContext, actor: SessionUser, scope: Scope, us
         entriesMoved += ctx.db.prepare(`UPDATE ${table} SET unit_id = ?, updated_at = ?, version = version + 1 WHERE user_id = ? AND unit_id = ? AND deleted_at IS NULL AND frozen_at IS NULL`).run(toId, at, userId, fromId).changes;
       }
     }
-    // Seated in the new team before leaving the old one, so a primary unit passes straight across and never to another instance.
-    addMember(ctx, userId, toId, { invitedBy: actor.id, primary: Boolean(membership.is_primary), billet: billet === undefined ? membership.billet : billet });
-    const removed = removeMember(ctx, userId, fromId, actor.id);
+    // Out of the old team with its primary unit left unplaced, then seated in the new one, which takes it: the primary unit
+    // passes straight across, never to another instance, and each team's history shows one move rather than a re-shuffle.
+    const removed = removeMember(ctx, userId, fromId, actor.id, 'transfer', { promote: false });
+    addMember(ctx, userId, toId, { invitedBy: actor.id, primary: Boolean(membership.is_primary), billet: billet === undefined ? membership.billet : billet, reason: 'transfer' });
     for (const h of held) {
       const role = ctx.db.prepare('SELECT * FROM roles WHERE unit_id = ? AND key = ?').get(toId, h.key) as RoleRow | undefined;
       try {

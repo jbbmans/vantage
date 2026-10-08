@@ -90,6 +90,9 @@ export const passkeyOptions = (username?: string) => api.post('/auth/passkey/opt
 export const passkeyVerify = (key: string, response: unknown) => api.post('/auth/passkey/verify', { key, response }).then((r) => { markSignedIn(); return r; });
 export const logout = async () => { try { await api.post('/auth/logout'); } catch (e) { if (!(e instanceof ApiError && e.status === 401)) throw e; } markSignedOut(); };
 export const sudo = (password: string) => api.post('/auth/sudo', { password });
+export const cacStepUp = () => api.post('/auth/cac/step-up');
+/** Accepts an invitation into the account already signed in: the same record, a new unit. */
+export const claimInvite = (token: string): Promise<{ ok: true; unit_id: string; unit_name: string; primary: boolean }> => api.post('/auth/invite/claim', { token });
 export const forgotPassword = (identifier: string) => api.post('/auth/forgot', { identifier });
 export const resetStatus = (token: string) => api.get(`/auth/reset?token=${encodeURIComponent(token)}`);
 export const resetPassword = (token: string, password: string) => api.post('/auth/reset', { token, password }).then((r) => { if (r.ok) markSignedIn(); return r; });
@@ -262,6 +265,8 @@ export const platformAccounts = (q = '', filter = '') => api.get(`/platform/acco
 export const platformAccountAction = (userId: string, action: 'unlock' | 'logout' | 'temporary-password' | 'reset-mfa' | 'deactivate' | 'reactivate', body: unknown = {}) =>
   api.post(`/platform/accounts/${enc(userId)}/${action}`, body);
 export const platformSendSignInDetails = (userIds: string[]) => api.post('/platform/accounts/sign-in-details', { userIds });
+/** Vantage support corrects the EDIPI a CAC signs in with, saying why (ADR-0009). */
+export const platformCorrectEdipi = (userId: string, body: { edipi: string | null; reason: string }) => api.post(`/platform/accounts/${enc(userId)}/edipi`, body);
 export const platformStaff = () => api.get('/platform/staff');
 export const platformGrantStaff = (body: { user_id?: string; username?: string; role: string }) => api.post('/platform/staff', body);
 export const platformRevokeStaff = (userId: string, role: string) => api.del(`/platform/staff/${enc(userId)}/${enc(role)}`);

@@ -7,6 +7,7 @@ import { rowsToCsv, activityToCsvRow, ACTIVITY_CSV_COLUMNS } from '../../shared/
 import { VERSION } from '../version.ts';
 import { now } from '../lib/ids.ts';
 import { buildZip, type ZipEntry } from '../lib/zip.ts';
+import { membershipHistory } from './membership.ts';
 
 type Row = Record<string, unknown>;
 
@@ -20,6 +21,8 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
 
   const memberships = db.prepare(`SELECT m.unit_id, m.is_primary, m.billet, m.joined_at, u.code AS unit_code, u.name AS unit_name, u.short_name AS unit_short, u.echelon, u.location, u.parent_id, p.name AS parent_name
     FROM unit_members m JOIN units u ON u.id = m.unit_id LEFT JOIN units p ON p.id = u.parent_id WHERE m.user_id = ? ORDER BY m.is_primary DESC, m.joined_at`).all(userId) as Row[];
+  // Every unit they have served in and when, across every Unit Instance: it is their own history (ADR-0009).
+  const membershipPeriods = membershipHistory(ctx, userId, null, 10_000);
   const roles = (db.prepare(`SELECT mr.unit_id, mr.created_at AS granted_at, r.id AS role_id, r.key, r.name, r.description, r.color, r.position, r.permissions FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id = ? ORDER BY mr.unit_id, r.position DESC`).all(userId) as Row[])
     .map((r) => ({ ...r, permission_names: listPermissions(Number(r.permissions)) }));
   const units = db.prepare(`SELECT id, code, name, short_name, echelon, location, parent_id, owner_user_id = ? AS owned_by_me, created_at FROM units WHERE id IN (SELECT unit_id FROM unit_members WHERE user_id = ?) OR owner_user_id = ? ORDER BY name`).all(userId, userId, userId) as Row[];
@@ -75,7 +78,7 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
     format: 'vantage-personal/1', version: VERSION, exported_at: now(), instance: { display_name: ctx.runtime.displayName, organization: ctx.runtime.organizationName, metrics: ctx.runtime.metrics },
     profile: { ...user, prefs, rank } as Row & { username: string; rank: Row | null | undefined; prefs: unknown },
     readiness: readiness || null,
-    units, memberships, roles,
+    units, memberships, membership_history: membershipPeriods, roles,
     records,
     attachments: attachmentRows,
     notifications, comments: commentRows, audit_trail: auditTrail, ai_usage: aiUsage, email_log: emails, maradmin_state: maradminState,
@@ -107,6 +110,7 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string): { buffe
   if (archive.readiness) entries.push({ name: 'readiness.csv', data: rowsToCsv([flat(archive.readiness)]) });
   entries.push({ name: 'units.csv', data: rowsToCsv(archive.units.map(flat)) });
   entries.push({ name: 'memberships.csv', data: rowsToCsv(archive.memberships.map(flat)) });
+  entries.push({ name: 'membership-history.csv', data: rowsToCsv(archive.membership_history.map((p) => flat({ ...p }))) });
   entries.push({ name: 'roles.csv', data: rowsToCsv(archive.roles.map(flat)) });
   for (const [table, rows] of Object.entries(archive.records)) {
     // Visibility is already one of the import columns, and a bare "Unit" is an import alias for the action

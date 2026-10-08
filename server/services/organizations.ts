@@ -91,7 +91,7 @@ export function createOrganization(ctx: AppContext, actor: Pick<SessionUser, 'id
     ctx.db.prepare("INSERT INTO units (id, code, name, short_name, echelon, created_at) VALUES (?, ?, ?, ?, 'command', ?)").run(code, code, name, input.short_name?.trim() || null, at);
     ctx.db.prepare('UPDATE organizations SET created_by = ?, updated_at = ? WHERE id = ?').run(actor.id, at, code);
     if (owner) {
-      claimUnit(ctx, code, owner.id);
+      claimUnit(ctx, code, owner.id, 'unit_created');
       ctx.db.prepare("INSERT OR IGNORE INTO org_roles (org_id, user_id, role, granted_by, created_at) VALUES (?, ?, 'owner', ?, ?)").run(code, owner.id, actor.id, at);
     }
   })();
@@ -233,7 +233,7 @@ export function removeFromOrg(ctx: AppContext, actor: SessionUser, orgId: string
   if (!units.length) throw notFound('They are not a member of this Unit Instance.');
   let claimsReleased = 0;
   ctx.db.transaction(() => {
-    for (const u of units) claimsReleased += removeMember(ctx, userId, u.unit_id, actor.id).claimsReleased;
+    for (const u of units) claimsReleased += removeMember(ctx, userId, u.unit_id, actor.id, 'removed_from_instance').claimsReleased;
     ctx.db.prepare('DELETE FROM org_roles WHERE org_id = ? AND user_id = ?').run(orgId, userId);
   })();
   const sessionsRevoked = invalidateUserSessions(ctx, userId);

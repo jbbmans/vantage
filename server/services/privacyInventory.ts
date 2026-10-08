@@ -33,6 +33,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       identity_source: 'employment', identity_synced_at: 'employment', demo_workspace_id: 'technical',
       prefs: 'none', digest_last_sent_at: 'technical', last_login_at: 'technical', timezone: 'none',
       failed_sign_ins: 'authentication', locked_until: 'authentication', oidc_issuer: 'authentication', oidc_subject: 'identifier',
+      edipi_verified_at: 'authentication',
       created_at: 'technical', updated_at: 'technical',
     },
   },
@@ -254,6 +255,16 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     authority: 'Organisational assignment.',
     access: 'Members of the unit see the roster; leaders manage it.',
     columns: { user_id: 'identifier', unit_id: 'employment', is_primary: 'employment', billet: 'employment', joined_at: 'employment', invited_by: 'identifier' },
+  },
+  unit_membership_periods: {
+    purpose: 'Which units a person belonged to, in what billet and from when to when, and why each stretch began and ended. The account stays the same person throughout.',
+    authority: 'Organisational assignment history; the evidence for who could see a unit’s shared work at a given time.',
+    access: 'The person sees all of theirs. A leader sees the periods in units of their own Unit Instance they can open, and its managers its whole part; never another instance’s.',
+    columns: {
+      id: 'technical', user_id: 'identifier', unit_id: 'employment', billet: 'employment', is_primary: 'employment',
+      started_at: 'employment', ended_at: 'employment', start_reason: 'employment', end_reason: 'employment',
+      started_by: 'identifier', ended_by: 'identifier',
+    },
   },
   roles: {
     purpose: 'The roles a unit defines and the permissions each carries.',

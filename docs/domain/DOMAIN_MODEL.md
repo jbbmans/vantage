@@ -10,7 +10,14 @@ The product never shows them to users.
   it an organization (ADR-0006); the product calls it a Unit Instance (ADR-0007). Vantage
   Administrators (`platform_roles`) provision it, and Unit Managers (`org_roles` owner and admin) run it.
 - **Unit** (`units`): a node in a flexible tree (`parent_id`). Any depth, any echelon name.
-- **Membership** (`unit_members`): a person in a unit, with billet, primary flag and join date.
+- **Account** (`users`): the person, for a whole career (ADR-0009). Its id, sign-in methods, EDIPI
+  (`edipi`, proven when `edipi_verified_at` is set), profile and records stay the same through every
+  transfer. Unit Instances hold memberships to it, never copies of it.
+- **Membership** (`unit_members`): a person in a unit now, with billet, primary flag and join date. The
+  primary unit's Unit Instance keeps the person's profile.
+- **Membership period** (`unit_membership_periods`): one stretch of a membership: unit, billet, primary
+  flag, start and end, why each happened and who did it. Database triggers write one on every change;
+  nothing is deleted. A person reads all of theirs; a Unit Instance reads the part in its own units.
 - **Role** (`roles`, `member_roles`): a named bitmask of permissions, defined per unit. Nothing
   inherits down the tree. Rank never grants authority.
 - **Scope** (`server/authz/scope.ts`): the caller's units, per-unit permissions and positions, resolved

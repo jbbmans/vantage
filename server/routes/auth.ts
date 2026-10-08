@@ -9,7 +9,7 @@ import { DOD_CONSENT_BANNER } from '../../shared/consent.ts';
 import { secretsOf } from '../lib/keys.ts';
 import { limiters } from '../auth/limiter.ts';
 import { createSession, destroySession, invalidateUserSessions, SESSION_COOKIE, SIGNED_IN_COOKIE, grantSudo } from '../auth/sessions.ts';
-import { requireAuth } from '../auth/middleware.ts';
+import { requireAuth, requireSudo } from '../auth/middleware.ts';
 import { issueToken, consumeToken, peekToken, revokeTokens } from '../auth/tokens.ts';
 import { matchTotp } from '../auth/totp.ts';
 import { presentedCertificate, resolveAccount, CacError } from '../auth/cac.ts';
@@ -19,11 +19,13 @@ import { facesOf } from '../lib/hosts.ts';
 import { audit } from '../services/audit.ts';
 import { layout } from '../services/mailLayout.ts';
 import { newId, now } from '../lib/ids.ts';
-import { claimUnit, addMember } from '../services/org.ts';
+import { claimUnit, addMember, guardSelfReach } from '../services/org.ts';
+import { scopeFor } from '../authz/scope.ts';
 import { slug } from '../lib/ids.ts';
 import type { Request, Response } from 'express';
 import type { AppContext } from '../context.ts';
 import { startSignIn, completeSignIn, resolveOidcAccount, OidcError } from '../auth/oidc.ts';
+import { markEdipiVerified } from '../services/identity.ts';
 
 export const authRouter = Router();
 
@@ -83,6 +85,16 @@ function consentFor(ctx: AppContext): string | null {
 
 function userCount(ctx: AppContext) { return (ctx.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n; }
 
+/**
+ * Where a CAC or the organization's provider is the only way in, no password is accepted or set by any route: not at
+ * sign-in, not through a reset link, not by accepting an invitation, not to confirm a sensitive change. Otherwise a
+ * reset link would be a password sign-in by another door.
+ */
+function assertPasswordsAccepted(ctx: AppContext, cardMessage = 'Vantage requires a CAC here. Sign in with your card.') {
+  if (ctx.config.cac.exclusive) throw forbidden(cardMessage, 'cac_required');
+  if (ctx.config.oidc.exclusive) throw forbidden(`Vantage signs in through your organization here. Use ${ctx.config.oidc.label}.`, 'oidc_required');
+}
+
 authRouter.get('/setup', wrap((req, res) => {
   const ctx = req.ctx;
   res.json({
@@ -130,7 +142,7 @@ authRouter.post('/setup', wrap((req, res) => {
     // The first account owns the service, and the first organization (its first unit founds it, ADR-0006).
     ctx.db.prepare("INSERT INTO platform_roles (user_id, role, granted_by, created_at) VALUES (?, 'owner', NULL, ?)").run(id, now());
     ctx.db.prepare('INSERT INTO units (id, code, name, short_name, echelon, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(unitId, unitId, body.unit_name, body.unit_short_name || null, 'command', now());
-    claimUnit(ctx, unitId, id);
+    claimUnit(ctx, unitId, id, 'unit_created');
     ctx.db.prepare("INSERT INTO org_roles (org_id, user_id, role, granted_by, created_at) SELECT org_id, ?, 'owner', NULL, ? FROM units WHERE id = ?").run(id, now(), unitId);
     ctx.db.prepare('UPDATE organizations SET created_by = ? WHERE id = (SELECT org_id FROM units WHERE id = ?)').run(id, unitId);
   })();
@@ -142,8 +154,7 @@ authRouter.post('/setup', wrap((req, res) => {
 authRouter.post('/register', wrap((req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
-  if (ctx.config.cac.exclusive) throw forbidden('Vantage requires a CAC here. Accounts are created from your Unit Instance’s personnel roster.', 'cac_required');
-  if (ctx.config.oidc.exclusive) throw forbidden(`Vantage signs in through your organization here. Use ${ctx.config.oidc.label}.`, 'oidc_required');
+  assertPasswordsAccepted(ctx, 'Vantage requires a CAC here. Accounts are created from your Unit Instance’s personnel roster.');
   if (!ctx.runtime.selfRegistration) throw notFound('Self-registration is not enabled. Ask a leader for an invitation.');
   if (userCount(ctx) === 0) throw conflict('The deployment must be initialized before accounts can self-register.', 'setup_required');
   const limited = limiters.registerIp.limited(ip);
@@ -170,8 +181,7 @@ const loginSchema = z.object({ username: z.string().max(40), password: z.string(
 authRouter.post('/login', wrap(async (req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
-  if (ctx.config.cac.exclusive) throw forbidden('Vantage requires a CAC here. Sign in with your card.', 'cac_required');
-  if (ctx.config.oidc.exclusive) throw forbidden(`Vantage signs in through your organization here. Use ${ctx.config.oidc.label}.`, 'oidc_required');
+  assertPasswordsAccepted(ctx);
   const { username, password } = parse(loginSchema, req.body);
   const name = username.trim().toLowerCase();
   const ipLimit = limiters.loginIp.limited(ip);
@@ -274,6 +284,9 @@ authRouter.post('/logout', requireAuth, wrap((req, res) => {
 /** Step-up authentication for sensitive settings. */
 authRouter.post('/sudo', requireAuth, wrap(async (req, res) => {
   const ctx = req.ctx;
+  // A CAC-only deployment confirms with the card (POST /cac/step-up). The organization's provider does not offer a
+  // step-up yet, so a password set before it was made the only way in still confirms there; signing in again does too.
+  if (ctx.config.cac.exclusive) throw forbidden('Confirm with your CAC here.', 'cac_required');
   const { password } = parse(z.object({ password: z.string().max(512) }), req.body);
   // Failures here count toward the same lockout as sign-in: a stolen session must not become a way to guess the password.
   try { assertNotLocked(ctx, req.user.id); } catch (e) { record(ctx, 'security.step_up', { granted: false, method: 'password' }, { id: req.user.id }); throw e; }
@@ -293,6 +306,7 @@ authRouter.post('/sudo', requireAuth, wrap(async (req, res) => {
 authRouter.post('/forgot', wrap(async (req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
+  assertPasswordsAccepted(ctx);
   const limited = limiters.resetIp.limited(ip);
   if (limited) throw tooMany('Too many reset requests. Try again later.', limited.retryAfter);
   limiters.resetIp.bump(ip);
@@ -338,6 +352,7 @@ authRouter.get('/reset', wrap((req, res) => {
 authRouter.post('/reset', wrap((req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
+  assertPasswordsAccepted(ctx);
   const { token, password } = parse(z.object({ token: z.string().max(200), password: passwordField }), req.body);
   const pending = consumeToken(ctx, 'reset', token);
   if (!pending?.user_id) throw badRequest('That reset link is invalid or has expired. Request a new one.');
@@ -367,9 +382,17 @@ authRouter.get('/invite', wrap((req, res) => {
 authRouter.post('/invite/accept', wrap((req, res) => {
   const ctx = req.ctx;
   const ip = clientIp(req);
+  // A new account here is a password account. Where only a card or the provider signs in, the invited person signs in
+  // that way and accepts the invitation into the account it opens (POST /invite/claim).
+  assertPasswordsAccepted(ctx, 'Vantage requires a CAC here. Sign in with your card, then accept the invitation.');
   const body = parse(z.object({ token: z.string().max(200), username: usernameField, password: passwordField, first_name: z.string().trim().min(1).max(80), last_name: z.string().trim().min(1).max(80), rank_id: z.string().max(12).nullish(), mos: z.string().max(12).nullish(), email: emailField.optional() }), req.body);
   const pending = peekToken(ctx, 'invite', body.token);
   if (!pending) throw badRequest('That invitation is invalid or has expired. Ask your leader for a new one.');
+  // Someone who already has an account keeps it: a second one would split their record and history in two (ADR-0009).
+  // The invitation was sent to this address, so its holder already knows an account uses it.
+  if (pending.email && ctx.db.prepare('SELECT 1 FROM users WHERE email = ? COLLATE NOCASE').get(pending.email)) {
+    throw conflict('You already have a Vantage account. Sign in to it and accept the invitation there, so your record and history stay in one account.', 'account_exists');
+  }
   if (ctx.db.prepare('SELECT 1 FROM users WHERE username = ? COLLATE NOCASE').get(body.username)) throw badRequest('That username is taken.', { fieldErrors: { username: 'Unavailable.' } });
   if (body.rank_id && !ctx.db.prepare('SELECT 1 FROM ranks WHERE id = ?').get(body.rank_id)) throw badRequest('No such rank.', { fieldErrors: { rank_id: 'No such rank.' } });
   const email = pending.email || body.email || null;
@@ -381,7 +404,7 @@ authRouter.post('/invite/accept', wrap((req, res) => {
         .run(id, body.username, email, hashPassword(body.password), body.first_name, body.last_name, body.rank_id || null, body.mos || null, now(), now());
       const unitId = pending.payload.unit_id ? String(pending.payload.unit_id) : null;
       if (unitId && ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(unitId)) {
-        addMember(ctx, id, unitId, { invitedBy: pending.created_by, primary: true, billet: pending.payload.billet ? String(pending.payload.billet) : null });
+        addMember(ctx, id, unitId, { invitedBy: pending.created_by, primary: true, billet: pending.payload.billet ? String(pending.payload.billet) : null, reason: 'invitation' });
         const roleId = pending.payload.role_id ? String(pending.payload.role_id) : null;
         if (roleId && ctx.db.prepare('SELECT 1 FROM roles WHERE id = ? AND unit_id = ?').get(roleId, unitId)) {
           ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(id, roleId, unitId, pending.created_by, now());
@@ -395,6 +418,41 @@ authRouter.post('/invite/accept', wrap((req, res) => {
   audit(ctx, { actor_id: id, action: 'invite_accepted', entity: 'user', entity_id: id, subject_id: id, unit_id: pending.payload.unit_id ? String(pending.payload.unit_id) : null, ip });
   const row = ctx.db.prepare('SELECT * FROM users WHERE id = ?').get(id) as UserRow;
   return finishSignIn(req, res, row, 'password', 'invite_login');
+}));
+
+/**
+ * Accepts an invitation into the account already signed in: the same person, the same record, a new membership
+ * (ADR-0009). This is how someone who transfers joins their new command without a second account. An invitation sent
+ * to an address is for the account that holds that address. Joining another Unit Instance widens who governs the
+ * account, so it asks for a recent sign-in or confirmation.
+ */
+authRouter.post('/invite/claim', requireAuth, requireSudo, wrap((req, res) => {
+  const ctx = req.ctx;
+  const ip = clientIp(req);
+  const { token } = parse(z.object({ token: z.string().max(200) }), req.body);
+  const pending = peekToken(ctx, 'invite', token);
+  if (!pending) throw badRequest('That invitation is invalid or has expired. Ask your leader for a new one.');
+  if (pending.email && (req.user.email || '').toLowerCase() !== pending.email.toLowerCase()) {
+    throw forbidden('This invitation was sent to another address. Sign in with the account that uses that address, or ask your leader to invite this one.', 'invite_other_account');
+  }
+  const unitId = pending.payload.unit_id ? String(pending.payload.unit_id) : null;
+  const unit = unitId ? ctx.db.prepare('SELECT id, name, short_name FROM units WHERE id = ? AND active = 1').get(unitId) as { id: string; name: string; short_name: string | null } | undefined : undefined;
+  if (!unit) throw badRequest('The unit in that invitation no longer exists. Ask your leader for a new one.');
+  if (ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(req.user.id, unit.id)) throw conflict(`You already belong to ${unit.short_name || unit.name}.`, 'already_member');
+  const role = pending.payload.role_id ? ctx.db.prepare('SELECT id, name, permissions FROM roles WHERE id = ? AND unit_id = ?').get(String(pending.payload.role_id), unit.id) as { id: string; name: string; permissions: number } | undefined : undefined;
+  // An invitation you sent cannot be your own way into a role that reads records, as with your own join code.
+  const notice = role && pending.created_by === req.user.id
+    ? guardSelfReach(ctx, req.user, scopeFor(ctx, req.user), unit.id, role.permissions, req.user.id, { you: `Accepting your own invitation for ${role.name}`, they: `accepted their own invitation for ${role.name}` })
+    : null;
+  ctx.db.transaction(() => {
+    if (!consumeToken(ctx, 'invite', token)) throw badRequest('That invitation was just used. Ask your leader for a new one.');
+    addMember(ctx, req.user.id, unit.id, { invitedBy: pending.created_by, primary: true, billet: pending.payload.billet ? String(pending.payload.billet) : null, reason: 'invitation' });
+    if (role) ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(req.user.id, role.id, unit.id, pending.created_by, now());
+  })();
+  notice?.();
+  const primary = Boolean((ctx.db.prepare('SELECT is_primary FROM unit_members WHERE user_id = ? AND unit_id = ?').get(req.user.id, unit.id) as { is_primary: number }).is_primary);
+  audit(ctx, { actor_id: req.user.id, action: 'invite_accepted', entity: 'user', entity_id: req.user.id, subject_id: req.user.id, unit_id: unit.id, ip, detail: `existing account${primary ? '; primary unit' : ''}` });
+  res.json({ ok: true, unit_id: unit.id, unit_name: unit.short_name || unit.name, primary });
 }));
 
 /** Where a failed organization sign-in lands: the sign-in page of the face it started from, with the reason. */
@@ -444,6 +502,9 @@ authRouter.get('/oidc/callback', wrap(async (req, res) => {
     if (account.linked) audit(ctx, { actor_id: account.userId, action: account.provisioned ? 'oidc_provisioned' : 'oidc_linked', subject_id: account.userId, ip, detail: `${done.claims.iss} ${done.claims.sub}`.slice(0, 300) });
     const user = ctx.db.prepare('SELECT id, must_change_password FROM users WHERE id = ? AND active = 1').get(account.userId) as { id: string; must_change_password: number } | undefined;
     if (!user) throw new OidcError('That account is not active.', 'oidc_inactive');
+    // The enterprise provider asserting the EDIPI the account carries proves it, as the card does (ADR-0009).
+    const asserted = ctx.config.oidc.edipiClaim ? String(done.claims[ctx.config.oidc.edipiClaim] ?? '').trim() : '';
+    if (/^\d{10}$/.test(asserted)) markEdipiVerified(ctx, user.id, asserted);
     openSession(req, res, user, 'oidc', 'login', { consented: done.consented });
     res.redirect(302, done.returnTo || '/');
   } catch (error) {
@@ -502,5 +563,44 @@ authRouter.post('/cac', wrap((req, res) => {
     actor_id: row.id, action: 'cac_verified', ip,
     detail: `edipi=${identity.edipi} cn=${identity.commonName ?? '—'} issuer=${identity.issuer ?? '—'} serial=${identity.serial ?? '—'}`,
   });
+  // The card proved the EDIPI the account carries; from here only Vantage support moves it (ADR-0009).
+  markEdipiVerified(ctx, row.id, identity.edipi);
   return finishSignIn(req, res, row, 'cac');
+}));
+
+/**
+ * Confirms it is you with your card instead of a password, for the ten minutes a sensitive change asks for. The card
+ * must carry the EDIPI the signed-in account carries: somebody else's valid card is not you. Accounts a card or the
+ * roster created have no password, so without this they could never confirm anything.
+ */
+authRouter.post('/cac/step-up', requireAuth, wrap((req, res) => {
+  const ctx = req.ctx;
+  const ip = clientIp(req);
+  if (ctx.config.cac.mode === 'off') throw notFound('Certificate sign-in is not enabled here.');
+  const limited = limiters.loginIp.limited(ip);
+  if (limited) throw tooMany('Too many attempts from this connection. Try again later.', limited.retryAfter);
+  const refuse = (code: string, message: string, detail: string) => {
+    limiters.loginIp.bump(ip);
+    record(ctx, 'security.step_up', { granted: false, method: 'cac' }, { id: req.user.id });
+    audit(ctx, { actor_id: req.user.id, action: 'cac_step_up_refused', subject_id: req.user.id, ip, detail: `${code}${detail ? ` ${detail}` : ''}` });
+    // 403, not 401: the session is fine, and a 401 would sign the browser out.
+    return forbidden(message, code);
+  };
+  let identity;
+  try {
+    identity = presentedCertificate(req, ctx.config.cac);
+  } catch (error) {
+    if (error instanceof CacError) throw refuse(error.code, error.message, '');
+    throw error;
+  }
+  if (!identity) throw forbidden('No card was presented. Check the card is in the reader, then try again.', 'cac_no_certificate');
+  const own = (ctx.db.prepare('SELECT edipi FROM users WHERE id = ?').get(req.user.id) as { edipi: string | null }).edipi;
+  if (!own) throw refuse('cac_unlinked', 'No card is linked to your account, so it cannot confirm it is you. Ask your administrator to link it.', `edipi=${identity.edipi}`);
+  if (identity.edipi !== own) throw refuse('cac_mismatch', 'That card belongs to a different account.', `edipi=${identity.edipi}`);
+  limiters.loginIp.clear(ip);
+  markEdipiVerified(ctx, req.user.id, identity.edipi);
+  const until = grantSudo(ctx, req.sessionId);
+  record(ctx, 'security.step_up', { granted: true, method: 'cac' }, { id: req.user.id });
+  audit(ctx, { actor_id: req.user.id, action: 'cac_step_up', subject_id: req.user.id, ip, detail: `edipi=${identity.edipi} issuer=${identity.issuer ?? '—'} serial=${identity.serial ?? '—'}` });
+  res.json({ ok: true, until });
 }));

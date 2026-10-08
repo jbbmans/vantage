@@ -3,7 +3,7 @@ import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { badRequest } from '../lib/errors.ts';
 import { createHash } from 'node:crypto';
-import { addMember, removeMember, setPrimaryUnit } from './org.ts';
+import { addMember, primaryOrgOf, removeMember, setPrimaryUnit } from './org.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
 
@@ -184,6 +184,17 @@ function speaksFor(ctx: AppContext, orgId: string, edipi: string, activeOnly: bo
   ).get(edipi, orgId));
 }
 
+/**
+ * Whether this organization's extract keeps the person's profile: it holds their primary unit, or they have none
+ * (ADR-0009). Someone who serves in two Unit Instances has one name, rank and MOS; two feeds writing them in turn would
+ * flip them back and forth, and the instance they serve in secondarily would be rewriting what the other reads.
+ */
+function keepsProfile(ctx: AppContext, orgId: string, edipi: string): boolean {
+  const home = ctx.db.prepare(`SELECT un.org_id FROM users u JOIN unit_members um ON um.user_id = u.id AND um.is_primary = 1 JOIN units un ON un.id = um.unit_id WHERE u.edipi = ? LIMIT 1`)
+    .get(edipi) as { org_id: string | null } | undefined;
+  return !home || home.org_id === orgId;
+}
+
 export function planSync(
   ctx: AppContext,
   orgId: string,
@@ -284,7 +295,7 @@ export function seatFromRoster(ctx: AppContext, userId: string, row: { org_id: s
   const unit = (row.unit_code
     ? ctx.db.prepare('SELECT id FROM units WHERE org_id = ? AND active = 1 AND (code = ? COLLATE NOCASE OR short_name = ? COLLATE NOCASE) LIMIT 1').get(row.org_id, row.unit_code, row.unit_code) as { id: string } | undefined
     : undefined) ?? ctx.db.prepare('SELECT root_unit_id AS id FROM organizations WHERE id = ?').get(row.org_id) as { id: string | null } | undefined;
-  if (unit?.id) addMember(ctx, userId, unit.id, { primary: true });
+  if (unit?.id) addMember(ctx, userId, unit.id, { primary: true, reason: 'roster' });
   audit(ctx, { actor_id: null, action: 'personnel_provisioned', entity: 'users', entity_id: userId, subject_id: userId, org_id: row.org_id, unit_id: unit?.id ?? null, detail: 'account created from the roster at first sign-in' });
 }
 
@@ -330,7 +341,7 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
         roles: (db.prepare('SELECT role_id, expires_at FROM member_roles WHERE user_id = ? AND unit_id = ?').all(userId, m.unit_id) as Array<{ role_id: string; expires_at: string | null }>),
         frozen_at: at,
       }));
-      for (const m of held) removeMember(ctx, userId, m.unit_id, actorId);
+      for (const m of held) removeMember(ctx, userId, m.unit_id, actorId, 'roster_separation');
       db.prepare('UPDATE personnel_roster SET removed_units = ? WHERE org_id = ? AND edipi = ?').run(JSON.stringify(removed), plan.orgId, edipi);
       return held.length;
     };
@@ -341,7 +352,7 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
       try { removed = JSON.parse(row.removed_units); } catch { removed = []; }
       for (const m of removed) {
         if (!db.prepare('SELECT 1 FROM units WHERE id = ? AND org_id = ? AND active = 1').get(m.unit_id, plan.orgId)) continue;
-        addMember(ctx, userId, m.unit_id, { primary: Boolean(m.is_primary), billet: m.billet });
+        addMember(ctx, userId, m.unit_id, { primary: Boolean(m.is_primary), billet: m.billet, reason: 'roster_restored' });
         // The primary unit this organization's own extract moved away goes back with the rest, even when it went to another
         // Unit Instance meanwhile: giving back what the same feed took is not taking from another instance (ADR-0008).
         if (m.is_primary) setPrimaryUnit(ctx, userId, m.unit_id);
@@ -389,9 +400,10 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
       if (update.changes.some((c) => c.field === 'status' && c.from === 'separated' && c.to === 'active')) reactivate(update.edipi);
     }
 
-    // Push the sourced fields onto the account that carries this EDIPI, if this organization's extract speaks for it.
+    // Push the sourced fields onto the account that carries this EDIPI, if this organization's extract speaks for it and
+    // keeps the profile of a person who serves in more than one Unit Instance.
     const applyToAccount = (row: RosterRow) => {
-      if (!speaksFor(ctx, plan.orgId, row.edipi, false)) return;
+      if (!speaksFor(ctx, plan.orgId, row.edipi, false) || !keepsProfile(ctx, plan.orgId, row.edipi)) return;
       const account = db.prepare('SELECT * FROM users WHERE edipi = ?').get(row.edipi) as Record<string, unknown> | undefined;
       if (!account) return;
       const changes: FieldChange[] = [];
@@ -473,8 +485,12 @@ export function rosterStats(ctx: AppContext, orgId: string) {
 export function sourcedFieldsFor(ctx: AppContext, userId: string): SourcedField[] {
   const row = ctx.db.prepare('SELECT identity_source, edipi FROM users WHERE id = ?').get(userId) as { identity_source?: string; edipi?: string | null } | undefined;
   if (!row || row.identity_source !== 'roster' || !row.edipi) return [];
-  // Whichever organization's feed spoke for them last.
-  const roster = ctx.db.prepare('SELECT * FROM personnel_roster WHERE edipi = ? ORDER BY synced_at DESC LIMIT 1').get(row.edipi) as Record<string, unknown> | undefined;
+  // The feed of the Unit Instance that holds their primary unit, the only one that writes their profile (ADR-0009); for
+  // someone in no unit, whichever organization's feed spoke for them last.
+  const home = primaryOrgOf(ctx, userId)?.orgId;
+  const roster = (home
+    ? ctx.db.prepare('SELECT * FROM personnel_roster WHERE edipi = ? AND org_id = ?').get(row.edipi, home)
+    : ctx.db.prepare('SELECT * FROM personnel_roster WHERE edipi = ? ORDER BY synced_at DESC LIMIT 1').get(row.edipi)) as Record<string, unknown> | undefined;
   if (!roster) return [];
   return SOURCED_FIELDS.filter((f) => roster[f] != null && roster[f] !== '');
 }

@@ -33,6 +33,7 @@ import { sendSignInDetails, MAX_SIGN_IN_BATCH } from '../services/signInMail.ts'
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { unlockAccount } from '../auth/lockout.ts';
 import { hashPassword } from '../lib/crypto.ts';
+import { isEdipi } from '../services/personnel.ts';
 import { createOrganization, getOrg, listOrganizations, nameFirstOwner, orgCounts, orgRoleHolders, publicOrg, setOrgStatus, updateOrganization } from '../services/organizations.ts';
 import { accessForPlatform, endAccess, requestAccess, ACCESS_DEFAULT_MINUTES, ACCESS_MAX_MINUTES } from '../services/access.ts';
 import { platformRolesOf } from '../authz/platform.ts';
@@ -245,7 +246,7 @@ platformRouter.get('/accounts', requirePlatform('platform.accounts'), wrap((req,
   if (filter === 'locked') { where.push('u.locked_until > ?'); params.push(now()); }
   if (filter === 'inactive') where.push('u.active = 0');
   if (filter === 'staff') where.push('EXISTS (SELECT 1 FROM platform_roles p WHERE p.user_id = u.id)');
-  const rows = req.ctx.db.prepare(`SELECT u.id, u.username, u.email, u.first_name, u.last_name, u.active, u.totp_enabled, u.must_change_password, u.last_login_at,
+  const rows = req.ctx.db.prepare(`SELECT u.id, u.username, u.email, u.first_name, u.last_name, u.active, u.totp_enabled, u.must_change_password, u.last_login_at, u.edipi, u.edipi_verified_at,
       CASE WHEN u.locked_until > ? THEN u.locked_until END AS locked_until, u.created_at, r.abbr AS rank_abbr,
       (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = u.id) AS passkeys,
       (SELECT GROUP_CONCAT(DISTINCT o.name) FROM unit_members um JOIN units un ON un.id = um.unit_id JOIN organizations o ON o.id = un.org_id WHERE um.user_id = u.id) AS organizations,
@@ -303,6 +304,25 @@ platformRouter.post('/accounts/:userId/reset-mfa', requirePlatform('platform.acc
   audit(ctx, { actor_id: req.user.id, action: 'reset_mfa', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
   notify(ctx, target.id, { kind: 'security', title: 'Vantage support reset your second factor', message: 'Set up an authenticator or passkey again from Settings.', actionUrl: '/settings' });
   res.json({ ok: true, sessionsRevoked: revoked });
+}));
+
+/**
+ * Corrects an account's EDIPI: the one change to a CAC sign-in key an organization cannot make once the person's card has
+ * proven it (ADR-0009). Support says why; the person is told, signed out everywhere, and proves the new one with their card.
+ */
+platformRouter.post('/accounts/:userId/edipi', requirePlatform('platform.accounts'), wrap((req, res) => {
+  const ctx = req.ctx;
+  const target = accountTarget(req);
+  const { edipi, reason } = parse(z.object({ edipi: z.string().trim().max(32).nullable(), reason: z.string().trim().min(10).max(300) }), req.body);
+  if (edipi !== null && !isEdipi(edipi)) throw badRequest('An EDIPI is exactly ten digits.', { fieldErrors: { edipi: 'Ten digits.' } });
+  const before = (ctx.db.prepare('SELECT edipi FROM users WHERE id = ?').get(target.id) as { edipi: string | null }).edipi;
+  if (edipi === before) return res.json({ ok: true, changed: false, sessionsRevoked: 0 });
+  if (edipi && ctx.db.prepare('SELECT 1 FROM users WHERE edipi = ? AND id <> ?').get(edipi, target.id)) throw badRequest('Another account already carries that EDIPI.', { fieldErrors: { edipi: 'Already linked to another account.' } });
+  ctx.db.prepare("UPDATE users SET edipi = ?, edipi_verified_at = NULL, identity_source = CASE WHEN ? IS NULL THEN 'local' ELSE identity_source END, updated_at = ? WHERE id = ?").run(edipi, edipi, now(), target.id);
+  const revoked = invalidateUserSessions(ctx, target.id);
+  audit(ctx, { actor_id: req.user.id, action: 'edipi_corrected', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `${before ?? 'none'} → ${edipi ?? 'none'}; ${reason}; sessions revoked: ${revoked}`.slice(0, 900), ip: ip(req) });
+  notify(ctx, target.id, { kind: 'security', title: 'Vantage support changed the CAC linked to your account', message: edipi ? `Your account now signs in with the card whose DoD ID ends ${edipi.slice(-4)}. If that is not your card, contact Vantage support.` : 'No card signs in to your account now. If you did not ask for this, contact Vantage support.', actionUrl: '/settings' });
+  res.json({ ok: true, changed: true, sessionsRevoked: revoked });
 }));
 
 platformRouter.post('/accounts/:userId/deactivate', requirePlatform('platform.accounts'), wrap((req, res) => {

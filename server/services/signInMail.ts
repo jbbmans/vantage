@@ -78,6 +78,8 @@ export async function sendSignInDetails(ctx: AppContext, sender: SessionUser, us
   if (!account) return { id: userId, status: 'skipped', error: orgId ? 'No such active member of this Unit Instance.' : 'No such active account.' };
   if (account.id === sender.id) return { id: userId, status: 'skipped', error: 'That is your own account.' };
   if (!account.email) return { id: userId, status: 'skipped', error: 'No email on file.' };
+  // The link sets a password, and where a CAC or the organization's provider is the only way in, none is accepted.
+  if (ctx.config.cac.exclusive || ctx.config.oidc.exclusive) return { id: userId, status: 'skipped', error: 'Passwords are off here: people sign in with their CAC or their organization’s sign-in.' };
   if (!ctx.mailer.enabled) return { id: userId, status: 'failed', error: 'Email is off on Vantage right now.' };
 
   // Only the newest link works, whichever way it was sent.

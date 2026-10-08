@@ -140,6 +140,12 @@ export interface TeamResponse {
   exportUnits: string[];
 }
 
+/** One stretch of one unit membership with the same billet and primary flag; open while ended_at is null. */
+export interface MembershipPeriod {
+  id: number; unit_id: string; unit_name: string; unit_short: string | null; billet: string | null; is_primary: number;
+  started_at: string; ended_at: string | null; start_reason: string | null; end_reason: string | null;
+}
+
 /** GET /api/org/team/:id: one Marine's page, limited to the units the reader shares with them (all of it for oneself). */
 export interface MemberDetailResponse {
   person: {
@@ -151,6 +157,8 @@ export interface MemberDetailResponse {
   memberships: Array<{ unit_id: string; is_primary: number; billet: string | null; joined_at: string; unit_name: string; unit_short: string | null }>;
   /** Held unit roles; a time-bound one carries the moment it ends. */
   roles: Array<{ unit_id: string; id: string; name: string; color: string | null; position: number; permissions: number; key: string | null; expires_at?: string | null }>;
+  /** Membership periods, newest first (ADR-0009): the whole history on one's own page, otherwise the periods in units the reader can open in their own Unit Instance. */
+  history: MembershipPeriod[];
   detailUnits: string[];
   canCounsel: string[];
   canManageMembers: string[];

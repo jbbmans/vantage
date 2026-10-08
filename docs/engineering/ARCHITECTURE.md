@@ -60,7 +60,9 @@ Environment variables, validated at startup (`server/config.ts`). Dangerous comb
 - under `VANTAGE_DEPLOYMENT_PROFILE=mcen`, any public-internet service of the legacy site (IndexNow,
   search verification, Cloudflare client addresses, Resend or direct mail, self-registration, no consent
   banner, a separate public-site address);
-- `VANTAGE_TOPOLOGY=dedicated` on a database that already holds more than one Unit Instance.
+- `VANTAGE_TOPOLOGY=dedicated` on a database that already holds more than one Unit Instance;
+- `VANTAGE_TEST=1` without `NODE_ENV=test`, and `VANTAGE_DEPLOYMENT_PROFILE=mcen` without
+  `NODE_ENV=production` outside the test suite.
 
 Deployment profiles, topology and the three configuration boundaries (infrastructure, enterprise, Unit
 Instance) are in [ADR-0007](ADR/0007-mcen-enterprise-deployment-and-unit-instances.md). See `.env.example`.
@@ -69,6 +71,11 @@ The Unit Instance is a security boundary in the backend, not only a label: opera
 and references carried by id, are checked for the instance they belong to, and migration 016 keeps the
 same rules in the database. See [ADR-0008](ADR/0008-unit-instance-data-isolation.md), which also records
 why PostgreSQL row-level security waits for the PostgreSQL adapter.
+
+An account is the person for a whole career; memberships change around it and are kept as history
+(`unit_membership_periods`, written by triggers from migration 018). A transfer accepts an invitation into
+the existing account, a proven EDIPI is changed only by Vantage support, and an account shared by two
+Unit Instances is governed once. See [ADR-0009](ADR/0009-identity-and-unit-membership.md).
 
 ## Tests
 

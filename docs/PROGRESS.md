@@ -1,6 +1,41 @@
 # Progress
 
-_Updated 2026-10-07_
+_Updated 2026-10-08_
+
+## What changed (2026-10-08: one identity, unit membership history, CAC step-up)
+
+Identity is separated from unit membership ([ADR-0009](engineering/ADR/0009-identity-and-unit-membership.md)).
+
+- **One account for a whole career.** A Marine who transfers accepts the new command's invitation into
+  the account they have (`POST /api/auth/invite/claim`, and an acceptance page at `/invite` for someone
+  signed in). Their id, EDIPI and records stay put. Making a second account for an address that already
+  has one is refused (`account_exists`). Leaders can now invite such an address.
+- **Membership history.** Migration 018 adds `unit_membership_periods`, written by triggers on every
+  membership change, with the reason and the actor added by the server. Each existing membership starts
+  with one period. A move inside an instance reads as one transfer. The person sees all of their
+  history; a leader sees the part in units of their own instance they can open, and the instance's managers
+  its whole part (`GET /api/orgs/:orgId/members/:userId/history`).
+  The history is in instance archives and in the personal export.
+- **EDIPI proof.** Migration 018 adds `users.edipi_verified_at`, backfilled from card sign-ins under the
+  EDIPI each account carries now, and set by card sign-in, card step-up, roster provisioning and a
+  provider EDIPI claim. A proven EDIPI is changed only by Vantage support
+  (`POST /api/platform/accounts/:userId/edipi`, and **CAC link** in the admin dashboard), with a reason.
+  Every change ends the account's sessions and tells the person.
+- **CAC step-up.** `POST /api/auth/cac/step-up` confirms a sensitive change with the card the account
+  carries. The confirmation dialog offers password, card, or signing in again, according to
+  `session.stepUp` on `/api/me`.
+- **Card-only and provider-only deployments** now also refuse password resets, account creation from an
+  invitation and the emailed sign-in details; card-only refuses the password step-up.
+- **Shared accounts.** A Unit Instance can no longer unlock an account that serves elsewhere or runs the
+  service, and only the instance holding a Marine's primary unit edits their profile, by hand or through
+  its personnel feed. Signing an account out everywhere tells the person and leaves a
+  `shared_account_notice` in every other instance's audit trail.
+- **Test sign-in.** `VANTAGE_TEST=1` needs `NODE_ENV=test`, and the MCEN profile needs
+  `NODE_ENV=production`. The admin dashboard's deployment posture lists the sign-in methods in force.
+- **`tests/server/identityMembership.test.ts`**: 10 cases. The OIDC tests also check that a provider
+  EDIPI claim proves the EDIPI.
+- Open questions I-23 to I-26 are added to INFRASTRUCTURE_QUESTIONS.md. The residual risk is that the
+  first link of a never-proven EDIPI is trusted to the person's own Unit Instance (I-25).
 
 ## What changed (2026-10-07: Unit Instance data isolation)
 

@@ -168,6 +168,7 @@ issues that are real but belong to other work, recorded here so they are not los
   may change its profile, EDIPI or sessions, and how both instances are told, is a policy decision for
   the role and access work. Within one instance, an administrator linking an EDIPI to a member's
   account is still a powerful act; it is audited and ends that account's sessions.
+  *Decided in [ADR-0009](0009-identity-and-unit-membership.md), sections 4 and 6.*
 - **Audit append-only and an external anchor (Task 7).** The chain detects a rewrite by anyone without
   `VANTAGE_SECRET` and syslog keeps a copy outside the server. Truncating the tail together with the
   head, and append-only triggers on `audit_log`, wait for the audit work, because the synthetic demo

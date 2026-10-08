@@ -181,6 +181,8 @@ test('with roster provisioning, a Marine on the roster with no account gets one 
     assert.equal(r.callback!.headers.get('location'), '/');
     const user = app.ctx.db.prepare("SELECT username, last_name, oidc_subject FROM users WHERE edipi = '1234567890'").get() as { username: string; last_name: string; oidc_subject: string };
     assert.deepEqual(user, { username: 'edipi-1234567890', last_name: 'Avery', oidc_subject: 'avery' });
+    // The provider asserted the EDIPI, which proves it as a card would (ADR-0009): only Vantage support moves it now.
+    assert.ok((app.ctx.db.prepare("SELECT edipi_verified_at FROM users WHERE edipi = '1234567890'").get() as { edipi_verified_at: string | null }).edipi_verified_at);
     // Someone whose provider address another account already holds still gets in, without the address.
     app.ctx.db.prepare(`INSERT INTO personnel_roster (org_id, edipi, last_name, first_name, rank_id, mos, status, source, row_hash, synced_at, created_at, updated_at) VALUES ('G8', '1234567891', 'Boletz', 'Jay', 'Pvt', '3451', 'active', 'test', 'h2', ?, ?, ?)`).run(at, at, at);
     const shared = await signIn(app, idp, claimsFor(idp.issuer, { sub: 'jay', email: 'boletz@example.mil', edipi: '1234567891' }));

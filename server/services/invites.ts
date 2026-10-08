@@ -117,7 +117,7 @@ export function redeemInvite(ctx: AppContext, user: SessionUser, code: string, i
     // A code you made cannot be your own way into a role that reads records (organization administration does not read them).
     const role = row.role_id ? ctx.db.prepare('SELECT name, permissions FROM roles WHERE id = ?').get(row.role_id) as { name: string; permissions: number } | undefined : undefined;
     const notice = role && row.created_by === user.id ? guardSelfReach(ctx, user, scopeFor(ctx, user), row.unit_id, role.permissions, user.id, { you: `Joining with your own code for ${role.name}`, they: `joined with their own code for ${role.name}` }) : null;
-    addMember(ctx, user.id, row.unit_id, { invitedBy: row.created_by });
+    addMember(ctx, user.id, row.unit_id, { invitedBy: row.created_by, reason: 'join_code' });
     if (row.role_id) {
       ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)')
         .run(user.id, row.role_id, row.unit_id, row.created_by, now());

@@ -98,13 +98,29 @@ export function outboundConnections(ctx: AppContext): OutboundConnection[] {
   ];
 }
 
+/** The ways in this deployment accepts (ADR-0009): what the admin dashboard shows beside what it reaches. */
+export function signInMethods(config: AppConfig) {
+  const { cac, oidc } = config;
+  return {
+    password: !cac.exclusive && !oidc.exclusive,
+    passkey: true,
+    cac: { mode: cac.mode, exclusive: cac.exclusive, autoProvision: cac.autoProvisionFromRoster, revocation: cac.mode === 'direct' ? cac.revocation : cac.mode === 'proxy' ? 'gateway' : null, stepUp: cac.mode !== 'off' },
+    oidc: { enabled: oidc.enabled, exclusive: oidc.exclusive, linkBy: oidc.linkBy, autoProvision: oidc.autoProvisionFromRoster },
+    // The test suite's bearer tokens. Never true on a deployment: VANTAGE_TEST needs NODE_ENV=test and is refused in production.
+    testTokens: config.test,
+  };
+}
+
 /** What the admin dashboard shows about the deployment: its profile, its topology, and what it reaches. */
 export function deploymentPosture(ctx: AppContext) {
-  const { deployment, security, email, production } = ctx.config;
+  const { deployment, security, email, production, cac, oidc } = ctx.config;
   const notes: string[] = [];
   if (deployment.inferred && production) notes.push('VANTAGE_DEPLOYMENT_PROFILE is not set, so this production deployment runs as legacy-public.');
   if (deployment.profile === 'mcen' && security.browserBackups) notes.push('Browser downloads of the database and the service archive are on (VANTAGE_BROWSER_BACKUPS).');
   if (deployment.profile === 'mcen' && email.provider === 'none') notes.push('No mail relay is set, so sign-in links and notices are not sent by email.');
+  if (ctx.config.test) notes.push('VANTAGE_TEST is on: session tokens are accepted in an Authorization header. That is for the test suite only.');
+  if (deployment.profile === 'mcen' && cac.mode === 'off' && !oidc.enabled) notes.push('Neither CAC nor organization sign-in is on, so people sign in with passwords and passkeys.');
+  if (cac.mode === 'direct' && cac.revocation === 'off') notes.push('CAC_REVOCATION=off: revoked cards are not refused.');
   return {
     profile: deployment.profile,
     inferred: deployment.inferred,
@@ -113,6 +129,7 @@ export function deploymentPosture(ctx: AppContext) {
     unitInstances: (ctx.db.prepare('SELECT COUNT(*) AS n FROM organizations').get() as { n: number }).n,
     locked: Object.keys(lockedRuntime(ctx.config)),
     outbound: outboundConnections(ctx),
+    signIn: signInMethods(ctx.config),
     notes,
   };
 }
