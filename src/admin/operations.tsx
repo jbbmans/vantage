@@ -43,10 +43,11 @@ export function CheckList({ checks }: { checks: HealthCheck[] }) {
   return (
     <ul className="divide-y divide-line">
       {checks.map((c) => (
-        <li key={c.id} className="flex flex-wrap items-baseline gap-x-3 gap-y-1 py-2 first:pt-0 last:pb-0">
-          <span className="w-24 shrink-0"><StatusBadge status={c.status} /></span>
-          <span className="w-40 shrink-0 text-sm font-medium text-ink">{c.label}</span>
-          <span className="min-w-0 flex-1 text-sm text-ink-2">{c.summary}</span>
+        // On a phone the summary takes its own line under the state and the check's name.
+        <li key={c.id} className="grid grid-cols-[6rem_minmax(0,1fr)] items-baseline gap-x-3 gap-y-1 py-2 first:pt-0 last:pb-0 sm:grid-cols-[6rem_10rem_minmax(0,1fr)]">
+          <span><StatusBadge status={c.status} /></span>
+          <span className="text-sm font-medium text-ink">{c.label}</span>
+          <span className="col-span-2 min-w-0 break-words text-sm text-ink-2 sm:col-span-1">{c.summary}</span>
         </li>
       ))}
     </ul>
