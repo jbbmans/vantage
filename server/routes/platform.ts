@@ -37,15 +37,16 @@ import { isEdipi } from '../services/personnel.ts';
 import { createOrganization, getOrg, listOrganizations, nameFirstOwner, orgCounts, orgRoleHolders, publicOrg, setOrgStatus, updateOrganization } from '../services/organizations.ts';
 import { accessForPlatform, endAccess, requestAccess, ACCESS_DEFAULT_MINUTES, ACCESS_MAX_MINUTES } from '../services/access.ts';
 import { platformRolesOf } from '../authz/platform.ts';
+import { seatedOrgRole } from '../authz/scope.ts';
 import { assertRuntimePatchAllowed, deploymentPosture } from '../services/deployment.ts';
 
 /**
- * The Vantage admin dashboard's API (ADR-0006): the service, for Vantage staff. Organizations appear here as
- * containers (names, counts, owners, status), never as their contents. Seeing inside one takes that organization's
+ * The Vantage Administrator console's API (ADR-0006, ADR-0010): the service, for Vantage staff. Unit Instances appear
+ * here as containers (names, counts, Lead Unit Managers, status), never as their contents. Seeing inside one takes that organization's
  * approval, through an access request.
  */
 export const platformRouter = Router();
-platformRouter.use(requireAuth, (req, _res, next) => next(req.user.platform.length ? undefined : forbidden('The Vantage admin dashboard is for Vantage staff.', 'not_staff')), requireSudo);
+platformRouter.use(requireAuth, (req, _res, next) => next(req.user.platform.length ? undefined : forbidden('The Vantage Administrator console is for Vantage staff.', 'not_staff')), requireSudo);
 
 const ip = (req: Request) => clientIp(req);
 
@@ -66,7 +67,7 @@ platformRouter.get('/overview', requirePlatform('platform.view'), wrap((req, res
       active: count("SELECT COUNT(*) AS n FROM organizations WHERE status = 'active'"),
       suspended: count("SELECT COUNT(*) AS n FROM organizations WHERE status = 'suspended'"),
       archived: count("SELECT COUNT(*) AS n FROM organizations WHERE status = 'archived'"),
-      withoutOwner: count(`SELECT COUNT(*) AS n FROM organizations o WHERE o.status = 'active' AND NOT EXISTS (SELECT 1 FROM org_roles r JOIN users u ON u.id = r.user_id WHERE r.org_id = o.id AND r.role = 'owner' AND u.active = 1)`),
+      withoutOwner: count(`SELECT COUNT(*) AS n FROM organizations o WHERE o.status = 'active' AND NOT EXISTS (SELECT 1 FROM org_roles r JOIN users u ON u.id = r.user_id WHERE r.org_id = o.id AND r.role = 'owner' AND u.active = 1 AND ${seatedOrgRole('r')})`),
     },
     users: count('SELECT COUNT(*) AS n FROM users WHERE active = 1'), inactiveUsers: count('SELECT COUNT(*) AS n FROM users WHERE active = 0'),
     lockedUsers: (db.prepare('SELECT COUNT(*) AS n FROM users WHERE locked_until > ?').get(now()) as { n: number }).n,
@@ -192,7 +193,7 @@ platformRouter.post('/email/test', requirePlatform('platform.email'), wrap(async
     intro: 'If you are reading this, Vantage can reach this inbox. Reset links, invitations, sign-in details and digests will arrive the same way.',
     details: [{ label: 'Sent from', value: ctx.config.urls.app }, { label: 'Provider', value: ctx.mailer.provider }, { label: 'From address', value: ctx.config.email.from }, { label: 'Sent at', value: new Date().toLocaleString('en-US', { timeZone: ctx.config.timezone, month: 'short', day: 'numeric', year: 'numeric', hour: 'numeric', minute: '2-digit', timeZoneName: 'short' }) }],
     note: 'Check that this message did not land in spam. For direct delivery, open the message headers and look for “dkim=pass”.',
-    footer: 'Vantage staff sent this test from the admin dashboard.',
+    footer: 'Vantage staff sent this test from the Vantage Administrator console.',
     origin: ctx.config.urls.app,
   });
   const result = await ctx.mailer.send({ to, subject: 'Vantage email test', text: mail.text, html: mail.html, kind: 'test', userId: req.user.id });
@@ -260,9 +261,9 @@ const accountTarget = (req: Request) => {
   const id = String(req.params.userId);
   const row = req.ctx.db.prepare('SELECT id, username, active FROM users WHERE id = ?').get(id) as { id: string; username: string; active: number } | undefined;
   if (!row) throw notFound('No such account.');
-  // A platform owner's account is recovered only by another owner: support cannot take over the people above it.
+  // A staff member's account is recovered only by a Lead Vantage Administrator: support cannot take over the people above it.
   const theirRoles = platformRolesOf(req.ctx, id);
-  if (theirRoles.length && id !== req.user.id && !req.user.platformPermissions.includes('platform.staff')) throw forbidden('Only a platform owner changes another staff member’s sign-in.', 'staff_account');
+  if (theirRoles.length && id !== req.user.id && !req.user.platformPermissions.includes('platform.staff')) throw forbidden('Only a Lead Vantage Administrator changes another staff member’s sign-in.', 'staff_account');
   return row;
 };
 
@@ -370,14 +371,14 @@ platformRouter.post('/staff', requirePlatform('platform.staff'), wrap((req, res)
     ? ctx.db.prepare('SELECT id, first_name, last_name, totp_enabled FROM users WHERE id = ? AND active = 1').get(body.user_id)
     : ctx.db.prepare('SELECT id, first_name, last_name, totp_enabled FROM users WHERE username = ? COLLATE NOCASE AND active = 1').get(String(body.username || ''))) as { id: string; first_name: string; last_name: string; totp_enabled: number } | undefined;
   if (!user) throw notFound('No such active account.');
-  if (user.id === req.user.id) throw forbidden('Another platform owner changes your own staff roles.', 'self_grant');
+  if (user.id === req.user.id) throw forbidden('Another Lead Vantage Administrator changes your own staff roles.', 'self_grant');
   const passkeys = (ctx.db.prepare('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?').get(user.id) as { n: number }).n;
   if (!user.totp_enabled && !passkeys) throw badRequest('Vantage staff sign in with a second factor. They set one up in Settings first.', { code: 'mfa_required' });
   const r = ctx.db.prepare('INSERT OR IGNORE INTO platform_roles (user_id, role, granted_by, created_at) VALUES (?, ?, ?, ?)').run(user.id, body.role, req.user.id, now());
   if (!r.changes) throw conflict('They already hold that role.');
   invalidateUserSessions(ctx, user.id);
   audit(ctx, { actor_id: req.user.id, action: 'staff_role_granted', entity: 'platform', entity_id: user.id, subject_id: user.id, detail: body.role, ip: ip(req) });
-  notifyStaff(ctx, 'platform.staff', { kind: 'system', title: `${user.first_name} ${user.last_name} is now Vantage ${PLATFORM_ROLES[body.role].label.toLowerCase()}`, message: `Granted by ${req.user.first_name} ${req.user.last_name}.`, actionUrl: '/admin/staff' }, req.user.id);
+  notifyStaff(ctx, 'platform.staff', { kind: 'system', title: `${user.first_name} ${user.last_name} is now ${PLATFORM_ROLES[body.role].label}`, message: `Granted by ${req.user.first_name} ${req.user.last_name}.`, actionUrl: '/admin/staff' }, req.user.id);
   res.status(201).json({ ok: true });
 }));
 
@@ -387,7 +388,7 @@ platformRouter.delete('/staff/:userId/:role', requirePlatform('platform.staff'),
   const role = String(req.params.role);
   if (role === 'owner') {
     const owners = (ctx.db.prepare("SELECT p.user_id FROM platform_roles p JOIN users u ON u.id = p.user_id WHERE p.role = 'owner' AND u.active = 1").all() as Array<{ user_id: string }>).map((r) => r.user_id);
-    if (owners.includes(userId) && owners.length === 1) throw badRequest('The platform always keeps at least one owner.', { code: 'last_owner' });
+    if (owners.includes(userId) && owners.length === 1) throw badRequest('Vantage always keeps at least one Lead Vantage Administrator.', { code: 'last_owner' });
   }
   const r = ctx.db.prepare('DELETE FROM platform_roles WHERE user_id = ? AND role = ?').run(userId, role);
   if (!r.changes) throw notFound('They do not hold that role.');
@@ -472,12 +473,12 @@ platformRouter.delete('/holds/:id', requirePlatform('platform.data'), wrap((req,
   res.json({ ok: true });
 }));
 
-// ——— Disaster recovery: the whole service. Platform owners only. ———
+// ——— Disaster recovery: the whole service. Lead Vantage Administrators only. ———
 
 /**
  * The database and the archive hold every Marine's records, password hashes and sealed secrets. On the production
  * host they are taken on the server (docs/operations.md) and VANTAGE_BROWSER_BACKUPS=false closes this door. Where it
- * stays open, every other platform owner is told each time it is used.
+ * stays open, every other Lead Vantage Administrator is told each time it is used.
  */
 function browserCopy(req: Request, what: string) {
   if (!req.ctx.config.security.browserBackups) throw forbidden(`Downloading ${what} through the browser is turned off. Take it on the server; see Operations in the documentation.`, 'browser_backups_off');

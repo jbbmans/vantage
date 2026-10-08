@@ -7,7 +7,7 @@ import ErrorBoundary from './components/ErrorBoundary';
 import './styles/index.css';
 import './styles/login-premium.css';
 
-// The owner console is its own document and bundle: none of the application's pages load here, and it works
+// The Unit Manager console is its own document and bundle: none of the application's pages load here, and it works
 // online only, with no service worker.
 createRoot(document.getElementById('root')!).render(
   <React.StrictMode>

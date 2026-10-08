@@ -57,7 +57,7 @@ demoRouter.post('/reset', requireAuth, wrap((req, res) => {
 }));
 
 /**
- * The owner console is not part of the demo (it is instance-wide, and every visitor shares the instance). What it
+ * The Unit Manager console is not part of the demo (it is instance-wide, and every visitor shares the instance). What it
  * governs can still be shown: the privacy inventory is derived from the schema, so it says nothing about any visitor.
  */
 demoRouter.get('/governance', requireAuth, wrap((req, res) => {

@@ -1,5 +1,6 @@
 import { useSyncExternalStore } from 'react';
 import type { Identity, UnitView } from './queries';
+import { seniorOrgRoleLabel, seniorPlatformRoleLabel } from '../../shared/permissions';
 
 const listeners = new Set<() => void>();
 const key = (userId: string) => `vantage.view.${userId}`;
@@ -36,8 +37,8 @@ export function roleLine(identity: Identity | undefined, view: UnitView | null) 
   const billet = identity.memberships.find((m) => m.unit_id === (view?.id || identity.homeUnitId))?.billet;
   if (role && role.position > 0) return role.name;
   if (billet) return billet;
-  const orgRole = identity.orgs?.find((o) => o.roles.includes('owner')) ? 'Owner' : identity.orgs?.find((o) => o.roles.includes('admin')) ? 'Administrator' : null;
+  const orgRole = seniorOrgRoleLabel((identity.orgs ?? []).flatMap((o) => o.roles));
   if (orgRole) return orgRole;
-  if (identity.platform?.roles.length) return 'Vantage staff';
+  if (identity.platform?.roles.length) return seniorPlatformRoleLabel(identity.platform.roles) ?? 'Vantage staff';
   return role?.name || 'Marine';
 }

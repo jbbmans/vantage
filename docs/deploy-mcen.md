@@ -53,7 +53,7 @@ The start fails, naming every problem at once, if any of these is set:
 - `VANTAGE_CONSENT_BANNER=off`;
 - a `VANTAGE_SITE_URL` different from the application's address.
 
-The admin dashboard cannot turn self-registration or self-service Unit Instances back on.
+The Vantage Administrator console cannot turn self-registration or self-service Unit Instances back on.
 
 ## Enterprise services Vantage can use
 
@@ -75,25 +75,34 @@ These leave the enclave and need an approved connection before they are turned o
 | MARADMIN feed | `VANTAGE_MARADMIN_ENABLED`, `VANTAGE_MARADMIN_SOURCE` | I-19 |
 | Outlook mailbox connections | `VANTAGE_M365_CLIENT_ID`, `VANTAGE_M365_CLIENT_SECRET` | I-22 |
 
-The admin dashboard's overview lists every outbound connection: where it goes, whether it is on, and how
+The Vantage Administrator console's overview lists every outbound connection: where it goes, whether it is on, and how
 MCEN treats it.
 
 ## First start and the first administrator
 
 1. Start the service. The log line names the profile and topology. `/api/health` reports
    `"profile": "mcen"`.
-2. Open the application. First-run setup asks for `VANTAGE_SETUP_TOKEN`. It creates the first Vantage
-   Administrator (a platform owner) and the first Unit Instance with that person as its owner. The token
-   is inert afterwards (I-20).
-3. Add further Vantage Administrators in the admin dashboard (**Staff**), or name them at every start
-   with `VANTAGE_PLATFORM_OWNERS`.
+2. Open the application. First-run setup asks for `VANTAGE_SETUP_TOKEN`. It creates one account that is,
+   for now, three things at once: the Lead Vantage Administrator, the first Unit Instance's Lead Unit
+   Manager, and the leader of that instance's top unit. The token is inert afterwards (I-20).
+3. Add further Vantage Administrators in the Vantage Administrator console (**Staff**), or name Lead
+   Vantage Administrators at every start with `VANTAGE_PLATFORM_OWNERS`.
+4. End the dual hat (ADR-0010). Platform authority should not come with a command's records:
+   1. In the Unit Manager console (**People → Grant a role**), make the command's designated person a
+      Lead Unit Manager. Add them to a unit first if they are not a member.
+   2. Transfer the top unit's leadership to the command's leader (**Units**, or Team in the app).
+   3. Remove your own Lead Unit Manager role (**People**). Giving up authority needs nobody else; the
+      instance keeps the Lead Unit Manager you named.
+
+   Afterwards the setup account is a Vantage Administrator only. It sees the Unit Instance as a container
+   and looks inside only through an approved Vantage access request.
 
 ## Adding a Unit Instance
 
 Adding a unit never needs a source change.
 
 - **Shared topology.** A Vantage Administrator provisions it:
-  - in the admin dashboard (**Unit Instances → New Unit Instance**); or
+  - in the Vantage Administrator console (**Unit Instances → New Unit Instance**); or
   - from a manifest:
 
     ```sh
@@ -104,8 +113,11 @@ Adding a unit never needs a source change.
     VANTAGE_PROVISION=1 npm run provision-instance -- --by <administrator> g1.json
     ```
 
-  The manager is the first Unit Manager, and their account must already exist. Running the manifest
-  again changes nothing. Every run is in the audit trail under the administrator who ran it.
+  The manager is the first Lead Unit Manager, and their account must already exist. It is never the
+  Vantage Administrator running the manifest (ADR-0010), and the run is refused before anything is
+  written if it is. Someone who is not yet a member of an existing Unit Instance is seated in its top
+  unit. Running the manifest again changes nothing. Every run is in the audit trail under the
+  Vantage Administrator who ran it.
 - **Dedicated topology.** A new Unit Instance is a new deployment of the same build, with its own
   database and `VANTAGE_TOPOLOGY=dedicated`.
 

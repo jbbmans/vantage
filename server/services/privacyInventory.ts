@@ -222,7 +222,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
   organizations: {
     purpose: 'The Unit Instances (commands) on the service: each one’s name, status and the unit at the top of its tree.',
     authority: 'Organizational structure of the central service (ADR-0006).',
-    access: 'Its owners and administrators; Vantage staff see the name, status and counts, never its records.',
+    access: 'Its Unit Managers; Vantage staff see the name, status and counts, never its records.',
     columns: {
       id: 'technical', slug: 'employment', name: 'employment', short_name: 'employment', status: 'none', root_unit_id: 'technical',
       settings: 'none', created_by: 'identifier', suspended_reason: 'none', suspended_at: 'technical', created_at: 'technical', updated_at: 'technical',
@@ -616,7 +616,7 @@ export interface Inventory {
 const SENSITIVE: PiiCategory[] = ['identifier', 'contact', 'employment', 'performance', 'authentication'];
 
 /**
- * The inventory from the live schema. For one organization (the owner console), each table's rows are counted as far
+ * The inventory from the live schema. For one organization (the Unit Manager console), each table's rows are counted as far
  * as they are that organization's: by its units, or its org_id, or its members for accounts. A table that belongs to
  * the service as a whole says so instead of counting other organizations' rows.
  */

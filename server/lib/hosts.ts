@@ -2,8 +2,8 @@ import type { Request, Response } from 'express';
 import type { AppConfig } from '../config.ts';
 
 /**
- * Vantage has four faces: the public site, the application, the owner console (an organization's owners) and the
- * admin dashboard (Vantage staff). A deployment serves them from one address, or gives each its own (www., app.,
+ * Vantage has four faces: the public site, the application, the Unit Manager console (a Unit Instance's Unit Managers) and the
+ * Vantage Administrator console (Vantage staff). A deployment serves them from one address, or gives each its own (www., app.,
  * console. and admin. under one domain, say). Every request is answered by what its host serves; a host the
  * deployment does not name is sent on to the one that does.
  */
@@ -16,7 +16,7 @@ export interface HostPlan {
   split: boolean;
   /** Where the console sits on its host: '' when no application or site shares the host, '/console' when one does. */
   consoleBase: string;
-  /** Where the admin dashboard sits: '' when the host is its alone, '/admin' when it is shared. */
+  /** Where the Vantage Administrator console sits: '' when the host is its alone, '/admin' when it is shared. */
   adminBase: string;
   /** The faces a request's host serves, or null for a host this deployment does not answer to. */
   facesFor: (req: Request) => ReadonlySet<Face> | null;
@@ -38,7 +38,7 @@ export function hostPlan(config: AppConfig): HostPlan {
   const siteHost = hostOf(config.urls.site);
   const bare = siteHost.startsWith('www.') ? siteHost.slice(4) : '';
   if (split && bare && !byHost.has(bare)) byHost.set(bare, new Set<Face>(['site']));
-  // The console may share its host with the admin dashboard (at /admin) and still own the root; never with the application.
+  // The console may share its host with the Vantage Administrator console (at /admin) and still own the root; never with the application.
   const consoleHost = byHost.get(hostOf(config.urls.console))!;
   const consoleBase = [...consoleHost].every((f) => f === 'console' || f === 'admin') ? '' : '/console';
   const adminBase = byHost.get(hostOf(config.urls.admin))!.size === 1 ? '' : '/admin';

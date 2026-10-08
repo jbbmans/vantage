@@ -78,14 +78,14 @@ const TRUST_ROUTES = ['/security', '/accessibility', '/privacy', '/changes'];
 const PUBLIC_ROUTES = LINKS.publicSite ? ['/display', '/about', ...TRUST_ROUTES] : TRUST_ROUTES;
 const isPublicRoute = (pathname: string) => PUBLIC_ROUTES.includes(pathname);
 
-/** A page that lives on another host (the public site, the owner console): the browser goes there. */
+/** A page that lives on another host (the public site, the Unit Manager console): the browser goes there. */
 function Elsewhere({ href, label }: { href: string; label: string }) {
   useEffect(() => { window.location.replace(href); }, [href]);
   return <AppLoader label={label} />;
 }
 
 /**
- * The owner console and the admin dashboard are apps of their own. A link into either from inside the application (a
+ * The Unit Manager console and the Vantage Administrator console are apps of their own. A link into either from inside the application (a
  * notification's /console/access, the menu's /admin, an old /operator) leaves the application for it.
  */
 function ToConsole() {
@@ -93,12 +93,12 @@ function ToConsole() {
   // An old /operator?tab= link is the server's to sort between the two consoles.
   if (pathname.startsWith('/operator')) return <Elsewhere href={`/operator${search}`} label="Opening the console…" />;
   const rest = pathname.replace(/^\/console/, '') || '/';
-  return <Elsewhere href={consoleHref(`${rest}${search}`)} label="Opening the owner console…" />;
+  return <Elsewhere href={consoleHref(`${rest}${search}`)} label="Opening the Unit Manager console…" />;
 }
 function ToAdmin() {
   const { pathname, search } = useLocation();
   const rest = pathname.replace(/^\/admin/, '') || '/';
-  return <Elsewhere href={adminHref(`${rest}${search}`)} label="Opening the admin dashboard…" />;
+  return <Elsewhere href={adminHref(`${rest}${search}`)} label="Opening the Vantage Administrator console…" />;
 }
 
 /**
@@ -248,7 +248,7 @@ function AppRoutes() {
         <Route path="team/:id" element={<D><MemberDetail /></D>} />
         <Route path="settings" element={<D><Settings /></D>} />
         <Route path="invite" element={<InvitationRoute />} />
-        {/* The demo's stand-in for the owner console, and support, each exist in one mode only; the other gets a 404, not a page whose calls fail. */}
+        {/* The demo's stand-in for the Unit Manager console, and support, each exist in one mode only; the other gets a 404, not a page whose calls fail. */}
         <Route path="governance" element={identity.data.demo ? <D><DemoGovernance /></D> : <NotFound />} />
         <Route path="operator" element={<ToConsole />} />
         <Route path="console/*" element={<ToConsole />} />

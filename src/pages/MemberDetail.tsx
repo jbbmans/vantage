@@ -22,7 +22,7 @@ import { endOfDay, tomorrowKey, type UnitExplanation } from '@/lib/tenancy';
 
 /** Plain words for why a membership period began or ended (server/services/membership.ts). */
 const PERIOD_REASONS: Record<'start' | 'end', Record<string, string>> = {
-  start: { enrolled: 'Added by a leader', invitation: 'Accepted an invitation', join_code: 'Joined with a code', roster: 'Seated from the personnel roster', roster_restored: 'Restored by the personnel roster', transfer: 'Moved in', account_import: 'Imported with accounts', unit_created: 'Founded the unit', leader_assigned: 'Named its leader', demo: 'Demo', billet_changed: 'Billet changed', primary_changed: 'Primary unit changed', recorded: 'Joined before history was kept' },
+  start: { enrolled: 'Added by a leader', invitation: 'Accepted an invitation', join_code: 'Joined with a code', roster: 'Seated from the personnel roster', roster_restored: 'Restored by the personnel roster', transfer: 'Moved in', account_import: 'Imported with accounts', unit_created: 'Founded the unit', leader_assigned: 'Named its leader', manager_assigned: 'Named Lead Unit Manager by Vantage', demo: 'Demo', billet_changed: 'Billet changed', primary_changed: 'Primary unit changed', recorded: 'Joined before history was kept' },
   end: { removed: 'Removed', removed_from_instance: 'Removed from the command', roster_separation: 'Separated on the personnel roster', transfer: 'Moved out', left: 'Left', billet_changed: 'Billet changed', primary_changed: 'Primary unit changed', superseded: 'Replaced' },
 };
 const periodReason = (reason: string | null, edge: 'start' | 'end') => (reason && PERIOD_REASONS[edge][reason]) || (edge === 'start' ? 'Joined' : 'Ended');

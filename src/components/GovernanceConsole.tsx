@@ -9,7 +9,7 @@ import { Table, DateText } from '@/components/common';
 import * as api from '@/lib/api';
 import { downloadText, humanize, timeAgo } from '@/lib/utils';
 
-/** One organization's governance data, behind a recent password confirmation like the rest of the owner console. */
+/** One organization's governance data, behind a recent password confirmation like the rest of the Unit Manager console. */
 function useOrgData<T = any>(orgId: string, key: string, fn: () => Promise<T>) {
   return useQuery<T>({ queryKey: ['org', orgId, key], queryFn: () => withSudo(fn), retry: false });
 }

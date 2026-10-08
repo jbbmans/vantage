@@ -4,8 +4,8 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { now, slug } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { notify, notifyOrg } from './notifications.ts';
-import { claimUnit, guardSelfReach, removeMember } from './org.ts';
-import { scopeFor } from '../authz/scope.ts';
+import { addMember, claimUnit, guardSelfReach, removeMember } from './org.ts';
+import { orgCan, scopeFor, seatedOrgRole } from '../authz/scope.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { assertCanFoundUnitInstance } from './deployment.ts';
 
@@ -48,7 +48,7 @@ export function orgCounts(ctx: AppContext, orgId: string) {
   return {
     units: one('SELECT COUNT(*) AS n FROM units WHERE org_id = ? AND active = 1', orgId),
     members: one(`SELECT COUNT(*) AS n FROM users WHERE active = 1 AND id IN (${memberIdsSql})`, orgId),
-    owners: one("SELECT COUNT(*) AS n FROM org_roles r JOIN users u ON u.id = r.user_id WHERE r.org_id = ? AND r.role = 'owner' AND u.active = 1 AND (r.expires_at IS NULL OR r.expires_at > ?)", orgId, now()),
+    owners: one(`SELECT COUNT(*) AS n FROM org_roles r JOIN users u ON u.id = r.user_id WHERE r.org_id = ? AND r.role = 'owner' AND u.active = 1 AND (r.expires_at IS NULL OR r.expires_at > ?) AND ${seatedOrgRole('r')}`, orgId, now()),
     lastActive: (ctx.db.prepare(`SELECT MAX(last_login_at) AS at FROM users WHERE id IN (${memberIdsSql})`).get(orgId) as { at: string | null }).at,
     pendingAccess: one("SELECT COUNT(*) AS n FROM access_grants WHERE org_id = ? AND status = 'pending'", orgId),
   };
@@ -60,7 +60,7 @@ export function listOrganizations(ctx: AppContext) {
     ...publicOrg(o),
     counts: orgCounts(ctx, o.id),
     owners: ctx.db.prepare(`SELECT u.id, u.username, u.first_name, u.last_name, rk.abbr AS rank_abbr FROM org_roles r JOIN users u ON u.id = r.user_id LEFT JOIN ranks rk ON rk.id = u.rank_id
-                            WHERE r.org_id = ? AND r.role = 'owner' AND (r.expires_at IS NULL OR r.expires_at > ?) ORDER BY u.last_name`).all(o.id, now()),
+                            WHERE r.org_id = ? AND r.role = 'owner' AND (r.expires_at IS NULL OR r.expires_at > ?) AND ${seatedOrgRole('r')} ORDER BY u.last_name`).all(o.id, now()),
   }));
 }
 
@@ -70,8 +70,9 @@ export const publicOrg = (o: OrgRow) => ({
 });
 
 /**
- * A new organization, from the admin dashboard: its root unit (whose insert founds it), and its first owner when one is
- * named. Vantage staff who create it are not made its owner; the command's own people run it.
+ * A new Unit Instance, from the Vantage Administrator console or a manifest: its root unit (whose insert founds it), and
+ * its first Lead Unit Manager when one is named. The Vantage Administrator who creates it is never made its Lead Unit
+ * Manager, not even by naming themselves (ADR-0010); the command's own people run it.
  */
 export function createOrganization(ctx: AppContext, actor: Pick<SessionUser, 'id'>, input: { name: string; short_name?: string | null; code?: string | null; owner_user_id?: string | null }, ip?: string) {
   const name = input.name.trim();
@@ -84,7 +85,8 @@ export function createOrganization(ctx: AppContext, actor: Pick<SessionUser, 'id
   const owner = input.owner_user_id
     ? ctx.db.prepare('SELECT id, first_name, last_name FROM users WHERE id = ? AND active = 1').get(input.owner_user_id) as { id: string; first_name: string; last_name: string } | undefined
     : undefined;
-  if (input.owner_user_id && !owner) throw badRequest('The first owner must be an active account.', { fieldErrors: { owner_user_id: 'No such active account.' } });
+  if (input.owner_user_id && !owner) throw badRequest('The first Lead Unit Manager must be an active account.', { fieldErrors: { owner_user_id: 'No such active account.' } });
+  if (owner && owner.id === actor.id) throw forbidden('A Vantage Administrator never names themselves a Unit Instance’s Lead Unit Manager. Name the person the command designated.', 'self_grant');
   assertCanFoundUnitInstance(ctx);
   const at = now();
   ctx.db.transaction(() => {
@@ -96,7 +98,7 @@ export function createOrganization(ctx: AppContext, actor: Pick<SessionUser, 'id
     }
   })();
   audit(ctx, { actor_id: actor.id, action: 'organization_created', entity: 'organization', entity_id: code, org_id: code, subject_id: owner?.id ?? null, detail: name, ip });
-  if (owner) notify(ctx, owner.id, { kind: 'unit', title: `You own ${name} on Vantage`, message: 'Open the owner console to set it up: units, members, roles and the personnel feed.', actionUrl: '/console', dedupeKey: `org-owner:${code}:${owner.id}` });
+  if (owner) notify(ctx, owner.id, { kind: 'unit', title: `You are Lead Unit Manager of ${name} on Vantage`, message: 'Open the Unit Manager console to set it up: units, members, roles and the personnel feed.', actionUrl: '/console', dedupeKey: `org-owner:${code}:${owner.id}` });
   return publicOrg(getOrg(ctx, code)!);
 }
 
@@ -122,7 +124,7 @@ export function updateOrganization(ctx: AppContext, actor: SessionUser, orgId: s
 export function setOrgStatus(ctx: AppContext, actor: SessionUser, orgId: string, status: OrgRow['status'], reason: string | null, ip?: string) {
   const org = getOrg(ctx, orgId);
   if (!org) throw notFound('No such Unit Instance.');
-  if (status !== 'active' && !reason?.trim()) throw badRequest('Say why: the Unit Instance’s owners are told.', { fieldErrors: { reason: 'Required.' } });
+  if (status !== 'active' && !reason?.trim()) throw badRequest('Say why: everyone who holds a role in the Unit Instance is told.', { fieldErrors: { reason: 'Required.' } });
   ctx.db.prepare('UPDATE organizations SET status = ?, suspended_reason = ?, suspended_at = ?, updated_at = ? WHERE id = ?')
     .run(status, status === 'active' ? null : reason!.trim().slice(0, 500), status === 'active' ? null : now(), now(), orgId);
   // Anything open into the organization ends with it.
@@ -142,16 +144,18 @@ export function orgRoleHolders(ctx: AppContext, orgId: string): OrgRoleHolder[] 
   return rows.map((r) => ({ ...r, member: isOrgMember(ctx, orgId, r.user_id) }));
 }
 
-const liveOwners = (ctx: AppContext, orgId: string) =>
-  (ctx.db.prepare("SELECT r.user_id FROM org_roles r JOIN users u ON u.id = r.user_id WHERE r.org_id = ? AND r.role = 'owner' AND u.active = 1 AND (r.expires_at IS NULL OR r.expires_at > ?)").all(orgId, now()) as Array<{ user_id: string }>).map((r) => r.user_id);
+/** The Lead Unit Managers whose role confers authority now: active, unexpired, and still members of the Unit Instance. */
+export const liveOwners = (ctx: AppContext, orgId: string) =>
+  (ctx.db.prepare(`SELECT r.user_id FROM org_roles r JOIN users u ON u.id = r.user_id WHERE r.org_id = ? AND r.role = 'owner' AND u.active = 1 AND (r.expires_at IS NULL OR r.expires_at > ?) AND ${seatedOrgRole('r')}`).all(orgId, now()) as Array<{ user_id: string }>).map((r) => r.user_id);
 
 /**
- * Grant an organization role to a member of the organization, until a date if one is given. Granting yourself a role is
- * refused: a second owner does it, so no single account can widen its own reach.
+ * Grant a Unit Instance role to a member of the Unit Instance, until a date if one is given. Granting yourself a role,
+ * or changing the end date of one you hold, is refused: another Lead Unit Manager does it, so no single account can widen
+ * its own reach (ADR-0010).
  */
 export function grantOrgRole(ctx: AppContext, actor: SessionUser, orgId: string, input: { user_id: string; role: string; expires_at?: string | null }, ip?: string) {
   if (!ORG_ROLE_KEYS.includes(input.role as OrgRole)) throw badRequest('That is not a Unit Instance role.');
-  if (input.user_id === actor.id) throw forbidden('Another owner must change your own Unit Instance roles.', 'self_grant');
+  if (input.user_id === actor.id) throw forbidden('Another Lead Unit Manager must change your own Unit Instance roles.', 'self_grant');
   const target = ctx.db.prepare('SELECT id, first_name, last_name FROM users WHERE id = ? AND active = 1').get(input.user_id) as { id: string; first_name: string; last_name: string } | undefined;
   if (!target) throw notFound('No such active account.');
   if (!isOrgMember(ctx, orgId, target.id)) throw badRequest('Unit Instance roles go to members of the Unit Instance. Add them to a unit first.', { fieldErrors: { user_id: 'Not a member of this Unit Instance.' } });
@@ -162,8 +166,10 @@ export function grantOrgRole(ctx: AppContext, actor: SessionUser, orgId: string,
     .run(orgId, target.id, input.role, actor.id, expires ? expires.toISOString() : null, now());
   invalidateUserSessions(ctx, target.id);
   audit(ctx, { actor_id: actor.id, action: 'org_role_granted', entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: target.id, detail: `${input.role}${expires ? ` until ${expires.toISOString().slice(0, 10)}` : ''}`, ip });
-  notify(ctx, target.id, { kind: 'unit', title: `You are now ${ORG_ROLES[input.role as OrgRole].label.toLowerCase()} of a Unit Instance`, message: `${ORG_ROLES[input.role as OrgRole].description} Sign in again to pick it up.`, actionUrl: '/console' });
-  notifyOrg(ctx, orgId, 'org.owners', { kind: 'system', title: `${target.first_name} ${target.last_name} was made ${ORG_ROLES[input.role as OrgRole].label.toLowerCase()}`, message: `By ${actor.first_name} ${actor.last_name}${expires ? `, until ${expires.toISOString().slice(0, 10)}` : ''}.`, actionUrl: '/console/people' }, actor.id);
+  const label = ORG_ROLES[input.role as OrgRole].label;
+  const orgName = getOrg(ctx, orgId)?.name ?? 'a Unit Instance';
+  notify(ctx, target.id, { kind: 'unit', title: `You are now ${label} of ${orgName}`, message: `${ORG_ROLES[input.role as OrgRole].description} Sign in again to pick it up.`, actionUrl: '/console' });
+  notifyOrg(ctx, orgId, 'org.owners', { kind: 'system', title: `${target.first_name} ${target.last_name} was made ${label}`, message: `By ${actor.first_name} ${actor.last_name}${expires ? `, until ${expires.toISOString().slice(0, 10)}` : ''}.`, actionUrl: '/console/people' }, actor.id);
   return orgRoleHolders(ctx, orgId);
 }
 
@@ -171,7 +177,7 @@ export function revokeOrgRole(ctx: AppContext, actor: SessionUser, orgId: string
   if (!ORG_ROLE_KEYS.includes(role as OrgRole)) throw badRequest('That is not a Unit Instance role.');
   if (role === 'owner') {
     const owners = liveOwners(ctx, orgId);
-    if (owners.includes(userId) && owners.length === 1) throw badRequest('A Unit Instance always keeps at least one owner. Name another owner first.', { code: 'last_owner' });
+    if (owners.includes(userId) && owners.length === 1) throw badRequest('A Unit Instance always keeps at least one Lead Unit Manager. Name another first.', { code: 'last_owner' });
   }
   const r = ctx.db.prepare('DELETE FROM org_roles WHERE org_id = ? AND user_id = ? AND role = ?').run(orgId, userId, role);
   if (!r.changes) throw notFound('They do not hold that role.');
@@ -181,24 +187,29 @@ export function revokeOrgRole(ctx: AppContext, actor: SessionUser, orgId: string
 }
 
 /**
- * Vantage staff may name an owner only for an organization that has none (the last one left, say). An organization
- * with owners names its own: the platform never adds itself, or anyone, to a running command.
+ * A Vantage Administrator names a Lead Unit Manager only for a Unit Instance that has none (the last one left, say), and
+ * never themselves (ADR-0010). A Unit Instance with Lead Unit Managers names its own: the platform never adds itself, or
+ * anyone, to a running command.
  */
 export function nameFirstOwner(ctx: AppContext, actor: Pick<SessionUser, 'id'>, orgId: string, userId: string, ip?: string) {
   const org = getOrg(ctx, orgId);
   if (!org) throw notFound('No such Unit Instance.');
-  if (liveOwners(ctx, orgId).length) throw conflict('This Unit Instance has owners; they name any others.', 'has_owners');
+  if (userId === actor.id) throw forbidden('A Vantage Administrator never names themselves a Unit Instance’s Lead Unit Manager. Name the person the command designated.', 'self_grant');
+  if (liveOwners(ctx, orgId).length) throw conflict('This Unit Instance has Lead Unit Managers; they name any others.', 'has_owners');
   const target = ctx.db.prepare('SELECT id FROM users WHERE id = ? AND active = 1').get(userId) as { id: string } | undefined;
   if (!target) throw notFound('No such active account.');
   ctx.db.transaction(() => {
-    ctx.db.prepare("INSERT OR IGNORE INTO org_roles (org_id, user_id, role, granted_by, created_at) VALUES (?, ?, 'owner', ?, ?)").run(orgId, userId, actor.id, now());
-    // An owner of an organization nobody leads also leads its top unit, so somebody holds its records.
+    ctx.db.prepare(`INSERT INTO org_roles (org_id, user_id, role, granted_by, created_at) VALUES (?, ?, 'owner', ?, ?)
+                    ON CONFLICT(org_id, user_id, role) DO UPDATE SET granted_by = excluded.granted_by, expires_at = NULL, created_at = excluded.created_at`).run(orgId, userId, actor.id, now());
+    // A Lead Unit Manager of a Unit Instance nobody leads also leads its top unit, so somebody holds its records.
     const root = org.root_unit_id ? ctx.db.prepare('SELECT owner_user_id FROM units WHERE id = ?').get(org.root_unit_id) as { owner_user_id: string | null } | undefined : undefined;
     if (org.root_unit_id && root && !root.owner_user_id) claimUnit(ctx, org.root_unit_id, userId);
+    // A Unit Instance role is held by a member (ADR-0010): someone from outside it is seated in its top unit, with its default role.
+    else if (org.root_unit_id && !isOrgMember(ctx, orgId, userId)) addMember(ctx, userId, org.root_unit_id, { invitedBy: actor.id, reason: 'manager_assigned' });
   })();
   invalidateUserSessions(ctx, userId);
   audit(ctx, { actor_id: actor.id, action: 'org_owner_named', entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: userId, ip });
-  notify(ctx, userId, { kind: 'unit', title: `You own ${org.name} on Vantage`, message: 'Vantage named you its owner because it had none. Sign in again and open the owner console.', actionUrl: '/console' });
+  notify(ctx, userId, { kind: 'unit', title: `You are Lead Unit Manager of ${org.name} on Vantage`, message: 'A Vantage Administrator named you because it had none. Sign in again and open the Unit Manager console.', actionUrl: '/console' });
   return orgRoleHolders(ctx, orgId);
 }
 
@@ -220,13 +231,24 @@ export function orgMembers(ctx: AppContext, orgId: string, q = '') {
   return people.map((p) => ({ ...p, units: (byUser.get(p.id) || []).map(({ user_id: _u, ...rest }) => rest) }));
 }
 
-/** Take someone out of every unit of the organization: their claims are released, their account is theirs to keep. */
+/**
+ * Taking someone out of the last unit they hold in a Unit Instance ends any Unit Instance role they hold there, so on a
+ * role holder it is a Lead Unit Manager's to do (`org.owners`), and never on the last Lead Unit Manager. Throws otherwise.
+ */
+export function assertMayEndInstanceRoles(ctx: AppContext, actor: Pick<SessionUser, 'id'>, orgId: string | null, userId: string) {
+  if (!orgId) return;
+  const held = (ctx.db.prepare('SELECT role FROM org_roles WHERE org_id = ? AND user_id = ?').all(orgId, userId) as Array<{ role: string }>).map((r) => r.role);
+  if (!held.length) return;
+  if (userId !== actor.id && !orgCan(scopeFor(ctx, actor), 'org.owners', orgId)) throw forbidden('They hold a Unit Instance role, which ends when they leave its last unit. A Lead Unit Manager removes them.', 'org_permission');
+  const owners = liveOwners(ctx, orgId);
+  if (held.includes('owner') && owners.includes(userId) && owners.length === 1) throw badRequest('They are the Unit Instance’s only Lead Unit Manager. Name another first.', { code: 'last_owner' });
+}
+
+/** Take someone out of every unit of the Unit Instance: their claims are released, their account is theirs to keep. */
 export function removeFromOrg(ctx: AppContext, actor: SessionUser, orgId: string, userId: string, ip?: string) {
   if (userId === actor.id) throw forbidden('A second authorized person must change your own membership.', 'self_membership_change');
-  // Taking someone out also ends their organization roles, so only an owner may do it to a role holder, and never to the last owner.
-  const held = (ctx.db.prepare('SELECT role FROM org_roles WHERE org_id = ? AND user_id = ?').all(orgId, userId) as Array<{ role: string }>).map((r) => r.role);
-  if (held.length && !scopeFor(ctx, actor).orgs[orgId]?.roles.includes('owner')) throw forbidden('They hold a Unit Instance role. An owner removes them.', 'org_permission');
-  if (held.includes('owner') && liveOwners(ctx, orgId).length === 1) throw badRequest('They are the Unit Instance’s only owner. Name another owner first.', { code: 'last_owner' });
+  // Taking someone out also ends their Unit Instance roles: a Lead Unit Manager's to do on a role holder, never the last one.
+  assertMayEndInstanceRoles(ctx, actor, orgId, userId);
   const leads = ctx.db.prepare('SELECT name FROM units WHERE org_id = ? AND owner_user_id = ? AND active = 1').all(orgId, userId) as Array<{ name: string }>;
   if (leads.length) throw badRequest(`They lead ${leads.map((u) => u.name).join(', ')}. Transfer that leadership first.`);
   const units = ctx.db.prepare('SELECT um.unit_id FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE un.org_id = ? AND um.user_id = ?').all(orgId, userId) as Array<{ unit_id: string }>;
@@ -247,17 +269,16 @@ export function orgUnits(ctx: AppContext, orgId: string) {
      WHERE u.org_id = ? ORDER BY u.active DESC, u.name COLLATE NOCASE`).all(orgId);
 }
 
-/** Lead a unit of the organization: for an owner or administrator, so no unit is left without a leader. */
+/** Lead a unit of the Unit Instance: for a Unit Manager to name, so no unit is left without a leader. */
 export function setUnitLeader(ctx: AppContext, actor: SessionUser, orgId: string, unitId: string, userId: string, ip?: string) {
   const unit = ctx.db.prepare('SELECT id, name FROM units WHERE id = ? AND org_id = ? AND active = 1').get(unitId, orgId) as { id: string; name: string } | undefined;
   if (!unit) throw notFound('No such unit in this Unit Instance.');
   if (!isOrgMember(ctx, orgId, userId)) throw badRequest('A unit’s leader must be a member of the Unit Instance.', { fieldErrors: { user_id: 'Not a member.' } });
-  // Leading a unit reads its records: naming yourself is the self-grant an administrator cannot make.
-  const notice = guardSelfReach(ctx, actor, scopeFor(ctx, actor), unitId, PERMISSIONS.ADMINISTRATOR, userId, { you: `Making yourself leader of ${unit.name}`, they: 'made themselves its leader' });
+  // Leading a unit reads its records: naming yourself is the self-grant no Unit Manager makes (ADR-0010).
+  guardSelfReach(ctx, actor, scopeFor(ctx, actor), unitId, PERMISSIONS.ADMINISTRATOR, userId, `Making yourself leader of ${unit.name}`);
   const { previous, sessionsRevoked } = claimUnit(ctx, unitId, userId);
   audit(ctx, { actor_id: actor.id, action: 'unit_leader_set', entity: 'unit', entity_id: unitId, unit_id: unitId, org_id: orgId, subject_id: userId, detail: `${previous || 'unled'} -> ${userId}`, ip });
   notify(ctx, userId, { kind: 'unit', title: `You now lead ${unit.name}`, message: 'Sign in again to pick up the new authority.', actionUrl: '/team' });
-  notice?.();
   return { ok: true, sessionsRevoked };
 }
 

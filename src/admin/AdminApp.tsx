@@ -2,21 +2,22 @@ import { Activity, Archive, BarChart3, Building2, Database, Gauge, KeyRound, Mai
 import { ConsoleFrame, ConsoleLayout, type ConsoleSection } from '@/components/ConsoleFrame';
 import { PrivacyConsole } from '@/components/GovernanceConsole';
 import { LINKS } from '@/lib/links';
+import { PLATFORM_ROLES, type PlatformRole } from '../../shared/permissions';
 import type { Identity } from '@/lib/queries';
 import * as Sections from './sections';
 import { Access, Accounts, Organizations, PlatformHolds, Staff } from './people';
 
 /**
- * The Vantage admin dashboard (ADR-0006): the service, for Vantage staff. Organizations appear here as containers;
- * seeing inside one takes that organization's approval. Each page shows only to the staff roles that can use it.
+ * The Vantage Administrator console (ADR-0006, ADR-0010): the service, for Vantage staff. Unit Instances appear here as
+ * containers; seeing inside one takes its Lead Unit Managers' approval. Each page shows only to the staff roles that can use it.
  */
 function sectionsFor(permissions: string[]): ConsoleSection[] {
   const can = (p: string) => permissions.includes(p);
   return [
     { path: '', label: 'Overview', icon: Gauge, title: 'The service', lede: 'Unit Instances, accounts, access, the database, email and the integrity of the audit chain at a glance.', render: () => <Sections.Overview />, hidden: !can('platform.view') },
-    { path: 'orgs', label: 'Unit Instances', icon: Building2, title: 'Unit Instances', lede: 'Every command on Vantage, its owners and its state. What is inside one is its own.', render: () => <Organizations />, hidden: !can('platform.view') },
+    { path: 'orgs', label: 'Unit Instances', icon: Building2, title: 'Unit Instances', lede: 'Every command on Vantage, its Lead Unit Managers and its state. What is inside one is its own.', render: () => <Organizations />, hidden: !can('platform.view') },
     { path: 'accounts', label: 'Accounts', icon: Users, title: 'Accounts', lede: 'Sign-in help for anyone on Vantage: unlocks, temporary passwords, second factors and sign-in details.', render: () => <Accounts />, hidden: !can('platform.accounts') },
-    { path: 'access', label: 'Vantage access', icon: KeyRound, title: 'Vantage access', lede: 'Read-only, time-limited looks inside a Unit Instance, each one approved by its owners.', render: () => <Access />, hidden: !can('platform.view') },
+    { path: 'access', label: 'Vantage access', icon: KeyRound, title: 'Vantage access', lede: 'Read-only, time-limited looks inside a Unit Instance, each one approved by its Lead Unit Managers.', render: () => <Access />, hidden: !can('platform.view') },
     { path: 'staff', label: 'Staff', icon: UserCog, title: 'Vantage staff', lede: 'Who runs the service, and with which role.', render: () => <Staff />, hidden: !can('platform.view') },
     { path: 'settings', label: 'Settings', icon: Settings2, title: 'Platform settings', lede: 'What everyone sees: the service name, sign-up, self-service Unit Instances, maintenance and the announcement.', render: () => <Sections.RuntimeSettings />, hidden: !can('platform.settings') },
     { path: 'metrics', label: 'Metrics', icon: BarChart3, title: 'Metrics', lede: 'The value types and categories every record is counted in.', render: () => <Sections.MetricsSettings />, hidden: !can('platform.settings') },
@@ -33,21 +34,21 @@ function sectionsFor(permissions: string[]): ConsoleSection[] {
 export default function AdminApp() {
   return (
     <ConsoleFrame
-      // A host of its own puts the dashboard at the root; one shared with the application puts it under /admin.
+      // A host of its own puts the console at the root; one shared with the application puts it under /admin.
       basename={LINKS.split && !LINKS.admin.endsWith('/admin') ? '/' : '/admin'}
-      documentTitle="Vantage admin"
-      loaderLabel="Opening the admin dashboard…"
+      documentTitle="Vantage Administrator console"
+      loaderLabel="Opening the Vantage Administrator console…"
       variant="admin"
       admits={(identity: Identity) => identity.platform.roles.length > 0}
-      denied={{ title: 'This is the Vantage admin dashboard', description: 'It is for the people who run Vantage itself. If you run a Unit Instance on Vantage, its owner console is where you manage it.' }}
+      denied={{ title: 'This is the Vantage Administrator console', description: 'It is for Vantage staff, the people who run Vantage itself. If you are a Unit Manager of a Unit Instance on Vantage, the Unit Manager console is where you manage it.' }}
     >
       {(identity) => (
         <ConsoleLayout
           identity={identity}
           badge="Vantage"
-          railLabel="Admin dashboard"
-          eyebrow="Vantage admin"
-          headerLabel={<>Vantage admin · {identity.platform.roles.join(', ')}</>}
+          railLabel="Vantage Administrator console"
+          eyebrow="Vantage Administrator"
+          headerLabel={<>Vantage staff · {identity.platform.roles.map((r) => PLATFORM_ROLES[r as PlatformRole]?.label ?? r).join(', ')}</>}
           sections={sectionsFor(identity.platform.permissions)}
         />
       )}

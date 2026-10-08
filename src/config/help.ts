@@ -314,7 +314,7 @@ export const HELP: HelpSection[] = [
         id: 'metrics-config',
         q: 'We are not a comptroller shop. Can we change what is measured?',
         a: [
-          'Yes. The owner console renames the money metric, defines the value types and which of them roll into a headline total, and sets the activity categories and unit suggestions.',
+          'Yes. The Unit Manager console renames the money metric, defines the value types and which of them roll into a headline total, and sets the activity categories and unit suggestions.',
           'Records keep whatever key they were saved with, so retiring a type never rewrites history.',
         ],
         also: ['dollars', 'customise', 'categories', 'configure'],
@@ -332,7 +332,7 @@ export const HELP: HelpSection[] = [
         id: 'legal-hold',
         q: 'How do I freeze records against disposition?',
         a: [
-          'Place a legal hold in the owner console. A hold names its scope and its reason, and held records are skipped by disposition until it is released.',
+          'Place a legal hold in the Unit Manager console. A hold names its scope and its reason, and held records are skipped by disposition until it is released.',
         ],
         also: ['preserve', 'litigation', 'freeze'],
       },
@@ -340,7 +340,7 @@ export const HELP: HelpSection[] = [
         id: 'privacy-inventory',
         q: 'I need a data inventory for a privacy assessment.',
         a: [
-          'The owner console builds one from the live database every time you open it, and exports as Markdown for a PIA.',
+          'The Unit Manager console builds one from the live database every time you open it, and exports as Markdown for a PIA.',
           'It is read from the schema rather than maintained by hand, so it cannot quietly stop being true the way a written document does. It also reports its own gaps.',
         ],
         also: ['pia', 'privacy act', 'inventory', 'sorn'],

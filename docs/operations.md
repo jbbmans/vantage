@@ -1,22 +1,22 @@
 # Operations
 
-This is the Vantage team's run book for the central service. Commands do not run Vantage; what an organization's
-owners do for themselves is in the owner console, and is noted where it touches these steps.
+This is the Vantage team's run book for the central service. Commands do not run Vantage; what a Unit Instance's
+Unit Managers do for themselves is in the Unit Manager console, and is noted where it touches these steps.
 
 ## Backups
 
 Render disks are not backed up for you. Take a consistent copy of the SQLite file (SQLite's online backup API, safe while the app runs) weekly and before every upgrade, and store it somewhere the data classification allows.
 
 - **On the server** (the way to do it on an accredited host): `VANTAGE_DB=/data/vantage.db npm run backup -- /backups/vantage-$(date +%F).db`. The copy is written readable by its owner only; encrypt it before it leaves the host.
-- **From the browser**: **Admin dashboard → Backup and recovery → Download backup** (platform owners). Every other platform owner is notified each time a backup or service archive is downloaded. Set `VANTAGE_BROWSER_BACKUPS=false` to close this path where policy requires backups to stay on the server.
+- **From the browser**: **Vantage Administrator console → Backup and recovery → Download backup** (Lead Vantage Administrators). Every other Lead Vantage Administrator is notified each time a backup or service archive is downloaded. Set `VANTAGE_BROWSER_BACKUPS=false` to close this path where policy requires backups to stay on the server.
 
 Restoring a `.db` file: turn on maintenance mode, replace `/data/vantage.db` (a Render shell: `render ssh`, then `cp`), delete any `-wal` and `-shm` siblings, restart the service.
 
 ## Moving the service to another host
 
-1. **Admin dashboard → Backup and recovery → Export the service.** One JSON file with everything: organizations and their roles, platform staff, accounts (password hashes, TOTP secrets, passkeys), units, roles, memberships, every record, attachments, notifications, Vantage access history, the audit trail.
+1. **Vantage Administrator console → Backup and recovery → Export the service.** One JSON file with everything: organizations and their roles, platform staff, accounts (password hashes, TOTP secrets, passkeys), units, roles, memberships, every record, attachments, notifications, Vantage access history, the audit trail.
 2. Stand up Vantage on the new host (Docker image, or `npm ci && npm run build && npm start`). Use the same `VANTAGE_PUBLIC_URL` (or `VANTAGE_SITE_URL`, `VANTAGE_APP_URL`, `VANTAGE_CONSOLE_URL` and `VANTAGE_ADMIN_URL`) and the same `VANTAGE_SECRET` (or the new secret with the old one as `VANTAGE_SECRET_PREVIOUS`, see [Changing the secret](#changing-the-secret)), otherwise TOTP secrets cannot be decrypted and the audit chain will not verify. Passkeys survive only if the hostname is unchanged.
-3. Complete setup on the new host with any throwaway account, then **Import** the JSON from the admin dashboard. The import replaces everything, including that throwaway account, and resets every session.
+3. Complete setup on the new host with any throwaway account, then **Import** the JSON from the Vantage Administrator console. The import replaces everything, including that throwaway account, and resets every session.
 4. Point DNS at the new host.
 
 ## Changing the secret
@@ -49,12 +49,12 @@ who has the whole server has both. What catches them is a copy they do not contr
   ships container logs somewhere you keep.
 
 Each record carries its `entry_hash`, so a collector's copy can be compared with the chain at any time. The daily
-anchor of every case history's head is an audit record and travels the same way. The admin dashboard's Audit chain
+anchor of every case history's head is an audit record and travels the same way. The Vantage Administrator console's Audit chain
 panel says where copies go, how many were sent, and warns when there are none.
 
 ## Adding people from a roster
 
-An organization's administrators do this themselves: **Owner console → People → Import accounts** takes an `.xlsx` or `.csv` with a header row. `Username`, `First Name` and `Last Name` are required; `Rank`, `L2 Command` (or `Command`), `Fire Team` (or `Team`, `Unit`, `Section`), `Email`, `Temporary Password`, `Role` and `Billet` are used when present. The file is read and every row is shown first: what will be created, what already exists, and what is skipped and why. Nothing is written until you confirm.
+An organization's administrators do this themselves: **Unit Manager console → People → Import accounts** takes an `.xlsx` or `.csv` with a header row. `Username`, `First Name` and `Last Name` are required; `Rank`, `L2 Command` (or `Command`), `Fire Team` (or `Team`, `Unit`, `Section`), `Email`, `Temporary Password`, `Role` and `Billet` are used when present. The file is read and every row is shown first: what will be created, what already exists, and what is skipped and why. Nothing is written until you confirm.
 
 - Each command and team is matched to a unit of that organization by name or short name, or created inside it: a command directly under the organization's top unit (or the top unit itself, if the roster names it), a team under its command. New units are governed from above, by the top unit's leader and the organization's administrators. A row that names no unit joins the top unit. Units of other organizations are never matched.
 - Roles are the unit's role names (`Marine`, `NCO`, `Fire Team Leader`, `SNCO`, `SNCOIC`). Unit Leader goes with ownership and cannot be imported.
@@ -86,20 +86,20 @@ Without a shell, the same result takes three steps: `VANTAGE_FACTORY_RESET=1 nod
 
 ## Recovering access
 
-- **An organization with no owner left** (moved, separated, locked out): **Admin dashboard → Organizations → Name owner** names one, and only for an organization with none. An organization that has owners names its own.
-- **Every platform owner locked out:** `VANTAGE_RECOVERY=1 npm run recover-operator -- <username>` on the server makes that account a platform owner, clears its authenticator, and prints a temporary password. On Render use `render ssh vantage` then `cd /app && VANTAGE_RECOVERY=1 node scripts/recover-operator.ts <username>`. Sessions for that user are reset; sign in with the temporary password and set a new one.
+- **A Unit Instance with no Lead Unit Manager left** (moved, separated, locked out): **Vantage Administrator console → Unit Instances → Name Lead Unit Manager** names one, only for a Unit Instance with none, and never the Vantage Administrator doing it (ADR-0010). Someone not yet a member is seated in its top unit. A Unit Instance that has Lead Unit Managers names its own. A Lead Unit Manager who has left every unit of the instance, or been separated by the roster feed, no longer counts.
+- **Every Lead Vantage Administrator locked out:** `VANTAGE_RECOVERY=1 npm run recover-operator -- <username>` on the server makes that account a Lead Vantage Administrator, clears its authenticator, and prints a temporary password. On Render use `render ssh vantage` then `cd /app && VANTAGE_RECOVERY=1 node scripts/recover-operator.ts <username>`. Sessions for that user are reset; sign in with the temporary password and set a new one.
 
 ## Lost phone
 
-Anyone can clear their own after signing in with a recovery code. Otherwise it is Vantage support's: **Admin dashboard → Accounts → Reset 2FA** removes the authenticator, recovery codes and passkeys, signs the person out everywhere, and tells them. Then **Temp password** if the password is lost too. An account can belong to more than one organization, so an organization's owners can unlock and sign out their members but not reset their credentials. A platform owner's own account is recovered only by another platform owner.
+Anyone can clear their own after signing in with a recovery code. Otherwise it is Vantage support's: **Vantage Administrator console → Accounts → Reset 2FA** removes the authenticator, recovery codes and passkeys, signs the person out everywhere, and tells them. Then **Temp password** if the password is lost too. An account can belong to more than one organization, so an organization's owners can unlock and sign out their members but not reset their credentials. A platform owner's own account is recovered only by another platform owner.
 
 ## Maintenance mode
 
-**Admin dashboard → Settings → Maintenance** blocks everyone but Vantage staff with a 503, in every organization, including registration, invitations, and password resets. Others can still sign in, but every other request is refused until it is turned off. Turn it on before a restore or a move.
+**Vantage Administrator console → Settings → Maintenance** blocks everyone but Vantage staff with a 503, in every organization, including registration, invitations, and password resets. Others can still sign in, but every other request is refused until it is turned off. Turn it on before a restore or a move.
 
 ## Vantage access to an organization
 
-Staff never see inside an organization by holding a platform role. **Admin dashboard → Organizations → Ask for access** (or Vantage access) names the reason and the length (four hours by default, never more than a day). The organization's owners approve or deny it in **Owner console → Vantage access**; an organization can instead choose to be told rather than asked. Access is read-only, covers its units and the work shared with them (never member detail or private entries), ends on its own or when an owner ends it, and every step is in both the organization's audit trail and the platform's. A request nobody answers lapses after a day.
+Staff never see inside an organization by holding a platform role. **Vantage Administrator console → Organizations → Ask for access** (or Vantage access) names the reason and the length (four hours by default, never more than a day). The organization's owners approve or deny it in **Unit Manager console → Vantage access**; an organization can instead choose to be told rather than asked. Access is read-only, covers its units and the work shared with them (never member detail or private entries), ends on its own or when an owner ends it, and every step is in both the organization's audit trail and the platform's. A request nobody answers lapses after a day.
 
 ## Upgrading from Vantage 4
 

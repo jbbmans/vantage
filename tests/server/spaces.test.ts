@@ -33,16 +33,21 @@ test('a member can stand up a unit of their own and owns it', async () => {
   assert.ok(perms['G8'] === undefined || perms['G8'] < (perms[made.body.id] || 0), 'and gains nothing in G8 by it');
 });
 
-test('the platform can switch self-service organizations off, and then only Vantage staff create them', async () => {
+test('the platform can switch self-service organizations off, and then only Vantage staff create them, in their console', async () => {
   const off = await app.call('PUT', '/api/platform/runtime', { token: op.token, body: { selfServiceUnits: false } });
   assert.equal(off.status, 200, JSON.stringify(off.body));
   const refused = await mkUnit(nguyen.token, 'Should Not Exist');
   assert.equal(refused.status, 403);
   assert.equal(refused.body.code, 'org_creation_closed');
   assert.match(refused.body.error, /set up by Vantage/i);
-  // Vantage staff who create organizations are not blocked by their own switch.
+  // Vantage staff are held to the same switch in the app: founding one there would make them its Lead Unit Manager and
+  // its leader (ADR-0010). They create Unit Instances in the Vantage Administrator console, which gives them no role.
   const byOp = await mkUnit(op.token, 'Operator Unit');
-  assert.equal(byOp.status, 201, JSON.stringify(byOp.body));
+  assert.equal(byOp.status, 403, JSON.stringify(byOp.body));
+  assert.equal(byOp.body.code, 'org_creation_closed');
+  const inConsole = await app.call('POST', '/api/platform/orgs', { token: op.token, body: { name: 'Operator Unit', code: 'OPU' } });
+  assert.equal(inConsole.status, 201, JSON.stringify(inConsole.body));
+  assert.equal(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'OPU'").get(), undefined, 'and its creator holds no role in it');
   await app.call('PUT', '/api/platform/runtime', { token: op.token, body: { selfServiceUnits: true } });
 });
 

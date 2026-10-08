@@ -87,12 +87,12 @@ function PasswordMeter({ value }: { value: string }) {
 }
 
 /**
- * The sign-in screen of the application, of the owner console (variant="console", for an organization's owners and
- * administrators) or of the Vantage admin dashboard (variant="admin", for Vantage staff).
+ * The sign-in screen of the application, of the Unit Manager console (variant="console", for the people who hold a Unit
+ * Instance's roles) or of the Vantage Administrator console (variant="admin", for Vantage staff).
  */
 export default function Login({ serverError, onRetry, variant = 'app' }: { serverError: string | null; onRetry: () => void; variant?: 'app' | 'console' | 'admin' }) {
   const owners = variant !== 'app';
-  const faceName = variant === 'admin' ? 'Vantage admin' : 'Owner console';
+  const faceName = variant === 'admin' ? 'Vantage Administrator console' : 'Unit Manager console';
   const qc = useQueryClient();
   const toast = useToast();
   const ranks = useRanks();
@@ -268,10 +268,10 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
   const offline = typeof navigator !== 'undefined' && !navigator.onLine;
 
   const heading: Record<Mode, [string, string, string]> = {
-    login: variant === 'admin' ? ['Vantage admin', 'Sign in', 'For Vantage staff. Commands sign in to the app or their owner console.']
-      : owners ? ['Owner console', 'Sign in', 'For the people who run an organization on Vantage. Everyone else signs in to the app.'] : ['Welcome back', 'Sign in', 'Continue to your Vantage workspace.'],
+    login: variant === 'admin' ? ['Vantage Administrator console', 'Sign in', 'For Vantage staff. Commands sign in to the app or their Unit Manager console.']
+      : owners ? ['Unit Manager console', 'Sign in', 'For the people who run a Unit Instance on Vantage. Everyone else signs in to the app.'] : ['Welcome back', 'Sign in', 'Continue to your Vantage workspace.'],
     mfa: ['Secure sign-in', 'Second step', 'Enter the six-digit code from your authenticator app, or a recovery code.'],
-    setup: ['First launch', 'Set up Vantage', 'Create the first Vantage owner account and the first organization. This only happens once.'],
+    setup: ['First launch', 'Set up Vantage', 'Create the first Lead Vantage Administrator account and the first Unit Instance. This only happens once.'],
     register: ['Join Vantage', 'Create your account', 'Then join your unit with a join code or invitation from your leader.'],
     forgot: ['Account recovery', 'Reset your password', 'Enter your username or email. If email is configured, a one-time link follows.'],
     reset: tokenInfo?.purpose === 'sign_in'

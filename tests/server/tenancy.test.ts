@@ -149,17 +149,20 @@ test('an administrator finds no side door into records: leading a unit, their ow
   assert.equal((app.ctx.db.prepare("SELECT permissions FROM roles WHERE id = 'G8:marine'").get() as { permissions: number }).permissions, marineRole.permissions);
 
   const kick = await app.call('DELETE', `/api/orgs/G8/members/${op.id}`, { token: rivera.token });
-  assert.equal(kick.status, 403, 'an administrator does not remove an owner from the organization');
+  assert.equal(kick.status, 403, 'a Unit Manager does not remove a Lead Unit Manager from the Unit Instance');
 });
 
-test('an owner giving themselves a role that reads records is allowed, and the other owners are told', async () => {
+test('a Lead Unit Manager cannot give themselves a role that reads records either; another one grants it (ADR-0010)', async () => {
   assert.equal((await post(op.token, '/api/orgs/G8/roles', { user_id: nguyen.id, role: 'owner' })).status, 201);
   nguyen.token = await login('nguyen');
   app.ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND role_id = ?').run(nguyen.id, 'G8:snco');
   const self = await post(nguyen.token, `/api/org/team/${nguyen.id}/roles`, { role_id: 'G8:snco', unit_id: 'G8' });
-  assert.equal(self.status, 200, JSON.stringify(self.body));
-  assert.ok(app.ctx.db.prepare("SELECT 1 FROM notifications WHERE user_id = ? AND title LIKE '%gave themselves SNCO%'").get(op.id));
-  assert.equal(app.ctx.db.prepare("SELECT 1 FROM notifications WHERE user_id = ? AND title LIKE '%gave themselves SNCO%'").get(nguyen.id), undefined);
+  assert.equal(self.status, 403, JSON.stringify(self.body));
+  assert.equal(self.body.code, 'self_grant');
+  assert.equal(app.ctx.db.prepare('SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = ?').get(nguyen.id, 'G8:snco'), undefined, 'and nothing was written');
+  const other = await post(op.token, `/api/org/team/${nguyen.id}/roles`, { role_id: 'G8:snco', unit_id: 'G8' });
+  assert.equal(other.status, 200, 'another Lead Unit Manager grants it, and the trail shows who');
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'grant_role' AND actor_id = ? AND subject_id = ? AND entity_id = 'G8:snco'").get(op.id, nguyen.id));
   assert.equal((await app.call('DELETE', `/api/orgs/G8/roles/${nguyen.id}/owner`, { token: op.token })).status, 200);
 });
 

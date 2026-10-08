@@ -27,17 +27,18 @@ import { authorityBeyond, tellOtherInstances } from '../services/identity.ts';
 import { membershipHistory } from '../services/membership.ts';
 
 /**
- * The owner console's API (ADR-0006): one organization, for the people who hold its organization roles. Every route
- * names the organization and the organization permission it needs; nothing here reads a Marine's records.
+ * The Unit Manager console's API (ADR-0006, ADR-0010): one Unit Instance, for the people who hold a role in it (Lead Unit
+ * Managers, Unit Managers, Records Officers, Unit Auditors) and still belong to it. Every route names the Unit Instance
+ * and the granular Unit Instance permission it needs; nothing here reads a Marine's records.
  */
 export const orgsRouter = Router();
 orgsRouter.use(requireAuth);
 
-/** The caller holds one of these organization permissions in the organization the path names, and it is active. */
+/** The caller holds one of these Unit Instance permissions in the Unit Instance the path names, and it is active. */
 const inOrg = (...permissions: OrgPermission[]) => (req: Request, _res: Response, next: NextFunction) => {
   const orgId = String(req.params.orgId);
   const org = getOrg(req.ctx, orgId);
-  // An organization the caller holds no role in is not found, rather than forbidden: its existence is not theirs to learn.
+  // A Unit Instance the caller holds no role in is not found, rather than forbidden: its existence is not theirs to learn.
   const scope = scopeFor(req.ctx, req.user, req);
   if (!org || !scope.orgs[orgId]) return next(notFound('No such Unit Instance.'));
   if (!permissions.some((p) => orgCan(scope, p, orgId))) return next(forbidden('Your Unit Instance role does not cover that.', 'org_permission'));
@@ -51,7 +52,7 @@ const orgOf = (req: Request) => req.org!;
 /** The organizations the caller holds a role in, or belongs to. */
 orgsRouter.get('/', wrap((req, res) => res.json({ organizations: orgSummaries(req.ctx, scopeFor(req.ctx, req.user, req)) })));
 
-// Everything past the list is the console proper: re-authenticated, as the admin dashboard is.
+// Everything past the list is the console proper: re-authenticated, as the Vantage Administrator console is.
 orgsRouter.use('/:orgId', requireSudo);
 
 orgsRouter.get('/:orgId/overview', inOrg('org.view'), wrap((req, res) => {
@@ -76,13 +77,13 @@ orgsRouter.patch('/:orgId', inOrg('org.settings', 'org.owners'), wrap((req, res)
   }), req.body);
   const scope = scopeFor(req.ctx, req.user, req);
   const org = orgOf(req);
-  // Whether Vantage support must ask is the owners' decision; the name and short name are the administrators' too.
-  if (body.settings && !orgCan(scope, 'org.owners', org.id)) throw forbidden('Only an owner sets the Vantage access policy.', 'org_permission');
+  // Whether Vantage support must ask is the Lead Unit Managers' decision; the name and short name are Unit Managers' too.
+  if (body.settings && !orgCan(scope, 'org.owners', org.id)) throw forbidden('Only a Lead Unit Manager sets the Vantage access policy.', 'org_permission');
   if ((body.name !== undefined || body.short_name !== undefined) && !orgCan(scope, 'org.settings', org.id)) throw forbidden('Your Unit Instance role does not cover renaming it.', 'org_permission');
   res.json(updateOrganization(req.ctx, req.user, org.id, { name: body.name, short_name: body.short_name, settings: body.settings as { vantageAccess: 'approval' | 'notify' } | undefined }, ip(req)));
 }));
 
-// ——— Organization roles ———
+// ——— Unit Instance roles: Lead Unit Managers assign them, never their own (ADR-0010) ———
 
 orgsRouter.get('/:orgId/roles', inOrg('org.view'), wrap((req, res) => {
   res.json({ holders: orgRoleHolders(req.ctx, orgOf(req).id), catalog: { roles: ORG_ROLES, permissions: ORG_PERMISSION_LIST } });
@@ -133,7 +134,7 @@ orgsRouter.get('/:orgId/members/:userId/history', inOrg('org.members', 'org.audi
 orgsRouter.post('/:orgId/members/:userId/unlock', inOrg('org.members'), wrap((req, res) => {
   const userId = memberOf(req);
   // An unlock lets guessing start again. On an account that also serves in another Unit Instance, or runs the service,
-  // that is not this organization's to allow: the lock lapses on its own, a reset link lifts it, or Vantage support does.
+  // that is not this Unit Instance's to allow: the lock lapses on its own, a reset link lifts it, or Vantage support does.
   if (userId !== req.user.id && authorityBeyond(req.ctx, userId, orgOf(req).id)) throw forbidden('This account also holds authority outside this Unit Instance. Its lock lifts by itself, with a password reset link, or through Vantage support.', 'cross_instance');
   res.json({ ok: true, unlocked: unlockAccount(req.ctx, userId, req.user.id, ip(req)) });
 }));
@@ -146,7 +147,7 @@ orgsRouter.post('/:orgId/members/:userId/logout', inOrg('org.members'), wrap((re
   const revoked = invalidateUserSessions(req.ctx, userId);
   audit(req.ctx, { actor_id: req.user.id, action: 'force_logout', entity: 'user', entity_id: userId, subject_id: userId, org_id: org.id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
   tellOtherInstances(req.ctx, userId, org.id, `ended this account's sessions (${revoked})`, ip(req));
-  if (userId !== req.user.id) notify(req.ctx, userId, { kind: 'security', title: `${org.name} signed you out everywhere`, message: 'Sign in again to carry on. If you did not expect this, ask your administrator why.', actionUrl: '/settings' });
+  if (userId !== req.user.id) notify(req.ctx, userId, { kind: 'security', title: `${org.name} signed you out everywhere`, message: 'Sign in again to carry on. If you did not expect this, ask your Unit Manager why.', actionUrl: '/settings' });
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
 
@@ -226,11 +227,11 @@ orgsRouter.post('/:orgId/personnel/link', inOrg('org.personnel'), wrap((req, res
   if (!isOrgMember(ctx, org.id, user_id)) throw badRequest('Link only members of this Unit Instance.');
   // The EDIPI is how an account signs in with a CAC. Somebody else's account that also serves in another Unit Instance,
   // or that runs the service, carries authority beyond this one: re-keying its sign-in is not this organization's to do,
-  // or one organization's administrator could sign in as a leader of another (ADR-0008).
+  // or one Unit Instance's Unit Manager could sign in as a leader of another (ADR-0008).
   if (user_id !== req.user.id && authorityBeyond(ctx, user_id, org.id)) throw forbidden('This account also holds authority outside this Unit Instance, so its EDIPI cannot be changed from here.', 'cross_instance');
   const current = ctx.db.prepare('SELECT edipi, edipi_verified_at FROM users WHERE id = ?').get(user_id) as { edipi: string | null; edipi_verified_at: string | null } | undefined;
   const before = current?.edipi ?? null;
-  // Once the person's own card has proven an EDIPI, it is their sign-in key: no administrator moves it, not even their
+  // Once the person's own card has proven an EDIPI, it is their sign-in key: no Unit Manager moves it, not even their
   // own, or one could free their card's EDIPI and link it to somebody else's account to sign in as them (ADR-0009).
   // Vantage support corrects a proven EDIPI, on the record.
   if (before && current?.edipi_verified_at && edipi !== before) throw forbidden('This EDIPI was proven by the person’s own card. Only Vantage support changes it.', 'edipi_verified');
@@ -245,7 +246,7 @@ orgsRouter.post('/:orgId/personnel/link', inOrg('org.personnel'), wrap((req, res
   const revoked = edipi !== before && user_id !== req.user.id ? invalidateUserSessions(ctx, user_id) : 0;
   audit(ctx, { actor_id: req.user.id, action: edipi ? 'personnel_link' : 'personnel_unlink', entity: 'users', entity_id: user_id, subject_id: user_id, org_id: org.id, detail: `${edipi ? `EDIPI ${edipi}` : 'EDIPI cleared'}; sessions revoked: ${revoked}`, ip: ip(req) });
   if (edipi !== before && user_id !== req.user.id) {
-    notify(ctx, user_id, { kind: 'security', title: edipi ? 'A CAC was linked to your account' : 'The CAC link on your account was removed', message: `${org.name} ${edipi ? `linked the card with DoD ID ending ${edipi.slice(-4)}` : 'removed the card link'}. If that is not your card, contact your administrator or Vantage support.`, actionUrl: '/settings' });
+    notify(ctx, user_id, { kind: 'security', title: edipi ? 'A CAC was linked to your account' : 'The CAC link on your account was removed', message: `${org.name} ${edipi ? `linked the card with DoD ID ending ${edipi.slice(-4)}` : 'removed the card link'}. If that is not your card, contact your Unit Manager or Vantage support.`, actionUrl: '/settings' });
   }
   res.json({ ok: true });
 }));

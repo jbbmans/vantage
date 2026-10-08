@@ -341,7 +341,9 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
         roles: (db.prepare('SELECT role_id, expires_at FROM member_roles WHERE user_id = ? AND unit_id = ?').all(userId, m.unit_id) as Array<{ role_id: string; expires_at: string | null }>),
         frozen_at: at,
       }));
-      for (const m of held) removeMember(ctx, userId, m.unit_id, actorId, 'roster_separation');
+      // A Unit Instance role the person holds stays, dormant while they are off the roster (it confers nothing), so the
+      // restore below gives it back with their units if the separation was the extract's mistake (ADR-0010).
+      for (const m of held) removeMember(ctx, userId, m.unit_id, actorId, 'roster_separation', { endInstanceRoles: false });
       db.prepare('UPDATE personnel_roster SET removed_units = ? WHERE org_id = ? AND edipi = ?').run(JSON.stringify(removed), plan.orgId, edipi);
       return held.length;
     };

@@ -1,5 +1,5 @@
 /**
- * The shapes the admin dashboard and the owner console read (ADR-0006): organizations, their roles, Vantage access
+ * The shapes the Vantage Administrator console and the Unit Manager console read (ADR-0006): organizations, their roles, Vantage access
  * requests, accounts as Vantage support sees them, and "why can they?" explanations.
  */
 import type { Tone } from '@/components/ui/primitives';

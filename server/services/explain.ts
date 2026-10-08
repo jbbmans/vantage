@@ -35,7 +35,7 @@ export function explainAccess(ctx: AppContext, targetId: string, unitIds?: strin
       case 'role': return `${s.role?.name ?? 'A role'}, granted in ${unit}`;
       case 'inherited': return `Authority held in ${from}, which reaches the units beneath it`;
       case 'owner': return `Leads ${unit}`;
-      case 'org': return `Unit Instance ${ORG_ROLES[s.orgRole ?? 'admin'].label.toLowerCase()}: the unit's structure, never its records`;
+      case 'org': return `${ORG_ROLES[s.orgRole ?? 'admin'].label}: the unit's structure, never its records`;
       case 'vantage': return 'Vantage support access, approved by the Unit Instance: read-only';
     }
   };

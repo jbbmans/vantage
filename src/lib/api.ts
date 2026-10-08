@@ -240,7 +240,7 @@ export const maradmins = (wait = false) => api.get(`/maradmins${wait ? '?wait=1'
 export const maradminState = (id: string, payload: unknown) => api.put(`/maradmins/${encodeURIComponent(id)}/state`, payload);
 export const search = (q: string) => api.get(`/search?q=${encodeURIComponent(q)}`);
 
-// ——— Vantage admin dashboard (/api/platform): the service, for Vantage staff ———
+// ——— Vantage Administrator console (/api/platform): the service, for Vantage staff ———
 const enc = encodeURIComponent;
 export const platformMe = () => api.get('/platform/me');
 export const platformOverview = () => api.get('/platform/overview');
@@ -281,7 +281,7 @@ export const platformPlaceHold = (body: unknown) => api.post('/platform/holds', 
 export const platformReleaseHold = (id: string) => api.del(`/platform/holds/${enc(id)}`);
 export const platformImport = (archive: unknown) => api.post('/platform/import', archive);
 
-// ——— Owner console (/api/orgs/:orgId): one organization, for its owners and administrators ———
+// ——— Unit Manager console (/api/orgs/:orgId): one Unit Instance, for the people who hold its roles ———
 const orgPath = (orgId: string, path = '') => `/orgs/${enc(orgId)}${path}`;
 export const myOrgs = () => api.get('/orgs');
 export const orgOverview = (orgId: string) => api.get(orgPath(orgId, '/overview'));

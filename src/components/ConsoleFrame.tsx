@@ -18,8 +18,8 @@ import { cn } from '@/lib/utils';
 const Login = lazy(() => import('@/pages/Login'));
 
 /**
- * The frame both consoles share: the owner console (an organization's owners and administrators) and the Vantage
- * admin dashboard (Vantage staff). Each is its own document with its own sign-in, and each admits only its audience.
+ * The frame both consoles share: the Unit Manager console (the people who hold a Unit Instance's roles) and the Vantage
+ * Vantage Administrator console (Vantage staff). Each is its own document with its own sign-in, and each admits only its audience.
  */
 export interface ConsoleSection { path: string; label: string; icon: LucideIcon; title: string; lede: string; render: () => React.ReactElement; hidden?: boolean }
 
@@ -92,7 +92,7 @@ function Gate({ documentTitle, loaderLabel, variant, admits, denied, children }:
 
 /**
  * The console's chrome: a rail of sections, a header, and the page. `prefix` puts every section under a path of its
- * own (the owner console's organization); `context` sits under the logo (the organization switcher).
+ * own (the Unit Manager console's organization); `context` sits under the logo (the organization switcher).
  */
 export function ConsoleLayout({ identity, badge, railLabel, headerLabel, eyebrow, sections, prefix = '', context, banner }: {
   identity: Identity;

@@ -5,7 +5,7 @@ import {
 import type { AppContext } from '../context.ts';
 import { now } from '../lib/ids.ts';
 
-/** A passkey is used on the application and on the owner console, wherever each one lives. */
+/** A passkey is used on the application and on the Unit Manager console, wherever each one lives. */
 const passkeyOrigins = (ctx: AppContext) => [...new Set([ctx.config.urls.app, ctx.config.urls.console])];
 
 const challenges = new Map<string, { challenge: string; userId: string | null; expires: number }>();

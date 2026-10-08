@@ -33,7 +33,7 @@ const VIDEO_SLOTS: VideoSlot[] = [
   { id: 'analysis', title: 'Reading the analysis', description: 'What your record actually says before you use it: units kept separate, how often you log, and which entries are missing details.', length: '40 sec', topic: 'reports' },
   { id: 'unit-dashboard', title: 'Leading a section', description: 'Today as a section lead: what is unassigned, overdue, blocked or waiting, open work by procedure, and who is holding what.', length: '35 sec', topic: 'team' },
   { id: 'counseling', title: 'Counseling', description: 'Record a counseling from a Marine’s page. They acknowledge it under Career, which means they read it, not that they agree.', length: '40 sec', topic: 'team' },
-  { id: 'setup', title: 'Setting up Vantage', description: 'First launch, the Owner console, the settings to decide first, the chain of command, and bringing people in.', length: '55 sec', topic: 'admin' },
+  { id: 'setup', title: 'Setting up Vantage', description: 'First launch, the Unit Manager console, the settings to decide first, the chain of command, and bringing people in.', length: '55 sec', topic: 'admin' },
   { id: 'governance', title: 'Retention and privacy', description: 'Turn on a retention schedule, preview it, place a legal hold, and export the privacy inventory for your privacy impact assessment.', length: '45 sec', topic: 'admin' },
 ];
 

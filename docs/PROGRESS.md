@@ -2,6 +2,32 @@
 
 _Updated 2026-10-08_
 
+## What changed (2026-10-08: Vantage Administrator and Unit Manager)
+
+The roles are explicit and nobody elevates themselves ([ADR-0010](engineering/ADR/0010-vantage-administrator-and-unit-manager.md)).
+
+- **Names.** Platform roles read Lead Vantage Administrator, Vantage Administrator, Vantage Support and
+  Vantage Auditor. Unit Instance roles read Lead Unit Manager, Unit Manager, Records Officer and Unit
+  Auditor. The unit permission `ADMINISTRATOR` reads "Full unit authority". The consoles are the Unit
+  Manager console and the Vantage Administrator console. Stored keys, permission keys and paths are
+  unchanged. `UNIT_MANAGER_ROLES`, `VANTAGE_ADMINISTRATOR_ROLES` and `ORG_STRUCTURE_GRANTS` in
+  `shared/permissions.ts` name them for code.
+- **Permissions decide.** What a Unit Instance permission confers in units is mapped one to one
+  (`org.members`, `org.units`, `org.roles`), and removing a role holder asks for `org.owners`.
+- **Scoped to membership.** A Unit Instance role confers nothing while its holder belongs to no unit of the
+  instance (`seatedOrgRole`), and ends when they leave their last unit (audited `org_role_ended`); a
+  roster separation leaves it dormant. Counts, notices and console sign-in count only members.
+- **No self-elevation.** Lead Unit Managers can no longer give themselves a role that reads records
+  (ADR-0006 allowed it with a notice). A Vantage Administrator cannot name themselves a Lead Unit
+  Manager, and `platform.orgs` no longer skips the self-service switch on founding a Unit Instance in the
+  app. Removing a role holder from their last unit, or archiving the last unit you belong to, needs a
+  Lead Unit Manager and never strands the instance without one.
+- **Fixed on the way.** Granting a unit role ran the self-grant check after writing the grant, so a
+  refused grant could stay in place; the check now runs first.
+- **`tests/server/roleModel.test.ts`**: the role matrix for both catalogues, every self-elevation door,
+  membership scoping and the last Lead Unit Manager. Open question I-27 asks whether Vantage
+  Administrators should also assign Unit Managers in running instances.
+
 ## What changed (2026-10-08: one identity, unit membership history, CAC step-up)
 
 Identity is separated from unit membership ([ADR-0009](engineering/ADR/0009-identity-and-unit-membership.md)).

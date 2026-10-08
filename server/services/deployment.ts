@@ -8,7 +8,7 @@ import { conflict, forbidden } from '../lib/errors.ts';
  * how many Unit Instances its database may hold, and every connection it can open to anything outside itself.
  */
 
-/** Runtime settings the profile fixes off, with the reason the admin dashboard gives when somebody tries to turn one on. */
+/** Runtime settings the profile fixes off, with the reason the Vantage Administrator console gives when somebody tries to turn one on. */
 export function lockedRuntime(config: AppConfig): Partial<Record<keyof RuntimeSettings, string>> {
   if (config.deployment.profile !== 'mcen') return {};
   return {
@@ -33,7 +33,7 @@ const DEDICATED_TRIGGER = 'dedicated_one_unit_instance';
 
 /**
  * A dedicated deployment's database holds one Unit Instance. The rule lives in the database connection itself, as a
- * temporary trigger, so every path that could found a second one (a top-level unit, the admin dashboard, an archive
+ * temporary trigger, so every path that could found a second one (a top-level unit, the Vantage Administrator console, an archive
  * import, a script) is refused the same way. It is not stored in the file: the configuration decides it on each start.
  */
 export function installTopologyGuard(db: Db, deployment: DeploymentConfig) {
@@ -98,7 +98,7 @@ export function outboundConnections(ctx: AppContext): OutboundConnection[] {
   ];
 }
 
-/** The ways in this deployment accepts (ADR-0009): what the admin dashboard shows beside what it reaches. */
+/** The ways in this deployment accepts (ADR-0009): what the Vantage Administrator console shows beside what it reaches. */
 export function signInMethods(config: AppConfig) {
   const { cac, oidc } = config;
   return {
@@ -111,7 +111,7 @@ export function signInMethods(config: AppConfig) {
   };
 }
 
-/** What the admin dashboard shows about the deployment: its profile, its topology, and what it reaches. */
+/** What the Vantage Administrator console shows about the deployment: its profile, its topology, and what it reaches. */
 export function deploymentPosture(ctx: AppContext) {
   const { deployment, security, email, production, cac, oidc } = ctx.config;
   const notes: string[] = [];

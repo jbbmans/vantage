@@ -1,5 +1,5 @@
 import type { AppContext } from '../context.ts';
-import { PERMISSIONS, ALL_PERMISSIONS, ORG_STRUCTURE_BITS, VANTAGE_ACCESS_BITS, ORG_ROLE_KEYS, has, orgPermissionsOf, type OrgPermission, type OrgRole } from '../../shared/permissions.ts';
+import { PERMISSIONS, ALL_PERMISSIONS, VANTAGE_ACCESS_BITS, ORG_ROLE_KEYS, has, orgPermissionsOf, orgStructureBits, type OrgPermission, type OrgRole } from '../../shared/permissions.ts';
 import { now } from '../lib/ids.ts';
 import { forbidden } from '../lib/errors.ts';
 
@@ -104,7 +104,7 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
   const owned = (db.prepare(`SELECT u.id FROM units u WHERE u.owner_user_id = ? AND ${liveUnit}`).all(user.id) as Array<{ id: string }>).map((r) => r.id);
   const orgRows = db.prepare(
     `SELECT r.org_id, r.role, r.expires_at FROM org_roles r JOIN organizations o ON o.id = r.org_id
-      WHERE r.user_id = ? AND o.status = 'active' AND (r.expires_at IS NULL OR r.expires_at > ?)`
+      WHERE r.user_id = ? AND o.status = 'active' AND (r.expires_at IS NULL OR r.expires_at > ?) AND ${seatedOrgRole('r')}`
   ).all(user.id, at) as Array<{ org_id: string; role: string; expires_at: string | null }>;
   const access = db.prepare(
     `SELECT g.id, g.org_id, g.expires_at, g.reason FROM access_grants g JOIN organizations o ON o.id = g.org_id
@@ -142,7 +142,8 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
     }
   }
 
-  // Organization owners and administrators run the structure of every unit in it: members, roles and units, never records.
+  // Unit Managers run the structure of every unit in their Unit Instance: members, roles and units, never records. What
+  // each Unit Instance permission confers is mapped one to one (ORG_STRUCTURE_GRANTS), whatever the role is called.
   const orgs: Record<string, OrgAuthority> = {};
   for (const r of orgRows) {
     if (!ORG_ROLE_KEYS.includes(r.role as OrgRole)) continue;
@@ -153,13 +154,14 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
   const orgUnits = (orgId: string) => (db.prepare('SELECT id FROM units WHERE org_id = ? AND active = 1').all(orgId) as Array<{ id: string }>).map((r) => r.id);
   for (const o of Object.values(orgs)) {
     o.permissions = orgPermissionsOf(o.roles);
-    const structural = o.roles.includes('owner') || o.roles.includes('admin');
-    if (!structural) continue;
-    const role = o.roles.includes('owner') ? 'owner' : 'admin';
+    const bits = orgStructureBits(o.permissions);
+    if (!bits) continue;
+    // Named for the "why can they?" answer: the most senior role held.
+    const role = ORG_ROLE_KEYS.find((r) => o.roles.includes(r))!;
     for (const unitId of orgUnits(o.orgId)) {
-      permissions[unitId] = (permissions[unitId] || 0) | ORG_STRUCTURE_BITS;
+      permissions[unitId] = (permissions[unitId] || 0) | bits;
       positions[unitId] = Math.max(positions[unitId] || 0, 100);
-      source(unitId, { kind: 'org', unitId, bits: ORG_STRUCTURE_BITS, orgRole: role, expiresAt: o.expiresAt });
+      source(unitId, { kind: 'org', unitId, bits, orgRole: role, expiresAt: o.expiresAt });
     }
   }
 
@@ -215,7 +217,15 @@ export const positionIn = (scope: Scope, unitId: string | null | undefined) => (
 export const isMember = (scope: Scope, unitId: string | null | undefined) => Boolean(unitId) && scope.unitIds.includes(unitId!);
 export const unitsWith = (scope: Scope, flag: number) => Object.entries(scope.permissions).filter(([, bits]) => has(bits, flag)).map(([id]) => id);
 
-/** Does the person hold an organization permission there? Organization roles only; platform staff hold none. */
+/**
+ * A Unit Instance role confers authority only while its holder belongs to a unit of that Unit Instance (ADR-0010): it is
+ * scoped to the instance it was assigned in, and whatever path takes the person out of the instance takes the authority
+ * with it. An SQL condition on an org_roles row aliased `alias`.
+ */
+export const seatedOrgRole = (alias: string) =>
+  `EXISTS (SELECT 1 FROM unit_members sm JOIN units su ON su.id = sm.unit_id WHERE sm.user_id = ${alias}.user_id AND su.org_id = ${alias}.org_id)`;
+
+/** Does the person hold a Unit Instance permission there? Unit Instance roles only; platform staff hold none. */
 export const orgCan = (scope: Scope, permission: OrgPermission, orgId: string | null | undefined) => Boolean(orgId) && Boolean(scope.orgs[orgId!]?.permissions.includes(permission));
 
 /** The organization a unit belongs to. */

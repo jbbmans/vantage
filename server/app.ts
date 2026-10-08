@@ -129,7 +129,7 @@ const SIGN_IN_API = /^\/me(?:\/|$)|^\/auth\/(?:setup|login|login\/mfa|passkey\/o
 
 /**
  * Each host answers only the calls its own pages make (ADR-0006). The platform's administration answers only where the
- * admin dashboard is served, and an organization's only where the owner console is: a session on the application
+ * Vantage Administrator console is served, and an organization's only where the Unit Manager console is: a session on the application
  * never reaches either unless they share its host.
  */
 export function apiAllowed(faces: ReadonlySet<Face>, path: string): boolean {
@@ -137,9 +137,9 @@ export function apiAllowed(faces: ReadonlySet<Face>, path: string): boolean {
   if (/^\/orgs(?:\/|$)/.test(path)) return faces.has('console');
   if (faces.has('app')) return true;
   if (SIGN_IN_API.test(path)) return faces.has('console') || faces.has('admin');
-  // The owner console manages units and roles through the same calls the application's Team pages make.
+  // The Unit Manager console manages units and roles through the same calls the application's Team pages make.
   if (/^\/org(?:\/|$)/.test(path)) return faces.has('console');
-  // Vantage support works its queue from the admin dashboard.
+  // Vantage support works its queue from the Vantage Administrator console.
   if (/^\/support(?:\/|$)/.test(path)) return faces.has('admin');
   return false;
 }
@@ -184,8 +184,8 @@ function consoleTarget(hosts: HostPlan, path: string, query: string): string {
 }
 
 /**
- * /operator?tab=… was the single owner console of a self-hosted instance. Its tabs now live in two places: what runs
- * the service in the admin dashboard, what runs an organization in the owner console. Old links land on the right one.
+ * /operator?tab=… was the single Unit Manager console of a self-hosted instance. Its tabs now live in two places: what runs
+ * the service in the Vantage Administrator console, what runs an organization in the Unit Manager console. Old links land on the right one.
  */
 const ADMIN_TABS: Record<string, string> = { overview: '', settings: 'settings', ai: 'ai', metrics: 'metrics', users: 'accounts', units: 'orgs', email: 'email', usage: 'usage', audit: 'audit', data: 'data' };
 const CONSOLE_TABS: Record<string, string> = { personnel: 'personnel', retention: 'retention', privacy: 'privacy' };
@@ -196,7 +196,7 @@ function operatorTarget(hosts: HostPlan, query: string): string {
   return consoleTarget(hosts, '/console', '');
 }
 
-/** The admin dashboard's address for an /admin path, on whichever host it lives. */
+/** The Vantage Administrator console's address for an /admin path, on whichever host it lives. */
 function adminTarget(hosts: HostPlan, path: string, query: string): string {
   const rest = path.startsWith('/admin') ? path.slice('/admin'.length) : '';
   return hosts.url('admin', `${hosts.adminBase}${rest || '/'}${query}`);
@@ -398,7 +398,7 @@ export function createApp(ctx: AppContext) {
       const query = req.originalUrl.slice(req.path.length);
       const page = (html: string) => res.type('html').send(html);
 
-      // The admin dashboard, for Vantage staff: the whole of a host of its own, or /admin on a shared one.
+      // The Vantage Administrator console, for Vantage staff: the whole of a host of its own, or /admin on a shared one.
       const adminPath = ADMIN_PATH.test(path);
       if (faces.has('admin') && (hosts.adminBase === '' || adminPath) && config.accessMode === 'accounts') {
         if (hosts.adminBase === '' && adminPath) return res.redirect(301, adminTarget(hosts, path, query));
@@ -407,7 +407,7 @@ export function createApp(ctx: AppContext) {
       }
       if (adminPath && config.accessMode === 'accounts') return res.redirect(301, adminTarget(hosts, path, query));
 
-      // The owner console: the whole of a host of its own, or /console on a shared one.
+      // The Unit Manager console: the whole of a host of its own, or /console on a shared one.
       const consolePath = CONSOLE_PATH.test(path);
       if (faces.has('console') && (hosts.consoleBase === '' || consolePath) && config.accessMode === 'accounts') {
         if (path === '/operator') return res.redirect(301, operatorTarget(hosts, query));

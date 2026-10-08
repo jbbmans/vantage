@@ -7,14 +7,14 @@ import { getOrg, orgSettings } from './organizations.ts';
 
 /**
  * Vantage access (ADR-0006): the only way Vantage staff see inside an organization. A staff member asks, with a reason
- * and a length of time; the organization's owners approve (or, if the organization chose to be told rather than asked,
- * it begins at once). It is read-only, it ends on its own, and an owner can end it sooner. Every step is in both the
+ * and a length of time; the Unit Instance's Lead Unit Managers approve (or, if the organization chose to be told rather than asked,
+ * it begins at once). It is read-only, it ends on its own, and a Lead Unit Manager can end it sooner. Every step is in both the
  * organization's audit trail and the platform's.
  */
 
 export const ACCESS_DEFAULT_MINUTES = 240;
 export const ACCESS_MAX_MINUTES = 1440;
-/** A request no owner answers lapses after a day, so an old ask cannot be approved into a surprise. */
+/** A request no Lead Unit Manager answers lapses after a day, so an old ask cannot be approved into a surprise. */
 const PENDING_TTL_MS = 24 * 3600_000;
 
 export interface AccessGrant {
@@ -47,7 +47,7 @@ export function requestAccess(ctx: AppContext, staff: SessionUser, orgId: string
   if (!org) throw notFound('No such Unit Instance.');
   if (org.status !== 'active') throw badRequest('That Unit Instance is not active.');
   const reason = input.reason.trim();
-  if (reason.length < 10) throw badRequest('Say what you need to look at and why: the Unit Instance’s owners read it.', { fieldErrors: { reason: 'At least 10 characters.' } });
+  if (reason.length < 10) throw badRequest('Say what you need to look at and why: the Unit Instance’s Lead Unit Managers read it.', { fieldErrors: { reason: 'At least 10 characters.' } });
   const minutes = Math.round(input.minutes ?? ACCESS_DEFAULT_MINUTES);
   if (minutes < 15 || minutes > ACCESS_MAX_MINUTES) throw badRequest('Access lasts from 15 minutes to 24 hours.', { fieldErrors: { minutes: '15 to 1440.' } });
   const open = ctx.db.prepare("SELECT id FROM access_grants WHERE org_id = ? AND staff_user_id = ? AND status IN ('pending', 'active') AND (expires_at IS NULL OR expires_at > ?)").get(orgId, staff.id, now()) as { id: string } | undefined;
@@ -63,14 +63,14 @@ export function requestAccess(ctx: AppContext, staff: SessionUser, orgId: string
   notifyOrg(ctx, orgId, 'org.access', {
     kind: 'system',
     title: immediate ? `Vantage support is looking at ${org.name}` : `Vantage support asks to look at ${org.name}`,
-    message: `${staff.first_name} ${staff.last_name}, for ${hours}: “${reason.slice(0, 200)}”${immediate ? ' Your Unit Instance is set to be told rather than asked; you can end it now.' : ' Approve or deny it in the owner console.'}`,
+    message: `${staff.first_name} ${staff.last_name}, for ${hours}: “${reason.slice(0, 200)}”${immediate ? ' Your Unit Instance is set to be told rather than asked; you can end it now.' : ' Approve or deny it in the Unit Manager console.'}`,
     actionUrl: '/console/access',
     dedupeKey: `access:${id}`,
   });
   return g;
 }
 
-/** An owner's answer. Access runs for the minutes asked from the moment it is approved. */
+/** A Lead Unit Manager's answer. Access runs for the minutes asked from the moment it is approved. */
 export function decideAccess(ctx: AppContext, actor: SessionUser, orgId: string, id: string, approve: boolean, note: string | null, ip?: string): AccessGrant {
   const g = load(ctx, id);
   if (g.org_id !== orgId) throw notFound('No such access request.');
@@ -93,7 +93,7 @@ export function decideAccess(ctx: AppContext, actor: SessionUser, orgId: string,
   return load(ctx, id);
 }
 
-/** End access early: an owner revoking it, or the staff member finishing (or withdrawing the request). */
+/** End access early: a Lead Unit Manager revoking it, or the staff member finishing (or withdrawing the request). */
 export function endAccess(ctx: AppContext, actor: SessionUser, id: string, by: 'org' | 'staff', orgId?: string, ip?: string): AccessGrant {
   const g = load(ctx, id);
   if (by === 'org' && g.org_id !== orgId) throw notFound('No such access request.');
@@ -102,7 +102,7 @@ export function endAccess(ctx: AppContext, actor: SessionUser, id: string, by: '
   const status = by === 'org' ? 'revoked' : g.status === 'pending' ? 'withdrawn' : 'ended';
   ctx.db.prepare('UPDATE access_grants SET status = ?, ended_at = ?, ended_by = ? WHERE id = ?').run(status, now(), actor.id, id);
   record(ctx, actor.id, g, `vantage_access_${status}`, null, ip);
-  if (by === 'org') notify(ctx, g.staff_user_id, { kind: 'system', title: `Access to ${g.org_name} was ended by its owners`, actionUrl: '/admin/access' });
+  if (by === 'org') notify(ctx, g.staff_user_id, { kind: 'system', title: `Access to ${g.org_name} was ended by its Lead Unit Managers`, actionUrl: '/admin/access' });
   else notifyOrg(ctx, g.org_id, 'org.access', { kind: 'system', title: `Vantage support ${status === 'withdrawn' ? 'withdrew its request' : 'finished looking'}`, message: `${g.staff_name}.`, actionUrl: '/console/access' });
   return load(ctx, id);
 }
