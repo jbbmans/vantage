@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, Copy, KeyRound, LogOut, Plus, Search, Send, ShieldAlert, ShieldCheck, Unlock, UserMinus, UserPlus } from 'lucide-react';
+import { Building2, Copy, KeyRound, LogOut, Plus, Search, Send, ShieldAlert, ShieldCheck, Unlock, UserMinus, UserPlus, Users } from 'lucide-react';
 import { Badge, Button, EmptyState, Field, Input, Panel, Select, Skeleton, Textarea } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -11,8 +11,9 @@ import * as api from '@/lib/api';
 import { copyToClipboard, formatStamp, humanize, timeAgo } from '@/lib/utils';
 import {
   ACCESS_LABEL, ACCESS_TONE, ORG_STATUS_TONE, personName, remaining,
-  type AccessGrant, type OrgListing, type OrgStatus, type PlatformAccount, type PlatformRoleKey, type RoleCatalogEntry,
+  type AccessGrant, type OrgListing, type OrgRoleHolder, type OrgStatus, type PlatformAccount, type PlatformRoleKey, type RoleCatalogEntry,
 } from '@/lib/tenancy';
+import { ORG_ROLES, type UnitManagerRole } from '../../shared/permissions';
 import { useAdmin } from './sections';
 
 /** What the signed-in staff member may do here, from their platform roles. */
@@ -80,6 +81,7 @@ export function Organizations() {
   const [owner, setOwner] = useState<PlatformAccount | null>(null);
   const [status, setStatus] = useState<{ org: OrgListing; to: OrgStatus; reason: string } | null>(null);
   const [naming, setNaming] = useState<OrgListing | null>(null);
+  const [managing, setManaging] = useState<OrgListing | null>(null);
   const [asking, setAsking] = useState<OrgListing | null>(null);
   const [q, setQ] = useState('');
   if (isPending) return <Skeleton className="h-64" />;
@@ -116,6 +118,7 @@ export function Organizations() {
                 <td className="text-right"><span className="flex flex-wrap justify-end gap-1">
                   {can('platform.access') && o.status === 'active' && <Button size="xs" variant="ghost" onClick={() => setAsking(o)}><KeyRound className="h-3 w-3" />Ask for access</Button>}
                   {can('platform.orgs') && !o.owners.length && <Button size="xs" variant="ghost" onClick={() => setNaming(o)}><UserPlus className="h-3 w-3" />Name Lead Unit Manager</Button>}
+                  {can('platform.managers') && <Button size="xs" variant="ghost" onClick={() => setManaging(o)}><Users className="h-3 w-3" />Unit Managers</Button>}
                   {can('platform.orgs') && (o.status === 'active'
                     ? <Button size="xs" variant="ghost" onClick={() => setStatus({ org: o, to: 'suspended', reason: '' })}>Suspend</Button>
                     : <Button size="xs" variant="ghost" onClick={() => setStatus({ org: o, to: 'active', reason: '' })}>Restore</Button>)}
@@ -147,6 +150,7 @@ export function Organizations() {
       </Dialog>
 
       <NameOwner org={naming} onClose={() => setNaming(null)} onDone={() => refetch()} />
+      <Managers org={managing} onClose={() => setManaging(null)} onDone={() => refetch()} />
       <AskAccess org={asking} onClose={() => setAsking(null)} />
     </>
   );
@@ -160,6 +164,48 @@ function NameOwner({ org, onClose, onDone }: { org: OrgListing | null; onClose: 
       description="Only for a Unit Instance with no Lead Unit Manager left, and never yourself. One that has Lead Unit Managers names its own. Someone who is not yet a member joins its top unit."
       footer={<><Button variant="ghost" onClick={onClose}>Cancel</Button><Button variant="primary" disabled={!who} onClick={async () => { if (!org || !who) return; const r = await act(`${personName(who)} is Lead Unit Manager of ${org.name}.`, () => api.platformNameOwner(org.id, who.id), onDone); if (r) { setWho(null); onClose(); } }}>Name Lead Unit Manager</Button></>}>
       <AccountPicker value={who} onChange={setWho} label="Lead Unit Manager" />
+    </Dialog>
+  );
+}
+
+/**
+ * Unit Manager assignment (John, 2026-10-08; ADR-0010 §5): a Vantage Administrator adds and removes Lead Unit Managers and
+ * Unit Managers in any Unit Instance, never themselves, members of it only, and its Lead Unit Managers are told each time.
+ */
+function Managers({ org, onClose, onDone }: { org: OrgListing | null; onClose: () => void; onDone: () => void }) {
+  const act = useAct();
+  const { data: identity } = useIdentity();
+  const [who, setWho] = useState<PlatformAccount | null>(null);
+  const [role, setRole] = useState<UnitManagerRole>('admin');
+  const holders = useQuery<{ roles: OrgRoleHolder[] }>({ queryKey: ['admin', 'org-managers', org?.id], queryFn: () => withSudo(() => api.platformOrg(org!.id)), enabled: Boolean(org), retry: false });
+  const managers = (holders.data?.roles ?? []).filter((h) => h.role === 'owner' || h.role === 'admin');
+  const close = () => { setWho(null); setRole('admin'); onClose(); };
+  const changed = () => { holders.refetch(); onDone(); };
+  const self = who?.id === identity?.user.id;
+  return (
+    <Dialog open={Boolean(org)} onOpenChange={(o) => { if (!o) close(); }} title={`Unit Managers of ${org?.name}`} size="md"
+      description="Add or remove a Lead Unit Manager or Unit Manager, never yourself. Only members of the Unit Instance can hold one. Its Lead Unit Managers are told each time, and it is in both audit trails."
+      footer={<Button variant="ghost" onClick={close}>Done</Button>}>
+      <div className="space-y-4">
+        {holders.isPending ? <Skeleton className="h-20" /> : !managers.length ? <p className="text-sm text-ink-3">No Lead Unit Manager or Unit Manager.</p> : (
+          <ul className="divide-y divide-line rounded-md border border-line">
+            {managers.map((h) => (
+              <li key={`${h.user_id}:${h.role}`} className="flex items-center justify-between gap-2 px-3 py-2 text-sm">
+                <span><span className="font-medium text-ink">{personName(h)}</span> <span className="text-ink-3">{ORG_ROLES[h.role].label}</span>{!h.member && <Badge tone="warn" className="ml-1" title="Not a member of the Unit Instance, so the role confers nothing">not a member</Badge>}</span>
+                {h.user_id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => act(`${personName(h)} is no longer ${ORG_ROLES[h.role].label}.`, () => api.platformRemoveManager(org!.id, h.user_id, h.role as UnitManagerRole), changed)}><UserMinus className="h-3 w-3" />Remove</Button>}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="space-y-2">
+          <AccountPicker value={who} onChange={setWho} label="Add someone" />
+          <div className="flex items-end gap-2">
+            <Field label="Role" className="flex-1"><Select value={role} onValueChange={(v) => setRole(v as UnitManagerRole)} options={[{ value: 'admin', label: ORG_ROLES.admin.label }, { value: 'owner', label: ORG_ROLES.owner.label }]} /></Field>
+            <Button variant="primary" disabled={!who || self} onClick={async () => { if (!org || !who) return; const r = await act(`${personName(who)} is ${ORG_ROLES[role].label} of ${org.name}.`, () => api.platformAssignManager(org.id, who.id, role), changed); if (r) setWho(null); }}><UserPlus className="h-4 w-4" />Assign</Button>
+          </div>
+          {self && <p className="text-xs text-warn">You never assign yourself a Unit Instance role. Another Vantage Administrator, or its Lead Unit Managers, does.</p>}
+        </div>
+      </div>
     </Dialog>
   );
 }

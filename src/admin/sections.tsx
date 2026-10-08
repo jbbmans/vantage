@@ -289,7 +289,7 @@ export function DataAdmin() {
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Backup" subtitle="A consistent copy of the SQLite database">
-        <p className="text-sm text-ink-2">The file holds every Unit Instance’s records, every password hash and every sealed secret. Every other platform owner is told each time one is downloaded.</p>
+        <p className="text-sm text-ink-2">The file holds every Unit Instance’s records, every password hash and every sealed secret. Every other Lead Vantage Administrator is told each time one is downloaded.</p>
         {browserOff
           ? <p className="mt-3 text-sm text-warn">Downloading through the browser is turned off (VANTAGE_BROWSER_BACKUPS=false). Backups are taken on the server; see Operations in the documentation.</p>
           : <Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button>}

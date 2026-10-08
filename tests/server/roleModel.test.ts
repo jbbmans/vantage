@@ -47,7 +47,7 @@ async function staffMember(username: string, role: PlatformRole) {
 }
 
 before(async () => {
-  app = await startApp();
+  app = await startApp({ VANTAGE_REGISTRATIONS_PER_15_MINUTES: '100' }); // this suite registers more people than one connection may
   op = await app.setupOperator();
   org.owner = await orgRoleHolder('leadum', 'owner');
   org.admin = await orgRoleHolder('unitmgr', 'admin');
@@ -192,6 +192,17 @@ test('a Unit Manager cannot elevate themselves through any door', async () => {
   const widen = await app.call('PUT', '/api/org/roles/G8:marine', { token: lum.token, body: { permissions: marineRole.permissions | PERMISSIONS.VIEW_RECORDS } });
   assert.equal(widen.status, 403, JSON.stringify(widen.body));
   assert.equal(widen.body.code, 'self_grant');
+  // Nor a role that reads nothing but carries authority the chain of command has not given them, such as making units.
+  app.ctx.db.prepare("INSERT INTO roles (id, unit_id, name, permissions, is_default, created_at) VALUES ('G8:planner', 'G8', 'Planner', ?, 0, ?)").run(PERMISSIONS.VIEW_UNIT | PERMISSIONS.MANAGE_UNITS, new Date().toISOString());
+  const planner = await post(um.token, `/api/org/team/${um.id}/roles`, { role_id: 'G8:planner', unit_id: 'G8' });
+  assert.equal(planner.status, 403, JSON.stringify(planner.body));
+  assert.equal(planner.body.code, 'self_grant');
+  assert.equal((await post(um.token, `/api/org/team/${marine.id}/roles`, { role_id: 'G8:planner', unit_id: 'G8' })).status, 200, 'granting it to someone else is the job');
+  // Nor a new end date on a role they already hold.
+  const held = app.ctx.db.prepare("SELECT role_id FROM member_roles WHERE user_id = ? AND unit_id = 'G8'").get(um.id) as { role_id: string };
+  const extend = await post(um.token, `/api/org/team/${um.id}/roles`, { role_id: held.role_id, unit_id: 'G8', expires_at: new Date(Date.now() + 30 * 86_400_000).toISOString() });
+  assert.equal(extend.status, 403, JSON.stringify(extend.body));
+  assert.equal(extend.body.code, 'self_grant');
   // The Vantage-access policy is a Lead Unit Manager's, not a Unit Manager's.
   assert.equal((await app.call('PATCH', '/api/orgs/G8', { token: um.token, body: { settings: { vantageAccess: 'notify' } } })).status, 403);
 });
@@ -250,19 +261,178 @@ test('a Unit Instance role lasts only while its holder belongs to the Unit Insta
   assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'org_role_ended' AND subject_id = ?").get(leaver.id), 'and the ending is audited');
   assert.equal((await get(await login('leaver'), '/api/orgs/G8/overview')).status, 404);
 
-  // A roster separation leaves it dormant: it confers nothing and counts for nothing, and returns if the feed restores them.
-  const separated = await orgRoleHolder('separated', 'owner');
+  // A role row whose holder no longer belongs (one left behind before ADR-0010) confers nothing, counts for nothing, and
+  // hears nothing; it applies again only if they are seated again.
+  const unseated = await orgRoleHolder('unseated', 'owner');
   const owners = orgCounts(app.ctx, 'G8').owners;
-  removeMember(app.ctx, separated.id, 'G8', op.id, 'roster_separation', { endInstanceRoles: false });
-  assert.ok(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ? AND role = 'owner'").get(separated.id), 'the row stays');
-  assert.equal((await get(await login('separated'), '/api/orgs/G8/overview')).status, 404, 'but confers nothing');
+  removeMember(app.ctx, unseated.id, 'G8', op.id, 'left', { endInstanceRoles: false });
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ? AND role = 'owner'").get(unseated.id), 'the row stays');
+  assert.equal((await get(await login('unseated'), '/api/orgs/G8/overview')).status, 404, 'but confers nothing');
   assert.equal(orgCounts(app.ctx, 'G8').owners, owners - 1, 'and is not counted as a Lead Unit Manager');
   const listed = await get(op.token, '/api/platform/orgs');
   const g8 = listed.body.organizations.find((o: { id: string }) => o.id === 'G8');
-  assert.ok(!g8.owners.some((p: { id: string }) => p.id === separated.id), 'nor shown as one to Vantage');
-  addMember(app.ctx, separated.id, 'G8', { invitedBy: null });
-  assert.equal((await get(await login('separated'), '/api/orgs/G8/overview')).status, 200, 'restored with them');
-  assert.equal((await app.call('DELETE', `/api/orgs/G8/roles/${separated.id}/owner`, { token: op.token })).status, 200);
+  assert.ok(!g8.owners.some((p: { id: string }) => p.id === unseated.id), 'nor shown as one to Vantage');
+  const told = () => (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ?').get(unseated.id) as { n: number }).n;
+  const before = told();
+  assert.equal((await post(op.token, '/api/orgs/G8/roles', { user_id: marine.id, role: 'auditor' })).status, 201);
+  assert.equal(told(), before, 'nor told what Lead Unit Managers are told');
+  assert.equal((await app.call('DELETE', `/api/orgs/G8/roles/${marine.id}/auditor`, { token: op.token })).status, 200);
+  addMember(app.ctx, unseated.id, 'G8', { invitedBy: null });
+  assert.equal((await get(await login('unseated'), '/api/orgs/G8/overview')).status, 200, 'seated again, it applies again');
+  assert.equal((await app.call('DELETE', `/api/orgs/G8/roles/${unseated.id}/owner`, { token: op.token })).status, 200);
+});
+
+/** Post a roster extract to a Unit Instance's personnel feed and apply it. */
+const feed = (token: string, orgId: string, rows: string[]) => app.call('POST', `/api/orgs/${orgId}/personnel/sync?source=MCTFS&apply=1&confirm_separations=1`, {
+  token, raw: Buffer.from(['DoD ID,Last,First,MI,Grade,PMOS,EAS,RUC,Status', ...rows].join('\n')), headers: { 'content-type': 'text/plain' },
+});
+
+test('the roster feed ends a separated holder’s Unit Instance roles, gives them back on restore, and holds back what it may not end', async () => {
+  const lead = await orgRoleHolder('feedlead', 'owner');
+  const manager = await orgRoleHolder('feedmgr', 'admin');
+  app.ctx.db.prepare("UPDATE users SET edipi = '5550002001' WHERE id = ?").run(lead.id);
+  app.ctx.db.prepare("UPDATE users SET edipi = '5550002002' WHERE id = ?").run(manager.id);
+  const row = (edipi: string, last: string, status: string) => `${edipi},${last},Pat,,Sgt,3451,2028-01-31,G8,${status}`;
+  const both = (managerStatus: string) => [row('5550002001', 'Lead', 'Active'), row('5550002002', 'Manager', managerStatus)];
+  const roleOf = (userId: string) => app.ctx.db.prepare("SELECT role FROM org_roles WHERE org_id = 'G8' AND user_id = ?").get(userId) as { role: string } | undefined;
+  assert.equal((await feed(op.token, 'G8', both('Active'))).status, 200);
+
+  // A Unit Manager's extract cannot separate a role holder: ending a Unit Instance role is a Lead Unit Manager's.
+  const byUm = await feed(org.admin!.token, 'G8', both('Separated'));
+  assert.equal(byUm.status, 200, JSON.stringify(byUm.body));
+  assert.ok(byUm.body.plan.conflicts.some((c: { edipi: string; reason: string }) => c.edipi === '5550002002' && /held back for a Lead Unit Manager/.test(c.reason)));
+  assert.equal(roleOf(manager.id)?.role, 'admin');
+  assert.equal((app.ctx.db.prepare("SELECT status FROM personnel_roster WHERE org_id = 'G8' AND edipi = '5550002002'").get() as { status: string }).status, 'active', 'still on the roster, so the next extract raises it again');
+
+  // A Lead Unit Manager's does, and the role ends with the membership, on the record.
+  assert.equal((await feed(op.token, 'G8', both('Separated'))).status, 200);
+  assert.equal(roleOf(manager.id), undefined);
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'org_role_ended' AND org_id = 'G8' AND subject_id = ?").get(manager.id));
+  const kept = JSON.parse((app.ctx.db.prepare("SELECT removed_units FROM personnel_roster WHERE org_id = 'G8' AND edipi = '5550002002'").get() as { removed_units: string }).removed_units);
+  assert.ok(Array.isArray(kept), 'still the list earlier versions restore from');
+  assert.deepEqual(kept.flatMap((m: { orgRoles?: Array<{ role: string }> }) => (m.orgRoles ?? []).map((r) => r.role)), ['admin'], 'kept with the memberships');
+
+  // Back on the extract, the role comes back with the membership.
+  assert.equal((await feed(op.token, 'G8', both('Active'))).status, 200);
+  assert.equal(roleOf(manager.id)?.role, 'admin');
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'org_role_restored' AND org_id = 'G8' AND subject_id = ?").get(manager.id));
+  assert.equal((await get(await login('feedmgr'), '/api/orgs/G8/overview')).status, 200);
+
+  // The last Lead Unit Manager is held back, even on their own extract.
+  const g2lead = app.ctx.db.prepare("SELECT id FROM users WHERE username = 'g2lead'").get() as { id: string };
+  app.ctx.db.prepare("UPDATE users SET edipi = '5550002003' WHERE id = ?").run(g2lead.id);
+  const g2token = await login('g2lead');
+  assert.equal((await feed(g2token, 'G2', [row('5550002003', 'Lead', 'Active')])).status, 200);
+  const last = await feed(g2token, 'G2', [row('5550002003', 'Lead', 'Separated')]);
+  assert.equal(last.status, 200, JSON.stringify(last.body));
+  assert.ok(last.body.plan.conflicts.some((c: { reason: string }) => /last Lead Unit Manager/.test(c.reason)));
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G2' AND user_id = ? AND role = 'owner'").get(g2lead.id));
+  assert.equal((app.ctx.db.prepare('SELECT active FROM users WHERE id = ?').get(g2lead.id) as { active: number }).active, 1);
+  void lead;
+});
+
+test('a Vantage Administrator adds and removes Unit Managers in a running Unit Instance, never themselves, and its Lead Unit Managers are told', async () => {
+  const va = staff.admin!;
+  const pick = await app.register('pickedmgr');
+  await enroll(app, op.token, 'G8', pick.id);
+  const toldLead = () => (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ?').get(org.owner!.id) as { n: number }).n;
+  const leadBefore = toldLead();
+
+  const assigned = await post(va.token, '/api/platform/orgs/G8/managers', { user_id: pick.id, role: 'admin' });
+  assert.equal(assigned.status, 200, JSON.stringify(assigned.body));
+  assert.ok(assigned.body.roles.some((r: { user_id: string; role: string }) => r.user_id === pick.id && r.role === 'admin'));
+  assert.ok(toldLead() > leadBefore, 'its Lead Unit Managers are told');
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'org_role_granted' AND org_id = 'G8' AND subject_id = ?").get(pick.id), 'in the Unit Instance’s trail');
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'platform_manager_assigned' AND org_id IS NULL AND subject_id = ?").get(pick.id), 'and the platform’s');
+  assert.equal((await get(await login('pickedmgr'), '/api/orgs/G8/overview')).status, 200);
+
+  // Never themselves, only members, only Lead Unit Manager or Unit Manager, and only with Unit Manager assignment.
+  const self = await post(va.token, '/api/platform/orgs/G8/managers', { user_id: va.id, role: 'owner' });
+  assert.equal(self.status, 403);
+  assert.equal(self.body.code, 'self_grant');
+  assert.equal((await post(va.token, '/api/platform/orgs/G8/managers', { user_id: g1lead.id, role: 'admin' })).status, 400, 'a member of the Unit Instance only');
+  assert.equal((await post(va.token, '/api/platform/orgs/G8/managers', { user_id: marine.id, role: 'records' })).status, 400);
+  assert.equal((await post(staff.support!.token, '/api/platform/orgs/G8/managers', { user_id: marine.id, role: 'admin' })).status, 403, 'Vantage Support does not assign');
+  assert.equal((await post(org.owner!.token, '/api/platform/orgs/G8/managers', { user_id: marine.id, role: 'admin' })).body.code, 'not_staff');
+  assert.equal(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id IN (?, ?)").get(va.id, marine.id), undefined, 'nothing was written');
+
+  const toldPick = () => (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ?').get(pick.id) as { n: number }).n;
+  const pickBefore = toldPick();
+  const leadMid = toldLead();
+  const removed = await app.call('DELETE', `/api/platform/orgs/G8/managers/${pick.id}/admin`, { token: va.token });
+  assert.equal(removed.status, 200, JSON.stringify(removed.body));
+  assert.equal(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ?").get(pick.id), undefined);
+  assert.ok(toldPick() > pickBefore && toldLead() > leadMid, 'the person and its Lead Unit Managers are told');
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'org_role_revoked' AND org_id = 'G8' AND subject_id = ?").get(pick.id));
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'platform_manager_removed' AND org_id IS NULL AND subject_id = ?").get(pick.id));
+
+  // Never the last Lead Unit Manager.
+  const g2lead = app.ctx.db.prepare("SELECT id FROM users WHERE username = 'g2lead'").get() as { id: string };
+  const lastOne = await app.call('DELETE', `/api/platform/orgs/G2/managers/${g2lead.id}/owner`, { token: va.token });
+  assert.equal(lastOne.status, 400);
+  assert.equal(lastOne.body.code, 'last_owner');
+});
+
+test('a Unit Manager cannot re-key a Lead Unit Manager’s CAC sign-in, and Vantage support on a role holder’s account is told to the instance', async () => {
+  const target = await orgRoleHolder('cacleader', 'owner');
+  const byUm = await post(org.admin!.token, '/api/orgs/G8/personnel/link', { user_id: target.id, edipi: '5550003001' });
+  assert.equal(byUm.status, 403, JSON.stringify(byUm.body));
+  assert.equal(byUm.body.code, 'org_permission');
+  assert.equal((app.ctx.db.prepare('SELECT edipi FROM users WHERE id = ?').get(target.id) as { edipi: string | null }).edipi, null);
+  assert.equal((await post(org.admin!.token, '/api/orgs/G8/personnel/link', { user_id: marine.id, edipi: '5550003002' })).status, 200, 'a member with no Unit Instance role is the job');
+  assert.equal((await post(org.owner!.token, '/api/orgs/G8/personnel/link', { user_id: target.id, edipi: '5550003001' })).status, 200, 'a Lead Unit Manager may');
+
+  const toldLead = () => (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ?').get(org.owner!.id) as { n: number }).n;
+  const before = toldLead();
+  const reset = await post(staff.support!.token, `/api/platform/accounts/${target.id}/temporary-password`);
+  assert.equal(reset.status, 200, JSON.stringify(reset.body));
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'vantage_account_support' AND org_id = 'G8' AND subject_id = ?").get(target.id), 'in the Unit Instance’s trail');
+  assert.ok(toldLead() > before, 'and its Lead Unit Managers are told');
+  // The marine leads a unit by now (see above), so a member who holds nothing.
+  const plain = await app.register('plainsupport');
+  await enroll(app, op.token, 'G8', plain.id);
+  const quiet = toldLead();
+  assert.equal((await post(staff.support!.token, `/api/platform/accounts/${plain.id}/reset-mfa`)).status, 200);
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'vantage_account_support' AND org_id = 'G8' AND subject_id = ?").get(plain.id));
+  assert.equal(toldLead(), quiet, 'a member holding no authority is recorded, not announced');
+});
+
+test('your own invitation is no way into a role that reads records, and a founder who archives their Unit Instance gives up its role', async () => {
+  const um = org.admin!;
+  assert.equal((await post(um.token, '/api/org/units', { name: 'Invoicing Cell', code: 'G8IC', parent_id: 'G8' })).status, 201);
+  const invite = await post(um.token, '/api/org/units/G8IC/invites', { role_id: 'G8IC:snco' });
+  assert.equal(invite.status, 201, JSON.stringify(invite.body));
+  const token = new URL(invite.body.url).searchParams.get('token');
+  const claim = await post(um.token, '/api/auth/invite/claim', { token });
+  assert.equal(claim.status, 403, JSON.stringify(claim.body));
+  assert.equal(claim.body.code, 'self_grant');
+  assert.equal(app.ctx.db.prepare("SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = 'G8IC'").get(um.id), undefined);
+
+  // Self-service (legacy-public only): a founder leads their own Unit Instance, and archiving its top unit ends the role.
+  const founder = await app.register('founder');
+  const founded = await post(founder.token, '/api/org/units', { name: 'Founders Cell', code: 'FNDR' });
+  assert.equal(founded.status, 201, JSON.stringify(founded.body));
+  const orgId = (app.ctx.db.prepare("SELECT org_id FROM units WHERE id = 'FNDR'").get() as { org_id: string }).org_id;
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = ? AND user_id = ? AND role = 'owner'").get(orgId, founder.id));
+  const archived = await app.call('DELETE', '/api/org/units/FNDR', { token: await login('founder') });
+  assert.equal(archived.status, 200, JSON.stringify(archived.body));
+  assert.equal(app.ctx.db.prepare('SELECT 1 FROM org_roles WHERE org_id = ? AND user_id = ?').get(orgId, founder.id), undefined);
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'org_role_ended' AND org_id = ? AND subject_id = ?").get(orgId, founder.id));
+});
+
+test('a Vantage Administrator naming a Lead Unit Manager for a led top unit seats them as a member, recorded as an assignment', async () => {
+  const leader = await app.register('g4leader');
+  assert.equal((await post(op.token, '/api/platform/orgs', { name: 'MARFORRES G-4', code: 'G4', owner_user_id: leader.id })).status, 201);
+  // Its Lead Unit Manager is gone (a role left from before ADR-0010 being cleared, say), but its top unit is still led.
+  app.ctx.db.prepare("DELETE FROM org_roles WHERE org_id = 'G4'").run();
+  const outsider = await app.register('g4named');
+  const named = await post(staff.admin!.token, '/api/platform/orgs/G4/owner', { user_id: outsider.id });
+  assert.equal(named.status, 200, JSON.stringify(named.body));
+  assert.equal((app.ctx.db.prepare("SELECT owner_user_id FROM units WHERE id = 'G4'").get() as { owner_user_id: string }).owner_user_id, leader.id, 'the unit keeps its leader');
+  const period = app.ctx.db.prepare("SELECT start_reason FROM unit_membership_periods WHERE user_id = ? AND unit_id = 'G4' AND ended_at IS NULL").get(outsider.id) as { start_reason: string } | undefined;
+  assert.equal(period?.start_reason, 'manager_assigned');
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'platform_owner_named' AND org_id IS NULL AND subject_id = ?").get(outsider.id), 'in the platform’s trail too');
+  assert.equal((await get(await login('g4named'), '/api/orgs/G4/overview')).status, 200);
 });
 
 test('the last Lead Unit Manager is never removed out from under the Unit Instance', async () => {

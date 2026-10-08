@@ -16,7 +16,7 @@ test('first visit runs setup, lands on the dashboard, and can sign out and back 
   await page.getByLabel('Password', { exact: true }).fill(PASSWORD);
   await page.getByLabel('First unit').fill(OPERATOR.unit_name);
   await page.getByLabel('Short name').fill(OPERATOR.unit_short_name);
-  await page.getByRole('button', { name: 'Create owner account' }).click();
+  await page.getByRole('button', { name: 'Create Lead Vantage Administrator account' }).click();
   await expect(page.getByRole('heading', { name: 'Today', exact: true })).toBeVisible();
   await expect(page.getByText('No measured outcome in this period')).toBeVisible();
 

@@ -18,7 +18,7 @@ import { cn } from '@/lib/utils';
 const Login = lazy(() => import('@/pages/Login'));
 
 /**
- * The frame both consoles share: the Unit Manager console (the people who hold a Unit Instance's roles) and the Vantage
+ * The frame both consoles share: the Unit Manager console (the people who hold a Unit Instance's roles) and the
  * Vantage Administrator console (Vantage staff). Each is its own document with its own sign-in, and each admits only its audience.
  */
 export interface ConsoleSection { path: string; label: string; icon: LucideIcon; title: string; lede: string; render: () => React.ReactElement; hidden?: boolean }

@@ -7,10 +7,10 @@ import { join } from 'node:path';
 import { chmodSync, statSync, unlinkSync } from 'node:fs';
 import { normalizeMetrics } from '../../shared/constants.ts';
 import { setCurrencySymbol } from '../../shared/metrics.ts';
-import { PLATFORM_ROLE_KEYS, PLATFORM_ROLES, PLATFORM_PERMISSION_LIST, ORG_ROLES, ORG_PERMISSION_LIST, type PlatformRole } from '../../shared/permissions.ts';
+import { PLATFORM_ROLE_KEYS, PLATFORM_ROLES, PLATFORM_PERMISSION_LIST, ORG_ROLES, ORG_PERMISSION_LIST, UNIT_MANAGER_ROLES, type PlatformRole } from '../../shared/permissions.ts';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
-import { notify, notifyStaff } from '../services/notifications.ts';
+import { notify, notifyOrg, notifyStaff } from '../services/notifications.ts';
 import { requireAuth, requirePlatform, requireSudo } from '../auth/middleware.ts';
 import { audit, verifyAuditChain } from '../services/audit.ts';
 import { auditForwardingStatus } from '../services/auditSink.ts';
@@ -23,7 +23,7 @@ import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
 import { layout } from '../services/mailLayout.ts';
 import { checkRecords, dnsHostOf, domainOf, heloName, lastPath, probePath, requiredRecords } from '../services/directMail.ts';
-import type { AppContext } from '../context.ts';
+import type { AppContext, SessionUser } from '../context.ts';
 import { usageReport, MIN_COHORT } from '../services/usage.ts';
 import { EVENTS } from '../services/telemetry.ts';
 import { openHolds, placeHold, releaseHold, HOLDABLE_TYPES } from '../services/retention.ts';
@@ -34,7 +34,7 @@ import { invalidateUserSessions } from '../auth/sessions.ts';
 import { unlockAccount } from '../auth/lockout.ts';
 import { hashPassword } from '../lib/crypto.ts';
 import { isEdipi } from '../services/personnel.ts';
-import { createOrganization, getOrg, listOrganizations, nameFirstOwner, orgCounts, orgRoleHolders, publicOrg, setOrgStatus, updateOrganization } from '../services/organizations.ts';
+import { assignManager, createOrganization, getOrg, listOrganizations, nameFirstOwner, orgCounts, orgRoleHolders, publicOrg, removeManager, setOrgStatus, updateOrganization } from '../services/organizations.ts';
 import { accessForPlatform, endAccess, requestAccess, ACCESS_DEFAULT_MINUTES, ACCESS_MAX_MINUTES } from '../services/access.ts';
 import { platformRolesOf } from '../authz/platform.ts';
 import { seatedOrgRole } from '../authz/scope.ts';
@@ -232,6 +232,17 @@ platformRouter.post('/orgs/:orgId/owner', requirePlatform('platform.orgs'), wrap
   res.json({ roles: nameFirstOwner(req.ctx, req.user, String(req.params.orgId), body.user_id, ip(req)) });
 }));
 
+// Unit Manager assignment (John, 2026-10-08; ADR-0010 §5): any time, never yourself, members of the Unit Instance only.
+platformRouter.post('/orgs/:orgId/managers', requirePlatform('platform.managers'), wrap((req, res) => {
+  const body = parse(z.object({ user_id: z.string().max(64), role: z.enum(UNIT_MANAGER_ROLES) }), req.body);
+  res.json({ roles: assignManager(req.ctx, req.user, String(req.params.orgId), body, ip(req)).map(({ username: _u, ...r }) => r) });
+}));
+
+platformRouter.delete('/orgs/:orgId/managers/:userId/:role', requirePlatform('platform.managers'), wrap((req, res) => {
+  const role = parse(z.enum(UNIT_MANAGER_ROLES), String(req.params.role));
+  res.json({ roles: removeManager(req.ctx, req.user, String(req.params.orgId), String(req.params.userId), role, ip(req)).map(({ username: _u, ...r }) => r) });
+}));
+
 // ——— Accounts: sign-in help. Who someone is and how they sign in; never what they keep. ———
 
 platformRouter.get('/accounts', requirePlatform('platform.accounts'), wrap((req, res) => {
@@ -267,6 +278,22 @@ const accountTarget = (req: Request) => {
   return row;
 };
 
+/**
+ * Vantage support changing someone's sign-in is written into the audit trail of every Unit Instance they serve in, and
+ * where they hold a Unit Instance role or lead a unit, its Lead Unit Managers are told: otherwise staff could sign in as a
+ * Unit Manager without the instance ever knowing (ADR-0010). Requiring a second person for these steps is Task 7's.
+ */
+function tellInstancesOfSupport(ctx: AppContext, actor: SessionUser, targetId: string, what: string, from?: string | null) {
+  const person = ctx.db.prepare('SELECT first_name, last_name FROM users WHERE id = ?').get(targetId) as { first_name: string; last_name: string };
+  const orgs = ctx.db.prepare('SELECT DISTINCT u.org_id FROM unit_members m JOIN units u ON u.id = m.unit_id WHERE m.user_id = ? AND u.org_id IS NOT NULL').all(targetId) as Array<{ org_id: string }>;
+  for (const { org_id } of orgs) {
+    audit(ctx, { actor_id: actor.id, action: 'vantage_account_support', entity: 'user', entity_id: targetId, subject_id: targetId, org_id, detail: `Vantage support ${what}`, ip: from });
+    const authority = ctx.db.prepare(`SELECT 1 FROM org_roles WHERE org_id = ? AND user_id = ? AND (expires_at IS NULL OR expires_at > ?)
+      UNION ALL SELECT 1 FROM units WHERE org_id = ? AND owner_user_id = ? AND active = 1 LIMIT 1`).get(org_id, targetId, now(), org_id, targetId);
+    if (authority) notifyOrg(ctx, org_id, 'org.owners', { kind: 'security', title: `Vantage support ${what} for ${person.first_name} ${person.last_name}`, message: 'They hold authority in this Unit Instance. If nobody here asked for it, raise it with Vantage.', actionUrl: '/console/audit' }, targetId);
+  }
+}
+
 platformRouter.post('/accounts/:userId/unlock', requirePlatform('platform.accounts'), wrap((req, res) => {
   const target = accountTarget(req);
   res.json({ ok: true, unlocked: unlockAccount(req.ctx, target.id, req.user.id, ip(req)) });
@@ -289,6 +316,7 @@ platformRouter.post('/accounts/:userId/temporary-password', requirePlatform('pla
   ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 1, failed_sign_ins = 0, locked_until = NULL, updated_at = ? WHERE id = ?').run(hashPassword(password), now(), target.id);
   const revoked = invalidateUserSessions(ctx, target.id);
   audit(ctx, { actor_id: req.user.id, action: 'temporary_password', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
+  tellInstancesOfSupport(ctx, req.user, target.id, 'set a temporary password', ip(req));
   notify(ctx, target.id, { kind: 'security', title: 'Vantage support set a temporary password on your account', message: 'If you did not ask for this, contact Vantage support.', actionUrl: '/settings' });
   res.json({ ok: true, password, sessionsRevoked: revoked });
 }));
@@ -303,6 +331,7 @@ platformRouter.post('/accounts/:userId/reset-mfa', requirePlatform('platform.acc
   })();
   const revoked = invalidateUserSessions(ctx, target.id);
   audit(ctx, { actor_id: req.user.id, action: 'reset_mfa', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
+  tellInstancesOfSupport(ctx, req.user, target.id, 'reset the second factor', ip(req));
   notify(ctx, target.id, { kind: 'security', title: 'Vantage support reset your second factor', message: 'Set up an authenticator or passkey again from Settings.', actionUrl: '/settings' });
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
@@ -322,6 +351,7 @@ platformRouter.post('/accounts/:userId/edipi', requirePlatform('platform.account
   ctx.db.prepare("UPDATE users SET edipi = ?, edipi_verified_at = NULL, identity_source = CASE WHEN ? IS NULL THEN 'local' ELSE identity_source END, updated_at = ? WHERE id = ?").run(edipi, edipi, now(), target.id);
   const revoked = invalidateUserSessions(ctx, target.id);
   audit(ctx, { actor_id: req.user.id, action: 'edipi_corrected', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `${before ?? 'none'} → ${edipi ?? 'none'}; ${reason}; sessions revoked: ${revoked}`.slice(0, 900), ip: ip(req) });
+  tellInstancesOfSupport(ctx, req.user, target.id, edipi ? 'changed the linked CAC' : 'removed the linked CAC', ip(req));
   notify(ctx, target.id, { kind: 'security', title: 'Vantage support changed the CAC linked to your account', message: edipi ? `Your account now signs in with the card whose DoD ID ends ${edipi.slice(-4)}. If that is not your card, contact Vantage support.` : 'No card signs in to your account now. If you did not ask for this, contact Vantage support.', actionUrl: '/settings' });
   res.json({ ok: true, changed: true, sessionsRevoked: revoked });
 }));
@@ -335,6 +365,7 @@ platformRouter.post('/accounts/:userId/deactivate', requirePlatform('platform.ac
   ctx.db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ?').run(now(), target.id);
   const revoked = invalidateUserSessions(ctx, target.id);
   audit(ctx, { actor_id: req.user.id, action: 'deactivate_account', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `${String(req.body?.reason || '').slice(0, 200)}; sessions revoked: ${revoked}`, ip: ip(req) });
+  tellInstancesOfSupport(ctx, req.user, target.id, 'deactivated the account', ip(req));
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
 
@@ -342,6 +373,7 @@ platformRouter.post('/accounts/:userId/reactivate', requirePlatform('platform.ac
   const target = accountTarget(req);
   req.ctx.db.prepare('UPDATE users SET active = 1, updated_at = ? WHERE id = ?').run(now(), target.id);
   audit(req.ctx, { actor_id: req.user.id, action: 'reactivate_account', entity: 'user', entity_id: target.id, subject_id: target.id, ip: ip(req) });
+  tellInstancesOfSupport(req.ctx, req.user, target.id, 'reactivated the account', ip(req));
   res.json({ ok: true });
 }));
 

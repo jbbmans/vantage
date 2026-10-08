@@ -13,7 +13,7 @@ import {
   setUnitLeader, updateOrganization,
 } from '../services/organizations.ts';
 import { accessForOrg, decideAccess, endAccess } from '../services/access.ts';
-import { parseRoster, planSync, applySync, divergence, rosterStats, isEdipi, summarizePlan, SOURCED_FIELDS } from '../services/personnel.ts';
+import { parseRoster, planSync, holdBackRoleHolders, applySync, divergence, rosterStats, isEdipi, summarizePlan, SOURCED_FIELDS } from '../services/personnel.ts';
 import { listSchedules, saveSchedule, openHolds, placeHold, releaseHold, runDisposition, dispositionHistory, RETAINABLE_TYPES, HOLDABLE_TYPES } from '../services/retention.ts';
 import { buildInventory, inventoryMarkdown } from '../services/privacyInventory.ts';
 import { readRoster, planAccounts, applyAccounts } from '../services/accountImport.ts';
@@ -205,7 +205,7 @@ orgsRouter.post('/:orgId/personnel/sync', inOrg('org.personnel'), rosterBody, wr
   if (!text.trim()) throw badRequest('Post the roster extract as the request body.');
   const confirmSeparations = apply && String(req.query.confirm_separations || '') === '1';
   const parsed = parseRoster(text);
-  const plan = planSync(ctx, org.id, parsed.rows, source, parsed.rejected, confirmSeparations);
+  const plan = holdBackRoleHolders(ctx, planSync(ctx, org.id, parsed.rows, source, parsed.rejected, confirmSeparations), orgCan(scopeFor(ctx, req.user, req), 'org.owners', org.id));
   if (!apply) {
     audit(ctx, { actor_id: req.user.id, action: 'personnel_sync_planned', org_id: org.id, detail: `${source}: ${plan.rowsSeen} rows`, ip: ip(req) });
     return res.json({ applied: false, plan: summarizePlan(plan) });
@@ -229,6 +229,12 @@ orgsRouter.post('/:orgId/personnel/link', inOrg('org.personnel'), wrap((req, res
   // or that runs the service, carries authority beyond this one: re-keying its sign-in is not this organization's to do,
   // or one Unit Instance's Unit Manager could sign in as a leader of another (ADR-0008).
   if (user_id !== req.user.id && authorityBeyond(ctx, user_id, org.id)) throw forbidden('This account also holds authority outside this Unit Instance, so its EDIPI cannot be changed from here.', 'cross_instance');
+  // A Unit Instance role is authority over this instance itself. Re-keying the sign-in of someone who holds one is the
+  // Lead Unit Managers' call, or a Unit Manager could link their own card to a Lead Unit Manager's account (ADR-0010).
+  if (user_id !== req.user.id && !orgCan(scopeFor(ctx, req.user, req), 'org.owners', org.id)
+    && ctx.db.prepare('SELECT 1 FROM org_roles WHERE org_id = ? AND user_id = ? AND (expires_at IS NULL OR expires_at > ?)').get(org.id, user_id, now())) {
+    throw forbidden('This person holds a Unit Instance role. Only a Lead Unit Manager links or changes their CAC.', 'org_permission');
+  }
   const current = ctx.db.prepare('SELECT edipi, edipi_verified_at FROM users WHERE id = ?').get(user_id) as { edipi: string | null; edipi_verified_at: string | null } | undefined;
   const before = current?.edipi ?? null;
   // Once the person's own card has proven an EDIPI, it is their sign-in key: no Unit Manager moves it, not even their

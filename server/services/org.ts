@@ -106,7 +106,7 @@ export function endInstanceRolesOnDeparture(ctx: AppContext, userId: string, org
 }
 
 /**
- * Units of the Unit Instance this person belongs to, other than `unitId`: none means removing them from it takes them out
+ * True when `unitId` is the only unit of its Unit Instance this person belongs to, so removing them from it takes them out
  * of the instance, and with it any Unit Instance role they hold there.
  */
 export function lastUnitInInstance(ctx: AppContext, userId: string, unitId: string): boolean {
@@ -116,7 +116,8 @@ export function lastUnitInInstance(ctx: AppContext, userId: string, unitId: stri
 /**
  * promote: false leaves the primary unit for the caller to place, as a move does, so it passes straight across.
  * endInstanceRoles: false keeps Unit Instance roles while the person is out of the instance (they confer nothing until
- * they are back): a move between its units, or a roster separation the feed itself may restore.
+ * they are back): a move between its units, which seats them again at once. Every departure ends them, a roster
+ * separation included; the feed keeps what it ended so its restore can give it back (ADR-0010).
  */
 export function removeMember(ctx: AppContext, userId: string, unitId: string, actorId: string | null = null, reason: EndReason = 'removed', { promote = true, endInstanceRoles = true }: { promote?: boolean; endInstanceRoles?: boolean } = {}) {
   return ctx.db.transaction(() => {
@@ -166,15 +167,15 @@ export function createUnit(ctx: AppContext, actor: SessionUser, scope: Scope, bo
     if (!getUnit(ctx, parentId)) throw badRequest('No such parent unit.');
     if (!can(scope, PERMISSIONS.MANAGE_UNITS, parentId)) throw forbidden('You cannot create units under that parent.');
   } else {
-    // A unit with no parent founds a Unit Instance, and its founder runs it. That is self-service, the platform's policy,
-    // and the same for everyone: Vantage Administrators create Unit Instances in their own console, which makes them
-    // nothing inside one, never here, where founding one would make them its Lead Unit Manager (ADR-0010).
+    // A unit with no parent founds a Unit Instance whose founder becomes its Lead Unit Manager. That is self-service: the
+    // platform's policy, the same for everyone, staff included, and always off under MCEN. Vantage Administrators create
+    // Unit Instances in their own console instead, which gives them no role inside one (ADR-0010).
     if (!ctx.runtime.selfServiceUnits) throw forbidden('New Unit Instances are set up by Vantage Administrators in the Vantage Administrator console. Ask through Support, or ask to join an existing unit.', 'org_creation_closed');
     const limit = ctx.runtime.selfServiceUnitLimit;
     const mine = (ctx.db.prepare(
             'SELECT COUNT(*) AS n FROM units WHERE owner_user_id = ? AND parent_id IS NULL AND active = 1'
     ).get(actor.id) as { n: number }).n;
-    if (mine >= limit) throw forbidden(`You have already created ${mine} ${mine === 1 ? 'organization' : 'organizations'}. That is the limit.`, 'unit_limit');
+    if (mine >= limit) throw forbidden(`You have already created ${mine} ${mine === 1 ? 'Unit Instance' : 'Unit Instances'}. That is the limit.`, 'unit_limit');
   }
   if (!parentId) assertCanFoundUnitInstance(ctx);
   const code = slug(String(body.code || body.short_name || name));
@@ -281,17 +282,25 @@ export function orgStaffing(ctx: AppContext, scope: Scope, unitId: string): bool
   return orgCan(scope, 'org.roles', orgOfUnit(ctx, unitId));
 }
 
+/** What a person holds in a unit through the chain of command: their roles there and above it, and leadership. */
+export const chainBits = (scope: Scope, unitId: string) =>
+  (scope.sources[unitId] || []).filter((s) => s.kind !== 'org' && s.kind !== 'vantage').reduce((b, s) => b | s.bits, 0);
+
 /**
- * Reach into Marines' records that a person would give themselves through Unit Instance authority: by granting
- * themselves a role, leading a unit, redeeming their own join code or invitation, or widening a role they hold. What they
- * already hold in the unit through the chain of command is not new reach. Nobody elevates themselves (ADR-0010): a Lead
- * Unit Manager is refused as a Unit Manager is, and another Unit Manager or the unit's chain of command grants it instead.
+ * Authority a person would give themselves through Unit Instance authority: by granting themselves a role, leading a
+ * unit, redeeming their own join code or invitation, or widening a role they hold. What they already hold in the unit
+ * through the chain of command is not new, and seeing the unit is what Unit Instance authority already gives. Anything
+ * else is, whether it reads records or only leads to them (managing units, then leading the one you make): nobody
+ * elevates themselves (ADR-0010). A Lead Unit Manager is refused as a Unit Manager is; another Unit Manager, or the
+ * unit's chain of command, grants it instead.
  */
 export function guardSelfReach(_ctx: AppContext, actor: SessionUser, scope: Scope, unitId: string, bits: number, targetId: string, act: string): void {
-  if (targetId !== actor.id || !(bits & RECORD_READING_BITS)) return;
-  const fromUnit = (scope.sources[unitId] || []).filter((s) => s.kind !== 'org' && s.kind !== 'vantage').reduce((b, s) => b | s.bits, 0);
-  if (has(fromUnit, PERMISSIONS.ADMINISTRATOR) || (bits & RECORD_READING_BITS & ~fromUnit) === 0) return;
-  throw forbidden(`${act} would give you a role that reads Marines’ records. Another Unit Manager, or the unit’s chain of command, does that for you.`, 'self_grant');
+  if (targetId !== actor.id) return;
+  const fromUnit = chainBits(scope, unitId);
+  const added = bits & ~fromUnit & ~PERMISSIONS.VIEW_UNIT;
+  if (has(fromUnit, PERMISSIONS.ADMINISTRATOR) || !added) return;
+  const what = added & RECORD_READING_BITS ? 'a role that reads Marines’ records' : 'unit authority the chain of command has not given you';
+  throw forbidden(`${act} would give you ${what}. Another Unit Manager, or the unit’s chain of command, does that for you.`, 'self_grant');
 }
 
 export function canManageRoleDefinition(ctx: AppContext, actor: SessionUser, scope: Scope, role: RoleRow): boolean {
@@ -307,7 +316,7 @@ export function validateRoleDefinition(ctx: AppContext, actor: SessionUser, scop
   if (!Number.isInteger(def.position) || def.position < 0 || def.position > 99) throw badRequest('Position must be a whole number from 0 to 99.', { fieldErrors: { position: '0 to 99.' } });
   if (!Number.isInteger(def.permissions) || def.permissions < 0 || (def.permissions & ~ALL_PERMISSIONS) !== 0) throw badRequest('Unknown permission bits.');
   if (!getUnit(ctx, def.unit_id)) throw notFound('No such unit.');
-  const owner = isUnitOwner(ctx, actor.id, def.unit_id) || Boolean(orgStaffing(ctx, scope, def.unit_id));
+  const owner = isUnitOwner(ctx, actor.id, def.unit_id) || orgStaffing(ctx, scope, def.unit_id);
   if (!owner) {
     if (!can(scope, PERMISSIONS.MANAGE_ROLES, def.unit_id)) throw forbidden('You cannot manage roles in that unit.');
     const myPosition = positionIn(scope, def.unit_id);

@@ -10,7 +10,7 @@ The whole system is one web service with a persistent disk. Budget: the Starter 
 2. In Render, choose **New → Blueprint**, pick the repository, and accept `render.yaml`. Render creates the `vantage` service, the `vantage-data` disk mounted at `/data`, and generates `VANTAGE_SECRET` and `VANTAGE_SETUP_TOKEN`.
 3. Wait for the first build (5 to 8 minutes; it compiles `better-sqlite3` and the client).
 4. Open the service's **Environment** tab and copy the value of `VANTAGE_SETUP_TOKEN`.
-5. Visit the site. The setup page asks for that token, then creates the owner account and the first unit. This only works once; afterwards the token is inert.
+5. Visit the site. The setup page asks for that token, then creates the Lead Vantage Administrator account and the first unit. This only works once; afterwards the token is inert.
 6. Sign in, open **Settings → Security**, add a passkey and an authenticator app.
 
 Auto-deploy waits for CI: `render.yaml` sets `autoDeployTrigger: checksPass`, so a push to `main` is released only after every GitHub check on that commit passes (lint, typecheck, server tests, build, browser tests, Docker build), and then only once the health check at `/api/health` passes. A red commit is never released, and failed builds never replace the running version. `/api/health` reports the running commit and the built client's hash, so what is live can always be matched to a CI run.
@@ -55,8 +55,8 @@ The bare `vantageusmc.com` serves the public page too, and anything else that re
 before the move, an old bookmark) is sent on to the address that now serves it, path and all. `/login` on www goes to
 secure; an old `/operator?tab=` link goes to whichever console that tab now lives in.
 
-A deployment that sets only `VANTAGE_PUBLIC_URL` keeps serving everything from that one address, with the owner
-console at `/console` and the Vantage Administrator console at `/admin`. That is also what happens between merging this and finishing the steps below, so the order is safe.
+A deployment that sets only `VANTAGE_PUBLIC_URL` keeps serving everything from that one address, with the Unit
+Manager console at `/console` and the Vantage Administrator console at `/admin`. That is also what happens between merging this and finishing the steps below, so the order is safe.
 
 ### Moving vantageusmc.com to three addresses
 
@@ -99,7 +99,7 @@ SQLite on the Render disk handles this workload comfortably. The app refuses new
 
 ## Upgrades
 
-Push to `main`. Schema migrations run automatically at boot inside a transaction. Take a backup first from **Vantage Administrator console → Backup and recovery** when a release note says so. The organizations migration (`015_organizations`) runs once on the first boot of this release: each top-level unit becomes an organization, former operators become platform owners, and each organization's owner is its top unit's leader.
+Push to `main`. Schema migrations run automatically at boot inside a transaction. Take a backup first from **Vantage Administrator console → Backup and recovery** when a release note says so. The organizations migration (`015_organizations`) runs once on the first boot of this release: each top-level unit becomes an organization, former operators become Lead Vantage Administrators, and each organization's Lead Unit Manager is its top unit's leader.
 
 ## If Render goes away
 

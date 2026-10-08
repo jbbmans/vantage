@@ -33,8 +33,8 @@ export const CHANGES: Change[] = [
     items: [
       'Your command on Vantage is a Unit Instance: its units, people, roster feed, retention and audit trail are its own, kept apart from every other command’s.',
       'Your account is yours, not your command’s. It moves with you, and your private entries, career plan and export stay with it.',
-      'The Unit Manager console runs one Unit Instance at a time, for its owners and administrators: people and roles, units and leaders, the personnel feed, retention and holds. Its roles manage the structure; they do not read anyone’s records.',
-      'Vantage staff have a console of their own, the Vantage Administrator console. They see your Unit Instance as a name and its counts, and look inside only when your owners approve it: read-only, for a few hours, and in your audit trail.',
+      'The Unit Manager console runs one Unit Instance at a time, for its Lead Unit Managers and Unit Managers: people and roles, units and leaders, the personnel feed, retention and holds. Its roles manage the structure; they do not read anyone’s records.',
+      'Vantage staff have a console of their own, the Vantage Administrator console. They see your Unit Instance as a name and its counts, and look inside only when your Lead Unit Managers approve it: read-only, for a few hours, and in your audit trail.',
       'A role can be granted until a date, for an acting billet or a leave period, and it ends on its own.',
       '“Why can they?” on a Marine’s Roles tab, and in the Unit Manager console, names every grant behind what someone can do: the role and where it was granted, the chain of command, leadership, and Unit Instance administration.',
       'A forgotten password or a lost authenticator is now Vantage support’s to reset (Need help? on the sign-in page), because an account can belong to more than one Unit Instance.',

@@ -41,7 +41,7 @@ What the code still had on `main` at `9a5cc9d`:
 | Tier | Stored key | Name shown | What it holds |
 |---|---|---|---|
 | Platform | `owner` | **Lead Vantage Administrator** | Every platform permission, including Vantage staff and backups |
-| Platform | `admin` | **Vantage Administrator** | Unit Instances, platform settings, account support, email, AI, integrity, audit, usage |
+| Platform | `admin` | **Vantage Administrator** | Unit Instances and Unit Manager assignment, platform settings, account support, Vantage access requests, the support queue, email, AI, integrity, audit, usage |
 | Platform | `support` | Vantage Support | Account sign-in help, the support queue, access requests |
 | Platform | `auditor` | Vantage Auditor | The platform audit trail and integrity, read-only |
 | Unit Instance | `owner` | **Lead Unit Manager** | A Unit Manager who also assigns the instance's roles, governs Vantage access, and runs retention, holds and the privacy inventory |
@@ -103,12 +103,18 @@ open and the routes they do not.
     covers removal from the unit page, from the Unit Manager console, and archiving a unit they alone
     belonged to. Each ending is audited as `org_role_ended`.
   - A move between units of the same instance never ends a role.
-  - A **roster separation** leaves the role dormant rather than ending it. The feed restores a person it
-    separated by mistake, with their unit roles, when a later extract lists them again. Their Unit
-    Instance role returns with them, for the same reason.
-- **Who may end someone's role by removing them.** Taking a holder of a Unit Instance role out of their
-  last unit ends that role. So it is a Lead Unit Manager's to do, as it already was in the console
-  (`org.owners`), and never to the instance's last Lead Unit Manager.
+  - A **roster separation** ends it too. The roles it ends are kept in the roster row with the separated
+    memberships, so when a later extract lists the person again the feed restores both, audited as
+    `org_role_restored`, unless a role's end date has passed meanwhile.
+- **Who may end someone's role by removing them.** Taking someone else who holds a Unit Instance role out
+  of their last unit ends that role, so it is a Lead Unit Manager's to do (`org.owners`), as it already
+  was in the console.
+  - The roster feed follows the same rule. An extract run by someone without `org.owners` holds back the
+    separation of a role holder as a conflict, and they stay on the roster, so the next extract raises it
+    again (`holdBackRoleHolders`).
+  - Leaving your own last unit, or archiving it, needs nobody else, because it reduces authority.
+  - No path takes out the instance's last Lead Unit Manager: not removal, leaving, archiving, nor a
+    separation in the feed, which holds it back until another is named.
 - **Counts and notices.** "Last Lead Unit Manager" checks, owner counts, notices and console sign-in count
   only holders who are still members. A Unit Instance whose Lead Unit Managers have all left shows as
   having none, and a Vantage Administrator names a new one (section 5).
@@ -118,15 +124,23 @@ open and the routes they do not.
 **A Unit Manager:**
 
 - never grants, extends or changes their own Unit Instance roles (unchanged);
-- never gives themselves reach into Marines' records through Unit Instance authority. That covers every
-  door:
+- never gives themselves, through Unit Instance authority, unit authority the chain of command has not
+  given them. Reading Marines' records is the case that matters most, but a role that only makes units or
+  manages members is refused too, because making a unit and then leading it reaches the same records.
+  That covers every door:
   - granting themselves a role;
   - naming themselves a unit's leader, or taking leadership by transfer;
   - redeeming their own join code or invitation;
   - widening a role they hold.
 
   This is now refused for **Lead Unit Managers too** (`guardSelfReach`, code `self_grant`). Another Unit
-  Manager, or the unit's chain of command, grants it, and the audit trail shows who did;
+  Manager, or the unit's chain of command, grants it, and the audit trail shows who did. Each check runs
+  before anything is written;
+- never sets a new end date on a unit role they already hold, making an acting billet permanent, unless
+  the chain of command gives them full unit authority in that unit;
+- never links or changes the CAC (EDIPI) of someone else who holds a Unit Instance role. That is a Lead
+  Unit Manager's (`org_permission`), or a Unit Manager could link their own card to a Lead Unit Manager's
+  account and sign in as them;
 - cannot reach platform authority. `/api/platform` refuses anyone without a platform role
   (`not_staff`). Enterprise settings live only there. A Unit Instance's own settings (its name and its
   Vantage-access policy) cannot change them, and the `mcen` profile locks the settings that would
@@ -137,9 +151,11 @@ open and the routes they do not.
 - never grants themselves a platform role (unchanged);
 - never names themselves a Unit Instance's Lead Unit Manager. That holds in the create form, in "name a
   Lead Unit Manager", and in a provisioning manifest (`self_grant`);
-- never founds a Unit Instance by creating a top-level unit in the app. `platform.orgs` no longer skips
-  the self-service switch. Unit Instances are created in the Vantage Administrator console or from a
-  manifest, which gives their creator no role in them;
+- never founds a Unit Instance by creating a top-level unit in the app while self-service is off, which
+  it always is under the `mcen` profile. `platform.orgs` no longer skips that switch, or the per-person
+  limit that goes with it. Unit Instances are created in the Vantage Administrator console or from a
+  manifest, which gives their creator no role in them. Where a legacy deployment turns self-service on,
+  staff may found one as anyone may, and run it as its founder;
 - still holds no unit permission through a platform role. An approved, time-limited, read-only Vantage
   access grant remains the only way in (ADR-0006).
 
@@ -149,15 +165,35 @@ open and the routes they do not.
 - **A Vantage Administrator** (`platform.orgs`) names the first Lead Unit Manager of a Unit Instance that
   has none, never themselves.
   - When the named person is not a member, they are seated in the top unit (start reason
-    `manager_assigned`), so the role confers authority.
+    `manager_assigned`), so the role confers authority. This is the one place staff put an account into
+    a unit without that person accepting; the Unit Instance has nobody else to do it.
   - When nobody leads the top unit, they lead it, as before.
-- **Open question.** The specification lists Unit Manager assignment among the capabilities a Vantage
-  Administrator may hold. Whether a Vantage Administrator should also assign or remove Unit Managers in a
-  running Unit Instance is a governance question for MCEN and John (INFRASTRUCTURE_QUESTIONS I-27). It is
-  not built. Building it would be one more `platform.*` permission and route, with the same rules:
-  never yourself, members only, and the instance's Lead Unit Managers told.
+  - An earlier role row for that person (one whose holder had left, say) is replaced, with no end date.
+- **A Vantage Administrator also assigns Unit Managers in a running Unit Instance** (`platform.managers`,
+  "Unit Manager assignment"). John decided this on 2026-10-08, answering I-27: any time, not only when the
+  instance has no Lead Unit Manager.
+  - They add or remove a Lead Unit Manager or a Unit Manager in any Unit Instance
+    (`POST /api/platform/orgs/:orgId/managers`, `DELETE /api/platform/orgs/:orgId/managers/:userId/:role`,
+    and **Unit Managers** on each Unit Instance in the Vantage Administrator console).
+  - Never themselves (`self_grant`), and only a member of the instance: the platform names who runs a
+    command, it does not add people to one.
+  - Never the last Lead Unit Manager (`last_owner`).
+  - The person and the instance's Lead Unit Managers are told each time. Each step is in the instance's
+    audit trail (`org_role_granted`, `org_role_revoked`) and the platform's (`platform_manager_assigned`,
+    `platform_manager_removed`).
+  - Lead Vantage Administrators and Vantage Administrators hold it; Vantage Support and Vantage Auditors
+    do not.
 
-### 6. A known exception: first-run setup
+### 6. Vantage support on an account is visible to the Unit Instance
+
+Account support (`platform.accounts`) can set a temporary password, reset a second factor, correct an
+EDIPI, and deactivate or reactivate an account. On the account of a Unit Manager, that is enough to sign
+in as them. So each of those steps is written into the audit trail of every Unit Instance the person
+belongs to (`vantage_account_support`), and where they hold a Unit Instance role or lead a unit there,
+its Lead Unit Managers are told. This detects a takeover; it does not prevent one. Requiring a second
+person for these steps on such an account belongs to Task 7.
+
+### 7. A known exception: first-run setup
 
 First-run setup (`POST /api/auth/setup`, with `VANTAGE_SETUP_TOKEN` in production) creates one account
 that is three things at once:
@@ -181,13 +217,38 @@ That is a bootstrap, not a model. [deploy-mcen.md](../../deploy-mcen.md) gives t
   - Vantage staff found Unit Instances only in the Vantage Administrator console or from a manifest.
   - A Vantage Administrator cannot name themselves a Unit Instance's Lead Unit Manager.
   - A Unit Instance role confers nothing while its holder belongs to no unit of the instance, and ends
-    when they leave their last unit (a roster separation excepted).
-  - Removing a Unit Instance role holder from their last unit needs a Lead Unit Manager.
+    when they leave their last unit, a roster separation included; the feed's restore gives it back.
+  - Removing someone else who holds a Unit Instance role from their last unit, directly or through the
+    roster feed, needs a Lead Unit Manager.
+  - A Unit Manager can no longer give themselves a unit role that makes units or manages members, extend
+    a unit role they hold, or link a CAC to another role holder's account.
+  - Vantage Administrators add and remove Unit Managers in any Unit Instance (`platform.managers`).
+  - Vantage support on a role holder's account is recorded in their Unit Instance and told to its Lead
+    Unit Managers.
+  - The per-person limit on self-service Unit Instances now applies to Vantage staff too.
   - Names shown change, as in section 1.
-- **Unchanged:** stored role and permission keys, API paths, audit action names, archive formats, and
-  the unit permission bits.
+- **Unchanged:** stored role and permission keys, existing API paths and audit action names, archive
+  formats, and the unit permission bits. New: the `platform.managers` permission, the two
+  `/api/platform/orgs/:orgId/managers` routes, and the audit actions `org_role_restored`,
+  `platform_manager_assigned`, `platform_manager_removed`, `platform_owner_named` and
+  `vantage_account_support`. The roster row's `removed_units` stays the list it was; the Unit Instance roles a
+  separation ended ride on its first entry (`orgRoles`), so a version from before this change still
+  restores the memberships.
+- **Upgrading.** A Lead Unit Manager made by migration 015's operator fallback who belongs to no unit of
+  the instance holds no authority after this change. Their instance shows as having no Lead Unit
+  Manager, and a Vantage Administrator names one.
+- **Known limits, left for Task 7:**
+  - **A second identity.** A Unit Manager who can create accounts (account import) or seat people
+    (invitations, join codes) can make a second account and grant it what they may not grant
+    themselves. The checks here stop a person, not a person with two accounts. Identity proofing
+    closes it: under MCEN every account signs in with its own CAC.
+  - **Vantage support takeover** is detected (section 6), not prevented.
+  - **Unit leadership is not tied to membership** the way Unit Instance roles are: a unit's leader who
+    leaves it still leads it until leadership is transferred.
+  - A sole Lead Unit Manager who misuses the role cannot be removed by anyone in the instance; a Vantage
+    Administrator names a second and then removes them.
+  - Some of these rules live in routes rather than services, so a new route must call them.
 - **Not done here:**
-  - Vantage Administrators assigning Unit Managers in running instances (I-27).
   - The consoles themselves, which are Tasks 5 and 6.
   - A separation-of-duties view of dual-hatted accounts, which belongs to Task 7.
 
@@ -202,6 +263,10 @@ That is a bootstrap, not a model. [deploy-mcen.md](../../deploy-mcen.md) gives t
   fewer people.
 - **Keeping the owner's self-grant with a notice** (ADR-0006). Rejected. The specification says a Unit
   Manager cannot elevate themselves, and a notice after the grant does not stop the reading.
-- **Ending Unit Instance roles on a roster separation too.** Rejected. A mistaken extract would strip an
-  instance of its Lead Unit Managers, and only the platform could put one back. A dormant role that the
-  feed's own restore brings back is safer. It confers nothing in the meantime.
+- **Leaving a separated holder's Unit Instance role dormant.** The first version of this change did that,
+  so the feed's restore would bring it back. Rejected in review: a dormant role came back whenever the
+  person was seated again by any path, a join code or invitation included, not only the feed's restore.
+  Ending it and keeping it with the separated memberships gives a mistaken extract the same remedy, and
+  holding back the last Lead Unit Manager's separation stops an extract stripping the instance.
+- **Vantage Administrators naming Unit Managers only when an instance has none.** That was this ADR's
+  first proposal (I-27). John chose "any time" on 2026-10-08, with the rules in section 5.

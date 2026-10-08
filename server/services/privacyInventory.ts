@@ -231,19 +231,19 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
   platform_roles: {
     purpose: 'Which accounts are Vantage staff, and in what role.',
     authority: 'Access control for operating the service; every grant and removal is audited.',
-    access: 'Platform owners; a person sees their own.',
+    access: 'Lead Vantage Administrators; a person sees their own.',
     columns: { user_id: 'identifier', role: 'employment', granted_by: 'identifier', created_at: 'technical' },
   },
   org_roles: {
     purpose: 'Who owns, administers, keeps the records of, or audits each Unit Instance, and until when.',
     authority: 'Access control within a Unit Instance; every grant and removal is audited.',
-    access: 'The Unit Instance’s owners; a person sees their own.',
+    access: 'The Unit Instance’s Lead Unit Managers; a person sees their own.',
     columns: { org_id: 'technical', user_id: 'identifier', role: 'employment', granted_by: 'identifier', expires_at: 'technical', created_at: 'technical' },
   },
   access_grants: {
     purpose: 'Each request by Vantage staff to read a Unit Instance’s data: why, for how long, who decided and when it ended.',
     authority: 'Accountability for support access; kept as the evidence that staff saw only what a Unit Instance approved.',
-    access: 'The Unit Instance’s owners; Vantage platform owners and auditors.',
+    access: 'The Unit Instance’s Lead Unit Managers; Lead Vantage Administrators and Vantage Auditors.',
     columns: {
       id: 'technical', org_id: 'technical', staff_user_id: 'identifier', reason: 'technical', minutes: 'none', status: 'none',
       requested_at: 'technical', decided_by: 'identifier', decided_at: 'technical', decision_note: 'technical', starts_at: 'technical',

@@ -86,7 +86,7 @@ cp .env.example .env
 npm run dev          # API on :8787, Vite on :5173
 ```
 
-Open http://localhost:5173, create the owner account and first unit.
+Open http://localhost:5173, create the Lead Vantage Administrator account and first unit.
 
 Scripts:
 
@@ -98,9 +98,9 @@ Scripts:
 | `npm run test:browser` | builds the client and runs the Playwright suite (desktop, phone, axe) |
 | `npm run build` | production client into `dist/` |
 | `npm start` | production server (`node server/index.ts`), serves `dist/` |
-| `VANTAGE_RECOVERY=1 npm run recover-operator -- <username>` | make an account a platform owner and give it a temporary password, from the shell |
+| `VANTAGE_RECOVERY=1 npm run recover-operator -- <username>` | make an account a Lead Vantage Administrator and give it a temporary password, from the shell |
 | `VANTAGE_FACTORY_RESET=1 npm run factory-reset -- ERASE-EVERYTHING` | delete the database; the next start runs first-time setup |
-| `VANTAGE_START_OVER=1 VANTAGE_ADMIN_PASSWORD=… node scripts/start-over.ts ERASE-EVERYTHING --unit … [--roster file]` | erase everything in place, create a platform owner and the first organization, and import a roster; see [operations.md](docs/operations.md#starting-over) |
+| `VANTAGE_START_OVER=1 VANTAGE_ADMIN_PASSWORD=… node scripts/start-over.ts ERASE-EVERYTHING --unit … [--roster file]` | erase everything in place, create a Lead Vantage Administrator and the first Unit Instance, and import a roster; see [operations.md](docs/operations.md#starting-over) |
 
 Requirements: Node 22.18 or newer. No build step for the server; Node runs the TypeScript directly.
 
@@ -108,7 +108,7 @@ Requirements: Node 22.18 or newer. No build step for the server; Node runs the T
 
 Vantage is operated centrally by the Vantage team; commands do not install it. The service at https://www.vantageusmc.com runs on a Render web service (`render.yaml`, `Dockerfile`): one Node 22 process, a persistent volume, and TLS at the edge. It makes no outbound requests with the defaults (AI, the MARADMIN feed and IndexNow are off), and the browser loads nothing from third parties. PostgreSQL is the production target and is not yet implemented (`docs/engineering/ADR/0003-postgresql-migration-path.md`).
 
-A database from before organizations is migrated in place at boot (migration `015_organizations`): each top-level unit becomes an organization, former Instance Operators become platform owners, and each organization's owner is its top unit's leader.
+A database from before organizations is migrated in place at boot (migration `015_organizations`): each top-level unit becomes an organization, former Instance Operators become Lead Vantage Administrators, and each organization's Lead Unit Manager is its top unit's leader.
 
 - [Render deployment](docs/deploy-render.md)
 - [DNS: Namecheap and Cloudflare](docs/dns-namecheap.md)
@@ -128,8 +128,8 @@ Everything is an environment variable. `.env.example` lists them with defaults. 
 | `VANTAGE_SITE_URL`, `VANTAGE_APP_URL`, `VANTAGE_CONSOLE_URL`, `VANTAGE_ADMIN_URL` | Give each its own address instead (for example `www.`, `secure.`, `dev.` and `admin.`): the public page, sign-in and the app, the Unit Manager console, and the Vantage Administrator console. Email links use the app's; the platform API answers only on the Vantage Administrator console's host, an organization's only on the Unit Manager console's. Each falls back to the one before it (the Vantage Administrator console to the console's host, at `/admin`), and the first to `VANTAGE_PUBLIC_URL`. See `docs/deploy-render.md` |
 | `VANTAGE_RP_ID` | The domain passkeys belong to; by default the one the app and console share |
 | `VANTAGE_SECRET` | 32+ random characters; signs tokens, encrypts MFA secrets, chains the audit log |
-| `VANTAGE_SETUP_TOKEN` | 24+ characters; required once, to create the first platform owner and organization |
-| `VANTAGE_PLATFORM_OWNERS` | Comma-separated usernames made platform owners at every start (`VANTAGE_OPERATOR` is the older name) |
+| `VANTAGE_SETUP_TOKEN` | 24+ characters; required once, to create the first Lead Vantage Administrator and Unit Instance |
+| `VANTAGE_PLATFORM_OWNERS` | Comma-separated usernames made Lead Vantage Administrators at every start (`VANTAGE_OPERATOR` is the older name) |
 | `VANTAGE_DB` | SQLite path on the persistent disk |
 | `TRUST_PROXY` | `true` behind Render or any reverse proxy |
 | `VANTAGE_EMAIL_PROVIDER` | `none`, `direct` (send from your own domain with no email service; see `docs/email.md`), `resend`, or `smtp` |

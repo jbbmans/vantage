@@ -105,8 +105,8 @@ export const ORG_ROLE_KEYS = Object.keys(ORG_ROLES) as OrgRole[];
  * The Unit Manager (VANTAGE_CLAUDE_MASTER §9): a unit-scoped administrator of the Unit Instances they are assigned to. Lead
  * Unit Managers and Unit Managers both are; Records Officers and Unit Auditors hold Unit Instance roles but are not.
  */
-export const UNIT_MANAGER_ROLES: readonly OrgRole[] = ['owner', 'admin'];
-export const isUnitManagerRole = (role: string) => (UNIT_MANAGER_ROLES as readonly string[]).includes(role);
+export const UNIT_MANAGER_ROLES = ['owner', 'admin'] as const satisfies readonly OrgRole[];
+export type UnitManagerRole = (typeof UNIT_MANAGER_ROLES)[number];
 
 /**
  * The structural unit permission each Unit Instance permission confers in every unit of that Unit Instance, plus VIEW_UNIT
@@ -131,6 +131,7 @@ export const VANTAGE_ACCESS_BITS = PERMISSIONS.VIEW_UNIT | PERMISSIONS.VIEW_RECO
 export const PLATFORM_PERMISSION_LIST = [
   { key: 'platform.view', label: 'Open the Vantage Administrator console', hint: 'See the service’s health and the Unit Instances on it.' },
   { key: 'platform.orgs', label: 'Unit Instances', hint: 'Create, rename, suspend and restore Unit Instances, and name the first Lead Unit Manager of one that has none, never yourself. Not their data.' },
+  { key: 'platform.managers', label: 'Unit Manager assignment', hint: 'Add and remove Lead Unit Managers and Unit Managers in any Unit Instance, never yourself. Its Lead Unit Managers are told each time. Not its data.' },
   { key: 'platform.settings', label: 'Platform settings', hint: 'The service’s name, sign-in announcement, registration policy and maintenance.' },
   { key: 'platform.accounts', label: 'Account support', hint: 'Find an account and help it sign in: unlock, sign out, temporary password, reset a second factor.' },
   { key: 'platform.staff', label: 'Vantage staff', hint: 'Grant and remove platform roles, never your own.' },
@@ -148,7 +149,7 @@ export type PlatformRole = 'owner' | 'admin' | 'support' | 'auditor';
 const ALL_PLATFORM = PLATFORM_PERMISSION_LIST.map((p) => p.key) as PlatformPermission[];
 export const PLATFORM_ROLES: Record<PlatformRole, { label: string; description: string; permissions: PlatformPermission[] }> = {
   owner: { label: 'Lead Vantage Administrator', description: 'Everything at platform level, including Vantage staff and backups.', permissions: ALL_PLATFORM },
-  admin: { label: 'Vantage Administrator', description: 'Unit Instances, platform settings, account support, email, AI and integrity. Not Vantage staff, not backups.', permissions: ALL_PLATFORM.filter((p) => p !== 'platform.staff' && p !== 'platform.data') },
+  admin: { label: 'Vantage Administrator', description: 'Unit Instances and their Unit Managers, platform settings, account support, email, AI and integrity. Not Vantage staff, not backups.', permissions: ALL_PLATFORM.filter((p) => p !== 'platform.staff' && p !== 'platform.data') },
   support: { label: 'Vantage Support', description: 'Account sign-in help and the support queue; may request access to a Unit Instance.', permissions: ['platform.view', 'platform.accounts', 'platform.access', 'platform.support'] },
   auditor: { label: 'Vantage Auditor', description: 'Reads the platform audit trail and verifies integrity. Changes nothing.', permissions: ['platform.view', 'platform.audit', 'platform.usage'] },
 };
@@ -158,8 +159,7 @@ export const PLATFORM_ROLE_KEYS = Object.keys(PLATFORM_ROLES) as PlatformRole[];
  * The Vantage Administrator (VANTAGE_CLAUDE_MASTER §9): the people who run the platform. Everyone holding a platform role
  * is Vantage staff; Lead Vantage Administrators and Vantage Administrators are its administrators.
  */
-export const VANTAGE_ADMINISTRATOR_ROLES: readonly PlatformRole[] = ['owner', 'admin'];
-export const isVantageAdministratorRole = (role: string) => (VANTAGE_ADMINISTRATOR_ROLES as readonly string[]).includes(role);
+export const VANTAGE_ADMINISTRATOR_ROLES = ['owner', 'admin'] as const satisfies readonly PlatformRole[];
 
 export const orgPermissionsOf = (roles: readonly string[]): OrgPermission[] =>
   [...new Set(roles.flatMap((r) => ORG_ROLES[r as OrgRole]?.permissions ?? []))];

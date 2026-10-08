@@ -54,9 +54,9 @@ panel says where copies go, how many were sent, and warns when there are none.
 
 ## Adding people from a roster
 
-An organization's administrators do this themselves: **Unit Manager console → People → Import accounts** takes an `.xlsx` or `.csv` with a header row. `Username`, `First Name` and `Last Name` are required; `Rank`, `L2 Command` (or `Command`), `Fire Team` (or `Team`, `Unit`, `Section`), `Email`, `Temporary Password`, `Role` and `Billet` are used when present. The file is read and every row is shown first: what will be created, what already exists, and what is skipped and why. Nothing is written until you confirm.
+A Unit Instance's Unit Managers do this themselves: **Unit Manager console → People → Import accounts** takes an `.xlsx` or `.csv` with a header row. `Username`, `First Name` and `Last Name` are required; `Rank`, `L2 Command` (or `Command`), `Fire Team` (or `Team`, `Unit`, `Section`), `Email`, `Temporary Password`, `Role` and `Billet` are used when present. The file is read and every row is shown first: what will be created, what already exists, and what is skipped and why. Nothing is written until you confirm.
 
-- Each command and team is matched to a unit of that organization by name or short name, or created inside it: a command directly under the organization's top unit (or the top unit itself, if the roster names it), a team under its command. New units are governed from above, by the top unit's leader and the organization's administrators. A row that names no unit joins the top unit. Units of other organizations are never matched.
+- Each command and team is matched to a unit of that organization by name or short name, or created inside it: a command directly under the organization's top unit (or the top unit itself, if the roster names it), a team under its command. New units are governed from above, by the top unit's leader and the Unit Instance's Unit Managers. A row that names no unit joins the top unit. Units of other organizations are never matched.
 - Roles are the unit's role names (`Marine`, `NCO`, `Fire Team Leader`, `SNCO`, `SNCOIC`). Unit Leader goes with ownership and cannot be imported.
 - Every account starts on its temporary password and must choose its own at first sign-in. A row with no temporary password gets one, shown once after the import with a download.
 - A username that already exists is left as it is (it may belong to someone in another organization), so the same roster can be imported again safely. Invite that person with a join code instead.
@@ -65,7 +65,7 @@ The roster holds names, email addresses and passwords. Keep it out of the reposi
 
 ## Starting over
 
-`scripts/start-over.ts` erases every account, unit and record, creates the owner account and its first unit, and optionally imports a roster, in one run. It first saves a copy of the database beside it (`/data/vantage-before-start-over-<time>.db`). It empties the tables in place, so the running server carries on without a restart, and everyone who was signed in is signed out.
+`scripts/start-over.ts` erases every account, unit and record, creates the Lead Vantage Administrator account and its first unit, and optionally imports a roster, in one run. It first saves a copy of the database beside it (`/data/vantage-before-start-over-<time>.db`). It empties the tables in place, so the running server carries on without a restart, and everyone who was signed in is signed out.
 
 On Render, open the `vantage` service → **Shell**:
 
@@ -80,7 +80,7 @@ VANTAGE_START_OVER=1 VANTAGE_ADMIN_PASSWORD='<owner password>' node scripts/star
 rm /tmp/roster.csv
 ```
 
-The new account is `vantage.admin` (`--admin` to change it), named Vantage Admin (`--first`, `--last`): a platform owner, and owner and leader of the first organization. Name the unit what the roster calls its command, so the import files people under it. Nothing is erased if the password is too weak, the arguments are wrong, or the roster cannot be read. Once the new setup is confirmed, delete the backup: `rm /data/vantage-before-start-over-*.db`.
+The new account is `vantage.admin` (`--admin` to change it), named Vantage Admin (`--first`, `--last`): a Lead Vantage Administrator, and Lead Unit Manager and leader of the first Unit Instance. Name the unit what the roster calls its command, so the import files people under it. Nothing is erased if the password is too weak, the arguments are wrong, or the roster cannot be read. Once the new setup is confirmed, delete the backup: `rm /data/vantage-before-start-over-*.db`.
 
 Without a shell, the same result takes three steps: `VANTAGE_FACTORY_RESET=1 node scripts/factory-reset.ts ERASE-EVERYTHING` and **Manual Deploy → Restart service**; first-run setup on the site, which asks for the **Deployment setup token** (Render → Environment → `VANTAGE_SETUP_TOKEN`); then **Import accounts** as above.
 
@@ -91,7 +91,7 @@ Without a shell, the same result takes three steps: `VANTAGE_FACTORY_RESET=1 nod
 
 ## Lost phone
 
-Anyone can clear their own after signing in with a recovery code. Otherwise it is Vantage support's: **Vantage Administrator console → Accounts → Reset 2FA** removes the authenticator, recovery codes and passkeys, signs the person out everywhere, and tells them. Then **Temp password** if the password is lost too. An account can belong to more than one organization, so an organization's owners can unlock and sign out their members but not reset their credentials. A platform owner's own account is recovered only by another platform owner.
+Anyone can clear their own after signing in with a recovery code. Otherwise it is Vantage support's: **Vantage Administrator console → Accounts → Reset 2FA** removes the authenticator, recovery codes and passkeys, signs the person out everywhere, and tells them. Then **Temp password** if the password is lost too. An account can belong to more than one organization, so a Unit Instance's Unit Managers can unlock and sign out their members but not reset their credentials. Each step Vantage support takes on an account is written into the audit trail of every Unit Instance the person serves in, and where they hold a Unit Instance role or lead a unit, its Lead Unit Managers are told. A Vantage staff member's own account is recovered only by a Lead Vantage Administrator.
 
 ## Maintenance mode
 
@@ -99,7 +99,7 @@ Anyone can clear their own after signing in with a recovery code. Otherwise it i
 
 ## Vantage access to an organization
 
-Staff never see inside an organization by holding a platform role. **Vantage Administrator console → Organizations → Ask for access** (or Vantage access) names the reason and the length (four hours by default, never more than a day). The organization's owners approve or deny it in **Unit Manager console → Vantage access**; an organization can instead choose to be told rather than asked. Access is read-only, covers its units and the work shared with them (never member detail or private entries), ends on its own or when an owner ends it, and every step is in both the organization's audit trail and the platform's. A request nobody answers lapses after a day.
+Staff never see inside an organization by holding a platform role. **Vantage Administrator console → Organizations → Ask for access** (or Vantage access) names the reason and the length (four hours by default, never more than a day). Its Lead Unit Managers approve or deny it in **Unit Manager console → Vantage access**; a Unit Instance can instead choose to be told rather than asked. Access is read-only, covers its units and the work shared with them (never member detail or private entries), ends on its own or when a Lead Unit Manager ends it, and every step is in both the organization's audit trail and the platform's. A request nobody answers lapses after a day.
 
 ## Upgrading from Vantage 4
 

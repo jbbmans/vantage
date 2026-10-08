@@ -1,6 +1,7 @@
 import { clearDrafts } from './drafts.ts';
 import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
 import type { MemberDetailResponse, OrgResponse, RecordRows, RolesResponse, TeamResponse } from '../../shared/types';
+import type { UnitManagerRole } from '../../shared/permissions';
 
 let sessionState: 'none' | 'unknown' | 'active' = (() => {
   try { return document.cookie.includes('vantage_signed_in=') ? 'unknown' : 'none'; } catch { return 'unknown'; }
@@ -261,6 +262,8 @@ export const platformCreateOrg = (body: unknown) => api.post('/platform/orgs', b
 export const platformUpdateOrg = (orgId: string, body: unknown) => api.patch(`/platform/orgs/${enc(orgId)}`, body);
 export const platformOrgStatus = (orgId: string, status: string, reason?: string) => api.post(`/platform/orgs/${enc(orgId)}/status`, { status, reason });
 export const platformNameOwner = (orgId: string, userId: string) => api.post(`/platform/orgs/${enc(orgId)}/owner`, { user_id: userId });
+export const platformAssignManager = (orgId: string, userId: string, role: UnitManagerRole) => api.post(`/platform/orgs/${enc(orgId)}/managers`, { user_id: userId, role });
+export const platformRemoveManager = (orgId: string, userId: string, role: UnitManagerRole) => api.del(`/platform/orgs/${enc(orgId)}/managers/${enc(userId)}/${role}`);
 export const platformAccounts = (q = '', filter = '') => api.get(`/platform/accounts?${qs({ q, filter })}`);
 export const platformAccountAction = (userId: string, action: 'unlock' | 'logout' | 'temporary-password' | 'reset-mfa' | 'deactivate' | 'reactivate', body: unknown = {}) =>
   api.post(`/platform/accounts/${enc(userId)}/${action}`, body);

@@ -1,5 +1,5 @@
 import type { AppContext, SessionUser } from '../context.ts';
-import { ORG_ROLES, ORG_ROLE_KEYS, PERMISSIONS, listPermissions, type OrgRole } from '../../shared/permissions.ts';
+import { ORG_ROLES, ORG_ROLE_KEYS, PERMISSIONS, listPermissions, type OrgRole, type UnitManagerRole } from '../../shared/permissions.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { now, slug } from '../lib/ids.ts';
 import { audit } from './audit.ts';
@@ -209,8 +209,41 @@ export function nameFirstOwner(ctx: AppContext, actor: Pick<SessionUser, 'id'>, 
   })();
   invalidateUserSessions(ctx, userId);
   audit(ctx, { actor_id: actor.id, action: 'org_owner_named', entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: userId, ip });
+  audit(ctx, { actor_id: actor.id, action: 'platform_owner_named', entity: 'organization', entity_id: orgId, subject_id: userId, detail: org.name, ip });
   notify(ctx, userId, { kind: 'unit', title: `You are Lead Unit Manager of ${org.name} on Vantage`, message: 'A Vantage Administrator named you because it had none. Sign in again and open the Unit Manager console.', actionUrl: '/console' });
   return orgRoleHolders(ctx, orgId);
+}
+
+/**
+ * A Vantage Administrator adds a Lead Unit Manager or Unit Manager to any Unit Instance at any time, never themselves
+ * (John, 2026-10-08; ADR-0010 §5). Only a member of the Unit Instance is assigned: the platform names who runs a command,
+ * it does not add people to one. The instance's Lead Unit Managers are told, and the step is in both audit trails.
+ */
+export function assignManager(ctx: AppContext, actor: SessionUser, orgId: string, input: { user_id: string; role: UnitManagerRole }, ip?: string) {
+  const org = getOrg(ctx, orgId);
+  if (!org) throw notFound('No such Unit Instance.');
+  if (input.user_id === actor.id) throw forbidden('A Vantage Administrator never assigns themselves a Unit Instance role. Another one, or its Lead Unit Managers, does.', 'self_grant');
+  const roles = grantOrgRole(ctx, actor, orgId, { user_id: input.user_id, role: input.role }, ip);
+  audit(ctx, { actor_id: actor.id, action: 'platform_manager_assigned', entity: 'organization', entity_id: orgId, subject_id: input.user_id, detail: `${org.name}: ${ORG_ROLES[input.role].label}`, ip });
+  return roles;
+}
+
+/**
+ * A Vantage Administrator removes a Lead Unit Manager or Unit Manager from any Unit Instance, never themselves, and never
+ * its last Lead Unit Manager. The person and the instance's Lead Unit Managers are told; the step is in both audit trails.
+ */
+export function removeManager(ctx: AppContext, actor: SessionUser, orgId: string, userId: string, role: UnitManagerRole, ip?: string) {
+  const org = getOrg(ctx, orgId);
+  if (!org) throw notFound('No such Unit Instance.');
+  if (userId === actor.id) throw forbidden('A Vantage Administrator never changes their own Unit Instance roles from the Vantage Administrator console.', 'self_grant');
+  const person = ctx.db.prepare('SELECT first_name, last_name FROM users WHERE id = ?').get(userId) as { first_name: string; last_name: string } | undefined;
+  if (!person) throw notFound('No such account.');
+  const roles = revokeOrgRole(ctx, actor, orgId, userId, role, ip);
+  const label = ORG_ROLES[role].label;
+  audit(ctx, { actor_id: actor.id, action: 'platform_manager_removed', entity: 'organization', entity_id: orgId, subject_id: userId, detail: `${org.name}: ${label}`, ip });
+  notify(ctx, userId, { kind: 'unit', title: `You are no longer ${label} of ${org.name}`, message: 'A Vantage Administrator removed the role. Ask your Lead Unit Manager if you did not expect this.', actionUrl: '/settings' });
+  notifyOrg(ctx, orgId, 'org.owners', { kind: 'system', title: `${person.first_name} ${person.last_name} is no longer ${label}`, message: `Removed by Vantage (${actor.first_name} ${actor.last_name}).`, actionUrl: '/console/people' }, userId);
+  return roles;
 }
 
 export function orgMembers(ctx: AppContext, orgId: string, q = '') {
@@ -255,8 +288,8 @@ export function removeFromOrg(ctx: AppContext, actor: SessionUser, orgId: string
   if (!units.length) throw notFound('They are not a member of this Unit Instance.');
   let claimsReleased = 0;
   ctx.db.transaction(() => {
+    // Leaving the last of them ends their Unit Instance roles, recorded as org_role_ended (ADR-0010).
     for (const u of units) claimsReleased += removeMember(ctx, userId, u.unit_id, actor.id, 'removed_from_instance').claimsReleased;
-    ctx.db.prepare('DELETE FROM org_roles WHERE org_id = ? AND user_id = ?').run(orgId, userId);
   })();
   const sessionsRevoked = invalidateUserSessions(ctx, userId);
   audit(ctx, { actor_id: actor.id, action: 'removed_from_organization', entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: userId, detail: `${units.length} units; ${claimsReleased} claims released`, ip });

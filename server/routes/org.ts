@@ -3,8 +3,8 @@ import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
-import { scopeFor, can, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross, sameInstance, orgOfUnit } from '../authz/scope.ts';
-import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, primaryOrgOf, setPrimaryUnit, type RoleRow } from '../services/org.ts';
+import { scopeFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross, sameInstance, orgOfUnit } from '../authz/scope.ts';
+import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, chainBits, primaryOrgOf, setPrimaryUnit, type RoleRow } from '../services/org.ts';
 import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
@@ -341,8 +341,10 @@ orgRouter.post('/team/:userId/roles', wrap((req, res) => {
   const userId = String(req.params.userId);
   const role = ctx.db.prepare('SELECT * FROM roles WHERE id = ?').get(role_id) as RoleRow | undefined;
   validateRoleGrant(ctx, req.user, scope, role, unit_id, userId);
-  // Whatever authority it is granted under, a role that reads records is never the granter's own way in (ADR-0010).
-  guardSelfReach(ctx, req.user, scope, unit_id, role!.permissions, userId, `Granting yourself ${role!.name}`);
+  // validateRoleGrant refuses granting yourself authority the chain of command has not given you (ADR-0010). Nor is a new end date on a role you hold: making your own acting billet permanent is another person's call.
+  if (userId === req.user.id && !has(chainBits(scope, unit_id), PERMISSIONS.ADMINISTRATOR) && ctx.db.prepare('SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = ?').get(userId, role_id)) {
+    throw forbidden(`You already hold ${role!.name}. Another Unit Manager, or the unit’s chain of command, changes its end date.`, 'self_grant');
+  }
   // Until a date: an acting billet, a leave period. An expired grant confers nothing; the sweep removes it.
   const until = expires_at ? new Date(expires_at) : null;
   if (until && (Number.isNaN(until.getTime()) || until.getTime() <= Date.now())) throw badRequest('An end date must be in the future.', { fieldErrors: { expires_at: 'Must be in the future.' } });

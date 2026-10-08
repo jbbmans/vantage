@@ -83,7 +83,7 @@ export function caseIntegrity(ctx: AppContext, itemId: string, rows?: SealableEv
   return { status: 'verified', count: events.length };
 }
 
-/** Every case's chain, for the Unit Manager console. Every case is checked: a limit would leave the rest unexamined and still report ok. */
+/** Every case's chain, for the Vantage Administrator console's integrity check. Every case is checked: a limit would leave the rest unexamined and still report ok. */
 export function verifyAllCases(ctx: AppContext): { ok: boolean; checked: number; broken: Array<{ work_item_id: string; reason?: string }>; unsealed: number } {
   // Seals and heads without events are cases too: removing every entry of a history must not make it disappear from the check.
   const ids = (ctx.db.prepare('SELECT work_item_id AS id FROM work_events UNION SELECT work_item_id FROM work_event_seals UNION SELECT work_item_id FROM work_event_heads').all() as Array<{ id: string }>).map((r) => r.id);

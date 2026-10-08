@@ -81,7 +81,7 @@ export const HELP: HelpSection[] = [
         id: 'who-can-see',
         q: 'Who can see my records?',
         a: [
-          'Every record is private by default. Only you can see it. Leaders, unit owners, your Unit Instance’s owners and Vantage staff cannot read a private entry through the application.',
+          'Every record is private by default. Only you can see it. Leaders, Unit Managers and Vantage staff cannot read a private entry through the application.',
           'Marking a record "shared with unit" makes it visible to members of that unit who hold a role carrying the View shared records permission, and feeds the unit dashboard.',
           'Every time a leader opens your record the access is written to an audit log you can read yourself under Settings → Security. You do not have to ask anyone what they looked at.',
         ],
@@ -307,7 +307,7 @@ export const HELP: HelpSection[] = [
   {
     id: 'deployment',
     title: 'Running a deployment',
-    lede: 'For the owner: configuration, governance and scale.',
+    lede: 'For Vantage Administrators and Unit Managers: configuration, governance and scale.',
     topic: 'admin',
     answers: [
       {
@@ -359,7 +359,7 @@ export const HELP: HelpSection[] = [
         id: 'cac',
         q: 'Can people sign in with a CAC?',
         a: [
-          'Yes, and it is off until the owner turns it on, because it needs mTLS terminated in front of the application.',
+          'Yes, and it is off until Vantage staff turn it on, because it needs mTLS terminated in front of the application.',
           'Identity comes from the certificate with EDIPI as the only join key — no name matching, because two Marines share a name and nobody shares a DoD ID.',
         ],
         also: ['piv', 'smart card', 'certificate', 'edipi'],
@@ -368,7 +368,7 @@ export const HELP: HelpSection[] = [
         id: 'ai',
         q: 'Is the AI on, and where does the text go?',
         a: [
-          'It is off unless the owner enables it, and it runs against the GenAI.mil gateway rather than a commercial provider.',
+          'It is off unless Vantage staff enable it, and it runs against the GenAI.mil gateway rather than a commercial provider.',
           'Nothing generated is authoritative. It drafts; a person reviews and decides. Where AI is offered it sits on the page you are already working on rather than in a destination of its own.',
         ],
         also: ['genai', 'assist', 'llm'],

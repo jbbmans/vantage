@@ -125,7 +125,7 @@ export function People({ org }: { org: OrgSummary }) {
                     <td><Badge tone={h.role === 'owner' ? 'accent' : 'neutral'}>{roles.data!.catalog.roles[h.role].label}</Badge></td>
                     <td className="text-xs text-ink-2">{h.expires_at ? <span className="inline-flex items-center gap-1"><CalendarClock className="h-3 w-3" />{new Date(h.expires_at).toLocaleDateString()}</span> : 'No end date'}</td>
                     <td className="text-xs text-ink-3">{h.granted_by_name || 'Vantage'} · {timeAgo(h.created_at)}</td>
-                    <td className="text-right">{can('org.owners') && h.user_id !== identity?.user.id && <Button size="xs" variant="ghost" onClick={() => setRevoke(h)}>Remove</Button>}</td>
+                    <td className="text-right">{can('org.owners') && <Button size="xs" variant="ghost" onClick={() => setRevoke(h)}>Remove</Button>}</td>
                   </tr>
                 ))}
               </Table>

@@ -35,7 +35,7 @@ test('the demo opens on Today with no sign-in form and one clear synthetic indic
 test('the demo has no Unit Manager console, but its entry shows what a Unit Manager governs and the live data inventory', async ({ page }) => {
   await page.goto('/');
   await page.getByRole('link', { name: 'Unit Manager console' }).click();
-  await expect(page.getByRole('heading', { name: 'What a Unit Manager governs' })).toBeVisible();
+  await expect(page.getByRole('heading', { name: 'How a Unit Instance is governed' })).toBeVisible();
   await expect(page.getByText('Retention and legal holds')).toBeVisible();
   await expect(page.getByText('Data inventory', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Export for the PIA/ })).toHaveCount(0);
