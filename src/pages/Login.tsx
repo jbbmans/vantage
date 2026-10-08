@@ -42,6 +42,8 @@ interface Status {
   displayName: string;
   announcement: string;
   maintenance: boolean;
+  /** What everyone is told while maintenance is on, and when it should end (ADR-0011). Older servers do not send it. */
+  maintenanceNotice?: { message: string; until: string | null } | null;
   /** A notice the person must accept before any sign-in, such as the DoD Notice and Consent Banner. */
   consent?: string | null;
 }
@@ -356,7 +358,7 @@ export default function Login({ serverError, onRetry, variant = 'app' }: { serve
 
             {status?.announcement && <div className="auth-notice accent">{status.announcement}</div>}
             {owners && status?.needsSetup && <div className="auth-notice accent">Vantage is not set up yet. <a className="link" href={appHref('/setup')}>Set it up in the app</a>, then come back here.</div>}
-            {status?.maintenance && <div className="auth-notice warn">Vantage is in maintenance. Only Vantage staff can sign in right now.</div>}
+            {status?.maintenance && <div className="auth-notice warn">{status.maintenanceNotice?.message ?? 'Vantage is in maintenance.'} Only Vantage staff can sign in right now.</div>}
             {(serverError || statusError) && (
               <div className="auth-notice error">
                 <WifiOff /><span>{serverError || statusError}</span>

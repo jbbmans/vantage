@@ -246,7 +246,15 @@ const enc = encodeURIComponent;
 export const platformMe = () => api.get('/platform/me');
 export const platformOverview = () => api.get('/platform/overview');
 export const platformRuntime = (patch: unknown) => api.put('/platform/runtime', patch);
-export const platformMaintenance = (enabled: boolean) => api.post('/platform/maintenance', { enabled });
+/** Controlled maintenance (ADR-0011): starting takes a reason for the audit trail; ending may leave a note. */
+export type MaintenanceRequest = { enabled: true; reason: string; message?: string | null; until?: string | null } | { enabled: false; note?: string | null };
+export const platformMaintenance = (body: MaintenanceRequest) => api.post('/platform/maintenance', body);
+export const platformMaintenanceState = () => api.get('/platform/maintenance');
+export const platformMaintenanceTask = (task: string) => api.post(`/platform/maintenance/tasks/${encodeURIComponent(task)}`);
+export const platformOperations = () => api.get('/platform/operations');
+export const platformSignInHealth = () => api.get('/platform/sign-in-health');
+export const platformOidcCheck = () => api.post('/platform/sign-in-health/oidc-check');
+export const platformFlags = () => api.get('/platform/flags');
 export const platformAi = () => api.get('/platform/ai');
 export const platformAiDiscover = () => api.post('/platform/ai/discover');
 export const platformAiUnlock = () => api.post('/platform/ai/unlock');
@@ -276,7 +284,10 @@ export const platformRevokeStaff = (userId: string, role: string) => api.del(`/p
 export const platformAccess = (status = '') => api.get(`/platform/access?${qs({ status })}`);
 export const platformRequestAccess = (body: { org_id: string; reason: string; minutes?: number }) => api.post('/platform/access', body);
 export const platformEndAccess = (id: string) => api.post(`/platform/access/${enc(id)}/end`);
-export const platformAudit = (limit = 300) => api.get(`/platform/audit?limit=${limit}`);
+export interface PlatformAuditFilter { q?: string; action?: string; from?: string; to?: string; before?: number | null; limit?: number }
+export const platformAudit = (filter: PlatformAuditFilter = {}) => api.get(`/platform/audit?${qs({ ...filter })}`);
+/** The filtered platform trail as a file; the server records the download. */
+export const platformAuditExportUrl = (filter: Omit<PlatformAuditFilter, 'before' | 'limit'>, format: 'csv' | 'json') => `/api/platform/audit/export?${qs({ ...filter, format })}`;
 export const platformUsage = (params: Record<string, string | number | undefined | null>) => api.get(`/platform/usage?${qs(params)}`);
 export const platformPrivacyInventory = () => api.get('/platform/privacy/inventory');
 export const platformHolds = () => api.get('/platform/holds');

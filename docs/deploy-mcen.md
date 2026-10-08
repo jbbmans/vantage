@@ -124,7 +124,16 @@ Adding a unit never needs a source change.
 ## Backups and recovery
 
 - **Back up on the host.** Run `npm run backup` (a consistent copy of the database, attachments
-  included) and keep copies where the enterprise keeps backups (I-09).
+  included) and keep copies where the enterprise keeps backups (I-09). Each run is recorded, and the
+  Vantage Administrator console (**Operations → Backups**) says when the last one was taken. Set
+  `VANTAGE_BACKUP_MAX_AGE_HOURS` to the enterprise's backup interval (default 168). A snapshot the host
+  takes on its own is not seen by Vantage (I-28).
+- **Before a restore or an upgrade**, start maintenance in the Vantage Administrator console
+  (**Maintenance**) with a reason, such as the change record's number (I-29), and an expected end.
+  Everyone else sees the message until a Vantage Administrator ends it.
+- **Health.** `/api/health` is for the platform's probe. The Vantage Administrator console's
+  **Operations** page is the full report, including revocation lists and CAs nearing expiry
+  (**Sign-in health**).
 - **Moving or restoring the whole service.** Use the service archive. See
   [operations.md](operations.md#moving-the-service-to-another-host).
 

@@ -17,7 +17,7 @@ import { auditForwardingStatus } from '../services/auditSink.ts';
 import { aiStatus, discoverModels, unlockAi } from '../services/ai.ts';
 import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { exportInstance, importInstance } from '../services/exports.ts';
-import { metaSet, SCHEMA_VERSION } from '../db/index.ts';
+import { SCHEMA_VERSION } from '../db/index.ts';
 import { VERSION } from '../version.ts';
 import { newId, now } from '../lib/ids.ts';
 import { zonedDay } from '../lib/clock.ts';
@@ -39,6 +39,13 @@ import { accessForPlatform, endAccess, requestAccess, ACCESS_DEFAULT_MINUTES, AC
 import { platformRolesOf } from '../authz/platform.ts';
 import { seatedOrgRole } from '../authz/scope.ts';
 import { assertRuntimePatchAllowed, deploymentPosture } from '../services/deployment.ts';
+import { backupStatus, healthReport, jobStatus, migrationStatus, versionStatus } from '../services/operations.ts';
+import { endMaintenance, maintenanceState, runMaintenanceTask, startMaintenance } from '../services/maintenance.ts';
+import { featureFlags } from '../services/featureFlags.ts';
+import { signInHealth } from '../services/signInHealth.ts';
+import { probeProvider } from '../auth/oidc.ts';
+import { recordBackup } from '../services/backupLog.ts';
+import { rowsToCsv } from '../../shared/csv.ts';
 
 /**
  * The Vantage Administrator console's API (ADR-0006, ADR-0010): the service, for Vantage staff. Unit Instances appear
@@ -61,6 +68,8 @@ platformRouter.get('/overview', requirePlatform('platform.view'), wrap((req, res
   const count = (sql: string) => (db.prepare(sql).get() as { n: number }).n;
   let sizeBytes: number | null = null;
   try { sizeBytes = db.name === ':memory:' ? null : statSync(db.name).size; } catch {}
+  const chain = verifyAuditChain(req.ctx);
+  const health = healthReport(req.ctx, Date.now(), { chain });
   res.json({
     version: VERSION, schemaVersion: SCHEMA_VERSION, uptime: Math.round(process.uptime()), node: process.version,
     organizations: {
@@ -81,16 +90,50 @@ platformRouter.get('/overview', requirePlatform('platform.view'), wrap((req, res
     },
     support: { open: count("SELECT COUNT(*) AS n FROM support_tickets WHERE state NOT IN ('resolved', 'closed') AND unit_id IS NULL AND deleted_at IS NULL") },
     database: { sizeBytes, maxBytes: req.ctx.config.limits.maxDatabaseBytes },
-    email: { provider: req.ctx.mailer.provider, enabled: req.ctx.mailer.enabled, from: req.ctx.config.email.from, recent: db.prepare('SELECT to_address, kind, status, error, created_at FROM email_log ORDER BY created_at DESC LIMIT 10').all() },
+    // Who was written to is for those who run email; everyone else sees the provider only.
+    email: { provider: req.ctx.mailer.provider, enabled: req.ctx.mailer.enabled, from: req.ctx.config.email.from, recent: req.user.platformPermissions.includes('platform.email') ? db.prepare('SELECT to_address, kind, status, error, created_at FROM email_log ORDER BY created_at DESC LIMIT 10').all() : [] },
     maradmins: maradminSyncState(req.ctx),
     runtime: req.ctx.runtime,
     urls: req.ctx.config.urls, rpId: req.ctx.config.rpId, timezone: req.ctx.config.timezone,
-    audit: verifyAuditChain(req.ctx),
+    audit: chain,
     auditForwarding: auditForwardingStatus(req.ctx),
     browserBackups: req.ctx.config.security.browserBackups,
     deployment: deploymentPosture(req.ctx),
+    health: { status: health.status, checkedAt: health.checkedAt, attention: health.checks.filter((c) => c.status === 'warn' || c.status === 'fail') },
+    build: versionStatus(req.ctx).build,
   });
 }));
+
+// ——— Operations: the service's health, build, schema, backups and scheduled jobs (ADR-0011) ———
+
+platformRouter.get('/operations', requirePlatform('platform.view'), wrap((req, res) => {
+  const ctx = req.ctx;
+  const backups = backupStatus(ctx);
+  // Which Lead Vantage Administrator took each backup is for those who hold the backups or read the audit trail.
+  const named = req.user.platformPermissions.includes('platform.data') || req.user.platformPermissions.includes('platform.audit');
+  const anonymous = <T extends { by: string | null }>(b: T): T => (named ? b : { ...b, by: null });
+  res.json({
+    health: healthReport(ctx),
+    version: versionStatus(ctx),
+    schema: migrationStatus(ctx),
+    backups: { ...backups, last: backups.last && anonymous(backups.last), history: backups.history.map(anonymous) },
+    jobs: jobStatus(ctx),
+  });
+}));
+
+platformRouter.get('/sign-in-health', requirePlatform('platform.view'), wrap((req, res) => res.json(signInHealth(req.ctx))));
+
+/** Reaches the configured identity provider the way a sign-in would, on demand. */
+platformRouter.post('/sign-in-health/oidc-check', requirePlatform('platform.view'), wrap(async (req, res) => {
+  const ctx = req.ctx;
+  if (!ctx.config.oidc.enabled) throw badRequest('Organization sign-in is not configured here.', { code: 'oidc_off' });
+  let result: { ok: boolean; issuer?: string; authorizationHost?: string; keys?: number; error?: string };
+  try { result = { ok: true, ...(await probeProvider(ctx)) }; } catch (error) { result = { ok: false, error: String((error as Error).message).slice(0, 300) }; }
+  audit(ctx, { actor_id: req.user.id, action: 'oidc_checked', entity: 'platform', detail: result.ok ? `reached; ${result.keys} signing keys` : `failed: ${result.error}`, ip: ip(req) });
+  res.json({ ...result, checkedAt: now() });
+}));
+
+platformRouter.get('/flags', requirePlatform('platform.view'), wrap((req, res) => res.json(featureFlags(req.ctx))));
 
 // ——— Platform settings ———
 
@@ -104,7 +147,6 @@ const runtimeSchema = z.object({
   aiDefaultModel: z.string().max(100).optional(),
   attachmentsEnabled: z.boolean().optional(),
   maradminsEnabled: z.boolean().optional(),
-  maintenance: z.boolean().optional(),
   selfServiceUnits: z.boolean().optional(),
   selfServiceUnitLimit: z.coerce.number().int().min(0).max(100).optional(),
   metrics: z.object({
@@ -116,10 +158,24 @@ const runtimeSchema = z.object({
   }).optional(),
 });
 
+/** A settings change as the audit trail keeps it: each switch or short value before and after, the rest by name. */
+function describeChange(before: Record<string, unknown>, patch: Record<string, unknown>): string {
+  const shown = (v: unknown) => (typeof v === 'string' ? JSON.stringify(v.length > 40 ? `${v.slice(0, 40)}…` : v) : String(v));
+  return Object.keys(patch).map((key) => {
+    const was = before[key];
+    const after = patch[key];
+    const scalar = (v: unknown) => typeof v === 'boolean' || typeof v === 'number' || typeof v === 'string';
+    return scalar(was) && scalar(after) ? `${key}: ${shown(was)} → ${shown(after)}` : key;
+  }).join(', ');
+}
+
 platformRouter.put('/runtime', requirePlatform('platform.settings'), wrap((req, res) => {
   const ctx = req.ctx;
+  // Maintenance has its own controls, with a reason and its own permission (ADR-0011).
+  if (req.body && typeof req.body === 'object' && 'maintenance' in req.body) throw badRequest('Start and end maintenance from the Maintenance page.', { code: 'use_maintenance' });
   const patch = parse(runtimeSchema, req.body);
   assertRuntimePatchAllowed(ctx.config, patch);
+  const before = { ...ctx.runtime } as unknown as Record<string, unknown>;
   const { metrics, ...rest } = patch;
   Object.assign(ctx.runtime, Object.fromEntries(Object.entries(rest).filter(([, v]) => v !== undefined)));
   if (metrics) {
@@ -134,15 +190,32 @@ platformRouter.put('/runtime', requirePlatform('platform.settings'), wrap((req, 
   if (!ctx.runtime.aiModels.length) ctx.runtime.aiModels = [...ctx.config.ai.models];
   if (!ctx.runtime.aiModels.includes(ctx.runtime.aiDefaultModel)) ctx.runtime.aiDefaultModel = ctx.runtime.aiModels[0];
   ctx.saveRuntime();
-  audit(ctx, { actor_id: req.user.id, action: 'edit_configuration', entity: 'platform', detail: Object.keys(patch).join(', '), ip: ip(req) });
+  audit(ctx, { actor_id: req.user.id, action: 'edit_configuration', entity: 'platform', detail: describeChange(before, patch), ip: ip(req) });
   res.json(ctx.runtime);
 }));
 
-platformRouter.post('/maintenance', requirePlatform('platform.settings'), wrap((req, res) => {
-  req.ctx.runtime.maintenance = Boolean(req.body?.enabled);
-  req.ctx.saveRuntime();
-  audit(req.ctx, { actor_id: req.user.id, action: req.ctx.runtime.maintenance ? 'maintenance_on' : 'maintenance_off', entity: 'platform', ip: ip(req) });
-  res.json({ maintenance: req.ctx.runtime.maintenance });
+// ——— Controlled maintenance (ADR-0011) ———
+
+platformRouter.get('/maintenance', requirePlatform('platform.view'), wrap((req, res) => res.json(maintenanceState(req.ctx))));
+
+const maintenanceBody = z.object({
+  enabled: z.boolean(),
+  reason: z.string().max(300).optional(),
+  message: z.string().max(240).nullish(),
+  until: z.string().max(40).nullish(),
+  note: z.string().max(300).nullish(),
+});
+platformRouter.post('/maintenance', requirePlatform('platform.maintenance'), wrap((req, res) => {
+  const body = parse(maintenanceBody, req.body);
+  if (body.enabled) {
+    if (!body.reason?.trim()) throw badRequest('Say why the service is closing. It goes in the audit trail.', { fieldErrors: { reason: 'Required.' } });
+    startMaintenance(req.ctx, req.user, { reason: body.reason, message: body.message, until: body.until }, ip(req));
+  } else endMaintenance(req.ctx, req.user, body.note ?? null, ip(req));
+  res.json({ ...maintenanceState(req.ctx) });
+}));
+
+platformRouter.post('/maintenance/tasks/:task', requirePlatform('platform.maintenance'), wrap((req, res) => {
+  res.json(runMaintenanceTask(req.ctx, req.user, String(req.params.task), ip(req)));
 }));
 
 platformRouter.get('/ai', requirePlatform('platform.ai'), wrap((req, res) => res.json(aiStatus(req.ctx, { operator: true, userId: req.user.id }))));
@@ -457,13 +530,62 @@ platformRouter.post('/access/:id/end', requirePlatform('platform.access'), wrap(
  * The platform's own trail: what Vantage staff did, sign-ins, and every access request. An organization's internal
  * actions (its units, its roles, its records) stay in its own trail.
  */
-platformRouter.get('/audit', requirePlatform('platform.audit'), wrap((req, res) => {
-  const limit = Math.min(Math.max(Number(req.query.limit) || 200, 1), 1000);
-  const action = String(req.query.action || '').slice(0, 60);
-  const rows = req.ctx.db.prepare(`SELECT al.*, u.username AS actor_username, s.username AS subject_username FROM audit_log al
+const auditQuery = z.object({
+  q: z.string().trim().max(80).optional(),
+  action: z.string().trim().max(60).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date: YYYY-MM-DD.').optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date: YYYY-MM-DD.').optional(),
+  before: z.coerce.number().int().positive().optional(),
+  limit: z.coerce.number().int().min(1).max(1000).optional(),
+});
+
+/** The platform trail's rows for a filter: newest first, from before `before` when paging back. Dates are UTC days. */
+function platformAuditRows(req: Request, q: z.infer<typeof auditQuery>, limit: number) {
+  const where = ['al.org_id IS NULL', 'al.unit_id IS NULL'];
+  const params: unknown[] = [];
+  if (q.action) { where.push('al.action = ?'); params.push(q.action); }
+  if (q.from) { where.push('al.at >= ?'); params.push(`${q.from}T00:00:00.000Z`); }
+  if (q.to) { where.push('al.at < ?'); params.push(new Date(Date.parse(`${q.to}T00:00:00.000Z`) + 86_400_000).toISOString()); }
+  if (q.before) { where.push('al.seq < ?'); params.push(q.before); }
+  if (q.q) {
+    const like = `%${q.q.toLowerCase().replace(/[\\%_]/g, '\\$&')}%`;
+    where.push("(lower(al.action) LIKE ? ESCAPE '\\' OR lower(coalesce(al.detail, '')) LIKE ? ESCAPE '\\' OR lower(coalesce(u.username, '')) LIKE ? ESCAPE '\\' OR lower(coalesce(s.username, '')) LIKE ? ESCAPE '\\' OR al.entity_id = ? OR al.ip = ?)");
+    params.push(like, like, like, like, q.q, q.q);
+  }
+  return req.ctx.db.prepare(`SELECT al.*, u.username AS actor_username, s.username AS subject_username FROM audit_log al
       LEFT JOIN users u ON u.id = al.actor_id LEFT JOIN users s ON s.id = al.subject_id
-     WHERE al.org_id IS NULL AND al.unit_id IS NULL ${action ? 'AND al.action = ?' : ''} ORDER BY al.seq DESC LIMIT ?`).all(...(action ? [action] : []), limit);
-  res.json({ rows, chain: verifyAuditChain(req.ctx) });
+     WHERE ${where.join(' AND ')} ORDER BY al.seq DESC LIMIT ?`).all(...params, limit) as Array<Record<string, unknown> & { seq: number }>;
+}
+
+platformRouter.get('/audit', requirePlatform('platform.audit'), wrap((req, res) => {
+  const q = parse(auditQuery, req.query);
+  const limit = q.limit ?? 200;
+  const rows = platformAuditRows(req, q, limit + 1);
+  const page = rows.slice(0, limit);
+  const first = !q.before;
+  res.json({
+    rows: page,
+    next: rows.length > limit ? page.at(-1)!.seq : null,
+    // The whole chain is verified, and the action list read, once: on the first page, not on every page back.
+    chain: first ? verifyAuditChain(req.ctx) : null,
+    actions: first ? (req.ctx.db.prepare('SELECT DISTINCT action FROM audit_log WHERE org_id IS NULL AND unit_id IS NULL ORDER BY action').all() as Array<{ action: string }>).map((r) => r.action) : null,
+  });
+}));
+
+export const AUDIT_EXPORT_MAX = 50_000;
+const CSV_COLUMNS = ['seq', 'at', 'action', 'actor_username', 'actor_id', 'subject_username', 'subject_id', 'entity', 'entity_id', 'detail', 'ip', 'prev_hash', 'entry_hash'];
+/** The platform trail as a file, for an assessor or the SIEM team. Downloading it is itself audited. */
+platformRouter.get('/audit/export', requirePlatform('platform.audit'), wrap((req, res) => {
+  const format = String(req.query.format || 'csv') === 'json' ? 'json' : 'csv';
+  const q = parse(auditQuery.omit({ before: true, limit: true }), req.query);
+  const rows = platformAuditRows(req, q, AUDIT_EXPORT_MAX);
+  const filter = [q.action && `action=${q.action}`, q.q && `q=${q.q}`, q.from && `from=${q.from}`, q.to && `to=${q.to}`].filter(Boolean).join(' ');
+  audit(req.ctx, { actor_id: req.user.id, action: 'platform_audit_exported', entity: 'audit_log', detail: `${rows.length} rows as ${format}${filter ? `; ${filter}` : ''}`, ip: ip(req) });
+  const name = `vantage-platform-audit-${now().slice(0, 10)}.${format}`;
+  res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
+  if (format === 'json') return res.json({ exportedAt: now(), filter: q, truncated: rows.length === AUDIT_EXPORT_MAX, rows });
+  // rowsToCsv writes a cell a spreadsheet would run as a formula as text, as every other export does.
+  res.type('text/csv').send(rowsToCsv(rows, CSV_COLUMNS));
 }));
 
 platformRouter.get('/integrity', requirePlatform('platform.audit'), wrap((req, res) => res.json({ audit: verifyAuditChain(req.ctx), cases: verifyAllCases(req.ctx) })));
@@ -526,8 +648,9 @@ platformRouter.get('/backup', requirePlatform('platform.data'), wrap(async (req,
   const dest = join(tmpdir(), `vantage-backup-${stamp}-${newId().slice(0, 6)}.db`);
   await ctx.db.backup(dest);
   chmodSync(dest, 0o600);
-  metaSet(ctx.db, 'last_backup_at', now());
-  audit(ctx, { actor_id: req.user.id, action: 'backup', entity: 'database', detail: `${statSync(dest).size} bytes`, ip: ip(req) });
+  const bytes = statSync(dest).size;
+  recordBackup(ctx.db, { method: 'browser', bytes, by: `${req.user.first_name} ${req.user.last_name}`.trim() || req.user.username, file: `vantage-backup-${stamp}.db` });
+  audit(ctx, { actor_id: req.user.id, action: 'backup', entity: 'database', detail: `${bytes} bytes`, ip: ip(req) });
   res.download(dest, `vantage-backup-${stamp}.db`, () => { try { unlinkSync(dest); } catch {} });
 }));
 

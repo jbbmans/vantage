@@ -30,3 +30,87 @@ export function crlStamp(dir: string): number {
   for (const name of readdirSync(dir)) newest = Math.max(newest, statSync(join(dir, name)).mtimeMs);
   return newest;
 }
+
+/**
+ * What the Vantage Administrator console shows about each CRL (ADR-0011): whose it is and the window it is good for.
+ * A CRL past its nextUpdate is stale, and the TLS layer then refuses every card that CA issued, so an expired list is a
+ * sign-in outage waiting for its first user. Read straight from the DER (RFC 5280 §5.1), which Node has no parser for.
+ */
+export interface CrlValidity { file: string; issuer: string | null; thisUpdate: string | null; nextUpdate: string | null; error: string | null }
+
+export function crlInventory(dir: string): CrlValidity[] {
+  const out: CrlValidity[] = [];
+  let names: string[];
+  try { names = readdirSync(dir); } catch (e) { return [{ file: dir, issuer: null, thisUpdate: null, nextUpdate: null, error: `unreadable: ${(e as Error).message}` }]; }
+  for (const name of names.sort()) {
+    const path = join(dir, name);
+    try {
+      if (!statSync(path).isFile() || !/\.(crl|pem|der)$/i.test(name)) continue;
+      const bytes = readFileSync(path);
+      const text = bytes.toString('latin1');
+      const blocks = text.includes('-----BEGIN X509 CRL-----')
+        ? (text.match(/-----BEGIN X509 CRL-----([\s\S]+?)-----END X509 CRL-----/g) || []).map((b) => Buffer.from(b.replace(/-----[^-]+-----|\s/g, ''), 'base64'))
+        : !text.includes('-----BEGIN') && bytes[0] === 0x30 ? [bytes] : [];
+      for (const der of blocks) out.push({ file: name, ...crlDates(der), error: null });
+    } catch (e) {
+      out.push({ file: name, issuer: null, thisUpdate: null, nextUpdate: null, error: (e as Error).message });
+    }
+  }
+  return out;
+}
+
+/** One DER element: its tag, where its contents start, and where it ends. Single-byte tags, definite lengths: DER. */
+function element(der: Buffer, at: number): { tag: number; start: number; end: number } {
+  if (at + 2 > der.length) throw new Error('not a CRL: truncated');
+  const tag = der[at];
+  let length = der[at + 1];
+  let start = at + 2;
+  if (length & 0x80) {
+    const n = length & 0x7f;
+    if (!n || n > 4 || start + n > der.length) throw new Error('not a CRL: bad length');
+    length = 0;
+    for (let i = 0; i < n; i++) length = length * 256 + der[start + i];
+    start += n;
+  }
+  if (start + length > der.length) throw new Error('not a CRL: truncated');
+  return { tag, start, end: start + length };
+}
+
+/** UTCTime (0x17, YYMMDDHHMMSSZ) or GeneralizedTime (0x18, YYYYMMDDHHMMSSZ), as RFC 5280 encodes them. */
+function asn1Time(der: Buffer, el: { tag: number; start: number; end: number }): string {
+  const text = der.subarray(el.start, el.end).toString('latin1');
+  const m = el.tag === 0x17 ? /^(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})Z$/.exec(text) : /^(\d{4})(\d{2})(\d{2})(\d{2})(\d{2})(\d{2})(?:\.\d+)?Z$/.exec(text);
+  if (!m) throw new Error(`not a CRL: unreadable time ${JSON.stringify(text)}`);
+  const year = el.tag === 0x17 ? (Number(m[1]) < 50 ? 2000 : 1900) + Number(m[1]) : Number(m[1]);
+  return new Date(Date.UTC(year, Number(m[2]) - 1, Number(m[3]), Number(m[4]), Number(m[5]), Number(m[6]))).toISOString();
+}
+
+/** The common name in an X.501 Name: the first value after the commonName OID (2.5.4.3), as a string. */
+function commonName(der: Buffer, name: { start: number; end: number }): string | null {
+  const oid = Buffer.from([0x06, 0x03, 0x55, 0x04, 0x03]);
+  const at = der.subarray(name.start, name.end).indexOf(oid);
+  if (at < 0) return null;
+  const value = element(der, name.start + at + oid.length);
+  return der.subarray(value.start, value.end).toString('utf8');
+}
+
+/** CertificateList → TBSCertList → [version], signature, issuer, thisUpdate, [nextUpdate]. */
+export function crlDates(der: Buffer): { issuer: string | null; thisUpdate: string; nextUpdate: string | null } {
+  const list = element(der, 0);
+  if (list.tag !== 0x30) throw new Error('not a CRL');
+  const tbs = element(der, list.start);
+  if (tbs.tag !== 0x30) throw new Error('not a CRL');
+  let next = element(der, tbs.start);
+  if (next.tag === 0x02) next = element(der, next.end); // version, present in a v2 CRL
+  if (next.tag !== 0x30) throw new Error('not a CRL: no signature algorithm');
+  const issuer = element(der, next.end);
+  if (issuer.tag !== 0x30) throw new Error('not a CRL: no issuer');
+  const thisEl = element(der, issuer.end);
+  const thisUpdate = asn1Time(der, thisEl);
+  let nextUpdate: string | null = null;
+  if (thisEl.end < tbs.end) {
+    const after = element(der, thisEl.end);
+    if (after.tag === 0x17 || after.tag === 0x18) nextUpdate = asn1Time(der, after);
+  }
+  return { issuer: commonName(der, issuer), thisUpdate, nextUpdate };
+}

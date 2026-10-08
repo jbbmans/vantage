@@ -78,6 +78,13 @@ export interface AppConfig {
   audit: AuditConfig;
   security: SecurityConfig;
   oidc: OidcConfig;
+  operations: OperationsConfig;
+}
+
+/** What the Vantage Administrator console holds the service to (ADR-0011). */
+export interface OperationsConfig {
+  /** A backup older than this, or none at all, shows as needing attention. Weekly by default, as the run book says (I-09). */
+  backupMaxAgeHours: number;
 }
 
 export interface OidcConfig {
@@ -490,6 +497,9 @@ export function loadConfig(env = process.env): AppConfig {
     audit: readAuditConfig(env),
     security: readSecurityConfig(env, production, test, deployment.profile),
     oidc: readOidcConfig(env, production, test),
+    operations: {
+      backupMaxAgeHours: Math.min(Math.max(1, envNumber(env, 'VANTAGE_BACKUP_MAX_AGE_HOURS', 168)), 24 * 366),
+    },
   };
 }
 

@@ -45,6 +45,8 @@ import { loadChainKey, resealStoredSecrets } from './lib/keys.ts';
 import { configurePasswordHashing } from './lib/crypto.ts';
 import { announcePublicPage, indexNowKey } from './services/indexNow.ts';
 import { applyRuntimeLocks, installTopologyGuard } from './services/deployment.ts';
+import { maintenanceNotice } from './services/maintenance.ts';
+import { recordRelease, trackedJob } from './services/operations.ts';
 export { loadRuntime };
 
 export function createContext(config: AppConfig): AppContext {
@@ -215,6 +217,8 @@ export function createApp(ctx: AppContext) {
   try { shellHtml = readFileSync(join(distDir, 'index.html'), 'utf8'); } catch { shellHtml = null; }
   const clientBuild = shellHtml ? createHash('sha256').update(shellHtml).digest('hex').slice(0, 16) : null;
   const build = String(process.env.RENDER_GIT_COMMIT || process.env.VANTAGE_BUILD_ID || clientBuild || VERSION).slice(0, 64);
+  // The Vantage Administrator console says which build serves, and since when (ADR-0011).
+  recordRelease(ctx, { build, client: clientBuild });
 
   app.disable('x-powered-by');
   app.set('trust proxy', config.trustProxy);
@@ -277,7 +281,7 @@ export function createApp(ctx: AppContext) {
     if (!apiAllowed(facesOf(res), path)) return res.status(404).json({ error: 'No such API route.', code: 'not_found' });
     if (ctx.runtime.maintenance && path.startsWith('/auth') && !MAINTENANCE_OPEN.has(path) && req.method !== 'GET') {
       res.setHeader('Cache-Control', 'no-store');
-      return res.status(503).json({ error: 'Vantage is in scheduled maintenance. Try again shortly.', code: 'maintenance' });
+      return res.status(503).json({ error: maintenanceNotice(ctx), code: 'maintenance' });
     }
     next();
   });
@@ -451,26 +455,28 @@ export function createApp(ctx: AppContext) {
 
 export function startSchedulers(ctx: AppContext) {
   const timers: NodeJS.Timeout[] = [];
-  const every = (ms: number, fn: () => void) => { const t = setInterval(fn, ms); t.unref?.(); timers.push(t); };
-  every(15 * 60_000, () => { pruneLimiters(); try { pruneSessions(ctx); } catch {} });
-  every(6 * 60 * 60_000, () => { try { const r = purgeDeleted(ctx); if (r.records) console.log(`${now()} purged ${r.records} records from the recycle bin`); } catch (e) { console.warn(`Purge failed: ${(e as Error).message}`); } });
+  // Each job is tracked for the Vantage Administrator console's Operations page; a failure is logged and kept there (ADR-0011).
+  const every = (name: string, label: string, ms: number, fn: () => unknown) => {
+    const run = trackedJob(ctx, name, label, ms, fn);
+    const t = setInterval(() => { void run(); }, ms); t.unref?.(); timers.push(t);
+    return run;
+  };
+  every('sessions', 'Session prune', 15 * 60_000, () => { pruneLimiters(); pruneSessions(ctx); });
+  every('recycle_bin', 'Purge', 6 * 60 * 60_000, () => { const r = purgeDeleted(ctx); if (r.records) console.log(`${now()} purged ${r.records} records from the recycle bin`); });
   // Time-bound authority ends on time: expired roles and Vantage access leave the tables and enter the audit trail.
-  every(60_000, () => {
-    try {
-      const r = sweepExpiries(ctx);
-      warnEndingAccess(ctx);
-      if (r.accessExpired || r.unitRoles || r.orgRoles) console.log(`${now()} expiry sweep: ${r.accessExpired} access grants, ${r.unitRoles} unit roles, ${r.orgRoles} organization roles ended`);
-    } catch (e) { console.warn(`Expiry sweep failed: ${(e as Error).message}`); }
+  every('expiries', 'Expiry sweep', 60_000, () => {
+    const r = sweepExpiries(ctx);
+    warnEndingAccess(ctx);
+    if (r.accessExpired || r.unitRoles || r.orgRoles) console.log(`${now()} expiry sweep: ${r.accessExpired} access grants, ${r.unitRoles} unit roles, ${r.orgRoles} organization roles ended`);
   });
-  every(60 * 60_000, () => { try { const n = releaseStaleClaims(ctx); if (n) console.log(`${now()} released ${n} stale work claims`); } catch (e) { console.warn(`Stale claim sweep failed: ${(e as Error).message}`); } });
-  every(24 * 60 * 60_000, () => { try { anchorCaseHeads(ctx); } catch (e) { console.warn(`Case history anchor failed: ${(e as Error).message}`); } });
-  every(24 * 60 * 60_000, () => { try { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); } catch (e) { console.warn(`Event prune failed: ${(e as Error).message}`); } });
-  every(24 * 60 * 60_000, () => { try { const released = pruneSources(ctx); if (released) console.log(`${now()} released the bytes of ${released} source files past the retention window`); } catch (e) { console.warn(`Source prune failed: ${(e as Error).message}`); } });
-  if (ctx.config.accessMode === 'demo') every(10 * 60_000, () => { try { const n = purgeExpired(ctx); if (n) console.log(`${now()} removed ${n} expired demo workspaces`); } catch (e) { console.warn(`Demo purge failed: ${(e as Error).message}`); } });
+  every('stale_claims', 'Stale claim sweep', 60 * 60_000, () => { const n = releaseStaleClaims(ctx); if (n) console.log(`${now()} released ${n} stale work claims`); });
+  every('case_anchor', 'Case history anchor', 24 * 60 * 60_000, () => { anchorCaseHeads(ctx); });
+  every('event_prune', 'Event prune', 24 * 60 * 60_000, () => { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); });
+  every('source_prune', 'Source prune', 24 * 60 * 60_000, () => { const released = pruneSources(ctx); if (released) console.log(`${now()} released the bytes of ${released} source files past the retention window`); });
+  if (ctx.config.accessMode === 'demo') every('demo_purge', 'Demo purge', 10 * 60_000, () => { const n = purgeExpired(ctx); if (n) console.log(`${now()} removed ${n} expired demo workspaces`); });
   if (!ctx.config.test) {
-    const run = () => syncMaradmins(ctx).catch((e: Error) => console.warn(`MARADMIN refresh skipped: ${e.message}`));
-    const first = setTimeout(run, 3_000); first.unref?.(); timers.push(first);
-    every(5 * 60_000, run);
+    const run = every('maradmins', 'MARADMIN refresh', 5 * 60_000, () => syncMaradmins(ctx));
+    const first = setTimeout(() => { void run(); }, 3_000); first.unref?.(); timers.push(first);
   }
   if (ctx.config.search.indexNow && !ctx.config.test) {
     // Wait until this release is the one serving traffic, so the engines fetch the new page, not the old one.
@@ -483,11 +489,11 @@ export function startSchedulers(ctx: AppContext) {
     }, 5 * 60_000);
     announce.unref?.(); timers.push(announce);
   }
-  every(60_000, () => { ctx.mailer.retryQueued().then((r) => { if (r.sent || r.failed) console.log(`${now()} mail retry: ${r.sent} delivered, ${r.failed} given up, ${r.waiting} waiting`); }).catch((e: Error) => console.warn(`Mail retry failed: ${e.message}`)); });
+  every('mail_retry', 'Mail retry', 60_000, async () => { const r = await ctx.mailer.retryQueued(); if (r.sent || r.failed) console.log(`${now()} mail retry: ${r.sent} delivered, ${r.failed} given up, ${r.waiting} waiting`); });
   if (!ctx.config.test) {
     // Each Marine's slot is one local hour. An hourly timer started at boot can step over an hour (after a deploy,
     // or by drift), and that week's digest never goes; the six-day guard keeps the more frequent ticks to one send.
-    every(15 * 60_000, () => { runDigestTick(ctx).then((r) => { if (r.sent) console.log(`${now()} digest: sent ${r.sent}`); }).catch((e: Error) => console.warn(`Digest tick failed: ${e.message}`)); });
+    every('digest', 'Digest tick', 15 * 60_000, async () => { const r = await runDigestTick(ctx); if (r.sent) console.log(`${now()} digest: sent ${r.sent}`); });
   }
   return () => timers.forEach((t) => clearInterval(t));
 }

@@ -10,6 +10,8 @@ Render disks are not backed up for you. Take a consistent copy of the SQLite fil
 - **On the server** (the way to do it on an accredited host): `VANTAGE_DB=/data/vantage.db npm run backup -- /backups/vantage-$(date +%F).db`. The copy is written readable by its owner only; encrypt it before it leaves the host.
 - **From the browser**: **Vantage Administrator console → Backup and recovery → Download backup** (Lead Vantage Administrators). Every other Lead Vantage Administrator is notified each time a backup or service archive is downloaded. Set `VANTAGE_BROWSER_BACKUPS=false` to close this path where policy requires backups to stay on the server.
 
+Each backup taken either way is recorded in the database it copied: when, how, its size and file name, and for a download, who took it. **Vantage Administrator console → Operations → Backups** shows the last 20 and whether the newest is fresh. One older than `VANTAGE_BACKUP_MAX_AGE_HOURS` (default 168, a week) or none at all needs attention on the console's health check. If the script cannot record the backup, the copy still stands and the script says so. A snapshot the hosting environment takes on its own (a volume snapshot, storage replication) never passes through Vantage and is not shown (I-28).
+
 Restoring a `.db` file: turn on maintenance mode, replace `/data/vantage.db` (a Render shell: `render ssh`, then `cp`), delete any `-wal` and `-shm` siblings, restart the service.
 
 ## Moving the service to another host
@@ -95,7 +97,28 @@ Anyone can clear their own after signing in with a recovery code. Otherwise it i
 
 ## Maintenance mode
 
-**Vantage Administrator console → Settings → Maintenance** blocks everyone but Vantage staff with a 503, in every organization, including registration, invitations, and password resets. Others can still sign in, but every other request is refused until it is turned off. Turn it on before a restore or a move.
+**Vantage Administrator console → Maintenance → Start maintenance** (Lead Vantage Administrators and Vantage Administrators, `platform.maintenance`) blocks everyone but Vantage staff with a 503, in every Unit Instance, including registration, invitations and password resets. Others can still sign in, but every other request is refused until it ends. Turn it on before a restore or a move.
+
+- **Starting** needs a reason of at least ten characters, kept with staff and in the audit trail. It may carry a message for everyone else and an expected end within a week. Every refused request and the sign-in page show that message and the expected end, in the deployment's time zone.
+- **It ends only when somebody ends it** (**End maintenance**, with an optional note). An expected end that passes needs attention on the health check; it does not open the service on its own.
+- **The other Vantage staff are told** each time it starts and ends, and the audit trail records `maintenance_on` with the reason and expected end, and `maintenance_off` with how long it lasted and the note. A banner on every console page says it is on.
+- Maintenance is no longer a setting: `PUT /api/platform/runtime` refuses `maintenance`, and Settings and Backup and recovery link here.
+
+### Database tasks
+
+**Maintenance → Database tasks** runs a fixed list of tasks, never a statement typed in. Each run is audited as `maintenance_task` with its result, which is counts and table names only.
+
+| Task | What it runs | When |
+|---|---|---|
+| Check the database for damage | `PRAGMA quick_check` | any time |
+| Check references between records | `PRAGMA foreign_key_check` | any time |
+| Fold the write-ahead log into the database | `PRAGMA wal_checkpoint(TRUNCATE)` | any time |
+| Refresh query statistics | `PRAGMA optimize` | any time |
+| Clear expired sessions | the nightly session prune, now | any time |
+| Verify the audit trail and case histories | the audit chain and every case history | any time |
+| Compact the database | `VACUUM` | only during maintenance, and only with free disk of 1.2 times the database |
+
+Compacting holds the database for its whole run. Take a backup first.
 
 ## Vantage access to an organization
 
@@ -107,7 +130,26 @@ Staff never see inside an organization by holding a platform role. **Vantage Adm
 
 ## Health
 
-`GET /api/health` returns `{ ok, version, uptime, maintenance }` and exercises the database. Render polls it; a failing deploy never goes live.
+`GET /api/health` returns `{ ok, version, build, client, uptime, maintenance, mode, profile }` and exercises the database. Render polls it; a failing deploy never goes live. It says only whether the service answers.
+
+**Vantage Administrator console → Operations** is the full report, for staff (ADR-0011). Each check is OK, needs attention or failing, and the Overview shows the worst of them:
+
+| Check | Needs attention | Failing |
+|---|---|---|
+| Database size against `VANTAGE_MAX_DB_BYTES` | 80% | 100% (new records pause) |
+| Free disk where the database lives | under 15% | under 5% |
+| Schema against this build | the database is newer than the build | the database is older |
+| Audit trail | forwarding off on MCEN, or dropping entries | the chain does not verify |
+| Backups | older than `VANTAGE_BACKUP_MAX_AGE_HOURS`, or none | |
+| Email in the last day | more failed than sent, or mail queued over six hours | |
+| Scheduled jobs | none running, overdue, or failing | |
+| Sign-in | a CRL within 48 hours of its next update, a CA expired or within 30 days of expiry, revocation checking off, staff with no second factor | no CRL, an unreadable one, or one past its next update; every CA expired |
+| Maintenance | on, or past its expected end | |
+| Unit Instances | an active one with no Lead Unit Manager | |
+
+The same page shows the build and when each build first served this database, every migration this build carries with when it ran and under which version, the last 20 backups and the scheduled jobs (runs, failures, the last error). Job tracking lives in the process and starts empty on each start.
+
+**Sign-in health** lists each revocation list with its issuer and next update, each trusted CA with its expiry, organization sign-in (with **Check the provider**, which reads the discovery document and keys fresh and is audited), the lockout policy, second-factor coverage and the last day's sign-ins and refusals. All of it is counts and dates; nobody is named.
 
 ## Retention
 

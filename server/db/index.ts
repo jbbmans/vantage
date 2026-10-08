@@ -3,6 +3,7 @@ import { readFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RANKS } from './ranks.ts';
+import { VERSION } from '../version.ts';
 
 export type Db = Database.Database;
 
@@ -232,8 +233,21 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       openMissingMembershipPeriods(db);
     },
   },
+  {
+    id: 19,
+    name: '019_audit_action_index',
+    // The Vantage Administrator console counts sign-ins and refusals by action over a day, and filters the trail by
+    // action (ADR-0011): without this, each of those reads the whole audit log.
+    run: (db) => db.exec('CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action, at)'),
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
+/** The migrations this build carries, for the Vantage Administrator console's migration status. */
+export const MIGRATION_CATALOG: ReadonlyArray<{ id: number; name: string }> = MIGRATIONS.map(({ id, name }) => ({ id, name }));
+
+/** One migration this database ran: when, how long it took, and under which version of Vantage. */
+export interface MigrationRun { id: number; name: string; at: string; ms: number; version: string }
+const MIGRATION_HISTORY_KEPT = 100;
 
 const columnsOf = (db: Db, table: string) => new Set((db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name));
 
@@ -568,15 +582,32 @@ function cacheStatements(db: Db, limit = 1000) {
   }) as Db['prepare'];
 }
 
+/**
+ * Runs what the database has not run yet, each migration in a transaction of its own with its record in the history
+ * (`migration_history`), so a migration and the note that it ran land together or not at all. A database that ran its
+ * migrations before the history was kept says from when, and at which schema, it has been kept (`migration_history_since`).
+ */
 function migrate(db: Db) {
-  const version = Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string } | undefined)?.value || 0);
+  const version = Number(metaGet(db, 'schema_version') || 0);
+  if (!metaGet(db, 'migration_history_since')) metaSet(db, 'migration_history_since', JSON.stringify({ at: new Date().toISOString(), schema: version }));
   for (const m of MIGRATIONS) {
     if (m.id <= version) continue;
+    const started = performance.now();
     db.transaction(() => {
       m.run(db);
-      db.prepare("INSERT INTO meta (key, value) VALUES ('schema_version', ?) ON CONFLICT(key) DO UPDATE SET value = excluded.value").run(String(m.id));
+      metaSet(db, 'schema_version', String(m.id));
+      const run: MigrationRun = { id: m.id, name: m.name, at: new Date().toISOString(), ms: Math.round(performance.now() - started), version: VERSION };
+      metaSet(db, 'migration_history', JSON.stringify([...migrationHistory(db), run].slice(-MIGRATION_HISTORY_KEPT)));
     })();
   }
+}
+
+/** The migrations this database ran since it began keeping a history, oldest first. */
+export function migrationHistory(db: Db): MigrationRun[] {
+  try {
+    const parsed = JSON.parse(metaGet(db, 'migration_history') || '[]');
+    return Array.isArray(parsed) ? parsed : [];
+  } catch { return []; }
 }
 
 function seed(db: Db) {

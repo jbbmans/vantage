@@ -17,6 +17,7 @@ import { authenticationOptions, completeAuthentication } from '../auth/passkeys.
 import { record } from '../services/telemetry.ts';
 import { facesOf } from '../lib/hosts.ts';
 import { audit } from '../services/audit.ts';
+import { publicMaintenance } from '../services/maintenance.ts';
 import { layout } from '../services/mailLayout.ts';
 import { newId, now } from '../lib/ids.ts';
 import { claimUnit, addMember, guardSelfReach } from '../services/org.ts';
@@ -108,6 +109,8 @@ authRouter.get('/setup', wrap((req, res) => {
     displayName: ctx.runtime.displayName,
     announcement: ctx.runtime.announcement,
     maintenance: ctx.runtime.maintenance,
+    // What the sign-in page tells everyone while maintenance is on; the reason stays with Vantage staff (ADR-0011).
+    maintenanceNotice: publicMaintenance(ctx),
     consent: consentFor(ctx),
   });
 }));

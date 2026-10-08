@@ -8,6 +8,13 @@ export interface Change { date: string; title: string; items: string[] }
 export const CHANGES: Change[] = [
   {
     date: '2026-10-08',
+    title: 'Scheduled maintenance',
+    items: [
+      'When Vantage is closed for maintenance, the sign-in page and anything you try to do show the Vantage team’s message and, when they have set one, when it is expected to end.',
+    ],
+  },
+  {
+    date: '2026-10-08',
     title: 'Unit Managers and Vantage Administrators',
     items: [
       'The people who run your Unit Instance are its Unit Managers. A Lead Unit Manager also decides who holds those roles and whether Vantage support must ask before looking. The console they use is now the Unit Manager console.',

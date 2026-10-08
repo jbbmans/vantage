@@ -128,6 +128,10 @@ test('every Unit Instance role opens exactly the console routes its permissions 
 test('every Vantage staff role opens exactly the console routes its permissions name; Unit Managers open none', async () => {
   const routes: Array<[string, PlatformPermission]> = [
     ['/overview', 'platform.view'],
+    ['/operations', 'platform.view'],
+    ['/sign-in-health', 'platform.view'],
+    ['/flags', 'platform.view'],
+    ['/maintenance', 'platform.view'],
     ['/orgs', 'platform.view'],
     ['/staff', 'platform.view'],
     ['/access', 'platform.view'],

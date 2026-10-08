@@ -41,6 +41,17 @@ let jwksCache: { uri: string; at: number; keys: Array<JsonWebKey & { kid?: strin
 /** For tests: forget what was fetched from the provider. */
 export function resetOidcCache() { discoveryCache = null; jwksCache = null; }
 
+/**
+ * The Vantage Administrator console's check of the provider (ADR-0011): its discovery document read fresh, as a sign-in
+ * reads it, then the keys it publishes. Reaches only the configured issuer and the addresses it names.
+ */
+export async function probeProvider(ctx: AppContext): Promise<{ issuer: string; authorizationHost: string; keys: number }> {
+  discoveryCache = null;
+  const doc = await discovery(ctx);
+  const set = await getJson<{ keys?: unknown }>(doc.jwks_uri);
+  return { issuer: doc.issuer, authorizationHost: new URL(doc.authorization_endpoint).host, keys: Array.isArray(set.keys) ? set.keys.length : 0 };
+}
+
 async function getJson<T>(url: string): Promise<T> {
   let res: Response;
   try { res = await fetch(url, { headers: { accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(10_000) }); }
