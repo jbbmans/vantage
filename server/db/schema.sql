@@ -1096,3 +1096,91 @@ CREATE TABLE IF NOT EXISTS access_grants (
 );
 CREATE INDEX IF NOT EXISTS idx_access_grants_org ON access_grants(org_id, status);
 CREATE INDEX IF NOT EXISTS idx_access_grants_staff ON access_grants(staff_user_id, status);
+
+-- Unit configuration (ADR-0012): what a Unit Instance sets for itself, within the limits Vantage sets for every one. None
+-- of it is a Marine's record. A row names one unit of its own Unit Instance, or none for all of its units; the database
+-- refuses a unit from another (instanceBoundaryTriggers). Rows are retired, never deleted, so the audit trail's
+-- references still resolve.
+
+-- The billets a Unit Instance staffs. A member's billet stays the text on their membership; this is the list it is
+-- chosen from, and what shows a billet as vacant.
+CREATE TABLE IF NOT EXISTS unit_billets (
+  id          TEXT PRIMARY KEY,
+  org_id      TEXT NOT NULL REFERENCES organizations(id),
+  unit_id     TEXT REFERENCES units(id),
+  title       TEXT NOT NULL,
+  code        TEXT,
+  description TEXT,
+  active      INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+  created_by  TEXT REFERENCES users(id),
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_unit_billets_org ON unit_billets(org_id, active);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_unit_billets_title ON unit_billets(org_id, COALESCE(unit_id, ''), lower(title)) WHERE active = 1;
+
+-- The kinds of duty a Unit Instance stands (Task 17 records duty against them; Task 18 scores it).
+CREATE TABLE IF NOT EXISTS duty_types (
+  id          TEXT PRIMARY KEY,
+  org_id      TEXT NOT NULL REFERENCES organizations(id),
+  code        TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  description TEXT,
+  active      INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+  created_by  TEXT REFERENCES users(id),
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL,
+  UNIQUE (org_id, code)
+);
+
+-- The training a Unit Instance requires of its Marines: in one unit and the units beneath it, or in all of them.
+CREATE TABLE IF NOT EXISTS training_requirements (
+  id              TEXT PRIMARY KEY,
+  org_id          TEXT NOT NULL REFERENCES organizations(id),
+  unit_id         TEXT REFERENCES units(id),
+  title           TEXT NOT NULL,
+  type            TEXT NOT NULL CHECK (type IN ('pme', 'course', 'qualification', 'certification', 'education', 'skill', 'training')),
+  course_code     TEXT,
+  interval_months INTEGER CHECK (interval_months IS NULL OR interval_months BETWEEN 1 AND 120),
+  description     TEXT,
+  active          INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+  created_by      TEXT REFERENCES users(id),
+  created_at      TEXT NOT NULL,
+  updated_at      TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_training_requirements_org ON training_requirements(org_id, active);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_training_requirements_title ON training_requirements(org_id, COALESCE(unit_id, ''), lower(title)) WHERE active = 1;
+
+-- How a Unit Instance scores duty (Task 18, ADR-0012): a version with the day it takes effect, published once and never
+-- changed. A duty is scored under the version in force on its day, so a new version never rescores earlier duty. A
+-- version that has not taken effect may be withdrawn, and stays on the record as withdrawn. `policy` is the JSON of
+-- shared/dutyScoring.ts ScoringPolicyContent: rules by duty type id, multipliers by condition, and how they combine.
+CREATE TABLE IF NOT EXISTS duty_scoring_policies (
+  id             TEXT PRIMARY KEY,
+  org_id         TEXT NOT NULL REFERENCES organizations(id),
+  version        INTEGER NOT NULL CHECK (version >= 1),
+  effective_from TEXT NOT NULL,
+  policy         TEXT NOT NULL,
+  note           TEXT NOT NULL,
+  created_by     TEXT REFERENCES users(id),
+  created_at     TEXT NOT NULL,
+  withdrawn_at   TEXT,
+  withdrawn_by   TEXT REFERENCES users(id),
+  UNIQUE (org_id, version)
+);
+CREATE INDEX IF NOT EXISTS idx_duty_scoring_policies_org ON duty_scoring_policies(org_id, effective_from);
+CREATE TRIGGER IF NOT EXISTS duty_scoring_policies_published BEFORE UPDATE OF id, org_id, version, effective_from, policy, note, created_by, created_at ON duty_scoring_policies FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'a published duty scoring policy is never changed: publish a new version'); END;
+CREATE TRIGGER IF NOT EXISTS duty_scoring_policies_withdrawn BEFORE UPDATE OF withdrawn_at, withdrawn_by ON duty_scoring_policies FOR EACH ROW WHEN OLD.withdrawn_at IS NOT NULL
+BEGIN SELECT RAISE(ABORT, 'a withdrawn duty scoring policy stays withdrawn'); END;
+-- A version that has taken effect is never withdrawn. The service judges the day in the deployment's time zone; this
+-- judges it in UTC, a day behind at worst, so it never refuses a withdrawal the service allows.
+CREATE TRIGGER IF NOT EXISTS duty_scoring_policies_in_force BEFORE UPDATE OF withdrawn_at ON duty_scoring_policies FOR EACH ROW
+  WHEN OLD.withdrawn_at IS NULL AND NEW.withdrawn_at IS NOT NULL AND OLD.effective_from < date('now')
+BEGIN SELECT RAISE(ABORT, 'a duty scoring policy that has taken effect is never withdrawn: publish a new version'); END;
+-- Versions not withdrawn take effect in the order they were published. Checked against every such version, higher or
+-- lower, so rows loaded in any order (an archive restore) are held to it as well as a new one.
+CREATE TRIGGER IF NOT EXISTS duty_scoring_policies_order BEFORE INSERT ON duty_scoring_policies FOR EACH ROW
+  WHEN NEW.withdrawn_at IS NULL AND EXISTS (SELECT 1 FROM duty_scoring_policies p WHERE p.org_id = NEW.org_id AND p.withdrawn_at IS NULL
+    AND ((p.version < NEW.version AND p.effective_from >= NEW.effective_from) OR (p.version > NEW.version AND p.effective_from <= NEW.effective_from)))
+BEGIN SELECT RAISE(ABORT, 'duty scoring versions take effect in order: a new version takes effect after every version not withdrawn'); END;

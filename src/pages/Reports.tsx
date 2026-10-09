@@ -28,7 +28,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   const subjectId = params.get('user') || '';
   const unitParam = params.get('unit') || '';
   const { data: team } = useTeam(Boolean(identity?.canLead));
-  const [period, setPeriod] = useParam('period', prefs.reportPeriod || DEFAULT_PERIOD);
+  const [period, setPeriod] = useParam('period', prefs.reportPeriod || identity?.unitDefaults?.reportPeriod || DEFAULT_PERIOD);
   const [style, setStyle] = useState<'jepes' | 'fitrep' | 'resume'>(myTrack === 'fitrep' ? 'fitrep' : 'jepes');
   const [track, setTrack] = useState<Track | ''>('');
   const [view, setView] = useState<'narrative' | 'bullets' | 'delta' | 'analysis'>((prefs.reportView as never) || 'narrative');

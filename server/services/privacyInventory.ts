@@ -234,6 +234,30 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     access: 'Lead Vantage Administrators; a person sees their own.',
     columns: { user_id: 'identifier', role: 'employment', granted_by: 'identifier', created_at: 'technical' },
   },
+  unit_billets: {
+    purpose: 'The billets a Unit Instance staffs, so a member’s billet is chosen from its list and an empty one shows as vacant.',
+    authority: 'Organisational structure; kept by the Unit Instance’s Unit Managers, every change audited.',
+    access: 'The Unit Instance’s Unit Managers and its other role holders. Not about a person: who holds a billet is on their membership.',
+    columns: { id: 'technical', org_id: 'technical', unit_id: 'none', title: 'none', code: 'none', description: 'none', active: 'none', created_by: 'identifier', created_at: 'technical', updated_at: 'technical' },
+  },
+  duty_types: {
+    purpose: 'The kinds of duty a Unit Instance stands, which its duty records will name.',
+    authority: 'Unit administration; kept by the Unit Instance’s Unit Managers, every change audited.',
+    access: 'The Unit Instance’s Unit Managers and its other role holders. Not about a person.',
+    columns: { id: 'technical', org_id: 'technical', code: 'none', name: 'none', description: 'none', active: 'none', created_by: 'identifier', created_at: 'technical', updated_at: 'technical' },
+  },
+  duty_scoring_policies: {
+    purpose: 'How a Unit Instance scores each kind of duty, as versions with the day each takes effect, so duty is scored under the policy of its day.',
+    authority: 'Unit administration (Task 18); published by the Unit Instance’s Unit Managers, never changed after, every version audited.',
+    access: 'The Unit Instance’s Unit Managers and its other role holders. Not about a person.',
+    columns: { id: 'technical', org_id: 'technical', version: 'technical', effective_from: 'technical', policy: 'none', note: 'none', created_by: 'identifier', created_at: 'technical', withdrawn_at: 'technical', withdrawn_by: 'identifier' },
+  },
+  training_requirements: {
+    purpose: 'The training a Unit Instance requires of its Marines, and how often it recurs.',
+    authority: 'Unit training management; kept by the Unit Instance’s Unit Managers, every change audited.',
+    access: 'The Unit Instance’s Unit Managers and its other role holders. Not about a person: nobody’s training record is in it.',
+    columns: { id: 'technical', org_id: 'technical', unit_id: 'none', title: 'none', type: 'none', course_code: 'none', interval_months: 'none', description: 'none', active: 'none', created_by: 'identifier', created_at: 'technical', updated_at: 'technical' },
+  },
   org_roles: {
     purpose: 'Who owns, administers, keeps the records of, or audits each Unit Instance, and until when.',
     authority: 'Access control within a Unit Instance; every grant and removal is audited.',

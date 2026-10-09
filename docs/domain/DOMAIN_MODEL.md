@@ -24,6 +24,20 @@ The product never shows them to users.
 - **Scope** (`server/authz/scope.ts`): the caller's units, per-unit permissions and positions, resolved
   from the session on every request. It is never taken from the client.
 
+- **Unit configuration** (ADR-0012): what a Unit Instance's Unit Managers keep for it, within limits
+  Vantage sets for every instance. Rows are retired, never deleted, and name only the instance's own units.
+  - **Billet** (`unit_billets`): a position the instance staffs, in one unit or instance-wide. A member's
+    billet (`unit_members.billet`) is matched to it by title.
+  - **Duty type** (`duty_types`): a kind of duty the instance stands, with a code.
+  - **Training requirement** (`training_requirements`): training the instance requires, how often it
+    recurs, and where it applies.
+  - **Unit settings** (`organizations.settings`): how long a claim on its work holds and the period its
+    reports open on.
+- **Duty scoring version** (`duty_scoring_policies`): the points each duty type earns from a day on, with
+  multipliers and a reason. Published once and never changed (database triggers); a duty is scored under
+  the version in force on its day (`shared/dutyScoring.ts`), so a later version never rescores earlier
+  duty. Only a version not yet in force can be withdrawn.
+
 ## Work
 
 - **Tasker**: presented as a project (`projects`) that holds work items (`work_items.project_id`). The

@@ -204,3 +204,31 @@ test('017 gives each file the unit its record sits in, keeps every file, and lea
     again.close();
   } finally { cleanup(); }
 });
+
+test('020 keeps a Unit Instance’s billets and training requirements inside it, on a database from before them', () => {
+  const at = '2026-01-01T00:00:00.000Z';
+  const { path, cleanup } = atVersion(19, (db) => {
+    // Two Unit Instances, each with its top unit; the configuration tables come from schema.sql, without their triggers.
+    // An organization and its top unit name each other.
+    db.pragma('foreign_keys = OFF');
+    const org = db.prepare("INSERT INTO organizations (id, slug, name, status, root_unit_id, settings, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, '{}', ?, ?)");
+    const unit = db.prepare('INSERT INTO units (id, code, name, parent_id, org_id, created_at) VALUES (?, ?, ?, NULL, ?, ?)');
+    for (const id of ['G8', 'G1']) { org.run(id, id, id, id, at, at); unit.run(id, id, id, id, at); }
+  });
+  try {
+    const db = openDatabase(path);
+    assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    const triggers = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%_unit_same_org_%'").all() as Array<{ name: string }>).map((t) => t.name).sort();
+    assert.deepEqual(triggers, ['training_requirements_unit_same_org_insert', 'training_requirements_unit_same_org_update', 'unit_billets_unit_same_org_insert', 'unit_billets_unit_same_org_update']);
+    const billet = db.prepare("INSERT INTO unit_billets (id, org_id, unit_id, title, active, created_at, updated_at) VALUES (?, 'G8', ?, ?, 1, ?, ?)");
+    billet.run('b-own', 'G8', 'Comptroller', at, at);
+    assert.throws(() => billet.run('b-across', 'G1', 'Disbursing Officer', at, at), /cross_instance/, 'a billet never names another Unit Instance’s unit');
+    assert.throws(() => db.prepare("UPDATE unit_billets SET unit_id = 'G1' WHERE id = 'b-own'").run(), /cross_instance/);
+    assert.throws(() => db.prepare("INSERT INTO training_requirements (id, org_id, unit_id, title, type, active, created_at, updated_at) VALUES ('t-across', 'G8', 'G1', 'Fiscal Law', 'training', 1, ?, ?)").run(at, at), /cross_instance/);
+    db.close();
+    // A second boot changes nothing.
+    const again = openDatabase(path);
+    assert.equal((again.prepare('SELECT COUNT(*) AS n FROM unit_billets').get() as { n: number }).n, 1);
+    again.close();
+  } finally { cleanup(); }
+});

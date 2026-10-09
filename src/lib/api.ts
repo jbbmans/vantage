@@ -326,8 +326,25 @@ export const orgPlaceHold = (orgId: string, body: unknown) => api.post(orgPath(o
 export const orgReleaseHold = (orgId: string, id: string) => api.del(orgPath(orgId, `/holds/${enc(id)}`));
 export const orgPrivacyInventory = (orgId: string) => api.get(orgPath(orgId, '/privacy/inventory'));
 export const orgPrivacyInventoryUrl = (orgId: string) => `/api${orgPath(orgId, '/privacy/inventory?format=markdown')}`;
-export const orgAudit = (orgId: string, limit = 300) => api.get(orgPath(orgId, `/audit?limit=${limit}`));
+export interface OrgAuditFilter extends PlatformAuditFilter { unit?: string }
+export const orgAudit = (orgId: string, filter: OrgAuditFilter = {}) => api.get(orgPath(orgId, `/audit?${qs({ ...filter })}`));
+/** The filtered Unit Instance trail as a file; the server records the download. */
+export const orgAuditExportUrl = (orgId: string, filter: Omit<OrgAuditFilter, 'before' | 'limit'>, format: 'csv' | 'json') => `/api${orgPath(orgId, `/audit/export?${qs({ ...filter, format })}`)}`;
 export const orgExportUrl = (orgId: string) => `/api${orgPath(orgId, '/export')}`;
+export const orgRosterUrl = (orgId: string) => `/api${orgPath(orgId, '/roster.csv')}`;
+export const orgUnitRoles = (orgId: string) => api.get(orgPath(orgId, '/unit-roles'));
+// Unit configuration (ADR-0012): billets, duty types, training requirements, work and report settings.
+export const orgConfiguration = (orgId: string) => api.get(orgPath(orgId, '/configuration'));
+export const orgSaveBillet = (orgId: string, body: unknown, id?: string) => (id ? api.patch(orgPath(orgId, `/billets/${enc(id)}`), body) : api.post(orgPath(orgId, '/billets'), body));
+export const orgSaveDutyType = (orgId: string, body: unknown, id?: string) => (id ? api.patch(orgPath(orgId, `/duty-types/${enc(id)}`), body) : api.post(orgPath(orgId, '/duty-types'), body));
+export const orgAddStandardDutyTypes = (orgId: string) => api.post(orgPath(orgId, '/duty-types/standard'));
+export const orgSaveTrainingRequirement = (orgId: string, body: unknown, id?: string) => (id ? api.patch(orgPath(orgId, `/training-requirements/${enc(id)}`), body) : api.post(orgPath(orgId, '/training-requirements'), body));
+export const orgSaveUnitSettings = (orgId: string, body: unknown) => api.patch(orgPath(orgId, '/configuration/settings'), body);
+export const orgConfigurationExportUrl = (orgId: string) => `/api${orgPath(orgId, '/configuration/export')}`;
+export const orgImportConfiguration = (orgId: string, file: unknown, apply: boolean) => api.post(orgPath(orgId, `/configuration/import${apply ? '?apply=1' : ''}`), file);
+// Duty scoring versions (ADR-0012, Task 18 brought forward): published once, withdrawn only before they take effect.
+export const orgPublishScoringPolicy = (orgId: string, body: unknown) => api.post(orgPath(orgId, '/duty-scoring'), body);
+export const orgWithdrawScoringPolicy = (orgId: string, id: string) => api.post(orgPath(orgId, `/duty-scoring/${enc(id)}/withdraw`));
 export const orgAccess = (orgId: string) => api.get(orgPath(orgId, '/access'));
 export const orgDecideAccess = (orgId: string, id: string, approve: boolean, note?: string) => api.post(orgPath(orgId, `/access/${enc(id)}/${approve ? 'approve' : 'deny'}`), { note });
 export const orgRevokeAccess = (orgId: string, id: string) => api.post(orgPath(orgId, `/access/${enc(id)}/revoke`));

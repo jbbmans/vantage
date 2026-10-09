@@ -17,6 +17,8 @@ export const EXPORT_TABLES = [
   'unit_membership_periods',
   // Tenancy and authority (ADR-0006): who runs the platform, which organizations exist, who owns them, who looked in.
   'organizations', 'platform_roles', 'org_roles', 'access_grants',
+  // Each Unit Instance's own configuration (ADR-0012): its billets, duty types and training requirements.
+  'unit_billets', 'duty_types', 'training_requirements', 'duty_scoring_policies',
   ...RECORD_TABLE_NAMES,
   'source_files', 'import_jobs', 'work_items', 'work_actions', 'work_events', 'work_event_seals', 'work_event_heads', 'work_views',
   // A person's own drafts and career plan move with the instance too.

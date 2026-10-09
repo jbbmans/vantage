@@ -240,6 +240,13 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
     // action (ADR-0011): without this, each of those reads the whole audit log.
     run: (db) => db.exec('CREATE INDEX IF NOT EXISTS idx_audit_action ON audit_log(action, at)'),
   },
+  {
+    id: 20,
+    name: '020_unit_configuration',
+    // A Unit Instance's billets, duty types and training requirements (ADR-0012). The tables come from schema.sql; this
+    // keeps them inside the boundary on a database that ran 016 before they existed.
+    run: (db) => instanceBoundaryTriggers(db),
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
@@ -442,7 +449,21 @@ export function instanceBoundaryTriggers(db: Db) {
   db.exec(`CREATE TRIGGER IF NOT EXISTS work_items_links_same_org BEFORE UPDATE OF unit_id ON work_items FOR EACH ROW
     WHEN NEW.unit_id IS NOT OLD.unit_id AND EXISTS (SELECT 1 FROM thread_links l WHERE l.work_item_id = NEW.id AND ${across(threadUnit('l.thread_id'), 'NEW.unit_id')})
     ${refuse('this work is linked to correspondence in another Unit Instance')}`);
+
+  // A Unit Instance's configuration names only its own units (ADR-0012).
+  for (const table of unitConfigTables(db)) {
+    const crossing = `NEW.unit_id IS NOT NULL AND ${orgOf('NEW.unit_id')} <> NEW.org_id`;
+    db.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_unit_same_org_insert BEFORE INSERT ON ${table} FOR EACH ROW
+      WHEN ${crossing}
+      ${refuse('a unit in another Unit Instance cannot be named here')}`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_unit_same_org_update BEFORE UPDATE OF unit_id, org_id ON ${table} FOR EACH ROW
+      WHEN (NEW.unit_id IS NOT OLD.unit_id OR NEW.org_id IS NOT OLD.org_id) AND ${crossing}
+      ${refuse('a unit in another Unit Instance cannot be named here')}`);
+  }
 }
+
+/** The unit configuration tables that name a unit (ADR-0012), where this database has them. */
+const unitConfigTables = (db: Db) => (['unit_billets', 'training_requirements'] as const).filter((t) => columnsOf(db, t).has('unit_id'));
 
 /**
  * Rows already joined across the boundary, by kind, leaving out the kinds with none. Migration 016 records what it found
@@ -453,6 +474,7 @@ export function instanceBoundaryViolations(db: Db): Record<string, number> {
     ...Object.fromEntries(filedUnderProjects(db).map((t) => [`${t}_project`, `SELECT COUNT(*) AS n FROM ${t} x JOIN projects p ON p.id = x.project_id WHERE ${across('x.unit_id', 'p.unit_id')}`])),
     threads_contact: `SELECT COUNT(*) AS n FROM threads t JOIN contacts c ON c.id = t.contact_id WHERE ${across('t.unit_id', 'c.unit_id')}`,
     thread_links: `SELECT COUNT(*) AS n FROM thread_links l JOIN threads t ON t.id = l.thread_id JOIN work_items w ON w.id = l.work_item_id WHERE ${across('t.unit_id', 'w.unit_id')}`,
+    ...Object.fromEntries(unitConfigTables(db).map((t) => [`${t}_unit`, `SELECT COUNT(*) AS n FROM ${t} x WHERE x.unit_id IS NOT NULL AND ${orgOf('x.unit_id')} <> x.org_id`])),
   };
   const found: Record<string, number> = {};
   for (const [kind, sql] of Object.entries(checks)) {

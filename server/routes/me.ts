@@ -4,7 +4,7 @@ import QRCode from 'qrcode';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound } from '../lib/errors.ts';
 import { requireAuth, requireSudo } from '../auth/middleware.ts';
-import { scopeFor, unitsWith, PERMISSIONS, detailUnitsFor } from '../authz/scope.ts';
+import { scopeFor, unitsWith, PERMISSIONS, detailUnitsFor, orgOfUnit } from '../authz/scope.ts';
 import { profileSchema, passwordField, readinessSchema, prefsSchema, emailField } from '../../shared/schemas.ts';
 import { sourcedFieldsFor } from '../services/personnel.ts';
 import { hashPassword, verifyPassword, encryptSecret, decryptSecret, sha256 } from '../lib/crypto.ts';
@@ -22,6 +22,7 @@ import { ancestorIds, orgSummaries, viewsFor } from '../services/org.ts';
 import { PERMISSION_LIST } from '../../shared/permissions.ts';
 import type { OrgResponse, Rank, Role, Unit } from '../../shared/types.ts';
 import { composeDigest, sendDigest } from '../services/digest.ts';
+import { unitSettingsOf } from '../services/unitConfig.ts';
 import { buildPersonalExport, buildPersonalExportZip } from '../services/personalExport.ts';
 import { demoStatus } from '../services/demo.ts';
 
@@ -43,9 +44,12 @@ meRouter.get('/', wrap((req, res) => {
     ...(credentials.has_password && !ctx.config.cac.exclusive ? ['password' as const] : []),
     ...(credentials.has_card && ctx.config.cac.mode !== 'off' ? ['cac' as const] : []),
   ];
+  // Where the person's own Unit Instance opens reports when they have not chosen (ADR-0012): the one holding their primary unit.
+  const homeOrg = scope.primaryUnitId ? orgOfUnit(ctx, scope.primaryUnitId) : null;
   res.json({
     user: { ...user, rank, passkeys },
     prefs,
+    unitDefaults: { reportPeriod: homeOrg ? unitSettingsOf(ctx, homeOrg).reports.defaultPeriod : null },
     memberships: scope.memberships,
     primaryUnitId: scope.primaryUnitId,
     homeUnitId: scope.homeUnitId,
