@@ -27,9 +27,23 @@ export interface RuntimeSettings {
   attachmentsEnabled: boolean;
   maradminsEnabled: boolean;
   maintenance: boolean;
+  /** Why maintenance is on, who turned it on and what everyone is told (ADR-0011). Null while it is off. */
+  maintenanceWindow: MaintenanceWindow | null;
   selfServiceUnits: boolean;
   selfServiceUnitLimit: number;
   metrics: MetricsConfig;
+}
+
+export interface MaintenanceWindow {
+  /** For Vantage staff and the audit trail: why the service is closed. */
+  reason: string;
+  /** For everyone else: what the sign-in page and every refused request say. */
+  message: string | null;
+  /** When it is expected to end. Informational: maintenance ends only when somebody ends it. */
+  until: string | null;
+  startedAt: string;
+  startedBy: string;
+  startedByName: string;
 }
 
 export interface SessionUser {

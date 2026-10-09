@@ -2,6 +2,36 @@
 
 _Updated 2026-10-08_
 
+## What changed (2026-10-08: Vantage Administrator console)
+
+The Vantage Administrator console runs the service as an enterprise operation
+([ADR-0011](engineering/ADR/0011-vantage-administrator-console-operations.md)).
+
+- **Operations.** One health report, worst first: database size, free disk, schema, the audit chain and
+  forwarding, backups, email, scheduled jobs, sign-in, maintenance and Unit Instances without a Lead
+  Unit Manager. The Overview shows its worst. The same page shows the build and its release history,
+  every migration with when it ran and under which version (migration history is now recorded), the
+  backups and the scheduled jobs (each now tracked: runs, failures, the last error).
+- **Backups are recorded.** A console download and `npm run backup` each record themselves in the
+  database they copied. One older than `VANTAGE_BACKUP_MAX_AGE_HOURS` (a week) needs attention.
+- **Sign-in health.** Each CRL's issuer and next update, each trusted CA's expiry, a live check of the
+  organization sign-in provider, the lockout policy, second-factor coverage and the last day's sign-ins
+  and refusals, as counts.
+- **Feature flags.** The runtime switches with what the profile locks, what they need, the connection they
+  open and who last changed them; the deployment's own flags beside them. Configuration changes are
+  audited as before and after.
+- **Controlled maintenance.** Its own permission (`platform.maintenance`), a reason to start, a message
+  and expected end for everyone else (on every refused request and the sign-in page), a note to end,
+  staff told each time, a banner on every console page, and a fixed list of audited database tasks.
+  Compacting runs only during maintenance. Settings no longer switches maintenance.
+- **Enterprise audit.** The platform trail is filtered and paged on the server and exported as CSV or
+  JSON; each export is audited.
+- **Visibility.** Recent email names recipients only to `platform.email`; who took a backup only to
+  `platform.data` and `platform.audit`. No new read touches a record, and a test checks it.
+- **Migration 019** indexes the audit trail by action.
+- **`tests/server/adminConsole.test.ts`** (14 tests) and **`tests/browser/32-admin-console.spec.ts`**
+  (axe on every new page, the maintenance flow as a Marine sees it, the audit filter and export).
+
 ## What changed (2026-10-08: Vantage Administrator and Unit Manager)
 
 The roles are explicit and nobody elevates themselves ([ADR-0010](engineering/ADR/0010-vantage-administrator-and-unit-manager.md)).

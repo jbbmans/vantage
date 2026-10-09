@@ -17,6 +17,7 @@ import { authenticationOptions, completeAuthentication } from '../auth/passkeys.
 import { record } from '../services/telemetry.ts';
 import { facesOf } from '../lib/hosts.ts';
 import { audit } from '../services/audit.ts';
+import { maintenanceNotice, publicMaintenance } from '../services/maintenance.ts';
 import { layout } from '../services/mailLayout.ts';
 import { newId, now } from '../lib/ids.ts';
 import { claimUnit, addMember, guardSelfReach } from '../services/org.ts';
@@ -108,6 +109,8 @@ authRouter.get('/setup', wrap((req, res) => {
     displayName: ctx.runtime.displayName,
     announcement: ctx.runtime.announcement,
     maintenance: ctx.runtime.maintenance,
+    // What the sign-in page tells everyone while maintenance is on; the reason stays with Vantage staff (ADR-0011).
+    maintenanceNotice: publicMaintenance(ctx),
     consent: consentFor(ctx),
   });
 }));
@@ -535,6 +538,10 @@ authRouter.post('/cac', wrap((req, res) => {
   }
   if (!identity) {
     throw unauthorized('No card was presented. Check the card is in the reader, then try again.', 'cac_no_certificate');
+  }
+  // During maintenance a card signs in an account that already exists. Making one from the roster waits, as registration does.
+  if (ctx.runtime.maintenance && !ctx.db.prepare('SELECT 1 FROM users WHERE edipi = ?').get(identity.edipi)) {
+    throw new HttpError(503, maintenanceNotice(ctx), 'maintenance');
   }
 
   let resolution;

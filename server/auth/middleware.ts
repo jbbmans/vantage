@@ -4,6 +4,7 @@ import { resolveSession, SESSION_COOKIE } from './sessions.ts';
 import { limiters } from './limiter.ts';
 import { HttpError, unauthorized, forbidden } from '../lib/errors.ts';
 import type { PlatformPermission } from '../../shared/permissions.ts';
+import { maintenanceNotice } from '../services/maintenance.ts';
 
 const SAFE = new Set(['GET', 'HEAD', 'OPTIONS']);
 
@@ -31,7 +32,7 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   }
   if (ctx.runtime.maintenance && !resolved.user.platform.length) {
     const allowed = ['/api/me', '/api/auth/logout', '/api/auth/sudo'];
-    if (!allowed.includes(req.originalUrl.split('?')[0])) return next(new HttpError(503, 'Vantage is in scheduled maintenance. Try again shortly.', 'maintenance'));
+    if (!allowed.includes(req.originalUrl.split('?')[0])) return next(new HttpError(503, maintenanceNotice(ctx), 'maintenance'));
   }
   req.user = resolved.user;
   req.sessionId = resolved.session.id;

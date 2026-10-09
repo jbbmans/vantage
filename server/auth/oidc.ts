@@ -41,6 +41,17 @@ let jwksCache: { uri: string; at: number; keys: Array<JsonWebKey & { kid?: strin
 /** For tests: forget what was fetched from the provider. */
 export function resetOidcCache() { discoveryCache = null; jwksCache = null; }
 
+/**
+ * The Vantage Administrator console's check of the provider (ADR-0011): its discovery document read fresh, as a sign-in
+ * reads it, then the keys it publishes. Reaches only the configured issuer and the addresses it names.
+ */
+export async function probeProvider(ctx: AppContext): Promise<{ issuer: string; authorizationHost: string; keys: number }> {
+  discoveryCache = null;
+  const doc = await discovery(ctx);
+  const set = await getJson<{ keys?: unknown }>(doc.jwks_uri);
+  return { issuer: doc.issuer, authorizationHost: new URL(doc.authorization_endpoint).host, keys: Array.isArray(set.keys) ? set.keys.length : 0 };
+}
+
 async function getJson<T>(url: string): Promise<T> {
   let res: Response;
   try { res = await fetch(url, { headers: { accept: 'application/json' }, redirect: 'error', signal: AbortSignal.timeout(10_000) }); }
@@ -198,6 +209,8 @@ export function resolveOidcAccount(ctx: AppContext, claims: OidcClaims): { userI
     return { userId: candidate.id, linked: true, provisioned: false };
   }
   if (cfg.autoProvisionFromRoster && /^\d{10}$/.test(edipi)) {
+    // During maintenance nobody new is made from the roster, as with a card or registration (ADR-0011).
+    if (ctx.runtime.maintenance) throw new OidcError('Vantage is in maintenance. Accounts are made again once it ends.', 'maintenance');
     const roster = rosterVouching(ctx, edipi);
     if (roster && !db.prepare('SELECT 1 FROM users WHERE edipi = ?').get(edipi)) {
       const id = newId();

@@ -234,7 +234,7 @@ test('operator console: runtime settings, users, lifecycle, export/import, backu
   const audit = await app.call('GET', '/api/platform/audit?limit=20', { token: opToken });
   assert.equal(audit.body.rows.length, 20);
   assert.equal((await app.call('GET', '/api/platform/backup', { token: opToken })).status, 400);
-  const maint = await app.call('POST', '/api/platform/maintenance', { token: opToken, body: { enabled: true } });
+  const maint = await app.call('POST', '/api/platform/maintenance', { token: opToken, body: { enabled: true, reason: 'Platform console maintenance check.' } });
   assert.equal(maint.body.maintenance, true);
   assert.equal((await app.call('GET', '/api/records/activities', { token: opToken })).status, 200);
   assert.equal((await app.call('GET', '/api/records/activities', { token: (await app.login('marine')).body.token })).status, 503);

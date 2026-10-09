@@ -50,6 +50,28 @@ A Unit Instance is what this section calls an organization ([ADR-0007](engineeri
 - **Known limits, for Task 7.** A Unit Manager who can create or seat accounts can make a second identity and grant it what they may not grant themselves; CAC-only sign-in under MCEN, one card per person, is what closes it. Unit leadership, unlike a Unit Instance role, outlasts the leader's membership until it is transferred. ADR-0010 lists the rest.
 - **The first-run exception.** Setup makes one account Lead Vantage Administrator, the first Unit Instance's Lead Unit Manager and the leader of its top unit. [deploy-mcen.md](deploy-mcen.md) gives the hand-off that ends the dual hat.
 
+## The Vantage Administrator console (ADR-0011)
+
+[ADR-0011](engineering/ADR/0011-vantage-administrator-console-operations.md) adds the operations pages.
+
+- **Every page checks its permission on the server.** Operations, sign-in health, feature flags and the
+  maintenance window are `platform.view`; changing a flag is `platform.settings`; starting, ending and
+  running database tasks is `platform.maintenance`; the audit trail and its export are `platform.audit`.
+  All of `/api/platform` needs staff and a recent step-up.
+- **Maintenance is its own act.** It needs `platform.maintenance` and a reason, is audited with the reason,
+  expected end, duration and note, and tells the other staff. `PUT /api/platform/runtime` refuses it.
+  The reason stays with staff; everyone else reads the message.
+- **No statement is typed in.** Database tasks are a fixed list; compacting runs only during maintenance
+  and only with room on the disk. Each run is audited.
+- **The audit export is audited** (`platform_audit_exported`, with the filter and row count). Above
+  50,000 rows it is refused with a request to narrow the dates, never cut short. Its CSV writes a cell a spreadsheet would run as a formula as text (`shared/csv.ts`).
+- **Checking the organization sign-in provider** is `platform.settings`, reaches only the configured issuer
+  and the keys it names, and is audited (`oidc_checked`).
+- **Least visibility.** No operations read touches a record, comment, file or work item, and sign-in
+  health is counts. Recent email names recipients only to `platform.email`; who took a backup only to
+  `platform.data` and `platform.audit`. `tests/server/adminConsole.test.ts` checks that a marker written
+  into a Unit Instance's records reaches no platform read.
+
 ## The Unit Instance boundary (ADR-0008)
 
 Permissions are held per unit, so a person who serves in one Unit Instance only ever stands in its units. Someone attached to two commands holds real authority in each, and may work in each; what no authority allows is carrying one instance's data, or a reference to it, into the other. Where an operation names two units, or a unit and a row from another unit, the server checks that both are in one Unit Instance (`sameInstance` and `assertSameInstance` in `server/authz/scope.ts`, refusals with the code `cross_instance`):

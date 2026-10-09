@@ -181,7 +181,7 @@ test('maintenance mode blocks registration and non-owner requests but lets owner
     const op = await m.setupOperator();
     const user = await m.register('maint');
     await m.call('POST', '/api/auth/sudo', { token: op.token, body: { password: PASSWORD } });
-    assert.equal((await m.call('POST', '/api/platform/maintenance', { token: op.token, body: { enabled: true } })).status, 200);
+    assert.equal((await m.call('POST', '/api/platform/maintenance', { token: op.token, body: { enabled: true, reason: 'Testing maintenance mode end to end.' } })).status, 200);
     assert.equal((await m.call('POST', '/api/auth/register', { body: { username: 'late', password: PASSWORD, first_name: 'L', last_name: 'M' } })).status, 503);
     assert.equal((await m.call('GET', '/api/records/activities', { token: user.token })).status, 503);
     assert.equal((await m.call('GET', '/api/me', { token: user.token })).status, 200);
