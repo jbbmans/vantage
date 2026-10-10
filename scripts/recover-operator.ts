@@ -5,6 +5,13 @@ import { invalidateUserSessions } from '../server/auth/sessions.ts';
 import { audit } from '../server/services/audit.ts';
 import { randomBytes } from 'node:crypto';
 
+/**
+ * Break glass: when no Lead Vantage Administrator can sign in, somebody with a shell on the server makes one again. It is
+ * the one credential change outside the two-person rule for accounts with authority (ADR-0013), because there may be
+ * nobody left to approve; holding the server is the control. It runs only with VANTAGE_RECOVERY=1 for that invocation,
+ * and writes operator_recovery into the audit trail, which is forwarded off the host like every entry.
+ */
+
 if (process.env.VANTAGE_RECOVERY !== '1') { console.error('Refusing: set VANTAGE_RECOVERY=1 for this one invocation.'); process.exit(1); }
 const username = String(process.argv[2] || '').toLowerCase();
 if (!username) { console.error('Usage: VANTAGE_RECOVERY=1 node scripts/recover-operator.ts <username>'); process.exit(1); }

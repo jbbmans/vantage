@@ -425,7 +425,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     access: 'The owner.',
     columns: {
       id: 'technical', user_id: 'identifier', to_address: 'contact', kind: 'none', subject: 'technical', status: 'technical',
-      error: 'technical', created_at: 'technical',
+      error: 'technical', created_at: 'technical', org_id: 'technical',
     },
   },
   source_files: {

@@ -463,7 +463,10 @@ CREATE TABLE IF NOT EXISTS email_log (
   subject    TEXT NOT NULL,
   status     TEXT NOT NULL,
   error      TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  -- The Unit Instance the mail was sent on behalf of (sign-in details, an invitation, a message to a unit); NULL for
+  -- the account's own mail and Vantage's. A unit's support queue never sees what another Unit Instance sent (ADR-0013).
+  org_id     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_email_log_created ON email_log(created_at DESC);
 

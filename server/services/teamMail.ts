@@ -1,5 +1,5 @@
 import type { AppContext, SessionUser } from '../context.ts';
-import { subtreeIds, membersAcross } from '../authz/scope.ts';
+import { subtreeIds, membersAcross, orgOfUnit } from '../authz/scope.ts';
 import { layout } from './mailLayout.ts';
 import { notify } from './notifications.ts';
 import { getUnit } from './org.ts';
@@ -48,11 +48,12 @@ export async function sendTeamMessage(ctx: AppContext, sender: SessionUser, unit
     footer: `${senderName} sent this to ${unitLabel} through Vantage.${sender.email ? ' Reply to reach them directly.' : ''}`,
     origin: ctx.config.urls.app,
   });
+  const orgId = orgOfUnit(ctx, unitId);
   let emailed = 0; let queued = 0; let failed = 0;
   for (const r of list) {
     notify(ctx, r.id, { kind: 'unit', title: `${unitLabel}: ${message.subject}`.slice(0, 140), message: message.body.slice(0, 400), actionUrl: '/team' });
     if (!r.email || !ctx.mailer.enabled) continue;
-    const result = await ctx.mailer.send({ to: r.email, subject: `[${unitLabel}] ${message.subject}`, text: mail.text, html: mail.html, kind: 'team_message', userId: r.id, replyTo: sender.email || null });
+    const result = await ctx.mailer.send({ to: r.email, subject: `[${unitLabel}] ${message.subject}`, text: mail.text, html: mail.html, kind: 'team_message', userId: r.id, replyTo: sender.email || null, orgId });
     if (result.ok && result.queued) queued++;
     else if (result.ok) emailed++;
     else failed++;

@@ -1,6 +1,6 @@
 import type { AppContext, SessionUser } from '../context.ts';
 import type { Scope } from '../authz/scope.ts';
-import { PERMISSIONS, unitsWith, scopeFor } from '../authz/scope.ts';
+import { PERMISSIONS, orgOfUnit, unitsWith, scopeFor } from '../authz/scope.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
@@ -124,19 +124,37 @@ export function ticketDetail(ctx: AppContext, user: SessionUser, scope: Scope, i
   ).all(id) as Array<Record<string, unknown>>;
 
   const assignee = row.assigned_to ? ctx.db.prepare('SELECT id, first_name, last_name FROM users WHERE id = ?').get(row.assigned_to) as { id: string; first_name: string; last_name: string } | undefined : undefined;
-  return { ticket: row, messages, delivery: staff ? deliveryFor(ctx, row) : [], works: staff, assignee: assignee ? { id: assignee.id, name: `${assignee.first_name} ${assignee.last_name}` } : null };
+  return { ticket: row, messages, delivery: staff ? deliveryFor(ctx, user, row) : [], works: staff, assignee: assignee ? { id: assignee.id, name: `${assignee.first_name} ${assignee.last_name}` } : null };
 }
 
-function deliveryFor(ctx: AppContext, row: TicketRow) {
-  if (!row.requester_id && !row.requester_email) return [];
-  const clauses: string[] = [];
-  const params: unknown[] = [];
-  if (row.requester_id) { clauses.push('user_id = ?'); params.push(row.requester_id); }
-  if (row.requester_email) { clauses.push('lower(to_address) = lower(?)'); params.push(row.requester_email); }
+/** Mail about the account itself: its sign-in details, a password reset it asked for, confirming its address. */
+export const ACCOUNT_MAIL_KINDS = ['sign_in', 'reset', 'email_change'] as const;
+
+/**
+ * Whether the requester's mail went out. Vantage support sees every delivery to the account or the address, as it always
+ * has. A unit's support queue sees only the account's own mail (ACCOUNT_MAIL_KINDS), with its status and time: never a
+ * subject, an address or an error, never another kind of mail, and never sign-in details another Unit Instance (or
+ * Vantage) sent, since that would show where else the person serves (ADR-0013).
+ */
+function deliveryFor(ctx: AppContext, user: SessionUser, row: TicketRow) {
+  if (platformCan(user, 'platform.support')) {
+    if (!row.requester_id && !row.requester_email) return [];
+    const clauses: string[] = [];
+    const params: unknown[] = [];
+    if (row.requester_id) { clauses.push('user_id = ?'); params.push(row.requester_id); }
+    if (row.requester_email) { clauses.push('lower(to_address) = lower(?)'); params.push(row.requester_email); }
+    return ctx.db.prepare(
+      `SELECT id, to_address, kind, subject, status, error, created_at FROM email_log
+        WHERE ${clauses.join(' OR ')} ORDER BY created_at DESC LIMIT 20`
+    ).all(...params) as Array<Record<string, unknown>>;
+  }
+  const orgId = row.unit_id ? orgOfUnit(ctx, row.unit_id) : null;
+  if (!row.requester_id || !orgId) return [];
   return ctx.db.prepare(
-    `SELECT id, to_address, kind, subject, status, error, created_at FROM email_log
-      WHERE ${clauses.join(' OR ')} ORDER BY created_at DESC LIMIT 20`
-  ).all(...params) as Array<Record<string, unknown>>;
+    `SELECT id, kind, status, created_at FROM email_log
+      WHERE user_id = ? AND kind IN (SELECT value FROM json_each(?)) AND (CASE WHEN kind = 'sign_in' THEN org_id = ? ELSE org_id IS NULL END)
+      ORDER BY created_at DESC LIMIT 20`
+  ).all(row.requester_id, JSON.stringify(ACCOUNT_MAIL_KINDS), orgId) as Array<Record<string, unknown>>;
 }
 
 export function replyToTicket(ctx: AppContext, user: SessionUser, scope: Scope, id: string, body: string, internal: boolean, ip?: string) {

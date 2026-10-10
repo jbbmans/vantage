@@ -391,9 +391,16 @@ test('a Unit Manager cannot re-key a Lead Unit Manager’s CAC sign-in, and Vant
 
   const toldLead = () => (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ?').get(org.owner!.id) as { n: number }).n;
   const before = toldLead();
-  const reset = await post(staff.support!.token, `/api/platform/accounts/${target.id}/temporary-password`);
+  // They hold authority, so a second member of Vantage staff approves the takeover first (ADR-0013).
+  const alone = await post(staff.support!.token, `/api/platform/accounts/${target.id}/temporary-password`);
+  assert.equal(alone.status, 403, JSON.stringify(alone.body));
+  assert.equal(alone.body.code, 'approval_required');
+  const asked = await post(staff.support!.token, `/api/platform/accounts/${target.id}/credential-approvals`, { action: 'temporary_password', reason: 'Ticket 4410: locked out after a phone swap' });
+  assert.equal(asked.status, 201, JSON.stringify(asked.body));
+  assert.equal((await post(staff.admin!.token, `/api/platform/credential-approvals/${asked.body.approval.id}/approve`)).status, 200);
+  const reset = await post(staff.support!.token, `/api/platform/accounts/${target.id}/temporary-password`, { approvalId: asked.body.approval.id });
   assert.equal(reset.status, 200, JSON.stringify(reset.body));
-  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'vantage_account_support' AND org_id = 'G8' AND subject_id = ?").get(target.id), 'in the Unit Instance’s trail');
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'vantage_account_support' AND org_id = 'G8' AND subject_id = ? AND detail LIKE '%approved by Vadmin Marine'").get(target.id), 'in the Unit Instance’s trail, naming who approved it');
   assert.ok(toldLead() > before, 'and its Lead Unit Managers are told');
   // The marine leads a unit by now (see above), so a member who holds nothing.
   const plain = await app.register('plainsupport');

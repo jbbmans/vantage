@@ -241,9 +241,10 @@ test('021 gives each new audit entry a sealed category and makes the log append-
   const SECRET = 'test-secret-test-secret-test-secret-1234';
   const at = '2026-09-01T00:00:00.000Z';
   const { path, cleanup } = atVersion(20, (db) => {
-    // The shape at 20: no category, no append-only triggers, no credential approvals.
+    // The shape at 20: no category, no append-only triggers, no credential approvals, no Unit Instance on mail.
     db.exec('DROP TABLE credential_approvals');
     db.exec('ALTER TABLE audit_log DROP COLUMN category');
+    db.exec('ALTER TABLE email_log DROP COLUMN org_id');
     db.prepare("INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u1', 'avery', 'x', 'Jordan', 'Avery', ?, ?)").run(at, at);
     // A chain written by a build before categories, under the secret (before the chain key, as loadChainKey reads it):
     // an entry without an organization, and one with.
@@ -269,6 +270,7 @@ test('021 gives each new audit entry a sealed category and makes the log append-
     assert.ok(column, 'audit_log has a category');
     assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_audit_category'").get(), 'and an index to filter by it');
     assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'credential_approvals'").get());
+    assert.ok((db.prepare('PRAGMA table_info(email_log)').all() as Array<{ name: string }>).some((c) => c.name === 'org_id'), 'mail names the Unit Instance it was sent for');
     const triggers = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'audit_log_%' ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
     assert.deepEqual(triggers, ['audit_log_no_delete', 'audit_log_no_update']);
     assert.ok(migrationHistory(db).some((m) => m.id === 21 && m.name === '021_audit_categories_and_append_only'), 'the migration is in the history');

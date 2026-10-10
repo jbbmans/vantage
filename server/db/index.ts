@@ -252,13 +252,15 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
     name: '021_audit_categories_and_append_only',
     // Each audit entry seals its category, and the log is append-only from here (ADR-0013). Entries already written are
     // left as they are, with no category: their hashes never sealed one, so a read takes it from the catalogue. The
-    // credential_approvals table comes from schema.sql.
+    // credential_approvals table comes from schema.sql; email_log gains the Unit Instance a message was sent for.
     run: (db) => {
       if (!columnsOf(db, 'audit_log').has('category')) {
         db.exec("ALTER TABLE audit_log ADD COLUMN category TEXT CHECK (category IS NULL OR category IN ('user', 'unit', 'enterprise'))");
       }
       db.exec('CREATE INDEX IF NOT EXISTS idx_audit_category ON audit_log(category, seq)');
       auditAppendOnlyTriggers(db);
+      // Mail names the Unit Instance it was sent for, so a unit's support queue sees only its own; older mail names none.
+      if (!columnsOf(db, 'email_log').has('org_id')) db.exec('ALTER TABLE email_log ADD COLUMN org_id TEXT');
     },
   },
 ];

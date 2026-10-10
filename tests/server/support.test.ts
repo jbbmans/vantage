@@ -76,6 +76,44 @@ test('the queue can see that a reset was sent, and never what it said', async ()
   assert.deepEqual(asRequester.body.delivery, []);
 });
 
+test('a unit’s support queue sees only the account’s own sign-in mail, with its status and time and nothing else', async () => {
+  // Somebody who works G8's queue and holds no Vantage role.
+  const worker = await app.register('queueworker');
+  await enroll(app, op.token, 'G8', worker.id, 'sncoic');
+  const workerToken = (await app.login('queueworker')).body.token;
+  const okafor = await app.register('okafor', { email: 'okafor@example.mil' });
+  await enroll(app, op.token, 'G8', okafor.id);
+  const okaforToken = (await app.login('okafor')).body.token;
+  assert.ok([200, 202].includes((await app.call('POST', '/api/auth/forgot', { body: { identifier: 'okafor@example.mil' } })).status));
+  // What else went to them: sign-in details from G8, from another Unit Instance and from Vantage, a message to their unit,
+  // a digest, and a confirmation of their address.
+  const insert = app.ctx.db.prepare("INSERT INTO email_log (id, user_id, to_address, kind, subject, status, error, created_at, org_id) VALUES (?, ?, 'okafor@example.mil', ?, ?, ?, ?, ?, ?)");
+  const at = new Date().toISOString();
+  insert.run('mail-g8', okafor.id, 'sign_in', 'Your Vantage sign-in details', 'sent', null, at, 'G8');
+  insert.run('mail-other', okafor.id, 'sign_in', 'Your Vantage sign-in details', 'failed', 'mailbox full at other.mil', at, 'G1');
+  insert.run('mail-vantage', okafor.id, 'sign_in', 'Your Vantage sign-in details', 'sent', null, at, null);
+  insert.run('mail-team', okafor.id, 'team_message', '[G8] Field day Friday', 'sent', null, at, 'G8');
+  insert.run('mail-digest', okafor.id, 'digest', 'Your week', 'sent', null, at, null);
+  insert.run('mail-confirm', okafor.id, 'email_change', 'Confirm your Vantage email', 'failed', 'rejected by relay', at, null);
+
+  const ticket = await app.call('POST', '/api/support/tickets', { token: okaforToken, body: { subject: 'No email arrives', body: 'Nothing comes through.', category: 'sign_in', unit_id: 'G8' } });
+  assert.equal(ticket.status, 201, JSON.stringify(ticket.body));
+  const asWorker = await app.call('GET', `/api/support/tickets/${ticket.body.id}`, { token: workerToken });
+  assert.equal(asWorker.status, 200, JSON.stringify(asWorker.body));
+  assert.equal(asWorker.body.works, true);
+  const seen = asWorker.body.delivery as Array<Record<string, unknown>>;
+  assert.deepEqual(seen.map((d) => d.kind).sort(), ['email_change', 'reset', 'sign_in']);
+  assert.ok(seen.some((d) => d.id === 'mail-g8'), 'sign-in details this Unit Instance sent');
+  for (const d of seen) assert.deepEqual(Object.keys(d).sort(), ['created_at', 'id', 'kind', 'status'], 'status and time, never a subject, an address or an error');
+  const text = JSON.stringify(asWorker.body);
+  for (const leak of ['other.mil', 'rejected by relay', 'Field day', 'Your week', 'Reset your Vantage password']) assert.ok(!text.includes(leak), leak);
+
+  // Vantage support still sees every delivery to the account.
+  const asSupport = await app.call('GET', `/api/support/tickets/${ticket.body.id}`, { token: op.token });
+  const all = (asSupport.body.delivery as Array<{ id: string }>).map((d) => d.id);
+  for (const id of ['mail-g8', 'mail-other', 'mail-vantage', 'mail-team', 'mail-digest', 'mail-confirm']) assert.ok(all.includes(id), id);
+});
+
 test('an internal note is invisible to the person who raised the ticket', async () => {
   const ticket = await app.call('POST', '/api/support/tickets', { token: rivera.token, body: { subject: 'Something odd', body: 'The dashboard looks wrong.', category: 'bug' } });
   const id = ticket.body.id;

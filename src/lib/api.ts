@@ -280,7 +280,13 @@ export const platformAccountAction = (userId: string, action: 'unlock' | 'logout
   api.post(`/platform/accounts/${enc(userId)}/${action}`, body);
 export const platformSendSignInDetails = (userIds: string[]) => api.post('/platform/accounts/sign-in-details', { userIds });
 /** Vantage support corrects the EDIPI a CAC signs in with, saying why (ADR-0009). */
-export const platformCorrectEdipi = (userId: string, body: { edipi: string | null; reason: string }) => api.post(`/platform/accounts/${enc(userId)}/edipi`, body);
+export const platformCorrectEdipi = (userId: string, body: { edipi: string | null; reason: string; approvalId?: string }) => api.post(`/platform/accounts/${enc(userId)}/edipi`, body);
+/** A second staff member approves a credential change to an account that holds authority (ADR-0013). */
+export const platformCredentialApprovals = () => api.get('/platform/credential-approvals');
+export const platformRequestCredentialApproval = (userId: string, body: { action: 'temporary_password' | 'reset_mfa' | 'edipi'; reason: string; edipi?: string | null }) =>
+  api.post(`/platform/accounts/${enc(userId)}/credential-approvals`, body);
+export const platformDecideCredentialApproval = (id: string, decision: 'approve' | 'deny', note?: string) => api.post(`/platform/credential-approvals/${enc(id)}/${decision}`, { note: note || undefined });
+export const platformCancelCredentialApproval = (id: string) => api.post(`/platform/credential-approvals/${enc(id)}/cancel`);
 export const platformStaff = () => api.get('/platform/staff');
 export const platformGrantStaff = (body: { user_id?: string; username?: string; role: string }) => api.post('/platform/staff', body);
 export const platformRevokeStaff = (userId: string, role: string) => api.del(`/platform/staff/${enc(userId)}/${enc(role)}`);

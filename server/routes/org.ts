@@ -252,7 +252,7 @@ orgRouter.post('/units/:unitId/invites', wrap(async (req, res) => {
       footer: `${inviter} sent this invitation through Vantage.`,
       origin: ctx.config.urls.app,
     });
-    emailed = (await ctx.mailer.send({ to: body.email, subject: `Invitation to ${unit.short_name || unit.name} on Vantage`, text: mail.text, html: mail.html, kind: 'invite' })).ok;
+    emailed = (await ctx.mailer.send({ to: body.email, subject: `Invitation to ${unit.short_name || unit.name} on Vantage`, text: mail.text, html: mail.html, kind: 'invite', orgId: orgOfUnit(ctx, unitId) })).ok;
   }
   audit(ctx, { actor_id: req.user.id, action: 'invite_created', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `${body.email || 'link'}; emailed: ${emailed}`, ip: clientIp(req) });
   res.status(201).json({ ok: true, id, url, emailed, expiresInDays: 7 });

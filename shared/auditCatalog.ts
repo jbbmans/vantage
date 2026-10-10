@@ -97,7 +97,8 @@ const ENTERPRISE = [
   'org_owner_named', 'platform_owner_named', 'platform_manager_assigned', 'platform_manager_removed', 'platform_owner_configured',
   // Vantage staff and account support.
   'staff_role_granted', 'staff_role_revoked', 'temporary_password', 'reset_mfa', 'edipi_corrected', 'deactivate_account',
-  'reactivate_account', 'vantage_account_support', 'vantage_access_requested', 'vantage_access_started',
+  'reactivate_account', 'vantage_account_support', 'credential_change_requested', 'credential_change_approved',
+  'credential_change_denied', 'credential_change_cancelled', 'vantage_access_requested', 'vantage_access_started',
   'vantage_access_withdrawn', 'vantage_access_ended', 'vantage_access_expired', 'vantage_access_lapsed',
   // Settings, sign-in, email, AI and maintenance.
   'edit_configuration', 'oidc_checked', 'email_setup_checked', 'ai_unlocked', 'sync_maradmins', 'maintenance_on',
