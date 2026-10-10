@@ -41,8 +41,9 @@ Three decisions by John frame this ADR:
   Managers are told each time. Those grants and removals are now sealed as enterprise administration.
 - **"Until proven"** (2026-10-09). A Unit Manager gives an account they created or invited no role that reads
   records, and no Unit Instance role, until that account has signed in as its own person (section 8).
-- **Who approves a support takeover.** The Task 4 decision card is still unanswered. This Task builds its
-  recommended option, **"Second staff member"** (section 5). If John chooses otherwise, the change is
+- **Who approves a support takeover.** Task 4 left this to Task 7, and the decision card this Task put to
+  John on 2026-10-09 is still unanswered. This Task builds its recommended option, **"Second staff member"**
+  (section 5). If John chooses otherwise, the change is
   confined to `approversFor` and `decideApproval` in `server/services/credentialApprovals.ts`.
 
 ## Decision
@@ -391,10 +392,14 @@ checksum and the licence are recorded at its head.
 - **A structured-data element for the category in syslog.** Rejected for now: it needs a registered
   private enterprise number.
 - **Who approves a support takeover.** Built: "Second staff member", the card's recommended option.
-  Considered and not built while the card is open:
-  - requiring a Lead Vantage Administrator for every account, which is slower and concentrates the role;
-  - asking the Unit Instance's Lead Unit Manager, which gives a unit a say over Vantage's own staff
-    accounts and cannot cover an account in no instance.
+  The card's other options, not built while it is open:
+  - "Lead Unit Manager": a Lead Unit Manager of the person's Unit Instance approves. It gives a unit a say
+    over Vantage's own staff accounts, cannot cover an account in no instance, and needs a Vantage
+    Administrator to name one first where the instance has no other Lead Unit Manager;
+  - "Either one": whoever approves first, another staff member or a Lead Unit Manager of the person's
+    instance. It carries the second option's gaps for the instance side;
+  - "Notify only": Task 4's behavior, one person acts and the instance is told afterward. A takeover is
+    detected but not prevented.
 - **Refusing the join when a code or invitation carries a role the maker may not give.** Rejected: existing
   practice has leaders staff units with join codes made for others. Holding back the role keeps the join and
   stops the grant.
