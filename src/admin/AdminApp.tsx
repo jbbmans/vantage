@@ -1,4 +1,4 @@
-import { Activity, Archive, BarChart3, Building2, Database, Fingerprint, Gauge, HeartPulse, KeyRound, Mail, ScrollText, Settings2, ShieldCheck, Sparkles, ToggleRight, UserCog, Users, Wrench } from 'lucide-react';
+import { Activity, Archive, BarChart3, Building2, Database, Fingerprint, Gauge, HeartPulse, KeyRound, Mail, Scale, ScrollText, Settings2, ShieldCheck, Sparkles, ToggleRight, UserCog, Users, Wrench } from 'lucide-react';
 import { ConsoleFrame, ConsoleLayout, type ConsoleSection } from '@/components/ConsoleFrame';
 import { PrivacyConsole } from '@/components/GovernanceConsole';
 import { LINKS } from '@/lib/links';
@@ -7,6 +7,7 @@ import type { Identity } from '@/lib/queries';
 import * as Sections from './sections';
 import { Access, Accounts, Organizations, PlatformHolds, Staff } from './people';
 import { FeatureFlags, Maintenance, MaintenanceBanner, Operations, SignInHealth } from './operations';
+import { SeparationOfDuties } from './separation';
 
 /**
  * The Vantage Administrator console (ADR-0006, ADR-0010): the service, for Vantage staff. Unit Instances appear here as
@@ -31,6 +32,7 @@ function sectionsFor(permissions: string[]): ConsoleSection[] {
     { path: 'usage', label: 'Usage', icon: Activity, title: 'Usage and reliability', lede: 'How Vantage is used and where it fails, without anyone’s content.', render: () => <Sections.UsageConsole />, hidden: !can('platform.usage') },
     { path: 'privacy', label: 'Privacy', icon: ShieldCheck, title: 'Privacy inventory', lede: 'What personal information the service holds, and why.', render: () => <PrivacyConsole />, hidden: !can('platform.audit') },
     { path: 'audit', label: 'Audit trail', icon: ScrollText, title: 'Platform audit trail', lede: 'What Vantage staff did, sign-ins, and every access request, in the tamper-evident chain. Each Unit Instance’s own actions are in its trail.', render: () => <Sections.AuditLog />, hidden: !can('platform.audit') },
+    { path: 'separation', label: 'Separation of duties', icon: Scale, title: 'Separation of duties', lede: 'Accounts whose authority crosses a line the role model draws: staff who also run a command, managers who also read records, leaders outside their unit, and roles from the person who created the account.', render: () => <SeparationOfDuties />, hidden: !can('platform.audit') },
     { path: 'holds', label: 'Legal holds', icon: Archive, title: 'Platform legal holds', lede: 'Holds on the service itself, over every Unit Instance.', render: () => <PlatformHolds />, hidden: !can('platform.data') },
     { path: 'maintenance', label: 'Maintenance', icon: Wrench, title: 'Maintenance', lede: 'Closing the service for work, with a reason, and the database tasks that keep it sound. Every step is audited.', render: () => <Maintenance />, hidden: !can('platform.view') },
     { path: 'data', label: 'Backup and recovery', icon: Database, title: 'Backup and recovery', lede: 'Backups and the whole-service archive.', render: () => <Sections.DataAdmin />, hidden: !can('platform.data') },

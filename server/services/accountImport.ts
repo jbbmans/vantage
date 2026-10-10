@@ -6,7 +6,7 @@ import { hashPassword } from '../lib/crypto.ts';
 import { newId, now, slug } from '../lib/ids.ts';
 import { passwordProblem } from '../../shared/password.ts';
 import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
-import { addMember, seedRoles } from './org.ts';
+import { addMember, mayCarryRole, seedRoles } from './org.ts';
 import { audit } from './audit.ts';
 
 export const MAX_ACCOUNT_ROWS = 500;
@@ -209,7 +209,9 @@ const passphrase = () => {
 /**
  * Creates every account the plan marks for creation in the organization, the units they name (under its top unit,
  * governed from above), their rank, role and billet. Everyone signs in with a temporary password and must set their
- * own. Rows with a problem are skipped; nothing is written unless the whole batch succeeds.
+ * own. Rows with a problem are skipped; nothing is written unless the whole batch succeeds. A role that reads records
+ * is held back (`withheld`) unless the importer could give it through the chain of command: these are accounts the
+ * importer created, and none of them has signed in as its own yet (ADR-0013).
  */
 export function applyAccounts(ctx: AppContext, actor: SessionUser, orgId: string, rows: RosterRow[], ip?: string) {
   const rootId = rootOf(ctx, orgId);
@@ -247,6 +249,7 @@ export function applyAccounts(ctx: AppContext, actor: SessionUser, orgId: string
   };
 
   let created = 0;
+  const withheld: Array<{ username: string; role: string }> = [];
   ctx.db.transaction(() => {
     for (const a of plan.accounts) {
       if (a.status !== 'create') continue;
@@ -263,14 +266,18 @@ export function applyAccounts(ctx: AppContext, actor: SessionUser, orgId: string
       if (!commandId && !teamId) addMember(ctx, id, rootId, { invitedBy: actor.id, primary: true, billet: a.billet, reason: 'account_import' });
       if (unitId) {
         const role = roleFor(v.role);
-        if (role && role.key !== 'marine') {
+        const unitRole = role && role.key !== 'marine'
+          ? ctx.db.prepare('SELECT id, name, permissions FROM roles WHERE id = ?').get(`${unitId}:${role.key}`.slice(0, 120)) as { id: string; name: string; permissions: number } | undefined
+          : undefined;
+        // The importer created this account: a role that reads records waits until it signs in as its own (ADR-0013).
+        if (unitRole && mayCarryRole(ctx, actor.id, id, unitId, unitRole, actor.id, { ip, tell: false })) {
           ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)')
-            .run(id, `${unitId}:${role.key}`.slice(0, 120), unitId, actor.id, now());
-        }
+            .run(id, unitRole.id, unitId, actor.id, now());
+        } else if (unitRole) withheld.push({ username: a.username, role: unitRole.name });
       }
       audit(ctx, { actor_id: actor.id, action: 'account_imported', entity: 'user', entity_id: id, subject_id: id, unit_id: unitId, detail: `${a.username}; ${a.role}`, ip });
       created += 1;
     }
   })();
-  return { ...plan, created, generated };
+  return { ...plan, created, generated, withheld };
 }

@@ -67,7 +67,7 @@ export function createContext(config: AppConfig): AppContext {
     runtime.maradminsEnabled = false;
   }
   applyRuntimeLocks(config, runtime);
-  configureLimits({ mutations: config.limits.mutationsPer15Minutes, registrations: config.limits.registrationsPer15Minutes });
+  configureLimits({ mutations: config.limits.mutationsPer15Minutes, registrations: config.limits.registrationsPer15Minutes, consoleReads: config.limits.consoleReadsPer15Minutes });
   configureAiLimits({ global: config.ai.requestsPerMinute, perUser: config.ai.perUserRequestsPerMinute });
   // Each schema migration this start ran, or the schema a new database began at, goes in the audit trail (ADR-0013).
   auditMigrations(ctx);

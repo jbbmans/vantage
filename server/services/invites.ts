@@ -6,7 +6,7 @@ import { randomBytes } from 'node:crypto';
 import { newId, now } from '../lib/ids.ts';
 import { sha256 } from '../lib/crypto.ts';
 import { audit } from './audit.ts';
-import { addMember, assertMayGrantRole, getUnit, guardSelfReach, type RoleRow } from './org.ts';
+import { addMember, assertMayGrantRole, getUnit, guardSelfReach, mayCarryRole, type RoleRow } from './org.ts';
 
 /** Codes are read out at formation and typed on phones, so case, spaces and the hyphen do not matter. */
 const HASH = (code: string) => {
@@ -118,7 +118,8 @@ export function redeemInvite(ctx: AppContext, user: SessionUser, code: string, i
     const role = row.role_id ? ctx.db.prepare('SELECT name, permissions FROM roles WHERE id = ?').get(row.role_id) as { name: string; permissions: number } | undefined : undefined;
     if (role && row.created_by === user.id) guardSelfReach(ctx, user, scopeFor(ctx, user), row.unit_id, role.permissions, user.id, `Joining with your own code for ${role.name}`);
     addMember(ctx, user.id, row.unit_id, { invitedBy: row.created_by, reason: 'join_code' });
-    if (row.role_id) {
+    // A role that reads records waits while this is an account the code's maker opened that has not signed in as its own.
+    if (row.role_id && (!role || mayCarryRole(ctx, row.created_by, user.id, row.unit_id, role, user.id, { ip }))) {
       ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)')
         .run(user.id, row.role_id, row.unit_id, row.created_by, now());
     }

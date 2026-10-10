@@ -4,7 +4,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross, sameInstance, orgOfUnit } from '../authz/scope.ts';
-import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, chainBits, primaryOrgOf, setPrimaryUnit, type RoleRow } from '../services/org.ts';
+import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardUnprovenOwnAccount, chainBits, primaryOrgOf, setPrimaryUnit, type RoleRow } from '../services/org.ts';
 import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
@@ -15,7 +15,7 @@ import { emailField, profileSchema } from '../../shared/schemas.ts';
 import { hydrate, withGoalProgress } from '../services/records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { unitDashboard, unitOverview } from '../services/dashboard.ts';
-import { listPermissions, ROLE_TEMPLATE } from '../../shared/permissions.ts';
+import { listPermissions, RECORD_READING_BITS, ROLE_TEMPLATE } from '../../shared/permissions.ts';
 import type { Activity, Award, Counseling, Goal, MemberDetailResponse, Role, RolesResponse, Task, TeamPerson, TeamResponse, Training } from '../../shared/types.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
 import { assertMayEndInstanceRoles } from '../services/organizations.ts';
@@ -307,6 +307,13 @@ orgRouter.put('/roles/:roleId', wrap((req, res) => {
   // Widening a role you hold is giving it to yourself.
   const holds = Boolean(ctx.db.prepare('SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = ?').get(req.user.id, role.id));
   if (holds && !isUnitOwner(ctx, req.user.id, role.unit_id)) guardSelfReach(ctx, req.user, scope, role.unit_id, def.permissions & ~role.permissions, req.user.id, `Widening ${role.name}, which you hold,`);
+  // So is widening one that an account you created or invited holds, before it has signed in as its own (ADR-0013).
+  const widened = def.permissions & ~role.permissions & RECORD_READING_BITS;
+  if (widened && !isUnitOwner(ctx, req.user.id, role.unit_id)) {
+    for (const h of ctx.db.prepare('SELECT DISTINCT user_id FROM member_roles WHERE role_id = ?').all(role.id) as Array<{ user_id: string }>) {
+      guardUnprovenOwnAccount(ctx, req.user, h.user_id, { scope, unitId: role.unit_id, bits: widened });
+    }
+  }
   let revoked = 0;
   const description = body.description === undefined ? role.description : body.description || null;
   const color = body.color === undefined ? role.color : body.color || null;

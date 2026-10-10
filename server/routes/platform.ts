@@ -11,7 +11,7 @@ import { PLATFORM_ROLE_KEYS, PLATFORM_ROLES, PLATFORM_PERMISSION_LIST, ORG_ROLES
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { notify, notifyOrg, notifyStaff } from '../services/notifications.ts';
-import { requireAuth, requirePlatform, requireSudo } from '../auth/middleware.ts';
+import { limitConsoleReads, requireAuth, requirePlatform, requireSudo } from '../auth/middleware.ts';
 import { anchorAuditChain, audit, auditHead, lastAuditAnchor, verifyAuditAnchor, verifyAuditChain, type AuditAnchor } from '../services/audit.ts';
 import { AUDIT_CSV_COLUMNS, AUDIT_EXPORT_MAX, auditActions, auditFilterLabel, auditQuery, auditRows, type AuditTrail } from '../services/auditQuery.ts';
 import { auditForwardingStatus } from '../services/auditSink.ts';
@@ -29,6 +29,7 @@ import { usageReport, MIN_COHORT } from '../services/usage.ts';
 import { EVENTS } from '../services/telemetry.ts';
 import { openHolds, placeHold, releaseHold, HOLDABLE_TYPES } from '../services/retention.ts';
 import { buildInventory, inventoryMarkdown } from '../services/privacyInventory.ts';
+import { separationOfDuties } from '../services/separationOfDuties.ts';
 import { verifyAllCases, anchorCaseHeads } from '../services/caseSeal.ts';
 import { sendSignInDetails, MAX_SIGN_IN_BATCH } from '../services/signInMail.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
@@ -55,7 +56,7 @@ import { rowsToCsv } from '../../shared/csv.ts';
  * approval, through an access request.
  */
 export const platformRouter = Router();
-platformRouter.use(requireAuth, (req, _res, next) => next(req.user.platform.length ? undefined : forbidden('The Vantage Administrator console is for Vantage staff.', 'not_staff')), requireSudo);
+platformRouter.use(requireAuth, limitConsoleReads, (req, _res, next) => next(req.user.platform.length ? undefined : forbidden('The Vantage Administrator console is for Vantage staff.', 'not_staff')), requireSudo);
 
 const ip = (req: Request) => clientIp(req);
 
@@ -676,6 +677,9 @@ platformRouter.get('/privacy/inventory', requirePlatform('platform.audit'), wrap
   if (String(req.query.format || '') === 'markdown') { res.type('text/markdown').send(inventoryMarkdown(inventory)); return; }
   res.json(inventory);
 }));
+
+/** Accounts whose authority crosses a line the role model draws, for review (ADR-0013). Read-only. */
+platformRouter.get('/separation-of-duties', requirePlatform('platform.audit'), wrap((req, res) => res.json(separationOfDuties(req.ctx))));
 
 // ——— Platform-wide legal holds: a hold on the service itself, over every organization ———
 

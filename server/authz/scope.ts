@@ -101,7 +101,7 @@ export function scopeFor(ctx: AppContext, user: { id: string }, reqKey?: object)
        JOIN unit_members um ON um.user_id = mr.user_id AND um.unit_id = mr.unit_id
       WHERE mr.user_id = ? AND ${liveUnit} AND (mr.expires_at IS NULL OR mr.expires_at > ?) ORDER BY r.position DESC`
   ).all(user.id, at) as Array<Scope['roles'][number] & { expires_at: string | null }>;
-  const owned = (db.prepare(`SELECT u.id FROM units u WHERE u.owner_user_id = ? AND ${liveUnit}`).all(user.id) as Array<{ id: string }>).map((r) => r.id);
+  const owned = (db.prepare(`SELECT u.id FROM units u WHERE u.owner_user_id = ? AND ${liveUnit} AND ${seatedLeader('u')}`).all(user.id) as Array<{ id: string }>).map((r) => r.id);
   const orgRows = db.prepare(
     `SELECT r.org_id, r.role, r.expires_at FROM org_roles r JOIN organizations o ON o.id = r.org_id
       WHERE r.user_id = ? AND o.status = 'active' AND (r.expires_at IS NULL OR r.expires_at > ?) AND ${seatedOrgRole('r')}`
@@ -225,6 +225,14 @@ export const unitsWith = (scope: Scope, flag: number) => Object.entries(scope.pe
 export const seatedOrgRole = (alias: string) =>
   `EXISTS (SELECT 1 FROM unit_members sm JOIN units su ON su.id = sm.unit_id WHERE sm.user_id = ${alias}.user_id AND su.org_id = ${alias}.org_id)`;
 
+/**
+ * Leading a unit confers authority only while the leader is a member of it (ADR-0013): every path that ends the membership
+ * ends the leadership, and a leader left over from before that, who no longer belongs, leads nothing. An SQL condition on
+ * a units row aliased `alias`.
+ */
+export const seatedLeader = (alias: string) =>
+  `EXISTS (SELECT 1 FROM unit_members lm WHERE lm.user_id = ${alias}.owner_user_id AND lm.unit_id = ${alias}.id)`;
+
 /** Does the person hold a Unit Instance permission there? Unit Instance roles only; platform staff hold none. */
 export const orgCan = (scope: Scope, permission: OrgPermission, orgId: string | null | undefined) => Boolean(orgId) && Boolean(scope.orgs[orgId!]?.permissions.includes(permission));
 
@@ -255,7 +263,7 @@ export function assertSameInstance(ctx: AppContext, a: string | null | undefined
 
 export function isUnitOwner(ctx: AppContext, userId: string, unitId: string | null | undefined): boolean {
   if (!unitId) return false;
-  const row = ctx.db.prepare('SELECT owner_user_id FROM units WHERE id = ? AND active = 1').get(unitId) as { owner_user_id: string | null } | undefined;
+  const row = ctx.db.prepare(`SELECT u.owner_user_id FROM units u WHERE u.id = ? AND u.active = 1 AND ${seatedLeader('u')}`).get(unitId) as { owner_user_id: string | null } | undefined;
   return Boolean(row?.owner_user_id && row.owner_user_id === userId);
 }
 

@@ -11,7 +11,7 @@ import { downloadText } from '@/lib/utils';
 import * as api from '@/lib/api';
 
 interface Planned { line: number; username: string; name: string; rank_id: string | null; command: string | null; team: string | null; role: string; billet: string | null; status: 'create' | 'exists' | 'error'; problems: string[]; warnings: string[]; generated_password: boolean }
-interface Plan { accounts: Planned[]; units: Array<{ name: string; parent: string | null; exists: boolean }>; counts: { create: number; exists: number; error: number; new_units: number }; created?: number; generated?: Array<{ username: string; password: string }> }
+interface Plan { accounts: Planned[]; units: Array<{ name: string; parent: string | null; exists: boolean }>; counts: { create: number; exists: number; error: number; new_units: number }; created?: number; generated?: Array<{ username: string; password: string }>; withheld?: Array<{ username: string; role: string }> }
 
 const TONE = { create: 'good', exists: 'neutral', error: 'bad' } as const;
 const LABEL = { create: 'New', exists: 'Exists', error: 'Skipped' } as const;
@@ -77,6 +77,12 @@ export default function AccountImport({ orgId, onDone }: { orgId: string; onDone
               <div className="mb-3 rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-sm">
                 <p className="font-medium text-ink">{done.generated.length} {done.generated.length === 1 ? 'row had' : 'rows had'} no temporary password, so one was made. It is shown only now.</p>
                 <Button size="xs" className="mt-2" onClick={() => downloadText('vantage-temporary-passwords.csv', ['username,temporary_password', ...done.generated!.map((g) => `${g.username},${g.password}`)].join('\n'), 'text/csv')}><Download className="h-3 w-3" />Download them</Button>
+              </div>
+            ) : null}
+            {done?.withheld?.length ? (
+              <div role="status" className="mb-3 rounded-md border border-line bg-surface-2 px-3 py-2 text-sm">
+                <p className="font-medium text-ink">{done.withheld.length} {done.withheld.length === 1 ? 'role that reads records was' : 'roles that read records were'} held back.</p>
+                <p className="mt-1 text-ink-2">You created these accounts, and they haven’t signed in with their own CAC or the organization’s sign-in yet. Another Unit Manager or the chain of command can grant the role: {done.withheld.map((w) => `@${w.username} (${w.role})`).join(', ')}.</p>
               </div>
             ) : null}
             <div className="card" style={{ overflow: 'hidden' }}>

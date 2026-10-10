@@ -41,6 +41,7 @@ export const limiters = {
   mfaToken: new Window(6),
   mfaUser: new Window(10),
   mutations: new Window(300),
+  consoleReads: new Window(1800),
   resetUser: new Window(3, 60 * 60_000),
   mailUser: new Window(10),
   teamMail: new Window(5, 60 * 60_000),
@@ -48,8 +49,9 @@ export const limiters = {
   aiUser: new Window(12, 60_000),
 };
 
-export function configureLimits({ mutations, registrations }: { mutations: number; registrations: number }) {
+export function configureLimits({ mutations, registrations, consoleReads }: { mutations: number; registrations: number; consoleReads?: number }) {
   limiters.mutations = new Window(mutations);
+  if (consoleReads) limiters.consoleReads = new Window(consoleReads);
   limiters.registerIp = new Window(registrations);
 }
 

@@ -67,8 +67,8 @@ const USER = [
 const UNIT = [
   // Members, units and unit roles.
   'add_member', 'edit_membership', 'move_member', 'remove_member', 'edit_member_profile', 'create_unit', 'edit_unit',
-  'archive_unit', 'transfer_ownership', 'unit_leader_set', 'create_role', 'edit_role', 'delete_role', 'grant_role',
-  'revoke_role', 'role_expired', 'force_logout', 'account_unlock',
+  'archive_unit', 'transfer_ownership', 'unit_leader_set', 'unit_leader_ended', 'create_role', 'edit_role', 'delete_role', 'grant_role',
+  'revoke_role', 'role_expired', 'unit_role_withheld', 'force_logout', 'account_unlock',
   // A refusal at a unit's or a Unit Instance's routes; the platform's own refusals are sealed enterprise.
   'access_denied',
   // Invitations, join codes, account imports and sign-in details.

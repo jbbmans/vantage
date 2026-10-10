@@ -54,7 +54,7 @@ export interface AppConfig {
   clientIp: 'proxy' | 'cloudflare';
   /** Idle limits follow the Application Security and Development STIG: 15 minutes, and 10 for Vantage staff. */
   sessions: { idleMinutes: number; operatorIdleMinutes: number; absoluteHours: number; maxActive: number; sudoMinutes: number };
-  limits: { mutationsPer15Minutes: number; registrationsPer15Minutes: number; maxRecordsPerUser: number; maxDatabaseBytes: number };
+  limits: { mutationsPer15Minutes: number; registrationsPer15Minutes: number; consoleReadsPer15Minutes: number; maxRecordsPerUser: number; maxDatabaseBytes: number };
   attachments: { enabled: boolean; maxBytes: number; maxPerRecord: number; allowedTypes: string[] };
   intake: { enabled: boolean; maxBytes: number; maxBytesPerUser: number; maxRows: number; maxColumns: number; retainDays: number; scannerCommand: string | null; clamd: string | null; scanRequired: boolean };
   ai: {
@@ -429,6 +429,8 @@ export function loadConfig(env = process.env): AppConfig {
     limits: {
       mutationsPer15Minutes: envNumber(env, 'VANTAGE_MUTATIONS_PER_15_MINUTES', 300),
       registrationsPer15Minutes: envNumber(env, 'VANTAGE_REGISTRATIONS_PER_15_MINUTES', 20),
+      // Reads from the two consoles, per person: two a second for fifteen minutes is more than anyone clicks (ADR-0013).
+      consoleReadsPer15Minutes: envNumber(env, 'VANTAGE_CONSOLE_READS_PER_15_MINUTES', 1800),
       maxRecordsPerUser: envNumber(env, 'VANTAGE_MAX_RECORDS_PER_USER', 20000),
       maxDatabaseBytes: envNumber(env, 'VANTAGE_MAX_DB_BYTES', 800 * 1024 * 1024),
     },

@@ -260,6 +260,8 @@ export const platformAiDiscover = () => api.post('/platform/ai/discover');
 export const platformAiUnlock = () => api.post('/platform/ai/unlock');
 export const platformSyncMaradmins = () => api.post('/platform/maradmins/sync');
 export const platformIntegrity = () => api.get('/platform/integrity');
+/** Accounts whose authority crosses a line the role model draws (ADR-0013). Read-only. */
+export const platformSeparationOfDuties = () => api.get('/platform/separation-of-duties');
 /** Anchors the case histories and the audit chain's head, written into the chain and so copied off the host. */
 export const platformAnchorCases = () => api.post('/platform/integrity/anchor');
 /** Checks an anchor kept off the host against the chain (ADR-0013). */
