@@ -11,9 +11,9 @@ import { createMailer } from './services/email.ts';
 import { attachContext } from './auth/middleware.ts';
 import { SESSION_COOKIE, SIGNED_IN_COOKIE } from './auth/sessions.ts';
 import { HttpError, forbidden } from './lib/errors.ts';
-import { audit } from './services/audit.ts';
+import { anchorAuditChainIfChanged, audit } from './services/audit.ts';
 import { hostPlan, facesOf, linksMeta, type Face, type HostPlan } from './lib/hosts.ts';
-import { sendError } from './lib/http.ts';
+import { clientIp, sendError } from './lib/http.ts';
 import { VERSION } from './version.ts';
 import { authRouter } from './routes/auth.ts';
 import { meRouter } from './routes/me.ts';
@@ -46,7 +46,7 @@ import { configurePasswordHashing } from './lib/crypto.ts';
 import { announcePublicPage, indexNowKey } from './services/indexNow.ts';
 import { applyRuntimeLocks, installTopologyGuard } from './services/deployment.ts';
 import { maintenanceNotice } from './services/maintenance.ts';
-import { recordRelease, trackedJob } from './services/operations.ts';
+import { auditMigrations, recordRelease, trackedJob } from './services/operations.ts';
 export { loadRuntime };
 
 export function createContext(config: AppConfig): AppContext {
@@ -69,10 +69,16 @@ export function createContext(config: AppConfig): AppContext {
   applyRuntimeLocks(config, runtime);
   configureLimits({ mutations: config.limits.mutationsPer15Minutes, registrations: config.limits.registrationsPer15Minutes });
   configureAiLimits({ global: config.ai.requestsPerMinute, perUser: config.ai.perUserRequestsPerMinute });
-  // Usernames named in VANTAGE_PLATFORM_OWNERS (or the older VANTAGE_OPERATOR) always own the platform.
+  // Each schema migration this start ran, or the schema a new database began at, goes in the audit trail (ADR-0013).
+  auditMigrations(ctx);
+  // Usernames named in VANTAGE_PLATFORM_OWNERS (or the older VANTAGE_OPERATOR) always own the platform. A grant the
+  // configuration makes is audited when it is made, not on every start that finds it already in place.
   if (config.operatorUsernames.length) {
-    db.prepare(`INSERT OR IGNORE INTO platform_roles (user_id, role, granted_by, created_at)
-                SELECT id, 'owner', NULL, ? FROM users WHERE lower(username) IN (SELECT value FROM json_each(?))`).run(now(), JSON.stringify(config.operatorUsernames));
+    const named = db.prepare('SELECT id, username FROM users WHERE lower(username) IN (SELECT value FROM json_each(?))').all(JSON.stringify(config.operatorUsernames)) as Array<{ id: string; username: string }>;
+    const grant = db.prepare("INSERT OR IGNORE INTO platform_roles (user_id, role, granted_by, created_at) VALUES (?, 'owner', NULL, ?)");
+    for (const u of named) {
+      if (grant.run(u.id, now()).changes) audit(ctx, { actor_id: null, action: 'platform_owner_configured', entity: 'platform_roles', entity_id: u.id, subject_id: u.id, detail: `${u.username} is Lead Vantage Administrator (owner): named in VANTAGE_PLATFORM_OWNERS` });
+    }
   }
   pruneSessions(ctx);
   const interrupted = reconcileInterruptedJobs(ctx);
@@ -83,6 +89,42 @@ export function createContext(config: AppConfig): AppContext {
     if (sealed) console.log(`Sealed ${sealed} existing case-history entries.`);
   }
   return ctx;
+}
+
+/**
+ * Refusals that are not a denial of authority: asking the person to confirm it is them (step-up with a password, a CAC
+ * or the organization's sign-in), a wrong password while confirming, and the Unit Instance boundary, which audits its own.
+ */
+const NOT_DENIALS = new Set(['sudo_required', 'cac_required', 'oidc_required', 'bad_password', 'cross_instance']);
+const DENIAL_QUIET_MS = 10 * 60_000;
+const recentDenials = new WeakMap<AppContext, Map<string, number>>();
+
+/**
+ * A signed-in person refused at the administration routes goes in the audit trail (ADR-0013): the Vantage Administrator
+ * console's as enterprise administration, a unit's or a Unit Instance's as unit administration. The same refusal of the
+ * same person on the same route is written once in ten minutes, so a page that keeps asking does not flood the trail.
+ */
+function auditDenial(ctx: AppContext, req: Request, err: HttpError) {
+  const area = /^\/api\/(platform|orgs?)(?:\/|$)/.exec(req.originalUrl.split('?')[0])?.[1];
+  if (!area || !req.user || err.status !== 403 || NOT_DENIALS.has(err.code ?? '')) return;
+  // The route as declared under its router's mount, so one key covers every id; the path itself where no route matched
+  // (a router's own guard). By the time the error reaches here the router has restored baseUrl, so the mount is named.
+  const route = req.route?.path ? `/api/${area}${String(req.route.path)}` : req.originalUrl.split('?')[0];
+  const code = err.code ?? 'forbidden';
+  const key = `${req.user.id}|${req.method}|${route}|${code}`;
+  const at = Date.now();
+  if (!recentDenials.has(ctx)) recentDenials.set(ctx, new Map());
+  const seen = recentDenials.get(ctx)!;
+  if ((seen.get(key) ?? 0) > at) return;
+  if (seen.size > 5000) for (const [k, until] of seen) if (until <= at) seen.delete(k);
+  seen.set(key, at + DENIAL_QUIET_MS);
+  // A refusal inside a Unit Instance's routes is in that instance's trail as well.
+  const orgId = area === 'orgs' ? /^\/api\/orgs\/([^/?]+)/.exec(req.originalUrl)?.[1] : undefined;
+  const org = orgId ? (ctx.db.prepare('SELECT id FROM organizations WHERE id = ?').get(decodeURIComponent(orgId)) as { id: string } | undefined) : undefined;
+  audit(ctx, {
+    actor_id: req.user.id, action: 'access_denied', category: area === 'platform' ? 'enterprise' : 'unit', entity: 'request',
+    org_id: org?.id ?? null, ip: clientIp(req), detail: `${req.method} ${route}: ${code}`,
+  });
 }
 
 /** The ownership tags Google Search Console and Bing Webmaster Tools look for on the home page. */
@@ -330,7 +372,10 @@ export function createApp(ctx: AppContext) {
       : appendOnlyRefusal(caught) ? forbidden('The audit trail is append-only: an entry is never changed or removed.', 'audit_append_only')
         : caught;
     if (err instanceof HttpError) {
-      if (err.status === 403) record(ctx, 'security.authorization_denied', { route: routeFamily(req.path) });
+      if (err.status === 403) {
+        record(ctx, 'security.authorization_denied', { route: routeFamily(req.path) });
+        try { auditDenial(ctx, req, err); } catch { /* the refusal stands */ }
+      }
       // A refusal at the boundary goes in the audit trail with who asked, so reaching across it is seen, not just counted.
       if (err.code === 'cross_instance') {
         try { audit(ctx, { actor_id: req.user?.id ?? null, action: 'cross_instance_refused', entity: 'request', detail: `${req.method} ${req.path}: ${err.message}` }); } catch { /* the refusal stands */ }
@@ -478,6 +523,8 @@ export function startSchedulers(ctx: AppContext) {
   });
   every('stale_claims', 'Stale claim sweep', 60 * 60_000, () => { const n = releaseStaleClaims(ctx); if (n) console.log(`${now()} released ${n} stale work claims`); });
   every('case_anchor', 'Case history anchor', 24 * 60 * 60_000, () => { anchorCaseHeads(ctx); });
+  // The audit chain's head, written into the chain and so forwarded off the host, each day something was written (ADR-0013).
+  every('audit_anchor', 'Audit chain anchor', 24 * 60 * 60_000, () => { anchorAuditChainIfChanged(ctx); });
   every('event_prune', 'Event prune', 24 * 60 * 60_000, () => { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); });
   every('source_prune', 'Source prune', 24 * 60 * 60_000, () => { const released = pruneSources(ctx); if (released) console.log(`${now()} released the bytes of ${released} source files past the retention window`); });
   if (ctx.config.accessMode === 'demo') every('demo_purge', 'Demo purge', 10 * 60_000, () => { const n = purgeExpired(ctx); if (n) console.log(`${now()} removed ${n} expired demo workspaces`); });

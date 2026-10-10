@@ -95,6 +95,69 @@ export function verifyAuditChain(ctx: AppContext): { ok: boolean; count: number;
   return { ok: true, count: rows.length };
 }
 
+// ——— Anchors: the chain's head, kept outside the server (ADR-0013) ———
+
+/** The newest entry of the chain and how many entries it holds. Null for an empty log. */
+export interface AuditHead { seq: number; hash: string; count: number }
+export interface AuditAnchor extends AuditHead { at: string; actor_id: string | null; anchored_seq: number }
+
+export function auditHead(ctx: AppContext): AuditHead | null {
+  const last = ctx.db.prepare('SELECT seq, entry_hash FROM audit_log ORDER BY seq DESC LIMIT 1').get() as { seq: number; entry_hash: string } | undefined;
+  if (!last) return null;
+  const head = JSON.parse(metaGet(ctx.db, 'audit_head') || '{"count":0}') as { count: number };
+  return { seq: last.seq, hash: last.entry_hash, count: head.count };
+}
+
+const ANCHOR_DETAIL = /^head seq (\d+), hash ([0-9a-f]{64}), (\d+) entries/;
+
+/** The last anchor written: the head it named, and when. */
+export function lastAuditAnchor(ctx: AppContext): AuditAnchor | null {
+  const row = ctx.db.prepare("SELECT seq, at, actor_id, detail FROM audit_log WHERE action = 'audit_chain_anchored' ORDER BY seq DESC LIMIT 1").get() as { seq: number; at: string; actor_id: string | null; detail: string | null } | undefined;
+  const m = row?.detail ? ANCHOR_DETAIL.exec(row.detail) : null;
+  if (!row || !m) return null;
+  return { seq: Number(m[1]), hash: m[2], count: Number(m[3]), at: row.at, actor_id: row.actor_id, anchored_seq: row.seq };
+}
+
+/**
+ * Writes the chain's head into the chain itself. Each entry is copied off the host as it is written (standard output
+ * or syslog, server/services/auditSink.ts), so the anchor lands outside the server too: a copy whoever holds the
+ * server cannot rewrite. Checking it later (verifyAuditAnchor) shows whether the chain still holds that entry.
+ */
+export function anchorAuditChain(ctx: AppContext, actorId: string | null, ip?: string | null): AuditHead | null {
+  const head = auditHead(ctx);
+  if (!head) return null;
+  audit(ctx, { actor_id: actorId, action: 'audit_chain_anchored', entity: 'audit_log', entity_id: String(head.seq), detail: `head seq ${head.seq}, hash ${head.hash}, ${head.count} entries`, ip });
+  return head;
+}
+
+/** The scheduled anchor: only when something was written since the last one, so a quiet day adds nothing. */
+export function anchorAuditChainIfChanged(ctx: AppContext): AuditHead | null {
+  const last = lastAuditAnchor(ctx);
+  const head = auditHead(ctx);
+  if (!head || (last && head.seq <= last.anchored_seq)) return null;
+  return anchorAuditChain(ctx, null);
+}
+
+export type AnchorFinding = 'match' | 'missing' | 'different';
+
+/**
+ * Checks a kept anchor against the chain: whether the entry at that position still carries that hash, and whether the
+ * whole chain still verifies. Every check is audited with its result. A missing or different entry, or a broken chain,
+ * means the trail was rewritten or replaced since the anchor was taken; the caller tells the Lead Vantage Administrators.
+ */
+export function verifyAuditAnchor(ctx: AppContext, actorId: string, anchor: { seq: number; entry_hash: string }, ip?: string | null) {
+  const hash = anchor.entry_hash.toLowerCase();
+  const row = ctx.db.prepare('SELECT entry_hash FROM audit_log WHERE seq = ?').get(anchor.seq) as { entry_hash: string } | undefined;
+  const entry: AnchorFinding = !row ? 'missing' : row.entry_hash === hash ? 'match' : 'different';
+  const chain = verifyAuditChain(ctx);
+  const ok = entry === 'match' && chain.ok;
+  audit(ctx, {
+    actor_id: actorId, action: 'audit_anchor_verified', entity: 'audit_log', entity_id: String(anchor.seq), ip,
+    detail: `seq ${anchor.seq}, hash ${hash}: ${entry === 'match' ? 'the entry matches' : entry === 'missing' ? 'no entry at that position' : 'the entry there has a different hash'}; chain ${chain.ok ? `intact across ${chain.count} entries` : `broken: ${chain.reason}`}`,
+  });
+  return { ok, entry, chain };
+}
+
 /**
  * Seals the chain again after a demo workspace is removed with its entries. Only a synthetic demo database is ever
  * resealed, and only inside the transaction that removed them with the log's append-only triggers lifted

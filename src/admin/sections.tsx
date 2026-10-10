@@ -120,7 +120,7 @@ function CaseHistories() {
   const toast = useToast();
   const [result, setResult] = useState<any>(null); const [busy, setBusy] = useState(false);
   const check = async () => { setBusy(true); try { setResult((await withSudo(() => api.platformIntegrity())).cases); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
-  const anchor = async () => { try { const r = await withSudo(() => api.platformAnchorCases()); toast.success(`${r.cases} case ${r.cases === 1 ? 'history' : 'histories'} written into the audit chain.`); } catch (e) { toast.error(api.errorText(e)); } };
+  const anchor = async () => { try { const r = await withSudo(() => api.platformAnchorCases()); toast.success(`${r.cases} case ${r.cases === 1 ? 'history' : 'histories'} and the audit chain’s head written into the audit chain.`); } catch (e) { toast.error(api.errorText(e)); } };
   return (
     <div className="mt-3 border-t border-line pt-3">
       <p className="text-sm text-ink-2">Case histories</p>
@@ -274,7 +274,77 @@ export function AiSettings() {
 
 /** The platform trail, filtered and paged on the server, so nothing older than a page is out of reach (ADR-0011). */
 export function AuditLog() {
-  return <AuditTrail queryKey={['admin']} load={(f) => api.platformAudit(f)} exportUrl={(f, format) => api.platformAuditExportUrl(f, format)} fileStem="vantage-platform-audit" empty="The platform trail is empty." />;
+  return (
+    <div className="space-y-4">
+      <AuditAnchors />
+      <AuditTrail queryKey={['admin']} load={(f) => api.platformAudit(f)} exportUrl={(f, format) => api.platformAuditExportUrl(f, format)} fileStem="vantage-platform-audit" empty="The platform trail is empty." />
+    </div>
+  );
+}
+
+interface AuditHeadView { seq: number; hash: string; count: number }
+interface AnchorCheck { ok: boolean; entry: 'match' | 'missing' | 'different'; chain: { ok: boolean; count: number; reason?: string }; seq: number; entry_hash: string }
+const ANCHOR_FINDING: Record<AnchorCheck['entry'], string> = {
+  match: 'The entry at that position still carries the anchored hash.',
+  missing: 'The chain has no entry at that position: entries were removed, or the trail was replaced.',
+  different: 'The entry at that position carries a different hash: it was rewritten, or the trail was replaced.',
+};
+
+function AnchorRow({ label, value }: { label: string; value: React.ReactNode }) {
+  return <div className="flex flex-wrap justify-between gap-x-3"><dt className="text-ink-3">{label}</dt><dd className="fig min-w-0 break-all text-right text-ink">{value}</dd></div>;
+}
+
+/**
+ * The chain's head now and the last head written into it, and a check of an anchor kept off the host (ADR-0013). Each
+ * entry is copied to standard output or syslog as it is written, so an anchor there is a copy whoever holds this server
+ * cannot rewrite. Checking one says whether the chain still holds it.
+ */
+function AuditAnchors() {
+  const { data, isPending, error, refetch } = useAdmin<{ audit: { ok: boolean; count: number; reason?: string }; head: AuditHeadView | null; lastAnchor: (AuditHeadView & { at: string; by: string | null }) | null }>('integrity', api.platformIntegrity);
+  const toast = useToast();
+  const [seq, setSeq] = useState(''); const [hash, setHash] = useState(''); const [busy, setBusy] = useState(false);
+  const [result, setResult] = useState<AnchorCheck | null>(null); const [problem, setProblem] = useState<string | null>(null);
+  const check = async (e: React.FormEvent) => {
+    e.preventDefault();
+    const n = Number(seq.trim()); const h = hash.trim();
+    if (!Number.isInteger(n) || n < 1) { setProblem('Enter the entry number the anchor names.'); return; }
+    if (!/^[0-9a-fA-F]{64}$/.test(h)) { setProblem('Enter the 64-character hash the anchor names.'); return; }
+    setProblem(null); setBusy(true);
+    try { setResult(await withSudo(() => api.platformVerifyAnchor({ seq: n, entry_hash: h }))); refetch(); } catch (err) { toast.error(api.errorText(err)); } finally { setBusy(false); }
+  };
+  return (
+    <Panel title="Audit chain anchors" subtitle="The head of the chain, written into it each day and copied off this host with every entry">
+      {isPending ? <Skeleton className="h-24" /> : error || !data ? <p className="text-sm text-bad">{api.errorText(error)}</p> : (
+        <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+          <div className="space-y-3 text-sm">
+            <p><Badge tone={data.audit.ok ? 'good' : 'bad'}>{data.audit.ok ? 'Intact' : 'Broken'}</Badge> <span className="fig text-ink-2">{data.audit.count} entries</span></p>
+            <div>
+              <h3 className="text-sm font-medium text-ink">Current head</h3>
+              {data.head ? <dl className="mt-1 space-y-1 text-xs"><AnchorRow label="Entry" value={data.head.seq} /><AnchorRow label="Hash" value={<span className="mono">{data.head.hash}</span>} /><AnchorRow label="Chain length" value={`${data.head.count} entries`} /></dl> : <p className="mt-1 text-xs text-ink-3">The trail is empty.</p>}
+            </div>
+            <div>
+              <h3 className="text-sm font-medium text-ink">Last anchor</h3>
+              {data.lastAnchor ? <dl className="mt-1 space-y-1 text-xs"><AnchorRow label="Entry" value={data.lastAnchor.seq} /><AnchorRow label="Hash" value={<span className="mono">{data.lastAnchor.hash}</span>} /><AnchorRow label="Chain length" value={`${data.lastAnchor.count} entries`} /><AnchorRow label="Written" value={`${timeAgo(data.lastAnchor.at)}${data.lastAnchor.by ? ` by ${data.lastAnchor.by}` : ', on schedule'}`} /></dl> : <p className="mt-1 text-xs text-ink-3">None yet. One is written each day there are new entries, or with Anchor now on the overview.</p>}
+            </div>
+          </div>
+          <form onSubmit={check} className="space-y-3" aria-label="Check a kept anchor" noValidate>
+            <h3 className="text-sm font-medium text-ink">Check a kept anchor</h3>
+            <p className="text-xs text-ink-3">From the copy of the trail your SIEM or log collector keeps: the entry number and hash an audit_chain_anchored entry names. The check is recorded, and if it fails every Lead Vantage Administrator is told.</p>
+            <Field label="Entry number"><Input inputMode="numeric" value={seq} onChange={(e) => setSeq(e.target.value)} placeholder="1042" /></Field>
+            <Field label="Entry hash" hint="64 hexadecimal characters" error={problem}><Input className="mono" value={hash} onChange={(e) => setHash(e.target.value)} spellCheck={false} autoComplete="off" /></Field>
+            <Button type="submit" size="sm" loading={busy}><ShieldCheck className="h-3.5 w-3.5" />Check anchor</Button>
+            {result && (
+              <div role="status" className={`rounded-md border px-3 py-2 text-sm text-ink ${result.ok ? 'border-good/40 bg-good/10' : 'border-bad/40 bg-bad/10'}`}>
+                <p className="font-medium">{result.ok ? 'The anchor holds.' : 'The anchor does not hold.'}</p>
+                <p className="mt-1 text-xs text-ink-2">Entry {result.seq}: {ANCHOR_FINDING[result.entry]}</p>
+                <p className="mt-1 text-xs text-ink-2">{result.chain.ok ? `The chain verifies across ${result.chain.count} entries.` : `The chain is broken: ${result.chain.reason}.`}</p>
+              </div>
+            )}
+          </form>
+        </div>
+      )}
+    </Panel>
+  );
 }
 
 export function DataAdmin() {

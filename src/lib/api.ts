@@ -260,7 +260,10 @@ export const platformAiDiscover = () => api.post('/platform/ai/discover');
 export const platformAiUnlock = () => api.post('/platform/ai/unlock');
 export const platformSyncMaradmins = () => api.post('/platform/maradmins/sync');
 export const platformIntegrity = () => api.get('/platform/integrity');
+/** Anchors the case histories and the audit chain's head, written into the chain and so copied off the host. */
 export const platformAnchorCases = () => api.post('/platform/integrity/anchor');
+/** Checks an anchor kept off the host against the chain (ADR-0013). */
+export const platformVerifyAnchor = (body: { seq: number; entry_hash: string }) => api.post('/platform/integrity/verify', body);
 export const platformEmail = () => api.get('/platform/email');
 export const platformEmailCheck = () => api.post('/platform/email/check', {});
 export const platformEmailTest = (to?: string) => api.post('/platform/email/test', { to });

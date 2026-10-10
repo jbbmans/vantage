@@ -215,8 +215,8 @@ export function nameFirstOwner(ctx: AppContext, actor: Pick<SessionUser, 'id'>, 
     else if (org.root_unit_id && !isOrgMember(ctx, orgId, userId)) addMember(ctx, userId, org.root_unit_id, { invitedBy: actor.id, reason: 'manager_assigned' });
   })();
   invalidateUserSessions(ctx, userId);
-  audit(ctx, { actor_id: actor.id, action: 'org_owner_named', entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: userId, ip });
-  audit(ctx, { actor_id: actor.id, action: 'platform_owner_named', entity: 'organization', entity_id: orgId, subject_id: userId, detail: org.name, ip });
+  audit(ctx, { actor_id: actor.id, action: 'org_owner_named', entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: userId, detail: 'owner', ip });
+  audit(ctx, { actor_id: actor.id, action: 'platform_owner_named', entity: 'organization', entity_id: orgId, subject_id: userId, detail: `${org.name}: owner`, ip });
   notify(ctx, userId, { kind: 'unit', title: `You are Lead Unit Manager of ${org.name} on Vantage`, message: 'A Vantage Administrator named you because it had none. Sign in again and open the Unit Manager console.', actionUrl: '/console' });
   return orgRoleHolders(ctx, orgId);
 }
@@ -232,7 +232,7 @@ export function assignManager(ctx: AppContext, actor: SessionUser, orgId: string
   if (input.user_id === actor.id) throw forbidden('A Vantage Administrator never assigns themselves a Unit Instance role. Another one, or its Lead Unit Managers, does.', 'self_grant');
   // A Vantage Administrator assigning a Unit Manager is enterprise administration, in the instance's trail as well (ADR-0013).
   const roles = grantOrgRole(ctx, actor, orgId, { user_id: input.user_id, role: input.role }, ip, 'enterprise');
-  audit(ctx, { actor_id: actor.id, action: 'platform_manager_assigned', entity: 'organization', entity_id: orgId, subject_id: input.user_id, detail: `${org.name}: ${ORG_ROLES[input.role].label}`, ip });
+  audit(ctx, { actor_id: actor.id, action: 'platform_manager_assigned', entity: 'organization', entity_id: orgId, subject_id: input.user_id, detail: `${org.name}: ${input.role} (${ORG_ROLES[input.role].label})`, ip });
   return roles;
 }
 
@@ -248,7 +248,7 @@ export function removeManager(ctx: AppContext, actor: SessionUser, orgId: string
   if (!person) throw notFound('No such account.');
   const roles = revokeOrgRole(ctx, actor, orgId, userId, role, ip, 'enterprise');
   const label = ORG_ROLES[role].label;
-  audit(ctx, { actor_id: actor.id, action: 'platform_manager_removed', entity: 'organization', entity_id: orgId, subject_id: userId, detail: `${org.name}: ${label}`, ip });
+  audit(ctx, { actor_id: actor.id, action: 'platform_manager_removed', entity: 'organization', entity_id: orgId, subject_id: userId, detail: `${org.name}: ${role} (${label})`, ip });
   notify(ctx, userId, { kind: 'unit', title: `You are no longer ${label} of ${org.name}`, message: 'A Vantage Administrator removed the role. Ask your Lead Unit Manager if you did not expect this.', actionUrl: '/settings' });
   notifyOrg(ctx, orgId, 'org.owners', { kind: 'system', title: `${person.first_name} ${person.last_name} is no longer ${label}`, message: `Removed by Vantage (${actor.first_name} ${actor.last_name}).`, actionUrl: '/console/people' }, userId);
   return roles;

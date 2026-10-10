@@ -42,7 +42,7 @@ export const AUDIT_ACTION_FAMILIES = {
 const USER = [
   // Signing in and out, as oneself, and every refusal on the way.
   ...AUDIT_ACTION_FAMILIES.sign_in.filter((a) => a !== 'setup'),
-  'logout', 'self_register', 'recovery_code_used', 'password_reset_requested', 'password_reset', 'invite_accepted',
+  'logout', 'login_failed', 'self_register', 'recovery_code_used', 'password_reset_requested', 'password_reset', 'invite_accepted',
   'oidc_rejected', 'oidc_provisioned', 'oidc_linked', 'cac_rejected', 'cac_provisioned', 'cac_verified', 'cac_step_up',
   'cac_step_up_refused', 'console_sign_in_refused', 'login_lockout', 'cross_instance_refused', 'unit_invite_redeemed',
   // One's own account and settings.
@@ -50,7 +50,7 @@ const USER = [
   'password_change', 'recovery_codes_regenerated', 'revoke_sessions', 'digest_sent',
   // Records: entries, files, counselings, comments, and every read of somebody else's.
   'create', 'edit', 'delete', 'restore', 'import', 'list_records', 'view_record', 'view_member', 'view_roster',
-  'view_readiness', 'view_unit_dashboard', 'view_team_workload', 'acknowledge_counseling', 'upload_attachment',
+  'view_readiness', 'view_unit_dashboard', 'view_team_workload', 'acknowledge_counseling', 'counseling_amended', 'upload_attachment',
   'upload_rejected', 'download_attachment', 'delete_attachment', 'comment_added', 'comment_edited', 'comment_deleted',
   'comment_removed_by_moderator', 'export', 'export_csv', 'export_pdf', 'team_message',
   // Reports and the writing assistant.
@@ -69,8 +69,10 @@ const UNIT = [
   'add_member', 'edit_membership', 'move_member', 'remove_member', 'edit_member_profile', 'create_unit', 'edit_unit',
   'archive_unit', 'transfer_ownership', 'unit_leader_set', 'create_role', 'edit_role', 'delete_role', 'grant_role',
   'revoke_role', 'role_expired', 'force_logout', 'account_unlock',
+  // A refusal at a unit's or a Unit Instance's routes; the platform's own refusals are sealed enterprise.
+  'access_denied',
   // Invitations, join codes, account imports and sign-in details.
-  'invite_created', 'unit_invite_created', 'unit_invite_revoked', 'accounts_imported', 'account_imported', 'sign_in_details_sent',
+  'invite_created', 'invite_revoked', 'unit_invite_created', 'unit_invite_revoked', 'accounts_imported', 'account_imported', 'sign_in_details_sent',
   // Unit Instance roles, settings and Vantage access decisions.
   'org_role_granted', 'org_role_revoked', 'org_role_ended', 'org_role_expired', 'org_role_restored', 'organization_updated',
   'removed_from_organization', 'shared_account_notice', 'vantage_access_approved', 'vantage_access_denied', 'vantage_access_revoked',
@@ -92,7 +94,7 @@ const ENTERPRISE = [
   'setup', 'operator_recovery',
   // Unit Instance lifecycle and who runs each one.
   'create_organization', 'organization_created', 'unit_instance_provisioned', ...AUDIT_ACTION_FAMILIES.organization_status,
-  'org_owner_named', 'platform_owner_named', 'platform_manager_assigned', 'platform_manager_removed',
+  'org_owner_named', 'platform_owner_named', 'platform_manager_assigned', 'platform_manager_removed', 'platform_owner_configured',
   // Vantage staff and account support.
   'staff_role_granted', 'staff_role_revoked', 'temporary_password', 'reset_mfa', 'edipi_corrected', 'deactivate_account',
   'reactivate_account', 'vantage_account_support', 'vantage_access_requested', 'vantage_access_started',
@@ -100,8 +102,11 @@ const ENTERPRISE = [
   // Settings, sign-in, email, AI and maintenance.
   'edit_configuration', 'oidc_checked', 'email_setup_checked', 'ai_unlocked', 'sync_maradmins', 'maintenance_on',
   'maintenance_off', 'maintenance_task', 'purge_deleted',
+  // What the service does to itself: a new build, and each schema migration it runs.
+  'release_deployed', 'schema_migrated',
   // Data: backups, archives and the integrity of the trail.
   'backup', 'instance_export', 'instance_import', 'platform_audit_exported', 'case_history_anchor', 'case_history_anchor_requested',
+  'audit_chain_anchored', 'audit_anchor_verified',
 ] as const;
 
 /** The catalogue by category, as written above. An action is in one category only; the test suite holds it to that. */

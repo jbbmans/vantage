@@ -12,7 +12,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { notify, notifyOrg, notifyStaff } from '../services/notifications.ts';
 import { requireAuth, requirePlatform, requireSudo } from '../auth/middleware.ts';
-import { audit, verifyAuditChain } from '../services/audit.ts';
+import { anchorAuditChain, audit, auditHead, lastAuditAnchor, verifyAuditAnchor, verifyAuditChain, type AuditAnchor } from '../services/audit.ts';
 import { AUDIT_CSV_COLUMNS, AUDIT_EXPORT_MAX, auditActions, auditFilterLabel, auditQuery, auditRows, type AuditTrail } from '../services/auditQuery.ts';
 import { auditForwardingStatus } from '../services/auditSink.ts';
 import { aiStatus, discoverModels, unlockAi } from '../services/ai.ts';
@@ -574,12 +574,43 @@ platformRouter.get('/audit/export', requirePlatform('platform.audit'), wrap((req
   res.type('text/csv').send(rowsToCsv(rows, AUDIT_CSV_COLUMNS));
 }));
 
-platformRouter.get('/integrity', requirePlatform('platform.audit'), wrap((req, res) => res.json({ audit: verifyAuditChain(req.ctx), cases: verifyAllCases(req.ctx) })));
+/** Who wrote an anchor, by name, for the console; the scheduled one has nobody. */
+const anchorView = (ctx: AppContext, anchor: AuditAnchor | null) => {
+  if (!anchor) return null;
+  const by = anchor.actor_id ? ctx.db.prepare('SELECT first_name, last_name, username FROM users WHERE id = ?').get(anchor.actor_id) as { first_name: string; last_name: string; username: string } | undefined : undefined;
+  return { ...anchor, by: by ? `${by.first_name} ${by.last_name}`.trim() || by.username : null };
+};
+
+platformRouter.get('/integrity', requirePlatform('platform.audit'), wrap((req, res) => res.json({
+  audit: verifyAuditChain(req.ctx), cases: verifyAllCases(req.ctx),
+  // The chain's head now, and the last head written into it, for whoever keeps a copy of anchors off the host.
+  head: auditHead(req.ctx), lastAnchor: anchorView(req.ctx, lastAuditAnchor(req.ctx)),
+})));
 
 platformRouter.post('/integrity/anchor', requirePlatform('platform.settings'), wrap((req, res) => {
   const anchored = anchorCaseHeads(req.ctx);
   audit(req.ctx, { actor_id: req.user.id, action: 'case_history_anchor_requested', entity: 'work_event_heads', detail: `${anchored.cases} cases`, ip: ip(req) });
-  res.json(anchored);
+  // Last, so the audit chain's anchor covers the case histories' anchor and its request.
+  const head = anchorAuditChain(req.ctx, req.user.id, ip(req));
+  res.json({ ...anchored, audit: head });
+}));
+
+/**
+ * Checks an anchor kept outside the server against the chain. Each check is audited with its result; one that fails
+ * tells every Lead Vantage Administrator, because the trail was rewritten or replaced since that anchor was taken.
+ */
+platformRouter.post('/integrity/verify', requirePlatform('platform.audit'), wrap((req, res) => {
+  const body = parse(z.object({ seq: z.coerce.number().int().min(1), entry_hash: z.string().trim().regex(/^[0-9a-fA-F]{64}$/, 'A hash is 64 hexadecimal characters.') }), req.body);
+  const result = verifyAuditAnchor(req.ctx, req.user.id, body, ip(req));
+  if (!result.ok) {
+    const what = result.entry === 'missing' ? `The chain has no entry ${body.seq}.` : result.entry === 'different' ? `Entry ${body.seq} no longer carries the anchored hash.` : '';
+    notifyStaff(req.ctx, 'platform.staff', {
+      kind: 'system', title: 'An audit anchor check failed',
+      message: `${req.user.first_name} ${req.user.last_name} checked a kept anchor. ${what}${result.chain.ok ? '' : ` The chain is broken: ${result.chain.reason}.`} Compare the copies kept off the host before trusting the trail.`.replace(/\s+/g, ' ').trim(),
+      actionUrl: '/admin/audit',
+    });
+  }
+  res.json({ ...result, seq: body.seq, entry_hash: body.entry_hash.toLowerCase(), head: auditHead(req.ctx) });
 }));
 
 const usageQuery = z.object({ from: z.string().max(10).optional(), to: z.string().max(10).optional(), days: z.coerce.number().int().min(1).max(400).optional() });

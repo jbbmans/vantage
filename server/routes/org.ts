@@ -15,7 +15,7 @@ import { emailField, profileSchema } from '../../shared/schemas.ts';
 import { hydrate, withGoalProgress } from '../services/records.ts';
 import { newId, now } from '../lib/ids.ts';
 import { unitDashboard, unitOverview } from '../services/dashboard.ts';
-import { ROLE_TEMPLATE } from '../../shared/permissions.ts';
+import { listPermissions, ROLE_TEMPLATE } from '../../shared/permissions.ts';
 import type { Activity, Award, Counseling, Goal, MemberDetailResponse, Role, RolesResponse, Task, TeamPerson, TeamResponse, Training } from '../../shared/types.ts';
 import { createInvite, listInvites, revokeInvite, peekInvite, redeemInvite } from '../services/invites.ts';
 import { assertMayEndInstanceRoles } from '../services/organizations.ts';
@@ -272,6 +272,7 @@ orgRouter.delete('/invites/:id', wrap((req, res) => {
   const unitId = String(JSON.parse(row.payload || '{}').unit_id || '');
   if (!can(scopeFor(req.ctx, req.user, req), PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot revoke that invitation.');
   req.ctx.db.prepare('UPDATE tokens SET used_at = ? WHERE id = ?').run(now(), row.id);
+  audit(req.ctx, { actor_id: req.user.id, action: 'invite_revoked', entity: 'invite', entity_id: row.id, unit_id: unitId || null, ip: clientIp(req) });
   res.json({ ok: true });
 }));
 
@@ -291,7 +292,7 @@ orgRouter.post('/roles', wrap((req, res) => {
   const { name } = validateRoleDefinition(ctx, req.user, scope, body);
   const id = `${body.unit_id}:${name.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/^-|-$/g, '')}-${newId().slice(0, 6)}`.slice(0, 120);
   ctx.db.prepare('INSERT INTO roles (id, unit_id, name, description, color, position, permissions, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)').run(id, body.unit_id, name, body.description || null, body.color || '#6b7a8f', body.position, body.permissions, now());
-  audit(ctx, { actor_id: req.user.id, action: 'create_role', entity: 'role', entity_id: id, unit_id: body.unit_id, detail: name, ip: clientIp(req) });
+  audit(ctx, { actor_id: req.user.id, action: 'create_role', entity: 'role', entity_id: id, unit_id: body.unit_id, detail: `${name}; position ${body.position}; permissions: ${listPermissions(body.permissions).join(', ') || 'none'}`, ip: clientIp(req) });
   res.status(201).json(ctx.db.prepare('SELECT * FROM roles WHERE id = ?').get(id));
 }));
 
@@ -307,13 +308,23 @@ orgRouter.put('/roles/:roleId', wrap((req, res) => {
   const holds = Boolean(ctx.db.prepare('SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = ?').get(req.user.id, role.id));
   if (holds && !isUnitOwner(ctx, req.user.id, role.unit_id)) guardSelfReach(ctx, req.user, scope, role.unit_id, def.permissions & ~role.permissions, req.user.id, `Widening ${role.name}, which you hold,`);
   let revoked = 0;
+  const description = body.description === undefined ? role.description : body.description || null;
+  const color = body.color === undefined ? role.color : body.color || null;
   ctx.db.transaction(() => {
-    ctx.db.prepare('UPDATE roles SET name = ?, description = ?, color = ?, position = ?, permissions = ? WHERE id = ?').run(name, body.description === undefined ? role.description : body.description || null, body.color === undefined ? role.color : body.color || null, def.position, def.permissions, role.id);
+    ctx.db.prepare('UPDATE roles SET name = ?, description = ?, color = ?, position = ?, permissions = ? WHERE id = ?').run(name, description, color, def.position, def.permissions, role.id);
     if (def.permissions !== role.permissions || def.position !== role.position) {
       for (const h of ctx.db.prepare('SELECT DISTINCT user_id FROM member_roles WHERE role_id = ?').all(role.id) as Array<{ user_id: string }>) revoked += invalidateUserSessions(ctx, h.user_id);
     }
   })();
-  audit(ctx, { actor_id: req.user.id, action: 'edit_role', entity: 'role', entity_id: role.id, unit_id: role.unit_id, detail: `sessions revoked: ${revoked}`, ip: clientIp(req) });
+  // What changed, so the trail answers who widened a role and with what (ADR-0013): permissions by key, the rest by name.
+  const added = listPermissions(def.permissions & ~role.permissions);
+  const removed = listPermissions(role.permissions & ~def.permissions);
+  const fields = [
+    name !== role.name && `name (was ${role.name})`, description !== role.description && 'description', color !== role.color && 'color',
+    def.position !== role.position && `position ${role.position} to ${def.position}`,
+  ].filter(Boolean);
+  const detail = `${name}; permissions added: ${added.join(', ') || 'none'}; removed: ${removed.join(', ') || 'none'}; other changes: ${fields.join(', ') || 'none'}; sessions revoked: ${revoked}`;
+  audit(ctx, { actor_id: req.user.id, action: 'edit_role', entity: 'role', entity_id: role.id, unit_id: role.unit_id, detail, ip: clientIp(req) });
   res.json({ ...(ctx.db.prepare('SELECT * FROM roles WHERE id = ?').get(role.id) as RoleRow), sessionsRevoked: revoked });
 }));
 
@@ -384,7 +395,7 @@ orgRouter.delete('/team/:userId/roles/:roleId', wrap((req, res) => {
   const r = ctx.db.prepare('DELETE FROM member_roles WHERE user_id = ? AND role_id = ?').run(userId, role.id);
   if (!r.changes) throw notFound('That Marine does not hold that role.');
   const revoked = invalidateUserSessions(ctx, userId);
-  audit(ctx, { actor_id: req.user.id, action: 'revoke_role', entity: 'role', entity_id: role.id, subject_id: userId, unit_id: role.unit_id, ip: clientIp(req) });
+  audit(ctx, { actor_id: req.user.id, action: 'revoke_role', entity: 'role', entity_id: role.id, subject_id: userId, unit_id: role.unit_id, detail: `${role.name}; sessions revoked: ${revoked}`, ip: clientIp(req) });
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
 

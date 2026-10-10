@@ -246,7 +246,8 @@ test('in service an uncatalogued action is still recorded, without a category, s
     audit(ctx, { action: 'from_a_newer_build', detail: 'one' });
     audit(ctx, { action: 'from_a_newer_build', detail: 'two', org_id: 'G8' });
     audit(ctx, { action: 'setup' });
-    const rows = ctx.db.prepare('SELECT action, category FROM audit_log ORDER BY seq').all() as Array<{ action: string; category: string | null }>;
+    // After the entry a new database writes at start-up, naming the schema it was created at.
+    const rows = ctx.db.prepare("SELECT action, category FROM audit_log WHERE action <> 'schema_migrated' ORDER BY seq").all() as Array<{ action: string; category: string | null }>;
     assert.deepEqual(rows.map((r) => r.category), [null, null, 'enterprise']);
     assert.equal(warnings.filter((w) => w.includes('from_a_newer_build')).length, 1, 'warned once per action, not on every entry');
     // An entry with no category hashes as every entry did before categories, with or without an organization.

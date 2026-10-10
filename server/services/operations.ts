@@ -1,10 +1,10 @@
 import { statfsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { AppContext } from '../context.ts';
-import { metaGet, metaSet, migrationHistory, MIGRATION_CATALOG, SCHEMA_VERSION } from '../db/index.ts';
+import { metaGet, metaSet, migrationHistory, MIGRATION_CATALOG, NEW_DATABASE, SCHEMA_VERSION } from '../db/index.ts';
 import { VERSION } from '../version.ts';
 import { now } from '../lib/ids.ts';
-import { verifyAuditChain } from './audit.ts';
+import { audit, verifyAuditChain } from './audit.ts';
 import { auditForwardingStatus } from './auditSink.ts';
 import { backupHistory } from './backupLog.ts';
 import { signInChecks } from './signInHealth.ts';
@@ -28,7 +28,11 @@ export interface Release { version: string; build: string; client: string | null
 const RELEASES_KEPT = 20;
 const running = new WeakMap<AppContext, { build: string; client: string | null; startedAt: string }>();
 
-/** Notes the build this process serves, and adds it to the database's release history when it differs from the last. */
+/**
+ * Notes the build this process serves, and adds it to the database's release history when it differs from the last.
+ * A new release (another version, build or commit) is a deployment, and goes in the audit trail; a restart of the same
+ * one does not (ADR-0013).
+ */
 export function recordRelease(ctx: AppContext, { build, client }: { build: string; client: string | null }) {
   const startedAt = now();
   running.set(ctx, { build, client, startedAt });
@@ -36,6 +40,8 @@ export function recordRelease(ctx: AppContext, { build, client }: { build: strin
   const last = history.at(-1);
   if (last && last.version === VERSION && last.build === build) return;
   metaSet(ctx.db, 'release_history', JSON.stringify([...history, { version: VERSION, build, client, firstStartedAt: startedAt }].slice(-RELEASES_KEPT)));
+  const from = last ? `; replaces ${last.version} build ${String(last.build).slice(0, 40)}` : '; the first release this database records';
+  audit(ctx, { actor_id: null, action: 'release_deployed', entity: 'release', entity_id: VERSION, detail: `${VERSION} build ${build.slice(0, 64)}${client && client !== build ? `, client ${client}` : ''}${from}` });
 }
 
 export function releaseHistory(ctx: AppContext): Release[] {
@@ -80,6 +86,35 @@ export function migrationStatus(ctx: AppContext) {
     catalog: MIGRATION_CATALOG.map((m) => ({ ...m, applied: m.id <= database, run: byId.get(m.id) ?? null })),
     notes,
   };
+}
+
+/** Migrations up to this one ran before Vantage audited them; a database that has not said otherwise audits from the next. */
+const AUDITED_FROM = 21;
+
+/**
+ * Writes each migration this database ran and has not yet audited into the audit trail, once: at start-up, as soon as
+ * the context can write entries. A new database writes one entry naming the schema it was created at instead of one
+ * per migration. `migration_audited_through` keeps it to once across restarts (ADR-0013).
+ */
+export function auditMigrations(ctx: AppContext) {
+  const { db } = ctx;
+  const schema = Number(metaGet(db, 'schema_version') || 0);
+  const stored = metaGet(db, 'migration_audited_through');
+  if (stored === NEW_DATABASE) {
+    const name = MIGRATION_CATALOG.find((m) => m.id === schema)?.name ?? 'none';
+    audit(ctx, { actor_id: null, action: 'schema_migrated', entity: 'schema', entity_id: String(schema), detail: `database created at schema ${schema} (${name}) under ${VERSION}` });
+    metaSet(db, 'migration_audited_through', String(schema));
+    return;
+  }
+  const through = stored === null ? AUDITED_FROM - 1 : Number(stored);
+  if (through >= schema) return;
+  const runs = new Map(migrationHistory(db).map((run) => [run.id, run]));
+  for (const m of MIGRATION_CATALOG) {
+    if (m.id <= through || m.id > schema) continue;
+    const run = runs.get(m.id);
+    audit(ctx, { actor_id: null, action: 'schema_migrated', entity: 'schema', entity_id: String(m.id), detail: `${m.name}: schema ${m.id - 1} to ${m.id}${run ? ` at ${run.at} in ${run.ms} ms under ${run.version}` : ''}` });
+  }
+  metaSet(db, 'migration_audited_through', String(schema));
 }
 
 // ——— Backups ———

@@ -198,12 +198,15 @@ authRouter.post('/login', wrap(async (req, res) => {
     limiters.loginIp.bump(ip);
     if (name) limiters.loginUser.bump(name);
     if (userLimit) throw tooMany('Too many failed attempts for this account. Try again later.', userLimit.retryAfter);
+    // A name that matches no account is recorded without it: what somebody typed may be a password, or another person's name.
+    audit(ctx, { actor_id: null, action: 'login_failed', ip, detail: 'password; no account has that name' });
     if (name) recordNameFailure(ctx, name);
     throw unauthorized('Username or password is incorrect.', 'bad_credentials');
   }
   assertNotLocked(ctx, row.id);
   if (!(await verifyPassword(password, row.password_hash))) {
     limiters.loginIp.bump(ip);
+    audit(ctx, { actor_id: null, action: 'login_failed', subject_id: row.id, ip, detail: 'password' });
     if (recordFailure(ctx, row.id, { ip, where: 'password' })) assertNotLocked(ctx, row.id);
     throw unauthorized('Username or password is incorrect.', 'bad_credentials');
   }
@@ -244,6 +247,7 @@ authRouter.post('/login/mfa', wrap((req, res) => {
     limiters.mfaToken.bump(key);
     limiters.loginIp.bump(ip);
     limiters.mfaUser.bump(row.id);
+    audit(ctx, { actor_id: null, action: 'login_failed', subject_id: row.id, ip, detail: 'second factor' });
     if (recordFailure(ctx, row.id, { ip, where: 'second_factor' })) { consumeToken(ctx, 'login_mfa', challenge); assertNotLocked(ctx, row.id); }
     throw unauthorized('That code is not valid.', 'bad_code');
   }
