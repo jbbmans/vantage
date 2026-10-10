@@ -1,6 +1,43 @@
 # Progress
 
-_Updated 2026-10-09_
+_Updated 2026-10-10_
+
+## What changed (2026-10-10: security, audit and least privilege)
+
+The audit trail is categorised, append-only and anchored outside the server, and the findings Tasks 2 and 4 left
+for this Task are closed ([ADR-0013](engineering/ADR/0013-security-audit-least-privilege.md)).
+
+- **Audit categories.** Every action is user activity, unit administration or enterprise administration
+  (`shared/auditCatalog.ts`), sealed into each entry's hash. Both audit trails filter by category, show it and
+  export it. A test fails if anything writes an action the catalogue does not name.
+- **Append-only.** The database refuses changing or removing an audit entry. Only the demo purge, an instance
+  archive load into a fresh instance and `scripts/start-over.ts` lift the guard, each inside one transaction
+  that restores it. **Migration 021** adds the category, the triggers, `email_log.org_id` and the
+  `credential_approvals` table.
+- **External anchor.** The chain's head goes into the trail, and so off the host, every day something was
+  written. The platform audit page shows the head and the last anchor and checks a kept one; a failed check
+  tells the Lead Vantage Administrators.
+- **Coverage.** Failed sign-ins, refusals at the administration routes, counseling amendments by field,
+  unit role edits by permission, new releases, schema migrations, owners named in configuration, revoked
+  invitations and the person who restored an archive are now audited. Duty approvals and point overrides
+  arrive with Tasks 17 and 18.
+- **Second staff member for a takeover.** A temporary password, second-factor reset or CAC change on an account
+  that holds authority needs another member of Vantage staff to approve it, used once within 24 hours. This is
+  the recommended option on John's open decision card (INFRASTRUCTURE_QUESTIONS I-31).
+- **Delivery log.** A unit's support queue sees only the account's own sign-in, reset and address-confirmation
+  mail, with status and time.
+- **Least privilege.** A unit's leader leads it only while a member, and leaving ends it. "Until proven" (John,
+  2026-10-09): an account a Unit Manager created or invited gets no role that reads records, Unit Instance role
+  or leadership from them until it signs in with its own CAC or the organization's sign-in. A **Separation of
+  duties** page lists dual-hatted accounts. Console reads are limited per person.
+- **Inventory and matrix.** `server/authz/privilegedRoutes.ts` lists every privileged route, held to the routers
+  by a test that also refuses an ordinary member on each. [docs/security/ASVS.md](security/ASVS.md) maps Vantage
+  to OWASP ASVS 5.0.0: V8 and V16 by requirement, the rest by section, with the gaps.
+- **Open questions** I-30 (who keeps and compares the off-host copy), I-31 (whether MCEN names an approver for
+  credential resets) and I-32 (audit retention under append-only) are added to INFRASTRUCTURE_QUESTIONS.md.
+- **Tests:** `tests/server/auditCatalog.test.ts`, `auditAppendOnly.test.ts`, `auditCoverage.test.ts`,
+  `credentialApprovals.test.ts`, `leastPrivilege.test.ts`, `privilegedRoutes.test.ts`, a migration 021 test, and
+  `tests/browser/34-audit-anchors.spec.ts`, `35-credential-approvals.spec.ts`, `36-separation-of-duties.spec.ts`.
 
 ## What changed (2026-10-09: Unit Manager console)
 
@@ -473,7 +510,7 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **607 / 607 pass** (2026-10-05) |
+| `npm test` (server suite, in-memory SQLite) | **756 / 756 pass** (2026-10-10) |
 | `npm run test:browser` (Playwright, Chromium, built client) | **104 / 104 pass** (2026-10-05) |
 | Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference, the public page and the security, privacy, accessibility and changes pages |
 | `npm audit` | 0 vulnerabilities |
@@ -495,6 +532,11 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 2. The old walkthrough recordings stay unpublished (`91566f1`). They are replaced by the films above,
    which publish only once narrated; until then the landing page shows no player, and its test checks
    that no empty player is shown (and, once published, that every film loads).
+3. "Until proven" (2026-10-09): an account a Unit Manager created or invited gets from that same person no
+   role that reads records, no Unit Instance role and no unit to lead until it signs in with its own CAC or the
+   organization's sign-in (ADR-0013 §8).
+4. Vantage Administrators add and remove Unit Managers in any Unit Instance at any time, never themselves, and
+   that instance's Lead Unit Managers are told each time (2026-10-08, ADR-0010 §5; unchanged by Task 7).
 
 ## Next actions
 
@@ -507,3 +549,7 @@ in the privacy inventory; the financial answering rules on every AI prompt.
    `ELEVENLABS_API_KEY` in the environment's settings and run `npm run film`, which voices the script,
    re-times and re-captures every scene to the real delivery, and republishes (film/README.md).
 4. Protect `main` in GitHub with the three CI checks required (see `docs/deploy-render.md`).
+5. Answer the open decision card on who approves a support takeover. Until then the recommended "Second staff
+   member" is built (ADR-0013 §5, INFRASTRUCTURE_QUESTIONS I-31).
+6. Name who keeps the off-host audit copy and how often it is compared with the anchors (I-30), and the audit
+   trail's retention (I-32).
