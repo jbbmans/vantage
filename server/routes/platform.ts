@@ -13,6 +13,7 @@ import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { notify, notifyOrg, notifyStaff } from '../services/notifications.ts';
 import { requireAuth, requirePlatform, requireSudo } from '../auth/middleware.ts';
 import { audit, verifyAuditChain } from '../services/audit.ts';
+import { AUDIT_CSV_COLUMNS, AUDIT_EXPORT_MAX, auditActions, auditFilterLabel, auditQuery, auditRows, type AuditTrail } from '../services/auditQuery.ts';
 import { auditForwardingStatus } from '../services/auditSink.ts';
 import { aiStatus, discoverModels, unlockAi } from '../services/ai.ts';
 import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
@@ -537,40 +538,13 @@ platformRouter.post('/access/:id/end', requirePlatform('platform.access'), wrap(
  * The platform's own trail: what Vantage staff did, sign-ins, and every access request. An organization's internal
  * actions (its units, its roles, its records) stay in its own trail.
  */
-/** A calendar day, YYYY-MM-DD, that exists: 2026-02-30 does not. */
-const auditDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date: YYYY-MM-DD.')
-  .refine((d) => { const t = Date.parse(`${d}T00:00:00.000Z`); return Number.isFinite(t) && new Date(t).toISOString().startsWith(d); }, 'That date does not exist.');
-const auditQuery = z.object({
-  q: z.string().trim().max(80).optional(),
-  action: z.string().trim().max(60).optional(),
-  from: auditDay.optional(),
-  to: auditDay.optional(),
-  before: z.coerce.number().int().positive().optional(),
-  limit: z.coerce.number().int().min(1).max(1000).optional(),
-});
-
-/** The platform trail's rows for a filter: newest first, from before `before` when paging back. Dates are UTC days. */
-function platformAuditRows(req: Request, q: z.infer<typeof auditQuery>, limit: number) {
-  const where = ['al.org_id IS NULL', 'al.unit_id IS NULL'];
-  const params: unknown[] = [];
-  if (q.action) { where.push('al.action = ?'); params.push(q.action); }
-  if (q.from) { where.push('al.at >= ?'); params.push(`${q.from}T00:00:00.000Z`); }
-  if (q.to) { where.push('al.at < ?'); params.push(new Date(Date.parse(`${q.to}T00:00:00.000Z`) + 86_400_000).toISOString()); }
-  if (q.before) { where.push('al.seq < ?'); params.push(q.before); }
-  if (q.q) {
-    const like = `%${q.q.toLowerCase().replace(/[\\%_]/g, '\\$&')}%`;
-    where.push("(lower(al.action) LIKE ? ESCAPE '\\' OR lower(coalesce(al.detail, '')) LIKE ? ESCAPE '\\' OR lower(coalesce(u.username, '')) LIKE ? ESCAPE '\\' OR lower(coalesce(s.username, '')) LIKE ? ESCAPE '\\' OR al.entity_id = ? OR al.ip = ?)");
-    params.push(like, like, like, like, q.q, q.q);
-  }
-  return req.ctx.db.prepare(`SELECT al.*, u.username AS actor_username, s.username AS subject_username FROM audit_log al
-      LEFT JOIN users u ON u.id = al.actor_id LEFT JOIN users s ON s.id = al.subject_id
-     WHERE ${where.join(' AND ')} ORDER BY al.seq DESC LIMIT ?`).all(...params, limit) as Array<Record<string, unknown> & { seq: number }>;
-}
+/** The platform's own entries: those that name no Unit Instance and no unit. */
+const PLATFORM_TRAIL: AuditTrail = { where: 'al.org_id IS NULL AND al.unit_id IS NULL', params: [] };
 
 platformRouter.get('/audit', requirePlatform('platform.audit'), wrap((req, res) => {
   const q = parse(auditQuery, req.query);
   const limit = q.limit ?? 200;
-  const rows = platformAuditRows(req, q, limit + 1);
+  const rows = auditRows(req.ctx, PLATFORM_TRAIL, q, limit + 1);
   const page = rows.slice(0, limit);
   const first = !q.before;
   res.json({
@@ -578,12 +552,10 @@ platformRouter.get('/audit', requirePlatform('platform.audit'), wrap((req, res) 
     next: rows.length > limit ? page.at(-1)!.seq : null,
     // The whole chain is verified, and the action list read, once: on the first page, not on every page back.
     chain: first ? verifyAuditChain(req.ctx) : null,
-    actions: first ? (req.ctx.db.prepare('SELECT DISTINCT action FROM audit_log WHERE org_id IS NULL AND unit_id IS NULL ORDER BY action').all() as Array<{ action: string }>).map((r) => r.action) : null,
+    actions: first ? auditActions(req.ctx, PLATFORM_TRAIL) : null,
   });
 }));
 
-export const AUDIT_EXPORT_MAX = 50_000;
-const CSV_COLUMNS = ['seq', 'at', 'action', 'actor_username', 'actor_id', 'subject_username', 'subject_id', 'entity', 'entity_id', 'detail', 'ip', 'prev_hash', 'entry_hash'];
 /**
  * The platform trail as a file, for an assessor or the SIEM team. Downloading it is itself audited. A file is complete
  * or not made: more entries than one file holds are refused with a request to narrow the dates, never cut short.
@@ -591,15 +563,15 @@ const CSV_COLUMNS = ['seq', 'at', 'action', 'actor_username', 'actor_id', 'subje
 platformRouter.get('/audit/export', requirePlatform('platform.audit'), wrap((req, res) => {
   const format = String(req.query.format || 'csv') === 'json' ? 'json' : 'csv';
   const q = parse(auditQuery.omit({ before: true, limit: true }), req.query);
-  const rows = platformAuditRows(req, q, AUDIT_EXPORT_MAX + 1);
+  const rows = auditRows(req.ctx, PLATFORM_TRAIL, q, AUDIT_EXPORT_MAX + 1);
   if (rows.length > AUDIT_EXPORT_MAX) throw badRequest(`More than ${AUDIT_EXPORT_MAX.toLocaleString('en-US')} entries match. Narrow the dates and export each range.`, { code: 'export_too_large' });
-  const filter = [q.action && `action=${q.action}`, q.q && `q=${q.q}`, q.from && `from=${q.from}`, q.to && `to=${q.to}`].filter(Boolean).join(' ');
+  const filter = auditFilterLabel({ action: q.action, q: q.q, from: q.from, to: q.to });
   audit(req.ctx, { actor_id: req.user.id, action: 'platform_audit_exported', entity: 'audit_log', detail: `${rows.length} rows as ${format}${filter ? `; ${filter}` : ''}`, ip: ip(req) });
   const name = `vantage-platform-audit-${now().slice(0, 10)}.${format}`;
   res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
   if (format === 'json') return res.json({ exportedAt: now(), filter: q, rows });
   // rowsToCsv writes a cell a spreadsheet would run as a formula as text, as every other export does.
-  res.type('text/csv').send(rowsToCsv(rows, CSV_COLUMNS));
+  res.type('text/csv').send(rowsToCsv(rows, AUDIT_CSV_COLUMNS));
 }));
 
 platformRouter.get('/integrity', requirePlatform('platform.audit'), wrap((req, res) => res.json({ audit: verifyAuditChain(req.ctx), cases: verifyAllCases(req.ctx) })));

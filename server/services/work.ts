@@ -13,6 +13,7 @@ import type { WorkItemDetail } from '../../shared/caseView.ts';
 import { zoneOf } from '../lib/zone.ts';
 import { parse } from '../lib/http.ts';
 import { activitySchema } from '../../shared/schemas.ts';
+import { UNIT_SETTING_LIMITS, normalizeUnitSettings } from '../../shared/unitConfig.ts';
 
 export interface WorkItemRow {
   id: string; unit_id: string | null; owner_id: string; visibility: string;
@@ -259,13 +260,33 @@ export function createItem(
   return hydrate(reload(ctx, id));
 }
 
-export function releaseStaleClaims(ctx: AppContext, afterHours = 72): number {
-  const cutoff = new Date(Date.now() - afterHours * 3_600_000).toISOString();
-  const stale = ctx.db.prepare(
-    `SELECT id, unit_id, claimed_by FROM work_items
-      WHERE claimed_by IS NOT NULL AND deleted_at IS NULL
-        AND state IN ('open', 'in_progress') AND claimed_at < ? AND updated_at < ?`
-  ).all(cutoff, cutoff) as Array<{ id: string; unit_id: string | null; claimed_by: string }>;
+/** How long a claim holds in each Unit Instance (ADR-0012), within the limits Vantage sets. */
+function claimExpiryByOrg(ctx: AppContext): Map<string, number> {
+  const rows = ctx.db.prepare('SELECT id, settings FROM organizations').all() as Array<{ id: string; settings: string }>;
+  return new Map(rows.map((o) => {
+    let raw: unknown = {};
+    try { raw = JSON.parse(o.settings || '{}'); } catch { /* the default */ }
+    return [o.id, normalizeUnitSettings(raw).work.claimExpiryHours];
+  }));
+}
+
+/**
+ * Give up claims nobody has touched for a while, so work does not sit behind somebody who moved on. How long is each
+ * Unit Instance's setting; `afterHours` names one window for every claim instead.
+ */
+export function releaseStaleClaims(ctx: AppContext, afterHours?: number): number {
+  const byOrg = afterHours === undefined ? claimExpiryByOrg(ctx) : new Map<string, number>();
+  const fallback = UNIT_SETTING_LIMITS.claimExpiryHours.default;
+  const windowOf = (orgId: string | null) => afterHours ?? (orgId ? byOrg.get(orgId) : undefined) ?? fallback;
+  const cutoffOf = (hours: number) => new Date(Date.now() - hours * 3_600_000).toISOString();
+  const widest = cutoffOf(afterHours ?? Math.min(fallback, ...byOrg.values()));
+  const stale = (ctx.db.prepare(
+    `SELECT w.id, w.unit_id, w.claimed_by, w.claimed_at, w.updated_at, u.org_id FROM work_items w LEFT JOIN units u ON u.id = w.unit_id
+      WHERE w.claimed_by IS NOT NULL AND w.deleted_at IS NULL
+        AND w.state IN ('open', 'in_progress') AND w.claimed_at < ? AND w.updated_at < ?`
+  ).all(widest, widest) as Array<{ id: string; unit_id: string | null; claimed_by: string; claimed_at: string; updated_at: string; org_id: string | null }>)
+    .map((row) => ({ ...row, hours: windowOf(row.org_id) }))
+    .filter((row) => row.claimed_at < cutoffOf(row.hours) && row.updated_at < cutoffOf(row.hours));
   if (!stale.length) return 0;
   const at = now();
   ctx.db.transaction(() => {
@@ -276,8 +297,8 @@ export function releaseStaleClaims(ctx: AppContext, afterHours = 72): number {
                 state = CASE WHEN state = 'in_progress' AND COALESCE(stage, 'researching') = 'researching' THEN 'open' ELSE state END,
                 version = version + 1, updated_at = ? WHERE id = ?`
       ).run(at, row.id);
-      appendEvent(ctx, { item: row, actorId: null, kind: 'claim_expired', subjectId: row.claimed_by, body: { after_hours: afterHours } });
-      audit(ctx, { actor_id: null, action: 'work_claim_expired', entity: 'work_items', entity_id: row.id, subject_id: row.claimed_by, unit_id: row.unit_id, detail: `untouched for ${afterHours}h` });
+      appendEvent(ctx, { item: row, actorId: null, kind: 'claim_expired', subjectId: row.claimed_by, body: { after_hours: row.hours } });
+      audit(ctx, { actor_id: null, action: 'work_claim_expired', entity: 'work_items', entity_id: row.id, subject_id: row.claimed_by, unit_id: row.unit_id, detail: `untouched for ${row.hours}h` });
     }
   })();
   return stale.length;

@@ -1,17 +1,18 @@
 import { useEffect, useState } from 'react';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Building2, CalendarClock, Download, HelpCircle, IdCard, KeyRound, LogOut, Save, ScrollText, ShieldAlert, Unlock, UserMinus, UserPlus, Users } from 'lucide-react';
+import { Building2, CalendarClock, HelpCircle, IdCard, KeyRound, LogOut, Save, ShieldAlert, Unlock, UserMinus, UserPlus, Users } from 'lucide-react';
 import { Badge, Button, EmptyState, Field, Input, Panel, Select, Skeleton, Stat, Switch, Textarea } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { withSudo } from '@/components/SudoDialog';
 import { Table } from '@/components/common';
 import AccountImport from '@/components/AccountImport';
+import SharedAuditTrail from '@/components/AuditTrail';
 import SignInDetails from '@/components/SignInDetails';
 import WhyList from '@/components/WhyList';
 import { keys, useIdentity } from '@/lib/queries';
 import * as api from '@/lib/api';
-import { formatStamp, humanize, timeAgo } from '@/lib/utils';
+import { formatStamp, timeAgo } from '@/lib/utils';
 import {
   ACCESS_LABEL, ACCESS_TONE, endOfDay, personName, remaining, tomorrowKey,
   type AccessGrant, type OrgCounts, type OrgMember, type OrgRoleHolder, type OrgRoleKey, type OrgSummary, type OrgUnit, type PermissionCatalogEntry,
@@ -19,18 +20,18 @@ import {
 } from '@/lib/tenancy';
 
 /** One organization's data, behind a recent password confirmation like the rest of the console. */
-function useOrg<T>(orgId: string, key: string, fn: () => Promise<T>) {
+export function useOrg<T>(orgId: string, key: string, fn: () => Promise<T>) {
   return useQuery<T>({ queryKey: ['org', orgId, key], queryFn: () => withSudo(fn), retry: false });
 }
 
-function useAct() {
+export function useAct() {
   const toast = useToast();
   return async <T,>(label: string, fn: () => Promise<T>, after?: () => void): Promise<T | null> => {
     try { const r = await withSudo(fn); toast.success(label); after?.(); return r; } catch (e) { toast.error(api.errorText(e)); return null; }
   };
 }
 
-const Failed = ({ error, retry }: { error: unknown; retry: () => void }) => <div className="card"><EmptyState title="Could not load" description={api.errorText(error)} action={<Button onClick={retry}>Retry</Button>} /></div>;
+export const Failed = ({ error, retry }: { error: unknown; retry: () => void }) => <div className="card"><EmptyState title="Could not load" description={api.errorText(error)} action={<Button onClick={retry}>Retry</Button>} /></div>;
 
 // ——— Overview ———
 
@@ -215,46 +216,6 @@ export function WhyDialog({ orgId, member, onClose }: { orgId: string; member: {
   );
 }
 
-// ——— Units ———
-
-export function Units({ org }: { org: OrgSummary }) {
-  const can = (p: string) => org.permissions.includes(p);
-  const { data, isPending, error, refetch } = useOrg<{ units: OrgUnit[] }>(org.id, 'units', () => api.orgUnits(org.id));
-  const members = useOrg<{ members: OrgMember[] }>(org.id, 'members-all', () => api.orgMembers(org.id));
-  const act = useAct();
-  const [leading, setLeading] = useState<OrgUnit | null>(null);
-  const [leader, setLeader] = useState('');
-  if (isPending) return <Skeleton className="h-64" />;
-  if (error || !data) return <Failed error={error} retry={() => refetch()} />;
-  const byId = new Map(data.units.map((u) => [u.id, u]));
-  const depth = (u: OrgUnit) => { let d = 0; let p = u.parent_id; while (p && byId.has(p) && d < 10) { d += 1; p = byId.get(p)!.parent_id; } return d; };
-  const ordered: OrgUnit[] = [];
-  const walk = (parent: string | null) => data.units.filter((u) => u.parent_id === parent || (parent === null && u.parent_id && !byId.has(u.parent_id))).sort((a, b) => a.name.localeCompare(b.name)).forEach((u) => { if (!ordered.includes(u)) { ordered.push(u); walk(u.id); } });
-  walk(null);
-  return (
-    <>
-      <div className="card" style={{ overflow: 'hidden' }}>
-        <Table minWidth={720} head={<><th>Unit</th><th className="w-48">Leader</th><th className="w-20 text-right">Members</th><th className="w-24">Status</th><th className="w-36"></th></>}>
-          {ordered.map((u) => (
-            <tr key={u.id}>
-              <td><span className="block font-medium text-ink" style={{ paddingLeft: `${depth(u) * 1.25}rem` }}>{depth(u) ? '└ ' : ''}{u.name}</span><span className="block text-xs text-ink-3" style={{ paddingLeft: `${depth(u) * 1.25}rem` }}>{u.short_name ? `${u.short_name} · ` : ''}{u.code}{u.echelon ? ` · ${u.echelon}` : ''}</span></td>
-              <td className="text-xs">{u.owner_user_id ? `${u.owner_first} ${u.owner_last}` : u.parent_id ? <span className="text-ink-3">led from above</span> : <Badge tone="warn">No leader</Badge>}</td>
-              <td className="fig text-right">{u.members}</td>
-              <td>{u.active ? <Badge tone="good">Active</Badge> : <Badge tone="neutral">Archived</Badge>}</td>
-              <td className="text-right">{can('org.units') && u.active ? <Button size="xs" variant="ghost" onClick={() => { setLeading(u); setLeader(''); }}>Set leader</Button> : null}</td>
-            </tr>
-          ))}
-        </Table>
-      </div>
-      <p className="mt-3 text-xs text-ink-3">Units are created, renamed and moved from the Team page in the app, under the unit they belong to. A unit leader holds every permission in their unit and the units beneath it.</p>
-      <Dialog open={Boolean(leading)} onOpenChange={(o) => { if (!o) setLeading(null); }} title={`Leader for ${leading?.name}`} size="sm" description="The leader holds the Unit Leader role. A former leader loses it and is signed out."
-        footer={<><Button variant="ghost" onClick={() => setLeading(null)}>Cancel</Button><Button variant="primary" disabled={!leader} onClick={async () => { if (!leading) return; const r = await act('Leader set.', () => api.orgSetLeader(org.id, leading.id, leader), () => refetch()); if (r) setLeading(null); }}>Set leader</Button></>}>
-        <Field label="Member"><Select value={leader} onValueChange={setLeader} placeholder="Choose a member" options={(members.data?.members ?? []).filter((m) => m.active).map((m) => ({ value: m.id, label: `${personName(m)} (@${m.username})` }))} /></Field>
-      </Dialog>
-    </>
-  );
-}
-
 // ——— Vantage access ———
 
 export function VantageAccess({ org }: { org: OrgSummary }) {
@@ -306,41 +267,32 @@ export function VantageAccess({ org }: { org: OrgSummary }) {
 
 // ——— Audit trail ———
 
-interface AuditRow { id: string; seq: number; action: string; entity: string | null; unit_id: string | null; detail: string | null; at: string; ip: string | null; actor_name: string | null; actor_username: string | null; subject_name: string | null; actor_is_staff: number | null }
-
+/** The Unit Instance's trail, filtered and paged on the server, with a unit filter (ADR-0012). */
 export function AuditTrail({ orgId }: { orgId: string }) {
-  const { data, isPending, error, refetch } = useOrg<{ rows: AuditRow[]; chain: { ok: boolean } }>(orgId, 'audit', () => api.orgAudit(orgId, 500));
-  const [q, setQ] = useState('');
-  if (isPending) return <Skeleton className="h-64" />;
-  if (error || !data) return <Failed error={error} retry={() => refetch()} />;
-  const rows = data.rows.filter((r) => !q.trim() || `${r.action} ${r.actor_name || ''} ${r.subject_name || ''} ${r.detail || ''} ${r.unit_id || ''}`.toLowerCase().includes(q.trim().toLowerCase()));
+  const units = useOrg<{ units: OrgUnit[] }>(orgId, 'units', () => api.orgUnits(orgId));
   return (
-    <>
-      <div className="mb-3 flex flex-wrap items-center gap-2"><Input aria-label="Filter the audit trail" placeholder="Filter…" value={q} onChange={(e) => setQ(e.target.value)} className="max-w-sm" /><Badge tone={data.chain.ok ? 'good' : 'bad'}>{data.chain.ok ? 'Chain intact' : 'Chain broken'}</Badge><span className="text-xs text-ink-3">{rows.length} entries</span></div>
-      <div className="card" style={{ overflow: 'hidden' }}>
-        {!rows.length ? <EmptyState icon={ScrollText} title="Nothing recorded yet" /> : (
-          <Table minWidth={900} head={<><th className="w-36">When</th><th className="w-40">Who</th><th className="w-48">Action</th><th className="w-36">About</th><th className="w-24">Unit</th><th>Detail</th></>}>
-            {rows.map((r) => <tr key={r.id}><td className="fig text-xs text-ink-3">{formatStamp(r.at)}</td><td className="text-xs">{r.actor_name || r.actor_username || 'Vantage'}{r.actor_is_staff ? <Badge tone="warn" className="ml-1">Vantage staff</Badge> : null}</td><td className="text-xs text-ink">{humanize(r.action)}</td><td className="text-xs text-ink-2">{r.subject_name || ''}</td><td className="text-xs text-ink-3">{r.unit_id || ''}</td><td className="text-xs text-ink-2">{r.detail}</td></tr>)}
-          </Table>
-        )}
-      </div>
-    </>
+    <SharedAuditTrail
+      queryKey={['org', orgId]}
+      load={(f) => api.orgAudit(orgId, f)}
+      exportUrl={(f, format) => api.orgAuditExportUrl(orgId, f, format)}
+      fileStem={`vantage-${orgId.toLowerCase()}-audit`}
+      units={(units.data?.units ?? []).map((u) => ({ id: u.id, name: u.short_name || u.name }))}
+      empty="Nothing recorded yet."
+    />
   );
 }
 
 // ——— Settings ———
 
-export function Settings({ org }: { org: OrgSummary }) {
+export function Settings({ org, extra }: { org: OrgSummary; extra?: React.ReactNode }) {
   const can = (p: string) => org.permissions.includes(p);
   const { data, isPending, refetch } = useOrg<OverviewData>(org.id, 'overview', () => api.orgOverview(org.id));
   const qc = useQueryClient();
   const act = useAct();
-  const toast = useToast();
   const [form, setForm] = useState<{ name: string; short_name: string; vantageAccess: 'approval' | 'notify' } | null>(null);
   useEffect(() => { if (data && !form) setForm({ name: data.organization.name, short_name: data.organization.short_name || '', vantageAccess: data.organization.settings.vantageAccess }); }, [data, form]);
   if (isPending || !data || !form) return <Skeleton className="h-64" />;
   const save = (patch: Record<string, unknown>) => act('Saved.', () => api.orgUpdate(org.id, patch), () => { refetch(); qc.invalidateQueries({ queryKey: keys.me }); });
-  const exportStructure = async () => { try { await withSudo(() => api.orgOverview(org.id)); const n = await api.downloadFile(api.orgExportUrl(org.id), `vantage-${org.id.toLowerCase()}.json`); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } };
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       {can('org.settings') && (
@@ -356,16 +308,11 @@ export function Settings({ org }: { org: OrgSummary }) {
           label="Ask a Lead Unit Manager first" description={form.vantageAccess === 'approval' ? 'Support asks; nothing opens until a Lead Unit Manager approves. Recommended.' : 'Support may look at once, read-only, and your Lead Unit Managers are told and can end it.'} />
         {!can('org.owners') && <p className="mt-2 text-xs text-ink-3">Only a Lead Unit Manager changes this.</p>}
       </Panel>
-      {can('org.export') && (
-        <Panel title="Structure export" subtitle="Your units, unit roles, members and who holds which role, as one file.">
-          <p className="text-sm text-ink-2">The work shared with a unit is exported from that unit in the app, by those whose unit role allows it. A Unit Instance role does not read records, so this file holds none.</p>
-          <Button className="mt-3" onClick={exportStructure}><Download className="h-4 w-4" />Download structure</Button>
-        </Panel>
-      )}
       <Panel title="Your units on Vantage" subtitle="Members bring their own account and keep it when they move.">
         <p className="text-sm text-ink-2">Your Unit Instance’s records are kept apart from every other Unit Instance’s on this Vantage deployment. Vantage staff see your Unit Instance as a name and its counts; anything more opens only through Vantage access, above.</p>
         <p className="mt-2 flex items-center gap-1.5 text-xs text-ink-3"><IdCard className="h-3.5 w-3.5" />To close the Unit Instance or recover a lost Lead Unit Manager account, contact Vantage support.</p>
       </Panel>
+      {extra}
     </div>
   );
 }

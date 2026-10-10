@@ -1,5 +1,5 @@
 import { DEFAULT_METRICS, type MetricsConfig } from '../../shared/constants';
-import { setCurrencySymbol } from '../../shared/metrics';
+import { setCurrencySymbol, type PeriodKey } from '../../shared/metrics';
 import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as api from './api.ts';
 import type { Store } from './api.ts';
@@ -24,6 +24,8 @@ export interface UnitView { id: string; name: string; short_name: string | null;
 export interface Identity {
   user: { id: string; username: string; email: string | null; first_name: string; last_name: string; middle_initial: string | null; rank_id: string | null; mos: string | null; eas: string | null; totp_enabled: number; must_change_password: number; last_login_at: string | null; created_at: string; passkeys: number; rank: { id: string; grade: string; abbr: string; name: string } | null };
   prefs: Prefs;
+  /** What the person's own Unit Instance sets where they have not chosen (ADR-0012). */
+  unitDefaults?: { reportPeriod: PeriodKey | null };
   memberships: Array<{ unit_id: string; is_primary: number; billet: string | null; joined_at: string; unit_name: string; unit_short: string | null; unit_code: string; parent_id: string | null }>;
   primaryUnitId: string | null; homeUnitId: string | null; unitIds: string[]; readableUnitIds: string[]; ownedUnitIds: string[]; viewableUnitIds: string[];
   views: UnitView[]; defaultViewId: string | null;

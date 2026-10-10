@@ -105,6 +105,9 @@ test('every Unit Instance role opens exactly the console routes its permissions 
     ['/audit', ['org.audit']],
     ['/export', ['org.export']],
     ['/access', ['org.access', 'org.audit']],
+    ['/configuration', ['org.view']],
+    ['/unit-roles', ['org.roles', 'org.members', 'org.owners']],
+    ['/roster.csv', ['org.export']],
   ];
   for (const role of ORG_ROLE_KEYS) {
     const holder = org[role]!;

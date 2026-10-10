@@ -8,6 +8,7 @@ import { addMember, claimUnit, guardSelfReach, removeMember } from './org.ts';
 import { orgCan, scopeFor, seatedOrgRole } from '../authz/scope.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { assertCanFoundUnitInstance } from './deployment.ts';
+import { normalizeUnitSettings, type UnitSettings } from '../../shared/unitConfig.ts';
 
 /**
  * Organizations: the tenants of the central service (ADR-0006). An organization is a tree of units with its own
@@ -21,18 +22,23 @@ export interface OrgRow {
   created_at: string; updated_at: string;
 }
 
-export interface OrgSettings {
+export interface OrgSettings extends UnitSettings {
   /** Whether Vantage support needs an owner's approval to look ('approval'), or only tells the owners it did ('notify'). */
   vantageAccess: 'approval' | 'notify';
 }
-const DEFAULT_SETTINGS: OrgSettings = { vantageAccess: 'approval' };
 
 export function getOrg(ctx: AppContext, orgId: string): OrgRow | null {
   return (ctx.db.prepare('SELECT * FROM organizations WHERE id = ?').get(orgId) as OrgRow | undefined) ?? null;
 }
 
+/**
+ * A Unit Instance's settings, each within the limits Vantage sets (ADR-0012). Anything unreadable or unknown reads as the
+ * default: approval before Vantage support looks, and the enterprise defaults for work and reports.
+ */
 export function orgSettings(org: Pick<OrgRow, 'settings'>): OrgSettings {
-  try { return { ...DEFAULT_SETTINGS, ...(JSON.parse(org.settings || '{}') as Partial<OrgSettings>) }; } catch { return { ...DEFAULT_SETTINGS }; }
+  let raw: Partial<OrgSettings> = {};
+  try { raw = (JSON.parse(org.settings || '{}') ?? {}) as Partial<OrgSettings>; } catch { /* the defaults */ }
+  return { vantageAccess: raw.vantageAccess === 'notify' ? 'notify' : 'approval', ...normalizeUnitSettings(raw) };
 }
 
 export const orgUnitIds = (ctx: AppContext, orgId: string, activeOnly = true): string[] =>
@@ -246,7 +252,8 @@ export function removeManager(ctx: AppContext, actor: SessionUser, orgId: string
   return roles;
 }
 
-export function orgMembers(ctx: AppContext, orgId: string, q = '') {
+/** The Unit Instance's members with their units; at most `limit` people (500 for a page), or all of them with `null`. */
+export function orgMembers(ctx: AppContext, orgId: string, q = '', limit: number | null = 500) {
   const pattern = q.trim() ? `%${q.trim().toLowerCase().replace(/[\\%_]/g, '\\$&')}%` : null;
   const people = ctx.db.prepare(`SELECT u.id, u.username, u.email, u.first_name, u.last_name, u.edipi, u.active, u.last_login_at, u.totp_enabled, u.must_change_password,
         CASE WHEN u.locked_until > ? THEN u.locked_until END AS locked_until, rk.abbr AS rank_abbr,
@@ -254,8 +261,8 @@ export function orgMembers(ctx: AppContext, orgId: string, q = '') {
         (SELECT COUNT(DISTINCT un2.org_id) FROM unit_members um2 JOIN units un2 ON un2.id = um2.unit_id WHERE um2.user_id = u.id AND un2.org_id <> ?) AS other_orgs
       FROM users u LEFT JOIN ranks rk ON rk.id = u.rank_id
      WHERE u.id IN (${memberIdsSql}) ${pattern ? "AND (lower(u.last_name) LIKE ? ESCAPE '\\' OR lower(u.first_name) LIKE ? ESCAPE '\\' OR lower(u.username) LIKE ? ESCAPE '\\')" : ''}
-     ORDER BY u.active DESC, u.last_name COLLATE NOCASE, u.first_name COLLATE NOCASE LIMIT 500`)
-    .all(now(), orgId, orgId, ...(pattern ? [pattern, pattern, pattern] : [])) as Array<Record<string, unknown> & { id: string; email: string | null }>;
+     ORDER BY u.active DESC, u.last_name COLLATE NOCASE, u.first_name COLLATE NOCASE LIMIT ?`)
+    .all(now(), orgId, orgId, ...(pattern ? [pattern, pattern, pattern] : []), limit ?? -1) as Array<Record<string, unknown> & { id: string; email: string | null }>;
   const units = ctx.db.prepare(`SELECT um.user_id, un.id AS unit_id, COALESCE(un.short_name, un.name) AS unit, um.billet, um.is_primary,
         (SELECT GROUP_CONCAT(r.name, ', ') FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id = um.user_id AND mr.unit_id = um.unit_id AND (mr.expires_at IS NULL OR mr.expires_at > ?)) AS roles
       FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE un.org_id = ? AND un.active = 1`).all(now(), orgId) as Array<{ user_id: string; unit_id: string; unit: string; billet: string | null; is_primary: number; roles: string | null }>;

@@ -1,6 +1,34 @@
 # Progress
 
-_Updated 2026-10-08_
+_Updated 2026-10-09_
+
+## What changed (2026-10-09: Unit Manager console)
+
+Unit Managers run their Unit Instance's structure and configuration from the console, within limits Vantage
+sets for everyone ([ADR-0012](engineering/ADR/0012-unit-manager-console.md)).
+
+- **Units and teams.** The units as a tree, teams (squads and fire teams) on their own, new units and teams,
+  moving, archiving and naming leaders.
+- **Billets.** A billet catalogue per unit or for the whole instance, and a roster of who fills each billet
+  and which are vacant; assigning one updates the membership.
+- **Unit roles.** Every unit's roles and holders in one place, with grants that may end on a date.
+- **Duty.** Duty types, starting from the specification's list, and **versioned duty scoring**: fixed, per
+  day, per hour or by length, with multipliers, published with the day it takes effect and a reason, never
+  changed after, and withdrawable only before it takes effect (brought forward from Task 18 on John's
+  decision). A calculator in the console shows what a version gives before it is published.
+- **Training.** Requirements with a kind, course code, how often they recur and where they apply.
+- **Work and reports.** How long a claim on the unit's work holds (now per Unit Instance) and the period
+  reports open on (now used by Reports and Records when a person has not chosen one).
+- **Imports and exports.** A roster CSV, the structure export, and a configuration file that exports and
+  imports billets, duty types, requirements and settings, with a plan shown before anything changes.
+- **Audit trail.** Filtered by words, action, unit and dates on the server, paged, and exported as CSV or
+  JSON; each export is audited. The platform's trail and the instance's now share one query and one page.
+- **Set by Vantage.** Settings shows the enterprise controls a Unit Manager cannot change.
+- **New permission `org.config`**, held by Lead Unit Managers and Unit Managers. **Migration 020** adds the
+  boundary triggers for the new configuration tables.
+- **Tests:** `tests/server/unitManagerConsole.test.ts` (16), `tests/server/dutyScoring.test.ts` (6), a migration 020 test and
+  `tests/browser/33-unit-manager-console.spec.ts` (axe on every new page, billets, duty and scoring,
+  training, work settings, teams, the audit filter, a read-only Unit Auditor, tablet and phone widths).
 
 ## What changed (2026-10-08: Vantage Administrator console)
 

@@ -81,6 +81,7 @@ export const ORG_PERMISSION_LIST = [
   { key: 'org.members', label: 'Members', hint: 'Enroll, move and remove members anywhere in the Unit Instance; unlock and sign them out.' },
   { key: 'org.units', label: 'Units', hint: 'Create, rename, move and archive units, and transfer a unit’s leadership to someone else.' },
   { key: 'org.roles', label: 'Unit roles', hint: 'Define unit roles and grant them to others, below the Unit Leader. Does not read records, and never grants you one that does.' },
+  { key: 'org.config', label: 'Unit configuration', hint: 'Billets, duty types, training requirements, work settings and report defaults, within the limits Vantage sets for every Unit Instance. Never sign-in, security or audit settings.' },
   { key: 'org.personnel', label: 'Personnel feed', hint: 'Load the roster extract that keeps names, ranks and EAS current, and separates people who left.' },
   { key: 'org.export', label: 'Export structure', hint: 'Download the Unit Instance’s structure: units, unit roles, members and who holds which role. Shared work is exported unit by unit, by those whose unit role allows it.' },
   { key: 'org.retention', label: 'Retention', hint: 'Set how long the Unit Instance’s records are kept, and run disposition.' },
@@ -95,7 +96,7 @@ export type OrgRole = 'owner' | 'admin' | 'records' | 'auditor';
 const ALL_ORG = ORG_PERMISSION_LIST.map((p) => p.key) as OrgPermission[];
 export const ORG_ROLES: Record<OrgRole, { label: string; description: string; permissions: OrgPermission[] }> = {
   owner: { label: 'Lead Unit Manager', description: 'A Unit Manager who also assigns the Unit Instance’s roles, decides whether Vantage support needs approval, and runs retention, holds and the privacy inventory. Does not read Marines’ records.', permissions: ALL_ORG },
-  admin: { label: 'Unit Manager', description: 'Runs the Unit Instance’s structure: members, units, unit roles, the personnel feed and the structure export. Does not read Marines’ records.', permissions: ['org.view', 'org.settings', 'org.members', 'org.units', 'org.roles', 'org.personnel', 'org.export', 'org.audit'] },
+  admin: { label: 'Unit Manager', description: 'Runs the Unit Instance’s structure and configuration: members, units and teams, billets, unit roles, duty and training configuration, work settings, the personnel feed and its exports. Does not read Marines’ records.', permissions: ['org.view', 'org.settings', 'org.members', 'org.units', 'org.roles', 'org.config', 'org.personnel', 'org.export', 'org.audit'] },
   records: { label: 'Records Officer', description: 'Retention schedules, legal holds, the privacy inventory and the audit trail.', permissions: ['org.view', 'org.retention', 'org.holds', 'org.audit', 'org.privacy'] },
   auditor: { label: 'Unit Auditor', description: 'Reads the audit trail and the privacy inventory. Changes nothing.', permissions: ['org.view', 'org.audit', 'org.privacy'] },
 };

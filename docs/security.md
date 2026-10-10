@@ -72,6 +72,39 @@ A Unit Instance is what this section calls an organization ([ADR-0007](engineeri
   `platform.data` and `platform.audit`. `tests/server/adminConsole.test.ts` checks that a marker written
   into a Unit Instance's records reaches no platform read.
 
+## The Unit Manager console (ADR-0012)
+
+[ADR-0012](engineering/ADR/0012-unit-manager-console.md) adds unit-scoped administration.
+
+- **Every route checks its permission on the server.** Configuration is `org.config` (Lead Unit Managers
+  and Unit Managers); reading it is `org.view`; the roster and configuration exports are `org.export`;
+  the audit trail and its export are `org.audit`. Another Unit Instance's routes answer 404. All of
+  `/api/orgs` needs a recent step-up. `tests/server/unitManagerConsole.test.ts` and
+  `tests/server/roleModel.test.ts` drive every Unit Instance role against them.
+- **Unit configuration never reaches enterprise controls.** No setting it holds touches sign-in, sessions,
+  attachments or audit. Settings show what Vantage sets, read-only, without secrets or host names. The one
+  workflow setting, how long a claim holds, is bounded (4 to 336 hours), refused outside its bounds and
+  clamped on read.
+- **Configuration stays inside its Unit Instance.** A billet or training requirement names only the
+  instance's own units; the service refuses another instance's unit without saying whether it exists, and
+  database triggers (migration 020) refuse it as `cross_instance`. A configuration file from another
+  instance brings its catalogue, never a reference to that instance's units, and never removes or
+  overwrites anything.
+- **Duty scoring versions cannot be rewritten.** The database refuses any change to a published version,
+  a version out of order, withdrawing one in force, and bringing back a withdrawn one. A version takes
+  effect tomorrow or later, after every version not withdrawn, so it never rescores duty already stood and
+  can always be withdrawn before it applies. Publishing and withdrawing are audited with the reason.
+  Deleting a row by hand is not blocked by a trigger, since restore and the demo reset delete rows.
+- **Exports are audited and minimal.** The roster CSV carries names, ranks, units, billets and roles, never
+  EDIPI, email or records (`organization_roster_exported`); a username made from a card, which is the
+  EDIPI, is left blank, and the instance's audit pages, search and export leave it out too. The audit export is filtered, refused above
+  50,000 rows and audited (`organization_audit_exported`); its CSV writes formula-like cells as text.
+- **The audit chain check stays within the instance.** It says whether the service's chain holds and how
+  many entries are the instance's own, never the service's count or which entry broke it. Entry numbers
+  are the service's, so their gaps show that other instances are active, not what they did.
+- **Unit roles are granted through the existing `/api/org` routes**, so ADR-0010's self-grant and
+  record-reading rules apply unchanged.
+
 ## The Unit Instance boundary (ADR-0008)
 
 Permissions are held per unit, so a person who serves in one Unit Instance only ever stands in its units. Someone attached to two commands holds real authority in each, and may work in each; what no authority allows is carrying one instance's data, or a reference to it, into the other. Where an operation names two units, or a unit and a row from another unit, the server checks that both are in one Unit Instance (`sameInstance` and `assertSameInstance` in `server/authz/scope.ts`, refusals with the code `cross_instance`):

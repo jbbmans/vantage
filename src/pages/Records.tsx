@@ -34,7 +34,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
   const remove = useDeleteRecord('activities');
   const restore = useRestoreRecord('activities');
   const [q, setQ] = useState('');
-  const [period, setPeriod] = useParam('period', prefs.reportPeriod || DEFAULT_PERIOD);
+  const [period, setPeriod] = useParam('period', prefs.reportPeriod || identity?.unitDefaults?.reportPeriod || DEFAULT_PERIOD);
   const [from] = useParam('from'); const [to] = useParam('to');
   const [category, setCategory] = useParam('category', 'all');
   const [area, setArea] = useParam('area', 'all');
