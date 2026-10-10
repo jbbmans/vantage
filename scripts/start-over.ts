@@ -10,6 +10,7 @@ import { readRoster, applyAccounts, type RosterRow } from '../server/services/ac
 import { passwordProblem } from '../shared/password.ts';
 import type { SessionUser } from '../server/context.ts';
 import { withPlatform } from '../server/authz/platform.ts';
+import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers } from '../server/db/index.ts';
 
 const USAGE = `Usage:
   VANTAGE_START_OVER=1 VANTAGE_ADMIN_PASSWORD='<password>' node scripts/start-over.ts ERASE-EVERYTHING \\
@@ -67,8 +68,12 @@ const adminId = newId();
 db.pragma('foreign_keys = OFF');
 try {
   db.transaction(() => {
+    // Starting over empties the audit log with everything else, the one time outside a fresh import that it is emptied
+    // (ADR-0013). The backup above keeps the old trail; the log is append-only again before this commits.
+    dropAuditAppendOnlyTriggers(db);
     for (const table of tables) db.prepare(`DELETE FROM "${table}"`).run();
     db.prepare("DELETE FROM meta WHERE key = 'audit_head'").run();
+    auditAppendOnlyTriggers(db);
     db.prepare(`INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)`)
       .run(adminId, username, hashPassword(password), firstName, lastName, now(), now());
     db.prepare("INSERT INTO platform_roles (user_id, role, granted_by, created_at) VALUES (?, 'owner', NULL, ?)").run(adminId, now());
@@ -89,7 +94,7 @@ console.log(`Erased all accounts, units and records. ${username} is Lead Vantage
 if (roster.length) {
   const admin = withPlatform(ctx, db.prepare('SELECT * FROM users WHERE id = ?').get(adminId) as SessionUser);
   const result = applyAccounts(ctx, admin, unitId, roster, 'shell');
-  audit(ctx, { actor_id: adminId, action: 'accounts_imported', entity: 'instance', detail: `${result.created} created; ${result.counts.error} skipped; ${result.counts.new_units} new units; from the shell` });
+  audit(ctx, { actor_id: adminId, action: 'accounts_imported', category: 'enterprise', entity: 'instance', detail: `${result.created} created; ${result.counts.error} skipped; ${result.counts.new_units} new units; from the shell` });
   console.log(`Imported ${result.created} accounts. New units: ${result.units.filter((u) => !u.exists).map((u) => (u.parent ? `${u.parent} > ${u.name}` : u.name)).join(', ') || 'none'}.`);
   for (const a of result.accounts) {
     if (a.status === 'error') console.log(`  skipped row ${a.line} (${a.username}): ${a.problems.join(' ')}`);

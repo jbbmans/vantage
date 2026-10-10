@@ -168,7 +168,9 @@ export function replyToTicket(ctx: AppContext, user: SessionUser, scope: Scope, 
       notify(ctx, target, { kind: 'support_reply', title, message: text.slice(0, 160), actionUrl: `/support/${id}`, dedupeKey: `ticket-reply:${id}:${at}:${target}` });
     }
   }
-  audit(ctx, { actor_id: user.id, action: internal ? 'support_note_added' : 'support_reply_added', entity: 'support_ticket', entity_id: id, ip });
+  // Somebody working the queue answers for it: a unit's queue is unit administration, Vantage support's is enterprise (ADR-0013).
+  const category = staff && !fromRequester ? (row.unit_id ? 'unit' : 'enterprise') : 'user';
+  audit(ctx, { actor_id: user.id, action: internal ? 'support_note_added' : 'support_reply_added', category, entity: 'support_ticket', entity_id: id, ip });
   return ticketDetail(ctx, user, scope, id);
 }
 
@@ -214,6 +216,6 @@ export function updateTicket(
       message: row.subject.slice(0, 160), actionUrl: `/support/${id}`, dedupeKey: `ticket-assign:${id}:${at}`,
     });
   }
-  audit(ctx, { actor_id: user.id, action: 'support_ticket_updated', entity: 'support_ticket', entity_id: id, subject_id: row.requester_id, ip });
+  audit(ctx, { actor_id: user.id, action: 'support_ticket_updated', category: row.unit_id ? 'unit' : 'enterprise', entity: 'support_ticket', entity_id: id, subject_id: row.requester_id, ip });
   return ticketDetail(ctx, user, scope, id);
 }

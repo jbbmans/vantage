@@ -4,7 +4,7 @@ import { startApp, enroll, type TestApp } from './helpers.ts';
 import { addMember, moveMember, mayEnrollDirectly } from '../../server/services/org.ts';
 import { scopeFor } from '../../server/authz/scope.ts';
 import { exportInstance, importInstance } from '../../server/services/exports.ts';
-import { instanceBoundaryTriggers, instanceBoundaryViolations, metaGet } from '../../server/db/index.ts';
+import { auditAppendOnlyTriggers, instanceBoundaryTriggers, instanceBoundaryViolations, metaGet } from '../../server/db/index.ts';
 
 /**
  * Task 2: the Unit Instance is a backend security boundary (ADR-0008). Unit A cannot read, write, export, report on
@@ -332,9 +332,13 @@ test('audit events cannot be silently rewritten, and an instance reads only its 
   for (const unit of units) assert.ok(['G1', 'MANPOWER'].includes(unit as string), `G1’s trail holds only its own units, found ${unit}`);
   assert.equal((await get(g1lead.token, '/api/orgs/G8/audit')).status, 404, 'and never another instance’s');
 
-  // An entry edited in place breaks the chain, which is what "cannot be silently rewritten" means.
+  // The database refuses an edit to an entry (ADR-0013). One made with its triggers dropped breaks the chain, which is
+  // what "cannot be silently rewritten" means.
   const target = app.ctx.db.prepare("SELECT id FROM audit_log WHERE action = 'create' ORDER BY seq LIMIT 1").get() as { id: string };
+  assert.throws(() => app.ctx.db.prepare("UPDATE audit_log SET detail = 'rewritten' WHERE id = ?").run(target.id), /audit_append_only/);
+  app.ctx.db.exec('DROP TRIGGER audit_log_no_update');
   app.ctx.db.prepare("UPDATE audit_log SET detail = 'rewritten' WHERE id = ?").run(target.id);
+  auditAppendOnlyTriggers(app.ctx.db);
   const after = await get(op.token, '/api/platform/integrity');
   assert.equal(after.body.audit.ok, false, 'the chain reports the rewrite');
   assert.match(String(after.body.audit.reason), new RegExp(target.id));

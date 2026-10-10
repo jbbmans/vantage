@@ -300,7 +300,7 @@ platformRouter.get('/orgs/:orgId', requirePlatform('platform.view'), wrap((req, 
 
 platformRouter.patch('/orgs/:orgId', requirePlatform('platform.orgs'), wrap((req, res) => {
   const body = parse(z.object({ name: z.string().max(120).optional(), short_name: z.string().max(40).nullish() }), req.body);
-  res.json(updateOrganization(req.ctx, req.user, String(req.params.orgId), body, ip(req)));
+  res.json(updateOrganization(req.ctx, req.user, String(req.params.orgId), body, ip(req), 'enterprise'));
 }));
 
 platformRouter.post('/orgs/:orgId/status', requirePlatform('platform.orgs'), wrap((req, res) => {
@@ -377,13 +377,13 @@ function tellInstancesOfSupport(ctx: AppContext, actor: SessionUser, targetId: s
 
 platformRouter.post('/accounts/:userId/unlock', requirePlatform('platform.accounts'), wrap((req, res) => {
   const target = accountTarget(req);
-  res.json({ ok: true, unlocked: unlockAccount(req.ctx, target.id, req.user.id, ip(req)) });
+  res.json({ ok: true, unlocked: unlockAccount(req.ctx, target.id, req.user.id, ip(req), 'enterprise') });
 }));
 
 platformRouter.post('/accounts/:userId/logout', requirePlatform('platform.accounts'), wrap((req, res) => {
   const target = accountTarget(req);
   const revoked = invalidateUserSessions(req.ctx, target.id);
-  audit(req.ctx, { actor_id: req.user.id, action: 'force_logout', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
+  audit(req.ctx, { actor_id: req.user.id, action: 'force_logout', category: 'enterprise', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
 
@@ -565,7 +565,7 @@ platformRouter.get('/audit/export', requirePlatform('platform.audit'), wrap((req
   const q = parse(auditQuery.omit({ before: true, limit: true }), req.query);
   const rows = auditRows(req.ctx, PLATFORM_TRAIL, q, AUDIT_EXPORT_MAX + 1);
   if (rows.length > AUDIT_EXPORT_MAX) throw badRequest(`More than ${AUDIT_EXPORT_MAX.toLocaleString('en-US')} entries match. Narrow the dates and export each range.`, { code: 'export_too_large' });
-  const filter = auditFilterLabel({ action: q.action, q: q.q, from: q.from, to: q.to });
+  const filter = auditFilterLabel({ action: q.action, category: q.category, q: q.q, from: q.from, to: q.to });
   audit(req.ctx, { actor_id: req.user.id, action: 'platform_audit_exported', entity: 'audit_log', detail: `${rows.length} rows as ${format}${filter ? `; ${filter}` : ''}`, ip: ip(req) });
   const name = `vantage-platform-audit-${now().slice(0, 10)}.${format}`;
   res.setHeader('Content-Disposition', `attachment; filename="${name}"`);

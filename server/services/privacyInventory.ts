@@ -115,7 +115,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     columns: {
       id: 'technical', seq: 'technical', actor_id: 'identifier', action: 'none', entity: 'none', entity_id: 'technical',
       subject_id: 'identifier', unit_id: 'employment', detail: 'technical', ip: 'technical', at: 'technical',
-      prev_hash: 'technical', entry_hash: 'technical', org_id: 'employment',
+      prev_hash: 'technical', entry_hash: 'technical', org_id: 'employment', category: 'none',
     },
   },
   sessions: {
@@ -272,6 +272,16 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       id: 'technical', org_id: 'technical', staff_user_id: 'identifier', reason: 'technical', minutes: 'none', status: 'none',
       requested_at: 'technical', decided_by: 'identifier', decided_at: 'technical', decision_note: 'technical', starts_at: 'technical',
       expires_at: 'technical', ended_at: 'technical', ended_by: 'identifier',
+    },
+  },
+  credential_approvals: {
+    purpose: 'Each request by Vantage support to change how an account with authority signs in, and the second staff member who approved or denied it.',
+    authority: 'Two-person control over credential changes to privileged accounts; kept as the evidence of who asked, who approved and when it was used.',
+    access: 'Vantage staff who support accounts. Every step is also in the audit trail.',
+    columns: {
+      id: 'technical', target_user_id: 'identifier', action: 'none', edipi: 'identifier', reason: 'technical', requested_by: 'identifier',
+      requested_at: 'technical', status: 'none', decided_by: 'identifier', decided_at: 'technical', decision_note: 'technical',
+      used_at: 'technical', expires_at: 'technical',
     },
   },
   unit_members: {

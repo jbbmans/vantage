@@ -196,6 +196,12 @@ test('the Unit Instance’s audit trail filters on the server by action', async 
   const rows = page.locator('tbody tr');
   await expect(rows.first()).toContainText('Billet created');
   for (const text of await rows.allInnerTexts()) expect(text).toContain('Billet created');
+  // A billet is unit administration (ADR-0013), and the category filter agrees.
+  await expect(rows.first()).toContainText('Unit administration');
+  await page.getByRole('combobox', { name: 'Category' }).click();
+  await page.getByRole('option', { name: 'Enterprise administration' }).click();
+  await page.getByRole('button', { name: 'Apply' }).click();
+  await expect(page.getByText('Nothing matches')).toBeVisible();
 });
 
 test('a Unit Auditor reads the configuration pages and finds no control that changes anything', async ({ page, browser, request }) => {

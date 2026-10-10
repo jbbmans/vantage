@@ -73,6 +73,11 @@ test('starting over from the shell erases everything in place, then creates the 
     const integrity = await app.call('GET', '/api/platform/integrity', { token: admin.body.token });
     assert.equal(integrity.status, 200);
     assert.equal(integrity.body.audit?.ok ?? integrity.body.ok, true, JSON.stringify(integrity.body).slice(0, 300));
+    // The script empties the audit log inside its one transaction and makes it append-only again before that commits (ADR-0013).
+    const triggers = app.ctx.db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'audit_log_%' ORDER BY name").all().map((t) => (t as { name: string }).name);
+    assert.deepEqual(triggers, ['audit_log_no_delete', 'audit_log_no_update']);
+    assert.throws(() => app.ctx.db.prepare('DELETE FROM audit_log').run(), /audit_append_only/);
+    assert.equal((app.ctx.db.prepare("SELECT category FROM audit_log WHERE action = 'accounts_imported'").get() as { category: string }).category, 'enterprise', 'an import from the shell is the service’s own');
   } finally {
     await app.close();
     rmSync(dir, { recursive: true, force: true });

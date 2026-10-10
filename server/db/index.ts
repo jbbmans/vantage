@@ -247,6 +247,20 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
     // keeps them inside the boundary on a database that ran 016 before they existed.
     run: (db) => instanceBoundaryTriggers(db),
   },
+  {
+    id: 21,
+    name: '021_audit_categories_and_append_only',
+    // Each audit entry seals its category, and the log is append-only from here (ADR-0013). Entries already written are
+    // left as they are, with no category: their hashes never sealed one, so a read takes it from the catalogue. The
+    // credential_approvals table comes from schema.sql.
+    run: (db) => {
+      if (!columnsOf(db, 'audit_log').has('category')) {
+        db.exec("ALTER TABLE audit_log ADD COLUMN category TEXT CHECK (category IS NULL OR category IN ('user', 'unit', 'enterprise'))");
+      }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_audit_category ON audit_log(category, seq)');
+      auditAppendOnlyTriggers(db);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
@@ -491,6 +505,32 @@ export function instanceBoundaryViolations(db: Db): Record<string, number> {
 export function dropInstanceBoundaryTriggers(db: Db) {
   const triggers = db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND sql LIKE '%cross_instance:%'").all() as Array<{ name: string }>;
   for (const { name } of triggers) db.exec(`DROP TRIGGER "${name}"`);
+}
+
+const AUDIT_APPEND_ONLY_TRIGGERS = ['audit_log_no_update', 'audit_log_no_delete'] as const;
+
+/**
+ * The audit log is append-only, kept by the database as well as by the code (ADR-0013): an entry is never changed or
+ * removed, so a defect or a hand-written statement cannot quietly rewrite the trail. The hash chain makes a rewrite
+ * visible afterwards; these refuse it as it is tried. Each refusal begins `audit_append_only:`, which the API answers as
+ * a refusal rather than a server error.
+ */
+export function auditAppendOnlyTriggers(db: Db) {
+  db.exec(`CREATE TRIGGER IF NOT EXISTS audit_log_no_update BEFORE UPDATE ON audit_log FOR EACH ROW
+    BEGIN SELECT RAISE(ABORT, 'audit_append_only: an audit entry is never changed'); END`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log FOR EACH ROW
+    BEGIN SELECT RAISE(ABORT, 'audit_append_only: an audit entry is never removed'); END`);
+}
+
+/**
+ * Lifts the audit log's triggers for a caller that puts them back with `auditAppendOnlyTriggers` before its transaction
+ * commits, so they are never missing outside it. Only three callers do: removing an expired demo workspace (a synthetic
+ * database), loading an instance archive into a fresh instance, and scripts/start-over.ts. Outside a transaction it
+ * refuses, so the log is never left open.
+ */
+export function dropAuditAppendOnlyTriggers(db: Db) {
+  if (!db.inTransaction) throw new Error('The audit log is opened only inside a transaction that closes it again.');
+  for (const name of AUDIT_APPEND_ONLY_TRIGGERS) db.exec(`DROP TRIGGER IF EXISTS ${name}`);
 }
 
 const MEMBERSHIP_TRIGGERS = ['unit_membership_opened', 'unit_membership_changed', 'unit_membership_closed'] as const;

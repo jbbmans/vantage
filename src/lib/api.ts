@@ -284,7 +284,7 @@ export const platformRevokeStaff = (userId: string, role: string) => api.del(`/p
 export const platformAccess = (status = '') => api.get(`/platform/access?${qs({ status })}`);
 export const platformRequestAccess = (body: { org_id: string; reason: string; minutes?: number }) => api.post('/platform/access', body);
 export const platformEndAccess = (id: string) => api.post(`/platform/access/${enc(id)}/end`);
-export interface PlatformAuditFilter { q?: string; action?: string; from?: string; to?: string; before?: number | null; limit?: number }
+export interface PlatformAuditFilter { q?: string; action?: string; category?: string; from?: string; to?: string; before?: number | null; limit?: number }
 export const platformAudit = (filter: PlatformAuditFilter = {}) => api.get(`/platform/audit?${qs({ ...filter })}`);
 /** The filtered platform trail as a file; the server records the download. */
 export const platformAuditExportUrl = (filter: Omit<PlatformAuditFilter, 'before' | 'limit'>, format: 'csv' | 'json') => `/api/platform/audit/export?${qs({ ...filter, format })}`;

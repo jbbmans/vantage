@@ -20,6 +20,10 @@ export interface ForwardedAudit {
   id: string; at: string; action: string; actor_id: string | null; entity: string | null; entity_id: string | null;
   subject_id: string | null; unit_id: string | null; detail: string | null; ip: string | null;
   prev_hash: string | null; entry_hash: string;
+  /** The organization the entry belongs to, when it names one. */
+  org_id?: string | null;
+  /** User activity, unit administration or enterprise administration (ADR-0013); null only for an action the catalogue does not know. */
+  category?: string | null;
 }
 
 export interface AuditForwardingStatus {

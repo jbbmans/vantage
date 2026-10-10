@@ -265,7 +265,7 @@ test('the audit trail filters by action, unit and words on the server, pages bac
 
   const csv = await get(um, '/api/orgs/G8/audit/export?format=csv&action=billet_created');
   assert.equal(csv.status, 200);
-  assert.match(csv.text.split(/\r?\n/)[0].replaceAll('"', ''), /^seq,at,action,actor_username,actor_id,subject_username,subject_id,entity,entity_id,unit_id,detail,ip,prev_hash,entry_hash$/);
+  assert.match(csv.text.split(/\r?\n/)[0].replaceAll('"', ''), /^seq,at,action,category,actor_username,actor_id,subject_username,subject_id,entity,entity_id,unit_id,detail,ip,prev_hash,entry_hash$/);
   assert.match(lastAudit('organization_audit_exported')!.detail, /as csv; action=billet_created/);
   assert.equal((await get(aud, '/api/orgs/G8/audit?from=2026-02-30')).status, 400, 'a date that does not exist');
 });

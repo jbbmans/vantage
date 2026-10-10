@@ -322,9 +322,13 @@ export function createApp(ctx: AppContext) {
 
   /** A refusal the database raised at the Unit Instance boundary: a refusal, not a failure (ADR-0008). */
   const boundaryRefusal = (err: unknown) => err instanceof Error && (err as { code?: string }).code === 'SQLITE_CONSTRAINT_TRIGGER' && err.message.startsWith('cross_instance:');
+  /** A change to an audit entry the database refused: the log is append-only (ADR-0013). */
+  const appendOnlyRefusal = (err: unknown) => err instanceof Error && (err as { code?: string }).code === 'SQLITE_CONSTRAINT_TRIGGER' && err.message.startsWith('audit_append_only:');
 
   app.use((caught: unknown, req: Request, res: Response, _next: NextFunction) => {
-    const err = boundaryRefusal(caught) ? forbidden('That would join records from two Unit Instances.', 'cross_instance') : caught;
+    const err = boundaryRefusal(caught) ? forbidden('That would join records from two Unit Instances.', 'cross_instance')
+      : appendOnlyRefusal(caught) ? forbidden('The audit trail is append-only: an entry is never changed or removed.', 'audit_append_only')
+        : caught;
     if (err instanceof HttpError) {
       if (err.status === 403) record(ctx, 'security.authorization_denied', { route: routeFamily(req.path) });
       // A refusal at the boundary goes in the audit trail with who asked, so reaching across it is seen, not just counted.

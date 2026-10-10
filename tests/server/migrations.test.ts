@@ -4,8 +4,12 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { openDatabase, SCHEMA_VERSION } from '../../server/db/index.ts';
+import { openDatabase, migrationHistory, SCHEMA_VERSION } from '../../server/db/index.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
+import { hmac } from '../../server/lib/crypto.ts';
+import { loadConfig } from '../../server/config.ts';
+import { createContext } from '../../server/app.ts';
+import { audit, verifyAuditChain } from '../../server/services/audit.ts';
 
 function atVersion(version: number, seed: (db: Database.Database) => void) {
   const dir = mkdtempSync(join(tmpdir(), 'vantage-migrate-'));
@@ -230,5 +234,63 @@ test('020 keeps a Unit Instance’s billets and training requirements inside it,
     const again = openDatabase(path);
     assert.equal((again.prepare('SELECT COUNT(*) AS n FROM unit_billets').get() as { n: number }).n, 1);
     again.close();
+  } finally { cleanup(); }
+});
+
+test('021 gives each new audit entry a sealed category and makes the log append-only, leaving older entries as they verify', () => {
+  const SECRET = 'test-secret-test-secret-test-secret-1234';
+  const at = '2026-09-01T00:00:00.000Z';
+  const { path, cleanup } = atVersion(20, (db) => {
+    // The shape at 20: no category, no append-only triggers, no credential approvals.
+    db.exec('DROP TABLE credential_approvals');
+    db.exec('ALTER TABLE audit_log DROP COLUMN category');
+    db.prepare("INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u1', 'avery', 'x', 'Jordan', 'Avery', ?, ?)").run(at, at);
+    // A chain written by a build before categories, under the secret (before the chain key, as loadChainKey reads it):
+    // an entry without an organization, and one with.
+    let previous = '';
+    const insert = db.prepare('INSERT INTO audit_log (id, actor_id, action, entity, detail, at, prev_hash, entry_hash, org_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)');
+    const rows: Array<[string, string, string | null]> = [['a1', 'login', null], ['a2', 'grant_role', 'G8'], ['a3', 'edit_configuration', null]];
+    for (const [id, action, org] of rows) {
+      const hash = hmac(SECRET, JSON.stringify([previous, id, 'u1', action, 'probe', null, null, null, 'old', at, null, ...(org ? [org] : [])]));
+      insert.run(id, 'u1', action, 'probe', 'old', at, previous || null, hash, org);
+      previous = hash;
+    }
+    db.prepare("INSERT INTO meta (key, value) VALUES ('audit_head', ?)").run(JSON.stringify({ hash: previous, count: rows.length, mac: hmac(SECRET, `audit-head:${previous}:${rows.length}`) }));
+  });
+  const env = {
+    ...process.env, NODE_ENV: 'test', VANTAGE_TEST: '1', VANTAGE_DB: path, VANTAGE_EMAIL_PROVIDER: 'memory', VANTAGE_MARADMIN_ENABLED: 'false',
+    VANTAGE_SECRET: SECRET, VANTAGE_PUBLIC_URL: 'http://localhost:5173', VANTAGE_OPERATOR: '',
+  } as NodeJS.ProcessEnv;
+  try {
+    const ctx = createContext(loadConfig(env));
+    const { db } = ctx;
+    assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    const column = (db.prepare('PRAGMA table_info(audit_log)').all() as Array<{ name: string }>).find((c) => c.name === 'category');
+    assert.ok(column, 'audit_log has a category');
+    assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'index' AND name = 'idx_audit_category'").get(), 'and an index to filter by it');
+    assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'credential_approvals'").get());
+    const triggers = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'audit_log_%' ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
+    assert.deepEqual(triggers, ['audit_log_no_delete', 'audit_log_no_update']);
+    assert.ok(migrationHistory(db).some((m) => m.id === 21 && m.name === '021_audit_categories_and_append_only'), 'the migration is in the history');
+
+    // Older entries are not backfilled: their hashes never sealed a category, and they still verify.
+    assert.deepEqual(db.prepare("SELECT category FROM audit_log WHERE id IN ('a1', 'a2', 'a3')").all().map((r) => (r as { category: null }).category), [null, null, null]);
+    assert.equal(verifyAuditChain(ctx).ok, true, JSON.stringify(verifyAuditChain(ctx)));
+    // New entries seal theirs and chain on from the old head.
+    audit(ctx, { actor_id: 'u1', action: 'grant_role', org_id: 'G8', detail: 'new' });
+    audit(ctx, { actor_id: 'u1', action: 'temporary_password', subject_id: 'u1' });
+    assert.deepEqual(db.prepare("SELECT category FROM audit_log WHERE id NOT IN ('a1', 'a2', 'a3') ORDER BY seq DESC LIMIT 2").all().map((r) => (r as { category: string }).category), ['enterprise', 'unit']);
+    assert.equal(verifyAuditChain(ctx).ok, true);
+    assert.throws(() => db.prepare("UPDATE audit_log SET category = 'user' WHERE id = 'a1'").run(), /audit_append_only/, 'nor can an old entry be given one afterwards');
+    const count = (db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n;
+    db.close();
+
+    // Starting again runs nothing twice.
+    const again = createContext(loadConfig(env));
+    assert.equal(migrationHistory(again.db).filter((m) => m.id === 21).length, 1);
+    assert.equal((again.db.prepare('SELECT COUNT(*) AS n FROM audit_log').get() as { n: number }).n >= count, true);
+    assert.equal(verifyAuditChain(again).ok, true);
+    assert.deepEqual((again.db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'audit_log_%' ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name), triggers);
+    again.db.close();
   } finally { cleanup(); }
 });

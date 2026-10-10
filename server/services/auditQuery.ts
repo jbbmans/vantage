@@ -1,5 +1,6 @@
 import { z } from 'zod';
 import type { AppContext } from '../context.ts';
+import { AUDIT_CATEGORIES, auditActionsIn, auditCategoryOf } from '../../shared/auditCatalog.ts';
 
 /**
  * Reading one audit trail a page at a time: the platform's own (ADR-0011) or a Unit Instance's (ADR-0012). Each is
@@ -13,6 +14,8 @@ export const auditDay = z.string().regex(/^\d{4}-\d{2}-\d{2}$/, 'A date: YYYY-MM
 export const auditQuery = z.object({
   q: z.string().trim().max(80).optional(),
   action: z.string().trim().max(60).optional(),
+  /** User activity, unit administration or enterprise administration (ADR-0013). */
+  category: z.enum(AUDIT_CATEGORIES).optional(),
   from: auditDay.optional(),
   to: auditDay.optional(),
   before: z.coerce.number().int().positive().optional(),
@@ -22,7 +25,7 @@ export type AuditQuery = z.infer<typeof auditQuery>;
 
 /** The most entries one exported file holds. More is refused with a request to narrow the dates, never cut short. */
 export const AUDIT_EXPORT_MAX = 50_000;
-export const AUDIT_CSV_COLUMNS = ['seq', 'at', 'action', 'actor_username', 'actor_id', 'subject_username', 'subject_id', 'entity', 'entity_id', 'detail', 'ip', 'prev_hash', 'entry_hash'];
+export const AUDIT_CSV_COLUMNS = ['seq', 'at', 'action', 'category', 'actor_username', 'actor_id', 'subject_username', 'subject_id', 'entity', 'entity_id', 'detail', 'ip', 'prev_hash', 'entry_hash'];
 
 export interface AuditTrail {
   /** The SQL naming which entries belong to this trail, over `al`, and its parameters. */
@@ -41,11 +44,20 @@ export interface AuditTrail {
 
 const CAC_USERNAME_GLOB = "'edipi-[0-9]*'";
 
-/** A trail's entries for a filter: newest first, from before `before` when paging back. Dates are UTC days. */
+/**
+ * A trail's entries for a filter: newest first, from before `before` when paging back. Dates are UTC days. Each carries
+ * its category: the one it sealed, or for an entry from before categories, the one the catalogue gives its action.
+ */
 export function auditRows(ctx: AppContext, trail: AuditTrail, q: Omit<AuditQuery, 'limit'>, limit: number) {
   const where = [`(${trail.where})`];
   const params: unknown[] = [...trail.params];
   if (q.action) { where.push('al.action = ?'); params.push(q.action); }
+  if (q.category) {
+    // An entry from before categories sealed none (ADR-0013): it is in the category the catalogue gives its action.
+    const actions = auditActionsIn(q.category);
+    where.push(`(al.category = ? OR (al.category IS NULL AND al.action IN (${actions.map(() => '?').join(', ')})))`);
+    params.push(q.category, ...actions);
+  }
   if (q.from) { where.push('al.at >= ?'); params.push(`${q.from}T00:00:00.000Z`); }
   if (q.to) { where.push('al.at < ?'); params.push(new Date(Date.parse(`${q.to}T00:00:00.000Z`) + 86_400_000).toISOString()); }
   if (q.before) { where.push('al.seq < ?'); params.push(q.before); }
@@ -56,9 +68,11 @@ export function auditRows(ctx: AppContext, trail: AuditTrail, q: Omit<AuditQuery
     where.push(`(lower(al.action) LIKE ? ESCAPE '\\' OR lower(coalesce(al.detail, '')) LIKE ? ESCAPE '\\' OR lower(coalesce(${username('u')}, '')) LIKE ? ESCAPE '\\' OR lower(coalesce(${username('s')}, '')) LIKE ? ESCAPE '\\'${people.map((p) => ` OR ${p}`).join('')} OR al.entity_id = ? OR al.ip = ?)`);
     params.push(like, like, like, like, ...people.map(() => like), q.q, q.q);
   }
-  return ctx.db.prepare(`SELECT al.*, ${username('u')} AS actor_username, ${username('s')} AS subject_username${trail.columns ? `, ${trail.columns}` : ''} FROM audit_log al
+  const rows = ctx.db.prepare(`SELECT al.*, ${username('u')} AS actor_username, ${username('s')} AS subject_username${trail.columns ? `, ${trail.columns}` : ''} FROM audit_log al
       LEFT JOIN users u ON u.id = al.actor_id LEFT JOIN users s ON s.id = al.subject_id
-     WHERE ${where.join(' AND ')} ORDER BY al.seq DESC LIMIT ?`).all(...params, limit) as Array<Record<string, unknown> & { seq: number }>;
+     WHERE ${where.join(' AND ')} ORDER BY al.seq DESC LIMIT ?`).all(...params, limit) as Array<Record<string, unknown> & { seq: number; action: string; category: string | null }>;
+  for (const row of rows) row.category ??= auditCategoryOf(row.action);
+  return rows;
 }
 
 /** The actions a trail holds, for its filter. */

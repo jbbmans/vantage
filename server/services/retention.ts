@@ -113,7 +113,8 @@ export function placeHold(ctx: AppContext, orgId: string | null, input: { scope:
   }
   ctx.db.prepare(`INSERT INTO legal_holds (id, scope, subject_id, record_type, reason, placed_by, placed_at, org_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?)`)
     .run(id, input.scope, input.subject_id ?? null, input.record_type ?? null, input.reason.trim().slice(0, 1000), actorId, at, orgId);
-  audit(ctx, { actor_id: actorId, action: 'legal_hold_placed', entity: 'legal_holds', entity_id: id, subject_id: input.subject_id ?? null, org_id: orgId, detail: `${input.scope}: ${input.reason.slice(0, 200)}` });
+  // A platform-wide hold (no organization) is enterprise administration; a Unit Instance's own, unit administration.
+  audit(ctx, { actor_id: actorId, action: 'legal_hold_placed', category: orgId ? undefined : 'enterprise', entity: 'legal_holds', entity_id: id, subject_id: input.subject_id ?? null, org_id: orgId, detail: `${input.scope}: ${input.reason.slice(0, 200)}` });
   return ctx.db.prepare('SELECT * FROM legal_holds WHERE id = ?').get(id) as LegalHold;
 }
 
@@ -122,7 +123,7 @@ export function releaseHold(ctx: AppContext, orgId: string | null, id: string, a
   const hold = ctx.db.prepare('SELECT * FROM legal_holds WHERE id = ? AND released_at IS NULL AND org_id IS ?').get(id, orgId) as LegalHold | undefined;
   if (!hold) throw badRequest('No open hold with that id.');
   ctx.db.prepare('UPDATE legal_holds SET released_by = ?, released_at = ? WHERE id = ?').run(actorId, now(), id);
-  audit(ctx, { actor_id: actorId, action: 'legal_hold_released', entity: 'legal_holds', entity_id: id, subject_id: hold.subject_id, org_id: orgId, detail: hold.reason.slice(0, 200) });
+  audit(ctx, { actor_id: actorId, action: 'legal_hold_released', category: orgId ? undefined : 'enterprise', entity: 'legal_holds', entity_id: id, subject_id: hold.subject_id, org_id: orgId, detail: hold.reason.slice(0, 200) });
 }
 
 export interface DispositionLine {
