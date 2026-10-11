@@ -217,6 +217,28 @@ test('a new database says which schema it was created at; each migration after i
   } finally { file.done(); }
 });
 
+test('a database an older build left below schema 20 has every migration this start runs audited, not only 021', () => {
+  for (const from of [18, 19]) {
+    const file = scratch();
+    try {
+      const first = contextFor(file.path);
+      // As a database a schema-18 or 19 build ran: it audited nothing, and its history says nothing of this build.
+      metaSet(first.db, 'schema_version', String(from));
+      first.db.prepare("DELETE FROM meta WHERE key IN ('migration_audited_through', 'migration_history')").run();
+      first.db.close();
+
+      const upgraded = contextFor(file.path);
+      const entries = migrated(upgraded).slice(1);
+      const ran = MIGRATION_CATALOG.filter((m) => m.id > from);
+      assert.deepEqual(entries.map((e) => e.entity_id), ran.map((m) => String(m.id)), `from schema ${from}`);
+      for (const [i, m] of ran.entries()) assert.match(entries[i].detail, new RegExp(`^${m.name}: schema ${m.id - 1} to ${m.id} at \\S+ in \\d+ ms under `));
+      assert.equal(metaGet(upgraded.db, 'migration_audited_through'), String(SCHEMA_VERSION));
+      assert.equal(verifyAuditChain(upgraded).ok, true);
+      upgraded.db.close();
+    } finally { file.done(); }
+  }
+});
+
 test('an owner named in VANTAGE_PLATFORM_OWNERS is audited when the grant is made, not on every start', () => {
   const file = scratch();
   try {
@@ -280,7 +302,7 @@ test('a refusal at the administration routes is audited once in ten minutes, nev
   let rows = denials();
   assert.equal(rows.length, 1, 'the same refusal again within ten minutes is not written twice');
   assert.equal(rows[0].category, 'enterprise');
-  assert.equal(rows[0].detail, 'GET /api/platform/overview: not_staff');
+  assert.equal(rows[0].detail, 'GET /api/platform/*: not_staff (/api/platform/overview)', 'the console’s own guard: its mount, and the address asked for');
   assert.equal(rows[0].org_id, null);
 
   // A Unit Instance's routes: unit administration, in that instance's trail too. A Unit Auditor changes no settings.
@@ -303,6 +325,19 @@ test('a refusal at the administration routes is audited once in ten minutes, nev
   assert.equal(verifyAuditChain(app.ctx).ok, true);
   assert.equal((await app.call('DELETE', `/api/orgs/G8/roles/${marine.id}/auditor`, { token: op.token })).status, 200);
   marine.token = (await app.login('covmarine')).body.token;
+});
+
+test('made-up addresses under a console’s own guard are one refusal, not one each, and the address is cut short', async () => {
+  const prober = await app.register('covprober');
+  const probes = () => (app.ctx.db.prepare("SELECT detail FROM audit_log WHERE action = 'access_denied' AND actor_id = ? ORDER BY seq").all(prober.id) as Array<{ detail: string }>).map((r) => r.detail);
+  for (let i = 0; i < 12; i += 1) {
+    assert.equal((await get(prober.token, `/api/platform/x${i}${'a'.repeat(900)}`)).status, 403);
+    assert.equal((await post(prober.token, `/api/platform/y${i}`)).status, 403);
+  }
+  const rows = probes();
+  assert.equal(rows.length, 2, 'once per method in ten minutes, whatever the address');
+  assert.equal(rows[0], `GET /api/platform/*: not_staff (/api/platform/x0${'a'.repeat(120 - '/api/platform/x0'.length)})`);
+  assert.equal(rows[1], 'POST /api/platform/*: not_staff (/api/platform/y0)');
 });
 
 test('amending a counseling names the fields that changed, never what they say', async () => {

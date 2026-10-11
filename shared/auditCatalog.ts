@@ -123,6 +123,8 @@ export const AUDIT_CATALOG: Readonly<Record<string, AuditCategory>> = Object.fre
 /** Actions an older build wrote and nothing writes now, so their entries still read in a category. */
 export const LEGACY_AUDIT_ACTIONS: Readonly<Record<string, AuditCategory>> = Object.freeze({
   claim_unit: 'unit', deactivate_member: 'unit', reactivate_member: 'unit', work_assigned: 'user', prune_events: 'enterprise',
+  // Granting and revoking instance-operator authority, before Unit Instances (5.x builds before 2026-10-05).
+  grant_operator: 'enterprise', revoke_operator: 'enterprise',
 });
 
 /** The default category of an action, or null for one the catalogue does not know. */

@@ -216,6 +216,75 @@ test('a role an import, invitation or join code carries waits for an account its
   assert.equal(nco.status, 201);
 });
 
+test('the default role reads records only by the chain of command’s hand, and never through an account its inviter opened', async () => {
+  assert.equal((await post(um.token, '/api/org/units', { name: 'Default Cell', code: 'LPDC', parent_id: 'G8' })).status, 201);
+  const reading = PERMISSIONS.VIEW_UNIT | PERMISSIONS.VIEW_RECORDS | PERMISSIONS.VIEW_MEMBER_DETAIL;
+  // A Unit Manager who belongs to nothing there cannot widen it: it reaches every account they will open.
+  const widen = (token: string) => app.call('PUT', '/api/org/roles/LPDC%3Amarine', { token, body: { permissions: reading } });
+  const refused = await widen(um.token);
+  assert.equal(refused.status, 403, JSON.stringify(refused.body));
+  assert.equal(refused.body.code, 'self_grant');
+  assert.match(refused.body.error ?? refused.body.message ?? '', /every new member of the unit receives/);
+  assert.equal((app.ctx.db.prepare("SELECT permissions FROM roles WHERE id = 'LPDC:marine'").get() as { permissions: number }).permissions & PERMISSIONS.VIEW_RECORDS, 0);
+  assert.match(lastEntry('access_denied')!.detail, /^PUT \/api\/org\/roles\/:roleId: self_grant$/);
+  // Narrowing it, or widening it with what reads nothing, is theirs as before; the chain of command (G8’s leader) may widen it.
+  assert.equal((await app.call('PUT', '/api/org/roles/LPDC%3Amarine', { token: um.token, body: { permissions: PERMISSIONS.VIEW_UNIT | PERMISSIONS.CLAIM_WORK } })).status, 200);
+  assert.equal((await widen(op.token)).status, 200);
+
+  // Even so, an account the Unit Manager opens joins without it: through an invitation, as through a join code.
+  const invite = await post(um.token, '/api/org/units/LPDC/invites', { role_id: null });
+  assert.equal(invite.status, 201, JSON.stringify(invite.body));
+  const accepted = await app.call('POST', '/api/auth/invite/accept', { body: { token: new URL(invite.body.url).searchParams.get('token'), username: 'lpdefault', password: PASSWORD, first_name: 'Default', last_name: 'Marine' } });
+  assert.equal(accepted.status, 200, JSON.stringify(accepted.body));
+  const x = idOf('lpdefault');
+  assert.equal(accountOpenedBy(app.ctx, x), um.id);
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = 'LPDC'").get(x), 'they still join');
+  assert.equal(app.ctx.db.prepare("SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = 'LPDC:marine'").get(x), undefined);
+  const scope = scopeFor(app.ctx, { id: x });
+  assert.equal((scope.permissions.LPDC ?? 0) & PERMISSIONS.VIEW_RECORDS, 0);
+  assert.ok(!scope.readableUnitIds.includes('LPDC'));
+  assert.match(lastEntry('unit_role_withheld', x)!.detail, /^Marine, from /);
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM notifications WHERE user_id = ? AND title LIKE '%joined Default Cell without Marine'").get(um.id), 'the inviter is told');
+  // Seated by someone who did not open the account, it comes with membership as ever.
+  const other = await app.register('lpdefault2');
+  addMember(app.ctx, other.id, 'LPDC', { invitedBy: um.id });
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = 'LPDC:marine'").get(other.id));
+});
+
+test('a move carries no role that reads records to an account the mover opened', async () => {
+  for (const [name, code] of [['Team One', 'LPT1'], ['Team Two', 'LPT2']]) assert.equal((await post(um.token, '/api/org/units', { name, code, parent_id: 'G8' })).status, 201);
+  // NCO reads records in the template; narrowed in the first team, it is the Unit Manager’s to give there.
+  const nco = app.ctx.db.prepare("SELECT permissions FROM roles WHERE id = 'LPT1:nco'").get() as { permissions: number };
+  assert.ok(nco.permissions & PERMISSIONS.VIEW_RECORDS);
+  assert.equal((await app.call('PUT', '/api/org/roles/LPT1%3Anco', { token: um.token, body: { permissions: nco.permissions & ~(PERMISSIONS.VIEW_RECORDS | PERMISSIONS.VIEW_MEMBER_DETAIL | PERMISSIONS.EXPORT_DATA) } })).status, 200);
+  const mover = await imported(um.token, 'lpmover');
+  addMember(app.ctx, mover.id, 'LPT1', { invitedBy: um.id });
+  assert.equal((await post(um.token, `/api/org/team/${mover.id}/roles`, { role_id: 'LPT1:nco', unit_id: 'LPT1' })).status, 200);
+
+  const moved = await post(um.token, `/api/org/units/LPT1/members/${mover.id}/move`, { to: 'LPT2' });
+  assert.equal(moved.status, 200, JSON.stringify(moved.body));
+  assert.deepEqual(moved.body.roles, []);
+  assert.deepEqual(moved.body.rolesSkipped, ['NCO']);
+  assert.equal(app.ctx.db.prepare("SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = 'LPT2:nco'").get(mover.id), undefined);
+  assert.equal((scopeFor(app.ctx, { id: mover.id }).permissions.LPT2 ?? 0) & PERMISSIONS.VIEW_RECORDS, 0);
+  assert.match(lastEntry('move_member', mover.id)!.detail, /not carried: NCO/);
+  // Another Unit Manager carries it back and forth as before.
+  assert.equal((await post(um2.token, `/api/org/team/${mover.id}/roles`, { role_id: 'LPT2:nco', unit_id: 'LPT2' })).status, 200);
+  const back = await post(um2.token, `/api/org/units/LPT2/members/${mover.id}/move`, { to: 'LPT1' });
+  assert.equal(back.status, 200, JSON.stringify(back.body));
+  assert.deepEqual(back.body.roles, ['NCO']);
+});
+
+test('a leader who archives the unit only they belong to leaves no notice that it has no leader', async () => {
+  assert.equal((await post(op.token, '/api/org/units', { name: 'Solo Cell', code: 'LPSO', parent_id: 'G8' })).status, 201);
+  assert.equal(isUnitOwner(app.ctx, op.id, 'LPSO'), true);
+  assert.equal((await app.call('DELETE', '/api/org/units/LPSO', { token: op.token })).status, 200);
+  assert.equal(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'unit_leader_ended' AND unit_id = 'LPSO'").get(), undefined);
+  assert.equal(app.ctx.db.prepare("SELECT 1 FROM notifications WHERE title = 'Solo Cell has no leader'").get(), undefined);
+  assert.ok(lastEntry('archive_unit'), 'the archive itself is on the record');
+  assert.equal(app.ctx.db.prepare("SELECT 1 FROM unit_members WHERE unit_id = 'LPSO'").get(), undefined);
+});
+
 test('the separation-of-duties report lists every crossing, for Vantage staff who read the audit trail', async () => {
   // A Unit Manager in a second Unit Instance as well.
   const g1lead = await app.register('lpgonelead');

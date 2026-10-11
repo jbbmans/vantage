@@ -1,8 +1,9 @@
-import { test, before, after } from 'node:test';
+import { test, before, after, mock } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, enroll, type TestApp } from './helpers.ts';
 import type { PlatformRole } from '../../shared/permissions.ts';
-import { holdsAuthority } from '../../server/services/credentialApprovals.ts';
+import { RECENT_AUTHORITY_DAYS, heldAuthorityRecently, holdsAuthority } from '../../server/services/credentialApprovals.ts';
+import { addMember } from '../../server/services/org.ts';
 import { verifyAuditChain } from '../../server/services/audit.ts';
 
 /**
@@ -233,4 +234,70 @@ test('a staff member’s sign-in is approved only by a Lead Vantage Administrato
 test('a temporary password is never asked for on your own account', async () => {
   const res = await ask(op.token, op.id, { action: 'temporary_password', reason: REASON });
   assert.equal(res.status, 400);
+});
+
+test('taking authority away, changing the sign-in alone and giving it back is no way round the second person', async () => {
+  const va = await staffMember('vadmin2', 'admin'); // platform.managers and platform.accounts
+  const target = await app.register('roundmgr');
+  await enroll(app, op.token, 'G8', target.id);
+  assert.equal((await post(op.token, '/api/orgs/G8/roles', { user_id: target.id, role: 'admin' })).status, 201);
+  assert.equal((await post(va.token, `/api/platform/accounts/${target.id}/temporary-password`)).body.code, 'approval_required');
+
+  // The Unit Manager role removed: the account held it within RECENT_AUTHORITY_DAYS, so it still counts.
+  assert.equal((await app.call('DELETE', `/api/platform/orgs/G8/managers/${target.id}/admin`, { token: va.token })).status, 200);
+  assert.equal(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ?").get(target.id), undefined);
+  assert.equal(heldAuthorityRecently(app.ctx, target.id), true);
+  assert.equal(holdsAuthority(app.ctx, target.id), true);
+  const alone = await post(va.token, `/api/platform/accounts/${target.id}/temporary-password`);
+  assert.equal(alone.status, 403, JSON.stringify(alone.body));
+  assert.equal(alone.body.code, 'approval_required');
+  assert.equal((await ask(va.token, target.id, { action: 'temporary_password', reason: REASON })).status, 201, 'a request is taken, as for any holder');
+  // Authority that ended longer ago than that no longer counts.
+  mock.timers.enable({ apis: ['Date'], now: Date.now() + (RECENT_AUTHORITY_DAYS + 1) * 86_400_000 });
+  try {
+    assert.equal(holdsAuthority(app.ctx, target.id), false);
+  } finally { mock.timers.reset(); }
+
+  // Leadership handed on counts the same way for the leader before.
+  const leader = await app.register('handedon');
+  assert.equal((await post(leader.token, '/api/org/units', { name: 'Handed Cell', code: 'HNDC' })).status, 201);
+  const successor = await app.register('successor');
+  await enroll(app, op.token, 'G8', successor.id);
+  addMember(app.ctx, successor.id, 'HNDC', { invitedBy: null });
+  const handed = await post(await login('handedon'), '/api/org/units/HNDC/owner', { user_id: successor.id });
+  assert.equal(handed.status, 200, JSON.stringify(handed.body));
+  assert.equal(app.ctx.db.prepare('SELECT 1 FROM units WHERE owner_user_id = ? AND active = 1').get(leader.id), undefined);
+  assert.equal(heldAuthorityRecently(app.ctx, leader.id), true, 'led a unit within the window');
+  assert.equal(heldAuthorityRecently(app.ctx, successor.id), false, 'leads it now, and gave nothing up');
+});
+
+test('a staff member who changed an account’s sign-in does not then give it authority; another staff member can', async () => {
+  const va = await staffMember('vadmin3', 'admin');
+  const target = await app.register('freshmgr');
+  await enroll(app, op.token, 'G8', target.id);
+  assert.equal((await post(va.token, `/api/platform/accounts/${target.id}/temporary-password`)).status, 200, 'no authority, so no second person');
+
+  const refused = await post(va.token, '/api/platform/orgs/G8/managers', { user_id: target.id, role: 'admin' });
+  assert.equal(refused.status, 403, JSON.stringify(refused.body));
+  assert.equal(refused.body.code, 'recent_credential_change');
+  assert.equal(refused.body.error ?? refused.body.message, `You changed this account’s sign-in in the last ${RECENT_AUTHORITY_DAYS} days, so you cannot give it authority. Another member of Vantage staff can.`);
+  assert.equal(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ?").get(target.id), undefined);
+  const denied = app.ctx.db.prepare("SELECT detail, category FROM audit_log WHERE action = 'access_denied' AND actor_id = ? ORDER BY seq DESC LIMIT 1").get(va.id) as { detail: string; category: string };
+  assert.deepEqual(denied, { detail: 'POST /api/platform/orgs/:orgId/managers: recent_credential_change', category: 'enterprise' });
+  assert.equal((await post(op.token, '/api/platform/orgs/G8/managers', { user_id: target.id, role: 'admin' })).status, 200, 'another staff member can');
+
+  // Nor a platform role, nor the first Lead Unit Manager of a Unit Instance that has none.
+  const other = await app.register('freshstaff');
+  assert.equal((await post(op.token, `/api/platform/accounts/${other.id}/reset-mfa`)).status, 200);
+  app.ctx.db.prepare('UPDATE users SET totp_enabled = 1 WHERE id = ?').run(other.id);
+  const staffRefused = await post(op.token, '/api/platform/staff', { user_id: other.id, role: 'support' });
+  assert.equal(staffRefused.status, 403, JSON.stringify(staffRefused.body));
+  assert.equal(staffRefused.body.code, 'recent_credential_change');
+  assert.equal((await post(op.token, '/api/platform/orgs', { name: 'Fresh Instance', code: 'FRSH' })).status, 201);
+  const ownerRefused = await post(op.token, '/api/platform/orgs/FRSH/owner', { user_id: other.id });
+  assert.equal(ownerRefused.status, 403, JSON.stringify(ownerRefused.body));
+  assert.equal(ownerRefused.body.code, 'recent_credential_change');
+  assert.equal((await post(op.token, '/api/platform/orgs', { name: 'Fresher Instance', code: 'FRSR', owner_user_id: other.id })).body.code, 'recent_credential_change');
+  assert.equal((await post(lead2.token, '/api/platform/orgs/FRSH/owner', { user_id: other.id })).status, 200, 'another staff member can');
+  assert.equal((await post(lead2.token, '/api/platform/staff', { user_id: other.id, role: 'support' })).status, 201);
 });

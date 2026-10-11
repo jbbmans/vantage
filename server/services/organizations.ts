@@ -9,6 +9,7 @@ import { addMember, claimUnit, guardSelfReach, guardUnprovenOwnAccount, removeMe
 import { orgCan, scopeFor, seatedOrgRole } from '../authz/scope.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { assertCanFoundUnitInstance } from './deployment.ts';
+import { guardRecentCredentialChange } from './credentialApprovals.ts';
 import { normalizeUnitSettings, type UnitSettings } from '../../shared/unitConfig.ts';
 
 /**
@@ -95,6 +96,7 @@ export function createOrganization(ctx: AppContext, actor: Pick<SessionUser, 'id
   if (input.owner_user_id && !owner) throw badRequest('The first Lead Unit Manager must be an active account.', { fieldErrors: { owner_user_id: 'No such active account.' } });
   if (owner && owner.id === actor.id) throw forbidden('A Vantage Administrator never names themselves a Unit Instance’s Lead Unit Manager. Name the person the command designated.', 'self_grant');
   if (owner) guardUnprovenOwnAccount(ctx, actor, owner.id);
+  if (owner) guardRecentCredentialChange(ctx, actor, owner.id);
   assertCanFoundUnitInstance(ctx);
   const at = now();
   ctx.db.transaction(() => {
@@ -167,8 +169,10 @@ export function grantOrgRole(ctx: AppContext, actor: SessionUser, orgId: string,
   const target = ctx.db.prepare('SELECT id, first_name, last_name FROM users WHERE id = ? AND active = 1').get(input.user_id) as { id: string; first_name: string; last_name: string } | undefined;
   if (!target) throw notFound('No such active account.');
   if (!isOrgMember(ctx, orgId, target.id)) throw badRequest('Unit Instance roles go to members of the Unit Instance. Add them to a unit first.', { fieldErrors: { user_id: 'Not a member of this Unit Instance.' } });
-  // Nor to an account the granter created or invited until it has signed in with its own CAC or the organization's sign-in.
+  // Nor to an account the granter created or invited until it has signed in with its own CAC or the organization's sign-in,
+  // nor by a staff member who changed its sign-in lately (ADR-0013).
   guardUnprovenOwnAccount(ctx, actor, target.id);
+  guardRecentCredentialChange(ctx, actor, target.id);
   const expires = input.expires_at ? new Date(input.expires_at) : null;
   if (expires && (Number.isNaN(expires.getTime()) || expires.getTime() <= Date.now())) throw badRequest('An end date must be in the future.', { fieldErrors: { expires_at: 'Must be in the future.' } });
   ctx.db.prepare(`INSERT INTO org_roles (org_id, user_id, role, granted_by, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)
@@ -209,6 +213,7 @@ export function nameFirstOwner(ctx: AppContext, actor: Pick<SessionUser, 'id'>, 
   const target = ctx.db.prepare('SELECT id FROM users WHERE id = ? AND active = 1').get(userId) as { id: string } | undefined;
   if (!target) throw notFound('No such active account.');
   guardUnprovenOwnAccount(ctx, actor, target.id);
+  guardRecentCredentialChange(ctx, actor, target.id);
   ctx.db.transaction(() => {
     ctx.db.prepare(`INSERT INTO org_roles (org_id, user_id, role, granted_by, created_at) VALUES (?, ?, 'owner', ?, ?)
                     ON CONFLICT(org_id, user_id, role) DO UPDATE SET granted_by = excluded.granted_by, expires_at = NULL, created_at = excluded.created_at`).run(orgId, userId, actor.id, now());

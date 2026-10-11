@@ -74,7 +74,11 @@ export function addMember(ctx: AppContext, userId: string, unitId: string, { inv
     ).run(userId, unitId, isPrimary, billet, now(), invitedBy);
     if (joining && reason) noteMembershipStart(ctx, userId, unitId, reason, invitedBy);
     const def = defaultRoleId(ctx, unitId);
-    if (def) ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(userId, def, unitId, invitedBy, now());
+    // The default role is granted by whoever seats the person, so "Until proven" holds for it as for any role they hand
+    // out: one widened to read records waits for an account they opened, as a join code's role does (ADR-0013).
+    const role = def && !ctx.db.prepare('SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = ?').get(userId, def)
+      ? ctx.db.prepare('SELECT name, permissions FROM roles WHERE id = ?').get(def) as { name: string; permissions: number } | undefined : undefined;
+    if (def && role && mayCarryRole(ctx, invitedBy, userId, unitId, role, invitedBy)) ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(userId, def, unitId, invitedBy, now());
   })();
 }
 
@@ -260,7 +264,11 @@ export function archiveUnit(ctx: AppContext, actor: SessionUser, scope: Scope, u
   const onlyOwner = members.length === 1 && members[0].user_id === actor.id && unit.owner_user_id === actor.id;
   if (members.length && !onlyOwner) throw badRequest('Marines still belong to that unit. Remove or transfer them first.');
   ctx.db.transaction(() => {
-    if (onlyOwner) removeMember(ctx, actor.id, unitId, actor.id, 'left');
+    // The unit closes with its leader's departure rather than losing its leader, so nobody is asked to name one.
+    if (onlyOwner) {
+      ctx.db.prepare('UPDATE units SET owner_user_id = NULL WHERE id = ?').run(unitId);
+      removeMember(ctx, actor.id, unitId, actor.id, 'left');
+    }
     ctx.db.prepare('UPDATE units SET active = 0, owner_user_id = NULL WHERE id = ?').run(unitId);
   })();
   audit(ctx, { actor_id: actor.id, action: 'archive_unit', entity: 'unit', entity_id: unitId, unit_id: unitId, ip });
@@ -514,6 +522,9 @@ export function moveMember(ctx: AppContext, actor: SessionUser, scope: Scope, us
       try {
         if (!role) throw notFound('No such role.');
         assertMayGrantRole(ctx, actor, scope, role, toId);
+        // Carrying a role over is granting it in the new team: not one that reads records to an account the actor opened
+        // that has not signed in as its own, whatever it held in the old one (ADR-0013).
+        guardUnprovenOwnAccount(ctx, actor, userId, { scope, unitId: toId, bits: role.permissions });
         ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(userId, role.id, toId, actor.id, now());
         roles.push(role.name);
       } catch { rolesSkipped.push(h.name); }

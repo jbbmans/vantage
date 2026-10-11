@@ -271,6 +271,9 @@ export const MIGRATION_CATALOG: ReadonlyArray<{ id: number; name: string }> = MI
 /** What `migration_audited_through` holds for a database created by this start whose creation is not audited yet. */
 export const NEW_DATABASE = 'new';
 
+/** Migrations up to this one ran before Vantage audited them; a database that has not said otherwise audits from the next. */
+export const AUDITED_FROM = 21;
+
 /** One migration this database ran: when, how long it took, and under which version of Vantage. */
 export interface MigrationRun { id: number; name: string; at: string; ms: number; version: string }
 const MIGRATION_HISTORY_KEPT = 100;
@@ -659,6 +662,9 @@ function migrate(db: Db) {
   if (!metaGet(db, 'migration_history_since')) metaSet(db, 'migration_history_since', JSON.stringify({ at: new Date().toISOString(), schema: version }));
   // A new database is audited as created at its schema, not as every migration it ran to get there (auditMigrations).
   if (version === 0 && !metaGet(db, 'migration_audited_through')) metaSet(db, 'migration_audited_through', NEW_DATABASE);
+  // One an older build migrated has audited nothing yet: every migration this start runs is audited, from the schema it
+  // began at, and never fewer than from AUDITED_FROM.
+  if (version > 0 && version < SCHEMA_VERSION && !metaGet(db, 'migration_audited_through')) metaSet(db, 'migration_audited_through', String(Math.min(version, AUDITED_FROM - 1)));
   for (const m of MIGRATIONS) {
     if (m.id <= version) continue;
     const started = performance.now();

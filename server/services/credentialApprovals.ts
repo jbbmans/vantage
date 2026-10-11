@@ -42,13 +42,50 @@ export function describeChange(action: CredentialAction, edipi: string | null): 
 }
 
 /**
+ * Authority given up this recently still counts, both ways round: removing an account's authority does not open its
+ * sign-in to one staff member, and a staff member who changed an account's sign-in does not give it authority.
+ */
+export const RECENT_AUTHORITY_DAYS = 30;
+
+const recentSince = () => new Date(Date.now() - RECENT_AUTHORITY_DAYS * 86_400_000).toISOString();
+
+/** Trail entries about an account that end authority it held: a Unit Instance role, a platform role, leading a unit. */
+const AUTHORITY_ENDED = ['org_role_revoked', 'org_role_ended', 'org_role_expired', 'platform_manager_removed', 'staff_role_revoked', 'unit_leader_ended'];
+/** Entries that pass a unit's leadership on, naming the leader before as `<id> -> <successor>`. */
+const LEADERSHIP_PASSED = ['transfer_ownership', 'unit_leader_set'];
+
+/**
  * Whether an account holds authority: any platform role, a Unit Instance role that counts (unexpired, and held while the
- * person belongs to that instance, as scope.ts counts it), or the leadership of an active unit.
+ * person belongs to that instance, as scope.ts counts it), or the leadership of an active unit. Authority held within
+ * the last RECENT_AUTHORITY_DAYS counts too, as the audit trail shows it ended, so taking it away, changing the sign-in
+ * alone and giving it back is no way round the second person.
  */
 export function holdsAuthority(ctx: AppContext, userId: string): boolean {
   return Boolean(ctx.db.prepare(`SELECT 1 FROM platform_roles WHERE user_id = ?
     UNION ALL SELECT 1 FROM org_roles r WHERE r.user_id = ? AND (r.expires_at IS NULL OR r.expires_at > ?) AND ${seatedOrgRole('r')}
-    UNION ALL SELECT 1 FROM units WHERE owner_user_id = ? AND active = 1 LIMIT 1`).get(userId, userId, now(), userId));
+    UNION ALL SELECT 1 FROM units WHERE owner_user_id = ? AND active = 1 LIMIT 1`).get(userId, userId, now(), userId)) || heldAuthorityRecently(ctx, userId);
+}
+
+/** Authority this account held within the last RECENT_AUTHORITY_DAYS and no longer does, from the trail. */
+export function heldAuthorityRecently(ctx: AppContext, userId: string): boolean {
+  const since = recentSince();
+  return Boolean(ctx.db.prepare(`SELECT 1 FROM audit_log WHERE subject_id = ? AND at >= ? AND action IN (SELECT value FROM json_each(?))
+    UNION ALL SELECT 1 FROM audit_log WHERE action IN (SELECT value FROM json_each(?)) AND at >= ? AND detail LIKE ? ESCAPE '\\'
+    UNION ALL SELECT 1 FROM org_roles WHERE user_id = ? AND expires_at > ? AND expires_at <= ? LIMIT 1`)
+    .get(userId, since, JSON.stringify(AUTHORITY_ENDED), JSON.stringify(LEADERSHIP_PASSED), since, `${userId.replace(/[\\%_]/g, '\\$&')} -> %`, userId, since, now()));
+}
+
+/**
+ * A staff member who set a temporary password, reset the second factor or changed the CAC on an account within the last
+ * RECENT_AUTHORITY_DAYS does not then give that account authority: a Unit Manager or Lead Unit Manager role, the first
+ * Lead Unit Manager of a Unit Instance, or a platform role. Otherwise one person could take an account over while it held
+ * nothing and then hand it authority. Another staff member can. Refused as recent_credential_change, written to the
+ * trail as any refusal at the administration routes is.
+ */
+export function guardRecentCredentialChange(ctx: AppContext, actor: Pick<SessionUser, 'id'>, targetId: string): void {
+  const changed = ctx.db.prepare(`SELECT 1 FROM audit_log WHERE subject_id = ? AND actor_id = ? AND at >= ?
+    AND action IN ('temporary_password', 'reset_mfa', 'edipi_corrected') LIMIT 1`).get(targetId, actor.id, recentSince());
+  if (changed) throw forbidden(`You changed this account’s sign-in in the last ${RECENT_AUTHORITY_DAYS} days, so you cannot give it authority. Another member of Vantage staff can.`, 'recent_credential_change');
 }
 
 /** Requests not used by the time they lapse are closed, so nothing reads an old approval as live. */

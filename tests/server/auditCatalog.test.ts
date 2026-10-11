@@ -174,6 +174,14 @@ test('every action the server and the scripts write is catalogued, and the catal
   }
 });
 
+test('instance-operator grants an older build wrote read as enterprise administration, so the category filter finds them', () => {
+  for (const action of ['grant_operator', 'revoke_operator']) {
+    assert.equal(auditCategoryOf(action), 'enterprise', action);
+    assert.ok(auditActionsIn('enterprise').includes(action), `${action} is matched by the Enterprise administration filter`);
+    assert.ok(!auditActionsIn('unit').includes(action) && !auditActionsIn('user').includes(action));
+  }
+});
+
 test('each family in the catalogue is the one its source builds', () => {
   const families = familiesFromSource();
   for (const [family, actions] of Object.entries(AUDIT_ACTION_FAMILIES)) {

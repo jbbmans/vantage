@@ -1,7 +1,7 @@
 import { statfsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { AppContext } from '../context.ts';
-import { metaGet, metaSet, migrationHistory, MIGRATION_CATALOG, NEW_DATABASE, SCHEMA_VERSION } from '../db/index.ts';
+import { AUDITED_FROM, metaGet, metaSet, migrationHistory, MIGRATION_CATALOG, NEW_DATABASE, SCHEMA_VERSION } from '../db/index.ts';
 import { VERSION } from '../version.ts';
 import { now } from '../lib/ids.ts';
 import { audit, verifyAuditChain } from './audit.ts';
@@ -88,13 +88,11 @@ export function migrationStatus(ctx: AppContext) {
   };
 }
 
-/** Migrations up to this one ran before Vantage audited them; a database that has not said otherwise audits from the next. */
-const AUDITED_FROM = 21;
-
 /**
  * Writes each migration this database ran and has not yet audited into the audit trail, once: at start-up, as soon as
  * the context can write entries. A new database writes one entry naming the schema it was created at instead of one
- * per migration. `migration_audited_through` keeps it to once across restarts (ADR-0013).
+ * per migration. `migration_audited_through` keeps it to once across restarts (ADR-0013); migrate() sets it to the schema
+ * an older build left, so what this start ran is audited however far back that was.
  */
 export function auditMigrations(ctx: AppContext) {
   const { db } = ctx;

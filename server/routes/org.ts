@@ -313,6 +313,9 @@ orgRouter.put('/roles/:roleId', wrap((req, res) => {
     for (const h of ctx.db.prepare('SELECT DISTINCT user_id FROM member_roles WHERE role_id = ?').all(role.id) as Array<{ user_id: string }>) {
       guardUnprovenOwnAccount(ctx, req.user, h.user_id, { scope, unitId: role.unit_id, bits: widened });
     }
+    // The default role goes to every member to come, accounts the editor opens among them, so widening it to read records
+    // is judged as giving that reach to yourself: theirs only when the chain of command already gives it to them.
+    if (role.is_default) guardSelfReach(ctx, req.user, scope, role.unit_id, widened, req.user.id, `Widening ${role.name}, which every new member of the unit receives,`);
   }
   let revoked = 0;
   const description = body.description === undefined ? role.description : body.description || null;

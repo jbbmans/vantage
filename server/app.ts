@@ -97,6 +97,8 @@ export function createContext(config: AppConfig): AppContext {
  */
 const NOT_DENIALS = new Set(['sudo_required', 'cac_required', 'oidc_required', 'bad_password', 'cross_instance']);
 const DENIAL_QUIET_MS = 10 * 60_000;
+/** Refusals remembered for the quiet period at most; past this, expired ones go first, then the oldest. */
+const DENIALS_REMEMBERED = 5000;
 const recentDenials = new WeakMap<AppContext, Map<string, number>>();
 
 /**
@@ -107,23 +109,31 @@ const recentDenials = new WeakMap<AppContext, Map<string, number>>();
 function auditDenial(ctx: AppContext, req: Request, err: HttpError) {
   const area = /^\/api\/(platform|orgs?)(?:\/|$)/.exec(req.originalUrl.split('?')[0])?.[1];
   if (!area || !req.user || err.status !== 403 || NOT_DENIALS.has(err.code ?? '')) return;
-  // The route as declared under its router's mount, so one key covers every id; the path itself where no route matched
-  // (a router's own guard). By the time the error reaches here the router has restored baseUrl, so the mount is named.
-  const route = req.route?.path ? `/api/${area}${String(req.route.path)}` : req.originalUrl.split('?')[0];
+  // The route as declared under its router's mount, so one key covers every id; the mount alone where no route matched
+  // (a router's own guard), so made-up paths beneath it are one refusal, not one each. By the time the error reaches here
+  // the router has restored baseUrl, so the mount is named.
+  const route = (req.route?.path ? `/api/${area}${String(req.route.path)}` : `/api/${area}/*`).slice(0, 200);
+  // Where only the mount names it, the address first asked for in the quiet period says which, cut short.
+  const asked = req.route?.path ? '' : ` (${req.originalUrl.split('?')[0].slice(0, 120)})`;
   const code = err.code ?? 'forbidden';
   const key = `${req.user.id}|${req.method}|${route}|${code}`;
   const at = Date.now();
   if (!recentDenials.has(ctx)) recentDenials.set(ctx, new Map());
   const seen = recentDenials.get(ctx)!;
   if ((seen.get(key) ?? 0) > at) return;
-  if (seen.size > 5000) for (const [k, until] of seen) if (until <= at) seen.delete(k);
+  if (seen.size >= DENIALS_REMEMBERED) {
+    for (const [k, until] of seen) if (until <= at) seen.delete(k);
+    // Oldest first: a Map keeps the order its keys were written in.
+    for (const k of seen.keys()) { if (seen.size < DENIALS_REMEMBERED) break; seen.delete(k); }
+  }
+  seen.delete(key);
   seen.set(key, at + DENIAL_QUIET_MS);
   // A refusal inside a Unit Instance's routes is in that instance's trail as well.
   const orgId = area === 'orgs' ? /^\/api\/orgs\/([^/?]+)/.exec(req.originalUrl)?.[1] : undefined;
   const org = orgId ? (ctx.db.prepare('SELECT id FROM organizations WHERE id = ?').get(decodeURIComponent(orgId)) as { id: string } | undefined) : undefined;
   audit(ctx, {
     actor_id: req.user.id, action: 'access_denied', category: area === 'platform' ? 'enterprise' : 'unit', entity: 'request',
-    org_id: org?.id ?? null, ip: clientIp(req), detail: `${req.method} ${route}: ${code}`,
+    org_id: org?.id ?? null, ip: clientIp(req), detail: `${req.method} ${route}: ${code}${asked}`,
   });
 }
 

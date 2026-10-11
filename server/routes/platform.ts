@@ -36,7 +36,7 @@ import { invalidateUserSessions } from '../auth/sessions.ts';
 import { unlockAccount } from '../auth/lockout.ts';
 import { hashPassword } from '../lib/crypto.ts';
 import { isEdipi } from '../services/personnel.ts';
-import { APPROVAL_HOURS, CREDENTIAL_ACTIONS, cancelApproval, decideApproval, listApprovals, requestApproval, useApproval, type UsedApproval } from '../services/credentialApprovals.ts';
+import { APPROVAL_HOURS, CREDENTIAL_ACTIONS, cancelApproval, decideApproval, guardRecentCredentialChange, listApprovals, requestApproval, useApproval, type UsedApproval } from '../services/credentialApprovals.ts';
 import { assignManager, createOrganization, getOrg, listOrganizations, nameFirstOwner, orgCounts, orgRoleHolders, publicOrg, removeManager, setOrgStatus, updateOrganization } from '../services/organizations.ts';
 import { accessForPlatform, endAccess, requestAccess, ACCESS_DEFAULT_MINUTES, ACCESS_MAX_MINUTES } from '../services/access.ts';
 import { platformRolesOf } from '../authz/platform.ts';
@@ -535,6 +535,7 @@ platformRouter.post('/staff', requirePlatform('platform.staff'), wrap((req, res)
     : ctx.db.prepare('SELECT id, first_name, last_name, totp_enabled FROM users WHERE username = ? COLLATE NOCASE AND active = 1').get(String(body.username || ''))) as { id: string; first_name: string; last_name: string; totp_enabled: number } | undefined;
   if (!user) throw notFound('No such active account.');
   if (user.id === req.user.id) throw forbidden('Another Lead Vantage Administrator changes your own staff roles.', 'self_grant');
+  guardRecentCredentialChange(ctx, req.user, user.id);
   const passkeys = (ctx.db.prepare('SELECT COUNT(*) AS n FROM passkeys WHERE user_id = ?').get(user.id) as { n: number }).n;
   if (!user.totp_enabled && !passkeys) throw badRequest('Vantage staff sign in with a second factor. They set one up in Settings first.', { code: 'mfa_required' });
   const r = ctx.db.prepare('INSERT OR IGNORE INTO platform_roles (user_id, role, granted_by, created_at) VALUES (?, ?, ?, ?)').run(user.id, body.role, req.user.id, now());
