@@ -155,7 +155,7 @@ function TicketView({ id }: { id: string }) {
             </Panel>
             <Panel title="Email to this person" subtitle="Whether it went out, never what it said">
               {data.delivery.length ? (
-                <ul className="space-y-2">{data.delivery.map((d: any) => <li key={d.id} className="text-xs text-ink-2"><span className="font-medium text-ink">{humanize(d.kind)}</span> to {d.to_address} · {d.status} · {timeAgo(d.created_at)}{d.error && <span className="block text-bad">{d.error}</span>}</li>)}</ul>
+                <ul className="space-y-2">{data.delivery.map((d: any) => <li key={d.id} className="text-xs text-ink-2"><span className="font-medium text-ink">{humanize(d.kind)}</span>{d.to_address ? ` to ${d.to_address}` : ''} · {d.status} · {timeAgo(d.created_at)}{d.error && <span className="block text-bad">{d.error}</span>}</li>)}</ul>
               ) : <p className="text-sm text-ink-3">No email to them on record.</p>}
             </Panel>
           </div>

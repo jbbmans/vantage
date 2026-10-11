@@ -5,7 +5,7 @@ import { now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { hmac } from '../lib/crypto.ts';
 import { loadRuntime } from '../runtime.ts';
-import { dropInstanceBoundaryTriggers, dropMembershipHistoryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, membershipHistoryTriggers, metaSet, openMissingMembershipPeriods, stampAttachmentUnits } from '../db/index.ts';
+import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers, dropInstanceBoundaryTriggers, dropMembershipHistoryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, membershipHistoryTriggers, metaSet, openMissingMembershipPeriods, stampAttachmentUnits } from '../db/index.ts';
 import { sealBacklog } from './caseSeal.ts';
 import { loadChainKey, resealStoredSecrets, secretsOf } from '../lib/keys.ts';
 
@@ -35,13 +35,16 @@ export const EXPORT_TABLES = [
 
 /**
  * meta keys that describe this database and host rather than the service's data: its schema, the migrations and releases
- * that ran on it, and the backups taken of it (ADR-0011). An import keeps this host's, so Operations does not report
+ * that ran on it and how far its migrations are audited (ADR-0013), and the backups taken of it (ADR-0011). An import keeps this host's, so Operations does not report
  * the old host's history, a backup this database never had, or a schema the archive's build ran.
  */
-const HOST_META = ['schema_version', 'migration_history', 'migration_history_since', 'release_history', 'backup_history', 'last_backup_at'] as const;
+const HOST_META = ['schema_version', 'migration_history', 'migration_history_since', 'migration_audited_through', 'release_history', 'backup_history', 'last_backup_at'] as const;
 
-/** Tables left out of the archive on purpose: sign-ins, links and queued mail that belong to the old host. */
-export const NOT_EXPORTED = ['sessions', 'tokens', 'email_queue', 'connector_auth_states', 'oidc_states', 'demo_workspaces'] as const;
+/**
+ * Tables left out of the archive on purpose: sign-ins, links, queued mail and support's approvals to change an account's
+ * sign-in, which belong to the old host. Each approval and its use is in the audit trail, which moves.
+ */
+export const NOT_EXPORTED = ['sessions', 'tokens', 'email_queue', 'connector_auth_states', 'oidc_states', 'demo_workspaces', 'credential_approvals'] as const;
 
 export function exportInstance(ctx: AppContext) {
   const tables: Record<string, unknown[]> = {};
@@ -62,6 +65,8 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   const users = (ctx.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
   const activities = (ctx.db.prepare('SELECT COUNT(*) AS n FROM activities').get() as { n: number }).n;
   if (users > 1 || activities > 0) throw new Error('Import only into a fresh instance (one operator account, no records).');
+  // Read now: the archive replaces this host's accounts, and the importer's may not be among the ones it brings.
+  const importer = ctx.db.prepare('SELECT username FROM users WHERE id = ?').get(actorId) as { username: string } | undefined;
   const counts: Record<string, number> = {};
   // An archive from before organizations has none: its governance rows go to the oldest top unit's organization, the
   // same rule the migration follows, and its units found their organizations once they are in.
@@ -80,6 +85,9 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       // the membership history's: the archive brings its own history, and loading its memberships is not anybody joining.
       dropInstanceBoundaryTriggers(ctx.db);
       dropMembershipHistoryTriggers(ctx.db);
+      // The audit log is append-only (ADR-0013). Only here, loading a fresh instance, is it emptied: the archive brings
+      // its own chain in place of this host's first-run entries. Its triggers are back before this commits.
+      dropAuditAppendOnlyTriggers(ctx.db);
       const hostMeta = ctx.db.prepare(`SELECT key, value FROM meta WHERE key IN (${HOST_META.map(() => '?').join(',')})`).all(...HOST_META) as Array<{ key: string; value: string }>;
       for (const table of [...NOT_EXPORTED, ...[...EXPORT_TABLES].reverse()]) ctx.db.prepare(`DELETE FROM ${table}`).run();
       for (const table of EXPORT_TABLES) {
@@ -110,6 +118,7 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       if (Object.keys(crossings).length) metaSet(ctx.db, 'instance_boundary_violations', JSON.stringify({ at: now(), found: crossings }));
       else ctx.db.prepare("DELETE FROM meta WHERE key = 'instance_boundary_violations'").run();
       instanceBoundaryTriggers(ctx.db);
+      auditAppendOnlyTriggers(ctx.db);
       const violations = ctx.db.pragma('foreign_key_check') as unknown[];
       if (violations.length) throw new Error(`Archive has ${violations.length} foreign key violation(s): ${JSON.stringify(violations.slice(0, 3))}`);
     })();
@@ -125,6 +134,10 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   sealBacklog(ctx);
   metaSet(ctx.db, 'case_seals_backfilled', now());
   const crossed = Object.keys(crossings).length ? `; joined across Unit Instances: ${JSON.stringify(crossings)}` : '';
-  audit(ctx, { actor_id: null, action: 'instance_import', entity: 'instance', detail: `by ${actorId}${crossed}; ${JSON.stringify(counts)}`.slice(0, 900) });
+  // The importer is the actor when the archive holds their account. When it does not, the entry names them instead, so
+  // the restore is still attributed to a person and not to an id nothing in the chain resolves.
+  const kept = Boolean(ctx.db.prepare('SELECT 1 FROM users WHERE id = ?').get(actorId));
+  const by = `by ${importer?.username ?? 'an account no longer here'} (${actorId})${kept ? '' : ', whose account the archive does not hold'}`;
+  audit(ctx, { actor_id: kept ? actorId : null, action: 'instance_import', entity: 'instance', detail: `${by}${crossed}; ${JSON.stringify(counts)}`.slice(0, 900) });
   return counts;
 }

@@ -42,6 +42,19 @@ export function requireAuth(req: Request, res: Response, next: NextFunction) {
   next();
 }
 
+/**
+ * Reads from the Vantage Administrator and Unit Manager consoles, per person (ADR-0013). Each page asks for a handful of
+ * things and polls a few; a script walking every account, member or entry of the audit trail asks for thousands. Changes
+ * are counted by requireAuth's own limit. Runs after requireAuth.
+ */
+export function limitConsoleReads(req: Request, _res: Response, next: NextFunction) {
+  if (!SAFE.has(req.method) || !req.user) return next();
+  const limited = limiters.consoleReads.limited(req.user.id);
+  if (limited) return next(new HttpError(429, 'Too many requests from this console in a short period. Wait a few minutes and try again.', 'reads_throttled', { retryAfter: limited.retryAfter }));
+  limiters.consoleReads.bump(req.user.id);
+  next();
+}
+
 /** A Vantage staff action: the account holds a platform role that carries this permission (ADR-0006). */
 export const requirePlatform = (permission: PlatformPermission) => (req: Request, _res: Response, next: NextFunction) => {
   if (!req.user?.platformPermissions.includes(permission)) return next(forbidden('That is a Vantage staff action.', 'not_staff'));

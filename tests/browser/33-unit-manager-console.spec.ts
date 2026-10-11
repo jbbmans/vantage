@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { ensureSetup, confirmSudoIfAsked, joinUnit, loginAs, unique, OPERATOR, PASSWORD } from './fixtures';
+import { ensureSetup, confirmSudoIfAsked, joinUnit, loginAs, registerAs, unique, OPERATOR, PASSWORD } from './fixtures';
 
 /**
  * The Unit Manager console's structure and configuration pages (Task 6, ADR-0012): each opens and reads cleanly to
@@ -196,6 +196,12 @@ test('the Unit Instance’s audit trail filters on the server by action', async 
   const rows = page.locator('tbody tr');
   await expect(rows.first()).toContainText('Billet created');
   for (const text of await rows.allInnerTexts()) expect(text).toContain('Billet created');
+  // A billet is unit administration (ADR-0013), and the category filter agrees.
+  await expect(rows.first()).toContainText('Unit administration');
+  await page.getByRole('combobox', { name: 'Category' }).click();
+  await page.getByRole('option', { name: 'Enterprise administration' }).click();
+  await page.getByRole('button', { name: 'Apply' }).click();
+  await expect(page.getByText('Nothing matches')).toBeVisible();
 });
 
 test('a Unit Auditor reads the configuration pages and finds no control that changes anything', async ({ page, browser, request }) => {
@@ -204,7 +210,19 @@ test('a Unit Auditor reads the configuration pages and finds no control that cha
   const reg = await request.post('/api/auth/register', { headers: H, data: { username, password: PASSWORD, first_name: 'Audrey', last_name: 'Auditor', rank_id: 'Sgt' } });
   expect(reg.ok(), await reg.text()).toBeTruthy();
   const me = await (await request.get('/api/me')).json();
-  await joinUnit(page.request, request);
+  // The auditor joins on a section chief's code: an account a Unit Manager created or invited gets no Unit Instance role
+  // from that same person until it has signed in with its own CAC or the organization's sign-in (ADR-0013).
+  const chiefName = unique('chief');
+  const chiefContext = await browser.newContext({ reducedMotion: 'reduce' });
+  const chief = await chiefContext.newPage();
+  await registerAs(chief, chiefName, { first_name: 'Section', last_name: 'Chief' });
+  const chiefMe = await (await chief.request.get('/api/me')).json();
+  await joinUnit(page.request, chief.request);
+  const made = await page.request.post(`/api/org/team/${chiefMe.user.id}/roles`, { headers: H, data: { role_id: 'G8:sncoic', unit_id: 'G8' } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  await loginAs(chief, chiefName);
+  await joinUnit(chief.request, request);
+  await chiefContext.close();
   const granted = await page.request.post('/api/orgs/G8/roles', { headers: H, data: { user_id: me.user.id, role: 'auditor' } });
   expect(granted.ok(), await granted.text()).toBeTruthy();
 

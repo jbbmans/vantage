@@ -11,8 +11,8 @@ import { PLATFORM_ROLE_KEYS, PLATFORM_ROLES, PLATFORM_PERMISSION_LIST, ORG_ROLES
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { notify, notifyOrg, notifyStaff } from '../services/notifications.ts';
-import { requireAuth, requirePlatform, requireSudo } from '../auth/middleware.ts';
-import { audit, verifyAuditChain } from '../services/audit.ts';
+import { limitConsoleReads, requireAuth, requirePlatform, requireSudo } from '../auth/middleware.ts';
+import { anchorAuditChain, audit, auditHead, lastAuditAnchor, verifyAuditAnchor, verifyAuditChain, type AuditAnchor } from '../services/audit.ts';
 import { AUDIT_CSV_COLUMNS, AUDIT_EXPORT_MAX, auditActions, auditFilterLabel, auditQuery, auditRows, type AuditTrail } from '../services/auditQuery.ts';
 import { auditForwardingStatus } from '../services/auditSink.ts';
 import { aiStatus, discoverModels, unlockAi } from '../services/ai.ts';
@@ -29,12 +29,14 @@ import { usageReport, MIN_COHORT } from '../services/usage.ts';
 import { EVENTS } from '../services/telemetry.ts';
 import { openHolds, placeHold, releaseHold, HOLDABLE_TYPES } from '../services/retention.ts';
 import { buildInventory, inventoryMarkdown } from '../services/privacyInventory.ts';
+import { separationOfDuties } from '../services/separationOfDuties.ts';
 import { verifyAllCases, anchorCaseHeads } from '../services/caseSeal.ts';
 import { sendSignInDetails, MAX_SIGN_IN_BATCH } from '../services/signInMail.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { unlockAccount } from '../auth/lockout.ts';
 import { hashPassword } from '../lib/crypto.ts';
 import { isEdipi } from '../services/personnel.ts';
+import { APPROVAL_HOURS, CREDENTIAL_ACTIONS, cancelApproval, decideApproval, listApprovals, requestApproval, useApproval, type UsedApproval } from '../services/credentialApprovals.ts';
 import { assignManager, createOrganization, getOrg, listOrganizations, nameFirstOwner, orgCounts, orgRoleHolders, publicOrg, removeManager, setOrgStatus, updateOrganization } from '../services/organizations.ts';
 import { accessForPlatform, endAccess, requestAccess, ACCESS_DEFAULT_MINUTES, ACCESS_MAX_MINUTES } from '../services/access.ts';
 import { platformRolesOf } from '../authz/platform.ts';
@@ -54,7 +56,7 @@ import { rowsToCsv } from '../../shared/csv.ts';
  * approval, through an access request.
  */
 export const platformRouter = Router();
-platformRouter.use(requireAuth, (req, _res, next) => next(req.user.platform.length ? undefined : forbidden('The Vantage Administrator console is for Vantage staff.', 'not_staff')), requireSudo);
+platformRouter.use(requireAuth, limitConsoleReads, (req, _res, next) => next(req.user.platform.length ? undefined : forbidden('The Vantage Administrator console is for Vantage staff.', 'not_staff')), requireSudo);
 
 const ip = (req: Request) => clientIp(req);
 
@@ -300,7 +302,7 @@ platformRouter.get('/orgs/:orgId', requirePlatform('platform.view'), wrap((req, 
 
 platformRouter.patch('/orgs/:orgId', requirePlatform('platform.orgs'), wrap((req, res) => {
   const body = parse(z.object({ name: z.string().max(120).optional(), short_name: z.string().max(40).nullish() }), req.body);
-  res.json(updateOrganization(req.ctx, req.user, String(req.params.orgId), body, ip(req)));
+  res.json(updateOrganization(req.ctx, req.user, String(req.params.orgId), body, ip(req), 'enterprise'));
 }));
 
 platformRouter.post('/orgs/:orgId/status', requirePlatform('platform.orgs'), wrap((req, res) => {
@@ -362,28 +364,34 @@ const accountTarget = (req: Request) => {
 /**
  * Vantage support changing someone's sign-in is written into the audit trail of every Unit Instance they serve in, and
  * where they hold a Unit Instance role or lead a unit, its Lead Unit Managers are told: otherwise staff could sign in as a
- * Unit Manager without the instance ever knowing (ADR-0010). Requiring a second person for these steps is Task 7's.
+ * Unit Manager without the instance ever knowing (ADR-0010). Where a second staff member approved the change (ADR-0013),
+ * both name them.
  */
-function tellInstancesOfSupport(ctx: AppContext, actor: SessionUser, targetId: string, what: string, from?: string | null) {
+function tellInstancesOfSupport(ctx: AppContext, actor: SessionUser, targetId: string, what: string, from?: string | null, approvedBy?: string | null) {
   const person = ctx.db.prepare('SELECT first_name, last_name FROM users WHERE id = ?').get(targetId) as { first_name: string; last_name: string };
   const orgs = ctx.db.prepare('SELECT DISTINCT u.org_id FROM unit_members m JOIN units u ON u.id = m.unit_id WHERE m.user_id = ? AND u.org_id IS NOT NULL').all(targetId) as Array<{ org_id: string }>;
+  const approval = approvedBy ? `, approved by ${approvedBy}` : '';
   for (const { org_id } of orgs) {
-    audit(ctx, { actor_id: actor.id, action: 'vantage_account_support', entity: 'user', entity_id: targetId, subject_id: targetId, org_id, detail: `Vantage support ${what}`, ip: from });
+    audit(ctx, { actor_id: actor.id, action: 'vantage_account_support', entity: 'user', entity_id: targetId, subject_id: targetId, org_id, detail: `Vantage support ${what}${approval}`, ip: from });
     const authority = ctx.db.prepare(`SELECT 1 FROM org_roles WHERE org_id = ? AND user_id = ? AND (expires_at IS NULL OR expires_at > ?)
       UNION ALL SELECT 1 FROM units WHERE org_id = ? AND owner_user_id = ? AND active = 1 LIMIT 1`).get(org_id, targetId, now(), org_id, targetId);
-    if (authority) notifyOrg(ctx, org_id, 'org.owners', { kind: 'security', title: `Vantage support ${what} for ${person.first_name} ${person.last_name}`, message: 'They hold authority in this Unit Instance. If nobody here asked for it, raise it with Vantage.', actionUrl: '/console/audit' }, targetId);
+    if (authority) notifyOrg(ctx, org_id, 'org.owners', { kind: 'security', title: `Vantage support ${what} for ${person.first_name} ${person.last_name}`, message: `They hold authority in this Unit Instance.${approvedBy ? ` ${actor.first_name} ${actor.last_name} made the change and ${approvedBy} of Vantage staff approved it.` : ''} If nobody here asked for it, raise it with Vantage.`, actionUrl: '/console/audit' }, targetId);
   }
 }
 
+/** The approval a staff member names when carrying out a change that needed one (ADR-0013). */
+const approvalIdOf = (req: Request) => parse(z.object({ approvalId: z.string().trim().min(1).max(64).optional() }), req.body ?? {}).approvalId;
+const approvedBy = (approval: UsedApproval | null) => (approval ? `; approved by ${approval.approverName} (request ${approval.id})` : '');
+
 platformRouter.post('/accounts/:userId/unlock', requirePlatform('platform.accounts'), wrap((req, res) => {
   const target = accountTarget(req);
-  res.json({ ok: true, unlocked: unlockAccount(req.ctx, target.id, req.user.id, ip(req)) });
+  res.json({ ok: true, unlocked: unlockAccount(req.ctx, target.id, req.user.id, ip(req), 'enterprise') });
 }));
 
 platformRouter.post('/accounts/:userId/logout', requirePlatform('platform.accounts'), wrap((req, res) => {
   const target = accountTarget(req);
   const revoked = invalidateUserSessions(req.ctx, target.id);
-  audit(req.ctx, { actor_id: req.user.id, action: 'force_logout', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
+  audit(req.ctx, { actor_id: req.user.id, action: 'force_logout', category: 'enterprise', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
 
@@ -391,13 +399,18 @@ platformRouter.post('/accounts/:userId/temporary-password', requirePlatform('pla
   const ctx = req.ctx;
   const target = accountTarget(req);
   if (target.id === req.user.id) throw badRequest('Use Change password for your own account.');
+  const approvalId = approvalIdOf(req);
   const hex = randomBytes(10).toString('hex');
   const password = `${hex.slice(0, 8)}-${hex.slice(8, 16)}-${hex.slice(16)}`;
-  // A new password is support's answer to a locked account, so it unlocks it too.
-  ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 1, failed_sign_ins = 0, locked_until = NULL, updated_at = ? WHERE id = ?').run(hashPassword(password), now(), target.id);
+  const approval = ctx.db.transaction(() => {
+    const used = useApproval(ctx, req.user, target.id, 'temporary_password', approvalId);
+    // A new password is support's answer to a locked account, so it unlocks it too.
+    ctx.db.prepare('UPDATE users SET password_hash = ?, must_change_password = 1, failed_sign_ins = 0, locked_until = NULL, updated_at = ? WHERE id = ?').run(hashPassword(password), now(), target.id);
+    return used;
+  })();
   const revoked = invalidateUserSessions(ctx, target.id);
-  audit(ctx, { actor_id: req.user.id, action: 'temporary_password', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
-  tellInstancesOfSupport(ctx, req.user, target.id, 'set a temporary password', ip(req));
+  audit(ctx, { actor_id: req.user.id, action: 'temporary_password', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `sessions revoked: ${revoked}${approvedBy(approval)}`, ip: ip(req) });
+  tellInstancesOfSupport(ctx, req.user, target.id, 'set a temporary password', ip(req), approval?.approverName);
   notify(ctx, target.id, { kind: 'security', title: 'Vantage support set a temporary password on your account', message: 'If you did not ask for this, contact Vantage support.', actionUrl: '/settings' });
   res.json({ ok: true, password, sessionsRevoked: revoked });
 }));
@@ -405,14 +418,17 @@ platformRouter.post('/accounts/:userId/temporary-password', requirePlatform('pla
 platformRouter.post('/accounts/:userId/reset-mfa', requirePlatform('platform.accounts'), wrap((req, res) => {
   const ctx = req.ctx;
   const target = accountTarget(req);
-  ctx.db.transaction(() => {
+  const approvalId = approvalIdOf(req);
+  const approval = ctx.db.transaction(() => {
+    const used = useApproval(ctx, req.user, target.id, 'reset_mfa', approvalId);
     ctx.db.prepare('UPDATE users SET totp_enabled = 0, totp_secret = NULL, totp_pending = NULL, totp_last_step = NULL, updated_at = ? WHERE id = ?').run(now(), target.id);
     ctx.db.prepare('DELETE FROM recovery_codes WHERE user_id = ?').run(target.id);
     ctx.db.prepare('DELETE FROM passkeys WHERE user_id = ?').run(target.id);
+    return used;
   })();
   const revoked = invalidateUserSessions(ctx, target.id);
-  audit(ctx, { actor_id: req.user.id, action: 'reset_mfa', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `sessions revoked: ${revoked}`, ip: ip(req) });
-  tellInstancesOfSupport(ctx, req.user, target.id, 'reset the second factor', ip(req));
+  audit(ctx, { actor_id: req.user.id, action: 'reset_mfa', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `sessions revoked: ${revoked}${approvedBy(approval)}`, ip: ip(req) });
+  tellInstancesOfSupport(ctx, req.user, target.id, 'reset the second factor', ip(req), approval?.approverName);
   notify(ctx, target.id, { kind: 'security', title: 'Vantage support reset your second factor', message: 'Set up an authenticator or passkey again from Settings.', actionUrl: '/settings' });
   res.json({ ok: true, sessionsRevoked: revoked });
 }));
@@ -424,15 +440,19 @@ platformRouter.post('/accounts/:userId/reset-mfa', requirePlatform('platform.acc
 platformRouter.post('/accounts/:userId/edipi', requirePlatform('platform.accounts'), wrap((req, res) => {
   const ctx = req.ctx;
   const target = accountTarget(req);
-  const { edipi, reason } = parse(z.object({ edipi: z.string().trim().max(32).nullable(), reason: z.string().trim().min(10).max(300) }), req.body);
+  const { edipi, reason, approvalId } = parse(z.object({ edipi: z.string().trim().max(32).nullable(), reason: z.string().trim().min(10).max(300), approvalId: z.string().trim().min(1).max(64).optional() }), req.body);
   if (edipi !== null && !isEdipi(edipi)) throw badRequest('An EDIPI is exactly ten digits.', { fieldErrors: { edipi: 'Ten digits.' } });
   const before = (ctx.db.prepare('SELECT edipi FROM users WHERE id = ?').get(target.id) as { edipi: string | null }).edipi;
   if (edipi === before) return res.json({ ok: true, changed: false, sessionsRevoked: 0 });
   if (edipi && ctx.db.prepare('SELECT 1 FROM users WHERE edipi = ? AND id <> ?').get(edipi, target.id)) throw badRequest('Another account already carries that EDIPI.', { fieldErrors: { edipi: 'Already linked to another account.' } });
-  ctx.db.prepare("UPDATE users SET edipi = ?, edipi_verified_at = NULL, identity_source = CASE WHEN ? IS NULL THEN 'local' ELSE identity_source END, updated_at = ? WHERE id = ?").run(edipi, edipi, now(), target.id);
+  const approval = ctx.db.transaction(() => {
+    const used = useApproval(ctx, req.user, target.id, 'edipi', approvalId, edipi);
+    ctx.db.prepare("UPDATE users SET edipi = ?, edipi_verified_at = NULL, identity_source = CASE WHEN ? IS NULL THEN 'local' ELSE identity_source END, updated_at = ? WHERE id = ?").run(edipi, edipi, now(), target.id);
+    return used;
+  })();
   const revoked = invalidateUserSessions(ctx, target.id);
-  audit(ctx, { actor_id: req.user.id, action: 'edipi_corrected', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `${before ?? 'none'} → ${edipi ?? 'none'}; ${reason}; sessions revoked: ${revoked}`.slice(0, 900), ip: ip(req) });
-  tellInstancesOfSupport(ctx, req.user, target.id, edipi ? 'changed the linked CAC' : 'removed the linked CAC', ip(req));
+  audit(ctx, { actor_id: req.user.id, action: 'edipi_corrected', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `${before ?? 'none'} → ${edipi ?? 'none'}; ${reason}; sessions revoked: ${revoked}${approvedBy(approval)}`.slice(0, 900), ip: ip(req) });
+  tellInstancesOfSupport(ctx, req.user, target.id, edipi ? 'changed the linked CAC' : 'removed the linked CAC', ip(req), approval?.approverName);
   notify(ctx, target.id, { kind: 'security', title: 'Vantage support changed the CAC linked to your account', message: edipi ? `Your account now signs in with the card whose DoD ID ends ${edipi.slice(-4)}. If that is not your card, contact Vantage support.` : 'No card signs in to your account now. If you did not ask for this, contact Vantage support.', actionUrl: '/settings' });
   res.json({ ok: true, changed: true, sessionsRevoked: revoked });
 }));
@@ -456,6 +476,36 @@ platformRouter.post('/accounts/:userId/reactivate', requirePlatform('platform.ac
   audit(req.ctx, { actor_id: req.user.id, action: 'reactivate_account', entity: 'user', entity_id: target.id, subject_id: target.id, ip: ip(req) });
   tellInstancesOfSupport(req.ctx, req.user, target.id, 'reactivated the account', ip(req));
   res.json({ ok: true });
+}));
+
+// ——— Two people for a takeover (ADR-0013): a second staff member approves a credential change to an account with authority. ———
+
+platformRouter.get('/credential-approvals', requirePlatform('platform.accounts'), wrap((req, res) => {
+  res.json({ approvals: listApprovals(req.ctx), hours: APPROVAL_HOURS });
+}));
+
+platformRouter.post('/accounts/:userId/credential-approvals', requirePlatform('platform.accounts'), wrap((req, res) => {
+  const target = accountTarget(req);
+  const body = parse(z.object({
+    action: z.enum(CREDENTIAL_ACTIONS),
+    reason: z.string().trim().min(10, 'Say why, naming the ticket.').max(300),
+    edipi: z.string().trim().max(32).nullable().optional(),
+  }), req.body);
+  res.status(201).json({ approval: requestApproval(req.ctx, req.user, target.id, body, ip(req)) });
+}));
+
+platformRouter.post('/credential-approvals/:id/approve', requirePlatform('platform.accounts'), wrap((req, res) => {
+  const { note } = parse(z.object({ note: z.string().trim().max(300).optional() }), req.body ?? {});
+  res.json({ approval: decideApproval(req.ctx, req.user, String(req.params.id), true, note ?? null, ip(req)) });
+}));
+
+platformRouter.post('/credential-approvals/:id/deny', requirePlatform('platform.accounts'), wrap((req, res) => {
+  const { note } = parse(z.object({ note: z.string().trim().max(300).optional() }), req.body ?? {});
+  res.json({ approval: decideApproval(req.ctx, req.user, String(req.params.id), false, note ?? null, ip(req)) });
+}));
+
+platformRouter.post('/credential-approvals/:id/cancel', requirePlatform('platform.accounts'), wrap((req, res) => {
+  res.json({ approval: cancelApproval(req.ctx, req.user, String(req.params.id), ip(req)) });
 }));
 
 platformRouter.post('/accounts/sign-in-details', requirePlatform('platform.accounts'), wrap(async (req, res) => {
@@ -565,7 +615,7 @@ platformRouter.get('/audit/export', requirePlatform('platform.audit'), wrap((req
   const q = parse(auditQuery.omit({ before: true, limit: true }), req.query);
   const rows = auditRows(req.ctx, PLATFORM_TRAIL, q, AUDIT_EXPORT_MAX + 1);
   if (rows.length > AUDIT_EXPORT_MAX) throw badRequest(`More than ${AUDIT_EXPORT_MAX.toLocaleString('en-US')} entries match. Narrow the dates and export each range.`, { code: 'export_too_large' });
-  const filter = auditFilterLabel({ action: q.action, q: q.q, from: q.from, to: q.to });
+  const filter = auditFilterLabel({ action: q.action, category: q.category, q: q.q, from: q.from, to: q.to });
   audit(req.ctx, { actor_id: req.user.id, action: 'platform_audit_exported', entity: 'audit_log', detail: `${rows.length} rows as ${format}${filter ? `; ${filter}` : ''}`, ip: ip(req) });
   const name = `vantage-platform-audit-${now().slice(0, 10)}.${format}`;
   res.setHeader('Content-Disposition', `attachment; filename="${name}"`);
@@ -574,12 +624,43 @@ platformRouter.get('/audit/export', requirePlatform('platform.audit'), wrap((req
   res.type('text/csv').send(rowsToCsv(rows, AUDIT_CSV_COLUMNS));
 }));
 
-platformRouter.get('/integrity', requirePlatform('platform.audit'), wrap((req, res) => res.json({ audit: verifyAuditChain(req.ctx), cases: verifyAllCases(req.ctx) })));
+/** Who wrote an anchor, by name, for the console; the scheduled one has nobody. */
+const anchorView = (ctx: AppContext, anchor: AuditAnchor | null) => {
+  if (!anchor) return null;
+  const by = anchor.actor_id ? ctx.db.prepare('SELECT first_name, last_name, username FROM users WHERE id = ?').get(anchor.actor_id) as { first_name: string; last_name: string; username: string } | undefined : undefined;
+  return { ...anchor, by: by ? `${by.first_name} ${by.last_name}`.trim() || by.username : null };
+};
+
+platformRouter.get('/integrity', requirePlatform('platform.audit'), wrap((req, res) => res.json({
+  audit: verifyAuditChain(req.ctx), cases: verifyAllCases(req.ctx),
+  // The chain's head now, and the last head written into it, for whoever keeps a copy of anchors off the host.
+  head: auditHead(req.ctx), lastAnchor: anchorView(req.ctx, lastAuditAnchor(req.ctx)),
+})));
 
 platformRouter.post('/integrity/anchor', requirePlatform('platform.settings'), wrap((req, res) => {
   const anchored = anchorCaseHeads(req.ctx);
   audit(req.ctx, { actor_id: req.user.id, action: 'case_history_anchor_requested', entity: 'work_event_heads', detail: `${anchored.cases} cases`, ip: ip(req) });
-  res.json(anchored);
+  // Last, so the audit chain's anchor covers the case histories' anchor and its request.
+  const head = anchorAuditChain(req.ctx, req.user.id, ip(req));
+  res.json({ ...anchored, audit: head });
+}));
+
+/**
+ * Checks an anchor kept outside the server against the chain. Each check is audited with its result; one that fails
+ * tells every Lead Vantage Administrator, because the trail was rewritten or replaced since that anchor was taken.
+ */
+platformRouter.post('/integrity/verify', requirePlatform('platform.audit'), wrap((req, res) => {
+  const body = parse(z.object({ seq: z.coerce.number().int().min(1), entry_hash: z.string().trim().regex(/^[0-9a-fA-F]{64}$/, 'A hash is 64 hexadecimal characters.') }), req.body);
+  const result = verifyAuditAnchor(req.ctx, req.user.id, body, ip(req));
+  if (!result.ok) {
+    const what = result.entry === 'missing' ? `The chain has no entry ${body.seq}.` : result.entry === 'different' ? `Entry ${body.seq} no longer carries the anchored hash.` : '';
+    notifyStaff(req.ctx, 'platform.staff', {
+      kind: 'system', title: 'An audit anchor check failed',
+      message: `${req.user.first_name} ${req.user.last_name} checked a kept anchor. ${what}${result.chain.ok ? '' : ` The chain is broken: ${result.chain.reason}.`} Compare the copies kept off the host before trusting the trail.`.replace(/\s+/g, ' ').trim(),
+      actionUrl: '/admin/audit',
+    });
+  }
+  res.json({ ...result, seq: body.seq, entry_hash: body.entry_hash.toLowerCase(), head: auditHead(req.ctx) });
 }));
 
 const usageQuery = z.object({ from: z.string().max(10).optional(), to: z.string().max(10).optional(), days: z.coerce.number().int().min(1).max(400).optional() });
@@ -596,6 +677,9 @@ platformRouter.get('/privacy/inventory', requirePlatform('platform.audit'), wrap
   if (String(req.query.format || '') === 'markdown') { res.type('text/markdown').send(inventoryMarkdown(inventory)); return; }
   res.json(inventory);
 }));
+
+/** Accounts whose authority crosses a line the role model draws, for review (ADR-0013). Read-only. */
+platformRouter.get('/separation-of-duties', requirePlatform('platform.audit'), wrap((req, res) => res.json(separationOfDuties(req.ctx))));
 
 // ——— Platform-wide legal holds: a hold on the service itself, over every organization ———
 

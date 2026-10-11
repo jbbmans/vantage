@@ -43,6 +43,8 @@ const config = loadConfig({
   VANTAGE_AI_ENABLED: 'true', VANTAGE_GENAI_API_KEY: 'browser-test-genai-key', VANTAGE_GENAI_BASE_URL: aiBaseUrl, VANTAGE_GENAI_MODELS: 'model-fast,model-pro,model-alt',
   // Every spec registers its people from this one address, more than one connection may in production.
   VANTAGE_REGISTRATIONS_PER_15_MINUTES: '200',
+  // The whole suite signs in as the same few staff and walks both consoles many times over; one person does not.
+  VANTAGE_CONSOLE_READS_PER_15_MINUTES: '20000',
 } as NodeJS.ProcessEnv);
 const ctx = createContext(config);
 const app = createApp(ctx);

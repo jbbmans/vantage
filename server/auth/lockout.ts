@@ -2,6 +2,7 @@ import type { AppContext } from '../context.ts';
 import { tooMany } from '../lib/errors.ts';
 import { now } from '../lib/ids.ts';
 import { audit } from '../services/audit.ts';
+import type { AuditCategory } from '../../shared/auditCatalog.ts';
 
 /**
  * An account locks after a few consecutive failures: a wrong password at sign-in, a wrong second factor, or a wrong
@@ -77,9 +78,9 @@ export function clearFailures(ctx: AppContext, userId: string) {
   ctx.db.prepare('UPDATE users SET failed_sign_ins = 0, locked_until = NULL WHERE id = ? AND (failed_sign_ins <> 0 OR locked_until IS NOT NULL)').run(userId);
 }
 
-/** An administrator's unlock, audited. */
-export function unlockAccount(ctx: AppContext, userId: string, actorId: string, ip?: string | null) {
+/** An administrator's unlock, audited: enterprise administration when Vantage support unlocks it, unit administration otherwise (ADR-0013). */
+export function unlockAccount(ctx: AppContext, userId: string, actorId: string, ip?: string | null, category?: AuditCategory) {
   const changed = ctx.db.prepare('UPDATE users SET failed_sign_ins = 0, locked_until = NULL WHERE id = ? AND locked_until IS NOT NULL').run(userId).changes;
-  if (changed) audit(ctx, { actor_id: actorId, action: 'account_unlock', subject_id: userId, ip, detail: `at ${now()}` });
+  if (changed) audit(ctx, { actor_id: actorId, action: 'account_unlock', category, subject_id: userId, ip, detail: `at ${now()}` });
   return changed > 0;
 }

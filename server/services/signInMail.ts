@@ -88,10 +88,11 @@ export async function sendSignInDetails(ctx: AppContext, sender: SessionUser, us
   const { token } = issueToken(ctx, 'reset', { userId: account.id, email: account.email, ttlMinutes: SIGN_IN_LINK_HOURS * 60, createdBy: sender.id, payload: { purpose: 'sign_in', ip: ip ?? null } });
   const url = `${ctx.config.urls.app}/reset?token=${encodeURIComponent(token)}`;
   const mail = composeSignInMail(ctx, account, sender, url, expiresAt);
-  const result = await ctx.mailer.send({ to: account.email, subject: 'Your Vantage sign-in details', text: mail.text, html: mail.html, kind: 'sign_in', userId: account.id });
+  const result = await ctx.mailer.send({ to: account.email, subject: 'Your Vantage sign-in details', text: mail.text, html: mail.html, kind: 'sign_in', userId: account.id, orgId });
   // An undelivered link is one nobody should hold.
   if (!result.ok) revokeTokens(ctx, 'reset', account.id);
   const status = !result.ok ? 'failed' : result.queued ? 'queued' : 'sent';
-  audit(ctx, { actor_id: sender.id, action: 'sign_in_details_sent', entity: 'user', entity_id: account.id, subject_id: account.id, org_id: orgId, detail: `${account.username}; ${status}${result.error ? `; ${result.error.slice(0, 200)}` : ''}`, ip });
+  // Sent by Vantage support (no Unit Instance) it is enterprise administration; by a Unit Manager, unit administration.
+  audit(ctx, { actor_id: sender.id, action: 'sign_in_details_sent', category: orgId ? undefined : 'enterprise', entity: 'user', entity_id: account.id, subject_id: account.id, org_id: orgId, detail: `${account.username}; ${status}${result.error ? `; ${result.error.slice(0, 200)}` : ''}`, ip });
   return { id: account.id, status, ...(result.error ? { error: result.error } : {}) };
 }

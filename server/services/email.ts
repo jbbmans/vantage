@@ -6,7 +6,7 @@ import { encryptSecret, decryptSecret } from '../lib/crypto.ts';
 import { secretsOf } from '../lib/keys.ts';
 import { deliver } from './directMail.ts';
 
-export interface Mail { to: string; subject: string; text: string; html: string; kind: string; userId?: string | null; replyTo?: string | null }
+export interface Mail { to: string; subject: string; text: string; html: string; kind: string; userId?: string | null; replyTo?: string | null; orgId?: string | null }
 export interface SendResult { ok: boolean; queued?: boolean; error?: string }
 export interface Mailer {
   enabled: boolean;
@@ -28,8 +28,8 @@ export function createMailer(config: AppConfig, db: Db): Mailer {
   const outbox: Mail[] = [];
   const log = (mail: Mail, status: string, error?: string) => {
     const id = newId();
-    db.prepare('INSERT INTO email_log (id, user_id, to_address, kind, subject, status, error, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?)')
-      .run(id, mail.userId ?? null, mail.to, mail.kind, mail.subject, status, error ? String(error).slice(0, 500) : null, now());
+    db.prepare('INSERT INTO email_log (id, user_id, to_address, kind, subject, status, error, created_at, org_id) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)')
+      .run(id, mail.userId ?? null, mail.to, mail.kind, mail.subject, status, error ? String(error).slice(0, 500) : null, now(), mail.orgId ?? null);
     return id;
   };
   const replyTo = (mail: Mail) => mail.replyTo || config.email.replyTo || undefined;

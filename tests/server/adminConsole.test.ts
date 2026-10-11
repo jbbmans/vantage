@@ -349,13 +349,15 @@ test('the platform audit trail filters, pages and exports on the server, and an 
   assert.ok((await get(staff.auditor!.token, '/api/platform/audit?limit=1000')).body.rows.every((r: { org_id: string | null; unit_id: string | null }) => !r.org_id && !r.unit_id));
 
   // A cell a spreadsheet would run is written as text.
-  audit(app.ctx, { actor_id: op.id, action: 'export_probe', entity: 'platform', detail: '=HYPERLINK("http://example.invalid","x")' });
+  // An action of the test's own, so it names its category: the catalogue holds only what Vantage writes (ADR-0013).
+  audit(app.ctx, { actor_id: op.id, action: 'export_probe', category: 'enterprise', entity: 'platform', detail: '=HYPERLINK("http://example.invalid","x")' });
   const csv = await get(staff.auditor!.token, '/api/platform/audit/export?format=csv&action=export_probe');
   assert.equal(csv.status, 200);
   assert.match(csv.headers.get('content-type') || '', /text\/csv/);
   assert.match(csv.headers.get('content-disposition') || '', /attachment; filename="vantage-platform-audit-/);
   const [header, row] = csv.text.trim().split('\r\n');
-  assert.equal(header, '"seq","at","action","actor_username","actor_id","subject_username","subject_id","entity","entity_id","detail","ip","prev_hash","entry_hash"');
+  assert.equal(header, '"seq","at","action","category","actor_username","actor_id","subject_username","subject_id","entity","entity_id","detail","ip","prev_hash","entry_hash"');
+  assert.match(row, /,"export_probe","enterprise",/);
   assert.match(row, /,"'=HYPERLINK\(""http:\/\/example\.invalid"",""x""\)",/);
   const exported = app.ctx.db.prepare("SELECT actor_id, detail FROM audit_log WHERE action = 'platform_audit_exported' ORDER BY seq DESC LIMIT 1").get() as { actor_id: string; detail: string };
   assert.equal(exported.actor_id, staff.auditor!.id);

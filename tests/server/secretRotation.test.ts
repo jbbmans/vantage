@@ -7,7 +7,7 @@ import { loadConfig } from '../../server/config.ts';
 import { createContext } from '../../server/app.ts';
 import { audit, verifyAuditChain } from '../../server/services/audit.ts';
 import { decryptSecret, encryptSecret } from '../../server/lib/crypto.ts';
-import { metaGet } from '../../server/db/index.ts';
+import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers, metaGet } from '../../server/db/index.ts';
 
 const OLD = 'old-secret-old-secret-old-secret-0001';
 const NEW = 'new-secret-new-secret-new-secret-0002';
@@ -29,7 +29,7 @@ test('changing VANTAGE_SECRET with the old one as VANTAGE_SECRET_PREVIOUS keeps 
     const first = contextFor(db.path, { VANTAGE_SECRET: OLD });
     first.db.prepare(`INSERT INTO users (id, username, password_hash, first_name, last_name, totp_secret, created_at, updated_at) VALUES ('u1', 'avery', '', 'Jordan', 'Avery', ?, '2026-10-01', '2026-10-01')`)
       .run(encryptSecret(OLD, 'JBSWY3DPEHPK3PXP'));
-    audit(first, { action: 'before_rotation' });
+    audit(first, { action: 'before_rotation', category: 'enterprise' });
     assert.equal(verifyAuditChain(first).ok, true);
     first.db.close();
 
@@ -38,7 +38,7 @@ test('changing VANTAGE_SECRET with the old one as VANTAGE_SECRET_PREVIOUS keeps 
     assert.equal(decryptSecret(NEW, stored), 'JBSWY3DPEHPK3PXP', 'the authenticator secret is re-sealed under the new secret');
     assert.equal(decryptSecret(OLD, stored), null);
     assert.equal(verifyAuditChain(rotating).ok, true, 'the chain still verifies after the secret changes');
-    audit(rotating, { action: 'after_rotation' });
+    audit(rotating, { action: 'after_rotation', category: 'enterprise' });
     rotating.db.close();
 
     const after = contextFor(db.path, { VANTAGE_SECRET: NEW });
@@ -56,9 +56,15 @@ test('a chain written before the chain key existed keeps verifying, keyed by the
   const db = scratch();
   try {
     const legacy = contextFor(db.path, { VANTAGE_SECRET: OLD });
-    legacy.db.exec("DELETE FROM audit_log; DELETE FROM meta WHERE key IN ('audit_head', 'chain_key');");
+    // As a database from before the chain key: its log empty (a new database's first entry, naming its schema, removed
+    // with the append-only triggers lifted for the simulation) and no key stored.
+    legacy.db.transaction(() => {
+      dropAuditAppendOnlyTriggers(legacy.db);
+      legacy.db.exec("DELETE FROM audit_log; DELETE FROM meta WHERE key IN ('audit_head', 'chain_key');");
+      auditAppendOnlyTriggers(legacy.db);
+    })();
     legacy.chainKey = OLD;
-    audit(legacy, { action: 'legacy_entry' });
+    audit(legacy, { action: 'legacy_entry', category: 'enterprise' });
     legacy.db.close();
 
     const upgraded = contextFor(db.path, { VANTAGE_SECRET: OLD });

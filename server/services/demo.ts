@@ -1,7 +1,7 @@
 import { createHash, randomBytes } from 'node:crypto';
 import type { AppContext } from '../context.ts';
 import { newId, now } from '../lib/ids.ts';
-import { metaGet, metaSet } from '../db/index.ts';
+import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers, metaGet, metaSet } from '../db/index.ts';
 import { seedRoles, addMember, ownerRoleId } from './org.ts';
 import { resealAuditChain } from './audit.ts';
 import { HttpError } from '../lib/errors.ts';
@@ -543,6 +543,9 @@ export function purgeWorkspace(ctx: AppContext, wsId: string) {
   db.pragma('foreign_keys = OFF');
   try {
     db.transaction(() => {
+      // The audit log is append-only (ADR-0013). A synthetic workspace's entries go with it, and the chain is resealed,
+      // inside this transaction only: the log's triggers are back before it commits.
+      dropAuditAppendOnlyTriggers(db);
       const list = (xs: string[]) => xs.map(() => '?').join(',');
       // Rows that name the unit or the people without a foreign key.
       // The workspace's unit founded an organization of the same id (ADR-0006); its own entries go with it.
@@ -565,11 +568,12 @@ export function purgeWorkspace(ctx: AppContext, wsId: string) {
       }
       const left = db.pragma('foreign_key_check') as unknown[];
       if (left.length) throw new Error(`Demo workspace removal left ${left.length} dangling rows.`);
+      resealAuditChain(ctx);
+      auditAppendOnlyTriggers(db);
     })();
   } finally {
     db.pragma('foreign_keys = ON');
   }
-  resealAuditChain(ctx);
 }
 
 export function purgeExpired(ctx: AppContext): number {

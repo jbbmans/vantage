@@ -11,3 +11,12 @@ Canonical source: https://github.com/jbbmans/vantage-main
 
 Git history, signed release tags, deployment build identifiers, and this notice
 form the project provenance record. Preserve this notice in every authorized copy.
+
+Third-party references
+
+docs/security/ASVS.md cites requirement identifiers, levels and section titles of the
+OWASP Application Security Verification Standard 5.0.0 (tag v5.0.0, file
+5.0/docs_en/OWASP_Application_Security_Verification_Standard_5.0.0_en.csv, SHA-256
+98c8fe911b9edb403af8ee05d3ce8201ecac2659e313b053890a62847cdcf680), © the OWASP
+Foundation, licensed under CC BY-SA 4.0. No requirement text is reproduced; the
+assessment is Vantage's own.

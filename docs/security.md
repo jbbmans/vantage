@@ -19,7 +19,7 @@
 - Records have `visibility` of `private` or `unit`, and a `unit_id`. Only `unit` records in a unit where the reader holds `VIEW_RECORDS` are visible to others; `VIEW_MEMBER_DETAIL` opens a Marine's page; `MANAGE_RECORDS` edits shared entries; `COUNSEL` records counselings and award recommendations.
 - Permissions are a bitmask on roles, and roles belong to one unit. Authority flows down the unit tree, never up: a role in a command carries into every team beneath it, one position above that team's own role of the same rank, so a command leader outranks a team leader in the team. A role in a team confers nothing in the command above it.
 - Members see an overview of their own team and of each command above it: the roster, the goals, and aggregate totals. Totals built from fewer than three contributors are withheld, so an overview never reveals one person's entries. Shared records, member pages and dashboards still need `VIEW_RECORDS` or `VIEW_MEMBER_DETAIL` in that unit or a unit above it.
-- Moving a Marine between teams needs `MANAGE_MEMBERS` in both teams and a higher position than the Marine in each. It runs as one transaction, is audited as `move_member`, revokes the Marine's sessions, and carries a role only where the mover may grant it.
+- Moving a Marine between teams needs `MANAGE_MEMBERS` in both teams and a higher position than the Marine in each. It runs as one transaction, is audited as `move_member`, revokes the Marine's sessions, and carries a role only where the mover may grant it, never one that reads records to an account the mover opened that has not signed in as its own (ADR-0013).
 - A role is granted, invited or put on a join code only by someone who could have defined it: it sits below their own position and carries no permission they lack. Unit Leader moves only by ownership transfer.
 - Enrolling an existing account skips that person's consent, so it is limited to Marines the leader already leads (below them in a unit where they manage members). Nobody else, a Unit Instance's Unit Managers and Vantage staff included, pulls an account into a unit: everyone else joins with an invitation or join code they accept themselves, and the directory offers only people the searcher could enroll. One exception: a Vantage Administrator naming the first Lead Unit Manager of a Unit Instance that has none seats that person in its top unit, because nobody in the instance is left to invite them (ADR-0010).
 
@@ -33,7 +33,7 @@ A Unit Instance is what this section calls an organization ([ADR-0007](engineeri
 - **Vantage access** is the only way staff see inside an organization: a request with a reason and a length (15 minutes to 24 hours), approved by a Lead Unit Manager unless the Unit Instance chose to be told instead; read-only (`VIEW_UNIT`, `VIEW_RECORDS`, `VIEW_AUDIT` in its units); ended by expiry, by a Lead Unit Manager, or with the staff member's last platform role; audited in both trails. A request unanswered for a day lapses.
 - **Time-bound grants.** Unit and organization roles can be granted until a date. Authority is computed per request and ignores an expired grant at once; a sweep every minute removes it and records the end in the audit trail.
 - **"Why can they?"** explains, for each unit, every source of a person's permissions: the role and where it was granted, inheritance down the chain, unit leadership, Unit Instance roles, Vantage access, with end dates.
-- **The roster feed is organization-scoped.** An extract changes only accounts that belong to that organization or to none; leaving an organization's roster ends its memberships and releases claims, and the account is deactivated only if it belongs to no other organization. A return restores the memberships the feed ended.
+- **The roster feed is organization-scoped.** An extract changes only accounts that belong to that organization or to none; leaving an organization's roster ends its memberships and releases claims, and the account is deactivated only if it belongs to no other organization. A return restores the memberships the feed ended, and the leadership of a unit the person led while nobody has been named in their place.
 - **Credential resets are Vantage support's,** because an account can belong to several organizations. A Unit Instance's Unit Managers may unlock and sign out their own members; an account with authority beyond the organization is unlocked only by Vantage support or by its own reset link (ADR-0009).
 - Every cross-person read is audited (`view_member`, `view_record`, `list_records`, `view_readiness`, `build_report`, `export_*`) with actor, subject, unit, IP.
 
@@ -46,8 +46,8 @@ A Unit Instance is what this section calls an organization ([ADR-0007](engineeri
 - **No Unit Manager elevates themselves.** Nobody grants, extends or changes their own Unit Instance roles. Nobody gives themselves, through Unit Instance authority, unit authority the chain of command has not given them, by whichever door: granting themselves a role, naming themselves a unit's leader or taking it by transfer, redeeming their own join code or invitation, or widening a role they hold (`guardSelfReach` in `server/services/org.ts`, code `self_grant`). That covers roles that only make units or manage members as well as roles that read records, since making a unit and leading it reaches the same records. Nor does anyone set a new end date on a unit role they hold, unless the chain of command gives them full unit authority there. This holds for Lead Unit Managers too; another Unit Manager, or the unit's chain of command, grants it, and the audit trail shows who. Linking or changing the CAC (EDIPI) of someone else who holds a Unit Instance role is a Lead Unit Manager's (`org_permission`), so a Unit Manager cannot link their own card to a Lead Unit Manager's account. Each check runs before anything is written. Platform authority is out of reach: `/api/platform` refuses anyone without a platform role (`not_staff`).
 - **No Vantage Administrator makes themselves a Unit Manager.** A Vantage Administrator never names themselves a Unit Instance's Lead Unit Manager, in the create form, in "name a Lead Unit Manager", or in a provisioning manifest (`self_grant`). Holding `platform.orgs` no longer bypasses the self-service switch, or its per-person limit, on creating a top-level unit. Under `mcen`, where self-service is always off, staff found Unit Instances only in the Vantage Administrator console or from a manifest, which gives them no role in it; a legacy deployment that turns self-service on lets staff found one as anyone may. A Vantage Administrator names a first Lead Unit Manager for a Unit Instance that has none; someone not yet a member is seated in its top unit (start reason `manager_assigned`).
 - **Vantage Administrators assign Unit Managers** (`platform.managers`, decided by John on 2026-10-08). They add and remove Lead Unit Managers and Unit Managers in any Unit Instance at any time: never themselves, members of the instance only, never its last Lead Unit Manager. The person and the instance's Lead Unit Managers are told, and every step is in both the instance's audit trail and the platform's.
-- **Vantage support on an account is visible to the Unit Instance.** A temporary password, a second-factor reset, an EDIPI correction, deactivation and reactivation are written into the audit trail of every Unit Instance the person belongs to (`vantage_account_support`), and where they hold a Unit Instance role or lead a unit there, its Lead Unit Managers are told. That detects a takeover of a Unit Manager's sign-in; requiring a second person to prevent one is Task 7's.
-- **Known limits, for Task 7.** A Unit Manager who can create or seat accounts can make a second identity and grant it what they may not grant themselves; CAC-only sign-in under MCEN, one card per person, is what closes it. Unit leadership, unlike a Unit Instance role, outlasts the leader's membership until it is transferred. ADR-0010 lists the rest.
+- **Vantage support on an account is visible to the Unit Instance.** A temporary password, a second-factor reset, an EDIPI correction, deactivation and reactivation are written into the audit trail of every Unit Instance the person belongs to (`vantage_account_support`), and where they hold a Unit Instance role or lead a unit there, its Lead Unit Managers are told. Where the account holds authority (any platform role, a seated Unit Instance role, or a unit it leads), the first three also need a second member of Vantage staff (ADR-0013): one asks with a reason, another holder of account support who is neither the one asking nor the account approves (a Lead Vantage Administrator when the account is staff), and the one who asked makes the change once within 24 hours, the approval used in the same transaction. Every step is audited as enterprise administration and both trails name the approver. Authority the account gave up in the last 30 days still counts. A staff member who changed an account's sign-in may then give it authority (John, 2026-10-11): both steps are in the audit trail under the same actor, and a new Unit Manager or Lead Unit Manager is told to the instance's Lead Unit Managers. `scripts/recover-operator.ts` on the server stays the break-glass way back in.
+- **Known limits, and what Task 7 closed.** A Unit Manager who creates or seats accounts can no longer give those accounts a role that reads records, a Unit Instance role or a unit to lead until each has signed in as its own person ("Until proven", next section). Unit leadership now ends with the leader's membership. Proof is still whatever the account's own CAC or organization sign-in established; CAC-only sign-in under MCEN, one card per person, is what makes it strong. ADR-0010 lists the rest.
 - **The first-run exception.** Setup makes one account Lead Vantage Administrator, the first Unit Instance's Lead Unit Manager and the leader of its top unit. [deploy-mcen.md](deploy-mcen.md) gives the hand-off that ends the dual hat.
 
 ## The Vantage Administrator console (ADR-0011)
@@ -105,6 +105,77 @@ A Unit Instance is what this section calls an organization ([ADR-0007](engineeri
 - **Unit roles are granted through the existing `/api/org` routes**, so ADR-0010's self-grant and
   record-reading rules apply unchanged.
 
+## Security audit and least privilege (ADR-0013)
+
+[ADR-0013](engineering/ADR/0013-security-audit-least-privilege.md) closes the findings Tasks 2 and 4 left for Task 7.
+[docs/security/ASVS.md](security/ASVS.md) maps the result to OWASP ASVS 5.0.0.
+
+- **Three audit categories.** Every action is catalogued (`shared/auditCatalog.ts`) as user activity, unit
+  administration or enterprise administration, and each entry seals its category into the chain when it is
+  written. Both trails filter by category and export it. Entries from before migration 021 are not rewritten;
+  they read in their action's category. A test scans the server and scripts so no action goes uncatalogued.
+- **The audit log is append-only in the database.** Triggers refuse any change or removal (`audit_append_only`,
+  answered as 403). Only three things lift them, each inside one transaction that puts them back before it
+  commits: removing an expired demo workspace, loading an instance archive into a fresh instance, and
+  `scripts/start-over.ts`. Retention, disposition and erasure never touch the audit log.
+- **Anchors outside the server.** Each day something was written, the chain's head (seq, hash, count) is written
+  into the chain as `audit_chain_anchored`, so it leaves the host with the syslog or stdout copy. Holders of
+  `platform.audit` check a kept anchor in the console (`POST /api/platform/integrity/verify`); every check is
+  audited, and a failed one tells every Lead Vantage Administrator.
+- **What is audited.** Besides what was before: failed sign-ins (`login_failed`; a name that matches no account is
+  not recorded), refusals at the administration routes (`access_denied`, once in ten minutes per person, route and
+  code; made-up addresses under a console's own guard count as one refusal, which names the first address asked
+  for, cut short; never for a step-up, a 401 or the boundary, which audits itself), counseling amendments by field name,
+  unit role edits by the permissions added and removed, new releases, each schema migration (every one this
+  build runs, however old the database it starts on), owners named in configuration, revoked invitations, and the
+  person who restored an instance archive.
+- **A second staff member for a takeover.** A temporary password, a second-factor reset or a CAC change on an
+  account that holds authority needs another holder of account support to approve it first (see Vantage
+  Administrator and Unit Manager, above). This is the recommended "Second staff member" option; John has not yet
+  answered that decision card (INFRASTRUCTURE_QUESTIONS I-31). Authority the account gave up in the last 30 days
+  still counts, so removing it, changing the sign-in and giving it back still needs the second person. The staff
+  member who changed an account's sign-in may then give it authority, on the record (John, 2026-10-11).
+  `scripts/recover-operator.ts` on the server is the break-glass path.
+- **The support delivery log.** Vantage support sees every delivery. A unit's support queue sees only the
+  account's own sign-in, reset and address-confirmation mail, with status and time, never subjects, addresses,
+  errors, or sign-in details another Unit Instance sent.
+- **Leadership needs membership.** A unit's leader leads it only while they belong to it. Ending that membership,
+  by any path, ends the leadership, on the record (`unit_leader_ended`), and the Lead Unit Managers are told. A
+  leader archiving the unit only they belong to closes it, and nobody is asked to name a leader. A roster restore
+  gives the leadership back while the unit is still unled (`unit_leader_set`); otherwise the Unit Leader role is
+  not given back either.
+- **"Until proven"** (decided by John, 2026-10-09). An account a Unit Manager created or invited (account import,
+  invitation or join code, its first unit apart from one it founded itself) gets from that same person no role
+  that reads records, no Unit Instance role and no unit to lead until it has signed in with its own CAC or the
+  organization's sign-in. Refused as `unproven_own_account`; another Unit Manager or the chain of command can
+  grant it. A role a code, invitation or import carries is held back (`unit_role_withheld`) and the person still
+  joins. The unit's default role is held
+  back the same way when it reads records, and a move carries no such role to them. Widening a default role to
+  read records is refused as `self_grant` unless the editor leads the unit or the chain of command already gives
+  them that reach, since every account they open would receive it.
+- **Separation of duties.** The Vantage Administrator console's **Separation of duties** page (`platform.audit`,
+  read-only) lists dual-hatted accounts, Unit Managers in several instances, leaders who are not members, and
+  unproven accounts holding roles from whoever opened them.
+- **Console reads are limited** per person: `VANTAGE_CONSOLE_READS_PER_15_MINUTES` (1800 by default) for `GET`
+  requests to `/api/platform` and `/api/orgs`, answered 429 `reads_throttled` beyond it.
+- **Privileged routes are inventoried.** `server/authz/privilegedRoutes.ts` lists every mutating and bulk-export
+  route of the platform, `orgs` and `org` routers with its permission, step-up and audit actions;
+  `tests/server/privilegedRoutes.test.ts` holds the routers to it and checks an ordinary member is refused on each.
+
+## Logs
+
+Every log Vantage keeps, where it goes and who reads it. Nothing else is written.
+
+| Log | What it holds | Format and place | Who reads it | How long |
+|---|---|---|---|---|
+| Audit trail (`audit_log`) | Every action in `shared/auditCatalog.ts`: when (UTC), who, from which address, what, about whom, in which unit and Unit Instance, and the category | Database table; HMAC chain; append-only | `platform.audit` (all); a Unit Instance's `org.audit` (its own entries); a person, what others did about them | No schedule: kept (INFRASTRUCTURE_QUESTIONS I-32) |
+| Audit copy off the host | The same records, each with its hash, as committed, anchors included | One JSON line on standard output (`VANTAGE_AUDIT_STDOUT`) and/or RFC 5424 syslog over UDP, TCP or TLS (`VANTAGE_AUDIT_SYSLOG`) | Whoever runs the collector | The collector's (I-08, I-30) |
+| Case histories (`work_events`) | Each step of a work item | Database table; append-only; HMAC chain per case, anchored daily in the audit trail | Whoever may read the case | With the case |
+| Process output | Start-up, scheduled jobs' results, unhandled request errors (never a request body, password or token) | Standard output and standard error | The host's operators | The host's |
+| Product events (`product_events`) | A closed catalogue of events with scalar properties only, no free text | Database table | `platform.usage`, as counts | 400 days, then pruned daily |
+| Email delivery (`email_log`) | Kind, recipient, subject, status, error, Unit Instance | Database table | Vantage support (all), `platform.email` (recent recipients), a unit support queue (status and time of the account's own mail) | No schedule |
+| Operations records | Releases, migrations, backups, job runs | Database (`meta`, `backup_history`); job runs in memory | `platform.view` | Kept; job runs until restart |
+
 ## The Unit Instance boundary (ADR-0008)
 
 Permissions are held per unit, so a person who serves in one Unit Instance only ever stands in its units. Someone attached to two commands holds real authority in each, and may work in each; what no authority allows is carrying one instance's data, or a reference to it, into the other. Where an operation names two units, or a unit and a row from another unit, the server checks that both are in one Unit Instance (`sameInstance` and `assertSameInstance` in `server/authz/scope.ts`, refusals with the code `cross_instance`):
@@ -134,6 +205,7 @@ An account is the person for a whole career; Unit Instances hold memberships to 
 
 - The audit log is an HMAC hash chain under a chain key kept in the database and sealed with `VANTAGE_SECRET`; the head is stored separately and verified in the Vantage Administrator console. Each entry carries its organization (sealed into the hash when set), so an organization reads its own trail and the platform reads its own. Case histories are chained the same way, and a history whose seals were removed reads as broken.
 - Both chains detect a change made by somebody who has the database but not the secret. Against somebody who holds the whole server, the evidence is a copy they do not control: `VANTAGE_AUDIT_SYSLOG` sends every audit record, with its hash, to a syslog collector as it is committed (see `docs/operations.md`).
+- The audit log is append-only in the database as well (ADR-0013): triggers refuse changing or removing an entry, and the chain's head is anchored daily into the copy that leaves the host, where it can be checked against the chain from the Vantage Administrator console.
 - `VANTAGE_SECRET` can be changed: set the old one as `VANTAGE_SECRET_PREVIOUS` for one start and every stored secret is re-sealed.
 - Records carry a `version`; concurrent edits are rejected with the current copy (409) and the client offers reload or overwrite.
 - CSV import screens exact and near duplicates; the database enforces a per-user fingerprint.
@@ -196,7 +268,12 @@ An account is the person for a whole career; Unit Instances hold memberships to 
 | Sidestepping the demo's closed routes | Paths compared case-insensitively, without trailing slashes |
 | Session theft | Digest storage, short idle timeout, revocation on sensitive changes, device list |
 | Insider read of private records | Not reachable through the API; audit of every shared read |
-| Tampering with the audit trail | HMAC chain verified in both consoles; a copy of every record sent off the host |
+| Tampering with the audit trail | Append-only triggers; HMAC chain verified in both consoles; a copy of every record sent off the host, with a daily anchor of the chain's head checked against it (ADR-0013) |
+| Vantage support taking over an account that holds authority | A second staff member approves first, the approval used once in the change's transaction; both trails name the approver; authority given up in the last 30 days still counts, and whoever changed the sign-in cannot hand authority back (ADR-0013) |
+| A Unit Manager granting a second identity what they may not grant themselves | "Until proven": no record-reading role, Unit Instance role or leadership from whoever opened the account until it signs in as its own, through the unit's default role and a move as well (ADR-0013) |
+| Flooding the audit trail with refused requests | One `access_denied` per person, method, route and code in ten minutes; made-up addresses under a console's guard count as one; the console read and mutation limits (ADR-0013) |
+| A leader who has left a unit still leading it | Leadership counts only while the leader is a member, and ends when the membership does (ADR-0013) |
+| Quietly reading a console's data in bulk | A per-person limit on console reads; every bulk export audited |
 | A forged or replayed organization sign-in | Signature checked against the provider's keys, `none` and HMAC refused, issuer, audience, expiry and nonce checked, state used once |
 | One organization identity taking over another's account | An account is bound to one provider subject; a second subject with the same address is refused |
 | A revoked CAC | Direct mode checks the issuing CAs' CRLs and fails closed; proxy mode relies on the gateway's check |

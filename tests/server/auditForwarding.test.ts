@@ -51,11 +51,11 @@ test('every audit record reaches a syslog collector with its chain hash, and a r
     const before = siem.lines.length;
     try {
       app.ctx.db.transaction(() => {
-        audit(app.ctx, { action: 'rolled_back_on_purpose' });
+        audit(app.ctx, { action: 'rolled_back_on_purpose', category: 'enterprise' });
         throw new Error('roll back');
       })();
     } catch { /* expected */ }
-    audit(app.ctx, { action: 'kept_after_rollback' });
+    audit(app.ctx, { action: 'kept_after_rollback', category: 'enterprise' });
     await until(() => siem.lines.some((l) => l.includes('kept_after_rollback')));
     const after = siem.lines.slice(before).join('\n');
     assert.match(after, /kept_after_rollback/);

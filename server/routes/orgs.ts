@@ -3,7 +3,7 @@ import express from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound } from '../lib/errors.ts';
-import { requireAuth, requireSudo } from '../auth/middleware.ts';
+import { limitConsoleReads, requireAuth, requireSudo } from '../auth/middleware.ts';
 import { scopeFor, orgCan } from '../authz/scope.ts';
 import { ORG_PERMISSION_LIST, ORG_ROLES, ORG_ROLE_KEYS, ROLE_TEMPLATE, type OrgPermission, type OrgRole } from '../../shared/permissions.ts';
 import { audit, orgAuditClause, verifyAuditChain } from '../services/audit.ts';
@@ -43,7 +43,7 @@ import type { PeriodKey } from '../../shared/metrics.ts';
  * and the granular Unit Instance permission it needs; nothing here reads a Marine's records.
  */
 export const orgsRouter = Router();
-orgsRouter.use(requireAuth);
+orgsRouter.use(requireAuth, limitConsoleReads);
 
 /** The caller holds one of these Unit Instance permissions in the Unit Instance the path names, and it is active. */
 const inOrg = (...permissions: OrgPermission[]) => (req: Request, _res: Response, next: NextFunction) => {
@@ -176,7 +176,7 @@ orgsRouter.post('/:orgId/accounts/import', inOrg('org.members'), accountRoster, 
   const rows = readRoster(buffer, filename.slice(0, 200));
   if (req.query.apply !== '1') return res.json(planAccounts(req.ctx, org.id, rows));
   const result = applyAccounts(req.ctx, req.user, org.id, rows, ip(req));
-  audit(req.ctx, { actor_id: req.user.id, action: 'accounts_imported', entity: 'organization', entity_id: org.id, org_id: org.id, detail: `${result.created} created; ${result.counts.exists} already existed; ${result.counts.error} skipped; ${result.counts.new_units} new units`, ip: ip(req) });
+  audit(req.ctx, { actor_id: req.user.id, action: 'accounts_imported', entity: 'organization', entity_id: org.id, org_id: org.id, detail: `${result.created} created; ${result.counts.exists} already existed; ${result.counts.error} skipped; ${result.counts.new_units} new units; ${result.withheld.length} roles held back until the account signs in as its own`, ip: ip(req) });
   res.json(result);
 }));
 
@@ -372,7 +372,7 @@ orgsRouter.get('/:orgId/audit', inOrg('org.audit'), wrap((req, res) => {
   });
 }));
 
-const ORG_AUDIT_CSV_COLUMNS = [...AUDIT_CSV_COLUMNS.slice(0, 9), 'unit_id', ...AUDIT_CSV_COLUMNS.slice(9)];
+const ORG_AUDIT_CSV_COLUMNS = AUDIT_CSV_COLUMNS.flatMap((c) => (c === 'entity_id' ? [c, 'unit_id'] : [c]));
 /** The Unit Instance's trail as a file, for its commander or an inspector. Downloading it is itself in the trail. */
 orgsRouter.get('/:orgId/audit/export', inOrg('org.audit'), wrap((req, res) => {
   const org = orgOf(req);
@@ -380,7 +380,7 @@ orgsRouter.get('/:orgId/audit/export', inOrg('org.audit'), wrap((req, res) => {
   const q = parse(orgAuditQuery.omit({ before: true, limit: true }), req.query);
   const rows = auditRows(req.ctx, orgTrail(req, q.unit), q, AUDIT_EXPORT_MAX + 1);
   if (rows.length > AUDIT_EXPORT_MAX) throw badRequest(`More than ${AUDIT_EXPORT_MAX.toLocaleString('en-US')} entries match. Narrow the dates and export each range.`, { code: 'export_too_large' });
-  const filter = auditFilterLabel({ action: q.action, q: q.q, from: q.from, to: q.to, unit: q.unit });
+  const filter = auditFilterLabel({ action: q.action, category: q.category, q: q.q, from: q.from, to: q.to, unit: q.unit });
   audit(req.ctx, { actor_id: req.user.id, action: 'organization_audit_exported', entity: 'audit_log', org_id: org.id, detail: `${rows.length} rows as ${format}${filter ? `; ${filter}` : ''}`, ip: ip(req) });
   res.setHeader('Content-Disposition', `attachment; filename="vantage-${org.slug.toLowerCase()}-audit-${now().slice(0, 10)}.${format}"`);
   if (format === 'json') return res.json({ exportedAt: now(), organization: { id: org.id, name: org.name }, filter: q, rows });

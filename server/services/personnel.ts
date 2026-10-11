@@ -3,7 +3,7 @@ import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { badRequest } from '../lib/errors.ts';
 import { createHash } from 'node:crypto';
-import { addMember, primaryOrgOf, removeMember, setPrimaryUnit } from './org.ts';
+import { addMember, claimUnit, primaryOrgOf, removeMember, setPrimaryUnit } from './org.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
 import { seatedOrgRole } from '../authz/scope.ts';
@@ -152,9 +152,9 @@ interface RemovedOrgRole { role: OrgRole; granted_by: string | null; expires_at:
 /**
  * What a separation took, kept on the roster row so a return gives it back: each membership with its roles. The Unit
  * Instance roles it ended ride on the first one (`orgRoles`), so the list keeps the shape earlier versions read and
- * restore from.
+ * restore from. `led` marks a unit the person led, whose leadership the separation ended with the membership.
  */
-type RemovedMemberships = Array<{ unit_id: string; is_primary: number; billet: string | null; roles: Array<{ role_id: string; expires_at: string | null }>; frozen_at: string; orgRoles?: RemovedOrgRole[] }>;
+type RemovedMemberships = Array<{ unit_id: string; is_primary: number; billet: string | null; roles: Array<{ role_id: string; expires_at: string | null }>; frozen_at: string; led?: boolean; orgRoles?: RemovedOrgRole[] }>;
 
 export const MASS_SEPARATION_SHARE = 0.2;
 
@@ -381,6 +381,7 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
         ...m,
         roles: (db.prepare('SELECT role_id, expires_at FROM member_roles WHERE user_id = ? AND unit_id = ?').all(userId, m.unit_id) as Array<{ role_id: string; expires_at: string | null }>),
         frozen_at: at,
+        ...(db.prepare('SELECT 1 FROM units WHERE id = ? AND owner_user_id = ?').get(m.unit_id, userId) ? { led: true } : {}),
       }));
       // Leaving the last unit ends their Unit Instance roles as any departure does (ADR-0010). They are kept with the
       // memberships, so the restore below gives them back if the separation was the extract's mistake.
@@ -401,7 +402,15 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
         // The primary unit this organization's own extract moved away goes back with the rest, even when it went to another
         // Unit Instance meanwhile: giving back what the same feed took is not taking from another instance (ADR-0008).
         if (m.is_primary) setPrimaryUnit(ctx, userId, m.unit_id);
-        for (const r of m.roles) db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at, expires_at) SELECT ?, id, unit_id, NULL, ?, ? FROM roles WHERE id = ? AND unit_id = ?').run(userId, at, r.expires_at, r.role_id, m.unit_id);
+        // The leadership the separation ended comes back while nobody has been named in their place. Otherwise the Unit
+        // Leader role stays with whoever leads it now: it goes only with leading the unit.
+        const unled = db.prepare('SELECT 1 FROM units WHERE id = ? AND owner_user_id IS NULL').get(m.unit_id);
+        if (m.led && unled) {
+          claimUnit(ctx, m.unit_id, userId, 'roster_restored');
+          audit(ctx, { actor_id: actorId, action: 'unit_leader_set', entity: 'unit', entity_id: m.unit_id, unit_id: m.unit_id, org_id: plan.orgId, subject_id: userId, detail: `unled -> ${userId}; ${plan.source}: back on the roster` });
+        }
+        const leads = Boolean(db.prepare('SELECT 1 FROM units WHERE id = ? AND owner_user_id = ?').get(m.unit_id, userId));
+        for (const r of m.roles) db.prepare("INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at, expires_at) SELECT ?, id, unit_id, NULL, ?, ? FROM roles WHERE id = ? AND unit_id = ? AND (key IS NOT 'unit-leader' OR ?)").run(userId, at, r.expires_at, r.role_id, m.unit_id, leads ? 1 : 0);
         for (const table of RECORD_TABLE_NAMES) db.prepare(`UPDATE ${table} SET frozen_at = NULL, updated_at = ? WHERE user_id = ? AND unit_id = ? AND frozen_at = ?`).run(at, userId, m.unit_id, m.frozen_at);
       }
       // Back in a unit of the Unit Instance, the roles the separation ended come back with them, unless one has run out.

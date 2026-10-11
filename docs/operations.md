@@ -51,8 +51,13 @@ who has the whole server has both. What catches them is a copy they do not contr
   ships container logs somewhere you keep.
 
 Each record carries its `entry_hash`, so a collector's copy can be compared with the chain at any time. The daily
-anchor of every case history's head is an audit record and travels the same way. The Vantage Administrator console's Audit chain
-panel says where copies go, how many were sent, and warns when there are none.
+anchor of every case history's head is an audit record and travels the same way. So does the daily anchor of the
+audit chain's own head (`audit_chain_anchored`, naming its seq, hash and entry count), written each day something
+was written. To check a kept anchor, open **Audit trail** in the Vantage Administrator console and use **Check a
+kept anchor** in the Audit chain anchors panel with its seq and hash: the result is audited, and a failed check
+tells every Lead Vantage Administrator (ADR-0013). Who keeps the copy and how often it is compared is
+INFRASTRUCTURE_QUESTIONS I-30. The Vantage Administrator console's Audit chain panel says where copies go, how many
+were sent, and warns when there are none.
 
 ## Adding people from a roster
 

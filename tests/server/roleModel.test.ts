@@ -9,6 +9,7 @@ import {
 import { addMember, removeMember } from '../../server/services/org.ts';
 import { orgCounts } from '../../server/services/organizations.ts';
 import { provisionUnitInstance } from '../../server/services/provisioning.ts';
+import { isUnitOwner, scopeFor } from '../../server/authz/scope.ts';
 
 /**
  * Vantage Administrator and Unit Manager (ADR-0010): explicit roles, granular permissions checked by the server, Unit
@@ -391,9 +392,16 @@ test('a Unit Manager cannot re-key a Lead Unit Manager’s CAC sign-in, and Vant
 
   const toldLead = () => (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM notifications WHERE user_id = ?').get(org.owner!.id) as { n: number }).n;
   const before = toldLead();
-  const reset = await post(staff.support!.token, `/api/platform/accounts/${target.id}/temporary-password`);
+  // They hold authority, so a second member of Vantage staff approves the takeover first (ADR-0013).
+  const alone = await post(staff.support!.token, `/api/platform/accounts/${target.id}/temporary-password`);
+  assert.equal(alone.status, 403, JSON.stringify(alone.body));
+  assert.equal(alone.body.code, 'approval_required');
+  const asked = await post(staff.support!.token, `/api/platform/accounts/${target.id}/credential-approvals`, { action: 'temporary_password', reason: 'Ticket 4410: locked out after a phone swap' });
+  assert.equal(asked.status, 201, JSON.stringify(asked.body));
+  assert.equal((await post(staff.admin!.token, `/api/platform/credential-approvals/${asked.body.approval.id}/approve`)).status, 200);
+  const reset = await post(staff.support!.token, `/api/platform/accounts/${target.id}/temporary-password`, { approvalId: asked.body.approval.id });
   assert.equal(reset.status, 200, JSON.stringify(reset.body));
-  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'vantage_account_support' AND org_id = 'G8' AND subject_id = ?").get(target.id), 'in the Unit Instance’s trail');
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM audit_log WHERE action = 'vantage_account_support' AND org_id = 'G8' AND subject_id = ? AND detail LIKE '%approved by Vadmin Marine'").get(target.id), 'in the Unit Instance’s trail, naming who approved it');
   assert.ok(toldLead() > before, 'and its Lead Unit Managers are told');
   // The marine leads a unit by now (see above), so a member who holds nothing.
   const plain = await app.register('plainsupport');
@@ -473,4 +481,46 @@ test('the last Lead Unit Manager is never removed out from under the Unit Instan
   assert.equal(archive.status, 400, JSON.stringify(archive.body));
   assert.equal(archive.body.code, 'last_owner');
   assert.equal((app.ctx.db.prepare("SELECT active FROM units WHERE id = 'G1S'").get() as { active: number }).active, 1);
+});
+
+test('a leader the roster separated by mistake leads again on restore, unless a leader was named meanwhile', async () => {
+  const leader = await app.register('feedleader');
+  await enroll(app, op.token, 'G8', leader.id);
+  app.ctx.db.prepare("UPDATE users SET edipi = '5550002004' WHERE id = ?").run(leader.id);
+  assert.equal((await post(op.token, '/api/org/units', { name: 'Feed Cell', code: 'FDLC', parent_id: 'G8' })).status, 201);
+  assert.equal((await post(op.token, '/api/orgs/G8/units/FDLC/leader', { user_id: leader.id })).status, 200);
+  op.token = await login('boletz'); // handing on the unit they made signed them out
+  const row = (edipi: string, last: string, status: string) => `${edipi},${last},Pat,,Sgt,3451,2028-01-31,G8,${status}`;
+  const extract = (status: string) => [row('5550002001', 'Lead', 'Active'), row('5550002002', 'Manager', 'Active'), row('5550002004', 'Leader', status)];
+  const ownerOf = () => (app.ctx.db.prepare("SELECT owner_user_id FROM units WHERE id = 'FDLC'").get() as { owner_user_id: string | null }).owner_user_id;
+  const holdsLeaderRole = (id: string) => Boolean(app.ctx.db.prepare("SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = 'FDLC:unit-leader'").get(id));
+  assert.equal((await feed(op.token, 'G8', extract('Active'))).status, 200);
+
+  // Separated: the leadership ends with the membership, and the roster row remembers they led the unit.
+  assert.equal((await feed(op.token, 'G8', extract('Separated'))).status, 200);
+  assert.equal(ownerOf(), null);
+  const kept = JSON.parse((app.ctx.db.prepare("SELECT removed_units FROM personnel_roster WHERE org_id = 'G8' AND edipi = '5550002004'").get() as { removed_units: string }).removed_units);
+  assert.equal(kept.find((m: { unit_id: string }) => m.unit_id === 'FDLC')?.led, true);
+  assert.equal(kept.find((m: { unit_id: string }) => m.unit_id === 'G8')?.led, undefined);
+
+  // Back on the extract with the unit still unled: they lead it again, role and all, on the record.
+  assert.equal((await feed(op.token, 'G8', extract('Active'))).status, 200);
+  assert.equal(ownerOf(), leader.id);
+  assert.equal(isUnitOwner(app.ctx, leader.id, 'FDLC'), true);
+  assert.equal(holdsLeaderRole(leader.id), true);
+  const set = app.ctx.db.prepare("SELECT actor_id, detail, category FROM audit_log WHERE action = 'unit_leader_set' AND subject_id = ? ORDER BY seq DESC LIMIT 1").get(leader.id) as { actor_id: string; detail: string; category: string };
+  assert.equal(set.actor_id, op.id);
+  assert.match(set.detail, /^unled -> \S+; MCTFS: back on the roster$/);
+  assert.equal(set.category, 'unit');
+
+  // Separated again, and a Unit Manager names another leader meanwhile: the restore gives back membership, not leadership.
+  assert.equal((await feed(op.token, 'G8', extract('Separated'))).status, 200);
+  const next = await app.register('feednext');
+  await enroll(app, op.token, 'G8', next.id);
+  assert.equal((await post(op.token, '/api/orgs/G8/units/FDLC/leader', { user_id: next.id })).status, 200);
+  assert.equal((await feed(op.token, 'G8', extract('Active'))).status, 200);
+  assert.equal(ownerOf(), next.id);
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = 'FDLC'").get(leader.id), 'a member again');
+  assert.equal(holdsLeaderRole(leader.id), false, 'the Unit Leader role goes only with leading the unit');
+  assert.equal((scopeFor(app.ctx, { id: leader.id }).permissions.FDLC ?? 0) & PERMISSIONS.ADMINISTRATOR, 0);
 });

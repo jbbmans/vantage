@@ -102,6 +102,27 @@ test('the platform audit trail filters on the server and downloads what it shows
   expect((await download).suggestedFilename()).toMatch(/^vantage-platform-audit-\d{4}-\d{2}-\d{2}\.csv$/);
 });
 
+test('the platform audit trail filters by category from the keyboard, and each entry names its category', async ({ page }) => {
+  await loginAs(page, OPERATOR.username);
+  await openAdmin(page, 'audit', 'Platform audit trail');
+  await expect(page.getByRole('columnheader', { name: 'Action and category' })).toBeVisible();
+  // The select is labelled and works without a pointer (ADR-0013).
+  const category = page.getByRole('combobox', { name: 'Category' });
+  await expect(category).toHaveText('All');
+  await category.focus();
+  await page.keyboard.press('Enter');
+  await page.getByRole('option', { name: 'User activity' }).focus();
+  await page.keyboard.press('Enter');
+  await expect(category).toHaveText('User activity');
+  await page.getByRole('button', { name: 'Apply' }).click();
+  await expect(page.getByText(/shown, filtered/)).toBeVisible();
+  const rows = page.locator('tbody tr');
+  await expect(rows.first()).toContainText('User activity');
+  for (const text of await rows.allInnerTexts()) expect(text).toContain('User activity');
+  const results = await new AxeBuilder({ page }).analyze();
+  expect(serious(results.violations)).toEqual([]);
+});
+
 test('the operations pages fit tablet and phone widths without sideways scrolling', async ({ page }) => {
   test.setTimeout(120_000);
   await loginAs(page, OPERATOR.username);

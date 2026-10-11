@@ -2,6 +2,7 @@ import { test, after, before } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, enroll, PASSWORD, type TestApp, today } from './helpers.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
+import { auditAppendOnlyTriggers } from '../../server/db/index.ts';
 
 let app: TestApp;
 let op: { token: string; id: string; unitId: string };
@@ -187,8 +188,15 @@ test('audit log and export are permission-gated and chain-verified', async () =>
   assert.ok(exp.body.activities.every((a: any) => a.visibility === 'unit'));
   const { verifyAuditChain } = await import('../../server/services/audit.ts');
   assert.equal(verifyAuditChain(app.ctx).ok, true);
-  app.ctx.db.prepare("UPDATE audit_log SET detail = 'tampered' WHERE seq = 3").run();
-  assert.equal(verifyAuditChain(app.ctx).ok, false);
+  // The log is append-only (ADR-0013): the database refuses the edit. Somebody who drops its triggers can still rewrite
+  // an entry, and the chain is what shows it.
+  assert.throws(() => app.ctx.db.prepare("UPDATE audit_log SET detail = 'tampered' WHERE seq = 3").run(), /audit_append_only/);
+  assert.equal(verifyAuditChain(app.ctx).ok, true);
+  app.ctx.db.exec('DROP TRIGGER audit_log_no_update');
+  try {
+    app.ctx.db.prepare("UPDATE audit_log SET detail = 'tampered' WHERE seq = 3").run();
+    assert.equal(verifyAuditChain(app.ctx).ok, false);
+  } finally { auditAppendOnlyTriggers(app.ctx.db); }
 });
 
 test('operator console: runtime settings, users, lifecycle, export/import, backup', async () => {

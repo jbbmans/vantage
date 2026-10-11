@@ -247,10 +247,32 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
     // keeps them inside the boundary on a database that ran 016 before they existed.
     run: (db) => instanceBoundaryTriggers(db),
   },
+  {
+    id: 21,
+    name: '021_audit_categories_and_append_only',
+    // Each audit entry seals its category, and the log is append-only from here (ADR-0013). Entries already written are
+    // left as they are, with no category: their hashes never sealed one, so a read takes it from the catalogue. The
+    // credential_approvals table comes from schema.sql; email_log gains the Unit Instance a message was sent for.
+    run: (db) => {
+      if (!columnsOf(db, 'audit_log').has('category')) {
+        db.exec("ALTER TABLE audit_log ADD COLUMN category TEXT CHECK (category IS NULL OR category IN ('user', 'unit', 'enterprise'))");
+      }
+      db.exec('CREATE INDEX IF NOT EXISTS idx_audit_category ON audit_log(category, seq)');
+      auditAppendOnlyTriggers(db);
+      // Mail names the Unit Instance it was sent for, so a unit's support queue sees only its own; older mail names none.
+      if (!columnsOf(db, 'email_log').has('org_id')) db.exec('ALTER TABLE email_log ADD COLUMN org_id TEXT');
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
 export const MIGRATION_CATALOG: ReadonlyArray<{ id: number; name: string }> = MIGRATIONS.map(({ id, name }) => ({ id, name }));
+
+/** What `migration_audited_through` holds for a database created by this start whose creation is not audited yet. */
+export const NEW_DATABASE = 'new';
+
+/** Migrations up to this one ran before Vantage audited them; a database that has not said otherwise audits from the next. */
+export const AUDITED_FROM = 21;
 
 /** One migration this database ran: when, how long it took, and under which version of Vantage. */
 export interface MigrationRun { id: number; name: string; at: string; ms: number; version: string }
@@ -493,6 +515,32 @@ export function dropInstanceBoundaryTriggers(db: Db) {
   for (const { name } of triggers) db.exec(`DROP TRIGGER "${name}"`);
 }
 
+const AUDIT_APPEND_ONLY_TRIGGERS = ['audit_log_no_update', 'audit_log_no_delete'] as const;
+
+/**
+ * The audit log is append-only, kept by the database as well as by the code (ADR-0013): an entry is never changed or
+ * removed, so a defect or a hand-written statement cannot quietly rewrite the trail. The hash chain makes a rewrite
+ * visible afterwards; these refuse it as it is tried. Each refusal begins `audit_append_only:`, which the API answers as
+ * a refusal rather than a server error.
+ */
+export function auditAppendOnlyTriggers(db: Db) {
+  db.exec(`CREATE TRIGGER IF NOT EXISTS audit_log_no_update BEFORE UPDATE ON audit_log FOR EACH ROW
+    BEGIN SELECT RAISE(ABORT, 'audit_append_only: an audit entry is never changed'); END`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS audit_log_no_delete BEFORE DELETE ON audit_log FOR EACH ROW
+    BEGIN SELECT RAISE(ABORT, 'audit_append_only: an audit entry is never removed'); END`);
+}
+
+/**
+ * Lifts the audit log's triggers for a caller that puts them back with `auditAppendOnlyTriggers` before its transaction
+ * commits, so they are never missing outside it. Only three callers do: removing an expired demo workspace (a synthetic
+ * database), loading an instance archive into a fresh instance, and scripts/start-over.ts. Outside a transaction it
+ * refuses, so the log is never left open.
+ */
+export function dropAuditAppendOnlyTriggers(db: Db) {
+  if (!db.inTransaction) throw new Error('The audit log is opened only inside a transaction that closes it again.');
+  for (const name of AUDIT_APPEND_ONLY_TRIGGERS) db.exec(`DROP TRIGGER IF EXISTS ${name}`);
+}
+
 const MEMBERSHIP_TRIGGERS = ['unit_membership_opened', 'unit_membership_changed', 'unit_membership_closed'] as const;
 const AT_NOW = "strftime('%Y-%m-%dT%H:%M:%fZ', 'now')";
 
@@ -612,6 +660,11 @@ function cacheStatements(db: Db, limit = 1000) {
 function migrate(db: Db) {
   const version = Number(metaGet(db, 'schema_version') || 0);
   if (!metaGet(db, 'migration_history_since')) metaSet(db, 'migration_history_since', JSON.stringify({ at: new Date().toISOString(), schema: version }));
+  // A new database is audited as created at its schema, not as every migration it ran to get there (auditMigrations).
+  if (version === 0 && !metaGet(db, 'migration_audited_through')) metaSet(db, 'migration_audited_through', NEW_DATABASE);
+  // One an older build migrated has audited nothing yet: every migration this start runs is audited, from the schema it
+  // began at, and never fewer than from AUDITED_FROM.
+  if (version > 0 && version < SCHEMA_VERSION && !metaGet(db, 'migration_audited_through')) metaSet(db, 'migration_audited_through', String(Math.min(version, AUDITED_FROM - 1)));
   for (const m of MIGRATIONS) {
     if (m.id <= version) continue;
     const started = performance.now();

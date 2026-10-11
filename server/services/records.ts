@@ -209,13 +209,26 @@ function assertCarriesNothingAcross(ctx: AppContext, table: RecordTable, row: Re
 
 /**
  * The trail of an edit: where the record now sits, and when it crossed from one Unit Instance into another, where it
- * left as well. Each instance's trail says what crossed its edge without naming the other side (ADR-0008).
+ * left as well. Each instance's trail says what crossed its edge without naming the other side (ADR-0008). A
+ * counseling's edit is an amendment (ADR-0013): counseling_amended, naming the fields that changed (their names, never
+ * their contents), so the trail shows that what a counseling said was revised after the fact.
  */
-function auditEdit(ctx: AppContext, e: { actorId: string; table: RecordTable; id: string; subjectId: string | null; from: string | null; to: string | null; how: string; ip?: string }) {
+function auditEdit(ctx: AppContext, e: { actorId: string; table: RecordTable; id: string; subjectId: string | null; from: string | null; to: string | null; how: string; ip?: string; amended?: string[] }) {
   const crossed = e.to !== e.from && Boolean(orgOfUnit(ctx, e.from)) && Boolean(e.to) && !sameInstance(ctx, e.from, e.to);
   const moved = e.to === e.from ? '' : crossed ? '; moved in from another Unit Instance' : `; moved from ${e.from ?? 'no unit'} to ${e.to ?? 'no unit'}`;
-  audit(ctx, { actor_id: e.actorId, action: 'edit', entity: e.table, entity_id: e.id, subject_id: e.subjectId, unit_id: e.to ?? e.from, detail: `${e.how}${moved}`, ip: e.ip });
-  if (crossed) audit(ctx, { actor_id: e.actorId, action: 'edit', entity: e.table, entity_id: e.id, subject_id: e.subjectId, unit_id: e.from, detail: `${e.how}; moved out to another Unit Instance`, ip: e.ip });
+  const changed = e.amended ? `; changed: ${e.amended.join(', ') || 'nothing'}` : '';
+  const amendment = Boolean(e.amended);
+  audit(ctx, { actor_id: e.actorId, action: amendment ? 'counseling_amended' : 'edit', entity: e.table, entity_id: e.id, subject_id: e.subjectId, unit_id: e.to ?? e.from, detail: `${e.how}${changed}${moved}`, ip: e.ip });
+  if (crossed) audit(ctx, { actor_id: e.actorId, action: amendment ? 'counseling_amended' : 'edit', entity: e.table, entity_id: e.id, subject_id: e.subjectId, unit_id: e.from, detail: `${e.how}${changed}; moved out to another Unit Instance`, ip: e.ip });
+}
+
+/** The fields an update changes, by name, against the row as it was. */
+function changedFields(spec: TableSpec, row: Record<string, unknown>, data: Record<string, unknown>, scopeChanged: boolean, finalUnit: string | null, finalVisibility: string): string[] {
+  const same = (f: string) => (spec.json.includes(f) ? JSON.stringify(data[f] ?? []) === String(row[f] ?? '[]') : (data[f] ?? null) === (row[f] ?? null));
+  const fields = spec.fields.filter((f) => data[f] !== undefined && !same(f));
+  if (scopeChanged && finalVisibility !== row.visibility) fields.push('visibility');
+  if (scopeChanged && finalUnit !== row.unit_id) fields.push('unit_id');
+  return fields;
 }
 
 export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTable, body: unknown, reqKey: object, ip?: string) {
@@ -356,7 +369,8 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     if (table === 'activities' && String((error as Error).message).includes('UNIQUE')) throw conflict('An identical activity already exists for that date.', 'duplicate');
     throw error;
   }
-  auditEdit(ctx, { actorId: user.id, table, id, subjectId: row.user_id !== user.id ? row.user_id : null, from: row.unit_id, to: finalUnit, how: row.user_id === user.id ? 'author edit' : 'manager edit', ip });
+  const amended = table === 'counselings' ? changedFields(spec, row as Record<string, unknown>, data, scopeChanged, finalUnit, finalVisibility) : undefined;
+  auditEdit(ctx, { actorId: user.id, table, id, subjectId: row.user_id !== user.id ? row.user_id : null, from: row.unit_id, to: finalUnit, how: row.user_id === user.id ? 'author edit' : row.counselor_id === user.id ? 'counselor edit' : 'manager edit', ip, amended });
   if (spec.assignee && data.assignee_id && data.assignee_id !== row.assignee_id && data.assignee_id !== user.id) {
     notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || row.title || ''), actionUrl: `/records/${table}/${id}`, dedupeKey: `${table}:${id}:assigned:${data.assignee_id}` });
   }

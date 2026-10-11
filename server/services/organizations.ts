@@ -3,8 +3,9 @@ import { ORG_ROLES, ORG_ROLE_KEYS, PERMISSIONS, listPermissions, type OrgRole, t
 import { badRequest, conflict, forbidden, notFound } from '../lib/errors.ts';
 import { now, slug } from '../lib/ids.ts';
 import { audit } from './audit.ts';
+import type { AuditCategory } from '../../shared/auditCatalog.ts';
 import { notify, notifyOrg } from './notifications.ts';
-import { addMember, claimUnit, guardSelfReach, removeMember } from './org.ts';
+import { addMember, claimUnit, guardSelfReach, guardUnprovenOwnAccount, removeMember } from './org.ts';
 import { orgCan, scopeFor, seatedOrgRole } from '../authz/scope.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { assertCanFoundUnitInstance } from './deployment.ts';
@@ -93,6 +94,7 @@ export function createOrganization(ctx: AppContext, actor: Pick<SessionUser, 'id
     : undefined;
   if (input.owner_user_id && !owner) throw badRequest('The first Lead Unit Manager must be an active account.', { fieldErrors: { owner_user_id: 'No such active account.' } });
   if (owner && owner.id === actor.id) throw forbidden('A Vantage Administrator never names themselves a Unit Instance’s Lead Unit Manager. Name the person the command designated.', 'self_grant');
+  if (owner) guardUnprovenOwnAccount(ctx, actor, owner.id);
   assertCanFoundUnitInstance(ctx);
   const at = now();
   ctx.db.transaction(() => {
@@ -108,7 +110,7 @@ export function createOrganization(ctx: AppContext, actor: Pick<SessionUser, 'id
   return publicOrg(getOrg(ctx, code)!);
 }
 
-export function updateOrganization(ctx: AppContext, actor: SessionUser, orgId: string, patch: { name?: string; short_name?: string | null; settings?: Partial<OrgSettings> }, ip?: string) {
+export function updateOrganization(ctx: AppContext, actor: SessionUser, orgId: string, patch: { name?: string; short_name?: string | null; settings?: Partial<OrgSettings> }, ip?: string, category?: AuditCategory) {
   const org = getOrg(ctx, orgId);
   if (!org) throw notFound('No such Unit Instance.');
   const name = patch.name === undefined ? org.name : patch.name.trim();
@@ -122,7 +124,7 @@ export function updateOrganization(ctx: AppContext, actor: SessionUser, orgId: s
     if (org.root_unit_id) ctx.db.prepare('UPDATE units SET name = ?, short_name = ? WHERE id = ?').run(name, shortName, org.root_unit_id);
   })();
   const changed = [patch.name !== undefined && 'name', patch.short_name !== undefined && 'short name', patch.settings && `settings (${Object.keys(patch.settings).join(', ')})`].filter(Boolean).join(', ');
-  audit(ctx, { actor_id: actor.id, action: 'organization_updated', entity: 'organization', entity_id: orgId, org_id: orgId, detail: changed, ip });
+  audit(ctx, { actor_id: actor.id, action: 'organization_updated', category, entity: 'organization', entity_id: orgId, org_id: orgId, detail: changed, ip });
   return publicOrg(getOrg(ctx, orgId)!);
 }
 
@@ -159,19 +161,21 @@ export const liveOwners = (ctx: AppContext, orgId: string) =>
  * or changing the end date of one you hold, is refused: another Lead Unit Manager does it, so no single account can widen
  * its own reach (ADR-0010).
  */
-export function grantOrgRole(ctx: AppContext, actor: SessionUser, orgId: string, input: { user_id: string; role: string; expires_at?: string | null }, ip?: string) {
+export function grantOrgRole(ctx: AppContext, actor: SessionUser, orgId: string, input: { user_id: string; role: string; expires_at?: string | null }, ip?: string, category?: AuditCategory) {
   if (!ORG_ROLE_KEYS.includes(input.role as OrgRole)) throw badRequest('That is not a Unit Instance role.');
   if (input.user_id === actor.id) throw forbidden('Another Lead Unit Manager must change your own Unit Instance roles.', 'self_grant');
   const target = ctx.db.prepare('SELECT id, first_name, last_name FROM users WHERE id = ? AND active = 1').get(input.user_id) as { id: string; first_name: string; last_name: string } | undefined;
   if (!target) throw notFound('No such active account.');
   if (!isOrgMember(ctx, orgId, target.id)) throw badRequest('Unit Instance roles go to members of the Unit Instance. Add them to a unit first.', { fieldErrors: { user_id: 'Not a member of this Unit Instance.' } });
+  // Nor to an account the granter created or invited until it has signed in with its own CAC or the organization's sign-in.
+  guardUnprovenOwnAccount(ctx, actor, target.id);
   const expires = input.expires_at ? new Date(input.expires_at) : null;
   if (expires && (Number.isNaN(expires.getTime()) || expires.getTime() <= Date.now())) throw badRequest('An end date must be in the future.', { fieldErrors: { expires_at: 'Must be in the future.' } });
   ctx.db.prepare(`INSERT INTO org_roles (org_id, user_id, role, granted_by, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)
                   ON CONFLICT(org_id, user_id, role) DO UPDATE SET granted_by = excluded.granted_by, expires_at = excluded.expires_at, created_at = excluded.created_at`)
     .run(orgId, target.id, input.role, actor.id, expires ? expires.toISOString() : null, now());
   invalidateUserSessions(ctx, target.id);
-  audit(ctx, { actor_id: actor.id, action: 'org_role_granted', entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: target.id, detail: `${input.role}${expires ? ` until ${expires.toISOString().slice(0, 10)}` : ''}`, ip });
+  audit(ctx, { actor_id: actor.id, action: 'org_role_granted', category, entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: target.id, detail: `${input.role}${expires ? ` until ${expires.toISOString().slice(0, 10)}` : ''}`, ip });
   const label = ORG_ROLES[input.role as OrgRole].label;
   const orgName = getOrg(ctx, orgId)?.name ?? 'a Unit Instance';
   notify(ctx, target.id, { kind: 'unit', title: `You are now ${label} of ${orgName}`, message: `${ORG_ROLES[input.role as OrgRole].description} Sign in again to pick it up.`, actionUrl: '/console' });
@@ -179,7 +183,7 @@ export function grantOrgRole(ctx: AppContext, actor: SessionUser, orgId: string,
   return orgRoleHolders(ctx, orgId);
 }
 
-export function revokeOrgRole(ctx: AppContext, actor: SessionUser, orgId: string, userId: string, role: string, ip?: string) {
+export function revokeOrgRole(ctx: AppContext, actor: SessionUser, orgId: string, userId: string, role: string, ip?: string, category?: AuditCategory) {
   if (!ORG_ROLE_KEYS.includes(role as OrgRole)) throw badRequest('That is not a Unit Instance role.');
   if (role === 'owner') {
     const owners = liveOwners(ctx, orgId);
@@ -188,7 +192,7 @@ export function revokeOrgRole(ctx: AppContext, actor: SessionUser, orgId: string
   const r = ctx.db.prepare('DELETE FROM org_roles WHERE org_id = ? AND user_id = ? AND role = ?').run(orgId, userId, role);
   if (!r.changes) throw notFound('They do not hold that role.');
   invalidateUserSessions(ctx, userId);
-  audit(ctx, { actor_id: actor.id, action: 'org_role_revoked', entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: userId, detail: role, ip });
+  audit(ctx, { actor_id: actor.id, action: 'org_role_revoked', category, entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: userId, detail: role, ip });
   return orgRoleHolders(ctx, orgId);
 }
 
@@ -204,6 +208,7 @@ export function nameFirstOwner(ctx: AppContext, actor: Pick<SessionUser, 'id'>, 
   if (liveOwners(ctx, orgId).length) throw conflict('This Unit Instance has Lead Unit Managers; they name any others.', 'has_owners');
   const target = ctx.db.prepare('SELECT id FROM users WHERE id = ? AND active = 1').get(userId) as { id: string } | undefined;
   if (!target) throw notFound('No such active account.');
+  guardUnprovenOwnAccount(ctx, actor, target.id);
   ctx.db.transaction(() => {
     ctx.db.prepare(`INSERT INTO org_roles (org_id, user_id, role, granted_by, created_at) VALUES (?, ?, 'owner', ?, ?)
                     ON CONFLICT(org_id, user_id, role) DO UPDATE SET granted_by = excluded.granted_by, expires_at = NULL, created_at = excluded.created_at`).run(orgId, userId, actor.id, now());
@@ -214,8 +219,8 @@ export function nameFirstOwner(ctx: AppContext, actor: Pick<SessionUser, 'id'>, 
     else if (org.root_unit_id && !isOrgMember(ctx, orgId, userId)) addMember(ctx, userId, org.root_unit_id, { invitedBy: actor.id, reason: 'manager_assigned' });
   })();
   invalidateUserSessions(ctx, userId);
-  audit(ctx, { actor_id: actor.id, action: 'org_owner_named', entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: userId, ip });
-  audit(ctx, { actor_id: actor.id, action: 'platform_owner_named', entity: 'organization', entity_id: orgId, subject_id: userId, detail: org.name, ip });
+  audit(ctx, { actor_id: actor.id, action: 'org_owner_named', entity: 'organization', entity_id: orgId, org_id: orgId, subject_id: userId, detail: 'owner', ip });
+  audit(ctx, { actor_id: actor.id, action: 'platform_owner_named', entity: 'organization', entity_id: orgId, subject_id: userId, detail: `${org.name}: owner`, ip });
   notify(ctx, userId, { kind: 'unit', title: `You are Lead Unit Manager of ${org.name} on Vantage`, message: 'A Vantage Administrator named you because it had none. Sign in again and open the Unit Manager console.', actionUrl: '/console' });
   return orgRoleHolders(ctx, orgId);
 }
@@ -229,8 +234,9 @@ export function assignManager(ctx: AppContext, actor: SessionUser, orgId: string
   const org = getOrg(ctx, orgId);
   if (!org) throw notFound('No such Unit Instance.');
   if (input.user_id === actor.id) throw forbidden('A Vantage Administrator never assigns themselves a Unit Instance role. Another one, or its Lead Unit Managers, does.', 'self_grant');
-  const roles = grantOrgRole(ctx, actor, orgId, { user_id: input.user_id, role: input.role }, ip);
-  audit(ctx, { actor_id: actor.id, action: 'platform_manager_assigned', entity: 'organization', entity_id: orgId, subject_id: input.user_id, detail: `${org.name}: ${ORG_ROLES[input.role].label}`, ip });
+  // A Vantage Administrator assigning a Unit Manager is enterprise administration, in the instance's trail as well (ADR-0013).
+  const roles = grantOrgRole(ctx, actor, orgId, { user_id: input.user_id, role: input.role }, ip, 'enterprise');
+  audit(ctx, { actor_id: actor.id, action: 'platform_manager_assigned', entity: 'organization', entity_id: orgId, subject_id: input.user_id, detail: `${org.name}: ${input.role} (${ORG_ROLES[input.role].label})`, ip });
   return roles;
 }
 
@@ -244,9 +250,9 @@ export function removeManager(ctx: AppContext, actor: SessionUser, orgId: string
   if (userId === actor.id) throw forbidden('A Vantage Administrator never changes their own Unit Instance roles from the Vantage Administrator console.', 'self_grant');
   const person = ctx.db.prepare('SELECT first_name, last_name FROM users WHERE id = ?').get(userId) as { first_name: string; last_name: string } | undefined;
   if (!person) throw notFound('No such account.');
-  const roles = revokeOrgRole(ctx, actor, orgId, userId, role, ip);
+  const roles = revokeOrgRole(ctx, actor, orgId, userId, role, ip, 'enterprise');
   const label = ORG_ROLES[role].label;
-  audit(ctx, { actor_id: actor.id, action: 'platform_manager_removed', entity: 'organization', entity_id: orgId, subject_id: userId, detail: `${org.name}: ${label}`, ip });
+  audit(ctx, { actor_id: actor.id, action: 'platform_manager_removed', entity: 'organization', entity_id: orgId, subject_id: userId, detail: `${org.name}: ${role} (${label})`, ip });
   notify(ctx, userId, { kind: 'unit', title: `You are no longer ${label} of ${org.name}`, message: 'A Vantage Administrator removed the role. Ask your Lead Unit Manager if you did not expect this.', actionUrl: '/settings' });
   notifyOrg(ctx, orgId, 'org.owners', { kind: 'system', title: `${person.first_name} ${person.last_name} is no longer ${label}`, message: `Removed by Vantage (${actor.first_name} ${actor.last_name}).`, actionUrl: '/console/people' }, userId);
   return roles;
@@ -315,7 +321,9 @@ export function setUnitLeader(ctx: AppContext, actor: SessionUser, orgId: string
   if (!unit) throw notFound('No such unit in this Unit Instance.');
   if (!isOrgMember(ctx, orgId, userId)) throw badRequest('A unit’s leader must be a member of the Unit Instance.', { fieldErrors: { user_id: 'Not a member.' } });
   // Leading a unit reads its records: naming yourself is the self-grant no Unit Manager makes (ADR-0010).
-  guardSelfReach(ctx, actor, scopeFor(ctx, actor), unitId, PERMISSIONS.ADMINISTRATOR, userId, `Making yourself leader of ${unit.name}`);
+  const scope = scopeFor(ctx, actor);
+  guardSelfReach(ctx, actor, scope, unitId, PERMISSIONS.ADMINISTRATOR, userId, `Making yourself leader of ${unit.name}`);
+  guardUnprovenOwnAccount(ctx, actor, userId, { scope, unitId, bits: PERMISSIONS.ADMINISTRATOR });
   const { previous, sessionsRevoked } = claimUnit(ctx, unitId, userId);
   audit(ctx, { actor_id: actor.id, action: 'unit_leader_set', entity: 'unit', entity_id: unitId, unit_id: unitId, org_id: orgId, subject_id: userId, detail: `${previous || 'unled'} -> ${userId}`, ip });
   notify(ctx, userId, { kind: 'unit', title: `You now lead ${unit.name}`, message: 'Sign in again to pick up the new authority.', actionUrl: '/team' });

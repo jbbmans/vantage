@@ -6,7 +6,7 @@ import { now, slug } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
-import { notify } from './notifications.ts';
+import { notify, notifyOrg } from './notifications.ts';
 import { releaseClaimsOnDeparture } from './work.ts';
 import { assertCanFoundUnitInstance } from './deployment.ts';
 import { noteMembershipEnd, noteMembershipStart, type EndReason, type StartReason } from './membership.ts';
@@ -74,7 +74,11 @@ export function addMember(ctx: AppContext, userId: string, unitId: string, { inv
     ).run(userId, unitId, isPrimary, billet, now(), invitedBy);
     if (joining && reason) noteMembershipStart(ctx, userId, unitId, reason, invitedBy);
     const def = defaultRoleId(ctx, unitId);
-    if (def) ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(userId, def, unitId, invitedBy, now());
+    // The default role is granted by whoever seats the person, so "Until proven" holds for it as for any role they hand
+    // out: one widened to read records waits for an account they opened, as a join code's role does (ADR-0013).
+    const role = def && !ctx.db.prepare('SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = ?').get(userId, def)
+      ? ctx.db.prepare('SELECT name, permissions FROM roles WHERE id = ?').get(def) as { name: string; permissions: number } | undefined : undefined;
+    if (def && role && mayCarryRole(ctx, invitedBy, userId, unitId, role, invitedBy)) ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(userId, def, unitId, invitedBy, now());
   })();
 }
 
@@ -132,6 +136,7 @@ export function removeMember(ctx: AppContext, userId: string, unitId: string, ac
     const wasPrimary = ctx.db.prepare('SELECT is_primary FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, unitId) as { is_primary: number } | undefined;
     // The membership ends; its period stays, saying when, why and by whom (ADR-0009).
     if (ctx.db.prepare('DELETE FROM unit_members WHERE user_id = ? AND unit_id = ?').run(userId, unitId).changes) noteMembershipEnd(ctx, userId, unitId, reason, actorId);
+    const leaderEnded = endLeadershipOnDeparture(ctx, userId, unitId, actorId, reason);
     if (wasPrimary?.is_primary && promote) {
       // The primary unit stays in the Unit Instance it was in while the person still belongs to one of its units.
       const next = ctx.db.prepare('SELECT um.unit_id FROM unit_members um JOIN units u ON u.id = um.unit_id WHERE um.user_id = ? ORDER BY (u.org_id IS ?) DESC, um.joined_at LIMIT 1')
@@ -139,8 +144,26 @@ export function removeMember(ctx: AppContext, userId: string, unitId: string, ac
       if (next) ctx.db.prepare('UPDATE unit_members SET is_primary = 1 WHERE user_id = ? AND unit_id = ?').run(userId, next.unit_id);
     }
     const instanceRolesEnded = endInstanceRoles ? endInstanceRolesOnDeparture(ctx, userId, orgOfUnit(ctx, unitId), actorId, reason) : [];
-    return { roles, recordsFrozen, claimsReleased, instanceRolesEnded };
+    return { roles, recordsFrozen, claimsReleased, instanceRolesEnded, leaderEnded };
   })();
+}
+
+/**
+ * A unit is led by a member of it (ADR-0013). Whatever path ends its leader's membership (a removal, a transfer, the
+ * personnel feed's separation, removal from the Unit Instance) ends the leadership with it: the unit is led from above
+ * until a Unit Manager names a leader, and the Unit Instance's Lead Unit Managers are told. Returns whether it did.
+ */
+export function endLeadershipOnDeparture(ctx: AppContext, userId: string, unitId: string, actorId: string | null, reason: EndReason): boolean {
+  const unit = ctx.db.prepare('SELECT name, short_name, org_id FROM units WHERE id = ? AND owner_user_id = ?').get(unitId, userId) as { name: string; short_name: string | null; org_id: string | null } | undefined;
+  if (!unit) return false;
+  ctx.db.prepare('UPDATE units SET owner_user_id = NULL WHERE id = ? AND owner_user_id = ?').run(unitId, userId);
+  audit(ctx, { actor_id: actorId, action: 'unit_leader_ended', entity: 'unit', entity_id: unitId, unit_id: unitId, subject_id: userId, detail: `${unit.name}: the leader is no longer a member (${reason})` });
+  if (unit.org_id) {
+    const person = ctx.db.prepare('SELECT first_name, last_name FROM users WHERE id = ?').get(userId) as { first_name: string; last_name: string } | undefined;
+    const who = person ? `${person.first_name} ${person.last_name}` : 'Its leader';
+    notifyOrg(ctx, unit.org_id, 'org.owners', { kind: 'unit', title: `${unit.short_name || unit.name} has no leader`, message: `${who} no longer belongs to it, so no longer leads it. It is led from above until a Unit Manager names its leader.`, actionUrl: '/console/units' });
+  }
+  return true;
 }
 
 export function claimUnit(ctx: AppContext, unitId: string, ownerId: string, reason: StartReason = 'leader_assigned') {
@@ -241,10 +264,15 @@ export function archiveUnit(ctx: AppContext, actor: SessionUser, scope: Scope, u
   const onlyOwner = members.length === 1 && members[0].user_id === actor.id && unit.owner_user_id === actor.id;
   if (members.length && !onlyOwner) throw badRequest('Marines still belong to that unit. Remove or transfer them first.');
   ctx.db.transaction(() => {
-    if (onlyOwner) removeMember(ctx, actor.id, unitId, actor.id, 'left');
+    // The unit closes with its leader's departure rather than losing its leader, so nobody is asked to name one.
+    if (onlyOwner) {
+      ctx.db.prepare('UPDATE units SET owner_user_id = NULL WHERE id = ?').run(unitId);
+      removeMember(ctx, actor.id, unitId, actor.id, 'left');
+    }
     ctx.db.prepare('UPDATE units SET active = 0, owner_user_id = NULL WHERE id = ?').run(unitId);
   })();
-  audit(ctx, { actor_id: actor.id, action: 'archive_unit', entity: 'unit', entity_id: unitId, unit_id: unitId, ip });
+  // The entry names who led it, so the two-person rule counts the leadership given up with it (ADR-0013).
+  audit(ctx, { actor_id: actor.id, action: 'archive_unit', entity: 'unit', entity_id: unitId, unit_id: unitId, subject_id: unit.owner_user_id || null, ip });
 }
 
 export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: string, successorId: string, ip?: string) {
@@ -254,7 +282,11 @@ export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: s
   const successor = ctx.db.prepare('SELECT u.id, u.first_name, u.last_name FROM users u JOIN unit_members um ON um.user_id = u.id WHERE u.id = ? AND u.active = 1 AND um.unit_id = ?').get(successorId, unitId) as { id: string; first_name: string; last_name: string } | undefined;
   if (!successor) throw badRequest('Choose an active current member of this unit.', { fieldErrors: { user_id: 'Not a member of this unit.' } });
   if (successor.id === unit.owner_user_id) return { ok: true, already: true };
-  if (!isUnitOwner(ctx, actor.id, unitId)) guardSelfReach(ctx, actor, scopeFor(ctx, actor), unitId, PERMISSIONS.ADMINISTRATOR, successor.id, `Making yourself leader of ${unit.name}`);
+  if (!isUnitOwner(ctx, actor.id, unitId)) {
+    const scope = scopeFor(ctx, actor);
+    guardSelfReach(ctx, actor, scope, unitId, PERMISSIONS.ADMINISTRATOR, successor.id, `Making yourself leader of ${unit.name}`);
+    guardUnprovenOwnAccount(ctx, actor, successor.id, { scope, unitId, bits: PERMISSIONS.ADMINISTRATOR });
+  }
   let sessionsRevoked = 0;
   ctx.db.transaction(() => {
     ctx.db.prepare('UPDATE units SET owner_user_id = ? WHERE id = ?').run(successor.id, unitId);
@@ -301,6 +333,79 @@ export function guardSelfReach(_ctx: AppContext, actor: SessionUser, scope: Scop
   if (has(fromUnit, PERMISSIONS.ADMINISTRATOR) || !added) return;
   const what = added & RECORD_READING_BITS ? 'a role that reads Marines’ records' : 'unit authority the chain of command has not given you';
   throw forbidden(`${act} would give you ${what}. Another Unit Manager, or the unit’s chain of command, does that for you.`, 'self_grant');
+}
+
+/** How an account comes to exist at someone else's hand: they imported it, or it answered their invitation or join code. */
+const OPENED_FOR = ['account_import', 'invitation', 'join_code'] as const;
+
+/**
+ * Who created or invited this account: the person who opened its first unit membership by an account import, an
+ * invitation or a join code. Null for an account that came some other way (its own sign-up, a CAC or the organization's
+ * sign-in, the personnel feed), or whose first membership names nobody. A unit the account founded is not counted:
+ * founding one first is no way round the rule for the code or invitation it answers next.
+ */
+export function accountOpenedBy(ctx: AppContext, userId: string): string | null {
+  const first = ctx.db.prepare("SELECT start_reason, started_by FROM unit_membership_periods WHERE user_id = ? AND start_reason IS NOT 'unit_created' ORDER BY started_at, id LIMIT 1")
+    .get(userId) as { start_reason: string | null; started_by: string | null } | undefined;
+  return first && (OPENED_FOR as readonly string[]).includes(first.start_reason ?? '') ? first.started_by : null;
+}
+
+/** Has the account shown who holds it: signed in with its own CAC, or with the organization's sign-in? */
+export function isProvenAccount(ctx: AppContext, userId: string): boolean {
+  return Boolean(ctx.db.prepare('SELECT 1 FROM users WHERE id = ? AND (edipi_verified_at IS NOT NULL OR oidc_subject IS NOT NULL)').get(userId));
+}
+
+/** An account this person created or invited that has not yet shown who holds it (John, "Until proven"). */
+export function isUnprovenOwnAccount(ctx: AppContext, actorId: string, targetId: string): boolean {
+  return targetId !== actorId && accountOpenedBy(ctx, targetId) === actorId && !isProvenAccount(ctx, targetId);
+}
+
+/**
+ * Would this grant reach records through an account the grantor made? `chain` is the unit and the bits for a unit role
+ * or unit leadership: what the grantor already holds there through the chain of command is theirs to hand on, as with
+ * guardSelfReach, and a role that reads no records is not in question. Without `chain` (a Unit Instance role) any grant
+ * to such an account is. True means refuse.
+ */
+export function unprovenReach(ctx: AppContext, grantorId: string, targetId: string, chain?: { scope: Scope; unitId: string; bits: number }): boolean {
+  if (chain) {
+    const fromUnit = chainBits(chain.scope, chain.unitId);
+    if (has(fromUnit, PERMISSIONS.ADMINISTRATOR) || !(chain.bits & RECORD_READING_BITS & ~fromUnit)) return false;
+  }
+  return isUnprovenOwnAccount(ctx, grantorId, targetId);
+}
+
+export const UNPROVEN_MESSAGE = 'You created or invited this account, and it hasn’t signed in with its own CAC or the organization’s sign-in yet. Another Unit Manager or the chain of command can grant this.';
+
+/**
+ * A Unit Manager who creates or invites an account gives it no role that reads records, no Unit Instance role and no
+ * unit to lead until it has signed in with its own CAC or the organization's sign-in (John, "Until proven"; ADR-0013).
+ * Otherwise one person could open an account they hold themselves and read through it. Another Unit Manager, or the
+ * unit's chain of command, can grant it all the same. Refused as unproven_own_account, written to the trail as any
+ * refusal at the administration routes is.
+ */
+export function guardUnprovenOwnAccount(ctx: AppContext, actor: Pick<SessionUser, 'id'>, targetId: string, chain?: { scope: Scope; unitId: string; bits: number }): void {
+  if (unprovenReach(ctx, actor.id, targetId, chain)) throw forbidden(UNPROVEN_MESSAGE, 'unproven_own_account');
+}
+
+/**
+ * A role that an invitation, a join code or an account import hands out is granted by whoever made it, to an account
+ * that answered it or that they created. The same rule holds there: one that reads records waits until the account has
+ * signed in as its own. The person still joins; only the role is held back, on the record, and its grantor is told
+ * (an import says so in its result instead). Returns whether the role may be granted now.
+ */
+export function mayCarryRole(ctx: AppContext, grantorId: string | null, targetId: string, unitId: string, role: { name: string; permissions: number }, actorId: string | null, { ip, tell = true }: { ip?: string; tell?: boolean } = {}): boolean {
+  if (!grantorId || !(role.permissions & RECORD_READING_BITS)) return true;
+  if (!unprovenReach(ctx, grantorId, targetId, { scope: scopeFor(ctx, { id: grantorId }), unitId, bits: role.permissions })) return true;
+  const unit = getUnit(ctx, unitId);
+  const nameOf = (id: string) => { const u = ctx.db.prepare('SELECT first_name, last_name FROM users WHERE id = ?').get(id) as { first_name: string; last_name: string } | undefined; return u ? `${u.first_name} ${u.last_name}` : null; };
+  const person = nameOf(targetId);
+  audit(ctx, { actor_id: actorId, action: 'unit_role_withheld', entity: 'role', subject_id: targetId, unit_id: unitId, detail: `${role.name}, from ${nameOf(grantorId) ?? grantorId}, who created or invited the account: it has not signed in with its own CAC or the organization’s sign-in`, ip });
+  if (tell) notify(ctx, grantorId, {
+    kind: 'unit', title: `${person ?? 'A new member'} joined ${unit?.short_name || unit?.name || 'the unit'} without ${role.name}`,
+    message: 'You created or invited this account, and it hasn’t signed in with its own CAC or the organization’s sign-in yet, so a role that reads records waits. Another Unit Manager or the chain of command can grant it.',
+    actionUrl: '/team',
+  });
+  return false;
 }
 
 export function canManageRoleDefinition(ctx: AppContext, actor: SessionUser, scope: Scope, role: RoleRow): boolean {
@@ -362,6 +467,7 @@ export function validateRoleGrant(ctx: AppContext, actor: SessionUser, scope: Sc
   if (isUnitOwner(ctx, actor.id, unitId)) return;
   if (orgStaffing(ctx, scope, unitId)) {
     guardSelfReach(ctx, actor, scope, unitId, role.permissions, targetId, `Granting yourself ${role.name}`);
+    guardUnprovenOwnAccount(ctx, actor, targetId, { scope, unitId, bits: role.permissions });
     return;
   }
   if (!can(scope, PERMISSIONS.MANAGE_ROLES, unitId)) throw forbidden('You cannot manage roles in that unit.');
@@ -418,6 +524,9 @@ export function moveMember(ctx: AppContext, actor: SessionUser, scope: Scope, us
       try {
         if (!role) throw notFound('No such role.');
         assertMayGrantRole(ctx, actor, scope, role, toId);
+        // Carrying a role over is granting it in the new team: not one that reads records to an account the actor opened
+        // that has not signed in as its own, whatever it held in the old one (ADR-0013).
+        guardUnprovenOwnAccount(ctx, actor, userId, { scope, unitId: toId, bits: role.permissions });
         ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(userId, role.id, toId, actor.id, now());
         roles.push(role.name);
       } catch { rolesSkipped.push(h.name); }

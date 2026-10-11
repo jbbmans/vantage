@@ -244,9 +244,24 @@ const ACTION_COPY: Record<AccountAction, { title: string; body: string; confirm:
   'sign-in': { title: 'Email their sign-in details?', body: 'Their username and a one-time link to choose a password, valid 72 hours. Their current password keeps working until they use it.', confirm: 'Send' },
 };
 
+/** A credential change to an account that holds authority, and the second staff member it waits on (ADR-0013). */
+type CredentialAction = 'temporary_password' | 'reset_mfa' | 'edipi';
+interface CredentialApproval {
+  id: string; target_user_id: string; target_username: string; target_name: string; action: CredentialAction; edipi: string | null; reason: string;
+  requested_by: string; requested_by_name: string; requested_at: string; status: 'pending' | 'approved' | 'denied' | 'used' | 'expired' | 'cancelled';
+  decided_by: string | null; decided_by_name: string | null; decided_at: string | null; decision_note: string | null; used_at: string | null; expires_at: string;
+}
+const APPROVAL_STATUS: Record<CredentialApproval['status'], [string, 'neutral' | 'warn' | 'good' | 'bad' | 'accent']> = {
+  pending: ['Waiting for approval', 'warn'], approved: ['Approved', 'good'], denied: ['Denied', 'bad'], used: ['Done', 'neutral'], expired: ['Lapsed', 'neutral'], cancelled: ['Cancelled', 'neutral'],
+};
+const changeLabel = (action: CredentialAction, edipi: string | null) =>
+  action === 'temporary_password' ? 'Set a temporary password' : action === 'reset_mfa' ? 'Reset the second factor' : edipi ? `Link the CAC ending ${edipi.slice(-4)}` : 'Remove the linked CAC';
+const needsApproval = (e: unknown) => e instanceof api.ApiError && e.code === 'approval_required';
+
 export function Accounts() {
   const can = usePlatformCan();
   const { data: identity } = useIdentity();
+  const me = identity?.user.id;
   const act = useAct();
   const toast = useToast();
   const [q, setQ] = useState('');
@@ -254,14 +269,28 @@ export function Accounts() {
   const [debounced, setDebounced] = useState('');
   useEffect(() => { const t = setTimeout(() => setDebounced(q.trim()), 250); return () => clearTimeout(t); }, [q]);
   const { data, isPending, error, refetch } = useQuery<{ accounts: PlatformAccount[] }>({ queryKey: ['admin', 'accounts', debounced, filter], queryFn: () => withSudo(() => api.platformAccounts(debounced, filter)), retry: false, placeholderData: (prev) => prev });
+  const approvals = useQuery<{ approvals: CredentialApproval[]; hours: number }>({ queryKey: ['admin', 'credential-approvals'], queryFn: () => withSudo(api.platformCredentialApprovals), retry: false, enabled: can('platform.accounts') });
   const [confirm, setConfirm] = useState<{ kind: AccountAction; user: PlatformAccount } | null>(null);
-  const [temp, setTemp] = useState<{ user: PlatformAccount; password: string } | null>(null);
+  const [temp, setTemp] = useState<{ username: string; password: string } | null>(null);
   const [card, setCard] = useState<{ user: PlatformAccount; edipi: string; reason: string } | null>(null);
+  const [asking, setAsking] = useState<{ userId: string; name: string; action: CredentialAction; edipi: string | null; reason: string } | null>(null);
+  const [deciding, setDeciding] = useState<{ approval: CredentialApproval; approve: boolean; note: string } | null>(null);
+  const [carrying, setCarrying] = useState<CredentialApproval | null>(null);
+  const refresh = () => { refetch(); approvals.refetch(); };
+
   const saveCard = async () => {
     if (!card) return;
     const { user, edipi, reason } = card;
-    const done = await act(`CAC link changed: ${user.username}.`, () => api.platformCorrectEdipi(user.id, { edipi: edipi.trim() || null, reason: reason.trim() }), () => refetch());
-    if (done) setCard(null);
+    try {
+      await withSudo(() => api.platformCorrectEdipi(user.id, { edipi: edipi.trim() || null, reason: reason.trim() }));
+      toast.success(`CAC link changed: ${user.username}.`);
+      setCard(null);
+      refetch();
+    } catch (e) {
+      if (!needsApproval(e)) { toast.error(api.errorText(e)); return; }
+      setCard(null);
+      setAsking({ userId: user.id, name: personName(user), action: 'edipi', edipi: edipi.trim() || null, reason: reason.trim() });
+    }
   };
 
   const run = async () => {
@@ -276,12 +305,88 @@ export function Accounts() {
       } catch (e) { toast.error(api.errorText(e)); }
       return;
     }
-    const r = await act(`${humanize(kind.replace('-', ' '))}: ${user.username}.`, () => api.platformAccountAction(user.id, kind), () => refetch()) as { password?: string } | null;
-    if (r?.password) setTemp({ user, password: r.password });
+    try {
+      const r = await withSudo(() => api.platformAccountAction(user.id, kind)) as { password?: string };
+      toast.success(`${humanize(kind.replace('-', ' '))}: ${user.username}.`);
+      refetch();
+      if (r?.password) setTemp({ username: user.username, password: r.password });
+    } catch (e) {
+      // An account with authority needs a second staff member first: ask, with a reason.
+      if (needsApproval(e) && (kind === 'temporary-password' || kind === 'reset-mfa')) setAsking({ userId: user.id, name: personName(user), action: kind === 'temporary-password' ? 'temporary_password' : 'reset_mfa', edipi: null, reason: '' });
+      else toast.error(api.errorText(e));
+    }
+  };
+
+  const ask = async () => {
+    if (!asking) return;
+    const { userId, action, edipi, reason } = asking;
+    const done = await act('Asked for approval. Another member of Vantage staff answers it here.', () => api.platformRequestCredentialApproval(userId, { action, reason: reason.trim(), ...(action === 'edipi' ? { edipi } : {}) }), refresh);
+    if (done) setAsking(null);
+  };
+
+  const decide = async () => {
+    if (!deciding) return;
+    const { approval, approve, note } = deciding;
+    const done = await act(approve ? 'Approved. The staff member who asked is told.' : 'Denied. The staff member who asked is told.', () => api.platformDecideCredentialApproval(approval.id, approve ? 'approve' : 'deny', note.trim()), refresh);
+    if (done) setDeciding(null);
+  };
+
+  /** The staff member who asked makes the approved change, naming the approval. */
+  const carryOut = async () => {
+    const a = carrying;
+    setCarrying(null);
+    if (!a) return;
+    try {
+      if (a.action === 'edipi') {
+        await withSudo(() => api.platformCorrectEdipi(a.target_user_id, { edipi: a.edipi, reason: a.reason, approvalId: a.id }));
+      } else {
+        const r = await withSudo(() => api.platformAccountAction(a.target_user_id, a.action === 'temporary_password' ? 'temporary-password' : 'reset-mfa', { approvalId: a.id })) as { password?: string };
+        if (r?.password) setTemp({ username: a.target_username, password: r.password });
+      }
+      toast.success(`${changeLabel(a.action, a.edipi)}: ${a.target_username}.`);
+    } catch (e) { toast.error(api.errorText(e)); }
+    refresh();
+  };
+
+  const list = approvals.data?.approvals ?? [];
+  const approvalRow = (a: CredentialApproval) => {
+    const mine = a.requested_by === me;
+    const [label, tone] = APPROVAL_STATUS[a.status];
+    return (
+      <tr key={a.id}>
+        <td>
+          <span className="block font-medium text-ink">{changeLabel(a.action, a.edipi)} for {a.target_name} <span className="font-normal text-ink-3">@{a.target_username}</span></span>
+          <span className="block text-xs text-ink-2">“{a.reason}”</span>
+        </td>
+        <td className="text-xs text-ink-2">{mine ? 'You' : a.requested_by_name}</td>
+        <td>
+          <Badge tone={tone}>{label}</Badge>
+          {a.decided_by_name && <span className="mt-0.5 block text-2xs text-ink-3">{a.status === 'denied' ? 'by' : 'approved by'} {a.decided_by === me ? 'you' : a.decided_by_name}{a.decision_note ? `: “${a.decision_note}”` : ''}</span>}
+        </td>
+        <td className="text-xs text-ink-3">{a.status === 'pending' || a.status === 'approved' ? `lapses ${remaining(a.expires_at)}` : timeAgo(a.used_at || a.decided_at || a.requested_at)}</td>
+        <td className="text-right"><span className="flex flex-wrap justify-end gap-1">
+          {mine && a.status === 'approved' && <Button size="xs" variant="primary" onClick={() => setCarrying(a)}>Carry out</Button>}
+          {!mine && a.status === 'pending' && a.target_user_id !== me && <>
+            <Button size="xs" variant="ghost" onClick={() => setDeciding({ approval: a, approve: true, note: '' })}><ShieldCheck className="h-3 w-3" />Approve</Button>
+            <Button size="xs" variant="ghost" className="text-bad" onClick={() => setDeciding({ approval: a, approve: false, note: '' })}>Deny</Button>
+          </>}
+          {mine && (a.status === 'pending' || a.status === 'approved') && <Button size="xs" variant="ghost" onClick={() => act('Request cancelled.', () => api.platformCancelCredentialApproval(a.id), refresh)}>Cancel request</Button>}
+        </span></td>
+      </tr>
+    );
   };
 
   return (
     <>
+      {list.length > 0 && (
+        <Panel className="mb-4" title="Approvals" subtitle={`A temporary password, a second-factor reset or a CAC change on an account that holds authority waits for a second member of Vantage staff. The one who asked makes it, once, within ${approvals.data?.hours ?? 24} hours.`}>
+          <div className="-mx-4 -mt-1">
+            <Table minWidth={860} head={<><th>Change and reason</th><th className="w-36">Asked by</th><th className="w-48">State</th><th className="w-32">When</th><th className="w-56"></th></>}>
+              {list.map(approvalRow)}
+            </Table>
+          </div>
+        </Panel>
+      )}
       <div className="mb-3 flex flex-wrap items-center gap-2">
         <div className="relative w-full max-w-sm"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search accounts" className="pl-8" placeholder="Username, name, email or EDIPI…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         <Select aria-label="Show" className="w-44" value={filter} onValueChange={setFilter} options={[{ value: '', label: 'All accounts' }, { value: 'locked', label: 'Locked' }, { value: 'inactive', label: 'Deactivated' }, { value: 'staff', label: 'Vantage staff' }]} />
@@ -291,7 +396,7 @@ export function Accounts() {
         {isPending ? <Skeleton className="h-64" /> : error ? <EmptyState title="Could not load accounts" description={api.errorText(error)} /> : (
           <Table minWidth={980} head={<><th>Account</th><th className="w-48">Unit Instances</th><th className="w-32">Second factor</th><th className="w-28">Last sign-in</th><th className="w-24">Status</th><th className="w-72"></th></>}>
             {(data?.accounts ?? []).map((u) => {
-              const self = u.id === identity?.user.id;
+              const self = u.id === me;
               return (
                 <tr key={u.id}>
                   <td>
@@ -319,10 +424,26 @@ export function Accounts() {
           </Table>
         )}
       </div>
-      <p className="mt-3 text-xs text-ink-3">Sign-in help only: who someone is and how they sign in. What they keep stays theirs. Every action here is in the platform audit trail and is told to the person it touches.</p>
+      <p className="mt-3 text-xs text-ink-3">Sign-in help only: who someone is and how they sign in. What they keep stays theirs. Every action here is in the platform audit trail and is told to the person it touches. On an account that holds authority, a temporary password, a second-factor reset or a CAC change needs a second member of Vantage staff to approve it first.</p>
       <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title={confirm ? ACTION_COPY[confirm.kind].title : ''} danger={Boolean(confirm && ACTION_COPY[confirm.kind].danger)}
         body={confirm ? <><p className="text-sm text-ink-2">{ACTION_COPY[confirm.kind].body}</p><p className="mt-2 text-sm font-medium text-ink">{personName(confirm.user)} · @{confirm.user.username}</p></> : null}
         confirmLabel={confirm ? ACTION_COPY[confirm.kind].confirm : ''} onConfirm={run} />
+      <Dialog open={Boolean(asking)} onOpenChange={(o) => { if (!o) setAsking(null); }} title="Ask a second staff member to approve" size="sm"
+        description={asking ? `${asking.name} holds authority, so another member of Vantage staff approves this before it is made. Once approved, you make it here, once, within ${approvals.data?.hours ?? 24} hours.` : undefined}
+        footer={<><Button variant="ghost" onClick={() => setAsking(null)}>Cancel</Button><Button variant="primary" disabled={!asking || asking.reason.trim().length < 10} onClick={ask}><Send className="h-4 w-4" />Ask for approval</Button></>}>
+        {asking && <div className="space-y-3">
+          <p className="text-sm font-medium text-ink">{changeLabel(asking.action, asking.edipi)}</p>
+          <Field label="Why" hint="the ticket and what the person needs; the staff member who approves reads it"><Textarea autoFocus rows={3} maxLength={300} value={asking.reason} onChange={(e) => setAsking({ ...asking, reason: e.target.value })} placeholder="Ticket 2214: locked out after a new phone; identity confirmed by video call with their SNCOIC." /></Field>
+        </div>}
+      </Dialog>
+      <Dialog open={Boolean(deciding)} onOpenChange={(o) => { if (!o) setDeciding(null); }} title={deciding ? `${deciding.approve ? 'Approve' : 'Deny'} this change?` : ''} size="sm"
+        description={deciding ? `${changeLabel(deciding.approval.action, deciding.approval.edipi)} for ${deciding.approval.target_name} (@${deciding.approval.target_username}), asked by ${deciding.approval.requested_by_name}: “${deciding.approval.reason}”` : undefined}
+        footer={<><Button variant="ghost" onClick={() => setDeciding(null)}>Cancel</Button><Button variant={deciding?.approve ? 'primary' : 'danger'} disabled={!deciding || (!deciding.approve && !deciding.note.trim())} onClick={decide}>{deciding?.approve ? 'Approve' : 'Deny'}</Button></>}>
+        {deciding && <Field label="Note" hint={deciding.approve ? 'optional; the staff member who asked reads it' : 'why it is denied; the staff member who asked reads it'}><Textarea rows={2} maxLength={300} value={deciding.note} onChange={(e) => setDeciding({ ...deciding, note: e.target.value })} /></Field>}
+      </Dialog>
+      <ConfirmDialog open={Boolean(carrying)} onOpenChange={(o) => { if (!o) setCarrying(null); }} title={carrying ? `${changeLabel(carrying.action, carrying.edipi)} now?` : ''} danger
+        body={carrying ? <><p className="text-sm text-ink-2">{carrying.decided_by_name} approved it. It is made once; they are signed out everywhere and told it happened.</p><p className="mt-2 text-sm font-medium text-ink">{carrying.target_name} · @{carrying.target_username}</p></> : null}
+        confirmLabel="Carry out" onConfirm={carryOut} />
       <Dialog open={Boolean(card)} onOpenChange={(o) => { if (!o) setCard(null); }} title={`CAC link for ${card?.user.username}`} description="The EDIPI their card signs in with. Change it only when it is wrong: they are signed out everywhere, told it happened, and prove the new one with their card." size="sm"
         footer={<><Button variant="ghost" onClick={() => setCard(null)}>Cancel</Button><Button variant="primary" disabled={!card || card.reason.trim().length < 10 || (card.edipi.trim() !== '' && !/^\d{10}$/.test(card.edipi.trim()))} onClick={saveCard}>Save</Button></>}>
         {card && <div className="space-y-3">
@@ -330,7 +451,7 @@ export function Accounts() {
           <Field label="Why" hint="the ticket and what was wrong; it goes in the audit trail"><Textarea rows={3} maxLength={300} value={card.reason} onChange={(e) => setCard({ ...card, reason: e.target.value })} placeholder="Ticket 2210: the roster typo put another Marine’s DoD ID on this account." /></Field>
         </div>}
       </Dialog>
-      <Dialog open={Boolean(temp)} onOpenChange={(o) => { if (!o) setTemp(null); }} title={`Temporary password for ${temp?.user.username}`} description="Shown once. Give it to them by a channel you trust; they choose their own at sign-in." size="sm"
+      <Dialog open={Boolean(temp)} onOpenChange={(o) => { if (!o) setTemp(null); }} title={`Temporary password for ${temp?.username}`} description="Shown once. Give it to them by a channel you trust; they choose their own at sign-in." size="sm"
         footer={<Button variant="primary" onClick={async () => { if (temp && await copyToClipboard(temp.password)) toast.success('Copied.'); }}><Copy className="h-4 w-4" />Copy</Button>}>
         <p className="mono select-all rounded-md border border-line bg-surface-2 px-3 py-2 text-md text-ink">{temp?.password}</p>
       </Dialog>

@@ -20,7 +20,7 @@ import { audit } from '../services/audit.ts';
 import { maintenanceNotice, publicMaintenance } from '../services/maintenance.ts';
 import { layout } from '../services/mailLayout.ts';
 import { newId, now } from '../lib/ids.ts';
-import { claimUnit, addMember, guardSelfReach } from '../services/org.ts';
+import { claimUnit, addMember, guardSelfReach, mayCarryRole } from '../services/org.ts';
 import { scopeFor, seatedOrgRole } from '../authz/scope.ts';
 import { slug } from '../lib/ids.ts';
 import type { Request, Response } from 'express';
@@ -198,12 +198,15 @@ authRouter.post('/login', wrap(async (req, res) => {
     limiters.loginIp.bump(ip);
     if (name) limiters.loginUser.bump(name);
     if (userLimit) throw tooMany('Too many failed attempts for this account. Try again later.', userLimit.retryAfter);
+    // A name that matches no account is recorded without it: what somebody typed may be a password, or another person's name.
+    audit(ctx, { actor_id: null, action: 'login_failed', ip, detail: 'password; no account has that name' });
     if (name) recordNameFailure(ctx, name);
     throw unauthorized('Username or password is incorrect.', 'bad_credentials');
   }
   assertNotLocked(ctx, row.id);
   if (!(await verifyPassword(password, row.password_hash))) {
     limiters.loginIp.bump(ip);
+    audit(ctx, { actor_id: null, action: 'login_failed', subject_id: row.id, ip, detail: 'password' });
     if (recordFailure(ctx, row.id, { ip, where: 'password' })) assertNotLocked(ctx, row.id);
     throw unauthorized('Username or password is incorrect.', 'bad_credentials');
   }
@@ -244,6 +247,7 @@ authRouter.post('/login/mfa', wrap((req, res) => {
     limiters.mfaToken.bump(key);
     limiters.loginIp.bump(ip);
     limiters.mfaUser.bump(row.id);
+    audit(ctx, { actor_id: null, action: 'login_failed', subject_id: row.id, ip, detail: 'second factor' });
     if (recordFailure(ctx, row.id, { ip, where: 'second_factor' })) { consumeToken(ctx, 'login_mfa', challenge); assertNotLocked(ctx, row.id); }
     throw unauthorized('That code is not valid.', 'bad_code');
   }
@@ -409,7 +413,9 @@ authRouter.post('/invite/accept', wrap((req, res) => {
       if (unitId && ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(unitId)) {
         addMember(ctx, id, unitId, { invitedBy: pending.created_by, primary: true, billet: pending.payload.billet ? String(pending.payload.billet) : null, reason: 'invitation' });
         const roleId = pending.payload.role_id ? String(pending.payload.role_id) : null;
-        if (roleId && ctx.db.prepare('SELECT 1 FROM roles WHERE id = ? AND unit_id = ?').get(roleId, unitId)) {
+        const role = roleId ? ctx.db.prepare('SELECT name, permissions FROM roles WHERE id = ? AND unit_id = ?').get(roleId, unitId) as { name: string; permissions: number } | undefined : undefined;
+        // A new password account is one its inviter opened: a role that reads records waits until it signs in as its own.
+        if (roleId && role && mayCarryRole(ctx, pending.created_by, id, unitId, role, id, { ip })) {
           ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(id, roleId, unitId, pending.created_by, now());
         }
       }
@@ -448,7 +454,7 @@ authRouter.post('/invite/claim', requireAuth, requireSudo, wrap((req, res) => {
   ctx.db.transaction(() => {
     if (!consumeToken(ctx, 'invite', token)) throw badRequest('That invitation was just used. Ask your leader for a new one.');
     addMember(ctx, req.user.id, unit.id, { invitedBy: pending.created_by, primary: true, billet: pending.payload.billet ? String(pending.payload.billet) : null, reason: 'invitation' });
-    if (role) ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(req.user.id, role.id, unit.id, pending.created_by, now());
+    if (role && mayCarryRole(ctx, pending.created_by, req.user.id, unit.id, role, req.user.id, { ip })) ctx.db.prepare('INSERT OR IGNORE INTO member_roles (user_id, role_id, unit_id, granted_by, created_at) VALUES (?, ?, ?, ?, ?)').run(req.user.id, role.id, unit.id, pending.created_by, now());
   })();
   const primary = Boolean((ctx.db.prepare('SELECT is_primary FROM unit_members WHERE user_id = ? AND unit_id = ?').get(req.user.id, unit.id) as { is_primary: number }).is_primary);
   audit(ctx, { actor_id: req.user.id, action: 'invite_accepted', entity: 'user', entity_id: req.user.id, subject_id: req.user.id, unit_id: unit.id, ip, detail: `existing account${primary ? '; primary unit' : ''}` });

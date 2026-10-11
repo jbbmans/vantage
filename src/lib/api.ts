@@ -260,7 +260,12 @@ export const platformAiDiscover = () => api.post('/platform/ai/discover');
 export const platformAiUnlock = () => api.post('/platform/ai/unlock');
 export const platformSyncMaradmins = () => api.post('/platform/maradmins/sync');
 export const platformIntegrity = () => api.get('/platform/integrity');
+/** Accounts whose authority crosses a line the role model draws (ADR-0013). Read-only. */
+export const platformSeparationOfDuties = () => api.get('/platform/separation-of-duties');
+/** Anchors the case histories and the audit chain's head, written into the chain and so copied off the host. */
 export const platformAnchorCases = () => api.post('/platform/integrity/anchor');
+/** Checks an anchor kept off the host against the chain (ADR-0013). */
+export const platformVerifyAnchor = (body: { seq: number; entry_hash: string }) => api.post('/platform/integrity/verify', body);
 export const platformEmail = () => api.get('/platform/email');
 export const platformEmailCheck = () => api.post('/platform/email/check', {});
 export const platformEmailTest = (to?: string) => api.post('/platform/email/test', { to });
@@ -277,14 +282,20 @@ export const platformAccountAction = (userId: string, action: 'unlock' | 'logout
   api.post(`/platform/accounts/${enc(userId)}/${action}`, body);
 export const platformSendSignInDetails = (userIds: string[]) => api.post('/platform/accounts/sign-in-details', { userIds });
 /** Vantage support corrects the EDIPI a CAC signs in with, saying why (ADR-0009). */
-export const platformCorrectEdipi = (userId: string, body: { edipi: string | null; reason: string }) => api.post(`/platform/accounts/${enc(userId)}/edipi`, body);
+export const platformCorrectEdipi = (userId: string, body: { edipi: string | null; reason: string; approvalId?: string }) => api.post(`/platform/accounts/${enc(userId)}/edipi`, body);
+/** A second staff member approves a credential change to an account that holds authority (ADR-0013). */
+export const platformCredentialApprovals = () => api.get('/platform/credential-approvals');
+export const platformRequestCredentialApproval = (userId: string, body: { action: 'temporary_password' | 'reset_mfa' | 'edipi'; reason: string; edipi?: string | null }) =>
+  api.post(`/platform/accounts/${enc(userId)}/credential-approvals`, body);
+export const platformDecideCredentialApproval = (id: string, decision: 'approve' | 'deny', note?: string) => api.post(`/platform/credential-approvals/${enc(id)}/${decision}`, { note: note || undefined });
+export const platformCancelCredentialApproval = (id: string) => api.post(`/platform/credential-approvals/${enc(id)}/cancel`);
 export const platformStaff = () => api.get('/platform/staff');
 export const platformGrantStaff = (body: { user_id?: string; username?: string; role: string }) => api.post('/platform/staff', body);
 export const platformRevokeStaff = (userId: string, role: string) => api.del(`/platform/staff/${enc(userId)}/${enc(role)}`);
 export const platformAccess = (status = '') => api.get(`/platform/access?${qs({ status })}`);
 export const platformRequestAccess = (body: { org_id: string; reason: string; minutes?: number }) => api.post('/platform/access', body);
 export const platformEndAccess = (id: string) => api.post(`/platform/access/${enc(id)}/end`);
-export interface PlatformAuditFilter { q?: string; action?: string; from?: string; to?: string; before?: number | null; limit?: number }
+export interface PlatformAuditFilter { q?: string; action?: string; category?: string; from?: string; to?: string; before?: number | null; limit?: number }
 export const platformAudit = (filter: PlatformAuditFilter = {}) => api.get(`/platform/audit?${qs({ ...filter })}`);
 /** The filtered platform trail as a file; the server records the download. */
 export const platformAuditExportUrl = (filter: Omit<PlatformAuditFilter, 'before' | 'limit'>, format: 'csv' | 'json') => `/api/platform/audit/export?${qs({ ...filter, format })}`;

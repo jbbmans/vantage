@@ -397,7 +397,10 @@ CREATE TABLE IF NOT EXISTS audit_log (
   prev_hash  TEXT,
   entry_hash TEXT NOT NULL,
   -- The organization an entry belongs to, sealed into its hash when set. Entries from before organizations derive it from unit_id.
-  org_id     TEXT
+  org_id     TEXT,
+  -- User activity, unit administration or enterprise administration (ADR-0013), sealed into its hash when set. Entries
+  -- from before categories derive it from the action (shared/auditCatalog.ts). Migration 021 makes the log append-only.
+  category   TEXT CHECK (category IS NULL OR category IN ('user', 'unit', 'enterprise'))
 );
 CREATE INDEX IF NOT EXISTS idx_audit_subject ON audit_log(subject_id, seq DESC);
 CREATE INDEX IF NOT EXISTS idx_audit_unit ON audit_log(unit_id, seq DESC);
@@ -460,7 +463,10 @@ CREATE TABLE IF NOT EXISTS email_log (
   subject    TEXT NOT NULL,
   status     TEXT NOT NULL,
   error      TEXT,
-  created_at TEXT NOT NULL
+  created_at TEXT NOT NULL,
+  -- The Unit Instance the mail was sent on behalf of (sign-in details, an invitation, a message to a unit); NULL for
+  -- the account's own mail and Vantage's. A unit's support queue never sees what another Unit Instance sent (ADR-0013).
+  org_id     TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_email_log_created ON email_log(created_at DESC);
 
@@ -1184,3 +1190,25 @@ CREATE TRIGGER IF NOT EXISTS duty_scoring_policies_order BEFORE INSERT ON duty_s
   WHEN NEW.withdrawn_at IS NULL AND EXISTS (SELECT 1 FROM duty_scoring_policies p WHERE p.org_id = NEW.org_id AND p.withdrawn_at IS NULL
     AND ((p.version < NEW.version AND p.effective_from >= NEW.effective_from) OR (p.version > NEW.version AND p.effective_from <= NEW.effective_from)))
 BEGIN SELECT RAISE(ABORT, 'duty scoring versions take effect in order: a new version takes effect after every version not withdrawn'); END;
+
+-- Vantage support changing how somebody signs in when that account holds authority: one staff member asks, with a
+-- reason, and another approves before the change is made (ADR-0013). A request is used once, by the staff member who
+-- asked, for the account, the change and the EDIPI it names, and lapses a day after it is made.
+CREATE TABLE IF NOT EXISTS credential_approvals (
+  id             TEXT PRIMARY KEY,
+  target_user_id TEXT NOT NULL REFERENCES users(id),
+  action         TEXT NOT NULL CHECK (action IN ('temporary_password', 'reset_mfa', 'edipi')),
+  -- The EDIPI asked for, when the change is one; NULL removes it.
+  edipi          TEXT,
+  reason         TEXT NOT NULL,
+  requested_by   TEXT NOT NULL REFERENCES users(id),
+  requested_at   TEXT NOT NULL,
+  status         TEXT NOT NULL CHECK (status IN ('pending', 'approved', 'denied', 'used', 'expired', 'cancelled')),
+  decided_by     TEXT REFERENCES users(id),
+  decided_at     TEXT,
+  decision_note  TEXT,
+  used_at        TEXT,
+  expires_at     TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_credential_approvals_target ON credential_approvals(target_user_id, status);
+CREATE INDEX IF NOT EXISTS idx_credential_approvals_status ON credential_approvals(status, requested_at);
