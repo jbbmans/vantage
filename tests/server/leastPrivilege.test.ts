@@ -245,6 +245,15 @@ test('the default role reads records only by the chain of command’s hand, and 
   assert.ok(!scope.readableUnitIds.includes('LPDC'));
   assert.match(lastEntry('unit_role_withheld', x)!.detail, /^Marine, from /);
   assert.ok(app.ctx.db.prepare("SELECT 1 FROM notifications WHERE user_id = ? AND title LIKE '%joined Default Cell without Marine'").get(um.id), 'the inviter is told');
+  // Founding a unit of its own first is no way round it: the join code it answers next still opened it.
+  const founder = await app.register('lpfounder');
+  assert.equal((await post(founder.token, '/api/org/units', { name: 'Founder Cell', code: 'LPFC' })).status, 201);
+  const code = await post(um.token, '/api/org/units/LPDC/join-codes', { role_id: null });
+  assert.equal(code.status, 201, JSON.stringify(code.body));
+  assert.equal((await post(await login('lpfounder'), `/api/org/join-codes/${encodeURIComponent(code.body.code)}/join`)).status, 200);
+  assert.equal(accountOpenedBy(app.ctx, founder.id), um.id);
+  assert.equal(app.ctx.db.prepare("SELECT 1 FROM member_roles WHERE user_id = ? AND role_id = 'LPDC:marine'").get(founder.id), undefined);
+  assert.equal((scopeFor(app.ctx, { id: founder.id }).permissions.LPDC ?? 0) & PERMISSIONS.VIEW_RECORDS, 0);
   // Seated by someone who did not open the account, it comes with membership as ever.
   const other = await app.register('lpdefault2');
   addMember(app.ctx, other.id, 'LPDC', { invitedBy: um.id });

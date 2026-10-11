@@ -301,3 +301,48 @@ test('a staff member who changed an account’s sign-in does not then give it au
   assert.equal((await post(lead2.token, '/api/platform/orgs/FRSH/owner', { user_id: other.id })).status, 200, 'another staff member can');
   assert.equal((await post(lead2.token, '/api/platform/staff', { user_id: other.id, role: 'support' })).status, 201);
 });
+
+/** A Unit Manager of G8 signed in now: the one made in before() has had its sign-in changed. */
+async function unitManager(username: string) {
+  const person = await app.register(username);
+  await enroll(app, op.token, 'G8', person.id);
+  assert.equal((await post(op.token, '/api/orgs/G8/roles', { user_id: person.id, role: 'admin' })).status, 201);
+  return { id: person.id, token: await login(username) };
+}
+
+test('nor a unit to lead, by naming or by transfer, from a staff member who also holds unit authority', async () => {
+  const um = await unitManager('leadnamer');
+  const fresh = await app.register('freshleader');
+  await enroll(app, op.token, 'G8', fresh.id);
+  assert.equal((await post(op.token, `/api/platform/accounts/${fresh.id}/temporary-password`)).status, 200, 'no authority, so no second person');
+  // Named by the staff member as a Unit Manager of the Unit Instance.
+  assert.equal((await post(um.token, '/api/org/units', { name: 'Fresh Lead Cell', code: 'FRLC', parent_id: 'G8' })).status, 201);
+  const named = await post(op.token, '/api/orgs/G8/units/FRLC/leader', { user_id: fresh.id });
+  assert.equal(named.status, 403, JSON.stringify(named.body));
+  assert.equal(named.body.code, 'recent_credential_change');
+  assert.equal((app.ctx.db.prepare("SELECT owner_user_id FROM units WHERE id = 'FRLC'").get() as { owner_user_id: string | null }).owner_user_id, null);
+  // Handed on by the staff member as the unit's own leader.
+  assert.equal((await post(op.token, '/api/org/units', { name: 'Fresh Transfer Cell', code: 'FRTC', parent_id: 'G8' })).status, 201);
+  addMember(app.ctx, fresh.id, 'FRTC', { invitedBy: null });
+  const handed = await post(op.token, '/api/org/units/FRTC/owner', { user_id: fresh.id });
+  assert.equal(handed.status, 403, JSON.stringify(handed.body));
+  assert.equal(handed.body.code, 'recent_credential_change');
+  assert.equal((app.ctx.db.prepare("SELECT owner_user_id FROM units WHERE id = 'FRTC'").get() as { owner_user_id: string | null }).owner_user_id, op.id);
+  // Another Unit Manager names them.
+  assert.equal((await post(um.token, '/api/orgs/G8/units/FRLC/leader', { user_id: fresh.id })).status, 200, 'another can');
+});
+
+test('a leader who archives the unit only they belong to still counts as having led it', async () => {
+  const um = await unitManager('closingmgr');
+  const leader = await app.register('archivist');
+  await enroll(app, op.token, 'G8', leader.id);
+  assert.equal((await post(um.token, '/api/org/units', { name: 'Closing Cell', code: 'CLSC', parent_id: 'G8' })).status, 201);
+  assert.equal((await post(um.token, '/api/orgs/G8/units/CLSC/leader', { user_id: leader.id })).status, 200);
+  assert.equal(heldAuthorityRecently(app.ctx, leader.id), false, 'named from unled, and gave nothing up');
+  assert.equal((await app.call('DELETE', '/api/org/units/CLSC', { token: await login('archivist') })).status, 200);
+  assert.deepEqual(app.ctx.db.prepare("SELECT actor_id, subject_id FROM audit_log WHERE action = 'archive_unit' AND unit_id = 'CLSC'").get(), { actor_id: leader.id, subject_id: leader.id });
+  assert.equal(heldAuthorityRecently(app.ctx, leader.id), true);
+  const alone = await post(support.token, `/api/platform/accounts/${leader.id}/temporary-password`);
+  assert.equal(alone.status, 403, JSON.stringify(alone.body));
+  assert.equal(alone.body.code, 'approval_required');
+});

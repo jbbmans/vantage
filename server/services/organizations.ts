@@ -329,6 +329,7 @@ export function setUnitLeader(ctx: AppContext, actor: SessionUser, orgId: string
   const scope = scopeFor(ctx, actor);
   guardSelfReach(ctx, actor, scope, unitId, PERMISSIONS.ADMINISTRATOR, userId, `Making yourself leader of ${unit.name}`);
   guardUnprovenOwnAccount(ctx, actor, userId, { scope, unitId, bits: PERMISSIONS.ADMINISTRATOR });
+  guardRecentCredentialChange(ctx, actor, userId);
   const { previous, sessionsRevoked } = claimUnit(ctx, unitId, userId);
   audit(ctx, { actor_id: actor.id, action: 'unit_leader_set', entity: 'unit', entity_id: unitId, unit_id: unitId, org_id: orgId, subject_id: userId, detail: `${previous || 'unled'} -> ${userId}`, ip });
   notify(ctx, userId, { kind: 'unit', title: `You now lead ${unit.name}`, message: 'Sign in again to pick up the new authority.', actionUrl: '/team' });

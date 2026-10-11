@@ -49,8 +49,11 @@ export const RECENT_AUTHORITY_DAYS = 30;
 
 const recentSince = () => new Date(Date.now() - RECENT_AUTHORITY_DAYS * 86_400_000).toISOString();
 
-/** Trail entries about an account that end authority it held: a Unit Instance role, a platform role, leading a unit. */
-const AUTHORITY_ENDED = ['org_role_revoked', 'org_role_ended', 'org_role_expired', 'platform_manager_removed', 'staff_role_revoked', 'unit_leader_ended'];
+/**
+ * Trail entries about an account that end authority it held: a Unit Instance role, a platform role, leading a unit,
+ * including one its leader archived.
+ */
+const AUTHORITY_ENDED = ['org_role_revoked', 'org_role_ended', 'org_role_expired', 'platform_manager_removed', 'staff_role_revoked', 'unit_leader_ended', 'archive_unit'];
 /** Entries that pass a unit's leadership on, naming the leader before as `<id> -> <successor>`. */
 const LEADERSHIP_PASSED = ['transfer_ownership', 'unit_leader_set'];
 
@@ -78,8 +81,8 @@ export function heldAuthorityRecently(ctx: AppContext, userId: string): boolean 
 /**
  * A staff member who set a temporary password, reset the second factor or changed the CAC on an account within the last
  * RECENT_AUTHORITY_DAYS does not then give that account authority: a Unit Manager or Lead Unit Manager role, the first
- * Lead Unit Manager of a Unit Instance, or a platform role. Otherwise one person could take an account over while it held
- * nothing and then hand it authority. Another staff member can. Refused as recent_credential_change, written to the
+ * Lead Unit Manager of a Unit Instance, a platform role, or a unit to lead. Otherwise one person could take an account
+ * over while it held nothing and then hand it authority. Another staff member can. Refused as recent_credential_change, written to the
  * trail as any refusal at the administration routes is.
  */
 export function guardRecentCredentialChange(ctx: AppContext, actor: Pick<SessionUser, 'id'>, targetId: string): void {

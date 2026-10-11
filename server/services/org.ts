@@ -10,6 +10,7 @@ import { notify, notifyOrg } from './notifications.ts';
 import { releaseClaimsOnDeparture } from './work.ts';
 import { assertCanFoundUnitInstance } from './deployment.ts';
 import { noteMembershipEnd, noteMembershipStart, type EndReason, type StartReason } from './membership.ts';
+import { guardRecentCredentialChange } from './credentialApprovals.ts';
 
 export interface UnitRow { id: string; code: string; name: string; short_name: string | null; echelon: string; location: string | null; parent_id: string | null; owner_user_id: string | null; active: number; created_at: string }
 
@@ -271,7 +272,8 @@ export function archiveUnit(ctx: AppContext, actor: SessionUser, scope: Scope, u
     }
     ctx.db.prepare('UPDATE units SET active = 0, owner_user_id = NULL WHERE id = ?').run(unitId);
   })();
-  audit(ctx, { actor_id: actor.id, action: 'archive_unit', entity: 'unit', entity_id: unitId, unit_id: unitId, ip });
+  // The entry names who led it, so the two-person rule counts the leadership given up with it (ADR-0013).
+  audit(ctx, { actor_id: actor.id, action: 'archive_unit', entity: 'unit', entity_id: unitId, unit_id: unitId, subject_id: unit.owner_user_id || null, ip });
 }
 
 export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: string, successorId: string, ip?: string) {
@@ -281,6 +283,8 @@ export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: s
   const successor = ctx.db.prepare('SELECT u.id, u.first_name, u.last_name FROM users u JOIN unit_members um ON um.user_id = u.id WHERE u.id = ? AND u.active = 1 AND um.unit_id = ?').get(successorId, unitId) as { id: string; first_name: string; last_name: string } | undefined;
   if (!successor) throw badRequest('Choose an active current member of this unit.', { fieldErrors: { user_id: 'Not a member of this unit.' } });
   if (successor.id === unit.owner_user_id) return { ok: true, already: true };
+  // Nor from a staff member who changed the successor’s sign-in lately, whoever they are in the unit (ADR-0013).
+  guardRecentCredentialChange(ctx, actor, successor.id);
   if (!isUnitOwner(ctx, actor.id, unitId)) {
     const scope = scopeFor(ctx, actor);
     guardSelfReach(ctx, actor, scope, unitId, PERMISSIONS.ADMINISTRATOR, successor.id, `Making yourself leader of ${unit.name}`);
@@ -340,10 +344,11 @@ const OPENED_FOR = ['account_import', 'invitation', 'join_code'] as const;
 /**
  * Who created or invited this account: the person who opened its first unit membership by an account import, an
  * invitation or a join code. Null for an account that came some other way (its own sign-up, a CAC or the organization's
- * sign-in, the personnel feed), or whose first membership names nobody.
+ * sign-in, the personnel feed), or whose first membership names nobody. A unit the account founded is not counted:
+ * founding one first is no way round the rule for the code or invitation it answers next.
  */
 export function accountOpenedBy(ctx: AppContext, userId: string): string | null {
-  const first = ctx.db.prepare('SELECT start_reason, started_by FROM unit_membership_periods WHERE user_id = ? ORDER BY started_at, id LIMIT 1')
+  const first = ctx.db.prepare("SELECT start_reason, started_by FROM unit_membership_periods WHERE user_id = ? AND start_reason IS NOT 'unit_created' ORDER BY started_at, id LIMIT 1")
     .get(userId) as { start_reason: string | null; started_by: string | null } | undefined;
   return first && (OPENED_FOR as readonly string[]).includes(first.start_reason ?? '') ? first.started_by : null;
 }

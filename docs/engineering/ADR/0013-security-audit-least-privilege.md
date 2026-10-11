@@ -195,15 +195,18 @@ How the new actions behave:
 - **Authority given up lately still counts.** Authority the account held in the last 30 days
   (`RECENT_AUTHORITY_DAYS`) counts too (`heldAuthorityRecently`). The trail shows it: an `org_role_revoked`,
   `org_role_ended`, `org_role_expired`, `platform_manager_removed`, `staff_role_revoked` or `unit_leader_ended`
-  entry about the account, a `transfer_ownership` or `unit_leader_set` entry that passed a unit on from it, or a
-  Unit Instance role that ran out in that time. Taking an account's authority away, changing its sign-in alone
+  entry about the account, an `archive_unit` entry naming it as the leader of the unit archived, a
+  `transfer_ownership` or `unit_leader_set` entry that passed a unit on from it, or a Unit Instance role that ran
+  out in that time. Taking an account's authority away, changing its sign-in alone
   and giving the authority back is therefore no way round the second person.
 - **Nor the other way round.** A staff member who set a temporary password, reset the second factor or changed
   the CAC on an account in the last 30 days does not then give it authority (`guardRecentCredentialChange`):
   - any Unit Instance role, through `grantOrgRole`, which a Vantage Administrator's `assignManager` and the
     Unit Instance's own routes both use;
   - the first Lead Unit Manager, by `nameFirstOwner` or when a Unit Instance is created with one;
-  - a platform staff role (`POST /api/platform/staff`).
+  - a platform staff role (`POST /api/platform/staff`);
+  - the leadership of a unit, by naming (`setUnitLeader`) or by transfer (`transferOwnership`), whoever the staff
+    member is in the unit.
 
   The refusal is 403 `recent_credential_change`: "You changed this account's sign-in in the last 30 days, so you
   cannot give it authority. Another member of Vantage staff can." It reaches the trail as `access_denied`.
@@ -268,7 +271,8 @@ How the new actions behave:
 
   This covers removal, transfer, personnel-feed separation and removal from the instance. A leader who
   archives the unit only they belong to closes it rather than leaving it unled: the leadership is cleared
-  first, so no `unit_leader_ended` entry or "has no leader" notice is written for it.
+  first, so no `unit_leader_ended` entry or "has no leader" notice is written for it. The `archive_unit` entry
+  names the leader as its subject, and the two-person rule reads it as leadership given up.
 - **Existing data.** A leader who is not a member is left in place, ignored by scope and listed by the
   separation-of-duties report.
 - **Restored with the roster, while nobody else leads.** A personnel-feed separation keeps, with the
@@ -281,7 +285,8 @@ How the new actions behave:
 
 - **Opened by.** An account was opened by a person when its earliest `unit_membership_periods` row has
   `start_reason` in (`account_import`, `invitation`, `join_code`) and `started_by` that person
-  (`accountOpenedBy`).
+  (`accountOpenedBy`). A unit the account founded (`unit_created`) is not counted, so founding one first is no
+  way round the rule for the code or invitation it answers next.
 - **Proven.** An account is proven once `users.edipi_verified_at` or `users.oidc_subject` is set
   (`isProvenAccount`), that is, once it has signed in with its own CAC or the organization's sign-in.
 - **What waits.** Until then, the person who opened it gives it none of the following:
@@ -422,8 +427,6 @@ checksum and the licence are recorded at its head.
     asking for approval on slightly more accounts is the safe side.
   - **The `access_denied` quiet period** is held per process and starts empty on each start. Its 5,000-entry
     cap has no direct test, which would take 5,000 requests.
-  - **Unit leadership is not covered by `recent_credential_change`.** A staff member who changed an account's
-    sign-in and also holds unit authority could still name it a unit's leader or transfer a unit to it.
   - **Maintenance and backups** still need no second person (INFRASTRUCTURE_QUESTIONS I-29).
   - **Adaptive, risk-based access decisions** (device posture, location) are not built (ASVS V8.2.4,
     V8.4.2).
