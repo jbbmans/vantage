@@ -42,8 +42,8 @@ export function describeChange(action: CredentialAction, edipi: string | null): 
 }
 
 /**
- * Authority given up this recently still counts, both ways round: removing an account's authority does not open its
- * sign-in to one staff member, and a staff member who changed an account's sign-in does not give it authority.
+ * Authority given up this recently still counts: removing an account's authority does not open its sign-in to one
+ * staff member.
  */
 export const RECENT_AUTHORITY_DAYS = 30;
 
@@ -76,19 +76,6 @@ export function heldAuthorityRecently(ctx: AppContext, userId: string): boolean 
     UNION ALL SELECT 1 FROM audit_log WHERE action IN (SELECT value FROM json_each(?)) AND at >= ? AND detail LIKE ? ESCAPE '\\'
     UNION ALL SELECT 1 FROM org_roles WHERE user_id = ? AND expires_at > ? AND expires_at <= ? LIMIT 1`)
     .get(userId, since, JSON.stringify(AUTHORITY_ENDED), JSON.stringify(LEADERSHIP_PASSED), since, `${userId.replace(/[\\%_]/g, '\\$&')} -> %`, userId, since, now()));
-}
-
-/**
- * A staff member who set a temporary password, reset the second factor or changed the CAC on an account within the last
- * RECENT_AUTHORITY_DAYS does not then give that account authority: a Unit Manager or Lead Unit Manager role, the first
- * Lead Unit Manager of a Unit Instance, a platform role, or a unit to lead. Otherwise one person could take an account
- * over while it held nothing and then hand it authority. Another staff member can. Refused as recent_credential_change, written to the
- * trail as any refusal at the administration routes is.
- */
-export function guardRecentCredentialChange(ctx: AppContext, actor: Pick<SessionUser, 'id'>, targetId: string): void {
-  const changed = ctx.db.prepare(`SELECT 1 FROM audit_log WHERE subject_id = ? AND actor_id = ? AND at >= ?
-    AND action IN ('temporary_password', 'reset_mfa', 'edipi_corrected') LIMIT 1`).get(targetId, actor.id, recentSince());
-  if (changed) throw forbidden(`You changed this account’s sign-in in the last ${RECENT_AUTHORITY_DAYS} days, so you cannot give it authority. Another member of Vantage staff can.`, 'recent_credential_change');
 }
 
 /** Requests not used by the time they lapse are closed, so nothing reads an old approval as live. */

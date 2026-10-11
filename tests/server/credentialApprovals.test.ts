@@ -271,35 +271,25 @@ test('taking authority away, changing the sign-in alone and giving it back is no
   assert.equal(heldAuthorityRecently(app.ctx, successor.id), false, 'leads it now, and gave nothing up');
 });
 
-test('a staff member who changed an account’s sign-in does not then give it authority; another staff member can', async () => {
+test('the staff member who changed an account’s sign-in can then give it authority, in the trail and told to its Lead Unit Managers', async () => {
+  // John's decision of 2026-10-11 (ADR-0013): no block on reset-then-promote; both steps are audited and the instance is told.
   const va = await staffMember('vadmin3', 'admin');
   const target = await app.register('freshmgr');
   await enroll(app, op.token, 'G8', target.id);
   assert.equal((await post(va.token, `/api/platform/accounts/${target.id}/temporary-password`)).status, 200, 'no authority, so no second person');
 
-  const refused = await post(va.token, '/api/platform/orgs/G8/managers', { user_id: target.id, role: 'admin' });
-  assert.equal(refused.status, 403, JSON.stringify(refused.body));
-  assert.equal(refused.body.code, 'recent_credential_change');
-  assert.equal(refused.body.error ?? refused.body.message, `You changed this account’s sign-in in the last ${RECENT_AUTHORITY_DAYS} days, so you cannot give it authority. Another member of Vantage staff can.`);
-  assert.equal(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ?").get(target.id), undefined);
-  const denied = app.ctx.db.prepare("SELECT detail, category FROM audit_log WHERE action = 'access_denied' AND actor_id = ? ORDER BY seq DESC LIMIT 1").get(va.id) as { detail: string; category: string };
-  assert.deepEqual(denied, { detail: 'POST /api/platform/orgs/:orgId/managers: recent_credential_change', category: 'enterprise' });
-  assert.equal((await post(op.token, '/api/platform/orgs/G8/managers', { user_id: target.id, role: 'admin' })).status, 200, 'another staff member can');
-
-  // Nor a platform role, nor the first Lead Unit Manager of a Unit Instance that has none.
-  const other = await app.register('freshstaff');
-  assert.equal((await post(op.token, `/api/platform/accounts/${other.id}/reset-mfa`)).status, 200);
-  app.ctx.db.prepare('UPDATE users SET totp_enabled = 1 WHERE id = ?').run(other.id);
-  const staffRefused = await post(op.token, '/api/platform/staff', { user_id: other.id, role: 'support' });
-  assert.equal(staffRefused.status, 403, JSON.stringify(staffRefused.body));
-  assert.equal(staffRefused.body.code, 'recent_credential_change');
-  assert.equal((await post(op.token, '/api/platform/orgs', { name: 'Fresh Instance', code: 'FRSH' })).status, 201);
-  const ownerRefused = await post(op.token, '/api/platform/orgs/FRSH/owner', { user_id: other.id });
-  assert.equal(ownerRefused.status, 403, JSON.stringify(ownerRefused.body));
-  assert.equal(ownerRefused.body.code, 'recent_credential_change');
-  assert.equal((await post(op.token, '/api/platform/orgs', { name: 'Fresher Instance', code: 'FRSR', owner_user_id: other.id })).body.code, 'recent_credential_change');
-  assert.equal((await post(lead2.token, '/api/platform/orgs/FRSH/owner', { user_id: other.id })).status, 200, 'another staff member can');
-  assert.equal((await post(lead2.token, '/api/platform/staff', { user_id: other.id, role: 'support' })).status, 201);
+  const granted = await post(va.token, '/api/platform/orgs/G8/managers', { user_id: target.id, role: 'admin' });
+  assert.equal(granted.status, 200, JSON.stringify(granted.body));
+  assert.ok(app.ctx.db.prepare("SELECT 1 FROM org_roles WHERE org_id = 'G8' AND user_id = ? AND role = 'admin'").get(target.id));
+  // Both steps are in the trail, by the same staff member.
+  assert.equal(auditRows('temporary_password', target.id).at(-1)!.actor_id, va.id);
+  const grant = auditRows('org_role_granted', target.id).at(-1)!;
+  assert.deepEqual({ actor_id: grant.actor_id, category: grant.category, org_id: grant.org_id }, { actor_id: va.id, category: 'enterprise', org_id: 'G8' });
+  assert.equal(auditRows('platform_manager_assigned', target.id).at(-1)!.actor_id, va.id);
+  // The instance's Lead Unit Managers are told of the new Unit Manager.
+  const owners = app.ctx.db.prepare("SELECT user_id FROM org_roles WHERE org_id = 'G8' AND role = 'owner'").all() as Array<{ user_id: string }>;
+  assert.ok(owners.length >= 1);
+  for (const { user_id } of owners) assert.ok(notices(user_id, 'Freshmgr Marine was made Unit Manager') >= 1, 'each Lead Unit Manager is told');
 });
 
 /** A Unit Manager of G8 signed in now: the one made in before() has had its sign-in changed. */
@@ -309,28 +299,6 @@ async function unitManager(username: string) {
   assert.equal((await post(op.token, '/api/orgs/G8/roles', { user_id: person.id, role: 'admin' })).status, 201);
   return { id: person.id, token: await login(username) };
 }
-
-test('nor a unit to lead, by naming or by transfer, from a staff member who also holds unit authority', async () => {
-  const um = await unitManager('leadnamer');
-  const fresh = await app.register('freshleader');
-  await enroll(app, op.token, 'G8', fresh.id);
-  assert.equal((await post(op.token, `/api/platform/accounts/${fresh.id}/temporary-password`)).status, 200, 'no authority, so no second person');
-  // Named by the staff member as a Unit Manager of the Unit Instance.
-  assert.equal((await post(um.token, '/api/org/units', { name: 'Fresh Lead Cell', code: 'FRLC', parent_id: 'G8' })).status, 201);
-  const named = await post(op.token, '/api/orgs/G8/units/FRLC/leader', { user_id: fresh.id });
-  assert.equal(named.status, 403, JSON.stringify(named.body));
-  assert.equal(named.body.code, 'recent_credential_change');
-  assert.equal((app.ctx.db.prepare("SELECT owner_user_id FROM units WHERE id = 'FRLC'").get() as { owner_user_id: string | null }).owner_user_id, null);
-  // Handed on by the staff member as the unit's own leader.
-  assert.equal((await post(op.token, '/api/org/units', { name: 'Fresh Transfer Cell', code: 'FRTC', parent_id: 'G8' })).status, 201);
-  addMember(app.ctx, fresh.id, 'FRTC', { invitedBy: null });
-  const handed = await post(op.token, '/api/org/units/FRTC/owner', { user_id: fresh.id });
-  assert.equal(handed.status, 403, JSON.stringify(handed.body));
-  assert.equal(handed.body.code, 'recent_credential_change');
-  assert.equal((app.ctx.db.prepare("SELECT owner_user_id FROM units WHERE id = 'FRTC'").get() as { owner_user_id: string | null }).owner_user_id, op.id);
-  // Another Unit Manager names them.
-  assert.equal((await post(um.token, '/api/orgs/G8/units/FRLC/leader', { user_id: fresh.id })).status, 200, 'another can');
-});
 
 test('a leader who archives the unit only they belong to still counts as having led it', async () => {
   const um = await unitManager('closingmgr');

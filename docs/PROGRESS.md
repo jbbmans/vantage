@@ -33,11 +33,11 @@ for this Task are closed ([ADR-0013](engineering/ADR/0013-security-audit-least-p
 - **Inventory and matrix.** `server/authz/privilegedRoutes.ts` lists every privileged route, held to the routers
   by a test that also refuses an ordinary member on each. [docs/security/ASVS.md](security/ASVS.md) maps Vantage
   to OWASP ASVS 5.0.0: V8 and V16 by requirement, the rest by section, with the gaps.
-- **After review (2026-10-11).** Authority given up in the last 30 days counts for the two-person rule, and a
-  staff member who changed an account's sign-in gives it no authority, a unit to lead included
-  (`recent_credential_change`). "Until proven" covers the unit's default role and roles a move carries, and a
-  unit the account founded first does not hide who opened it. Made-up addresses under a console's guard
-  are one refusal in the trail. Every migration this build runs is audited. A roster restore gives back a
+- **After review (2026-10-11).** Authority given up in the last 30 days counts for the two-person rule. A block
+  on the staff member who changed an account's sign-in then giving it authority was built and removed on John's
+  decision: reset-then-promote is audited and the Lead Unit Managers are told. "Until proven" covers the unit's
+  default role and roles a move carries, and a unit the account founded first does not hide who opened it.
+  Made-up addresses under a console's guard are one refusal in the trail. Every migration this build runs is audited. A roster restore gives back a
   leadership while the unit is unled. The ASVS matrix now counts a Level 3 shortfall against its section.
 - **Open questions** I-30 (who keeps and compares the off-host copy), I-31 (whether MCEN names an approver for
   credential resets), I-32 (audit retention under append-only) and I-33 (the host's time source) are added to
@@ -517,7 +517,7 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **775 / 775 pass** (2026-10-11) |
+| `npm test` (server suite, in-memory SQLite) | **774 / 774 pass** (2026-10-11) |
 | `npm run test:browser` (Playwright, Chromium, built client) | **123 / 123 pass** (2026-10-11; 122 desktop, 1 phone) |
 | Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference, the public page and the security, privacy, accessibility and changes pages |
 | `npm audit` | 0 vulnerabilities |
@@ -544,6 +544,9 @@ in the privacy inventory; the financial answering rules on every AI prompt.
    organization's sign-in (ADR-0013 §8).
 4. Vantage Administrators add and remove Unit Managers in any Unit Instance at any time, never themselves, and
    that instance's Lead Unit Managers are told each time (2026-10-08, ADR-0010 §5; unchanged by Task 7).
+5. No block on reset-then-promote (2026-10-11, "Remove it"): the staff member who changed an account's sign-in
+   may then give it authority. Both steps are audited and the instance's Lead Unit Managers are told of a new
+   Unit Manager. The 30-day lookback for the two-person rule stays (ADR-0013 §5, Alternatives considered).
 
 ## Next actions
 

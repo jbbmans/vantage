@@ -173,8 +173,7 @@ How the new actions behave:
     `bad_password`, `cross_instance`), and so is every 401.
   - The same person, method, route and code is written once in ten minutes (in memory, per process). At most
     5,000 refusals are remembered (`DENIALS_REMEMBERED`); past that, expired ones go first, then the oldest.
-  - `self_grant`, `unproven_own_account`, `approval_required` and `recent_credential_change` refusals reach the
-    trail this way.
+  - `self_grant`, `unproven_own_account` and `approval_required` refusals reach the trail this way.
 - **`schema_migrated`** keeps `migration_audited_through`, a host meta key that an instance export does not
   carry.
   - A database this build creates is audited once, as created at its schema.
@@ -199,19 +198,18 @@ How the new actions behave:
   `transfer_ownership` or `unit_leader_set` entry that passed a unit on from it, or a Unit Instance role that ran
   out in that time. Taking an account's authority away, changing its sign-in alone
   and giving the authority back is therefore no way round the second person.
-- **Nor the other way round.** A staff member who set a temporary password, reset the second factor or changed
-  the CAC on an account in the last 30 days does not then give it authority (`guardRecentCredentialChange`):
-  - any Unit Instance role, through `grantOrgRole`, which a Vantage Administrator's `assignManager` and the
-    Unit Instance's own routes both use;
-  - the first Lead Unit Manager, by `nameFirstOwner` or when a Unit Instance is created with one;
-  - a platform staff role (`POST /api/platform/staff`);
-  - the leadership of a unit, by naming (`setUnitLeader`) or by transfer (`transferOwnership`), whoever the staff
-    member is in the unit.
+- **Reset, then promote, is not refused (John, 2026-10-11).** A staff member who set a temporary password,
+  reset the second factor or changed the CAC on an account that held no authority may then give it authority
+  themselves: a Unit Instance role, the first Lead Unit Manager, a platform staff role or a unit to lead. Both
+  steps are on the record instead:
+  - the change as `temporary_password`, `reset_mfa` or `edipi_corrected` (enterprise), and in the trail of every
+    Unit Instance the person belongs to (`vantage_account_support`);
+  - the grant under its own action, by the same actor: `org_role_granted` with `platform_manager_assigned` for
+    a Vantage Administrator's Unit Manager, `staff_role_granted`, `unit_leader_set` or `transfer_ownership`;
+  - a new Unit Manager or Lead Unit Manager is told to the instance's Lead Unit Managers (`grantOrgRole`).
 
-  The refusal is 403 `recent_credential_change`: "You changed this account's sign-in in the last 30 days, so you
-  cannot give it authority. Another member of Vantage staff can." It reaches the trail as `access_denied`.
-  John's decision on Unit Manager assignment stands: Vantage Administrators still add and remove Unit Managers
-  at any time; only the one who just changed that account's sign-in is refused, and another can act.
+  John's decision on Unit Manager assignment stands: Vantage Administrators add and remove Unit Managers at any
+  time. A block on this path was built and removed; see Alternatives considered.
 - **Asking.** A holder of `platform.accounts` asks with a reason of at least ten characters, and an EDIPI for
   a CAC change: `POST /api/platform/accounts/:userId/credential-approvals`. The request is refused with:
   - 400 `no_authority` when the account holds none;
@@ -401,8 +399,9 @@ checksum and the licence are recorded at its head.
   - Vantage support needs a second staff member to take over an account that holds authority.
   - A leader who leaves a unit stops leading it, and gets it back from a roster restore only while it is still
     unled.
-  - Authority held in the last 30 days counts for the two-person rule, and a staff member who changed an
-    account's sign-in in that time gives it no authority (`recent_credential_change`).
+  - Authority held in the last 30 days counts for the two-person rule. A staff member who changed an account's
+    sign-in may still give it authority; both steps are audited and the instance's Lead Unit Managers are told
+    of a new Unit Manager (John, 2026-10-11).
   - A Unit Manager's own invitees and imported accounts wait for proof before reading records or holding a
     Unit Instance role from them, through the unit's default role and a move as well.
   - A unit support queue sees less of the delivery log.
@@ -452,6 +451,14 @@ checksum and the licence are recorded at its head.
     instance. It carries the second option's gaps for the instance side;
   - "Notify only": Task 4's behavior, one person acts and the instance is told afterward. A takeover is
     detected but not prevented.
+- **Refusing authority from the staff member who changed the account's sign-in.** Built, then removed on
+  John's decision of 2026-10-11 ("Remove it"). For 30 days after a temporary password, a second-factor reset
+  or a CAC change, `guardRecentCredentialChange` refused that staff member, as 403 `recent_credential_change`,
+  a Unit Instance role, the first Lead Unit Manager, a platform staff role and a unit to lead; another staff
+  member could act. The consequence John accepted: any Vantage Administrator adds Unit Managers at any time,
+  as before; reset-then-promote stays possible but is audited, and Lead Unit Managers are told. The 30-day
+  lookback for the two-person rule (`heldAuthorityRecently`) is kept: it is the other direction, and removing
+  authority still does not open the sign-in to one staff member.
 - **Refusing the join when a code or invitation carries a role the maker may not give.** Rejected: existing
   practice has leaders staff units with join codes made for others. Holding back the role keeps the join and
   stops the grant.

@@ -10,7 +10,6 @@ import { notify, notifyOrg } from './notifications.ts';
 import { releaseClaimsOnDeparture } from './work.ts';
 import { assertCanFoundUnitInstance } from './deployment.ts';
 import { noteMembershipEnd, noteMembershipStart, type EndReason, type StartReason } from './membership.ts';
-import { guardRecentCredentialChange } from './credentialApprovals.ts';
 
 export interface UnitRow { id: string; code: string; name: string; short_name: string | null; echelon: string; location: string | null; parent_id: string | null; owner_user_id: string | null; active: number; created_at: string }
 
@@ -283,8 +282,6 @@ export function transferOwnership(ctx: AppContext, actor: SessionUser, unitId: s
   const successor = ctx.db.prepare('SELECT u.id, u.first_name, u.last_name FROM users u JOIN unit_members um ON um.user_id = u.id WHERE u.id = ? AND u.active = 1 AND um.unit_id = ?').get(successorId, unitId) as { id: string; first_name: string; last_name: string } | undefined;
   if (!successor) throw badRequest('Choose an active current member of this unit.', { fieldErrors: { user_id: 'Not a member of this unit.' } });
   if (successor.id === unit.owner_user_id) return { ok: true, already: true };
-  // Nor from a staff member who changed the successor’s sign-in lately, whoever they are in the unit (ADR-0013).
-  guardRecentCredentialChange(ctx, actor, successor.id);
   if (!isUnitOwner(ctx, actor.id, unitId)) {
     const scope = scopeFor(ctx, actor);
     guardSelfReach(ctx, actor, scope, unitId, PERMISSIONS.ADMINISTRATOR, successor.id, `Making yourself leader of ${unit.name}`);
