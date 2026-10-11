@@ -1,6 +1,6 @@
 # OWASP ASVS 5.0.0: where Vantage stands
 
-_Assessed 2026-10-10 against `main` plus Task 7 ([ADR-0013](../engineering/ADR/0013-security-audit-least-privilege.md))._
+_Assessed 2026-10-10 against `main` plus Task 7 ([ADR-0013](../engineering/ADR/0013-security-audit-least-privilege.md)); revised 2026-10-11 after review._
 
 This is a self-assessment written by the people who built Vantage. It is not an accreditation, a penetration
 test or a third-party verification. No DoD, USMC, MCEN, NETACT-RES or RMF approval has been sought or granted.
@@ -29,8 +29,9 @@ curl -sSL https://raw.githubusercontent.com/OWASP/ASVS/v5.0.0/5.0/docs_en/OWASP_
 
 - **V8 Authorization** and **V16 Security Logging and Error Handling** are assessed one requirement per row. Task 7
   is about these two.
-- **Every other chapter** is assessed one section per row. The status there is the section as a whole, and the gaps
-  name the requirements that fall short.
+- **Every other chapter** is assessed one section per row. The status there is the section as a whole, at every
+  level: a section is Met only when each of its requirements is, Level 3 included, so one Level 3 shortfall makes
+  it Partly. The gaps name the requirements that fall short, with "L3" after a Level 3 one.
 
 | Status | Meaning |
 |---|---|
@@ -50,7 +51,7 @@ are under `tests/browser`.
 |---|---|---|---|---|---|
 | V8 Authorization (requirements) | 13 | 7 | 5 | 1 | 0 |
 | V16 Security Logging and Error Handling (requirements) | 17 | 8 | 9 | 0 | 0 |
-| Other 15 chapters (sections) | 71 | 39 | 21 | 1 | 10 |
+| Other 15 chapters (sections) | 71 | 34 | 26 | 1 | 10 |
 
 ## V8 Authorization
 
@@ -60,7 +61,7 @@ are under `tests/browser`.
 | V8.1.2 | 2 | Documented rules for field-level reads and writes | Partly | `docs/security.md` (Least visibility; Exports are audited and minimal); ADR-0012 §10, §11; ADR-0013 §6 | Field rules exist feature by feature: EDIPI-derived usernames are hidden from Unit Instance trails, email recipients show only to `platform.email`, the support delivery log is reduced for unit queues, and the roster CSV leaves out EDIPI and email. No single document defines field-level access across the API. |
 | V8.1.3 | 3 | Documented environmental and contextual attributes | Partly | `docs/security.md` (step-up window, idle timeouts, console hosts, consent banner, rate limits); ADR-0011 | The attributes used are the request's host (which console), the age of the last step-up, session idle time and the client IP (for rate limits and audit only). They are described but not collected in one place. |
 | V8.1.4 | 3 | Documented use of context in decisions, with thresholds and outcomes | Partly | `docs/security.md` (step-up, lockout, idle limits); `server/auth/middleware.ts` | Fixed thresholds are documented: a 10-minute step-up window, 15 or 10 idle minutes, three failures to lock. There is no risk scoring. |
-| V8.2.1 | 1 | Functions restricted to explicit permissions | Met | `server/authz/platform.ts` (`requirePlatform`), `server/routes/orgs.ts` (`inOrg`), `server/authz/scope.ts`; `server/authz/privilegedRoutes.ts`; tests `roleModel` (every role of both catalogues against the console routes), `privilegedRoutes` (an ordinary member refused on every privileged route, nothing changed), `tenancy`, `unitManagerConsole`, `adminConsole` | The privileged-route manifest fails the suite when a mutating route is added without being declared. |
+| V8.2.1 | 1 | Functions restricted to explicit permissions | Met | `server/auth/middleware.ts` (`requirePlatform`), `server/routes/orgs.ts` (`inOrg`), `server/authz/scope.ts`; `server/authz/privilegedRoutes.ts`; tests `roleModel` (every role of both catalogues against the console routes), `privilegedRoutes` (an ordinary member refused on every privileged route, nothing changed), `tenancy`, `unitManagerConsole`, `adminConsole` | The privileged-route manifest fails the suite when a mutating route is added without being declared. |
 | V8.2.2 | 1 | Data items restricted to explicit permissions (no IDOR or BOLA) | Met | `server/authz/scope.ts`, `server/authz/records.ts`; tests `unitIsolation` ("IDs cannot be manipulated to cross boundaries", "file downloads enforce record and unit authorization"), `securityHardening`, `records`, `support` | Another Unit Instance's ids answer 404. Drafts and career steps answer 404 to anyone but their owner. |
 | V8.2.3 | 2 | Fields restricted to explicit permissions (no BOPLA) | Partly | zod schemas through `parse()` on every write (no mass assignment); `server/services/support.ts` (`deliveryFor`); `server/services/auditQuery.ts` (EDIPI usernames left out of instance trails); tests `support`, `unitManagerConsole`, `adminConsole` (no record marker reaches a platform read) | Writes accept only declared fields. Reads are trimmed where a feature was reviewed, not by a general field-level model. |
 | V8.2.4 | 3 | Adaptive controls from context, at sign-in and during a session | Not met | — | Step-up, idle limits and host separation are fixed rules. Nothing weighs device, location or time of day. |
@@ -76,11 +77,11 @@ are under `tests/browser`.
 |---|---|---|---|---|---|
 | V16.1.1 | 2 | An inventory of logging: layers, events, formats, storage, use, access and retention | Partly | `docs/security.md` (Logs); `shared/auditCatalog.ts` (every audit action and its category); `docs/operations.md` (Audit records off the host) | The inventory names every log, its format, where it goes and who reads it. The retention of the audit log is not decided (INFRASTRUCTURE_QUESTIONS I-32). |
 | V16.2.1 | 2 | Each entry says when, where, who and what | Met | `server/services/audit.ts` (`at`, `actor_id`, `ip`, `action`, `entity`, `entity_id`, `subject_id`, `unit_id`, `org_id`, `category`, `detail`); tests `auditCoverage`, `auditCatalog` | — |
-| V16.2.2 | 2 | Synchronised clocks; UTC timestamps | Partly | `server/lib/ids.ts` (`now()` is ISO 8601 in UTC); RFC 5424 lines carry the same timestamp (`server/services/auditSink.ts`) | Timestamps are UTC. Keeping the host's clock synchronised belongs to the host (INFRASTRUCTURE_QUESTIONS I-01, I-08). |
+| V16.2.2 | 2 | Synchronised clocks; UTC timestamps | Partly | `server/lib/ids.ts` (`now()` is ISO 8601 in UTC); RFC 5424 lines carry the same timestamp (`server/services/auditSink.ts`) | Timestamps are UTC. Vantage reads the host's clock and neither sets nor checks it; which time source keeps it synchronised is the host's to say (INFRASTRUCTURE_QUESTIONS I-33). |
 | V16.2.3 | 2 | Logs go only to documented destinations | Met | `docs/security.md` (Logs); `server/services/auditSink.ts` (only `VANTAGE_AUDIT_SYSLOG` and `VANTAGE_AUDIT_STDOUT`) | — |
 | V16.2.4 | 2 | Logs readable by the log processor in use | Met | One JSON line per audit record on stdout; RFC 5424 syslog with octet-counted framing over TCP and TLS; tests `auditForwarding` | The category travels in the JSON message, not as structured data (ADR-0013, Consequences). |
 | V16.2.5 | 2 | Sensitive data logged according to its protection level | Partly | Passwords, tokens, codes and temporary passwords are never written; a failed sign-in for an unknown name records no name; `counseling_amended` names fields, never values; Unit Instance trails leave out EDIPI-derived usernames; tests `auditCoverage`, `unitManagerConsole` | The platform trail's `edipi_corrected` detail carries the EDIPI before and after. Usernames made from a card (the EDIPI) appear in the platform trail. Both are read only by holders of `platform.audit`. |
-| V16.3.1 | 2 | All authentication operations logged, with the method | Partly | Each sign-in method writes its action (`AUDIT_ACTION_FAMILIES.sign_in`); `login_failed` (password, second factor), `login_lockout`, `account_unlock`, `recovery_code_used`, `cac_rejected`, `cac_step_up_refused`, `oidc_rejected`, `logout`; tests `auditCoverage`, `cac` ("every certificate decision is on the audit trail"), `oidc` | A failed passkey assertion and a wrong password at step-up count towards the limits and the lockout, but are not written one by one. The lockout they cause is. |
+| V16.3.1 | 2 | All authentication operations logged, with the method | Partly | Each sign-in method writes its action (`AUDIT_ACTION_FAMILIES.sign_in`); `login_failed` (password, second factor), `login_lockout`, `account_unlock`, `recovery_code_used`, `cac_rejected`, `cac_step_up_refused`, `oidc_rejected`, `logout`; tests `auditCoverage`, `cac` ("every certificate decision is on the audit trail"), `oidc` | A wrong password at step-up or at password change counts towards the lockout, and a failed passkey assertion only towards the per-connection sign-in limit, since a passkey still signs in to a locked account. None of the three is written one by one. A lockout they cause is. |
 | V16.3.2 | 2 | Failed authorization logged (L3: every decision and sensitive access) | Partly | `access_denied` for 403s at `/api/platform`, `/api/orgs` and `/api/org` (`server/app.ts`, `auditDenial`); `cross_instance_refused`; every cross-person read (`view_member`, `view_record`, `list_records`, `export_*`); tests `auditCoverage` | Refusals elsewhere in the API are counted by route family in product events (`security.authorization_denied`), without the person. `access_denied` is written once in ten minutes for a repeated refusal, which keeps the trail readable but is not every decision (L3). |
 | V16.3.3 | 2 | Documented security events logged, and attempts to bypass controls | Partly | `shared/auditCatalog.ts` defines the events; `tests/server/auditCatalog` holds the code to it; `access_denied`, `cross_instance_refused`, `upload_rejected`, `console_sign_in_refused`, `self_grant` and `unproven_own_account` refusals | Validation failures (400), missing CSRF headers and rate-limit refusals (429) are answered but not audited. |
 | V16.3.4 | 2 | Unexpected errors and security control failures logged | Partly | `server/app.ts` (unhandled errors to stderr and a `reliability.request_failed` event); the syslog sink keeps `lastError`, `dropped` and `queued` and the Vantage Administrator console shows them; scheduled jobs record failures and their last error (ADR-0011) | Failures of the forwarding connection are shown in the console and counted, not written to the audit trail. |
@@ -110,7 +111,7 @@ are under `tests/browser`.
 |---|---|---|---|
 | V2.1 Validation and business logic documentation | Partly | zod schemas in `shared/schemas.ts`, `shared/recordSchemas.ts`, `shared/caseSchemas.ts`; limits written into ADR-0011, ADR-0012 and ADR-0013 | No single document lists every validation rule and business limit. |
 | V2.2 Input validation | Met | `parse()` with zod on every route that takes input; server-side checks repeat any the client makes | — |
-| V2.3 Business logic security | Met | Steps in order: work stages, scoring versions in order, approvals before credential changes; optimistic concurrency (409 `version_conflict`); single-use codes, links and approvals; tests `cases`, `dutyScoring`, `credentialApprovals`, `invariants` | — |
+| V2.3 Business logic security | Partly | Steps in order: work stages, scoring versions in order, approvals before credential changes; optimistic concurrency (409 `version_conflict`); single-use codes, links and approvals; tests `cases`, `dutyScoring`, `credentialApprovals`, `invariants` | A second person approves only a support credential change on an account that holds authority. Maintenance, backups, instance restores and Vantage access a Unit Instance chose to be told of need no second person (V2.3.5, L3; ADR-0013, Consequences). |
 | V2.4 Anti-automation | Partly | Rate limits per IP and per account on sign-in, registration, reset, MFA and mutations; per-person console read limit; mail caps per account; tests `auth`, `securityHardening`, `leastPrivilege` | No minimum human timing on business flows (V2.4.2, L3). |
 
 ### V3 Web Frontend Security
@@ -120,16 +121,16 @@ are under `tests/browser`.
 | V3.1 Web frontend security documentation | Met | `docs/security.md` (Transport and browser), `docs/security/SECURITY_MODEL.md` (Browser and network) | — |
 | V3.2 Unintended content interpretation | Met | `Content-Disposition: attachment`, `nosniff`, sniffed upload types, sanitized message HTML | — |
 | V3.3 Cookie setup | Partly | `HttpOnly`, `Secure`, `SameSite=Lax` (`server/routes/auth.ts`, `server/auth/sessions.ts`); each console's cookie is its own host's | The cookies are named `vantage_session` and `vantage_signed_in`, without the `__Host-` or `__Secure-` prefix (V3.3.1, V3.3.3). |
-| V3.4 Browser security mechanism headers | Met | Strict CSP with hashed inline bootstrap, HSTS with preload, `frame-ancestors 'none'`, `nosniff`, `Referrer-Policy: no-referrer`, CORP and `Origin-Agent-Cluster` (`server/app.ts`); tests `securityHardening` | — |
+| V3.4 Browser security mechanism headers | Partly | Strict CSP with hashed inline bootstrap and `object-src 'none'`, HSTS with preload, `frame-ancestors 'none'`, `nosniff`, `Referrer-Policy: no-referrer`, COOP, CORP and `Origin-Agent-Cluster` (`server/app.ts`); tests `securityHardening` | The CSP sends `base-uri 'self'`, not `'none'` (V3.4.3). It names no place to report violations (V3.4.7, L3). |
 | V3.5 Browser origin separation | Met | CSRF client header on every state change, `SameSite`, separate hosts for each console, each API answering only on its host; tests `auth` ("cookie sessions require the client header for writes"), `hosts` | — |
 | V3.6 External resource integrity | Met | The page loads nothing from third parties; fonts are local (`docs/security/SECURITY_MODEL.md`) | — |
-| V3.7 Other browser security considerations | Partly | Redirects only to the deployment's own configured hosts (`server/app.ts`, `server/lib/hosts.ts`); HSTS preload header sent | Whether the production domain is on the browsers' preload list depends on the deployment (V3.7.4). No interstitial for links out of the application (V3.7.3). |
+| V3.7 Other browser security considerations | Partly | Redirects only to the deployment's own configured hosts (`server/app.ts`, `server/lib/hosts.ts`); HSTS preload header sent | Whether the production domain is on the browsers' preload list depends on the deployment (V3.7.4, L3). No interstitial for links out of the application (V3.7.3, L3). |
 
 ### V4 API and Web Service
 
 | Section | Status | Evidence | Gaps |
 |---|---|---|---|
-| V4.1 Generic web service security | Partly | JSON with its content type; `TRUST_PROXY` names the proxy whose headers count; `VANTAGE_CLIENT_IP=cloudflare` trusts the forwarded address only from Cloudflare's ranges | No per-message signatures (V4.1.5, L3). Unused methods are answered 404 by the router, not explicitly blocked (V4.1.4). |
+| V4.1 Generic web service security | Partly | JSON with its content type; `TRUST_PROXY` names the proxy whose headers count; `VANTAGE_CLIENT_IP=cloudflare` trusts the forwarded address only from Cloudflare's ranges | No per-message signatures (V4.1.5, L3). Unused methods are answered 404 by the router, not explicitly blocked (V4.1.4, L3). |
 | V4.2 HTTP message structure validation | Partly | Body size limit (4 MB, 413 `too_large`), malformed JSON refused (400 `bad_json`); Node's HTTP parser | Request smuggling defences rest on Node and the reverse proxy (INFRASTRUCTURE_QUESTIONS I-06). |
 | V4.3 GraphQL | Not applicable | No GraphQL | — |
 | V4.4 WebSocket | Not applicable | No WebSockets | — |
@@ -139,7 +140,7 @@ are under `tests/browser`.
 | Section | Status | Evidence | Gaps |
 |---|---|---|---|
 | V5.1 File handling documentation | Partly | `docs/security.md` (attachments, scanning, workbook limits) | Permitted types and sizes are in code and the security model, not in one file-handling document. |
-| V5.2 File upload and content | Met | Types sniffed (PDF, PNG, JPEG, text, CSV), size limits, real expanded size charged, clamd scanning with an option to refuse unscanned files; tests `stigControls`, `workbook` | — |
+| V5.2 File upload and content | Partly | Types sniffed (PDF, PNG, JPEG, text, CSV), size limits, real expanded size charged, clamd scanning with an option to refuse unscanned files; a cap on attachments per record and a refusal near the database's size threshold (`server/routes/records.ts`); tests `stigControls`, `workbook` | No quota of files or bytes per person (V5.2.4, L3). An image's pixel dimensions are not checked, only its bytes (V5.2.6, L3). |
 | V5.3 File storage | Met | Files stored in the database, never on a path a user names; served only through authorization checks | — |
 | V5.4 File download | Met | `Content-Disposition: attachment`, record and unit authorization on every download; tests `unitIsolation` ("file downloads enforce record and unit authorization") | — |
 
@@ -149,8 +150,8 @@ are under `tests/browser`.
 |---|---|---|---|
 | V6.1 Authentication documentation | Met | `docs/security.md` (Identities and sessions), `docs/cac-and-records.md`, ADR-0009 | — |
 | V6.2 Password security | Partly | 15 characters minimum, 256 maximum, any characters, NFC-normalised, a blocked list and predictable-term check (`shared/password.ts`); PBKDF2-HMAC-SHA256 at 600,000 iterations; current password required to change it | No check against the top 3,000 or a breached-password set (V6.2.4, V6.2.12). The context-word list is in code, not documented (V6.2.11). |
-| V6.3 General authentication security | Met | Lockout after three failures kept in the database; a name with no account answers as a real one does; card-only and provider-only deployments close every password path; tests `auth`, `stigControls`, `cac` | — |
-| V6.4 Authentication factor lifecycle and recovery | Met | Single-use reset links; recovery codes used once; a new authenticator replaces the old only once confirmed; credential changes on an account with authority need a second staff member (ADR-0013 §5); tests `auth`, `credentialApprovals` | — |
+| V6.3 General authentication security | Partly | Lockout after three failures kept in the database; a name with no account answers as a real one does; card-only and provider-only deployments close every password path; Vantage staff must have a second factor (`mfa_required`, `server/routes/platform.ts`); tests `auth`, `stigControls`, `cac` | A second factor is optional for an ordinary password account, so only a card-only or provider-only deployment requires more than one factor of everyone (V6.3.3). Nobody is told of a suspicious sign-in attempt (V6.3.5, L3). Support's credential changes and a Unit Instance's CAC link tell the person; a password the person changes or resets themselves, and their own second-factor and address changes, send no notice (V6.3.7, L3). |
+| V6.4 Authentication factor lifecycle and recovery | Partly | Single-use reset links; recovery codes used once; a new authenticator replaces the old only once confirmed; credential changes on an account with authority need a second staff member (ADR-0013 §5); a temporary password must be changed at the next sign-in; tests `auth`, `credentialApprovals` | Support's temporary password is made by the server and shown to the staff member, who passes it on, so for a moment someone other than the person knows it (V6.4.6, L3). |
 | V6.5 General multi-factor authentication | Met | TOTP with replay refusal, recovery codes, passkeys, CAC as two factors; tests `auth`, `securityHardening`, `cac` | — |
 | V6.6 Out-of-band authentication | Partly | Email is used only for a reset link and sign-in details, capped and single use | No out-of-band authenticator (push or SMS) is offered. Email recovery is not assessed as an authenticator. |
 | V6.7 Cryptographic authentication | Met | WebAuthn passkeys bound to the site's domain; CAC client certificates checked against the configured CAs and CRLs; tests `cac`, `cacRevocation`, `hosts` | — |
@@ -190,7 +191,7 @@ are under `tests/browser`.
 
 | Section | Status | Evidence | Gaps |
 |---|---|---|---|
-| V11.1 Cryptographic inventory and documentation | Partly | Algorithms and key handling described in `docs/security.md` (Identities, Integrity, Outbound email) and `docs/operations.md` (secret rotation) | No formal key-management policy, maintained inventory or post-quantum migration plan (V11.1.1, V11.1.2, V11.1.4). |
+| V11.1 Cryptographic inventory and documentation | Partly | Algorithms and key handling described in `docs/security.md` (Identities, Integrity, Outbound email) and `docs/operations.md` (secret rotation) | No formal key-management policy, maintained inventory or post-quantum migration plan (V11.1.1, V11.1.2; V11.1.4, L3). |
 | V11.2 Secure cryptography implementation | Met | Node's `crypto` module only (`server/lib/crypto.ts`); PBKDF2-HMAC-SHA256 as the FIPS 140 approved password hash | — |
 | V11.3 Encryption algorithms | Met | AES-256-GCM for TOTP secrets, the DKIM key and queued mail | — |
 | V11.4 Hashing and hash-based functions | Met | SHA-256 digests for sessions and tokens; HMAC-SHA256 for the audit and case chains; PBKDF2 for passwords | — |
@@ -212,7 +213,7 @@ are under `tests/browser`.
 |---|---|---|---|
 | V13.1 Configuration documentation | Partly | `docs/operations.md`, `docs/deploy-mcen.md`, deployment profiles (ADR-0007); the Vantage Administrator console lists every outbound connection | No single list of every external service and its expected configuration for each deployment. |
 | V13.2 Backend communication configuration | Partly | Outbound connections refused by the MCEN profile unless approved; direct mail refuses private addresses | Service accounts and least privilege for backend connections are the host's (INFRASTRUCTURE_QUESTIONS I-04, I-15). |
-| V13.3 Secret management | Partly | `VANTAGE_SECRET` seals stored secrets and can be rotated with `VANTAGE_SECRET_PREVIOUS`; the AI key stays on the server; tests `secretRotation` | Secrets come from the environment, not a vault or hardware module (V13.3.1, V13.3.3). |
+| V13.3 Secret management | Partly | `VANTAGE_SECRET` seals stored secrets and can be rotated with `VANTAGE_SECRET_PREVIOUS`; the AI key stays on the server; tests `secretRotation` | Secrets come from the environment, not a vault or hardware module (V13.3.1; V13.3.3, L3). |
 | V13.4 Unintended information leakage | Met | `x-powered-by` off; no source maps in the build; generic 500 message; no directory listings; the API answers only on its own host | — |
 
 ### V14 Data Protection
@@ -220,7 +221,7 @@ are under `tests/browser`.
 | Section | Status | Evidence | Gaps |
 |---|---|---|---|
 | V14.1 Data protection documentation | Met | `server/services/privacyInventory.ts` declares every table and column; `docs/security/SECURITY_MODEL.md` (Data handling) | — |
-| V14.2 General data protection | Partly | Secrets never in URLs; API responses `Cache-Control: no-store`; no third-party trackers; retention schedules, legal holds and disposition (`server/services/retention.ts`); minimal exports | No defined retention for the audit log (INFRASTRUCTURE_QUESTIONS I-32). Metadata in uploaded files is not stripped (V14.2.8). |
+| V14.2 General data protection | Partly | Secrets never in URLs; API responses `Cache-Control: no-store`; no third-party trackers; retention schedules, legal holds and disposition (`server/services/retention.ts`); minimal exports | No defined retention for the audit log (INFRASTRUCTURE_QUESTIONS I-32). Metadata in uploaded files is not stripped (V14.2.8, L3). |
 | V14.3 Client-side data protection | Partly | API responses not cached; the session cookie is `HttpOnly` | Local storage holds interface preferences, recent pages and writing-assistant choices; session storage holds unsaved form drafts until the tab closes (V14.3.3). No `Clear-Site-Data` header at sign-out (V14.3.1). |
 
 ### V15 Secure Coding and Architecture
@@ -228,7 +229,7 @@ are under `tests/browser`.
 | Section | Status | Evidence | Gaps |
 |---|---|---|---|
 | V15.1 Secure coding and architecture documentation | Partly | ADR-0001 to ADR-0013; `docs/engineering/ARCHITECTURE.md`; `package-lock.json` | No SBOM yet (CycloneDX planned, INFRASTRUCTURE_QUESTIONS I-11). No documented update and remediation time frames for dependencies. |
-| V15.2 Security architecture and dependencies | Partly | `npm audit` with no known vulnerabilities at the last release check; linear-time parsers; resource limits on uploads and workbooks; test sign-in refused in production | Dependency confusion is mitigated only by the lockfile and the public registry (V15.2.4). |
+| V15.2 Security architecture and dependencies | Partly | `npm audit` with no known vulnerabilities at the last release check; linear-time parsers; resource limits on uploads and workbooks; test sign-in refused in production | Dependency confusion is mitigated only by the lockfile and the public registry (V15.2.4, L3). |
 | V15.3 Defensive coding | Met | Null-prototype registries for lookups by a request's key; zod schemas against mass assignment; static tests that hold invariants (`auditCatalog`, `privilegedRoutes`, `leastPrivilege`) | — |
 | V15.4 Safe concurrency | Met | SQLite transactions for every multi-step change; optimistic versions; approvals used with a guarded `UPDATE` in the change's transaction | — |
 
@@ -246,10 +247,13 @@ These are the Level 2 gaps above. Each is a candidate for a later Task, not a pr
 
 1. Check passwords against a breached-password set and the top 3,000 (V6.2.4, V6.2.12).
 2. Rename the session cookie with the `__Host-` prefix (V3.3.1, V3.3.3). Everyone would have to sign in again once.
-3. Audit failed passkey assertions and wrong step-up passwords one by one (V16.3.1). Audit validation, CSRF and
+3. Audit failed passkey assertions, and wrong passwords at step-up and at password change, one by one (V16.3.1). Audit validation, CSRF and
    rate-limit refusals at the administration routes (V16.3.3).
 4. Decide the audit log's retention, and who keeps and compares the off-host copy (V16.1.1, V16.4.3;
    INFRASTRUCTURE_QUESTIONS I-30, I-32).
 5. Keep secrets in a vault when MCEN names one (V13.3.1), and write a key-management policy and cryptographic
    inventory (V11.1).
 6. Produce a CycloneDX SBOM with each release (V15.1; INFRASTRUCTURE_QUESTIONS I-11).
+7. Send `base-uri 'none'` in the CSP (V3.4.3).
+8. Require a second factor of every password account, or say that only card-only and provider-only deployments
+   meet V6.3.3.

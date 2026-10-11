@@ -65,8 +65,10 @@ Three decisions by John frame this ADR:
     the owners named in configuration.
 
   Actions built when they are written (the sign-in methods, Vantage access steps, Unit Instance status and
-  unit configuration) are spelled out in `AUDIT_ACTION_FAMILIES`. `LEGACY_AUDIT_ACTIONS` lists five actions
-  that older builds wrote and nothing writes now, so their rows still read in a category.
+  unit configuration) are spelled out in `AUDIT_ACTION_FAMILIES`. `LEGACY_AUDIT_ACTIONS` lists seven actions
+  that older builds wrote and nothing writes now, so their rows still read in a category. Among them are
+  `grant_operator` and `revoke_operator`, the instance-operator grants of 5.x builds before Unit Instances, which
+  read as enterprise administration.
 - **Sealed when written.** `audit()` records `entry.category`, or failing that the catalogue's.
   - An action shared between a unit route and `/api/platform` keeps the unit default in the catalogue, and
     the platform caller passes `enterprise`. Examples: `force_logout`, `account_unlock`,
@@ -164,13 +166,22 @@ How the new actions behave:
 - **`access_denied`** is written for a 403 to a signed-in person at `/api/platform` (enterprise) or at
   `/api/orgs` and `/api/org` (unit).
   - It names the method, the declared route and the code, and the Unit Instance under `/api/orgs/:orgId`.
+  - A refusal by a router's own guard, before any route matches, is named by the mount instead (for example
+    `GET /api/platform/*: not_staff`), so made-up addresses beneath it are one refusal, not one each. Its detail
+    adds the address first asked for, cut to 120 characters.
   - Step-up and boundary codes are left out (`sudo_required`, `cac_required`, `oidc_required`,
     `bad_password`, `cross_instance`), and so is every 401.
-  - The same person, method, route and code is written once in ten minutes (in memory, per process).
-  - `self_grant`, `unproven_own_account` and `approval_required` refusals reach the trail this way.
+  - The same person, method, route and code is written once in ten minutes (in memory, per process). At most
+    5,000 refusals are remembered (`DENIALS_REMEMBERED`); past that, expired ones go first, then the oldest.
+  - `self_grant`, `unproven_own_account`, `approval_required` and `recent_credential_change` refusals reach the
+    trail this way.
 - **`schema_migrated`** keeps `migration_audited_through`, a host meta key that an instance export does not
-  carry. A database without the key counts as audited through migration 20, since those migrations ran
-  before auditing existed.
+  carry.
+  - A database this build creates is audited once, as created at its schema.
+  - A database an older build left below the current schema, without the key, gets it from `migrate()` before
+    any migration runs: the schema it started at, and never above 20 (`AUDITED_FROM` in `server/db/index.ts`).
+    So every migration this start runs is audited, from schema 18 as from schema 20. Migrations an older build
+    ran are not audited after the fact.
 - **`instance_import`** names the importer as actor when their account exists after the import. Otherwise it
   records no actor and names the importer's username and id in the detail.
 - **`invite_revoked`** is new: revoking an invitation wrote nothing before.
@@ -181,6 +192,23 @@ How the new actions behave:
   account that **holds authority** needs an approval. An account holds authority when it has any platform
   role, an unexpired Unit Instance role it holds while a member (`seatedOrgRole`), or the leadership of an
   active unit (`holdsAuthority` in `server/services/credentialApprovals.ts`).
+- **Authority given up lately still counts.** Authority the account held in the last 30 days
+  (`RECENT_AUTHORITY_DAYS`) counts too (`heldAuthorityRecently`). The trail shows it: an `org_role_revoked`,
+  `org_role_ended`, `org_role_expired`, `platform_manager_removed`, `staff_role_revoked` or `unit_leader_ended`
+  entry about the account, a `transfer_ownership` or `unit_leader_set` entry that passed a unit on from it, or a
+  Unit Instance role that ran out in that time. Taking an account's authority away, changing its sign-in alone
+  and giving the authority back is therefore no way round the second person.
+- **Nor the other way round.** A staff member who set a temporary password, reset the second factor or changed
+  the CAC on an account in the last 30 days does not then give it authority (`guardRecentCredentialChange`):
+  - any Unit Instance role, through `grantOrgRole`, which a Vantage Administrator's `assignManager` and the
+    Unit Instance's own routes both use;
+  - the first Lead Unit Manager, by `nameFirstOwner` or when a Unit Instance is created with one;
+  - a platform staff role (`POST /api/platform/staff`).
+
+  The refusal is 403 `recent_credential_change`: "You changed this account's sign-in in the last 30 days, so you
+  cannot give it authority. Another member of Vantage staff can." It reaches the trail as `access_denied`.
+  John's decision on Unit Manager assignment stands: Vantage Administrators still add and remove Unit Managers
+  at any time; only the one who just changed that account's sign-in is refused, and another can act.
 - **Asking.** A holder of `platform.accounts` asks with a reason of at least ten characters, and an EDIPI for
   a CAC change: `POST /api/platform/accounts/:userId/credential-approvals`. The request is refused with:
   - 400 `no_authority` when the account holds none;
@@ -238,11 +266,16 @@ How the new actions behave:
   - `unit_leader_ended` (unit) is audited with the reason;
   - the Unit Instance's Lead Unit Managers are told.
 
-  This covers removal, transfer, personnel-feed separation, removal from the instance and archiving.
+  This covers removal, transfer, personnel-feed separation and removal from the instance. A leader who
+  archives the unit only they belong to closes it rather than leaving it unled: the leadership is cleared
+  first, so no `unit_leader_ended` entry or "has no leader" notice is written for it.
 - **Existing data.** A leader who is not a member is left in place, ignored by scope and listed by the
   separation-of-duties report.
-- **Not restored automatically.** A personnel-feed restore does not give back a leadership a separation
-  ended. A Unit Manager names the leader again.
+- **Restored with the roster, while nobody else leads.** A personnel-feed separation keeps, with the
+  memberships it ends, which units the person led (`led`). When a later extract brings them back and the unit
+  is still unled, the restore gives the leadership back (`claimUnit`, audited as `unit_leader_set`, "back on the
+  roster"). If a leader was named meanwhile, the restore gives back neither the leadership nor the Unit Leader
+  role, which goes only with leading the unit.
 
 ### 8. "Until proven" (John, 2026-10-09)
 
@@ -252,7 +285,9 @@ How the new actions behave:
 - **Proven.** An account is proven once `users.edipi_verified_at` or `users.oidc_subject` is set
   (`isProvenAccount`), that is, once it has signed in with its own CAC or the organization's sign-in.
 - **What waits.** Until then, the person who opened it gives it none of the following:
-  - a unit role carrying the record-reading bits, by direct grant or by widening a role it holds;
+  - a unit role carrying the record-reading bits, by direct grant, by widening a role it holds, or by carrying
+    one over when they move it to another unit (`moveMember`: the role goes into `rolesSkipped`, and the
+    `move_member` entry says "not carried");
   - a Unit Instance role, including a Vantage Administrator's `assignManager`, `nameFirstOwner` and the
     first owner at creation;
   - the leadership of a unit, by naming or by transfer.
@@ -266,6 +301,13 @@ How the new actions behave:
 - **Roles carried by a join code, an invitation or an account import** are held back rather than refusing
   the join. The person joins. The role is audited as `unit_role_withheld`, and the maker of the code or
   invitation is told. An import lists the held-back roles (`withheld`) in its result.
+- **The unit's default role**, which every new member receives, is covered both ways:
+  - Widening it to read records (`PUT /api/org/roles/:roleId`) is judged as giving that reach to yourself,
+    since accounts you open will receive it: 403 `self_grant` unless you lead the unit, or the chain of
+    command already gives you those bits or full unit authority there.
+  - When `addMember` seats an account its inviter opened and has not proven, a default role that reads records
+    is held back from it (`mayCarryRole`), audited as `unit_role_withheld`, and the inviter is told. An account
+    someone else opened still receives it.
 - **The residual risk.** A proof is never re-checked. Under the two-person rule an EDIPI change clears
   `edipi_verified_at`, so the account reads as unproven again.
 - **Proved by** `tests/server/leastPrivilege.test.ts`.
@@ -352,14 +394,17 @@ checksum and the licence are recorded at its head.
   - An audit entry cannot be changed or removed, even by hand, without dropping a trigger.
   - Both audit CSV exports gain a `category` column after `action`.
   - Vantage support needs a second staff member to take over an account that holds authority.
-  - A leader who leaves a unit stops leading it.
+  - A leader who leaves a unit stops leading it, and gets it back from a roster restore only while it is still
+    unled.
+  - Authority held in the last 30 days counts for the two-person rule, and a staff member who changed an
+    account's sign-in in that time gives it no authority (`recent_credential_change`).
   - A Unit Manager's own invitees and imported accounts wait for proof before reading records or holding a
-    Unit Instance role from them.
+    Unit Instance role from them, through the unit's default role and a move as well.
   - A unit support queue sees less of the delivery log.
   - Heavy console reading can be throttled.
 - **Existing tests updated** for these behaviors, each listed in its commit:
   - `adminConsole`, `auditForwarding`, `secretRotation`, `org`, `unitIsolation`, `unitManagerConsole`,
-    `roleModel` and `migrations`;
+    `roleModel`, `migrations` and `auditCoverage` (the detail of a router-level refusal);
   - the browser specs `32` and `33`.
 - **The syslog line** carries `category` in its JSON message, not as a structured-data element. A custom
   SD-ID needs a registered private enterprise number, and Vantage has none.
@@ -369,12 +414,16 @@ checksum and the licence are recorded at its head.
   - **Server-side backups and restores.** `scripts/backup.ts` records a backup in `backup_history` but
     writes no audit entry, because it runs without the service's secret and chain key. A `.db` file
     restored on the host outside the console cannot be seen by the application.
-  - **Migrations before 021** are not audited after the fact.
+  - **Migrations an older build ran** are not audited after the fact. Those this build runs are, however far
+    back the database started.
   - **Audit retention.** No schedule covers `audit_log`. Under append-only, any future disposition of audit
     entries needs a deliberate, documented exception (INFRASTRUCTURE_QUESTIONS I-32).
   - **`holdsAuthority`** still counts a unit an account owns without being a member. For the two-person rule,
     asking for approval on slightly more accounts is the safe side.
-  - **The `access_denied` quiet period** is held per process and starts empty on each start.
+  - **The `access_denied` quiet period** is held per process and starts empty on each start. Its 5,000-entry
+    cap has no direct test, which would take 5,000 requests.
+  - **Unit leadership is not covered by `recent_credential_change`.** A staff member who changed an account's
+    sign-in and also holds unit authority could still name it a unit's leader or transfer a unit to it.
   - **Maintenance and backups** still need no second person (INFRASTRUCTURE_QUESTIONS I-29).
   - **Adaptive, risk-based access decisions** (device posture, location) are not built (ASVS V8.2.4,
     V8.4.2).

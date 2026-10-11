@@ -33,8 +33,14 @@ for this Task are closed ([ADR-0013](engineering/ADR/0013-security-audit-least-p
 - **Inventory and matrix.** `server/authz/privilegedRoutes.ts` lists every privileged route, held to the routers
   by a test that also refuses an ordinary member on each. [docs/security/ASVS.md](security/ASVS.md) maps Vantage
   to OWASP ASVS 5.0.0: V8 and V16 by requirement, the rest by section, with the gaps.
+- **After review (2026-10-11).** Authority given up in the last 30 days counts for the two-person rule, and a
+  staff member who changed an account's sign-in gives it no authority (`recent_credential_change`). "Until
+  proven" covers the unit's default role and roles a move carries. Made-up addresses under a console's guard
+  are one refusal in the trail. Every migration this build runs is audited. A roster restore gives back a
+  leadership while the unit is unled. The ASVS matrix now counts a Level 3 shortfall against its section.
 - **Open questions** I-30 (who keeps and compares the off-host copy), I-31 (whether MCEN names an approver for
-  credential resets) and I-32 (audit retention under append-only) are added to INFRASTRUCTURE_QUESTIONS.md.
+  credential resets), I-32 (audit retention under append-only) and I-33 (the host's time source) are added to
+  INFRASTRUCTURE_QUESTIONS.md.
 - **Tests:** `tests/server/auditCatalog.test.ts`, `auditAppendOnly.test.ts`, `auditCoverage.test.ts`,
   `credentialApprovals.test.ts`, `leastPrivilege.test.ts`, `privilegedRoutes.test.ts`, a migration 021 test, and
   `tests/browser/34-audit-anchors.spec.ts`, `35-credential-approvals.spec.ts`, `36-separation-of-duties.spec.ts`.
@@ -510,7 +516,7 @@ in the privacy inventory; the financial answering rules on every AI prompt.
 |---|---|
 | `npm run lint` | clean |
 | `npm run typecheck` (server, web, browser tests) | clean |
-| `npm test` (server suite, in-memory SQLite) | **764 / 764 pass** (2026-10-10) |
+| `npm test` (server suite, in-memory SQLite) | **773 / 773 pass** (2026-10-11) |
 | `npm run test:browser` (Playwright, Chromium, built client) | **104 / 104 pass** (2026-10-05) |
 | Accessibility | axe: no serious or critical violations in either theme on every core page, the case page, the Reference, the public page and the security, privacy, accessibility and changes pages |
 | `npm audit` | 0 vulnerabilities |
