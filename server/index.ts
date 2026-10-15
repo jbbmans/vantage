@@ -4,6 +4,7 @@ import { loadConfig } from './config.ts';
 import { createApp, createContext, startSchedulers } from './app.ts';
 import { VERSION } from './version.ts';
 import { closeAuditSink } from './services/auditSink.ts';
+import { writeLineage } from './services/recovery.ts';
 import { readCrls, crlStamp } from './auth/crl.ts';
 
 const config = loadConfig();
@@ -59,7 +60,8 @@ function requireEnv(name: string): string {
 const shutdown = (signal: string) => () => {
   console.log(`${signal} received, shutting down.`);
   stopSchedulers();
-  server.close(() => { closeAuditSink(ctx); try { ctx.db.close(); } catch {} process.exit(0); });
+  // The lineage notes the last entry written, so a restore from any backup older than this stop is told apart (ADR-0014).
+  server.close(() => { closeAuditSink(ctx); try { writeLineage(ctx); } catch {} try { ctx.db.close(); } catch {} process.exit(0); });
   setTimeout(() => process.exit(1), 10_000).unref();
 };
 process.on('SIGTERM', shutdown('SIGTERM'));

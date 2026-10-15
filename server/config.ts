@@ -85,6 +85,12 @@ export interface AppConfig {
 export interface OperationsConfig {
   /** A backup older than this, or none at all, shows as needing attention. Weekly by default, as the run book says (I-09). */
   backupMaxAgeHours: number;
+  /**
+   * Where the service notes the newest audit entry its database holds, beside the database (ADR-0014). A start that finds
+   * the database no longer holds that entry, and no restore that explains it, records that the database was replaced.
+   * `<database>.lineage` by default; none for an in-memory database or with VANTAGE_LINEAGE_FILE=off.
+   */
+  lineageFile: string | null;
 }
 
 export interface OidcConfig {
@@ -368,6 +374,8 @@ export function loadConfig(env = process.env): AppConfig {
   const rpId = env.VANTAGE_RP_ID || sharedDomain(sharedDomain(new URL(app).hostname, new URL(consoleUrl).hostname), new URL(adminUrl).hostname);
 
   const dbPath = env.VANTAGE_DB || (test ? ':memory:' : 'data/vantage.db');
+  const databasePath = dbPath === ':memory:' || isAbsolute(dbPath) ? dbPath : resolve(ROOT, dbPath);
+  const lineage = (env.VANTAGE_LINEAGE_FILE || '').trim();
   const emailProvider = (env.VANTAGE_EMAIL_PROVIDER || 'none') as AppConfig['email']['provider'];
   if (!['none', 'resend', 'smtp', 'direct', 'memory'].includes(emailProvider)) throw new Error('VANTAGE_EMAIL_PROVIDER must be none, direct, resend, or smtp.');
   if (emailProvider === 'direct' && production && !/@[a-z0-9-]+(\.[a-z0-9-]+)+>?\s*$/i.test(env.VANTAGE_EMAIL_FROM || '')) throw new Error('Direct email needs VANTAGE_EMAIL_FROM on your own domain, such as "Vantage <no-reply@example.com>".');
@@ -407,7 +415,7 @@ export function loadConfig(env = process.env): AppConfig {
       maxWorkspaces: Math.min(Math.max(envNumber(env, 'VANTAGE_DEMO_MAX_WORKSPACES', 200), 1), 5000),
     },
     port: envNumber(env, 'PORT', 8787),
-    databasePath: dbPath === ':memory:' || isAbsolute(dbPath) ? dbPath : resolve(ROOT, dbPath),
+    databasePath,
     urls: { site, app, console: consoleUrl, admin: adminUrl },
     rpId,
     secret,
@@ -501,6 +509,7 @@ export function loadConfig(env = process.env): AppConfig {
     oidc: readOidcConfig(env, production, test),
     operations: {
       backupMaxAgeHours: Math.min(Math.max(1, envNumber(env, 'VANTAGE_BACKUP_MAX_AGE_HOURS', 168)), 24 * 366),
+      lineageFile: databasePath === ':memory:' || lineage.toLowerCase() === 'off' ? null : lineage ? (isAbsolute(lineage) ? lineage : resolve(ROOT, lineage)) : `${databasePath}.lineage`,
     },
   };
 }

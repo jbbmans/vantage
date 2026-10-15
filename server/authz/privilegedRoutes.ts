@@ -89,6 +89,8 @@ export const PRIVILEGED_ROUTES: readonly PrivilegedRoute[] = [
   platform('PUT', '/runtime', 'platform.settings', writes('edit_configuration')),
   platform('POST', '/maintenance', 'platform.maintenance', writes('maintenance_on', 'maintenance_off')),
   platform('POST', '/maintenance/tasks/:task', 'platform.maintenance', writes('maintenance_task')),
+  platform('POST', '/upgrades/:id/review', 'platform.maintenance', writes('upgrade_reviewed'), 'Only an upgrade that failed or lost rows, once.'),
+  platform('PUT', '/orgs/:orgId/features/:flag', 'platform.settings', writes('instance_feature_withheld', 'instance_feature_restored'), 'Only ever turns a feature off for one Unit Instance, or gives it back the service’s setting; its Lead Unit Managers are told.'),
   platform('POST', '/ai/discover', 'platform.ai', [], 'Asks the configured model provider which models it offers. It changes nothing; choosing models is a settings change (PUT /runtime).'),
   platform('POST', '/ai/unlock', 'platform.ai', writes('ai_unlocked')),
   platform('POST', '/maradmins/sync', 'platform.settings', writes('sync_maradmins')),

@@ -5,6 +5,8 @@ if (process.env.VANTAGE_FACTORY_RESET !== '1' || process.argv[2] !== 'ERASE-EVER
   console.error('Refusing. Run: VANTAGE_FACTORY_RESET=1 node scripts/factory-reset.ts ERASE-EVERYTHING');
   process.exit(1);
 }
-const { databasePath } = loadConfig();
+const { databasePath, operations } = loadConfig();
 for (const suffix of ['', '-wal', '-shm']) { const p = `${databasePath}${suffix}`; if (existsSync(p)) unlinkSync(p); }
+// The lineage describes the database just erased; the next start begins a new one (ADR-0014).
+if (operations.lineageFile && existsSync(operations.lineageFile)) unlinkSync(operations.lineageFile);
 console.log(`Removed ${databasePath}. The next start performs first-run setup.`);

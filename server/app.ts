@@ -47,11 +47,14 @@ import { announcePublicPage, indexNowKey } from './services/indexNow.ts';
 import { applyRuntimeLocks, installTopologyGuard } from './services/deployment.ts';
 import { maintenanceNotice } from './services/maintenance.ts';
 import { auditMigrations, recordRelease, trackedJob } from './services/operations.ts';
+import { auditRestores, auditServerBackups, auditUpgrades, detectReplacement, writeLineage } from './services/recovery.ts';
 export { loadRuntime };
 
 export function createContext(config: AppConfig): AppContext {
   configurePasswordHashing(config.security.passwordIterations);
   const db = openDatabase(config.databasePath);
+  // Before anything is written: a database put in place outside the restore command is recorded (ADR-0014).
+  detectReplacement({ db, config });
   const chainKey = loadChainKey(db, config);
   const resealed = resealStoredSecrets(db, config);
   if (resealed) console.log(`Re-sealed ${resealed} stored secret(s) under the new VANTAGE_SECRET. Remove VANTAGE_SECRET_PREVIOUS before the next start.`);
@@ -69,8 +72,13 @@ export function createContext(config: AppConfig): AppContext {
   applyRuntimeLocks(config, runtime);
   configureLimits({ mutations: config.limits.mutationsPer15Minutes, registrations: config.limits.registrationsPer15Minutes, consoleReads: config.limits.consoleReadsPer15Minutes });
   configureAiLimits({ global: config.ai.requestsPerMinute, perUser: config.ai.perUserRequestsPerMinute });
-  // Each schema migration this start ran, or the schema a new database began at, goes in the audit trail (ADR-0013).
+  // Each schema migration this start ran, or the schema a new database began at, goes in the audit trail (ADR-0013); so does
+  // what the upgrade verification found, each restore or replacement of the database, and each backup taken on the
+  // server since the service last ran (ADR-0014).
   auditMigrations(ctx);
+  auditUpgrades(ctx);
+  auditRestores(ctx);
+  auditServerBackups(ctx);
   // Usernames named in VANTAGE_PLATFORM_OWNERS (or the older VANTAGE_OPERATOR) always own the platform. A grant the
   // configuration makes is audited when it is made, not on every start that finds it already in place.
   if (config.operatorUsernames.length) {
@@ -88,6 +96,8 @@ export function createContext(config: AppConfig): AppContext {
     metaSet(db, 'case_seals_backfilled', now());
     if (sealed) console.log(`Sealed ${sealed} existing case-history entries.`);
   }
+  // The newest entry this start leaves, noted beside the database: what the next start checks it against (ADR-0014).
+  writeLineage(ctx, { force: true });
   return ctx;
 }
 
@@ -535,6 +545,9 @@ export function startSchedulers(ctx: AppContext) {
   every('case_anchor', 'Case history anchor', 24 * 60 * 60_000, () => { anchorCaseHeads(ctx); });
   // The audit chain's head, written into the chain and so forwarded off the host, each day something was written (ADR-0013).
   every('audit_anchor', 'Audit chain anchor', 24 * 60 * 60_000, () => { anchorAuditChainIfChanged(ctx); });
+  // A backup taken on the server goes in the audit trail, and the lineage beside the database keeps up with it (ADR-0014).
+  every('backup_audit', 'Backup audit', 5 * 60_000, () => { const n = auditServerBackups(ctx); if (n) console.log(`${now()} audited ${n} server backups`); });
+  every('lineage', 'Database lineage', 60_000, () => { writeLineage(ctx); });
   every('event_prune', 'Event prune', 24 * 60 * 60_000, () => { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); });
   every('source_prune', 'Source prune', 24 * 60 * 60_000, () => { const released = pruneSources(ctx); if (released) console.log(`${now()} released the bytes of ${released} source files past the retention window`); });
   if (ctx.config.accessMode === 'demo') every('demo_purge', 'Demo purge', 10 * 60_000, () => { const n = purgeExpired(ctx); if (n) console.log(`${now()} removed ${n} expired demo workspaces`); });
