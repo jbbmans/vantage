@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { Archive, ArrowLeftRight, Building2, ClipboardList, Gauge, GraduationCap, IdCard, KeyRound, ScrollText, Settings2, Shield, ShieldAlert, ShieldCheck, SlidersHorizontal, Users } from 'lucide-react';
+import { Archive, ArrowLeftRight, Building2, ClipboardList, Gauge, GraduationCap, HeartPulse, IdCard, KeyRound, ScrollText, Settings2, Shield, ShieldAlert, ShieldCheck, SlidersHorizontal, Users } from 'lucide-react';
 import { ConsoleFrame, ConsoleLayout, type ConsoleSection } from '@/components/ConsoleFrame';
 import { PersonnelConsole, PrivacyConsole, RetentionConsole } from '@/components/GovernanceConsole';
 import { Select } from '@/components/ui/primitives';
@@ -37,11 +37,12 @@ function sectionsFor(org: OrgSummary): ConsoleSection[] {
     { path: 'access', label: 'Vantage access', icon: KeyRound, title: 'Vantage access', lede: 'Vantage support sees inside your Unit Instance only when you say so, read-only, for a set time.', render: () => <Sections.VantageAccess org={org} />, hidden: !(can('org.access') || can('org.audit')) },
     { path: 'privacy', label: 'Privacy', icon: ShieldCheck, title: 'Privacy inventory', lede: 'What personal information your Unit Instance holds on Vantage, and why.', render: () => <PrivacyConsole orgId={id} />, hidden: !can('org.privacy') },
     { path: 'audit', label: 'Audit trail', icon: ScrollText, title: 'Audit trail', lede: 'Who did what in your Unit Instance, in a tamper-evident chain.', render: () => <Sections.AuditTrail orgId={id} />, hidden: !can('org.audit') },
+    { path: 'operations', label: 'Operations', icon: HeartPulse, title: 'Operations', lede: 'The version of Vantage your Unit Instance runs, its last upgrade, its health, the backup that holds it, its last restore, and anything Vantage turned off for it.', render: () => <Sections.Operations orgId={id} /> },
     { path: 'settings', label: 'Settings', icon: Settings2, title: 'Settings', lede: 'The Unit Instance’s name, whether Vantage support must ask before looking, and what Vantage sets for every Unit Instance.', render: () => <Sections.Settings org={org} extra={<Config.EnterpriseControlsPanel orgId={id} />} /> },
   ];
 }
 
-const SECTION_PATHS = new Set(['people', 'units', 'billets', 'unit-roles', 'duty', 'training', 'work', 'data', 'personnel', 'retention', 'access', 'privacy', 'audit', 'settings']);
+const SECTION_PATHS = new Set(['people', 'units', 'billets', 'unit-roles', 'duty', 'training', 'work', 'data', 'personnel', 'retention', 'access', 'privacy', 'audit', 'operations', 'settings']);
 const STORE = 'vantage.console.org';
 
 function OrgConsole({ identity }: { identity: Identity }) {

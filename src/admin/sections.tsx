@@ -1,9 +1,9 @@
 import { useEffect, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Save, RefreshCw, Unlock, Mail, Download, Upload, Database, ShieldCheck, Users, Building2, Wrench, Sparkles, KeyRound, HeartPulse } from 'lucide-react';
+import { Save, RefreshCw, Unlock, Mail, Download, Upload, Database, ShieldCheck, Users, Building2, Sparkles, KeyRound, HeartPulse } from 'lucide-react';
 import { Button, Field, Input, Textarea, Panel, Badge, Switch, Skeleton, Stat, EmptyState, type Tone } from '@/components/ui/primitives';
-import { ConfirmDialog } from '@/components/ui/Dialog';
+import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { withSudo } from '@/components/SudoDialog';
 import { Table } from '@/components/common';
@@ -16,8 +16,9 @@ import AuditTrail from '@/components/AuditTrail';
 export { EmailConsole };
 import { PersonnelConsole, RetentionConsole, PrivacyConsole } from '@/components/GovernanceConsole';
 export { PersonnelConsole, RetentionConsole, PrivacyConsole };
-import { humanize, timeAgo } from '@/lib/utils';
+import { formatStamp, humanize, timeAgo } from '@/lib/utils';
 import { DEFAULT_METRICS, CATEGORY_PALETTE, type MetricsConfig } from '../../shared/constants';
+import { DATA_TRANSFERS } from '../../shared/dataTransfer';
 
 /** Platform data, behind a recent password confirmation like everything in the Vantage Administrator console. */
 export function useAdmin<T = any>(key: string, fn: () => Promise<T>) { return useQuery<T>({ queryKey: ['admin', key], queryFn: () => withSudo(fn), retry: false }); }
@@ -347,30 +348,130 @@ function AuditAnchors() {
   );
 }
 
+interface BackupView { at: string; method: 'browser' | 'server'; bytes: number | null; by: string | null; file: string | null; seq?: number | null }
+interface ChainPointView { seq: number | null; hash: string | null; at: string | null; count: number; database_id: string | null; schema: number }
+interface RestoreView {
+  id: string; at: string; method: 'script' | 'archive' | 'detected'; by: { id: string | null; username: string; name: string } | null; hostUser: string | null;
+  reason: string | null; change: string | null; restored: ChainPointView & { file: string | null; bytes: number | null }; replaced: ChainPointView | null;
+  sameDatabase: boolean | null; lost: { entries: number; since: string | null; instances: Record<string, number> } | null;
+  undone: { count: number; entries: Array<{ seq: number; at: string; action: string; subject_id: string | null; org_id: string | null; subject_username?: string | null }> } | null;
+  finding?: 'other_database' | 'missing_entry' | 'different_entry'; safetyCopy: string | null;
+}
+interface RecoveryReport {
+  backups: { state: 'fresh' | 'stale' | 'never'; last: BackupView | null; maxAgeHours: number; browserBackups: boolean; history: BackupView[]; lastArchiveExport: string | null; lastArchiveImport: string | null };
+  restores: { history: RestoreView[]; lineage: { kept: boolean; writtenAt: string | null }; usernames: Record<string, string> };
+}
+
+const RESTORE_HOW: Record<RestoreView['method'], string> = { script: 'npm run restore', archive: 'Service archive', detected: 'Replaced outside Vantage' };
+const FINDING: Record<NonNullable<RestoreView['finding']>, string> = {
+  other_database: 'It is another database, not the one this service last ran.',
+  missing_entry: 'It no longer holds the audit entry the service noted when it last ran: an older copy was put back.',
+  different_entry: 'It holds another entry where the one the service noted should be.',
+};
+const RESTORE_COMMAND = 'VANTAGE_RESTORE=1 npm run restore -- REPLACE-DATABASE --from <backup.db> --by <your username> --reason "<why>" [--change <record>] --dry-run';
+
 export function DataAdmin() {
-  const { data: overview } = useAdmin('overview', api.platformOverview);
-  const browserOff = overview?.browserBackups === false;
+  const { data, isPending, error, refetch } = useAdmin<RecoveryReport>('recovery', api.platformRecovery);
   const toast = useToast(); const [busy, setBusy] = useState(''); const [importFile, setImportFile] = useState<File | null>(null); const [confirmImport, setConfirmImport] = useState(false);
-  const backup = async () => { setBusy('backup'); try { const n = await api.downloadFile('/api/platform/backup', 'vantage-backup.db'); toast.success(`Downloaded ${n}.`); } catch (e: any) { if (e?.code === 'sudo_required') { try { await withSudo(() => api.platformOverview()); const n = await api.downloadFile('/api/platform/backup', 'vantage-backup.db'); toast.success(`Downloaded ${n}.`); } catch (e2) { toast.error(api.errorText(e2)); } } else toast.error(api.errorText(e)); } finally { setBusy(''); } };
+  const [openRestore, setOpenRestore] = useState<string | null>(null);
+  const backup = async () => { setBusy('backup'); try { const n = await api.downloadFile('/api/platform/backup', 'vantage-backup.db'); toast.success(`Downloaded ${n}.`); refetch(); } catch (e: any) { if (e?.code === 'sudo_required') { try { await withSudo(() => api.platformOverview()); const n = await api.downloadFile('/api/platform/backup', 'vantage-backup.db'); toast.success(`Downloaded ${n}.`); refetch(); } catch (e2) { toast.error(api.errorText(e2)); } } else toast.error(api.errorText(e)); } finally { setBusy(''); } };
   const exportJson = async () => { setBusy('export'); try { await withSudo(() => api.platformOverview()); const n = await api.downloadFile('/api/platform/export', 'vantage-service.json'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(''); } };
   const runImport = async () => { if (!importFile) return; setBusy('import'); try { const archive = JSON.parse(await importFile.text()); const r = await withSudo(() => api.platformImport(archive)); toast.success(`Imported: ${Object.entries(r.counts || {}).map(([k, v]) => `${v} ${k}`).join(', ')}. ${r.note}`); setTimeout(() => signOutEverywhere(), 2500); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(''); } };
-  // From the overview, which this page already reads: Operations would verify the whole audit chain again for one badge.
-  const backups = overview?.backups as { state: 'fresh' | 'stale' | 'never'; last: { at: string; method: 'browser' | 'server' } | null; maxAgeHours: number } | undefined;
+  if (isPending) return <Skeleton className="h-64" />;
+  if (error || !data) return <div className="card"><EmptyState title="Could not load" description={api.errorText(error)} action={<Button onClick={() => refetch()}>Retry</Button>} /></div>;
+  const { backups, restores } = data;
+  const exports = DATA_TRANSFERS.filter((t) => t.kind === 'data');
+  const shownRestore = restores.history.find((r) => r.id === openRestore) ?? null;
   return (
-    <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-      <Panel title="Backup" subtitle="A consistent copy of the SQLite database">
-        <p className="text-sm text-ink-2">The file holds every Unit Instance’s records, every password hash and every sealed secret. Every other Lead Vantage Administrator is told each time one is downloaded.</p>
-        {backups && <p className="mt-2 text-sm"><Badge tone={backups.state === 'fresh' ? 'good' : 'warn'}>{backups.state === 'never' ? 'No backup recorded' : backups.state === 'fresh' ? 'Recent' : 'Overdue'}</Badge> <span className="text-ink-2">{backups.last ? `Last ${timeAgo(backups.last.at)}, ${backups.last.method === 'server' ? 'on the server' : 'through the browser'}; expected every ${backups.maxAgeHours} hours.` : `Expected every ${backups.maxAgeHours} hours.`}</span></p>}
-        {browserOff
-          ? <p className="mt-3 text-sm text-warn">Downloading through the browser is turned off (VANTAGE_BROWSER_BACKUPS=false). Backups are taken on the server; see Operations in the documentation.</p>
-          : <Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button>}
+    <div className="space-y-4">
+      <p className="text-sm text-ink-2">A backup is the whole service as it is stored: every Unit Instance, account, password hash, sealed secret, record and the audit trail. Only Lead Vantage Administrators take one, and restoring one puts every Unit Instance back together. The data exports further down are something else: one Unit Instance’s, unit’s or person’s data for its own use, and none of them restores anything.</p>
+      <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
+        <Panel title="Database backup" subtitle="A consistent copy of the SQLite database" action={<Badge tone={backups.state === 'fresh' ? 'good' : 'warn'}>{backups.state === 'never' ? 'None recorded' : backups.state === 'fresh' ? 'Recent' : 'Overdue'}</Badge>}>
+          <p className="text-sm text-ink-2">{backups.last ? `Last ${timeAgo(backups.last.at)}, ${backups.last.method === 'server' ? 'on the server' : 'through the browser'}${backups.last.seq ? `, through audit entry ${backups.last.seq}` : ''}; expected every ${backups.maxAgeHours} hours.` : `Expected every ${backups.maxAgeHours} hours.`} On the host: <span className="mono">npm run backup -- /path/to/copy.db</span>. Each one is in the platform audit trail.</p>
+          {backups.browserBackups
+            ? <><p className="mt-2 text-xs text-ink-3">Every other Lead Vantage Administrator is told each time one is downloaded.</p><Button className="mt-3" variant="primary" onClick={backup} loading={busy === 'backup'}><Database className="h-4 w-4" />Download backup (.db)</Button></>
+            : <p className="mt-3 text-sm text-warn">Downloading through the browser is turned off (VANTAGE_BROWSER_BACKUPS=false). Backups are taken on the server.</p>}
+          {backups.history.length > 0 && (
+            <Table className="scroll-x mt-3" minWidth={360} head={<><th>When</th><th>How</th><th className="text-right">Audit entry</th></>}>
+              {backups.history.slice(0, 8).map((b) => <tr key={`${b.at}:${b.file ?? ''}`}><td className="fig text-xs">{formatStamp(b.at)}</td><td className="text-xs">{b.method === 'server' ? 'Server' : 'Browser'}{b.by ? ` · ${b.by}` : ''}</td><td className="fig text-right text-xs text-ink-3">{b.seq ?? '—'}</td></tr>)}
+            </Table>
+          )}
+        </Panel>
+        <Panel title="Restore" subtitle="On the host, with the service stopped" action={<Badge tone={restores.lineage.kept ? 'good' : 'warn'}>{restores.lineage.kept ? 'Lineage kept' : 'No lineage'}</Badge>}>
+          <ol className="list-decimal space-y-1 pl-5 text-sm text-ink-2">
+            <li><Link className="link" to="/maintenance">Start maintenance</Link> with the reason, then stop the service.</li>
+            <li>Run the command with <span className="mono">--dry-run</span>: it checks the backup and says what restoring it would undo, in each Unit Instance.</li>
+            <li>Run it again without <span className="mono">--dry-run</span>, then start the service and end maintenance.</li>
+          </ol>
+          <pre className="mono mt-3 whitespace-pre-wrap break-all rounded-md border border-line bg-surface-2/60 p-2 text-2xs text-ink">{RESTORE_COMMAND}</pre>
+          <p className="mt-2 text-xs text-ink-3">It refuses while the service has the database open, unless the backup verifies under this service’s secret, and unless --by names a Lead Vantage Administrator. It keeps the database it replaces beside it, signs everyone out and cancels support approvals waiting. At its next start the service writes the restore into the audit trail and tells Vantage staff and every Unit Instance’s Lead Unit Managers.</p>
+          <p className="mt-2 text-xs text-ink-3">{restores.lineage.kept ? `The service notes its newest audit entry beside the database${restores.lineage.writtenAt ? ` (last ${timeAgo(restores.lineage.writtenAt)})` : ''}, so a database put back any other way is noticed at the next start.` : 'The lineage file is off (VANTAGE_LINEAGE_FILE=off), so a database put back outside npm run restore is not noticed.'}</p>
+        </Panel>
+      </div>
+
+      <Panel title="Restores" subtitle="What this database has been put back to, and what each one undid">
+        {!restores.history.length ? <p className="text-sm text-ink-3">None. This database has not been restored since Vantage began keeping the record.</p> : (
+          <Table minWidth={680} head={<><th>When</th><th>How</th><th>Back to</th><th className="text-right">Entries undone</th><th>Authorized by</th><th /></>}>
+            {restores.history.map((r) => (
+              <tr key={r.id}>
+                <td className="fig text-xs">{formatStamp(r.at)}</td>
+                <td className="text-xs">{r.method === 'detected' ? <Badge tone="warn">{RESTORE_HOW.detected}</Badge> : RESTORE_HOW[r.method]}</td>
+                <td className="fig text-xs">{r.restored.at ? formatStamp(r.restored.at) : '—'}{r.restored.seq ? <span className="block text-2xs text-ink-3">entry {r.restored.seq}</span> : null}</td>
+                <td className="fig text-right text-xs">{r.lost ? `${r.method === 'detected' ? 'at least ' : ''}${r.lost.entries}` : '—'}{r.undone?.count ? <span className="block text-2xs text-warn">{r.undone.count} to review</span> : null}</td>
+                <td className="text-xs">{r.by ? `${r.by.name} (${r.by.username})` : <span className="text-ink-3">nobody</span>}</td>
+                <td className="text-right"><Button size="sm" variant="ghost" onClick={() => setOpenRestore(r.id)}>Details</Button></td>
+              </tr>
+            ))}
+          </Table>
+        )}
       </Panel>
-      <Panel title="Disaster recovery" subtitle="The whole service as one portable file">
-        <p className="text-sm text-ink-2">Everything (Unit Instances, accounts, units, roles, records, attachments, the audit trail) as one JSON file, for restoring the service onto a fresh host under the same VANTAGE_SECRET. Passwords, passkeys and authenticators carry over.</p>
+
+      <Panel title="Service archive" subtitle="The whole service as one portable file">
+        <p className="text-sm text-ink-2">Everything (Unit Instances, accounts, units, roles, records, attachments, the audit trail) as one JSON file, for moving the service onto a fresh host under the same VANTAGE_SECRET. Passwords, passkeys and authenticators carry over. Importing one is recorded as a restore. It takes only a service archive: a Unit Instance’s or a person’s export is refused.</p>
+        <p className="mt-2 text-xs text-ink-3">Last exported {backups.lastArchiveExport ? timeAgo(backups.lastArchiveExport) : 'never'}, last imported {backups.lastArchiveImport ? timeAgo(backups.lastArchiveImport) : 'never'}.</p>
         <div className="mt-3 flex flex-wrap gap-2"><Button onClick={exportJson} loading={busy === 'export'}><Download className="h-4 w-4" />Export the service</Button><label className="inline-flex"><input type="file" aria-label="Choose a service export" accept="application/json,.json" className="sr-only" onChange={(e) => setImportFile(e.target.files?.[0] || null)} /><Button asChild><span><Upload className="h-4 w-4" />{importFile ? importFile.name : 'Choose export to import'}</span></Button></label>{importFile && <Button variant="danger" onClick={() => setConfirmImport(true)} loading={busy === 'import'}>Import and replace</Button>}</div>
       </Panel>
-      <Panel title="Maintenance" className="lg:col-span-2"><div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-ink-2">Start maintenance before restoring or moving, so nobody writes into a database you are about to replace. It asks why, and records it.</p><Button asChild><Link to="/maintenance"><Wrench className="h-4 w-4" />Maintenance</Link></Button></div></Panel>
+
+      <Panel title="Not backups: data exports" subtitle="Copies of one Unit Instance’s, unit’s or person’s data, for its own use">
+        <Table minWidth={640} head={<><th>Export or import</th><th>What it holds</th><th>Who</th><th>Coming back</th></>}>
+          {exports.map((t) => <tr key={t.id}><td className="text-xs"><span className="text-ink">{t.label}</span><span className="block text-2xs text-ink-3">{t.format}</span></td><td className="text-xs text-ink-2">{t.holds}</td><td className="text-xs text-ink-2">{t.who}</td><td className="text-xs text-ink-2">{t.restores}</td></tr>)}
+        </Table>
+        <p className="mt-2 text-xs text-ink-3">None of these can restore the service, and none of their imports takes a backup: each refuses a database file or the service archive.</p>
+      </Panel>
+
+      <Dialog open={Boolean(shownRestore)} onOpenChange={(o) => { if (!o) setOpenRestore(null); }} title={shownRestore ? `${RESTORE_HOW[shownRestore.method]}, ${formatStamp(shownRestore.at)}` : ''} size="lg">
+        {shownRestore && <RestoreDetail restore={shownRestore} usernames={restores.usernames} />}
+      </Dialog>
       <ConfirmDialog open={confirmImport} onOpenChange={setConfirmImport} title="Replace the whole service with the export?" body="Everything currently here is deleted and replaced by the file's contents. Every session, including yours, is reset. Take a backup first." confirmLabel="Replace everything" onConfirm={runImport} />
+    </div>
+  );
+}
+
+function RestoreDetail({ restore: r, usernames }: { restore: RestoreView; usernames: Record<string, string> }) {
+  const rows: Array<[string, React.ReactNode]> = [
+    ['Authorized by', r.by ? `${r.by.name} (${r.by.username})` : 'Nobody: Vantage found it at a start'],
+    ...(r.hostUser ? [['Run on the host as', <span key="h" className="mono">{r.hostUser}</span>] as [string, React.ReactNode]] : []),
+    ...(r.reason ? [['Reason', r.reason] as [string, React.ReactNode]] : []),
+    ...(r.change ? [['Change record', r.change] as [string, React.ReactNode]] : []),
+    ['Put in place', `${r.restored.file ?? 'a database'}${r.restored.at ? `, written up to ${formatStamp(r.restored.at)}` : ''}${r.restored.seq ? `, entry ${r.restored.seq}` : ''}, schema ${r.restored.schema}`],
+    ['Replaced', r.replaced ? `${r.replaced.at ? `written up to ${formatStamp(r.replaced.at)}` : 'a database'}${r.replaced.seq ? `, entry ${r.replaced.seq}` : ''}` : 'could not be read'],
+    ['Same database', r.sameDatabase === null ? 'unknown' : r.sameDatabase ? 'yes' : 'no, another one'],
+    ...(r.safetyCopy ? [['Safety copy', <span key="s" className="mono">{r.safetyCopy}</span>] as [string, React.ReactNode]] : []),
+  ];
+  return (
+    <div className="space-y-3 text-sm">
+      {r.finding && <p className="rounded-md border border-warn/40 bg-warn/10 px-3 py-2 text-ink">{FINDING[r.finding]}</p>}
+      <dl className="space-y-1.5">{rows.map(([k, v]) => <div key={k} className="flex flex-wrap justify-between gap-x-3"><dt className="text-ink-3">{k}</dt><dd className="min-w-0 text-right text-ink">{v}</dd></div>)}</dl>
+      {r.lost && <p className="text-ink-2">{r.method === 'detected' ? 'At least ' : ''}{r.lost.entries} audit {r.lost.entries === 1 ? 'entry' : 'entries'} written after that point {r.lost.entries === 1 ? 'is' : 'are'} gone{r.lost.since ? `, the first from ${formatStamp(r.lost.since)}` : ''}; {Object.keys(r.lost.instances).length} Unit {Object.keys(r.lost.instances).length === 1 ? 'Instance' : 'Instances'} had some.</p>}
+      {r.undone && r.undone.count > 0 && (
+        <div>
+          <h3 className="text-xs font-semibold text-ink-2">Account, authority and hold changes undone</h3>
+          <p className="text-xs text-ink-3">Each is as the backup had it again; make again the ones that still should be.{r.undone.count > r.undone.entries.length ? ` The first ${r.undone.entries.length} of ${r.undone.count}.` : ''}</p>
+          <Table className="scroll-x mt-2" minWidth={420} head={<><th>When</th><th>Change</th><th>Account</th></>}>
+            {r.undone.entries.map((e) => <tr key={e.seq}><td className="fig text-xs">{formatStamp(e.at)}</td><td className="text-xs">{humanize(e.action)}</td><td className="mono text-2xs">{e.subject_id ? usernames[e.subject_id] ?? (e.subject_username ? `${e.subject_username} (gone with the restore)` : 'an account since removed') : '—'}</td></tr>)}
+          </Table>
+        </div>
+      )}
     </div>
   );
 }

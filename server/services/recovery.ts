@@ -47,7 +47,7 @@ export function auditUpgrades(ctx: AppContext) {
     const title = record.status === 'failed' ? `An upgrade of Vantage failed at ${record.failed?.name ?? 'a migration'}` : `The upgrade to schema ${record.schema.to} left fewer rows`;
     notifyStaff(ctx, 'platform.view', { kind: 'system', title, message: 'Review it under Unit Instance operations before relying on the data.', actionUrl: '/admin/instances', dedupeKey: `upgrade:${record.id}` });
     for (const instance of record.instances) {
-      notifyOrg(ctx, instance.org_id, 'org.owners', { kind: 'system', title: 'A Vantage upgrade changed your Unit Instance’s records', message: `Some tables hold fewer rows than before the upgrade to schema ${record.schema.to}. Vantage staff have been told.`, actionUrl: '/console/operations', dedupeKey: `upgrade:${record.id}` });
+      notifyOrg(ctx, instance.org_id, 'org.owners', { kind: 'system', title: 'A Vantage upgrade changed your Unit Instance’s records', message: `Some tables hold fewer rows than before the upgrade to schema ${record.schema.to}. Vantage staff have been told.`, actionUrl: '/console/operations', dedupeKey: `upgrade:${record.id}:${instance.org_id}` });
     }
   }
 }
@@ -63,6 +63,11 @@ export function reviewUpgrade(ctx: AppContext, user: SessionUser, id: string, no
   ctx.db.transaction(() => {
     updated = updateUpgrade(ctx.db, id, (r) => ({ ...r, reviewed: { at: now(), by: user.id, byName, note } }));
     audit(ctx, { actor_id: user.id, action: 'upgrade_reviewed', entity: 'schema', entity_id: String(record.schema.to), detail: `${record.status} upgrade of ${record.at.slice(0, 16)} (schema ${record.schema.from} to ${record.schema.to}): ${note}`, ip });
+    // Each Unit Instance the upgrade left with fewer rows has the review in its own trail, beside the loss.
+    for (const instance of record.instances) {
+      if (!ctx.db.prepare('SELECT 1 FROM organizations WHERE id = ?').get(instance.org_id)) continue;
+      audit(ctx, { actor_id: user.id, action: 'upgrade_reviewed', category: 'enterprise', entity: 'schema', entity_id: String(record.schema.to), org_id: instance.org_id, detail: `Vantage reviewed the upgrade to schema ${record.schema.to} of ${record.at.slice(0, 16)}: ${note}`, ip });
+    }
   }).immediate();
   return updated!;
 }
@@ -128,7 +133,7 @@ export function auditRestores(ctx: AppContext) {
     notifyStaff(ctx, 'platform.view', { kind: 'system', title, message: `${restoreSummary(r)}${r.undone?.count ? ` ${r.undone.count} changes to accounts, authority or holds made after it are undone; review them under Backup and restore.` : ''}`, actionUrl: '/admin/data', dedupeKey: `restore:${r.id}` });
     for (const org of instances) {
       const own = r.lost?.instances?.[org.id];
-      notifyOrg(ctx, org.id, 'org.owners', { kind: 'system', title: `${org.name} went back to an earlier state`, message: `${restoreSummary(r)}${own ? ` ${own} of your Unit Instance’s audited actions after it are undone; check the roles, members and holds you changed since.` : ''}`, actionUrl: '/console/operations', dedupeKey: `restore:${r.id}` });
+      notifyOrg(ctx, org.id, 'org.owners', { kind: 'system', title: `${org.name} went back to an earlier state`, message: `${restoreSummary(r)}${own ? ` ${own} of your Unit Instance’s audited actions after it are undone; check the roles, members and holds you changed since.` : ''}`, actionUrl: '/console/operations', dedupeKey: `restore:${r.id}:${org.id}` });
     }
     if (actor) notify(ctx, actor, { kind: 'system', title: 'The restore you authorized is in place', message: restoreSummary(r), actionUrl: '/admin/data', dedupeKey: `restore-by:${r.id}` });
   }

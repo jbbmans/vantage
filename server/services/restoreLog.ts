@@ -24,7 +24,11 @@ export interface ChainPoint {
 }
 
 /** An account, authority or hold change the restore undid: written after the backup, and gone with the entries after it. */
-export interface UndoneChange { seq: number; at: string; action: string; subject_id: string | null; org_id: string | null }
+export interface UndoneChange {
+  seq: number; at: string; action: string; subject_id: string | null; org_id: string | null;
+  /** The account's username as the replaced database had it: an account opened after the backup is gone with the restore. */
+  subject_username?: string | null;
+}
 
 export interface RestoreRecord {
   id: string;
@@ -113,8 +117,8 @@ export function lostSince(replaced: Db, restored: ChainPoint) {
   const instances = Object.fromEntries((replaced.prepare('SELECT org_id, COUNT(*) AS n FROM audit_log WHERE seq > ? AND org_id IS NOT NULL GROUP BY org_id').all(after) as Array<{ org_id: string; n: number }>).map((r) => [r.org_id, r.n]));
   const actions = JSON.stringify(RESTORE_REVIEW_ACTIONS);
   const undoneCount = (replaced.prepare('SELECT COUNT(*) AS n FROM audit_log WHERE seq > ? AND action IN (SELECT value FROM json_each(?))').get(after, actions) as { n: number }).n;
-  const undone = replaced.prepare(`SELECT seq, at, action, subject_id, org_id FROM audit_log WHERE seq > ? AND action IN (SELECT value FROM json_each(?))
-                                   ORDER BY seq LIMIT ${UNDONE_LISTED}`).all(after, actions) as UndoneChange[];
+  const undone = replaced.prepare(`SELECT a.seq, a.at, a.action, a.subject_id, a.org_id, u.username AS subject_username FROM audit_log a LEFT JOIN users u ON u.id = a.subject_id
+                                   WHERE a.seq > ? AND a.action IN (SELECT value FROM json_each(?)) ORDER BY a.seq LIMIT ${UNDONE_LISTED}`).all(after, actions) as UndoneChange[];
   return { lost: { entries, since: restored.at, instances }, undone: { count: undoneCount, entries: undone } };
 }
 

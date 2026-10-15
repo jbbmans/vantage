@@ -115,7 +115,6 @@ export async function uploadSource(
   input: { filename: string; contentType: string; buffer: Buffer; unitId: string | null; visibility: 'private' | 'unit' },
 ): Promise<SourceFileRow> {
   if (!ctx.config.intake.enabled) throw badRequest('Importing work is switched off on this instance.');
-  assertIntakeOn(ctx, input.unitId, user.id);
   if (!input.buffer.length) throw badRequest('That file is empty.');
   // An infrastructure backup is never a source: it would file every Unit Instance's data with one unit (ADR-0014).
   const backup = infrastructureFileProblem(input.buffer);
@@ -124,6 +123,8 @@ export async function uploadSource(
     throw badRequest(`That file is ${Math.round(input.buffer.length / 1_048_576)} MB. The limit here is ${Math.round(ctx.config.intake.maxBytes / 1_048_576)} MB.`);
   }
   assertCanPlace(scope, input.unitId, input.visibility);
+  // After the placement check, so whether a feature is withheld is told only to someone who may place work there.
+  assertIntakeOn(ctx, input.unitId, user.id);
   assertCapacity(ctx, user.id, input.buffer.length);
 
   const kind = classifyUpload(input.filename, input.contentType, input.buffer);
@@ -415,9 +416,9 @@ export function sameReport(caseColumns: string[], rowColumns: string[]): boolean
 
 export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, requested: ImportPlan, sourceId: string): PreviewResult {
   const plan = placed(requested);
-  assertIntakeOn(ctx, plan.unit_id, user.id);
   const source = readableSource(ctx, user, scope, sourceId);
   assertCanPlace(scope, plan.unit_id, plan.visibility);
+  assertIntakeOn(ctx, plan.unit_id, user.id);
   if (plan.visibility === 'unit' && plan.unit_id && !can(scope, PERMISSIONS.CREATE_SHARED_WORK, plan.unit_id)) {
     throw forbidden('You cannot bring shared work into that unit.');
   }

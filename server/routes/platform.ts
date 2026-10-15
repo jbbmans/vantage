@@ -136,7 +136,9 @@ platformRouter.get('/operations', requirePlatform('platform.view'), wrap((req, r
 platformRouter.get('/instances/operations', requirePlatform('platform.view'), wrap((req, res) => {
   const ctx = req.ctx;
   const health = healthReport(ctx);
-  const instances = instanceOperations(ctx, { service: health.status });
+  // Who authorized a restore is for those who hold the backups or read the audit trail, as for who took a backup.
+  const named = req.user.platformPermissions.includes('platform.data') || req.user.platformPermissions.includes('platform.audit');
+  const instances = instanceOperations(ctx, { service: health.status }).map((i) => (named || !i.restore.last ? i : { ...i, restore: { last: { ...i.restore.last, by: null } } }));
   const { code, database, state } = migrationStatus(ctx);
   res.json({
     service: { health, version: versionStatus(ctx), schema: { code, database, state }, upgrades: [...upgradeHistory(ctx.db)].reverse().slice(0, 10) },

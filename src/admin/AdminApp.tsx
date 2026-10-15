@@ -1,4 +1,4 @@
-import { Activity, Archive, BarChart3, Building2, Database, Fingerprint, Gauge, HeartPulse, KeyRound, Mail, Scale, ScrollText, Settings2, ShieldCheck, Sparkles, ToggleRight, UserCog, Users, Wrench } from 'lucide-react';
+import { Activity, Archive, BarChart3, Building2, Database, Fingerprint, Gauge, HeartPulse, KeyRound, Layers, Mail, Scale, ScrollText, Settings2, ShieldCheck, Sparkles, ToggleRight, UserCog, Users, Wrench } from 'lucide-react';
 import { ConsoleFrame, ConsoleLayout, type ConsoleSection } from '@/components/ConsoleFrame';
 import { PrivacyConsole } from '@/components/GovernanceConsole';
 import { LINKS } from '@/lib/links';
@@ -6,19 +6,21 @@ import { PLATFORM_ROLES, type PlatformRole } from '../../shared/permissions';
 import type { Identity } from '@/lib/queries';
 import * as Sections from './sections';
 import { Access, Accounts, Organizations, PlatformHolds, Staff } from './people';
-import { FeatureFlags, Maintenance, MaintenanceBanner, Operations, SignInHealth } from './operations';
+import { FeatureFlags, InstanceOperationsPage, Maintenance, MaintenanceBanner, Operations, SignInHealth } from './operations';
 import { SeparationOfDuties } from './separation';
 
 /**
  * The Vantage Administrator console (ADR-0006, ADR-0010): the service, for Vantage staff. Unit Instances appear here as
  * containers; seeing inside one takes its Lead Unit Managers' approval. Each page shows only to the staff roles that can use it.
- * The operations pages (ADR-0011) describe the service itself: its health, sign-in, feature flags and maintenance.
+ * The operations pages (ADR-0011) describe the service itself: its health, sign-in, feature flags and maintenance; Unit
+ * Instance operations and Backup and restore (ADR-0014) describe each Unit Instance's upgrades, backups and restores.
  */
 function sectionsFor(permissions: string[]): ConsoleSection[] {
   const can = (p: string) => permissions.includes(p);
   return [
     { path: '', label: 'Overview', icon: Gauge, title: 'The service', lede: 'Unit Instances, accounts, access, the database, email and the integrity of the audit chain at a glance.', render: () => <Sections.Overview />, hidden: !can('platform.view') },
     { path: 'operations', label: 'Operations', icon: HeartPulse, title: 'Operations', lede: 'Whether the service is healthy: every check, the build and schema it runs, its backups and its scheduled jobs.', render: () => <Operations />, hidden: !can('platform.view') },
+    { path: 'instances', label: 'Instance operations', icon: Layers, title: 'Unit Instance operations', lede: 'Each Unit Instance’s version, schema, last upgrade and whether it kept its rows, health, backup freshness, restores and withheld features.', render: () => <InstanceOperationsPage />, hidden: !can('platform.view') },
     { path: 'orgs', label: 'Unit Instances', icon: Building2, title: 'Unit Instances', lede: 'Every command on Vantage, its Lead Unit Managers and its state. What is inside one is its own.', render: () => <Organizations />, hidden: !can('platform.view') },
     { path: 'accounts', label: 'Accounts', icon: Users, title: 'Accounts', lede: 'Sign-in help for anyone on Vantage: unlocks, temporary passwords, second factors and sign-in details.', render: () => <Accounts />, hidden: !can('platform.accounts') },
     { path: 'access', label: 'Vantage access', icon: KeyRound, title: 'Vantage access', lede: 'Read-only, time-limited looks inside a Unit Instance, each one approved by its Lead Unit Managers.', render: () => <Access />, hidden: !can('platform.view') },
@@ -35,7 +37,7 @@ function sectionsFor(permissions: string[]): ConsoleSection[] {
     { path: 'separation', label: 'Separation of duties', icon: Scale, title: 'Separation of duties', lede: 'Accounts whose authority crosses a line the role model draws: staff who also run a command, managers who also read records, leaders outside their unit, and roles from the person who created the account.', render: () => <SeparationOfDuties />, hidden: !can('platform.audit') },
     { path: 'holds', label: 'Legal holds', icon: Archive, title: 'Platform legal holds', lede: 'Holds on the service itself, over every Unit Instance.', render: () => <PlatformHolds />, hidden: !can('platform.data') },
     { path: 'maintenance', label: 'Maintenance', icon: Wrench, title: 'Maintenance', lede: 'Closing the service for work, with a reason, and the database tasks that keep it sound. Every step is audited.', render: () => <Maintenance />, hidden: !can('platform.view') },
-    { path: 'data', label: 'Backup and recovery', icon: Database, title: 'Backup and recovery', lede: 'Backups and the whole-service archive.', render: () => <Sections.DataAdmin />, hidden: !can('platform.data') },
+    { path: 'data', label: 'Backup and restore', icon: Database, title: 'Backup and restore', lede: 'Infrastructure backups, restoring one on the host, the restores this database went through, and the data exports that are not backups.', render: () => <Sections.DataAdmin />, hidden: !can('platform.data') },
   ];
 }
 

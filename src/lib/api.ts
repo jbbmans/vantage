@@ -255,6 +255,11 @@ export const platformOperations = () => api.get('/platform/operations');
 export const platformSignInHealth = () => api.get('/platform/sign-in-health');
 export const platformOidcCheck = () => api.post('/platform/sign-in-health/oidc-check');
 export const platformFlags = () => api.get('/platform/flags');
+/** Each Unit Instance's version, schema, last upgrade, health, backup and restore (ADR-0014). */
+export const platformInstanceOperations = () => api.get('/platform/instances/operations');
+export const platformReviewUpgrade = (id: string, note: string) => api.post(`/platform/upgrades/${enc(id)}/review`, { note });
+export const platformInstanceFeature = (orgId: string, flag: string, body: { withheld: boolean; reason?: string | null }) => api.put(`/platform/orgs/${enc(orgId)}/features/${enc(flag)}`, body);
+export const platformRecovery = () => api.get('/platform/recovery');
 export const platformAi = () => api.get('/platform/ai');
 export const platformAiDiscover = () => api.post('/platform/ai/discover');
 export const platformAiUnlock = () => api.post('/platform/ai/unlock');
@@ -310,6 +315,7 @@ export const platformImport = (archive: unknown) => api.post('/platform/import',
 const orgPath = (orgId: string, path = '') => `/orgs/${enc(orgId)}${path}`;
 export const myOrgs = () => api.get('/orgs');
 export const orgOverview = (orgId: string) => api.get(orgPath(orgId, '/overview'));
+export const orgOperations = (orgId: string) => api.get(orgPath(orgId, '/operations'));
 export const orgUpdate = (orgId: string, body: unknown) => api.patch(orgPath(orgId), body);
 export const orgRoles = (orgId: string) => api.get(orgPath(orgId, '/roles'));
 export const orgGrantRole = (orgId: string, body: { user_id: string; role: string; expires_at?: string | null }) => api.post(orgPath(orgId, '/roles'), body);

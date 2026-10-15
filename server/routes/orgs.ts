@@ -37,8 +37,6 @@ import { publishScoringPolicy, withdrawScoringPolicy } from '../services/dutySco
 import { cachedServiceStatus, instanceOperations } from '../services/instanceOperations.ts';
 import { infrastructureBodyProblem, infrastructureFileProblem } from '../../shared/dataTransfer.ts';
 
-/** A data import never takes an infrastructure backup: a database file or the service archive (ADR-0014). */
-const refuseBackup = (content: Uint8Array | string) => { const problem = infrastructureFileProblem(content); if (problem) throw badRequest(problem, { code: 'infrastructure_file' }); };
 import { TRAINING_TYPES } from '../../shared/constants.ts';
 import type { PeriodKey } from '../../shared/metrics.ts';
 
@@ -64,6 +62,8 @@ const inOrg = (...permissions: OrgPermission[]) => (req: Request, _res: Response
 
 const ip = (req: Request) => clientIp(req);
 const orgOf = (req: Request) => req.org!;
+/** A data import never takes an infrastructure backup: a database file or the service archive (ADR-0014). */
+const refuseBackup = (content: Uint8Array | string) => { const problem = infrastructureFileProblem(content); if (problem) throw badRequest(problem, { code: 'infrastructure_file' }); };
 
 /** The organizations the caller holds a role in, or belongs to. */
 orgsRouter.get('/', wrap((req, res) => res.json({ organizations: orgSummaries(req.ctx, scopeFor(req.ctx, req.user, req)) })));
@@ -109,7 +109,13 @@ orgsRouter.patch('/:orgId', inOrg('org.settings', 'org.owners'), wrap((req, res)
 orgsRouter.get('/:orgId/operations', inOrg('org.view'), wrap((req, res) => {
   const [operations] = instanceOperations(req.ctx, { service: cachedServiceStatus(req.ctx), orgId: orgOf(req).id });
   if (!operations) throw notFound('No such Unit Instance.');
-  res.json(operations);
+  // Vantage staff by name, as everywhere in this console; never their account ids.
+  const reviewed = operations.upgrade.record?.reviewed;
+  res.json({
+    ...operations,
+    upgrade: { ...operations.upgrade, record: operations.upgrade.record && { ...operations.upgrade.record, reviewed: reviewed ? { at: reviewed.at, byName: reviewed.byName, note: reviewed.note } : null } },
+    flags: operations.flags.map(({ set_by: _id, ...flag }) => flag),
+  });
 }));
 
 orgsRouter.get('/:orgId/roles', inOrg('org.view'), wrap((req, res) => {
