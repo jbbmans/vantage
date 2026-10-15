@@ -6,6 +6,7 @@ import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { withSudo } from '@/components/SudoDialog';
 import { Table } from '@/components/common';
+import { InstanceOperationsDetail, type InstanceOperations } from '@/components/InstanceOperations';
 import AccountImport from '@/components/AccountImport';
 import SharedAuditTrail from '@/components/AuditTrail';
 import SignInDetails from '@/components/SignInDetails';
@@ -32,6 +33,16 @@ export function useAct() {
 }
 
 export const Failed = ({ error, retry }: { error: unknown; retry: () => void }) => <div className="card"><EmptyState title="Could not load" description={api.errorText(error)} action={<Button onClick={retry}>Retry</Button>} /></div>;
+
+// ——— Operations (ADR-0014) ———
+
+/** The Unit Instance's version, last upgrade, health, backup, restore and withheld features, as Vantage reports them. */
+export function Operations({ orgId }: { orgId: string }) {
+  const { data, isPending, error, refetch } = useOrg<InstanceOperations>(orgId, 'operations', () => api.orgOperations(orgId));
+  if (isPending) return <Skeleton className="h-64" />;
+  if (error || !data) return <Failed error={error} retry={() => refetch()} />;
+  return <InstanceOperationsDetail instance={data} audience="manager" />;
+}
 
 // ——— Overview ———
 

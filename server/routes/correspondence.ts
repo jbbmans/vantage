@@ -2,6 +2,7 @@ import express, { Router } from 'express';
 import { z } from 'zod';
 import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest } from '../lib/errors.ts';
+import { infrastructureFileProblem } from '../../shared/dataTransfer.ts';
 import { isoDate } from '../../shared/schemas.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor } from '../authz/scope.ts';
@@ -157,6 +158,9 @@ correspondenceRouter.post('/messages/import', emlBody, wrap(async (req, res) => 
   const scope = scopeFor(req.ctx, req.user, req);
   const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
   if (!buffer.length) throw badRequest('That file is empty.');
+  // A data import never takes an infrastructure backup (ADR-0014).
+  const backup = infrastructureFileProblem(buffer);
+  if (backup) throw badRequest(backup, { code: 'infrastructure_file' });
   // A saved message carries its attachments with it, so it is scanned before anything is read out of it.
   await scanUpload(req.ctx.config.intake, buffer, 'message.eml');
   const result = importEml(req.ctx, req.user, scope, buffer, {

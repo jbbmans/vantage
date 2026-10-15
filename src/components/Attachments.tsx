@@ -27,12 +27,15 @@ export function Attachments({ table, id, canEdit }: { table: api.Store; id: stri
   };
 
   const maxMb = Math.round((files?.maxBytes || 0) / 1_048_576) || 8;
+  // Vantage can withhold attachments from one Unit Instance (ADR-0014): what is attached stays readable, nothing new is added.
+  const withheld = enabled && files?.enabled === false;
+  const adding = enabled && !withheld;
 
   return (
     <Panel
       title="Files"
-      subtitle={enabled ? 'Kept in Vantage, never sent anywhere else' : 'turned off on Vantage'}
-      action={canEdit && enabled
+      subtitle={withheld ? 'turned off for this Unit Instance' : enabled ? 'Kept in Vantage, never sent anywhere else' : 'turned off on Vantage'}
+      action={canEdit && adding
         ? <Button size="sm" loading={uploading} onClick={() => fileInput.current?.click()}><Paperclip className="h-3.5 w-3.5" />Add</Button>
         : undefined}
     >
@@ -40,7 +43,7 @@ export function Attachments({ table, id, canEdit }: { table: api.Store; id: stri
         onChange={(e) => { const f = e.target.files?.[0]; if (f) void upload(f); }} />
       {!enabled ? <p className="text-sm text-ink-3">Use evidence links instead.</p>
         : !files?.attachments?.length ? (
-          <p className="text-sm text-ink-3">No files yet. Attach the sheet, the signed copy, or the screenshot. Up to {maxMb} MB each.</p>
+          <p className="text-sm text-ink-3">{withheld ? 'No files. Vantage has turned attachments off for this Unit Instance; use evidence links instead.' : `No files yet. Attach the sheet, the signed copy, or the screenshot. Up to ${maxMb} MB each.`}</p>
         ) : (
           <ul className="space-y-1.5">
             {files.attachments.map((f: { id: string; original_name: string; size_bytes: number }) => (

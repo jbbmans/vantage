@@ -274,6 +274,12 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       expires_at: 'technical', ended_at: 'technical', ended_by: 'identifier',
     },
   },
+  instance_feature_flags: {
+    purpose: 'Features a Vantage Administrator turned off for one Unit Instance, why, by whom and when.',
+    authority: 'Enterprise administration of the service (ADR-0014); every change audited in the platform trail and the Unit Instance’s.',
+    access: 'Vantage staff; the Unit Instance’s Unit Managers see what is turned off for it and why.',
+    columns: { org_id: 'technical', flag: 'none', reason: 'technical', set_by: 'identifier', set_at: 'technical' },
+  },
   credential_approvals: {
     purpose: 'Each request by Vantage support to change how an account with authority signs in, and the second staff member who approved or denied it.',
     authority: 'Two-person control over credential changes to privileged accounts; kept as the evidence of who asked, who approved and when it was used.',

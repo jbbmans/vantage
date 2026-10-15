@@ -32,6 +32,8 @@ export default function RecordDetail() {
   const { data: org } = useOrg();
   const { data: a, isPending, error } = useQuery({ queryKey: keys.record('activities', id), queryFn: () => api.getRecord('activities', id), retry: false });
   const { data: files, refetch: refetchFiles } = useQuery({ queryKey: ['attachments', 'activities', id], queryFn: () => api.attachments('activities', id), enabled: Boolean(a) && Boolean(identity?.instance.attachmentsEnabled) });
+  // Withheld from this record's Unit Instance (ADR-0014): files attached stay readable; nothing new is added.
+  const filesWithheld = Boolean(identity?.instance.attachmentsEnabled) && files?.enabled === false;
   const remove = useDeleteRecord('activities');
   useRememberVisit(identity?.user.id, a && !a.deleted_at ? { to: `/records/${id}`, title: a.title, kind: 'entry' } : null);
   useForgetVisit(identity?.user.id, `/records/${id}`, Boolean(error) || Boolean(a?.deleted_at));
@@ -120,9 +122,9 @@ export default function RecordDetail() {
         </div>
 
         <div className="space-y-4">
-          <Panel title="Attachments" subtitle={identity?.instance.attachmentsEnabled ? 'PDFs and images, kept in Vantage' : 'turned off on Vantage'} action={canEdit && identity?.instance.attachmentsEnabled && !a.deleted_at ? <Button size="sm" loading={uploading} onClick={() => fileInput.current?.click()}><Paperclip className="h-3.5 w-3.5" />Add</Button> : undefined}>
+          <Panel title="Attachments" subtitle={filesWithheld ? 'turned off for this Unit Instance' : identity?.instance.attachmentsEnabled ? 'PDFs and images, kept in Vantage' : 'turned off on Vantage'} action={canEdit && identity?.instance.attachmentsEnabled && !filesWithheld && !a.deleted_at ? <Button size="sm" loading={uploading} onClick={() => fileInput.current?.click()}><Paperclip className="h-3.5 w-3.5" />Add</Button> : undefined}>
             <input ref={fileInput} type="file" className="sr-only" aria-label="Attach a file" tabIndex={-1} accept={(files?.allowedTypes || []).join(',')} onChange={(e) => { const f = e.target.files?.[0]; if (f) upload(f); }} />
-            {!identity?.instance.attachmentsEnabled ? <p className="text-sm text-ink-3">Use evidence links instead.</p> : !files?.attachments?.length ? <p className="text-sm text-ink-3">No files yet. Attach the LOA, the screenshot, or the signed sheet. Max {Math.round((files?.maxBytes || 0) / 1_048_576) || 8} MB each.</p> : (
+            {!identity?.instance.attachmentsEnabled ? <p className="text-sm text-ink-3">Use evidence links instead.</p> : !files?.attachments?.length ? <p className="text-sm text-ink-3">{filesWithheld ? 'No files. Vantage has turned attachments off for this Unit Instance; use evidence links instead.' : `No files yet. Attach the LOA, the screenshot, or the signed sheet. Max ${Math.round((files?.maxBytes || 0) / 1_048_576) || 8} MB each.`}</p> : (
               <ul className="space-y-1.5">{files.attachments.map((f: any) => (
                 <li key={f.id} className="flex items-center gap-2 text-sm"><a href={api.attachmentUrl('activities', id, f.id)} className="link min-w-0 flex-1 truncate">{f.original_name}</a><span className="fig text-2xs text-ink-3">{Math.max(1, Math.round(f.size_bytes / 1024))} KB</span>{canEdit && <button type="button" className="text-ink-3 hover:text-bad" aria-label={`Remove ${f.original_name}`} onClick={async () => { try { await api.deleteAttachment('activities', id, f.id); refetchFiles(); } catch (e) { toast.error(api.errorText(e)); } }}>×</button>}</li>
               ))}</ul>

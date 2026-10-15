@@ -204,7 +204,8 @@ test('a new database says which schema it was created at; each migration after i
 
     const upgraded = contextFor(file.path);
     const entries = migrated(upgraded);
-    assert.equal(entries.length, 2);
+    // The creation, then one entry for each migration from 021 to this build's last.
+    assert.deepEqual(entries.slice(1).map((e) => Number(e.entity_id)), Array.from({ length: SCHEMA_VERSION - 20 }, (_, i) => 21 + i));
     assert.equal(entries[1].entity_id, '21');
     assert.match(entries[1].detail, /^021_audit_categories_and_append_only: schema 20 to 21 at \S+ in \d+ ms under /);
     assert.equal(metaGet(upgraded.db, 'migration_audited_through'), String(SCHEMA_VERSION));
@@ -212,7 +213,7 @@ test('a new database says which schema it was created at; each migration after i
     upgraded.db.close();
 
     const again = contextFor(file.path);
-    assert.equal(migrated(again).length, 2, 'audited once');
+    assert.equal(migrated(again).length, entries.length, 'audited once');
     again.db.close();
   } finally { file.done(); }
 });

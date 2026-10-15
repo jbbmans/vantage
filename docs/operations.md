@@ -5,18 +5,99 @@ Unit Managers do for themselves is in the Unit Manager console, and is noted whe
 
 ## Backups
 
-Render disks are not backed up for you. Take a consistent copy of the SQLite file (SQLite's online backup API, safe while the app runs) weekly and before every upgrade, and store it somewhere the data classification allows.
+A backup is the whole service as it is stored: every Unit Instance, account, password hash, sealed secret, record
+and the audit trail. It is not the same thing as a data export (see [Backups are not exports](#backups-are-not-exports)).
+Take a consistent copy of the SQLite file (SQLite's online backup API, safe while the app runs) weekly and before
+every upgrade, and store it somewhere the data classification allows. Render disks are not backed up for you.
 
-- **On the server** (the way to do it on an accredited host): `VANTAGE_DB=/data/vantage.db npm run backup -- /backups/vantage-$(date +%F).db`. The copy is written readable by its owner only; encrypt it before it leaves the host.
-- **From the browser**: **Vantage Administrator console → Backup and recovery → Download backup** (Lead Vantage Administrators). Every other Lead Vantage Administrator is notified each time a backup or service archive is downloaded. Set `VANTAGE_BROWSER_BACKUPS=false` to close this path where policy requires backups to stay on the server.
+- **On the server** (the way to do it on an accredited host): `VANTAGE_DB=/data/vantage.db npm run backup -- /backups/vantage-$(date +%F).db`. The copy is one self-contained file, readable by its owner only, and the script prints the newest audit entry it holds; encrypt it before it leaves the host.
+- **From the browser**: **Vantage Administrator console → Backup and restore → Download backup** (Lead Vantage Administrators). Every other Lead Vantage Administrator is notified each time a backup or service archive is downloaded. Set `VANTAGE_BROWSER_BACKUPS=false` to close this path where policy requires backups to stay on the server.
 
-Each backup taken either way is recorded in the database it copied: when, how, its size and file name, and for a download, who took it. **Vantage Administrator console → Operations → Backups** shows the last 20 and whether the newest is fresh. One older than `VANTAGE_BACKUP_MAX_AGE_HOURS` (default 168, a week) or none at all needs attention on the console's health check. If the script cannot record the backup, the copy still stands and the script says so. A snapshot the hosting environment takes on its own (a volume snapshot, storage replication) never passes through Vantage and is not shown (I-28).
+Each backup taken either way is recorded in the database it copied: when, how, its size, file name and newest audit
+entry, and for a download, who took it. A download is audited as it happens; a backup taken with `npm run backup` is
+audited by the running service within five minutes, or at its next start, because the script does not hold the key
+the audit trail is sealed with. **Operations → Backups** shows the last 20 and whether the newest is fresh. One older
+than `VANTAGE_BACKUP_MAX_AGE_HOURS` (default 168, a week) or none at all needs attention on the console's health check.
+**Unit Instance operations** says, for each Unit Instance, whether the newest backup holds it at all (one created after
+it is in no backup yet) and how many of its audited actions came after it. If the script cannot record the backup, the
+copy still stands and the script says so. A snapshot the hosting environment takes on its own (a volume snapshot,
+storage replication) never passes through Vantage and is not shown (I-28).
 
-Restoring a `.db` file: turn on maintenance mode, replace `/data/vantage.db` (a Render shell: `render ssh`, then `cp`), delete any `-wal` and `-shm` siblings, restart the service.
+## Restoring from a backup
+
+Restoring is done on the host, with the service stopped, by a Lead Vantage Administrator's authority, and it is
+audited (ADR-0014). `npm run restore` is the only supported way.
+
+1. **Vantage Administrator console → Maintenance → Start maintenance**, with the reason (the change or incident
+   record's number, I-35). Then stop the service.
+2. **See what it would undo:**
+   ```
+   VANTAGE_DB=/data/vantage.db VANTAGE_RESTORE=1 npm run restore -- REPLACE-DATABASE \
+     --from /backups/vantage-2026-10-14.db --by boletz --reason "Ransomware on the host; back to last night" \
+     --change INC-4471 --dry-run
+   ```
+   It checks the backup (SQLite's integrity check, a schema this build runs, the chain key under this service's
+   `VANTAGE_SECRET`, every audit entry verifying), refuses unless `--by` is an active Lead Vantage Administrator, and
+   prints how many audit entries after the backup it would undo, in how many Unit Instances, and how many of them
+   changed accounts, authority or holds.
+3. **Run it** without `--dry-run`. It refuses while anything holds the database open. It keeps the database it
+   replaces as `vantage-before-restore-<stamp>.db` beside it, signs everyone out, drops the backup's sign-in links
+   and queued mail, cancels support approvals waiting, and records the restore in the database it puts in place.
+   A backup of another Vantage database is refused unless `--different-database` says so.
+4. **Start the service, then end maintenance.** At its start the service writes `database_restored` into the platform
+   trail and every Unit Instance's, and tells Vantage staff, every Unit Instance's Lead Unit Managers and the
+   administrator who authorized it. **Backup and restore → Restores** lists each restore, with the account, authority
+   and hold changes it undid, for the people who made them to make again.
+5. **Keep or remove the safety copy** by the host's retention (I-36). It holds everything the restore undid.
+
+**Never copy a `.db` file over the live one by hand.** The service notes the newest audit entry its database holds
+beside it (`<database>.lineage`, or `VANTAGE_LINEAGE_FILE`; `off` turns it off). A start that finds its database no
+longer holds that entry, with no `npm run restore` to explain it, records that the database was replaced outside the
+restore command (`database_replaced`), shows it on every Unit Instance's health for 14 days, and tells Vantage staff
+and the Lead Unit Managers. The lineage lives on the same host: it catches a mistake or an old procedure, not someone
+who rewrites it too. That is what the off-host audit copy is for (below).
+
+## Backups are not exports
+
+**Backup and restore → Not backups: data exports** lists every other file Vantage writes out or takes in
+(`shared/dataTransfer.ts`): a Unit Instance's structure, roster, configuration and audit trail, the platform audit
+trail, a unit's shared work, a person's own export, reports, and the account roster, personnel feed, activity,
+spreadsheet and saved-email imports. Each is one Unit Instance's, unit's or person's data for its own use. None of
+them restores anything, and none of their imports takes a backup: each refuses a database file or the service
+archive with a message saying what it is. The service archive import refuses a data export the same way.
+
+## Upgrades
+
+A start that migrates the database counts every table's rows, and each Unit Instance's, before and after
+(ADR-0014). An upgrade that leaves fewer rows anywhere, which no migration declared, is recorded as having changed
+rows: the start logs it, writes `upgrade_rows_lost` into the platform trail and each affected Unit Instance's, and
+tells Vantage staff and that Unit Instance's Lead Unit Managers. A migration that fails is rolled back, recorded and
+audited as `upgrade_failed`, and the start stops. **Unit Instance operations → Schema upgrades** lists the last ten;
+a Vantage Administrator marks a changed or failed one reviewed with what they found (`upgrade_reviewed`). Until then,
+each affected Unit Instance shows it as needing attention. Take a backup before every upgrade: restoring it is how a
+lossy upgrade is undone.
+
+## Each Unit Instance's operations
+
+**Vantage Administrator console → Instance operations** lists every Unit Instance with the version and schema it runs,
+its last upgrade and whether it kept its rows, its health, its backup freshness, its last restore and any feature
+withheld from it. A Unit Instance's own role holders see theirs under **Operations** in the Unit Manager console,
+with the service's own checks as one status.
+
+On the host, `VANTAGE_DB=/data/vantage.db npm run operations-report > operations.json` prints the same as JSON
+(`vantage-operations/1`) without starting Vantage or writing anything, for whatever watches many deployments at once
+(I-34). It reports the service's own health as not checked, since that needs the running process.
+
+## Withholding a feature from one Unit Instance
+
+**Feature flags → Withheld from one Unit Instance** turns file attachments or spreadsheet intake off for one Unit
+Instance, with a reason its Lead Unit Managers are told; **Give it back** returns it to the service's setting. Both
+are audited in the platform trail and the Unit Instance's. Withholding never turns on what the service has off, and
+AI stays service-wide. Files already attached stay readable.
 
 ## Moving the service to another host
 
-1. **Vantage Administrator console → Backup and recovery → Export the service.** One JSON file with everything: organizations and their roles, platform staff, accounts (password hashes, TOTP secrets, passkeys), units, roles, memberships, every record, attachments, notifications, Vantage access history, the audit trail.
+1. **Vantage Administrator console → Backup and restore → Export the service.** One JSON file with everything: organizations and their roles, platform staff, accounts (password hashes, TOTP secrets, passkeys), units, roles, memberships, every record, attachments, notifications, Vantage access history, the audit trail.
 2. Stand up Vantage on the new host (Docker image, or `npm ci && npm run build && npm start`). Use the same `VANTAGE_PUBLIC_URL` (or `VANTAGE_SITE_URL`, `VANTAGE_APP_URL`, `VANTAGE_CONSOLE_URL` and `VANTAGE_ADMIN_URL`) and the same `VANTAGE_SECRET` (or the new secret with the old one as `VANTAGE_SECRET_PREVIOUS`, see [Changing the secret](#changing-the-secret)), otherwise TOTP secrets cannot be decrypted and the audit chain will not verify. Passkeys survive only if the hostname is unchanged.
 3. Complete setup on the new host with any throwaway account, then **Import** the JSON from the Vantage Administrator console. The import replaces everything, including that throwaway account, and resets every session.
 4. Point DNS at the new host.
@@ -107,7 +188,7 @@ Anyone can clear their own after signing in with a recovery code. Otherwise it i
 - **Starting** needs a reason of at least ten characters, kept with staff and in the audit trail. It may carry a message for everyone else and an expected end within a week. Every refused request and the sign-in page show that message and the expected end, in the deployment's time zone.
 - **It ends only when somebody ends it** (**End maintenance**, with an optional note). An expected end that passes needs attention on the health check; it does not open the service on its own.
 - **The other Vantage staff are told** each time it starts and ends, and the audit trail records `maintenance_on` with the reason and expected end, and `maintenance_off` with how long it lasted and the note. A banner on every console page says it is on.
-- Maintenance is no longer a setting: `PUT /api/platform/runtime` refuses `maintenance`, and Settings and Backup and recovery link here.
+- Maintenance is no longer a setting: `PUT /api/platform/runtime` refuses `maintenance`, and Settings and Backup and restore link here.
 
 ### Database tasks
 

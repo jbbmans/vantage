@@ -6,6 +6,7 @@ import { hashPassword } from '../server/lib/crypto.ts';
 import { newId, now, slug } from '../server/lib/ids.ts';
 import { claimUnit } from '../server/services/org.ts';
 import { audit } from '../server/services/audit.ts';
+import { writeLineage } from '../server/services/recovery.ts';
 import { readRoster, applyAccounts, type RosterRow } from '../server/services/accountImport.ts';
 import { passwordProblem } from '../shared/password.ts';
 import type { SessionUser } from '../server/context.ts';
@@ -106,5 +107,8 @@ if (roster.length) {
   }
 }
 
+// The audit log was emptied: the lineage beside the database notes the new chain, so the next start does not take it for
+// a database replaced behind the service's back (ADR-0014).
+writeLineage(ctx, { force: true });
 db.close();
 console.log('Done. Everyone signed in before has been signed out; sign in at the site with the new account.');

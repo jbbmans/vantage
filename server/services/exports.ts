@@ -5,6 +5,9 @@ import { now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { hmac } from '../lib/crypto.ts';
 import { loadRuntime } from '../runtime.ts';
+import { appendRestore, chainPoint } from './restoreLog.ts';
+import { dataExportProblem } from '../../shared/dataTransfer.ts';
+import { writeLineage } from './recovery.ts';
 import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers, dropInstanceBoundaryTriggers, dropMembershipHistoryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, membershipHistoryTriggers, metaSet, openMissingMembershipPeriods, stampAttachmentUnits } from '../db/index.ts';
 import { sealBacklog } from './caseSeal.ts';
 import { loadChainKey, resealStoredSecrets, secretsOf } from '../lib/keys.ts';
@@ -17,6 +20,8 @@ export const EXPORT_TABLES = [
   'unit_membership_periods',
   // Tenancy and authority (ADR-0006): who runs the platform, which organizations exist, who owns them, who looked in.
   'organizations', 'platform_roles', 'org_roles', 'access_grants',
+  // Features Vantage turned off for one Unit Instance (ADR-0014): a moved service keeps what it withheld, and why.
+  'instance_feature_flags',
   // Each Unit Instance's own configuration (ADR-0012): its billets, duty types and training requirements.
   'unit_billets', 'duty_types', 'training_requirements', 'duty_scoring_policies',
   ...RECORD_TABLE_NAMES,
@@ -38,7 +43,11 @@ export const EXPORT_TABLES = [
  * that ran on it and how far its migrations are audited (ADR-0013), and the backups taken of it (ADR-0011). An import keeps this host's, so Operations does not report
  * the old host's history, a backup this database never had, or a schema the archive's build ran.
  */
-const HOST_META = ['schema_version', 'migration_history', 'migration_history_since', 'migration_audited_through', 'release_history', 'backup_history', 'last_backup_at'] as const;
+const HOST_META = [
+  'schema_version', 'migration_history', 'migration_history_since', 'migration_audited_through', 'release_history', 'backup_history', 'last_backup_at',
+  // Which database this is, and what was upgraded, restored and backed up on it (ADR-0014).
+  'database_id', 'upgrade_history', 'restore_history',
+] as const;
 
 /**
  * Tables left out of the archive on purpose: sign-ins, links, queued mail and support's approvals to change an account's
@@ -60,13 +69,17 @@ export function exportInstance(ctx: AppContext) {
 }
 
 export function importInstance(ctx: AppContext, archive: { format?: string; key_check?: string; tables?: Record<string, Array<Record<string, unknown>>> }, actorId: string) {
+  // A data export is not a backup, and says so rather than failing as an unknown file (ADR-0014).
+  const notBackup = dataExportProblem(archive);
+  if (notBackup) throw new Error(notBackup);
   if (archive?.format !== 'vantage-instance/1' || !archive.tables) throw new Error('That file is not a Vantage instance archive.');
   if (archive.key_check && !secretsOf(ctx.config).some((secret) => keyCheck(secret) === archive.key_check)) throw new Error('This archive was exported under a different VANTAGE_SECRET. Set the same secret on this host before importing, or authenticator secrets and the audit chain will not verify.');
   const users = (ctx.db.prepare('SELECT COUNT(*) AS n FROM users').get() as { n: number }).n;
   const activities = (ctx.db.prepare('SELECT COUNT(*) AS n FROM activities').get() as { n: number }).n;
   if (users > 1 || activities > 0) throw new Error('Import only into a fresh instance (one operator account, no records).');
   // Read now: the archive replaces this host's accounts, and the importer's may not be among the ones it brings.
-  const importer = ctx.db.prepare('SELECT username FROM users WHERE id = ?').get(actorId) as { username: string } | undefined;
+  const importer = ctx.db.prepare('SELECT username, first_name, last_name FROM users WHERE id = ?').get(actorId) as { username: string; first_name: string; last_name: string } | undefined;
+  const replaced = chainPoint(ctx.db);
   const counts: Record<string, number> = {};
   // An archive from before organizations has none: its governance rows go to the oldest top unit's organization, the
   // same rule the migration follows, and its units found their organizations once they are in.
@@ -139,5 +152,13 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   const kept = Boolean(ctx.db.prepare('SELECT 1 FROM users WHERE id = ?').get(actorId));
   const by = `by ${importer?.username ?? 'an account no longer here'} (${actorId})${kept ? '' : ', whose account the archive does not hold'}`;
   audit(ctx, { actor_id: kept ? actorId : null, action: 'instance_import', entity: 'instance', detail: `${by}${crossed}; ${JSON.stringify(counts)}`.slice(0, 900) });
+  // Loading an archive is a restore (ADR-0014): it is in the restore history, audited above, and the lineage beside the
+  // database is noted afresh, so the next start does not take the archive's chain for a database replaced behind its back.
+  appendRestore(ctx.db, {
+    method: 'archive', by: importer ? { id: kept ? actorId : null, username: importer.username, name: `${importer.first_name} ${importer.last_name}`.trim() || importer.username } : null,
+    hostUser: null, reason: null, change: null, restored: { ...chainPoint(ctx.db), file: null, bytes: null }, replaced,
+    sameDatabase: null, lost: null, undone: null, safetyCopy: null, audited: true,
+  });
+  writeLineage(ctx, { force: true });
   return counts;
 }

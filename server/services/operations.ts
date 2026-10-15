@@ -7,6 +7,8 @@ import { now } from '../lib/ids.ts';
 import { audit, verifyAuditChain } from './audit.ts';
 import { auditForwardingStatus } from './auditSink.ts';
 import { backupHistory } from './backupLog.ts';
+import { restoreHistory } from './restoreLog.ts';
+import { upgradeHistory } from '../db/upgrades.ts';
 import { signInChecks } from './signInHealth.ts';
 import { seatedOrgRole } from '../authz/scope.ts';
 
@@ -283,10 +285,27 @@ function schemaCheck(ctx: AppContext): HealthCheck {
   return { id: 'schema', label: 'Schema', status: 'ok', summary: `Schema ${m.code}, current.` };
 }
 
+/** The newest schema upgrade, while it failed or lost rows and nobody has reviewed it (ADR-0014). */
+function upgradeCheck(ctx: AppContext): HealthCheck | null {
+  const last = upgradeHistory(ctx.db).at(-1);
+  if (!last || last.status === 'verified' || last.reviewed) return null;
+  if (last.status === 'failed') return { id: 'upgrade', label: 'Upgrade', status: 'warn', summary: `The upgrade of ${last.at.slice(0, 10)} failed at ${last.failed?.name ?? 'a migration'} and was rolled back: ${last.failed?.error ?? 'no error recorded'}. Review it under Unit Instance operations.` };
+  const tables = [...new Set([...last.service, ...last.instances.flatMap((i) => i.changes)].filter((c) => !c.intended).map((c) => c.table))];
+  return { id: 'upgrade', label: 'Upgrade', status: 'warn', summary: `The upgrade to schema ${last.schema.to} on ${last.at.slice(0, 10)} left fewer rows in ${tables.join(', ')}${last.instances.length ? `, in ${last.instances.length} Unit Instance${last.instances.length === 1 ? '' : 's'}` : ''}. Review it under Unit Instance operations.` };
+}
+
+/** A restore, or a database replaced outside the restore command, in the last two weeks (ADR-0014). */
+function restoreCheck(ctx: AppContext, at: number): HealthCheck | null {
+  const last = restoreHistory(ctx.db).at(-1);
+  if (!last || at - Date.parse(last.at) > 14 * 86_400_000) return null;
+  if (last.method === 'detected') return { id: 'restore', label: 'Restore', status: 'warn', summary: `On ${last.at.slice(0, 10)} a start found the database replaced outside the restore command (${last.finding === 'other_database' ? 'another database' : 'put back to an earlier state'}). See Backup and restore.` };
+  return { id: 'restore', label: 'Restore', status: 'info', summary: `Restored on ${last.at.slice(0, 10)}${last.method === 'archive' ? ' from a service archive' : ' from a backup'}${last.lost ? `; ${last.lost.entries} audit entries after it were undone` : ''}.` };
+}
+
 /** Every check, worst first, and the service's status: the worst of them. Informational notes never lower it. */
 export function healthReport(ctx: AppContext, at = Date.now(), { chain }: { chain?: ReturnType<typeof verifyAuditChain> } = {}) {
   const checks = [
-    databaseCheck(ctx), diskCheck(ctx), schemaCheck(ctx), ...auditChecks(ctx, chain), backupCheck(ctx, at), emailCheck(ctx, at),
+    databaseCheck(ctx), diskCheck(ctx), schemaCheck(ctx), upgradeCheck(ctx), ...auditChecks(ctx, chain), backupCheck(ctx, at), restoreCheck(ctx, at), emailCheck(ctx, at),
     jobsCheck(ctx, at), ...signInChecks(ctx, at), maintenanceCheck(ctx, at), ...instanceChecks(ctx),
   ].filter((c): c is HealthCheck => Boolean(c));
   const rank: Record<HealthStatus, number> = { fail: 0, warn: 1, info: 2, ok: 3 };

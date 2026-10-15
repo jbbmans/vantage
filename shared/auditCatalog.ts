@@ -103,11 +103,13 @@ const ENTERPRISE = [
   // Settings, sign-in, email, AI and maintenance.
   'edit_configuration', 'oidc_checked', 'email_setup_checked', 'ai_unlocked', 'sync_maradmins', 'maintenance_on',
   'maintenance_off', 'maintenance_task', 'purge_deleted',
-  // What the service does to itself: a new build, and each schema migration it runs.
-  'release_deployed', 'schema_migrated',
-  // Data: backups, archives and the integrity of the trail.
-  'backup', 'instance_export', 'instance_import', 'platform_audit_exported', 'case_history_anchor', 'case_history_anchor_requested',
-  'audit_chain_anchored', 'audit_anchor_verified',
+  // What the service does to itself: a new build, each schema migration it runs, and what counting rows around them found.
+  'release_deployed', 'schema_migrated', 'upgrade_verified', 'upgrade_rows_lost', 'upgrade_failed', 'upgrade_reviewed',
+  // Features turned off for one Unit Instance, and given back.
+  'instance_feature_withheld', 'instance_feature_restored',
+  // Data: backups, archives, restores and the integrity of the trail.
+  'backup', 'instance_export', 'instance_import', 'database_restored', 'database_replaced', 'platform_audit_exported',
+  'case_history_anchor', 'case_history_anchor_requested', 'audit_chain_anchored', 'audit_anchor_verified',
 ] as const;
 
 /** The catalogue by category, as written above. An action is in one category only; the test suite holds it to that. */
