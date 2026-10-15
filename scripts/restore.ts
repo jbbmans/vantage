@@ -37,12 +37,14 @@ const fail = (message: string): never => { console.error(message); process.exit(
 if (process.env.VANTAGE_RESTORE !== '1' || process.argv[2] !== 'REPLACE-DATABASE') fail(`Refusing: this replaces the whole database.\n${USAGE}`);
 
 const FLAGS = new Set(['--dry-run', '--different-database']);
+// A misspelt option is refused, so a change record or a reason is never dropped without a word.
+const OPTIONS = new Set(['--from', '--by', '--reason', '--change']);
 const argv = process.argv.slice(3);
 const flags = new Set(argv.filter((a) => FLAGS.has(a)));
 const opts = new Map<string, string>();
 for (let i = 0; i < argv.length; i += 1) {
   if (FLAGS.has(argv[i])) continue;
-  if (!argv[i].startsWith('--') || argv[i + 1] === undefined) fail(`Unexpected argument "${argv[i]}".\n${USAGE}`);
+  if (!OPTIONS.has(argv[i]) || argv[i + 1] === undefined) fail(`Unexpected argument "${argv[i]}".\n${USAGE}`);
   opts.set(argv[i].slice(2), argv[i + 1]);
   i += 1;
 }

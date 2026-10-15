@@ -101,7 +101,7 @@ export function Operations() {
               {backups.history.slice(0, 10).map((b) => <tr key={b.at}><td className="fig text-xs">{formatStamp(b.at)}</td><td className="text-xs">{b.method === 'server' ? 'Server' : 'Browser'}{b.by ? ` · ${b.by}` : ''}</td><td className="fig text-right text-xs text-ink-3">{mb(b.bytes)}</td></tr>)}
             </Table>
           )}
-          <p className="mt-3 text-xs text-ink-3">Service archive: last exported {backups.lastArchiveExport ? timeAgo(backups.lastArchiveExport) : 'never'}, last imported {backups.lastArchiveImport ? timeAgo(backups.lastArchiveImport) : 'never'}.{can('platform.data') && <> <Link className="link" to="/data">Backup and recovery</Link></>}</p>
+          <p className="mt-3 text-xs text-ink-3">Service archive: last exported {backups.lastArchiveExport ? timeAgo(backups.lastArchiveExport) : 'never'}, last imported {backups.lastArchiveImport ? timeAgo(backups.lastArchiveImport) : 'never'}.{can('platform.data') && <> <Link className="link" to="/data">Backup and restore</Link></>}</p>
         </Panel>
 
         <Panel title="Scheduled jobs" subtitle="In this server process">

@@ -36,7 +36,6 @@ import { SCORING_COMBINE, SCORING_CONDITIONS, SCORING_LIMITS, SCORING_METHODS } 
 import { publishScoringPolicy, withdrawScoringPolicy } from '../services/dutyScoring.ts';
 import { cachedServiceStatus, instanceOperations } from '../services/instanceOperations.ts';
 import { infrastructureBodyProblem, infrastructureFileProblem } from '../../shared/dataTransfer.ts';
-
 import { TRAINING_TYPES } from '../../shared/constants.ts';
 import type { PeriodKey } from '../../shared/metrics.ts';
 
@@ -109,11 +108,12 @@ orgsRouter.patch('/:orgId', inOrg('org.settings', 'org.owners'), wrap((req, res)
 orgsRouter.get('/:orgId/operations', inOrg('org.view'), wrap((req, res) => {
   const [operations] = instanceOperations(req.ctx, { service: cachedServiceStatus(req.ctx), orgId: orgOf(req).id });
   if (!operations) throw notFound('No such Unit Instance.');
-  // Vantage staff by name, as everywhere in this console; never their account ids.
-  const reviewed = operations.upgrade.record?.reviewed;
+  // Vantage staff by name, as everywhere in this console; never their account ids. A failed migration by name, without
+  // the database's error, which is the service's to read.
+  const { reviewed, failed } = operations.upgrade.record ?? {};
   res.json({
     ...operations,
-    upgrade: { ...operations.upgrade, record: operations.upgrade.record && { ...operations.upgrade.record, reviewed: reviewed ? { at: reviewed.at, byName: reviewed.byName, note: reviewed.note } : null } },
+    upgrade: { ...operations.upgrade, record: operations.upgrade.record && { ...operations.upgrade.record, failed: failed ? { id: failed.id, name: failed.name } : null, reviewed: reviewed ? { at: reviewed.at, byName: reviewed.byName, note: reviewed.note } : null } },
     flags: operations.flags.map(({ set_by: _id, ...flag }) => flag),
   });
 }));

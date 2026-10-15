@@ -99,7 +99,7 @@ SQLite on the Render disk handles this workload comfortably. The app refuses new
 
 ## Upgrades
 
-Push to `main`. Schema migrations run automatically at boot inside a transaction. Take a backup first from **Vantage Administrator console → Backup and recovery** when a release note says so. The organizations migration (`015_organizations`) runs once on the first boot of this release: each top-level unit becomes an organization, former operators become Lead Vantage Administrators, and each organization's Lead Unit Manager is its top unit's leader.
+Push to `main`. Schema migrations run automatically at boot inside a transaction. Take a backup first from **Vantage Administrator console → Backup and restore** when a release note says so. The organizations migration (`015_organizations`) runs once on the first boot of this release: each top-level unit becomes an organization, former operators become Lead Vantage Administrators, and each organization's Lead Unit Manager is its top unit's leader.
 
 ## If Render goes away
 

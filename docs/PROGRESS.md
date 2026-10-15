@@ -1,6 +1,37 @@
 # Progress
 
-_Updated 2026-10-10_
+_Updated 2026-10-15_
+
+## What changed (2026-10-15: MCEN operations)
+
+Each Unit Instance's version, upgrades, health, backups and restores are tracked and shown, backups are kept
+apart from data exports, and a restore is privileged and audited
+([ADR-0014](engineering/ADR/0014-mcen-operations.md)).
+
+- **Per Unit Instance.** **Instance operations** in the Vantage Administrator console lists every Unit Instance
+  with its app and schema version, last upgrade and whether it kept its rows, health, backup freshness, last
+  restore and any feature withheld from it. Its Unit Managers see theirs under **Operations** in the Unit Manager
+  console, with the service's own checks as one status. `npm run operations-report` prints the same as JSON on
+  the host (I-34).
+- **Upgrades checked.** A start that migrates counts every table's rows, and each Unit Instance's, before and
+  after. Rows lost that no migration declared, or a migration that fails, are recorded, audited in the platform
+  trail and each affected Unit Instance's, and told to staff and the Lead Unit Managers. A Vantage Administrator
+  marks one reviewed with a note. **Migration 022** adds `instance_feature_flags`; the upgrade, backup and
+  restore histories live in `meta`.
+- **Backups.** Each backup is recorded with the newest audit entry it holds and audited, and each Unit Instance
+  shows whether the newest backup holds it and how much changed since.
+- **Restore.** `npm run restore` is the only supported way: an active Lead Vantage Administrator authorizes it by
+  username with a reason and an optional change record, the backup is checked, the replaced database is kept,
+  everyone is signed out, and the restore is audited in every Unit Instance and told to its Lead Unit Managers.
+  **Backup and restore → Restores** lists the account, authority and hold changes it undid. A database replaced by
+  hand is detected at the next start from the lineage beside it, audited and shown on every Unit Instance's health
+  (I-35, I-36).
+- **Backups are not exports.** `shared/dataTransfer.ts` lists every data export and import, held to the routers by
+  a test. **Backup and restore → Not backups: data exports** shows them; each import refuses a database file or the
+  service archive, and the archive import refuses a data export.
+- **Feature flags per Unit Instance.** Vantage Administrators can withhold file attachments or spreadsheet intake
+  from one Unit Instance with a reason its Lead Unit Managers are told, and give it back. This is the recommended
+  "Per instance" on John's open decision card; AI stays service-wide.
 
 ## What changed (2026-10-10: security, audit and least privilege)
 

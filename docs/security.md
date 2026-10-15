@@ -162,6 +162,37 @@ A Unit Instance is what this section calls an organization ([ADR-0007](engineeri
   route of the platform, `orgs` and `org` routers with its permission, step-up and audit actions;
   `tests/server/privilegedRoutes.test.ts` holds the routers to it and checks an ordinary member is refused on each.
 
+## MCEN operations (ADR-0014)
+
+[ADR-0014](engineering/ADR/0014-mcen-operations.md) tracks each Unit Instance's version, upgrades, health, backups
+and restores, keeps backups apart from data exports, and makes a restore privileged and audited.
+
+- **Who sees what.** Instance operations is `platform.view`; who authorized a restore is shown only to holders of
+  `platform.data` or `platform.audit`. Backup and restore, with each restore's undone changes, is `platform.data`.
+  Marking an upgrade reviewed is `platform.maintenance`; withholding a feature is `platform.settings`. A Unit
+  Instance's own operations are `org.view` in it, and show the service's checks only as one status and no Vantage
+  staff account's id.
+- **A restore runs on the host, never through the app.** `npm run restore` needs `VANTAGE_RESTORE=1`, the words
+  `REPLACE-DATABASE`, an active Lead Vantage Administrator by username and a reason, and refuses while anything
+  holds the database open. It checks the backup's integrity, schema, chain key and every audit entry, refuses a
+  backup of another database unless told, keeps the database it replaces (owner-readable only), signs everyone
+  out, drops the backup's sign-in links and queued mail and cancels pending support approvals. The service
+  audits it as `database_restored` in the platform trail and every Unit Instance's at its next start, and tells
+  staff, every Lead Unit Manager and the authorizer. Who must approve a restore beyond that is I-35.
+- **Replacing the database by hand is caught.** The service notes the newest audit entry its database holds
+  beside it. A database that no longer holds it, without `npm run restore`, is audited as `database_replaced`,
+  shown on every Unit Instance's health for 14 days and told to staff and the Lead Unit Managers. The note is
+  on the same host, so it stops mistakes and old procedures, not someone who holds the host; the off-host audit
+  copy is the evidence against that (ADR-0013 §3).
+- **Upgrades that lose rows are not quiet.** Rows lost that no migration declared, and a migration that fails,
+  are audited (`upgrade_rows_lost`, `upgrade_failed`) in the platform trail and each affected Unit Instance's.
+- **Data exports never restore, and backups never import as data.** Every data import refuses a database file
+  or the service archive; the service archive import refuses a data export. `shared/dataTransfer.ts` lists every
+  export and import, held to the routers by a test.
+- **Withholding a feature only takes away.** A feature withheld from one Unit Instance is refused there on the
+  server (attachments and spreadsheet intake, checked after the unit's own scope so the refusal says nothing
+  about another instance), and never turns on what the service has off.
+
 ## Logs
 
 Every log Vantage keeps, where it goes and who reads it. Nothing else is written.
@@ -269,9 +300,12 @@ An account is the person for a whole career; Unit Instances hold memberships to 
 | Session theft | Digest storage, short idle timeout, revocation on sensitive changes, device list |
 | Insider read of private records | Not reachable through the API; audit of every shared read |
 | Tampering with the audit trail | Append-only triggers; HMAC chain verified in both consoles; a copy of every record sent off the host, with a daily anchor of the chain's head checked against it (ADR-0013) |
-| Vantage support taking over an account that holds authority | A second staff member approves first, the approval used once in the change's transaction; both trails name the approver; authority given up in the last 30 days still counts, and whoever changed the sign-in cannot hand authority back (ADR-0013) |
+| Vantage support taking over an account that holds authority | A second staff member approves first, the approval used once in the change's transaction; both trails name the approver; authority given up in the last 30 days still counts; giving authority after a reset is audited and told to the Lead Unit Managers (ADR-0013, John 2026-10-11) |
 | A Unit Manager granting a second identity what they may not grant themselves | "Until proven": no record-reading role, Unit Instance role or leadership from whoever opened the account until it signs in as its own, through the unit's default role and a move as well (ADR-0013) |
 | Flooding the audit trail with refused requests | One `access_denied` per person, method, route and code in ten minutes; made-up addresses under a console's guard count as one; the console read and mutation limits (ADR-0013) |
+| Rolling the database back to erase what was done | `npm run restore` only, by a named Lead Vantage Administrator with a reason, audited in every Unit Instance at the next start, with the changes it undid listed; a database replaced by hand is detected from its lineage and audited (ADR-0014) |
+| A lossy upgrade passing unnoticed | Every table counted, and each Unit Instance's rows, before and after each migrating start; losses audited and told to the Lead Unit Managers until reviewed (ADR-0014) |
+| A backup taken in through a data import, or a data export passed off as a backup | Each data import refuses a database file and the service archive; the archive import refuses a data export (ADR-0014) |
 | A leader who has left a unit still leading it | Leadership counts only while the leader is a member, and ends when the membership does (ADR-0013) |
 | Quietly reading a console's data in bulk | A per-person limit on console reads; every bulk export audited |
 | A forged or replayed organization sign-in | Signature checked against the provider's keys, `none` and HMAC refused, issuer, audience, expiry and nonce checked, state used once |

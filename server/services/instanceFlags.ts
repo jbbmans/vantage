@@ -76,14 +76,19 @@ export function setInstanceFlag(ctx: AppContext, actor: SessionUser, orgId: stri
     ctx.db.transaction(() => {
       ctx.db.prepare(`INSERT INTO instance_feature_flags (org_id, flag, reason, set_by, set_at) VALUES (?, ?, ?, ?, ?)
                       ON CONFLICT(org_id, flag) DO UPDATE SET reason = excluded.reason, set_by = excluded.set_by, set_at = excluded.set_at`).run(orgId, flag, text.slice(0, 500), actor.id, now());
-      audit(ctx, { actor_id: actor.id, action: 'instance_feature_withheld', category: 'enterprise', entity: 'organization', entity_id: orgId, org_id: orgId, detail: `${label} off for ${org.name}${current ? ' (reason changed)' : ''}: ${text.slice(0, 500)}`, ip });
+      const detail = `${label} off for ${org.name}${current ? ' (reason changed)' : ''}: ${text.slice(0, 500)}`;
+      // One entry in the platform trail, and one in the Unit Instance's.
+      audit(ctx, { actor_id: actor.id, action: 'instance_feature_withheld', entity: 'organization', entity_id: orgId, detail, ip });
+      audit(ctx, { actor_id: actor.id, action: 'instance_feature_withheld', category: 'enterprise', entity: 'organization', entity_id: orgId, org_id: orgId, detail, ip });
     })();
     notifyOrg(ctx, orgId, 'org.owners', { kind: 'system', title: `Vantage turned ${label.toLowerCase()} off for ${org.name}`, message: text.slice(0, 300), actionUrl: '/console/operations' });
   } else {
     if (!current) return withheldFlags(ctx, orgId);
     ctx.db.transaction(() => {
       ctx.db.prepare('DELETE FROM instance_feature_flags WHERE org_id = ? AND flag = ?').run(orgId, flag);
-      audit(ctx, { actor_id: actor.id, action: 'instance_feature_restored', category: 'enterprise', entity: 'organization', entity_id: orgId, org_id: orgId, detail: `${label} follows the service again for ${org.name}${text ? `: ${text.slice(0, 500)}` : ''}; it was off since ${current.set_at.slice(0, 10)}: ${current.reason}`.slice(0, 1000), ip });
+      const detail = `${label} follows the service again for ${org.name}${text ? `: ${text.slice(0, 500)}` : ''}; it was off since ${current.set_at.slice(0, 10)}: ${current.reason}`.slice(0, 1000);
+      audit(ctx, { actor_id: actor.id, action: 'instance_feature_restored', entity: 'organization', entity_id: orgId, detail, ip });
+      audit(ctx, { actor_id: actor.id, action: 'instance_feature_restored', category: 'enterprise', entity: 'organization', entity_id: orgId, org_id: orgId, detail, ip });
     })();
     notifyOrg(ctx, orgId, 'org.owners', { kind: 'system', title: `${label} is back for ${org.name}`, message: serviceOn(ctx, flag) ? 'Vantage gave your Unit Instance the service’s setting again.' : 'Vantage gave your Unit Instance the service’s setting again; the service has it off for everyone at the moment.', actionUrl: '/console/operations' });
   }

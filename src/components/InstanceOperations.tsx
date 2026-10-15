@@ -51,7 +51,7 @@ export interface InstanceOperations {
   upgrade: {
     state: UpgradeState;
     last: { at: string; release: { version: string; build: string; replaced: string | null } | null; schema: { from: number; to: number; status: UpgradeStatus } | null } | null;
-    record: { id: string; at: string; status: UpgradeStatus; changes: CountChange[]; failed: { id: number; name: string; error: string } | null; reviewed: UpgradeReview | null } | null;
+    record: { id: string; at: string; status: UpgradeStatus; changes: CountChange[]; failed: { id: number; name: string; error?: string } | null; reviewed: UpgradeReview | null } | null;
   };
   health: { status: HealthStatus; checks: HealthCheck[] };
   backup: { state: BackupState; last: { at: string; method: string; ageHours: number } | null; maxAgeHours: number; changesSince: number | null };

@@ -83,7 +83,7 @@ test('each Unit Instance’s operations: Vantage staff read every one, a Unit In
   for (const role of Object.keys(staff) as PlatformRole[]) {
     const res = await get(staff[role]!.token, '/api/platform/instances/operations');
     assert.equal(res.status, PLATFORM_ROLES[role].permissions.includes('platform.view') ? 200 : 403, PLATFORM_ROLES[role].label);
-    // Restoring is Backups and recovery's: Lead Vantage Administrators only.
+    // Restoring is Backup and restore's: Lead Vantage Administrators only.
     assert.equal((await get(staff[role]!.token, '/api/platform/recovery')).status, PLATFORM_ROLES[role].permissions.includes('platform.data') ? 200 : 403, `${PLATFORM_ROLES[role].label} reads the restores`);
   }
   assert.equal((await get(marine.token, '/api/platform/instances/operations')).status, 403);
@@ -209,7 +209,9 @@ test('a migration that fails is rolled back, recorded, audited and shown until r
   assert.equal(failed.failed!.name, `${SCHEMA_VERSION + 1}_test_breaks`);
   auditUpgrades(app.ctx);
   assert.match(entries(app, 'upgrade_failed').at(-1)!.detail, /test_breaks failed .* rolled back; the database stayed at schema/);
-  assert.equal((await get(op.token, '/api/orgs/G8/operations')).body.upgrade.state, 'failed');
+  const theirs = (await get(op.token, '/api/orgs/G8/operations')).body.upgrade;
+  assert.equal(theirs.state, 'failed');
+  assert.deepEqual(theirs.record.failed, { id: SCHEMA_VERSION + 1, name: `${SCHEMA_VERSION + 1}_test_breaks` }, 'the migration by name, not the database error');
   const report = (await get(staff.admin!.token, '/api/platform/instances/operations')).body;
   assert.equal(report.service.upgrades[0].id, failed.id, 'newest first');
   assert.equal((await post(staff.admin!.token, `/api/platform/upgrades/${failed.id}/review`, { note: 'Ran the previous build again; fixed in the next release' })).status, 200);
@@ -262,9 +264,9 @@ test('a Vantage Administrator withholds a feature from one Unit Instance, with a
 
   const withheld = await put(staff.admin!.token, g8('attachments'), { withheld: true, reason: 'Paused while the records officer reviews a spillage' });
   assert.equal(withheld.status, 200, JSON.stringify(withheld.body));
-  const entry = entries(app, 'instance_feature_withheld').at(-1)!;
-  assert.equal(entry.org_id, 'G8');
-  assert.match(entry.detail, /File attachments off for .*: Paused while/);
+  // In the platform trail and in G-8's.
+  assert.deepEqual(entries(app, 'instance_feature_withheld').map((e) => e.org_id), [null, 'G8']);
+  for (const entry of entries(app, 'instance_feature_withheld')) assert.match(entry.detail, /File attachments off for .*: Paused while/);
   assert.match(notes(app, op.id, '/console/operations').at(-1)!.title, /turned file attachments off/);
 
   const listed = await get(marine.token, `/api/records/activities/${record.body.id}/attachments`);
@@ -291,12 +293,12 @@ test('a Vantage Administrator withholds a feature from one Unit Instance, with a
 
   // Given back: the service's setting again, audited, and the Lead Unit Managers told.
   for (const flag of ['attachments', 'intake']) assert.equal((await put(staff.admin!.token, g8(flag), { withheld: false })).status, 200);
-  assert.equal(entries(app, 'instance_feature_restored').length, 2);
+  assert.deepEqual(entries(app, 'instance_feature_restored').map((e) => e.org_id), [null, 'G8', null, 'G8']);
   assert.match(entries(app, 'instance_feature_restored').at(-1)!.detail, /off since \d{4}-\d{2}-\d{2}: Imports paused/);
   assert.equal((await upload()).status, 201);
   assert.equal((await attach(marine.token, record.body.id)).status, 201);
   assert.equal((await put(staff.admin!.token, g8('intake'), { withheld: false })).status, 200, 'giving back what is not withheld changes nothing');
-  assert.equal(entries(app, 'instance_feature_restored').length, 2);
+  assert.equal(entries(app, 'instance_feature_restored').length, 4);
 
   // Withholding never turns on what the service has off.
   assert.equal((await put(op.token, '/api/platform/runtime', { attachmentsEnabled: false })).status, 200);
@@ -415,6 +417,7 @@ test('npm run restore is privileged, checked and audited; a database put back by
     assert.match(restore(['REPLACE-DATABASE', '--from', backupFile, '--by', 'boletz', ...reason], {}).stderr, /Refusing: this replaces the whole database/, 'without VANTAGE_RESTORE=1');
     assert.match(restore(['--from', backupFile, '--by', 'boletz', ...reason]).stderr, /Refusing/, 'without the word that says so');
     assert.match(restore(['REPLACE-DATABASE', '--from', backupFile, '--by', 'boletz', '--reason', 'oops']).stderr, /--reason is required/);
+    assert.match(restore(['REPLACE-DATABASE', '--from', backupFile, '--by', 'boletz', ...reason, '--chnage', 'INC-1']).stderr, /Unexpected argument "--chnage"/, 'a misspelt option is never dropped quietly');
     assert.match(restore(['REPLACE-DATABASE', '--from', backupFile, '--by', 'filevadmin', ...reason]).stderr, /not an active Lead Vantage Administrator/, 'a Vantage Administrator does not authorize one');
     assert.match(restore(['REPLACE-DATABASE', '--from', join(dir, 'missing.db'), '--by', 'boletz', ...reason]).stderr, /No backup at/);
 
@@ -459,6 +462,11 @@ test('npm run restore is privileged, checked and audited; a database put back by
     const ops = (await back.call('GET', '/api/orgs/G8/operations', { token })).body;
     assert.equal(ops.restore.last.method, 'script');
     assert.ok(ops.health.checks.some((c: { id: string }) => c.id === 'restore'));
+    // Who authorized it is for those who hold the backups or read the audit trail, not for Vantage support.
+    const lastRestore = async (as: string) => (await back.call('GET', '/api/platform/instances/operations', { token: as })).body.instances.find((i: { id: string }) => i.id === 'G8').restore.last;
+    assert.ok((await lastRestore(token)).by);
+    const support = await staffMember(back, token, 'filesupport', 'support');
+    assert.equal((await lastRestore(support.token)).by, null);
     // Starting again audits nothing twice.
     await shut();
     assert.equal(entries(await reopen(), 'database_restored').length, 2);
@@ -475,6 +483,16 @@ test('npm run restore is privileged, checked and audited; a database put back by
     assert.deepEqual(entries(replaced, 'database_replaced').map((e) => e.org_id), [null, 'G8']);
     await shut();
     assert.equal(entries(await reopen(), 'database_replaced').length, 2, 'noticed once');
+    await shut();
+
+    // The same view on the host, without starting Vantage or writing anything: for watching many deployments.
+    const before = readFileSync(path);
+    const report = JSON.parse(execFileSync(process.execPath, ['scripts/operations-report.ts'], { env, encoding: 'utf8' }));
+    assert.equal(report.format, 'vantage-operations/1');
+    assert.deepEqual(report.instances.map((i: { id: string }) => i.id), ['G8']);
+    assert.equal(report.instances[0].restore.last.method, 'detected');
+    assert.equal(report.instances[0].health.checks[0].status, 'info', 'the service itself is not checked from outside it');
+    assert.ok(readFileSync(path).equals(before), 'the report writes nothing');
   } finally {
     await shut();
     rmSync(dir, { recursive: true, force: true });

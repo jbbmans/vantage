@@ -109,7 +109,7 @@ platformRouter.get('/overview', requirePlatform('platform.view'), wrap((req, res
     deployment: deploymentPosture(req.ctx),
     health: { status: health.status, checkedAt: health.checkedAt, attention: health.checks.filter((c) => c.status === 'warn' || c.status === 'fail') },
     build: versionStatus(req.ctx).build,
-    // How fresh the last backup is, for Backup and recovery; who took it is on Operations, for those who may see it.
+    // How fresh the last backup is, for Backup and restore; who took it is on Operations, for those who may see it.
     backups: (({ state, last, maxAgeHours }) => ({ state, last: last && { at: last.at, method: last.method }, maxAgeHours }))(backupStatus(req.ctx)),
   });
 }));
@@ -763,12 +763,12 @@ platformRouter.get('/backup', requirePlatform('platform.data'), wrap(async (req,
   const dest = join(tmpdir(), `vantage-backup-${stamp}-${newId().slice(0, 6)}.db`);
   await ctx.db.backup(dest);
   chmodSync(dest, 0o600);
-  const bytes = statSync(dest).size;
   // One self-contained file, and the newest audit entry it holds: what restoring it goes back to (ADR-0014).
   const copy = new Database(dest, { fileMustExist: true });
   copy.pragma('journal_mode = DELETE');
   const seq = (copy.prepare('SELECT MAX(seq) AS seq FROM audit_log').get() as { seq: number | null }).seq;
   copy.close();
+  const bytes = statSync(dest).size;
   ctx.db.transaction(() => {
     recordBackup(ctx.db, { method: 'browser', bytes, by: `${req.user.first_name} ${req.user.last_name}`.trim() || req.user.username, file: `vantage-backup-${stamp}.db`, seq, audited: true });
     audit(ctx, { actor_id: req.user.id, action: 'backup', entity: 'database', entity_id: `vantage-backup-${stamp}.db`, detail: `${bytes} bytes${seq ? `, through audit entry ${seq}` : ''}`, ip: ip(req) });
