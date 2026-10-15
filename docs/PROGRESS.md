@@ -30,8 +30,8 @@ apart from data exports, and a restore is privileged and audited
   a test. **Backup and restore → Not backups: data exports** shows them; each import refuses a database file or the
   service archive, and the archive import refuses a data export.
 - **Feature flags per Unit Instance.** Vantage Administrators can withhold file attachments or spreadsheet intake
-  from one Unit Instance with a reason its Lead Unit Managers are told, and give it back. This is the recommended
-  "Per instance" on John's open decision card; AI stays service-wide.
+  from one Unit Instance with a reason its Lead Unit Managers are told, and give it back. John chose "Per
+  instance" on the decision card (2026-10-15); AI stays service-wide.
 
 ## What changed (2026-10-10: security, audit and least privilege)
 

@@ -296,9 +296,8 @@ one Unit Instance, with a reason of at least ten characters:
 This answers ADR-0011's "Not now". The Unit Manager is not bypassed: a withheld feature is visible on their
 Operations page, with the reason and since when, and they were told.
 
-The decision card on the Task 8 thread (2026-10-15) is unanswered. This Task builds its recommended option,
-**"Per instance"**. If John picks **"Service-wide only"**, delete `server/services/instanceFlags.ts`'s writer,
-its route and panel, and leave the operations record listing no withheld features. The table can stay empty.
+**Decided by John, 2026-10-15 01:28 UTC, on the Task 8 thread's decision card: "Per instance"**, over
+"Service-wide only".
 
 ### 8. Migration 022
 
