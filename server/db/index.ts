@@ -1,8 +1,10 @@
 import Database from 'better-sqlite3';
+import { randomUUID } from 'node:crypto';
 import { readFileSync, mkdirSync, existsSync, renameSync } from 'node:fs';
 import { dirname, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { RANKS } from './ranks.ts';
+import { compareCounts, recordUpgrade, rowCounts, upgradeStatus, type UpgradeRecord } from './upgrades.ts';
 import { VERSION } from '../version.ts';
 
 export type Db = Database.Database;
@@ -10,8 +12,14 @@ export type Db = Database.Database;
 const HERE = dirname(fileURLToPath(import.meta.url));
 const SCHEMA = readFileSync(resolve(HERE, 'schema.sql'), 'utf8');
 
+/**
+ * A schema migration. `reshapes` names tables whose row counts it changes on purpose, so upgrade verification records a
+ * fall in one as intended rather than as a loss (ADR-0014).
+ */
+export interface Migration { id: number; name: string; run: (db: Db) => void; reshapes?: readonly string[] }
+
 /** Ordered migrations applied after the base schema. Keep each idempotent. */
-const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
+const MIGRATIONS: Migration[] = [
   { id: 1, name: '001_initial', run: () => {} },
   { id: 2, name: '002_work_intake', run: () => {} },
   {
@@ -262,6 +270,13 @@ const MIGRATIONS: Array<{ id: number; name: string; run: (db: Db) => void }> = [
       // Mail names the Unit Instance it was sent for, so a unit's support queue sees only its own; older mail names none.
       if (!columnsOf(db, 'email_log').has('org_id')) db.exec('ALTER TABLE email_log ADD COLUMN org_id TEXT');
     },
+  },
+  {
+    id: 22,
+    name: '022_instance_operations',
+    // Features a Vantage Administrator has turned off for one Unit Instance (ADR-0014). The table comes from schema.sql;
+    // the upgrade, backup and restore records it is tracked by live in meta.
+    run: () => {},
   },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
@@ -656,8 +671,10 @@ function cacheStatements(db: Db, limit = 1000) {
  * Runs what the database has not run yet, each migration in a transaction of its own with its record in the history
  * (`migration_history`), so a migration and the note that it ran land together or not at all. A database that ran its
  * migrations before the history was kept says from when, and at which schema, it has been kept (`migration_history_since`).
+ * Every database is named once (`database_id`), so a restore can tell a copy of this database from another one (ADR-0014).
  */
 function migrate(db: Db) {
+  if (!metaGet(db, 'database_id')) metaSet(db, 'database_id', randomUUID());
   const version = Number(metaGet(db, 'schema_version') || 0);
   if (!metaGet(db, 'migration_history_since')) metaSet(db, 'migration_history_since', JSON.stringify({ at: new Date().toISOString(), schema: version }));
   // A new database is audited as created at its schema, not as every migration it ran to get there (auditMigrations).
@@ -665,16 +682,55 @@ function migrate(db: Db) {
   // One an older build migrated has audited nothing yet: every migration this start runs is audited, from the schema it
   // began at, and never fewer than from AUDITED_FROM.
   if (version > 0 && version < SCHEMA_VERSION && !metaGet(db, 'migration_audited_through')) metaSet(db, 'migration_audited_through', String(Math.min(version, AUDITED_FROM - 1)));
-  for (const m of MIGRATIONS) {
-    if (m.id <= version) continue;
-    const started = performance.now();
-    db.transaction(() => {
-      m.run(db);
-      metaSet(db, 'schema_version', String(m.id));
-      const run: MigrationRun = { id: m.id, name: m.name, at: new Date().toISOString(), ms: Math.round(performance.now() - started), version: VERSION };
-      metaSet(db, 'migration_history', JSON.stringify([...migrationHistory(db), run].slice(-MIGRATION_HISTORY_KEPT)));
-    })();
+  runMigrations(db, MIGRATIONS.filter((m) => m.id > version), version);
+}
+
+/**
+ * Runs these migrations in order from the schema the database is at. A database that already held data is counted before
+ * and after, table by table and Unit Instance by Unit Instance, and the result goes in its upgrade history; a migration
+ * that throws is recorded there with its error, and the error is thrown on so the start stops (ADR-0014). Exported so
+ * the tests can run a migration this build does not carry.
+ */
+export function runMigrations(db: Db, pending: readonly Migration[], from: number): UpgradeRecord | null {
+  if (!pending.length) return null;
+  const started = performance.now();
+  const verify = from > 0;
+  const before = verify ? rowCounts(db) : null;
+  let failed: UpgradeRecord['failed'];
+  let failure: unknown = null;
+  const ran: number[] = [];
+  for (const m of pending) {
+    const begun = performance.now();
+    try {
+      db.transaction(() => {
+        m.run(db);
+        metaSet(db, 'schema_version', String(m.id));
+        const run: MigrationRun = { id: m.id, name: m.name, at: new Date().toISOString(), ms: Math.round(performance.now() - begun), version: VERSION };
+        metaSet(db, 'migration_history', JSON.stringify([...migrationHistory(db), run].slice(-MIGRATION_HISTORY_KEPT)));
+      })();
+      ran.push(m.id);
+    } catch (error) {
+      failed = { id: m.id, name: m.name, error: String((error as Error)?.message || error).slice(0, 500) };
+      failure = error;
+      break;
+    }
   }
+  if (!verify && !failed) return null;
+  const after = verify ? rowCounts(db) : null;
+  const { service, instances } = before && after ? compareCounts(before, after, new Set(pending.flatMap((m) => m.reshapes ?? []))) : { service: [], instances: [] };
+  const record = recordUpgrade(db, {
+    id: randomUUID(), at: new Date().toISOString(), kind: 'schema', version: VERSION,
+    schema: { from, to: Number(metaGet(db, 'schema_version') || 0) },
+    status: failed ? 'failed' : upgradeStatus(service, instances),
+    ms: Math.round(performance.now() - started), migrations: ran, ...(failed ? { failed } : {}),
+    service, instances, checked: before ? Object.keys(before.tables).length : 0, audited: false, reviewed: null,
+  });
+  if (failure) {
+    console.error(`Migration ${failed!.name} failed and was rolled back; the database stays at schema ${record.schema.to}. The upgrade history records it. Restore the backup taken before the upgrade, or run the build this database last ran.`);
+    throw failure;
+  }
+  if (record.status === 'changed') console.warn(`The upgrade to schema ${record.schema.to} left fewer rows in ${record.service.map((c) => c.table).join(', ') || 'some Unit Instances'}. Review it under Operations in the Vantage Administrator console before relying on the data.`);
+  return record;
 }
 
 /** The migrations this database ran since it began keeping a history, oldest first. */

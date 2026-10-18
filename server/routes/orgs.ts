@@ -34,6 +34,8 @@ import { rowsToCsv } from '../../shared/csv.ts';
 import { REPORT_PERIODS, UNIT_CONFIG_FORMAT } from '../../shared/unitConfig.ts';
 import { SCORING_COMBINE, SCORING_CONDITIONS, SCORING_LIMITS, SCORING_METHODS } from '../../shared/dutyScoring.ts';
 import { publishScoringPolicy, withdrawScoringPolicy } from '../services/dutyScoring.ts';
+import { cachedServiceStatus, instanceOperations } from '../services/instanceOperations.ts';
+import { infrastructureBodyProblem, infrastructureFileProblem } from '../../shared/dataTransfer.ts';
 import { TRAINING_TYPES } from '../../shared/constants.ts';
 import type { PeriodKey } from '../../shared/metrics.ts';
 
@@ -59,6 +61,8 @@ const inOrg = (...permissions: OrgPermission[]) => (req: Request, _res: Response
 
 const ip = (req: Request) => clientIp(req);
 const orgOf = (req: Request) => req.org!;
+/** A data import never takes an infrastructure backup: a database file or the service archive (ADR-0014). */
+const refuseBackup = (content: Uint8Array | string) => { const problem = infrastructureFileProblem(content); if (problem) throw badRequest(problem, { code: 'infrastructure_file' }); };
 
 /** The organizations the caller holds a role in, or belongs to. */
 orgsRouter.get('/', wrap((req, res) => res.json({ organizations: orgSummaries(req.ctx, scopeFor(req.ctx, req.user, req)) })));
@@ -95,6 +99,24 @@ orgsRouter.patch('/:orgId', inOrg('org.settings', 'org.owners'), wrap((req, res)
 }));
 
 // ——— Unit Instance roles: Lead Unit Managers assign them, never their own (ADR-0010) ———
+
+/**
+ * The Unit Instance's operations for its Unit Managers (ADR-0014): the version it runs, its last upgrade, its health, the
+ * backup that holds it, its last restore, and what Vantage turned off for it. The service's own checks are Vantage
+ * staff's: here they are one status.
+ */
+orgsRouter.get('/:orgId/operations', inOrg('org.view'), wrap((req, res) => {
+  const [operations] = instanceOperations(req.ctx, { service: cachedServiceStatus(req.ctx), orgId: orgOf(req).id });
+  if (!operations) throw notFound('No such Unit Instance.');
+  // Vantage staff by name, as everywhere in this console; never their account ids. A failed migration by name, without
+  // the database's error, which is the service's to read.
+  const { reviewed, failed } = operations.upgrade.record ?? {};
+  res.json({
+    ...operations,
+    upgrade: { ...operations.upgrade, record: operations.upgrade.record && { ...operations.upgrade.record, failed: failed ? { id: failed.id, name: failed.name } : null, reviewed: reviewed ? { at: reviewed.at, byName: reviewed.byName, note: reviewed.note } : null } },
+    flags: operations.flags.map(({ set_by: _id, ...flag }) => flag),
+  });
+}));
 
 orgsRouter.get('/:orgId/roles', inOrg('org.view'), wrap((req, res) => {
   res.json({ holders: orgRoleHolders(req.ctx, orgOf(req).id), catalog: { roles: ORG_ROLES, permissions: ORG_PERMISSION_LIST } });
@@ -171,6 +193,7 @@ orgsRouter.post('/:orgId/accounts/import', inOrg('org.members'), accountRoster, 
   const org = orgOf(req);
   const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
   if (!buffer.length) throw badRequest('Choose a roster file.');
+  refuseBackup(buffer);
   let filename = String(req.get('x-vantage-filename') || 'roster.xlsx');
   try { filename = decodeURIComponent(filename); } catch {}
   const rows = readRoster(buffer, filename.slice(0, 200));
@@ -214,6 +237,7 @@ orgsRouter.post('/:orgId/personnel/sync', inOrg('org.personnel'), rosterBody, wr
   const source = String(req.query.source || 'roster').slice(0, 60).trim() || 'roster';
   const text = typeof req.body === 'string' ? req.body : '';
   if (!text.trim()) throw badRequest('Post the roster extract as the request body.');
+  refuseBackup(text);
   const confirmSeparations = apply && String(req.query.confirm_separations || '') === '1';
   const parsed = parseRoster(text);
   const plan = holdBackRoleHolders(ctx, planSync(ctx, org.id, parsed.rows, source, parsed.rejected, confirmSeparations), orgCan(scopeFor(ctx, req.user, req), 'org.owners', org.id));
@@ -532,6 +556,8 @@ const configurationFile = z.object({
 
 orgsRouter.post('/:orgId/configuration/import', inOrg('org.config'), wrap((req, res) => {
   const org = orgOf(req);
+  const archive = infrastructureBodyProblem(req.body);
+  if (archive) throw badRequest(archive, { code: 'infrastructure_file' });
   const file = parse(configurationFile, req.body) as UnitConfigurationFile;
   if (req.query.apply !== '1') return res.json({ applied: false, ...planConfigurationImport(req.ctx, org.id, file) });
   res.json({ applied: true, ...applyConfigurationImport(req.ctx, req.user, org.id, file, ip(req)) });

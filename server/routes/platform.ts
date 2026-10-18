@@ -1,5 +1,6 @@
 import { Router, type Request } from 'express';
 import express from 'express';
+import Database from 'better-sqlite3';
 import { z } from 'zod';
 import { randomBytes } from 'node:crypto';
 import { tmpdir } from 'node:os';
@@ -45,6 +46,10 @@ import { assertRuntimePatchAllowed, deploymentPosture } from '../services/deploy
 import { backupStatus, healthReport, jobStatus, migrationStatus, versionStatus } from '../services/operations.ts';
 import { endMaintenance, maintenanceState, runMaintenanceTask, startMaintenance } from '../services/maintenance.ts';
 import { featureFlags } from '../services/featureFlags.ts';
+import { instanceFlagStatus, isInstanceFlag, setInstanceFlag } from '../services/instanceFlags.ts';
+import { instanceOperations, operationsSummary } from '../services/instanceOperations.ts';
+import { restoreStatus, reviewUpgrade } from '../services/recovery.ts';
+import { upgradeHistory } from '../db/upgrades.ts';
 import { signInHealth } from '../services/signInHealth.ts';
 import { probeProvider } from '../auth/oidc.ts';
 import { recordBackup } from '../services/backupLog.ts';
@@ -104,7 +109,7 @@ platformRouter.get('/overview', requirePlatform('platform.view'), wrap((req, res
     deployment: deploymentPosture(req.ctx),
     health: { status: health.status, checkedAt: health.checkedAt, attention: health.checks.filter((c) => c.status === 'warn' || c.status === 'fail') },
     build: versionStatus(req.ctx).build,
-    // How fresh the last backup is, for Backup and recovery; who took it is on Operations, for those who may see it.
+    // How fresh the last backup is, for Backup and restore; who took it is on Operations, for those who may see it.
     backups: (({ state, last, maxAgeHours }) => ({ state, last: last && { at: last.at, method: last.method }, maxAgeHours }))(backupStatus(req.ctx)),
   });
 }));
@@ -126,6 +131,29 @@ platformRouter.get('/operations', requirePlatform('platform.view'), wrap((req, r
   });
 }));
 
+// ——— Each Unit Instance's operations: version, schema, upgrades, health, backups, restores and withheld features (ADR-0014) ———
+
+platformRouter.get('/instances/operations', requirePlatform('platform.view'), wrap((req, res) => {
+  const ctx = req.ctx;
+  const health = healthReport(ctx);
+  // Who authorized a restore is for those who hold the backups or read the audit trail, as for who took a backup.
+  const named = req.user.platformPermissions.includes('platform.data') || req.user.platformPermissions.includes('platform.audit');
+  const instances = instanceOperations(ctx, { service: health.status }).map((i) => (named || !i.restore.last ? i : { ...i, restore: { last: { ...i.restore.last, by: null } } }));
+  const { code, database, state } = migrationStatus(ctx);
+  res.json({
+    service: { health, version: versionStatus(ctx), schema: { code, database, state }, upgrades: [...upgradeHistory(ctx.db)].reverse().slice(0, 10) },
+    instances,
+    summary: operationsSummary(instances),
+    canReview: req.user.platformPermissions.includes('platform.maintenance'),
+  });
+}));
+
+/** A Vantage Administrator says an upgrade that failed or lost rows was looked at, and what was found. */
+platformRouter.post('/upgrades/:id/review', requirePlatform('platform.maintenance'), wrap((req, res) => {
+  const { note } = parse(z.object({ note: z.string().trim().min(10, 'Say what you found, in at least ten characters.').max(500) }), req.body ?? {});
+  res.json(reviewUpgrade(req.ctx, req.user, String(req.params.id), note, ip(req)));
+}));
+
 platformRouter.get('/sign-in-health', requirePlatform('platform.view'), wrap((req, res) => res.json(signInHealth(req.ctx))));
 
 /** Reaches the configured identity provider the way a sign-in would, on demand. */
@@ -139,7 +167,15 @@ platformRouter.post('/sign-in-health/oidc-check', requirePlatform('platform.sett
   res.json({ ...result, checkedAt: now() });
 }));
 
-platformRouter.get('/flags', requirePlatform('platform.view'), wrap((req, res) => res.json(featureFlags(req.ctx))));
+platformRouter.get('/flags', requirePlatform('platform.view'), wrap((req, res) => res.json({ ...featureFlags(req.ctx), instances: instanceFlagStatus(req.ctx) })));
+
+/** Turns a feature off for one Unit Instance, with a reason, or gives it the service's setting back (ADR-0014). */
+platformRouter.put('/orgs/:orgId/features/:flag', requirePlatform('platform.settings'), wrap((req, res) => {
+  const flag = String(req.params.flag);
+  if (!isInstanceFlag(flag)) throw notFound('No such feature.');
+  const body = parse(z.object({ withheld: z.boolean(), reason: z.string().max(500).nullish() }), req.body ?? {});
+  res.json({ withheld: setInstanceFlag(req.ctx, req.user, String(req.params.orgId), flag, { withheld: body.withheld, reason: body.reason ?? null }, ip(req)) });
+}));
 
 // ——— Platform settings ———
 
@@ -710,6 +746,15 @@ function browserCopy(req: Request, what: string) {
   notifyStaff(req.ctx, 'platform.data', { kind: 'system', title: `${name} downloaded ${what}`, message: `From ${clientIp(req) || 'an unknown address'}. If that was not expected, review the platform audit trail.`, actionUrl: '/admin/audit' }, req.user.id);
 }
 
+/**
+ * Backup and restore: the backups recorded, the restores this database went through (with what each undid), and whether
+ * the lineage that tells a database put back behind the service's back is kept (ADR-0014). Restoring is on the host,
+ * with the service stopped: npm run restore.
+ */
+platformRouter.get('/recovery', requirePlatform('platform.data'), wrap((req, res) => {
+  res.json({ backups: backupStatus(req.ctx), restores: restoreStatus(req.ctx) });
+}));
+
 platformRouter.get('/backup', requirePlatform('platform.data'), wrap(async (req, res) => {
   const ctx = req.ctx;
   if (ctx.db.name === ':memory:') throw badRequest('In-memory databases cannot be backed up.');
@@ -718,9 +763,16 @@ platformRouter.get('/backup', requirePlatform('platform.data'), wrap(async (req,
   const dest = join(tmpdir(), `vantage-backup-${stamp}-${newId().slice(0, 6)}.db`);
   await ctx.db.backup(dest);
   chmodSync(dest, 0o600);
+  // One self-contained file, and the newest audit entry it holds: what restoring it goes back to (ADR-0014).
+  const copy = new Database(dest, { fileMustExist: true });
+  copy.pragma('journal_mode = DELETE');
+  const seq = (copy.prepare('SELECT MAX(seq) AS seq FROM audit_log').get() as { seq: number | null }).seq;
+  copy.close();
   const bytes = statSync(dest).size;
-  recordBackup(ctx.db, { method: 'browser', bytes, by: `${req.user.first_name} ${req.user.last_name}`.trim() || req.user.username, file: `vantage-backup-${stamp}.db` });
-  audit(ctx, { actor_id: req.user.id, action: 'backup', entity: 'database', detail: `${bytes} bytes`, ip: ip(req) });
+  ctx.db.transaction(() => {
+    recordBackup(ctx.db, { method: 'browser', bytes, by: `${req.user.first_name} ${req.user.last_name}`.trim() || req.user.username, file: `vantage-backup-${stamp}.db`, seq, audited: true });
+    audit(ctx, { actor_id: req.user.id, action: 'backup', entity: 'database', entity_id: `vantage-backup-${stamp}.db`, detail: `${bytes} bytes${seq ? `, through audit entry ${seq}` : ''}`, ip: ip(req) });
+  })();
   res.download(dest, `vantage-backup-${stamp}.db`, () => { try { unlinkSync(dest); } catch {} });
 }));
 

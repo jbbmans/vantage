@@ -8,7 +8,7 @@ import { recordBackup } from '../server/services/backupLog.ts';
  * Uses SQLite's online backup, so it is safe while Vantage runs. The copy is readable by its owner only; encrypt it
  * and move it wherever the data's classification allows. On an accredited host this replaces the browser download
  * (VANTAGE_BROWSER_BACKUPS=false). The database then records that a backup was taken, so the Vantage Administrator
- * console can show how fresh the last one is.
+ * console can show how fresh the last one is, and the service puts it in the audit trail.
  */
 const source = process.env.VANTAGE_DB || resolve(import.meta.dirname, '..', 'data', 'vantage.db');
 const dest = process.argv[2];
@@ -22,13 +22,24 @@ await db.backup(resolve(dest));
 db.close();
 chmodSync(resolve(dest), 0o600);
 const bytes = statSync(resolve(dest)).size;
-console.log(`Backed up ${source} to ${resolve(dest)} (${bytes} bytes).`);
+// The copy is one self-contained file, with no write-ahead log beside it to lose in the move, and it says the newest audit
+// entry it holds: what restoring it goes back to (ADR-0014).
+let seq: number | null = null;
+try {
+  const copy = new Database(resolve(dest), { fileMustExist: true });
+  copy.pragma('journal_mode = DELETE');
+  seq = (copy.prepare('SELECT MAX(seq) AS seq FROM audit_log').get() as { seq: number | null }).seq;
+  copy.close();
+} catch { seq = null; }
+console.log(`Backed up ${source} to ${resolve(dest)} (${bytes} bytes${seq ? `, through audit entry ${seq}` : ''}).`);
 
-// The copy is made whatever happens next. Recording it is a convenience, never a reason to fail the backup.
+// The copy is made whatever happens next. Recording it is a convenience, never a reason to fail the backup. The running
+// service writes it into the audit trail within five minutes (auditServerBackups): the script has no need of the secret
+// the trail is sealed with.
 try {
   const live = new Database(source, { fileMustExist: true });
   live.pragma('busy_timeout = 5000');
-  recordBackup(live, { method: 'server', bytes, by: null, file: basename(resolve(dest)) });
+  recordBackup(live, { method: 'server', bytes, by: null, file: basename(resolve(dest)), seq, audited: false });
   live.close();
 } catch (error) {
   console.warn(`The backup was taken, but the database could not record it for the console: ${(error as Error).message}`);

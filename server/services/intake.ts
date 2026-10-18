@@ -16,6 +16,8 @@ import { parseMoney } from '../../shared/money.ts';
 import { METHOD_KEYS, METHODS, type MethodKey } from '../../shared/fmra/methods.ts';
 import type { Scanner } from './scanner.ts';
 import { heldUsersClause, holdState, recordDispositionRun } from './holds.ts';
+import { governingInstance, isWithheld } from './instanceFlags.ts';
+import { infrastructureFileProblem } from '../../shared/dataTransfer.ts';
 
 export const SUPPORTED = {
   xlsx: ['application/vnd.openxmlformats-officedocument.spreadsheetml.sheet', 'application/vnd.ms-excel.sheet.macroEnabled.12'],
@@ -100,6 +102,11 @@ export function pruneSources(ctx: AppContext): number {
   return acted;
 }
 
+/** Vantage can turn spreadsheet intake off for one Unit Instance (ADR-0014): uploads and imports into it are refused. */
+function assertIntakeOn(ctx: AppContext, unitId: string | null, userId: string) {
+  if (isWithheld(ctx, governingInstance(ctx, unitId, userId), 'intake')) throw forbidden('Vantage has turned spreadsheet intake off for this Unit Instance.', 'feature_withheld');
+}
+
 export async function uploadSource(
   ctx: AppContext,
   user: SessionUser,
@@ -109,10 +116,15 @@ export async function uploadSource(
 ): Promise<SourceFileRow> {
   if (!ctx.config.intake.enabled) throw badRequest('Importing work is switched off on this instance.');
   if (!input.buffer.length) throw badRequest('That file is empty.');
+  // An infrastructure backup is never a source: it would file every Unit Instance's data with one unit (ADR-0014).
+  const backup = infrastructureFileProblem(input.buffer);
+  if (backup) throw badRequest(backup, { code: 'infrastructure_file' });
   if (input.buffer.length > ctx.config.intake.maxBytes) {
     throw badRequest(`That file is ${Math.round(input.buffer.length / 1_048_576)} MB. The limit here is ${Math.round(ctx.config.intake.maxBytes / 1_048_576)} MB.`);
   }
   assertCanPlace(scope, input.unitId, input.visibility);
+  // After the placement check, so whether a feature is withheld is told only to someone who may place work there.
+  assertIntakeOn(ctx, input.unitId, user.id);
   assertCapacity(ctx, user.id, input.buffer.length);
 
   const kind = classifyUpload(input.filename, input.contentType, input.buffer);
@@ -406,6 +418,7 @@ export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, 
   const plan = placed(requested);
   const source = readableSource(ctx, user, scope, sourceId);
   assertCanPlace(scope, plan.unit_id, plan.visibility);
+  assertIntakeOn(ctx, plan.unit_id, user.id);
   if (plan.visibility === 'unit' && plan.unit_id && !can(scope, PERMISSIONS.CREATE_SHARED_WORK, plan.unit_id)) {
     throw forbidden('You cannot bring shared work into that unit.');
   }

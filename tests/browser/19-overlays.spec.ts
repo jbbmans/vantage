@@ -48,7 +48,7 @@ test('a tab strip too wide for the screen scrolls, and shows the tab you are on'
   // The admin dashboard's sections, a strip of their own on a phone, keep the page you are on in view the same way.
   await page.goto('/admin/data');
   await confirmSudoIfAsked(page);
-  const section = page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Backup and recovery' });
+  const section = page.getByRole('navigation', { name: 'Sections' }).getByRole('link', { name: 'Backup and restore' });
   await section.waitFor();
   await assertOnScreen(section, 'the console section you are on');
 });

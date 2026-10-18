@@ -9,6 +9,8 @@ import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, r
 import { inspectAttachment, attachmentDisposition } from '../services/attachments.ts';
 import { audit } from '../services/audit.ts';
 import { scanUpload } from '../services/scanner.ts';
+import { featureOn } from '../services/instanceFlags.ts';
+import { infrastructureBodyProblem } from '../../shared/dataTransfer.ts';
 import { goalContributors } from '../services/goals.ts';
 import { listComments, addComment, editComment, deleteComment } from '../services/comments.ts';
 import { newId, now } from '../lib/ids.ts';
@@ -54,6 +56,9 @@ recordsRouter.get('/goals/:id/contributors', wrap((req, res) => {
 }));
 
 recordsRouter.post('/activities/import', wrap((req, res) => {
+  // A data import never takes the service archive (ADR-0014).
+  const archive = infrastructureBodyProblem(req.body);
+  if (archive) throw badRequest(archive, { code: 'infrastructure_file' });
   res.json(importActivities(req.ctx, req.user, req.body?.rows, req, clientIp(req)));
 }));
 
@@ -114,13 +119,15 @@ const attachmentMeta = (r: Record<string, unknown>) => ({ id: r.id, record_table
 recordsRouter.get('/:table/:id/attachments', wrap((req, res) => {
   const { table, row } = attachableRecord(req);
   const rows = req.ctx.db.prepare('SELECT id, record_table, record_id, original_name, mime_type, size_bytes, sha256, created_at FROM attachments WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL ORDER BY created_at DESC').all(table, row.id) as Array<Record<string, unknown>>;
-  res.json({ attachments: rows.map(attachmentMeta), enabled: req.ctx.runtime.attachmentsEnabled, maxBytes: req.ctx.config.attachments.maxBytes, allowedTypes: req.ctx.config.attachments.allowedTypes });
+  // On for this record only where the service has attachments on and Vantage has not turned them off for its Unit Instance (ADR-0014).
+  res.json({ attachments: rows.map(attachmentMeta), enabled: featureOn(req.ctx, 'attachments', row.unit_id, row.user_id), maxBytes: req.ctx.config.attachments.maxBytes, allowedTypes: req.ctx.config.attachments.allowedTypes });
 }));
 
 recordsRouter.post('/:table/:id/attachments', attachmentBody, wrap(async (req, res) => {
   const ctx = req.ctx;
   if (!ctx.runtime.attachmentsEnabled) throw notFound('Attachments are not enabled.');
   const { table, row } = attachableRecord(req, true);
+  if (!featureOn(ctx, 'attachments', row.unit_id, row.user_id)) throw forbidden('Vantage has turned file attachments off for this Unit Instance. Files already attached stay readable.', 'feature_withheld');
   const count = (ctx.db.prepare('SELECT COUNT(*) AS n FROM attachments WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL').get(table, row.id) as { n: number }).n;
   if (count >= ctx.config.attachments.maxPerRecord) throw conflict(`A record can hold at most ${ctx.config.attachments.maxPerRecord} attachments.`, 'attachment_limit');
   const inspected = inspectAttachment({ body: req.body, filename: req.get('x-vantage-filename'), contentType: req.get('content-type'), allowedTypes: ctx.config.attachments.allowedTypes, maxBytes: ctx.config.attachments.maxBytes });

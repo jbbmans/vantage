@@ -1212,3 +1212,15 @@ CREATE TABLE IF NOT EXISTS credential_approvals (
 );
 CREATE INDEX IF NOT EXISTS idx_credential_approvals_target ON credential_approvals(target_user_id, status);
 CREATE INDEX IF NOT EXISTS idx_credential_approvals_status ON credential_approvals(status, requested_at);
+
+-- A feature a Vantage Administrator has turned off for one Unit Instance, with the reason (ADR-0014). A row only ever
+-- withholds: a feature the service has off stays off everywhere, and removing the row gives the Unit Instance the
+-- service's setting again. Lead Unit Managers are told each time, and every change is in both audit trails.
+CREATE TABLE IF NOT EXISTS instance_feature_flags (
+  org_id  TEXT NOT NULL REFERENCES organizations(id),
+  flag    TEXT NOT NULL CHECK (flag IN ('attachments', 'intake')),
+  reason  TEXT NOT NULL,
+  set_by  TEXT REFERENCES users(id),
+  set_at  TEXT NOT NULL,
+  PRIMARY KEY (org_id, flag)
+);
