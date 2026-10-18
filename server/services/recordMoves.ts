@@ -99,8 +99,8 @@ export function moveRecord(ctx: AppContext, user: SessionUser, table: RecordTabl
   const input = parse(moveBody, body);
   const to = input.to;
   if (to === from) throw badRequest(`It is already in ${MOVABLE_LABELS[to].place}.`);
-  const row = getRecord(ctx, from, id) as Row | undefined;
-  if (!row) throw notFound('No such record.');
+  // Found and refused as an open would be: nobody learns more about an entry by trying to move it than by opening it.
+  const row = readableRecord(ctx, user, from, id, reqKey) as Row;
   const problem = moveProblem(ctx, user.id, from, row);
   if (problem) throw forbidden(problem.message, problem.code);
   if (input.version !== undefined && input.version !== row.version) throw conflict('This entry changed while you were looking at it. Reload to see the latest version.', 'stale');
@@ -128,8 +128,8 @@ export function moveRecord(ctx: AppContext, user: SessionUser, table: RecordTabl
     carry(ctx, from, id, to, toId);
     ctx.db.prepare(`DELETE FROM ${from} WHERE id = ?`).run(id);
     lineageId = writeLineage(ctx, { user_id: row.user_id, unit_id: row.unit_id, from_table: from, from_id: id, to_table: to, to_id: toId, snapshot, method: 'move', reason: input.reason || null, moved_by: user.id, at });
+    auditMove(ctx, false, user.id, row.unit_id, from, id, to, toId, ip);
   })();
-  auditMove(ctx, false, user.id, row.unit_id, from, id, to, toId, ip);
   return { table: to, id: toId, lineage_id: lineageId, record: getRecord(ctx, to, toId) };
 }
 
@@ -159,8 +159,7 @@ function lineageOf(ctx: AppContext, table: MovableTable, id: string): LineageRow
 /** Puts back the entry this one was moved from, exactly as it was, with the files and comments it has gathered since. */
 export function undoMove(ctx: AppContext, user: SessionUser, table: RecordTable, id: string, reqKey: object, ip?: string) {
   const current = movable(table);
-  const row = getRecord(ctx, current, id) as Row | undefined;
-  if (!row) throw notFound('No such record.');
+  const row = readableRecord(ctx, user, current, id, reqKey) as Row;
   const problem = moveProblem(ctx, user.id, current, row);
   if (problem) throw forbidden(problem.message, problem.code);
   const last = lineageOf(ctx, current, id)[0];
@@ -185,8 +184,8 @@ export function undoMove(ctx: AppContext, user: SessionUser, table: RecordTable,
     carry(ctx, current, id, back, last.from_id);
     ctx.db.prepare(`DELETE FROM ${current} WHERE id = ?`).run(id);
     writeLineage(ctx, { user_id: row.user_id, unit_id: row.unit_id, from_table: current, from_id: id, to_table: back, to_id: last.from_id, snapshot, method: 'undo', reason: null, moved_by: user.id, at });
+    auditMove(ctx, true, user.id, row.unit_id, current, id, back, last.from_id, ip);
   })();
-  auditMove(ctx, true, user.id, row.unit_id, current, id, back, last.from_id, ip);
   return { table: back, id: last.from_id, record: getRecord(ctx, back, last.from_id) };
 }
 
@@ -234,10 +233,11 @@ export function moveCandidates(ctx: AppContext, user: SessionUser) {
 }
 
 /** The owner says this entry is work they did: it is no longer offered for a move. */
-export function keepAsActivity(ctx: AppContext, user: SessionUser, id: string) {
-  const row = getRecord(ctx, 'activities', id) as Row | undefined;
-  if (!row) throw notFound('No such record.');
+export function keepAsActivity(ctx: AppContext, user: SessionUser, id: string, reqKey: object, ip?: string) {
+  const row = readableRecord(ctx, user, 'activities', id, reqKey) as Row;
   if (row.user_id !== user.id) throw forbidden('Only the Marine an entry belongs to can say what kind of record it is.', 'owner_only');
-  ctx.db.prepare('UPDATE activities SET kind_confirmed_at = COALESCE(kind_confirmed_at, ?) WHERE id = ?').run(now(), id);
+  if (row.kind_confirmed_at) return { ok: true, id };
+  ctx.db.prepare('UPDATE activities SET kind_confirmed_at = ? WHERE id = ?').run(now(), id);
+  audit(ctx, { actor_id: user.id, action: 'record_kind_confirmed', entity: 'activities', entity_id: id, unit_id: row.unit_id, detail: 'kept as an activity', ip });
   return { ok: true, id };
 }

@@ -49,6 +49,8 @@ export const RECORD_KINDS: readonly RecordKind[] = [
   { key: 'duty_type', label: 'Duty Type', store: { table: 'duty_types' }, writtenBy: 'Unit Managers (ADR-0012)', correctedBy: 'Unit Managers', systemOfRecord: null, timeline: false, activity: false },
   { key: 'duty_scoring_policy', label: 'Duty Scoring Policy', store: { table: 'duty_scoring_policies' }, writtenBy: 'Unit Managers, as versions with effective dates (ADR-0012)', correctedBy: 'Nobody: a new version replaces it from its date', systemOfRecord: null, timeline: false, activity: false },
   { key: 'goal', label: 'Goal', store: { table: 'goals' }, writtenBy: 'The person, or a leader who assigns it', correctedBy: 'Its owner; its assignee for status and progress', systemOfRecord: null, timeline: true, activity: false },
+  // Not one of the spec's concepts, but a record type the records API serves: work a person or their unit is carrying.
+  { key: 'project', label: 'Project', store: { table: 'projects' }, writtenBy: 'The person, or a unit leader for shared work', correctedBy: 'Its owner; a unit leader with Edit others’ records, on a shared one', systemOfRecord: null, timeline: false, activity: false },
   { key: 'task', label: 'Task', store: { table: 'tasks' }, writtenBy: 'The person, or a leader who assigns it', correctedBy: 'Its owner; its assignee for status and notes', systemOfRecord: null, timeline: false, activity: false },
   { key: 'financial_case', label: 'Financial Case', store: { table: 'work_items' }, writtenBy: 'Intake from an uploaded report, or a person opening one', correctedBy: 'Through its append-only history only (ADR-0002)', systemOfRecord: 'DAI, SABRS and the other financial systems the case is about', timeline: false, activity: false },
   { key: 'financial_error_snapshot', label: 'Financial Error Snapshot', store: null, plannedIn: 'Task 15', writtenBy: 'An uploaded error report', correctedBy: 'Nobody: a later upload is a new snapshot', systemOfRecord: 'The report it was uploaded from', timeline: false, activity: false },
@@ -97,7 +99,7 @@ const AWARD_ABBREVIATIONS: Record<string, string> = {
 const AWARD_WORDS = new RegExp(`\\b(?:${[...AWARD_NAMES.map(escapeRe), ...Object.keys(AWARD_ABBREVIATIONS), 'medal', 'commendation', 'letter of appreciation',
   'certificate of (?:commendation|appreciation|achievement)', 'meritorious mast', 'challenge coin', 'coined by', 'good conduct'].join('|')})\\b`, 'i');
 // Received, not handed out: "was presented the NAM", not "presented the NAM to LCpl Diaz".
-const RECEIVED = /\b(?:received|receiving|awarded|was presented|presented with|got|earned|recognized with|recipient of|pinned|coined by)\b/i;
+const RECEIVED = /\b(?:received|receiving|awarded|was presented|presented with|got|earned|recognized with|recipient of|pinned|coined by)\b|\bfrom (?:the |my |our )?(?:co|xo|cg|sgtmaj|commanding (?:officer|general)|commander|sergeant major|battalion|regiment|division|command)\b/i;
 // Writing up or moving someone else's award is work, and stays an Activity.
 const OTHERS_AWARD = /\b(?:drafted|drafting|wrote|writing|written|prepared|preparing|processed|processing|routed|routing|submitted|submitting|nominated|recommended|recommending|reviewed|tracked|staffed|presented (?:\w+ ){0,6}to)\b|\bfor (?:my|his|her|their|the|our|two|three|four|five|\d+) (?:marines?|team|section|shop|subordinates?|members?|personnel)\b|\bfor (?:pvt|pfc|lcpl|cpl|sgt|ssgt|gysgt|msgt|1stsgt|mgysgt|sgtmaj|2ndlt|1stlt|capt|maj|ltcol|col)\b|\b\d+\s+(?:awards?|packages?|marines)\b/i;
 
@@ -169,7 +171,7 @@ const HOURS = /^(?:h|hr|hrs|hour|hours)$/i;
 
 /**
  * What an entry becomes in another record type: the fields that carry across, and sensible ones for the rest. What has
- * nowhere to go (an activity's dollar value, a training's provider in an award) is kept in the move's lineage snapshot,
+ * nowhere to go (an activity's dollar value, an award's approving authority in a course) is kept in the move's lineage snapshot,
  * and an undo puts the entry back exactly as it was.
  */
 export function movedFields(from: MovableTable, row: Record<string, unknown>, to: MovableTable): Record<string, unknown> {

@@ -1,6 +1,6 @@
 import { DEFAULT_METRICS, type MetricsConfig } from '../../shared/constants';
 import { setCurrencySymbol, type PeriodKey } from '../../shared/metrics';
-import { QueryClient, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
+import { QueryClient, keepPreviousData, useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
 import * as api from './api.ts';
 import type { Store } from './api.ts';
 import type { Prefs } from '../../shared/schemas.ts';
@@ -162,18 +162,21 @@ export function useRestoreRecord(store: Store) {
 }
 
 // Moving an entry between record types (ADR-0015): both ends, and the entry's history, change.
-const invalidateMove = (qc: QueryClient, from: MovableTable, to: MovableTable) => {
+const invalidateMove = (qc: QueryClient, from: MovableTable, id: string, to: MovableTable) => {
+  // The entry it was is gone: drop it rather than ask for it again.
+  qc.removeQueries({ queryKey: keys.record(from, id) });
+  qc.removeQueries({ queryKey: ['record-lineage', from, id] });
   invalidateDomains(qc, STORE_DOMAIN[from], STORE_DOMAIN[to]);
   qc.invalidateQueries({ queryKey: ['record-lineage'] });
   qc.invalidateQueries({ queryKey: ['move-candidates'] });
 };
 export function useMoveRecord(store: MovableTable) {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: ({ id, ...body }: { id: string; to: MovableTable; fields?: Record<string, unknown>; reason?: string | null; version?: number }) => api.moveRecord(store, id, body), onSuccess: (r) => invalidateMove(qc, store, r.table) });
+  return useMutation({ mutationFn: ({ id, ...body }: { id: string; to: MovableTable; fields?: Record<string, unknown>; reason?: string | null; version?: number }) => api.moveRecord(store, id, body), onSuccess: (r, v) => invalidateMove(qc, store, v.id, r.table) });
 }
 export function useUndoMove(store: MovableTable) {
   const qc = useQueryClient();
-  return useMutation({ mutationFn: (id: string) => api.undoMove(store, id), onSuccess: (r) => invalidateMove(qc, store, r.table) });
+  return useMutation({ mutationFn: (id: string) => api.undoMove(store, id), onSuccess: (r, id) => invalidateMove(qc, store, id, r.table) });
 }
 export function useKeepAsActivity() {
   const qc = useQueryClient();
@@ -182,7 +185,7 @@ export function useKeepAsActivity() {
 export const useRecordLineage = (store: MovableTable, id: string | null, enabled = true) =>
   useQuery<LineageResponse>({ queryKey: ['record-lineage', store, id], queryFn: () => api.recordLineage(store, id!), enabled: Boolean(id) && enabled });
 export const useMoveCandidates = (enabled = true) => useQuery<MoveCandidatesResponse>({ queryKey: ['move-candidates'], queryFn: api.moveCandidates, staleTime: 30_000, enabled });
-export const useRecordTimeline = (params: Record<string, string | undefined> = {}) => useQuery<TimelineResponse>({ queryKey: ['record-timeline', params], queryFn: () => api.recordTimeline(params) });
+export const useRecordTimeline = (params: Record<string, string | undefined> = {}) => useQuery<TimelineResponse>({ queryKey: ['record-timeline', params], queryFn: () => api.recordTimeline(params), placeholderData: keepPreviousData });
 
 export function usePrefs(): Prefs {
   const { data } = useIdentity();

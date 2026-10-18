@@ -5,7 +5,7 @@ import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/err
 import { requireAuth } from '../auth/middleware.ts';
 import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
 import { canEdit, canRead } from '../authz/records.ts';
-import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress } from '../services/records.ts';
+import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress, withRecorderNames } from '../services/records.ts';
 import { inspectAttachment, attachmentDisposition } from '../services/attachments.ts';
 import { audit } from '../services/audit.ts';
 import { scanUpload } from '../services/scanner.ts';
@@ -66,7 +66,7 @@ recordsRouter.post('/activities/import', wrap((req, res) => {
 recordsRouter.get('/:table/:id', wrap((req, res) => {
   const table = tableParam(req);
   const raw = readableRecord(req.ctx, req.user, table, String(req.params.id), req);
-  const row = table === 'goals' ? withGoalProgress(req.ctx, [raw])[0] : raw;
+  const row = table === 'goals' ? withGoalProgress(req.ctx, [raw])[0] : table === 'awards' ? withRecorderNames(req.ctx, req.user.id, [raw])[0] as typeof raw : raw;
   if (row.user_id !== req.user.id) audit(req.ctx, { actor_id: req.user.id, action: 'view_record', entity: table, entity_id: row.id, subject_id: row.user_id, unit_id: row.unit_id, ip: clientIp(req) });
   res.json(row);
 }));
@@ -107,7 +107,7 @@ recordsRouter.get('/:table/:id/lineage', wrap((req, res) => {
   res.json(recordLineage(req.ctx, req.user, table, String(req.params.id), req));
 }));
 
-recordsRouter.post('/activities/:id/keep', wrap((req, res) => res.json(keepAsActivity(req.ctx, req.user, String(req.params.id)))));
+recordsRouter.post('/activities/:id/keep', wrap((req, res) => res.json(keepAsActivity(req.ctx, req.user, String(req.params.id), req, clientIp(req)))));
 
 recordsRouter.post('/counselings/:id/acknowledge', wrap((req, res) => {
   const row = getRecord(req.ctx, 'counselings', String(req.params.id));

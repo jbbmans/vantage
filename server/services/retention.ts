@@ -1,7 +1,7 @@
 import type { AppContext } from '../context.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
-import { RECORD_TABLE_NAMES, destroyRecords } from './records.ts';
+import { RECORD_TABLE_NAMES, destroyLineage, destroyRecords } from './records.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
 import { badRequest } from '../lib/errors.ts';
 import { holdState } from './holds.ts';
@@ -185,8 +185,11 @@ export function runDisposition(ctx: AppContext, opts: { orgId: string; dryRun: b
           const ids = (ctx.db.prepare(`SELECT id FROM ${table} WHERE ${due}`).all(...params) as Array<{ id: string }>).map((r) => r.id);
           acted = destroyRecords(ctx, table, ids).records;
         } else if (columns.length) {
+          const ids = (ctx.db.prepare(`SELECT id FROM ${table} WHERE ${due}`).all(...params) as Array<{ id: string }>).map((r) => r.id);
           acted = ctx.db.prepare(`UPDATE ${table} SET ${columns.map((c) => `${c} = ?`).join(', ')}, updated_at = ? WHERE ${due}`)
             .run(...columns.map(() => REDACTED), stamp, ...params).changes;
+          // What an anonymized entry said before it was moved is in its lineage: that goes too, and the move with it (ADR-0015).
+          destroyLineage(ctx, table, ids);
         }
       })();
     }

@@ -1,7 +1,11 @@
-import { Field, Input, NumberInput, Select, Textarea } from '@/components/ui/primitives';
+import { useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
+import { Button, Field, Input, NumberInput, Select, Textarea } from '@/components/ui/primitives';
 import VisibilityPicker from '@/components/VisibilityPicker';
+import { KindNote } from '@/components/KindNote';
 import { ACTIVITY_STATUS, categoryNames, valueType } from '../../shared/constants';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
+import { recordKindOf, kindText } from '../../shared/recordKinds';
 import { useProjects, useTrack, useMetrics } from '@/lib/queries';
 import { onText } from '@/components/common';
 import { humanize, todayIso } from '@/lib/utils';
@@ -19,9 +23,22 @@ export function ActivityFields({ draft, set, errors }: { draft: ActivityDraft; s
   const { data: projects } = useProjects();
   const links = draft.evidence_links || [];
   const setLink = (i: number, patch: Partial<{ label: string; url: string }>) => set('evidence_links', links.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  // A new entry that reads like an award received or a course completed is pointed to its own record (ADR-0015). An
+  // existing one is moved from its page instead, where the move keeps its history and can be undone.
+  const [kept, setKept] = useState(false);
+  const title = useRef<HTMLInputElement | null>(null);
+  const reading = useMemo(() => (!draft.id && !kept ? recordKindOf(kindText('activities', { title: draft.title, result: draft.result })) : null), [draft.id, draft.title, draft.result, kept]);
   return (
     <>
-      <Field label="Title" required error={errors.title}><Input autoFocus value={draft.title} onChange={onText(set, 'title')} placeholder="Reconciled 30 ULOs in DAI" /></Field>
+      <Field label="Title" required error={errors.title}><Input ref={title} autoFocus value={draft.title} onChange={onText(set, 'title')} placeholder="Reconciled 30 ULOs in DAI" /></Field>
+      <div aria-live="polite" className={reading ? undefined : '!mt-0'}>
+        {reading && (
+          <KindNote reading={reading}>
+            <Link to={reading.kind === 'award' ? '/career/awards' : '/career/training'} className="text-xs font-medium text-accent hover:underline">Go to {reading.kind === 'award' ? 'Awards' : 'Training'}</Link>
+            <Button size="xs" variant="ghost" onClick={() => { setKept(true); title.current?.focus(); }}>Keep as activity</Button>
+          </KindNote>
+        )}
+      </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Date" error={errors.date}><Input type="date" value={draft.date || ''} onChange={onText(set, 'date')} /></Field>
         <Field label="Status"><Select value={draft.status} onValueChange={(v) => set('status', v)} options={ACTIVITY_STATUS.map((s) => ({ value: s, label: humanize(s) }))} /></Field>

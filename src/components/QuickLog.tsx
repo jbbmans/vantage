@@ -1,4 +1,5 @@
 import { useContext, useEffect, useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { captureTimer, track as trackEvent } from '@/lib/telemetry';
 import { format } from 'date-fns';
 import { ChevronDown, Sparkles, WifiOff, Zap } from 'lucide-react';
@@ -9,9 +10,11 @@ import { parseQuickLog, primaryQuantity } from '../../shared/quickLog';
 import { EVAL_AREAS, categoryNames, categoryColor, valueType } from '../../shared/constants';
 import { formatDollarsExact } from '../../shared/metrics';
 import { strength } from '../../shared/bullets';
+import { MOVABLE_LABELS, kindText, movedFields, recordKindOf } from '../../shared/recordKinds';
 import { coachEntry } from '../../shared/writer/coach';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
 import VisibilityPicker from '@/components/VisibilityPicker';
+import { KindNote } from '@/components/KindNote';
 import { AiAction, ModelPicker } from '@/components/AiPanel';
 import { useCreateRecord, useDeleteRecord, useIdentity, usePrefs, useTrack, useMetrics } from '@/lib/queries';
 import { draftKey, readDraft, writeDraft } from '@/lib/drafts';
@@ -20,6 +23,8 @@ import { outbox } from '@/lib/outbox';
 import { OutboxContext } from '@/components/AppShell';
 import { cn } from '@/lib/utils';
 
+const offlineNote = (to: 'awards' | 'trainings') => `You are offline, and only activities wait to sync. Keep it as an activity, or save it as ${to === 'awards' ? 'an award' : 'training'} once you are back online.`;
+
 const EXAMPLES = ['Reconciled 30 ULOs totaling $1,118.38 in DAI for G-8', 'Led 22 Marines through 58.5 hours of instruction, 100% graduation', 'Processed 12 MIPRs, zero returns'];
 
 export default function QuickLog({ open, onOpenChange, initialText = '' }: { open: boolean; onOpenChange: (o: boolean) => void; initialText?: string }) {
@@ -27,15 +32,20 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
   const { data: identity } = useIdentity();
   const prefs = usePrefs();
   const toast = useToast();
+  const navigate = useNavigate();
   const create = useCreateRecord('activities');
   const remove = useDeleteRecord('activities');
+  const createAward = useCreateRecord('awards');
+  const createTraining = useCreateRecord('trainings');
   const { pending } = useContext(OutboxContext);
   const [text, setText] = useState(initialText);
   const [expanded, setExpanded] = useState(false);
   const [saving, setSaving] = useState(false);
   const [overrides, setOverrides] = useState<Record<string, unknown>>({});
   const [aiUsed, setAiUsed] = useState(false);
+  const [kept, setKept] = useState(false);
   const capture = useRef<ReturnType<typeof captureTimer> | null>(null);
+  const input = useRef<HTMLTextAreaElement | null>(null);
   useEffect(() => {
     if (open) { capture.current = captureTimer('quick_log'); setAiUsed(false); }
     return () => { capture.current?.abandoned('closed_immediately'); capture.current = null; };
@@ -46,6 +56,7 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     if (!open) return;
     setText(initialText || readDraft<string>(key) || '');
     setOverrides({});
+    setKept(false);
     setExpanded(Boolean(prefs.quickLogExpanded));
   }, [open, initialText, key, prefs.quickLogExpanded]);
   useEffect(() => { if (open) writeDraft(key, text.trim() ? text : null); }, [text, open, key]);
@@ -110,6 +121,31 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     } finally { setSaving(false); }
   };
 
+  // An award received or a course completed keeps a record of its own (ADR-0015). Only activities wait in the offline
+  // outbox, so these are saved while the connection is up, or kept as an activity.
+  const saveAs = async (to: 'awards' | 'trainings') => {
+    if (!record?.title?.trim()) { toast.error('Give the entry a title before saving.'); return; }
+    if (!navigator.onLine) { toast.info(offlineNote(to)); return; }
+    setSaving(true);
+    const body = payload()!;
+    try {
+      const saved = await (to === 'awards' ? createAward : createTraining).mutateAsync({ ...movedFields('activities', body, to), visibility: record.visibility, unit_id: record.unit_id }) as { id?: string } | undefined;
+      capture.current?.completed({ had_measure: body.quantity != null || body.dollar_amount != null, had_outcome: Boolean(record.result), ai_assisted: aiUsed, source: aiUsed ? 'ai_draft' : 'manual' });
+      capture.current = null;
+      const page = to === 'awards' ? '/career/awards' : '/career/training';
+      toast.success(`Saved to your ${MOVABLE_LABELS[to].place} under Career.`, { label: 'Open', onClick: () => navigate(to === 'awards' && saved?.id ? `${page}?open=${encodeURIComponent(saved.id)}` : page) });
+      writeDraft(key, null);
+      onOpenChange(false);
+    } catch (err) {
+      if (isOffline(err) || !navigator.onLine) toast.info(offlineNote(to));
+      else {
+        capture.current?.abandoned('save_failed');
+        capture.current = captureTimer('quick_log');
+        toast.error(`${errorText(err)} Your text is kept here.`);
+      }
+    } finally { setSaving(false); }
+  };
+
   const applyAi = (out: Record<string, any>) => {
     const next: Record<string, unknown> = {};
     for (const [src, dst] of [['title', 'title'], ['date', 'date'], ['action_amount', 'quantity'], ['action_unit', 'unit_label'], ['transaction_value', 'dollar_amount'], ['organization', 'organization'], ['system', 'system'], ['result', 'result'], ['status', 'status']]) {
@@ -128,6 +164,8 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
   // The bullet as the narrative will write it, and the reviewer's notes for it, while it is being typed.
   const coach = useMemo(() => (record ? coachEntry(record, track) : null), [record, track]);
   const offline = typeof navigator !== 'undefined' && !navigator.onLine;
+  const reading = useMemo(() => (record && !kept ? recordKindOf(kindText('activities', record)) : null), [record, kept]);
+  const target = reading?.kind === 'award' ? 'awards' : 'trainings';
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange} title="Log activity" description="Write it the way you'd say it. Vantage pulls out the numbers." variant="drawer" footer={
@@ -139,8 +177,16 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
     }>
       <div className="space-y-4" onKeyDown={(e) => { if ((e.metaKey || e.ctrlKey) && e.key === 'Enter') { e.preventDefault(); save(); } }}>
         <Field label="What did you do?" hint="include the result, quantity, and value when you have them">
-          <Textarea autoFocus rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday" className="text-md" />
+          <Textarea ref={input} autoFocus rows={3} value={text} onChange={(e) => setText(e.target.value)} placeholder="Reconciled 30 ULOs totaling $1,118.38 in DAI yesterday" className="text-md" />
         </Field>
+        <div aria-live="polite" className={cn(!reading && '!mt-0')}>
+          {reading && (
+            <KindNote reading={reading} note={offline ? offlineNote(target) : undefined}>
+              <Button size="xs" variant="soft" onClick={() => saveAs(target)} disabled={offline || saving}>Save as {MOVABLE_LABELS[target].one}</Button>
+              <Button size="xs" variant="ghost" onClick={() => { setKept(true); input.current?.focus(); }}>Keep as activity</Button>
+            </KindNote>
+          )}
+        </div>
         {!text.trim() && <div className="flex flex-wrap gap-1.5">{EXAMPLES.map((ex) => <button key={ex} type="button" onClick={() => setText(ex)} className="rounded-md border border-line px-2.5 py-1.5 text-left text-xs text-ink-2 transition-colors hover:border-line-strong hover:bg-surface-2">{ex}</button>)}</div>}
         {parsed && (
           <>

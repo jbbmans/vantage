@@ -85,7 +85,7 @@ test('every page in the sidebar opens without an error boundary', async ({ page,
 
   for (const path of [
     '/', '/work/queue', '/work/tasks', '/work/projects', '/work/correspondence',
-    '/record', '/record/activities', '/record/drafts', '/record/contributions', '/goals',
+    '/record', '/record/activities', '/record/timeline', '/record/drafts', '/record/contributions', '/goals',
     '/career', '/career/training', '/career/awards', '/career/counseling', '/career/readiness',
     '/reports', '/reports/analysis',
     '/team', '/team/workload', '/team/roster', '/team/dashboard', '/team/invitations', '/team/roles', '/team/units', '/team/access-log',

@@ -1,7 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { ArrowLeft, Copy, Paperclip, Trash2, RotateCcw, ExternalLink, Lock, Users, Pencil, Sparkles, CopyPlus } from 'lucide-react';
+import { ArrowLeft, Copy, Paperclip, Trash2, RotateCcw, ExternalLink, Lock, Users, Pencil, Sparkles, CopyPlus, ArrowRightLeft } from 'lucide-react';
 import { Button, Badge, Panel, EmptyState, Skeleton, Segmented, Tooltip } from '@/components/ui/primitives';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -10,6 +10,8 @@ import { ActivityFields, toActivityDraft, type ActivityDraft } from '@/component
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DescriptionList, DateText, StatusBadge, CategoryDot } from '@/components/common';
 import { Comments } from '@/components/Comments';
+import MoveRecordDialog, { entryHref, type MovedEntry } from '@/components/MoveRecordDialog';
+import RecordLineage from '@/components/RecordLineage';
 import { can, keys, useDeleteRecord, useIdentity, useRestoreRecord, useTrack, unitName, useOrg, useMetrics } from '@/lib/queries';
 import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
@@ -19,6 +21,7 @@ import { coachEntry } from '../../shared/writer/coach';
 import { formatDollars, formatNumber } from '../../shared/metrics';
 import { valueType } from '../../shared/constants';
 import { mapAreaToTrack, trackMeta } from '../../shared/evaluation';
+import { isDrawnFromWork } from '../../shared/recordKinds';
 import { copyToClipboard, cn, formatStamp } from '@/lib/utils';
 
 export default function RecordDetail() {
@@ -41,6 +44,7 @@ export default function RecordDetail() {
   const [style, setStyle] = useState<BulletStyle>(track === 'fitrep' ? 'fitrep' : 'jepes');
   const [editing, setEditing] = useState<ActivityDraft | null>(null);
   const [confirm, setConfirm] = useState(false);
+  const [moving, setMoving] = useState(false);
   const [aiOut, setAiOut] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const [uploading, setUploading] = useState(false);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -54,6 +58,8 @@ export default function RecordDetail() {
   const score = a ? strength(a) : 0;
   const mine = a?.user_id === identity?.user.id;
   const canEdit = a ? (mine ? !a.frozen_at : can(identity, PERMISSIONS.MANAGE_RECORDS, a.unit_id)) : false;
+  // Only its owner moves an entry to another record type; one drawn from a financial case stays tied to it (ADR-0015).
+  const canMove = Boolean(a && mine && !a.deleted_at && !a.frozen_at && !isDrawnFromWork(a.fingerprint));
 
   if (isPending) return <div className="page space-y-3"><Skeleton className="h-8 w-40" /><Skeleton className="h-40" /><Skeleton className="h-64" /></div>;
   if (error || !a) return <div className="page"><div className="card"><EmptyState title="That entry is not available" description={api.errorText(error) || 'It may have been deleted, or it is private to another Marine.'} action={<Button onClick={() => navigate('/records')}>Back to records</Button>} /></div></div>;
@@ -66,12 +72,15 @@ export default function RecordDetail() {
   };
   const copy = async () => { if (await copyToClipboard(bullet)) toast.success('Bullet copied.'); else toast.error('Could not copy.'); };
   const dollarType = valueType(a.dollar_type, cfg);
+  // After a move, or an undo, the entry lives somewhere else: go where it is now.
+  const goTo = (entry: MovedEntry) => navigate(entryHref(entry.table, entry.id));
 
   return (
     <div className="page page-narrow">
       <Link to="/record/activities" className="mb-3 inline-flex items-center gap-1 text-xs text-ink-3 hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />All records</Link>
       {a.deleted_at && <div className="mb-4 flex items-center gap-3 rounded-lg border border-warn/40 bg-warn/10 px-3 py-2 text-sm text-ink"><span className="flex-1">This entry is in the recycle bin. It is excluded from reports and will be purged after 30 days.</span><Button size="sm" onClick={() => restore.mutateAsync(id).then(() => toast.success('Restored.')).catch((e) => toast.error(api.errorText(e)))}><RotateCcw className="h-4 w-4" />Restore</Button></div>}
       {a.frozen_at && <div className="mb-4 rounded-lg border border-line bg-surface-2 px-3 py-2 text-sm text-ink-2">This entry was frozen when the unit membership ended. It stays on your record but cannot be edited.</div>}
+      <RecordLineage store="activities" id={id} onUndone={goTo} className="mb-4" />
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
           <p className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-ink-3"><span className="flex items-center gap-1.5"><CategoryDot category={a.category} />{a.category || 'Uncategorized'}</span><span>·</span><DateText value={a.date} /><span>·</span><span className="flex items-center gap-1">{a.visibility === 'unit' ? <Users className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}{a.visibility === 'unit' ? `Shared with ${unitName(identity, a.unit_id, org)}` : 'Only you'}</span>{!mine && a.owner_name && <><span>·</span><span>{a.owner_name}</span></>}</p>
@@ -79,6 +88,7 @@ export default function RecordDetail() {
         </div>
         <div className="flex flex-wrap gap-2">
           {mine && !a.deleted_at && <Button variant="ghost" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: a.title }))} title="Opens Quick Log with this entry's words, ready to change"><CopyPlus className="h-4 w-4" />Log another like this</Button>}
+          {canMove && <Button onClick={() => setMoving(true)} title="Move it to Awards or Training if that is what it really is"><ArrowRightLeft className="h-4 w-4" />Move to…</Button>}
           {canEdit && !a.deleted_at && <Button onClick={() => setEditing(toActivityDraft(a))}><Pencil className="h-4 w-4" />Edit</Button>}
           {canEdit && !a.deleted_at && <Button variant="danger" onClick={() => setConfirm(true)}><Trash2 className="h-4 w-4" />Delete</Button>}
         </div>
@@ -143,6 +153,7 @@ export default function RecordDetail() {
       <Comments table="activities" id={id} canModerate={can(identity, PERMISSIONS.MANAGE_RECORDS, a.unit_id)} />
 
       <RecordDialog<ActivityDraft> store="activities" open={Boolean(editing)} onOpenChange={(o) => { if (!o) setEditing(null); }} initial={editing} title="Edit activity" noun="Activity" size="lg" fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : null)} onSaved={() => qc.invalidateQueries({ queryKey: keys.record('activities', id) })} />
+      <MoveRecordDialog store="activities" row={canMove ? a : null} open={moving} onOpenChange={setMoving} onMoved={goTo} onUndone={goTo} />
       <ConfirmDialog open={confirm} onOpenChange={setConfirm} title="Delete this entry?" body="It moves to the recycle bin for 30 days and can be restored from this page." onConfirm={async () => { try { await remove.mutateAsync(id); toast.success('Entry deleted.', { label: 'Undo', onClick: () => restore.mutateAsync(id).then(() => { toast.success('Entry restored.'); navigate(`/records/${id}`); }).catch((e) => toast.error(api.errorText(e))) }); navigate('/records'); } catch (e) { toast.error(api.errorText(e)); } }} />
     </div>
   );

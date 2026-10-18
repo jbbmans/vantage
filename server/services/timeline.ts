@@ -23,7 +23,8 @@ const SOURCES = {
                   id, ${day('COALESCE(presented_at, approved_at, date)')} AS day, name AS title, type AS detail, status, created_at, 0 AS from_work
              FROM awards WHERE user_id = @me AND deleted_at IS NULL`,
   counselings: `SELECT 'counseling' AS kind, 'counselings' AS source, id, ${day('date')} AS day, type AS title, counselor_name AS detail,
-                       CASE WHEN acknowledged_at IS NULL THEN 'unacknowledged' ELSE 'acknowledged' END AS status, created_at, 0 AS from_work
+                       CASE WHEN counselor_id IS NULL OR counselor_id = user_id THEN NULL WHEN acknowledged_at IS NULL THEN 'unacknowledged' ELSE 'acknowledged' END AS status,
+                       created_at, 0 AS from_work
                   FROM counselings WHERE user_id = @me AND deleted_at IS NULL`,
   goals: `SELECT 'goal' AS kind, 'goals' AS source, id, ${day('COALESCE(completed_at, period_end, updated_at)')} AS day, title, category AS detail, status, created_at, 0 AS from_work
             FROM goals WHERE (user_id = @me OR assignee_id = @me) AND status = 'achieved' AND deleted_at IS NULL`,

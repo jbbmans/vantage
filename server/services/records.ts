@@ -99,7 +99,7 @@ function withSubjectNames(ctx: AppContext, viewerId: string, rows: Array<Record<
 }
 
 /** Who entered an award for the Marine it is about, for anyone reading it but its recorder (ADR-0015). */
-function withRecorderNames(ctx: AppContext, viewerId: string, rows: Array<Record<string, unknown>>) {
+export function withRecorderNames(ctx: AppContext, viewerId: string, rows: Array<Record<string, unknown>>) {
   const ids = [...new Set(rows.filter((r) => recordedByOther(r as unknown as RecordRow) && r.recorded_by !== viewerId).map((r) => String(r.recorded_by)))];
   if (!ids.length) return rows;
   const names = new Map((ctx.db.prepare(
@@ -517,7 +517,7 @@ export function destroyRecords(ctx: AppContext, table: RecordTable, ids: string[
  * as it was before. A move removes the entry it starts from, so a chain of moves and undos ends in one record only; the
  * whole chain is that record's.
  */
-function destroyLineage(ctx: AppContext, table: string, ids: string[]): number {
+export function destroyLineage(ctx: AppContext, table: string, ids: string[]): number {
   if (!isMovableTable(table)) return 0;
   const linked = ctx.db.prepare('SELECT from_table, from_id, to_table, to_id FROM record_lineage WHERE (to_table = ? AND to_id = ?) OR (from_table = ? AND from_id = ?)');
   const remove = ctx.db.prepare('DELETE FROM record_lineage WHERE (to_table = ? AND to_id = ?) OR (from_table = ? AND from_id = ?)');

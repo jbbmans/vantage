@@ -148,12 +148,12 @@ function QuickCapture() {
   const [text, setText] = useState('');
   const open = (seed: string) => { window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: seed })); setText(''); };
   return (
-    <Panel title="Quick capture" subtitle="PME, PT, volunteering, anything that did not start as a tasker">
+    <Panel title="Quick capture" subtitle="PT, volunteering, any work that did not start as a tasker">
       <form onSubmit={(e) => { e.preventDefault(); open(text); }} className="flex gap-2">
         <Input aria-label="What did you do?" placeholder="Volunteered 6 hours at the food pantry" value={text} onChange={(e) => setText(e.target.value)} />
         <Button type="submit" variant="primary" aria-label="Capture it"><Plus className="h-4 w-4" /></Button>
       </form>
-      <p className="mt-2 text-xs text-ink-3">Work you do in Vantage is recorded for you. Use this for everything else. Press <kbd className="kbd">N</kbd> anywhere.</p>
+      <p className="mt-2 text-xs text-ink-3">Work you do in Vantage is recorded for you. Courses, PME, qualifications and awards have their own records under <Link to="/career" className="text-accent underline underline-offset-2">Career</Link>. Press <kbd className="kbd">N</kbd> anywhere.</p>
     </Panel>
   );
 }

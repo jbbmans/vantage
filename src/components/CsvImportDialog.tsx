@@ -1,6 +1,7 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { FileUp, AlertTriangle } from 'lucide-react';
+import { FileUp, AlertTriangle, CheckCircle2 } from 'lucide-react';
 import { Dialog } from '@/components/ui/Dialog';
 import { Button, Badge, Select } from '@/components/ui/primitives';
 import { useToast } from '@/components/ui/toast';
@@ -9,6 +10,8 @@ import { screenImport } from '../../shared/duplicates';
 import * as api from '@/lib/api';
 import { invalidateRecords, useIdentity, useRecords } from '@/lib/queries';
 import { Table } from '@/components/common';
+
+interface ImportResult { created: number; updated: number; duplicates: number; elsewhere: number }
 
 export default function CsvImportDialog({ open, onOpenChange }: { open: boolean; onOpenChange: (o: boolean) => void }) {
   const toast = useToast();
@@ -21,6 +24,16 @@ export default function CsvImportDialog({ open, onOpenChange }: { open: boolean;
   const [skipDupes, setSkipDupes] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState('');
+  // What an import that brought in rows reading like awards or training did, kept on screen so the way to them is not lost.
+  const [done, setDone] = useState<ImportResult | null>(null);
+  const doneButton = useRef<HTMLButtonElement | null>(null);
+  useEffect(() => { if (!open) setDone(null); }, [open]);
+  // The import button that held focus is gone; the dialog would otherwise take focus back to itself after it.
+  useEffect(() => {
+    if (!done) return;
+    const t = window.setTimeout(() => doneButton.current?.focus(), 0);
+    return () => window.clearTimeout(t);
+  }, [done]);
 
   const load = async (file: File) => {
     setError('');
@@ -57,18 +70,26 @@ export default function CsvImportDialog({ open, onOpenChange }: { open: boolean;
     if (!rows.length) { toast.error('Nothing to import after screening.'); return; }
     setBusy(true);
     try {
-      const result = await api.importActivities(rows);
+      const result = await api.importActivities(rows) as ImportResult;
       invalidateRecords(qc, 'activities');
       toast.success(`Imported ${result.created} new, updated ${result.updated}${result.duplicates ? `, skipped ${result.duplicates} exact duplicates` : ''}.`);
-      onOpenChange(false); setParsed(null);
+      setParsed(null);
+      if (result.elsewhere > 0) setDone(result);
+      else onOpenChange(false);
     } catch (e) { toast.error(api.errorText(e)); }
     finally { setBusy(false); }
   };
 
   return (
     <Dialog open={open} onOpenChange={(o) => { onOpenChange(o); if (!o) { setParsed(null); setError(''); } }} title="Import activities from CSV" description="Files exported from Vantage round-trip exactly: rows with a Vantage ID update the original entry instead of duplicating it." size="lg"
-      footer={<><Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button><Button variant="primary" onClick={run} loading={busy} disabled={!preview || preview.problems.length > 0 || !parsed}>Import {preview ? preview.updates.length + (skipDupes ? preview.clean.length : preview.fresh.length) : 0} rows</Button></>}>
-      {!parsed ? (
+      footer={done ? <Button ref={doneButton} variant="primary" onClick={() => onOpenChange(false)}>Done</Button> : <><Button variant="ghost" onClick={() => onOpenChange(false)}>Cancel</Button><Button variant="primary" onClick={run} loading={busy} disabled={!preview || preview.problems.length > 0 || !parsed}>Import {preview ? preview.updates.length + (skipDupes ? preview.clean.length : preview.fresh.length) : 0} rows</Button></>}>
+      {done ? (
+        <div className="space-y-3 text-sm">
+          <p className="flex items-start gap-2 text-ink"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-good" aria-hidden />Imported {done.created} new, updated {done.updated}{done.duplicates ? `, skipped ${done.duplicates} exact duplicates` : ''}.</p>
+          <p className="text-ink-2">{done.elsewhere === 1 ? '1 row reads' : `${done.elsewhere} rows read`} like an award you received or training you completed. {done.elsewhere === 1 ? 'It is' : 'They are'} in your Activities for now. Awards and training have their own records under Career, and you can move {done.elsewhere === 1 ? 'it' : 'each one'} there from Activities.</p>
+          <Link to="/record/activities" onClick={() => onOpenChange(false)} className="inline-flex text-sm font-medium text-accent hover:underline">Review {done.elsewhere === 1 ? 'it' : 'them'} in Activities</Link>
+        </div>
+      ) : !parsed ? (
         <label className="flex cursor-pointer flex-col items-center justify-center gap-2 rounded-lg border-2 border-dashed border-line px-4 py-10 text-center transition-colors hover:border-accent hover:bg-accent-soft/30" onDragOver={(e) => e.preventDefault()} onDrop={(e) => { e.preventDefault(); const f = e.dataTransfer.files[0]; if (f) load(f); }}>
           <FileUp className="h-6 w-6 text-ink-3" />
           <span className="text-sm font-medium text-ink">Drop a .csv or .tsv here, or click to choose</span>
