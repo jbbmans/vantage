@@ -13,6 +13,7 @@ import { featureOn } from '../services/instanceFlags.ts';
 import { infrastructureBodyProblem } from '../../shared/dataTransfer.ts';
 import { goalContributors } from '../services/goals.ts';
 import { listComments, addComment, editComment, deleteComment } from '../services/comments.ts';
+import { moveRecord, undoMove, recordLineage, keepAsActivity } from '../services/recordMoves.ts';
 import { newId, now } from '../lib/ids.ts';
 import { statSync } from 'node:fs';
 
@@ -89,6 +90,24 @@ recordsRouter.post('/:table/:id/restore', wrap((req, res) => {
   const table = tableParam(req);
   res.json(restoreRecord(req.ctx, req.user, table, String(req.params.id), req, clientIp(req)));
 }));
+
+// Moving an entry to the record type it belongs in, and back (ADR-0015). Its owner's alone.
+recordsRouter.post('/:table/:id/move', wrap((req, res) => {
+  const table = tableParam(req);
+  res.status(201).json(moveRecord(req.ctx, req.user, table, String(req.params.id), req.body, req, clientIp(req)));
+}));
+
+recordsRouter.post('/:table/:id/undo-move', wrap((req, res) => {
+  const table = tableParam(req);
+  res.json(undoMove(req.ctx, req.user, table, String(req.params.id), req, clientIp(req)));
+}));
+
+recordsRouter.get('/:table/:id/lineage', wrap((req, res) => {
+  const table = tableParam(req);
+  res.json(recordLineage(req.ctx, req.user, table, String(req.params.id), req));
+}));
+
+recordsRouter.post('/activities/:id/keep', wrap((req, res) => res.json(keepAsActivity(req.ctx, req.user, String(req.params.id)))));
 
 recordsRouter.post('/counselings/:id/acknowledge', wrap((req, res) => {
   const row = getRecord(req.ctx, 'counselings', String(req.params.id));

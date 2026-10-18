@@ -72,6 +72,8 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   const drafts = db.prepare('SELECT * FROM record_drafts WHERE user_id = ? ORDER BY created_at').all(userId) as Row[];
   const careerSteps = db.prepare('SELECT * FROM career_steps WHERE user_id = ? ORDER BY created_at').all(userId) as Row[];
   const careerProfile = db.prepare('SELECT * FROM career_profiles WHERE user_id = ?').get(userId) as Row | undefined;
+  // Their entries' moves between record types, with what each said before (ADR-0015).
+  const lineage = db.prepare('SELECT * FROM record_lineage WHERE user_id = ? ORDER BY at').all(userId) as Row[];
 
   const counts = Object.fromEntries(Object.entries(records).map(([t, rows]) => [t, rows.length]));
   return {
@@ -82,9 +84,9 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
     records,
     attachments: attachmentRows,
     notifications, comments: commentRows, audit_trail: auditTrail, ai_usage: aiUsage, email_log: emails, maradmin_state: maradminState,
-    contributions, drafts, career: { profile: careerProfile || null, steps: careerSteps },
+    contributions, drafts, career: { profile: careerProfile || null, steps: careerSteps }, record_moves: lineage,
     security: { passkeys, sessions, authenticator_enabled: Boolean(user.totp_enabled) },
-    counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, comments: commentRows.length, audit_trail: auditTrail.length, contributions: contributions.length, drafts: drafts.length, career_steps: careerSteps.length },
+    counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, comments: commentRows.length, audit_trail: auditTrail.length, contributions: contributions.length, drafts: drafts.length, career_steps: careerSteps.length, record_moves: lineage.length },
     _files: attachmentFiles,
   };
 }
@@ -127,6 +129,7 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string): { buffe
   entries.push({ name: 'contributions.csv', data: rowsToCsv(archive.contributions.map(flat)) });
   entries.push({ name: 'drafts.csv', data: rowsToCsv(archive.drafts.map(flat)) });
   entries.push({ name: 'career-steps.csv', data: rowsToCsv(archive.career.steps.map(flat)) });
+  entries.push({ name: 'record-moves.csv', data: rowsToCsv(archive.record_moves.map(flat)) });
   for (const f of _files) entries.push({ name: `attachments/${safeName(String(f.record_table))}-${String(f.id).slice(0, 8)}-${safeName(String(f.original_name))}`, data: f.content as Buffer, modified: new Date(String(f.created_at)) });
   return { buffer: buildZip(entries), filename: `vantage-${safeName(String(archive.profile.username))}-${stamp}.zip`, counts: archive.counts };
 }

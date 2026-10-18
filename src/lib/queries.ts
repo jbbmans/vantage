@@ -11,6 +11,7 @@ import type { MetricTotal } from '../../shared/metricEngine.ts';
 import type { OrgSummary } from './tenancy.ts';
 import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
 import type { RecordRows } from '../../shared/types';
+import type { LineageResponse, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
 
 export const queryClient = new QueryClient({
   defaultOptions: {
@@ -111,11 +112,11 @@ const FIGURES: ReadonlyArray<readonly unknown[]> = [
 ];
 
 const AFFECTS: Record<Domain, ReadonlyArray<readonly unknown[]>> = {
-  activity: [['records', 'activities'], ['record', 'activities'], ...FIGURES],
-  training: [['records', 'trainings'], ['record', 'trainings'], ...FIGURES, ['career'], ['readiness']],
-  award: [['records', 'awards'], ['record', 'awards'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career']],
-  counseling: [['records', 'counselings'], ['record', 'counselings'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career']],
-  goal: [['records', 'goals'], ['record', 'goals'], ['goal-contributors'], ['dashboard'], ['report'], ['delta']],
+  activity: [['records', 'activities'], ['record', 'activities'], ...FIGURES, ['record-timeline'], ['move-candidates']],
+  training: [['records', 'trainings'], ['record', 'trainings'], ...FIGURES, ['career'], ['readiness'], ['record-timeline']],
+  award: [['records', 'awards'], ['record', 'awards'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline']],
+  counseling: [['records', 'counselings'], ['record', 'counselings'], ['report'], ['delta'], ['analysis'], ['dashboard'], ['career'], ['record-timeline']],
+  goal: [['records', 'goals'], ['record', 'goals'], ['goal-contributors'], ['dashboard'], ['report'], ['delta'], ['record-timeline']],
   task: [['records', 'tasks'], ['record', 'tasks'], ['dashboard'], ['project-work']],
   project: [['records', 'projects'], ['record', 'projects'], ['records', 'tasks'], ['records', 'activities'], ['project-work'], ['work-items'], ['dashboard']],
   work: [['work-items'], ['record-summary'], ['record-assigned'], ['record-contributions'], ['workload'], ['notifications'], ['project-work'], ['item-threads']],
@@ -159,6 +160,29 @@ export function useRestoreRecord(store: Store) {
   const qc = useQueryClient();
   return useMutation({ mutationFn: (id: string) => api.restoreRecord(store, id), onSuccess: () => invalidateRecords(qc, store) });
 }
+
+// Moving an entry between record types (ADR-0015): both ends, and the entry's history, change.
+const invalidateMove = (qc: QueryClient, from: MovableTable, to: MovableTable) => {
+  invalidateDomains(qc, STORE_DOMAIN[from], STORE_DOMAIN[to]);
+  qc.invalidateQueries({ queryKey: ['record-lineage'] });
+  qc.invalidateQueries({ queryKey: ['move-candidates'] });
+};
+export function useMoveRecord(store: MovableTable) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: ({ id, ...body }: { id: string; to: MovableTable; fields?: Record<string, unknown>; reason?: string | null; version?: number }) => api.moveRecord(store, id, body), onSuccess: (r) => invalidateMove(qc, store, r.table) });
+}
+export function useUndoMove(store: MovableTable) {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => api.undoMove(store, id), onSuccess: (r) => invalidateMove(qc, store, r.table) });
+}
+export function useKeepAsActivity() {
+  const qc = useQueryClient();
+  return useMutation({ mutationFn: (id: string) => api.keepAsActivity(id), onSuccess: () => qc.invalidateQueries({ queryKey: ['move-candidates'] }) });
+}
+export const useRecordLineage = (store: MovableTable, id: string | null, enabled = true) =>
+  useQuery<LineageResponse>({ queryKey: ['record-lineage', store, id], queryFn: () => api.recordLineage(store, id!), enabled: Boolean(id) && enabled });
+export const useMoveCandidates = (enabled = true) => useQuery<MoveCandidatesResponse>({ queryKey: ['move-candidates'], queryFn: api.moveCandidates, staleTime: 30_000, enabled });
+export const useRecordTimeline = (params: Record<string, string | undefined> = {}) => useQuery<TimelineResponse>({ queryKey: ['record-timeline', params], queryFn: () => api.recordTimeline(params) });
 
 export function usePrefs(): Prefs {
   const { data } = useIdentity();

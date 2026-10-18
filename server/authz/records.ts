@@ -2,7 +2,10 @@ import type { AppContext } from '../context.ts';
 import { PERMISSIONS, can, isMember, assertSameInstance, type Scope } from './scope.ts';
 import { badRequest, forbidden } from '../lib/errors.ts';
 
-export interface RecordRow { id: string; user_id: string; unit_id: string | null; visibility: string; frozen_at?: string | null; counselor_id?: string | null; assignee_id?: string | null; acknowledged_at?: string | null }
+export interface RecordRow { id: string; user_id: string; unit_id: string | null; visibility: string; frozen_at?: string | null; counselor_id?: string | null; assignee_id?: string | null; acknowledged_at?: string | null; recorded_by?: string | null }
+
+/** An award somebody entered for the Marine it is about: a leader's recommendation (ADR-0015). */
+export const recordedByOther = (row: RecordRow) => Boolean(row.recorded_by && row.recorded_by !== row.user_id);
 
 /** SQL fragment restricting a record table to rows the caller may read. */
 export function readableClause(ctx: AppContext, scope: Scope, userId: string, alias = 't', opts: { memberReadable?: boolean; counselor?: boolean; assignee?: boolean } = {}) {
@@ -30,6 +33,12 @@ export function canEdit(scope: Scope, userId: string, row: RecordRow): boolean {
   if (row.frozen_at) return false;
   if (row.counselor_id && row.counselor_id !== row.user_id && row.acknowledged_at) return false;
   if (row.counselor_id && row.counselor_id !== row.user_id && row.user_id === userId) return false;
+  // A recommendation is its recorder's and the chain's to change, never its subject's: a Marine does not mark their own
+  // award approved (ADR-0015). Its recorder may, while they still counsel in its unit.
+  if (recordedByOther(row)) {
+    if (row.user_id === userId) return false;
+    if (row.recorded_by === userId && row.unit_id && can(scope, PERMISSIONS.COUNSEL, row.unit_id)) return true;
+  }
   if (row.user_id === userId) return row.visibility === 'private' || !row.unit_id || isMember(scope, row.unit_id);
   if (row.counselor_id && row.counselor_id === userId) return true;
   if (row.visibility !== 'unit' || !row.unit_id) return false;

@@ -278,6 +278,19 @@ const MIGRATIONS: Migration[] = [
     // the upgrade, backup and restore records it is tracked by live in meta.
     run: () => {},
   },
+  {
+    id: 23,
+    name: '023_record_lineage',
+    // Each record type keeps its own records, and an entry its owner moves between them keeps its lineage (ADR-0015). The
+    // lineage table comes from schema.sql. An award keeps who entered it, so a leader's recommendation is no longer its
+    // subject's to change. Nothing already in Activities moves: each owner moves what they choose (John's decision of
+    // 2026-10-17), so no row is removed and the migration declares nothing it reshapes.
+    run: (db) => {
+      if (!columnsOf(db, 'awards').has('recorded_by')) db.exec('ALTER TABLE awards ADD COLUMN recorded_by TEXT REFERENCES users(id)');
+      if (!columnsOf(db, 'activities').has('kind_confirmed_at')) db.exec('ALTER TABLE activities ADD COLUMN kind_confirmed_at TEXT');
+      backfillAwardRecorders(db);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
@@ -599,6 +612,18 @@ export function openMissingMembershipPeriods(db: Db): number {
   return db.prepare(`INSERT INTO unit_membership_periods (user_id, unit_id, billet, is_primary, started_at, start_reason, started_by)
     SELECT um.user_id, um.unit_id, um.billet, um.is_primary, um.joined_at, 'recorded', um.invited_by FROM unit_members um
      WHERE NOT EXISTS (SELECT 1 FROM unit_membership_periods p WHERE p.user_id = um.user_id AND p.unit_id = um.unit_id AND p.ended_at IS NULL)`).run().changes;
+}
+
+/**
+ * Who entered each award that does not say yet: the actor of its create entry in the audit trail, which for a leader's
+ * recommendation is the leader (subject_id names the Marine). An award no entry names, seeded or imported without one,
+ * is taken as its owner's own (ADR-0015). Run by migration 023 and by an archive import from before it.
+ */
+export function backfillAwardRecorders(db: Db) {
+  return db.prepare(`UPDATE awards SET recorded_by = COALESCE((
+      SELECT a.actor_id FROM audit_log a JOIN users u ON u.id = a.actor_id
+       WHERE a.action = 'create' AND a.entity = 'awards' AND a.entity_id = awards.id ORDER BY a.seq LIMIT 1), user_id)
+    WHERE recorded_by IS NULL`).run().changes;
 }
 
 /** The record types that take attachments, each with the unit its row sits in. */

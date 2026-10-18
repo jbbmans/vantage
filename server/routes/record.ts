@@ -8,6 +8,8 @@ import {
 } from '../services/record.ts';
 import { careerProfileSchema, careerStepSchema } from '../../shared/recordSchemas.ts';
 import { zoneOf } from '../lib/zone.ts';
+import { recordTimeline } from '../services/timeline.ts';
+import { moveCandidates } from '../services/recordMoves.ts';
 
 export const recordRouter = Router();
 recordRouter.use(requireAuth);
@@ -24,6 +26,11 @@ recordRouter.get('/contributions', wrap((req, res) => {
   const scope = scopeFor(req.ctx, req.user, req);
   res.json(contributionHistory(req.ctx, req.user, scope, parseWindow(zoneOf(req.ctx, req.user), req.query as Record<string, unknown>)));
 }));
+
+recordRouter.get('/timeline', wrap((req, res) => res.json(recordTimeline(req.ctx, req.user, req.query as Record<string, unknown>))));
+
+// Activities that read like an award received or training completed, for their owner to move or keep (ADR-0015).
+recordRouter.get('/move-candidates', wrap((req, res) => res.json(moveCandidates(req.ctx, req.user))));
 
 recordRouter.get('/drafts', wrap((req, res) => res.json(listDrafts(req.ctx, req.user))));
 recordRouter.post('/drafts/from-work', wrap((req, res) => {

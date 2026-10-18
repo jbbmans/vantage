@@ -3,9 +3,10 @@ import type { AppContext, SessionUser } from '../context.ts';
 import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
 import { withTypedProgress, validateTypedGoal } from './goals.ts';
 import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor, assertSameInstance, sameInstance, orgOfUnit } from '../authz/scope.ts';
-import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject } from '../authz/records.ts';
+import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject, recordedByOther } from '../authz/records.ts';
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
 import { valueType } from '../../shared/constants.ts';
+import { isMovableTable, recordKindOf } from '../../shared/recordKinds.ts';
 
 /** A goal that measures a whole unit reads its members' shared entries, so setting one takes the right to view them. */
 function unitMeasureAllowed(scope: Scope, unitId: string | null | undefined) {
@@ -82,6 +83,7 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   const hydrated = rows.map((r) => hydrate(r, table)!);
   if (table === 'counselings') return withSubjectNames(ctx, user.id, hydrated);
   if (table === 'tasks') return withTaskPeople(ctx, user.id, hydrated);
+  if (table === 'awards') return withRecorderNames(ctx, user.id, hydrated);
   return table === 'goals' ? withGoalProgress(ctx, hydrated as never) : hydrated;
 }
 
@@ -94,6 +96,16 @@ function withSubjectNames(ctx: AppContext, viewerId: string, rows: Array<Record<
   ).all(...ids) as Array<{ id: string; first_name: string; last_name: string; abbr: string | null }>)
     .map((u) => [u.id, `${u.abbr ? `${u.abbr} ` : ''}${u.last_name}, ${u.first_name}`]));
   return rows.map((r) => (r.user_id !== viewerId && names.has(String(r.user_id)) ? { ...r, subject_name: names.get(String(r.user_id)) } : r));
+}
+
+/** Who entered an award for the Marine it is about, for anyone reading it but its recorder (ADR-0015). */
+function withRecorderNames(ctx: AppContext, viewerId: string, rows: Array<Record<string, unknown>>) {
+  const ids = [...new Set(rows.filter((r) => recordedByOther(r as unknown as RecordRow) && r.recorded_by !== viewerId).map((r) => String(r.recorded_by)))];
+  if (!ids.length) return rows;
+  const names = new Map((ctx.db.prepare(
+    `SELECT u.id, u.last_name, r.abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id IN (${ids.map(() => '?').join(',')})`
+  ).all(...ids) as Array<{ id: string; last_name: string; abbr: string | null }>).map((u) => [u.id, `${u.abbr ? `${u.abbr} ` : ''}${u.last_name}`]));
+  return rows.map((r) => (names.has(String(r.recorded_by)) && r.recorded_by !== viewerId ? { ...r, recorder_name: names.get(String(r.recorded_by)) } : r));
 }
 
 /**
@@ -271,6 +283,8 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const cols = ['id', 'user_id', 'unit_id', 'visibility', 'created_at', 'updated_at'];
   const vals: unknown[] = [id, ownerId, unitId, visibility, now(), now()];
   if (table === 'counselings') { cols.push('counselor_id'); vals.push(counselorId); }
+  // An award keeps who entered it: its owner, or the leader recommending them (ADR-0015).
+  if (table === 'awards') { cols.push('recorded_by'); vals.push(user.id); }
   if (table === 'activities') { cols.push('fingerprint'); vals.push(activityFingerprint(ownerId, data as never)); }
   for (const f of spec.fields) {
     if (data[f] === undefined) continue;
@@ -370,7 +384,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     throw error;
   }
   const amended = table === 'counselings' ? changedFields(spec, row as Record<string, unknown>, data, scopeChanged, finalUnit, finalVisibility) : undefined;
-  auditEdit(ctx, { actorId: user.id, table, id, subjectId: row.user_id !== user.id ? row.user_id : null, from: row.unit_id, to: finalUnit, how: row.user_id === user.id ? 'author edit' : row.counselor_id === user.id ? 'counselor edit' : 'manager edit', ip, amended });
+  auditEdit(ctx, { actorId: user.id, table, id, subjectId: row.user_id !== user.id ? row.user_id : null, from: row.unit_id, to: finalUnit, how: row.user_id === user.id ? 'author edit' : row.counselor_id === user.id ? 'counselor edit' : recordedByOther(row) && row.recorded_by === user.id ? 'recorder edit' : 'manager edit', ip, amended });
   if (spec.assignee && data.assignee_id && data.assignee_id !== row.assignee_id && data.assignee_id !== user.id) {
     notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || row.title || ''), actionUrl: `/records/${table}/${id}`, dedupeKey: `${table}:${id}:assigned:${data.assignee_id}` });
   }
@@ -449,6 +463,9 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
   if (capacity) throw new HttpError(507, capacity, 'record_quota');
   const spec = TABLES.activities;
   let created = 0; let updated = 0; const duplicates: number[] = [];
+  // Rows that read like an award received or training completed are imported as activities, as asked, and counted, so
+  // the person can move them to their own records from Activities (ADR-0015). Semantic import is Task 13's.
+  const elsewhere = planned.filter((p) => recordKindOf([p.data.title, p.data.result].filter(Boolean).join('. '))).length;
   ctx.db.transaction(() => {
     planned.forEach((p, i) => {
       if (p.id) {
@@ -472,7 +489,7 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
     });
   })();
   audit(ctx, { actor_id: user.id, action: 'import', entity: 'activities', detail: `${created} created, ${updated} updated, ${duplicates.length} duplicates skipped`, ip });
-  return { created, updated, duplicates: duplicates.length, duplicateRows: duplicates };
+  return { created, updated, duplicates: duplicates.length, duplicateRows: duplicates, elsewhere };
 }
 
 /**
@@ -483,6 +500,7 @@ export function destroyRecords(ctx: AppContext, table: RecordTable, ids: string[
   if (!ids.length) return { records: 0, attachments: 0, comments: 0 };
   const list = JSON.stringify(ids);
   const each = 'IN (SELECT value FROM json_each(?))';
+  destroyLineage(ctx, table, ids);
   const attachments = ctx.db.prepare(`DELETE FROM attachments WHERE record_table = ? AND record_id ${each}`).run(table, list).changes;
   const comments = ctx.db.prepare(`DELETE FROM comments WHERE record_table = ? AND record_id ${each}`).run(table, list).changes;
   if (table === 'activities') {
@@ -492,6 +510,31 @@ export function destroyRecords(ctx: AppContext, table: RecordTable, ids: string[
   if (table === 'projects') for (const linked of ['tasks', 'activities', 'work_items']) ctx.db.prepare(`UPDATE ${linked} SET project_id = NULL WHERE project_id ${each}`).run(list);
   const records = ctx.db.prepare(`DELETE FROM ${table} WHERE id ${each}`).run(list).changes;
   return { records, attachments, comments };
+}
+
+/**
+ * The lineage of records being destroyed goes with them (ADR-0015): every move that led to one, each holding the entry
+ * as it was before. A move removes the entry it starts from, so a chain of moves and undos ends in one record only; the
+ * whole chain is that record's.
+ */
+function destroyLineage(ctx: AppContext, table: string, ids: string[]): number {
+  if (!isMovableTable(table)) return 0;
+  const linked = ctx.db.prepare('SELECT from_table, from_id, to_table, to_id FROM record_lineage WHERE (to_table = ? AND to_id = ?) OR (from_table = ? AND from_id = ?)');
+  const remove = ctx.db.prepare('DELETE FROM record_lineage WHERE (to_table = ? AND to_id = ?) OR (from_table = ? AND from_id = ?)');
+  const seen = new Set<string>();
+  let frontier: Array<[string, string]> = ids.map((id) => [table, id]);
+  let removed = 0;
+  while (frontier.length) {
+    const next: Array<[string, string]> = [];
+    for (const [t, id] of frontier) {
+      if (seen.has(`${t}:${id}`)) continue;
+      seen.add(`${t}:${id}`);
+      for (const r of linked.all(t, id, t, id) as Array<{ from_table: string; from_id: string; to_table: string; to_id: string }>) next.push([r.from_table, r.from_id], [r.to_table, r.to_id]);
+      removed += remove.run(t, id, t, id).changes;
+    }
+    frontier = next;
+  }
+  return removed;
 }
 
 export function purgeDeleted(ctx: AppContext, days = 30): { records: number; attachments: number; comments: number; held: number; blocked: boolean } {

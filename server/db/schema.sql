@@ -210,6 +210,8 @@ CREATE TABLE IF NOT EXISTS activities (
   notes          TEXT,
   evidence_links TEXT NOT NULL DEFAULT '[]',
   fingerprint    TEXT,
+  -- When its owner said this entry is work they did, though it reads like an award or a course (ADR-0015).
+  kind_confirmed_at TEXT,
   version        INTEGER NOT NULL DEFAULT 1,
   frozen_at      TEXT,
   deleted_at     TEXT,
@@ -330,6 +332,9 @@ CREATE TABLE IF NOT EXISTS awards (
   submitted_at          TEXT,
   approved_at           TEXT,
   presented_at          TEXT,
+  -- Who entered it: the person, or the leader who recommended them. A recommendation is its recorder's and the chain's
+  -- to change, not its subject's (ADR-0015). 023 fills older rows from their create entry, else the person themselves.
+  recorded_by           TEXT REFERENCES users(id),
   version               INTEGER NOT NULL DEFAULT 1,
   frozen_at             TEXT,
   deleted_at            TEXT,
@@ -1020,6 +1025,28 @@ CREATE TABLE IF NOT EXISTS record_drafts (
   updated_at     TEXT NOT NULL
 );
 CREATE INDEX IF NOT EXISTS idx_record_drafts_user ON record_drafts(user_id, updated_at DESC);
+
+-- An entry its owner moved from one record type to another (ADR-0015): an activity that was an award or a course, or
+-- back. The row as it stood before the move is kept whole in snapshot, so nothing the new type has no field for is lost,
+-- and an undo puts it back exactly. Its rows go when the record they lead to is destroyed.
+CREATE TABLE IF NOT EXISTS record_lineage (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id),
+  -- The unit the entry sat in when it moved, so the move is in that Unit Instance's trail and archive.
+  unit_id     TEXT REFERENCES units(id),
+  from_table  TEXT NOT NULL CHECK (from_table IN ('activities', 'awards', 'trainings')),
+  from_id     TEXT NOT NULL,
+  to_table    TEXT NOT NULL CHECK (to_table IN ('activities', 'awards', 'trainings')),
+  to_id       TEXT NOT NULL,
+  snapshot    TEXT NOT NULL,
+  method      TEXT NOT NULL CHECK (method IN ('move', 'undo')),
+  reason      TEXT,
+  moved_by    TEXT NOT NULL REFERENCES users(id),
+  at          TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_record_lineage_to ON record_lineage(to_table, to_id, at);
+CREATE INDEX IF NOT EXISTS idx_record_lineage_from ON record_lineage(from_table, from_id);
+CREATE INDEX IF NOT EXISTS idx_record_lineage_user ON record_lineage(user_id, at);
 
 CREATE TABLE IF NOT EXISTS career_steps (
   id              TEXT PRIMARY KEY,
