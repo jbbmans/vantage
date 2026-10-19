@@ -1,6 +1,6 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, request as playwrightRequest, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { ensureSetup, loginAs, registerAs, unique, OPERATOR } from './fixtures';
+import { ensureSetup, joinUnit, loginAs, registerAs, unique, OPERATOR, PASSWORD } from './fixtures';
 
 // Task 10 (ADR-0016): the specification's UX definition of done, walked as a new Marine and as a unit leader would.
 
@@ -80,6 +80,28 @@ test('a unit leader finds the Marines they lead and the unit鈥檚 figures, each w
   await expect(page.getByRole('main').locator('.eyebrow').first()).toHaveText(/^Personnel 路 /);
 });
 
+test('a page the unit view does not include keeps the name it was asked for, and says so', async ({ page }) => {
+  // A plain member of G8 sees its overview, not its roster or roles; a link to either still names that page.
+  await signUp(page, 'member');
+  const leader = await playwrightRequest.newContext({ baseURL: page.url().replace(/^(https?:\/\/[^/]+).*$/, '$1') });
+  expect((await leader.post('/api/auth/login', { headers: { 'x-vantage-client': '1' }, data: { username: OPERATOR.username, password: PASSWORD } })).ok()).toBeTruthy();
+  await joinUnit(leader, page.request);
+  await leader.dispose();
+
+  const asked: Array<[string, string, string]> = [['/team/roster', 'Personnel', 'Roster'], ['/team/roles', 'Administration', 'Roles']];
+  for (const [path, group, heading] of asked) {
+    await page.goto(path);
+    await expect(page.getByRole('heading', { name: heading, level: 1 }), path).toBeVisible();
+    await expect(page.getByRole('main').locator('.eyebrow').first(), path).toHaveText(new RegExp(`^${group} 路 `));
+    await expect(page, path).toHaveTitle(`${heading} 路 ${group} 路 Vantage`);
+    await expect(page.getByText(/^Not part of the .+ view$/), path).toBeVisible();
+  }
+  await page.getByRole('link', { name: 'Open the overview' }).click();
+  await expect(page).toHaveURL(/\/team$/);
+  await expect(page.getByRole('main').locator('.eyebrow').first()).toHaveText(/^Personnel/);
+  await expect(page.getByText(/^Not part of the .+ view$/)).toHaveCount(0);
+});
+
 test('importing and exporting are named for what moves, on their pages and in 鈱楰', async ({ page }) => {
   await signUp(page, 'porter');
   const palette = async (text: string) => {
@@ -107,6 +129,13 @@ test('importing and exporting are named for what moves, on their pages and in 鈱
   await expect(wizard).toBeHidden();
   await expect(page).toHaveURL(/\/work\/queue$/);
   await expect(page.getByRole('button', { name: 'Import work' }).first()).toBeVisible();
+  // From 鈱楰 while already on the queue, and Back closes it again.
+  await palette('import');
+  await page.getByRole('option', { name: /Import work/ }).click();
+  await expect(wizard).toBeVisible();
+  await page.goBack();
+  await expect(page).toHaveURL(/\/work\/queue$/);
+  await expect(wizard).toBeHidden();
 
   await palette('export');
   await expect(page.getByRole('option', { name: /Export my record as a PDF/ })).toBeVisible();

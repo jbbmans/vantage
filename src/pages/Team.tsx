@@ -72,16 +72,20 @@ export default function Team({ section }: { section: TeamSection }) {
   // Somebody with no unit who follows a link here is told so, under the name of the page they asked for.
   if (!views.length) return <div className="page"><PageHeader eyebrow={groupFor(SECTION_PATHS[section])?.label} title={section === 'overview' ? 'Personnel' : SECTION_LABELS[section]} /><div className="card"><EmptyState icon={Users} title="No unit visibility yet" description="These pages show the Marines, figures and administration of units where you hold a leadership role. Ask your unit leader for a role." /></div></div>;
   // The overview is headed by the unit it shows; every other section by its own name, with the group and the unit above it.
-  const group = groupFor(SECTION_PATHS[shown])?.label;
+  // A section this view does not offer keeps the name it was asked for, as the menu and the address do, and says so.
+  const missing = shown !== section;
+  const group = groupFor(SECTION_PATHS[section])?.label;
   const where = viewLabel(view) || unitLabel(unit);
 
   return (
     <div className="page">
-      <PageHeader eyebrow={shown === 'overview' ? `${group}${view && subtree.length > 1 ? ' · whole command' : ''}` : `${group} · ${where}${view && subtree.length > 1 ? ', whole command' : ''}`} title={shown === 'overview' ? where || 'Personnel' : SECTION_LABELS[shown]} lede={SECTION_LEDES[shown] ?? (full ? 'The work and people of this view. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.' : 'Who is in this view, how its teams are doing, and the goals it is working toward. Figures built from fewer than three people are not shown.')}>
+      <PageHeader eyebrow={section === 'overview' ? `${group}${view && subtree.length > 1 ? ' · whole command' : ''}` : `${group} · ${where}${view && subtree.length > 1 ? ', whole command' : ''}`} title={section === 'overview' ? where || 'Personnel' : SECTION_LABELS[section]} lede={missing ? undefined : SECTION_LEDES[shown] ?? (full ? 'The work and people of this view. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.' : 'Who is in this view, how its teams are doing, and the goals it is working toward. Figures built from fewer than three people are not shown.')}>
         {leads.includes(unit) && <Button onClick={() => setMessaging(true)}><Send className="h-4 w-4" />Email the team</Button>}
         {views.length > 1 && <Select aria-label="View" className="w-64" value={unit} onValueChange={setView} options={views.map((v) => ({ value: v.id, label: `${'\u2003'.repeat(v.depth)}${v.short_name || v.name}${v.teams ? ' (whole command)' : ''}` }))} />}
       </PageHeader>
-      {isPending ? <Skeleton className="h-64" /> : (
+      {isPending ? <Skeleton className="h-64" /> : missing ? (
+        <div className="card"><EmptyState icon={Users} title={`Not part of the ${where} view`} description={views.length > 1 ? `Pick a view above that includes ${SECTION_LABELS[section]}, or open the overview of this one.` : `Your role in ${where} does not include ${SECTION_LABELS[section]}. The overview shows what it does include.`} action={<Button asChild><Link to="/team">Open the overview</Link></Button>} /></div>
+      ) : (
         <>
           {shown === 'overview' && unit && <UnitOverviewPanel key={unit} unitId={unit} />}
           {shown === 'workload' && unit && <Suspense fallback={<Skeleton className="h-64" />}><TeamWorkload unitId={unit} /></Suspense>}

@@ -75,11 +75,11 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [cursor, setCursor] = useState(0);
   const openItem = useCallback((id: string) => navigate(`/work/items/${id}`), [navigate]);
-  // ?import=1 (⌘K's "Import work") opens the import, on arrival or while already here; closing it takes only that mark
-  // off the address, so the queue's own filters stay.
+  // ?import=1 (⌘K's "Import work") opens the import, on arrival or while already here, and Back, which takes the mark
+  // away, closes it. Closing it takes only that mark off the address, so the queue's own filters stay.
   const [importing, setImportingState] = useState(() => searchParams.get('import') === '1');
   const askedToImport = searchParams.get('import') === '1';
-  useEffect(() => { if (askedToImport) setImportingState(true); }, [askedToImport]);
+  useEffect(() => { setImportingState(askedToImport); }, [askedToImport]);
   const setImporting = useCallback((open: boolean) => {
     setImportingState(open);
     if (!open) setSearchParams((p) => { if (!p.has('import')) return p; const n = new URLSearchParams(p); n.delete('import'); return n; }, { replace: true });
