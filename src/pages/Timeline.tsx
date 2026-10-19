@@ -56,6 +56,8 @@ export default function Timeline() {
   // The kind goes to the server, so a kind with few entries shows its own newest rather than those among everything's newest.
   const params = useMemo(() => ({ ...(backwards ? { from } : { from: from || undefined, to: to || undefined }), kind: kind === 'all' ? undefined : kind }), [from, to, backwards, kind]);
   const timeline = useRecordTimeline(params);
+  // While another kind is on its way, the last answer still counts every kind for the filters, but its entries are not this kind's.
+  const switching = timeline.data ? (timeline.data.kind ?? 'all') !== kind : false;
   // One change to the address for several filters: two in a row would each start from the same address, and the second win.
   const clear = (...names: string[]) => setParams((p) => { const n = new URLSearchParams(p); names.forEach((k) => n.delete(k)); return n; }, { replace: true });
 
@@ -73,7 +75,7 @@ export default function Timeline() {
             {(from || to) && <Button variant="ghost" onClick={() => clear('from', 'to')}>Clear dates</Button>}
             {timeline.data && <Pending kinds={timeline.data.pending} />}
           </div>
-          {timeline.isPending ? <div className="space-y-2">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-14" />)}</div>
+          {timeline.isPending || switching ? <div className="space-y-2">{[0, 1, 2, 3].map((i) => <Skeleton key={i} className="h-14" />)}</div>
             : backwards ? <div className="card"><EmptyState icon={CalendarRange} title="Those dates are the wrong way round" description="The start is after the end. Change one of them to see your timeline." /></div>
               : <Entries data={timeline.data} kind={kind} dated={Boolean(from || to)} onClear={() => clear('kind', 'from', 'to')} />}
         </>

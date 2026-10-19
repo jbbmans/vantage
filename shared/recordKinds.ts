@@ -215,7 +215,7 @@ export interface TimelineItem {
   kind: string; table: 'activities' | 'trainings' | 'awards' | 'counselings' | 'goals'; id: string; date: string; title: string;
   detail: string | null; status: string | null; from_work: boolean; href: string;
 }
-export interface TimelineResponse { items: TimelineItem[]; counts: Record<string, number>; total: number; truncated: boolean; pending: Array<{ key: string; label: string; plannedIn: string | null }> }
+export interface TimelineResponse { items: TimelineItem[]; kind: string | null; counts: Record<string, number>; total: number; truncated: boolean; pending: Array<{ key: string; label: string; plannedIn: string | null }> }
 
 /** GET /api/record/move-candidates: an activity that reads like an award received or training completed. */
 export interface MoveCandidate { id: string; title: string; date: string | null; result: string | null; reading: KindReading; to: MovableTable }

@@ -219,7 +219,7 @@ test('an owner moves an activity to Awards: fields map, it takes a new id, its f
   assert.equal(lineage.id, moved.body.lineage_id);
   assert.deepEqual({ ...lineage, snapshot: undefined, at: undefined }, {
     id: moved.body.lineage_id, user_id: rivera.id, unit_id: 'G8', from_table: 'activities', from_id: source.id, to_table: 'awards', to_id: award.id,
-    snapshot: undefined, method: 'move', reason: 'This was my NAM, not work I did.', moved_by: rivera.id, at: undefined,
+    snapshot: undefined, method: 'move', reason: 'This was my NAM, not work I did.', moved_by: rivera.id, at: undefined, kept_for_hold_at: null,
   });
   const snapshot = JSON.parse(lineage.snapshot);
   assert.equal(snapshot.id, source.id);
@@ -753,7 +753,7 @@ test('023 keeps who entered each award, from its create entry or else its owner,
     assert.equal((db.prepare('SELECT COUNT(*) AS n FROM trainings').get() as { n: number }).n, 0);
     assert.equal((db.prepare('SELECT COUNT(*) AS n FROM record_lineage').get() as { n: number }).n, 0);
     const lineageColumns = (db.prepare('PRAGMA table_info(record_lineage)').all() as Array<{ name: string }>).map((c) => c.name);
-    assert.deepEqual(lineageColumns, ['id', 'user_id', 'unit_id', 'from_table', 'from_id', 'to_table', 'to_id', 'snapshot', 'method', 'reason', 'moved_by', 'at']);
+    assert.deepEqual(lineageColumns, ['id', 'user_id', 'unit_id', 'from_table', 'from_id', 'to_table', 'to_id', 'snapshot', 'method', 'reason', 'moved_by', 'at', 'kept_for_hold_at']);
     db.close();
 
     // A second boot changes nothing.
@@ -1054,6 +1054,45 @@ test('the purge leaves the lineage of an entry that still stands', async () => {
   } finally { await fresh.close(); }
 });
 
+test('what a hold keeps once an entry is anonymized is evidence only: never undone or read back, and gone after release', async () => {
+  const fresh = await startApp();
+  try {
+    const owner = await fresh.setupOperator();
+    const call = (method: string, path: string, body?: unknown) => fresh.call(method, path, { token: owner.token, body });
+    const date = new Date(Date.now() - 900 * 86_400_000).toISOString().slice(0, 10);
+    const source = await call('POST', '/api/records/activities', { title: 'Completed Fiscal Law course', result: 'Spoke with Capt Ruiz about my orders', date, visibility: 'unit', unit_id: 'G8' });
+    assert.equal(source.status, 201, JSON.stringify(source.body));
+    const moved = await call('POST', `/api/records/activities/${source.body.id}/move`, { to: 'trainings' });
+    assert.equal(moved.status, 201, JSON.stringify(moved.body));
+    const hold = placeHold(fresh.ctx, 'G8', { scope: 'record_type', record_type: 'activities', reason: 'Audit of activity entries' }, owner.id);
+    saveSchedule(fresh.ctx, 'G8', { record_type: 'trainings', retain_days: 365, disposition: 'anonymize', enabled: true }, owner.id);
+    runDisposition(fresh.ctx, { orgId: 'G8', dryRun: false, actorId: owner.id });
+    assert.equal((fresh.ctx.db.prepare('SELECT title FROM trainings WHERE id = ?').get(moved.body.id) as { title: string }).title, REDACTED);
+    const kept = () => fresh.ctx.db.prepare('SELECT kept_for_hold_at FROM record_lineage WHERE to_id = ? OR from_id = ?').all(moved.body.id, moved.body.id) as Array<{ kept_for_hold_at: string | null }>;
+    assert.equal(kept().length, 1, 'what it said as an activity, a held type, stays');
+    assert.ok(kept()[0].kept_for_hold_at, 'marked as kept for the hold');
+
+    const lineage = await call('GET', `/api/records/trainings/${moved.body.id}/lineage`);
+    assert.equal(lineage.status, 200, JSON.stringify(lineage.body));
+    assert.equal(lineage.body.undo, null, 'no undo is offered');
+    assert.equal(lineage.body.moves.length, 1, 'that it moved still shows');
+    assert.doesNotMatch(JSON.stringify(lineage.body), /Capt Ruiz|Fiscal Law/, 'what it said before is not read back, even by its owner');
+    const undone = await call('POST', `/api/records/trainings/${moved.body.id}/undo-move`);
+    assert.equal(undone.status, 403, JSON.stringify(undone.body));
+    assert.equal(undone.body.code, 'kept_for_hold');
+    assert.equal(fresh.ctx.db.prepare('SELECT 1 FROM activities WHERE id = ?').get(source.body.id), undefined, 'the anonymized words did not come back');
+
+    // Written to since, the training stands again; what the hold kept still goes once nothing holds it.
+    assert.equal((await call('PUT', `/api/records/trainings/${moved.body.id}`, { title: 'Fiscal Law' })).status, 200);
+    purgeDeleted(fresh.ctx);
+    assert.equal(kept().length, 1, 'kept while the hold stands');
+    releaseHold(fresh.ctx, 'G8', hold.id, owner.id);
+    purgeDeleted(fresh.ctx);
+    assert.equal(kept().length, 0, 'released, it goes');
+    assert.ok(fresh.ctx.db.prepare('SELECT 1 FROM trainings WHERE id = ?').get(moved.body.id), 'and the training itself stays');
+  } finally { await fresh.close(); }
+});
+
 test('the timeline filters a kind on the server, keeps every kind’s count, and takes a whole number for its limit', async () => {
   for (const [name, date] of [['Letter of Appreciation', '2026-06-10'], ['Certificate of Commendation', '2026-06-11']]) {
     await made(lopez.token, 'awards', { name, type: 'personal_award', status: 'presented', date });
@@ -1072,6 +1111,9 @@ test('the timeline filters a kind on the server, keeps every kind’s count, and
   assert.equal(kind.body.items.length, awards);
   assert.ok(kind.body.items.every((i: TimelineItem) => i.kind === 'award'));
   assert.equal(kind.body.truncated, false);
+  // Each answer says which kind it holds, so the page never reads one kind's entries as another's.
+  assert.equal(kind.body.kind, 'award');
+  assert.equal(all.body.kind, null);
 
   const fractional = await get(lopez.token, '/api/record/timeline?limit=2.5');
   assert.equal(fractional.status, 200, JSON.stringify(fractional.body));

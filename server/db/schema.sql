@@ -1042,7 +1042,10 @@ CREATE TABLE IF NOT EXISTS record_lineage (
   method      TEXT NOT NULL CHECK (method IN ('move', 'undo')),
   reason      TEXT,
   moved_by    TEXT NOT NULL REFERENCES users(id),
-  at          TEXT NOT NULL
+  at          TEXT NOT NULL,
+  -- When a legal hold kept this row although its record was destroyed or anonymized: evidence only from then on, never
+  -- shown or undone, and let go at the first recycle-bin purge once no hold covers it.
+  kept_for_hold_at TEXT
 );
 CREATE INDEX IF NOT EXISTS idx_record_lineage_to ON record_lineage(to_table, to_id, at);
 CREATE INDEX IF NOT EXISTS idx_record_lineage_from ON record_lineage(from_table, from_id);

@@ -528,11 +528,11 @@ export function destroyRecords(ctx: AppContext, table: RecordTable, ids: string[
   return { records, attachments, comments };
 }
 
-interface LineageLink { id: string; user_id: string; from_table: string; from_id: string; to_table: string; to_id: string }
+interface LineageLink { id: string; user_id: string; from_table: string; from_id: string; to_table: string; to_id: string; kept_for_hold_at: string | null }
 
 /** Every move chained to this record. A move removes the entry it starts from, so a chain of moves and undos ends in one record. */
 function lineageChain(ctx: AppContext, table: string, id: string, seen: Set<string>): LineageLink[] {
-  const linked = ctx.db.prepare('SELECT id, user_id, from_table, from_id, to_table, to_id FROM record_lineage WHERE (to_table = ? AND to_id = ?) OR (from_table = ? AND from_id = ?)');
+  const linked = ctx.db.prepare('SELECT id, user_id, from_table, from_id, to_table, to_id, kept_for_hold_at FROM record_lineage WHERE (to_table = ? AND to_id = ?) OR (from_table = ? AND from_id = ?)');
   const chain = new Map<string, LineageLink>();
   let frontier: Array<[string, string]> = [[table, id]];
   while (frontier.length) {
@@ -558,17 +558,21 @@ const chainHeld = (holds: HoldState, chain: LineageLink[]) =>
 /**
  * The lineage of records being destroyed goes with them (ADR-0015): every move that led to one, each holding the entry
  * as it was before. The whole chain is that record's. A chain a legal hold covers stays, since it holds what the entry
- * said as a record of a held type, and goes at the first recycle-bin purge after the hold is released (sweepLineage).
+ * said as a record of a held type, but only as evidence: it is marked kept for the hold, so nobody reads it back or
+ * undoes a move from it, and it goes at the first recycle-bin purge after the hold is released (sweepLineage).
  * With no holds given, every open hold counts.
  */
 export function destroyLineage(ctx: AppContext, table: string, ids: string[], holds: HoldState = holdState(ctx)): number {
   if (!isMovableTable(table)) return 0;
   const remove = ctx.db.prepare('DELETE FROM record_lineage WHERE id = ?');
+  const keep = ctx.db.prepare('UPDATE record_lineage SET kept_for_hold_at = ? WHERE id = ? AND kept_for_hold_at IS NULL');
   const seen = new Set<string>();
+  const at = now();
   let removed = 0;
   for (const id of ids) {
     const chain = lineageChain(ctx, table, id, seen);
-    if (!chain.length || chainHeld(holds, chain)) continue;
+    if (!chain.length) continue;
+    if (chainHeld(holds, chain)) { for (const l of chain) keep.run(at, l.id); continue; }
     for (const l of chain) removed += remove.run(l.id).changes;
   }
   return removed;
@@ -578,8 +582,9 @@ export function destroyLineage(ctx: AppContext, table: string, ids: string[], ho
 const ANONYMIZED_BY: Record<MovableTable, string> = { activities: 'title', trainings: 'title', awards: 'citation' };
 
 /**
- * Lineage a hold kept once its record was destroyed or anonymized, let go when nothing holds it any more: a chain with
- * no record standing at any of its ends. Run by the recycle-bin purge.
+ * Lineage let go when nothing holds it any more: what a hold kept once its record was destroyed or anonymized, even if
+ * the record has been written to since, and a chain with no record standing at any of its ends. Run by the
+ * recycle-bin purge.
  */
 export function sweepLineage(ctx: AppContext, holds: HoldState): number {
   const standing = new Map((Object.keys(ANONYMIZED_BY) as MovableTable[]).map((t) =>
@@ -591,8 +596,8 @@ export function sweepLineage(ctx: AppContext, holds: HoldState): number {
   for (const start of ctx.db.prepare('SELECT DISTINCT to_table, to_id FROM record_lineage').all() as Array<{ to_table: string; to_id: string }>) {
     const chain = lineageChain(ctx, start.to_table, start.to_id, seen);
     if (!chain.length || chainHeld(holds, chain)) continue;
-    if (chain.some((l) => stands(l.from_table, l.from_id) || stands(l.to_table, l.to_id))) continue;
-    for (const l of chain) removed += remove.run(l.id).changes;
+    const orphaned = !chain.some((l) => stands(l.from_table, l.from_id) || stands(l.to_table, l.to_id));
+    for (const l of chain) if (orphaned || l.kept_for_hold_at) removed += remove.run(l.id).changes;
   }
   return removed;
 }

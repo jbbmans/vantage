@@ -98,7 +98,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     access: 'Readers of the entry see that it moved. What it said before is its owner’s only.',
     columns: {
       id: 'technical', user_id: 'identifier', unit_id: 'employment', from_table: 'technical', from_id: 'technical', to_table: 'technical', to_id: 'technical',
-      snapshot: 'performance', method: 'technical', reason: 'performance', moved_by: 'identifier', at: 'technical',
+      snapshot: 'performance', method: 'technical', reason: 'performance', moved_by: 'identifier', at: 'technical', kept_for_hold_at: 'technical',
     },
   },
   career_steps: {

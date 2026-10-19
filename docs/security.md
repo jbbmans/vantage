@@ -211,8 +211,9 @@ owner move an entry between activities, awards and training with lineage and und
 - **What an entry said before is its owner's.** Anyone who may read the entry sees that it moved, from where and when.
   The row as it stood and the reason for the move are its owner's only, and are in their personal export. The
   instance archive carries the lineage; destroying or anonymizing a record removes its whole chain, unless a legal
-  hold covers its owner, a record type the entry has been or the whole instance. A chain kept under a hold goes at
-  the first recycle-bin purge after the hold is released. An anonymized award no longer names who recorded it.
+  hold covers its owner, a record type the entry has been or the whole instance. A chain kept under a hold is
+  evidence only: nothing in it is read back through the lineage or undone, so a hold never reverses an
+  anonymization. It goes at the first recycle-bin purge after the hold is released. An anonymized award no longer names who recorded it.
 - **Audited at both ends.** `record_moved` and `record_move_undone` are written against each end, each naming the
   other, as user activity in the entry's unit.
 - **Read, never stored.** The timeline and the list of entries that may belong elsewhere are worked out from the

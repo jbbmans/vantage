@@ -57,7 +57,8 @@ export function recordTimeline(ctx: AppContext, user: SessionUser, query: Record
   const total = Object.values(counts).reduce((a: number, n) => a + Number(n), 0);
   return {
     items: rows.map((r) => ({ kind: r.kind, table: r.source, id: r.id, date: r.day, title: r.title, detail: r.detail, status: r.status, from_work: Boolean(r.from_work), href: HREF[r.source](r.id) })),
-    counts, total, truncated: (kind ? Number(counts[kind] ?? 0) : total) > rows.length,
+    // Which kind this answer holds, so a page still showing it while it asks for another never reads one as the other.
+    kind, counts, total, truncated: (kind ? Number(counts[kind] ?? 0) : total) > rows.length,
     // Kinds the timeline will show once the Task that builds them lands, so an empty lane is not read as none.
     pending: RECORD_KINDS.filter((k) => k.timeline && !k.store).map((k) => ({ key: k.key, label: k.label, plannedIn: k.plannedIn ?? null })),
   };

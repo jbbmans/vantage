@@ -336,8 +336,18 @@ test('the Timeline lists each kind from its own record, filters by kind, and rea
   await expect(entries).toHaveCount(1);
   await expect(entries.first()).toContainText('Navy and Marine Corps Achievement Medal');
 
+  // While the next kind is on its way, the last kind's entries are neither shown as its own nor read as none of it.
+  const pmeAsked = /\/api\/record\/timeline\?.*kind=pme/;
+  let answer!: () => void;
+  const answered = new Promise<void>((resolve) => { answer = resolve; });
+  await page.route(pmeAsked, async (route) => { await answered; await route.continue(); });
   await chip('PME').click();
+  await expect(chip('PME')).toHaveAttribute('aria-pressed', 'true');
+  await expect(entries).toHaveCount(0);
+  await expect(page.getByText(/No pme in these dates/i)).toHaveCount(0);
+  answer();
   await expect(entries).toHaveCount(1);
+  await page.unroute(pmeAsked);
   await expect(entries.first()).toContainText('Corporals Course');
   await expect(page.getByRole('link', { name: /Records Management Course/ })).toHaveCount(0);
 

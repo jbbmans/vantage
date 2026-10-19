@@ -119,6 +119,8 @@ every time it is asked for:
 - **What it returns:**
   - items newest first, each with its kind, table, id, date, title, a detail line, its status, whether it was drawn
     from a financial case, and `href` to its own record's page;
+  - `kind`, the kind it holds (null for every kind), so the page never shows one kind's entries as another's while
+    the next answer is on its way;
   - `counts` by kind, `total`, and `truncated` when there were more than were returned;
   - `pending`: the timeline kinds that have no store yet, today Duty (Task 17), so an empty lane is not read as none.
 - **Its window:** `from` and `to` as `YYYY-MM-DD`, refused when invalid or reversed; `limit` 200 by default, 500 at
@@ -186,6 +188,7 @@ every time it is asked for:
 | `nothing_to_undo` | 409 | an undo, when the entry's newest lineage is not a move into it |
 | `already_restored` | 409 | an undo, when the entry it came from is already back |
 | `lineage_unreadable` | 409 | an undo, when the move's snapshot cannot be read |
+| `kept_for_hold` | 403 | an undo, when the move's lineage is kept only because a legal hold covered it as the entry was anonymized (section 7) |
 | `record_moved` | 409 | a file upload whose entry moved while the file was being scanned. The check runs with nothing awaited between it and the insert, so the file is never stored against an entry that is gone |
 
 Asking to move an entry to the type it is already in is a 400, and any table but the three is a 404.
@@ -278,9 +281,12 @@ or training, and moves the ones that really are. Each move keeps its lineage and
   schedule that destroys or anonymizes. Every lineage row in the record's chain goes with it, because each holds an
   earlier copy of it.
 - **A legal hold keeps a chain.** A chain stays when an open hold covers its owner, any record type the entry has
-  been, or the whole instance, because it holds what the entry said as a record of a held type. The retention run
-  passes its own Unit Instance's holds; the purge passes every open hold. Each recycle-bin purge then lets go of a
-  chain nothing holds and no standing record belongs to (`sweepLineage`).
+  been, or the whole instance, because it holds what the entry said as a record of a held type. It stays only as
+  evidence: its rows are marked `kept_for_hold_at`, nobody reads what they said back through the lineage, the owner
+  included, and no move is undone from them (`kept_for_hold`), so a hold never puts an anonymized entry's words back
+  in use. The retention run passes its own Unit Instance's holds; the purge passes every open hold. Each recycle-bin
+  purge then lets go of what a hold kept once nothing holds it, even if the record has been written to since, and of
+  a chain no standing record belongs to (`sweepLineage`).
 - **What moves with the entry stays in view.** Comments are read and written on training as on awards, and Career
   shows the files an award or a course holds.
 - **The privacy inventory** declares `record_lineage`, `awards.recorded_by` and `activities.kind_confirmed_at`.
@@ -310,7 +316,9 @@ or training, and moves the ones that really are. Each move keeps its lineage and
   still move it from its page.
 - **A recommendation made private before 023 becomes its Marine's own,** since the backfill names a leader only on
   a shared award.
-- **A chain kept under a hold outlives its record** until the first purge after the hold is released.
+- **A chain kept under a hold outlives its record** until the first purge after the hold is released. While it is
+  kept, an anonymized entry's move cannot be undone, and its owner's personal export still carries the rows, as it
+  carries everything Vantage holds about them.
 
 ## Alternatives considered
 
@@ -348,10 +356,13 @@ or training, and moves the ones that really are. Each move keeps its lineage and
     a named award's notes, and a project dropped on undo when it can no longer be filed under;
   - a recorder's edits only while the award is shared, and no recorder named on an anonymized award;
   - a hold keeping a chain after its record is purged, and the purge after release letting it go;
+  - a chain a hold keeps as its entry is anonymized: no undo, nothing read back, and gone after release even once
+    the entry has been written to;
   - the timeline's kind filter and whole-number limit, a work fingerprint kept through edit and import, the import's
     count, and an entry saved as kept.
 - **`tests/server/auditCoverage.test.ts`** audits each migration through this build's last, now 023.
 - **`tests/browser/38-record-architecture.spec.ts`** (8 tests): Quick Log saving an award and a course to their own
   records and keeping an ordinary entry; the Activities suggestions, a move to Awards and its undo; keeping an entry;
   the New entry form saving an award or keeping one, and the CSV import's count; a move to Training from an entry's
-  page and its undo; and the Timeline page, with axe.
+  page and its undo; and the Timeline page, with axe, including that a kind still on its way shows neither the last
+  kind's entries nor "none".

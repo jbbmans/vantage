@@ -20,7 +20,7 @@ import { newId, now } from '../lib/ids.ts';
  */
 
 type Row = RecordRow & Record<string, unknown>;
-interface LineageRow { seq: number; id: string; user_id: string; unit_id: string | null; from_table: MovableTable; from_id: string; to_table: MovableTable; to_id: string; snapshot: string; method: 'move' | 'undo'; reason: string | null; moved_by: string; at: string }
+interface LineageRow { seq: number; id: string; user_id: string; unit_id: string | null; from_table: MovableTable; from_id: string; to_table: MovableTable; to_id: string; snapshot: string; method: 'move' | 'undo'; reason: string | null; moved_by: string; at: string; kept_for_hold_at: string | null }
 
 export interface MoveProblem { code: string; message: string }
 
@@ -85,7 +85,7 @@ function carry(ctx: AppContext, from: MovableTable, fromId: string, to: MovableT
   ctx.db.prepare('UPDATE comments SET record_table = ?, record_id = ? WHERE record_table = ? AND record_id = ?').run(to, toId, from, fromId);
 }
 
-function writeLineage(ctx: AppContext, l: Omit<LineageRow, 'id' | 'seq'>) {
+function writeLineage(ctx: AppContext, l: Omit<LineageRow, 'id' | 'seq' | 'kept_for_hold_at'>) {
   const id = newId();
   ctx.db.prepare(`INSERT INTO record_lineage (id, user_id, unit_id, from_table, from_id, to_table, to_id, snapshot, method, reason, moved_by, at)
                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
@@ -178,6 +178,8 @@ export function undoMove(ctx: AppContext, user: SessionUser, table: RecordTable,
   if (problem) throw forbidden(problem.message, problem.code);
   const last = lineageOf(ctx, current, id)[0];
   if (!last || last.method !== 'move' || last.to_table !== current || last.to_id !== id) throw conflict('There is no move to undo for this entry.', 'nothing_to_undo');
+  // What a legal hold kept after a retention schedule anonymized the entry is evidence, never put back to use.
+  if (last.kept_for_hold_at) throw forbidden('This entry was anonymized under its unit’s retention schedule, so its move cannot be undone.', 'kept_for_hold');
   const back = last.from_table;
   if (ctx.db.prepare(`SELECT 1 FROM ${back} WHERE id = ?`).get(last.from_id)) throw conflict('The entry it was moved from is already back.', 'already_restored');
   const scope = scopeFor(ctx, user, reqKey);
@@ -213,7 +215,8 @@ const safeParse = (s: string) => { try { return JSON.parse(s); } catch { return 
 
 /**
  * An entry's moves, for anyone who may read it. The rows as they stood before each move are its owner's only: a reader
- * of the entry now is not thereby a reader of what it said before.
+ * of the entry now is not thereby a reader of what it said before. What a legal hold kept after the entry was anonymized
+ * is nobody's to read back here: that the entry moved still shows.
  */
 export function recordLineage(ctx: AppContext, user: SessionUser, table: RecordTable, id: string, reqKey: object) {
   const current = movable(table);
@@ -221,11 +224,11 @@ export function recordLineage(ctx: AppContext, user: SessionUser, table: RecordT
   const owner = row.user_id === user.id;
   const moves = lineageOf(ctx, current, id);
   const last = moves[0];
-  const undoable = Boolean(owner && last && last.method === 'move' && last.to_table === current && last.to_id === id && !moveProblem(ctx, user.id, current, row));
+  const undoable = Boolean(owner && last && last.method === 'move' && last.to_table === current && last.to_id === id && !last.kept_for_hold_at && !moveProblem(ctx, user.id, current, row));
   return {
     moves: moves.map((l) => ({
       id: l.id, from_table: l.from_table, from_id: l.from_id, to_table: l.to_table, to_id: l.to_id, method: l.method, at: l.at, by_owner: l.moved_by === row.user_id,
-      ...(owner ? { reason: l.reason, before: safeParse(l.snapshot) } : {}),
+      ...(owner && !l.kept_for_hold_at ? { reason: l.reason, before: safeParse(l.snapshot) } : {}),
     })),
     undo: undoable ? { from_table: last.from_table } : null,
   };
