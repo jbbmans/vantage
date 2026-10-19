@@ -93,8 +93,11 @@ exports and the audit trail, each with its store and who corrects it.
 - **It only ever suggests.** Nothing is moved without its owner. It is used where a person writes or reviews an
   entry: Quick Log and the activity form, the list of entries that may belong elsewhere (section 4), and the CSV
   import's count (section 7).
-- **Quick Log saves an award or training to its own record** when its owner chooses to. Only activities wait in the
-  offline outbox, so offline the entry is kept as an activity or saved once the connection is back.
+- **Quick Log and the New entry form save an award or training to its own record** when its owner chooses to ("Save
+  as award", "Save as training"). Only activities wait in the offline outbox, so offline the entry is kept as an
+  activity or saved once the connection is back.
+- **"Keep as activity" is remembered.** An entry saved after its owner chose it is created with `kind_confirmed: true`,
+  which sets `kind_confirmed_at`, and it is never suggested for a move.
 - **An activity drawn from a financial case stays an Activity, tied to that case:** a fingerprint that starts
   `work:`, `case:` or `draft:` (`isDrawnFromWork`), or one `work_actions` or `record_drafts` points at.
 
@@ -119,7 +122,9 @@ every time it is asked for:
   - `counts` by kind, `total`, and `truncated` when there were more than were returned;
   - `pending`: the timeline kinds that have no store yet, today Duty (Task 17), so an empty lane is not read as none.
 - **Its window:** `from` and `to` as `YYYY-MM-DD`, refused when invalid or reversed; `limit` 200 by default, 500 at
-  most.
+  most, taken as a whole number.
+- **One kind:** `kind` returns that kind's newest entries rather than those among everything's newest. `counts` stays
+  every kind's, for the filters, and `truncated` is against that kind's count.
 - **Only the person's own.** What a leader may read of someone else's records stays on that person's own pages.
 - **Why never stored:** a stored timeline is a second copy that can disagree with the records it shows. Read from
   each store, it cannot, and an Activity never has to stand in for anything to appear on it. The client shows it as
@@ -142,13 +147,19 @@ every time it is asked for:
 
   An activity's result, notes and evidence links, and an award's citation, go into the new entry's notes. `fields`
   holds the owner's corrections, such as an award's type or a course's hours. Only the target type's fields are
-  taken, and the result is checked as a new record of that type is.
+  taken, and the result is checked as a new record of that type is. Two fields are never taken from a correction:
+  `project_id`, which is checked against the projects the person may file under when the entry is edited, and
+  `dollar_type`, which is checked against the instance's value types the same way. A correction that clears a field
+  the target table requires (an empty `status`) leaves the value the move gives it.
+- **An award named from its words keeps them.** When the award's name comes from what the activity says ("Navy and
+  Marine Corps Achievement Medal" from "Received the NAM from the CO"), the activity's title opens the award's notes.
 - **What it keeps.** The owner, unit, visibility and creation time. It gets a new id in its new table.
   - An award moved in is recorded by its owner (`recorded_by`), so it stays theirs.
   - An activity moved in gets a fresh fingerprint and is marked as one its owner confirmed (`kind_confirmed_at`).
 - **One transaction:**
   1. inserts the entry in its new table;
-  2. carries its attachments and comments across, whoever added them, kept or in the bin;
+  2. carries its attachments and comments across, whoever added them, kept or in the bin. A file the entry already
+     holds where it lands (the same file stored twice) is binned rather than doubled;
   3. deletes the entry from its old table;
   4. writes a `record_lineage` row: from, to, the whole source row as it stood (`snapshot`), `method: 'move'`, the
      reason (up to 500 characters), who moved it and when.
@@ -163,7 +174,8 @@ every time it is asked for:
 | Code | Status | When |
 | --- | --- | --- |
 | `owner_only` | 403 | the caller is not the Marine the entry belongs to |
-| `deleted` | 403 | the entry is in the recycle bin. The move routes read only live entries, so through them it is a 404 |
+| `forbidden` | 403 | the caller may not read the entry, as when opening it |
+| `deleted` | 403 | the entry is in its owner's recycle bin; anyone else is told it does not exist (404) |
 | `frozen` | 403 | it was frozen when its unit membership ended |
 | `drawn_from_work` | 403 | an activity drawn from a financial case (section 2) |
 | `recorded_by_other` | 403 | an award a leader recorded for its subject (section 5) |
@@ -174,6 +186,7 @@ every time it is asked for:
 | `nothing_to_undo` | 409 | an undo, when the entry's newest lineage is not a move into it |
 | `already_restored` | 409 | an undo, when the entry it came from is already back |
 | `lineage_unreadable` | 409 | an undo, when the move's snapshot cannot be read |
+| `record_moved` | 409 | a file upload whose entry moved while the file was being scanned. The check runs with nothing awaited between it and the insert, so the file is never stored against an entry that is gone |
 
 Asking to move an entry to the type it is already in is a 400, and any table but the three is a 404.
 
@@ -184,7 +197,9 @@ Asking to move an entry to the type it is already in is a 400, and any table but
 - where it sits now: the current owner, unit and visibility, so an undo never carries back across a boundary what was
   added after the move;
 - with its version one past the snapshot's, and live and unfrozen;
-- with the files and comments it has gathered since.
+- with the files and comments it has gathered since;
+- back in Activities, with its project only while its owner may still file under it from where the entry sits now
+  (`assertFileableProject`); otherwise without one.
 
 The same refusals apply. The undo writes its own lineage row (`method: 'undo'`, holding the row it replaces) and is
 audited as `record_move_undone` at both ends. An entry moved back to Activities is marked as its owner confirmed. An
@@ -208,8 +223,8 @@ is a move into this record that may still be undone.
 - It is worked out on request and never stored. The client lists them in Activities, where each is moved or kept.
 
 **`POST /api/records/activities/:id/keep`** is its owner saying an entry is work they did. It sets
-`kind_confirmed_at` once, and the entry is not suggested again. It changes nothing the entry says and is not
-audited.
+`kind_confirmed_at` once, audited once as `record_kind_confirmed`, and the entry is not suggested again. It changes
+nothing the entry says.
 
 ### 5. An award keeps who recorded it
 
@@ -219,12 +234,14 @@ audited.
 - **A recommendation is never its subject's to change.** `recordedByOther(row)` is true when `recorded_by` is set
   and is not the owner. For such an award, `canEdit`:
   - refuses its subject, who therefore can neither edit nor delete it, and cannot move it (`recorded_by_other`);
-  - lets its recorder edit it while they hold `COUNSEL` in the award's unit;
+  - lets its recorder edit it while it is shared with its unit and they hold `COUNSEL` there;
   - otherwise applies the shared-entry rule: `MANAGE_RECORDS` in its unit, on an award shared with it.
 
   A frozen award stays unchangeable.
-- **The subject is told who.** Award lists add `recorder_name` ("Rank Lastname") to an award someone else recorded,
-  for everyone reading it but the recorder. A recorder's change is audited as `edit` with "recorder edit".
+- **The subject is told who.** Award lists, and an award opened on its own, add `recorder_name` ("Rank Lastname") to
+  an award someone else recorded, for everyone reading it but the recorder. Not on an award a retention schedule has
+  anonymized: its recommending official is gone, and the recorder's name would put it back. A recorder's change is
+  audited as `edit` with "recorder edit".
 - **This is the rule counselings already follow** (ADR-0013). An award the Marine recorded themselves, or moved in,
   is theirs as before.
 
@@ -237,7 +254,9 @@ audited.
 - **Adds `awards.recorded_by` and `activities.kind_confirmed_at`.** Each column is added only when missing.
 - **Fills `recorded_by` for older awards** (`backfillAwardRecorders` in `server/db/index.ts`): the actor of the
   award's first `create` entry in the audit trail, which for a recommendation is the leader, when that account still
-  exists; otherwise the award's owner.
+  exists and the award is still shared with its unit; otherwise the award's owner. A Marine could make a recommendation
+  private before 023, and a leader is never handed a Marine's private entry. The trail is read once, joined to the
+  awards, rather than asked once per award.
 - **Moves no row and declares no `reshapes`,** so ADR-0014's upgrade check has nothing to excuse.
 
 **Decided by John, 2026-10-17 19:42 UTC, on the Task 9 thread's decision card: "Marine confirms"**, the recommended
@@ -250,10 +269,20 @@ or training, and moves the ones that really are. Each move keeps its lineage and
   to. Importing an archive from before 023 fills its awards' recorders as the migration does.
 - **The personal export** carries the person's moves, with what each entry said before, as `record_moves` and
   `record-moves.csv`.
-- **The CSV import** still writes activities, as asked. It returns `elsewhere`, the number of imported rows that read
-  like an award or training, so the person can move them from Activities.
-- **Destroying a record removes its lineage.** That covers the recycle bin's purge and a retention schedule that
-  destroys. Every lineage row in the record's chain goes with it, because each holds an earlier copy of it.
+- **The CSV import** still writes activities, as asked. It returns `elsewhere`, the number of rows it put in that
+  read like an award or training and will be offered for a move: not a duplicate it skipped, not an entry its owner
+  kept as an activity, not one drawn from a financial case. The person moves them from Activities.
+- **An edit keeps where an entry came from.** An activity drawn from a financial case keeps its `work:`, `case:` or
+  `draft:` fingerprint when it is edited or updated by import, so it stays tied to the case.
+- **Destroying or anonymizing a record removes its lineage.** That covers the recycle bin's purge and a retention
+  schedule that destroys or anonymizes. Every lineage row in the record's chain goes with it, because each holds an
+  earlier copy of it.
+- **A legal hold keeps a chain.** A chain stays when an open hold covers its owner, any record type the entry has
+  been, or the whole instance, because it holds what the entry said as a record of a held type. The retention run
+  passes its own Unit Instance's holds; the purge passes every open hold. Each recycle-bin purge then lets go of a
+  chain nothing holds and no standing record belongs to (`sweepLineage`).
+- **What moves with the entry stays in view.** Comments are read and written on training as on awards, and Career
+  shows the files an award or a course holds.
 - **The privacy inventory** declares `record_lineage`, `awards.recorded_by` and `activities.kind_confirmed_at`.
   Readers of an entry see that it moved; what it said before is its owner's only.
 
@@ -279,10 +308,9 @@ or training, and moves the ones that really are. Each move keeps its lineage and
   seeded or imported that way, is taken as its owner's own and stays theirs to change.
 - **The classifier misses some entries, on purpose.** An entry it cannot read stays an Activity, and its owner can
   still move it from its page.
-- **Not done here:**
-  - A retention schedule that anonymizes rewrites the record's own columns, not the lineage snapshots of what it
-    said before a move.
-  - Keeping an entry as an activity is not audited.
+- **A recommendation made private before 023 becomes its Marine's own,** since the backfill names a leader only on
+  a shared award.
+- **A chain kept under a hold outlives its record** until the first purge after the hold is released.
 
 ## Alternatives considered
 
@@ -314,7 +342,16 @@ or training, and moves the ones that really are. Each move keeps its lineage and
   - the timeline: the person's own records, newest first, windowed, limited, never stored;
   - migration 023 from schema 22: recorders from create entries, and no activity moved;
   - lineage in the instance archive, an undo where it lands, and an archive from before 023;
-  - the personal export, and destroying a moved record with its whole lineage chain.
+  - the personal export, and destroying a moved record with its whole lineage chain;
+  - an upload refused when its entry moves while the file is scanned, against a scanner that answers on cue;
+  - an undo with the same file on both sides, corrections that cannot set a project or value type, a title kept in
+    a named award's notes, and a project dropped on undo when it can no longer be filed under;
+  - a recorder's edits only while the award is shared, and no recorder named on an anonymized award;
+  - a hold keeping a chain after its record is purged, and the purge after release letting it go;
+  - the timeline's kind filter and whole-number limit, a work fingerprint kept through edit and import, the import's
+    count, and an entry saved as kept.
 - **`tests/server/auditCoverage.test.ts`** audits each migration through this build's last, now 023.
-- **The browser suite** (spec 38, per the Task 9 plan): Quick Log saving to its own record, moving an entry from
-  Activities, and the Timeline page, with axe.
+- **`tests/browser/38-record-architecture.spec.ts`** (8 tests): Quick Log saving an award and a course to their own
+  records and keeping an ordinary entry; the Activities suggestions, a move to Awards and its undo; keeping an entry;
+  the New entry form saving an award or keeping one, and the CSV import's count; a move to Training from an entry's
+  page and its undo; and the Timeline page, with axe.

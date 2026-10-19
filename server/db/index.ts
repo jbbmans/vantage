@@ -617,13 +617,21 @@ export function openMissingMembershipPeriods(db: Db): number {
 /**
  * Who entered each award that does not say yet: the actor of its create entry in the audit trail, which for a leader's
  * recommendation is the leader (subject_id names the Marine). An award no entry names, seeded or imported without one,
- * is taken as its owner's own (ADR-0015). Run by migration 023 and by an archive import from before it.
+ * is taken as its owner's own (ADR-0015). So is one its owner has since made private: before 023 they could, and a
+ * leader is never handed a Marine's private entry. Run by migration 023 and by an archive import from before it.
+ *
+ * The trail is read once, joined to the awards, rather than asked once per award: it has no index by entity, and the
+ * per-award question grows with both.
  */
 export function backfillAwardRecorders(db: Db) {
-  return db.prepare(`UPDATE awards SET recorded_by = COALESCE((
-      SELECT a.actor_id FROM audit_log a JOIN users u ON u.id = a.actor_id
-       WHERE a.action = 'create' AND a.entity = 'awards' AND a.entity_id = awards.id ORDER BY a.seq LIMIT 1), user_id)
-    WHERE recorded_by IS NULL`).run().changes;
+  const named = db.prepare(`UPDATE awards SET recorded_by = CASE WHEN awards.visibility = 'unit' THEN first.actor_id ELSE awards.user_id END
+      FROM (SELECT entity_id AS award_id, actor_id FROM (
+              SELECT a.entity_id, a.actor_id, ROW_NUMBER() OVER (PARTITION BY a.entity_id ORDER BY a.seq) AS n
+                FROM audit_log a JOIN users u ON u.id = a.actor_id
+               WHERE a.action = 'create' AND a.entity = 'awards' AND a.entity_id IS NOT NULL)
+             WHERE n = 1) AS first
+     WHERE first.award_id = awards.id AND awards.recorded_by IS NULL`).run().changes;
+  return named + db.prepare('UPDATE awards SET recorded_by = user_id WHERE recorded_by IS NULL').run().changes;
 }
 
 /** The record types that take attachments, each with the unit its row sits in. */

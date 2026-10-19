@@ -14,7 +14,7 @@ records `schema_version` in `meta`. No migration deletes or rewrites user data.
 | 001–007 | existing | unchanged |
 | 008 | `008_case_history` | Adds `work_items.stage`, `waiting_category`, `waiting_since`, `blocked_reason`, `procedure_key` and `procedure_version`, and `users.demo_workspace_id`. Backfills `stage` from `state`. Backfills one `action_recorded` event per existing work action and one `claimed` event per current claim, each marked `backfilled`. New tables (`work_events`, `record_drafts`, `career_steps`, `career_profiles`, `demo_workspaces`) come from `schema.sql`. |
 | 009–022 | as named in `server/db/index.ts` | See `server/db/index.ts`. |
-| 023 | `023_record_lineage` | Adds `awards.recorded_by` and `activities.kind_confirmed_at`. Fills `recorded_by` for older awards from each award's `create` entry in the audit trail, else the award's owner. `record_lineage` comes from `schema.sql`. Moves no entry out of Activities and declares nothing it reshapes (ADR-0015). |
+| 023 | `023_record_lineage` | Adds `awards.recorded_by` and `activities.kind_confirmed_at`. Fills `recorded_by` for older awards from each award's `create` entry in the audit trail when the award is shared with its unit, else the award's owner. `record_lineage` comes from `schema.sql`. Moves no entry out of Activities and declares nothing it reshapes (ADR-0015). |
 
 **Tested:** `tests/server/migrations.test.ts` builds a database at version 7 with real rows, opens it,
 checks the stage and history backfill, and opens it again to show nothing changes the second time.

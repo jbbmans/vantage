@@ -15,23 +15,24 @@ records, and a Marine moves a misfiled entry there with its lineage, and back
   financial error snapshots (Task 15) are listed with no store yet.
 - **Activities are work.** A conservative reading of an entry's words says when it reads like an award received or
   training completed, and leaves alone work done for others, such as drafting awards or teaching a class. Quick Log
-  offers to save such an entry as an award or training, the activity form points to its own record, and the CSV
-  import counts the rows that read that way.
+  and the New entry form offer to save such an entry as an award or training, "Keep as activity" is remembered, and
+  the CSV import counts the rows it put in that read that way.
 - **Moving an entry.** Its owner moves an entry between Activities, Awards and Training, and back. One transaction
   carries its files and comments and keeps the row as it stood in `record_lineage`. The move is audited at both
   ends (`record_moved`, `record_move_undone`) and can be undone. Among the refusals: someone else's entry, a frozen
   one, an activity drawn from a financial case, an award a leader recorded, and one a legal hold covers. Readers of
-  an entry see that it moved; what it said before is its owner's.
+  an entry see that it moved; what it said before is its owner's. Career shows the files an award or a course holds.
 - **Entries that may belong elsewhere.** Activities lists the person's entries that read like an award or training.
   Each is moved or kept as an activity, and a kept one is not suggested again.
 - **Award ownership.** An award keeps who recorded it. A leader's recommendation is no longer its subject's to edit,
-  delete or move: its recorder changes it while holding Counsel members in its unit, as do holders of Edit others'
-  records. The Marine sees who recorded it.
+  delete or move: its recorder changes it while it is shared with its unit and they hold Counsel members there, as
+  do holders of Edit others' records. The Marine sees who recorded it, until a retention schedule anonymizes it.
 - **Timeline.** **Record → Timeline** shows the person's activities, training, awards, counselings and goals reached,
   newest first, each opening its own record. It is read from each table when asked for and never stored.
 - **Migration 023** adds `record_lineage`, `awards.recorded_by` (filled for older awards from their create entries)
   and `activities.kind_confirmed_at`. It moves nothing: John chose "Marine confirms" on the decision card
-  (2026-10-17). Lineage is in the instance archive and the personal export, and goes with a destroyed record.
+  (2026-10-17). Lineage is in the instance archive and the personal export, and goes with a destroyed or anonymized
+  record unless a legal hold covers it.
 - **Left to other Tasks:** duty records (17), financial error snapshots (15), semantic import (13).
 
 ## What changed (2026-10-15: MCEN operations)

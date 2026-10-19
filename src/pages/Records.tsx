@@ -53,7 +53,15 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
   const [coaching, setCoaching] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const [confirm, setConfirm] = useState<any>(null);
   const [importOpen, setImportOpen] = useParam('import');
-  const [moving, setMoving] = useState<{ row: Activity | MoveCandidate; to: MovableTable } | null>(null);
+  const [moving, setMoving] = useState<{ row: Activity; to: MovableTable } | null>(null);
+  // The dialog shows what the entry becomes and checks it has not changed since, so it needs the whole entry, not the
+  // suggestion's summary of it: one outside the loaded period is fetched.
+  const openMove = async (c: MoveCandidate) => {
+    const live = liveRows?.find((a) => a.id === c.id);
+    if (live) { setMoving({ row: live, to: c.to }); return; }
+    try { setMoving({ row: await api.getRecord('activities', c.id) as Activity, to: c.to }); }
+    catch (err) { toast.error(api.errorText(err)); }
+  };
 
   useEffect(() => { document.title = 'Records · Vantage'; }, []);
 
@@ -113,7 +121,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
         <Button variant="primary" onClick={() => setEditing(emptyActivity({ visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null }))}><Plus className="h-4 w-4" />New entry</Button>
       </>}
     >
-      {identity && <MoveSuggestions userId={identity.user.id} onMove={(c) => setMoving({ row: liveRows?.find((a) => a.id === c.id) ?? c, to: c.to })} />}
+      {identity && <MoveSuggestions userId={identity.user.id} onMove={openMove} />}
 
       <div className="card mb-3 p-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -195,7 +203,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
       )}
 
       <RecordDialog<ActivityDraft> store="activities" open={Boolean(editing)} onOpenChange={(o) => { if (!o) setEditing(null); }} initial={editing ? { ...editing } : null} title={editing?.id ? 'Edit activity' : 'New activity'} noun="Activity" size="lg"
-        fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : null)} onSaved={() => undefined} />
+        fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} onSavedAs={() => setEditing(null)} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : null)} onSaved={() => undefined} />
       <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title="Delete this entry?" body={<>“{confirm?.title}” moves to the recycle bin for 30 days. You can undo right away.</>} onConfirm={() => del(confirm)} />
       <CsvImportDialog open={importOpen === '1'} onOpenChange={(o) => setImportOpen(o ? '1' : '')} />
       <MoveRecordDialog store="activities" row={moving?.row ?? null} suggested={moving?.to} open={Boolean(moving)} onOpenChange={(o) => { if (!o) setMoving(null); }} />

@@ -63,6 +63,8 @@ export const activitySchema = z.object({
   visibility: visibilityField,
   unit_id: unitIdField,
   version: z.number().int().optional(),
+  /** Saved by someone told it reads like an award or training, who kept it as an activity: not offered for a move (ADR-0015). */
+  kind_confirmed: z.boolean().optional(),
 });
 
 export const projectSchema = z.object({

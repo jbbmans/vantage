@@ -3,7 +3,7 @@ import type { AppContext, SessionUser } from '../context.ts';
 import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
 import { MOVABLE_LABELS, MOVABLE_TABLES, isDrawnFromWork, isMovableTable, kindText, movedFields, recordKindOf, type KindReading, type MovableTable } from '../../shared/recordKinds.ts';
 import { orgOfUnit, scopeFor } from '../authz/scope.ts';
-import { canPlace, recordedByOther, type RecordRow } from '../authz/records.ts';
+import { assertFileableProject, canPlace, recordedByOther, type RecordRow } from '../authz/records.ts';
 import { TABLES, activityFingerprint, getRecord, readableRecord } from './records.ts';
 import { holdState, type HoldState } from './holds.ts';
 import { audit } from './audit.ts';
@@ -57,6 +57,12 @@ const moveBody = z.object({
 
 const rawRow = (ctx: AppContext, table: MovableTable, id: string) => ctx.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(id) as Record<string, unknown>;
 const columnsOf = (ctx: AppContext, table: string) => (ctx.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name);
+const requiredOf = (ctx: AppContext, table: string) =>
+  new Set((ctx.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string; notnull: number }>).filter((c) => c.notnull).map((c) => c.name));
+
+// What a correction on a move may not set: a project is filed under by editing the entry, where it is checked against the
+// projects the person may file under, and a value type is checked against the instance's own when the entry is edited.
+const NOT_CORRECTED = new Set(['project_id', 'dollar_type']);
 
 function insertRow(ctx: AppContext, table: MovableTable, row: Record<string, unknown>) {
   const cols = Object.keys(row);
@@ -68,8 +74,13 @@ function insertRow(ctx: AppContext, table: MovableTable, row: Record<string, unk
   }
 }
 
-/** Files and comments go where the entry goes, whoever added them, kept or in the bin. */
+/**
+ * Files and comments go where the entry goes, whoever added them, kept or in the bin. A file the entry already holds there
+ * (the same file added twice, once on each side of a move) is binned rather than doubled.
+ */
 function carry(ctx: AppContext, from: MovableTable, fromId: string, to: MovableTable, toId: string) {
+  ctx.db.prepare(`UPDATE attachments SET deleted_at = ? WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL
+                     AND sha256 IN (SELECT sha256 FROM attachments WHERE record_table = ? AND record_id = ? AND deleted_at IS NULL)`).run(now(), from, fromId, to, toId);
   ctx.db.prepare('UPDATE attachments SET record_table = ?, record_id = ? WHERE record_table = ? AND record_id = ?').run(to, toId, from, fromId);
   ctx.db.prepare('UPDATE comments SET record_table = ?, record_id = ? WHERE record_table = ? AND record_id = ?').run(to, toId, from, fromId);
 }
@@ -111,7 +122,10 @@ export function moveRecord(ctx: AppContext, user: SessionUser, table: RecordTabl
 
   // What it becomes: the fields that carry across, then the person's corrections, checked as a new record of that type is.
   const spec = TABLES[to];
-  const corrections = Object.fromEntries(Object.entries(input.fields || {}).filter(([k]) => spec.fields.includes(k)));
+  // A field it must have is left to what the move gives it when the correction clears it.
+  const required = requiredOf(ctx, to);
+  const corrections = Object.fromEntries(Object.entries(input.fields || {})
+    .filter(([k, v]) => spec.fields.includes(k) && !NOT_CORRECTED.has(k) && !(required.has(k) && (v === null || v === ''))));
   const data = parse(RECORD_SCHEMAS[to] as never, { ...movedFields(from, row, to), ...corrections }) as Record<string, unknown>;
   const at = now();
   const toId = newId();
@@ -176,8 +190,14 @@ export function undoMove(ctx: AppContext, user: SessionUser, table: RecordTable,
   for (const c of columnsOf(ctx, back)) if (c in before) restored[c] = before[c];
   // Its content as it was; where it sits now, so an undo never carries what was added here back across a boundary.
   Object.assign(restored, { id: last.from_id, user_id: row.user_id, unit_id: row.unit_id, visibility: row.visibility, version: Number(before.version || 1) + 1, updated_at: at, deleted_at: null, frozen_at: null });
-  // Moved back to Activities, it is work its owner did: it is not offered for a move again.
-  if (back === 'activities') restored.kind_confirmed_at = at;
+  // Moved back to Activities, it is work its owner did: it is not offered for a move again. Its project is kept only if
+  // it is still one its owner may file under, from the unit the entry sits in now.
+  if (back === 'activities') {
+    restored.kind_confirmed_at = at;
+    if (restored.project_id) {
+      try { assertFileableProject(ctx, scope, user.id, String(restored.project_id), row.unit_id); } catch { restored.project_id = null; }
+    }
+  }
   const snapshot = JSON.stringify(rawRow(ctx, current, id));
   ctx.db.transaction(() => {
     insertRow(ctx, back, restored);

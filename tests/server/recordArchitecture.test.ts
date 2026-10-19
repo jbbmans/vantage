@@ -12,6 +12,8 @@ import { placeHold, releaseHold, runDisposition, saveSchedule } from '../../serv
 import { exportInstance, importInstance } from '../../server/services/exports.ts';
 import { openDatabase, migrationHistory, SCHEMA_VERSION } from '../../server/db/index.ts';
 import { listZip } from '../../server/lib/zip.ts';
+import { createServer, type AddressInfo, type Socket } from 'node:net';
+import { REDACTED } from '../../shared/constants.ts';
 
 /**
  * Task 9: each record kind keeps its own store (ADR-0015). An Activity sits on the timeline beside awards, training,
@@ -718,10 +720,13 @@ test('023 keeps who entered each award, from its create entry or else its owner,
     award.run('a-recommended', 'unit', 'Navy and Marine Corps Commendation Medal', 'recommended', at, at);
     award.run('a-own', 'private', 'Certificate of Commendation', 'presented', at, at);
     award.run('a-self', 'private', 'Letter of Appreciation', 'presented', at, at);
+    award.run('a-hidden', 'private', 'Navy Unit Commendation', 'recommended', at, at);
     const entryOf = db.prepare("INSERT INTO audit_log (id, actor_id, action, entity, entity_id, subject_id, unit_id, at, entry_hash) VALUES (?, ?, 'create', 'awards', ?, ?, 'G8', ?, 'h')");
     // The leader recommended one; the Marine entered another; the third was seeded with no entry at all.
     entryOf.run('e1', 'u-lead', 'a-recommended', 'u-marine', at);
     entryOf.run('e2', 'u-marine', 'a-self', null, at);
+    // A recommendation its Marine has since made private, as they could before 023, is not handed back to the leader.
+    entryOf.run('e4', 'u-lead', 'a-hidden', 'u-marine', at);
     // An edit by someone else is not who entered it.
     db.prepare("INSERT INTO audit_log (id, actor_id, action, entity, entity_id, at, entry_hash) VALUES ('e3', 'u-lead', 'edit', 'awards', 'a-own', ?, 'h')").run(at);
     const act = db.prepare("INSERT INTO activities (id, user_id, unit_id, visibility, date, title, fingerprint, created_at, updated_at) VALUES (?, 'u-marine', 'G8', 'unit', ?, ?, ?, ?, ?)");
@@ -738,12 +743,13 @@ test('023 keeps who entered each award, from its create entry or else its owner,
     assert.equal(recorder('a-recommended'), 'u-lead', 'a recommendation keeps the leader who entered it');
     assert.equal(recorder('a-self'), 'u-marine');
     assert.equal(recorder('a-own'), 'u-marine', 'an award no create entry names is its owner’s own');
+    assert.equal(recorder('a-hidden'), 'u-marine', 'a private award is its owner’s, whoever entered it');
     assert.deepEqual(db.prepare('SELECT id, title, fingerprint, kind_confirmed_at, deleted_at FROM activities ORDER BY id').all().map((r) => ({ ...(r as object) })), [
       { id: 'act-award', title: 'Received the Navy and Marine Corps Achievement Medal', fingerprint: 'fp-1', kind_confirmed_at: null, deleted_at: null },
       { id: 'act-course', title: 'Completed Corporals Course', fingerprint: 'fp-2', kind_confirmed_at: null, deleted_at: null },
       { id: 'act-work', title: 'Reconciled 40 LOA lines', fingerprint: 'work:item-1', kind_confirmed_at: null, deleted_at: null },
     ], 'every activity is still an activity, as it was');
-    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM awards').get() as { n: number }).n, 3, 'and no award was made from one');
+    assert.equal((db.prepare('SELECT COUNT(*) AS n FROM awards').get() as { n: number }).n, 4, 'and no award was made from one');
     assert.equal((db.prepare('SELECT COUNT(*) AS n FROM trainings').get() as { n: number }).n, 0);
     assert.equal((db.prepare('SELECT COUNT(*) AS n FROM record_lineage').get() as { n: number }).n, 0);
     const lineageColumns = (db.prepare('PRAGMA table_info(record_lineage)').all() as Array<{ name: string }>).map((c) => c.name);
@@ -753,7 +759,7 @@ test('023 keeps who entered each award, from its create entry or else its owner,
     // A second boot changes nothing.
     const again = openDatabase(path);
     assert.deepEqual(again.prepare('SELECT id, recorded_by FROM awards ORDER BY id').all().map((r) => ({ ...(r as object) })), [
-      { id: 'a-own', recorded_by: 'u-marine' }, { id: 'a-recommended', recorded_by: 'u-lead' }, { id: 'a-self', recorded_by: 'u-marine' },
+      { id: 'a-hidden', recorded_by: 'u-marine' }, { id: 'a-own', recorded_by: 'u-marine' }, { id: 'a-recommended', recorded_by: 'u-lead' }, { id: 'a-self', recorded_by: 'u-marine' },
     ]);
     assert.equal(migrationHistory(again).filter((m) => m.id === 23).length, 1);
     again.close();
@@ -899,4 +905,213 @@ test('anonymizing a moved record takes what it said before the move with it', as
     const snapshots = fresh.ctx.db.prepare("SELECT COUNT(*) AS n FROM record_lineage WHERE snapshot LIKE '%Capt Ruiz%'").get() as { n: number };
     assert.equal(snapshots.n, 0);
   } finally { await fresh.close(); }
+});
+
+// ---------------------------------------------------------------------------------------------------------------------
+// Edges: a file mid-scan, a file twice, corrections, a stale project, holds, the timeline's filter, provenance, imports
+
+test('a file still being scanned when its entry moves is refused, not stored against an entry that is gone', async () => {
+  // A scanner that answers only when told to, so the move lands while the upload waits on it.
+  const sockets: Socket[] = [];
+  let heard!: () => void;
+  const streamed = new Promise<void>((resolve) => { heard = resolve; });
+  const scanner = createServer({ allowHalfOpen: true }, (socket) => { sockets.push(socket); socket.on('data', () => undefined); socket.on('end', () => heard()); });
+  await new Promise<void>((resolve) => scanner.listen(0, '127.0.0.1', () => resolve()));
+  const intake = app.ctx.config.intake;
+  const was = intake.clamd;
+  intake.clamd = `tcp://127.0.0.1:${(scanner.address() as AddressInfo).port}`;
+  try {
+    const source = await entry(rivera.token, { title: 'Received a Letter of Appreciation from the XO', date: '2026-06-01' });
+    const upload = app.call('POST', `/api/records/activities/${source.id}/attachments`, { token: rivera.token, raw: Buffer.from('LOA scan'), headers: { 'content-type': 'text/plain', 'x-vantage-filename': 'loa.txt' } });
+    await streamed;
+    const moved = await move(rivera.token, 'activities', source.id, { to: 'awards' });
+    assert.equal(moved.status, 201, JSON.stringify(moved.body));
+    for (const socket of sockets) socket.end('stream: OK\0');
+    const res = await upload;
+    assert.equal(res.status, 409, JSON.stringify(res.body));
+    assert.equal(res.body.code, 'record_moved');
+    const stored = app.ctx.db.prepare('SELECT COUNT(*) AS n FROM attachments WHERE record_id IN (?, ?)').get(source.id, moved.body.id) as { n: number };
+    assert.equal(stored.n, 0, 'nothing was stored on either side');
+  } finally {
+    intake.clamd = was;
+    for (const socket of sockets) socket.destroy();
+    await new Promise<void>((resolve) => scanner.close(() => resolve()));
+  }
+});
+
+test('an undo brings its files back even when the same file sits on the entry it returns to', async () => {
+  const source = await entry(rivera.token, { title: 'Received a Certificate of Appreciation from the CO', date: '2026-06-02' });
+  const up = await app.call('POST', `/api/records/activities/${source.id}/attachments`, { token: rivera.token, raw: Buffer.from('COA scan'), headers: { 'content-type': 'text/plain', 'x-vantage-filename': 'coa.txt' } });
+  assert.equal(up.status, 201, JSON.stringify(up.body));
+  const moved = await move(rivera.token, 'activities', source.id, { to: 'awards' });
+  assert.equal(moved.status, 201, JSON.stringify(moved.body));
+  // The same file under the id the entry left, as an upload that finished during the move once could leave it.
+  const file = app.ctx.db.prepare("SELECT * FROM attachments WHERE record_table = 'awards' AND record_id = ?").get(moved.body.id) as Record<string, any>;
+  app.ctx.db.prepare(`INSERT INTO attachments (id, record_table, record_id, uploaded_by, unit_id, original_name, mime_type, size_bytes, sha256, content, created_at)
+                      VALUES ('file-twice', 'activities', ?, ?, ?, ?, ?, ?, ?, ?, ?)`)
+    .run(source.id, rivera.id, file.unit_id, file.original_name, file.mime_type, file.size_bytes, file.sha256, file.content, file.created_at);
+  const back = await undo(rivera.token, 'awards', moved.body.id);
+  assert.equal(back.status, 200, JSON.stringify(back.body));
+  const files = await get(rivera.token, `/api/records/activities/${source.id}/attachments`);
+  assert.deepEqual(files.body.attachments.map((f: any) => f.original_name), ['coa.txt'], 'one copy in view');
+  const all = app.ctx.db.prepare("SELECT deleted_at FROM attachments WHERE record_table = 'activities' AND record_id = ?").all(source.id) as Array<{ deleted_at: string | null }>;
+  assert.equal(all.length, 2);
+  assert.equal(all.filter((f) => f.deleted_at).length, 1, 'the other copy is in the bin, not lost');
+});
+
+test('a correction on a move sets neither a project nor a value type, and clearing a required field keeps what the move gives it', async () => {
+  const theirs = await made(okafor.token, 'projects', { name: 'Okafor’s own tracker' });
+  const award = await made(rivera.token, 'awards', { name: 'Letter of Appreciation', type: 'loa', status: 'presented', date: '2026-06-03' });
+  const moved = await move(rivera.token, 'awards', award.id, { to: 'activities', fields: { project_id: theirs.id, dollar_type: 'not-a-type', status: null, title: 'LOA from the CO' } });
+  assert.equal(moved.status, 201, JSON.stringify(moved.body));
+  const row = rowOf('activities', moved.body.id)!;
+  assert.deepEqual([row.title, row.project_id, row.dollar_type, row.status], ['LOA from the CO', null, null, 'completed']);
+
+  const course = await entry(rivera.token, { title: 'Completed Fiscal Law course', date: '2026-06-04' });
+  const toTraining = await move(rivera.token, 'activities', course.id, { to: 'trainings', fields: { status: '', hours: 4 } });
+  assert.equal(toTraining.status, 201, JSON.stringify(toTraining.body));
+  const training = rowOf('trainings', toTraining.body.id)!;
+  assert.deepEqual([training.status, training.hours], ['completed', 4]);
+});
+
+test('an award named from what an activity says keeps the activity’s own words', async () => {
+  const source = await entry(rivera.token, { title: 'Received the NAM from the CO for the FY26 close-out', date: '2026-06-05', result: 'end of tour' });
+  const moved = await move(rivera.token, 'activities', source.id, { to: 'awards' });
+  assert.equal(moved.status, 201, JSON.stringify(moved.body));
+  const award = rowOf('awards', moved.body.id)!;
+  assert.equal(award.name, 'Navy and Marine Corps Achievement Medal');
+  assert.equal(award.notes, 'Received the NAM from the CO for the FY26 close-out\n\nend of tour');
+});
+
+test('an undo keeps an entry’s project only while its owner may still file under it', async () => {
+  const project = await made(rivera.token, 'projects', { name: 'FY26 close-out' });
+  const gone = await made(rivera.token, 'projects', { name: 'Retired tracker' });
+  const keeps = await entry(rivera.token, { title: 'Received a coin from the CO for the close-out', date: '2026-06-06', project_id: project.id });
+  const loses = await entry(rivera.token, { title: 'Received a coin from the XO for the tracker', date: '2026-06-07', project_id: gone.id });
+  const first = await move(rivera.token, 'activities', keeps.id, { to: 'awards' });
+  const second = await move(rivera.token, 'activities', loses.id, { to: 'awards' });
+  assert.equal(first.status, 201, JSON.stringify(first.body));
+  assert.equal(second.status, 201, JSON.stringify(second.body));
+  assert.equal((await del(rivera.token, `/api/records/projects/${gone.id}`)).status, 200);
+  assert.equal((await undo(rivera.token, 'awards', first.body.id)).status, 200);
+  assert.equal((await undo(rivera.token, 'awards', second.body.id)).status, 200);
+  assert.equal(rowOf('activities', keeps.id)!.project_id, project.id);
+  assert.equal(rowOf('activities', loses.id)!.project_id, null, 'a project in the bin is not filed under again');
+});
+
+test('a recommendation’s recorder changes it only while it is shared, and an anonymized one no longer names them', async () => {
+  const rec = await made(diaz.token, 'awards', { user_id: okafor.id, name: 'Certificate of Commendation', type: 'certificate', status: 'recommended', date: '2026-06-08' });
+  assert.equal(rowOf('awards', rec.id)!.visibility, 'unit');
+  assert.equal((await put(diaz.token, `/api/records/awards/${rec.id}`, { citation: 'For superior performance.' })).status, 200);
+  // Private now, as a recommendation could be made before 023: its recorder no longer reaches it.
+  app.ctx.db.prepare("UPDATE awards SET visibility = 'private' WHERE id = ?").run(rec.id);
+  assert.equal((await put(diaz.token, `/api/records/awards/${rec.id}`, { status: 'submitted' })).status, 403);
+  app.ctx.db.prepare("UPDATE awards SET visibility = 'unit' WHERE id = ?").run(rec.id);
+
+  assert.equal((await get(okafor.token, `/api/records/awards/${rec.id}`)).body.recorder_name, 'Sgt Diaz');
+  app.ctx.db.prepare('UPDATE awards SET citation = ?, notes = ?, recommending_official = ?, approving_authority = ? WHERE id = ?').run(REDACTED, REDACTED, REDACTED, REDACTED, rec.id);
+  assert.equal((await get(okafor.token, `/api/records/awards/${rec.id}`)).body.recorder_name, undefined);
+  const listed = (await get(okafor.token, '/api/records/awards')).body.find((a: any) => a.id === rec.id);
+  assert.ok(listed);
+  assert.equal(listed.recorder_name, undefined, 'nor does the list');
+});
+
+test('a legal hold over a type an entry has been keeps its lineage when the record goes, and the purge after release lets it go', async () => {
+  const fresh = await startApp();
+  try {
+    const owner = await fresh.setupOperator();
+    const call = (method: string, path: string, body?: unknown) => fresh.call(method, path, { token: owner.token, body });
+    const source = await call('POST', '/api/records/activities', { title: 'Received a Certificate of Appreciation from the CO', date: '2026-05-01' });
+    assert.equal(source.status, 201, JSON.stringify(source.body));
+    const moved = await call('POST', `/api/records/activities/${source.body.id}/move`, { to: 'awards' });
+    assert.equal(moved.status, 201, JSON.stringify(moved.body));
+    const lineage = () => (fresh.ctx.db.prepare('SELECT COUNT(*) AS n FROM record_lineage WHERE to_id = ? OR from_id = ?').get(moved.body.id, moved.body.id) as { n: number }).n;
+    const hold = placeHold(fresh.ctx, 'G8', { scope: 'record_type', record_type: 'activities', reason: 'Audit of activity entries' }, owner.id);
+
+    assert.equal((await call('DELETE', `/api/records/awards/${moved.body.id}`)).status, 200);
+    fresh.ctx.db.prepare('UPDATE awards SET deleted_at = ? WHERE id = ?').run(longAgo(40), moved.body.id);
+    purgeDeleted(fresh.ctx);
+    assert.equal(fresh.ctx.db.prepare('SELECT 1 FROM awards WHERE id = ?').get(moved.body.id), undefined, 'awards are not held: the award goes');
+    assert.equal(lineage(), 1, 'what it said as an activity, a held type, stays');
+
+    purgeDeleted(fresh.ctx);
+    assert.equal(lineage(), 1, 'and stays while the hold stands');
+    releaseHold(fresh.ctx, 'G8', hold.id, owner.id);
+    purgeDeleted(fresh.ctx);
+    assert.equal(lineage(), 0, 'released, nothing holds it, and no record is left for it to belong to');
+  } finally { await fresh.close(); }
+});
+
+test('the purge leaves the lineage of an entry that still stands', async () => {
+  const fresh = await startApp();
+  try {
+    const owner = await fresh.setupOperator();
+    const source = await fresh.call('POST', '/api/records/activities', { token: owner.token, body: { title: 'Completed Corporals Course', date: '2026-05-02' } });
+    const moved = await fresh.call('POST', `/api/records/activities/${source.body.id}/move`, { token: owner.token, body: { to: 'trainings' } });
+    assert.equal(moved.status, 201, JSON.stringify(moved.body));
+    purgeDeleted(fresh.ctx);
+    assert.equal((fresh.ctx.db.prepare('SELECT COUNT(*) AS n FROM record_lineage').get() as { n: number }).n, 1);
+  } finally { await fresh.close(); }
+});
+
+test('the timeline filters a kind on the server, keeps every kind’s count, and takes a whole number for its limit', async () => {
+  for (const [name, date] of [['Letter of Appreciation', '2026-06-10'], ['Certificate of Commendation', '2026-06-11']]) {
+    await made(lopez.token, 'awards', { name, type: 'personal_award', status: 'presented', date });
+  }
+  const all = await get(lopez.token, '/api/record/timeline');
+  const awards = all.body.counts.award as number;
+  assert.ok(awards >= 3, JSON.stringify(all.body.counts));
+
+  const one = await get(lopez.token, '/api/record/timeline?kind=award&limit=1');
+  assert.equal(one.status, 200, JSON.stringify(one.body));
+  assert.deepEqual(one.body.items.map((i: TimelineItem) => i.kind), ['award']);
+  assert.deepEqual(one.body.counts, all.body.counts, 'the filters still count every kind');
+  assert.equal(one.body.truncated, true, 'one of several awards shown');
+
+  const kind = await get(lopez.token, '/api/record/timeline?kind=award');
+  assert.equal(kind.body.items.length, awards);
+  assert.ok(kind.body.items.every((i: TimelineItem) => i.kind === 'award'));
+  assert.equal(kind.body.truncated, false);
+
+  const fractional = await get(lopez.token, '/api/record/timeline?limit=2.5');
+  assert.equal(fractional.status, 200, JSON.stringify(fractional.body));
+  assert.equal(fractional.body.items.length, 2);
+});
+
+test('an edited entry drawn from a financial case keeps saying so, by edit or by import', async () => {
+  const drawn = await entry(rivera.token, { title: 'Reconciled 40 LOA lines', date: '2026-05-05' });
+  app.ctx.db.prepare("UPDATE activities SET fingerprint = 'work:item-provenance' WHERE id = ?").run(drawn.id);
+  const edited = await put(rivera.token, `/api/records/activities/${drawn.id}`, { title: 'Reconciled 42 LOA lines' });
+  assert.equal(edited.status, 200, JSON.stringify(edited.body));
+  assert.equal(rowOf('activities', drawn.id)!.fingerprint, 'work:item-provenance');
+  const imported = await post(rivera.token, '/api/records/activities/import', { rows: [{ id: drawn.id, title: 'Reconciled 44 LOA lines', date: '2026-05-05' }] });
+  assert.equal(imported.body.updated, 1, JSON.stringify(imported.body));
+  assert.equal(rowOf('activities', drawn.id)!.fingerprint, 'work:item-provenance');
+  // An ordinary entry's fingerprint follows what it says.
+  const plain = await entry(rivera.token, { title: 'Reconciled 10 ULOs', date: '2026-05-06' });
+  const before = rowOf('activities', plain.id)!.fingerprint;
+  await put(rivera.token, `/api/records/activities/${plain.id}`, { title: 'Reconciled 11 ULOs' });
+  assert.notEqual(rowOf('activities', plain.id)!.fingerprint, before);
+});
+
+test('an import counts only the rows it put in that will be offered for a move', async () => {
+  const kept = await entry(rivera.token, { title: 'Received a challenge coin from the CO', date: '2026-04-04' });
+  assert.equal((await post(rivera.token, `/api/records/activities/${kept.id}/keep`)).status, 200);
+  await entry(rivera.token, { title: 'Completed MarineNet course Ethics', date: '2026-04-05' });
+  const res = await post(rivera.token, '/api/records/activities/import', { rows: [
+    { id: kept.id, title: 'Received a challenge coin from the CO', date: '2026-04-04', result: 'for the audit' },
+    { title: 'Completed MarineNet course Ethics', date: '2026-04-05' },
+    { title: 'Received a Certificate of Appreciation from the XO', date: '2026-04-06' },
+  ] });
+  assert.equal(res.status, 200, JSON.stringify(res.body));
+  assert.deepEqual([res.body.created, res.body.updated, res.body.duplicates], [1, 1, 1]);
+  assert.equal(res.body.elsewhere, 1, 'not the entry kept as an activity, nor the duplicate skipped');
+});
+
+test('an entry saved as kept is not offered for a move', async () => {
+  const kept = await entry(okafor.token, { title: 'Received a challenge coin from the Sergeant Major', date: '2026-04-07', kind_confirmed: true });
+  assert.ok(rowOf('activities', kept.id)!.kind_confirmed_at);
+  const offered = await get(okafor.token, '/api/record/move-candidates');
+  assert.equal(offered.status, 200);
+  assert.ok(!offered.body.candidates.some((c: { id: string }) => c.id === kept.id));
 });

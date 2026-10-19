@@ -158,6 +158,11 @@ recordsRouter.post('/:table/:id/attachments', attachmentBody, wrap(async (req, r
     if ((e as HttpError).code === 'malware_rejected') audit(ctx, { actor_id: req.user.id, action: 'upload_rejected', entity: table, entity_id: row.id, unit_id: row.unit_id, detail: (e as Error).message.slice(0, 300), ip: clientIp(req) });
     throw e;
   }
+  // The scan awaits; the entry may have moved to another record type meanwhile (ADR-0015). Checked with nothing awaited
+  // between it and the insert, so the file never lands on an entry that is gone.
+  if (!ctx.db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(row.id)) {
+    throw conflict('This entry moved while the file was being scanned. Add the file to it where it is now.', 'record_moved');
+  }
   const id = newId();
   try {
     // The file keeps the unit its record sits in now, so a later move is judged by where it was added (ADR-0008).

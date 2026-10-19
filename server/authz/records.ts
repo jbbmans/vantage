@@ -34,10 +34,10 @@ export function canEdit(scope: Scope, userId: string, row: RecordRow): boolean {
   if (row.counselor_id && row.counselor_id !== row.user_id && row.acknowledged_at) return false;
   if (row.counselor_id && row.counselor_id !== row.user_id && row.user_id === userId) return false;
   // A recommendation is its recorder's and the chain's to change, never its subject's: a Marine does not mark their own
-  // award approved (ADR-0015). Its recorder may, while they still counsel in its unit.
+  // award approved (ADR-0015). Its recorder may, while it is shared with the unit they still counsel in.
   if (recordedByOther(row)) {
     if (row.user_id === userId) return false;
-    if (row.recorded_by === userId && row.unit_id && can(scope, PERMISSIONS.COUNSEL, row.unit_id)) return true;
+    if (row.recorded_by === userId && row.visibility === 'unit' && row.unit_id && can(scope, PERMISSIONS.COUNSEL, row.unit_id)) return true;
   }
   if (row.user_id === userId) return row.visibility === 'private' || !row.unit_id || isMember(scope, row.unit_id);
   if (row.counselor_id && row.counselor_id === userId) return true;

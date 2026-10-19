@@ -53,7 +53,8 @@ export default function Timeline() {
   const [to, setTo] = useParam('to');
   const [, setParams] = useSearchParams();
   const backwards = Boolean(from && to && from > to);
-  const params = useMemo(() => (backwards ? { from } : { from: from || undefined, to: to || undefined }), [from, to, backwards]);
+  // The kind goes to the server, so a kind with few entries shows its own newest rather than those among everything's newest.
+  const params = useMemo(() => ({ ...(backwards ? { from } : { from: from || undefined, to: to || undefined }), kind: kind === 'all' ? undefined : kind }), [from, to, backwards, kind]);
   const timeline = useRecordTimeline(params);
   // One change to the address for several filters: two in a row would each start from the same address, and the second win.
   const clear = (...names: string[]) => setParams((p) => { const n = new URLSearchParams(p); names.forEach((k) => n.delete(k)); return n; }, { replace: true });

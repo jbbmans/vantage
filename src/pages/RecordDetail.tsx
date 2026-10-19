@@ -33,13 +33,17 @@ export default function RecordDetail() {
   const track = useTrack();
   const { data: identity } = useIdentity();
   const { data: org } = useOrg();
-  const { data: a, isPending, error } = useQuery({ queryKey: keys.record('activities', id), queryFn: () => api.getRecord('activities', id), retry: false });
+  // Once this entry moves to another record type (or a move of it is undone) it no longer lives here: the page stops
+  // asking for it while it goes to where it is now, rather than fetching it again and flashing "not available".
+  const [movedAway, setMovedAway] = useState<string | null>(null);
+  const gone = movedAway === id;
+  const { data: a, isPending, error } = useQuery({ queryKey: keys.record('activities', id), queryFn: () => api.getRecord('activities', id), retry: false, enabled: !gone });
   const { data: files, refetch: refetchFiles } = useQuery({ queryKey: ['attachments', 'activities', id], queryFn: () => api.attachments('activities', id), enabled: Boolean(a) && Boolean(identity?.instance.attachmentsEnabled) });
   // Withheld from this record's Unit Instance (ADR-0014): files attached stay readable; nothing new is added.
   const filesWithheld = Boolean(identity?.instance.attachmentsEnabled) && files?.enabled === false;
   const remove = useDeleteRecord('activities');
   useRememberVisit(identity?.user.id, a && !a.deleted_at ? { to: `/records/${id}`, title: a.title, kind: 'entry' } : null);
-  useForgetVisit(identity?.user.id, `/records/${id}`, Boolean(error) || Boolean(a?.deleted_at));
+  useForgetVisit(identity?.user.id, `/records/${id}`, gone || Boolean(error) || Boolean(a?.deleted_at));
   const restore = useRestoreRecord('activities');
   const [style, setStyle] = useState<BulletStyle>(track === 'fitrep' ? 'fitrep' : 'jepes');
   const [editing, setEditing] = useState<ActivityDraft | null>(null);
@@ -73,7 +77,7 @@ export default function RecordDetail() {
   const copy = async () => { if (await copyToClipboard(bullet)) toast.success('Bullet copied.'); else toast.error('Could not copy.'); };
   const dollarType = valueType(a.dollar_type, cfg);
   // After a move, or an undo, the entry lives somewhere else: go where it is now.
-  const goTo = (entry: MovedEntry) => navigate(entryHref(entry.table, entry.id));
+  const goTo = (entry: MovedEntry) => { if (entry.table !== 'activities' || entry.id !== id) setMovedAway(id); navigate(entryHref(entry.table, entry.id)); };
 
   return (
     <div className="page page-narrow">

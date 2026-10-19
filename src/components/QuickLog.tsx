@@ -93,7 +93,8 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
       return;
     }
     setSaving(true);
-    const body = payload()!;
+    // Kept as an activity when told it reads like an award or training: it is not offered for a move later (ADR-0015).
+    const body = { ...payload()!, ...(kept ? { kind_confirmed: true } : {}) };
     try {
       const saved = await create.mutateAsync(body) as { id?: string } | undefined;
       capture.current?.completed({
@@ -132,8 +133,9 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
       const saved = await (to === 'awards' ? createAward : createTraining).mutateAsync({ ...movedFields('activities', body, to), visibility: record.visibility, unit_id: record.unit_id }) as { id?: string } | undefined;
       capture.current?.completed({ had_measure: body.quantity != null || body.dollar_amount != null, had_outcome: Boolean(record.result), ai_assisted: aiUsed, source: aiUsed ? 'ai_draft' : 'manual' });
       capture.current = null;
+      // Career opens an award or a course named by ?open= (src/pages/Career.tsx), so Open goes to the entry itself.
       const page = to === 'awards' ? '/career/awards' : '/career/training';
-      toast.success(`Saved to your ${MOVABLE_LABELS[to].place} under Career.`, { label: 'Open', onClick: () => navigate(to === 'awards' && saved?.id ? `${page}?open=${encodeURIComponent(saved.id)}` : page) });
+      toast.success(`Saved to your ${MOVABLE_LABELS[to].place} under Career.`, { label: 'Open', onClick: () => navigate(saved?.id ? `${page}?open=${encodeURIComponent(saved.id)}` : page) });
       writeDraft(key, null);
       onOpenChange(false);
     } catch (err) {

@@ -9,6 +9,7 @@ import { Comments } from '@/components/Comments';
 import VisibilityPicker from '@/components/VisibilityPicker';
 import MoveRecordDialog, { entryHref, type MovedEntry } from '@/components/MoveRecordDialog';
 import RecordLineage from '@/components/RecordLineage';
+import { Attachments } from '@/components/Attachments';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, StatusBadge, useParam, onText, Table, DescriptionList } from '@/components/common';
 import { can, useAwards, useCounselings, useDeleteRecord, useRestoreRecord, useIdentity, usePrefs, useTrainings, invalidateRecords } from '@/lib/queries';
@@ -142,12 +143,12 @@ export default function Career({ section }: { section: CareerSection }) {
 
   const hours = useMemo(() => (trainings || []).reduce((n: number, t) => n + (Number(t.hours) || 0), 0), [trainings]);
   // As the server decides (canEdit in server/authz/records.ts): an award a leader recorded is never its subject's to
-  // change, and its recorder may change it while they hold Counsel members in its unit.
+  // change, and its recorder may change it while it is shared with the unit they hold Counsel members in.
   const canEditRow = (r: any) => {
     if (r.frozen_at) return false;
     if (recordedByOther(r)) {
       if (r.user_id === me) return false;
-      if (r.recorded_by === me && can(identity, PERMISSIONS.COUNSEL, r.unit_id)) return true;
+      if (r.recorded_by === me && r.visibility === 'unit' && can(identity, PERMISSIONS.COUNSEL, r.unit_id)) return true;
     }
     return r.user_id === me || can(identity, PERMISSIONS.MANAGE_RECORDS, r.unit_id);
   };
@@ -215,6 +216,8 @@ export default function Career({ section }: { section: CareerSection }) {
         {view?.kind === 'award' && <DescriptionList items={[['Status', <StatusBadge value={view.row.status} />], ['Type', humanize(view.row.type)], ['Recorded by', view.row.recorder_name || null], ['Recommending official', view.row.recommending_official], ['Approving authority', view.row.approving_authority], ['Submitted', <DateText value={view.row.submitted_at} fallback="" />], ['Approved', <DateText value={view.row.approved_at} fallback="" />], ['Presented', <DateText value={view.row.presented_at} fallback="" />], ['Citation', view.row.citation ? <span className="whitespace-pre-wrap">{view.row.citation}</span> : null], ['Notes', view.row.notes]]} />}
         {view?.kind === 'award' && view.row.user_id === me && recordedByOther(view.row) && <p className="mt-3 text-xs text-ink-3">{view.row.recorder_name || 'A leader'} recorded this award for you, so only they can change it. Ask them if something needs correcting.</p>}
         {view?.kind === 'training' && <DescriptionList items={[['Status', <StatusBadge value={view.row.status} />], ['Type', view.row.type === 'pme' ? 'PME' : humanize(view.row.type)], ['Hours', view.row.hours != null ? formatNumber(view.row.hours) : null], ['Provider', view.row.provider], ['Notes', view.row.notes ? <span className="whitespace-pre-wrap">{view.row.notes}</span> : null]]} />}
+        {/* Files go where an entry moves (ADR-0015), so an award or a course shows the files it holds. */}
+        {(view?.kind === 'award' || view?.kind === 'training') && <div className="mt-4"><Attachments table={view.kind === 'award' ? 'awards' : 'trainings'} id={view.row.id} canEdit={canEditRow(view.row)} /></div>}
         {(view?.kind === 'award' || view?.kind === 'training') && <RecordLineage store={view.kind === 'award' ? 'awards' : 'trainings'} id={view.row.id} onUndone={goTo} className="mt-4" />}
         {view?.kind === 'counseling' && <div className="space-y-3"><DescriptionList items={[['Counselor', view.row.counselor_name || (view.row.counselor_id === me ? 'You' : null)], ['Subject', view.row.subject_name || null], ['Follow-up', <DateText value={view.row.follow_up_date} fallback="" />], ['Acknowledged', view.row.acknowledged_at ? formatStamp(view.row.acknowledged_at) : null]]} />{[['Summary', view.row.summary], ['Strengths', view.row.strengths], ['Areas to improve', view.row.improvements], ['Goals set', view.row.goals_set]].filter(([, v]) => v).map(([k, v]) => <section key={k}><h4 className="eyebrow mb-1">{k}</h4><p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-2">{v}</p></section>)}<p className="flex items-center gap-1 text-2xs text-ink-3"><Paperclip className="h-3 w-3" />Attachments for counselings are managed by the leader who recorded it.</p></div>}
         {view && <div className="mt-4"><Comments table={view.kind === 'award' ? 'awards' : view.kind === 'training' ? 'trainings' : 'counselings'} id={view.row.id} canModerate={Boolean(view.row.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, view.row.unit_id)} /></div>}

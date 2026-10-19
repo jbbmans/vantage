@@ -16,7 +16,7 @@
 ## Authorization
 
 - A user always reads and writes their own records.
-- Records have `visibility` of `private` or `unit`, and a `unit_id`. Only `unit` records in a unit where the reader holds `VIEW_RECORDS` are visible to others; `VIEW_MEMBER_DETAIL` opens a Marine's page; `MANAGE_RECORDS` edits shared entries; `COUNSEL` records counselings and award recommendations. An award keeps who recorded it (`recorded_by`), and a recommendation is never its subject's to edit, delete or move: its recorder changes it while holding `COUNSEL` in its unit, and `MANAGE_RECORDS` applies as to any shared entry (ADR-0015).
+- Records have `visibility` of `private` or `unit`, and a `unit_id`. Only `unit` records in a unit where the reader holds `VIEW_RECORDS` are visible to others; `VIEW_MEMBER_DETAIL` opens a Marine's page; `MANAGE_RECORDS` edits shared entries; `COUNSEL` records counselings and award recommendations. An award keeps who recorded it (`recorded_by`), and a recommendation is never its subject's to edit, delete or move: its recorder changes it while it is shared with its unit and they hold `COUNSEL` there, and `MANAGE_RECORDS` applies as to any shared entry (ADR-0015).
 - Permissions are a bitmask on roles, and roles belong to one unit. Authority flows down the unit tree, never up: a role in a command carries into every team beneath it, one position above that team's own role of the same rank, so a command leader outranks a team leader in the team. A role in a team confers nothing in the command above it.
 - Members see an overview of their own team and of each command above it: the roster, the goals, and aggregate totals. Totals built from fewer than three contributors are withheld, so an overview never reveals one person's entries. Shared records, member pages and dashboards still need `VIEW_RECORDS` or `VIEW_MEMBER_DETAIL` in that unit or a unit above it.
 - Moving a Marine between teams needs `MANAGE_MEMBERS` in both teams and a higher position than the Marine in each. It runs as one transaction, is audited as `move_member`, revokes the Marine's sessions, and carries a role only where the mover may grant it, never one that reads records to an account the mover opened that has not signed in as its own (ADR-0013).
@@ -201,14 +201,18 @@ owner move an entry between activities, awards and training with lineage and und
 - **Only the owner moves an entry,** and only one that is theirs alone. A move is refused (403) for someone else's
   entry (`owner_only`), one frozen when a membership ended (`frozen`), an activity drawn from a financial case
   (`drawn_from_work`), an award a leader recorded (`recorded_by_other`), one a legal hold covers (`legal_hold`), and
-  one its owner may no longer place where it sits (`placement`). An entry in the recycle bin is not found. A stale
-  version, a duplicate activity and an undo with nothing to undo are 409s.
+  one its owner may no longer place where it sits (`placement`). Someone who may not read the entry is refused as
+  when opening it, and an entry in someone else's recycle bin is not found. A stale version, a duplicate activity, an
+  undo with nothing to undo, and a file whose entry moved while it was being scanned (`record_moved`) are 409s.
+- **A correction on a move files nothing.** It cannot set a project or a value type; those are checked when the
+  entry is edited. An undo keeps the entry's project only while its owner may still file under it.
 - **A move never changes where an entry sits.** It keeps its owner, unit and visibility. An undo takes the entry's
   current place, not the one in its snapshot, so it never carries back across a boundary what was added after.
 - **What an entry said before is its owner's.** Anyone who may read the entry sees that it moved, from where and when.
   The row as it stood and the reason for the move are its owner's only, and are in their personal export. The
-  instance archive carries the lineage; destroying a record removes its whole chain. A retention schedule that
-  anonymizes reaches the record's own columns, not the lineage snapshots.
+  instance archive carries the lineage; destroying or anonymizing a record removes its whole chain, unless a legal
+  hold covers its owner, a record type the entry has been or the whole instance. A chain kept under a hold goes at
+  the first recycle-bin purge after the hold is released. An anonymized award no longer names who recorded it.
 - **Audited at both ends.** `record_moved` and `record_move_undone` are written against each end, each naming the
   other, as user activity in the entry's unit.
 - **Read, never stored.** The timeline and the list of entries that may belong elsewhere are worked out from the
@@ -330,7 +334,7 @@ An account is the person for a whole career; Unit Instances hold memberships to 
 | A lossy upgrade passing unnoticed | Every table counted, and each Unit Instance's rows, before and after each migrating start; losses audited and told to the Lead Unit Managers until reviewed (ADR-0014) |
 | A backup taken in through a data import, or a data export passed off as a backup | Each data import refuses a database file and the service archive; the archive import refuses a data export (ADR-0014) |
 | A leader who has left a unit still leading it | Leadership counts only while the leader is a member, and ends when the membership does (ADR-0013) |
-| A Marine marking their own recommended award approved | An award keeps who recorded it; a recommendation is its recorder's, while they hold `COUNSEL` in its unit, and the chain's, never its subject's to edit, delete or move (ADR-0015) |
+| A Marine marking their own recommended award approved | An award keeps who recorded it; a recommendation is its recorder's, while it is shared with its unit and they hold `COUNSEL` there, and the chain's, never its subject's to edit, delete or move (ADR-0015) |
 | A guess from wording misfiling someone's record | Nothing moves without its owner; the classifier only suggests; a move keeps the whole row and can be undone (ADR-0015) |
 | Moving an entry out of a financial case's history or a legal hold | Refused as `drawn_from_work` or `legal_hold` (ADR-0015) |
 | Reading what an entry said before it was moved | A reader sees that it moved; the earlier row and the reason are its owner's only (ADR-0015) |

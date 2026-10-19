@@ -46,16 +46,18 @@ export function recordTimeline(ctx: AppContext, user: SessionUser, query: Record
   const from = typeof query.from === 'string' && query.from ? query.from : null;
   const to = typeof query.to === 'string' && query.to ? query.to : null;
   if ((from && !DAY.test(from)) || (to && !DAY.test(to)) || (from && to && from > to)) throw badRequest('Use a valid from/to window.');
-  const limit = Math.min(Math.max(Number(query.limit) || 200, 1), 500);
+  const limit = Math.trunc(Math.min(Math.max(Number(query.limit) || 200, 1), 500));
+  // One kind's newest entries, not the newest of everything filtered afterwards; the counts stay every kind's, for the filters.
+  const kind = typeof query.kind === 'string' && query.kind && query.kind !== 'all' ? query.kind : null;
   const union = Object.values(SOURCES).join(' UNION ALL ');
   const window = `WHERE (@from IS NULL OR day >= @from) AND (@to IS NULL OR day <= @to)`;
   const params = { me: user.id, from, to };
-  const rows = ctx.db.prepare(`SELECT * FROM (${union}) ${window} ORDER BY day DESC, created_at DESC LIMIT ${limit}`).all(params) as Item[];
+  const rows = ctx.db.prepare(`SELECT * FROM (${union}) ${window} AND (@kind IS NULL OR kind = @kind) ORDER BY day DESC, created_at DESC LIMIT ${limit}`).all({ ...params, kind }) as Item[];
   const counts = Object.fromEntries((ctx.db.prepare(`SELECT kind, COUNT(*) AS n FROM (${union}) ${window} GROUP BY kind`).all(params) as Array<{ kind: string; n: number }>).map((r) => [r.kind, r.n]));
   const total = Object.values(counts).reduce((a: number, n) => a + Number(n), 0);
   return {
     items: rows.map((r) => ({ kind: r.kind, table: r.source, id: r.id, date: r.day, title: r.title, detail: r.detail, status: r.status, from_work: Boolean(r.from_work), href: HREF[r.source](r.id) })),
-    counts, total, truncated: total > rows.length,
+    counts, total, truncated: (kind ? Number(counts[kind] ?? 0) : total) > rows.length,
     // Kinds the timeline will show once the Task that builds them lands, so an empty lane is not read as none.
     pending: RECORD_KINDS.filter((k) => k.timeline && !k.store).map((k) => ({ key: k.key, label: k.label, plannedIn: k.plannedIn ?? null })),
   };

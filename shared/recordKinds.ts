@@ -181,9 +181,12 @@ export function movedFields(from: MovableTable, row: Record<string, unknown>, to
     const notes = joined([row.result, row.notes, linksText(row.evidence_links)], 4000);
     if (to === 'awards') {
       const planned = row.status === 'planned';
+      const name = clamp((reading?.kind === 'award' && reading.name) || row.title, 200);
+      // Named from what the title says ("Navy and Marine Corps Achievement Medal"), the award keeps the title's own words.
+      const said = name !== clamp(row.title, 200) ? row.title : null;
       return {
-        name: clamp((reading?.kind === 'award' && reading.name) || row.title, 200), date, type: reading?.kind === 'award' ? reading.type : 'personal_award',
-        status: planned ? 'planned' : 'presented', presented_at: planned ? null : date, notes,
+        name, date, type: reading?.kind === 'award' ? reading.type : 'personal_award',
+        status: planned ? 'planned' : 'presented', presented_at: planned ? null : date, notes: said ? joined([said, notes], 4000) : notes,
       };
     }
     return {
