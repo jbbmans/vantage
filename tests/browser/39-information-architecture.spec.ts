@@ -56,6 +56,15 @@ test('a new Marine finds out what Vantage is and where everything lives, from To
   await expect(page.getByRole('button', { name: /^Filters/ })).toHaveAttribute('aria-expanded', 'true');
   await expect(page.getByRole('combobox', { name: 'Category' })).toHaveText('Operations');
 
+  // Each import link opens its import, not only its page.
+  const imports: Array<[string, string]> = [['Records → Activities', 'Import activities from CSV'], ['Work → Queue', 'Import work from a spreadsheet']];
+  for (const [link, dialog] of imports) {
+    await page.goto('/help');
+    await answer(page, 'How do I import something?').getByRole('link', { name: link }).click();
+    await expect(page.getByRole('dialog', { name: dialog }), link).toBeVisible();
+    await page.keyboard.press('Escape');
+  }
+
   expect(serious((await new AxeBuilder({ page }).analyze()).violations)).toEqual([]);
 
   // A link to a page they cannot use says so, under that page's name and group; the server refuses its data regardless.

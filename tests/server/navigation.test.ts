@@ -86,6 +86,13 @@ test('a page keeps its address when it changes group, and its group is read from
   // The longest match wins: Awards, not Career plan.
   assert.equal(pageFor('/career/awards')?.label, 'Awards');
   assert.equal(pageFor('/career')?.label, 'Career plan');
+  // A trailing slash is the same page, as the router treats it.
+  assert.equal(group('/record/'), 'Records');
+  assert.equal(pageFor('/record/')?.label, 'Overview');
+  assert.equal(group('/career/'), 'Training & Development');
+  assert.equal(group('/reports/'), 'Reports & Analytics');
+  assert.equal(group('/team/roles/'), 'Administration');
+  assert.equal(pageFor('/')?.label, 'Today');
 });
 
 test('placeName names a place the way the menu does', () => {

@@ -43,6 +43,13 @@ test('the demo has no Unit Manager console, but its entry shows what a Unit Mana
   await expect(page.getByRole('button', { name: /Export for the PIA/ })).toHaveCount(0);
 });
 
+test('the demo’s field guide sends nobody to Support, which the demo does not have', async ({ page }) => {
+  await page.goto('/help');
+  const help = page.locator('#find-your-way dl > div').filter({ has: page.getByText('Where do I get help?', { exact: true }) });
+  await expect(help).toContainText('? for the keyboard shortcuts');
+  await expect(help).not.toContainText('Support');
+});
+
 test('a Marine claims, researches, calculates, decides, hands off, and keeps a private draft', async ({ page }) => {
   await page.goto('/work');
   await page.getByRole('button', { name: 'Open to claim', exact: true }).click();

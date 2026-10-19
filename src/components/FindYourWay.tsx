@@ -17,11 +17,11 @@ const ANSWERS: Answer[] = [
   { id: 'training', q: 'Where does training live?', a: 'PME, courses and certifications, with your career plan, goals and readiness beside them.', to: ['/career/training', '/career/readiness'] },
   { id: 'personnel', q: 'Where are my Marines?', a: 'The people of the units you lead: who is on the roster, and who holds what.', to: ['/team/roster', '/team/workload'], otherwise: 'Personnel appears in the menu when you lead a unit or hold a role that sees its members.' },
   { id: 'record', q: 'How do I record something?', a: 'Press N anywhere, or Log activity at the top of the page, and write what you did in a sentence. Awards, training and counseling each have a New button on their own page.', to: ['/record/activities', '/career/awards', '/career/training'] },
-  { id: 'import', q: 'How do I import something?', a: 'Activities from a CSV with Import activities; taskers and cases from a spreadsheet with Import work.', to: ['/record/activities?import=1', '/work/queue'] },
+  { id: 'import', q: 'How do I import something?', a: 'Activities from a CSV with Import activities; taskers and cases from a spreadsheet with Import work.', to: ['/record/activities?import=1', '/work/queue?import=1'] },
   { id: 'export', q: 'How do I export something?', a: 'Export activities gives a CSV you can edit and import back; Analysis exports a PDF for your reporting senior; Your data, in Settings, downloads everything Vantage holds about you.', to: ['/record/activities', '/reports/analysis', '/settings?tab=data'] },
   { id: 'performance', q: 'How do I see how I am doing?', a: 'Analysis shows what your record says, period against period. Readiness shows your JEPES or FITREP figures. A leader’s unit dashboard shows the unit’s shared work.', to: ['/reports/analysis', '/career/readiness', '/team/dashboard'] },
   { id: 'duty', q: 'Where is duty?', a: 'Log a duty as an activity, in a sentence: “Stood duty as DNCO, 0800 to 0800, at the barracks.” Vantage suggests Operations as its category; your activities filtered to Operations, and your timeline, show the duty you stood.', to: ['/record/activities?category=Operations', '/record/timeline'] },
-  { id: 'help', q: 'Where do I get help?', a: 'This guide; ⌘K or / to search everything; ? for the keyboard shortcuts; and Support to ask a person.', to: ['/support'] },
+  { id: 'help', q: 'Where do I get help?', a: 'This guide; ⌘K or / to search everything; ? for the keyboard shortcuts; and Support to ask a person.', to: ['/support'], otherwise: 'This guide; ⌘K or / to search everything; and ? for the keyboard shortcuts.' },
 ];
 
 export default function FindYourWay() {

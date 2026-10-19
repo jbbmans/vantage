@@ -135,9 +135,13 @@ export const ALL_PAGES: NavPage[] = [HOME, ...GROUPS.flatMap((g) => g.pages), ..
 
 const under = (pathname: string, to: string) => pathname === to || pathname.startsWith(`${to}/`);
 
-/** The page a path is, or sits beneath: the longest match wins, so /career/awards is Awards, not Career plan. */
+/**
+ * The page a path is, or sits beneath: the longest match wins, so /career/awards is Awards, not Career plan. A trailing
+ * slash is ignored, as the router ignores it: /record/ is Records → Overview.
+ */
 export function pageFor(pathname: string): NavPage | undefined {
-  return [...ALL_PAGES].filter((p) => (p.end || p.to === '/' ? pathname === p.to : under(pathname, p.to))).sort((a, b) => b.to.length - a.to.length)[0];
+  const path = pathname.length > 1 ? pathname.replace(/\/+$/, '') || '/' : pathname;
+  return [...ALL_PAGES].filter((p) => (p.end || p.to === '/' ? path === p.to : under(path, p.to))).sort((a, b) => b.to.length - a.to.length)[0];
 }
 
 /**
