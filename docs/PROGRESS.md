@@ -15,7 +15,8 @@ name, and Help answers where everything is
   Readiness and MARADMINs under Training & Development; Reference under Work; the unit dashboard under Reports &
   Analytics; invitations, roles, units, the access log and both consoles under Administration. Knowledge is gone.
 - **Addresses did not move.** `groupFor` resolves by page, so `/career/awards` is Records → Awards. Old addresses
-  redirect as before. Shortcuts keep their pages; A is new (Administration) and K is retired.
+  redirect as before. Shortcuts keep their letters; C opens Training & Development → Training (it opened the
+  career plan), A is new (Administration) and K is retired.
 - **Names.** A page's heading is its menu label and its eyebrow its group (`usePlace`). Sentences that name a place
   use `placeName` ("Records → Awards") instead of "under Career".
 - **Actions.** Log activity; New activity, New award, New training, New counseling, New goal, New report; Import

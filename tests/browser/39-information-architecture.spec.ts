@@ -109,6 +109,12 @@ test('a page the unit view does not include keeps the name it was asked for, and
   await expect(page).toHaveURL(/\/team$/);
   await expect(page.getByRole('main').locator('.eyebrow').first()).toHaveText(/^Personnel/);
   await expect(page.getByText(/^Not part of the .+ view$/)).toHaveCount(0);
+
+  // Find your way points a member to the Personnel page they have, not to the pages a leader has.
+  await page.goto('/help');
+  const people = answer(page, 'Where are my Marines?');
+  await expect(people.getByRole('link')).toHaveText(['Personnel → Overview']);
+  await expect(people).not.toContainText('Personnel appears in the menu');
 });
 
 test('importing and exporting are named for what moves, on their pages and in ⌘K', async ({ page }) => {

@@ -50,7 +50,7 @@ Help → Field guide opens with these answers, linked to the pages this person m
 | Where work lives | Work → Queue, Work → Tasks |
 | Where records live | Records → Overview, Records → Timeline |
 | Where training lives | Training & Development → Training, and → Readiness |
-| Where personnel live | Personnel → Roster, and → Workload, when the person leads a unit or holds a role that sees its members |
+| Where personnel live | Personnel → Overview for any member of a unit; Personnel → Roster, and → Workload, when the person leads a unit or holds a role that sees its members |
 | How to record | N or Log activity anywhere; New award, New training and New counseling on their pages |
 | How to import | Import activities (Records → Activities); Import work (Work → Queue) |
 | How to export | Export activities; Export analysis PDF and Export JEPES input PDF (Reports & Analytics → Analysis); Settings → Your data |

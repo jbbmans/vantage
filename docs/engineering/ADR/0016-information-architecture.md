@@ -70,9 +70,10 @@ What main held before this Task (at `15e37d0`):
   falls back to a group's `also` prefixes for detail pages (`/work/items/…` under Work, `/records/…` under Records,
   a member's page `/team/:id` under Personnel).
 - `MOVED`, `TABS` and `movedTo` are unchanged, so every old address still lands where it did.
-- **Shortcuts keep their pages.** D, W, R, G, C, P, T, F, M, H, S and O open what they opened; C now names Training &
-  Development and T Personnel. A is new, for Administration. K (Knowledge) is retired, since each of its pages has
-  its own letter.
+- **Shortcuts keep their letters.** D, W, R, G, P, T, F, M, H, S and O open what they opened; T now names Personnel.
+  A group's letter opens the group's first page, as clicking the group does, so C, which opened the career plan,
+  opens Training & Development → Training; the career plan is one click on from there. What's new says so. A is new,
+  for Administration. K (Knowledge) is retired, since each of its pages has its own letter.
 
 ### 3. A page is named as the menu names it
 
