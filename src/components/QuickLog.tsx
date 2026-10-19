@@ -22,6 +22,7 @@ import { errorText, isOffline } from '@/lib/api';
 import { outbox } from '@/lib/outbox';
 import { OutboxContext } from '@/components/AppShell';
 import { cn } from '@/lib/utils';
+import { placeName } from '@/config/nav';
 
 const offlineNote = (to: 'awards' | 'trainings') => `You are offline, and only activities wait to sync. Keep it as an activity, or save it as ${to === 'awards' ? 'an award' : 'training'} once you are back online.`;
 
@@ -133,9 +134,9 @@ export default function QuickLog({ open, onOpenChange, initialText = '' }: { ope
       const saved = await (to === 'awards' ? createAward : createTraining).mutateAsync({ ...movedFields('activities', body, to), visibility: record.visibility, unit_id: record.unit_id }) as { id?: string } | undefined;
       capture.current?.completed({ had_measure: body.quantity != null || body.dollar_amount != null, had_outcome: Boolean(record.result), ai_assisted: aiUsed, source: aiUsed ? 'ai_draft' : 'manual' });
       capture.current = null;
-      // Career opens an award or a course named by ?open= (src/pages/Career.tsx), so Open goes to the entry itself.
+      // The page opens an award or a course named by ?open= (src/pages/Career.tsx), so Open goes to the entry itself.
       const page = to === 'awards' ? '/career/awards' : '/career/training';
-      toast.success(`Saved to your ${MOVABLE_LABELS[to].place} under Career.`, { label: 'Open', onClick: () => navigate(saved?.id ? `${page}?open=${encodeURIComponent(saved.id)}` : page) });
+      toast.success(`Saved to ${placeName(page)}.`, { label: 'Open', onClick: () => navigate(saved?.id ? `${page}?open=${encodeURIComponent(saved.id)}` : page) });
       writeDraft(key, null);
       onOpenChange(false);
     } catch (err) {

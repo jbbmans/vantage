@@ -75,7 +75,7 @@ export default function MemberDetail() {
       <PageHeader eyebrow={data.memberships.map((m) => `${m.unit_short || m.unit_name}${m.billet ? ` · ${m.billet}` : ''}`).join(' · ') || 'No unit'} title={fullName(person)} lede={`${person.rank_name || 'No rank'}${person.mos ? ` · MOS ${person.mos}` : ''}${person.eas ? ` · EAS ${person.eas}` : ''} · ${trackMeta(track).name} track${isSelf ? ' · this is you' : ''}`}>
         {canManage && !isSelf && <Button onClick={() => setProfile({ first_name: person.first_name, last_name: person.last_name, middle_initial: person.middle_initial || '', rank_id: person.rank_id || '', mos: person.mos || '', eas: person.eas || '' })}><Pencil className="h-4 w-4" />Edit profile</Button>}
         {canCounsel && <Button onClick={() => setAward({ ...emptyAward('unit', unitId), user_id: id })}><AwardIcon className="h-4 w-4" />Recommend award</Button>}
-        {canCounsel && <Button variant="primary" onClick={() => setCounseling({ ...emptyCounseling('unit', unitId), user_id: id })}><MessageSquare className="h-4 w-4" />Record counseling</Button>}
+        {canCounsel && <Button variant="primary" onClick={() => setCounseling({ ...emptyCounseling('unit', unitId), user_id: id })}><MessageSquare className="h-4 w-4" />New counseling</Button>}
         <Button onClick={download}><FileDown className="h-4 w-4" />{trackMeta(track).inputName} PDF</Button>
       </PageHeader>
       {!isSelf && <p className="mb-4 flex items-center gap-2 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-2"><ShieldCheck className="h-4 w-4 text-ink-3" />You are seeing only what this Marine shared with {data.detailUnits.map(unitLabel).join(', ')}. This view was logged to the unit access log.</p>}
@@ -111,7 +111,7 @@ export default function MemberDetail() {
         </Table></div>
       ))}
 
-      {tab === 'counseling' && (data.counselings.length === 0 ? <div className="card"><EmptyState icon={MessageSquare} title="No counselings on record" action={canCounsel ? <Button variant="primary" onClick={() => setCounseling({ ...emptyCounseling('unit', unitId), user_id: id })}>Record one</Button> : undefined} /></div> : (
+      {tab === 'counseling' && (data.counselings.length === 0 ? <div className="card"><EmptyState icon={MessageSquare} title="No counselings on record" action={canCounsel ? <Button variant="primary" onClick={() => setCounseling({ ...emptyCounseling('unit', unitId), user_id: id })}>New counseling</Button> : undefined} /></div> : (
         <div className="space-y-3">{data.counselings.map((c) => (
           <article key={c.id} className="card p-4">
             <div className="flex flex-wrap items-center gap-2 text-xs text-ink-3"><DateText value={c.date} /><Badge>{humanize(c.type)}</Badge>{c.counselor_name && <span>by {c.counselor_name}</span>}{c.acknowledged_at ? <Badge tone="good">Acknowledged</Badge> : c.counselor_id && c.counselor_id !== c.user_id ? <Badge tone="warn">Awaiting acknowledgement</Badge> : <Badge>Self-recorded</Badge>}{c.follow_up_date && <span>follow-up <DateText value={c.follow_up_date} /></span>}</div>

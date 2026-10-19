@@ -21,6 +21,7 @@ import {
 } from '../../shared/fmra';
 import { formatCents, parseMoney } from '../../shared/money';
 import { PROCEDURE_LIST, AUTHORITY_LABEL } from '../../shared/procedures';
+import { usePlace } from '@/lib/place';
 
 type Tab = 'diagnose' | 'lifecycle' | 'methods' | 'conditions' | 'abnormal' | 'roles' | 'data' | 'glossary' | 'limits';
 const TABS: Array<{ value: Tab; label: string }> = [
@@ -36,6 +37,7 @@ const TABS: Array<{ value: Tab; label: string }> = [
 ];
 
 export default function Reference() {
+  const place = usePlace();
   const [tab, setTab] = useParam('tab', 'diagnose');
   const current = (TABS.some((t) => t.value === tab) ? tab : 'diagnose') as Tab;
   useEffect(() => {
@@ -45,7 +47,7 @@ export default function Reference() {
 
   return (
     <div className="page">
-      <PageHeader eyebrow="FMRA desk reference" title="Know what the balance is telling you." lede="The financial lifecycle, the seven purchase methods and their evidence, open balances, holds, rejects and UMTs — with a diagnoser that reads the four figures and says what to check first.">
+      <PageHeader eyebrow={place.group} title="Reference" lede="The FMRA desk reference: know what the balance is telling you. The financial lifecycle, the seven purchase methods and their evidence, open balances, holds, rejects and UMTs — with a diagnoser that reads the four figures and says what to check first.">
         <SourceBadge />
       </PageHeader>
       <Tabs value={current} onChange={(v) => setTab(v)} tabs={TABS} />

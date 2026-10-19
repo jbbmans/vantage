@@ -173,7 +173,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
   };
 
   const titles: Record<Step, string> = {
-    file: 'Import a spreadsheet',
+    file: 'Import work from a spreadsheet',
     sheet: 'Which sheet, and where do the headings sit?',
     mapping: 'What does each column mean?',
     preview: 'Here is exactly what will happen',

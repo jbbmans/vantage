@@ -11,6 +11,8 @@ import { useAssignedWork, useContributions, useRecordDrafts, useRecordSummary, c
 import * as api from '@/lib/api';
 import { cn, formatRange, lastDays, timeAgo } from '@/lib/utils';
 import { QueryFailure } from '@/components/QueryFailure';
+import { usePlace } from '@/lib/place';
+import { placeName } from '@/config/nav';
 
 
 const WINDOWS = [
@@ -28,16 +30,17 @@ const HEADINGS: Record<RecordSection, [string, string]> = {
   drafts: ['Drafts', 'Entries drawn from your work, waiting for your wording before they join your record. Only you can see them.'],
 };
 
-/** Three pages of Record: the overview at /record, and /record/contributions and /record/drafts. Activities is Records.tsx. */
+/** Three pages of Records: the overview at /record, and /record/contributions and /record/drafts. Activities is Records.tsx. */
 export default function RecordHub({ section }: { section: RecordSection }) {
+  const place = usePlace();
   const [days, setDays] = useParam('window', '90');
   const params = useMemo(() => lastDays(days), [days]);
   const summary = useRecordSummary(params, section === 'overview');
 
   return (
     <div className="page">
-      <PageHeader eyebrow="Record" title={HEADINGS[section][0]} lede={HEADINGS[section][1]}>
-        <Button variant="primary" className="xl:hidden" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
+      <PageHeader eyebrow={place.group} title={HEADINGS[section][0]} lede={HEADINGS[section][1]}>
+        <Button variant="primary" className="xl:hidden" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log activity</Button>
       </PageHeader>
       {section !== 'drafts' && (
         <div className="mb-4 flex flex-wrap items-center justify-between gap-2">
@@ -116,7 +119,7 @@ function Overview({ summary, loading }: { summary: any; loading: boolean }) {
 
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
         <Panel title="Assigned to you" subtitle="Claimed work lands here at once. Holding work is not credit for it." padded={false}
-          action={<Link to="/work" className="text-xs text-accent hover:underline">Find more work</Link>}>
+          action={<Link to="/work/queue" className="text-xs text-accent hover:underline">Find more work</Link>}>
           {assigned.isPending ? <Skeleton className="m-4 h-20" /> : assigned.isError ? (
             <QueryFailure className="" error={assigned.error} what="Your assigned work" onRetry={() => assigned.refetch()} />
           ) : !assigned.data?.length ? (
@@ -124,7 +127,7 @@ function Overview({ summary, loading }: { summary: any; loading: boolean }) {
           ) : <ul className="divide-y divide-line">{assigned.data.map((item) => <WorkRow key={item.id} item={item} />)}</ul>}
         </Panel>
 
-        <Panel title="What you recorded yourself" subtitle="Work that did not start as a tasker. Courses, PME, qualifications and awards have their own records under Career."
+        <Panel title="What you recorded yourself" subtitle={`Work that did not start as a tasker. Courses, PME and qualifications have their own records in ${placeName('/career/training')}, and awards in ${placeName('/career/awards')}.`}
           action={<Link to="/record/timeline" className="text-xs text-accent hover:underline">Your timeline</Link>}>
           <ul className="grid grid-cols-3 gap-3 text-sm">
             <li>
@@ -144,7 +147,7 @@ function Overview({ summary, loading }: { summary: any; loading: boolean }) {
             </li>
           </ul>
           <div className="mt-4 flex flex-wrap gap-2">
-            <Button size="sm" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
+            <Button size="sm" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log activity</Button>
             <Button size="sm" variant="ghost" asChild><Link to="/reports"><FileText className="h-4 w-4" />Build JEPES or FITREP input</Link></Button>
           </div>
         </Panel>

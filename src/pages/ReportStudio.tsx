@@ -12,6 +12,7 @@ import { editorClock, track } from '@/lib/telemetry';
 import * as api from '@/lib/api';
 import { formatDollars, formatNumber, rangeForPeriod, dayKey } from '../../shared/metrics';
 import { cn, formatRange, timeAgo } from '@/lib/utils';
+import { usePlace } from '@/lib/place';
 
 interface Section { heading: string; body: string; source_ids: string[] }
 
@@ -37,6 +38,7 @@ export default function ReportStudio({ embedded }: { embedded?: boolean } = {}) 
 }
 
 function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedded?: boolean }) {
+  const place = usePlace();
   const toast = useToast();
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
@@ -65,7 +67,7 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
   return (
     <PageShell
       embedded={embedded}
-      eyebrow="Reports"
+      eyebrow={place.group}
       title="Packages"
       lede="Each saved version records which facts it was built from. Exporting hands over exactly what was reviewed."
       actions={<Button variant="primary" onClick={() => setCreating(true)}><Plus className="h-4 w-4" />New report</Button>}
@@ -74,7 +76,7 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
       <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
         <div className="lg:col-span-2">
           {drafts.isPending ? <Skeleton className="h-40" /> : (drafts.data || []).length === 0 ? (
-            <div className="card"><EmptyState icon={FileText} title="No reports yet" description="Start one for the period you are reporting on, then pull in the records it should cite." action={<Button variant="primary" onClick={() => setCreating(true)}>Start a report</Button>} /></div>
+            <div className="card"><EmptyState icon={FileText} title="No reports yet" description="Start one for the period you are reporting on, then pull in the records it should cite." action={<Button variant="primary" onClick={() => setCreating(true)}>New report</Button>} /></div>
           ) : (
             <ul className="space-y-2">
               {(drafts.data || []).map((d: any) => (
@@ -117,7 +119,7 @@ function DraftList({ onOpen, embedded }: { onOpen: (id: string) => void; embedde
       </div>
 
       <Dialog
-        open={creating} onOpenChange={setCreating} title="Start a report" size="sm"
+        open={creating} onOpenChange={setCreating} title="New report" size="sm"
         description="Name it and pick the period it covers. Both can change before you save a revision."
         footer={<><Button variant="ghost" onClick={() => setCreating(false)}>Cancel</Button><Button variant="primary" loading={busy} onClick={create}>Start</Button></>}
       >

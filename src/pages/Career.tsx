@@ -21,6 +21,7 @@ import { PERMISSIONS } from '../../shared/permissions';
 import type { Award, Training } from '../../shared/types';
 import { formatStamp, humanize, todayIso } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/primitives';
+import { usePlace } from '@/lib/place';
 
 const CareerPlan = lazy(() => import('./CareerPlan'));
 
@@ -93,7 +94,7 @@ export function CounselingFields({ d, set, errors, leader }: { d: CounselingDraf
   );
 }
 
-/** Readiness, the fifth part of Career, is its own page (Readiness.tsx) at /career/readiness. */
+/** The pages under /career. Readiness is its own page (Readiness.tsx) at /career/readiness. */
 export type CareerSection = 'plan' | 'training' | 'awards' | 'counseling';
 
 const HEADINGS: Record<CareerSection, [string, string]> = {
@@ -103,8 +104,12 @@ const HEADINGS: Record<CareerSection, [string, string]> = {
   counseling: ['Counseling', 'Counselings you received and gave. Acknowledging one confirms you read it, not that you agree.'],
 };
 
-/** One page of Career: the plan at /career, and each of its parts at /career/<section>. */
+/**
+ * One of the pages under /career: the career plan at /career, and the rest at /career/<section>. They keep their
+ * addresses across groups (ADR-0016): training and the plan are Training & Development, awards and counseling Records.
+ */
 export default function Career({ section }: { section: CareerSection }) {
+  const place = usePlace();
   const navigate = useNavigate();
   const toast = useToast();
   const qc = useQueryClient();
@@ -161,10 +166,10 @@ export default function Career({ section }: { section: CareerSection }) {
 
   return (
     <div className="page">
-      <PageHeader eyebrow="Career" title={HEADINGS[tab][0]} lede={HEADINGS[tab][1]}>
-        {tab === 'training' && <Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}><Plus className="h-4 w-4" />Log training</Button>}
-        {tab === 'awards' && <Button variant="primary" onClick={() => setAward(emptyAward(vis, unit))}><Plus className="h-4 w-4" />Track an award</Button>}
-        {tab === 'counseling' && <Button variant="primary" onClick={() => setCounseling(emptyCounseling(vis, unit))}><Plus className="h-4 w-4" />Record counseling</Button>}
+      <PageHeader eyebrow={place.group} title={HEADINGS[tab][0]} lede={HEADINGS[tab][1]}>
+        {tab === 'training' && <Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}><Plus className="h-4 w-4" />New training</Button>}
+        {tab === 'awards' && <Button variant="primary" onClick={() => setAward(emptyAward(vis, unit))}><Plus className="h-4 w-4" />New award</Button>}
+        {tab === 'counseling' && <Button variant="primary" onClick={() => setCounseling(emptyCounseling(vis, unit))}><Plus className="h-4 w-4" />New counseling</Button>}
       </PageHeader>
       {tab === 'plan' && <Suspense fallback={<Skeleton className="h-64" />}><CareerPlan /></Suspense>}
       {['training', 'awards', 'counseling'].includes(tab) && <div className="mb-4 grid grid-cols-3 gap-3">
@@ -173,13 +178,13 @@ export default function Career({ section }: { section: CareerSection }) {
         <Stat label="Counselings" value={(counselings || []).length} hint={(counselings || []).some((c) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'one awaits your acknowledgement' : 'up to date'} tone={(counselings || []).some((c) => c.user_id === me && !c.acknowledged_at && c.counselor_id && c.counselor_id !== me) ? 'warn' : undefined} to={tab === 'counseling' ? undefined : '/career/counseling'} />
       </div>}
 
-      {tab === 'training' && ((trainings || []).length === 0 ? <div className="card"><EmptyState icon={GraduationCap} title="No training logged" description="PME, MarineNet courses, certifications, college. Hours here feed training-hour goals and the evaluation package." action={<Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}>Log training</Button>} /></div> : (
+      {tab === 'training' && ((trainings || []).length === 0 ? <div className="card"><EmptyState icon={GraduationCap} title="No training logged" description="PME, MarineNet courses, certifications, college. Hours here feed training-hour goals and the evaluation package." action={<Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}>New training</Button>} /></div> : (
         <div className="card" style={{ overflow: 'hidden' }}><Table head={<><th className="w-24">Date</th><th>Training</th><th className="w-28">Type</th><th className="w-20 text-right">Hours</th><th className="w-28">Status</th><th className="w-44"></th></>}>
           {(trainings || []).map((t) => <tr key={t.id}><td className="text-xs"><DateText value={t.date} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView({ kind: 'training', row: t })}>{t.title}</button>{t.provider && <span className="block text-xs text-ink-3">{t.provider}</span>}</td><td className="text-xs">{t.type === 'pme' ? 'PME' : humanize(t.type)}</td><td className="fig text-right text-xs">{t.hours ?? ''}</td><td><StatusBadge value={t.status} /></td><td className="text-right">{canMove(t) && <Button size="xs" variant="ghost" onClick={() => startMove('trainings', t)}>Move to…</Button>}{canEditRow(t) && <><Button size="xs" variant="ghost" onClick={() => setTraining({ ...t, type: t.type || 'course', hours: t.hours ?? '', provider: t.provider || '', notes: t.notes || '', date: t.date || '' })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'trainings', row: t })}>Delete</Button></>}</td></tr>)}
         </Table></div>
       ))}
 
-      {tab === 'awards' && (awardRows.length === 0 ? <div className="card"><EmptyState icon={AwardIcon} title="No awards tracked" description="Track a recommendation from the day it is drafted to the day it is pinned. Citations draft from your logged activities." action={<Button variant="primary" onClick={() => setAward(emptyAward(vis, unit))}>Track an award</Button>} /></div> : (
+      {tab === 'awards' && (awardRows.length === 0 ? <div className="card"><EmptyState icon={AwardIcon} title="No awards tracked" description="Track a recommendation from the day it is drafted to the day it is pinned. Citations draft from your logged activities." action={<Button variant="primary" onClick={() => setAward(emptyAward(vis, unit))}>New award</Button>} /></div> : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {awardRows.map((a) => (
             <article key={a.id} className="card card-hover p-4">
@@ -192,7 +197,7 @@ export default function Career({ section }: { section: CareerSection }) {
         </div>
       ))}
 
-      {tab === 'counseling' && ((counselings || []).length === 0 ? <div className="card"><EmptyState icon={MessageSquare} title="No counselings recorded" description="Record what your leadership told you, or what you told your Marines. Counselings recorded by a leader ask for your acknowledgement." action={<Button variant="primary" onClick={() => setCounseling(emptyCounseling(vis, unit))}>Record counseling</Button>} /></div> : (
+      {tab === 'counseling' && ((counselings || []).length === 0 ? <div className="card"><EmptyState icon={MessageSquare} title="No counselings recorded" description="Record what your leadership told you, or what you told your Marines. Counselings recorded by a leader ask for your acknowledgement." action={<Button variant="primary" onClick={() => setCounseling(emptyCounseling(vis, unit))}>New counseling</Button>} /></div> : (
         <div className="card" style={{ overflow: 'hidden' }}><Table head={<><th className="w-24">Date</th><th>Counseling</th><th className="w-28">Type</th><th className="w-32">Follow-up</th><th className="w-32">Status</th><th className="w-28"></th></>}>
           {(counselings || []).map((c) => { const leaderRecorded = c.counselor_id && c.counselor_id !== c.user_id; const needsAck = c.user_id === me && leaderRecorded && !c.acknowledged_at; return (
             <tr key={c.id}><td className="text-xs"><DateText value={c.date} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView({ kind: 'counseling', row: c })}>{c.summary.length > 90 ? `${c.summary.slice(0, 90)}…` : c.summary}</button><span className="block text-xs text-ink-3">{c.counselor_name ? `by ${c.counselor_name}` : ''}{c.user_id !== me && c.subject_name ? ` · for ${c.subject_name}` : ''}</span></td><td className="text-xs">{humanize(c.type)}</td><td className="text-xs"><DateText value={c.follow_up_date} fallback="" /></td><td>{needsAck ? <Badge tone="warn">Acknowledge</Badge> : c.acknowledged_at ? <Badge tone="good">Acknowledged</Badge> : leaderRecorded ? <Badge>Pending</Badge> : <Badge>Self-recorded</Badge>}</td><td className="text-right">{needsAck && <Button size="xs" variant="soft" onClick={() => acknowledge(c)}>Acknowledge</Button>}{canEditRow(c) && !leaderRecorded && <><Button size="xs" variant="ghost" onClick={() => setCounseling({ ...c, date: c.date || '', counselor_name: c.counselor_name || '', strengths: c.strengths || '', improvements: c.improvements || '', goals_set: c.goals_set || '', follow_up_date: c.follow_up_date || '' })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'counselings', row: c })}>Delete</Button></>}</td></tr>
@@ -200,15 +205,15 @@ export default function Career({ section }: { section: CareerSection }) {
         </Table></div>
       ))}
 
-      <RecordDialog<TrainingDraft> store="trainings" open={Boolean(training)} onOpenChange={(o) => { if (!o) setTraining(null); }} initial={training} title={training?.id ? 'Edit training' : 'Log training'} noun="Training" validate={(d) => (!d.title.trim() ? 'A title is required.' : null)} fields={(d, set, errors) => <TrainingFields d={d} set={set} errors={errors} />} />
-      <RecordDialog<AwardDraft> store="awards" open={Boolean(award)} onOpenChange={(o) => { if (!o) { setAward(null); setCitationOut(null); } }} initial={award} title={award?.id ? 'Edit award' : 'Track an award'} noun="Award" size="lg" validate={(d) => (!d.name.trim() ? 'The award name is required.' : null)}
+      <RecordDialog<TrainingDraft> store="trainings" open={Boolean(training)} onOpenChange={(o) => { if (!o) setTraining(null); }} initial={training} title={training?.id ? 'Edit training' : 'New training'} noun="Training" validate={(d) => (!d.title.trim() ? 'A title is required.' : null)} fields={(d, set, errors) => <TrainingFields d={d} set={set} errors={errors} />} />
+      <RecordDialog<AwardDraft> store="awards" open={Boolean(award)} onOpenChange={(o) => { if (!o) { setAward(null); setCitationOut(null); } }} initial={award} title={award?.id ? 'Edit award' : 'New award'} noun="Award" size="lg" validate={(d) => (!d.name.trim() ? 'The award name is required.' : null)}
         fields={(d, set, errors) => (
           <>
             <AwardFields d={d} set={set} errors={errors} ai={<AiAction workflow="award_citation" input={{ award: d.name, facts: `${d.citation}\n${d.notes}`.trim(), to: d.date || undefined }} label="Draft citation" onResult={(output, meta) => { setCitationOut({ output, meta }); if (output.citation && !d.citation) set('citation', String(output.citation)); }} />} />
             {citationOut && <AiResult output={citationOut.output} meta={citationOut.meta} primaryKey="citation" />}
           </>
         )} />
-      <RecordDialog<CounselingDraft> store="counselings" open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling} title={counseling?.id ? 'Edit counseling' : 'Record counseling'} noun="Counseling" size="lg" validate={(d) => (!d.summary.trim() ? 'A summary is required.' : null)} fields={(d, set, errors) => <CounselingFields d={d} set={set} errors={errors} />} />
+      <RecordDialog<CounselingDraft> store="counselings" open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling} title={counseling?.id ? 'Edit counseling' : 'New counseling'} noun="Counseling" size="lg" validate={(d) => (!d.summary.trim() ? 'A summary is required.' : null)} fields={(d, set, errors) => <CounselingFields d={d} set={set} errors={errors} />} />
 
       <Dialog open={Boolean(view)} onOpenChange={(o) => { if (!o) { setView(null); setOpenId(''); } }} title={view?.kind === 'award' ? view.row.name : view?.kind === 'training' ? view.row.title : `${humanize(view?.row?.type || '')} counseling`} description={view?.row?.date ? formatDate(view.row.date, 'd MMMM yyyy') : undefined}
         footer={view?.kind === 'counseling' && view.row.user_id === me && view.row.counselor_id && view.row.counselor_id !== me && !view.row.acknowledged_at ? <><span className="mr-auto text-xs text-ink-3">Acknowledging confirms you read it, not that you agree.</span><Button variant="primary" onClick={() => acknowledge(view.row)}><CheckCircle2 className="h-4 w-4" />Acknowledge</Button></>

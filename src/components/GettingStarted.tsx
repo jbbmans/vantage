@@ -29,7 +29,7 @@ export default function GettingStarted() {
       { key: 'password', title: 'Your own password', hint: 'Set when you first signed in.', done: true, icon: KeyRound, action: 'Done' },
       { key: 'secure', title: 'Protect your sign-in', hint: 'Add a passkey or an authenticator app, so a password alone is never enough.', done: Boolean(user.passkeys || user.totp_enabled), icon: ShieldCheck, to: '/settings?tab=security', action: 'Secure' },
       { key: 'profile', title: 'Check your profile', hint: 'Rank, MOS and an email for reset links. Rank decides JEPES or FITREP.', done: Boolean(user.rank_id && user.mos && user.email), icon: UserRound, to: '/settings?tab=profile', action: 'Review' },
-      { key: 'first', title: 'Log your first activity', hint: 'One sentence is enough. Press N anywhere.', done: (summary.data?.personal?.activities || 0) > 0, icon: PenLine, onClick: () => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' })), action: 'Log one' },
+      { key: 'first', title: 'Log your first activity', hint: 'One sentence is enough. Press N anywhere.', done: (summary.data?.personal?.activities || 0) > 0, icon: PenLine, onClick: () => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' })), action: 'Log activity' },
       { key: 'team', title: view ? `Meet ${viewLabel(view)}` : 'Meet your team', hint: 'Who is on your team, the command above it, and the goals you share.', done: teamSeen(user.id), icon: Users, to: '/team', action: 'Open' },
     ];
   }, [user, summary.data, view]);
@@ -44,7 +44,9 @@ export default function GettingStarted() {
       <div className="flex items-start justify-between gap-3 px-5 pb-3 pt-4">
         <div>
           <h2 id="getting-started" className="text-md font-semibold text-ink">Your first week</h2>
-          <p className="mt-0.5 text-sm text-ink-2">{done} of {steps.length} done. Each step ticks itself off.</p>
+          {/* What Vantage is, and where things live, for somebody who has not been told. The map itself is on Help, built from the menu. */}
+          <p className="mt-0.5 text-sm text-ink-2">Vantage keeps your work, your records and your training in one place, and turns them into evaluation input. <Link to="/help#find-your-way" className="link font-medium">Where everything is</Link></p>
+          <p className="mt-1 text-xs text-ink-3">{done} of {steps.length} done. Each step ticks itself off.</p>
         </div>
         <button type="button" onClick={() => save.mutate({ onboardingDone: true })} className="rounded-md p-1.5 text-ink-3 hover:bg-surface-2 hover:text-ink" aria-label="Hide the first-week list"><X className="h-4 w-4" /></button>
       </div>

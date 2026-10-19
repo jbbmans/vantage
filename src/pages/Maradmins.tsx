@@ -9,8 +9,10 @@ import { DateText, PageShell, useParam } from '@/components/common';
 import { keys, useIdentity } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { cn } from '@/lib/utils';
+import { usePlace } from '@/lib/place';
 
 export default function Maradmins({ embedded }: { embedded?: boolean } = {}) {
+  const place = usePlace();
   const toast = useToast();
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
@@ -34,7 +36,7 @@ export default function Maradmins({ embedded }: { embedded?: boolean } = {}) {
   const unread = rows.filter((r) => !r.read_at).length;
 
   if (!identity?.instance.maradminsEnabled) return (
-    <PageShell embedded={embedded} eyebrow="MARADMINs" title="Message feed">
+    <PageShell embedded={embedded} eyebrow={place.group} title="MARADMINs">
       <div className="card"><EmptyState icon={ScrollText} title="The MARADMIN feed is off" description="Vantage staff turn it on for the service. Vantage only ever caches public message titles." /></div>
     </PageShell>
   );
@@ -42,8 +44,8 @@ export default function Maradmins({ embedded }: { embedded?: boolean } = {}) {
   return (
     <PageShell
       embedded={embedded}
-      eyebrow="MARADMINs"
-      title="Message feed"
+      eyebrow={place.group}
+      title="MARADMINs"
       lede="Public Marine administrative messages, cached here so you see what changed. Read the full text on marines.mil; nothing here is authoritative."
       actions={<Button onClick={() => refetch()} loading={isFetching}><RefreshCw className="h-4 w-4" />Refresh</Button>}
     >

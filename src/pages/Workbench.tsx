@@ -64,7 +64,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
   const navigate = useNavigate();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
   const [query, setQuery] = useState<Query>(() => ({
     ...DEFAULT_QUERY,
     claimed: ['me', 'nobody', 'anyone'].includes(searchParams.get('claimed') || '') ? String(searchParams.get('claimed')) : '',
@@ -75,7 +75,15 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [cursor, setCursor] = useState(0);
   const openItem = useCallback((id: string) => navigate(`/work/items/${id}`), [navigate]);
-  const [importing, setImporting] = useState(false);
+  // ?import=1 (⌘K's "Import work") opens the import, on arrival or while already here, and Back, which takes the mark
+  // away, closes it. Closing it takes only that mark off the address, so the queue's own filters stay.
+  const [importing, setImportingState] = useState(() => searchParams.get('import') === '1');
+  const askedToImport = searchParams.get('import') === '1';
+  useEffect(() => { setImportingState(askedToImport); }, [askedToImport]);
+  const setImporting = useCallback((open: boolean) => {
+    setImportingState(open);
+    if (!open) setSearchParams((p) => { if (!p.has('import')) return p; const n = new URLSearchParams(p); n.delete('import'); return n; }, { replace: true });
+  }, [setSearchParams]);
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [viewName, setViewName] = useState('');
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
@@ -231,7 +239,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
       title="Queue"
       lede={list.isPending ? 'Loading the queue.' : total ? `${formatNumber(total)} ${total === 1 ? 'item' : 'items'} in this view. ${heldByMe ? `You hold ${formatNumber(heldByMe)}.` : 'You hold none of them.'}` : 'Nothing in this view.'}
       actions={<>
-        <Button onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import a spreadsheet</Button>
+        <Button onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import work</Button>
         <Button onClick={refresh} aria-label="Refresh the queue"><RefreshCw className={cn('h-4 w-4', list.isFetching && 'animate-spin')} />Refresh</Button>
       </>}
     >
@@ -307,7 +315,7 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
             description={query.q || query.state || query.claimed || query.procedure ? 'Clear the filters, or widen them.' : 'Import the spreadsheet your team works from. Vantage keeps the original and reads it again on every reimport.'}
             action={query.q || query.state || query.claimed || query.procedure
               ? <Button onClick={() => { setQuery(DEFAULT_QUERY); setSearch(''); }}>Clear the filters</Button>
-              : <Button variant="primary" onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import a spreadsheet</Button>}
+              : <Button variant="primary" onClick={() => setImporting(true)}><Upload className="h-4 w-4" />Import work</Button>}
           />
         </div>
       ) : (

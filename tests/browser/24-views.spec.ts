@@ -30,7 +30,8 @@ test('a leader switches between the whole command and a team beneath it, from th
   await page.getByRole('option', { name: /View G8/ }).click();
   await expect(switcher).toContainText('G8');
   await expect(page.getByRole('heading', { level: 1 })).toHaveText('G8');
-  await expect(page.getByText('Whole command', { exact: true })).toBeVisible();
+  // The eyebrow names the group, and that this view is the whole command.
+  await expect(page.getByRole('main').locator('.eyebrow').first()).toHaveText('Personnel · whole command');
 });
 
 test('a new Marine gets a first-week list that ticks itself off and can be put away', async ({ page }) => {
@@ -39,7 +40,7 @@ test('a new Marine gets a first-week list that ticks itself off and can be put a
   const list = page.getByRole('region', { name: 'Your first week' });
   await expect(list).toBeVisible();
   await expect(list).toContainText('1 of 5 done');
-  await expect(page.getByRole('link', { name: 'Team', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Personnel', exact: true })).toHaveCount(0);
   await list.getByRole('button', { name: 'Hide the first-week list' }).click();
   await expect(list).toBeHidden();
   await page.reload();

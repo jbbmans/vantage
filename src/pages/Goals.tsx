@@ -17,6 +17,7 @@ import { daysUntil } from '../../shared/evaluation';
 import { quantityMetricId, canonicalMetricId, goalPace, type Pace } from '../../shared/metricEngine';
 import { PERMISSIONS } from '../../shared/permissions';
 import { humanize, cn, todayIso } from '@/lib/utils';
+import { usePlace } from '@/lib/place';
 
 interface GoalDraft {
   id?: string; version?: number; title: string; description: string; type: string; category: string | null;
@@ -49,6 +50,7 @@ const PACE: Record<Pace, { label: string; tone: string }> = {
 };
 
 export default function Goals() {
+  const place = usePlace();
   const cfg = useMetrics();
   const toast = useToast();
   const { data: identity } = useIdentity();
@@ -98,13 +100,13 @@ export default function Goals() {
 
   return (
     <div className="page">
-      <PageHeader eyebrow="Goals" title="Targets" lede="A goal names what it measures, which way is better, and where it started. Automatic goals read the same work the rest of Vantage does.">
+      <PageHeader eyebrow={place.group} title="Goals" lede="A goal names what it measures, which way is better, and where it started. Automatic goals read the same work the rest of Vantage does.">
         <Segmented value={filter} onChange={setFilter} options={[{ value: 'active', label: 'Active' }, { value: 'all', label: 'All' }]} label="Filter" />
         <Button variant="primary" onClick={newGoal}><Plus className="h-4 w-4" />New goal</Button>
       </PageHeader>
 
       {list.length === 0 ? (
-        <div className="card"><EmptyState icon={Target} title={filter === 'active' ? 'No active goals' : 'No goals yet'} description="Pick one number you want to move this quarter, in the unit the work is measured in." action={<Button variant="primary" onClick={newGoal}>Set a goal</Button>} /></div>
+        <div className="card"><EmptyState icon={Target} title={filter === 'active' ? 'No active goals' : 'No goals yet'} description="Pick one number you want to move this quarter, in the unit the work is measured in." action={<Button variant="primary" onClick={newGoal}>New goal</Button>} /></div>
       ) : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {list.map((g) => {

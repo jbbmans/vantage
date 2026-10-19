@@ -17,8 +17,10 @@ import { copyToClipboard, cn } from '@/lib/utils';
 import ReportAnalysis from './ReportAnalysis';
 import NarrativeStudio, { choicesToParams, useNarrativeChoices } from '@/components/NarrativeStudio';
 import type { WorksheetBlocks } from '../../shared/writer/worksheet';
+import { usePlace } from '@/lib/place';
 
 export default function Reports({ embedded }: { embedded?: boolean } = {}) {
+  const place = usePlace();
   const toast = useToast();
   const { data: identity } = useIdentity();
   const prefs = usePrefs();
@@ -57,15 +59,15 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
   return (
     <PageShell
       embedded={embedded}
-      eyebrow="Reports"
+      eyebrow={place.group}
       title={subject ? `${meta.inputName} for ${subject.rank_abbr || ''} ${subject.last_name}` : meta.inputName}
       lede={effectiveTrack === 'fitrep'
         ? `MRO worksheet input built from ${subject ? 'their shared' : 'your'} logged entries: the Section C draft, and the PME and Other blocks beside it. Copy each block, or export a PDF for the reporting senior.`
         : `Billet accomplishments and a bullet package built from ${subject ? 'their shared' : 'your'} logged entries. Copy them, or export a PDF to hand to the reporting senior.`}
       actions={<>
-        <Button onClick={() => download('csv')}><Download className="h-4 w-4" />CSV</Button>
-        <Button onClick={() => download('analysis')}><FileDown className="h-4 w-4" />Analysis PDF</Button>
-        <Button variant="primary" onClick={() => download('pdf')}><FileDown className="h-4 w-4" />Export PDF</Button>
+        <Button onClick={() => download('csv')}><Download className="h-4 w-4" />Export activities</Button>
+        <Button onClick={() => download('analysis')}><FileDown className="h-4 w-4" />Export analysis PDF</Button>
+        <Button variant="primary" onClick={() => download('pdf')}><FileDown className="h-4 w-4" />Export {meta.inputName} PDF</Button>
       </>}
     >
 

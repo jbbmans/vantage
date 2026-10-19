@@ -8,6 +8,8 @@ import { useRecordTimeline } from '@/lib/queries';
 import { formatDate } from '../../shared/metrics';
 import { RECORD_KINDS, type TimelineItem, type TimelineResponse } from '../../shared/recordKinds';
 import { humanize } from '@/lib/utils';
+import { usePlace } from '@/lib/place';
+import { placeName } from '@/config/nav';
 
 interface Kind { key: string; one: string; many: string; icon: LucideIcon }
 
@@ -48,6 +50,7 @@ const listed = (words: string[]) => (words.length < 2 ? words.join('') : `${word
  * belongs to when the page asks for it, so it can never disagree with it, and an Activity never stands in for one.
  */
 export default function Timeline() {
+  const place = usePlace();
   const [kind, setKind] = useParam('kind', 'all');
   const [from, setFrom] = useParam('from');
   const [to, setTo] = useParam('to');
@@ -63,8 +66,8 @@ export default function Timeline() {
 
   return (
     <div className="page">
-      <PageHeader eyebrow="Record" title="Timeline" lede="Your activities, training, awards, counselings and goals reached, newest first. Each is read from its own record when you open this page, not copied here: open one to change it.">
-        <Button variant="primary" className="xl:hidden" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
+      <PageHeader eyebrow={place.group} title="Timeline" lede="Your activities, training, awards, counselings and goals reached, newest first. Each is read from its own record when you open this page, not copied here: open one to change it.">
+        <Button variant="primary" className="xl:hidden" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log activity</Button>
       </PageHeader>
       {timeline.isError ? <QueryFailure error={timeline.error} what="Your timeline" onRetry={() => timeline.refetch()} /> : (
         <>
@@ -132,8 +135,8 @@ function Entries({ data, kind, dated, onClear }: { data?: TimelineResponse; kind
 
   if (!items.length) {
     if (!data.total && !dated) {
-      return <div className="card"><EmptyState icon={CalendarRange} title="Nothing on your timeline yet" description="Log an activity, or add training or an award under Career. Each shows here from its own record."
-        action={<Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>} /></div>;
+      return <div className="card"><EmptyState icon={CalendarRange} title="Nothing on your timeline yet" description={`Log activity, or add training in ${placeName('/career/training')} or an award in ${placeName('/career/awards')}. Each shows here from its own record.`}
+        action={<Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log activity</Button>} /></div>;
     }
     return <div className="card"><EmptyState icon={CalendarRange} title={kind === 'all' ? 'Nothing in these dates' : `No ${kindOf(kind).many.toLowerCase()} in these dates`} description="Widen the dates, or show everything." action={<Button onClick={onClear}>Show everything</Button>} /></div>;
   }

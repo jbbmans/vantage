@@ -10,7 +10,7 @@ const TYPING = (el: EventTarget | null) => {
 };
 
 /**
- * The phone's navigation, where a thumb reaches: Today, Work, a log button, the Record (the Team, for a leader), and everything else behind
+ * The phone's navigation, where a thumb reaches: Today, Work, a log button, Records (Personnel, for a leader), and everything else behind
  * More (the drawer). Below the large breakpoint only; on a desk the rail does this. It steps aside while someone types,
  * since an on-screen keyboard pushes a fixed bar up over the field, and while the drawer is open.
  */
@@ -47,11 +47,11 @@ export default function TabBar({ hidden, leads, onLog, onMore }: { hidden: boole
     <nav className="tabbar no-print lg:hidden" aria-label="Quick navigation">
       {link('/', 'Today', Gauge, pathname === '/')}
       {link('/work/queue', 'Work', Briefcase, group === 'work')}
-      <button type="button" className="tabbar-log" onClick={onLog} aria-label="Log what you did">
+      <button type="button" className="tabbar-log" onClick={onLog} aria-label="Log activity">
         <span><Plus aria-hidden /></span>
       </button>
       {/* Somebody who leads a team checks it more than their own record; theirs is a tap away under More. */}
-      {leads ? link('/team/workload', 'Team', Users, group === 'team') : link('/record', 'Record', BookOpenCheck, group === 'record')}
+      {leads ? link('/team/workload', 'Personnel', Users, group === 'personnel') : link('/record', 'Records', BookOpenCheck, group === 'records')}
       <button type="button" className="tabbar-item" onClick={onMore}><MenuIcon aria-hidden /><span>More</span></button>
     </nav>
   );

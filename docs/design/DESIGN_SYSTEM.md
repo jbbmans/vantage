@@ -75,8 +75,13 @@ the command palette, which also searches the Reference) and the "Log activity" p
 the synthetic demo, with a segmented persona switch. An update banner appears when a newer build is
 published (the service worker and `/api/health` both carry the build's hash).
 
+The rail's groups are the information architecture's (`src/config/nav.ts`, ADR-0016): Today, Work, Records,
+Personnel, Training & Development, Reports & Analytics and Administration, with Help and Settings at the foot. A group
+opens to its pages; a long label wraps to a second line rather than being cut short, and a link to a console carries
+an outward arrow.
+
 Below the large breakpoint a **tab bar** (`src/components/TabBar.tsx`) holds Today, Work, a raised log button,
-the Record and More (the drawer). It is solid, so nothing scrolls through behind its labels, marks the current destination with the
+Records (Personnel for someone who leads a team) and More (the drawer). It is solid, so nothing scrolls through behind its labels, marks the current destination with the
 accent and a short top marker, and hides while a field has focus or the drawer is open. While it shows, `--tabbar`
 on the root is its height, so toasts and the footer sit above it.
 
@@ -115,6 +120,21 @@ server error apart, with a retry where one can help.
   stale.
 - **Disclosure** holds secondary detail: "How to do this", "Everything the source said", procedure
   source and limitations, the causes the reference offers. Routine actions are never hidden behind one.
+  Secondary filters fold behind a "Filters" button that counts the ones set and opens when a link sets one
+  (Activities); search and the period stay in view.
+- **Page headers.** The heading is the page's menu label, or that label made specific to the person ("Your
+  record", "JEPES readiness"); the eyebrow is its group, from `usePlace()`, with the unit on a unit's pages. A
+  sentence that names a place uses `placeName()` ("Records → Awards"), never a hand-written path.
+- **Action names.** The same action has the same name everywhere:
+
+  | Action | Name |
+  |---|---|
+  | Quick capture (N), from anywhere | **Log activity** |
+  | Create a record of a kind | **New …**: New activity, New award, New training, New counseling, New goal, New task, New report; the dialog it opens has the same title, and the page's empty state offers the same button |
+  | Bring data in | **Import …** naming what comes in: Import activities, Import work |
+  | Take data out | **Export …** naming what goes out: Export activities, Export analysis PDF, Export JEPES input PDF |
+
+  Import and export are also in ⌘K. A button never says only the format ("CSV", "PDF").
 - **One demo indicator.** Pages show no other demo labels, except the flagship item's synthetic system
   values, labelled where they appear.
 - **Language.** Real names for real concepts: document, tasker, stage, waiting on posting, handed off,

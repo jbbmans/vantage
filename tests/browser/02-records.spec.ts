@@ -31,9 +31,9 @@ test('quick log parses a sentence, saves it, and the record round-trips through 
   // Billet accomplishments in MCO 1616.1's form, under the command input lines.
   await expect(page.getByRole('heading', { name: 'Billet accomplishments' })).toBeVisible();
   await expect(page.getByTestId('narrative')).toContainText('MOS and/or Mission Accomplishment');
-  const [pdf] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export PDF' }).click()]);
+  const [pdf] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export JEPES input PDF' }).click()]);
   expect(pdf.suggestedFilename()).toMatch(/vantage-jepes-input.*\.pdf$/);
-  const [csv] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'CSV', exact: true }).click()]);
+  const [csv] = await Promise.all([page.waitForEvent('download'), page.getByRole('button', { name: 'Export activities', exact: true }).click()]);
   expect(csv.suggestedFilename()).toMatch(/\.csv$/);
   const path = await csv.path();
   const text = (await import('node:fs')).readFileSync(path!, 'utf8');
@@ -58,7 +58,7 @@ test('csv import updates rows that carry a Vantage ID instead of duplicating the
 
 test('tasks, goals, training and awards can be created and appear on the dashboard', async ({ page }) => {
   await page.goto('/work/tasks');
-  await page.getByRole('button', { name: 'New task' }).click();
+  await page.getByRole('button', { name: 'New task' }).first().click();
   const task = page.getByRole('dialog', { name: 'New task' });
   await task.getByLabel('Title').fill('Close out FY obligations');
   await task.getByLabel('Due').fill('2020-01-01');
@@ -66,7 +66,7 @@ test('tasks, goals, training and awards can be created and appear on the dashboa
   await expect(page.getByRole('heading', { name: 'Overdue' })).toBeVisible();
 
   await page.goto('/goals');
-  await page.getByRole('button', { name: 'New goal' }).click();
+  await page.getByRole('button', { name: 'New goal' }).first().click();
   const goal = page.getByRole('dialog', { name: 'New goal' });
   await goal.getByLabel('Goal').fill('Log 20 entries this quarter');
   await goal.getByLabel('Target').fill('20');
@@ -74,8 +74,8 @@ test('tasks, goals, training and awards can be created and appear on the dashboa
   await expect(page.getByRole('heading', { name: 'Log 20 entries this quarter' })).toBeVisible();
 
   await page.goto('/career/awards');
-  await page.getByRole('button', { name: 'Track an award' }).first().click();
-  const award = page.getByRole('dialog', { name: 'Track an award' });
+  await page.getByRole('button', { name: 'New award' }).first().click();
+  const award = page.getByRole('dialog', { name: 'New award' });
   await award.getByLabel('Award', { exact: true }).fill('Navy and Marine Corps Achievement Medal');
   await award.getByRole('button', { name: 'Add award' }).click();
   await expect(page.getByRole('heading', { name: 'Navy and Marine Corps Achievement Medal' })).toBeVisible();

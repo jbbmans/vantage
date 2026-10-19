@@ -20,7 +20,7 @@ export default function DemoGovernance() {
   ];
   return (
     <div className="page">
-      <PageHeader eyebrow="Unit Manager console" title="How a Unit Instance is governed" lede="The console itself is not part of the synthetic demo: it is instance-wide, and every visitor shares this instance. These are the controls, and who holds each; the data inventory below is live, built from the schema." />
+      <PageHeader eyebrow="Administration" title="Unit Manager console" lede="How a Unit Instance is governed. The console itself is not part of the synthetic demo: it is instance-wide, and every visitor shares this instance. These are the controls, and who holds each; the data inventory below is live, built from the schema." />
       <div className="mb-6 grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
         {controls.map(([title, body, who]) => <Panel key={title} title={title} action={<Badge tone={who === 'Unit Managers' ? 'accent' : 'neutral'}>{who}</Badge>}><p className="text-sm text-ink-2">{body}</p></Panel>)}
       </div>

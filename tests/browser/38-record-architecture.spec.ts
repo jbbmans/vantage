@@ -38,16 +38,16 @@ async function list(page: Page, table: string) {
 
 const toast = (page: Page, text: string | RegExp) => page.getByRole('status').filter({ hasText: text });
 
-test('Quick Log says when an entry reads like an award, and Save as award files it under Career awards', async ({ page }) => {
+test('Quick Log says when an entry reads like an award, and Save as award files it under Records → Awards', async ({ page }) => {
   await signUp(page, 'pinned');
   const dialog = await quickLog(page, 'Received the Navy and Marine Corps Achievement Medal from the CO for the FY26 close-out');
   await expect(dialog.getByText('Reads like an award you received.')).toBeVisible();
-  await expect(dialog.getByText(/Awards have their own record under Career/)).toBeVisible();
+  await expect(dialog.getByText(/Awards have their own record in Records → Awards/)).toBeVisible();
   await expect(dialog.getByRole('button', { name: 'Keep as activity' })).toBeVisible();
 
   await dialog.getByRole('button', { name: 'Save as award' }).click();
   await expect(dialog).toBeHidden();
-  const saved = toast(page, 'Saved to your Awards under Career.');
+  const saved = toast(page, 'Saved to Records → Awards.');
   await expect(saved).toBeVisible();
 
   // It is an award, not an activity.
@@ -66,14 +66,14 @@ test('Quick Log says when an entry reads like an award, and Save as award files 
   await expect(page.getByRole('heading', { name: 'Navy and Marine Corps Achievement Medal', level: 3 })).toBeVisible();
 });
 
-test('Quick Log saves a course as training, and Open opens that course under Career training', async ({ page }) => {
+test('Quick Log saves a course as training, and Open opens that course under Training & Development → Training', async ({ page }) => {
   await signUp(page, 'course');
   const dialog = await quickLog(page, 'Completed the Sergeants Course distance education program');
   await expect(dialog.getByText('Reads like training you completed.')).toBeVisible();
-  await expect(dialog.getByText(/Courses, PME and qualifications have their own record under Career/)).toBeVisible();
+  await expect(dialog.getByText(/Courses, PME and qualifications have their own record in Training & Development → Training/)).toBeVisible();
   await dialog.getByRole('button', { name: 'Save as training' }).click();
   await expect(dialog).toBeHidden();
-  const saved = toast(page, 'Saved to your Training under Career.');
+  const saved = toast(page, 'Saved to Training & Development → Training.');
   await expect(saved).toBeVisible();
   const trainings = await list(page, 'trainings');
   expect(trainings.map((t) => [t.title, t.type, t.status])).toEqual([['Completed the Sergeants Course distance education program', 'pme', 'completed']]);
@@ -188,17 +188,17 @@ test('Keep as activity takes an entry off the suggestions for good', async ({ pa
   await expect(left.getByRole('button', { name: 'Show suggestions' })).toHaveAttribute('aria-expanded', 'false');
 });
 
-test('the New entry form saves an award-like title as an award or keeps it, and a spreadsheet import says which rows read that way', async ({ page }) => {
+test('the New activity form saves an award-like title as an award or keeps it, and a spreadsheet import says which rows read that way', async ({ page }) => {
   await signUp(page, 'importer');
   await page.goto('/record/activities?period=all');
-  await page.getByRole('button', { name: 'New entry' }).click();
+  await page.getByRole('button', { name: 'New activity' }).click();
   const form = page.getByRole('dialog', { name: 'New activity' });
   const title = form.getByRole('textbox', { name: 'Title' });
   await title.fill('Received the Navy and Marine Corps Achievement Medal from the CO');
   await expect(form.getByText('Reads like an award you received.')).toBeVisible();
   await form.getByRole('button', { name: 'Save as award' }).click();
   await expect(form).toBeHidden();
-  await expect(toast(page, 'Saved to your Awards under Career.')).toBeVisible();
+  await expect(toast(page, 'Saved to Records → Awards.')).toBeVisible();
   const awards = await list(page, 'awards');
   expect(awards.map((a) => a.name)).toEqual(['Navy and Marine Corps Achievement Medal']);
   // The title's own words stay with the award it was named from.
@@ -206,7 +206,7 @@ test('the New entry form saves an award-like title as an award or keeps it, and 
   expect((await list(page, 'activities')).length).toBe(0);
 
   // Kept as an activity on purpose, it saves as one and is not suggested for a move later.
-  await page.getByRole('button', { name: 'New entry' }).click();
+  await page.getByRole('button', { name: 'New activity' }).click();
   await expect(form).toBeVisible();
   await title.fill('Coined by the Sergeant Major for the audit close-out');
   await expect(form.getByText('Reads like an award you received.')).toBeVisible();
@@ -219,7 +219,7 @@ test('the New entry form saves an award-like title as an award or keeps it, and 
   expect((await list(page, 'activities')).map((a) => a.title)).toEqual(['Coined by the Sergeant Major for the audit close-out']);
 
   const csv = 'Date,Title,Result\n2026-09-01,Received a challenge coin from the Sergeant Major,\n2026-09-02,Completed the Sergeants Course distance education program,\n2026-09-03,Reconciled 30 ULOs in DAI,cleared the backlog\n';
-  await page.getByRole('button', { name: 'Import CSV' }).click();
+  await page.getByRole('button', { name: 'Import activities' }).click();
   const dialog = page.getByRole('dialog', { name: 'Import activities from CSV' });
   await dialog.locator('input[type=file]').setInputFiles({ name: 'rows.csv', mimeType: 'text/csv', buffer: Buffer.from(csv) });
   await dialog.getByRole('button', { name: /Import 3 rows/ }).click();

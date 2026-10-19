@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link, useNavigate, useSearchParams } from 'react-router-dom';
 import { Plus, Download, Upload, Search, LayoutList, LayoutGrid, Lock, Users, AlertTriangle, RotateCcw, SlidersHorizontal, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Panel, Button, Input, Select, Segmented, EmptyState, Badge, Skeleton, Tooltip } from '@/components/ui/primitives';
 import { AiAction, AiResult } from '@/components/AiPanel';
@@ -21,10 +21,12 @@ import { strength } from '../../shared/bullets';
 import { MOVABLE_LABELS, type MovableTable, type MoveCandidate } from '../../shared/recordKinds';
 import type { Activity } from '../../shared/types';
 import { cn } from '@/lib/utils';
+import { usePlace } from '@/lib/place';
 
 type Sort = 'date' | 'value' | 'strength' | 'updated';
 
 export default function Records({ embedded }: { embedded?: boolean } = {}) {
+  const place = usePlace();
   const cfg = useMetrics();
   const navigate = useNavigate();
   const toast = useToast();
@@ -46,8 +48,18 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
   const rows = quality === 'deleted' ? deletedRows : liveRows;
   const [owner, setOwner] = useParam('owner', 'all');
   const [sort, setSort] = useState<Sort>('date');
-  const [showFilters, setShowFilters] = useState(false);
   const activeFilters = [category, area, quality, owner].filter((v) => v !== 'all').length;
+  // In one update: each useParam setter starts from this render's query, so four in a row would keep only the last.
+  const [, setSearchParams] = useSearchParams();
+  const clearFilters = (widenPeriod = false) => setSearchParams((p) => {
+    const n = new URLSearchParams(p);
+    for (const k of ['category', 'area', 'quality', 'owner']) n.delete(k);
+    if (widenPeriod) n.set('period', 'all');
+    return n;
+  }, { replace: true });
+  // The filters past search and period fold behind one button, on a desk as on a phone; a link that sets one opens them.
+  const [showFilters, setShowFilters] = useState(activeFilters > 0);
+  useEffect(() => { if (activeFilters) setShowFilters(true); }, [activeFilters]);
   const [view, setView] = useState<'list' | 'cards'>(() => (window.innerWidth < 640 ? 'cards' : 'list'));
   const [editing, setEditing] = useState<ActivityDraft | null>(null);
   const [coaching, setCoaching] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
@@ -62,8 +74,6 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
     try { setMoving({ row: await api.getRecord('activities', c.id) as Activity, to: c.to }); }
     catch (err) { toast.error(api.errorText(err)); }
   };
-
-  useEffect(() => { document.title = 'Records · Vantage'; }, []);
 
   const dupIds = useMemo(() => new Set(findDuplicates(rows || []).flatMap((g) => g.records.map((r) => r.id!))), [rows]);
   const filtered = useMemo(() => {
@@ -112,13 +122,13 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
   return (
     <PageShell
       embedded={embedded}
-      eyebrow="Record"
+      eyebrow={place.group}
       title={embedded ? 'Activities you recorded' : 'Activities'}
       lede="Everything you logged yourself, in one place. Filter, fix, and export."
       actions={<>
-        <Button onClick={() => setImportOpen('1')}><Upload className="h-4 w-4" />Import CSV</Button>
-        <Button onClick={exportCsv}><Download className="h-4 w-4" />Export CSV</Button>
-        <Button variant="primary" onClick={() => setEditing(emptyActivity({ visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null }))}><Plus className="h-4 w-4" />New entry</Button>
+        <Button onClick={() => setImportOpen('1')}><Upload className="h-4 w-4" />Import activities</Button>
+        <Button onClick={exportCsv}><Download className="h-4 w-4" />Export activities</Button>
+        <Button variant="primary" onClick={() => setEditing(emptyActivity({ visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null }))}><Plus className="h-4 w-4" />New activity</Button>
       </>}
     >
       {identity && <MoveSuggestions userId={identity.user.id} onMove={openMove} />}
@@ -126,19 +136,19 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
       <div className="card mb-3 p-2">
         <div className="flex flex-wrap items-center gap-2">
           <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search records" className="pl-8" placeholder="Title, result, or system…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
-          {/* On a phone the filters fold behind one button, so the entries are on the first screen, not under six menus. */}
-          <Button className="sm:hidden" onClick={() => setShowFilters((v) => !v)} aria-expanded={showFilters} aria-controls="record-filters">
+          {from && to ? <Badge tone="accent">{from === to ? from : `${from} → ${to}`}<button type="button" className="ml-1 hover:text-ink" onClick={() => navigate('/record/activities')} aria-label="Clear date filter">×</button></Badge> : <PeriodSelect value={period} onChange={(v) => { setPeriod(v); savePrefs.mutate({ reportPeriod: v }); }} className="w-40" />}
+          <Button onClick={() => setShowFilters((v) => !v)} aria-expanded={showFilters} aria-controls="record-filters">
             <SlidersHorizontal className="h-4 w-4" />Filters{activeFilters ? <span className="fig ml-0.5 rounded-full bg-accent px-1.5 text-2xs text-accent-ink">{activeFilters}</span> : null}
           </Button>
-          <div id="record-filters" className={cn('max-sm:grid max-sm:w-full max-sm:grid-cols-2 max-sm:gap-2 sm:contents', !showFilters && 'max-sm:hidden')}>
-            {from && to ? <Badge tone="accent">{from === to ? from : `${from} → ${to}`}<button type="button" className="ml-1 hover:text-ink" onClick={() => navigate('/record/activities')} aria-label="Clear date filter">×</button></Badge> : <PeriodSelect value={period} onChange={(v) => { setPeriod(v); savePrefs.mutate({ reportPeriod: v }); }} className="max-sm:w-full sm:w-40" />}
-            <Select aria-label="Category" className="max-sm:w-full sm:w-44" value={category} onValueChange={setCategory} options={[{ value: 'all', label: 'All categories' }, ...categoryNames(cfg).map((c) => ({ value: c, label: c }))]} />
-            <Select aria-label={trackMeta(track).areaLabel} className="max-sm:w-full sm:w-48" value={area} onValueChange={setArea} options={[{ value: 'all', label: `All ${trackMeta(track).areaLabel}s` }, ...areaOptions(track)]} />
-            <Select aria-label="Quality filter" className="max-sm:w-full sm:w-52" value={quality} onValueChange={setQuality} options={qualityOptions} />
-            {hasShared && <Select aria-label="Owner" className="max-sm:w-full sm:w-36" value={owner} onValueChange={setOwner} options={[{ value: 'all', label: 'Everyone' }, { value: 'mine', label: 'Mine' }, { value: 'unit', label: 'Shared with me' }]} />}
-            <Select aria-label="Sort" className="max-sm:w-full sm:w-36" value={sort} onValueChange={(v) => setSort(v as Sort)} options={[{ value: 'date', label: 'Newest first' }, { value: 'value', label: 'Highest value' }, { value: 'strength', label: 'Strongest' }, { value: 'updated', label: 'Recently edited' }]} />
-            <Segmented size="sm" label="Layout" className="max-sm:justify-self-start" value={view} onChange={setView} options={[{ value: 'list', label: <LayoutList className="h-4 w-4" />, ariaLabel: 'List' }, { value: 'cards', label: <LayoutGrid className="h-4 w-4" />, ariaLabel: 'Cards' }]} />
-          </div>
+          <Segmented size="sm" label="Layout" value={view} onChange={setView} options={[{ value: 'list', label: <LayoutList className="h-4 w-4" />, ariaLabel: 'List' }, { value: 'cards', label: <LayoutGrid className="h-4 w-4" />, ariaLabel: 'Cards' }]} />
+        </div>
+        <div id="record-filters" className={cn('mt-2 grid-cols-2 gap-2 sm:flex-wrap sm:items-center', showFilters ? 'grid sm:flex' : 'hidden')}>
+          <Select aria-label="Category" className="max-sm:w-full sm:w-44" value={category} onValueChange={setCategory} options={[{ value: 'all', label: 'All categories' }, ...categoryNames(cfg).map((c) => ({ value: c, label: c }))]} />
+          <Select aria-label={trackMeta(track).areaLabel} className="max-sm:w-full sm:w-48" value={area} onValueChange={setArea} options={[{ value: 'all', label: `All ${trackMeta(track).areaLabel}s` }, ...areaOptions(track)]} />
+          <Select aria-label="Quality filter" className="max-sm:w-full sm:w-52" value={quality} onValueChange={setQuality} options={qualityOptions} />
+          {hasShared && <Select aria-label="Owner" className="max-sm:w-full sm:w-36" value={owner} onValueChange={setOwner} options={[{ value: 'all', label: 'Everyone' }, { value: 'mine', label: 'Mine' }, { value: 'unit', label: 'Shared with me' }]} />}
+          <Select aria-label="Sort" className="max-sm:w-full sm:w-36" value={sort} onValueChange={(v) => setSort(v as Sort)} options={[{ value: 'date', label: 'Newest first' }, { value: 'value', label: 'Highest value' }, { value: 'strength', label: 'Strongest' }, { value: 'updated', label: 'Recently edited' }]} />
+          {activeFilters > 0 && <Button size="sm" variant="ghost" onClick={() => clearFilters()}>Clear filters</Button>}
         </div>
         <div className="mt-2 flex flex-wrap items-center justify-between gap-2">
           <p className="text-xs text-ink-3"><span className="fig text-ink">{filtered.length}</span> entries · <span className="fig text-ink">{formatDollars(metrics.totalDollars)}</span> summable · <span className="fig text-ink">{metrics.withOutcome}</span> with an outcome</p>
@@ -160,7 +170,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
       )}
 
       {isPending ? <div className="space-y-2">{[0, 1, 2, 3, 4].map((i) => <Skeleton key={i} className="h-12" />)}</div> : filtered.length === 0 ? (
-        <div className="card"><EmptyState icon={Search} title={quality === 'deleted' ? 'The recycle bin is empty' : rows?.length ? 'Nothing matches those filters' : 'No activities yet'} description={rows?.length ? 'Loosen a filter, or widen the period.' : 'Press N to log your first one, or import a spreadsheet.'} action={rows?.length ? <Button onClick={() => { setQ(''); setCategory('all'); setArea('all'); setQuality('all'); setOwner('all'); setPeriod('all'); }}>Clear filters</Button> : <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}>Log activity</Button>} /></div>
+        <div className="card"><EmptyState icon={Search} title={quality === 'deleted' ? 'The recycle bin is empty' : rows?.length ? 'Nothing matches those filters' : 'No activities yet'} description={rows?.length ? 'Loosen a filter, or widen the period.' : 'Press N to log your first one, or import a spreadsheet.'} action={rows?.length ? <Button onClick={() => { setQ(''); clearFilters(true); }}>Clear filters</Button> : <Button variant="primary" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}>Log activity</Button>} /></div>
       ) : view === 'list' ? (
         <div className="card">
           <Table minWidth={880} head={<><th className="w-24">Date</th><th className="min-w-[18rem]">Entry</th><th className="w-40">{trackMeta(track).areaLabel}</th><th className="w-28 text-right">Qty</th><th className="w-28 text-right">Value</th><th className="w-20">Share</th><th className="w-24"></th></>}>

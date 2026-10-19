@@ -20,7 +20,7 @@ test('the full analysis view reads the record like an analyst and exports its PD
   await expect(page.getByRole('cell', { name: /Processed 12 MIPRs/ }).first()).toBeVisible();
 
   const download = page.waitForEvent('download');
-  await page.getByRole('button', { name: 'Analysis PDF' }).first().click();
+  await page.getByRole('button', { name: 'Export analysis PDF' }).first().click();
   const file = await download;
   expect(file.suggestedFilename()).toMatch(/^vantage-analysis-.*\.pdf$/);
 });

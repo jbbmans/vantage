@@ -11,7 +11,7 @@ import { cn, humanize } from '@/lib/utils';
 
 export interface MovedEntry { table: MovableTable; id: string }
 
-/** Where an entry lives once it has moved: an activity has its own page; an award or a course opens on its Career page. */
+/** Where an entry lives once it has moved: an activity has its own page; an award opens on Records → Awards, a course on Training & Development → Training. */
 export const entryHref = (table: MovableTable, id: string) =>
   table === 'activities' ? `/records/${encodeURIComponent(id)}` : `/career/${table === 'awards' ? 'awards' : 'training'}?open=${encodeURIComponent(id)}`;
 

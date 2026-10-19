@@ -11,6 +11,7 @@ import { useCreateRecord, useProjects, useTrack, useMetrics } from '@/lib/querie
 import { errorText } from '@/lib/api';
 import { onText } from '@/components/common';
 import { humanize, todayIso } from '@/lib/utils';
+import { placeName } from '@/config/nav';
 
 export interface ActivityDraft { id?: string; version?: number; title: string; date: string; category: string | null; eval_area: string | null; quantity: number | string | null; unit_label: string; dollar_amount: number | string | null; dollar_type: string | null; result: string; organization: string; system: string; project_id: string | null; status: string; notes: string; evidence_links: Array<{ label?: string | null; url?: string | null }>; visibility: 'private' | 'unit'; unit_id: string | null; kind_confirmed?: boolean }
 
@@ -47,7 +48,7 @@ export function ActivityFields({ draft, set, errors, onSavedAs }: { draft: Activ
     try {
       const saved = await (target === 'awards' ? createAward : createTraining).mutateAsync({ ...movedFields('activities', activityPayload(draft), target), visibility: draft.visibility, unit_id: draft.unit_id }) as { id?: string } | undefined;
       const page = target === 'awards' ? '/career/awards' : '/career/training';
-      toast.success(`Saved to your ${MOVABLE_LABELS[target].place} under Career.`, { label: 'Open', onClick: () => navigate(saved?.id ? `${page}?open=${encodeURIComponent(saved.id)}` : page) });
+      toast.success(`Saved to ${placeName(page)}.`, { label: 'Open', onClick: () => navigate(saved?.id ? `${page}?open=${encodeURIComponent(saved.id)}` : page) });
       onSavedAs?.();
     } catch (err) {
       toast.error(errorText(err));

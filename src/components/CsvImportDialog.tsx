@@ -10,6 +10,7 @@ import { screenImport } from '../../shared/duplicates';
 import * as api from '@/lib/api';
 import { invalidateRecords, useIdentity, useRecords } from '@/lib/queries';
 import { Table } from '@/components/common';
+import { placeName } from '@/config/nav';
 
 interface ImportResult { created: number; updated: number; duplicates: number; elsewhere: number }
 
@@ -86,7 +87,7 @@ export default function CsvImportDialog({ open, onOpenChange }: { open: boolean;
       {done ? (
         <div className="space-y-3 text-sm">
           <p className="flex items-start gap-2 text-ink"><CheckCircle2 className="mt-0.5 h-4 w-4 shrink-0 text-good" aria-hidden />Imported {done.created} new, updated {done.updated}{done.duplicates ? `, skipped ${done.duplicates} exact duplicates` : ''}.</p>
-          <p className="text-ink-2">{done.elsewhere === 1 ? '1 row reads' : `${done.elsewhere} rows read`} like an award you received or training you completed. {done.elsewhere === 1 ? 'It is' : 'They are'} in your Activities for now. Awards and training have their own records under Career, and you can move {done.elsewhere === 1 ? 'it' : 'each one'} there from Activities.</p>
+          <p className="text-ink-2">{done.elsewhere === 1 ? '1 row reads' : `${done.elsewhere} rows read`} like an award you received or training you completed. {done.elsewhere === 1 ? 'It is' : 'They are'} in your Activities for now. Awards have their own records in {placeName('/career/awards')} and training in {placeName('/career/training')}, and you can move {done.elsewhere === 1 ? 'it' : 'each one'} there from Activities.</p>
           <Link to="/record/activities" onClick={() => onOpenChange(false)} className="inline-flex text-sm font-medium text-accent hover:underline">Review {done.elsewhere === 1 ? 'it' : 'them'} in Activities</Link>
         </div>
       ) : !parsed ? (

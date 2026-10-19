@@ -20,8 +20,8 @@ test('a report is written against chosen records and saved as a revision', async
   await seedRecord(page, 'Reconciled the aged obligations');
 
   await page.goto('/reports');
-  await page.getByRole('button', { name: 'New report' }).click();
-  const start = page.getByRole('dialog', { name: 'Start a report' });
+  await page.getByRole('button', { name: 'New report' }).first().click();
+  const start = page.getByRole('dialog', { name: 'New report' });
   await start.getByLabel('Title').fill('Studio walkthrough');
   // A record from three days ago is in the last 90 days whatever the date; this quarter can have begun since.
   await start.getByRole('combobox').click();

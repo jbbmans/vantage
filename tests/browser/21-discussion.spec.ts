@@ -8,7 +8,7 @@ test('a task opens onto its own page and carries a conversation', async ({ page,
   await loginAs(page, OPERATOR.username);
 
   await page.goto('/work/tasks');
-  await page.getByRole('button', { name: 'New task' }).click();
+  await page.getByRole('button', { name: 'New task' }).first().click();
   const dialog = page.getByRole('dialog', { name: 'New task' });
   await dialog.waitFor();
   const title = `Reconcile the October sheet ${Date.now()}`;

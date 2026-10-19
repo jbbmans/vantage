@@ -1,9 +1,11 @@
 import { Award, GraduationCap } from 'lucide-react';
 import type { KindReading } from '../../shared/recordKinds';
+import { placeName } from '@/config/nav';
 
+// Where each kind keeps its record, named as the menu names it.
 const PLACE: Record<KindReading['kind'], string> = {
-  award: 'Awards have their own record under Career, with the citation and who signed off.',
-  training: 'Courses, PME and qualifications have their own record under Career.',
+  award: `Awards have their own record in ${placeName('/career/awards')}, with the citation and who signed off.`,
+  training: `Courses, PME and qualifications have their own record in ${placeName('/career/training')}.`,
 };
 
 /**

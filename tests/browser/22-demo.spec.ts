@@ -34,11 +34,20 @@ test('the demo opens on Today with no sign-in form and one clear synthetic indic
 
 test('the demo has no Unit Manager console, but its entry shows what a Unit Manager governs and the live data inventory', async ({ page }) => {
   await page.goto('/');
-  await page.getByRole('link', { name: 'Unit Manager console' }).click();
-  await expect(page.getByRole('heading', { name: 'How a Unit Instance is governed' })).toBeVisible();
+  // The demo's only Administration page is this entry, so the group's own link opens it.
+  await page.getByRole('link', { name: 'Administration', exact: true }).click();
+  await expect(page.getByRole('heading', { name: 'Unit Manager console', level: 1 })).toBeVisible();
+  await expect(page.getByText(/^How a Unit Instance is governed\./)).toBeVisible();
   await expect(page.getByText('Retention and legal holds')).toBeVisible();
   await expect(page.getByText('Data inventory', { exact: true })).toBeVisible();
   await expect(page.getByRole('button', { name: /Export for the PIA/ })).toHaveCount(0);
+});
+
+test('the demo’s field guide sends nobody to Support, which the demo does not have', async ({ page }) => {
+  await page.goto('/help');
+  const help = page.locator('#find-your-way dl > div').filter({ has: page.getByText('Where do I get help?', { exact: true }) });
+  await expect(help).toContainText('? for the keyboard shortcuts');
+  await expect(help).not.toContainText('Support');
 });
 
 test('a Marine claims, researches, calculates, decides, hands off, and keeps a private draft', async ({ page }) => {
@@ -111,7 +120,7 @@ test('a Marine claims, researches, calculates, decides, hands off, and keeps a p
 test('personal value: quick capture, a goal update, and a career step', async ({ page }) => {
   await page.goto('/');
   await page.getByLabel('What did you do?').first().fill('Volunteered 4 hours at the base food pantry');
-  await page.getByRole('button', { name: 'Capture it' }).click();
+  await page.getByRole('button', { name: 'Log it' }).click();
   const log = page.getByRole('dialog', { name: 'Log activity' });
   await log.getByRole('button', { name: 'Save activity' }).click();
   await expect(page.getByRole('status').filter({ hasText: 'Activity logged.' })).toBeVisible();
@@ -180,7 +189,7 @@ test('a section lead with no spreadsheet to hand imports the synthetic sample sh
   await page.getByRole('button', { name: 'View as the section lead' }).click();
   await expect(page.getByRole('heading', { name: 'G-8 BE' })).toBeVisible();
   await page.goto('/work/queue');
-  await page.getByRole('button', { name: 'Import a spreadsheet' }).first().click();
+  await page.getByRole('button', { name: 'Import work' }).first().click();
   await page.getByRole('button', { name: 'Use the synthetic sample sheet' }).click();
   await expect(page.getByRole('dialog')).toContainText('Document Number');
 });

@@ -23,6 +23,7 @@ import { UnitPulse, TeamStrip, useUnitOverview } from '@/components/UnitOverview
 import GettingStarted from '@/components/GettingStarted';
 import { CountUp } from '@/components/ui/motion';
 import { recentVisits } from '@/lib/recent';
+import { placeName } from '@/config/nav';
 
 export default function Dashboard() {
   const navigate = useNavigate();
@@ -50,9 +51,9 @@ export default function Dashboard() {
   return (
     <div className="page">
       <PageHeader eyebrow={`${greeting}, ${first ?? ''}`} title="Today" lede={lede}>
-        <Button onClick={() => navigate('/work')}><Inbox className="h-4 w-4" />Find work</Button>
+        <Button onClick={() => navigate('/work/queue')}><Inbox className="h-4 w-4" />Find work</Button>
         {/* The header carries a labelled Log activity button from xl up; below that it is an icon, so this one stays. */}
-        <Button variant="primary" className="xl:hidden" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log an activity</Button>
+        <Button variant="primary" className="xl:hidden" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Plus className="h-4 w-4" />Log activity</Button>
       </PageHeader>
 
       <GettingStarted />
@@ -113,7 +114,7 @@ function AvailableWork({ compact = false }: { compact?: boolean }) {
   const body = list.isPending ? <Skeleton className="m-4 h-16" /> : rows.length ? (
     <ul className="divide-y divide-line">{rows.map((r) => <WorkRow key={r.id} item={r} trailing={<span className="flex items-center gap-1 text-accent"><Hand className="h-3 w-3" aria-hidden />Open to claim</span>} />)}</ul>
   ) : <EmptyState title="Nothing waiting to be claimed" description="When a leader brings in a tasker, its items appear here." />;
-  if (compact) return <Panel title="Open to claim" subtitle="Unassigned work in your units, soonest due first" padded={false} action={<Link to="/work?claimed=nobody" className="text-xs text-accent hover:underline">All open work</Link>}>{body}</Panel>;
+  if (compact) return <Panel title="Open to claim" subtitle="Unassigned work in your units, soonest due first" padded={false} action={<Link to="/work/queue?claimed=nobody" className="text-xs text-accent hover:underline">All open work</Link>}>{body}</Panel>;
   return (
     <div>
       <p className="border-b border-line px-4 py-3 text-sm text-ink-2">You are not holding anything. These are open to claim; claiming puts one on your list at once.</p>
@@ -151,9 +152,9 @@ function QuickCapture() {
     <Panel title="Quick capture" subtitle="PT, volunteering, any work that did not start as a tasker">
       <form onSubmit={(e) => { e.preventDefault(); open(text); }} className="flex gap-2">
         <Input aria-label="What did you do?" placeholder="Volunteered 6 hours at the food pantry" value={text} onChange={(e) => setText(e.target.value)} />
-        <Button type="submit" variant="primary" aria-label="Capture it"><Plus className="h-4 w-4" /></Button>
+        <Button type="submit" variant="primary" aria-label="Log it"><Plus className="h-4 w-4" /></Button>
       </form>
-      <p className="mt-2 text-xs text-ink-3">Work you do in Vantage is recorded for you. Courses, PME, qualifications and awards have their own records under <Link to="/career" className="text-accent underline underline-offset-2">Career</Link>. Press <kbd className="kbd">N</kbd> anywhere.</p>
+      <p className="mt-2 text-xs text-ink-3">Work you do in Vantage is recorded for you. Courses, PME and qualifications have their own records in <Link to="/career/training" className="text-accent underline underline-offset-2">{placeName('/career/training')}</Link>, and awards in <Link to="/career/awards" className="text-accent underline underline-offset-2">{placeName('/career/awards')}</Link>. Press <kbd className="kbd">N</kbd> anywhere.</p>
     </Panel>
   );
 }
@@ -336,7 +337,7 @@ function Outcomes() {
           params={params}
           emptyTitle="No measured outcome in this period"
           emptyDescription="Write what you did the way you would say it. Vantage pulls out the date, the quantity, the value, and the evaluation area."
-          emptyAction={<Button onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Sparkles className="h-4 w-4" />Log an outcome</Button>}
+          emptyAction={<Button onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: '' }))}><Sparkles className="h-4 w-4" />Log activity</Button>}
         />
       )}
       {identity?.instance.aiEnabled && (

@@ -81,7 +81,7 @@ export default function AuditTrail({ queryKey, load, exportUrl, fileStem, units,
       <div className="mb-3 flex flex-wrap items-center gap-2">
         {data.chain && <Badge tone={data.chain.ok ? 'good' : 'bad'}>{data.chain.ok ? `Chain intact · ${data.chain.count} entries` : 'Chain broken'}</Badge>}
         <span className="text-xs text-ink-3">{rows.length} shown{filtered ? ', filtered' : ''}, newest first</span>
-        <span className="ml-auto flex gap-1"><Button size="sm" variant="ghost" onClick={() => download('csv')} loading={loading === 'csv'}><Download className="h-3.5 w-3.5" />CSV</Button><Button size="sm" variant="ghost" onClick={() => download('json')} loading={loading === 'json'}><Download className="h-3.5 w-3.5" />JSON</Button></span>
+        <span className="ml-auto flex gap-1"><Button size="sm" variant="ghost" onClick={() => download('csv')} loading={loading === 'csv'}><Download className="h-3.5 w-3.5" />Export CSV</Button><Button size="sm" variant="ghost" onClick={() => download('json')} loading={loading === 'json'}><Download className="h-3.5 w-3.5" />Export JSON</Button></span>
       </div>
       {data.chain && !data.chain.ok && <p className="mb-3 text-sm text-bad">{data.chain.reason}. {units ? 'Tell Vantage support: the trail is kept for every Unit Instance at once.' : 'Restore from a backup taken before that point and investigate.'}</p>}
       <div className="card" style={{ overflow: 'hidden' }}>
