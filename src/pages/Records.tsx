@@ -1,15 +1,16 @@
 import { useEffect, useMemo, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { Plus, Download, Upload, Search, LayoutList, LayoutGrid, Lock, Users, AlertTriangle, RotateCcw, SlidersHorizontal, Trash2 } from 'lucide-react';
+import { Plus, Download, Upload, Search, LayoutList, LayoutGrid, Lock, Users, AlertTriangle, RotateCcw, SlidersHorizontal, Trash2, ChevronDown, ChevronUp } from 'lucide-react';
 import { Panel, Button, Input, Select, Segmented, EmptyState, Badge, Skeleton, Tooltip } from '@/components/ui/primitives';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
 import CsvImportDialog from '@/components/CsvImportDialog';
+import MoveRecordDialog from '@/components/MoveRecordDialog';
 import { ActivityFields, emptyActivity, toActivityDraft, activityPayload, type ActivityDraft } from '@/components/ActivityForm';
 import { PeriodSelect, DateText, CategoryDot, useParam, Table, PageShell } from '@/components/common';
-import { can, useActivities, useRecords, useDeleteRecord, useIdentity, usePrefs, useRestoreRecord, useSavePrefs, useTrack, unitName, useOrg, useMetrics } from '@/lib/queries';
+import { can, useActivities, useRecords, useDeleteRecord, useIdentity, usePrefs, useRestoreRecord, useSavePrefs, useTrack, unitName, useOrg, useMetrics, useMoveCandidates, useKeepAsActivity } from '@/lib/queries';
 import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
 import { categoryNames } from '../../shared/constants';
@@ -17,6 +18,8 @@ import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation'
 import { DEFAULT_PERIOD, activitiesInRange, rangeForPeriod, formatDollars, formatNumber, aggregateMetrics } from '../../shared/metrics';
 import { findDuplicates } from '../../shared/duplicates';
 import { strength } from '../../shared/bullets';
+import { MOVABLE_LABELS, type MovableTable, type MoveCandidate } from '../../shared/recordKinds';
+import type { Activity } from '../../shared/types';
 import { cn } from '@/lib/utils';
 
 type Sort = 'date' | 'value' | 'strength' | 'updated';
@@ -50,6 +53,15 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
   const [coaching, setCoaching] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const [confirm, setConfirm] = useState<any>(null);
   const [importOpen, setImportOpen] = useParam('import');
+  const [moving, setMoving] = useState<{ row: Activity; to: MovableTable } | null>(null);
+  // The dialog shows what the entry becomes and checks it has not changed since, so it needs the whole entry, not the
+  // suggestion's summary of it: one outside the loaded period is fetched.
+  const openMove = async (c: MoveCandidate) => {
+    const live = liveRows?.find((a) => a.id === c.id);
+    if (live) { setMoving({ row: live, to: c.to }); return; }
+    try { setMoving({ row: await api.getRecord('activities', c.id) as Activity, to: c.to }); }
+    catch (err) { toast.error(api.errorText(err)); }
+  };
 
   useEffect(() => { document.title = 'Records · Vantage'; }, []);
 
@@ -109,6 +121,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
         <Button variant="primary" onClick={() => setEditing(emptyActivity({ visibility: prefs.defaultVisibility || 'private', unit_id: identity?.homeUnitId || null }))}><Plus className="h-4 w-4" />New entry</Button>
       </>}
     >
+      {identity && <MoveSuggestions userId={identity.user.id} onMove={openMove} />}
 
       <div className="card mb-3 p-2">
         <div className="flex flex-wrap items-center gap-2">
@@ -190,11 +203,69 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
       )}
 
       <RecordDialog<ActivityDraft> store="activities" open={Boolean(editing)} onOpenChange={(o) => { if (!o) setEditing(null); }} initial={editing ? { ...editing } : null} title={editing?.id ? 'Edit activity' : 'New activity'} noun="Activity" size="lg"
-        fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : null)} onSaved={() => undefined} />
+        fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} onSavedAs={() => setEditing(null)} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : null)} onSaved={() => undefined} />
       <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title="Delete this entry?" body={<>“{confirm?.title}” moves to the recycle bin for 30 days. You can undo right away.</>} onConfirm={() => del(confirm)} />
       <CsvImportDialog open={importOpen === '1'} onOpenChange={(o) => setImportOpen(o ? '1' : '')} />
+      <MoveRecordDialog store="activities" row={moving?.row ?? null} suggested={moving?.to} open={Boolean(moving)} onOpenChange={(o) => { if (!o) setMoving(null); }} />
       <RestoreHint />
     </PageShell>
+  );
+}
+
+const collapsedKey = (userId: string) => `vantage.move-suggestions-collapsed.${userId}`;
+
+/**
+ * The person's activities that read like an award they received or training they completed (ADR-0015). Each one is
+ * theirs to move or keep: nothing moves on its own, and an entry kept as an activity is not suggested again.
+ */
+function MoveSuggestions({ userId, onMove }: { userId: string; onMove: (c: MoveCandidate) => void }) {
+  const toast = useToast();
+  const { data } = useMoveCandidates();
+  const keep = useKeepAsActivity();
+  const [collapsed, setCollapsed] = useState(() => { try { return localStorage.getItem(collapsedKey(userId)) === '1'; } catch { return false; } });
+  const candidates = data?.candidates || [];
+  if (!candidates.length) return null;
+
+  const total = data?.total ?? candidates.length;
+  const awards = candidates.some((c) => c.to === 'awards'); const training = candidates.some((c) => c.to === 'trainings');
+  const kinds = awards && training ? 'awards or training' : awards ? (total === 1 ? 'an award' : 'awards') : 'training';
+  const toggle = () => {
+    const next = !collapsed;
+    setCollapsed(next);
+    try { localStorage.setItem(collapsedKey(userId), next ? '1' : ''); } catch { /* ignore */ }
+  };
+  const keepIt = async (c: MoveCandidate) => {
+    try { await keep.mutateAsync(c.id); toast.success('Kept as an activity. It will not be suggested again.'); }
+    catch (e) { toast.error(api.errorText(e)); }
+  };
+
+  return (
+    <section aria-labelledby="move-suggestions" className="card mb-3">
+      <div className="flex items-start justify-between gap-3 px-5 py-3.5">
+        <div className="min-w-0">
+          <h2 id="move-suggestions" className="text-md font-semibold text-ink">{total === 1 ? `One of your activities reads like ${kinds}` : `${total} of your activities read like ${kinds}`}</h2>
+          <p className="mt-0.5 text-xs leading-relaxed text-ink-3">Awards and training have records of their own. Move the ones that really are, and keep the rest here. Nothing moves unless you choose it, and a move can be undone.</p>
+        </div>
+        <Button size="xs" variant="ghost" onClick={toggle} aria-expanded={!collapsed} aria-controls="move-suggestions-list">{collapsed ? <><ChevronDown className="h-3.5 w-3.5" />Show suggestions</> : <><ChevronUp className="h-3.5 w-3.5" />Hide suggestions</>}</Button>
+      </div>
+      <div id="move-suggestions-list" hidden={collapsed}>
+        <ul className="divide-y divide-line border-t border-line">
+          {candidates.map((c) => (
+            <li key={c.id} className="flex flex-wrap items-center gap-x-3 gap-y-2 px-5 py-2.5">
+              <span className="min-w-0 flex-1 basis-60">
+                <Link id={`move-suggestion-${c.id}`} to={`/records/${c.id}`} className="block truncate text-sm font-medium text-ink hover:underline">{c.title}</Link>
+                <span className="block text-xs text-ink-3"><DateText value={c.date} /> · {c.reading.why}</span>
+              </span>
+              <span className="flex shrink-0 gap-1">
+                <Button size="xs" variant="soft" onClick={() => onMove(c)} aria-describedby={`move-suggestion-${c.id}`}>Move to {MOVABLE_LABELS[c.to].place}</Button>
+                <Button size="xs" variant="ghost" onClick={() => keepIt(c)} loading={keep.isPending && keep.variables === c.id} aria-describedby={`move-suggestion-${c.id}`}>Keep as activity</Button>
+              </span>
+            </li>
+          ))}
+        </ul>
+        {total > candidates.length && <p className="border-t border-line px-5 py-2 text-2xs text-ink-3">Showing the newest {candidates.length} of {total}. More appear as you move or keep these.</p>}
+      </div>
+    </section>
   );
 }
 

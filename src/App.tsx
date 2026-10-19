@@ -19,6 +19,7 @@ const Login = lazy(() => import('@/pages/Login'));
 const PublicSite = lazy(() => import('@/pages/PublicSite'));
 const ForcePasswordChange = lazy(() => import('@/pages/ForcePasswordChange'));
 const RecordHub = lazy(() => import('@/pages/RecordHub'));
+const Timeline = lazy(() => import('@/pages/Timeline'));
 const WorkItemPage = lazy(() => import('@/pages/WorkItemPage'));
 const RecordDetail = lazy(() => import('@/pages/RecordDetail'));
 const WorkDetail = lazy(() => import('@/pages/WorkDetail'));
@@ -229,6 +230,7 @@ function AppRoutes() {
         <Route path="work/items/:id" element={<D><WorkItemPage /></D>} />
         <Route path="record" element={<Here><D><RecordHub section="overview" /></D></Here>} />
         <Route path="record/activities" element={<D><Records /></D>} />
+        <Route path="record/timeline" element={<D><Timeline /></D>} />
         <Route path="record/drafts" element={<D><RecordHub section="drafts" /></D>} />
         <Route path="record/contributions" element={<D><RecordHub section="contributions" /></D>} />
         <Route path="records/:id" element={<D><RecordDetail /></D>} />

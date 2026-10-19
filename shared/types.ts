@@ -71,6 +71,10 @@ export interface Award extends BaseRecord {
   date: string | null; name: string; type: string; status: string; recommending_official: string | null;
   approving_authority: string | null; citation: string | null; notes: string | null;
   submitted_at: string | null; approved_at: string | null; presented_at: string | null;
+  /** Who entered it: the Marine, or the leader who recommended them (ADR-0015). */
+  recorded_by?: string | null;
+  /** Set when someone other than the viewer recorded it. */
+  recorder_name?: string;
 }
 
 export interface Counseling extends BaseRecord {

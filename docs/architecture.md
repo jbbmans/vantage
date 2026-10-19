@@ -22,8 +22,20 @@ SQLite (better-sqlite3, WAL) on a persistent disk
 
 Added since: `source_files`, `import_jobs`, `work_items`, `work_actions`, `work_views` (spreadsheet intake and
 the workbench); `report_drafts`, `report_revisions` (Report Studio, one revision per save with its own source
-snapshots); `contacts`, `threads`, `thread_messages`, `thread_links`, `connectors` (correspondence); and
-`product_events` (usage and reliability).
+snapshots); `contacts`, `threads`, `thread_messages`, `thread_links`, `connectors` (correspondence);
+`product_events` (usage and reliability); and `record_lineage` (an entry moved between activities, awards and
+training, with the row as it stood before). `awards.recorded_by` names who entered an award, and
+`activities.kind_confirmed_at` when its owner said an entry that reads like an award or a course is work they did.
+
+## Record kinds
+
+Each kind of record keeps its own table, and `shared/recordKinds.ts` names it with who writes it, who may correct
+it and which system outside Vantage holds the official copy. An Activity is work a person did. An award, a course
+or a counseling has a record of its own, and a duty will once Task 17 builds duty records; entries already in
+Activities that read like awards or training stay there until their owner moves them. The timeline under Record is read from each table when it is asked
+for and never stored. An entry its owner filed in the wrong place moves to its own record and back, keeping its
+files, comments and lineage. An award a leader recorded for a Marine is the leader's and the chain's to change, not
+the Marine's. See [ADR-0015](engineering/ADR/0015-core-record-architecture.md).
 
 ## Correspondence
 

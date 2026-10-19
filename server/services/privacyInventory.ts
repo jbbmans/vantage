@@ -57,7 +57,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       category: 'performance', eval_area: 'performance', quantity: 'performance', unit_label: 'performance',
       dollar_amount: 'performance', dollar_type: 'performance', result: 'performance', organization: 'employment',
       system: 'none', project_id: 'technical', status: 'performance', notes: 'performance', evidence_links: 'performance',
-      visibility: 'none', fingerprint: 'technical', frozen_at: 'technical', deleted_at: 'technical',
+      visibility: 'none', fingerprint: 'technical', kind_confirmed_at: 'technical', frozen_at: 'technical', deleted_at: 'technical',
       created_at: 'technical', updated_at: 'technical', version: 'technical',
     },
   },
@@ -90,6 +90,15 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     columns: {
       id: 'technical', user_id: 'identifier', work_item_id: 'technical', title: 'performance', facts: 'performance', wording: 'performance',
       wording_source: 'technical', activity_id: 'technical', version: 'technical', deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',
+    },
+  },
+  record_lineage: {
+    purpose: 'Where an entry was moved between activities, awards and training, by whom, and what it said before, so the move can be traced and undone.',
+    authority: 'Voluntarily recorded by the person about their own entries; kept with the entry it describes.',
+    access: 'Readers of the entry see that it moved. What it said before is its owner’s only.',
+    columns: {
+      id: 'technical', user_id: 'identifier', unit_id: 'employment', from_table: 'technical', from_id: 'technical', to_table: 'technical', to_id: 'technical',
+      snapshot: 'performance', method: 'technical', reason: 'performance', moved_by: 'identifier', at: 'technical', kept_for_hold_at: 'technical',
     },
   },
   career_steps: {
@@ -370,7 +379,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     columns: {
       id: 'technical', user_id: 'identifier', unit_id: 'employment', visibility: 'none', date: 'performance', name: 'performance', type: 'performance',
       status: 'performance', recommending_official: 'identifier', approving_authority: 'identifier', citation: 'performance', notes: 'performance',
-      submitted_at: 'performance', approved_at: 'performance', presented_at: 'performance', version: 'technical', frozen_at: 'technical',
+      submitted_at: 'performance', approved_at: 'performance', presented_at: 'performance', recorded_by: 'identifier', version: 'technical', frozen_at: 'technical',
       deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',
     },
   },

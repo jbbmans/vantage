@@ -3,9 +3,10 @@ import type { AppContext, SessionUser } from '../context.ts';
 import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
 import { withTypedProgress, validateTypedGoal } from './goals.ts';
 import { PERMISSIONS, can, scopeFor, type Scope, isMember, detailUnitsFor, assertSameInstance, sameInstance, orgOfUnit } from '../authz/scope.ts';
-import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject } from '../authz/records.ts';
+import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee, ASSIGNEE_FIELDS, assertFileableProject, recordedByOther } from '../authz/records.ts';
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
-import { valueType } from '../../shared/constants.ts';
+import { REDACTED, valueType } from '../../shared/constants.ts';
+import { isDrawnFromWork, isMovableTable, kindText, recordKindOf, type MovableTable } from '../../shared/recordKinds.ts';
 
 /** A goal that measures a whole unit reads its members' shared entries, so setting one takes the right to view them. */
 function unitMeasureAllowed(scope: Scope, unitId: string | null | undefined) {
@@ -25,7 +26,7 @@ import { parse } from '../lib/http.ts';
 import { newId, now } from '../lib/ids.ts';
 import { record } from './telemetry.ts';
 import { audit } from './audit.ts';
-import { heldUsersClause, holdState, recordDispositionRun } from './holds.ts';
+import { heldUsersClause, holdState, recordDispositionRun, type HoldState } from './holds.ts';
 import { notify } from './notifications.ts';
 import { statSync } from 'node:fs';
 
@@ -65,6 +66,10 @@ export function activityFingerprint(userId: string, row: { date?: string | null;
   return createHash('sha256').update([userId, row.date || '', String(row.title || '').trim().toLowerCase().replace(/\s+/g, ' '), row.quantity ?? '', row.dollar_amount ?? ''].join('|')).digest('hex');
 }
 
+/** An edited entry's new fingerprint, except that one drawn from a financial case or a draft keeps saying so (ADR-0015). */
+const keptFingerprint = (userId: string, current: unknown, merged: Record<string, unknown>) =>
+  isDrawnFromWork(current) ? String(current) : activityFingerprint(userId, merged as never);
+
 export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTable, scope: Scope, opts: { unitId?: string | null; from?: string | null; to?: string | null; limit?: number; offset?: number; q?: string | null; deleted?: boolean } = {}) {
   const spec = TABLES[table];
   const { clause, params } = readableClause(ctx, scope, user.id, 't', { memberReadable: spec.memberReadable, counselor: spec.counselor, assignee: spec.assignee });
@@ -82,6 +87,7 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   const hydrated = rows.map((r) => hydrate(r, table)!);
   if (table === 'counselings') return withSubjectNames(ctx, user.id, hydrated);
   if (table === 'tasks') return withTaskPeople(ctx, user.id, hydrated);
+  if (table === 'awards') return withRecorderNames(ctx, user.id, hydrated);
   return table === 'goals' ? withGoalProgress(ctx, hydrated as never) : hydrated;
 }
 
@@ -94,6 +100,21 @@ function withSubjectNames(ctx: AppContext, viewerId: string, rows: Array<Record<
   ).all(...ids) as Array<{ id: string; first_name: string; last_name: string; abbr: string | null }>)
     .map((u) => [u.id, `${u.abbr ? `${u.abbr} ` : ''}${u.last_name}, ${u.first_name}`]));
   return rows.map((r) => (r.user_id !== viewerId && names.has(String(r.user_id)) ? { ...r, subject_name: names.get(String(r.user_id)) } : r));
+}
+
+/**
+ * Who entered an award for the Marine it is about, for anyone reading it but its recorder (ADR-0015). Not on an award a
+ * retention schedule has anonymized: its recommending official is gone, and the recorder's name would put it back.
+ */
+const anonymized = (r: Record<string, unknown>) => r.citation === REDACTED || r.recommending_official === REDACTED;
+export function withRecorderNames(ctx: AppContext, viewerId: string, rows: Array<Record<string, unknown>>) {
+  const named = (r: Record<string, unknown>) => recordedByOther(r as unknown as RecordRow) && r.recorded_by !== viewerId && !anonymized(r);
+  const ids = [...new Set(rows.filter(named).map((r) => String(r.recorded_by)))];
+  if (!ids.length) return rows;
+  const names = new Map((ctx.db.prepare(
+    `SELECT u.id, u.last_name, r.abbr FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id IN (${ids.map(() => '?').join(',')})`
+  ).all(...ids) as Array<{ id: string; last_name: string; abbr: string | null }>).map((u) => [u.id, `${u.abbr ? `${u.abbr} ` : ''}${u.last_name}`]));
+  return rows.map((r) => (named(r) && names.has(String(r.recorded_by)) ? { ...r, recorder_name: names.get(String(r.recorded_by)) } : r));
 }
 
 /**
@@ -271,7 +292,10 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const cols = ['id', 'user_id', 'unit_id', 'visibility', 'created_at', 'updated_at'];
   const vals: unknown[] = [id, ownerId, unitId, visibility, now(), now()];
   if (table === 'counselings') { cols.push('counselor_id'); vals.push(counselorId); }
+  // An award keeps who entered it: its owner, or the leader recommending them (ADR-0015).
+  if (table === 'awards') { cols.push('recorded_by'); vals.push(user.id); }
   if (table === 'activities') { cols.push('fingerprint'); vals.push(activityFingerprint(ownerId, data as never)); }
+  if (table === 'activities' && data.kind_confirmed) { cols.push('kind_confirmed_at'); vals.push(now()); }
   for (const f of spec.fields) {
     if (data[f] === undefined) continue;
     cols.push(f);
@@ -354,7 +378,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (table === 'activities') {
     const merged = { ...row, ...data };
     sets.push('fingerprint = ?');
-    vals.push(activityFingerprint(row.user_id, merged as never));
+    vals.push(keptFingerprint(row.user_id, (row as Record<string, unknown>).fingerprint, merged));
   }
   const expected = data.version as number | undefined;
   let result;
@@ -370,7 +394,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     throw error;
   }
   const amended = table === 'counselings' ? changedFields(spec, row as Record<string, unknown>, data, scopeChanged, finalUnit, finalVisibility) : undefined;
-  auditEdit(ctx, { actorId: user.id, table, id, subjectId: row.user_id !== user.id ? row.user_id : null, from: row.unit_id, to: finalUnit, how: row.user_id === user.id ? 'author edit' : row.counselor_id === user.id ? 'counselor edit' : 'manager edit', ip, amended });
+  auditEdit(ctx, { actorId: user.id, table, id, subjectId: row.user_id !== user.id ? row.user_id : null, from: row.unit_id, to: finalUnit, how: row.user_id === user.id ? 'author edit' : row.counselor_id === user.id ? 'counselor edit' : recordedByOther(row) && row.recorded_by === user.id ? 'recorder edit' : 'manager edit', ip, amended });
   if (spec.assignee && data.assignee_id && data.assignee_id !== row.assignee_id && data.assignee_id !== user.id) {
     notify(ctx, String(data.assignee_id), { kind: 'assignment', title: table === 'tasks' ? 'Task assigned to you' : 'Goal assigned to you', message: String(data.title || row.title || ''), actionUrl: `/records/${table}/${id}`, dedupeKey: `${table}:${id}:assigned:${data.assignee_id}` });
   }
@@ -449,16 +473,24 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
   if (capacity) throw new HttpError(507, capacity, 'record_quota');
   const spec = TABLES.activities;
   let created = 0; let updated = 0; const duplicates: number[] = [];
+  // Rows that read like an award received or training completed are imported as activities, as asked, and counted, so
+  // the person can move them to their own records from Activities (ADR-0015). Only rows that went in and will be offered
+  // for a move: not a duplicate skipped, not an entry its owner has already kept as an activity. Semantic import is Task 13's.
+  let elsewhere = 0;
+  const offered = (row: Record<string, unknown>) => !row.kind_confirmed_at && !isDrawnFromWork(row.fingerprint) && Boolean(recordKindOf(kindText('activities', row)));
   ctx.db.transaction(() => {
     planned.forEach((p, i) => {
       if (p.id) {
         const existing = ctx.db.prepare('SELECT * FROM activities WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(p.id, user.id) as RecordRow | undefined;
         if (existing && !existing.frozen_at) {
           const sets = ['updated_at = ?', 'version = version + 1', 'fingerprint = ?', 'visibility = ?', 'unit_id = ?'];
-          const vals: unknown[] = [now(), activityFingerprint(user.id, p.data as never), p.visibility, p.unitId];
+          const merged = { ...existing, ...p.data } as Record<string, unknown>;
+          const fingerprint = keptFingerprint(user.id, merged.fingerprint, merged);
+          const vals: unknown[] = [now(), fingerprint, p.visibility, p.unitId];
           for (const f of spec.fields) { if (p.data[f] === undefined) continue; sets.push(`${f} = ?`); vals.push(spec.json.includes(f) ? JSON.stringify(p.data[f] ?? []) : p.data[f]); }
           try { ctx.db.prepare(`UPDATE activities SET ${sets.join(', ')} WHERE id = ?`).run(...vals, p.id); updated += 1; }
           catch (error) { if (String((error as Error).message).includes('UNIQUE')) { duplicates.push(i); return; } throw error; }
+          if (offered({ ...merged, fingerprint })) elsewhere += 1;
           if (p.unitId !== existing.unit_id) auditEdit(ctx, { actorId: user.id, table: 'activities', id: p.id, subjectId: null, from: existing.unit_id, to: p.unitId, how: 'import', ip });
           return;
         }
@@ -468,21 +500,23 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
       const vals: unknown[] = [id, user.id, p.unitId, p.visibility, activityFingerprint(user.id, p.data as never), now(), now()];
       for (const f of spec.fields) { if (p.data[f] === undefined) continue; cols.push(f); vals.push(spec.json.includes(f) ? JSON.stringify(p.data[f] ?? []) : p.data[f]); }
       try { ctx.db.prepare(`INSERT INTO activities (${cols.join(',')}) VALUES (${cols.map(() => '?').join(',')})`).run(...vals); created += 1; }
-      catch (error) { if (String((error as Error).message).includes('UNIQUE')) duplicates.push(i); else throw error; }
+      catch (error) { if (String((error as Error).message).includes('UNIQUE')) { duplicates.push(i); return; } throw error; }
+      if (offered(p.data)) elsewhere += 1;
     });
   })();
   audit(ctx, { actor_id: user.id, action: 'import', entity: 'activities', detail: `${created} created, ${updated} updated, ${duplicates.length} duplicates skipped`, ip });
-  return { created, updated, duplicates: duplicates.length, duplicateRows: duplicates };
+  return { created, updated, duplicates: duplicates.length, duplicateRows: duplicates, elsewhere };
 }
 
 /**
  * Destroy records for good, with what hangs off them: their attachments and comments go too, work history keeps its
  * entry without the link, and a draft that became the entry goes with it. Run inside the caller's transaction.
  */
-export function destroyRecords(ctx: AppContext, table: RecordTable, ids: string[]): { records: number; attachments: number; comments: number } {
+export function destroyRecords(ctx: AppContext, table: RecordTable, ids: string[], holds?: HoldState): { records: number; attachments: number; comments: number } {
   if (!ids.length) return { records: 0, attachments: 0, comments: 0 };
   const list = JSON.stringify(ids);
   const each = 'IN (SELECT value FROM json_each(?))';
+  destroyLineage(ctx, table, ids, holds);
   const attachments = ctx.db.prepare(`DELETE FROM attachments WHERE record_table = ? AND record_id ${each}`).run(table, list).changes;
   const comments = ctx.db.prepare(`DELETE FROM comments WHERE record_table = ? AND record_id ${each}`).run(table, list).changes;
   if (table === 'activities') {
@@ -492,6 +526,80 @@ export function destroyRecords(ctx: AppContext, table: RecordTable, ids: string[
   if (table === 'projects') for (const linked of ['tasks', 'activities', 'work_items']) ctx.db.prepare(`UPDATE ${linked} SET project_id = NULL WHERE project_id ${each}`).run(list);
   const records = ctx.db.prepare(`DELETE FROM ${table} WHERE id ${each}`).run(list).changes;
   return { records, attachments, comments };
+}
+
+interface LineageLink { id: string; user_id: string; from_table: string; from_id: string; to_table: string; to_id: string; kept_for_hold_at: string | null }
+
+/** Every move chained to this record. A move removes the entry it starts from, so a chain of moves and undos ends in one record. */
+function lineageChain(ctx: AppContext, table: string, id: string, seen: Set<string>): LineageLink[] {
+  const linked = ctx.db.prepare('SELECT id, user_id, from_table, from_id, to_table, to_id, kept_for_hold_at FROM record_lineage WHERE (to_table = ? AND to_id = ?) OR (from_table = ? AND from_id = ?)');
+  const chain = new Map<string, LineageLink>();
+  let frontier: Array<[string, string]> = [[table, id]];
+  while (frontier.length) {
+    const next: Array<[string, string]> = [];
+    for (const [t, i] of frontier) {
+      if (seen.has(`${t}:${i}`)) continue;
+      seen.add(`${t}:${i}`);
+      for (const l of linked.all(t, i, t, i) as LineageLink[]) {
+        if (chain.has(l.id)) continue;
+        chain.set(l.id, l);
+        next.push([l.from_table, l.from_id], [l.to_table, l.to_id]);
+      }
+    }
+    frontier = next;
+  }
+  return [...chain.values()];
+}
+
+/** A legal hold keeps a chain whole: one over its person, over any record type the entry has been, or over the whole instance. */
+const chainHeld = (holds: HoldState, chain: LineageLink[]) =>
+  holds.instance || chain.some((l) => holds.users.has(l.user_id) || holds.types.has(l.from_table) || holds.types.has(l.to_table));
+
+/**
+ * The lineage of records being destroyed goes with them (ADR-0015): every move that led to one, each holding the entry
+ * as it was before. The whole chain is that record's. A chain a legal hold covers stays, since it holds what the entry
+ * said as a record of a held type, but only as evidence: it is marked kept for the hold, so nobody reads it back or
+ * undoes a move from it, and it goes at the first recycle-bin purge after the hold is released (sweepLineage).
+ * With no holds given, every open hold counts.
+ */
+export function destroyLineage(ctx: AppContext, table: string, ids: string[], holds: HoldState = holdState(ctx)): number {
+  if (!isMovableTable(table)) return 0;
+  const remove = ctx.db.prepare('DELETE FROM record_lineage WHERE id = ?');
+  const keep = ctx.db.prepare('UPDATE record_lineage SET kept_for_hold_at = ? WHERE id = ? AND kept_for_hold_at IS NULL');
+  const seen = new Set<string>();
+  const at = now();
+  let removed = 0;
+  for (const id of ids) {
+    const chain = lineageChain(ctx, table, id, seen);
+    if (!chain.length) continue;
+    if (chainHeld(holds, chain)) { for (const l of chain) keep.run(at, l.id); continue; }
+    for (const l of chain) removed += remove.run(l.id).changes;
+  }
+  return removed;
+}
+
+// The field anonymizing writes over first in each movable type (server/services/retention.ts).
+const ANONYMIZED_BY: Record<MovableTable, string> = { activities: 'title', trainings: 'title', awards: 'citation' };
+
+/**
+ * Lineage let go when nothing holds it any more: what a hold kept once its record was destroyed or anonymized, even if
+ * the record has been written to since, and a chain with no record standing at any of its ends. Run by the
+ * recycle-bin purge.
+ */
+export function sweepLineage(ctx: AppContext, holds: HoldState): number {
+  const standing = new Map((Object.keys(ANONYMIZED_BY) as MovableTable[]).map((t) =>
+    [t as string, ctx.db.prepare(`SELECT 1 FROM ${t} WHERE id = ? AND ${ANONYMIZED_BY[t]} IS NOT ?`)]));
+  const stands = (t: string, id: string) => Boolean(standing.get(t)?.get(id, REDACTED));
+  const remove = ctx.db.prepare('DELETE FROM record_lineage WHERE id = ?');
+  const seen = new Set<string>();
+  let removed = 0;
+  for (const start of ctx.db.prepare('SELECT DISTINCT to_table, to_id FROM record_lineage').all() as Array<{ to_table: string; to_id: string }>) {
+    const chain = lineageChain(ctx, start.to_table, start.to_id, seen);
+    if (!chain.length || chainHeld(holds, chain)) continue;
+    const orphaned = !chain.some((l) => stands(l.from_table, l.from_id) || stands(l.to_table, l.to_id));
+    for (const l of chain) if (orphaned || l.kept_for_hold_at) removed += remove.run(l.id).changes;
+  }
+  return removed;
 }
 
 export function purgeDeleted(ctx: AppContext, days = 30): { records: number; attachments: number; comments: number; held: number; blocked: boolean } {
@@ -520,7 +628,7 @@ export function purgeDeleted(ctx: AppContext, days = 30): { records: number; att
         if (held) recordDispositionRun(ctx, { actorId: null, recordType: table, disposition: 'destroy', eligible: 0, acted: 0, held, detail: `recycle-bin purge (${days} days): rows of people under hold kept` });
         continue;
       }
-      const destroyed = destroyRecords(ctx, table, gone.map((r) => r.id));
+      const destroyed = destroyRecords(ctx, table, gone.map((r) => r.id), holds);
       const acted = destroyed.records;
       records += acted; attachments += destroyed.attachments; comments += destroyed.comments;
       recordDispositionRun(ctx, { actorId: null, recordType: table, disposition: 'destroy', eligible: gone.length, acted, held, detail: `recycle-bin purge: deleted more than ${days} days ago` });
@@ -535,6 +643,7 @@ export function purgeDeleted(ctx: AppContext, days = 30): { records: number; att
     }
     const guard = keep.length ? ` AND NOT (${keep.join(' OR ')})` : '';
     attachments += ctx.db.prepare(`DELETE FROM attachments WHERE deleted_at IS NOT NULL AND deleted_at < ?${guard}`).run(cutoff, ...keepParams).changes;
+    sweepLineage(ctx, holds);
   })();
   if (records || attachments || comments) audit(ctx, { actor_id: null, action: 'purge_deleted', entity: 'instance', detail: `${records} records, ${attachments} attachments, ${comments} comments older than ${days} days${heldTotal ? `; ${heldTotal} kept under hold` : ''}` });
   return { records, attachments, comments, held: heldTotal, blocked: false };

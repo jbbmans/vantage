@@ -1,5 +1,5 @@
 import {
-  Award, BarChart3, BookOpen, BookOpenCheck, Briefcase, Building2, ClipboardList, Compass, FileClock, FilePen, FileText, FolderKanban,
+  Award, BarChart3, BookOpen, BookOpenCheck, Briefcase, Building2, CalendarRange, ClipboardList, Compass, FileClock, FilePen, FileText, FolderKanban,
   Gauge, GraduationCap, HeartPulse, History, Inbox, KeyRound, LayoutDashboard, Library, LifeBuoy, ListChecks, Mail, MessagesSquare,
   NotebookPen, ScrollText, Settings2, ShieldCheck, Target, UserPlus, Users, UsersRound, Workflow,
   type LucideIcon,
@@ -66,6 +66,7 @@ export const GROUPS: NavGroup[] = [
     id: 'record', label: 'Record', icon: BookOpenCheck, key: 'r', hint: 'What you did and what backs it up', also: ['/records'], pages: [
       { to: '/record', end: true, label: 'Overview', icon: LayoutDashboard, hint: 'Your record at a glance' },
       { to: '/record/activities', label: 'Activities', icon: NotebookPen, hint: 'Every activity you logged' },
+      { to: '/record/timeline', label: 'Timeline', icon: CalendarRange, hint: 'Everything you recorded, newest first' },
       { to: '/record/drafts', label: 'Drafts', icon: FilePen, hint: 'Entries drawn from your work, waiting for you', count: 'drafts' },
       { to: '/record/contributions', label: 'Contributions', icon: Workflow, hint: 'What you did on each case you worked' },
       { to: '/goals', label: 'Goals', icon: Target, key: 'g', hint: 'Targets and measurable progress' },

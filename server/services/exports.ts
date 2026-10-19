@@ -8,7 +8,7 @@ import { loadRuntime } from '../runtime.ts';
 import { appendRestore, chainPoint } from './restoreLog.ts';
 import { dataExportProblem } from '../../shared/dataTransfer.ts';
 import { writeLineage } from './recovery.ts';
-import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers, dropInstanceBoundaryTriggers, dropMembershipHistoryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, membershipHistoryTriggers, metaSet, openMissingMembershipPeriods, stampAttachmentUnits } from '../db/index.ts';
+import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers, dropInstanceBoundaryTriggers, dropMembershipHistoryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, membershipHistoryTriggers, metaSet, openMissingMembershipPeriods, stampAttachmentUnits, backfillAwardRecorders } from '../db/index.ts';
 import { sealBacklog } from './caseSeal.ts';
 import { loadChainKey, resealStoredSecrets, secretsOf } from '../lib/keys.ts';
 
@@ -28,6 +28,8 @@ export const EXPORT_TABLES = [
   'source_files', 'import_jobs', 'work_items', 'work_actions', 'work_events', 'work_event_seals', 'work_event_heads', 'work_views',
   // A person's own drafts and career plan move with the instance too.
   'record_drafts', 'career_steps', 'career_profiles',
+  // Where an entry was moved from, and what it said (ADR-0015): an undo still works on the host it moves to.
+  'record_lineage',
   // Report Studio: a draft and every revision it has been saved as.
   'report_drafts', 'report_revisions',
   'contacts', 'connectors', 'threads', 'thread_messages', 'thread_links',
@@ -90,6 +92,8 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   const ORG_OWNED = new Set(['personnel_roster', 'retention_schedules', 'legal_holds', 'disposition_runs', 'personnel_sync_runs']);
   // Files attached before they kept a unit get the one their record sits in, as migration 017 gives a live database's.
   const unstamped = (archive.tables.attachments || []).some((a) => !('unit_id' in a));
+  // An archive from before 023 names nobody as an award's recorder; its create entries do, as the migration reads them.
+  const unrecorded = (archive.tables.awards || []).some((a) => !('recorded_by' in a));
   let crossings: Record<string, number> = {};
   ctx.db.pragma('foreign_keys = OFF');
   try {
@@ -122,6 +126,7 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       for (const { key, value } of hostMeta) metaSet(ctx.db, key, value);
       if (legacy) foundOrganizations(ctx.db);
       if (unstamped) stampAttachmentUnits(ctx.db);
+      if (unrecorded) backfillAwardRecorders(ctx.db);
       // An archive from before the history opens a period for each membership it holds, as migration 018 does.
       openMissingMembershipPeriods(ctx.db);
       membershipHistoryTriggers(ctx.db);

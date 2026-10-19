@@ -5,7 +5,7 @@ import { HttpError, badRequest, conflict, forbidden, notFound } from '../lib/err
 import { requireAuth } from '../auth/middleware.ts';
 import { PERMISSIONS, can, scopeFor } from '../authz/scope.ts';
 import { canEdit, canRead } from '../authz/records.ts';
-import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress } from '../services/records.ts';
+import { isRecordTable, listRecords, createRecord, updateRecord, deleteRecord, restoreRecord, readableRecord, importActivities, getRecord, withGoalProgress, withRecorderNames } from '../services/records.ts';
 import { inspectAttachment, attachmentDisposition } from '../services/attachments.ts';
 import { audit } from '../services/audit.ts';
 import { scanUpload } from '../services/scanner.ts';
@@ -13,6 +13,7 @@ import { featureOn } from '../services/instanceFlags.ts';
 import { infrastructureBodyProblem } from '../../shared/dataTransfer.ts';
 import { goalContributors } from '../services/goals.ts';
 import { listComments, addComment, editComment, deleteComment } from '../services/comments.ts';
+import { moveRecord, undoMove, recordLineage, keepAsActivity } from '../services/recordMoves.ts';
 import { newId, now } from '../lib/ids.ts';
 import { statSync } from 'node:fs';
 
@@ -65,7 +66,7 @@ recordsRouter.post('/activities/import', wrap((req, res) => {
 recordsRouter.get('/:table/:id', wrap((req, res) => {
   const table = tableParam(req);
   const raw = readableRecord(req.ctx, req.user, table, String(req.params.id), req);
-  const row = table === 'goals' ? withGoalProgress(req.ctx, [raw])[0] : raw;
+  const row = table === 'goals' ? withGoalProgress(req.ctx, [raw])[0] : table === 'awards' ? withRecorderNames(req.ctx, req.user.id, [raw])[0] as typeof raw : raw;
   if (row.user_id !== req.user.id) audit(req.ctx, { actor_id: req.user.id, action: 'view_record', entity: table, entity_id: row.id, subject_id: row.user_id, unit_id: row.unit_id, ip: clientIp(req) });
   res.json(row);
 }));
@@ -89,6 +90,24 @@ recordsRouter.post('/:table/:id/restore', wrap((req, res) => {
   const table = tableParam(req);
   res.json(restoreRecord(req.ctx, req.user, table, String(req.params.id), req, clientIp(req)));
 }));
+
+// Moving an entry to the record type it belongs in, and back (ADR-0015). Its owner's alone.
+recordsRouter.post('/:table/:id/move', wrap((req, res) => {
+  const table = tableParam(req);
+  res.status(201).json(moveRecord(req.ctx, req.user, table, String(req.params.id), req.body, req, clientIp(req)));
+}));
+
+recordsRouter.post('/:table/:id/undo-move', wrap((req, res) => {
+  const table = tableParam(req);
+  res.json(undoMove(req.ctx, req.user, table, String(req.params.id), req, clientIp(req)));
+}));
+
+recordsRouter.get('/:table/:id/lineage', wrap((req, res) => {
+  const table = tableParam(req);
+  res.json(recordLineage(req.ctx, req.user, table, String(req.params.id), req));
+}));
+
+recordsRouter.post('/activities/:id/keep', wrap((req, res) => res.json(keepAsActivity(req.ctx, req.user, String(req.params.id), req, clientIp(req)))));
 
 recordsRouter.post('/counselings/:id/acknowledge', wrap((req, res) => {
   const row = getRecord(req.ctx, 'counselings', String(req.params.id));
@@ -138,6 +157,11 @@ recordsRouter.post('/:table/:id/attachments', attachmentBody, wrap(async (req, r
   catch (e) {
     if ((e as HttpError).code === 'malware_rejected') audit(ctx, { actor_id: req.user.id, action: 'upload_rejected', entity: table, entity_id: row.id, unit_id: row.unit_id, detail: (e as Error).message.slice(0, 300), ip: clientIp(req) });
     throw e;
+  }
+  // The scan awaits; the entry may have moved to another record type meanwhile (ADR-0015). Checked with nothing awaited
+  // between it and the insert, so the file never lands on an entry that is gone.
+  if (!ctx.db.prepare(`SELECT 1 FROM ${table} WHERE id = ?`).get(row.id)) {
+    throw conflict('This entry moved while the file was being scanned. Add the file to it where it is now.', 'record_moved');
   }
   const id = newId();
   try {

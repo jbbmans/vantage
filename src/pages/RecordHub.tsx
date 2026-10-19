@@ -124,7 +124,8 @@ function Overview({ summary, loading }: { summary: any; loading: boolean }) {
           ) : <ul className="divide-y divide-line">{assigned.data.map((item) => <WorkRow key={item.id} item={item} />)}</ul>}
         </Panel>
 
-        <Panel title="What you recorded yourself" subtitle="PME, PT, volunteering, qualifications: anything that did not start as a tasker.">
+        <Panel title="What you recorded yourself" subtitle="Work that did not start as a tasker. Courses, PME, qualifications and awards have their own records under Career."
+          action={<Link to="/record/timeline" className="text-xs text-accent hover:underline">Your timeline</Link>}>
           <ul className="grid grid-cols-3 gap-3 text-sm">
             <li>
               <button type="button" onClick={() => navigate('/record/activities')} className="block w-full rounded-md border border-line px-3 py-2 text-left hover:border-line-strong">

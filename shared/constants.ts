@@ -121,6 +121,9 @@ export function normalizeMetrics(input: unknown): MetricsConfig {
 export const VISIBILITIES = ['private', 'unit'] as const;
 export type Visibility = (typeof VISIBILITIES)[number];
 
+/** What a retention schedule's anonymize disposition writes over each identifying field (server/services/retention.ts). */
+export const REDACTED = '[redacted under retention schedule]';
+
 export const ACTIVITY_STATUS = ['completed', 'planned'] as const;
 export const WORK_STATUS = ['planned', 'active', 'waiting', 'completed'] as const;
 export const PRIORITIES = ['low', 'medium', 'high', 'critical'] as const;

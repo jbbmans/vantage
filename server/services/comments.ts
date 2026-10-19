@@ -10,7 +10,8 @@ import { getRecord, isRecordTable } from './records.ts';
 import type { RecordTable } from '../../shared/schemas.ts';
 
 /** The records that show a comment thread. A training is a line in a log, with no page to hold one. */
-export const COMMENTABLE = new Set<string>(['activities', 'awards', 'counselings', 'tasks', 'projects', 'goals']);
+// Training takes comments too, so what was said on an entry moved there stays in view (ADR-0015).
+export const COMMENTABLE = new Set<string>(['activities', 'awards', 'trainings', 'counselings', 'tasks', 'projects', 'goals']);
 
 const MAX_BODY = 4000;
 

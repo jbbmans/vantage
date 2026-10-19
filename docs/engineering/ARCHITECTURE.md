@@ -14,7 +14,8 @@ Node 22 · Express 5 · TypeScript run directly (no server build step)
    ├─ authz/     scope resolved per request from the session; record visibility
    ├─ routes/    auth, me, records, work, record, org, correspondence, support, admin, demo, misc
    ├─ services/  work (queue, claims), cases (history, stages, entries, handoffs, calculation),
-   │             record (Record, workload, drafts, career), intake (imports), demo, org, metrics,
+   │             record (Record, workload, drafts, career), records, recordMoves (moves and their
+   │             lineage), timeline, intake (imports), demo, org, metrics,
    │             reports, correspondence, retention, personnel, audit, telemetry, ai, email
    └─ db/        schema.sql (idempotent), numbered migrations, ranks seed
    ▼
@@ -26,6 +27,8 @@ SQLite (better-sqlite3, WAL) on a local volume · attachments and source files a
 - `procedures.ts`: the 2-Way UMT procedure, progress derivation, the candidate calculation
 - `money.ts`: exact cents
 - `record.ts`: definitions and limits; career schemas
+- `recordKinds.ts`: the registry of record kinds (store, writer, corrector, system of record), the
+  classifier that reads an activity as an award or training, and what an entry becomes when it moves
 - the existing parsers, metrics and permissions
 
 ## Module boundaries
@@ -38,7 +41,7 @@ SQLite (better-sqlite3, WAL) on a local volume · attachments and source files a
 | Cases | `work_events`, stages, research, controls, handoffs | work, procedures |
 | Imports | source files, jobs, lineage | work, cases |
 | Record and career | projections of events; drafts; career | cases (read), records |
-| Records (personal documentation) | activities, training, awards, counseling, goals | metrics, reports |
+| Records (personal documentation) | activities, training, awards, counseling, goals; moves between activities, awards and training, and their lineage | metrics, reports, the timeline (read-only) |
 | Reporting | metrics, reports, analysis, workload | read-only over the above |
 | Audit and telemetry | audit chain, product events | written by all |
 | Administration | runtime settings, governance, exports | operators only |
@@ -82,6 +85,15 @@ service (`platform_roles`), Unit Managers run one Unit Instance's structure (`or
 belong to it), and unit roles in the chain of command read what is shared with their units. Checks ask for
 permissions, never role names, and no one at either upper tier can widen their own reach. See
 [ADR-0010](ADR/0010-vantage-administrator-and-unit-manager.md).
+
+Each kind of record keeps its own store, named in `shared/recordKinds.ts` with who writes it, who may
+correct it and which outside system holds the official copy. An Activity is work a person did, and never
+stands in for an award, a course or a counseling; duty records come with Task 17. The person's timeline (`GET /api/record/timeline`)
+is read from each store on request and never stored. An owner moves an entry between activities, awards and
+training in one transaction that carries its files and comments, keeps the row as it stood in
+`record_lineage`, is audited at both ends and can be undone; nothing moves on its own, and migration 023
+moved nothing. An award keeps who recorded it (`awards.recorded_by`), and a leader's recommendation is never
+its subject's to change. See [ADR-0015](ADR/0015-core-record-architecture.md).
 
 ## Tests
 

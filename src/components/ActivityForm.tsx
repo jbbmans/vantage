@@ -1,27 +1,69 @@
-import { Field, Input, NumberInput, Select, Textarea } from '@/components/ui/primitives';
+import { useMemo, useRef, useState } from 'react';
+import { useNavigate } from 'react-router-dom';
+import { Button, Field, Input, NumberInput, Select, Textarea } from '@/components/ui/primitives';
+import { useToast } from '@/components/ui/toast';
 import VisibilityPicker from '@/components/VisibilityPicker';
+import { KindNote } from '@/components/KindNote';
 import { ACTIVITY_STATUS, categoryNames, valueType } from '../../shared/constants';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
-import { useProjects, useTrack, useMetrics } from '@/lib/queries';
+import { MOVABLE_LABELS, recordKindOf, kindText, movedFields } from '../../shared/recordKinds';
+import { useCreateRecord, useProjects, useTrack, useMetrics } from '@/lib/queries';
+import { errorText } from '@/lib/api';
 import { onText } from '@/components/common';
 import { humanize, todayIso } from '@/lib/utils';
 
-export interface ActivityDraft { id?: string; version?: number; title: string; date: string; category: string | null; eval_area: string | null; quantity: number | string | null; unit_label: string; dollar_amount: number | string | null; dollar_type: string | null; result: string; organization: string; system: string; project_id: string | null; status: string; notes: string; evidence_links: Array<{ label?: string | null; url?: string | null }>; visibility: 'private' | 'unit'; unit_id: string | null }
+export interface ActivityDraft { id?: string; version?: number; title: string; date: string; category: string | null; eval_area: string | null; quantity: number | string | null; unit_label: string; dollar_amount: number | string | null; dollar_type: string | null; result: string; organization: string; system: string; project_id: string | null; status: string; notes: string; evidence_links: Array<{ label?: string | null; url?: string | null }>; visibility: 'private' | 'unit'; unit_id: string | null; kind_confirmed?: boolean }
 
 export const emptyActivity = (defaults: Partial<ActivityDraft> = {}): ActivityDraft => ({
   title: '', date: todayIso(), category: null, eval_area: 'Unassigned', quantity: '', unit_label: '', dollar_amount: '', dollar_type: null, result: '', organization: '', system: '', project_id: null, status: 'completed', notes: '', evidence_links: [], visibility: 'private', unit_id: null, ...defaults,
 });
 export const toActivityDraft = (a: Record<string, any>): ActivityDraft => ({ ...emptyActivity(), ...a, quantity: a.quantity ?? '', dollar_amount: a.dollar_amount ?? '', unit_label: a.unit_label || '', result: a.result || '', organization: a.organization || '', system: a.system || '', notes: a.notes || '', evidence_links: a.evidence_links || [] });
 
-export function ActivityFields({ draft, set, errors }: { draft: ActivityDraft; set: (k: any, v: unknown) => void; errors: Record<string, string> }) {
+/**
+ * The fields of an activity. Given onSavedAs, a new entry that reads like an award or training can be saved as one
+ * instead, and the form is closed by it.
+ */
+export function ActivityFields({ draft, set, errors, onSavedAs }: { draft: ActivityDraft; set: (k: any, v: unknown) => void; errors: Record<string, string>; onSavedAs?: () => void }) {
   const track = useTrack();
   const cfg = useMetrics();
   const { data: projects } = useProjects();
   const links = draft.evidence_links || [];
   const setLink = (i: number, patch: Partial<{ label: string; url: string }>) => set('evidence_links', links.map((l, j) => (j === i ? { ...l, ...patch } : l)));
+  // A new entry that reads like an award received or a course completed can be saved as its own record (ADR-0015). An
+  // existing one is moved from its page instead, where the move keeps its history and can be undone. Kept as an activity,
+  // it is saved saying so, and not offered for a move later.
+  const kept = Boolean(draft.kind_confirmed);
+  const title = useRef<HTMLInputElement | null>(null);
+  const reading = useMemo(() => (!draft.id && !kept ? recordKindOf(kindText('activities', { title: draft.title, result: draft.result })) : null), [draft.id, draft.title, draft.result, kept]);
+  const target = reading?.kind === 'award' ? 'awards' : 'trainings';
+  const toast = useToast();
+  const navigate = useNavigate();
+  const createAward = useCreateRecord('awards');
+  const createTraining = useCreateRecord('trainings');
+  const [savingAs, setSavingAs] = useState(false);
+  const saveAs = async () => {
+    if (!draft.title.trim()) { toast.error('A title is required.'); return; }
+    setSavingAs(true);
+    try {
+      const saved = await (target === 'awards' ? createAward : createTraining).mutateAsync({ ...movedFields('activities', activityPayload(draft), target), visibility: draft.visibility, unit_id: draft.unit_id }) as { id?: string } | undefined;
+      const page = target === 'awards' ? '/career/awards' : '/career/training';
+      toast.success(`Saved to your ${MOVABLE_LABELS[target].place} under Career.`, { label: 'Open', onClick: () => navigate(saved?.id ? `${page}?open=${encodeURIComponent(saved.id)}` : page) });
+      onSavedAs?.();
+    } catch (err) {
+      toast.error(errorText(err));
+    } finally { setSavingAs(false); }
+  };
   return (
     <>
-      <Field label="Title" required error={errors.title}><Input autoFocus value={draft.title} onChange={onText(set, 'title')} placeholder="Reconciled 30 ULOs in DAI" /></Field>
+      <Field label="Title" required error={errors.title}><Input ref={title} autoFocus value={draft.title} onChange={onText(set, 'title')} placeholder="Reconciled 30 ULOs in DAI" /></Field>
+      <div aria-live="polite" className={reading ? undefined : '!mt-0'}>
+        {reading && (
+          <KindNote reading={reading}>
+            {onSavedAs && <Button size="xs" variant="soft" onClick={saveAs} loading={savingAs}>Save as {MOVABLE_LABELS[target].one}</Button>}
+            <Button size="xs" variant="ghost" onClick={() => { set('kind_confirmed', true); title.current?.focus(); }}>Keep as activity</Button>
+          </KindNote>
+        )}
+      </div>
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <Field label="Date" error={errors.date}><Input type="date" value={draft.date || ''} onChange={onText(set, 'date')} /></Field>
         <Field label="Status"><Select value={draft.status} onValueChange={(v) => set('status', v)} options={ACTIVITY_STATUS.map((s) => ({ value: s, label: humanize(s) }))} /></Field>

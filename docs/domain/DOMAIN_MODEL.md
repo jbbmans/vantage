@@ -95,12 +95,40 @@ stored, and it never infers a decision.
   outcomes and resolved work. Each has a definition in `shared/record.ts`, over a stated window.
 - **Personal documentation**: activities, training, awards, counseling (the existing record tables),
   and **drafts** (`record_drafts`): facts cited to events, plus wording. Owner-only.
+- **Timeline**: the person's own activities, training, awards, counselings and goals reached, newest
+  first, each opening its own record. It is read from each table when asked for and never stored.
+
+## Record kinds and their sources of truth
+
+`shared/recordKinds.ts` (`RECORD_KINDS`) names, for every concept above and the rest of the
+specification's domain model, its store, who writes it, who may correct it and which system outside
+Vantage holds the official copy (ADR-0015). Vantage's copy is the person's working record.
+
+- **Activity** (`activities`): work the person did. It is one kind among the others, and never stands
+  in for an award, a course or a counseling. An activity drawn from a financial case (a
+  fingerprint starting `work:`, `case:` or `draft:`, or one a work action or draft points at) stays tied
+  to that case.
+- **Training** (`trainings`, by `type`): training, courses and skills; PME; education; certifications;
+  qualifications. The official copies are in MCTIMS and MarineNet, a school's transcript or the certifying
+  body.
+- **Award and recognition** (`awards`, by `type`). `recorded_by` names who entered it: the person, or the
+  leader who recommended them. A recommendation is its recorder's and the chain's to change, never its
+  subject's. The official copy of an award is in iAPS and MOL.
+- **Counseling** (`counselings`): one a counselor recorded is theirs to correct until it is
+  acknowledged, never its subject's. The person's own notes are theirs.
+- **Duty**: no store yet; duty records are Task 17's. **Financial error snapshot**: no store yet; Task 15.
+- **A move** between activities, awards and training is its owner's alone. One transaction gives the
+  entry a new id in its new table, carries its files and comments, removes it from the old one and
+  writes **record lineage** (`record_lineage`): from, to, the whole row as it stood, who, when and why.
+  An undo puts the entry back under its original id. Readers of an entry see that it moved; what it said
+  before is its owner's only. Nothing moves on its own: migration 023 moved nothing, and each Marine
+  moves the entries they choose (John, 2026-10-17, "Marine confirms").
 
 ## Career
 
 `career_steps` (owner-only next steps, each with its source and the date it was last checked) and
 `career_profiles` (military goal, civilian interests). Readiness, training, awards and counseling are
-the existing tables.
+the existing tables, each its kind's own store.
 
 ## Demo
 

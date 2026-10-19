@@ -2,6 +2,7 @@ import { clearDrafts } from './drafts.ts';
 import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
 import type { MemberDetailResponse, OrgResponse, RecordRows, RolesResponse, TeamResponse } from '../../shared/types';
 import type { UnitManagerRole } from '../../shared/permissions';
+import type { LineageResponse, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
 
 let sessionState: 'none' | 'unknown' | 'active' = (() => {
   try { return document.cookie.includes('vantage_signed_in=') ? 'unknown' : 'none'; } catch { return 'unknown'; }
@@ -148,6 +149,12 @@ export const deleteAttachment = (store: Store, id: string, attachmentId: string)
 export const attachmentUrl = (store: Store, id: string, attachmentId: string) => `/api/records/${store}/${encodeURIComponent(id)}/attachments/${encodeURIComponent(attachmentId)}`;
 
 export const comments = (store: Store, id: string) => api.get(`/records/${store}/${encodeURIComponent(id)}/comments`);
+// Moving an entry to the record type it belongs in, and back (ADR-0015). Its owner's alone.
+export const moveRecord = (store: MovableTable, id: string, body: { to: MovableTable; fields?: Record<string, unknown>; reason?: string | null; version?: number }) =>
+  api.post<{ table: MovableTable; id: string; lineage_id: string; record: Record<string, unknown> }>(`/records/${store}/${encodeURIComponent(id)}/move`, body);
+export const undoMove = (store: MovableTable, id: string) => api.post<{ table: MovableTable; id: string; record: Record<string, unknown> }>(`/records/${store}/${encodeURIComponent(id)}/undo-move`);
+export const recordLineage = (store: MovableTable, id: string) => api.get<LineageResponse>(`/records/${store}/${encodeURIComponent(id)}/lineage`);
+export const keepAsActivity = (id: string) => api.post(`/records/activities/${encodeURIComponent(id)}/keep`);
 export const addComment = (store: Store, id: string, body: string) => api.post(`/records/${store}/${encodeURIComponent(id)}/comments`, { body });
 export const editComment = (store: Store, id: string, commentId: string, body: string) => api.put(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`, { body });
 export const deleteComment = (store: Store, id: string, commentId: string) => api.del(`/records/${store}/${encodeURIComponent(id)}/comments/${encodeURIComponent(commentId)}`);
@@ -431,6 +438,8 @@ export const recordPractice = () => api.get('/record/practice');
 export const recordSummary = (params: Record<string, string | undefined> = {}) => api.get(`/record/summary?${qs(params)}`);
 export const assignedWork = () => api.get<AssignedItem[]>('/record/assigned');
 export const contributions = (params: Record<string, string | undefined> = {}) => api.get(`/record/contributions?${qs(params)}`);
+export const recordTimeline = (params: Record<string, string | undefined> = {}) => api.get<TimelineResponse>(`/record/timeline?${qs(params)}`);
+export const moveCandidates = () => api.get<MoveCandidatesResponse>('/record/move-candidates');
 export const recordDrafts = () => api.get('/record/drafts');
 export const draftFromWork = (workItemId: string) => api.post('/record/drafts/from-work', { work_item_id: workItemId });
 export const updateDraft = (id: string, body: Record<string, unknown>) => api.put(`/record/drafts/${encodeURIComponent(id)}`, body);

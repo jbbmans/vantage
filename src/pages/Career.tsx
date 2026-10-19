@@ -1,12 +1,15 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, GraduationCap, Award as AwardIcon, MessageSquare, CheckCircle2, Paperclip } from 'lucide-react';
+import { Plus, GraduationCap, Award as AwardIcon, MessageSquare, CheckCircle2, Paperclip, ArrowRightLeft } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, NumberInput, Stat } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
 import { Comments } from '@/components/Comments';
 import VisibilityPicker from '@/components/VisibilityPicker';
+import MoveRecordDialog, { entryHref, type MovedEntry } from '@/components/MoveRecordDialog';
+import RecordLineage from '@/components/RecordLineage';
+import { Attachments } from '@/components/Attachments';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, StatusBadge, useParam, onText, Table, DescriptionList } from '@/components/common';
 import { can, useAwards, useCounselings, useDeleteRecord, useRestoreRecord, useIdentity, usePrefs, useTrainings, invalidateRecords } from '@/lib/queries';
@@ -15,10 +18,16 @@ import * as api from '@/lib/api';
 import { TRAINING_TYPES, TRAINING_STATUS, AWARD_TYPES, AWARD_STATUS, AWARD_NAMES, COUNSELING_TYPES } from '../../shared/constants';
 import { formatDate, formatNumber } from '../../shared/metrics';
 import { PERMISSIONS } from '../../shared/permissions';
+import type { Award, Training } from '../../shared/types';
 import { formatStamp, humanize, todayIso } from '@/lib/utils';
 import { Skeleton } from '@/components/ui/primitives';
 
 const CareerPlan = lazy(() => import('./CareerPlan'));
+
+/** An award as the list sends it: who entered it, and their name for anyone but them (ADR-0015). */
+type AwardRow = Award & { recorded_by?: string | null; recorder_name?: string };
+/** A leader's recommendation: an award somebody entered for the Marine it is about. */
+const recordedByOther = (r: { user_id: string; recorded_by?: string | null }) => Boolean(r.recorded_by && r.recorded_by !== r.user_id);
 
 interface TrainingDraft { id?: string; version?: number; title: string; date: string; type: string; hours: number | string; provider: string; status: string; notes: string; visibility: 'private' | 'unit'; unit_id: string | null }
 interface AwardDraft { id?: string; version?: number; name: string; date: string; type: string; status: string; recommending_official: string; approving_authority: string; citation: string; notes: string; submitted_at: string; approved_at: string; presented_at: string; visibility: 'private' | 'unit'; unit_id: string | null }
@@ -113,22 +122,41 @@ export default function Career({ section }: { section: CareerSection }) {
   const [counseling, setCounseling] = useState<CounselingDraft | null>(null);
   const [view, setView] = useState<any>(null);
   const [confirm, setConfirm] = useState<{ store: 'trainings' | 'awards' | 'counselings'; row: any } | null>(null);
+  const [moving, setMoving] = useState<{ store: 'trainings' | 'awards'; row: Training | AwardRow } | null>(null);
   const [citationOut, setCitationOut] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const me = identity?.user.id;
   const vis = prefs.defaultVisibility || 'private';
   const unit = identity?.homeUnitId || null;
+  const awardRows: AwardRow[] = awards || [];
   // A notification opens the record it is about: a counseling to acknowledge, or an award or counseling somebody commented on.
+  // A move opens the entry where it now lives: an award, or a course.
   useEffect(() => {
     if (!openId) return;
     const c = counselings?.find((x) => x.id === openId);
     const a = awards?.find((x) => x.id === openId);
+    const t = trainings?.find((x) => x.id === openId);
     // A link to a record opens it on its own page: /career/counseling?open=<id>.
     if (c) { setView({ kind: 'counseling', row: c }); if (tab !== 'counseling') navigate(`/career/counseling?open=${encodeURIComponent(openId)}`, { replace: true }); }
     else if (a) { setView({ kind: 'award', row: a }); if (tab !== 'awards') navigate(`/career/awards?open=${encodeURIComponent(openId)}`, { replace: true }); }
-  }, [openId, counselings, awards, tab, navigate]);
+    else if (t) { setView({ kind: 'training', row: t }); if (tab !== 'training') navigate(`/career/training?open=${encodeURIComponent(openId)}`, { replace: true }); }
+  }, [openId, counselings, awards, trainings, tab, navigate]);
 
   const hours = useMemo(() => (trainings || []).reduce((n: number, t) => n + (Number(t.hours) || 0), 0), [trainings]);
-  const canEditRow = (r: any) => r.user_id === me ? !r.frozen_at : can(identity, PERMISSIONS.MANAGE_RECORDS, r.unit_id);
+  // As the server decides (canEdit in server/authz/records.ts): an award a leader recorded is never its subject's to
+  // change, and its recorder may change it while it is shared with the unit they hold Counsel members in.
+  const canEditRow = (r: any) => {
+    if (r.frozen_at) return false;
+    if (recordedByOther(r)) {
+      if (r.user_id === me) return false;
+      if (r.recorded_by === me && r.visibility === 'unit' && can(identity, PERMISSIONS.COUNSEL, r.unit_id)) return true;
+    }
+    return r.user_id === me || can(identity, PERMISSIONS.MANAGE_RECORDS, r.unit_id);
+  };
+  // Only its owner moves an entry to another record type, and an award a leader recorded stays an award (ADR-0015).
+  const canMove = (r: { user_id: string; frozen_at: string | null; recorded_by?: string | null }) => r.user_id === me && !r.frozen_at && !recordedByOther(r);
+  // After a move, or an undo, the entry lives somewhere else: open it there.
+  const goTo = (entry: MovedEntry) => { setView(null); navigate(entryHref(entry.table, entry.id)); };
+  const startMove = (store: 'trainings' | 'awards', row: Training | AwardRow) => { setView(null); if (openId) setOpenId(''); setMoving({ store, row }); };
   const acknowledge = async (c: any) => { try { await api.acknowledgeCounseling(c.id); invalidateRecords(qc, 'counselings'); toast.success('Acknowledged.'); setView(null); } catch (e) { toast.error(api.errorText(e)); } };
 
   return (
@@ -146,19 +174,19 @@ export default function Career({ section }: { section: CareerSection }) {
       </div>}
 
       {tab === 'training' && ((trainings || []).length === 0 ? <div className="card"><EmptyState icon={GraduationCap} title="No training logged" description="PME, MarineNet courses, certifications, college. Hours here feed training-hour goals and the evaluation package." action={<Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}>Log training</Button>} /></div> : (
-        <div className="card" style={{ overflow: 'hidden' }}><Table head={<><th className="w-24">Date</th><th>Training</th><th className="w-28">Type</th><th className="w-20 text-right">Hours</th><th className="w-28">Status</th><th className="w-28"></th></>}>
-          {(trainings || []).map((t) => <tr key={t.id}><td className="text-xs"><DateText value={t.date} /></td><td><span className="font-medium text-ink">{t.title}</span>{t.provider && <span className="block text-xs text-ink-3">{t.provider}</span>}</td><td className="text-xs">{t.type === 'pme' ? 'PME' : humanize(t.type)}</td><td className="fig text-right text-xs">{t.hours ?? ''}</td><td><StatusBadge value={t.status} /></td><td className="text-right">{canEditRow(t) && <><Button size="xs" variant="ghost" onClick={() => setTraining({ ...t, type: t.type || 'course', hours: t.hours ?? '', provider: t.provider || '', notes: t.notes || '', date: t.date || '' })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'trainings', row: t })}>Delete</Button></>}</td></tr>)}
+        <div className="card" style={{ overflow: 'hidden' }}><Table head={<><th className="w-24">Date</th><th>Training</th><th className="w-28">Type</th><th className="w-20 text-right">Hours</th><th className="w-28">Status</th><th className="w-44"></th></>}>
+          {(trainings || []).map((t) => <tr key={t.id}><td className="text-xs"><DateText value={t.date} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView({ kind: 'training', row: t })}>{t.title}</button>{t.provider && <span className="block text-xs text-ink-3">{t.provider}</span>}</td><td className="text-xs">{t.type === 'pme' ? 'PME' : humanize(t.type)}</td><td className="fig text-right text-xs">{t.hours ?? ''}</td><td><StatusBadge value={t.status} /></td><td className="text-right">{canMove(t) && <Button size="xs" variant="ghost" onClick={() => startMove('trainings', t)}>Move to…</Button>}{canEditRow(t) && <><Button size="xs" variant="ghost" onClick={() => setTraining({ ...t, type: t.type || 'course', hours: t.hours ?? '', provider: t.provider || '', notes: t.notes || '', date: t.date || '' })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'trainings', row: t })}>Delete</Button></>}</td></tr>)}
         </Table></div>
       ))}
 
-      {tab === 'awards' && ((awards || []).length === 0 ? <div className="card"><EmptyState icon={AwardIcon} title="No awards tracked" description="Track a recommendation from the day it is drafted to the day it is pinned. Citations draft from your logged activities." action={<Button variant="primary" onClick={() => setAward(emptyAward(vis, unit))}>Track an award</Button>} /></div> : (
+      {tab === 'awards' && (awardRows.length === 0 ? <div className="card"><EmptyState icon={AwardIcon} title="No awards tracked" description="Track a recommendation from the day it is drafted to the day it is pinned. Citations draft from your logged activities." action={<Button variant="primary" onClick={() => setAward(emptyAward(vis, unit))}>Track an award</Button>} /></div> : (
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
-          {(awards || []).map((a) => (
+          {awardRows.map((a) => (
             <article key={a.id} className="card card-hover p-4">
               <div className="flex items-start justify-between gap-2"><div><h3 className="text-base font-semibold text-ink">{a.name}</h3><p className="text-xs text-ink-3">{a.type === 'loa' ? 'Letter of Appreciation' : humanize(a.type)} · <DateText value={a.date} /></p></div><StatusBadge value={a.status} /></div>
               <ol className="mt-3 flex items-center gap-1 text-2xs uppercase tracking-wider text-ink-3">{['recommended', 'submitted', 'approved', 'presented'].map((s, i) => { const idx = (AWARD_STATUS as readonly string[]).indexOf(a.status); const reached = idx >= AWARD_STATUS.indexOf(s as never); return <li key={s} className="flex items-center gap-1"><span className={reached ? 'text-good' : ''}>{reached ? <CheckCircle2 className="inline h-3 w-3" /> : '○'} {humanize(s)}</span>{i < 3 && <span className="mx-1">›</span>}</li>; })}</ol>
               {a.citation && <p className="mt-3 line-clamp-3 text-sm text-ink-2">{a.citation}</p>}
-              <div className="mt-3 flex items-center justify-between border-t border-line pt-2 text-xs text-ink-3"><span>{a.recommending_official ? `Rec: ${a.recommending_official}` : ''}{a.user_id !== me ? ' · shared record' : ''}</span><span className="flex gap-1"><Button size="xs" variant="ghost" onClick={() => setView({ kind: 'award', row: a })}>View</Button>{canEditRow(a) && <><Button size="xs" variant="ghost" onClick={() => { setCitationOut(null); setAward({ ...a, date: a.date || '', recommending_official: a.recommending_official || '', approving_authority: a.approving_authority || '', citation: a.citation || '', notes: a.notes || '', submitted_at: a.submitted_at || '', approved_at: a.approved_at || '', presented_at: a.presented_at || '' }); }}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'awards', row: a })}>Delete</Button></>}</span></div>
+              <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-2 text-xs text-ink-3"><span className="min-w-0">{[a.recommending_official ? `Rec: ${a.recommending_official}` : '', recordedByOther(a) && a.recorder_name ? `Recorded by ${a.recorder_name}` : '', a.user_id !== me ? 'shared record' : ''].filter(Boolean).join(' · ')}</span><span className="flex shrink-0 gap-1"><Button size="xs" variant="ghost" onClick={() => setView({ kind: 'award', row: a })}>View</Button>{canMove(a) && <Button size="xs" variant="ghost" onClick={() => startMove('awards', a)}>Move to…</Button>}{canEditRow(a) && <><Button size="xs" variant="ghost" onClick={() => { setCitationOut(null); setAward({ ...a, date: a.date || '', recommending_official: a.recommending_official || '', approving_authority: a.approving_authority || '', citation: a.citation || '', notes: a.notes || '', submitted_at: a.submitted_at || '', approved_at: a.approved_at || '', presented_at: a.presented_at || '' }); }}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'awards', row: a })}>Delete</Button></>}</span></div>
             </article>
           ))}
         </div>
@@ -182,12 +210,19 @@ export default function Career({ section }: { section: CareerSection }) {
         )} />
       <RecordDialog<CounselingDraft> store="counselings" open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling} title={counseling?.id ? 'Edit counseling' : 'Record counseling'} noun="Counseling" size="lg" validate={(d) => (!d.summary.trim() ? 'A summary is required.' : null)} fields={(d, set, errors) => <CounselingFields d={d} set={set} errors={errors} />} />
 
-      <Dialog open={Boolean(view)} onOpenChange={(o) => { if (!o) { setView(null); setOpenId(''); } }} title={view?.kind === 'award' ? view.row.name : `${humanize(view?.row?.type || '')} counseling`} description={view?.row?.date ? formatDate(view.row.date, 'd MMMM yyyy') : undefined}
-        footer={view?.kind === 'counseling' && view.row.user_id === me && view.row.counselor_id && view.row.counselor_id !== me && !view.row.acknowledged_at ? <><span className="mr-auto text-xs text-ink-3">Acknowledging confirms you read it, not that you agree.</span><Button variant="primary" onClick={() => acknowledge(view.row)}><CheckCircle2 className="h-4 w-4" />Acknowledge</Button></> : undefined}>
-        {view?.kind === 'award' && <DescriptionList items={[['Status', <StatusBadge value={view.row.status} />], ['Type', humanize(view.row.type)], ['Recommending official', view.row.recommending_official], ['Approving authority', view.row.approving_authority], ['Submitted', <DateText value={view.row.submitted_at} fallback="" />], ['Approved', <DateText value={view.row.approved_at} fallback="" />], ['Presented', <DateText value={view.row.presented_at} fallback="" />], ['Citation', view.row.citation ? <span className="whitespace-pre-wrap">{view.row.citation}</span> : null], ['Notes', view.row.notes]]} />}
+      <Dialog open={Boolean(view)} onOpenChange={(o) => { if (!o) { setView(null); setOpenId(''); } }} title={view?.kind === 'award' ? view.row.name : view?.kind === 'training' ? view.row.title : `${humanize(view?.row?.type || '')} counseling`} description={view?.row?.date ? formatDate(view.row.date, 'd MMMM yyyy') : undefined}
+        footer={view?.kind === 'counseling' && view.row.user_id === me && view.row.counselor_id && view.row.counselor_id !== me && !view.row.acknowledged_at ? <><span className="mr-auto text-xs text-ink-3">Acknowledging confirms you read it, not that you agree.</span><Button variant="primary" onClick={() => acknowledge(view.row)}><CheckCircle2 className="h-4 w-4" />Acknowledge</Button></>
+          : (view?.kind === 'award' || view?.kind === 'training') && canMove(view.row) ? <Button onClick={() => startMove(view.kind === 'award' ? 'awards' : 'trainings', view.row)}><ArrowRightLeft className="h-4 w-4" />Move to…</Button> : undefined}>
+        {view?.kind === 'award' && <DescriptionList items={[['Status', <StatusBadge value={view.row.status} />], ['Type', humanize(view.row.type)], ['Recorded by', view.row.recorder_name || null], ['Recommending official', view.row.recommending_official], ['Approving authority', view.row.approving_authority], ['Submitted', <DateText value={view.row.submitted_at} fallback="" />], ['Approved', <DateText value={view.row.approved_at} fallback="" />], ['Presented', <DateText value={view.row.presented_at} fallback="" />], ['Citation', view.row.citation ? <span className="whitespace-pre-wrap">{view.row.citation}</span> : null], ['Notes', view.row.notes]]} />}
+        {view?.kind === 'award' && view.row.user_id === me && recordedByOther(view.row) && <p className="mt-3 text-xs text-ink-3">{view.row.recorder_name || 'A leader'} recorded this award for you, so only they can change it. Ask them if something needs correcting.</p>}
+        {view?.kind === 'training' && <DescriptionList items={[['Status', <StatusBadge value={view.row.status} />], ['Type', view.row.type === 'pme' ? 'PME' : humanize(view.row.type)], ['Hours', view.row.hours != null ? formatNumber(view.row.hours) : null], ['Provider', view.row.provider], ['Notes', view.row.notes ? <span className="whitespace-pre-wrap">{view.row.notes}</span> : null]]} />}
+        {/* Files go where an entry moves (ADR-0015), so an award or a course shows the files it holds. */}
+        {(view?.kind === 'award' || view?.kind === 'training') && <div className="mt-4"><Attachments table={view.kind === 'award' ? 'awards' : 'trainings'} id={view.row.id} canEdit={canEditRow(view.row)} /></div>}
+        {(view?.kind === 'award' || view?.kind === 'training') && <RecordLineage store={view.kind === 'award' ? 'awards' : 'trainings'} id={view.row.id} onUndone={goTo} className="mt-4" />}
         {view?.kind === 'counseling' && <div className="space-y-3"><DescriptionList items={[['Counselor', view.row.counselor_name || (view.row.counselor_id === me ? 'You' : null)], ['Subject', view.row.subject_name || null], ['Follow-up', <DateText value={view.row.follow_up_date} fallback="" />], ['Acknowledged', view.row.acknowledged_at ? formatStamp(view.row.acknowledged_at) : null]]} />{[['Summary', view.row.summary], ['Strengths', view.row.strengths], ['Areas to improve', view.row.improvements], ['Goals set', view.row.goals_set]].filter(([, v]) => v).map(([k, v]) => <section key={k}><h4 className="eyebrow mb-1">{k}</h4><p className="whitespace-pre-wrap text-sm leading-relaxed text-ink-2">{v}</p></section>)}<p className="flex items-center gap-1 text-2xs text-ink-3"><Paperclip className="h-3 w-3" />Attachments for counselings are managed by the leader who recorded it.</p></div>}
-        {view && <div className="mt-4"><Comments table={view.kind === 'award' ? 'awards' : 'counselings'} id={view.row.id} canModerate={Boolean(view.row.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, view.row.unit_id)} /></div>}
+        {view && <div className="mt-4"><Comments table={view.kind === 'award' ? 'awards' : view.kind === 'training' ? 'trainings' : 'counselings'} id={view.row.id} canModerate={Boolean(view.row.unit_id) && can(identity, PERMISSIONS.MANAGE_RECORDS, view.row.unit_id)} /></div>}
       </Dialog>
+      <MoveRecordDialog store={moving?.store ?? 'awards'} row={moving?.row ?? null} open={Boolean(moving)} onOpenChange={(o) => { if (!o) setMoving(null); }} onMoved={goTo} onUndone={goTo} />
       <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title="Delete this record?" body="It moves to the recycle bin for 30 days." onConfirm={async () => { const { store, row } = confirm!; const m = store === 'trainings' ? delTraining : store === 'awards' ? delAward : delCounseling; const undo = store === 'trainings' ? undoTraining : store === 'awards' ? undoAward : undoCounseling; try { await m.mutateAsync(row.id); toast.success('Deleted.', { label: 'Undo', onClick: () => undo.mutateAsync(row.id).then(() => toast.success('Restored.')).catch((e) => toast.error(api.errorText(e))) }); } catch (e) { toast.error(api.errorText(e)); } }} />
     </div>
   );
