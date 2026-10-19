@@ -50,6 +50,9 @@ test('the sidebar is the specification’s structure: each group lists its pages
   await expect(records.getByRole('link', { name: 'Awards' })).toHaveAttribute('aria-current', 'page');
   await expect(rail.getByRole('list', { name: 'Training & Development pages' })).toHaveCount(0);
   await expect(page).toHaveTitle('Awards · Records · Vantage');
+  // A trailing slash is the same address: /record/ marks Records → Overview, as /record does.
+  await page.goto('/record/');
+  await expect(records.getByRole('link', { name: 'Overview' })).toHaveAttribute('aria-current', 'page');
 
   // Open another group without leaving the page; the choice is remembered.
   await rail.getByRole('button', { name: 'Show the Training & Development pages' }).click();
@@ -74,6 +77,8 @@ test('the sidebar is the specification’s structure: each group lists its pages
   const admin = rail.getByRole('list', { name: 'Administration pages' });
   await listed(admin).toEqual(['Invitations', 'Roles', 'Units', 'Access log', 'Unit Manager console', 'Vantage Administrator console']);
   await expect(admin.getByRole('link', { name: 'Roles' })).toHaveAttribute('aria-current', 'page');
+  // Roles sits beneath /team, but it is Administration's page, so Personnel is not the page you are on.
+  await expect(rail.getByRole('link', { name: 'Personnel', exact: true })).not.toHaveAttribute('aria-current', 'page');
 });
 
 test('a Marine without a unit is not offered Personnel or Administration, and a collapsed sidebar puts the group’s pages along the top', async ({ page, request }) => {
@@ -91,6 +96,12 @@ test('a Marine without a unit is not offered Personnel or Administration, and a 
   await expect(strip.getByRole('link', { name: 'Training' })).toHaveAttribute('aria-current', 'page');
   await strip.getByRole('link', { name: 'Readiness' }).click();
   await expect(page).toHaveURL(/\/career\/readiness$/);
+  // The collapsed rail marks the group the page is in, wherever its address sits: Awards is under Records.
+  const rail2 = page.getByRole('navigation', { name: 'Primary' });
+  await expect(rail2.getByRole('link', { name: 'Training & Development' })).toHaveAttribute('aria-current', 'page');
+  await page.goto('/career/awards');
+  await expect(rail2.getByRole('link', { name: 'Records' })).toHaveAttribute('aria-current', 'page');
+  await expect(rail2.getByRole('link', { name: 'Training & Development' })).not.toHaveAttribute('aria-current', 'page');
   await page.getByRole('button', { name: 'Expand navigation' }).click();
 });
 

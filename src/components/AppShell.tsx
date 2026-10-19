@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
+import { Link, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { installTelemetry, track } from '@/lib/telemetry';
 import { useQueryClient } from '@tanstack/react-query';
 import {
@@ -379,14 +379,18 @@ export default function AppShell() {
   };
   const hint = (page: NavPage | NavGroup, wide: boolean, mobile: boolean) => (wide && !mobile && page.key
     ? <span className="ml-auto hidden font-mono text-[10px] text-white/35 group-hover:inline" aria-hidden>G {page.key.toUpperCase()}</span> : null);
-  const isCurrent = (page: NavPage) => (page.end || page.to === '/' ? location.pathname === page.to : location.pathname === page.to || location.pathname.startsWith(`${page.to}/`));
+  // The page this address is, by the same lookup as the header and title, so /record/ marks Overview as /record does.
+  // The rail's links are plain Links: a NavLink sets aria-current by its own prefix match, which would mark Personnel
+  // (/team) on Administration → Roles (/team/roles) and leave Records unmarked on Awards (/career/awards).
+  const currentPage = pageFor(location.pathname);
+  const isCurrent = (page: NavPage) => currentPage?.to === page.to;
   const topItem = (page: NavPage, wide: boolean, mobile: boolean) => (
     <Tooltip key={page.to} content={!wide ? page.label : null} side="right">
-      <NavLink to={page.to} end={page.end} className={cn('nav-item group', !wide && 'justify-center px-0')} aria-current={isCurrent(page) ? 'page' : undefined}>
+      <Link to={page.to} className={cn('nav-item group', !wide && 'justify-center px-0')} aria-current={isCurrent(page) ? 'page' : undefined}>
         <page.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} />
         {wide && <span className="truncate">{page.label}</span>}
         {hint(page, wide, mobile)}
-      </NavLink>
+      </Link>
     </Tooltip>
   );
 
@@ -396,9 +400,9 @@ export default function AppShell() {
     if (!wide) {
       return (
         <Tooltip key={g.id} content={g.label} side="right">
-          <NavLink to={g.pages[0].to} className="nav-item justify-center px-0" aria-current={here ? 'page' : undefined} aria-label={g.label}>
+          <Link to={g.pages[0].to} className="nav-item justify-center px-0" aria-current={here ? 'page' : undefined} aria-label={g.label}>
             <g.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} />
-          </NavLink>
+          </Link>
         </Tooltip>
       );
     }
@@ -408,7 +412,7 @@ export default function AppShell() {
       <div key={g.id} className="pt-0.5">
         <div className={cn('nav-item group pr-1', here && 'text-white')}>
           <g.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} />
-          <NavLink to={g.pages[0].to} onClick={() => setGroupOpen(g.id, true)} className="min-w-0 flex-1 leading-snug after:absolute after:inset-0 after:content-['']" aria-current={single && isCurrent(g.pages[0]) ? 'page' : undefined}>{g.label}</NavLink>
+          <Link to={g.pages[0].to} onClick={() => setGroupOpen(g.id, true)} className="min-w-0 flex-1 leading-snug after:absolute after:inset-0 after:content-['']" aria-current={single && isCurrent(g.pages[0]) ? 'page' : undefined}>{g.label}</Link>
           {single && g.pages[0].away && <ArrowUpRight className="h-3 w-3 shrink-0 text-white/40" aria-hidden />}
           {hint(g, wide, mobile)}
           {!single && (
@@ -423,11 +427,11 @@ export default function AppShell() {
             {g.pages.map((p) => (
               <li key={p.to}>
                 {/* A console is an application of its own; the arrow says the link leaves this one. A long label wraps rather than being cut short. */}
-                <NavLink to={p.to} end={p.end} className="nav-item nav-sub group" aria-current={isCurrent(p) ? 'page' : undefined}>
+                <Link to={p.to} className="nav-item nav-sub group" aria-current={isCurrent(p) ? 'page' : undefined}>
                   <span className="min-w-0 leading-snug">{p.label}</span>
                   {p.away && <ArrowUpRight className="h-3 w-3 shrink-0 text-white/40" aria-hidden />}
                   {badge(p.count) || hint(p, wide, mobile)}
-                </NavLink>
+                </Link>
               </li>
             ))}
           </ul>
@@ -457,11 +461,11 @@ export default function AppShell() {
   const sectionStrip = strip.length > 1 ? (
     <nav data-strip aria-label={`${activeGroup!.label} pages`} className={cn('no-print page -mt-3 mb-6 flex gap-1.5 overflow-x-auto pb-1 [scrollbar-width:none]', !collapsed && 'lg:hidden')}>
       {strip.map((p) => (
-        <NavLink key={p.to} to={p.to} end={p.end} aria-current={isCurrent(p) ? 'page' : undefined}
+        <Link key={p.to} to={p.to} aria-current={isCurrent(p) ? 'page' : undefined}
           className={cn('flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium ring-1 transition-colors', isCurrent(p) ? 'bg-ink text-surface ring-ink' : 'bg-surface text-ink-2 ring-line hover:text-ink hover:ring-line-strong')}>
           {p.label}
           {p.count && counts[p.count] ? <span className={cn('rounded-full px-1.5 font-mono text-[10px]', isCurrent(p) ? 'bg-surface/20' : 'bg-surface-2 text-ink-3')}>{counts[p.count]}</span> : null}
-        </NavLink>
+        </Link>
       ))}
     </nav>
   ) : null;
