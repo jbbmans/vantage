@@ -7,6 +7,17 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-10-19',
+    title: 'A menu that says where things are',
+    items: [
+      'The menu is now Today, Work, Records, Personnel, Training & Development, Reports & Analytics and Administration, with Help and Settings at the foot. Awards and Counseling sit under Records; Training, your career plan, Goals, Readiness and MARADMINs under Training & Development.',
+      'Nothing moved address: a saved link or bookmark opens the same page, now under its new heading. The keyboard shortcuts carry over, with C now opening Training & Development, T Personnel and H Help; A is new, for Administration. K, which opened Knowledge, is gone, since Reference (F), MARADMINs (M) and Help (H) each keep their own letter.',
+      'Each page is headed with the name it has in the menu, and the same action has the same name everywhere: Log activity, New …, Import … and Export ….',
+      'Help starts with “Find your way”: what Vantage is, and where to go to record, import, export, see your performance or log a duty.',
+      'On Activities, search and the period stay in view, and the other filters fold behind one Filters button that counts the ones set.',
+    ],
+  },
+  {
     date: '2026-10-08',
     title: 'Scheduled maintenance',
     items: [

@@ -20,6 +20,7 @@ import { teamSections, type TeamSection } from '@/lib/teamAccess';
 import { UnitOverviewPanel } from '@/components/UnitOverview';
 import { markTeamSeen } from '@/components/GettingStarted';
 import type { TeamPerson, TeamResponse, Unit } from '../../shared/types';
+import { groupFor } from '@/config/nav';
 
 const TeamWorkload = lazy(() => import('./TeamWorkload'));
 
@@ -36,8 +37,15 @@ const SECTION_LEDES: Partial<Record<TeamSection, string>> = {
 const SECTION_LABELS: Record<TeamSection, string> = {
   overview: 'Overview', workload: 'Workload', roster: 'Roster', dashboard: 'Unit dashboard', invites: 'Invitations', roles: 'Roles', units: 'Units', audit: 'Access log',
 };
+// Where each section lives. The sections sit in three groups of the menu (ADR-0016), and the heading names the one it is in.
+const SECTION_PATHS: Record<TeamSection, string> = {
+  overview: '/team', workload: '/team/workload', roster: '/team/roster', dashboard: '/team/dashboard', invites: '/team/invitations', roles: '/team/roles', units: '/team/units', audit: '/team/access-log',
+};
 
-/** One page of Team: /team, and /team/<section> for the rest. Which ones a person may open is teamSections'. */
+/**
+ * One of the pages under /team: Personnel's overview at /team, and /team/<section> for the rest, which the menu puts in
+ * Personnel, Reports & Analytics or Administration. Which ones a person may open is teamSections'.
+ */
 export default function Team({ section }: { section: TeamSection }) {
   const { data: identity } = useIdentity();
   const { data: org } = useOrg();
@@ -61,11 +69,15 @@ export default function Team({ section }: { section: TeamSection }) {
   // A section this view does not offer (a team-level view has no roster) shows the overview instead.
   const shown: TeamSection = allowed.has(section) ? section : 'overview';
   const [messaging, setMessaging] = useState(false);
-  if (!views.length) return <div className="page"><PageHeader eyebrow="Team" title="Team" /><div className="card"><EmptyState icon={Users} title="No unit visibility yet" description="Team shows the Marines and shared records of units where you hold a leadership role. Ask your unit leader for a role." /></div></div>;
+  // Somebody with no unit who follows a link here is told so, under the name of the page they asked for.
+  if (!views.length) return <div className="page"><PageHeader eyebrow={groupFor(SECTION_PATHS[section])?.label} title={section === 'overview' ? 'Personnel' : SECTION_LABELS[section]} /><div className="card"><EmptyState icon={Users} title="No unit visibility yet" description="These pages show the Marines, figures and administration of units where you hold a leadership role. Ask your unit leader for a role." /></div></div>;
+  // The overview is headed by the unit it shows; every other section by its own name, with the group and the unit above it.
+  const group = groupFor(SECTION_PATHS[shown])?.label;
+  const where = viewLabel(view) || unitLabel(unit);
 
   return (
     <div className="page">
-      <PageHeader eyebrow={`${view && subtree.length > 1 ? 'Whole command' : 'Team'}${shown === 'overview' ? '' : ` · ${SECTION_LABELS[shown]}`}`} title={viewLabel(view) || 'Team'} lede={SECTION_LEDES[shown] ?? (full ? 'The work and people of this view. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.' : 'Who is in this view, how its teams are doing, and the goals it is working toward. Figures built from fewer than three people are not shown.')}>
+      <PageHeader eyebrow={shown === 'overview' ? `${group}${view && subtree.length > 1 ? ' · whole command' : ''}` : `${group} · ${where}${view && subtree.length > 1 ? ', whole command' : ''}`} title={shown === 'overview' ? where || 'Personnel' : SECTION_LABELS[shown]} lede={SECTION_LEDES[shown] ?? (full ? 'The work and people of this view. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.' : 'Who is in this view, how its teams are doing, and the goals it is working toward. Figures built from fewer than three people are not shown.')}>
         {leads.includes(unit) && <Button onClick={() => setMessaging(true)}><Send className="h-4 w-4" />Email the team</Button>}
         {views.length > 1 && <Select aria-label="View" className="w-64" value={unit} onValueChange={setView} options={views.map((v) => ({ value: v.id, label: `${'\u2003'.repeat(v.depth)}${v.short_name || v.name}${v.teams ? ' (whole command)' : ''}` }))} />}
       </PageHeader>

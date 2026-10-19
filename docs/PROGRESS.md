@@ -1,6 +1,35 @@
 # Progress
 
-_Updated 2026-10-18_
+_Updated 2026-10-19_
+
+## What changed (2026-10-19: information architecture)
+
+**Partial.** Not merged; HawkScan not run (no key); CI disregarded on John's word.
+
+The menu is the specification's top-level structure, every page is named as the menu names it, one action has one
+name, and Help answers where everything is
+([ADR-0016](engineering/ADR/0016-information-architecture.md), [IA](product/INFORMATION_ARCHITECTURE.md)).
+
+- **Menu.** Today, Work, Records, Personnel, Training & Development, Reports & Analytics and Administration, with
+  Help and Settings at the foot. Awards and Counseling are under Records; Training, the career plan, Goals,
+  Readiness and MARADMINs under Training & Development; Reference under Work; the unit dashboard under Reports &
+  Analytics; invitations, roles, units, the access log and both consoles under Administration. Knowledge is gone.
+- **Addresses did not move.** `groupFor` resolves by page, so `/career/awards` is Records → Awards. Old addresses
+  redirect as before. Shortcuts keep their pages; A is new (Administration) and K is retired.
+- **Names.** A page's heading is its menu label and its eyebrow its group (`usePlace`). Sentences that name a place
+  use `placeName` ("Records → Awards") instead of "under Career".
+- **Actions.** Log activity; New activity, New award, New training, New counseling, New goal, New report; Import
+  activities, Import work; Export activities, Export analysis PDF, Export JEPES input PDF, and Export CSV and JSON on
+  the audit trail. ⌘K carries the imports and exports.
+- **Help.** The field guide opens with Find your way: the twelve questions of the UX definition of done, each linked
+  to the pages that answer it for this person. Duty is answered as an activity filed under Operations until Task 17.
+  Help's keyboard line and the shortcuts dialog list only the pages this person can open.
+- **Activities.** Search, period and layout stay; the other filters fold behind Filters with a count, and open
+  when a link sets one.
+- **Rail.** Long labels wrap instead of being cut short; a console link carries an outward arrow.
+- **No server, API, permission or schema change; no migration.**
+- **Left to other Tasks:** Personnel pages (11), import and export (13), reports (14), duty (17), Packages and
+  Analysis overlap (14, 21), drafts (23), performance and responsive pass (25), tutorials (26).
 
 ## What changed (2026-10-18: core record architecture)
 

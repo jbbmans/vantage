@@ -47,7 +47,7 @@ test('a leader invites a Marine by link, sees their shared work on the unit dash
   await expect(page.getByRole('link', { name: /Processed 12 MIPRs/ })).toBeVisible();
   await expect(page.getByText('Private note about a personal errand')).toHaveCount(0);
 
-  await page.getByRole('button', { name: 'Record counseling' }).click();
+  await page.getByRole('button', { name: 'New counseling' }).click();
   const counsel = page.getByRole('dialog', { name: /Counsel Rivera/ });
   await counsel.getByLabel('Summary').fill('Strong first month. Keep logging outcomes with every entry.');
   await counsel.getByRole('button', { name: 'Add counseling' }).click();

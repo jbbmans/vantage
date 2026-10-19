@@ -39,7 +39,7 @@ test('a new Marine gets a first-week list that ticks itself off and can be put a
   const list = page.getByRole('region', { name: 'Your first week' });
   await expect(list).toBeVisible();
   await expect(list).toContainText('1 of 5 done');
-  await expect(page.getByRole('link', { name: 'Team', exact: true })).toHaveCount(0);
+  await expect(page.getByRole('link', { name: 'Personnel', exact: true })).toHaveCount(0);
   await list.getByRole('button', { name: 'Hide the first-week list' }).click();
   await expect(list).toBeHidden();
   await page.reload();

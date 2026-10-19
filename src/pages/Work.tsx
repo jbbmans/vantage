@@ -77,7 +77,7 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
             <Select aria-label="Project filter" className="w-52" value={projectFilter} onValueChange={setProjectFilter} options={[{ value: 'all', label: 'All projects' }, ...(projects || []).map((p) => ({ value: p.id, label: p.name }))]} />
             <label className="flex items-center gap-2 text-sm text-ink-2"><input type="checkbox" checked={showDone} onChange={(e) => setShowDone(e.target.checked)} />Show completed</label>
           </div>
-          {isPending ? <Skeleton className="h-40" /> : visibleTasks.length === 0 ? <div className="card"><EmptyState icon={ListTodo} title="No open tasks" description="Tasks are the things you owe. When one is done, log it as an activity so it counts." action={<Button variant="primary" onClick={() => newTask()}>Add a task</Button>} /></div> : (
+          {isPending ? <Skeleton className="h-40" /> : visibleTasks.length === 0 ? <div className="card"><EmptyState icon={ListTodo} title="No open tasks" description="Tasks are the things you owe. When one is done, log it as an activity so it counts." action={<Button variant="primary" onClick={() => newTask()}>New task</Button>} /></div> : (
             <div className="space-y-4">
               {groups.filter(([, list]) => list.length).map(([label, list, tone]) => (
                 <section key={label} className="card" style={{ overflow: 'hidden' }}>

@@ -71,7 +71,7 @@ function FindingRow({ f }: { f: Finding }) {
   const first = f.sources?.find((s) => s !== 'casework');
   const action = f.action?.kind === 'open' && first ? <Link className="link inline-flex items-center gap-1 text-xs" to={`/records/${first}`}>Open entry<ArrowUpRight className="h-3 w-3" /></Link>
     : f.action?.kind === 'tag' ? <Link className="link inline-flex items-center gap-1 text-xs" to="/record/activities?quality=untagged">Tag them<ArrowUpRight className="h-3 w-3" /></Link>
-    : f.action?.kind === 'log' ? <button type="button" className="link inline-flex items-center gap-1 text-xs" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: f.action?.prompt || '' }))}><Plus className="h-3 w-3" />Log one</button>
+    : f.action?.kind === 'log' ? <button type="button" className="link inline-flex items-center gap-1 text-xs" onClick={() => window.dispatchEvent(new CustomEvent('vantage:open-quick-log', { detail: f.action?.prompt || '' }))}><Plus className="h-3 w-3" />Log activity</button>
     : f.id === 'outcome:more' ? <Link className="link inline-flex items-center gap-1 text-xs" to="/record/activities?quality=needs-detail">Needs detail<ArrowUpRight className="h-3 w-3" /></Link>
     : null;
   return (

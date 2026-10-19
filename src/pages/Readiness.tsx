@@ -13,10 +13,12 @@ import { RIFLE_QUALS, MCMAP_BELTS, DEGREES, PME_STATUS } from '../../shared/cons
 import { areaBalance } from '../../shared/narrative';
 import { areasFor, areaAmong } from '../../shared/evaluation';
 import { humanize, cn } from '@/lib/utils';
+import { usePlace } from '@/lib/place';
 
 const STATE_TONE: Record<string, string> = { top: 'text-good', solid: 'text-ink', attention: 'text-warn', missing: 'text-ink-3', external: 'text-info' };
 
 export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
+  const place = usePlace();
   const toast = useToast();
   const qc = useQueryClient();
   const track = useTrack();
@@ -48,7 +50,7 @@ export default function Readiness({ embedded }: { embedded?: boolean } = {}) {
   return (
     <PageShell
       embedded={embedded}
-      eyebrow="Career"
+      eyebrow={place.group}
       title={track === 'fitrep' ? 'FITREP readiness' : 'JEPES readiness'}
       lede={track === 'fitrep' ? 'Your rank reports on a fitness report. Vantage checks that every attribute your Reporting Senior marks has evidence behind it.' : 'The four JEPES pillars, what you have entered, and where the cheapest points are. Your MOL score is the only official number.'}
       actions={<Button variant="primary" onClick={submit} loading={save.isPending} disabled={!dirty}><Save className="h-4 w-4" />Save</Button>}

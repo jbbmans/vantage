@@ -3,11 +3,11 @@ import { NavLink, Outlet, useLocation, useNavigate } from 'react-router-dom';
 import { installTelemetry, track } from '@/lib/telemetry';
 import { useQueryClient } from '@tanstack/react-query';
 import {
-  AlertTriangle, Bell, Building2, Check, ChevronDown, ChevronsLeft, ChevronsRight, ChevronsUpDown, CloudOff, FlaskConical, KeyRound, Keyboard, LifeBuoy, LogOut, Menu as MenuIcon, Moon,
+  AlertTriangle, ArrowUpRight, Bell, Building2, Check, ChevronDown, ChevronsLeft, ChevronsRight, ChevronsUpDown, CloudOff, FlaskConical, KeyRound, Keyboard, LifeBuoy, LogOut, Menu as MenuIcon, Moon,
   Plus, RefreshCw, Search, Settings2, ShieldCheck, Sparkles, Sun, Users, WifiOff, X,
 } from 'lucide-react';
-import { FOOTER, GROUPS, HOME, groupFor, pageFor, type Count, type NavGroup, type NavPage, type Requirement } from '@/config/nav';
-import { teamSections } from '@/lib/teamAccess';
+import { HOME, groupFor, pageFor, placeName, type Count, type NavGroup, type NavPage } from '@/config/nav';
+import { useNav } from '@/lib/useNav';
 import { cn, initials, timeAgo } from '@/lib/utils';
 import { Tooltip, Kbd } from '@/components/ui/primitives';
 import Logo, { Mark } from '@/components/Logo';
@@ -211,7 +211,7 @@ function surfaceOf(pathname: string, search: string): string {
 function useCounts(group: string | undefined): Record<Count, number> {
   const tasks = useTasks(group === 'work');
   const threads = useThreads({ state: 'awaiting_reply' }, group === 'work');
-  const drafts = useRecordDrafts(group === 'record');
+  const drafts = useRecordDrafts(group === 'records');
   return {
     tasks: (tasks.data || []).filter((t: { status: string }) => t.status !== 'completed').length,
     mail: threads.data?.length ?? 0,
@@ -250,7 +250,8 @@ export default function AppShell() {
   // eslint-disable-next-line react-hooks/exhaustive-deps -- scroll reset on path change only
   useEffect(() => { setDrawer(false); if (!location.hash) window.scrollTo({ top: 0 }); }, [location.pathname]);
   const place = placeOf(location.pathname);
-  useEffect(() => { document.title = `${place.title} · Vantage`; }, [place.title]);
+  // The tab says where the page is, as the header does: "Awards · Records · Vantage", never two pages called "Overview".
+  useEffect(() => { document.title = [place.title, place.group, 'Vantage'].filter(Boolean).join(' · '); }, [place.title, place.group]);
 
   const flush = useCallback(async () => {
     if (!userId) return;
@@ -275,27 +276,8 @@ export default function AppShell() {
   const idleSignOut = useCallback(() => { api.logout().catch(() => {}).finally(() => window.dispatchEvent(new CustomEvent('vantage:signed-out'))); }, []);
   // What this person may open, and so what the sidebar, the palette and the shortcuts offer.
   const { view } = useView(identity);
-  const teams = useMemo(() => teamSections(identity, view), [identity, view]);
-  const allowed = useCallback((when?: Requirement) => {
-    if (!when) return true;
-    if (when.notDemo && identity?.demo) return false;
-    if (when.demo && !identity?.demo) return false;
-    if (when.unit && !identity?.views?.length) return false;
-    if (when.orgRole && !identity?.orgs?.some((o) => o.status === 'active' && o.permissions.includes('org.view'))) return false;
-    if (when.staff && !identity?.platform?.roles.length) return false;
-    if (when.maradmins && !identity?.instance.maradminsEnabled) return false;
-    if (when.team && !teams.has(when.team)) return false;
-    return true;
-  }, [identity, teams]);
-  const groups = useMemo(() => GROUPS.filter((g) => allowed(g.when)).map((g) => ({ ...g, pages: g.pages.filter((p) => allowed(p.when)) })).filter((g) => g.pages.length), [allowed]);
-  const footer = useMemo(() => FOOTER.filter((p) => allowed(p.when)), [allowed]);
+  const { groups, footer, visibleNav, teams } = useNav();
   const activeGroup = groupFor(location.pathname);
-  /** Every page offered, titled with its group where the label alone is ambiguous ("Overview"). */
-  const visibleNav = useMemo(() => [
-    HOME,
-    ...groups.flatMap((g) => g.pages.map((p) => ({ ...p, label: g.pages.length > 1 && !p.key ? `${g.label}: ${p.label}` : p.label }))),
-    ...footer,
-  ], [groups, footer]);
   const goKeys = useMemo(() => [
     ...visibleNav.filter((p) => p.key).map((p) => ({ key: p.key!, to: p.to })),
     ...groups.map((g) => ({ key: g.key, to: g.pages[0].to })),
@@ -345,8 +327,12 @@ export default function AppShell() {
     { id: 'theme', title: theme === 'dark' ? 'Switch to the light theme' : 'Switch to the dark theme', keywords: 'theme dark light mode appearance', run: toggleTheme },
     { id: 'shortcuts', title: 'Keyboard shortcuts', subtitle: 'Press ? anywhere', keywords: 'keys hotkeys help', run: () => setShortcuts(true) },
     { id: 'whats-new', title: 'What’s new in Vantage', subtitle: `v${VERSION}`, keywords: 'changes changelog release notes updates version', run: openWhatsNew },
-    { id: 'import-activities', title: 'Import activities from a CSV', keywords: 'upload spreadsheet csv entries', run: () => navigate('/record/activities?import=1') },
-    { id: 'export-pdf', title: 'Download my record as a PDF', subtitle: 'The last 12 months, ready for a reporting senior', keywords: 'export pdf report jepes fitrep print', run: () => { api.downloadFile(api.reportPdfUrl({ period: 'last12', limit: 12 }), 'vantage-report.pdf').then((name) => toast.success(`Downloaded ${name}.`)).catch((e) => toast.error(api.errorText(e))); } },
+    // Import and export, from anywhere, named as the pages name them (ADR-0016).
+    { id: 'import-activities', title: 'Import activities', subtitle: `From a CSV, in ${placeName('/record/activities')}`, keywords: 'upload spreadsheet csv entries import', run: () => navigate('/record/activities?import=1') },
+    { id: 'import-work', title: 'Import work', subtitle: 'Taskers and cases from a spreadsheet, into the queue', keywords: 'upload spreadsheet xlsx workbook tasker cases import', run: () => navigate('/work/queue?import=1') },
+    { id: 'export-activities', title: 'Export activities', subtitle: 'A CSV of the last 12 months, which imports back without duplicates', keywords: 'download csv spreadsheet entries export', run: () => { api.downloadFile(api.reportCsvUrl({ period: 'last12' }), 'vantage-activities.csv').then((name) => toast.success(`Downloaded ${name}.`)).catch((e) => toast.error(api.errorText(e))); } },
+    { id: 'export-pdf', title: 'Export my record as a PDF', subtitle: 'The last 12 months, ready for a reporting senior', keywords: 'download export pdf report jepes fitrep print', run: () => { api.downloadFile(api.reportPdfUrl({ period: 'last12', limit: 12 }), 'vantage-report.pdf').then((name) => toast.success(`Downloaded ${name}.`)).catch((e) => toast.error(api.errorText(e))); } },
+    { id: 'export-everything', title: 'Export everything Vantage holds about me', subtitle: 'Settings → Your data', keywords: 'download export personal data privacy archive', run: () => navigate('/settings?tab=data') },
   ];
   function toggleRail() { setCollapsed((c) => { const n = !c; try { localStorage.setItem('vantage.rail', n ? 'collapsed' : 'open'); } catch {} return n; }); }
   const user = identity?.user;
@@ -404,56 +390,64 @@ export default function AppShell() {
     </Tooltip>
   );
 
+  const groupItem = (g: NavGroup, wide: boolean, mobile: boolean) => {
+    const here = g.id === activeGroup?.id;
+    // A narrow rail has room for the group alone; its pages are the strip at the top of the page.
+    if (!wide) {
+      return (
+        <Tooltip key={g.id} content={g.label} side="right">
+          <NavLink to={g.pages[0].to} className="nav-item justify-center px-0" aria-current={here ? 'page' : undefined} aria-label={g.label}>
+            <g.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} />
+          </NavLink>
+        </Tooltip>
+      );
+    }
+    const open = isOpen(g);
+    const single = g.pages.length === 1;
+    return (
+      <div key={g.id} className="pt-0.5">
+        <div className={cn('nav-item group pr-1', here && 'text-white')}>
+          <g.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} />
+          <NavLink to={g.pages[0].to} onClick={() => setGroupOpen(g.id, true)} className="min-w-0 flex-1 leading-snug after:absolute after:inset-0 after:content-['']" aria-current={single && isCurrent(g.pages[0]) ? 'page' : undefined}>{g.label}</NavLink>
+          {single && g.pages[0].away && <ArrowUpRight className="h-3 w-3 shrink-0 text-white/40" aria-hidden />}
+          {hint(g, wide, mobile)}
+          {!single && (
+            <button type="button" onClick={() => setGroupOpen(g.id, !open)} aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} the ${g.label} pages`}
+              className="relative z-10 ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white">
+              <ChevronDown className={cn('h-3.5 w-3.5 transition-transform duration-200', !open && '-rotate-90')} />
+            </button>
+          )}
+        </div>
+        {!single && open && (
+          <ul className="relative mb-1 mt-0.5 space-y-px before:absolute before:bottom-1.5 before:left-[20px] before:top-1.5 before:w-px before:bg-white/10" aria-label={`${g.label} pages`}>
+            {g.pages.map((p) => (
+              <li key={p.to}>
+                {/* A console is an application of its own; the arrow says the link leaves this one. A long label wraps rather than being cut short. */}
+                <NavLink to={p.to} end={p.end} className="nav-item nav-sub group" aria-current={isCurrent(p) ? 'page' : undefined}>
+                  <span className="min-w-0 leading-snug">{p.label}</span>
+                  {p.away && <ArrowUpRight className="h-3 w-3 shrink-0 text-white/40" aria-hidden />}
+                  {badge(p.count) || hint(p, wide, mobile)}
+                </NavLink>
+              </li>
+            ))}
+          </ul>
+        )}
+      </div>
+    );
+  };
+
   const navList = (mobile: boolean) => {
     const wide = !collapsed || mobile;
     return (
       <nav className="flex flex-1 flex-col overflow-y-auto px-3 py-2" aria-label="Primary">
         <div className="space-y-0.5">
           {topItem(HOME, wide, mobile)}
-          {groups.map((g) => {
-            const here = g.id === activeGroup?.id;
-            // A narrow rail has room for the group alone; its pages are the strip at the top of the page.
-            if (!wide) {
-              return (
-                <Tooltip key={g.id} content={g.label} side="right">
-                  <NavLink to={g.pages[0].to} className="nav-item justify-center px-0" aria-current={here ? 'page' : undefined} aria-label={g.label}>
-                    <g.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} />
-                  </NavLink>
-                </Tooltip>
-              );
-            }
-            const open = isOpen(g);
-            const single = g.pages.length === 1;
-            return (
-              <div key={g.id} className="pt-0.5">
-                <div className={cn('nav-item group pr-1', here && 'text-white')}>
-                  <g.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} />
-                  <NavLink to={g.pages[0].to} onClick={() => setGroupOpen(g.id, true)} className="min-w-0 flex-1 truncate after:absolute after:inset-0 after:content-['']" aria-current={single && isCurrent(g.pages[0]) ? 'page' : undefined}>{g.label}</NavLink>
-                  {hint(g, wide, mobile)}
-                  {!single && (
-                    <button type="button" onClick={() => setGroupOpen(g.id, !open)} aria-expanded={open} aria-label={`${open ? 'Hide' : 'Show'} the ${g.label} pages`}
-                      className="relative z-10 ml-1 flex h-6 w-6 shrink-0 items-center justify-center rounded-md text-white/45 hover:bg-white/10 hover:text-white">
-                      <ChevronDown className={cn('h-3.5 w-3.5 transition-transform duration-200', !open && '-rotate-90')} />
-                    </button>
-                  )}
-                </div>
-                {!single && open && (
-                  <ul className="relative mb-1 mt-0.5 space-y-px before:absolute before:bottom-1.5 before:left-[20px] before:top-1.5 before:w-px before:bg-white/10" aria-label={`${g.label} pages`}>
-                    {g.pages.map((p) => (
-                      <li key={p.to}>
-                        <NavLink to={p.to} end={p.end} className="nav-item nav-sub group" aria-current={isCurrent(p) ? 'page' : undefined}>
-                          <span className="truncate">{p.label}</span>
-                          {badge(p.count) || hint(p, wide, mobile)}
-                        </NavLink>
-                      </li>
-                    ))}
-                  </ul>
-                )}
-              </div>
-            );
-          })}
+          {groups.filter((g) => !g.foot).map((g) => groupItem(g, wide, mobile))}
         </div>
-        <div className="mt-auto space-y-0.5 pt-5">{footer.map((p) => topItem(p, wide, mobile))}</div>
+        <div className="mt-auto space-y-0.5 pt-5">
+          {groups.filter((g) => g.foot).map((g) => groupItem(g, wide, mobile))}
+          {footer.map((p) => topItem(p, wide, mobile))}
+        </div>
       </nav>
     );
   };
@@ -605,7 +599,7 @@ export default function AppShell() {
         <QuickLog open={quickLog} onOpenChange={setQuickLog} initialText={quickLogSeed} />
         {userId && <OutboxDialog open={queueOpen} onOpenChange={setQueueOpen} userId={userId} onRetry={flush} />}
         <CommandPalette open={palette} onOpenChange={setPalette} onQuickLog={openQuickLog} nav={visibleNav} extra={paletteActions} />
-        <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} />
+        <ShortcutsDialog open={shortcuts} onOpenChange={setShortcuts} nav={visibleNav} groups={groups} views={(identity?.views?.length || 0) > 1} />
         <WhatsNewDialog open={whatsNew} onOpenChange={setWhatsNew} />
         {!demo && <IdleGuard onSignOut={idleSignOut} />}
         <SudoDialog open={Boolean(sudoOpen)} onOpenChange={(o) => { if (!o) { sudoOpen?.cancel(); setSudoOpen(null); } }} onConfirmed={() => { const req = sudoOpen; setSudoOpen(null); req?.confirm(); }} />

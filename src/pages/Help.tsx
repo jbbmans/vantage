@@ -1,6 +1,8 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { Link } from 'react-router-dom';
-import { ExternalLink, Search, X } from 'lucide-react';
+import { Link, useNavigate } from 'react-router-dom';
+import { ExternalLink, LifeBuoy, Search, X } from 'lucide-react';
+import FindYourWay from '@/components/FindYourWay';
+import { useNav } from '@/lib/useNav';
 import { PageHeader, Panel, Kbd, Input, Button, EmptyState } from '@/components/ui/primitives';
 import { EVAL_REFERENCES, EVAL_VERIFIED } from '../../shared/evalRefs';
 import { dollarSumRule } from '../../shared/constants';
@@ -12,14 +14,6 @@ import VideoSlotCard from '@/components/VideoSlot';
 import { useParam } from '@/components/common';
 import { cn } from '@/lib/utils';
 
-const SHORTCUTS: Array<[string, string]> = [
-  ['N', 'Log an activity from anywhere'],
-  ['⌘K or /', 'Search and jump'],
-  ['G then D / R / W / G / C / J / P / T / M / S', 'Go to a page'],
-  ['?', 'The shortcut list'],
-  ['⌘↵', 'Save the open form'],
-  ['Esc', 'Close a dialog'],
-];
 
 function QA({ entry, highlight }: { entry: Answer; highlight?: boolean }) {
   return (
@@ -38,6 +32,7 @@ function QA({ entry, highlight }: { entry: Answer; highlight?: boolean }) {
 export default function Help() {
   const cfg = useMetrics();
   const demo = Boolean(useIdentity().data?.demo);
+  const navigate = useNavigate();
   const [q, setQ] = useParam('q');
   const [query, setQuery] = useState(q);
   const searchRef = useRef<HTMLInputElement>(null);
@@ -55,15 +50,27 @@ export default function Help() {
   }, []);
 
   const unrecorded = VIDEOS.filter((v) => !v.src).length;
+  // The G keys this person has, read from the menu they see, so the line never names a page they cannot open.
+  const { groups, visibleNav } = useNav();
+  const letters = [...new Set([...visibleNav.filter((p) => p.key).map((p) => p.key!), ...groups.map((g) => g.key)])].map((k) => k.toUpperCase());
+  const shortcuts: Array<[string, string]> = [
+    ['N', 'Log activity, from anywhere'],
+    ['⌘K or /', 'Search and jump'],
+    ['G then a letter', `Go to a page. Yours are ${letters.join(', ')}; ? says where each goes`],
+    ['?', 'The shortcut list'],
+    ['⌘↵', 'Save the open form'],
+    ['Esc', 'Close a dialog'],
+  ];
 
   return (
     <div className="page page-narrow">
       <PageHeader
-        eyebrow="Field guide"
-        title="How Vantage works"
-        lede="Every question people ask, answered against how this build actually behaves."
+        eyebrow="Help"
+        title="Field guide"
+        lede="How Vantage works, and where everything is. Every question people ask, answered against how this build actually behaves."
       >
         <Button variant="ghost" onClick={() => searchRef.current?.focus()}><Search className="h-4 w-4" />Search</Button>
+        {!demo && <Button variant="ghost" onClick={() => navigate('/support')}><LifeBuoy className="h-4 w-4" />Ask a person</Button>}
       </PageHeader>
 
       <div className="card mb-4 p-3">
@@ -94,6 +101,8 @@ export default function Help() {
         </Panel>
       ) : (
         <div className="space-y-4">
+          <FindYourWay />
+
           <Panel title="The idea">
             <div className="prose-tight space-y-2 text-sm leading-relaxed text-ink-2">
               <p>Every evaluation you will ever get is written from whatever is in front of the writer at the time. Vantage keeps the evidence: dated, quantified accomplishments with an outcome. When a JEPES or FITREP comes due, <Link to="/reports" className="link">Reports</Link> turns them into a narrative and a bullet package, and a PDF you can hand over.</p>
@@ -120,7 +129,7 @@ export default function Help() {
 
           <Panel title="Keyboard" subtitle="Everything here works from any screen.">
             <dl className="grid gap-2 sm:grid-cols-2">
-              {SHORTCUTS.map(([key, what]) => (
+              {shortcuts.map(([key, what]) => (
                 <div key={key} className="flex items-baseline gap-3">
                   <dt className="shrink-0"><Kbd>{key}</Kbd></dt>
                   <dd className="text-sm text-ink-2">{what}</dd>

@@ -5,6 +5,8 @@ test.beforeEach(async ({ request }) => { await ensureSetup(request); });
 
 test('the Lead Unit Manager opens the Unit Manager console from the app: its own pages, its own shell, and a way back', async ({ page }) => {
   await loginAs(page, OPERATOR.username);
+  // Both consoles sit under Administration, with the unit's invitations, roles, units and access log.
+  await page.getByRole('button', { name: 'Show the Administration pages' }).click();
   await page.getByRole('link', { name: 'Unit Manager console' }).first().click();
   await expect(page).toHaveURL(/\/console\/G8\/?$/);
   await confirmSudoIfAsked(page);

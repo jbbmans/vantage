@@ -23,7 +23,7 @@ test('every overlay opens fully inside a phone screen', async ({ page, request }
   await page.keyboard.press('Escape');
 
   await page.goto('/records');
-  await page.getByRole('button', { name: 'New entry' }).click();
+  await page.getByRole('button', { name: 'New activity' }).click();
   const form = page.getByRole('dialog', { name: 'New activity' });
   await form.waitFor();
   await assertOnScreen(form, 'a form dialog');
@@ -39,9 +39,9 @@ test('every overlay opens fully inside a phone screen', async ({ page, request }
 test('a tab strip too wide for the screen scrolls, and shows the tab you are on', async ({ page, request }) => {
   await ensureSetup(request);
   await loginAs(page, OPERATOR.username);
-  // Team, for a leader who runs the unit, has more pages than fit across any phone.
+  // Administration, for a leader who runs the unit, has more pages than fit across any phone.
   await page.goto('/team/access-log');
-  const active = page.getByRole('navigation', { name: 'Team pages' }).getByRole('link', { name: 'Access log' });
+  const active = page.getByRole('navigation', { name: 'Administration pages' }).getByRole('link', { name: 'Access log' });
   await active.waitFor();
   await assertOnScreen(active, 'the page you are on');
 

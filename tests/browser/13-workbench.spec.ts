@@ -14,7 +14,7 @@ test.beforeEach(async ({ page, request }) => { await ensureSetup(request); await
 
 test('a spreadsheet is imported through the wizard, and the preview is shown before anything is written', async ({ page }) => {
   await page.goto('/work/queue');
-  await page.getByRole('button', { name: 'Import a spreadsheet' }).first().click();
+  await page.getByRole('button', { name: 'Import work' }).first().click();
 
   const dialog = page.getByRole('dialog');
   await expect(dialog.getByText(/original file is kept unchanged/i)).toBeVisible();

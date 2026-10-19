@@ -32,7 +32,7 @@ export default function ReportAnalysis({ q, areaLabel, onDownload }: { q: Q; are
   const money = cfg.currency_label;
   return (
     <div className="space-y-4" data-testid="analysis">
-      <Panel title="Executive summary" subtitle={`${a.period.label} against ${a.prior.label}`} action={<Button size="sm" variant="primary" onClick={onDownload}><FileDown className="h-4 w-4" />Analysis PDF</Button>}>
+      <Panel title="Executive summary" subtitle={`${a.period.label} against ${a.prior.label}`} action={<Button size="sm" variant="primary" onClick={onDownload}><FileDown className="h-4 w-4" />Export analysis PDF</Button>}>
         <ul className="list-disc space-y-1.5 pl-5 text-sm leading-relaxed text-ink">{a.summary.map((s, i) => <li key={i}>{s}</li>)}</ul>
         <div className="mt-4 grid grid-cols-2 gap-3 md:grid-cols-4">
           {a.kpis.map((k) => (
