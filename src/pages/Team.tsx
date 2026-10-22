@@ -74,6 +74,8 @@ export default function Team({ section }: { section: TeamSection }) {
   // The overview is headed by the unit it shows; every other section by its own name, with the group and the unit above it.
   // A section this view does not offer keeps the name it was asked for, as the menu and the address do, and says so.
   const missing = shown !== section;
+  // Picking another view helps only when one includes it: Administration's pages follow a permission, not the view.
+  const elsewhere = missing && views.some((v) => v.id !== unit && teamSections(identity, v).has(section));
   const group = groupFor(SECTION_PATHS[section])?.label;
   const where = viewLabel(view) || unitLabel(unit);
 
@@ -84,7 +86,7 @@ export default function Team({ section }: { section: TeamSection }) {
         {views.length > 1 && <Select aria-label="View" className="w-64" value={unit} onValueChange={setView} options={views.map((v) => ({ value: v.id, label: `${'\u2003'.repeat(v.depth)}${v.short_name || v.name}${v.teams ? ' (whole command)' : ''}` }))} />}
       </PageHeader>
       {isPending ? <Skeleton className="h-64" /> : missing ? (
-        <div className="card"><EmptyState icon={Users} title={`Not part of the ${where} view`} description={views.length > 1 ? `Pick a view above that includes ${SECTION_LABELS[section]}, or open the overview of this one.` : `Your role in ${where} does not include ${SECTION_LABELS[section]}. The overview shows what it does include.`} action={<Button asChild><Link to="/team">Open the overview</Link></Button>} /></div>
+        <div className="card"><EmptyState icon={Users} title={`Not part of the ${where} view`} description={elsewhere ? `Pick a view above that includes ${SECTION_LABELS[section]}, or open the overview of this one.` : views.length > 1 ? `None of your views includes ${SECTION_LABELS[section]}. The overview shows what this one does include.` : `Your role in ${where} does not include ${SECTION_LABELS[section]}. The overview shows what it does include.`} action={<Button asChild><Link to="/team">Open the overview</Link></Button>} /></div>
       ) : (
         <>
           {shown === 'overview' && unit && <UnitOverviewPanel key={unit} unitId={unit} />}

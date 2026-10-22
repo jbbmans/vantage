@@ -109,7 +109,7 @@ export const HELP: HelpSection[] = [
         id: 'delete',
         q: 'I deleted something by mistake.',
         a: [
-          'Deleted records go to a recycle bin rather than disappearing. Open Records and switch the quality filter to Deleted to find and restore it.',
+          'Deleted records go to a recycle bin rather than disappearing. Open Records → Activities, press Filters, and set the quality filter to Recycle bin (30 days) to find and restore it.',
           'The bin is purged on a schedule set by the deployment owner, so recover it sooner rather than later.',
         ],
         also: ['undo', 'recycle bin', 'restore', 'recover'],

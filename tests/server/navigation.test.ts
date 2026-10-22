@@ -80,6 +80,10 @@ test('a page keeps its address when it changes group, and its group is read from
   assert.equal(group('/work/items/abc'), 'Work');
   assert.equal(group('/records/abc'), 'Records');
   assert.equal(group('/team/4b1e'), 'Personnel');
+  // A goal, task or project opened from a notification (/records/<table>/<id>) is with its list, not with Records.
+  assert.equal(group('/records/goals/abc'), 'Training & Development');
+  assert.equal(group('/records/tasks/abc'), 'Work');
+  assert.equal(group('/records/projects/abc'), 'Work');
   // Today and Settings stand alone.
   assert.equal(group('/'), undefined);
   assert.equal(group('/settings'), undefined);

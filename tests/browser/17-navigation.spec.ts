@@ -94,14 +94,17 @@ test('a Marine without a unit is not offered Personnel or Administration, and a 
   const strip = page.getByRole('navigation', { name: 'Training & Development pages' });
   await expect(strip).toBeVisible();
   await expect(strip.getByRole('link', { name: 'Training' })).toHaveAttribute('aria-current', 'page');
+  // The group's icon opens Training, so here it is the page; on the group's other pages it is the group you are in.
+  await expect(rail.getByRole('link', { name: 'Training & Development' })).toHaveAttribute('aria-current', 'page');
   await strip.getByRole('link', { name: 'Readiness' }).click();
   await expect(page).toHaveURL(/\/career\/readiness$/);
   // The collapsed rail marks the group the page is in, wherever its address sits: Awards is under Records.
-  const rail2 = page.getByRole('navigation', { name: 'Primary' });
-  await expect(rail2.getByRole('link', { name: 'Training & Development' })).toHaveAttribute('aria-current', 'page');
+  await expect(rail.getByRole('link', { name: 'Training & Development' })).toHaveAttribute('aria-current', 'true');
+  await expect(strip.getByRole('link', { name: 'Readiness' })).toHaveAttribute('aria-current', 'page');
   await page.goto('/career/awards');
-  await expect(rail2.getByRole('link', { name: 'Records' })).toHaveAttribute('aria-current', 'page');
-  await expect(rail2.getByRole('link', { name: 'Training & Development' })).not.toHaveAttribute('aria-current', 'page');
+  await expect(rail.getByRole('link', { name: 'Records' })).toHaveAttribute('aria-current', 'true');
+  await expect(rail.getByRole('link', { name: 'Training & Development' })).not.toHaveAttribute('aria-current');
+  await expect(page.locator('[aria-current="page"]:visible')).toHaveCount(1);
   await page.getByRole('button', { name: 'Expand navigation' }).click();
 });
 

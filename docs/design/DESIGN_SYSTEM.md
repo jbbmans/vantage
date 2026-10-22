@@ -78,7 +78,9 @@ published (the service worker and `/api/health` both carry the build's hash).
 The rail's groups are the information architecture's (`src/config/nav.ts`, ADR-0016): Today, Work, Records,
 Personnel, Training & Development, Reports & Analytics and Administration, with Help and Settings at the foot. A group
 opens to its pages; a long label wraps to a second line rather than being cut short, and a link to a console carries
-an outward arrow.
+an outward arrow, in the rail and in the strip of a group's pages. One link is marked as the page you are on
+(`aria-current="page"`); a collapsed rail's group icon that opens another page is marked as the group you are in
+(`aria-current="true"`), and both look the same.
 
 Below the large breakpoint a **tab bar** (`src/components/TabBar.tsx`) holds Today, Work, a raised log button,
 Records (Personnel for someone who leads a team) and More (the drawer). It is solid, so nothing scrolls through behind its labels, marks the current destination with the
