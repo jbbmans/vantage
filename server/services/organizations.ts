@@ -269,9 +269,9 @@ export function orgMembers(ctx: AppContext, orgId: string, q = '', limit: number
      WHERE u.id IN (${memberIdsSql}) ${pattern ? "AND (lower(u.last_name) LIKE ? ESCAPE '\\' OR lower(u.first_name) LIKE ? ESCAPE '\\' OR lower(u.username) LIKE ? ESCAPE '\\')" : ''}
      ORDER BY u.active DESC, u.last_name COLLATE NOCASE, u.first_name COLLATE NOCASE LIMIT ?`)
     .all(now(), orgId, orgId, ...(pattern ? [pattern, pattern, pattern] : []), limit ?? -1) as Array<Record<string, unknown> & { id: string; email: string | null }>;
-  const units = ctx.db.prepare(`SELECT um.user_id, un.id AS unit_id, COALESCE(un.short_name, un.name) AS unit, um.billet, um.is_primary,
+  const units = ctx.db.prepare(`SELECT um.user_id, un.id AS unit_id, COALESCE(un.short_name, un.name) AS unit, um.billet, um.billet_id, um.is_primary,
         (SELECT GROUP_CONCAT(r.name, ', ') FROM member_roles mr JOIN roles r ON r.id = mr.role_id WHERE mr.user_id = um.user_id AND mr.unit_id = um.unit_id AND (mr.expires_at IS NULL OR mr.expires_at > ?)) AS roles
-      FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE un.org_id = ? AND un.active = 1`).all(now(), orgId) as Array<{ user_id: string; unit_id: string; unit: string; billet: string | null; is_primary: number; roles: string | null }>;
+      FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE un.org_id = ? AND un.active = 1`).all(now(), orgId) as Array<{ user_id: string; unit_id: string; unit: string; billet: string | null; billet_id: string | null; is_primary: number; roles: string | null }>;
   const byUser = new Map<string, typeof units>();
   for (const u of units) byUser.set(u.user_id, [...(byUser.get(u.user_id) || []), u]);
   return people.map((p) => ({ ...p, units: (byUser.get(p.id) || []).map(({ user_id: _u, ...rest }) => rest) }));

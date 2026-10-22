@@ -1,8 +1,10 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine, Ticket } from 'lucide-react';
-import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch } from '@/components/ui/primitives';
+import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine, Ticket, ListChecks } from 'lucide-react';
+import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch, Segmented } from '@/components/ui/primitives';
+import { AssignmentDialog, ACCOUNT_STATUS, type AssignmentTarget } from '@/components/PersonnelRecord';
+import PersonnelBulkDialog from '@/components/PersonnelBulk';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { AiAction, AiResult } from '@/components/AiPanel';
@@ -13,13 +15,13 @@ import { MetricTotalsGrid } from '@/components/MetricTotals';
 import * as api from '@/lib/api';
 import { PERMISSIONS, PERMISSION_LIST, ROLE_TEMPLATE, listPermissions } from '../../shared/permissions';
 import { ECHELONS, categoryColor } from '../../shared/constants';
-import { formatDollars } from '../../shared/metrics';
-import { copyToClipboard, cn, downloadText, formatRange, formatStamp, fullName, humanize, lastDays } from '@/lib/utils';
+import { formatDate, formatDollars } from '../../shared/metrics';
+import { copyToClipboard, cn, downloadText, formatRange, formatStamp, fullName, humanize, isoDay, lastDays } from '@/lib/utils';
 import { useView, subtreeOf, viewLabel } from '@/lib/view';
 import { teamSections, type TeamSection } from '@/lib/teamAccess';
 import { UnitOverviewPanel } from '@/components/UnitOverview';
 import { markTeamSeen } from '@/components/GettingStarted';
-import type { TeamPerson, TeamResponse, Unit } from '../../shared/types';
+import type { PersonnelRosterRow, TeamPerson, TeamResponse, Unit } from '../../shared/types';
 import { groupFor } from '@/config/nav';
 
 const TeamWorkload = lazy(() => import('./TeamWorkload'));
@@ -27,7 +29,7 @@ const TeamWorkload = lazy(() => import('./TeamWorkload'));
 // One line on what each page is for. The privacy promise sits where records are opened (the overview and the roster).
 const SECTION_LEDES: Partial<Record<TeamSection, string>> = {
   workload: 'Who holds what, what the section is waiting on, and how old the open work is. Counts show what was recorded, not effort.',
-  roster: 'Everyone on the team, with their billet and roles. Opening a Marine’s record is logged, and their private entries, drafts and career plans never appear.',
+  roster: 'Everyone on the team, with their billet, supervisor, dates and roles. Opening a Marine’s record is logged, and their private entries, drafts and career plans never appear.',
   dashboard: 'What the unit produced in the window, from shared entries only. Figures built from fewer than three people are not shown.',
   roles: 'What each role may do in this unit, and who holds it.',
   units: 'The teams in this command and how they nest.',
@@ -91,7 +93,7 @@ export default function Team({ section }: { section: TeamSection }) {
         <>
           {shown === 'overview' && unit && <UnitOverviewPanel key={unit} unitId={unit} />}
           {shown === 'workload' && unit && <Suspense fallback={<Skeleton className="h-64" />}><TeamWorkload unitId={unit} /></Suspense>}
-          {shown === 'roster' && <Roster team={team} unit={unit} subtree={subtree} unitLabel={unitLabel} canManage={manageMembers.includes(unit)} moveTargets={views.filter((v) => manageMembers.includes(v.id)).map((v) => ({ id: v.id, depth: v.depth, label: v.teams ? `${v.short_name || v.name} (command element)` : v.short_name || v.name }))} />}
+          {shown === 'roster' && unit && <Roster key={unit} team={team} unit={unit} unitLabel={unitLabel} canManage={manageMembers.includes(unit)} moveTargets={views.filter((v) => manageMembers.includes(v.id)).map((v) => ({ id: v.id, depth: v.depth, label: v.teams ? `${v.short_name || v.name} (command element)` : v.short_name || v.name }))} />}
           {shown === 'dashboard' && unit && <UnitDashboard unitId={unit} unitLabel={unitLabel(unit)} canExport={can(identity, PERMISSIONS.EXPORT_DATA, unit)} canDetail={can(identity, PERMISSIONS.VIEW_MEMBER_DETAIL, unit)} />}
           {shown === 'invites' && <><Invites unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} /><JoinCodes unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} /></>}
           {shown === 'roles' && <Roles unitId={unit} unitLabel={unitLabel} />}
@@ -104,98 +106,134 @@ export default function Team({ section }: { section: TeamSection }) {
   );
 }
 
-function Roster({ team, unit, subtree, unitLabel, canManage, moveTargets }: { team: TeamResponse | undefined; unit: string; subtree: string[]; unitLabel: (id: string) => string; canManage: boolean; moveTargets: Array<{ id: string; depth: number; label: string }> }) {
+type RosterFilter = 'all' | 'no_supervisor' | 'no_billet' | 'ending';
+const ROSTER_FILTERS: Array<{ value: RosterFilter; label: string; test: (r: PersonnelRosterRow, soon: string) => boolean }> = [
+  { value: 'all', label: 'Everyone', test: () => true },
+  { value: 'no_supervisor', label: 'No supervisor', test: (r) => !r.supervisor },
+  { value: 'no_billet', label: 'No billet', test: (r) => !r.assignment.billet },
+  { value: 'ending', label: 'Ending in 90 days', test: (r, soon) => Boolean(r.assignment.assignment_end && r.assignment.assignment_end <= soon) },
+];
+
+/**
+ * Personnel → Roster (ADR-0017): each Marine in the unit and the teams beneath it once, on their own team, with billet,
+ * supervisor, dates, responsibilities and roles; account status for those the reader manages. Those who manage members
+ * change one Marine from the row, or several at once from a selection, previewed before it applies.
+ */
+function Roster({ team, unit, unitLabel, canManage, moveTargets }: { team: TeamResponse | undefined; unit: string; unitLabel: (id: string) => string; canManage: boolean; moveTargets: Array<{ id: string; depth: number; label: string }> }) {
+  const { data, isPending, error } = useQuery({ queryKey: keys.personnelRoster(unit), queryFn: () => api.personnelRoster(unit), enabled: Boolean(unit) });
   const [q, setQ] = useState('');
+  const [filter, setFilter] = useState<RosterFilter>('all');
+  const [selected, setSelected] = useState<Set<string>>(new Set());
+  const [bulk, setBulk] = useState(false);
   const [enroll, setEnroll] = useState(false);
-  const [moving, setMoving] = useState<{ person: TeamPerson; from: string } | null>(null);
-  const [removing, setRemoving] = useState<{ person: TeamPerson; unit: string } | null>(null);
-  const [billet, setBillet] = useState<{ person: TeamPerson; unit: string; value: string } | null>(null);
-  const { data: identity } = useIdentity();
+  const [editing, setEditing] = useState<AssignmentTarget | null>(null);
+  const [moving, setMoving] = useState<{ person: MovePerson; from: string } | null>(null);
+  const [removing, setRemoving] = useState<{ person: PersonnelRosterRow; unit: string } | null>(null);
   const toast = useToast(); const qc = useQueryClient();
-  const manages = (unitId: string) => moveTargets.some((t) => t.id === unitId);
-  const nameOf = (p: Pick<TeamPerson, 'rank_abbr' | 'last_name'>) => `${p.rank_abbr || ''} ${p.last_name}`.trim();
-  const refresh = () => { qc.invalidateQueries({ queryKey: keys.team }); qc.invalidateQueries({ queryKey: ['unit-overview'] }); };
+  const nameOf = (p: Pick<PersonnelRosterRow, 'rank_abbr' | 'last_name'>) => `${p.rank_abbr || ''} ${p.last_name}`.trim();
+  const refresh = () => { qc.invalidateQueries({ queryKey: ['personnel'] }); qc.invalidateQueries({ queryKey: keys.team }); qc.invalidateQueries({ queryKey: ['unit-overview'] }); };
   const remove = async () => {
     if (!removing) return;
     try {
       const r = await api.removeMember(removing.unit, removing.person.id);
-      const parts = [r.recordsFrozen && `${r.recordsFrozen} shared ${r.recordsFrozen === 1 ? 'record is' : 'records are'} now read-only`, r.claimsReleased && `${r.claimsReleased} held ${r.claimsReleased === 1 ? 'item is' : 'items are'} back in the queue`].filter(Boolean);
+      const parts = [r.recordsFrozen && `${r.recordsFrozen} shared ${r.recordsFrozen === 1 ? 'record is' : 'records are'} now read-only`, r.claimsReleased && `${r.claimsReleased} held ${r.claimsReleased === 1 ? 'item is' : 'items are'} back in the queue`,
+        r.responsibilitiesEnded && `${r.responsibilitiesEnded} ${r.responsibilitiesEnded === 1 ? 'responsibility' : 'responsibilities'} ended`, r.supervisionsEnded && `${r.supervisionsEnded} ${r.supervisionsEnded === 1 ? 'Marine needs' : 'Marines need'} a new supervisor`].filter(Boolean);
       toast.success(`${nameOf(removing.person)} left ${unitLabel(removing.unit)}.${parts.length ? ` ${parts.join('; ')}.` : ''}`);
+      setSelected((s) => { const n = new Set(s); n.delete(removing.person.id); return n; });
       refresh();
     } catch (e) { toast.error(api.errorText(e)); }
     finally { setRemoving(null); }
   };
-  const saveBillet = async () => {
-    if (!billet) return;
-    try {
-      await api.updateMembership(billet.unit, billet.person.id, { billet: billet.value.trim() || null });
-      toast.success(`Billet saved for ${nameOf(billet.person)}.`);
-      refresh(); setBillet(null);
-    } catch (e) { toast.error(api.errorText(e)); }
-  };
-  const rollup = subtree.length > 1;
-  const roster = useMemo(() => (team?.roster || []).filter((p) => (!unit || p.memberships.some((m) => subtree.includes(m.unit_id))) && (!q.trim() || `${p.first_name} ${p.last_name} ${p.mos || ''} ${p.rank_abbr || ''}`.toLowerCase().includes(q.trim().toLowerCase()))), [team, unit, subtree, q]);
-  const teamOf = (p: TeamPerson) => (p.memberships.find((m) => m.unit_id !== unit && subtree.includes(m.unit_id)) || p.memberships.find((m) => m.unit_id === unit) || p.memberships[0]);
-  type Membership = TeamPerson['memberships'][number];
-  const initialsOf = (p: TeamPerson) => (p.first_name[0] || '') + (p.last_name[0] || '');
-  const rolesOf = (p: TeamPerson, m?: Membership) => p.roles.filter((r) => r.unit_id === (m?.unit_id || unit)).map((r) => <RoleBadge key={r.id} color={r.color}>{r.name}</RoleBadge>);
+  const manage = canManage && Boolean(data?.canManage);
+  const rollup = Boolean(data?.rows.some((r) => r.assignment.unit_id !== unit));
+  const soon = useMemo(() => { const d = new Date(); d.setDate(d.getDate() + 90); return isoDay(d); }, []);
+  const term = q.trim().toLowerCase();
+  const matching = useMemo(() => (data?.rows || []).filter((r) => !term || [r.first_name, r.last_name, r.rank_abbr, r.mos, r.assignment.billet, r.team_label, r.supervisor?.last_name, ...r.responsibilities].filter(Boolean).join(' ').toLowerCase().includes(term)), [data, term]);
+  const shown = matching.filter((r) => ROSTER_FILTERS.find((f) => f.value === filter)!.test(r, soon));
+  const selectable = (r: PersonnelRosterRow) => manage && r.canManage && !r.self;
+  const chosen = useMemo(() => (data?.rows || []).filter((r) => selected.has(r.id) && selectable(r)), [data, selected]); // eslint-disable-line react-hooks/exhaustive-deps
+  const shownSelectable = shown.filter(selectable);
+  const allShown = shownSelectable.length > 0 && shownSelectable.every((r) => selected.has(r.id));
+  const toggle = (id: string) => setSelected((s) => { const n = new Set(s); if (n.has(id)) n.delete(id); else n.add(id); return n; });
+  const toggleShown = () => setSelected((s) => { const n = new Set(s); for (const r of shownSelectable) { if (allShown) n.delete(r.id); else n.add(r.id); } return n; });
+  const edit = (r: PersonnelRosterRow) => setEditing({ userId: r.id, name: nameOf(r), assignment: r.assignment, unitLabel: unitLabel(r.assignment.unit_id), supervisor: r.supervisor, checked_in_on: r.checked_in_on, billets: data?.billets || [] });
+  const initialsOf = (p: PersonnelRosterRow) => (p.first_name[0] || '') + (p.last_name[0] || '');
+  const roles = (p: PersonnelRosterRow) => p.roles.map((r) => <RoleBadge key={r.id} color={r.color}>{r.name}</RoleBadge>);
+  const status = (p: PersonnelRosterRow) => (p.status && p.status !== 'active' ? <Badge tone={ACCOUNT_STATUS[p.status].tone}>{ACCOUNT_STATUS[p.status].label}</Badge> : null);
+  const dates = (p: PersonnelRosterRow) => [p.checked_in_on && `In ${formatDate(p.checked_in_on)}`, p.assignment.assignment_end && `Ends ${formatDate(p.assignment.assignment_end)}`].filter(Boolean).join(' · ');
+  const checkbox = (p: PersonnelRosterRow) => (selectable(p) ? <input type="checkbox" className="h-4 w-4 accent-accent" checked={selected.has(p.id)} onChange={() => toggle(p.id)} aria-label={`Select ${nameOf(p)}`} /> : null);
   // The same controls in the table and in the phone list, so the two never offer different things.
-  const actions = (p: TeamPerson, m?: Membership) => (
-    <span className="inline-flex items-center gap-1">{m && p.id !== identity?.user.id && manages(m.unit_id) && <>
-      <Button size="xs" variant="ghost" onClick={() => setBillet({ person: p, unit: m.unit_id, value: m.billet || '' })} aria-label={`Change ${p.last_name}’s billet`}><PenLine className="h-3.5 w-3.5" /></Button>
-      {moveTargets.some((t) => t.id !== m.unit_id && !p.memberships.some((x) => x.unit_id === t.id)) && <Button size="xs" variant="ghost" onClick={() => setMoving({ person: p, from: m.unit_id })} aria-label={`Move ${p.last_name} to another team`}><ArrowRightLeft className="h-3.5 w-3.5" /></Button>}
-      <Button size="xs" variant="ghost" onClick={() => setRemoving({ person: p, unit: m.unit_id })} aria-label={`Remove ${p.last_name} from ${unitLabel(m.unit_id)}`}><UserMinus className="h-3.5 w-3.5" /></Button>
-    </>}{p.canOpen ? <Button size="xs" asChild><Link to={`/team/${p.id}`} aria-label={`Open ${p.rank_abbr || ''} ${p.last_name}`.replace(/\s+/g, ' ')}>Open</Link></Button> : <span className="text-2xs text-ink-3">roster only</span>}</span>
-  );
+  const actions = (p: PersonnelRosterRow) => {
+    const m = p.assignment;
+    const memberships = team?.roster.find((x) => x.id === p.id)?.memberships ?? [{ unit_id: m.unit_id }];
+    return (
+      <span className="inline-flex items-center gap-1">{manage && p.canManage && !p.self && <>
+        <Button size="xs" variant="ghost" onClick={() => edit(p)} aria-label={`Change ${p.last_name}’s billet`} title="Billet, dates, supervisor and check-in"><PenLine className="h-3.5 w-3.5" /></Button>
+        {moveTargets.some((t) => t.id !== m.unit_id && !memberships.some((x) => x.unit_id === t.id)) && <Button size="xs" variant="ghost" onClick={() => setMoving({ person: { id: p.id, rank_abbr: p.rank_abbr, last_name: p.last_name, memberships }, from: m.unit_id })} aria-label={`Move ${p.last_name} to another team`}><ArrowRightLeft className="h-3.5 w-3.5" /></Button>}
+        <Button size="xs" variant="ghost" onClick={() => setRemoving({ person: p, unit: m.unit_id })} aria-label={`Remove ${p.last_name} from ${unitLabel(m.unit_id)}`}><UserMinus className="h-3.5 w-3.5" /></Button>
+      </>}<Button size="xs" asChild><Link to={`/team/${p.id}`} aria-label={`Open ${p.rank_abbr || ''} ${p.last_name}`.replace(/\s+/g, ' ')}>Open</Link></Button></span>
+    );
+  };
+  const counts = (f: (typeof ROSTER_FILTERS)[number]) => matching.filter((r) => f.test(r, soon)).length;
   return (
     <>
       <div className="mb-3 flex flex-wrap items-center gap-2">
-        <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search roster" className="pl-8" placeholder="Name, rank, MOS…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
+        <div className="relative min-w-[200px] flex-1"><Search className="pointer-events-none absolute left-2.5 top-2.5 h-4 w-4 text-ink-3" /><Input aria-label="Search roster" className="pl-8" placeholder="Name, rank, MOS, billet, supervisor…" value={q} onChange={(e) => setQ(e.target.value)} /></div>
         {canManage && <Button variant="primary" onClick={() => setEnroll(true)}><UserPlus className="h-4 w-4" />Enroll an existing account</Button>}
       </div>
-      {roster.length === 0 ? <div className="card"><EmptyState icon={Users} title="No members here yet" description={canManage ? 'Invite Marines from the Invitations tab, or enroll an account that already exists.' : 'Nobody has joined this unit yet.'} /></div> : (
+      {data && data.rows.length > 0 && <Segmented className="mb-3" size="sm" label="Show" value={filter} onChange={setFilter} options={ROSTER_FILTERS.map((f) => ({ value: f.value, label: f.value === 'all' ? f.label : `${f.label} (${counts(f)})` }))} />}
+      {manage && chosen.length > 0 && (
+        <div role="region" aria-label="Selected Marines" className="mb-3 flex flex-wrap items-center gap-2 rounded-md border border-accent/30 bg-accent-soft px-3 py-2 text-sm">
+          <span className="font-medium text-ink">{chosen.length} selected</span>
+          <Button size="sm" variant="primary" onClick={() => setBulk(true)}><ListChecks className="h-4 w-4" />Change {chosen.length === 1 ? 'one' : `all ${chosen.length}`}</Button>
+          <Button size="sm" variant="ghost" onClick={() => setSelected(new Set())}>Clear selection</Button>
+        </div>
+      )}
+      {isPending ? <Skeleton className="h-64" /> : error ? <div className="card"><EmptyState icon={Users} title="The roster could not be loaded" description={api.errorText(error)} /></div>
+        : !shown.length ? <div className="card"><EmptyState icon={Users} title={data?.rows.length ? 'Nobody matches' : 'No members here yet'} description={data?.rows.length ? 'Try another search or show everyone.' : canManage ? 'Invite Marines from the Invitations page, or enroll an account that already exists.' : 'Nobody has joined this unit yet.'} /></div> : (
         <>
-        {/* A phone gets a list: the table's six columns leave a name two words wide and the controls off the screen. */}
-        <ul className="card divide-y divide-line overflow-hidden p-0 sm:hidden">
-          {roster.map((p) => { const m = teamOf(p); return (
+        {/* A phone gets a list: the table's columns leave a name two words wide and the controls off the screen. */}
+        <ul className="card divide-y divide-line overflow-hidden p-0 sm:hidden" aria-label="Roster">
+          {shown.map((p) => (
             <li key={p.id} className="flex items-start gap-3 px-4 py-3">
-              <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 text-xs font-bold text-ink" aria-hidden>{initialsOf(p)}</span>
+              {checkbox(p) ?? <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 text-xs font-bold text-ink" aria-hidden>{initialsOf(p)}</span>}
               <span className="min-w-0 flex-1">
                 <span className="block font-medium text-ink">{p.rank_abbr || ''} {p.last_name}, {p.first_name}</span>
-                <span className="block text-xs text-ink-3">{[m?.billet, p.mos, rollup && m ? unitLabel(m.unit_id) : m ? `${m.unit_short || m.unit_name}${m.is_primary ? '' : ' (secondary)'}` : ''].filter(Boolean).join(' · ')}</span>
-                <span className="mt-1.5 flex flex-wrap gap-1">{rolesOf(p, m)}</span>
+                <span className="block text-xs text-ink-3">{[p.assignment.billet, p.mos, rollup ? p.team_label : p.assignment.is_primary ? null : 'secondary', p.supervisor && `under ${nameOf(p.supervisor)}`, dates(p)].filter(Boolean).join(' · ')}</span>
+                <span className="mt-1.5 flex flex-wrap gap-1">{status(p)}{roles(p)}</span>
               </span>
-              <span className="shrink-0">{actions(p, m)}</span>
+              <span className="shrink-0">{actions(p)}</span>
             </li>
-          ); })}
+          ))}
         </ul>
         <div className="card hidden sm:block" style={{ overflow: 'hidden' }}>
-          <Table head={<><th>Marine</th>{rollup && <th className="w-44">Team</th>}<th className="w-28">MOS</th><th>Billet</th><th>Roles</th><th className="w-24"></th></>}>
-            {roster.map((p) => { const m = teamOf(p); return (
+          <Table head={<>{manage && <th className="w-8">{shownSelectable.length > 0 && <input type="checkbox" className="h-4 w-4 accent-accent" checked={allShown} onChange={toggleShown} aria-label="Select everyone shown" />}</th>}<th>Marine</th>{rollup && <th className="w-40">Team</th>}<th>Billet</th><th className="w-40">Supervisor</th><th className="w-32">Dates</th><th>Roles</th><th className="w-28"></th></>}>
+            {shown.map((p) => (
               <tr key={p.id}>
-                <td><span className="flex items-center gap-2.5"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 text-xs font-bold text-ink">{initialsOf(p)}</span><span className="min-w-0"><span className="block font-medium text-ink">{p.rank_abbr || ''} {p.last_name}, {p.first_name}</span><span className="block text-xs text-ink-3">{m ? `${m.unit_short || m.unit_name}${m.is_primary ? '' : ' (secondary)'}` : ''}</span></span></span></td>
-                {rollup && <td className="text-xs text-ink-2">{m ? unitLabel(m.unit_id) : ''}</td>}
-                <td className="fig text-xs">{p.mos || ''}</td><td className="text-xs text-ink-2">{m?.billet || ''}</td>
-                <td><span className="flex flex-wrap gap-1">{rolesOf(p, m)}</span></td>
-                <td className="text-right">{actions(p, m)}</td>
+                {manage && <td>{checkbox(p)}</td>}
+                <td><span className="flex items-center gap-2.5"><span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-line bg-surface-2 text-xs font-bold text-ink">{initialsOf(p)}</span><span className="min-w-0"><span className="block font-medium text-ink">{p.rank_abbr || ''} {p.last_name}, {p.first_name}</span><span className="block text-xs text-ink-3">{[p.mos, rollup ? null : `${p.team_label}${p.assignment.is_primary ? '' : ' (secondary)'}`].filter(Boolean).join(' · ')}</span></span></span></td>
+                {rollup && <td className="text-xs text-ink-2">{p.team_label}{p.assignment.is_primary ? '' : ' (secondary)'}</td>}
+                <td className="text-xs text-ink-2"><span className="block">{p.assignment.billet || ''}</span>{p.responsibilities.length > 0 && <span className="block text-2xs text-ink-3">{p.responsibilities.join(', ')}</span>}</td>
+                <td className="text-xs text-ink-2">{p.supervisor ? nameOf(p.supervisor) : ''}</td>
+                <td className="text-xs text-ink-3">{dates(p)}</td>
+                <td><span className="flex flex-wrap gap-1">{status(p)}{roles(p)}</span></td>
+                <td className="text-right">{actions(p)}</td>
               </tr>
-            ); })}
+            ))}
           </Table>
         </div>
         </>
       )}
       <EnrollDialog open={enroll} onOpenChange={setEnroll} unitId={unit} unitLabel={unitLabel(unit)} />
       <MoveDialog move={moving} onClose={() => setMoving(null)} targets={moveTargets} unitLabel={unitLabel} />
+      <AssignmentDialog target={editing} onClose={() => setEditing(null)} onSaved={refresh} />
+      <PersonnelBulkDialog open={bulk} onOpenChange={setBulk} unitId={unit} unitLabel={unitLabel(unit)} rows={chosen} billets={data?.billets || []} moveTargets={moveTargets} onDone={() => { setSelected(new Set()); refresh(); }} />
       <ConfirmDialog
         open={Boolean(removing)} onOpenChange={(o) => { if (!o) setRemoving(null); }}
         title={removing ? `Remove ${nameOf(removing.person)} from ${unitLabel(removing.unit)}?` : ''} confirmLabel="Remove"
-        body="Their account, private entries and history stay with them. What they shared with this unit becomes read-only, work they were holding here goes back to the queue, their roles here end, and they are signed out everywhere. To keep them in the command, move them instead."
+        body="Their account, private entries and history stay with them. What they shared with this unit becomes read-only, work they were holding here goes back to the queue, their roles here end, and they are signed out everywhere. If it was their last unit in this command, their supervisor, check-in and responsibilities here end too. To keep them in the command, move them instead."
         onConfirm={remove}
       />
-      <Dialog open={Boolean(billet)} onOpenChange={(o) => { if (!o) setBillet(null); }} title={billet ? `${nameOf(billet.person)}’s billet` : ''} description={billet ? `In ${unitLabel(billet.unit)}. Leave it empty to clear it.` : ''} size="sm"
-        footer={<><Button variant="ghost" onClick={() => setBillet(null)}>Cancel</Button><Button variant="primary" onClick={saveBillet}>Save</Button></>}>
-        <Field label="Billet"><Input autoFocus maxLength={80} value={billet?.value ?? ''} onChange={(e) => setBillet((b) => (b ? { ...b, value: e.target.value } : b))} placeholder="Budget analyst" /></Field>
-      </Dialog>
     </>
   );
 }
@@ -232,7 +270,10 @@ function MessageDialog({ open, onOpenChange, unitId, unitLabel }: { open: boolea
   );
 }
 
-function MoveDialog({ move, onClose, targets, unitLabel }: { move: { person: TeamPerson; from: string } | null; onClose: () => void; targets: Array<{ id: string; depth: number; label: string }>; unitLabel: (id: string) => string }) {
+/** Who is moved: enough to name them and to leave out the teams they are already in. */
+type MovePerson = { id: string; rank_abbr: string | null; last_name: string; memberships: Array<{ unit_id: string }> };
+
+function MoveDialog({ move, onClose, targets, unitLabel }: { move: { person: MovePerson; from: string } | null; onClose: () => void; targets: Array<{ id: string; depth: number; label: string }>; unitLabel: (id: string) => string }) {
   const toast = useToast(); const qc = useQueryClient();
   const [to, setTo] = useState(''); const [carry, setCarry] = useState(false); const [busy, setBusy] = useState(false);
   const options = move ? targets.filter((t) => t.id !== move.from && !move.person.memberships.some((m) => m.unit_id === t.id)).sort((x, y) => y.depth - x.depth) : [];
@@ -243,7 +284,7 @@ function MoveDialog({ move, onClose, targets, unitLabel }: { move: { person: Tea
     setBusy(true);
     try {
       const r = await api.moveMember(move.from, move.person.id, { to, entries: carry ? 'move' : 'stay' });
-      qc.invalidateQueries({ queryKey: keys.team }); qc.invalidateQueries({ queryKey: ['unit-overview'] });
+      qc.invalidateQueries({ queryKey: keys.team }); qc.invalidateQueries({ queryKey: ['unit-overview'] }); qc.invalidateQueries({ queryKey: ['personnel'] });
       toast.success(`${name} moved to ${unitLabel(to)}.${r.rolesSkipped?.length ? ` Not carried over: ${r.rolesSkipped.join(', ')}.` : ''}`);
       onClose();
     } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); }

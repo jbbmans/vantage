@@ -4,7 +4,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross, sameInstance, orgOfUnit } from '../authz/scope.ts';
-import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardUnprovenOwnAccount, chainBits, primaryOrgOf, setPrimaryUnit, type RoleRow } from '../services/org.ts';
+import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardUnprovenOwnAccount, chainBits, primaryOrgOf, type RoleRow } from '../services/org.ts';
 import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
@@ -24,7 +24,9 @@ import { sendTeamMessage, teamAudience } from '../services/teamMail.ts';
 import { zonedDay } from '../lib/clock.ts';
 import type { Request } from 'express';
 import { zoneOf } from '../lib/zone.ts';
-import { membershipHistory, noteMembershipChangesBy } from '../services/membership.ts';
+import { membershipHistory } from '../services/membership.ts';
+import { addResponsibility, assignmentSchema, bulkPersonnel, bulkSchema, changeAssignment, endResponsibility, personnelAccess, personnelRecord, personnelRoster, responsibilitySchema, supervisorCandidates, withPersonnelNote } from '../services/personnelRecords.ts';
+import { sourcedFieldsFor } from '../services/personnel.ts';
 
 export const orgRouter = Router();
 orgRouter.use(requireAuth);
@@ -145,27 +147,64 @@ orgRouter.post('/units/:unitId/members', wrap((req, res) => {
   res.status(201).json({ ok: true, sessionsRevoked: revoked });
 }));
 
+// One membership and the Marine's personnel record in its Unit Instance: billet (from the catalogue or typed), primary
+// unit, assignment dates, supervisor and check-in (ADR-0017). The rules are changeAssignment's.
 orgRouter.put('/units/:unitId/members/:userId', wrap((req, res) => {
   const ctx = req.ctx;
   const unitId = String(req.params.unitId);
   const userId = String(req.params.userId);
+  const body = parse(assignmentSchema, req.body);
+  const changed = changeAssignment(ctx, { actor: req.user, scope: scopeFor(ctx, req.user, req) }, unitId, userId, body);
+  audit(ctx, { actor_id: req.user.id, action: 'edit_membership', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, detail: `${changed.join(', ') || 'no change'}${body.reason ? `; ${body.reason}` : ''}`, ip: clientIp(req) });
+  res.json({ ok: true, changed });
+}));
+
+// ——— Personnel records (ADR-0017) ———
+
+orgRouter.get('/units/:unitId/personnel', wrap((req, res) => {
+  const ctx = req.ctx;
+  const unitId = String(req.params.unitId);
+  const body = personnelRoster(ctx, scopeFor(ctx, req.user, req), req.user.id, unitId);
+  if (body.rows.length > 1) audit(ctx, { actor_id: req.user.id, action: 'view_roster', entity: 'unit', entity_id: unitId, unit_id: unitId, detail: `personnel: ${body.rows.length} personnel`, ip: clientIp(req) });
+  res.json(body);
+}));
+
+orgRouter.get('/units/:unitId/supervisor-candidates', wrap((req, res) => {
+  const scope = scopeFor(req.ctx, req.user, req);
+  res.json({ results: supervisorCandidates(req.ctx, scope, String(req.params.unitId), String(req.query.q || ''), req.query.except ? String(req.query.except) : null) });
+}));
+
+orgRouter.post('/units/:unitId/personnel/bulk', wrap((req, res) => {
+  const ctx = req.ctx;
+  const body = parse(bulkSchema, req.body);
+  const out = bulkPersonnel(ctx, { actor: req.user, scope: scopeFor(ctx, req.user, req) }, String(req.params.unitId), body, clientIp(req));
+  res.status(out.dry_run || out.applied ? 200 : 409).json(out.dry_run || out.applied ? out : { ...out, error: `${out.refused} of ${out.results.length} could not be changed, so nothing was.`, code: 'bulk_refused' });
+}));
+
+orgRouter.post('/units/:unitId/members/:userId/responsibilities', wrap((req, res) => {
+  const ctx = req.ctx;
+  const body = parse(responsibilitySchema, req.body);
+  const id = addResponsibility(ctx, { actor: req.user, scope: scopeFor(ctx, req.user, req) }, String(req.params.unitId), String(req.params.userId), body, clientIp(req));
+  res.status(201).json({ id });
+}));
+
+orgRouter.post('/responsibilities/:id/end', wrap((req, res) => {
+  const ctx = req.ctx;
   const scope = scopeFor(ctx, req.user, req);
-  const body = parse(z.object({ billet: z.string().max(80).nullish(), primary: z.boolean().optional() }), req.body);
-  if (!can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId)) throw forbidden('You cannot manage members in that unit.');
-  if (!ctx.db.prepare('SELECT 1 FROM unit_members WHERE user_id = ? AND unit_id = ?').get(userId, unitId)) throw notFound('That Marine is not a member of this unit.');
-  if (userId !== req.user.id && !isUnitOwner(ctx, req.user.id, unitId) && positionIn(scopeFor(ctx, { id: userId }), unitId) >= positionIn(scope, unitId)) throw forbidden('You cannot change the membership of a Marine at or above your own position.', 'hierarchy');
-  // A primary unit in another Unit Instance is not a leader's here to take (ADR-0008). The refusal does not say where it
-  // is: which other commands a Marine serves in is not this leader's to learn.
-  const heldIn = primaryOrgOf(ctx, userId)?.unitId;
-  if (body.primary && userId !== req.user.id && heldIn && !sameInstance(ctx, heldIn, unitId)) throw forbidden('You cannot make this their primary unit.');
-  ctx.db.transaction(() => {
-    const since = now();
-    if (body.billet !== undefined) ctx.db.prepare('UPDATE unit_members SET billet = ? WHERE user_id = ? AND unit_id = ?').run(body.billet || null, userId, unitId);
-    if (body.primary) setPrimaryUnit(ctx, userId, unitId);
-    noteMembershipChangesBy(ctx, userId, req.user.id, since);
-  })();
-  audit(ctx, { actor_id: req.user.id, action: 'edit_membership', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, ip: clientIp(req) });
+  // Authority first: someone who manages no members anywhere learns nothing about which responsibilities exist.
+  if (!unitsWith(scope, PERMISSIONS.MANAGE_MEMBERS).length) throw forbidden('You cannot manage members.');
+  const { reason } = parse(z.object({ reason: z.string().trim().max(200).nullish() }), req.body || {});
+  endResponsibility(ctx, { actor: req.user, scope }, String(req.params.id), reason || null, clientIp(req));
   res.json({ ok: true });
+}));
+
+orgRouter.get('/team/:userId/personnel', wrap((req, res) => {
+  const ctx = req.ctx;
+  const id = String(req.params.userId);
+  const scope = scopeFor(ctx, req.user, req);
+  const { body, access } = personnelRecord(ctx, scope, req.user.id, id);
+  if (!access.self) audit(ctx, { actor_id: req.user.id, action: 'view_personnel', entity: 'user', entity_id: id, subject_id: id, unit_id: access.seeIn[0], ip: clientIp(req) });
+  res.json(body);
 }));
 
 orgRouter.get('/units/:unitId/message', wrap((req, res) => {
@@ -216,7 +255,7 @@ orgRouter.delete('/units/:unitId/members/:userId', wrap((req, res) => {
   if (lastUnitInInstance(ctx, userId, unitId)) assertMayEndInstanceRoles(ctx, req.user, orgOfUnit(ctx, unitId), userId);
   const removed = removeMember(ctx, userId, unitId, req.user.id);
   const revoked = invalidateUserSessions(ctx, userId);
-  audit(ctx, { actor_id: req.user.id, action: 'remove_member', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, detail: `roles: ${removed.roles}; records frozen: ${removed.recordsFrozen}; work released: ${removed.claimsReleased}; sessions revoked: ${revoked}`, ip: clientIp(req) });
+  audit(ctx, { actor_id: req.user.id, action: 'remove_member', entity: 'unit', entity_id: unitId, subject_id: userId, unit_id: unitId, detail: `roles: ${removed.roles}; records frozen: ${removed.recordsFrozen}; work released: ${removed.claimsReleased}; responsibilities ended: ${removed.responsibilitiesEnded}; supervisions ended: ${removed.supervisionsEnded}; sessions revoked: ${revoked}`, ip: clientIp(req) });
   res.json({ ok: true, ...removed, sessionsRevoked: revoked });
 }));
 
@@ -473,7 +512,9 @@ orgRouter.put('/team/:userId/profile', wrap((req, res) => {
   const scope = scopeFor(ctx, req.user, req);
   const target = ctx.db.prepare('SELECT * FROM users WHERE id = ? AND active = 1').get(id) as Record<string, unknown> | undefined;
   if (!target) throw notFound('No such Marine.');
-  const managed = detailUnitsFor(ctx, scope, id).filter((u) => can(scope, PERMISSIONS.MANAGE_MEMBERS, u));
+  // Those who manage the Marine's membership keep their personnel facts: Manage members, above them (ADR-0017). Reading
+  // their records is not needed, so a Unit Manager corrects a rank without opening anything the Marine wrote.
+  const managed = personnelAccess(ctx, scope, req.user.id, id).manageIn;
   if (!managed.length) throw forbidden('You cannot edit that Marine’s profile.');
   // One person, one profile, kept by one command: the Unit Instance that holds their primary unit (ADR-0009). Leading them
   // in another instance is no claim on the name and rank every instance they serve in reads. The refusal does not say where.
@@ -482,9 +523,16 @@ orgRouter.put('/team/:userId/profile', wrap((req, res) => {
   if (!units.length) throw forbidden('Their profile is kept by the command that holds their primary unit.', 'cross_instance');
   const body = parse(profileSchema.omit({ email: true }), req.body);
   if (body.rank_id && !ctx.db.prepare('SELECT 1 FROM ranks WHERE id = ?').get(body.rank_id)) throw badRequest('No such rank.', { fieldErrors: { rank_id: 'No such rank.' } });
+  // What the personnel feed sets, only the feed changes, for a leader as for the Marine (ADR-0009).
+  const attempted = sourcedFieldsFor(ctx, id).filter((f) => (body as Record<string, unknown>)[f] !== undefined && (body as Record<string, unknown>)[f] !== target[f]);
+  if (attempted.length) {
+    throw badRequest(`${attempted.length === 1 ? 'That field comes' : 'Those fields come'} from the personnel feed and cannot be edited here. Correct it in the personnel system the feed mirrors.`,
+      { code: 'field_is_sourced', fieldErrors: Object.fromEntries(attempted.map((f) => [f, 'Set by the personnel feed.'])) });
+  }
   const entries = Object.entries(body).filter(([, v]) => v !== undefined);
   if (!entries.length) return res.json({ ok: true, changed: [] });
-  ctx.db.prepare(`UPDATE users SET ${entries.map(([k]) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(...entries.map(([, v]) => v), now(), id);
+  withPersonnelNote(ctx, { actorId: req.user.id, source: 'leader' }, () =>
+    ctx.db.prepare(`UPDATE users SET ${entries.map(([k]) => `${k} = ?`).join(', ')}, updated_at = ? WHERE id = ?`).run(...entries.map(([, v]) => v), now(), id));
   audit(ctx, { actor_id: req.user.id, action: 'edit_member_profile', entity: 'user', entity_id: id, subject_id: id, unit_id: units[0] || null, detail: entries.map(([k]) => k).join(', '), ip: clientIp(req) });
   if (entries.some(([k]) => k === 'rank_id')) notify(ctx, id, { kind: 'profile', title: 'Profile updated by your leadership', message: `${req.user.first_name} ${req.user.last_name} updated: ${entries.map(([k]) => k).join(', ')}.`, actionUrl: '/settings' });
   res.json({ ok: true, changed: entries.map(([k]) => k) });

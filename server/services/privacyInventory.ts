@@ -303,7 +303,10 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     purpose: 'Who belongs to which unit, in what billet, and who enrolled them. Access to shared work follows this table and nothing else.',
     authority: 'Organisational assignment.',
     access: 'Members of the unit see the roster; leaders manage it.',
-    columns: { user_id: 'identifier', unit_id: 'employment', is_primary: 'employment', billet: 'employment', joined_at: 'employment', invited_by: 'identifier' },
+    columns: {
+      user_id: 'identifier', unit_id: 'employment', is_primary: 'employment', billet: 'employment', joined_at: 'employment', invited_by: 'identifier',
+      billet_id: 'employment', assignment_start: 'employment', assignment_end: 'employment',
+    },
   },
   unit_membership_periods: {
     purpose: 'Which units a person belonged to, in what billet and from when to when, and why each stretch began and ended. The account stays the same person throughout.',
@@ -313,6 +316,30 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       id: 'technical', user_id: 'identifier', unit_id: 'employment', billet: 'employment', is_primary: 'employment',
       started_at: 'employment', ended_at: 'employment', start_reason: 'employment', end_reason: 'employment',
       started_by: 'identifier', ended_by: 'identifier',
+    },
+  },
+  personnel_records: {
+    purpose: 'Who supervises a Marine in a Unit Instance and the day they checked in (ADR-0017). Information only: a supervisor holds no permission by it.',
+    authority: 'Organisational assignment; kept by those who manage the Marine’s membership, every change audited and in the personnel history.',
+    access: 'The Marine. Anyone who sees them on a unit roster in that Unit Instance; Unit Managers of it. Never another instance.',
+    columns: { org_id: 'technical', user_id: 'identifier', supervisor_id: 'identifier', checked_in_on: 'employment', updated_at: 'technical', updated_by: 'identifier' },
+  },
+  personnel_responsibilities: {
+    purpose: 'Functional responsibilities a Marine holds besides their billet, such as Unit Voting Officer, from when to when and who assigned them (ADR-0017).',
+    authority: 'Organisational assignment; ended rather than deleted, so the record keeps who held what.',
+    access: 'The Marine. Anyone who sees them on a unit roster in that Unit Instance sees those held now; those who manage them, and the Marine, see ended ones too.',
+    columns: {
+      id: 'technical', org_id: 'technical', user_id: 'identifier', unit_id: 'employment', title: 'employment', starts_on: 'employment', ends_on: 'employment',
+      assigned_by: 'identifier', created_at: 'technical', ended_at: 'employment', ended_by: 'identifier', end_reason: 'employment',
+    },
+  },
+  personnel_events: {
+    purpose: 'The history of a Marine’s personnel facts: rank, MOS, EAS and account status, and supervisor, check-in and assignment dates in each Unit Instance, with who changed each, how and why (ADR-0017).',
+    authority: 'Organisational assignment history; written by database triggers so every path that changes a fact leaves it.',
+    access: 'The Marine sees all of theirs. Those who manage them or open their records see their Unit Instance’s part, and changes to the person since the Marine joined it, without naming who made one elsewhere.',
+    columns: {
+      id: 'technical', user_id: 'identifier', org_id: 'technical', unit_id: 'employment', field: 'none', from_value: 'employment', to_value: 'employment',
+      source: 'none', reason: 'employment', actor_id: 'identifier', batch_id: 'technical', at: 'technical',
     },
   },
   roles: {

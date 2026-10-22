@@ -67,6 +67,9 @@ export const keys = {
   record: (store: Store, id: string) => ['record', store, id] as const,
   team: ['team'] as const,
   member: (id: string) => ['member', id] as const,
+  /** A unit's personnel roster, and one Marine's personnel record (ADR-0017). Invalidate ['personnel'] after any change. */
+  personnelRoster: (unitId: string) => ['personnel', 'roster', unitId] as const,
+  personnel: (id: string) => ['personnel', 'record', id] as const,
   roles: ['roles'] as const,
   notifications: ['notifications'] as const,
   readiness: ['readiness'] as const,

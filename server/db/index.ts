@@ -291,6 +291,25 @@ const MIGRATIONS: Migration[] = [
       backfillAwardRecorders(db);
     },
   },
+  {
+    id: 24,
+    name: '024_personnel_records',
+    // Personnel as a structured record (ADR-0017). The supervisor, check-in, responsibility and history tables come from
+    // schema.sql; a membership gains the catalogue billet it fills and its assignment dates. A membership whose billet
+    // reads as exactly one active billet of its Unit Instance is linked to it; any other keeps its title and no link.
+    // Triggers write the history from here, and the boundary keeps a billet, a responsibility and a supervisor inside the
+    // Unit Instance. No row is removed or reshaped.
+    run: (db) => {
+      const members = columnsOf(db, 'unit_members');
+      if (!members.has('billet_id')) db.exec('ALTER TABLE unit_members ADD COLUMN billet_id TEXT REFERENCES unit_billets(id)');
+      if (!members.has('assignment_start')) db.exec('ALTER TABLE unit_members ADD COLUMN assignment_start TEXT');
+      if (!members.has('assignment_end')) db.exec('ALTER TABLE unit_members ADD COLUMN assignment_end TEXT');
+      db.exec('CREATE INDEX IF NOT EXISTS idx_unit_members_billet ON unit_members(billet_id) WHERE billet_id IS NOT NULL');
+      linkBilletsByTitle(db);
+      personnelHistoryTriggers(db);
+      instanceBoundaryTriggers(db);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
@@ -500,8 +519,8 @@ export function instanceBoundaryTriggers(db: Db) {
     WHEN NEW.unit_id IS NOT OLD.unit_id AND EXISTS (SELECT 1 FROM thread_links l WHERE l.work_item_id = NEW.id AND ${across(threadUnit('l.thread_id'), 'NEW.unit_id')})
     ${refuse('this work is linked to correspondence in another Unit Instance')}`);
 
-  // A Unit Instance's configuration names only its own units (ADR-0012).
-  for (const table of unitConfigTables(db)) {
+  // A Unit Instance's configuration, and a responsibility held in it, names only its own units (ADR-0012, ADR-0017).
+  for (const table of orgUnitTables(db)) {
     const crossing = `NEW.unit_id IS NOT NULL AND ${orgOf('NEW.unit_id')} <> NEW.org_id`;
     db.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_unit_same_org_insert BEFORE INSERT ON ${table} FOR EACH ROW
       WHEN ${crossing}
@@ -510,10 +529,39 @@ export function instanceBoundaryTriggers(db: Db) {
       WHEN (NEW.unit_id IS NOT OLD.unit_id OR NEW.org_id IS NOT OLD.org_id) AND ${crossing}
       ${refuse('a unit in another Unit Instance cannot be named here')}`);
   }
+
+  // A membership fills a billet of its own unit's Unit Instance, and a billet stays where its holders are (ADR-0017).
+  if (columnsOf(db, 'unit_members').has('billet_id')) {
+    const crossing = `NEW.billet_id IS NOT NULL AND ${billetOrg('NEW.billet_id')} <> ${orgOf('NEW.unit_id')}`;
+    db.exec(`CREATE TRIGGER IF NOT EXISTS unit_members_billet_same_org_insert BEFORE INSERT ON unit_members FOR EACH ROW
+      WHEN ${crossing}
+      ${refuse('a billet of another Unit Instance cannot be filled here')}`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS unit_members_billet_same_org_update BEFORE UPDATE OF billet_id, unit_id ON unit_members FOR EACH ROW
+      WHEN (NEW.billet_id IS NOT OLD.billet_id OR NEW.unit_id IS NOT OLD.unit_id) AND ${crossing}
+      ${refuse('a billet of another Unit Instance cannot be filled here')}`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS unit_billets_holders_same_org BEFORE UPDATE OF org_id ON unit_billets FOR EACH ROW
+      WHEN NEW.org_id IS NOT OLD.org_id AND EXISTS (SELECT 1 FROM unit_members m WHERE m.billet_id = NEW.id AND ${orgOf('m.unit_id')} <> NEW.org_id)
+      ${refuse('this billet is filled in another Unit Instance')}`);
+  }
+  // A supervisor serves in the Unit Instance they supervise in. Leaving it clears them as anyone's supervisor there first
+  // (server/services/personnelRecords.ts), so only a new pairing is checked.
+  if (columnsOf(db, 'personnel_records').has('supervisor_id')) {
+    const outside = `NEW.supervisor_id IS NOT NULL AND NOT EXISTS (SELECT 1 FROM unit_members sm JOIN units su ON su.id = sm.unit_id WHERE sm.user_id = NEW.supervisor_id AND su.org_id = NEW.org_id)`;
+    db.exec(`CREATE TRIGGER IF NOT EXISTS personnel_records_supervisor_same_org_insert BEFORE INSERT ON personnel_records FOR EACH ROW
+      WHEN ${outside}
+      ${refuse('a supervisor must serve in the same Unit Instance')}`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS personnel_records_supervisor_same_org_update BEFORE UPDATE OF supervisor_id, org_id ON personnel_records FOR EACH ROW
+      WHEN (NEW.supervisor_id IS NOT OLD.supervisor_id OR NEW.org_id IS NOT OLD.org_id) AND ${outside}
+      ${refuse('a supervisor must serve in the same Unit Instance')}`);
+  }
 }
 
-/** The unit configuration tables that name a unit (ADR-0012), where this database has them. */
-const unitConfigTables = (db: Db) => (['unit_billets', 'training_requirements'] as const).filter((t) => columnsOf(db, t).has('unit_id'));
+/**
+ * The tables that belong to a Unit Instance (org_id) and may name one of its units: its configuration (ADR-0012) and the
+ * responsibilities held in it (ADR-0017), where this database has them.
+ */
+const orgUnitTables = (db: Db) => (['unit_billets', 'training_requirements', 'personnel_responsibilities'] as const).filter((t) => columnsOf(db, t).has('unit_id') && columnsOf(db, t).has('org_id'));
+const billetOrg = (id: string) => `(SELECT org_id FROM unit_billets WHERE id = ${id})`;
 
 /**
  * Rows already joined across the boundary, by kind, leaving out the kinds with none. Migration 016 records what it found
@@ -524,7 +572,12 @@ export function instanceBoundaryViolations(db: Db): Record<string, number> {
     ...Object.fromEntries(filedUnderProjects(db).map((t) => [`${t}_project`, `SELECT COUNT(*) AS n FROM ${t} x JOIN projects p ON p.id = x.project_id WHERE ${across('x.unit_id', 'p.unit_id')}`])),
     threads_contact: `SELECT COUNT(*) AS n FROM threads t JOIN contacts c ON c.id = t.contact_id WHERE ${across('t.unit_id', 'c.unit_id')}`,
     thread_links: `SELECT COUNT(*) AS n FROM thread_links l JOIN threads t ON t.id = l.thread_id JOIN work_items w ON w.id = l.work_item_id WHERE ${across('t.unit_id', 'w.unit_id')}`,
-    ...Object.fromEntries(unitConfigTables(db).map((t) => [`${t}_unit`, `SELECT COUNT(*) AS n FROM ${t} x WHERE x.unit_id IS NOT NULL AND ${orgOf('x.unit_id')} <> x.org_id`])),
+    ...Object.fromEntries(orgUnitTables(db).map((t) => [`${t}_unit`, `SELECT COUNT(*) AS n FROM ${t} x WHERE x.unit_id IS NOT NULL AND ${orgOf('x.unit_id')} <> x.org_id`])),
+    ...(columnsOf(db, 'unit_members').has('billet_id') ? { unit_members_billet: `SELECT COUNT(*) AS n FROM unit_members m JOIN unit_billets b ON b.id = m.billet_id WHERE b.org_id <> ${orgOf('m.unit_id')}` } : {}),
+    ...(columnsOf(db, 'personnel_records').has('supervisor_id') ? {
+      personnel_records_supervisor: `SELECT COUNT(*) AS n FROM personnel_records r WHERE r.supervisor_id IS NOT NULL
+        AND NOT EXISTS (SELECT 1 FROM unit_members sm JOIN units su ON su.id = sm.unit_id WHERE sm.user_id = r.supervisor_id AND su.org_id = r.org_id)`,
+    } : {}),
   };
   const found: Record<string, number> = {};
   for (const [kind, sql] of Object.entries(checks)) {
@@ -612,6 +665,69 @@ export function openMissingMembershipPeriods(db: Db): number {
   return db.prepare(`INSERT INTO unit_membership_periods (user_id, unit_id, billet, is_primary, started_at, start_reason, started_by)
     SELECT um.user_id, um.unit_id, um.billet, um.is_primary, um.joined_at, 'recorded', um.invited_by FROM unit_members um
      WHERE NOT EXISTS (SELECT 1 FROM unit_membership_periods p WHERE p.user_id = um.user_id AND p.unit_id = um.unit_id AND p.ended_at IS NULL)`).run().changes;
+}
+
+const PERSONNEL_TRIGGERS = ['personnel_profile_changed', 'personnel_record_opened', 'personnel_record_changed', 'personnel_assignment_dated'] as const;
+
+/**
+ * A Marine's personnel history is written by the database (ADR-0017), as their membership history is (ADR-0009): rank,
+ * MOS, EAS and account status on the account, supervisor and check-in in each Unit Instance, and the dates of each
+ * assignment. Whatever changes one of them (the person, a leader, the personnel feed, Vantage support, a script) leaves a
+ * row; the service names who, how and why afterwards (server/services/personnelRecords.ts). A name is not tracked: it is
+ * the person, not a personnel fact, and the audit trail says who changed it.
+ */
+export function personnelHistoryTriggers(db: Db) {
+  const event = (columns: string, values: string, when: string) =>
+    `INSERT INTO personnel_events (${columns}, at) SELECT ${values}, ${AT_NOW} WHERE ${when};`;
+  const profile = (field: string, column: string) => event('user_id, field, from_value, to_value', `NEW.id, '${field}', OLD.${column}, NEW.${column}`, `OLD.${column} IS NOT NEW.${column}`);
+  const status = (v: string) => `CASE ${v} WHEN 1 THEN 'active' ELSE 'deactivated' END`;
+  db.exec(`CREATE TRIGGER IF NOT EXISTS personnel_profile_changed AFTER UPDATE OF rank_id, mos, eas, active ON users FOR EACH ROW
+    WHEN OLD.rank_id IS NOT NEW.rank_id OR OLD.mos IS NOT NEW.mos OR OLD.eas IS NOT NEW.eas OR OLD.active IS NOT NEW.active
+    BEGIN
+      ${profile('rank', 'rank_id')}
+      ${profile('mos', 'mos')}
+      ${profile('eas', 'eas')}
+      ${event('user_id, field, from_value, to_value', `NEW.id, 'account', ${status('OLD.active')}, ${status('NEW.active')}`, 'OLD.active IS NOT NEW.active')}
+    END`);
+  const record = (field: string, column: string, when: string, from: string) =>
+    event('user_id, org_id, field, from_value, to_value', `NEW.user_id, NEW.org_id, '${field}', ${from}, NEW.${column}`, when);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS personnel_record_opened AFTER INSERT ON personnel_records FOR EACH ROW
+    BEGIN
+      ${record('supervisor', 'supervisor_id', 'NEW.supervisor_id IS NOT NULL', 'NULL')}
+      ${record('checked_in', 'checked_in_on', 'NEW.checked_in_on IS NOT NULL', 'NULL')}
+    END`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS personnel_record_changed AFTER UPDATE OF supervisor_id, checked_in_on ON personnel_records FOR EACH ROW
+    WHEN OLD.supervisor_id IS NOT NEW.supervisor_id OR OLD.checked_in_on IS NOT NEW.checked_in_on
+    BEGIN
+      ${record('supervisor', 'supervisor_id', 'OLD.supervisor_id IS NOT NEW.supervisor_id', 'OLD.supervisor_id')}
+      ${record('checked_in', 'checked_in_on', 'OLD.checked_in_on IS NOT NEW.checked_in_on', 'OLD.checked_in_on')}
+    END`);
+  const dated = (field: string) => event('user_id, org_id, unit_id, field, from_value, to_value',
+    `NEW.user_id, ${orgOf('NEW.unit_id')}, NEW.unit_id, '${field}', OLD.${field}, NEW.${field}`, `OLD.${field} IS NOT NEW.${field}`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS personnel_assignment_dated AFTER UPDATE OF assignment_start, assignment_end ON unit_members FOR EACH ROW
+    WHEN OLD.assignment_start IS NOT NEW.assignment_start OR OLD.assignment_end IS NOT NEW.assignment_end
+    BEGIN
+      ${dated('assignment_start')}
+      ${dated('assignment_end')}
+    END`);
+}
+
+/** Lifted while an instance archive loads, which brings its own personnel history, and put back before it commits. */
+export function dropPersonnelHistoryTriggers(db: Db) {
+  for (const name of PERSONNEL_TRIGGERS) db.exec(`DROP TRIGGER IF EXISTS ${name}`);
+}
+
+/**
+ * Links each membership whose billet reads as exactly one active billet of its Unit Instance (one of its own unit's
+ * first, then one for every unit) to that billet, as the Unit Manager console has matched them by title until now. Any
+ * other keeps its title and no link. Run by migration 024 and by an archive import from before it.
+ */
+export function linkBilletsByTitle(db: Db): number {
+  const match = (select: string, unitClause: string) => `SELECT ${select} FROM unit_billets b JOIN units un ON un.id = unit_members.unit_id
+     WHERE b.active = 1 AND b.org_id = un.org_id AND ${unitClause} AND lower(b.title) = lower(trim(unit_members.billet))`;
+  const link = (unitClause: string) => db.prepare(`UPDATE unit_members SET billet_id = (${match('b.id', unitClause)})
+     WHERE billet_id IS NULL AND billet IS NOT NULL AND (${match('COUNT(*)', unitClause)}) = 1`).run().changes;
+  return link('b.unit_id = unit_members.unit_id') + link('b.unit_id IS NULL');
 }
 
 /**

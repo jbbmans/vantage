@@ -7,6 +7,7 @@ import { requireAuth, requireSudo } from '../auth/middleware.ts';
 import { scopeFor, unitsWith, PERMISSIONS, detailUnitsFor, orgOfUnit } from '../authz/scope.ts';
 import { profileSchema, passwordField, readinessSchema, prefsSchema, emailField } from '../../shared/schemas.ts';
 import { sourcedFieldsFor } from '../services/personnel.ts';
+import { withPersonnelNote } from '../services/personnelRecords.ts';
 import { hashPassword, verifyPassword, encryptSecret, decryptSecret, sha256 } from '../lib/crypto.ts';
 import { secretsOf } from '../lib/keys.ts';
 import { assertNotLocked, recordFailure, clearFailures } from '../auth/lockout.ts';
@@ -107,7 +108,7 @@ meRouter.put('/profile', wrap((req, res) => {
   const sets: string[] = []; const vals: unknown[] = [];
   for (const [k, v] of Object.entries(body)) { if (v === undefined) continue; sets.push(`${k} = ?`); vals.push(v); }
   if (!sets.length) return res.json({ ok: true, changed: [] });
-  ctx.db.prepare(`UPDATE users SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).run(...vals, now(), req.user.id);
+  withPersonnelNote(ctx, { actorId: req.user.id, source: 'self' }, () => ctx.db.prepare(`UPDATE users SET ${sets.join(', ')}, updated_at = ? WHERE id = ?`).run(...vals, now(), req.user.id));
   audit(ctx, { actor_id: req.user.id, action: 'edit_profile', entity: 'user', entity_id: req.user.id, subject_id: req.user.id, detail: Object.keys(body).filter((k) => (body as Record<string, unknown>)[k] !== undefined).join(', '), ip: clientIp(req) });
   res.json({ ok: true, changed: sets.map((s) => s.split(' ')[0]) });
 }));

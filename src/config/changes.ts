@@ -7,6 +7,16 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-10-22',
+    title: 'Personnel records',
+    items: [
+      'A Marine’s page now opens on their personnel record: each assignment with its billet and dates, their team, supervisor and check-in, the leadership chain above them, their responsibilities and roles, and a history of what changed, by whom and why.',
+      'Leaders who manage members set a billet from the unit’s billet list, the assignment’s start and end, a supervisor and a check-in date from Personnel → Roster, one Marine at a time or several at once. A change to several is previewed first and made only if every one of them can be.',
+      'The roster filters to Marines with no supervisor, no billet, or an assignment ending within 90 days, and is a list on a phone.',
+      'Settings links to your own personnel record. Nobody changes their own supervisor, dates or responsibilities; a leader does.',
+    ],
+  },
+  {
     date: '2026-10-19',
     title: 'A menu that says where things are',
     items: [

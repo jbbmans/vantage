@@ -18,14 +18,8 @@ import { trackForGrade, trackMeta, mapAreaToTrack } from '../../shared/evaluatio
 import { estimate } from '../../shared/jepes';
 import { humanize, fullName, cn } from '@/lib/utils';
 import WhyList from '@/components/WhyList';
+import { PersonnelPanel } from '@/components/PersonnelRecord';
 import { endOfDay, tomorrowKey, type UnitExplanation } from '@/lib/tenancy';
-
-/** Plain words for why a membership period began or ended (server/services/membership.ts). */
-const PERIOD_REASONS: Record<'start' | 'end', Record<string, string>> = {
-  start: { enrolled: 'Added by a leader', invitation: 'Accepted an invitation', join_code: 'Joined with a code', roster: 'Seated from the personnel roster', roster_restored: 'Restored by the personnel roster', transfer: 'Moved in', account_import: 'Imported with accounts', unit_created: 'Founded the unit', leader_assigned: 'Named its leader', manager_assigned: 'Named Lead Unit Manager by Vantage', demo: 'Demo', billet_changed: 'Billet changed', primary_changed: 'Primary unit changed', recorded: 'Joined before history was kept' },
-  end: { removed: 'Removed', removed_from_instance: 'Removed from the command', roster_separation: 'Separated on the personnel roster', transfer: 'Moved out', left: 'Left', billet_changed: 'Billet changed', primary_changed: 'Primary unit changed', superseded: 'Replaced' },
-};
-const periodReason = (reason: string | null, edge: 'start' | 'end') => (reason && PERIOD_REASONS[edge][reason]) || (edge === 'start' ? 'Joined' : 'Ended');
 
 export default function MemberDetail() {
   const cfg = useMetrics();
@@ -35,17 +29,21 @@ export default function MemberDetail() {
   const qc = useQueryClient();
   const { data: identity } = useIdentity();
   const { data: org } = useOrg();
-  const { data, isPending, error, refetch } = useQuery({ queryKey: keys.member(id), queryFn: () => api.member(id), retry: false });
+  // The personnel record first (ADR-0017): anyone who sees the Marine on a roster may open it. Their records only for
+  // those who may read them (ADR-0015), so a Unit Manager never asks for what they would be refused.
+  const personnel = useQuery({ queryKey: keys.personnel(id), queryFn: () => api.personnelRecord(id), retry: false });
+  const record = personnel.data;
+  const { data, isPending, error, refetch } = useQuery({ queryKey: keys.member(id), queryFn: () => api.member(id), retry: false, enabled: Boolean(record?.canOpenRecords) });
   const { data: readiness } = useQuery({ queryKey: ['readiness', id], queryFn: () => api.memberReadiness(id), enabled: Boolean(data) });
   const { data: rolesData } = useRoles(Boolean(data?.canManageMembers?.length));
-  const [tab, setTab] = useParam('tab', 'overview');
+  const [tab, setTab] = useParam('tab', 'personnel');
   const [counseling, setCounseling] = useState<any>(null);
   const [award, setAward] = useState<any>(null);
   const [profile, setProfile] = useState<any>(null);
   const [prep, setPrep] = useState<{ output: Record<string, unknown>; meta: { model: string; tokens: number } } | null>(null);
   const myTrack = useTrack();
-  const person = data?.person;
-  useForgetVisit(identity?.user.id, `/team/${id}`, Boolean(error));
+  const person = record?.person;
+  useForgetVisit(identity?.user.id, `/team/${id}`, Boolean(personnel.error));
   useRememberVisit(identity?.user.id, person && id !== identity?.user.id ? { to: `/team/${id}`, title: `${person.rank_abbr ? `${person.rank_abbr} ` : ''}${person.last_name}, ${person.first_name}`, kind: 'marine' } : null);
   const track = person ? trackForGrade(person.rank_grade) : myTrack;
   const metrics = useMemo(() => aggregateMetrics(data?.activities || [], cfg), [data, cfg]);
@@ -57,28 +55,37 @@ export default function MemberDetail() {
   const canCounsel = Boolean(data?.canCounsel?.length) && !isSelf;
   const canManage = Boolean(data?.canManageMembers?.length);
   const [until, setUntil] = useState('');
-  const why = useQuery<{ units: UnitExplanation[] }>({ queryKey: ['why', id], queryFn: () => api.whyCan(id!), enabled: Boolean(id) && tab === 'roles', retry: false });
+  const why = useQuery<{ units: UnitExplanation[] }>({ queryKey: ['why', id], queryFn: () => api.whyCan(id!), enabled: Boolean(id) && Boolean(data) && tab === 'roles', retry: false });
   const unitLabel = (u: string) => { const x = (org?.units || []).find((y) => y.id === u); return x ? x.short_name || x.name : u; };
 
-  if (isPending) return <div className="page space-y-3"><Skeleton className="h-10 w-72" /><Skeleton className="h-64" /></div>;
-  if (error || !data || !person) return <div className="page"><div className="card"><EmptyState title="Cannot open this Marine" description={api.errorText(error)} action={<Button onClick={() => navigate('/team')}>Back to Personnel</Button>} /></div></div>;
+  if (personnel.isPending || (record?.canOpenRecords && isPending)) return <div className="page space-y-3"><Skeleton className="h-10 w-72" /><Skeleton className="h-64" /></div>;
+  if (personnel.error || !record || !person) return <div className="page"><div className="card"><EmptyState title="Cannot open this Marine" description={api.errorText(personnel.error)} action={<Button onClick={() => navigate('/team')}>Back to Personnel</Button>} /></div></div>;
+  // Their records, when this reader may open them; otherwise the Personnel tab alone.
+  const records = record.canOpenRecords && !error ? data ?? null : null;
+  const shownTab = records || tab === 'personnel' ? tab : 'personnel';
+  const canEditProfile = !isSelf && record.instances.some((i) => i.canManage);
+  const sourced = new Set(record.sourced);
+  const reload = () => { personnel.refetch(); if (records) refetch(); qc.invalidateQueries({ queryKey: ['personnel'] }); qc.invalidateQueries({ queryKey: keys.team }); };
 
   const download = async () => { try { const name = await api.downloadFile(api.reportPdfUrl({ user_id: id, unit_id: unitId, period: DEFAULT_PERIOD, limit: 12 }), 'vantage-report.pdf'); toast.success(`Downloaded ${name}.`); } catch (e) { toast.error(api.errorText(e)); } };
   const grant = async (roleId: string, unit: string) => { try { await api.grantRole(id, { role_id: roleId, unit_id: unit, expires_at: endOfDay(until) }); refetch(); why.refetch(); qc.invalidateQueries({ queryKey: keys.team }); toast.success(until ? `Role granted until ${new Date(`${until}T12:00:00`).toLocaleDateString()}. Their sessions were reset.` : 'Role granted. Their sessions were reset.'); } catch (e) { toast.error(api.errorText(e)); } };
   const revoke = async (roleId: string) => { try { await api.revokeRole(id, roleId); refetch(); qc.invalidateQueries({ queryKey: keys.team }); toast.success('Role removed.'); } catch (e) { toast.error(api.errorText(e)); } };
-  const saveProfile = async () => { try { await api.updateMemberProfile(id, { first_name: profile.first_name, last_name: profile.last_name, middle_initial: profile.middle_initial || null, rank_id: profile.rank_id || null, mos: profile.mos || null, eas: profile.eas || null }); refetch(); qc.invalidateQueries({ queryKey: keys.team }); toast.success('Profile updated.'); setProfile(null); } catch (e) { toast.error(api.errorText(e)); } };
-  const pendingAck = data.counselings.filter((c) => !c.acknowledged_at && c.counselor_id && c.counselor_id !== c.user_id).length;
+  // What the personnel feed sets is not sent, so a correction to the rest is never refused for it.
+  const saveProfile = async () => { try { const body = Object.fromEntries(Object.entries({ first_name: profile.first_name, last_name: profile.last_name, middle_initial: profile.middle_initial || null, rank_id: profile.rank_id || null, mos: profile.mos || null, eas: profile.eas || null }).filter(([k]) => !sourced.has(k))); await api.updateMemberProfile(id, body); reload(); toast.success('Profile updated.'); setProfile(null); } catch (e) { toast.error(api.errorText(e)); } };
+  const pendingAck = records ? records.counselings.filter((c) => !c.acknowledged_at && c.counselor_id && c.counselor_id !== c.user_id).length : 0;
+  const assignments = record.instances.flatMap((i) => i.assignments);
 
   return (
     <div className="page">
       <Link to="/team" className="mb-3 inline-flex items-center gap-1 text-xs text-ink-3 hover:text-ink"><ArrowLeft className="h-3.5 w-3.5" />Personnel</Link>
-      <PageHeader eyebrow={data.memberships.map((m) => `${m.unit_short || m.unit_name}${m.billet ? ` · ${m.billet}` : ''}`).join(' · ') || 'No unit'} title={fullName(person)} lede={`${person.rank_name || 'No rank'}${person.mos ? ` · MOS ${person.mos}` : ''}${person.eas ? ` · EAS ${person.eas}` : ''} · ${trackMeta(track).name} track${isSelf ? ' · this is you' : ''}`}>
-        {canManage && !isSelf && <Button onClick={() => setProfile({ first_name: person.first_name, last_name: person.last_name, middle_initial: person.middle_initial || '', rank_id: person.rank_id || '', mos: person.mos || '', eas: person.eas || '' })}><Pencil className="h-4 w-4" />Edit profile</Button>}
+      <PageHeader eyebrow={assignments.map((m) => `${m.unit_short || m.unit_name}${m.billet ? ` · ${m.billet}` : ''}`).join(' · ') || 'No unit'} title={fullName(person)} lede={`${person.rank_name || 'No rank'}${person.mos ? ` · MOS ${person.mos}` : ''}${person.eas ? ` · EAS ${person.eas}` : ''} · ${trackMeta(track).name} track${isSelf ? ' · this is you' : ''}`}>
+        {canEditProfile && <Button onClick={() => setProfile({ first_name: person.first_name, last_name: person.last_name, middle_initial: person.middle_initial || '', rank_id: person.rank_id || '', mos: person.mos || '', eas: person.eas || '' })}><Pencil className="h-4 w-4" />Edit profile</Button>}
         {canCounsel && <Button onClick={() => setAward({ ...emptyAward('unit', unitId), user_id: id })}><AwardIcon className="h-4 w-4" />Recommend award</Button>}
         {canCounsel && <Button variant="primary" onClick={() => setCounseling({ ...emptyCounseling('unit', unitId), user_id: id })}><MessageSquare className="h-4 w-4" />New counseling</Button>}
-        <Button onClick={download}><FileDown className="h-4 w-4" />{trackMeta(track).inputName} PDF</Button>
+        {records && <Button onClick={download}><FileDown className="h-4 w-4" />{trackMeta(track).inputName} PDF</Button>}
       </PageHeader>
-      {!isSelf && <p className="mb-4 flex items-center gap-2 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-2"><ShieldCheck className="h-4 w-4 text-ink-3" />You are seeing only what this Marine shared with {data.detailUnits.map(unitLabel).join(', ')}. This view was logged to the unit access log.</p>}
+      {!isSelf && <p className="mb-4 flex items-center gap-2 rounded-md border border-line bg-surface-2 px-3 py-2 text-xs text-ink-2"><ShieldCheck className="h-4 w-4 text-ink-3" />{records ? `You are seeing only what this Marine shared with ${records.detailUnits.map(unitLabel).join(', ')}. This view was logged to the unit access log.` : 'You are seeing their personnel record: where they serve, in what billet and under whom. Their entries stay with those who may read them. This view was logged.'}</p>}
+      {records && <>
       <div className="mb-4">
         <h2 className="eyebrow mb-2">Shared outcomes, fiscal year to date</h2>
         <MetricTotalsGrid
@@ -91,28 +98,32 @@ export default function MemberDetail() {
         />
       </div>
       <div className="mb-4 grid grid-cols-2 gap-3 lg:grid-cols-2">
-        <Stat label="Open tasks" value={data.tasks.length} hint={`${data.goals.filter((g) => g.status === 'active').length} active goals`} />
-        <Stat label="Counselings" value={data.counselings.length} hint={pendingAck ? `${pendingAck} not yet acknowledged` : 'all acknowledged'} tone={pendingAck ? 'warn' : undefined} />
+        <Stat label="Open tasks" value={records.tasks.length} hint={`${records.goals.filter((g) => g.status === 'active').length} active goals`} />
+        <Stat label="Counselings" value={records.counselings.length} hint={pendingAck ? `${pendingAck} not yet acknowledged` : 'all acknowledged'} tone={pendingAck ? 'warn' : undefined} />
       </div>
-      <Tabs value={tab} onChange={setTab} className="mb-4" tabs={[{ value: 'overview', label: 'Overview' }, { value: 'activities', label: 'Activities', count: data.activities.length }, { value: 'counseling', label: 'Counseling', count: data.counselings.length }, { value: 'career', label: 'Awards and training', count: data.awards.length + data.trainings.length }, { value: 'roles', label: 'Roles' }]} />
+      </>}
+      <Tabs value={shownTab} onChange={setTab} className="mb-4" tabs={[{ value: 'personnel', label: 'Personnel' }, ...(records ? [{ value: 'overview', label: 'Overview' }, { value: 'activities', label: 'Activities', count: records.activities.length }, { value: 'counseling', label: 'Counseling', count: records.counselings.length }, { value: 'career', label: 'Awards and training', count: records.awards.length + records.trainings.length }, { value: 'roles', label: 'Roles' }] : [])]} />
 
+      {shownTab === 'personnel' && <PersonnelPanel record={record} onTab={records ? setTab : undefined} onChanged={reload} />}
+
+      {records && <>
       {tab === 'overview' && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
           <Panel title={`${trackMeta(track).areaLabel} balance`} className="lg:col-span-1"><ul className="space-y-1.5">{Object.entries(metrics.byArea).map(([area, b]) => <li key={area} className="flex items-center justify-between text-sm"><span className="text-ink">{mapAreaToTrack(area, track)}</span><span className="fig text-xs text-ink-3">{b.count}</span></li>)}{!Object.keys(metrics.byArea).length && <li className="text-sm text-ink-3">No shared entries.</li>}</ul></Panel>
-          <Panel title="Readiness" subtitle="As entered by the Marine">{!readiness || !Object.keys(readiness).length ? <p className="text-sm text-ink-3">Nothing entered.</p> : <dl className="grid grid-cols-2 gap-2 text-sm">{[['PFT', readiness.pft_score], ['CFT', readiness.cft_score], ['Rifle', readiness.rifle_qual], ['MCMAP', readiness.mcmap_belt], ['PME', readiness.pme_complete ? humanize(readiness.pme_complete) : null], ['CEUs', readiness.ceus]].map(([k, v]) => <div key={String(k)} className="rounded-md border border-line px-3 py-2"><dt className="eyebrow">{k}</dt><dd className={cn('fig mt-0.5 font-semibold', v == null || v === '' ? 'text-ink-3' : 'text-ink')}>{v == null || v === '' ? '—' : String(v)}</dd></div>)}</dl>}{est && track === 'jepes' && <p className="mt-2 text-2xs text-ink-3">{Math.round(est.completeness * 100)}% of JEPES pillars have data.</p>}</Panel>
-          <Panel title="Open work and goals">{data.tasks.length === 0 && data.goals.length === 0 ? <p className="text-sm text-ink-3">Nothing shared.</p> : <ul className="space-y-1.5 text-sm">{data.tasks.slice(0, 5).map((t) => <li key={t.id} className="flex justify-between gap-2"><span className="truncate text-ink">{t.title}</span><span className="text-xs text-ink-3"><DateText value={t.due_date} fallback="" /></span></li>)}{data.goals.filter((g) => g.status === 'active').slice(0, 4).map((g) => <li key={g.id} className="flex justify-between gap-2"><span className="truncate text-ink-2">Goal: {g.title}</span><span className="fig text-xs text-ink-3">{g.target_value ? `${Math.round((Number(g.current_value) / Number(g.target_value)) * 100)}%` : ''}</span></li>)}</ul>}</Panel>
+          <Panel title="Readiness" subtitle="As entered by the Marine">{!readiness || !Object.keys(readiness).length ? <p className="text-sm text-ink-3">Nothing entered.</p> : <dl className="grid grid-cols-2 gap-2 text-sm">{[['PFT', readiness.pft_score], ['CFT', readiness.cft_score], ['Rifle', readiness.rifle_qual], ['MCMAP', readiness.mcmap_belt], ['PME', readiness.pme_complete ? humanize(readiness.pme_complete) : null], ['CEUs', readiness.ceus]].map(([k, v]) => <div key={String(k)} className="rounded-md border border-line px-3 py-2"><dt className="eyebrow">{k}</dt><dd className={cn('fig mt-0.5 font-semibold', v == null || v === '' ? 'text-ink-3' : 'text-ink')}>{v == null || v === '' ? '—' : String(v)}</dd></div>)}</dl>}{est && track === 'jepes' && <p className="mt-2 text-2xs text-ink-3">{Math.round(est.completeness * 100)}% of JEPES pillars have records.</p>}</Panel>
+          <Panel title="Open work and goals">{records.tasks.length === 0 && records.goals.length === 0 ? <p className="text-sm text-ink-3">Nothing shared.</p> : <ul className="space-y-1.5 text-sm">{records.tasks.slice(0, 5).map((t) => <li key={t.id} className="flex justify-between gap-2"><span className="truncate text-ink">{t.title}</span><span className="text-xs text-ink-3"><DateText value={t.due_date} fallback="" /></span></li>)}{records.goals.filter((g) => g.status === 'active').slice(0, 4).map((g) => <li key={g.id} className="flex justify-between gap-2"><span className="truncate text-ink-2">Goal: {g.title}</span><span className="fig text-xs text-ink-3">{g.target_value ? `${Math.round((Number(g.current_value) / Number(g.target_value)) * 100)}%` : ''}</span></li>)}</ul>}</Panel>
           {canCounsel && identity?.instance.aiEnabled && <Panel className="lg:col-span-3" title="Counseling preparation" subtitle="AI drafts talking points from shared records; verify before the sit-down" action={<AiAction workflow="counseling_prep" input={{ user_id: id, unit_id: unitId, days: 90 }} label="Prepare" onResult={(output, meta) => setPrep({ output, meta })} />}>{prep ? <AiResult output={prep.output} meta={prep.meta} /> : <p className="flex items-center gap-2 text-sm text-ink-3"><Sparkles className="h-4 w-4" />Uses the last 90 days of shared entries, goals, and prior counselings.</p>}</Panel>}
         </div>
       )}
 
-      {tab === 'activities' && (data.activities.length === 0 ? <div className="card"><EmptyState icon={Activity} title="No shared activities" /></div> : (
+      {tab === 'activities' && (records.activities.length === 0 ? <div className="card"><EmptyState icon={Activity} title="No shared activities" /></div> : (
         <div className="card" style={{ overflow: 'hidden' }}><Table head={<><th className="w-24">Date</th><th>Entry</th><th className="w-40">{trackMeta(track).areaLabel}</th><th className="w-24 text-right">Qty</th><th className="w-28 text-right">Value</th></>}>
-          {data.activities.map((a) => <tr key={a.id}><td className="text-xs"><DateText value={a.date} /></td><td><Link to={`/records/${a.id}`} className="flex items-start gap-2"><CategoryDot category={a.category} /><span><span className="block font-medium text-ink hover:underline">{a.title}</span>{a.result && <span className="block truncate text-xs text-ink-3">{a.result}</span>}</span></Link></td><td className="text-xs">{mapAreaToTrack(a.eval_area, track)}</td><td className="fig text-right text-xs">{a.quantity != null ? `${formatNumber(a.quantity)} ${a.unit_label || ''}` : ''}</td><td className="fig text-right text-xs">{a.dollar_amount != null ? formatDollars(a.dollar_amount) : ''}</td></tr>)}
+          {records.activities.map((a) => <tr key={a.id}><td className="text-xs"><DateText value={a.date} /></td><td><Link to={`/records/${a.id}`} className="flex items-start gap-2"><CategoryDot category={a.category} /><span><span className="block font-medium text-ink hover:underline">{a.title}</span>{a.result && <span className="block truncate text-xs text-ink-3">{a.result}</span>}</span></Link></td><td className="text-xs">{mapAreaToTrack(a.eval_area, track)}</td><td className="fig text-right text-xs">{a.quantity != null ? `${formatNumber(a.quantity)} ${a.unit_label || ''}` : ''}</td><td className="fig text-right text-xs">{a.dollar_amount != null ? formatDollars(a.dollar_amount) : ''}</td></tr>)}
         </Table></div>
       ))}
 
-      {tab === 'counseling' && (data.counselings.length === 0 ? <div className="card"><EmptyState icon={MessageSquare} title="No counselings on record" action={canCounsel ? <Button variant="primary" onClick={() => setCounseling({ ...emptyCounseling('unit', unitId), user_id: id })}>New counseling</Button> : undefined} /></div> : (
-        <div className="space-y-3">{data.counselings.map((c) => (
+      {tab === 'counseling' && (records.counselings.length === 0 ? <div className="card"><EmptyState icon={MessageSquare} title="No counselings on record" action={canCounsel ? <Button variant="primary" onClick={() => setCounseling({ ...emptyCounseling('unit', unitId), user_id: id })}>New counseling</Button> : undefined} /></div> : (
+        <div className="space-y-3">{records.counselings.map((c) => (
           <article key={c.id} className="card p-4">
             <div className="flex flex-wrap items-center gap-2 text-xs text-ink-3"><DateText value={c.date} /><Badge>{humanize(c.type)}</Badge>{c.counselor_name && <span>by {c.counselor_name}</span>}{c.acknowledged_at ? <Badge tone="good">Acknowledged</Badge> : c.counselor_id && c.counselor_id !== c.user_id ? <Badge tone="warn">Awaiting acknowledgement</Badge> : <Badge>Self-recorded</Badge>}{c.follow_up_date && <span>follow-up <DateText value={c.follow_up_date} /></span>}</div>
             <p className="mt-2 whitespace-pre-wrap text-sm text-ink">{c.summary}</p>
@@ -124,26 +135,19 @@ export default function MemberDetail() {
 
       {tab === 'career' && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Panel title="Awards" padded={false}>{!data.awards.length ? <EmptyState title="No shared awards" /> : <ul>{data.awards.map((a) => <li key={a.id} className="row flex items-center justify-between gap-2 px-4 py-2.5 text-sm"><span><span className="block text-ink">{a.name}</span><span className="block text-xs text-ink-3"><DateText value={a.date} /> · {humanize(a.type)}</span></span><StatusBadge value={a.status} /></li>)}</ul>}</Panel>
-          <Panel title="Training" padded={false}>{!data.trainings.length ? <EmptyState title="No shared training" /> : <ul>{data.trainings.map((t) => <li key={t.id} className="row flex items-center justify-between gap-2 px-4 py-2.5 text-sm"><span><span className="block text-ink">{t.title}</span><span className="block text-xs text-ink-3"><DateText value={t.date} /> · {t.type === 'pme' ? 'PME' : humanize(t.type)}{t.provider ? ` · ${t.provider}` : ''}</span></span><span className="fig text-xs text-ink-3">{t.hours ? `${t.hours} h` : ''}</span></li>)}</ul>}</Panel>
+          <Panel title="Awards" padded={false}>{!records.awards.length ? <EmptyState title="No shared awards" /> : <ul>{records.awards.map((a) => <li key={a.id} className="row flex items-center justify-between gap-2 px-4 py-2.5 text-sm"><span><span className="block text-ink">{a.name}</span><span className="block text-xs text-ink-3"><DateText value={a.date} /> · {humanize(a.type)}</span></span><StatusBadge value={a.status} /></li>)}</ul>}</Panel>
+          <Panel title="Training" padded={false}>{!records.trainings.length ? <EmptyState title="No shared training" /> : <ul>{records.trainings.map((t) => <li key={t.id} className="row flex items-center justify-between gap-2 px-4 py-2.5 text-sm"><span><span className="block text-ink">{t.title}</span><span className="block text-xs text-ink-3"><DateText value={t.date} /> · {t.type === 'pme' ? 'PME' : humanize(t.type)}{t.provider ? ` · ${t.provider}` : ''}</span></span><span className="fig text-xs text-ink-3">{t.hours ? `${t.hours} h` : ''}</span></li>)}</ul>}</Panel>
         </div>
       )}
 
       {tab === 'roles' && (
         <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-          <Panel title="Held roles">{!data.roles.length ? <p className="text-sm text-ink-3">Only the default Marine role.</p> : <ul className="space-y-2">{data.roles.map((r) => <li key={`${r.unit_id}-${r.id}`} className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2"><span className="badge-dot" style={{ backgroundColor: r.color || '#6b7a8f' }} /><span className="text-ink">{r.name}</span><span className="text-xs text-ink-3">{unitLabel(r.unit_id)}</span>{r.expires_at ? <Badge tone="warn">until {new Date(r.expires_at).toLocaleDateString()}</Badge> : null}</span>{canManage && !isSelf && r.key !== 'unit-leader' && !(rolesData?.roles || []).find((x) => x.id === r.id)?.is_default && <Button size="xs" variant="ghost" onClick={() => revoke(r.id)}>Remove</Button>}</li>)}</ul>}</Panel>
-          {canManage && !isSelf && <Panel title="Grant a role" subtitle="Only roles below your own position; granting resets their sessions"><Field label="Until" hint="optional: an acting billet or a leave period ends on its own" className="mb-3"><Input type="date" value={until} min={tomorrowKey()} onChange={(e) => setUntil(e.target.value)} /></Field><ul className="space-y-1.5">{(rolesData?.roles || []).filter((r) => data.detailUnits.includes(r.unit_id) && r.editable && !r.is_default && r.key !== 'unit-leader' && !data.roles.some((h) => h.id === r.id)).map((r) => <li key={r.id} className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2"><span className="badge-dot" style={{ backgroundColor: r.color || '#6b7a8f' }} /><span className="text-ink">{r.name}</span><span className="text-xs text-ink-3">{unitLabel(r.unit_id)}</span></span><Button size="xs" onClick={() => grant(r.id, r.unit_id)}>Grant</Button></li>)}</ul></Panel>}
+          <Panel title="Held roles">{!records.roles.length ? <p className="text-sm text-ink-3">Only the default Marine role.</p> : <ul className="space-y-2">{records.roles.map((r) => <li key={`${r.unit_id}-${r.id}`} className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2"><span className="badge-dot" style={{ backgroundColor: r.color || '#6b7a8f' }} /><span className="text-ink">{r.name}</span><span className="text-xs text-ink-3">{unitLabel(r.unit_id)}</span>{r.expires_at ? <Badge tone="warn">until {new Date(r.expires_at).toLocaleDateString()}</Badge> : null}</span>{canManage && !isSelf && r.key !== 'unit-leader' && !(rolesData?.roles || []).find((x) => x.id === r.id)?.is_default && <Button size="xs" variant="ghost" onClick={() => revoke(r.id)}>Remove</Button>}</li>)}</ul>}</Panel>
+          {canManage && !isSelf && <Panel title="Grant a role" subtitle="Only roles below your own position; granting resets their sessions"><Field label="Until" hint="optional: an acting billet or a leave period ends on its own" className="mb-3"><Input type="date" value={until} min={tomorrowKey()} onChange={(e) => setUntil(e.target.value)} /></Field><ul className="space-y-1.5">{(rolesData?.roles || []).filter((r) => records.detailUnits.includes(r.unit_id) && r.editable && !r.is_default && r.key !== 'unit-leader' && !records.roles.some((h) => h.id === r.id)).map((r) => <li key={r.id} className="flex items-center justify-between gap-2 text-sm"><span className="flex items-center gap-2"><span className="badge-dot" style={{ backgroundColor: r.color || '#6b7a8f' }} /><span className="text-ink">{r.name}</span><span className="text-xs text-ink-3">{unitLabel(r.unit_id)}</span></span><Button size="xs" onClick={() => grant(r.id, r.unit_id)}>Grant</Button></li>)}</ul></Panel>}
           <Panel title="Why can they?" subtitle="Every grant behind what they can do, in the units you manage" className="lg:col-span-2">{why.isPending ? <Skeleton className="h-24" /> : why.error ? <p className="text-sm text-ink-3">{api.errorText(why.error)}</p> : <WhyList units={why.data?.units ?? []} />}</Panel>
-          <Panel title="Unit history" subtitle={isSelf ? 'Every unit you have belonged to, and when' : 'Their units in this command, and when; the same account throughout'} className="lg:col-span-2" padded={false}>
-            {!(data.history ?? []).length ? <EmptyState title="No unit history yet" /> : <ul>{(data.history ?? []).map((p) => (
-              <li key={p.id} className="row flex flex-wrap items-center justify-between gap-2 px-4 py-2.5 text-sm">
-                <span><span className="block text-ink">{p.unit_short || p.unit_name}{p.billet ? ` · ${p.billet}` : ''}{p.is_primary ? <Badge tone="accent" className="ml-2">Primary</Badge> : null}</span><span className="block text-xs text-ink-3">{periodReason(p.start_reason, 'start')}{p.ended_at ? ` · ${periodReason(p.end_reason, 'end')}` : ''}</span></span>
-                <span className="fig text-xs text-ink-3">{new Date(p.started_at).toLocaleDateString()} – {p.ended_at ? new Date(p.ended_at).toLocaleDateString() : 'present'}</span>
-              </li>
-            ))}</ul>}
-          </Panel>
         </div>
       )}
+      </>}
 
       <RecordDialog store="counselings" open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling} title={counseling?.id ? 'Edit counseling' : `New counseling for ${person.last_name}`} noun="Counseling" size="lg" validate={(d: any) => (!d.summary.trim() ? 'A summary is required.' : null)} onSaved={() => refetch()} fields={(d: any, set, errors) => <CounselingFields d={d} set={set} errors={errors} leader />} />
       <RecordDialog store="awards" open={Boolean(award)} onOpenChange={(o) => { if (!o) setAward(null); }} initial={award} title={`Recommend ${person.last_name} for an award`} noun="Award" size="lg" validate={(d: any) => (!d.name.trim() ? 'The award name is required.' : null)} onSaved={() => refetch()} fields={(d: any, set, errors) => <AwardFields d={d} set={set} errors={errors} ai={<AiAction workflow="award_citation" input={{ award: d.name, facts: `${d.citation}\n${d.notes}`.trim(), user_id: id, unit_id: unitId, to: d.date || undefined }} label="Draft citation" onResult={(out) => { if (out.citation) set('citation', String(out.citation)); }} />} />} />

@@ -2,6 +2,38 @@
 
 _Updated 2026-10-22_
 
+## What changed (2026-10-22: personnel management)
+
+**Partial.** Not merged; HawkScan not run (no key); CI disregarded on John's word.
+
+Personnel is a structured record per Marine, its history kept by the database whoever changes it, changed one Marine
+at a time or many at once ([ADR-0017](engineering/ADR/0017-personnel-records.md)).
+
+- **The record.** Rank, grade, MOS and EAS from the account; each assignment's unit, primary or secondary, billet,
+  and start and end dates; their team (the deepest unit they belong to); supervisor and check-in date per Unit
+  Instance; the leadership chain (supervisors upward, then the seated leaders of their unit and above); functional
+  responsibilities; Vantage roles; account status; and counts of training, education, awards, counseling, duty,
+  activities, goals and open tasks, linked to the tabs that show them.
+- **Migration 024.** `unit_members` gains `billet_id`, `assignment_start` and `assignment_end`; new tables
+  `personnel_records`, `personnel_responsibilities` and `personnel_events`. Memberships whose billet title names
+  exactly one active billet of their Unit Instance are linked to it. Triggers write personnel history; boundary
+  triggers keep billets, responsibilities and supervisors inside their Unit Instance. The instance archive carries
+  the new tables.
+- **Who reads what.** Anyone who sees a Marine on a roster opens their personnel record; account status and history
+  go to those who manage them and the Marine; record counts only with record access. A Unit Manager now has the
+  roster and corrects a rank without opening any record. Opening another Marine's record is audited
+  (`view_personnel`).
+- **Who changes what.** Manage members in the Marine's unit, above them there; never one's own. The leader's profile
+  correction honours the personnel feed's fields, as the Marine's own edit does.
+- **Bulk.** Supervisor, check-in, assignment start or end, billet, a responsibility, or a move, for up to 200 Marines:
+  previewed, then all or nothing, each row audited as its single change and the whole as `personnel_bulk`.
+- **Pages.** Personnel → Roster rebuilt (filters, search, selection, bulk bar, a list on phones); a Marine's page
+  opens on a Personnel tab; Settings links to your own record.
+- **Leaving.** The last membership in a Unit Instance ending ends the record there: supervisor, check-in,
+  responsibilities, and the supervision of others.
+- **Left to other Tasks:** personnel CSV import and export (13), duty records (17), role-change history beyond the
+  audit trail.
+
 ## What changed (2026-10-19: information architecture)
 
 **Partial.** Merged in #55 (`65ed79c`), with a follow-up for what the last review found; HawkScan not run (no key);

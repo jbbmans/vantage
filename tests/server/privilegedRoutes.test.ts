@@ -190,6 +190,8 @@ const bodies = (): Record<string, unknown> => ({
   'POST /api/org/units/:unitId/owner': { user_id: op.id },
   'POST /api/org/units/:unitId/members': { user_id: op.id },
   'PUT /api/org/units/:unitId/members/:userId': { billet: 'Clerk' },
+  'POST /api/org/units/:unitId/members/:userId/responsibilities': { title: 'Safety NCO' },
+  'POST /api/org/units/:unitId/personnel/bulk': { items: [{ user_id: op.id, unit_id: 'G8' }], action: 'checked_in', value: null, dry_run: true },
   'POST /api/org/units/:unitId/message': { subject: 'Formation', body: 'Formation at 0700.' },
   'POST /api/org/units/:unitId/members/:userId/move': { to: 'G8-ELSEWHERE' },
   'POST /api/org/units/:unitId/invites': { first_name: 'New', last_name: 'Join' },

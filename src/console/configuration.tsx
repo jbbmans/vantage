@@ -20,6 +20,7 @@ import {
   type ScoringCombine, type ScoringCondition, type ScoringMethod, type ScoringPolicy, type ScoringPolicyContent, type ScoringPolicyStatus,
 } from '../../shared/dutyScoring';
 import { Failed, useAct, useOrg } from './sections';
+import { useIdentity } from '@/lib/queries';
 
 /**
  * The Unit Manager console's structure and configuration pages (Task 6, ADR-0012): units and teams, billets, unit roles,
@@ -167,6 +168,9 @@ export function UnitsAndTeams({ org }: { org: OrgSummary }) {
 
 type BilletDraft = { id?: string; title: string; code: string; unit_id: string; description: string };
 const sameTitle = (a: string | null | undefined, b: string) => (a || '').trim().toLowerCase() === b.trim().toLowerCase();
+/** Holds this billet: filled from the catalogue, or (from before memberships named one) the same title and no other. */
+const holds = (held: { billet: string | null; billet_id?: string | null } | undefined, b: { id: string; title: string }) =>
+  Boolean(held) && (held!.billet_id ? held!.billet_id === b.id : sameTitle(held!.billet, b.title));
 
 export function Billets({ org }: { org: OrgSummary }) {
   const can = (p: string) => org.permissions.includes(p);
@@ -175,9 +179,10 @@ export function Billets({ org }: { org: OrgSummary }) {
   const config = useConfiguration(org.id);
   const units = useUnits(org.id);
   const members = useMembers(org);
+  const { data: identity } = useIdentity();
   const [editing, setEditing] = useState<BilletDraft | null>(null);
   const [unitId, setUnitId] = useState('');
-  const [assigning, setAssigning] = useState<{ title: string; userId: string } | null>(null);
+  const [assigning, setAssigning] = useState<{ id: string; title: string; userId: string } | null>(null);
   const refresh = () => qc.invalidateQueries({ queryKey: ['org', org.id] });
   if (config.isPending || units.isPending) return <Skeleton className="h-64" />;
   if (config.error || !config.data) return <Failed error={config.error} retry={() => config.refetch()} />;
@@ -187,8 +192,9 @@ export function Billets({ org }: { org: OrgSummary }) {
   const billets = config.data.billets;
   const forUnit = billets.filter((b) => b.active && (!b.unit_id || b.unit_id === shownUnit));
   const people = (members.data?.members ?? []).filter((m) => m.active && m.units.some((u) => u.unit_id === shownUnit));
-  const billetHere = (m: OrgMember) => m.units.find((u) => u.unit_id === shownUnit)?.billet || null;
-  const offList = people.filter((m) => !forUnit.some((b) => sameTitle(billetHere(m), b.title)));
+  const membershipHere = (m: OrgMember) => m.units.find((u) => u.unit_id === shownUnit);
+  const billetHere = (m: OrgMember) => membershipHere(m)?.billet || null;
+  const offList = people.filter((m) => !forUnit.some((b) => holds(membershipHere(m), b)));
   const save = async () => {
     if (!editing) return;
     const body = { title: editing.title, code: editing.code || null, unit_id: editing.unit_id || null, description: editing.description || null };
@@ -197,7 +203,7 @@ export function Billets({ org }: { org: OrgSummary }) {
   };
   const assign = async () => {
     if (!assigning) return;
-    const r = await act(`${assigning.title} assigned.`, () => api.updateMembership(shownUnit, assigning.userId, { billet: assigning.title }), refresh);
+    const r = await act(`${assigning.title} assigned.`, () => api.updateMembership(shownUnit, assigning.userId, { billet_id: assigning.id }), refresh);
     if (r) setAssigning(null);
   };
   const seeRoster = ['org.members', 'org.owners', 'org.roles'].some(can);
@@ -230,11 +236,11 @@ export function Billets({ org }: { org: OrgSummary }) {
           {members.isPending ? <Skeleton className="h-32" /> : !forUnit.length ? <p className="text-sm text-ink-3">No billets are listed for this unit.</p> : (
             <ul className="divide-y divide-line" aria-label="Billet roster">
               {forUnit.map((b) => {
-                const held = people.filter((m) => sameTitle(billetHere(m), b.title));
+                const held = people.filter((m) => holds(membershipHere(m), b));
                 return (
                   <li key={b.id} className="flex flex-wrap items-center justify-between gap-2 py-2">
                     <span className="min-w-0"><span className="block text-sm font-medium text-ink">{b.title}</span><span className="block text-xs text-ink-2">{held.length ? held.map((m) => personName(m)).join(', ') : <Badge tone="warn">Vacant</Badge>}</span></span>
-                    {can('org.members') && <Button size="xs" variant="ghost" aria-label={`Assign ${b.title}`} onClick={() => setAssigning({ title: b.title, userId: '' })}><UserPlus className="h-3 w-3" />Assign</Button>}
+                    {can('org.members') && <Button size="xs" variant="ghost" aria-label={`Assign ${b.title}`} onClick={() => setAssigning({ id: b.id, title: b.title, userId: '' })}><UserPlus className="h-3 w-3" />Assign</Button>}
                   </li>
                 );
               })}
@@ -257,9 +263,10 @@ export function Billets({ org }: { org: OrgSummary }) {
           </div>
         )}
       </Dialog>
-      <Dialog open={Boolean(assigning)} onOpenChange={(o) => { if (!o) setAssigning(null); }} size="sm" title={`Assign ${assigning?.title}`} description={`To a member of ${nameOf(shownUnit)}. Their billet history keeps the one it replaces.`}
+      <Dialog open={Boolean(assigning)} onOpenChange={(o) => { if (!o) setAssigning(null); }} size="sm" title={`Assign ${assigning?.title}`} description={`To a member of ${nameOf(shownUnit)}. Their billet history keeps the one it replaces. Your own billet is another Unit Manager’s to assign.`}
         footer={<><Button variant="ghost" onClick={() => setAssigning(null)}>Cancel</Button><Button variant="primary" disabled={!assigning?.userId} onClick={assign}>Assign</Button></>}>
-        <Field label="Member"><Select value={assigning?.userId ?? ''} onValueChange={(v) => setAssigning((a) => (a ? { ...a, userId: v } : a))} placeholder="Choose a member" options={people.map((m) => ({ value: m.id, label: `${personName(m)}${billetHere(m) ? ` · now ${billetHere(m)}` : ''}` }))} /></Field>
+        {/* Nobody fills their own billet from the list (ADR-0017), so they are not offered it. */}
+        <Field label="Member"><Select value={assigning?.userId ?? ''} onValueChange={(v) => setAssigning((a) => (a ? { ...a, userId: v } : a))} placeholder="Choose a member" options={people.filter((m) => m.id !== identity?.user.id).map((m) => ({ value: m.id, label: `${personName(m)}${billetHere(m) ? ` · now ${billetHere(m)}` : ''}` }))} /></Field>
       </Dialog>
     </div>
   );

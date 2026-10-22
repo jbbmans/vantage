@@ -1,6 +1,6 @@
 import { clearDrafts } from './drafts.ts';
 import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../shared/caseView';
-import type { MemberDetailResponse, OrgResponse, RecordRows, RolesResponse, TeamResponse } from '../../shared/types';
+import type { MemberDetailResponse, OrgResponse, PersonnelBulkResponse, PersonnelPersonRef, PersonnelRecordResponse, PersonnelRosterResponse, RecordRows, RolesResponse, TeamResponse } from '../../shared/types';
 import type { UnitManagerRole } from '../../shared/permissions';
 import type { LineageResponse, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
 
@@ -164,7 +164,14 @@ export const member = (id: string) => api.get<MemberDetailResponse>(`/org/team/$
 export const updateMemberProfile = (id: string, payload: unknown) => api.put(`/org/team/${encodeURIComponent(id)}/profile`, payload);
 export const directory = (unitId: string, q: string) => api.get(`/org/directory?unit_id=${encodeURIComponent(unitId)}&q=${encodeURIComponent(q)}`);
 export const addMember = (unitId: string, payload: unknown) => api.post(`/org/units/${encodeURIComponent(unitId)}/members`, payload);
-export const updateMembership = (unitId: string, userId: string, payload: unknown) => api.put(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}`, payload);
+export const updateMembership = (unitId: string, userId: string, payload: unknown) => api.put<{ ok: boolean; changed: string[] }>(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}`, payload);
+// Personnel records (ADR-0017).
+export const personnelRoster = (unitId: string) => api.get<PersonnelRosterResponse>(`/org/units/${encodeURIComponent(unitId)}/personnel`);
+export const personnelRecord = (userId: string) => api.get<PersonnelRecordResponse>(`/org/team/${encodeURIComponent(userId)}/personnel`);
+export const supervisorCandidates = (unitId: string, q: string, except?: string) => api.get<{ results: PersonnelPersonRef[] }>(`/org/units/${encodeURIComponent(unitId)}/supervisor-candidates?q=${encodeURIComponent(q)}${except ? `&except=${encodeURIComponent(except)}` : ''}`);
+export const addResponsibility = (unitId: string, userId: string, payload: { title: string; starts_on?: string | null; ends_on?: string | null; reason?: string | null }) => api.post<{ id: string }>(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}/responsibilities`, payload);
+export const endResponsibility = (id: string, reason?: string | null) => api.post(`/org/responsibilities/${encodeURIComponent(id)}/end`, { reason: reason || null });
+export const personnelBulk = (unitId: string, payload: { items: Array<{ user_id: string; unit_id: string }>; action: string; value: string | null; reason?: string | null; dry_run?: boolean }) => api.post<PersonnelBulkResponse>(`/org/units/${encodeURIComponent(unitId)}/personnel/bulk`, payload);
 export const teamAudience = (unitId: string) => api.get(`/org/units/${encodeURIComponent(unitId)}/message`);
 export const messageTeam = (unitId: string, payload: { subject: string; body: string }) => api.post(`/org/units/${encodeURIComponent(unitId)}/message`, payload);
 export const moveMember = (unitId: string, userId: string, payload: { to: string; entries?: 'stay' | 'move' }) => api.post(`/org/units/${encodeURIComponent(unitId)}/members/${encodeURIComponent(userId)}/move`, payload);

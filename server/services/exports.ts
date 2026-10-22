@@ -8,7 +8,7 @@ import { loadRuntime } from '../runtime.ts';
 import { appendRestore, chainPoint } from './restoreLog.ts';
 import { dataExportProblem } from '../../shared/dataTransfer.ts';
 import { writeLineage } from './recovery.ts';
-import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers, dropInstanceBoundaryTriggers, dropMembershipHistoryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, membershipHistoryTriggers, metaSet, openMissingMembershipPeriods, stampAttachmentUnits, backfillAwardRecorders } from '../db/index.ts';
+import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers, dropInstanceBoundaryTriggers, dropMembershipHistoryTriggers, dropPersonnelHistoryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, membershipHistoryTriggers, metaSet, openMissingMembershipPeriods, personnelHistoryTriggers, stampAttachmentUnits, backfillAwardRecorders, linkBilletsByTitle } from '../db/index.ts';
 import { sealBacklog } from './caseSeal.ts';
 import { loadChainKey, resealStoredSecrets, secretsOf } from '../lib/keys.ts';
 
@@ -24,6 +24,8 @@ export const EXPORT_TABLES = [
   'instance_feature_flags',
   // Each Unit Instance's own configuration (ADR-0012): its billets, duty types and training requirements.
   'unit_billets', 'duty_types', 'training_requirements', 'duty_scoring_policies',
+  // Each Marine's personnel record in each Unit Instance, and its history (ADR-0017).
+  'personnel_records', 'personnel_responsibilities', 'personnel_events',
   ...RECORD_TABLE_NAMES,
   'source_files', 'import_jobs', 'work_items', 'work_actions', 'work_events', 'work_event_seals', 'work_event_heads', 'work_views',
   // A person's own drafts and career plan move with the instance too.
@@ -94,6 +96,8 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   const unstamped = (archive.tables.attachments || []).some((a) => !('unit_id' in a));
   // An archive from before 023 names nobody as an award's recorder; its create entries do, as the migration reads them.
   const unrecorded = (archive.tables.awards || []).some((a) => !('recorded_by' in a));
+  // An archive from before 024 links no membership to its billet; the titles do, as the migration reads them.
+  const unlinked = (archive.tables.unit_members || []).some((m) => !('billet_id' in m));
   let crossings: Record<string, number> = {};
   ctx.db.pragma('foreign_keys = OFF');
   try {
@@ -102,6 +106,7 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       // the membership history's: the archive brings its own history, and loading its memberships is not anybody joining.
       dropInstanceBoundaryTriggers(ctx.db);
       dropMembershipHistoryTriggers(ctx.db);
+      dropPersonnelHistoryTriggers(ctx.db);
       // The audit log is append-only (ADR-0013). Only here, loading a fresh instance, is it emptied: the archive brings
       // its own chain in place of this host's first-run entries. Its triggers are back before this commits.
       dropAuditAppendOnlyTriggers(ctx.db);
@@ -127,9 +132,11 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       if (legacy) foundOrganizations(ctx.db);
       if (unstamped) stampAttachmentUnits(ctx.db);
       if (unrecorded) backfillAwardRecorders(ctx.db);
+      if (unlinked) linkBilletsByTitle(ctx.db);
       // An archive from before the history opens a period for each membership it holds, as migration 018 does.
       openMissingMembershipPeriods(ctx.db);
       membershipHistoryTriggers(ctx.db);
+      personnelHistoryTriggers(ctx.db);
       // Rows the archive brings already joined across the boundary are kept and counted, as migration 016 keeps a live
       // database's: a backup restores as the instance it came from was kept, and nothing new crosses from here (ADR-0008).
       crossings = instanceBoundaryViolations(ctx.db);

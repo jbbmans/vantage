@@ -14,8 +14,23 @@ The product never shows them to users.
 - **Account** (`users`): the person, for a whole career (ADR-0009). Its id, sign-in methods, EDIPI
   (`edipi`, proven when `edipi_verified_at` is set), profile and records stay the same through every
   transfer. Unit Instances hold memberships to it, never copies of it.
-- **Membership** (`unit_members`): a person in a unit now, with billet, primary flag and join date. The
-  primary unit's Unit Instance keeps the person's profile.
+- **Membership** (`unit_members`): a person in a unit now, with billet (a title, linked to the billet list by
+  `billet_id` when it fills one), primary flag, join date, and when the assignment began and is due to end
+  (`assignment_start`, `assignment_end`). The primary unit's Unit Instance keeps the person's profile. A team or
+  fire team is a unit of that echelon; their own team is the deepest unit they belong to.
+- **Personnel record** (ADR-0017): who the Marine is, where they serve, in what billet, under whom, since when and
+  until when. Built from the account (rank, grade, MOS, EAS, account status), the memberships, and a record per
+  Unit Instance (`personnel_records`: supervisor and check-in date). The leadership chain is derived: the
+  supervisors upward, then the seated leaders of their primary unit and above. None of it grants anything; what a
+  person may do is decided by roles alone.
+  - **Functional responsibility** (`personnel_responsibilities`): a duty carried beside the billet (Safety NCO),
+    in one Unit Instance; ended, never deleted. At most 20 at once.
+  - **Personnel event** (`personnel_events`): one change to rank, MOS, EAS, account status, supervisor, check-in
+    or assignment dates, written by database triggers whoever makes it, then named by the service with the actor,
+    how (`source`: self, leader, feed, support, departure), why, and the bulk change it belongs to. With the
+    membership periods it is the Marine's personnel history.
+  - Changed by Manage members in the Marine's unit, above the Marine there; never one's own (`self_membership_change`).
+    A bulk change is all or nothing, previewed first. Leaving a Unit Instance ends the record there.
 - **Membership period** (`unit_membership_periods`): one stretch of a membership: unit, billet, primary
   flag, start and end, why each happened and who did it. Database triggers write one on every change;
   nothing is deleted. A person reads all of theirs; a Unit Instance reads the part in its own units.
@@ -26,8 +41,8 @@ The product never shows them to users.
 
 - **Unit configuration** (ADR-0012): what a Unit Instance's Unit Managers keep for it, within limits
   Vantage sets for every instance. Rows are retired, never deleted, and name only the instance's own units.
-  - **Billet** (`unit_billets`): a position the instance staffs, in one unit or instance-wide. A member's
-    billet (`unit_members.billet`) is matched to it by title.
+  - **Billet** (`unit_billets`): a position the instance staffs, in one unit or instance-wide. A membership
+    fills one by `unit_members.billet_id` (ADR-0017); one without a link is matched by title, as before 024.
   - **Duty type** (`duty_types`): a kind of duty the instance stands, with a code.
   - **Training requirement** (`training_requirements`): training the instance requires, how often it
     recurs, and where it applies.

@@ -37,6 +37,7 @@ import { invalidateUserSessions } from '../auth/sessions.ts';
 import { unlockAccount } from '../auth/lockout.ts';
 import { hashPassword } from '../lib/crypto.ts';
 import { isEdipi } from '../services/personnel.ts';
+import { withPersonnelNote } from '../services/personnelRecords.ts';
 import { APPROVAL_HOURS, CREDENTIAL_ACTIONS, cancelApproval, decideApproval, listApprovals, requestApproval, useApproval, type UsedApproval } from '../services/credentialApprovals.ts';
 import { assignManager, createOrganization, getOrg, listOrganizations, nameFirstOwner, orgCounts, orgRoleHolders, publicOrg, removeManager, setOrgStatus, updateOrganization } from '../services/organizations.ts';
 import { accessForPlatform, endAccess, requestAccess, ACCESS_DEFAULT_MINUTES, ACCESS_MAX_MINUTES } from '../services/access.ts';
@@ -499,7 +500,8 @@ platformRouter.post('/accounts/:userId/deactivate', requirePlatform('platform.ac
   if (target.id === req.user.id) throw badRequest('You cannot deactivate your own account.');
   const leads = ctx.db.prepare('SELECT name FROM units WHERE owner_user_id = ? AND active = 1').all(target.id) as Array<{ name: string }>;
   if (leads.length) throw badRequest(`They lead ${leads.map((u) => u.name).join(', ')}. That Unit Instance transfers the leadership first.`);
-  ctx.db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ?').run(now(), target.id);
+  withPersonnelNote(ctx, { actorId: req.user.id, source: 'support', reason: String(req.body?.reason || '').slice(0, 200) || null }, () =>
+    ctx.db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ?').run(now(), target.id));
   const revoked = invalidateUserSessions(ctx, target.id);
   audit(ctx, { actor_id: req.user.id, action: 'deactivate_account', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `${String(req.body?.reason || '').slice(0, 200)}; sessions revoked: ${revoked}`, ip: ip(req) });
   tellInstancesOfSupport(ctx, req.user, target.id, 'deactivated the account', ip(req));
@@ -508,7 +510,7 @@ platformRouter.post('/accounts/:userId/deactivate', requirePlatform('platform.ac
 
 platformRouter.post('/accounts/:userId/reactivate', requirePlatform('platform.accounts'), wrap((req, res) => {
   const target = accountTarget(req);
-  req.ctx.db.prepare('UPDATE users SET active = 1, updated_at = ? WHERE id = ?').run(now(), target.id);
+  withPersonnelNote(req.ctx, { actorId: req.user.id, source: 'support' }, () => req.ctx.db.prepare('UPDATE users SET active = 1, updated_at = ? WHERE id = ?').run(now(), target.id));
   audit(req.ctx, { actor_id: req.user.id, action: 'reactivate_account', entity: 'user', entity_id: target.id, subject_id: target.id, ip: ip(req) });
   tellInstancesOfSupport(req.ctx, req.user, target.id, 'reactivated the account', ip(req));
   res.json({ ok: true });

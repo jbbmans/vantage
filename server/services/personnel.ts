@@ -4,6 +4,7 @@ import { audit } from './audit.ts';
 import { badRequest } from '../lib/errors.ts';
 import { createHash } from 'node:crypto';
 import { addMember, claimUnit, primaryOrgOf, removeMember, setPrimaryUnit } from './org.ts';
+import { notePersonnelChanges, personnelMark } from './personnelRecords.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
 import { seatedOrgRole } from '../authz/scope.ts';
@@ -357,6 +358,9 @@ export function summarizePlan(plan: SyncPlan) {
 }
 
 export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | null): { runId: string } {
+  // Every personnel fact the extract changes is named as the feed's in the history (ADR-0017); a departure it causes is
+  // named as one by removeMember first.
+  const mark = personnelMark(ctx);
   const { db } = ctx;
   const at = now();
   const runId = newId();
@@ -508,6 +512,7 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
                 VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`)
       .run(runId, plan.orgId, plan.source, actorId, plan.rowsSeen, plan.creates.length, plan.updates.length, plan.separations.length, plan.conflicts.length,
            JSON.stringify({ unchanged: plan.unchanged, rejected: plan.rejected.length }), at);
+    notePersonnelChanges(ctx, mark, { actorId, source: 'feed', reason: `${plan.source} personnel feed` });
   })();
 
   audit(ctx, { actor_id: actorId, action: 'personnel_sync', org_id: plan.orgId, detail: `${plan.source}: +${plan.creates.length} ~${plan.updates.length} -${plan.separations.length}` });

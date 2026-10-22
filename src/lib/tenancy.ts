@@ -44,7 +44,7 @@ export interface PlatformAccount {
 export interface OrgMember {
   id: string; username: string; email: string | null; first_name: string; last_name: string; rank_abbr: string | null; edipi: string | null; active: number;
   last_login_at: string | null; totp_enabled: number; must_change_password: number; locked_until: string | null; passkeys: number; other_orgs: number;
-  units: Array<{ unit_id: string; unit: string; billet: string | null; is_primary: number; roles: string | null }>;
+  units: Array<{ unit_id: string; unit: string; billet: string | null; billet_id?: string | null; is_primary: number; roles: string | null }>;
 }
 
 export interface OrgUnit {
