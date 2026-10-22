@@ -82,7 +82,9 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const [importing, setImportingState] = useState(() => searchParams.get('import') === '1');
   const askedToImport = searchParams.get('import') === '1';
   useEffect(() => { setImportingState(askedToImport); }, [askedToImport]);
-  const markedHere = askedToImport && (location.state as { importFrom?: string } | null)?.importFrom === location.pathname;
+  const bare = (path: string) => path.replace(/(.)\/+$/, '$1');
+  const importFrom = (location.state as { importFrom?: string } | null)?.importFrom;
+  const markedHere = askedToImport && importFrom !== undefined && bare(importFrom) === bare(location.pathname);
   const setImporting = useCallback((open: boolean) => {
     setImportingState(open);
     if (open) return;
