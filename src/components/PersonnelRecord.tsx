@@ -229,8 +229,6 @@ export function PersonnelPanel({ record, onTab, onChanged }: { record: Personnel
   const responsibilities = record.instances.flatMap((i) => i.responsibilities);
   const manageable = record.instances.flatMap((i) => i.assignments.filter((a) => a.canManage));
   const addIn = manageable.find((a) => a.is_primary) || manageable[0];
-  // A responsibility is ended by whoever manages the Marine in its unit, or anywhere in its Unit Instance when it names none.
-  const canEnd = (unitId: string | null) => record.instances.some((i) => i.canManage && (!unitId || i.assignments.some((a) => a.unit_id === unitId && a.canManage)));
 
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-3">
@@ -268,7 +266,7 @@ export function PersonnelPanel({ record, onTab, onChanged }: { record: Personnel
                   <span className="block text-ink">{r.title}{r.ended_at && <Badge className="ml-2">Ended</Badge>}</span>
                   <span className="block text-xs text-ink-3">{[r.unit_label, r.starts_on || r.ends_on ? `${r.starts_on ? formatDate(r.starts_on) : '?'} – ${r.ends_on ? formatDate(r.ends_on) : 'open'}` : null, r.ended_at ? `ended ${formatDate(r.ended_at)}${r.end_reason === 'left' ? ' on leaving the command' : ''}` : null, r.assigned_by ? `assigned by ${shortName(r.assigned_by)}` : null].filter(Boolean).join(' · ')}</span>
                 </span>
-                {!r.ended_at && !record.self && canEnd(r.unit_id) && <Button size="xs" variant="ghost" onClick={() => setEnding({ id: r.id, title: r.title })} aria-label={`End ${r.title}`}>End</Button>}
+                {r.canEnd && <Button size="xs" variant="ghost" onClick={() => setEnding({ id: r.id, title: r.title })} aria-label={`End ${r.title}`}>End</Button>}
               </li>
             ))}</ul>}
           </Panel>

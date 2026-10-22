@@ -36,7 +36,7 @@ What main held before this Task (at `34600b6`):
 | Fact | Where | Per |
 | --- | --- | --- |
 | Name, rank, grade, MOS, EAS | `users` (grade from `ranks`) | person |
-| Account status | `users`: active, locked, never signed in, must change password; MFA and CAC proven | person |
+| Account status | `users`: active, locked, never signed in, must change password, deactivated; a second factor (authenticator or passkey) and CAC proven | person |
 | Unit, primary or secondary, team / fire team | `unit_members`, units by echelon; the deepest is their team | membership |
 | Billet | `unit_members.billet_id` → `unit_billets`, with `billet` keeping the title | membership |
 | Assignment start and end | `unit_members.assignment_start`, `assignment_end` (calendar days) | membership |
@@ -99,6 +99,11 @@ the person (rank, MOS, EAS, account) since the Marine first joined the instance,
 one. A Unit Manager, who never reads records (ADR-0010), sees the roster and the personnel record and no record
 counts. Opening someone else's personnel record is audited as `view_personnel`.
 
+A deactivated account keeps its memberships (Vantage support turns sign-in off, not the assignment). Those who manage
+the Marine keep them on the roster and keep their personnel record, marked Deactivated, and may still change or end
+the assignment; nobody opens their records from it, since the records route serves active accounts only. To anyone
+else the account is gone, as it is everywhere else in Vantage.
+
 ### 5. Who may change what
 
 Every change follows the rule membership changes already followed: **Manage members in the Marine's unit, and above
@@ -107,7 +112,10 @@ assignment dates, supervisor, check-in and responsibilities (`self_membership_ch
 own billet title and choose their own primary unit, as before.
 
 - **Supervisor:** another active member of the same Unit Instance whom the actor can see; never the Marine; no loop
-  (`supervisor_cycle`).
+  however far up it would close (`supervisor_cycle`). A record shows the nearest ten supervisors.
+- **Ending a responsibility:** whoever manages the Marine in its unit, or anywhere in its Unit Instance when it names
+  no unit or the Marine has since moved to another team. The record says, per responsibility, whether the reader may
+  end it.
 - **Billet:** an active billet of the Unit Instance, for this unit or every unit; it sets the title too. Typing a
   title instead leaves the catalogue. The Unit Manager console's billet roster now matches holders by the link, and
   by title only for memberships that have none.
@@ -123,6 +131,12 @@ When the last membership in a Unit Instance ends (`removeMember` ending its Unit
 between its units), the personnel record there ends with it: no supervisor and no check-in there, the
 responsibilities held there ended (`left`), and nobody there supervised by them any longer. All of it is in the
 history with the source `departure`.
+
+A separation the personnel feed makes keeps what it ends so a later extract can give it back (ADR-0009): with each
+membership its billet from the list and assignment dates, and with the first the supervisor and check-in. A return
+restores them, the billet while the unit still staffs it and the supervisor while they still serve in the Unit
+Instance. Ended responsibilities stay ended; a leader adds them again. The Marine's personal export (Settings → Your
+data) carries their personnel record, responsibilities and history.
 
 ### 7. Bulk operations
 

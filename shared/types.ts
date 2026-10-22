@@ -167,6 +167,8 @@ export interface PersonnelAssignment {
 export interface PersonnelResponsibility {
   id: string; title: string; unit_id: string | null; unit_label: string | null; starts_on: string | null; ends_on: string | null;
   created_at: string; ended_at: string | null; end_reason: string | null; assigned_by: PersonnelPersonRef | null;
+  /** The reader may end it: they manage the Marine in its unit, or anywhere in its Unit Instance once the Marine has left that unit. */
+  canEnd?: boolean;
 }
 
 /** One change to a personnel fact: rank, mos, eas, account, supervisor, checked_in, assignment_start or assignment_end. */

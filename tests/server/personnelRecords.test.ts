@@ -2,6 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, enroll, type TestApp } from './helpers.ts';
 import { instanceBoundaryViolations } from '../../server/db/index.ts';
+import { listZip } from '../../server/lib/zip.ts';
 
 /**
  * Personnel records (Task 11, ADR-0017): one structured record per Marine, built from their account, their memberships
@@ -197,6 +198,13 @@ test('a supervisor is someone else in the same Unit Instance, and supervision ne
   assert.equal(notDay.status, 400);
   const otherBillet = await put(op.token, `/api/org/units/G8/members/${delta.id}`, { billet_id: g1BilletId });
   assert.equal(otherBillet.status, 400); assert.ok(otherBillet.body.fieldErrors.billet_id, 'a billet of another Unit Instance is not on this unitâ€™s list');
+  // However far up the loop would close: a chain of eleven supervisors above the one named.
+  const chain: Person[] = [];
+  for (let i = 0; i < 12; i++) chain.push(await person(`chain${i}`, 'G8'));
+  const link = db().prepare("INSERT INTO personnel_records (org_id, user_id, supervisor_id, updated_at) VALUES ('G8', ?, ?, '2026-10-22T00:00:00Z')");
+  for (let i = 1; i < chain.length; i++) link.run(chain[i].id, chain[i - 1].id);
+  const far = await put(op.token, `/api/org/units/G8/members/${chain[0].id}`, { supervisor_id: chain[11].id });
+  assert.equal(far.status, 400, JSON.stringify(far.body)); assert.equal(far.body.code, 'supervisor_cycle');
   // Candidates are members of this Unit Instance the reader can see, never the Marine themselves.
   const found = await get(op.token, `/api/org/units/G8/supervisor-candidates?q=ch&except=${delta.id}`);
   assert.equal(found.status, 200);
@@ -370,5 +378,81 @@ test('what the personnel feed sets, a leader cannot change either, and the feedâ
     assert.ok(record.body.sourced.includes('rank_id'));
     // The same value is not a change, so a form that sends every field back is not refused for it.
     assert.equal((await fresh.call('PUT', `/api/org/team/${marine.id}/profile`, { token: owner.token, body: { rank_id: 'LCpl', middle_initial: 'Q' } })).status, 200);
+
+    // A separation the feed makes and a later extract undoes gives back what leadership had entered: the billet from the
+    // list, the assignment dates, the supervisor and the check-in.
+    const billet = await fresh.call('POST', '/api/orgs/G8/billets', { token: owner.token, body: { title: 'Rifleman' } });
+    assert.equal(billet.status, 201, JSON.stringify(billet.body));
+    const set = await fresh.call('PUT', `/api/org/units/G8/members/${marine.id}`, { token: owner.token, body: { billet_id: billet.body.id, assignment_start: '2026-06-01', assignment_end: '2028-05-31', supervisor_id: owner.id, checked_in_on: '2026-05-28' } });
+    assert.equal(set.status, 200, JSON.stringify(set.body));
+    const extract = (status: string) => fresh.call('POST', '/api/orgs/G8/personnel/sync?source=MCTFS&apply=1&confirm_separations=1', {
+      token: owner.token, raw: Buffer.from(`DoD ID,Last,First,MI,Grade,PMOS,EAS,RUC,Status\n9876543210,Marine,Feedmarine,Q,LCpl,0311,2026-11-01,G8,${status}`), headers: { 'content-type': 'text/plain' },
+    });
+    assert.equal((await extract('Separated')).status, 200);
+    const membership = () => fresh.ctx.db.prepare("SELECT * FROM unit_members WHERE user_id = ? AND unit_id = 'G8'").get(marine.id) as Record<string, any> | undefined;
+    const kept = () => fresh.ctx.db.prepare("SELECT * FROM personnel_records WHERE org_id = 'G8' AND user_id = ?").get(marine.id) as Record<string, any>;
+    assert.equal(membership(), undefined);
+    assert.equal(kept().supervisor_id, null);
+    assert.equal((await extract('Active')).status, 200);
+    const back = membership()!;
+    assert.ok(back, 'back in the unit');
+    assert.deepEqual([back.billet, back.billet_id, back.assignment_start, back.assignment_end], ['Rifleman', billet.body.id, '2026-06-01', '2028-05-31']);
+    assert.deepEqual([kept().supervisor_id, kept().checked_in_on], [owner.id, '2026-05-28']);
+    const restored = fresh.ctx.db.prepare("SELECT * FROM personnel_events WHERE user_id = ? AND field = 'supervisor' ORDER BY id DESC").get(marine.id) as Record<string, any>;
+    assert.equal(restored.to_value, owner.id); assert.equal(restored.source, 'feed');
   } finally { await fresh.close(); }
+});
+
+test('a responsibility from a team the Marine has since left is ended by whoever manages them now', async () => {
+  // Bravo was given Voting Assistance Officer in the Budget Section, then moved to Disbursing (the bulk test above).
+  const read = await get(op.token, `/api/org/team/${bravo.id}/personnel`);
+  assert.equal(read.status, 200, JSON.stringify(read.body));
+  const vao = read.body.instances[0].responsibilities.find((r: any) => r.title === 'Voting Assistance Officer');
+  const bud = db().prepare("SELECT id FROM units WHERE short_name = 'BUD'").pluck().get() as string;
+  assert.equal(vao.unit_id, bud);
+  assert.ok(!member(bravo.id, bud), 'no longer in the unit the responsibility names');
+  assert.equal(vao.canEnd, true, 'the End control is offered');
+  // The move signed Bravo out, as a change of unit does.
+  const own = await get(await login('bravo'), `/api/org/team/${bravo.id}/personnel`);
+  assert.equal(own.body.instances[0].responsibilities.find((r: any) => r.id === vao.id).canEnd, false, 'not to the Marine');
+  const ended = await post(op.token, `/api/org/responsibilities/${vao.id}/end`, {});
+  assert.equal(ended.status, 200, JSON.stringify(ended.body));
+});
+
+test('a deactivated account stays on the roster and record of those who manage it, marked so; a passkey counts as a second factor', async () => {
+  const hotel = await person('hotel', 'G8');
+  assert.equal((await post(op.token, `/api/platform/accounts/${hotel.id}/deactivate`, { reason: 'Awaiting separation orders' })).status, 200);
+  const read = await get(op.token, `/api/org/team/${hotel.id}/personnel`);
+  assert.equal(read.status, 200, JSON.stringify(read.body));
+  assert.equal(read.body.account.status, 'deactivated');
+  assert.equal(read.body.canOpenRecords, false, 'the records route serves active accounts only');
+  assert.equal(read.body.records, null);
+  const row = (await get(op.token, '/api/org/units/G8/personnel')).body.rows.find((r: any) => r.id === hotel.id);
+  assert.equal(row?.status, 'deactivated');
+  assert.equal(row.canOpenRecords, false);
+  // To a reader who does not manage them, the account is gone, as everywhere else.
+  assert.equal((await get(charlie.token, `/api/org/team/${hotel.id}/personnel`)).status, 404);
+  assert.ok(!(await get(charlie.token, '/api/org/units/G8/personnel')).body.rows.some((r: any) => r.id === hotel.id));
+  // Their manager can still change their assignment, and remove them.
+  assert.equal((await put(op.token, `/api/org/units/G8/members/${hotel.id}`, { assignment_end: '2026-12-31' })).status, 200);
+
+  assert.equal((await get(op.token, `/api/org/team/${delta.id}/personnel`)).body.account.mfa, false);
+  db().prepare("INSERT INTO passkeys (id, user_id, public_key, name, created_at) VALUES ('pk-delta', ?, x'00', 'YubiKey', '2026-10-22T00:00:00Z')").run(delta.id);
+  assert.equal((await get(op.token, `/api/org/team/${delta.id}/personnel`)).body.account.mfa, true);
+});
+
+test('the personal export carries the personnel record, its responsibilities and its history', async () => {
+  const json = await get(alpha.token, '/api/me/export?format=json');
+  assert.equal(json.status, 200, JSON.stringify(json.body).slice(0, 300));
+  const archive = json.body;
+  const g8 = archive.memberships.find((m: any) => m.unit_id === 'G8');
+  assert.equal(g8.billet_id, billetId); assert.equal(g8.assignment_start, '2026-10-01');
+  assert.deepEqual(archive.personnel.records.map((r: any) => [r.org_id, r.supervisor, r.checked_in_on]), [['G8', 'charlie', '2026-10-15']]);
+  assert.ok(archive.personnel.responsibilities.some((r: any) => r.title === 'Voting Assistance Officer' && r.assigned_by === 'boletz'));
+  assert.ok(archive.personnel.history.some((e: any) => e.field === 'supervisor' && e.actor === 'boletz' && e.reason === 'PCS orders'));
+  assert.equal(archive.counts.personnel_history, archive.personnel.history.length);
+  const zip = await app.call('GET', '/api/me/export?format=zip', { token: alpha.token, binary: true });
+  assert.equal(zip.status, 200);
+  const names = listZip(zip.buffer as Buffer);
+  for (const name of ['personnel-records.csv', 'responsibilities.csv', 'personnel-history.csv']) assert.ok(names.includes(name), name);
 });

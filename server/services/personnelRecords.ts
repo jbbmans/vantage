@@ -124,14 +124,19 @@ function deepest(rows: MembershipRow[], tree: ReturnType<typeof unitTree>): Memb
   return rows.reduce<MembershipRow | undefined>((best, m) => (!best || depth(m.unit_id) > depth(best.unit_id) ? m : best), undefined);
 }
 
-/** The supervisors above a Marine in one Unit Instance, nearest first, at most ten deep. */
-function supervisorChain(ctx: AppContext, orgId: string, userId: string): string[] {
+/**
+ * The supervisors above a Marine in one Unit Instance, nearest first: ten deep for the chain a record shows, the whole
+ * way up (`depth` Infinity) when checking for a loop.
+ */
+function supervisorChain(ctx: AppContext, orgId: string, userId: string, depth = 10): string[] {
   const out: string[] = [];
+  const seen = new Set([userId]);
   let current: string | null = userId;
   const step = ctx.db.prepare('SELECT supervisor_id FROM personnel_records WHERE org_id = ? AND user_id = ?');
-  while (current && out.length < 10) {
+  while (current && out.length < depth) {
     const next: string | null = (step.get(orgId, current) as { supervisor_id: string | null } | undefined)?.supervisor_id ?? null;
-    if (!next || next === userId || out.includes(next)) break;
+    if (!next || seen.has(next)) break;
+    seen.add(next);
     out.push(next);
     current = next;
   }
@@ -156,11 +161,15 @@ interface ResponsibilityRow { id: string; org_id: string; user_id: string; unit_
  */
 export function personnelRecord(ctx: AppContext, scope: Scope, actorId: string, targetId: string): { body: PersonnelRecordResponse; access: PersonnelAccess } {
   const person = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.middle_initial, u.rank_id, r.abbr AS rank_abbr, r.name AS rank_name, r.grade AS rank_grade, u.mos, u.eas,
-      u.active, u.locked_until, u.last_login_at, u.must_change_password, u.totp_enabled, u.edipi_verified_at
-      FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ?`).get(targetId) as (PersonnelRecordResponse['person'] & { active: number; locked_until: string | null; last_login_at: string | null; must_change_password: number; totp_enabled: number; edipi_verified_at: string | null }) | undefined;
-  if (!person || (!person.active && actorId !== targetId)) throw notFound('No such Marine.');
+      u.active, u.locked_until, u.last_login_at, u.must_change_password, u.totp_enabled, u.edipi_verified_at,
+      (SELECT COUNT(*) FROM passkeys p WHERE p.user_id = u.id) AS passkeys
+      FROM users u LEFT JOIN ranks r ON r.id = u.rank_id WHERE u.id = ?`).get(targetId) as (PersonnelRecordResponse['person'] & { active: number; locked_until: string | null; last_login_at: string | null; must_change_password: number; totp_enabled: number; edipi_verified_at: string | null; passkeys: number }) | undefined;
+  if (!person) throw notFound('No such Marine.');
   const targetScope = scopeFor(ctx, { id: targetId });
   const access = personnelAccess(ctx, scope, actorId, targetId, targetScope);
+  // A deactivated account keeps its memberships, so those who manage the Marine still keep their record and see it marked
+  // Deactivated. To anyone else it is gone, as everywhere a deactivated account is.
+  if (!person.active && !access.self && !access.manageIn.length) throw notFound('No such Marine.');
   if (!access.self && !access.seeIn.length) throw forbidden('You cannot see this Marine’s personnel record.');
   const tree = unitTree(ctx);
 
@@ -205,7 +214,8 @@ export function personnelRecord(ctx: AppContext, scope: Scope, actorId: string, 
         ...chain.leaders.filter((l) => !chain.supervisors.includes(l.leader_id) && refs.has(l.leader_id)).map((l) => ({ ...refs.get(l.leader_id)!, relation: 'leader' as const, unit_label: labels.get(l.unit_id) || null })),
       ],
       supervises: supervised.filter((s) => s.org_id === orgId).map((s) => refs.get(s.user_id)).filter((p): p is PersonnelPersonRef => Boolean(p)),
-      responsibilities: responsibilities.filter((r) => r.org_id === orgId && (historyHere || !r.ended_at)).map((r) => responsibilityOf(r, labels, refs)),
+      responsibilities: responsibilities.filter((r) => r.org_id === orgId && (historyHere || !r.ended_at))
+        .map((r) => ({ ...responsibilityOf(r, labels, refs), canEnd: !r.ended_at && endableIn(ctx, targetScope, r).some((u) => access.manageIn.includes(u)) })),
       roles: roleRows.filter((r) => inOrg.some((m) => m.unit_id === r.unit_id)).map((r) => ({ unit_id: r.unit_id, unit_label: labels.get(r.unit_id) || r.unit_id, name: r.name, color: r.color })),
       orgRoles: orgRoles.filter((r) => r.org_id === orgId).map((r) => ORG_ROLES[r.role]?.label ?? r.role),
       canManage: inOrg.some((m) => access.manageIn.includes(m.unit_id)),
@@ -216,18 +226,20 @@ export function personnelRecord(ctx: AppContext, scope: Scope, actorId: string, 
     };
   });
 
-  const { active, locked_until, last_login_at, must_change_password, totp_enabled, edipi_verified_at, ...identity } = person;
+  const { active, locked_until, last_login_at, must_change_password, totp_enabled, edipi_verified_at, passkeys, ...identity } = person;
+  // A deactivated account's records are not opened from here: the records route serves active accounts only.
+  const opensRecords = access.self || (Boolean(active) && access.recordsIn.length > 0);
   const body: PersonnelRecordResponse = {
     person: identity,
     sourced: sourcedFieldsFor(ctx, targetId),
     self: access.self,
-    canOpenRecords: access.self || access.recordsIn.length > 0,
+    canOpenRecords: opensRecords,
     account: access.self || access.manageIn.length
-      ? { status: accountStatus({ active, locked_until, last_login_at, must_change_password }), last_login_at, locked_until: locked_until && locked_until > now() ? locked_until : null, mfa: Boolean(totp_enabled), cac: Boolean(edipi_verified_at) }
+      ? { status: accountStatus({ active, locked_until, last_login_at, must_change_password }), last_login_at, locked_until: locked_until && locked_until > now() ? locked_until : null, mfa: Boolean(totp_enabled || passkeys), cac: Boolean(edipi_verified_at) }
       : null,
     instances,
     history: access.self || historyOrgs!.length ? historyOf(ctx, targetId, historyOrgs, access.self ? null : scope.viewableUnitIds) : null,
-    records: access.self || access.recordsIn.length ? recordCounts(ctx, targetId, access.self ? null : access.recordsIn, actorId) : null,
+    records: opensRecords ? recordCounts(ctx, targetId, access.self ? null : access.recordsIn, actorId) : null,
   };
   return { body, access };
 }
@@ -314,7 +326,7 @@ export function personnelRoster(ctx: AppContext, scope: Scope, actorId: string, 
   const people = ctx.db.prepare(`SELECT u.id, u.first_name, u.last_name, u.mos, u.eas, u.active, u.locked_until, u.last_login_at, u.must_change_password,
         r.abbr AS rank_abbr, r.grade AS rank_grade, r.sort AS rank_sort
       FROM users u LEFT JOIN ranks r ON r.id = u.rank_id
-     WHERE u.active = 1 AND u.id IN (SELECT um.user_id FROM unit_members um WHERE um.unit_id IN (SELECT value FROM json_each(?)))
+     WHERE u.id IN (SELECT um.user_id FROM unit_members um WHERE um.unit_id IN (SELECT value FROM json_each(?)))
      ORDER BY r.sort DESC, u.last_name, u.first_name`).all(JSON.stringify(subtree)) as Array<{ id: string; first_name: string; last_name: string; mos: string | null; eas: string | null; active: number; locked_until: string | null; last_login_at: string | null; must_change_password: number; rank_abbr: string | null; rank_grade: string | null; rank_sort: number | null }>;
   const ids = JSON.stringify(people.map((p) => p.id));
   const memberships = membershipsOf(ctx, people.map((p) => p.id)).filter((m) => subtree.includes(m.unit_id));
@@ -327,13 +339,15 @@ export function personnelRoster(ctx: AppContext, scope: Scope, actorId: string, 
   const labels = unitLabels(ctx, memberships.map((m) => m.unit_id));
   const manages = can(scope, PERMISSIONS.MANAGE_MEMBERS, unitId);
 
-  // A membership only in an archived unit puts nobody on the roster.
-  const rows: PersonnelRosterRow[] = people.filter((p) => memberships.some((m) => m.user_id === p.id)).map((p) => {
+  // A membership only in an archived unit puts nobody on the roster. A deactivated account keeps its memberships: it is
+  // on the roster, marked Deactivated, for those who manage it, and on nobody else's.
+  const rows: PersonnelRosterRow[] = people.filter((p) => memberships.some((m) => m.user_id === p.id)).flatMap((p) => {
     const row = deepest(memberships.filter((m) => m.user_id === p.id), tree)!;
     const self = p.id === actorId;
     const canManage = !self && mayManageIn(ctx, scope, actorId, scopeFor(ctx, { id: p.id }), row.unit_id);
+    if (!p.active && !canManage) return [];
     const rec = records.find((r) => r.user_id === p.id);
-    return {
+    return [{
       id: p.id, first_name: p.first_name, last_name: p.last_name, rank_abbr: p.rank_abbr, rank_grade: p.rank_grade, rank_sort: p.rank_sort, mos: p.mos, eas: p.eas,
       assignment: assignmentOf(row, canManage),
       team_label: labels.get(row.unit_id) || row.unit_name,
@@ -343,8 +357,8 @@ export function personnelRoster(ctx: AppContext, scope: Scope, actorId: string, 
       roles: roles.filter((r) => r.user_id === p.id && r.unit_id === row.unit_id).map((r) => ({ id: r.id, name: r.name, color: r.color })),
       ...(canManage || self ? { status: accountStatus(p), last_login_at: p.last_login_at } : {}),
       self, canManage,
-      canOpenRecords: self || detailUnitsFor(ctx, scope, p.id).length > 0,
-    };
+      canOpenRecords: self || (Boolean(p.active) && detailUnitsFor(ctx, scope, p.id).length > 0),
+    }];
   });
   const billets = manages && orgId
     ? ctx.db.prepare('SELECT id, title, unit_id, code FROM unit_billets WHERE org_id = ? AND active = 1 AND (unit_id IS NULL OR unit_id IN (SELECT value FROM json_each(?))) ORDER BY title').all(orgId, JSON.stringify(subtree)) as PersonnelRosterResponse['billets']
@@ -465,7 +479,7 @@ function assertSupervisor(ctx: AppContext, scope: Scope, orgId: string, userId: 
   const units = scope.viewableUnitIds.filter((u) => scope.unitOrg[u] === orgId);
   const seen = ctx.db.prepare('SELECT 1 FROM unit_members um JOIN users u ON u.id = um.user_id WHERE um.user_id = ? AND u.active = 1 AND um.unit_id IN (SELECT value FROM json_each(?)) LIMIT 1').get(supervisorId, JSON.stringify(units));
   if (!seen) throw badRequest('Choose a supervisor who serves in this Unit Instance.', { code: 'supervisor_outside', fieldErrors: { supervisor_id: 'Choose a supervisor who serves in this Unit Instance.' } });
-  if (supervisorChain(ctx, orgId, supervisorId).includes(userId)) throw badRequest('That would make a loop: this Marine already supervises that one, directly or through others.', { code: 'supervisor_cycle', fieldErrors: { supervisor_id: 'They answer to this Marine already.' } });
+  if (supervisorChain(ctx, orgId, supervisorId, Infinity).includes(userId)) throw badRequest('That would make a loop: this Marine already supervises that one, directly or through others.', { code: 'supervisor_cycle', fieldErrors: { supervisor_id: 'They answer to this Marine already.' } });
 }
 
 export const responsibilitySchema = z.object({
@@ -497,12 +511,20 @@ export function addResponsibility(ctx: AppContext, c: ChangeContext, unitId: str
 }
 
 /** Ends a responsibility. It stays on the record with when, by whom and why. */
+/**
+ * The Marine's units whose managers may end a responsibility: its own unit while they still serve there, otherwise (it
+ * names none, or they have moved to another team since) any of theirs in its Unit Instance.
+ */
+function endableIn(ctx: AppContext, targetScope: Scope, r: Pick<ResponsibilityRow, 'org_id' | 'unit_id'>): string[] {
+  return targetScope.unitIds.filter((u) => orgOfUnit(ctx, u) === r.org_id && (!r.unit_id || u === r.unit_id || !targetScope.unitIds.includes(r.unit_id)));
+}
+
 export function endResponsibility(ctx: AppContext, c: ChangeContext, id: string, reason: string | null, ip: string | null = null) {
   const { actor, scope } = c;
   const r = ctx.db.prepare(`${RESPONSIBILITIES} WHERE id = ?`).get(id) as ResponsibilityRow | undefined;
   // Someone who may manage none of the Marine's units there learns nothing about the row, not even that it exists.
   const targetScope = r ? scopeFor(ctx, { id: r.user_id }) : null;
-  const units = r && targetScope ? targetScope.unitIds.filter((u) => orgOfUnit(ctx, u) === r.org_id && (!r.unit_id || u === r.unit_id || !targetScope.unitIds.includes(r.unit_id))) : [];
+  const units = r && targetScope ? endableIn(ctx, targetScope, r) : [];
   if (!r || !units.some((u) => can(scope, PERMISSIONS.MANAGE_MEMBERS, u))) throw notFound('No such responsibility.');
   if (r.user_id === actor.id) throw forbidden('A second authorized person must change your own assignment.', 'self_membership_change');
   if (!units.some((u) => mayManageIn(ctx, scope, actor.id, targetScope!, u))) throw forbidden('You cannot change the assignment of a Marine at or above your own position.', 'hierarchy');
