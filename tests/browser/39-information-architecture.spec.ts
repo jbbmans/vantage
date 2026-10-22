@@ -151,6 +151,15 @@ test('importing and exporting are named for what moves, on their pages and in ‚å
   await page.goBack();
   await expect(page).toHaveURL(/\/work\/queue$/);
   await expect(wizard).toBeHidden();
+  // Closed rather than backed out of, it leaves one queue in the history, so Back leaves the queue.
+  await palette('import');
+  await page.getByRole('option', { name: /Import work/ }).click();
+  await expect(wizard).toBeVisible();
+  await page.keyboard.press('Escape');
+  await expect(wizard).toBeHidden();
+  await expect(page).toHaveURL(/\/work\/queue$/);
+  await page.goBack();
+  await expect(page).toHaveURL(/\/record\/activities$/);
 
   await palette('export');
   await expect(page.getByRole('option', { name: /Export my record as a PDF/ })).toBeVisible();

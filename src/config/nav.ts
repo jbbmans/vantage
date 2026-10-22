@@ -64,7 +64,7 @@ export const HOME: NavPage = { to: '/', label: 'Today', icon: Gauge, end: true, 
  */
 export const GROUPS: NavGroup[] = [
   {
-    id: 'work', label: 'Work', icon: Briefcase, key: 'w', hint: 'Taskers, tasks, correspondence and the reference you work from', also: ['/work/items'], pages: [
+    id: 'work', label: 'Work', icon: Briefcase, key: 'w', hint: 'Taskers, tasks, correspondence and the reference you work from', also: ['/work/items', '/records/tasks', '/records/projects'], pages: [
       { to: '/work/queue', label: 'Queue', icon: Inbox, hint: 'Work to claim, and the work you hold' },
       { to: '/work/tasks', label: 'Tasks', icon: ListChecks, hint: 'Your to-dos and the ones assigned to you', count: 'tasks' },
       { to: '/work/projects', label: 'Projects', icon: FolderKanban, hint: 'Taskers and projects with their tasks' },
@@ -91,7 +91,7 @@ export const GROUPS: NavGroup[] = [
     ],
   },
   {
-    id: 'development', label: 'Training & Development', icon: GraduationCap, key: 'c', hint: 'Training, goals and where you are headed', pages: [
+    id: 'development', label: 'Training & Development', icon: GraduationCap, key: 'c', hint: 'Training, goals and where you are headed', also: ['/records/goals'], pages: [
       { to: '/career/training', label: 'Training', icon: BookOpen, hint: 'PME, courses and certifications' },
       { to: '/career', end: true, label: 'Career plan', icon: Compass, hint: 'Next steps toward where you are headed' },
       { to: '/goals', label: 'Goals', icon: Target, key: 'g', hint: 'Targets and measurable progress' },
@@ -147,12 +147,14 @@ export function pageFor(pathname: string): NavPage | undefined {
 /**
  * The group a path belongs to: the group of the page it is, since a page keeps its address when it changes group
  * (/team/roles is Administration, /team/roster Personnel); otherwise the group that claims the path beneath its pages
- * (a case, an entry, a Marine's page). Today and Settings belong to none.
+ * (a case, an entry, a Marine's page), the longest claim winning: a goal at /records/goals/<id> is Training &
+ * Development's, though Records claims /records. Today and Settings belong to none.
  */
 export function groupFor(pathname: string): NavGroup | undefined {
   const page = pageFor(pathname);
   if (page) return GROUPS.find((g) => g.pages.includes(page));
-  return GROUPS.find((g) => (g.also || []).some((a) => under(pathname, a)));
+  const claims = GROUPS.flatMap((g) => (g.also || []).filter((a) => under(pathname, a)).map((a) => ({ g, a })));
+  return claims.sort((x, y) => y.a.length - x.a.length)[0]?.g;
 }
 
 /** Where a page is, the way the menu names it: "Records → Awards", or "Today". For sentences that tell someone where to look. */

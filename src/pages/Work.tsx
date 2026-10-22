@@ -108,7 +108,7 @@ export default function Work({ section }: { section: 'tasks' | 'projects' }) {
       )}
 
       {tab === 'projects' && (
-        (projects || []).length === 0 ? <div className="card"><EmptyState icon={FolderKanban} title="No projects" description="A project groups tasks and activities under one effort so the roll-up writes itself." action={<Button variant="primary" onClick={newProject}>Add a project</Button>} /></div> : (
+        (projects || []).length === 0 ? <div className="card"><EmptyState icon={FolderKanban} title="No projects" description="A project groups tasks and activities under one effort so the roll-up writes itself." action={<Button variant="primary" onClick={newProject}>New project</Button>} /></div> : (
           <div className="grid grid-cols-1 gap-3 md:grid-cols-2 xl:grid-cols-3">
             {(projects || []).map((p) => {
               const pTasks = (tasks || []).filter((t) => t.project_id === p.id);

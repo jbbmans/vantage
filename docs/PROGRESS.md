@@ -1,10 +1,11 @@
 # Progress
 
-_Updated 2026-10-19_
+_Updated 2026-10-22_
 
 ## What changed (2026-10-19: information architecture)
 
-**Partial.** Not merged; HawkScan not run (no key); CI disregarded on John's word.
+**Partial.** Merged in #55 (`65ed79c`), with a follow-up for what the last review found; HawkScan not run (no key);
+CI disregarded on John's word.
 
 The menu is the specification's top-level structure, every page is named as the menu names it, one action has one
 name, and Help answers where everything is
@@ -27,7 +28,9 @@ name, and Help answers where everything is
   Help's keyboard line and the shortcuts dialog list only the pages this person can open.
 - **Activities.** Search, period and layout stay; the other filters fold behind Filters with a count, and open
   when a link sets one.
-- **Rail.** Long labels wrap instead of being cut short; a console link carries an outward arrow.
+- **Rail.** Long labels wrap instead of being cut short; a console link carries an outward arrow, in the rail and in
+  a group's strip. One item is marked as the page you are on; a collapsed rail's group icon is marked as the group
+  you are in. A goal, task or project opened from a notification sits with its list.
 - **No server, API, permission or schema change; no migration.**
 - **Left to other Tasks:** Personnel pages (11), import and export (13), reports (14), duty (17), Packages and
   Analysis overlap (14, 21), drafts (23), performance and responsive pass (25), tutorials (26).

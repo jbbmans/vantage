@@ -329,7 +329,7 @@ export default function AppShell() {
     { id: 'whats-new', title: 'What’s new in Vantage', subtitle: `v${VERSION}`, keywords: 'changes changelog release notes updates version', run: openWhatsNew },
     // Import and export, from anywhere, named as the pages name them (ADR-0016).
     { id: 'import-activities', title: 'Import activities', subtitle: `From a CSV, in ${placeName('/record/activities')}`, keywords: 'upload spreadsheet csv entries import', run: () => navigate('/record/activities?import=1') },
-    { id: 'import-work', title: 'Import work', subtitle: 'Taskers and cases from a spreadsheet, into the queue', keywords: 'upload spreadsheet xlsx workbook tasker cases import', run: () => navigate('/work/queue?import=1') },
+    { id: 'import-work', title: 'Import work', subtitle: 'Taskers and cases from a spreadsheet, into the queue', keywords: 'upload spreadsheet xlsx workbook tasker cases import', run: () => navigate('/work/queue?import=1', { state: { importFrom: location.pathname } }) },
     { id: 'export-activities', title: 'Export activities', subtitle: 'A CSV of the last 12 months, which imports back without duplicates', keywords: 'download csv spreadsheet entries export', run: () => { api.downloadFile(api.reportCsvUrl({ period: 'last12' }), 'vantage-activities.csv').then((name) => toast.success(`Downloaded ${name}.`)).catch((e) => toast.error(api.errorText(e))); } },
     { id: 'export-pdf', title: 'Export my record as a PDF', subtitle: 'The last 12 months, ready for a reporting senior', keywords: 'download export pdf report jepes fitrep print', run: () => { api.downloadFile(api.reportPdfUrl({ period: 'last12', limit: 12 }), 'vantage-report.pdf').then((name) => toast.success(`Downloaded ${name}.`)).catch((e) => toast.error(api.errorText(e))); } },
     { id: 'export-everything', title: 'Export everything Vantage holds about me', subtitle: 'Settings → Your data', keywords: 'download export personal data privacy archive', run: () => navigate('/settings?tab=data') },
@@ -396,11 +396,12 @@ export default function AppShell() {
 
   const groupItem = (g: NavGroup, wide: boolean, mobile: boolean) => {
     const here = g.id === activeGroup?.id;
-    // A narrow rail has room for the group alone; its pages are the strip at the top of the page.
+    // A narrow rail has room for the group alone; its pages are the strip at the top of the page. The icon is the page
+    // you are on only when it opens that page; otherwise it is the group you are in, and the strip names the page.
     if (!wide) {
       return (
         <Tooltip key={g.id} content={g.label} side="right">
-          <Link to={g.pages[0].to} className="nav-item justify-center px-0" aria-current={here ? 'page' : undefined} aria-label={g.label}>
+          <Link to={g.pages[0].to} className="nav-item justify-center px-0" aria-current={here ? (isCurrent(g.pages[0]) ? 'page' : 'true') : undefined} aria-label={g.label}>
             <g.icon className="h-[18px] w-[18px] shrink-0" strokeWidth={1.6} />
           </Link>
         </Tooltip>
@@ -464,6 +465,7 @@ export default function AppShell() {
         <Link key={p.to} to={p.to} aria-current={isCurrent(p) ? 'page' : undefined}
           className={cn('flex shrink-0 items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium ring-1 transition-colors', isCurrent(p) ? 'bg-ink text-surface ring-ink' : 'bg-surface text-ink-2 ring-line hover:text-ink hover:ring-line-strong')}>
           {p.label}
+          {p.away && <ArrowUpRight className="h-3 w-3 shrink-0 opacity-60" aria-hidden />}
           {p.count && counts[p.count] ? <span className={cn('rounded-full px-1.5 font-mono text-[10px]', isCurrent(p) ? 'bg-surface/20' : 'bg-surface-2 text-ink-3')}>{counts[p.count]}</span> : null}
         </Link>
       ))}

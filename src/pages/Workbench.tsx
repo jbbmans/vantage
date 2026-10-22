@@ -1,5 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useLocation, useNavigate, useSearchParams } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
 import {
   ArrowDown, ArrowUp, Bookmark, ClipboardCopy, Filter, Hand, Inbox, Mail,
@@ -76,14 +76,19 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
   const [cursor, setCursor] = useState(0);
   const openItem = useCallback((id: string) => navigate(`/work/items/${id}`), [navigate]);
   // ?import=1 (⌘K's "Import work") opens the import, on arrival or while already here, and Back, which takes the mark
-  // away, closes it. Closing it takes only that mark off the address, so the queue's own filters stay.
+  // away, closes it. Closing it takes only that mark off the address, so the queue's own filters stay; when ⌘K added the
+  // mark here, closing goes back instead, so the queue is not left twice in the history and Back leaves it.
+  const location = useLocation();
   const [importing, setImportingState] = useState(() => searchParams.get('import') === '1');
   const askedToImport = searchParams.get('import') === '1';
   useEffect(() => { setImportingState(askedToImport); }, [askedToImport]);
+  const markedHere = askedToImport && (location.state as { importFrom?: string } | null)?.importFrom === location.pathname;
   const setImporting = useCallback((open: boolean) => {
     setImportingState(open);
-    if (!open) setSearchParams((p) => { if (!p.has('import')) return p; const n = new URLSearchParams(p); n.delete('import'); return n; }, { replace: true });
-  }, [setSearchParams]);
+    if (open) return;
+    if (markedHere) navigate(-1);
+    else setSearchParams((p) => { if (!p.has('import')) return p; const n = new URLSearchParams(p); n.delete('import'); return n; }, { replace: true });
+  }, [markedHere, navigate, setSearchParams]);
   const [saveViewOpen, setSaveViewOpen] = useState(false);
   const [viewName, setViewName] = useState('');
   const [activeViewId, setActiveViewId] = useState<string | null>(null);
