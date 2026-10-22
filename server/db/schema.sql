@@ -132,6 +132,13 @@ CREATE TABLE IF NOT EXISTS unit_members (
   billet     TEXT,
   joined_at  TEXT NOT NULL,
   invited_by TEXT REFERENCES users(id),
+  -- The billet from the Unit Instance's catalogue (ADR-0012) this membership fills, when it fills one; billet above keeps
+  -- its title, so a membership with no catalogue billet still says what it is (ADR-0017, migration 024).
+  billet_id  TEXT REFERENCES unit_billets(id),
+  -- When the assignment to this unit began and is due to end, as calendar days (YYYY-MM-DD). joined_at is when the
+  -- account joined the unit in Vantage, which is seldom the day the Marine reported.
+  assignment_start TEXT,
+  assignment_end   TEXT,
   PRIMARY KEY (user_id, unit_id)
 );
 CREATE INDEX IF NOT EXISTS idx_unit_members_unit ON unit_members(unit_id);
@@ -1254,3 +1261,57 @@ CREATE TABLE IF NOT EXISTS instance_feature_flags (
   set_at  TEXT NOT NULL,
   PRIMARY KEY (org_id, flag)
 );
+
+-- A Marine's personnel record in one Unit Instance (ADR-0017): who supervises them there and the day they checked in.
+-- One row per person per Unit Instance, since a Marine who serves in two answers to a supervisor in each. A supervisor is
+-- a member of the same Unit Instance (the boundary triggers keep it so), is never the Marine, and confers no permission:
+-- authority stays in roles. The history of each change is in personnel_events.
+CREATE TABLE IF NOT EXISTS personnel_records (
+  org_id        TEXT NOT NULL REFERENCES organizations(id),
+  user_id       TEXT NOT NULL REFERENCES users(id),
+  supervisor_id TEXT REFERENCES users(id) CHECK (supervisor_id IS NULL OR supervisor_id <> user_id),
+  checked_in_on TEXT,
+  updated_at    TEXT NOT NULL,
+  updated_by    TEXT REFERENCES users(id),
+  PRIMARY KEY (org_id, user_id)
+);
+CREATE INDEX IF NOT EXISTS idx_personnel_records_supervisor ON personnel_records(org_id, supervisor_id);
+
+-- Functional responsibilities a Marine holds in a Unit Instance besides their billet: "Unit Voting Officer", "Safety
+-- NCO". Ended rather than deleted, so the record keeps who held what and when (ADR-0017).
+CREATE TABLE IF NOT EXISTS personnel_responsibilities (
+  id          TEXT PRIMARY KEY,
+  org_id      TEXT NOT NULL REFERENCES organizations(id),
+  user_id     TEXT NOT NULL REFERENCES users(id),
+  unit_id     TEXT REFERENCES units(id),
+  title       TEXT NOT NULL,
+  starts_on   TEXT,
+  ends_on     TEXT,
+  assigned_by TEXT REFERENCES users(id),
+  created_at  TEXT NOT NULL,
+  ended_at    TEXT,
+  ended_by    TEXT REFERENCES users(id),
+  end_reason  TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_personnel_responsibilities_person ON personnel_responsibilities(org_id, user_id, ended_at);
+
+-- The history of a Marine's personnel facts (ADR-0017): rank, MOS, EAS and account status (org_id NULL, since they are
+-- the person's wherever they serve), and supervisor, check-in and assignment dates in one Unit Instance. Database
+-- triggers write each row (migration 024), so every path that changes one of them leaves its history; the service then
+-- names who made the change, how (source) and why (reason), and the bulk change it was part of (batch_id).
+CREATE TABLE IF NOT EXISTS personnel_events (
+  id         INTEGER PRIMARY KEY,
+  user_id    TEXT NOT NULL REFERENCES users(id),
+  org_id     TEXT REFERENCES organizations(id),
+  unit_id    TEXT REFERENCES units(id),
+  field      TEXT NOT NULL,
+  from_value TEXT,
+  to_value   TEXT,
+  source     TEXT,
+  reason     TEXT,
+  actor_id   TEXT REFERENCES users(id),
+  batch_id   TEXT,
+  at         TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_personnel_events_user ON personnel_events(user_id, at);
+CREATE INDEX IF NOT EXISTS idx_personnel_events_org ON personnel_events(org_id, at);

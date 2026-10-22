@@ -4,6 +4,7 @@ import { audit } from './audit.ts';
 import { badRequest } from '../lib/errors.ts';
 import { createHash } from 'node:crypto';
 import { addMember, claimUnit, primaryOrgOf, removeMember, setPrimaryUnit } from './org.ts';
+import { notePersonnelChanges, personnelMark } from './personnelRecords.ts';
 import { invalidateUserSessions } from '../auth/sessions.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
 import { seatedOrgRole } from '../authz/scope.ts';
@@ -154,7 +155,12 @@ interface RemovedOrgRole { role: OrgRole; granted_by: string | null; expires_at:
  * Instance roles it ended ride on the first one (`orgRoles`), so the list keeps the shape earlier versions read and
  * restore from. `led` marks a unit the person led, whose leadership the separation ended with the membership.
  */
-type RemovedMemberships = Array<{ unit_id: string; is_primary: number; billet: string | null; roles: Array<{ role_id: string; expires_at: string | null }>; frozen_at: string; led?: boolean; orgRoles?: RemovedOrgRole[] }>;
+type RemovedMemberships = Array<{
+  unit_id: string; is_primary: number; billet: string | null; billet_id?: string | null; assignment_start?: string | null; assignment_end?: string | null;
+  roles: Array<{ role_id: string; expires_at: string | null }>; frozen_at: string; led?: boolean; orgRoles?: RemovedOrgRole[];
+  /** The supervisor and check-in the separation cleared from their personnel record there, on the first one too (ADR-0017). */
+  personnel?: { supervisor_id: string | null; checked_in_on: string | null };
+}>;
 
 export const MASS_SEPARATION_SHARE = 0.2;
 
@@ -357,6 +363,9 @@ export function summarizePlan(plan: SyncPlan) {
 }
 
 export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | null): { runId: string } {
+  // Every personnel fact the extract changes is named as the feed's in the history (ADR-0017); a departure it causes is
+  // named as one by removeMember first.
+  const mark = personnelMark(ctx);
   const { db } = ctx;
   const at = now();
   const runId = newId();
@@ -374,8 +383,8 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
     // What the feed takes away it can give back: memberships it ended, with their billets and roles, restored if a later
     // extract lists the person as active again. Records frozen on the way out are thawed with them.
     const endMemberships = (userId: string, edipi: string): number => {
-      const held = db.prepare(`SELECT um.unit_id, um.is_primary, um.billet FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE um.user_id = ? AND un.org_id = ?`)
-        .all(userId, plan.orgId) as Array<{ unit_id: string; is_primary: number; billet: string | null }>;
+      const held = db.prepare(`SELECT um.unit_id, um.is_primary, um.billet, um.billet_id, um.assignment_start, um.assignment_end FROM unit_members um JOIN units un ON un.id = um.unit_id WHERE um.user_id = ? AND un.org_id = ?`)
+        .all(userId, plan.orgId) as Array<{ unit_id: string; is_primary: number; billet: string | null; billet_id: string | null; assignment_start: string | null; assignment_end: string | null }>;
       if (!held.length) return 0;
       const units = held.map((m) => ({
         ...m,
@@ -386,8 +395,11 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
       // Leaving the last unit ends their Unit Instance roles as any departure does (ADR-0010). They are kept with the
       // memberships, so the restore below gives them back if the separation was the extract's mistake.
       const orgRoles = db.prepare('SELECT role, granted_by, expires_at FROM org_roles WHERE org_id = ? AND user_id = ?').all(plan.orgId, userId) as RemovedOrgRole[];
+      // So does their personnel record there (ADR-0017): its supervisor and check-in are kept for the same restore.
+      const record = db.prepare('SELECT supervisor_id, checked_in_on FROM personnel_records WHERE org_id = ? AND user_id = ?').get(plan.orgId, userId) as { supervisor_id: string | null; checked_in_on: string | null } | undefined;
+      const personnel = record && (record.supervisor_id || record.checked_in_on) ? record : null;
       for (const m of held) removeMember(ctx, userId, m.unit_id, actorId, 'roster_separation');
-      const kept: RemovedMemberships = units.map((m, i) => (i === 0 && orgRoles.length ? { ...m, orgRoles } : m));
+      const kept: RemovedMemberships = units.map((m, i) => (i === 0 ? { ...m, ...(orgRoles.length ? { orgRoles } : {}), ...(personnel ? { personnel } : {}) } : m));
       db.prepare('UPDATE personnel_roster SET removed_units = ? WHERE org_id = ? AND edipi = ?').run(JSON.stringify(kept), plan.orgId, edipi);
       return held.length;
     };
@@ -399,6 +411,11 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
       for (const m of removed) {
         if (!db.prepare('SELECT 1 FROM units WHERE id = ? AND org_id = ? AND active = 1').get(m.unit_id, plan.orgId)) continue;
         addMember(ctx, userId, m.unit_id, { primary: Boolean(m.is_primary), billet: m.billet, reason: 'roster_restored' });
+        // The billet from the list, while the unit still staffs it, and the assignment dates come back with the membership.
+        const billetId = m.billet_id && db.prepare('SELECT 1 FROM unit_billets WHERE id = ? AND org_id = ? AND active = 1 AND (unit_id IS NULL OR unit_id = ?)').get(m.billet_id, plan.orgId, m.unit_id) ? m.billet_id : null;
+        if (billetId || m.assignment_start || m.assignment_end) {
+          db.prepare('UPDATE unit_members SET billet_id = ?, assignment_start = ?, assignment_end = ? WHERE user_id = ? AND unit_id = ?').run(billetId, m.assignment_start ?? null, m.assignment_end ?? null, userId, m.unit_id);
+        }
         // The primary unit this organization's own extract moved away goes back with the rest, even when it went to another
         // Unit Instance meanwhile: giving back what the same feed took is not taking from another instance (ADR-0008).
         if (m.is_primary) setPrimaryUnit(ctx, userId, m.unit_id);
@@ -419,6 +436,15 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
           if (r.expires_at && r.expires_at <= at) continue;
           const back = db.prepare('INSERT OR IGNORE INTO org_roles (org_id, user_id, role, granted_by, expires_at, created_at) VALUES (?, ?, ?, ?, ?, ?)').run(plan.orgId, userId, r.role, r.granted_by, r.expires_at, at).changes;
           if (back) audit(ctx, { actor_id: actorId, action: 'org_role_restored', entity: 'organization', entity_id: plan.orgId, org_id: plan.orgId, subject_id: userId, detail: `${r.role} (${ORG_ROLES[r.role]?.label ?? r.role}): ${plan.source}: back on the roster` });
+        }
+        // And their supervisor and check-in there, the supervisor while they still serve in the Unit Instance. Nobody can
+        // have named the returning Marine as a supervisor while they were away, so this makes no loop.
+        const personnel = removed.find((m) => m.personnel)?.personnel;
+        if (personnel) {
+          const supervisorId = personnel.supervisor_id && db.prepare('SELECT 1 FROM unit_members um JOIN units un ON un.id = um.unit_id JOIN users u ON u.id = um.user_id WHERE um.user_id = ? AND un.org_id = ? AND u.active = 1 LIMIT 1').get(personnel.supervisor_id, plan.orgId) ? personnel.supervisor_id : null;
+          db.prepare(`INSERT INTO personnel_records (org_id, user_id, supervisor_id, checked_in_on, updated_at, updated_by) VALUES (?, ?, ?, ?, ?, ?)
+              ON CONFLICT(org_id, user_id) DO UPDATE SET supervisor_id = excluded.supervisor_id, checked_in_on = excluded.checked_in_on, updated_at = excluded.updated_at, updated_by = excluded.updated_by`)
+            .run(plan.orgId, userId, supervisorId, personnel.checked_in_on, at, actorId);
         }
       }
       db.prepare('UPDATE personnel_roster SET removed_units = NULL WHERE org_id = ? AND edipi = ?').run(plan.orgId, edipi);
@@ -508,6 +534,7 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
                 VALUES (?, ?, ?, ?, 0, ?, ?, ?, ?, ?, ?, ?)`)
       .run(runId, plan.orgId, plan.source, actorId, plan.rowsSeen, plan.creates.length, plan.updates.length, plan.separations.length, plan.conflicts.length,
            JSON.stringify({ unchanged: plan.unchanged, rejected: plan.rejected.length }), at);
+    notePersonnelChanges(ctx, mark, { actorId, source: 'feed', reason: `${plan.source} personnel feed` });
   })();
 
   audit(ctx, { actor_id: actorId, action: 'personnel_sync', org_id: plan.orgId, detail: `${plan.source}: +${plan.creates.length} ~${plan.updates.length} -${plan.separations.length}` });

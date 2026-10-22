@@ -19,7 +19,7 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
   let prefs: unknown = {};
   try { prefs = JSON.parse(String(user.prefs || '{}')); } catch { /* keep the raw string below */ }
 
-  const memberships = db.prepare(`SELECT m.unit_id, m.is_primary, m.billet, m.joined_at, u.code AS unit_code, u.name AS unit_name, u.short_name AS unit_short, u.echelon, u.location, u.parent_id, p.name AS parent_name
+  const memberships = db.prepare(`SELECT m.unit_id, m.is_primary, m.billet, m.billet_id, m.assignment_start, m.assignment_end, m.joined_at, u.code AS unit_code, u.name AS unit_name, u.short_name AS unit_short, u.echelon, u.location, u.parent_id, p.name AS parent_name
     FROM unit_members m JOIN units u ON u.id = m.unit_id LEFT JOIN units p ON p.id = u.parent_id WHERE m.user_id = ? ORDER BY m.is_primary DESC, m.joined_at`).all(userId) as Row[];
   // Every unit they have served in and when, across every Unit Instance: it is their own history (ADR-0009).
   const membershipPeriods = membershipHistory(ctx, userId, null, 10_000);
@@ -27,6 +27,13 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
     .map((r) => ({ ...r, permission_names: listPermissions(Number(r.permissions)) }));
   const units = db.prepare(`SELECT id, code, name, short_name, echelon, location, parent_id, owner_user_id = ? AS owned_by_me, created_at FROM units WHERE id IN (SELECT unit_id FROM unit_members WHERE user_id = ?) OR owner_user_id = ? ORDER BY name`).all(userId, userId, userId) as Row[];
   const readiness = db.prepare('SELECT * FROM readiness WHERE user_id = ?').get(userId) as Row | undefined;
+  // Their personnel record in each Unit Instance, the responsibilities they hold or held, and its history (ADR-0017).
+  const personnelRecords = db.prepare(`SELECT pr.org_id, o.name AS organization, s.username AS supervisor, pr.checked_in_on, pr.updated_at
+    FROM personnel_records pr LEFT JOIN organizations o ON o.id = pr.org_id LEFT JOIN users s ON s.id = pr.supervisor_id WHERE pr.user_id = ? ORDER BY pr.org_id`).all(userId) as Row[];
+  const responsibilities = db.prepare(`SELECT r.id, r.org_id, r.unit_id, r.title, r.starts_on, r.ends_on, a.username AS assigned_by, r.created_at, r.ended_at, e.username AS ended_by, r.end_reason
+    FROM personnel_responsibilities r LEFT JOIN users a ON a.id = r.assigned_by LEFT JOIN users e ON e.id = r.ended_by WHERE r.user_id = ? ORDER BY r.created_at`).all(userId) as Row[];
+  const personnelHistory = db.prepare(`SELECT ev.at, ev.org_id, ev.unit_id, ev.field, ev.from_value, ev.to_value, ev.source, ev.reason, CASE WHEN ev.actor_id = ? THEN 'me' ELSE a.username END AS actor, ev.batch_id
+    FROM personnel_events ev LEFT JOIN users a ON a.id = ev.actor_id WHERE ev.user_id = ? ORDER BY ev.at, ev.id`).all(userId, userId) as Row[];
 
   const records: Record<string, Row[]> = {};
   for (const table of RECORD_TABLE_NAMES) {
@@ -81,12 +88,13 @@ export function buildPersonalExport(ctx: AppContext, userId: string, { attachmen
     profile: { ...user, prefs, rank } as Row & { username: string; rank: Row | null | undefined; prefs: unknown },
     readiness: readiness || null,
     units, memberships, membership_history: membershipPeriods, roles,
+    personnel: { records: personnelRecords, responsibilities, history: personnelHistory },
     records,
     attachments: attachmentRows,
     notifications, comments: commentRows, audit_trail: auditTrail, ai_usage: aiUsage, email_log: emails, maradmin_state: maradminState,
     contributions, drafts, career: { profile: careerProfile || null, steps: careerSteps }, record_moves: lineage,
     security: { passkeys, sessions, authenticator_enabled: Boolean(user.totp_enabled) },
-    counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, comments: commentRows.length, audit_trail: auditTrail.length, contributions: contributions.length, drafts: drafts.length, career_steps: careerSteps.length, record_moves: lineage.length },
+    counts: { ...counts, attachments: attachmentRows.length, notifications: notifications.length, comments: commentRows.length, audit_trail: auditTrail.length, contributions: contributions.length, drafts: drafts.length, career_steps: careerSteps.length, record_moves: lineage.length, responsibilities: responsibilities.length, personnel_history: personnelHistory.length },
     _files: attachmentFiles,
   };
 }
@@ -114,6 +122,9 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string): { buffe
   entries.push({ name: 'memberships.csv', data: rowsToCsv(archive.memberships.map(flat)) });
   entries.push({ name: 'membership-history.csv', data: rowsToCsv(archive.membership_history.map((p) => flat({ ...p }))) });
   entries.push({ name: 'roles.csv', data: rowsToCsv(archive.roles.map(flat)) });
+  entries.push({ name: 'personnel-records.csv', data: rowsToCsv(archive.personnel.records.map(flat)) });
+  entries.push({ name: 'responsibilities.csv', data: rowsToCsv(archive.personnel.responsibilities.map(flat)) });
+  entries.push({ name: 'personnel-history.csv', data: rowsToCsv(archive.personnel.history.map(flat)) });
   for (const [table, rows] of Object.entries(archive.records)) {
     // Visibility is already one of the import columns, and a bare "Unit" is an import alias for the action
     // unit; either would make the person's own export unimportable (duplicate or ambiguous headers).

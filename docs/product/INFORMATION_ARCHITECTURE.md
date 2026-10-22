@@ -11,7 +11,7 @@ page's eyebrow and every sentence that names a place read it from there.
 | **Work** (W) | What work exists, what is mine, what can I claim, where does it stand? | Queue, Tasks, Projects, Correspondence, Reference (F) | `/work/…`, `/reference` |
 | Work item | What is this, what happened, what comes next? | Header with stage and holder; next step with help and a form for that step; candidate calculation; add any entry; history; procedure checklist; who worked this; source; correspondence | `/work/items/:id` |
 | **Records** (R) | What have I done, and what backs it up? | Overview, Timeline, Activities, Awards, Counseling, Drafts, Contributions | `/record/…`, `/career/awards`, `/career/counseling`, `/records/:id` |
-| **Personnel** (T, leaders) | Who is in my units, and what do they hold? | Overview, Roster, Workload; a member's page | `/team`, `/team/roster`, `/team/workload`, `/team/:id` |
+| **Personnel** (T, leaders) | Who is in my units, and what do they hold? | Overview, Roster, Workload; a member's page, on their personnel record | `/team`, `/team/roster`, `/team/workload`, `/team/:id` |
 | **Training & Development** (C) | Where am I headed, and what have I completed toward it? | Training, Career plan, Goals (G), Readiness, MARADMINs (M, when enabled) | `/career/…`, `/goals`, `/maradmins` |
 | **Reports & Analytics** (P) | What evaluation input do the records give, and what do they show? | Packages, Analysis, Unit dashboard (leaders) | `/reports`, `/reports/analysis`, `/team/dashboard` |
 | **Administration** (A) | Who may do what, and who opened what? | Invitations, Roles, Units, Access log, Unit Manager console (O), Vantage Administrator console | `/team/…`, `/console`, `/admin` |
@@ -50,7 +50,7 @@ Help → Field guide opens with these answers, linked to the pages this person m
 | Where work lives | Work → Queue, Work → Tasks |
 | Where records live | Records → Overview, Records → Timeline |
 | Where training lives | Training & Development → Training, and → Readiness |
-| Where personnel live | Personnel → Overview for any member of a unit; Personnel → Roster, and → Workload, when the person leads a unit or holds a role that sees its members |
+| Where personnel live | Personnel → Overview for any member of a unit; Personnel → Roster, and → Workload, when the person leads a unit or holds a role that sees its members; Roster alone for one who manages its members without reading records, such as a Unit Manager (ADR-0017). A member's page opens on their personnel record |
 | How to record | N or Log activity anywhere; New award, New training and New counseling on their pages |
 | How to import | Import activities (Records → Activities); Import work (Work → Queue) |
 | How to export | Export activities; Export analysis PDF and Export JEPES input PDF (Reports & Analytics → Analysis); Settings → Your data |
@@ -69,7 +69,7 @@ Help → Field guide opens with these answers, linked to the pages this person m
 | Filters | Six controls in a row on Activities on a desk | Folded behind Filters with a count | — |
 | Forms and modals | A create dialog titled differently from the button that opened it | Button and dialog share the "New …" name | The NAVMC 2795 counseling form: Task 20 |
 | Cards and dashboards | Today and the Records overview each answer one question; Packages and Analysis overlap (both read the record for evaluation input) | Left in place, named consistently | Reports and printable output: Task 14; unified analytics: Task 21 |
-| Tables | Wide tables scroll inside their card; no page scrolled sideways at 390px except Help, after its keyboard line grew | Help's keyboard line fixed | Personnel tables: Task 11; performance and responsive pass: Task 25 |
+| Tables | Wide tables scroll inside their card; no page scrolled sideways at 390px except Help, after its keyboard line grew | Help's keyboard line fixed | Personnel tables: done in Task 11 (the roster is a list on a phone); performance and responsive pass: Task 25 |
 | Duplicate workflows | Two ways in for awards and training (an activity, or its own record) | Settled by Task 9's move suggestions; Find your way points to the right place | — |
 | Discoverability | Nothing told a new user where things are, how to import or export, or where duty is | Find your way; Getting started links to it | Tutorials: Task 26; duty records: Task 17; drafts: Task 23 |
 

@@ -49,7 +49,7 @@ const USER = [
   'edit_profile', 'email_confirmed', 'export_personal', 'mfa_enabled', 'mfa_disabled', 'passkey_added', 'passkey_removed',
   'password_change', 'recovery_codes_regenerated', 'revoke_sessions', 'digest_sent',
   // Records: entries, files, counselings, comments, and every read of somebody else's.
-  'create', 'edit', 'delete', 'restore', 'import', 'list_records', 'view_record', 'view_member', 'view_roster',
+  'create', 'edit', 'delete', 'restore', 'import', 'list_records', 'view_record', 'view_member', 'view_roster', 'view_personnel',
   'view_readiness', 'view_unit_dashboard', 'view_team_workload', 'acknowledge_counseling', 'counseling_amended', 'upload_attachment',
   'upload_rejected', 'download_attachment', 'delete_attachment', 'comment_added', 'comment_edited', 'comment_deleted',
   'comment_removed_by_moderator', 'export', 'export_csv', 'export_pdf', 'team_message',
@@ -71,6 +71,8 @@ const UNIT = [
   'add_member', 'edit_membership', 'move_member', 'remove_member', 'edit_member_profile', 'create_unit', 'edit_unit',
   'archive_unit', 'transfer_ownership', 'unit_leader_set', 'unit_leader_ended', 'create_role', 'edit_role', 'delete_role', 'grant_role',
   'revoke_role', 'role_expired', 'unit_role_withheld', 'force_logout', 'account_unlock',
+  // Personnel records (ADR-0017): responsibilities, and a change made to many Marines at once.
+  'add_responsibility', 'end_responsibility', 'personnel_bulk',
   // A refusal at a unit's or a Unit Instance's routes; the platform's own refusals are sealed enterprise.
   'access_denied',
   // Invitations, join codes, account imports and sign-in details.

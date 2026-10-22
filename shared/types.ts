@@ -150,6 +150,103 @@ export interface MembershipPeriod {
   started_at: string; ended_at: string | null; start_reason: string | null; end_reason: string | null;
 }
 
+/** Whether an account can be used, as the people who manage it see it (ADR-0017). Never a secret. */
+export type AccountStatus = 'active' | 'locked' | 'never_signed_in' | 'must_change_password' | 'deactivated';
+
+/** A person named on a personnel record: a supervisor, a leader, whoever made a change. */
+export interface PersonnelPersonRef { id: string; first_name: string; last_name: string; rank_abbr: string | null }
+
+/** One membership as the personnel record shows it: the unit, the billet it fills and the dates of the assignment. */
+export interface PersonnelAssignment {
+  unit_id: string; unit_name: string; unit_short: string | null; echelon: string | null; is_primary: number;
+  billet: string | null; billet_id: string | null; assignment_start: string | null; assignment_end: string | null; joined_at: string;
+  /** The reader may change it: Manage members in the unit, above the Marine there. */
+  canManage: boolean;
+}
+
+export interface PersonnelResponsibility {
+  id: string; title: string; unit_id: string | null; unit_label: string | null; starts_on: string | null; ends_on: string | null;
+  created_at: string; ended_at: string | null; end_reason: string | null; assigned_by: PersonnelPersonRef | null;
+  /** The reader may end it: they manage the Marine in its unit, or anywhere in its Unit Instance once the Marine has left that unit. */
+  canEnd?: boolean;
+}
+
+/** One change to a personnel fact: rank, mos, eas, account, supervisor, checked_in, assignment_start or assignment_end. */
+export interface PersonnelEvent {
+  id: number; field: string; from_value: string | null; to_value: string | null; from_label: string | null; to_label: string | null;
+  unit_id: string | null; unit_label: string | null; source: string | null; reason: string | null; batch_id: string | null; at: string;
+  /** Who made it, when the reader may know. */
+  actor: PersonnelPersonRef | null;
+}
+
+/** A Marine's personnel record in one Unit Instance they serve in. */
+export interface PersonnelInstance {
+  org_id: string; org_name: string;
+  assignments: PersonnelAssignment[];
+  /** Their own team: the deepest unit they belong to there. */
+  team: { unit_id: string; label: string; echelon: string | null } | null;
+  supervisor: PersonnelPersonRef | null;
+  checked_in_on: string | null;
+  /** Their supervisors upward, then the leaders of their primary unit there and of the units above it. Information only. */
+  chain: Array<PersonnelPersonRef & { relation: 'supervisor' | 'leader'; unit_label: string | null }>;
+  supervises: PersonnelPersonRef[];
+  responsibilities: PersonnelResponsibility[];
+  roles: Array<{ unit_id: string; unit_label: string; name: string; color: string | null }>;
+  /** Unit Instance roles, by label: Lead Unit Manager, Unit Manager, Records Officer, Unit Auditor. */
+  orgRoles: string[];
+  canManage: boolean;
+  /** The Unit Instance's active billets for their units, when the reader may set one. */
+  billets: Array<{ id: string; title: string; unit_id: string | null; code: string | null }>;
+}
+
+/** GET /api/org/team/:id/personnel: the personnel record (ADR-0017), as much of it as the reader may see. */
+export interface PersonnelRecordResponse {
+  person: { id: string; first_name: string; last_name: string; middle_initial: string | null; rank_id: string | null; rank_abbr: string | null; rank_name: string | null; rank_grade: string | null; mos: string | null; eas: string | null };
+  /** Profile fields the personnel feed sets, which only the feed changes. */
+  sourced: string[];
+  self: boolean;
+  canOpenRecords: boolean;
+  /** For the Marine and those who manage them. */
+  account: { status: AccountStatus; last_login_at: string | null; locked_until: string | null; mfa: boolean; cac: boolean } | null;
+  instances: PersonnelInstance[];
+  /** For the Marine, those who manage them and those who open their records. */
+  history: { periods: MembershipPeriod[]; events: PersonnelEvent[] } | null;
+  /** How many of each record the reader may open; only with record access. Duty counts Operations activities until Task 17. */
+  records: { trainings: number; education: number; awards: number; counselings: number; duty: number; activities: number; goals: number; tasks: number } | null;
+}
+
+export interface PersonnelRosterRow {
+  id: string; first_name: string; last_name: string; rank_abbr: string | null; rank_grade: string | null; rank_sort: number | null; mos: string | null; eas: string | null;
+  /** The membership this row stands for: their own team beneath the unit, else the unit. */
+  assignment: PersonnelAssignment;
+  team_label: string;
+  supervisor: PersonnelPersonRef | null;
+  checked_in_on: string | null;
+  responsibilities: string[];
+  roles: Array<{ id: string; name: string; color: string | null }>;
+  /** Only for oneself and the Marines the reader manages. */
+  status?: AccountStatus;
+  last_login_at?: string | null;
+  self: boolean;
+  canManage: boolean;
+  canOpenRecords: boolean;
+}
+
+/** GET /api/org/units/:id/personnel: the personnel roster of a unit and the units beneath it. */
+export interface PersonnelRosterResponse {
+  unit_id: string; org_id: string | null;
+  rows: PersonnelRosterRow[];
+  /** The Unit Instance's active billets for these units, when the reader manages members here. */
+  billets: Array<{ id: string; title: string; unit_id: string | null; code: string | null }>;
+  canManage: boolean;
+}
+
+/** POST /api/org/units/:id/personnel/bulk: what happened, or would, to each Marine. Nothing is applied unless every row is. */
+export interface PersonnelBulkResponse {
+  batch_id: string | null; applied: boolean; dry_run: boolean; refused: number;
+  results: Array<{ user_id: string; unit_id: string; ok: boolean; changed: string[]; code?: string; error?: string }>;
+}
+
 /** GET /api/org/team/:id: one Marine's page, limited to the units the reader shares with them (all of it for oneself). */
 export interface MemberDetailResponse {
   person: {

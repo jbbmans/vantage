@@ -4,7 +4,7 @@ import { mkdtempSync, rmSync, readFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import Database from 'better-sqlite3';
-import { openDatabase, migrationHistory, SCHEMA_VERSION } from '../../server/db/index.ts';
+import { openDatabase, migrationHistory, instanceBoundaryViolations, SCHEMA_VERSION } from '../../server/db/index.ts';
 import { PERMISSIONS } from '../../shared/permissions.ts';
 import { hmac } from '../../server/lib/crypto.ts';
 import { loadConfig } from '../../server/config.ts';
@@ -223,7 +223,8 @@ test('020 keeps a Unit Instance’s billets and training requirements inside it,
     const db = openDatabase(path);
     assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
     const triggers = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%_unit_same_org_%'").all() as Array<{ name: string }>).map((t) => t.name).sort();
-    assert.deepEqual(triggers, ['training_requirements_unit_same_org_insert', 'training_requirements_unit_same_org_update', 'unit_billets_unit_same_org_insert', 'unit_billets_unit_same_org_update']);
+    // 024 adds the responsibilities table to the same rule.
+    assert.deepEqual(triggers, ['personnel_responsibilities_unit_same_org_insert', 'personnel_responsibilities_unit_same_org_update', 'training_requirements_unit_same_org_insert', 'training_requirements_unit_same_org_update', 'unit_billets_unit_same_org_insert', 'unit_billets_unit_same_org_update']);
     const billet = db.prepare("INSERT INTO unit_billets (id, org_id, unit_id, title, active, created_at, updated_at) VALUES (?, 'G8', ?, ?, 1, ?, ?)");
     billet.run('b-own', 'G8', 'Comptroller', at, at);
     assert.throws(() => billet.run('b-across', 'G1', 'Disbursing Officer', at, at), /cross_instance/, 'a billet never names another Unit Instance’s unit');
@@ -294,5 +295,65 @@ test('021 gives each new audit entry a sealed category and makes the log append-
     assert.equal(verifyAuditChain(again).ok, true);
     assert.deepEqual((again.db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE 'audit_log_%' ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name), triggers);
     again.db.close();
+  } finally { cleanup(); }
+});
+
+test('024 links each membership to the one billet its title names, dates assignments, and writes personnel history from then on', () => {
+  const at = '2026-09-01T00:00:00.000Z';
+  const { path, cleanup } = atVersion(23, (db) => {
+    // The shape at 23: memberships carry a billet title only, and there is no personnel record or history.
+    db.pragma('foreign_keys = OFF');
+    db.exec('DROP TABLE personnel_events; DROP TABLE personnel_responsibilities; DROP TABLE personnel_records; DROP TABLE unit_members');
+    db.exec(`CREATE TABLE unit_members (user_id TEXT NOT NULL REFERENCES users(id), unit_id TEXT NOT NULL REFERENCES units(id), is_primary INTEGER NOT NULL DEFAULT 0 CHECK (is_primary IN (0, 1)),
+      billet TEXT, joined_at TEXT NOT NULL, invited_by TEXT REFERENCES users(id), PRIMARY KEY (user_id, unit_id))`);
+    const org = db.prepare("INSERT INTO organizations (id, slug, name, status, root_unit_id, settings, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, '{}', ?, ?)");
+    const unit = db.prepare('INSERT INTO units (id, code, name, parent_id, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+    for (const id of ['G8', 'G1']) { org.run(id, id, id, id, at, at); unit.run(id, id, id, null, id, at); }
+    unit.run('BUD', 'BUD', 'Budget', 'G8', 'G8', at);
+    const user = db.prepare("INSERT INTO users (id, username, password_hash, first_name, last_name, rank_id, created_at, updated_at) VALUES (?, ?, 'x', 'Sam', ?, 'LCpl', ?, ?)");
+    for (const id of ['u1', 'u2', 'u3', 'u4', 'u5']) user.run(id, id, id, at, at);
+    const billet = db.prepare("INSERT INTO unit_billets (id, org_id, unit_id, title, active, created_at, updated_at) VALUES (?, ?, ?, ?, ?, ?, ?)");
+    billet.run('b-bud', 'G8', 'BUD', 'Budget Analyst', 1, at, at);
+    billet.run('b-any', 'G8', null, 'Budget Analyst', 1, at, at);
+    billet.run('b-clerk', 'G8', null, 'Disbursing Clerk', 1, at, at);
+    billet.run('b-old', 'G8', null, 'Fiscal Chief', 0, at, at);
+    const member = db.prepare('INSERT INTO unit_members (user_id, unit_id, is_primary, billet, joined_at) VALUES (?, ?, 1, ?, ?)');
+    member.run('u1', 'BUD', ' budget analyst ', at); // its own unit's billet first
+    member.run('u2', 'G8', 'Disbursing Clerk', at); // one for every unit
+    member.run('u3', 'G8', 'Admin Clerk', at); // on no list: kept as typed
+    member.run('u4', 'G8', 'Fiscal Chief', at); // retired: not linked
+    member.run('u5', 'G1', 'Disbursing Clerk', at); // another Unit Instance's list: not linked
+  });
+  try {
+    const db = openDatabase(path);
+    assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    assert.ok(migrationHistory(db).some((m) => m.id === 24 && m.name === '024_personnel_records'));
+    const columns = (db.prepare('PRAGMA table_info(unit_members)').all() as Array<{ name: string }>).map((c) => c.name);
+    for (const c of ['billet_id', 'assignment_start', 'assignment_end']) assert.ok(columns.includes(c), c);
+    const links = Object.fromEntries((db.prepare('SELECT user_id, billet_id FROM unit_members ORDER BY user_id').all() as Array<{ user_id: string; billet_id: string | null }>).map((r) => [r.user_id, r.billet_id]));
+    assert.deepEqual(links, { u1: 'b-bud', u2: 'b-clerk', u3: null, u4: null, u5: null });
+    assert.equal((db.prepare("SELECT billet FROM unit_members WHERE user_id = 'u1'").get() as { billet: string }).billet, ' budget analyst ', 'no title is rewritten');
+    for (const t of ['personnel_profile_changed', 'personnel_record_opened', 'personnel_record_changed', 'personnel_assignment_dated', 'unit_members_billet_same_org_insert', 'personnel_records_supervisor_same_org_insert']) {
+      assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(t), t);
+    }
+    assert.deepEqual(Object.fromEntries(Object.entries(instanceBoundaryViolations(db)).filter(([, n]) => n)), {});
+    // History is written from now on, by whatever writes.
+    db.prepare("UPDATE users SET rank_id = 'Cpl' WHERE id = 'u1'").run();
+    db.prepare("UPDATE unit_members SET assignment_end = '2027-06-30' WHERE user_id = 'u1'").run();
+    db.prepare("INSERT INTO personnel_records (org_id, user_id, supervisor_id, checked_in_on, updated_at) VALUES ('G8', 'u1', 'u2', '2026-09-02', ?)").run(at);
+    const written = (db.prepare("SELECT field, from_value, to_value, org_id, unit_id FROM personnel_events WHERE user_id = 'u1' ORDER BY id").all() as Array<Record<string, unknown>>).map((r) => ({ ...r }));
+    assert.deepEqual(written, [
+      { field: 'rank', from_value: 'LCpl', to_value: 'Cpl', org_id: null, unit_id: null },
+      { field: 'assignment_end', from_value: null, to_value: '2027-06-30', org_id: 'G8', unit_id: 'BUD' },
+      { field: 'supervisor', from_value: null, to_value: 'u2', org_id: 'G8', unit_id: null },
+      { field: 'checked_in', from_value: null, to_value: '2026-09-02', org_id: 'G8', unit_id: null },
+    ]);
+    assert.throws(() => db.prepare("UPDATE unit_members SET billet_id = 'b-clerk' WHERE user_id = 'u5'").run(), /cross_instance/);
+    db.close();
+    // A second boot changes nothing.
+    const again = openDatabase(path);
+    assert.equal(migrationHistory(again).filter((m) => m.id === 24).length, 1);
+    assert.equal((again.prepare('SELECT COUNT(*) AS n FROM personnel_events').get() as { n: number }).n, 4);
+    again.close();
   } finally { cleanup(); }
 });

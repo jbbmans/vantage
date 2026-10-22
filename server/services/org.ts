@@ -10,6 +10,7 @@ import { notify, notifyOrg } from './notifications.ts';
 import { releaseClaimsOnDeparture } from './work.ts';
 import { assertCanFoundUnitInstance } from './deployment.ts';
 import { noteMembershipEnd, noteMembershipStart, type EndReason, type StartReason } from './membership.ts';
+import { endPersonnelOnDeparture } from './personnelRecords.ts';
 
 export interface UnitRow { id: string; code: string; name: string; short_name: string | null; echelon: string; location: string | null; parent_id: string | null; owner_user_id: string | null; active: number; created_at: string }
 
@@ -144,7 +145,9 @@ export function removeMember(ctx: AppContext, userId: string, unitId: string, ac
       if (next) ctx.db.prepare('UPDATE unit_members SET is_primary = 1 WHERE user_id = ? AND unit_id = ?').run(userId, next.unit_id);
     }
     const instanceRolesEnded = endInstanceRoles ? endInstanceRolesOnDeparture(ctx, userId, orgOfUnit(ctx, unitId), actorId, reason) : [];
-    return { roles, recordsFrozen, claimsReleased, instanceRolesEnded, leaderEnded };
+    // So does their personnel record there: supervisor, check-in, responsibilities, and anyone they supervised (ADR-0017).
+    const personnel = endInstanceRoles ? endPersonnelOnDeparture(ctx, userId, orgOfUnit(ctx, unitId), actorId) : { responsibilitiesEnded: 0, supervisionsEnded: 0 };
+    return { roles, recordsFrozen, claimsReleased, instanceRolesEnded, leaderEnded, ...personnel };
   })();
 }
 
