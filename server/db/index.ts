@@ -310,6 +310,18 @@ const MIGRATIONS: Migration[] = [
       instanceBoundaryTriggers(db);
     },
   },
+  {
+    id: 25,
+    name: '025_personnel_guards',
+    // Two gaps in 024 (ADR-0017): a membership created with its assignment dates already set now leaves them in the
+    // history, as a later change to them does, and a billet is not narrowed to one unit while a Marine in another unit
+    // holds it. Nothing already written is changed; a billet that already disagrees with a holder is left for its Unit
+    // Managers to reassign.
+    run: (db) => {
+      personnelHistoryTriggers(db);
+      billetHolderTriggers(db);
+    },
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
@@ -667,7 +679,7 @@ export function openMissingMembershipPeriods(db: Db): number {
      WHERE NOT EXISTS (SELECT 1 FROM unit_membership_periods p WHERE p.user_id = um.user_id AND p.unit_id = um.unit_id AND p.ended_at IS NULL)`).run().changes;
 }
 
-const PERSONNEL_TRIGGERS = ['personnel_profile_changed', 'personnel_record_opened', 'personnel_record_changed', 'personnel_assignment_dated'] as const;
+const PERSONNEL_TRIGGERS = ['personnel_profile_changed', 'personnel_record_opened', 'personnel_record_changed', 'personnel_assignment_dated', 'personnel_assignment_opened'] as const;
 
 /**
  * A Marine's personnel history is written by the database (ADR-0017), as their membership history is (ADR-0009): rank,
@@ -710,6 +722,27 @@ export function personnelHistoryTriggers(db: Db) {
       ${dated('assignment_start')}
       ${dated('assignment_end')}
     END`);
+  // A membership that begins with its dates (a script, an import tool) records them as set from nothing (025).
+  const opened = (field: string) => event('user_id, org_id, unit_id, field, from_value, to_value',
+    `NEW.user_id, ${orgOf('NEW.unit_id')}, NEW.unit_id, '${field}', NULL, NEW.${field}`, `NEW.${field} IS NOT NULL`);
+  db.exec(`CREATE TRIGGER IF NOT EXISTS personnel_assignment_opened AFTER INSERT ON unit_members FOR EACH ROW
+    WHEN NEW.assignment_start IS NOT NULL OR NEW.assignment_end IS NOT NULL
+    BEGIN
+      ${opened('assignment_start')}
+      ${opened('assignment_end')}
+    END`);
+}
+
+/**
+ * A billet stays where its holders are (ADR-0017). One that a Marine holds in a unit is not narrowed to another unit,
+ * which would leave a membership holding a billet its unit does not have. The Unit Manager console refuses it first
+ * (server/services/unitConfig.ts); this refuses any other writer. Moving it to another Unit Instance is refused by the
+ * instance boundary.
+ */
+export function billetHolderTriggers(db: Db) {
+  db.exec(`CREATE TRIGGER IF NOT EXISTS unit_billets_holders_fit BEFORE UPDATE OF unit_id ON unit_billets FOR EACH ROW
+    WHEN NEW.unit_id IS NOT NULL AND NEW.unit_id IS NOT OLD.unit_id AND EXISTS (SELECT 1 FROM unit_members m WHERE m.billet_id = NEW.id AND m.unit_id <> NEW.unit_id)
+    BEGIN SELECT RAISE(ABORT, 'billet_held: a Marine in another unit holds this billet'); END`);
 }
 
 /** Lifted while an instance archive loads, which brings its own personnel history, and put back before it commits. */

@@ -357,3 +357,36 @@ test('024 links each membership to the one billet its title names, dates assignm
     again.close();
   } finally { cleanup(); }
 });
+
+test('025 records the dates a membership starts with, and keeps a billet from being narrowed under its holders', () => {
+  const at = '2026-10-01T00:00:00.000Z';
+  const { path, cleanup } = atVersion(24, (db) => {
+    db.pragma('foreign_keys = OFF');
+    const org = db.prepare("INSERT INTO organizations (id, slug, name, status, root_unit_id, settings, created_at, updated_at) VALUES (?, ?, ?, 'active', ?, '{}', ?, ?)");
+    const unit = db.prepare('INSERT INTO units (id, code, name, parent_id, org_id, created_at) VALUES (?, ?, ?, ?, ?, ?)');
+    org.run('G8', 'G8', 'G8', 'G8', at, at); unit.run('G8', 'G8', 'G8', null, 'G8', at);
+    unit.run('BUD', 'BUD', 'Budget', 'G8', 'G8', at); unit.run('DSB', 'DSB', 'Disbursing', 'G8', 'G8', at);
+    const user = db.prepare("INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES (?, ?, 'x', 'Sam', ?, ?, ?)");
+    for (const id of ['u1', 'u2']) user.run(id, id, id, at, at);
+    db.prepare("INSERT INTO unit_billets (id, org_id, unit_id, title, active, created_at, updated_at) VALUES ('b-clerk', 'G8', NULL, 'Clerk', 1, ?, ?)").run(at, at);
+    db.prepare("INSERT INTO unit_members (user_id, unit_id, is_primary, billet, billet_id, joined_at) VALUES ('u1', 'BUD', 1, 'Clerk', 'b-clerk', ?)").run(at);
+  });
+  try {
+    const db = openDatabase(path);
+    assert.ok(migrationHistory(db).some((m) => m.id === 25 && m.name === '025_personnel_guards'));
+    for (const t of ['personnel_assignment_opened', 'unit_billets_holders_fit']) assert.ok(db.prepare("SELECT 1 FROM sqlite_master WHERE type = 'trigger' AND name = ?").get(t), t);
+    // A membership a script creates with its dates leaves them in the history; one without dates leaves nothing.
+    db.prepare("INSERT INTO unit_members (user_id, unit_id, is_primary, assignment_start, assignment_end, joined_at) VALUES ('u2', 'DSB', 1, '2026-10-01', '2029-09-30', ?)").run(at);
+    db.prepare("INSERT INTO unit_members (user_id, unit_id, is_primary, joined_at) VALUES ('u2', 'BUD', 0, ?)").run(at);
+    assert.deepEqual((db.prepare("SELECT field, from_value, to_value, org_id, unit_id FROM personnel_events WHERE user_id = 'u2' ORDER BY id").all() as Array<Record<string, unknown>>).map((r) => ({ ...r })), [
+      { field: 'assignment_start', from_value: null, to_value: '2026-10-01', org_id: 'G8', unit_id: 'DSB' },
+      { field: 'assignment_end', from_value: null, to_value: '2029-09-30', org_id: 'G8', unit_id: 'DSB' },
+    ]);
+    // The clerk billet is held in Budget: it can be narrowed to Budget, not to Disbursing, and widened again.
+    assert.throws(() => db.prepare("UPDATE unit_billets SET unit_id = 'DSB' WHERE id = 'b-clerk'").run(), /billet_held/);
+    db.prepare("UPDATE unit_billets SET unit_id = 'BUD' WHERE id = 'b-clerk'").run();
+    assert.throws(() => db.prepare("UPDATE unit_billets SET unit_id = 'DSB' WHERE id = 'b-clerk'").run(), /billet_held/);
+    db.prepare("UPDATE unit_billets SET unit_id = NULL WHERE id = 'b-clerk'").run();
+    db.close();
+  } finally { cleanup(); }
+});

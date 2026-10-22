@@ -93,7 +93,7 @@ export default function Team({ section }: { section: TeamSection }) {
         <>
           {shown === 'overview' && unit && <UnitOverviewPanel key={unit} unitId={unit} />}
           {shown === 'workload' && unit && <Suspense fallback={<Skeleton className="h-64" />}><TeamWorkload unitId={unit} /></Suspense>}
-          {shown === 'roster' && unit && <Roster key={unit} team={team} unit={unit} unitLabel={unitLabel} canManage={manageMembers.includes(unit)} moveTargets={views.filter((v) => manageMembers.includes(v.id)).map((v) => ({ id: v.id, depth: v.depth, label: v.teams ? `${v.short_name || v.name} (command element)` : v.short_name || v.name }))} />}
+          {shown === 'roster' && unit && <Roster key={unit} team={team} unit={unit} unitLabel={unitLabel} canManage={manageMembers.includes(unit)} subtree={subtree} moveTargets={views.filter((v) => manageMembers.includes(v.id)).map((v) => ({ id: v.id, depth: v.depth, label: v.teams ? `${v.short_name || v.name} (command element)` : v.short_name || v.name }))} />}
           {shown === 'dashboard' && unit && <UnitDashboard unitId={unit} unitLabel={unitLabel(unit)} canExport={can(identity, PERMISSIONS.EXPORT_DATA, unit)} canDetail={can(identity, PERMISSIONS.VIEW_MEMBER_DETAIL, unit)} />}
           {shown === 'invites' && <><Invites unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} /><JoinCodes unitId={manageMembers.includes(unit) ? unit : manageMembers[0]} unitLabel={unitLabel} /></>}
           {shown === 'roles' && <Roles unitId={unit} unitLabel={unitLabel} />}
@@ -119,7 +119,7 @@ const ROSTER_FILTERS: Array<{ value: RosterFilter; label: string; test: (r: Pers
  * supervisor, dates, responsibilities and roles; account status for those the reader manages. Those who manage members
  * change one Marine from the row, or several at once from a selection, previewed before it applies.
  */
-function Roster({ team, unit, unitLabel, canManage, moveTargets }: { team: TeamResponse | undefined; unit: string; unitLabel: (id: string) => string; canManage: boolean; moveTargets: Array<{ id: string; depth: number; label: string }> }) {
+function Roster({ team, unit, unitLabel, canManage, subtree, moveTargets }: { team: TeamResponse | undefined; unit: string; unitLabel: (id: string) => string; canManage: boolean; subtree: string[]; moveTargets: Array<{ id: string; depth: number; label: string }> }) {
   const { data, isPending, error } = useQuery({ queryKey: keys.personnelRoster(unit), queryFn: () => api.personnelRoster(unit), enabled: Boolean(unit) });
   const [q, setQ] = useState('');
   const [filter, setFilter] = useState<RosterFilter>('all');
@@ -227,7 +227,8 @@ function Roster({ team, unit, unitLabel, canManage, moveTargets }: { team: TeamR
       <EnrollDialog open={enroll} onOpenChange={setEnroll} unitId={unit} unitLabel={unitLabel(unit)} />
       <MoveDialog move={moving} onClose={() => setMoving(null)} targets={moveTargets} unitLabel={unitLabel} />
       <AssignmentDialog target={editing} onClose={() => setEditing(null)} onSaved={refresh} />
-      <PersonnelBulkDialog open={bulk} onOpenChange={setBulk} unitId={unit} unitLabel={unitLabel(unit)} rows={chosen} billets={data?.billets || []} moveTargets={moveTargets} onDone={() => { setSelected(new Set()); refresh(); }} />
+      {/* One Marine moves to any team the leader manages; a bulk move stays inside this view, as the bulk route does. */}
+      <PersonnelBulkDialog open={bulk} onOpenChange={setBulk} unitId={unit} unitLabel={unitLabel(unit)} rows={chosen} billets={data?.billets || []} moveTargets={moveTargets.filter((t) => subtree.includes(t.id))} onDone={() => { setSelected(new Set()); refresh(); }} />
       <ConfirmDialog
         open={Boolean(removing)} onOpenChange={(o) => { if (!o) setRemoving(null); }}
         title={removing ? `Remove ${nameOf(removing.person)} from ${unitLabel(removing.unit)}?` : ''} confirmLabel="Remove"

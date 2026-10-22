@@ -4,7 +4,7 @@ import { wrap, parse, clientIp } from '../lib/http.ts';
 import { badRequest, forbidden, notFound, tooMany } from '../lib/errors.ts';
 import { requireAuth } from '../auth/middleware.ts';
 import { scopeFor, can, has, PERMISSIONS, isUnitOwner, positionIn, visibleUserIds, detailUnitsFor, unitsWith, subtreeIds, membersAcross, sameInstance, orgOfUnit } from '../authz/scope.ts';
-import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardUnprovenOwnAccount, chainBits, primaryOrgOf, type RoleRow } from '../services/org.ts';
+import { createUnit, updateUnit, archiveUnit, transferOwnership, addMember, removeMember, lastUnitInInstance, getUnit, validateRoleDefinition, validateRoleGrant, canManageRoleDefinition, mayEnrollDirectly, assertMayGrantRole, moveMember, ancestorIds, guardSelfReach, guardUnprovenOwnAccount, chainBits, type RoleRow } from '../services/org.ts';
 import { explainAccess } from '../services/explain.ts';
 import { audit } from '../services/audit.ts';
 import { notify } from '../services/notifications.ts';
@@ -25,7 +25,7 @@ import { zonedDay } from '../lib/clock.ts';
 import type { Request } from 'express';
 import { zoneOf } from '../lib/zone.ts';
 import { membershipHistory } from '../services/membership.ts';
-import { addResponsibility, assignmentSchema, bulkPersonnel, bulkSchema, changeAssignment, endResponsibility, personnelAccess, personnelRecord, personnelRoster, responsibilitySchema, supervisorCandidates, withPersonnelNote } from '../services/personnelRecords.ts';
+import { addResponsibility, assignmentSchema, bulkPersonnel, bulkSchema, changeAssignment, endResponsibility, personnelAccess, personnelRecord, personnelRoster, profileUnitsFor, responsibilitySchema, supervisorCandidates, withPersonnelNote } from '../services/personnelRecords.ts';
 import { sourcedFieldsFor } from '../services/personnel.ts';
 
 export const orgRouter = Router();
@@ -497,7 +497,7 @@ orgRouter.get('/team/:userId', wrap((req, res) => {
                            WHERE mr.user_id = ? AND (mr.expires_at IS NULL OR mr.expires_at > ?) ${isSelf ? '' : `AND mr.unit_id IN (${ph})`} ORDER BY r.position DESC`).all(id, now(), ...(isSelf ? [] : units)) as MemberDetailResponse['roles'],
     // Where they have served (ADR-0009): all of it on one's own page; for a leader, the units of the leader's own Unit
     // Instance that the leader can open, so neither another command nor a sibling team's roster is learned from it.
-    history: isSelf ? membershipHistory(ctx, id, null) : membershipHistory(ctx, id, [...new Set(units.map((u) => orgOfUnit(ctx, u)).filter((o): o is string => Boolean(o)))]).filter((p) => scope.viewableUnitIds.includes(p.unit_id)),
+    history: isSelf ? membershipHistory(ctx, id, null) : membershipHistory(ctx, id, [...new Set(units.map((u) => orgOfUnit(ctx, u)).filter((o): o is string => Boolean(o)))], 200, scope.viewableUnitIds),
     detailUnits: units,
     canCounsel: units.filter((u) => can(scope, PERMISSIONS.COUNSEL, u)),
     canManageMembers: units.filter((u) => can(scope, PERMISSIONS.MANAGE_MEMBERS, u)),
@@ -518,8 +518,7 @@ orgRouter.put('/team/:userId/profile', wrap((req, res) => {
   if (!managed.length) throw forbidden('You cannot edit that Marine’s profile.');
   // One person, one profile, kept by one command: the Unit Instance that holds their primary unit (ADR-0009). Leading them
   // in another instance is no claim on the name and rank every instance they serve in reads. The refusal does not say where.
-  const home = primaryOrgOf(ctx, id)?.unitId;
-  const units = home ? managed.filter((u) => sameInstance(ctx, u, home)) : managed;
+  const units = profileUnitsFor(ctx, managed, id);
   if (!units.length) throw forbidden('Their profile is kept by the command that holds their primary unit.', 'cross_instance');
   const body = parse(profileSchema.omit({ email: true }), req.body);
   if (body.rank_id && !ctx.db.prepare('SELECT 1 FROM ranks WHERE id = ?').get(body.rank_id)) throw badRequest('No such rank.', { fieldErrors: { rank_id: 'No such rank.' } });

@@ -41,13 +41,14 @@ export function noteMembershipChangesBy(ctx: AppContext, userId: string, by: str
 /**
  * A person's membership history, newest first. orgIds limits it to units of those Unit Instances: a leader reads the
  * history inside their own instance, never which other commands the person served in (ADR-0008). null is the whole
- * history, for the person themselves.
+ * history, for the person themselves. unitIds limits it further to the units the reader can view, before the limit, so
+ * periods in teams they cannot see never crowd out those they can.
  */
-export function membershipHistory(ctx: AppContext, userId: string, orgIds: string[] | null, limit = 200): MembershipPeriod[] {
-  if (orgIds && !orgIds.length) return [];
+export function membershipHistory(ctx: AppContext, userId: string, orgIds: string[] | null, limit = 200, unitIds: string[] | null = null): MembershipPeriod[] {
+  if ((orgIds && !orgIds.length) || (unitIds && !unitIds.length)) return [];
   return ctx.db.prepare(`SELECT p.id, p.unit_id, u.name AS unit_name, u.short_name AS unit_short, p.billet, p.is_primary, p.started_at, p.ended_at, p.start_reason, p.end_reason
       FROM unit_membership_periods p JOIN units u ON u.id = p.unit_id
-     WHERE p.user_id = ? ${orgIds ? 'AND u.org_id IN (SELECT value FROM json_each(?))' : ''}
+     WHERE p.user_id = ? ${orgIds ? 'AND u.org_id IN (SELECT value FROM json_each(?))' : ''} ${unitIds ? 'AND p.unit_id IN (SELECT value FROM json_each(?))' : ''}
      ORDER BY p.started_at DESC, p.id DESC LIMIT ?`)
-    .all(...[userId, ...(orgIds ? [JSON.stringify(orgIds)] : []), limit]) as MembershipPeriod[];
+    .all(...[userId, ...(orgIds ? [JSON.stringify(orgIds)] : []), ...(unitIds ? [JSON.stringify(unitIds)] : []), limit]) as MembershipPeriod[];
 }

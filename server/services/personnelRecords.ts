@@ -1,6 +1,6 @@
 import { z } from 'zod';
 import type { AppContext, SessionUser } from '../context.ts';
-import { can, PERMISSIONS, positionIn, scopeFor, isUnitOwner, orgOfUnit, detailUnitsFor, subtreeIds, unitTree, seatedLeader, type Scope } from '../authz/scope.ts';
+import { can, PERMISSIONS, positionIn, scopeFor, isUnitOwner, orgOfUnit, detailUnitsFor, subtreeIds, unitTree, seatedLeader, sameInstance, type Scope } from '../authz/scope.ts';
 import { badRequest, conflict, forbidden, notFound, HttpError } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
@@ -102,6 +102,16 @@ export function personnelAccess(ctx: AppContext, scope: Scope, actorId: string, 
     manageIn: self ? [] : units.filter((u) => mayManageIn(ctx, scope, actorId, targetScope, u)),
     recordsIn: self ? [] : detailUnitsFor(ctx, scope, targetId),
   };
+}
+
+/**
+ * Where a leader may correct the Marine's name, rank, MOS and EAS: the units they manage the Marine in, within the Unit
+ * Instance that holds the Marine's primary unit (ADR-0009). Leading them in another instance is no claim on the profile
+ * every instance reads. The profile route and the record's Edit profile control both ask this.
+ */
+export function profileUnitsFor(ctx: AppContext, manageIn: string[], userId: string): string[] {
+  const home = primaryOrgOf(ctx, userId)?.unitId;
+  return home ? manageIn.filter((u) => sameInstance(ctx, u, home)) : manageIn;
 }
 
 /** Manage members in the unit, and above the Marine there or its leader: the rule every membership change follows. */
@@ -234,6 +244,7 @@ export function personnelRecord(ctx: AppContext, scope: Scope, actorId: string, 
     sourced: sourcedFieldsFor(ctx, targetId),
     self: access.self,
     canOpenRecords: opensRecords,
+    canEditProfile: Boolean(active) && profileUnitsFor(ctx, access.manageIn, targetId).length > 0,
     account: access.self || access.manageIn.length
       ? { status: accountStatus({ active, locked_until, last_login_at, must_change_password }), last_login_at, locked_until: locked_until && locked_until > now() ? locked_until : null, mfa: Boolean(totp_enabled || passkeys), cac: Boolean(edipi_verified_at) }
       : null,
@@ -265,12 +276,13 @@ function responsibilityOf(r: ResponsibilityRow, labels: Map<string, string>, ref
  * leader's instance, without the name of whoever made it.
  */
 function historyOf(ctx: AppContext, userId: string, orgIds: string[] | null, viewable: string[] | null): NonNullable<PersonnelRecordResponse['history']> {
-  const periods = membershipHistory(ctx, userId, orgIds).filter((p) => !viewable || viewable.includes(p.unit_id));
+  // What the reader cannot see is left out before each limit, so a busy team elsewhere never pushes their own rows out.
+  const periods = membershipHistory(ctx, userId, orgIds, 200, viewable);
   const since = orgIds ? (ctx.db.prepare('SELECT MIN(p.started_at) AS at FROM unit_membership_periods p JOIN units u ON u.id = p.unit_id WHERE p.user_id = ? AND u.org_id IN (SELECT value FROM json_each(?))').get(userId, JSON.stringify(orgIds)) as { at: string | null }).at : null;
-  const rows = ctx.db.prepare(`SELECT id, field, from_value, to_value, org_id, unit_id, source, reason, actor_id, batch_id, at FROM personnel_events
-      WHERE user_id = ? ${orgIds ? 'AND (org_id IN (SELECT value FROM json_each(?)) OR (org_id IS NULL AND at >= ?))' : ''} ORDER BY at DESC, id DESC LIMIT 300`)
-    .all(...[userId, ...(orgIds ? [JSON.stringify(orgIds), since ?? '9999'] : [])]) as Array<{ id: number; field: string; from_value: string | null; to_value: string | null; org_id: string | null; unit_id: string | null; source: string | null; reason: string | null; actor_id: string | null; batch_id: string | null; at: string }>;
-  const kept = rows.filter((r) => !viewable || !r.unit_id || viewable.includes(r.unit_id));
+  const kept = ctx.db.prepare(`SELECT id, field, from_value, to_value, org_id, unit_id, source, reason, actor_id, batch_id, at FROM personnel_events
+      WHERE user_id = ? ${orgIds ? 'AND (org_id IN (SELECT value FROM json_each(?)) OR (org_id IS NULL AND at >= ?))' : ''}
+        ${viewable ? 'AND (unit_id IS NULL OR unit_id IN (SELECT value FROM json_each(?)))' : ''} ORDER BY at DESC, id DESC LIMIT 300`)
+    .all(...[userId, ...(orgIds ? [JSON.stringify(orgIds), since ?? '9999'] : []), ...(viewable ? [JSON.stringify(viewable)] : [])]) as Array<{ id: number; field: string; from_value: string | null; to_value: string | null; org_id: string | null; unit_id: string | null; source: string | null; reason: string | null; actor_id: string | null; batch_id: string | null; at: string }>;
   const people = peopleById(ctx, [...kept.map((r) => r.actor_id), ...kept.filter((r) => r.field === 'supervisor').flatMap((r) => [r.from_value, r.to_value])]);
   const ranks = new Map((ctx.db.prepare('SELECT id, abbr FROM ranks').all() as Array<{ id: string; abbr: string }>).map((r) => [r.id, r.abbr]));
   const labels = unitLabels(ctx, kept.map((r) => r.unit_id));
@@ -550,6 +562,15 @@ export function endPersonnelOnDeparture(ctx: AppContext, userId: string, orgId: 
   const supervisionsEnded = withPersonnelNote(ctx, { actorId, source: 'departure', reason: 'Their supervisor left the Unit Instance' }, () =>
     ctx.db.prepare('UPDATE personnel_records SET supervisor_id = NULL, updated_at = ?, updated_by = ? WHERE org_id = ? AND supervisor_id = ?').run(at, actorId, orgId, userId).changes);
   return { responsibilitiesEnded, supervisionsEnded };
+}
+
+/**
+ * A deactivated account supervises nobody (ADR-0017). Every Marine it supervised, in any Unit Instance, is left without a
+ * supervisor, and their history names who did it. Reactivating the account does not restore the links.
+ */
+export function endSupervisionsOf(ctx: AppContext, userId: string, actorId: string | null, source: PersonnelSource): number {
+  return withPersonnelNote(ctx, { actorId, source, reason: 'Their supervisor’s account was deactivated' }, () =>
+    ctx.db.prepare('UPDATE personnel_records SET supervisor_id = NULL, updated_at = ?, updated_by = ? WHERE supervisor_id = ?').run(now(), actorId, userId).changes);
 }
 
 // ——— Bulk ———
