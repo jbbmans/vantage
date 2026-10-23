@@ -2,7 +2,7 @@ import { useEffect, useId, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery } from '@tanstack/react-query';
 import { PenLine, Plus, UserRound, History, ListChecks } from 'lucide-react';
-import { Button, Field, Input, Panel, EmptyState, Badge, RoleBadge, type Tone } from '@/components/ui/primitives';
+import { Button, Field, Input, Select, Panel, EmptyState, Badge, RoleBadge, type Tone } from '@/components/ui/primitives';
 import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { DateText, DescriptionList } from '@/components/common';
@@ -97,6 +97,7 @@ export function AssignmentDialog({ target, onClose, onSaved }: { target: Assignm
   const toast = useToast();
   const listId = useId();
   const [billet, setBillet] = useState('');
+  const [picked, setPicked] = useState<string | null>(null);
   const [start, setStart] = useState(''); const [end, setEnd] = useState('');
   const [supervisor, setSupervisor] = useState<PersonnelPersonRef | null>(null);
   const [checkedIn, setCheckedIn] = useState('');
@@ -106,17 +107,20 @@ export function AssignmentDialog({ target, onClose, onSaved }: { target: Assignm
   useEffect(() => {
     if (!target) return;
     const a = target.assignment;
-    setBillet(a.billet || ''); setStart(a.assignment_start || ''); setEnd(a.assignment_end || '');
+    setBillet(a.billet || ''); setPicked(null); setStart(a.assignment_start || ''); setEnd(a.assignment_end || '');
     setSupervisor(target.supervisor); setCheckedIn(target.checked_in_on || ''); setReason(''); setErrors({});
   }, [target]);
   const options = useMemo(() => (target?.billets || []).filter((b) => !b.unit_id || b.unit_id === target?.assignment.unit_id), [target]);
+  // A title that is on the unit's list fills that billet; anything else is kept as typed, off the list. The command's list
+  // and the unit's own can share a title, so then the billet is chosen by name and where it belongs, starting from the
+  // one the Marine holds, and a save that changes only a date never swaps one for the other.
+  const matches = options.filter((b) => b.title.trim().toLowerCase() === billet.trim().toLowerCase());
+  const listed = matches.find((b) => b.id === (picked ?? target?.assignment.billet_id)) ?? matches[0];
   const save = async () => {
     if (!target) return;
     const a = target.assignment;
     const payload: Record<string, unknown> = {};
     const text = billet.trim();
-    // A title that is on the unit's list fills that billet; anything else is kept as typed, off the list.
-    const listed = options.find((b) => b.title.trim().toLowerCase() === text.toLowerCase());
     if (listed) { if (listed.id !== a.billet_id) payload.billet_id = listed.id; } else if (text !== (a.billet || '')) payload.billet = text || null;
     if ((start || null) !== a.assignment_start) payload.assignment_start = start || null;
     if ((end || null) !== a.assignment_end) payload.assignment_end = end || null;
@@ -144,6 +148,12 @@ export function AssignmentDialog({ target, onClose, onSaved }: { target: Assignm
           <Input autoFocus maxLength={80} list={options.length ? listId : undefined} value={billet} onChange={(e) => setBillet(e.target.value)} placeholder="Budget analyst" />
         </Field>
         {options.length > 0 && <datalist id={listId}>{options.map((b) => <option key={b.id} value={b.title}>{b.code || undefined}</option>)}</datalist>}
+        {matches.length > 1 && listed && (
+          <Field label="Which billet" className="sm:col-span-2" hint="Two billets on the list have this title">
+            <Select aria-label="Which billet" value={listed.id} onValueChange={setPicked}
+              options={matches.map((b) => ({ value: b.id, label: `${b.title}${b.code ? ` (${b.code})` : ''} · ${b.unit_id ? `only ${target?.unitLabel}` : 'every unit'}` }))} />
+          </Field>
+        )}
         <Field label="Assignment start" error={errors.assignment_start}><Input type="date" value={start} onChange={(e) => setStart(e.target.value)} /></Field>
         <Field label="Assignment end" error={errors.assignment_end} hint="When the assignment is due to end"><Input type="date" value={end} min={start || undefined} onChange={(e) => setEnd(e.target.value)} /></Field>
         <div className="sm:col-span-2"><SupervisorPicker unitId={target?.assignment.unit_id || ''} exceptId={target?.userId} value={supervisor} onChange={setSupervisor} error={errors.supervisor_id} /></div>

@@ -206,6 +206,8 @@ export interface PersonnelRecordResponse {
   sourced: string[];
   self: boolean;
   canOpenRecords: boolean;
+  /** Whether the reader may correct their name, rank, MOS and EAS, by the rule the profile route applies. */
+  canEditProfile: boolean;
   /** For the Marine and those who manage them. */
   account: { status: AccountStatus; last_login_at: string | null; locked_until: string | null; mfa: boolean; cac: boolean } | null;
   instances: PersonnelInstance[];

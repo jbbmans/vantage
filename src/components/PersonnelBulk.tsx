@@ -71,7 +71,7 @@ export default function PersonnelBulkDialog({ open, onOpenChange, unitId, unitLa
         <Button variant="primary" onClick={() => run(false)} loading={busy === 'apply'} disabled={!ready}>Apply to {n}</Button>
       </>}>
       <div className="space-y-3">
-        <Field label="Change"><Select value={action} onValueChange={(v) => { setAction(v as BulkAction); setValue(''); setSupervisor(null); }} options={ACTIONS} /></Field>
+        <Field label="Change"><Select value={action} onValueChange={(v) => { setAction(v as BulkAction); setValue(''); setSupervisor(null); }} options={targets.length ? ACTIONS : ACTIONS.filter((x) => x.value !== 'move')} /></Field>
         {action === 'supervisor' && <SupervisorPicker unitId={unitId} value={supervisor} onChange={setSupervisor} label="New supervisor" />}
         {action === 'supervisor' && !supervisor && <p className="text-2xs text-ink-3">Leave it empty to clear their supervisor.</p>}
         {DATES.has(action) && <Field label="Date" hint="Leave it empty to clear it."><Input type="date" value={value} onChange={(e) => setValue(e.target.value)} /></Field>}

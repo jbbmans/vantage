@@ -63,7 +63,9 @@ history: the person, a leader, the personnel feed, Vantage support, an import or
   NULL, since they are the person's wherever they serve. A name is not tracked: it is the person, not a personnel
   fact, and the audit trail already says who changed it.
 - `personnel_record_opened` and `personnel_record_changed`: supervisor and check-in.
-- `personnel_assignment_dated`: assignment start and end on a membership.
+- `personnel_assignment_dated`: assignment start and end on a membership; `personnel_assignment_opened` (migration
+  025) records the dates a membership is created with, as set from nothing, so a script that inserts one dated leaves
+  its history too.
 - Billet and primary-unit changes stay in `unit_membership_periods`, as before.
 
 The service then names who made each change, how (`source`: self, leader, feed, support, departure), why (`reason`,
@@ -84,6 +86,11 @@ Added to `instanceBoundaryTriggers` (ADR-0008), with the same `cross_instance:` 
 - a responsibility names a unit of its own Unit Instance (the configuration tables' rule);
 - a supervisor serves in the Unit Instance they supervise in.
 
+Within an instance, a billet that a Marine holds in a unit is not narrowed to another unit, which would leave the
+membership holding a billet its unit does not have. The Unit Manager console refuses it (409 `billet_held`) and asks
+for the holders to be given another billet first; `unit_billets_holders_fit` (migration 025) refuses any other writer.
+A billet already out of step when 025 runs is left for its Unit Managers.
+
 ### 4. Who may read what
 
 | Part | The Marine | Sees them on a roster (Read records or Manage members in a unit of theirs) | Manages them (Manage members, above them) | Opens their records (ADR-0015) |
@@ -96,13 +103,16 @@ Added to `instanceBoundaryTriggers` (ADR-0008), with the same `cross_instance:` 
 
 A leader's history is their Unit Instance's part: periods and events there, in units they can view, and changes to
 the person (rank, MOS, EAS, account) since the Marine first joined the instance, without the name of whoever made
-one. A Unit Manager, who never reads records (ADR-0010), sees the roster and the personnel record and no record
-counts. Opening someone else's personnel record is audited as `view_personnel`.
+one. Units the reader cannot view are left out inside each query, before its limit (300 events, 200 periods), so a
+busy team elsewhere never pushes the reader's own rows out; the member page's membership history does the same. A Unit
+Manager, who never reads records (ADR-0010), sees the roster and the personnel record and no record counts. Opening someone else's personnel record is audited as `view_personnel`.
 
 A deactivated account keeps its memberships (Vantage support turns sign-in off, not the assignment). Those who manage
 the Marine keep them on the roster and keep their personnel record, marked Deactivated, and may still change or end
 the assignment; nobody opens their records from it, since the records route serves active accounts only. To anyone
-else the account is gone, as it is everywhere else in Vantage.
+else the account is gone, as it is everywhere else in Vantage. A deactivated account supervises nobody: Vantage
+support's deactivation leaves every Marine it supervised, in any Unit Instance, without a supervisor, in their history
+with the source `support`. Reactivation does not restore the links.
 
 ### 5. Who may change what
 
@@ -118,12 +128,15 @@ own billet title and choose their own primary unit, as before.
   end it.
 - **Billet:** an active billet of the Unit Instance, for this unit or every unit; it sets the title too. Typing a
   title instead leaves the catalogue. The Unit Manager console's billet roster now matches holders by the link, and
-  by title only for memberships that have none.
+  by title only for memberships that have none. The command's list and a unit's own can share a title; the dialog
+  then asks which, starting from the one the Marine holds, so a save that changes only a date never swaps them.
 - **Dates:** real calendar days; an end never before its start.
 - **Responsibilities:** up to 80 characters, at most 20 held at once, no title held twice.
 - **Profile:** a leader's correction of rank, MOS or EAS now takes Manage members above the Marine (it took reading
   their records), so a Unit Manager corrects a rank without opening anything the Marine wrote. It is refused for
-  fields the personnel feed sets (`field_is_sourced`), as the Marine's own edit is.
+  fields the personnel feed sets (`field_is_sourced`), as the Marine's own edit is. Only the Unit Instance that holds
+  the Marine's primary unit edits it, and never for a deactivated account; the record says whether the reader may
+  (`canEditProfile`), by the rule the profile route applies (`profileUnitsFor`).
 
 ### 6. Leaving a Unit Instance
 
@@ -150,6 +163,8 @@ supervisor, check-in, assignment start, assignment end, billet, a new responsibi
 - Each row is audited as its single change (`edit_membership`, `add_responsibility`, `move_member`), and the whole as
   `personnel_bulk` with the batch id that also names every history row it wrote.
 - Moved Marines are told only after the change commits.
+- A move goes to a team inside the view the change was opened on (`outside_view` otherwise); the dialog offers only
+  those, and no move when there is none. One Marine's move from their row still goes to any team the leader manages.
 
 The new change routes are in the privileged route inventory (ADR-0013), so the tests hold that an ordinary member and
 a Unit Auditor are refused on each and nothing changes.

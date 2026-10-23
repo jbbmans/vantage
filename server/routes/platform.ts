@@ -37,7 +37,7 @@ import { invalidateUserSessions } from '../auth/sessions.ts';
 import { unlockAccount } from '../auth/lockout.ts';
 import { hashPassword } from '../lib/crypto.ts';
 import { isEdipi } from '../services/personnel.ts';
-import { withPersonnelNote } from '../services/personnelRecords.ts';
+import { endSupervisionsOf, withPersonnelNote } from '../services/personnelRecords.ts';
 import { APPROVAL_HOURS, CREDENTIAL_ACTIONS, cancelApproval, decideApproval, listApprovals, requestApproval, useApproval, type UsedApproval } from '../services/credentialApprovals.ts';
 import { assignManager, createOrganization, getOrg, listOrganizations, nameFirstOwner, orgCounts, orgRoleHolders, publicOrg, removeManager, setOrgStatus, updateOrganization } from '../services/organizations.ts';
 import { accessForPlatform, endAccess, requestAccess, ACCESS_DEFAULT_MINUTES, ACCESS_MAX_MINUTES } from '../services/access.ts';
@@ -502,8 +502,9 @@ platformRouter.post('/accounts/:userId/deactivate', requirePlatform('platform.ac
   if (leads.length) throw badRequest(`They lead ${leads.map((u) => u.name).join(', ')}. That Unit Instance transfers the leadership first.`);
   withPersonnelNote(ctx, { actorId: req.user.id, source: 'support', reason: String(req.body?.reason || '').slice(0, 200) || null }, () =>
     ctx.db.prepare('UPDATE users SET active = 0, updated_at = ? WHERE id = ?').run(now(), target.id));
+  const supervisionsEnded = endSupervisionsOf(ctx, target.id, req.user.id, 'support');
   const revoked = invalidateUserSessions(ctx, target.id);
-  audit(ctx, { actor_id: req.user.id, action: 'deactivate_account', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `${String(req.body?.reason || '').slice(0, 200)}; sessions revoked: ${revoked}`, ip: ip(req) });
+  audit(ctx, { actor_id: req.user.id, action: 'deactivate_account', entity: 'user', entity_id: target.id, subject_id: target.id, detail: `${String(req.body?.reason || '').slice(0, 200)}; supervisions ended: ${supervisionsEnded}; sessions revoked: ${revoked}`, ip: ip(req) });
   tellInstancesOfSupport(ctx, req.user, target.id, 'deactivated the account', ip(req));
   res.json({ ok: true, sessionsRevoked: revoked });
 }));

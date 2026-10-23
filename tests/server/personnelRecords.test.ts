@@ -2,6 +2,7 @@ import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
 import { startApp, enroll, type TestApp } from './helpers.ts';
 import { instanceBoundaryViolations } from '../../server/db/index.ts';
+import { claimUnit } from '../../server/services/org.ts';
 import { listZip } from '../../server/lib/zip.ts';
 
 /**
@@ -455,4 +456,76 @@ test('the personal export carries the personnel record, its responsibilities and
   assert.equal(zip.status, 200);
   const names = listZip(zip.buffer as Buffer);
   for (const name of ['personnel-records.csv', 'responsibilities.csv', 'personnel-history.csv']) assert.ok(names.includes(name), name);
+});
+
+test('Edit profile is offered exactly where saving it is allowed', async () => {
+  const offered = async (token: string, id: string) => (await get(token, `/api/org/team/${id}/personnel`)).body.canEditProfile;
+  assert.equal(await offered(op.token, alpha.id), true);
+  assert.equal(await offered(manager.token, alpha.id), true, 'a Unit Manager corrects a rank');
+  assert.equal(await offered(charlie.token, alpha.id), false, 'reading the roster is not managing them');
+  assert.equal(await offered(alpha.token, alpha.id), false, 'their own profile is edited in Settings');
+  // A deactivated account is not edited from here: the save refuses it.
+  const hotel = db().prepare("SELECT id FROM users WHERE username = 'hotel'").pluck().get() as string;
+  assert.equal(await offered(op.token, hotel), false);
+  assert.equal((await put(op.token, `/api/org/team/${hotel}/profile`, { mos: '3451' })).status, 404);
+  // A Marine whose primary unit is in G-1 also serves in G-8: G-1 keeps their profile, so G-8 is not offered it.
+  await enroll(app, op.token, 'G8', g1member.id);
+  assert.equal(await offered(op.token, g1member.id), false);
+  assert.equal((await put(op.token, `/api/org/team/${g1member.id}/profile`, { mos: '3451' })).status, 403);
+  assert.equal(await offered(g1lead.token, g1member.id), true);
+  assert.equal((await put(g1lead.token, `/api/org/team/${g1member.id}/profile`, { mos: '3451' })).status, 200);
+});
+
+test('rows from teams the reader cannot see never crowd the reader’s own out of the history', async () => {
+  const [bud, dsb] = ['BUD', 'DSB'].map((s) => db().prepare('SELECT id FROM units WHERE short_name = ?').pluck().get(s) as string);
+  const juliet = await person('juliet', 'G8');
+  // Juliet takes over Disbursing, which signs out its former leader.
+  claimUnit(app.ctx, dsb, juliet.id);
+  juliet.token = await login('juliet');
+  op.token = await login('boletz');
+  const kilo = await person('kilo', bud);
+  await enroll(app, op.token, dsb, kilo.id);
+  // One change in Disbursing, then more in Budget than a history shows, all of them newer.
+  const event = db().prepare("INSERT INTO personnel_events (user_id, org_id, unit_id, field, from_value, to_value, at) VALUES (?, 'G8', ?, 'assignment_end', NULL, ?, ?)");
+  const period = db().prepare('INSERT INTO unit_membership_periods (user_id, unit_id, billet, is_primary, started_at, ended_at) VALUES (?, ?, NULL, 0, ?, ?)');
+  event.run(kilo.id, dsb, '2031-01-31', '2030-01-01T00:00:00.000Z');
+  for (let i = 0; i < 320; i += 1) {
+    const at = new Date(Date.UTC(2030, 1, 1) + i * 60_000).toISOString();
+    event.run(kilo.id, bud, '2031-01-31', at);
+    period.run(kilo.id, bud, at, at);
+  }
+  const read = await get(juliet.token, `/api/org/team/${kilo.id}/personnel`);
+  assert.equal(read.status, 200, JSON.stringify(read.body).slice(0, 300));
+  assert.ok(read.body.history.events.some((e: any) => e.unit_id === dsb), 'the change in their own team is shown');
+  assert.ok(read.body.history.events.every((e: any) => e.unit_id !== bud), 'and nothing from a team they cannot see');
+  assert.ok(read.body.history.periods.some((p: any) => p.unit_id === dsb));
+  assert.ok(read.body.history.periods.every((p: any) => p.unit_id !== bud));
+  // The member page's history follows the same rule.
+  const page = await get(juliet.token, `/api/org/team/${kilo.id}`);
+  if (page.status === 200) assert.ok(page.body.history.some((p: any) => p.unit_id === dsb));
+});
+
+test('a deactivated account supervises nobody: those it supervised are left without one, in their history', async () => {
+  const lima = await person('lima', 'G8');
+  const mike = await person('mike', 'G8');
+  assert.equal((await put(op.token, `/api/org/units/G8/members/${lima.id}`, { supervisor_id: mike.id })).status, 200);
+  assert.equal((await post(op.token, `/api/platform/accounts/${mike.id}/deactivate`, { reason: 'Separated' })).status, 200);
+  assert.equal(record(lima.id)!.supervisor_id, null);
+  const cleared = events(lima.id, 'supervisor').at(-1)!;
+  assert.deepEqual([cleared.from_value, cleared.to_value, cleared.source, cleared.actor_id, cleared.reason], [mike.id, null, 'support', op.id, 'Their supervisor’s account was deactivated']);
+  assert.match(audits('deactivate_account').at(-1)!.detail, /supervisions ended: 1/);
+  assert.equal((await get(op.token, `/api/org/team/${lima.id}/personnel`)).body.instances[0].supervisor, null);
+});
+
+test('a billet is not narrowed to one unit while a Marine in another holds it', async () => {
+  const bud = db().prepare("SELECT id FROM units WHERE short_name = 'BUD'").pluck().get() as string;
+  // Alpha holds the Disbursing Clerk billet, which every unit of G-8 has, in G-8 itself.
+  assert.equal(member(alpha.id, 'G8')!.billet_id, billetId);
+  const narrowed = await call('PATCH', op.token, `/api/orgs/G8/billets/${billetId}`, { unit_id: bud });
+  assert.equal(narrowed.status, 409, JSON.stringify(narrowed.body));
+  assert.equal(narrowed.body.code, 'billet_held');
+  assert.equal(db().prepare('SELECT unit_id FROM unit_billets WHERE id = ?').pluck().get(billetId), null, 'unchanged');
+  // Narrowed to the unit its holder serves in, it still fits; and it can be widened again.
+  assert.equal((await call('PATCH', op.token, `/api/orgs/G8/billets/${billetId}`, { unit_id: 'G8' })).status, 200);
+  assert.equal((await call('PATCH', op.token, `/api/orgs/G8/billets/${billetId}`, { unit_id: null })).status, 200);
 });

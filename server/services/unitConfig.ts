@@ -91,6 +91,12 @@ export function saveBillet(ctx: AppContext, actor: Pick<SessionUser, 'id'>, orgI
     description: input.description === undefined ? before?.description ?? null : text(input.description),
     active,
   };
+  // A billet stays where its holders are (ADR-0017): narrowed to one unit, it would leave a Marine elsewhere holding a
+  // billet their unit does not have. They are given another billet first.
+  if (before && next.unit_id && next.unit_id !== before.unit_id) {
+    const held = (ctx.db.prepare('SELECT COUNT(*) AS n FROM unit_members WHERE billet_id = ? AND unit_id <> ?').get(before.id, next.unit_id) as { n: number }).n;
+    if (held) throw conflict(`${held === 1 ? 'A Marine holds' : `${held} Marines hold`} this billet in another unit. Give ${held === 1 ? 'them' : 'each of them'} another billet first.`, 'billet_held');
+  }
   const at = now();
   const rowId = id ?? newId();
   try {

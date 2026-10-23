@@ -187,3 +187,63 @@ test('a Unit Manager manages the roster without opening a record, and a Marine r
   await expect(page.getByRole('list', { name: 'Roster' })).toContainText(last);
   await noSidewaysScroll(page, 'the roster');
 });
+
+test('a bulk move offers only teams in the roster’s view, and of two billets with one title the one held is kept', async ({ page, browser }) => {
+  test.setTimeout(120_000);
+  await loginAs(page, OPERATOR.username);
+  // Two sections side by side under G8, and a team beneath the first.
+  const tag = unique('');
+  const unit = async (name: string, short: string, parent: string) => {
+    const made = await page.request.post('/api/org/units', { headers: H, data: { name, short_name: short, echelon: 'section', parent_id: parent } });
+    expect(made.ok(), await made.text()).toBeTruthy();
+    return (await made.json()).id as string;
+  };
+  const left = await unit(`Left Section ${tag}`, `LS${tag}`, 'G8');
+  await unit(`Left Team ${tag}`, `LT${tag}`, left);
+  await unit(`Right Section ${tag}`, `RS${tag}`, 'G8');
+  const last = `Ruiz${tag}`;
+  const marine = await marineInG8(page, browser, last);
+  const moved = await page.request.post(`/api/org/units/G8/members/${marine.id}/move`, { headers: H, data: { to: left } });
+  expect(moved.ok(), await moved.text()).toBeTruthy();
+  // The same title on the command's list and on the Left Section's own; they hold the command's.
+  const title = unique('Supply Clerk ');
+  const billet = async (unitId: string | null) => {
+    const made = await page.request.post('/api/orgs/G8/billets', { headers: H, data: { title, unit_id: unitId } });
+    expect(made.ok(), await made.text()).toBeTruthy();
+    return (await made.json()).id as string;
+  };
+  const everyUnit = await billet(null);
+  const onlyLeft = await billet(left);
+  const held = await page.request.put(`/api/org/units/${left}/members/${marine.id}`, { headers: H, data: { billet_id: everyUnit } });
+  expect(held.ok(), await held.text()).toBeTruthy();
+  const billetNow = async () => ((await (await page.request.get(`/api/org/team/${marine.id}/personnel`)).json()).instances[0].assignments.find((a: { unit_id: string }) => a.unit_id === left).billet_id);
+
+  await page.goto(`/team/roster?unit=${left}`);
+  const row = page.getByRole('row').filter({ hasText: last });
+  await row.getByRole('checkbox', { name: `Select LCpl ${last}` }).check();
+  await page.getByRole('region', { name: 'Selected Marines' }).getByRole('button', { name: 'Change one' }).click();
+  const bulk = page.getByRole('dialog', { name: 'Change 1 Marine' });
+  await bulk.getByRole('combobox').first().click();
+  await page.getByRole('option', { name: 'Move to another team' }).click();
+  await bulk.getByRole('combobox').nth(1).click();
+  // Only the team beneath this view: the bulk change works inside the view it was opened on.
+  await expect(page.getByRole('option')).toHaveText([`LT${tag}`]);
+  await page.keyboard.press('Escape');
+  await bulk.getByRole('button', { name: 'Cancel' }).click();
+
+  // Saving a date alone keeps the billet they hold; the other one is chosen by name.
+  await row.getByRole('button', { name: `Change ${last}’s billet` }).click();
+  const dialog = page.getByRole('dialog', { name: /billet and assignment/ });
+  await expect(dialog.getByLabel('Billet', { exact: true })).toHaveValue(title);
+  await expect(dialog.getByRole('combobox', { name: 'Which billet' })).toContainText('every unit');
+  await dialog.getByLabel('Checked in').fill('2026-10-20');
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await toast(page, 'Check-in saved');
+  expect(await billetNow()).toBe(everyUnit);
+  await row.getByRole('button', { name: `Change ${last}’s billet` }).click();
+  await dialog.getByRole('combobox', { name: 'Which billet' }).click();
+  await page.getByRole('option', { name: `${title} · only LS${tag}` }).click();
+  await dialog.getByRole('button', { name: 'Save' }).click();
+  await toast(page, 'Billet saved');
+  expect(await billetNow()).toBe(onlyLeft);
+});

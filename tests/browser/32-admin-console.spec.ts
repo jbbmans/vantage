@@ -39,7 +39,9 @@ test('the operations pages open for Vantage staff and have no serious accessibil
   // The operations page shows the build, the schema and the scheduled jobs of this server.
   await openAdmin(page, 'operations', 'Operations');
   await expect(page.getByRole('heading', { name: 'Schema and migrations' })).toBeVisible();
-  await expect(page.getByText('019_audit_action_index')).toBeVisible();
+  // The newest migrations are listed by name, whichever they are.
+  await expect(page.getByText(/This build needs schema \d+; the database is at \d+/)).toBeVisible();
+  await expect(page.getByRole('cell', { name: /^0\d\d_[a-z_]+$/ }).first()).toBeVisible();
   await expect(page.getByRole('heading', { name: 'Scheduled jobs' })).toBeVisible();
 });
 

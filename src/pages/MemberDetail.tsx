@@ -63,7 +63,7 @@ export default function MemberDetail() {
   // Their records, when this reader may open them; otherwise the Personnel tab alone.
   const records = record.canOpenRecords && !error ? data ?? null : null;
   const shownTab = records || tab === 'personnel' ? tab : 'personnel';
-  const canEditProfile = !isSelf && record.instances.some((i) => i.canManage);
+  const canEditProfile = record.canEditProfile;
   const sourced = new Set(record.sourced);
   const reload = () => { personnel.refetch(); if (records) refetch(); qc.invalidateQueries({ queryKey: ['personnel'] }); qc.invalidateQueries({ queryKey: keys.team }); };
 
