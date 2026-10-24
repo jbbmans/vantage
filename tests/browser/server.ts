@@ -45,6 +45,9 @@ const config = loadConfig({
   VANTAGE_REGISTRATIONS_PER_15_MINUTES: '200',
   // The whole suite signs in as the same few staff and walks both consoles many times over; one person does not.
   VANTAGE_CONSOLE_READS_PER_15_MINUTES: '20000',
+  // Nearly every spec writes as the same operator, and the suite runs about fifteen minutes: more than 300 changes in
+  // one window, which no one person makes. Production keeps its default.
+  VANTAGE_MUTATIONS_PER_15_MINUTES: '3000',
 } as NodeJS.ProcessEnv);
 const ctx = createContext(config);
 const app = createApp(ctx);
