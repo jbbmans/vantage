@@ -10,6 +10,7 @@ import { membershipHistory, noteMembershipChangesBy } from './membership.ts';
 import { sourcedFieldsFor } from './personnel.ts';
 import { isoDate } from '../../shared/schemas.ts';
 import { ORG_ROLES, type OrgRole } from '../../shared/permissions.ts';
+import { timeframeProblems, type TimeframedTable } from '../../shared/timeframe.ts';
 import type {
   AccountStatus, PersonnelAssignment, PersonnelBulkResponse, PersonnelEvent, PersonnelInstance, PersonnelPersonRef, PersonnelRecordResponse,
   PersonnelResponsibility, PersonnelRosterResponse, PersonnelRosterRow,
@@ -445,7 +446,7 @@ export function changeAssignment(ctx: AppContext, c: ChangeContext, unitId: stri
   }
   const start = body.assignment_start === undefined ? current.assignment_start : body.assignment_start;
   const end = body.assignment_end === undefined ? current.assignment_end : body.assignment_end;
-  if (start && end && end < start) throw badRequest('The assignment cannot end before it starts.', { fieldErrors: { assignment_end: 'On or after the start.' } });
+  inOrder('unit_members', { assignment_start: start, assignment_end: end });
   const supervisor = body.supervisor_id === undefined ? undefined : body.supervisor_id || null;
   if ((supervisor !== undefined || body.checked_in_on !== undefined) && !orgId) throw badRequest('This unit belongs to no Unit Instance.');
   if (supervisor) assertSupervisor(ctx, scope, orgId!, userId, supervisor);
@@ -502,6 +503,12 @@ export const responsibilitySchema = z.object({
 });
 const RESPONSIBILITY_LIMIT = 20;
 
+/** Dates in order, as every record with a timeframe keeps them (ADR-0018); the database refuses any other writer. */
+function inOrder(table: TimeframedTable, row: object) {
+  const problem = timeframeProblems(table, row);
+  if (problem) throw badRequest(problem.message, { fieldErrors: problem.fieldErrors });
+}
+
 /** Gives the Marine a functional responsibility in this unit, under the same rule as any other change to their assignment. */
 export function addResponsibility(ctx: AppContext, c: ChangeContext, unitId: string, userId: string, body: z.infer<typeof responsibilitySchema>, ip: string | null = null): string {
   const { actor, scope } = c;
@@ -511,7 +518,7 @@ export function addResponsibility(ctx: AppContext, c: ChangeContext, unitId: str
   if (!isUnitOwner(ctx, actor.id, unitId) && positionIn(scopeFor(ctx, { id: userId }), unitId) >= positionIn(scope, unitId)) throw forbidden('You cannot change the assignment of a Marine at or above your own position.', 'hierarchy');
   const orgId = orgOfUnit(ctx, unitId);
   if (!orgId) throw badRequest('This unit belongs to no Unit Instance.');
-  if (body.starts_on && body.ends_on && body.ends_on < body.starts_on) throw badRequest('A responsibility cannot end before it starts.', { fieldErrors: { ends_on: 'On or after the start.' } });
+  inOrder('personnel_responsibilities', body);
   const held = ctx.db.prepare('SELECT title FROM personnel_responsibilities WHERE org_id = ? AND user_id = ? AND ended_at IS NULL').all(orgId, userId) as Array<{ title: string }>;
   if (held.some((h) => h.title.toLowerCase() === body.title.toLowerCase())) throw conflict('They already hold that responsibility.', 'duplicate_responsibility');
   if (held.length >= RESPONSIBILITY_LIMIT) throw badRequest(`A Marine holds at most ${RESPONSIBILITY_LIMIT} responsibilities at once. End one first.`, { code: 'too_many_responsibilities' });

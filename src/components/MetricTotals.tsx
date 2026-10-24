@@ -3,7 +3,7 @@ import { Link } from 'react-router-dom';
 import { ArrowRight, ArrowUpRight, Info } from 'lucide-react';
 import { Badge, Button, EmptyState, Skeleton, Tooltip } from '@/components/ui/primitives';
 import { Dialog } from '@/components/ui/Dialog';
-import { DateText } from '@/components/common';
+import { TimeframeText } from '@/components/Timeframe';
 import { useMetricContributors, type MetricContributor } from '@/lib/queries';
 import { formatDollars, formatNumber, formatDollarsExact } from '../../shared/metrics';
 import type { MetricTotal } from '../../shared/metricEngine';
@@ -108,7 +108,7 @@ function ContributorsDialog({ total, params, onClose }: { total: MetricTotal; pa
                 >
                   <span className="min-w-0 flex-1">
                     <span className="block truncate text-sm text-ink">{r.title}</span>
-                    <span className="block text-xs text-ink-3"><DateText value={r.date} /></span>
+                    <span className="block text-xs text-ink-3"><TimeframeText table={r.table} row={r} /></span>
                   </span>
                   <span className="fig shrink-0 text-sm font-medium text-ink">{formatMetric({ kind: total.kind, value: r.value, unit: r.unit }, total.kind === 'money')}</span>
                   <ArrowRight className="h-3.5 w-3.5 shrink-0 text-ink-3" />

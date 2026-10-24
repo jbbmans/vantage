@@ -12,11 +12,13 @@ import RecordLineage from '@/components/RecordLineage';
 import { Attachments } from '@/components/Attachments';
 import { AiAction, AiResult } from '@/components/AiPanel';
 import { DateText, StatusBadge, useParam, onText, Table, DescriptionList } from '@/components/common';
+import { TimeframeFields, TimeframeText, timeframeCheck, timeframeDraft, type TimeframeDraft } from '@/components/Timeframe';
 import { can, useAwards, useCounselings, useDeleteRecord, useRestoreRecord, useIdentity, usePrefs, useTrainings, invalidateRecords } from '@/lib/queries';
 import { useQueryClient } from '@tanstack/react-query';
 import * as api from '@/lib/api';
 import { TRAINING_TYPES, TRAINING_STATUS, AWARD_TYPES, AWARD_STATUS, AWARD_NAMES, COUNSELING_TYPES } from '../../shared/constants';
 import { formatDate, formatNumber } from '../../shared/metrics';
+import { formatTimeframe } from '../../shared/timeframe';
 import { PERMISSIONS } from '../../shared/permissions';
 import type { Award, Training } from '../../shared/types';
 import { formatStamp, humanize, todayIso } from '@/lib/utils';
@@ -30,23 +32,23 @@ type AwardRow = Award & { recorded_by?: string | null; recorder_name?: string };
 /** A leader's recommendation: an award somebody entered for the Marine it is about. */
 const recordedByOther = (r: { user_id: string; recorded_by?: string | null }) => Boolean(r.recorded_by && r.recorded_by !== r.user_id);
 
-interface TrainingDraft { id?: string; version?: number; title: string; date: string; type: string; hours: number | string; provider: string; status: string; notes: string; visibility: 'private' | 'unit'; unit_id: string | null }
-interface AwardDraft { id?: string; version?: number; name: string; date: string; type: string; status: string; recommending_official: string; approving_authority: string; citation: string; notes: string; submitted_at: string; approved_at: string; presented_at: string; visibility: 'private' | 'unit'; unit_id: string | null }
+interface TrainingDraft extends TimeframeDraft { id?: string; version?: number; title: string; date: string; type: string; hours: number | string; provider: string; status: string; notes: string; visibility: 'private' | 'unit'; unit_id: string | null }
+interface AwardDraft { id?: string; version?: number; name: string; period_start: string; date: string; type: string; status: string; recommending_official: string; approving_authority: string; citation: string; notes: string; submitted_at: string; approved_at: string; presented_at: string; visibility: 'private' | 'unit'; unit_id: string | null }
 interface CounselingDraft { id?: string; version?: number; summary: string; date: string; type: string; counselor_name: string; strengths: string; improvements: string; goals_set: string; follow_up_date: string; visibility: 'private' | 'unit'; unit_id: string | null }
 
-export const emptyTraining = (v: 'private' | 'unit', unit: string | null): TrainingDraft => ({ title: '', date: todayIso(), type: 'course', hours: '', provider: '', status: 'completed', notes: '', visibility: v, unit_id: unit });
-export const emptyAward = (v: 'private' | 'unit', unit: string | null): AwardDraft => ({ name: '', date: todayIso(), type: 'personal_award', status: 'planned', recommending_official: '', approving_authority: '', citation: '', notes: '', submitted_at: '', approved_at: '', presented_at: '', visibility: v, unit_id: unit });
+export const emptyTraining = (v: 'private' | 'unit', unit: string | null): TrainingDraft => ({ title: '', ...timeframeDraft({ date: todayIso() }), type: 'course', hours: '', provider: '', status: 'completed', notes: '', visibility: v, unit_id: unit });
+export const emptyAward = (v: 'private' | 'unit', unit: string | null): AwardDraft => ({ name: '', period_start: '', date: todayIso(), type: 'personal_award', status: 'planned', recommending_official: '', approving_authority: '', citation: '', notes: '', submitted_at: '', approved_at: '', presented_at: '', visibility: v, unit_id: unit });
 export const emptyCounseling = (v: 'private' | 'unit', unit: string | null): CounselingDraft => ({ summary: '', date: todayIso(), type: 'monthly', counselor_name: '', strengths: '', improvements: '', goals_set: '', follow_up_date: '', visibility: v, unit_id: unit });
 
 export function TrainingFields({ d, set, errors }: { d: TrainingDraft; set: (k: any, v: unknown) => void; errors: Record<string, string> }) {
   return (
     <>
       <Field label="Title" required error={errors.title}><Input autoFocus value={d.title} onChange={onText(set, 'title')} placeholder="Sergeants Course (distance)" /></Field>
+      <TimeframeFields table="trainings" d={d} set={set} errors={errors}
+        extra={<Field label="Status"><Select value={d.status} onValueChange={(v) => set('status', v)} options={TRAINING_STATUS.map((t) => ({ value: t, label: humanize(t) }))} /></Field>} />
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Date" error={errors.date}><Input type="date" value={d.date} onChange={onText(set, 'date')} /></Field>
         <Field label="Type"><Select value={d.type} onValueChange={(v) => set('type', v)} options={TRAINING_TYPES.map((t) => ({ value: t, label: t === 'pme' ? 'PME' : humanize(t) }))} /></Field>
         <Field label="Hours" error={errors.hours}><NumberInput value={d.hours} onChange={onText(set, 'hours')} /></Field>
-        <Field label="Status"><Select value={d.status} onValueChange={(v) => set('status', v)} options={TRAINING_STATUS.map((t) => ({ value: t, label: humanize(t) }))} /></Field>
         <Field label="Provider" className="col-span-2"><Input value={d.provider} onChange={onText(set, 'provider')} placeholder="MarineNet, CDET, college…" /></Field>
       </div>
       <Field label="Notes"><Textarea rows={2} value={d.notes} onChange={onText(set, 'notes')} /></Field>
@@ -62,10 +64,12 @@ export function AwardFields({ d, set, errors, ai }: { d: AwardDraft; set: (k: an
       <div className="grid grid-cols-2 gap-3">
         <Field label="Type"><Select value={d.type} onValueChange={(v) => set('type', v)} options={AWARD_TYPES.map((t) => ({ value: t, label: t === 'loa' ? 'Letter of Appreciation' : humanize(t) }))} /></Field>
         <Field label="Status"><Select value={d.status} onValueChange={(v) => set('status', v)} options={AWARD_STATUS.map((t) => ({ value: t, label: humanize(t) }))} /></Field>
-        <Field label="Period end / award date" error={errors.date}><Input type="date" value={d.date} onChange={onText(set, 'date')} /></Field>
+        {/* The period the award recognizes: from its start to the award date (ADR-0018). */}
+        <Field label="Period start" hint="optional" error={errors.period_start}><Input type="date" value={d.period_start} max={d.date || undefined} onChange={onText(set, 'period_start')} /></Field>
+        <Field label="Period end / award date" error={errors.date}><Input type="date" value={d.date} min={d.period_start || undefined} onChange={onText(set, 'date')} /></Field>
         <Field label="Recommending official"><Input value={d.recommending_official} onChange={onText(set, 'recommending_official')} /></Field>
-        <Field label="Submitted"><Input type="date" value={d.submitted_at} onChange={onText(set, 'submitted_at')} /></Field>
         <Field label="Approving authority"><Input value={d.approving_authority} onChange={onText(set, 'approving_authority')} /></Field>
+        <Field label="Submitted"><Input type="date" value={d.submitted_at} onChange={onText(set, 'submitted_at')} /></Field>
         <Field label="Approved"><Input type="date" value={d.approved_at} onChange={onText(set, 'approved_at')} /></Field>
         <Field label="Presented"><Input type="date" value={d.presented_at} onChange={onText(set, 'presented_at')} /></Field>
       </div>
@@ -179,8 +183,8 @@ export default function Career({ section }: { section: CareerSection }) {
       </div>}
 
       {tab === 'training' && ((trainings || []).length === 0 ? <div className="card"><EmptyState icon={GraduationCap} title="No training logged" description="PME, MarineNet courses, certifications, college. Hours here feed training-hour goals and the evaluation package." action={<Button variant="primary" onClick={() => setTraining(emptyTraining(vis, unit))}>New training</Button>} /></div> : (
-        <div className="card" style={{ overflow: 'hidden' }}><Table head={<><th className="w-24">Date</th><th>Training</th><th className="w-28">Type</th><th className="w-20 text-right">Hours</th><th className="w-28">Status</th><th className="w-44"></th></>}>
-          {(trainings || []).map((t) => <tr key={t.id}><td className="text-xs"><DateText value={t.date} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView({ kind: 'training', row: t })}>{t.title}</button>{t.provider && <span className="block text-xs text-ink-3">{t.provider}</span>}</td><td className="text-xs">{t.type === 'pme' ? 'PME' : humanize(t.type)}</td><td className="fig text-right text-xs">{t.hours ?? ''}</td><td><StatusBadge value={t.status} /></td><td className="text-right">{canMove(t) && <Button size="xs" variant="ghost" onClick={() => startMove('trainings', t)}>Move to…</Button>}{canEditRow(t) && <><Button size="xs" variant="ghost" onClick={() => setTraining({ ...t, type: t.type || 'course', hours: t.hours ?? '', provider: t.provider || '', notes: t.notes || '', date: t.date || '' })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'trainings', row: t })}>Delete</Button></>}</td></tr>)}
+        <div className="card" style={{ overflow: 'hidden' }}><Table head={<><th className="w-32">When</th><th>Training</th><th className="w-28">Type</th><th className="w-20 text-right">Hours</th><th className="w-28">Status</th><th className="w-44"></th></>}>
+          {(trainings || []).map((t) => <tr key={t.id}><td className="text-xs"><TimeframeText table="trainings" row={t} /></td><td><button type="button" className="text-left font-medium text-ink hover:underline" onClick={() => setView({ kind: 'training', row: t })}>{t.title}</button>{t.provider && <span className="block text-xs text-ink-3">{t.provider}</span>}</td><td className="text-xs">{t.type === 'pme' ? 'PME' : humanize(t.type)}</td><td className="fig text-right text-xs">{t.hours ?? ''}</td><td><StatusBadge value={t.status} /></td><td className="text-right">{canMove(t) && <Button size="xs" variant="ghost" onClick={() => startMove('trainings', t)}>Move to…</Button>}{canEditRow(t) && <><Button size="xs" variant="ghost" onClick={() => setTraining({ ...t, ...timeframeDraft(t), type: t.type || 'course', hours: t.hours ?? '', provider: t.provider || '', notes: t.notes || '' })}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'trainings', row: t })}>Delete</Button></>}</td></tr>)}
         </Table></div>
       ))}
 
@@ -188,10 +192,10 @@ export default function Career({ section }: { section: CareerSection }) {
         <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
           {awardRows.map((a) => (
             <article key={a.id} className="card card-hover p-4">
-              <div className="flex items-start justify-between gap-2"><div><h3 className="text-base font-semibold text-ink">{a.name}</h3><p className="text-xs text-ink-3">{a.type === 'loa' ? 'Letter of Appreciation' : humanize(a.type)} · <DateText value={a.date} /></p></div><StatusBadge value={a.status} /></div>
+              <div className="flex items-start justify-between gap-2"><div><h3 className="text-base font-semibold text-ink">{a.name}</h3><p className="text-xs text-ink-3">{a.type === 'loa' ? 'Letter of Appreciation' : humanize(a.type)} · <TimeframeText table="awards" row={a} /></p></div><StatusBadge value={a.status} /></div>
               <ol className="mt-3 flex items-center gap-1 text-2xs uppercase tracking-wider text-ink-3">{['recommended', 'submitted', 'approved', 'presented'].map((s, i) => { const idx = (AWARD_STATUS as readonly string[]).indexOf(a.status); const reached = idx >= AWARD_STATUS.indexOf(s as never); return <li key={s} className="flex items-center gap-1"><span className={reached ? 'text-good' : ''}>{reached ? <CheckCircle2 className="inline h-3 w-3" /> : '○'} {humanize(s)}</span>{i < 3 && <span className="mx-1">›</span>}</li>; })}</ol>
               {a.citation && <p className="mt-3 line-clamp-3 text-sm text-ink-2">{a.citation}</p>}
-              <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-2 text-xs text-ink-3"><span className="min-w-0">{[a.recommending_official ? `Rec: ${a.recommending_official}` : '', recordedByOther(a) && a.recorder_name ? `Recorded by ${a.recorder_name}` : '', a.user_id !== me ? 'shared record' : ''].filter(Boolean).join(' · ')}</span><span className="flex shrink-0 gap-1"><Button size="xs" variant="ghost" onClick={() => setView({ kind: 'award', row: a })}>View</Button>{canMove(a) && <Button size="xs" variant="ghost" onClick={() => startMove('awards', a)}>Move to…</Button>}{canEditRow(a) && <><Button size="xs" variant="ghost" onClick={() => { setCitationOut(null); setAward({ ...a, date: a.date || '', recommending_official: a.recommending_official || '', approving_authority: a.approving_authority || '', citation: a.citation || '', notes: a.notes || '', submitted_at: a.submitted_at || '', approved_at: a.approved_at || '', presented_at: a.presented_at || '' }); }}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'awards', row: a })}>Delete</Button></>}</span></div>
+              <div className="mt-3 flex items-center justify-between gap-2 border-t border-line pt-2 text-xs text-ink-3"><span className="min-w-0">{[a.recommending_official ? `Rec: ${a.recommending_official}` : '', recordedByOther(a) && a.recorder_name ? `Recorded by ${a.recorder_name}` : '', a.user_id !== me ? 'shared record' : ''].filter(Boolean).join(' · ')}</span><span className="flex shrink-0 gap-1"><Button size="xs" variant="ghost" onClick={() => setView({ kind: 'award', row: a })}>View</Button>{canMove(a) && <Button size="xs" variant="ghost" onClick={() => startMove('awards', a)}>Move to…</Button>}{canEditRow(a) && <><Button size="xs" variant="ghost" onClick={() => { setCitationOut(null); setAward({ ...a, period_start: a.period_start || '', date: a.date || '', recommending_official: a.recommending_official || '', approving_authority: a.approving_authority || '', citation: a.citation || '', notes: a.notes || '', submitted_at: a.submitted_at || '', approved_at: a.approved_at || '', presented_at: a.presented_at || '' }); }}>Edit</Button><Button size="xs" variant="ghost" onClick={() => setConfirm({ store: 'awards', row: a })}>Delete</Button></>}</span></div>
             </article>
           ))}
         </div>
@@ -205,8 +209,8 @@ export default function Career({ section }: { section: CareerSection }) {
         </Table></div>
       ))}
 
-      <RecordDialog<TrainingDraft> store="trainings" open={Boolean(training)} onOpenChange={(o) => { if (!o) setTraining(null); }} initial={training} title={training?.id ? 'Edit training' : 'New training'} noun="Training" validate={(d) => (!d.title.trim() ? 'A title is required.' : null)} fields={(d, set, errors) => <TrainingFields d={d} set={set} errors={errors} />} />
-      <RecordDialog<AwardDraft> store="awards" open={Boolean(award)} onOpenChange={(o) => { if (!o) { setAward(null); setCitationOut(null); } }} initial={award} title={award?.id ? 'Edit award' : 'New award'} noun="Award" size="lg" validate={(d) => (!d.name.trim() ? 'The award name is required.' : null)}
+      <RecordDialog<TrainingDraft> store="trainings" open={Boolean(training)} onOpenChange={(o) => { if (!o) setTraining(null); }} initial={training} title={training?.id ? 'Edit training' : 'New training'} noun="Training" validate={(d) => (!d.title.trim() ? 'A title is required.' : timeframeCheck('trainings', d))} fields={(d, set, errors) => <TrainingFields d={d} set={set} errors={errors} />} />
+      <RecordDialog<AwardDraft> store="awards" open={Boolean(award)} onOpenChange={(o) => { if (!o) { setAward(null); setCitationOut(null); } }} initial={award} title={award?.id ? 'Edit award' : 'New award'} noun="Award" size="lg" validate={(d) => (!d.name.trim() ? 'The award name is required.' : timeframeCheck('awards', d))}
         fields={(d, set, errors) => (
           <>
             <AwardFields d={d} set={set} errors={errors} ai={<AiAction workflow="award_citation" input={{ award: d.name, facts: `${d.citation}\n${d.notes}`.trim(), to: d.date || undefined }} label="Draft citation" onResult={(output, meta) => { setCitationOut({ output, meta }); if (output.citation && !d.citation) set('citation', String(output.citation)); }} />} />
@@ -215,7 +219,7 @@ export default function Career({ section }: { section: CareerSection }) {
         )} />
       <RecordDialog<CounselingDraft> store="counselings" open={Boolean(counseling)} onOpenChange={(o) => { if (!o) setCounseling(null); }} initial={counseling} title={counseling?.id ? 'Edit counseling' : 'New counseling'} noun="Counseling" size="lg" validate={(d) => (!d.summary.trim() ? 'A summary is required.' : null)} fields={(d, set, errors) => <CounselingFields d={d} set={set} errors={errors} />} />
 
-      <Dialog open={Boolean(view)} onOpenChange={(o) => { if (!o) { setView(null); setOpenId(''); } }} title={view?.kind === 'award' ? view.row.name : view?.kind === 'training' ? view.row.title : `${humanize(view?.row?.type || '')} counseling`} description={view?.row?.date ? formatDate(view.row.date, 'd MMMM yyyy') : undefined}
+      <Dialog open={Boolean(view)} onOpenChange={(o) => { if (!o) { setView(null); setOpenId(''); } }} title={view?.kind === 'award' ? view.row.name : view?.kind === 'training' ? view.row.title : `${humanize(view?.row?.type || '')} counseling`} description={view?.kind === 'training' || view?.kind === 'award' ? formatTimeframe(view.kind === 'award' ? 'awards' : 'trainings', view.row, { pattern: 'd MMMM yyyy' }) || undefined : view?.row?.date ? formatDate(view.row.date, 'd MMMM yyyy') : undefined}
         footer={view?.kind === 'counseling' && view.row.user_id === me && view.row.counselor_id && view.row.counselor_id !== me && !view.row.acknowledged_at ? <><span className="mr-auto text-xs text-ink-3">Acknowledging confirms you read it, not that you agree.</span><Button variant="primary" onClick={() => acknowledge(view.row)}><CheckCircle2 className="h-4 w-4" />Acknowledge</Button></>
           : (view?.kind === 'award' || view?.kind === 'training') && canMove(view.row) ? <Button onClick={() => startMove(view.kind === 'award' ? 'awards' : 'trainings', view.row)}><ArrowRightLeft className="h-4 w-4" />Move to…</Button> : undefined}>
         {view?.kind === 'award' && <DescriptionList items={[['Status', <StatusBadge value={view.row.status} />], ['Type', humanize(view.row.type)], ['Recorded by', view.row.recorder_name || null], ['Recommending official', view.row.recommending_official], ['Approving authority', view.row.approving_authority], ['Submitted', <DateText value={view.row.submitted_at} fallback="" />], ['Approved', <DateText value={view.row.approved_at} fallback="" />], ['Presented', <DateText value={view.row.presented_at} fallback="" />], ['Citation', view.row.citation ? <span className="whitespace-pre-wrap">{view.row.citation}</span> : null], ['Notes', view.row.notes]]} />}

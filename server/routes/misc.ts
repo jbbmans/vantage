@@ -18,6 +18,7 @@ import { plain } from '../../shared/writer/realize.ts';
 import { isoDate } from '../../shared/schemas.ts';
 import { rowsToCsv, ACTIVITY_CSV_COLUMNS, activityToCsvRow } from '../../shared/csv.ts';
 import { hydrate } from '../services/records.ts';
+import { periodClause } from '../services/timeframes.ts';
 import { runAiWorkflow, aiStatus, AiError } from '../services/ai.ts';
 import { syncMaradmins, maradminSyncState } from '../services/maradmins.ts';
 import { audit } from '../services/audit.ts';
@@ -205,7 +206,7 @@ miscRouter.get('/reports/delta', wrap((req, res) => {
   const params = unitId ? [userId, unitId] : [userId];
   const activities = (req.ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
   const awards = req.ctx.db.prepare(`SELECT date FROM awards WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ date: string | null }>;
-  const trainings = req.ctx.db.prepare(`SELECT date, hours FROM trainings WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ date: string | null; hours: number | null }>;
+  const trainings = req.ctx.db.prepare(`SELECT date, end_date, ongoing, hours FROM trainings WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ date: string | null; end_date: string | null; ongoing: number; hours: number | null }>;
   const goals = req.ctx.db.prepare(`SELECT status FROM goals WHERE ${where} AND deleted_at IS NULL`).all(...params) as Array<{ status: string }>;
   const range = rangeForPeriod(q.period, zonedNow(zoneOf(req.ctx, req.user)));
   const track = q.track || buildReport(req.ctx, { userId, unitId, period: q.period }).track;
@@ -249,9 +250,10 @@ miscRouter.get('/reports/csv', wrap((req, res) => {
   if (userId !== req.user.id && !(unitId && can(scopeFor(req.ctx, req.user, req), PERMISSIONS.EXPORT_DATA, unitId))) throw forbidden('Exporting another Marine’s records needs the unit’s export permission.');
   const where = unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
   const params = unitId ? [userId, unitId] : [userId];
-  const dateClause = q.period === 'all' ? '' : ' AND date >= ? AND date <= ?';
-  const bounds = q.period === 'all' ? [] : (() => { const r = rangeForPeriod(q.period, zonedNow(zoneOf(req.ctx, req.user))); return [q.from || isoDay(r.start), q.to || isoDay(r.end)]; })();
-  const rows = (req.ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL${dateClause} ORDER BY date DESC`).all(...params, ...bounds) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
+  // Every entry with a day in the period, one that began before it and ran into it included (ADR-0018).
+  const bounds = q.period === 'all' ? null : (() => { const r = rangeForPeriod(q.period, zonedNow(zoneOf(req.ctx, req.user))); return { from: q.from || isoDay(r.start), to: q.to || isoDay(r.end) }; })();
+  const period = periodClause('activities', 'activities', bounds?.from, bounds?.to);
+  const rows = (req.ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL AND ${period.sql} ORDER BY date DESC`).all(...params, ...period.params) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
   audit(req.ctx, { actor_id: req.user.id, action: 'export_csv', entity: 'activities', subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: `${rows.length} rows`, ip: clientIp(req) });
   res.setHeader('Content-Type', 'text/csv; charset=utf-8');
   res.setHeader('Content-Disposition', `attachment; filename="vantage-activities-${now().slice(0, 10)}.csv"`);

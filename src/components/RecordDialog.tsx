@@ -10,7 +10,8 @@ import { ConflictDialog } from '@/components/ConflictDialog';
 export default function RecordDialog<T extends Record<string, any>>({ store, open, onOpenChange, initial, title, noun, fields, size = 'md', validate, onSaved }: {
   store: Store; open: boolean; onOpenChange: (o: boolean) => void; initial: T | null; title: string; noun: string; size?: 'sm' | 'md' | 'lg';
   fields: (draft: T, set: (k: keyof T & string, v: unknown) => void, errors: Record<string, string>) => React.ReactNode;
-  validate?: (draft: T) => string | null; onSaved?: (saved: any) => void;
+  /** What stops the save, in words, or with the fields it is about (a timeframe out of order marks its end date). */
+  validate?: (draft: T) => string | { message: string; fieldErrors: Record<string, string> } | null; onSaved?: (saved: any) => void;
 }) {
   const toast = useToast();
   const create = useCreateRecord(store);
@@ -32,7 +33,8 @@ export default function RecordDialog<T extends Record<string, any>>({ store, ope
     if (problem) {
       capture.current?.abandoned('validation_blocked', { fields_filled: Object.values(draft).filter(Boolean).length });
       capture.current = captureTimer('record_form');
-      toast.error(problem);
+      if (typeof problem === 'string') toast.error(problem);
+      else { setErrors(problem.fieldErrors); toast.error(problem.message); }
       return;
     }
     setSaving(true);

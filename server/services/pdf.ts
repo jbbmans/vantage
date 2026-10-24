@@ -6,14 +6,15 @@ import { formatDollarsExact, formatNumber } from '../../shared/metrics.ts';
 import { drawMark } from '../lib/pdfMark.ts';
 import { FITREP_SECTIONS } from '../../shared/evaluation.ts';
 import type { WorksheetBlocks } from '../../shared/writer/worksheet.ts';
+import { formatTimeframe } from '../../shared/timeframe.ts';
 
 export interface ReportPdfInput {
   title: string; subject: string; unitLine: string; period: string; track: string; generatedAt: string;
   narrative: Narrative; pkg: PackageGroup[]; metrics: Metrics; counts: { activities: number; awards: number; trainingHours: number };
-  awards?: Array<{ name: string; date: string | null; status: string }>;
+  awards?: Array<{ name: string; period_start?: string | null; date: string | null; status: string }>;
   /** FITREP: the MRO worksheet's PME and Other blocks. */
   worksheet?: WorksheetBlocks | null;
-  trainings?: Array<{ title: string; date: string | null; hours: number | null }>;
+  trainings?: Array<{ title: string; date: string | null; end_date?: string | null; start_time?: string | null; end_time?: string | null; ongoing?: number; hours: number | null }>;
 }
 
 const INK = '#111827';
@@ -94,8 +95,10 @@ export function renderReportPdf(input: ReportPdfInput): Promise<Buffer> {
 
     if (!input.worksheet && (input.awards?.length || input.trainings?.length)) {
       h2('Career record in period');
-      for (const a of input.awards || []) body(`•  ${a.name} (${a.status.replace('_', ' ')}${a.date ? `, ${a.date}` : ''})`);
-      for (const t of input.trainings || []) body(`•  ${t.title}${t.hours ? `, ${formatNumber(t.hours)} h` : ''}${t.date ? `, ${t.date}` : ''}`);
+      // Each with the days it covers (ADR-0018): an award its period, a course its days and times.
+      const days = (table: 'awards' | 'trainings', row: object) => formatTimeframe(table, row, { pattern: 'yyyy-MM-dd' });
+      for (const a of input.awards || []) body(`•  ${a.name} (${a.status.replace('_', ' ')}${a.date ? `, ${days('awards', a)}` : ''})`);
+      for (const t of input.trainings || []) body(`•  ${t.title}${t.hours ? `, ${formatNumber(t.hours)} h` : ''}${t.date ? `, ${days('trainings', t)}` : ''}`);
     }
 
     doc.moveDown(1);

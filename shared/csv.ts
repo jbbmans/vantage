@@ -1,3 +1,5 @@
+import { timeframeProblems } from './timeframe.ts';
+
 export const MAX_IMPORT_ROWS = 1000;
 export const MAX_IMPORT_COLUMNS = 100;
 
@@ -59,7 +61,12 @@ export function parseDelimited(text: string, delimiter: ',' | '\t', { maxRows = 
 
 export const ACTIVITY_CSV_COLUMNS: Array<{ key: string; header: string; aliases?: string[] }> = [
   { key: 'id', header: 'Vantage ID' },
-  { key: 'date', header: 'Date' },
+  { key: 'date', header: 'Date', aliases: ['Start Date'] },
+  // When it ran longer than a day or at a time of day (ADR-0018). "Present" in End Date, or Yes in Ongoing, is still going.
+  { key: 'end_date', header: 'End Date', aliases: ['Through', 'Until'] },
+  { key: 'start_time', header: 'Start Time' },
+  { key: 'end_time', header: 'End Time' },
+  { key: 'ongoing', header: 'Ongoing', aliases: ['Present'] },
   { key: 'title', header: 'Title' },
   { key: 'category', header: 'Category' },
   { key: 'eval_area', header: 'Evaluation Area', aliases: ['JEPES Area', 'Area'] },
@@ -125,8 +132,24 @@ const toISODate = (v: unknown): string | null => {
   return Number.isNaN(d.getTime()) ? null : `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`;
 };
 
+/** A time of day as a spreadsheet may hold it ("0800", "800", "08:00", "8:00:00 AM"), as HH:MM; null when it is none. */
+const toTime = (v: unknown): string | null => {
+  const s = String(v ?? '').trim().toUpperCase();
+  const m = s.match(/^(\d{1,2}):?(\d{2})(?::\d{2})?\s*(AM|PM)?$/);
+  if (!m) return null;
+  let hour = Number(m[1]);
+  if (m[3]) { if (hour < 1 || hour > 12) return null; hour = (hour % 12) + (m[3] === 'PM' ? 12 : 0); }
+  if (hour > 23 || Number(m[2]) > 59) return null;
+  return `${String(hour).padStart(2, '0')}:${m[2]}`;
+};
+const STILL_GOING = /^(present|ongoing|current|now)$/i;
+const YES = /^(y|yes|true|1|x|ongoing|present)$/i;
+
 export interface ImportedActivity {
-  id?: string; title: string; date: string; category?: string | null; eval_area?: string | null; quantity: number | null;
+  id?: string; title: string; date: string;
+  /** Left out when the file has no such column, so an update leaves what the entry holds. */
+  end_date?: string | null; start_time?: string | null; end_time?: string | null; ongoing?: boolean;
+  category?: string | null; eval_area?: string | null; quantity: number | null;
   unit_label?: string | null; dollar_amount: number | null; dollar_type?: string | null; result?: string | null;
   organization?: string | null; system?: string | null; status: string; visibility?: string | null; notes?: string | null;
   evidence_links?: Array<{ label?: string; url?: string }>;
@@ -165,8 +188,27 @@ export function applyMapping(rows: Array<Record<string, string>>, mapping: Recor
         })
         : [],
     };
+    // The timeframe, from the columns the file has.
+    const mapped = (field: string) => Boolean(mapping[field]);
+    const said = (field: string) => String(rec[field] ?? '');
+    let unreadable = '';
+    if (mapped('end_date')) {
+      if (STILL_GOING.test(said('end_date'))) { out.end_date = null; out.ongoing = true; }
+      else { out.end_date = said('end_date') ? toISODate(said('end_date')) : null; if (said('end_date') && !out.end_date) unreadable = 'unreadable end date'; }
+    }
+    for (const field of ['start_time', 'end_time'] as const) {
+      if (!mapped(field)) continue;
+      out[field] = said(field) ? toTime(said(field)) : null;
+      if (said(field) && !out[field]) unreadable ||= `unreadable ${field.replace('_', ' ')}`;
+    }
+    if (mapped('ongoing')) out.ongoing = Boolean(out.ongoing) || YES.test(said('ongoing'));
+    // An end date given, in a file that does not say otherwise, is the day it ended.
+    else if (out.end_date) out.ongoing = false;
+    const timeframe = out.date ? timeframeProblems('activities', out) : null;
     if (!out.title) problems.push({ row: i + 2, issue: 'missing title' });
     else if (!out.date) problems.push({ row: i + 2, issue: 'unreadable date' });
+    else if (unreadable) problems.push({ row: i + 2, issue: unreadable });
+    else if (timeframe) problems.push({ row: i + 2, issue: timeframe.message });
     else records.push(out);
   });
   return { records, problems };
@@ -176,7 +218,11 @@ export function activityToCsvRow(a: Record<string, unknown>): Record<string, unk
   const links = Array.isArray(a.evidence_links)
     ? (a.evidence_links as Array<{ label?: string | null; url?: string | null }>).map((l) => [l.label, l.url].filter(Boolean).join(': ')).join(' | ')
     : '';
+  const ongoing = a.ongoing === 1 || a.ongoing === true;
   const row: Record<string, unknown> = {};
   for (const col of ACTIVITY_CSV_COLUMNS) row[col.header] = col.key === 'evidence_links' ? links : a[col.key] ?? '';
+  // Still going: "Present" in End Date and Yes in Ongoing, either of which reads back as ongoing.
+  row['End Date'] = ongoing ? 'Present' : a.end_date ?? '';
+  row.Ongoing = ongoing ? 'Yes' : '';
   return row;
 }

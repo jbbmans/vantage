@@ -1,6 +1,31 @@
 # Progress
 
-_Updated 2026-10-22_
+_Updated 2026-10-24_
+
+## What changed (2026-10-24: record timeframes)
+
+**Partial.** Not merged; HawkScan not run (no key); CI disregarded on John's word.
+
+Records have a start, an end, optional times and "ongoing", and every report reads ranges by one rule
+([ADR-0018](engineering/ADR/0018-record-timeframes.md)).
+
+- **The fields.** Activities and training gain an end date, a start and end time (24-hour, shown as "0800") and
+  Ongoing. Awards gain the start of the period they recognize; the award date stays the day it was given. Goals,
+  projects, assignments and responsibilities keep the two days they had. Counselings and tasks keep one date.
+- **Never ends before it starts.** The forms mark the field, the server refuses with 400 and an error per field, and
+  database triggers (migration 026) refuse every other writer on all seven record types. Rows already out of order are
+  kept, counted in `meta.timeframe_violations` and shown in the console's migration status; changing their dates asks
+  for them in order.
+- **One rule for periods.** A record is in a period when any day of it is (an award by its date), counted once per
+  report, in the first month of the window it touches. Record lists, JEPES and FITREP inputs, analysis and its PDF,
+  metrics, the dashboard, the progress delta, the digest, the AI context, the timeline and the CSV export all use it.
+  John chose "every period it touches" on the decision card (2026-10-24), over counting by start or by end.
+- **Around it.** Retention runs from a record's end and never for an ongoing one. Moves carry the range. CSV import
+  and export of activities have End Date, Start Time, End Time and Ongoing ("Present"). Archives from before 026 load
+  with the new columns at their defaults.
+- **Pages.** Activity and training forms have start and end dates, "Add times" and an Ongoing switch; the award form a
+  period start. Lists, cards, detail pages, the timeline, metric contributors and the import preview show the range.
+- **Left to other Tasks:** duty records take the same registry (17); an index for overlap queries (25).
 
 ## What changed (2026-10-22: personnel management)
 

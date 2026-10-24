@@ -3,6 +3,7 @@ import { Link, useSearchParams } from 'react-router-dom';
 import { Award, BadgeCheck, BookOpen, CalendarRange, GraduationCap, Info, MessagesSquare, NotebookPen, Plus, Target, type LucideIcon } from 'lucide-react';
 import { Badge, Button, EmptyState, Field, Input, PageHeader, Skeleton } from '@/components/ui/primitives';
 import { DateText, StatusBadge, useParam } from '@/components/common';
+import { TimeframeText } from '@/components/Timeframe';
 import { QueryFailure } from '@/components/QueryFailure';
 import { useRecordTimeline } from '@/lib/queries';
 import { formatDate } from '../../shared/metrics';
@@ -169,7 +170,8 @@ function Entry({ item }: { item: TimelineItem }) {
             <span>{k.one}</span>{detail && <span>· {detail}</span>}{item.from_work && <Badge>From your work</Badge>}
           </span>
         </span>
-        <span className="flex shrink-0 flex-col items-end gap-1 text-xs text-ink-2"><DateText value={item.date} /><StatusBadge value={item.status} /></span>
+        {/* An activity or course that ran longer than a day shows its days, placed on its first (ADR-0018). */}
+        <span className="flex shrink-0 flex-col items-end gap-1 text-xs text-ink-2">{item.end_date || item.ongoing ? <TimeframeText table="activities" row={item} /> : <DateText value={item.date} />}<StatusBadge value={item.status} /></span>
       </Link>
     </li>
   );

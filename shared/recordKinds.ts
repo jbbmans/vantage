@@ -176,7 +176,14 @@ const HOURS = /^(?:h|hr|hrs|hour|hours)$/i;
  */
 export function movedFields(from: MovableTable, row: Record<string, unknown>, to: MovableTable): Record<string, unknown> {
   const reading = recordKindOf(kindText(from, row));
-  const date = row.date ?? null;
+  // Its timeframe carries across (ADR-0018). An activity and a course keep their days, times and "ongoing"; an award's
+  // period becomes their days and theirs its period, its date the last day. What an award cannot hold (times, ongoing)
+  // stays in the move's lineage snapshot.
+  const span = from === 'awards'
+    ? { date: row.period_start ?? row.date ?? null, end_date: row.period_start ? row.date ?? null : null, start_time: null, end_time: null, ongoing: 0 }
+    : { date: row.date ?? null, end_date: row.end_date ?? null, start_time: row.start_time ?? null, end_time: row.end_time ?? null, ongoing: row.ongoing === 1 || row.ongoing === true ? 1 : 0 };
+  const awardDate = span.end_date ?? span.date;
+  const period = { period_start: span.end_date ? span.date : null, date: awardDate };
   if (from === 'activities') {
     const notes = joined([row.result, row.notes, linksText(row.evidence_links)], 4000);
     if (to === 'awards') {
@@ -185,34 +192,36 @@ export function movedFields(from: MovableTable, row: Record<string, unknown>, to
       // Named from what the title says ("Navy and Marine Corps Achievement Medal"), the award keeps the title's own words.
       const said = name !== clamp(row.title, 200) ? row.title : null;
       return {
-        name, date, type: reading?.kind === 'award' ? reading.type : 'personal_award',
-        status: planned ? 'planned' : 'presented', presented_at: planned ? null : date, notes: said ? joined([said, notes], 4000) : notes,
+        name, ...period, type: reading?.kind === 'award' ? reading.type : 'personal_award',
+        status: planned ? 'planned' : 'presented', presented_at: planned ? null : awardDate, notes: said ? joined([said, notes], 4000) : notes,
       };
     }
     return {
-      title: clamp(row.title, 300), date, type: reading?.kind === 'training' ? reading.type : trainingType(String(row.title || '')),
+      title: clamp(row.title, 300), ...span, type: reading?.kind === 'training' ? reading.type : trainingType(String(row.title || '')),
       hours: row.quantity != null && HOURS.test(String(row.unit_label || '').trim()) ? row.quantity : null, provider: clamp(row.organization, 200),
-      status: row.status === 'planned' ? 'scheduled' : 'completed', notes,
+      status: row.status === 'planned' ? 'scheduled' : span.ongoing ? 'in_progress' : 'completed', notes,
     };
   }
   if (from === 'awards') {
     const done = row.status === 'presented' || row.status === 'approved';
-    if (to === 'activities') return { title: clamp(row.name, 300), date, category: 'Recognition', status: done ? 'completed' : 'planned', notes: joined([row.citation, row.notes], 8000) };
-    return { title: clamp(row.name, 300), date, type: trainingType(String(row.name || '')), status: done ? 'completed' : 'scheduled', notes: joined([row.citation, row.notes], 4000) };
+    if (to === 'activities') return { title: clamp(row.name, 300), ...span, category: 'Recognition', status: done ? 'completed' : 'planned', notes: joined([row.citation, row.notes], 8000) };
+    return { title: clamp(row.name, 300), ...span, type: trainingType(String(row.name || '')), status: done ? 'completed' : 'scheduled', notes: joined([row.citation, row.notes], 4000) };
   }
   const completed = row.status === 'completed';
   if (to === 'activities') {
     return {
-      title: clamp(row.title, 300), date, category: 'Training & PME', status: completed ? 'completed' : 'planned', quantity: row.hours ?? null,
+      title: clamp(row.title, 300), ...span, category: 'Training & PME', status: completed ? 'completed' : 'planned', quantity: row.hours ?? null,
       unit_label: row.hours != null ? 'hours' : null, organization: clamp(row.provider, 200), notes: clamp(row.notes, 8000),
     };
   }
-  return { name: clamp(row.title, 200), date, type: 'personal_award', status: completed ? 'presented' : 'planned', presented_at: completed ? date : null, notes: joined([row.provider, row.notes], 4000) };
+  return { name: clamp(row.title, 200), ...period, type: 'personal_award', status: completed ? 'presented' : 'planned', presented_at: completed ? awardDate : null, notes: joined([row.provider, row.notes], 4000) };
 }
 
 /** GET /api/record/timeline: one entry of the person's own records, read from its own table (server/services/timeline.ts). */
 export interface TimelineItem {
-  kind: string; table: 'activities' | 'trainings' | 'awards' | 'counselings' | 'goals'; id: string; date: string; title: string;
+  kind: string; table: 'activities' | 'trainings' | 'awards' | 'counselings' | 'goals'; id: string; date: string;
+  /** The last day of an activity or course that ran longer than a day, and whether it is still going (ADR-0018). */
+  end_date: string | null; ongoing: boolean; title: string;
   detail: string | null; status: string | null; from_work: boolean; href: string;
 }
 export interface TimelineResponse { items: TimelineItem[]; kind: string | null; counts: Record<string, number>; total: number; truncated: boolean; pending: Array<{ key: string; label: string; plannedIn: string | null }> }

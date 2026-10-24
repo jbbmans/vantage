@@ -1,7 +1,8 @@
-import { aggregateMetrics, activitiesInRange, previousRange, delta, formatDTG, type MetricSource } from './metrics.ts';
+import { aggregateMetrics, activitiesInRange, previousRange, delta, formatDTG, dayKey, type MetricSource } from './metrics.ts';
 import { JEPES_CORE, DEFAULT_METRICS, categoryNames, type MetricsConfig } from './constants.ts';
 import { areaAmong } from './evaluation.ts';
 import type { DateRange } from './types.ts';
+import { inPeriod as covers } from './timeframe.ts';
 
 export interface Movement { current: number; prior: number; diff: number; pct: number | null; direction: 'up' | 'down' | 'flat'; isNew: boolean; lapsed: boolean }
 
@@ -27,7 +28,7 @@ export interface Comparison {
 export function comparePeriods(
   activities: Dated[] = [],
   range: DateRange & { label?: string },
-  extras: { areas?: readonly string[]; awards?: Array<{ date?: string | null }>; trainings?: Array<{ date?: string | null; hours?: number | null }>; goals?: Array<{ status?: string }>; metrics?: MetricsConfig } = {}
+  extras: { areas?: readonly string[]; awards?: Array<{ date?: string | null }>; trainings?: Array<{ date?: string | null; end_date?: string | null; ongoing?: number | boolean | null; hours?: number | null }>; goals?: Array<{ status?: string }>; metrics?: MetricsConfig } = {}
 ): Comparison {
   const areas = extras.areas || JEPES_CORE;
   const cfg = extras.metrics || DEFAULT_METRICS;
@@ -70,7 +71,9 @@ export function comparePeriods(
 
   const inRange = (value: unknown, r: DateRange) => { if (!value) return false; const d = new Date(String(value)); return !Number.isNaN(d.getTime()) && d >= r.start && d <= r.end; };
   const countIn = (list: Array<{ date?: string | null }> = [], r: DateRange) => list.filter((x) => inRange(x.date, r)).length;
-  const sumIn = (list: Array<{ date?: string | null; hours?: number | null }> = [], r: DateRange) => list.filter((x) => inRange(x.date, r)).reduce((n, x) => n + (Number(x.hours) || 0), 0);
+  // Training is in a period when any day of it is, as activities are (ADR-0018); an award by its date.
+  const sumIn = (list: Array<{ date?: string | null; end_date?: string | null; ongoing?: number | boolean | null; hours?: number | null }> = [], r: DateRange) =>
+    list.filter((x) => covers('trainings', x, dayKey(r.start), dayKey(r.end))).reduce((n, x) => n + (Number(x.hours) || 0), 0);
 
   return {
     range, prior,

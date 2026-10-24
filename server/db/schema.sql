@@ -202,6 +202,12 @@ CREATE TABLE IF NOT EXISTS activities (
   unit_id        TEXT REFERENCES units(id),
   visibility     TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'unit')),
   date           TEXT,
+  -- When it ran, if longer than a day or at a time of day (ADR-0018, migration 026): date is its first day, end_date its
+  -- last, start_time and end_time the wall clock at each end (HH:MM), and ongoing that it has begun and not ended yet.
+  end_date       TEXT,
+  start_time     TEXT CHECK (start_time IS NULL OR start_time GLOB '[01][0-9]:[0-5][0-9]' OR start_time GLOB '2[0-3]:[0-5][0-9]'),
+  end_time       TEXT CHECK (end_time IS NULL OR end_time GLOB '[01][0-9]:[0-5][0-9]' OR end_time GLOB '2[0-3]:[0-5][0-9]'),
+  ongoing        INTEGER NOT NULL DEFAULT 0 CHECK (ongoing IN (0, 1)),
   title          TEXT NOT NULL,
   category       TEXT,
   eval_area      TEXT,
@@ -308,6 +314,11 @@ CREATE TABLE IF NOT EXISTS trainings (
   unit_id    TEXT REFERENCES units(id),
   visibility TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'unit')),
   date       TEXT,
+  -- As an activity's (ADR-0018): a course's first and last day, its times, and whether it is still running.
+  end_date   TEXT,
+  start_time TEXT CHECK (start_time IS NULL OR start_time GLOB '[01][0-9]:[0-5][0-9]' OR start_time GLOB '2[0-3]:[0-5][0-9]'),
+  end_time   TEXT CHECK (end_time IS NULL OR end_time GLOB '[01][0-9]:[0-5][0-9]' OR end_time GLOB '2[0-3]:[0-5][0-9]'),
+  ongoing    INTEGER NOT NULL DEFAULT 0 CHECK (ongoing IN (0, 1)),
   title      TEXT NOT NULL,
   type       TEXT,
   hours      REAL,
@@ -328,6 +339,8 @@ CREATE TABLE IF NOT EXISTS awards (
   user_id               TEXT NOT NULL REFERENCES users(id),
   unit_id               TEXT REFERENCES units(id),
   visibility            TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'unit')),
+  -- The period the award recognizes runs from period_start to date, the award date (ADR-0018, migration 026).
+  period_start          TEXT,
   date                  TEXT,
   name                  TEXT NOT NULL,
   type                  TEXT NOT NULL DEFAULT 'personal_award',

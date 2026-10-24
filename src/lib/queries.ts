@@ -58,7 +58,7 @@ export interface MetricsReport {
   catalog: Array<{ metricId: string; metricLabel: string; kind: string; unit: string; headline: boolean }>;
   outcomesWithMeasures: number;
 }
-export interface MetricContributor { id: string; table: 'activities' | 'trainings'; date: string; title: string; user_id: string; unit_id: string | null; value: number; unit: string }
+export interface MetricContributor { id: string; table: 'activities' | 'trainings'; date: string; end_date: string | null; ongoing: boolean; title: string; user_id: string; unit_id: string | null; value: number; unit: string }
 
 export const keys = {
   me: ['me'] as const,

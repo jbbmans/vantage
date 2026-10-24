@@ -11,6 +11,7 @@ import { AI_GUARDRAILS, ANSWER_FORMAT, diagnose, type MethodKey } from '../../sh
 import { readableItem } from './work.ts';
 import { eventsFor, caseEventsOf, procedureOf, stageOf } from './cases.ts';
 import { standing } from '../../shared/procedures.ts';
+import { periodClause } from './timeframes.ts';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const state = { lockedAt: null as string | null, unlockUrl: null as string | null, lastErrorAt: null as string | null, lastErrorCode: null as string | number | null };
@@ -49,23 +50,29 @@ const windowEnd = (ctx: AppContext) => zonedDay(ctx.config.timezone, 1);
 
 function sanitize(row: Record<string, unknown>) {
   return {
-    date: row.date || null, title: str(row.title, 300), category: row.category || null, evaluation_area: row.eval_area || null,
+    date: row.date || null, end_date: row.end_date || null, ongoing: row.ongoing === 1, title: str(row.title, 300), category: row.category || null, evaluation_area: row.eval_area || null,
     action_amount: row.quantity == null ? null : Number(row.quantity), action_unit: row.unit_label || null,
     transaction_value: row.dollar_amount == null ? null : Number(row.dollar_amount), dollar_type: row.dollar_type || null,
     result: str(row.result, 600) || null, organization: str(row.organization, 120) || null, system: str(row.system, 80) || null, status: row.status || null,
   };
 }
 
+// What ran in the period: any entry with a day in it (ADR-0018).
+const ACTIVITY_CONTEXT = 'date, end_date, ongoing, title, category, eval_area, quantity, unit_label, dollar_amount, dollar_type, result, organization, system, status';
+
 function ownActivities(ctx: AppContext, userId: string, from: string, to: string, limit = 150) {
-  return (ctx.db.prepare(`SELECT date, title, category, eval_area, quantity, unit_label, dollar_amount, dollar_type, result, organization, system, status FROM activities WHERE user_id = ? AND deleted_at IS NULL AND date >= ? AND date <= ? ORDER BY date DESC LIMIT ?`).all(userId, from, to, limit) as Array<Record<string, unknown>>).map(sanitize);
+  const period = periodClause('activities', 'activities', from, to);
+  return (ctx.db.prepare(`SELECT ${ACTIVITY_CONTEXT} FROM activities WHERE user_id = ? AND deleted_at IS NULL AND ${period.sql} ORDER BY date DESC LIMIT ?`).all(userId, ...period.params, limit) as Array<Record<string, unknown>>).map(sanitize);
 }
 
 function sharedActivities(ctx: AppContext, userId: string, unitId: string, from: string, to: string, limit = 150) {
-  return (ctx.db.prepare(`SELECT date, title, category, eval_area, quantity, unit_label, dollar_amount, dollar_type, result, organization, system, status FROM activities WHERE user_id = ? AND unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL AND date >= ? AND date <= ? ORDER BY date DESC LIMIT ?`).all(userId, unitId, from, to, limit) as Array<Record<string, unknown>>).map(sanitize);
+  const period = periodClause('activities', 'activities', from, to);
+  return (ctx.db.prepare(`SELECT ${ACTIVITY_CONTEXT} FROM activities WHERE user_id = ? AND unit_id = ? AND visibility = 'unit' AND deleted_at IS NULL AND ${period.sql} ORDER BY date DESC LIMIT ?`).all(userId, unitId, ...period.params, limit) as Array<Record<string, unknown>>).map(sanitize);
 }
 
 function aggregate(ctx: AppContext, unitId: string, from: string, to: string) {
-  const base = `FROM activities WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL AND date >= ? AND date <= ?`;
+  const period = periodClause('activities', 'activities', from, to);
+  const base = `FROM activities WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL AND ${period.sql}`;
   const units = JSON.stringify(subtreeIds(ctx, unitId));
   const headline = summableKeys(ctx.runtime.metrics);
   const headlineSum = headline.length
@@ -73,9 +80,9 @@ function aggregate(ctx: AppContext, unitId: string, from: string, to: string) {
     : '0';
   return {
     from, to,
-    categories: ctx.db.prepare(`SELECT COALESCE(category, 'Uncategorized') AS category, COUNT(*) AS entries, COALESCE(SUM(quantity), 0) AS action_amount, ${headlineSum} AS headline_transaction_value, SUM(CASE WHEN NULLIF(trim(result), '') IS NOT NULL THEN 1 ELSE 0 END) AS with_result ${base} GROUP BY 1 ORDER BY entries DESC`).all(...headline, units, from, to),
-    dollar_types: ctx.db.prepare(`SELECT COALESCE(dollar_type, 'unclassified') AS dollar_type, COUNT(*) AS entries, COALESCE(SUM(dollar_amount), 0) AS transaction_value ${base} AND dollar_amount IS NOT NULL GROUP BY 1 ORDER BY transaction_value DESC`).all(units, from, to),
-    contributors: (ctx.db.prepare(`SELECT COUNT(DISTINCT user_id) AS n ${base}`).get(units, from, to) as { n: number }).n,
+    categories: ctx.db.prepare(`SELECT COALESCE(category, 'Uncategorized') AS category, COUNT(*) AS entries, COALESCE(SUM(quantity), 0) AS action_amount, ${headlineSum} AS headline_transaction_value, SUM(CASE WHEN NULLIF(trim(result), '') IS NOT NULL THEN 1 ELSE 0 END) AS with_result ${base} GROUP BY 1 ORDER BY entries DESC`).all(...headline, units, ...period.params),
+    dollar_types: ctx.db.prepare(`SELECT COALESCE(dollar_type, 'unclassified') AS dollar_type, COUNT(*) AS entries, COALESCE(SUM(dollar_amount), 0) AS transaction_value ${base} AND dollar_amount IS NOT NULL GROUP BY 1 ORDER BY transaction_value DESC`).all(units, ...period.params),
+    contributors: (ctx.db.prepare(`SELECT COUNT(DISTINCT user_id) AS n ${base}`).get(units, ...period.params) as { n: number }).n,
   };
 }
 
