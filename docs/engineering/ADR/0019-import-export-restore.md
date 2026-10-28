@@ -111,7 +111,8 @@ they say so (ADR-0015, John's "Marine confirms", 2026-10-17). Duty rows are list
   is kept only to the project the same import brings in (or finds as the importer's).
 - **Placement.** A record keeps its file's visibility and unit only when the importer may place a record there now
   (`canPlace`) and the unit is active; otherwise it comes in private in their home unit. A file can never put a record
-  in a Unit Instance its importer does not serve in.
+  in a Unit Instance its importer does not serve in. "Only me" brings everything in private, and makes private a record
+  of theirs that a spreadsheet updates.
 - **Another person's import** is 404 to everyone else; a Vantage export of another account comes in only as the
   importer's own copy, with a note.
 - **Records others wrote.** Counselings and award recommendations someone else recorded about the importer come in as

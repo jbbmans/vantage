@@ -266,10 +266,12 @@ function keyed(matrix: string[][]): { headers: string[]; rows: Array<Record<stri
 
 function routeSheet(name: string, headers: string[], plan: ImportPlan, byFile: boolean): Pick<SheetInfo, 'table' | 'routedBy' | 'preset'> {
   const chosen = plan.sheets?.[name]?.table;
-  if (chosen) return { table: chosen as SheetInfo['table'], routedBy: 'chosen', preset: null };
-  if (headers.some(isRecordTypeHeader)) return { table: 'record_type', routedBy: 'record_type', preset: null };
   const named = routeFor(name) ?? (byFile ? fileRoute(name) : null);
-  if (named) return { table: named.table, routedBy: byFile ? 'file' : 'sheet', preset: 'preset' in named ? named.preset ?? null : null };
+  const preset = named && 'preset' in named ? named.preset ?? null : null;
+  // A sheet named for a kind (Certifications, Volunteer) keeps it while it is read as the record type its name says.
+  if (chosen) return { table: chosen as SheetInfo['table'], routedBy: 'chosen', preset: named && chosen === named.table ? preset : null };
+  if (headers.some(isRecordTypeHeader)) return { table: 'record_type', routedBy: 'record_type', preset: null };
+  if (named) return { table: named.table, routedBy: byFile ? 'file' : 'sheet', preset };
   const fit = tableFromHeaders(headers);
   if (fit) return { table: fit, routedBy: 'headers', preset: null };
   // A sheet that names nothing but has a title and a date is read as activities, as the activity CSV import always read one.
@@ -649,14 +651,17 @@ function updateOne(ctx: AppContext, user: SessionUser, scope: Scope, table: Impo
   const ref = { table, id: String(current.id), title: titleOf(table, current) };
   if (!Object.keys(changes).length) return { outcome: 'unchanged', extra: { reason: 'Its Vantage ID is your record, and the row says what it already says.', include: false, toggle: false, duplicateOf: ref } };
   if (table !== 'career_steps' && !canEdit(scope, user.id, current as unknown as RecordRow)) return { outcome: 'problem', extra: { reason: current.frozen_at ? 'That record is frozen because you left its unit.' : 'That record is not yours to edit.', include: false, toggle: false, duplicateOf: ref } };
-  // What it said before, as stored: the undo writes these back as they are, a list of links as its JSON.
-  const stored = (ctx.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(current.id) ?? {}) as Row;
-  const before: Row = {};
-  for (const k of [...Object.keys(changes), 'fingerprint']) if (k in stored) before[k] = stored[k];
+  const stored = () => (ctx.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(current.id) ?? {}) as Row;
+  const was = stored();
   try {
     const saved = savepoint(ctx, () => (table === 'career_steps'
       ? saveCareerStep(ctx, user, String(current.id), careerInput({ ...current, ...changes }))
       : updateRecord(ctx, user, table as RecordTable, String(current.id), changes, reqKey, ip))) as Row;
+    // What it said before, as stored, in every column the update changed: the row's own changes and what came with them
+    // (its fingerprint; an assignment a record made private lets go). The undo writes these back as they are.
+    const after = stored();
+    const before: Row = {};
+    for (const [k, v] of Object.entries(was)) if (k !== 'version' && k !== 'updated_at' && after[k] !== v) before[k] = v;
     state.results.updated[table] = (state.results.updated[table] ?? 0) + 1;
     state.origins.push({ table, id: String(current.id), action: 'updated', sourceId: c.sourceId, ref: c.source, author: null, before, versionAfter: Number(saved.version) });
     return { outcome: 'update', extra: { reason: `Updates your ${TABLE_LABELS[table].one}: ${Object.keys(changes).join(', ')}.`, duplicateOf: ref } };
@@ -982,8 +987,11 @@ export function undoImport(ctx: AppContext, user: SessionUser, id: string, ip?: 
         if (current.deleted_at) continue;
         ctx.db.prepare(`UPDATE ${o.record_table} SET deleted_at = ?, updated_at = ? WHERE id = ?`).run(at, at, o.record_id);
         removed += 1;
-      } else if (o.action === 'updated' && before) {
+      } else if (o.action === 'updated') {
+        // A record destroyed or anonymized since has no snapshot left (forgetImportSnapshots): it stays as it is.
+        if (!before) { kept += 1; continue; }
         const fields = Object.keys(before);
+        if (!fields.length) continue;
         try {
           savepoint(ctx, () => ctx.db.prepare(`UPDATE ${o.record_table} SET ${fields.map((k) => `${k} = ?`).join(', ')}, version = version + 1, updated_at = ? WHERE id = ?`).run(...fields.map((k) => before[k] ?? null), at, o.record_id));
           restored += 1;

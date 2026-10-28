@@ -560,6 +560,7 @@ export function destroyRecords(ctx: AppContext, table: RecordTable, ids: string[
   const list = JSON.stringify(ids);
   const each = 'IN (SELECT value FROM json_each(?))';
   destroyLineage(ctx, table, ids, holds);
+  forgetImportSnapshots(ctx, table, ids);
   const attachments = ctx.db.prepare(`DELETE FROM attachments WHERE record_table = ? AND record_id ${each}`).run(table, list).changes;
   const comments = ctx.db.prepare(`DELETE FROM comments WHERE record_table = ? AND record_id ${each}`).run(table, list).changes;
   if (table === 'activities') {
@@ -619,6 +620,15 @@ export function destroyLineage(ctx: AppContext, table: string, ids: string[], ho
     for (const l of chain) removed += remove.run(l.id).changes;
   }
   return removed;
+}
+
+/**
+ * What an import's undo would write back over a record (ADR-0019) goes when the record is destroyed or anonymized, as its
+ * lineage does: nothing restores what disposition took, and the undo keeps such a record as it is.
+ */
+export function forgetImportSnapshots(ctx: AppContext, table: string, ids: string[]): number {
+  if (!ids.length) return 0;
+  return ctx.db.prepare("UPDATE record_import_origins SET before = NULL WHERE record_table = ? AND action = 'updated' AND record_id IN (SELECT value FROM json_each(?))").run(table, JSON.stringify(ids)).changes;
 }
 
 // The field anonymizing writes over first in each movable type (server/services/retention.ts).

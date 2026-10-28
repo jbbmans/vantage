@@ -4,6 +4,7 @@ import { startApp, enroll, type TestApp } from './helpers.ts';
 import { writeWorkbook, readWorkbook } from '../../server/lib/workbook.ts';
 import { listZip, readZip } from '../../server/lib/zip.ts';
 import { pruneStagedImports } from '../../server/services/recordImport.ts';
+import { forgetImportSnapshots } from '../../server/services/records.ts';
 
 /**
  * Task 13 (ADR-0019): a person's records go out and come back by what they are. An award stays an award, a course a
@@ -422,6 +423,37 @@ test('an undo puts back links and preferences, "Only me" holds for updates, a ZI
   assert.equal((await commit(other.token, then.body.id, expected(then.body))).status, 200);
   const files = app.ctx.db.prepare("SELECT original_name FROM attachments WHERE record_table = 'awards' AND record_id = ? AND deleted_at IS NULL").all(restored.id) as Array<{ original_name: string }>;
   assert.deepEqual(files.map((f) => f.original_name), ['certificate.pdf']);
+});
+
+test('an undo puts back an assignment a private update let go, keeps what disposition took, and a named sheet keeps its kind when its columns change', async () => {
+  // A leader's shared task, assigned to a Marine, made private by an "Only me" import: the assignment goes with it, and
+  // the undo puts both back.
+  const task = (await post(op.token, '/api/records/tasks', { title: 'Close out the FY25 binder', due_date: '2026-11-30', visibility: 'unit', unit_id: 'G8', assignee_id: marine.id })).body;
+  assert.equal(task.assignee_id, marine.id, JSON.stringify(task));
+  const staged = await upload(op.token, `Vantage ID,Title,Due Date\n${task.id},Close out the FY25 binder,2026-11-30\n`, 'vantage-op-tasks-2026-10-28.csv', 'text/csv');
+  const privately = await put(op.token, `/api/me/imports/${staged.body.id}`, { placement: 'private' });
+  assert.equal(privately.body.rows[0].outcome, 'update', JSON.stringify(privately.body.rows[0]));
+  assert.equal((await commit(op.token, staged.body.id, { placement: 'private', ...expected(privately.body) })).status, 200);
+  const stored = () => ({ ...app.ctx.db.prepare('SELECT visibility, assignee_id FROM tasks WHERE id = ?').get(task.id) as object });
+  assert.deepEqual(stored(), { visibility: 'private', assignee_id: null });
+  assert.equal((await post(op.token, `/api/me/imports/${staged.body.id}/undo`)).status, 200);
+  assert.deepEqual(stored(), { visibility: 'unit', assignee_id: marine.id });
+
+  // What a record said before an import is let go when disposition anonymizes or destroys it: the undo keeps it as it is.
+  const again = await upload(op.token, `Vantage ID,Title,Due Date\n${task.id},Close out the FY25 binder (signed),2026-11-30\n`, 'tasks.csv', 'text/csv');
+  assert.equal((await commit(op.token, again.body.id, expected(again.body))).status, 200);
+  assert.equal(forgetImportSnapshots(app.ctx, 'tasks', [task.id]), 2, 'both imports that updated it');
+  const undone = await post(op.token, `/api/me/imports/${again.body.id}/undo`);
+  assert.deepEqual(undone.body.results.undone, { removed: 0, restored: 0, kept: 1 });
+  assert.equal((app.ctx.db.prepare('SELECT title FROM tasks WHERE id = ?').get(task.id) as { title: string }).title, 'Close out the FY25 binder (signed)');
+
+  // A Certifications sheet whose columns the person maps keeps reading its rows as certifications.
+  const book = writeWorkbook([{ name: 'Certifications', rows: [['Course', 'Earned'], ['Network+', '2026-03-03']] }]);
+  const certs = await upload(op.token, book, 'certs.xlsx');
+  const mapped = await put(op.token, `/api/me/imports/${certs.body.id}`, { sheets: { Certifications: { table: 'trainings', mapping: { title: 'Course', date: 'Earned' } } } });
+  assert.equal(mapped.status, 200, JSON.stringify(mapped.body).slice(0, 300));
+  assert.equal((await commit(op.token, certs.body.id, { sheets: { Certifications: { table: 'trainings', mapping: { title: 'Course', date: 'Earned' } } }, ...expected(mapped.body) })).status, 200);
+  assert.equal(rows(op.id, 'trainings').find((t) => t.title === 'Network+')?.type, 'certification');
 });
 
 test('a unit configuration carries its duty scoring versions, with their dates and withdrawals, into a Unit Instance that has none', async () => {
