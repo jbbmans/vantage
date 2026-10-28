@@ -1,4 +1,5 @@
 import { createHash } from 'node:crypto';
+import { statSync } from 'node:fs';
 import { z } from 'zod';
 import type { AppContext, SessionUser } from '../context.ts';
 import { HttpError, badRequest, conflict, notFound } from '../lib/errors.ts';
@@ -541,9 +542,11 @@ function convert(c: Candidate, as: ImportTable | 'duty'): Row {
 
 /** A correction, kept to the fields of the record type it goes into. */
 function sanitizeFix(as: ImportTable, fix: Record<string, unknown>): Row {
-  const allowed = new Set(RECORD_COLUMNS[as].map((c) => c.key));
-  for (const k of NEVER_FROM_FILE) allowed.delete(k);
-  return Object.fromEntries(Object.entries(fix).filter(([k]) => allowed.has(k)));
+  const columns = new Map(RECORD_COLUMNS[as].map((c) => [c.key, c]));
+  for (const k of NEVER_FROM_FILE) columns.delete(k);
+  // A set of pairs (a goal's filters) is typed as the spreadsheet holds it, and read the way the spreadsheet is.
+  return Object.fromEntries(Object.entries(fix).filter(([k]) => columns.has(k))
+    .map(([k, v]) => [k, columns.get(k)!.kind === 'json' && typeof v === 'string' ? readCell(columns.get(k)!, v).value : v]));
 }
 
 function suggestionFor(c: Candidate, as: ImportTable | 'duty'): ImportReviewRow['suggestion'] {
@@ -638,11 +641,18 @@ function updateOne(ctx: AppContext, user: SessionUser, scope: Scope, table: Impo
     if (record.visibility && record.visibility !== current.visibility) changes.visibility = record.visibility;
     if (record.unit_id !== undefined && (record.unit_id || null) !== (current.unit_id ?? null)) changes.unit_id = record.unit_id || null;
   }
+  // "Only me" holds for a record the file updates too: what it changes is not shared on.
+  if (mode === 'private' && table !== 'career_steps' && current.visibility !== 'private') {
+    changes.visibility = 'private';
+    if (table === 'goals' && current.measure_scope === 'unit') changes.measure_scope = 'subject';
+  }
   const ref = { table, id: String(current.id), title: titleOf(table, current) };
   if (!Object.keys(changes).length) return { outcome: 'unchanged', extra: { reason: 'Its Vantage ID is your record, and the row says what it already says.', include: false, toggle: false, duplicateOf: ref } };
   if (table !== 'career_steps' && !canEdit(scope, user.id, current as unknown as RecordRow)) return { outcome: 'problem', extra: { reason: current.frozen_at ? 'That record is frozen because you left its unit.' : 'That record is not yours to edit.', include: false, toggle: false, duplicateOf: ref } };
+  // What it said before, as stored: the undo writes these back as they are, a list of links as its JSON.
+  const stored = (ctx.db.prepare(`SELECT * FROM ${table} WHERE id = ?`).get(current.id) ?? {}) as Row;
   const before: Row = {};
-  for (const k of [...Object.keys(changes), 'fingerprint']) if (k in current) before[k] = current[k];
+  for (const k of [...Object.keys(changes), 'fingerprint']) if (k in stored) before[k] = stored[k];
   try {
     const saved = savepoint(ctx, () => (table === 'career_steps'
       ? saveCareerStep(ctx, user, String(current.id), careerInput({ ...current, ...changes }))
@@ -666,11 +676,15 @@ function attachFiles(ctx: AppContext, user: SessionUser, scope: Scope, source: S
     if (!c.sourceId) continue;
     const made = state.created.get(c.ref);
     if (made) { targets.set(`${c.from}:${c.sourceId}`, made); continue; }
-    // A record already here takes the files it does not have yet.
+    // A record already here takes the files it does not have yet: the same record, or the one an earlier import of it
+    // made (a JSON restore first, its ZIP after), or the same thing the person already has.
     const row = byRef.get(c.ref);
-    if (row?.outcome === 'present' && row.duplicateOf && !/recycle bin/.test(row.reason ?? '')) targets.set(`${c.from}:${c.sourceId}`, { table: row.duplicateOf.table, id: row.duplicateOf.id });
+    if ((row?.outcome === 'present' || row?.outcome === 'duplicate') && row.duplicateOf && !/recycle bin/.test(row.reason ?? '')) targets.set(`${c.from}:${c.sourceId}`, { table: row.duplicateOf.table, id: row.duplicateOf.id });
   }
   const problem = (name: string, reason: string) => attachments.problems.push({ name, reason });
+  // The database keeps its recovery headroom, as an upload does (server/routes/records.ts): files stop at the threshold.
+  let room = Infinity;
+  try { if (ctx.db.name !== ':memory:') room = ctx.config.limits.maxDatabaseBytes - statSync(ctx.db.name).size; } catch { /* no file to measure */ }
   for (const a of source.attachments) {
     const target = targets.get(`${a.table}:${a.sourceRecordId}`);
     if (!target) continue;
@@ -689,6 +703,8 @@ function attachFiles(ctx: AppContext, user: SessionUser, scope: Scope, source: S
     const inspected = inspectAttachment({ body: a.data, filename: a.name, contentType: a.mime, allowedTypes: ctx.config.attachments.allowedTypes, maxBytes: ctx.config.attachments.maxBytes });
     if (!inspected.ok) { problem(a.name, inspected.error); continue; }
     if (ctx.db.prepare('SELECT 1 FROM attachments WHERE record_table = ? AND record_id = ? AND sha256 = ? AND deleted_at IS NULL').get(target.table, target.id, inspected.sha256)) { problem(a.name, 'That file is already on the record.'); continue; }
+    if (inspected.size >= room) { problem(a.name, 'The database is too close to its safety threshold for that file.'); continue; }
+    room -= inspected.size;
     const id = newId();
     ctx.db.prepare('INSERT INTO attachments (id, record_table, record_id, uploaded_by, unit_id, original_name, mime_type, size_bytes, sha256, content, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)')
       .run(id, target.table, target.id, user.id, record.unit_id ?? null, inspected.filename, inspected.mime, inspected.size, inspected.sha256, a.data, now());
@@ -768,7 +784,12 @@ function profileChanges(ctx: AppContext, user: SessionUser, source: Source, plan
     set('users', userSet, current);
     set('readiness', readinessSet, readiness);
     set('career_profiles', careerSet, career);
-    if (prefsSet) ctx.db.prepare('UPDATE users SET prefs = ?, updated_at = ? WHERE id = ?').run(JSON.stringify(prefsSet), at, user.id);
+    if (prefsSet) {
+      // Preferences are one stored value: the undo puts back the whole of it, if nothing changed it since.
+      const value = JSON.stringify(prefsSet);
+      ctx.db.prepare('UPDATE users SET prefs = ?, updated_at = ? WHERE id = ?').run(value, at, user.id);
+      state.origins.push({ table: 'users', id: user.id, action: 'profile', sourceId: null, ref: 'prefs', author: null, before: { before: { prefs: current.prefs ?? null }, after: { prefs: value } }, versionAfter: null });
+    }
     state.results.profile = [...Object.keys(userSet), ...Object.keys(readinessSet), ...Object.keys(careerSet), ...(prefsSet ? ['prefs'] : [])];
     if (state.results.profile.length) audit(ctx, { actor_id: user.id, action: 'edit_profile', entity: 'user', entity_id: user.id, subject_id: user.id, detail: `import: ${state.results.profile.join(', ')}` });
   }

@@ -55,7 +55,10 @@ export default function RecordImportDialog({ open, onOpenChange }: { open: boole
 
   const refresh = () => { invalidateDomains(qc, 'activity', 'training', 'award', 'counseling', 'goal', 'task', 'project', 'career'); qc.invalidateQueries({ queryKey: keys.me }); qc.invalidateQueries({ queryKey: ['record-imports'] }); };
 
+  // Only the review of the latest choice is shown, and Import waits for it: an earlier answer arriving late is dropped.
+  const latest = useRef(0);
   const stage = async (file: File) => {
+    latest.current += 1;
     setError(''); setBusy('stage');
     try { const r = await api.stageRecordImport(file); setReview(r); setPlan({}); setFilter(r.rows.length > 30 && r.rows.some((x) => ATTENTION.includes(x.outcome)) ? 'attention' : 'all'); }
     catch (e) { setError(api.errorText(e)); }
@@ -63,10 +66,11 @@ export default function RecordImportDialog({ open, onOpenChange }: { open: boole
   };
   const replan = async (next: ImportPlanBody) => {
     if (!review) return;
+    const asked = ++latest.current;
     setPlan(next); setBusy('plan');
-    try { setReview(await api.planRecordImport(review.id, next)); }
-    catch (e) { toast.error(api.errorText(e)); }
-    finally { setBusy(null); }
+    try { const r = await api.planRecordImport(review.id, next); if (asked === latest.current) setReview(r); }
+    catch (e) { if (asked === latest.current) toast.error(api.errorText(e)); }
+    finally { if (asked === latest.current) setBusy(null); }
   };
   const choose = (ref: string, choice: NonNullable<ImportPlanBody['rows']>[string]) => replan({ ...plan, rows: { ...plan.rows, [ref]: { ...plan.rows?.[ref], ...choice } } });
   const commit = async () => {

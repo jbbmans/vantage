@@ -6,6 +6,7 @@ import {
 import { CAREER_CATEGORIES, CAREER_STATUSES } from './record.ts';
 import { isDrawnFromWork, trainingType } from './recordKinds.ts';
 import { timeframeProblems, isTimeframed } from './timeframe.ts';
+import { goalSchema } from './schemas.ts';
 
 /**
  * What a person's records look like outside Vantage, and how they come back in (ADR-0019). One registry for the personal
@@ -125,7 +126,7 @@ export function selectSections(keys: readonly string[] | null | undefined): Sect
 
 // ——— Spreadsheet columns ———
 
-export type ColumnKind = 'text' | 'date' | 'time' | 'number' | 'flag' | 'enum' | 'links';
+export type ColumnKind = 'text' | 'date' | 'time' | 'number' | 'flag' | 'enum' | 'links' | 'json';
 export interface TransferColumn {
   key: string; header: string; aliases?: string[]; kind?: ColumnKind;
   /** The values an enum column takes, and what an unknown one becomes (none: it is a problem to correct). */
@@ -200,6 +201,14 @@ export const RECORD_COLUMNS: Record<ImportTable, TransferColumn[]> = {
     { key: 'status', header: 'Status', kind: 'enum', values: GOAL_STATUS, synonyms: { done: 'achieved', complete: 'achieved', completed: 'achieved' } },
     { key: 'period_start', header: 'Period Start', kind: 'date' },
     { key: 'period_end', header: 'Period End', aliases: ['Deadline', 'Due Date'], kind: 'date' },
+    // How a typed goal measures its progress: without them it comes back a manual goal that counts up.
+    { key: 'metric_id', header: 'Metric ID' },
+    { key: 'direction', header: 'Direction', kind: 'enum', values: goalSchema.shape.direction.unwrap().options },
+    { key: 'baseline_value', header: 'Baseline', aliases: ['Baseline Value'], kind: 'number' },
+    { key: 'aggregation', header: 'Aggregation', kind: 'enum', values: goalSchema.shape.aggregation.unwrap().options },
+    { key: 'filters', header: 'Filters', kind: 'json' },
+    { key: 'measure_scope', header: 'Measured For', kind: 'enum', values: goalSchema.shape.measure_scope.unwrap().options },
+    { key: 'completed_at', header: 'Completed On', kind: 'date' },
     VISIBILITY, UNIT,
   ],
   projects: [
@@ -417,6 +426,13 @@ export function readCell(column: TransferColumn, raw: string): { value: unknown;
       const e = enumValue(column, raw);
       return e.unknown ? { value: null, error: `“${raw.slice(0, 40)}” is not one of: ${(column.values ?? []).join(', ')}.` } : { value: e.value };
     }
+    case 'json': {
+      try {
+        const parsed: unknown = JSON.parse(raw);
+        if (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) return { value: parsed };
+      } catch { /* below */ }
+      return { value: null, error: 'Not what Vantage writes here (a set of {"name": "value"} pairs).' };
+    }
     default: return { value: raw };
   }
 }
@@ -431,7 +447,7 @@ export function sheetRow(table: ImportTable, row: Record<string, unknown>): Reco
   const out: Record<string, unknown> = {};
   for (const column of RECORD_COLUMNS[table]) {
     const value = row[column.key];
-    out[column.header] = column.kind === 'flag' ? (value ? 'Yes' : '') : value ?? '';
+    out[column.header] = column.kind === 'flag' ? (value ? 'Yes' : '') : column.kind === 'json' ? (value && typeof value === 'object' && Object.keys(value).length ? JSON.stringify(value) : '') : value ?? '';
   }
   // Still going: "Present" in End Date and Yes in Ongoing, as an activity's (ADR-0018).
   if (table === 'trainings' && ongoingOf(row)) { out['End Date'] = 'Present'; out.Ongoing = 'Yes'; }

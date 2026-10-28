@@ -364,6 +364,66 @@ test('§14 round trip: a representative account, exported and imported into a cl
   } finally { await clean.close(); }
 });
 
+test('an undo puts back links and preferences, "Only me" holds for updates, a ZIP after its JSON brings the files, and a typed goal survives a spreadsheet', async () => {
+  const me = await app.register('reyes');
+  await enroll(app, op.token, 'G8', me.id);
+  me.token = await login('reyes');
+
+  // A spreadsheet changes a shared entry's links, brought in "only me"; the undo puts both back as they were.
+  const entry = (await post(me.token, '/api/records/activities', { title: 'Audit prep', date: '2026-05-05', visibility: 'unit', unit_id: 'G8', evidence_links: [{ label: 'ticket', url: 'https://example.mil/t/9' }] })).body;
+  assert.ok(entry.id, JSON.stringify(entry));
+  const staged = await upload(me.token, `Vantage ID,Title,Date,Evidence Links\n${entry.id},Audit prep,2026-05-05,https://example.mil/t/10\n`, 'links.csv', 'text/csv');
+  assert.equal(staged.body.rows[0].outcome, 'update', JSON.stringify(staged.body.rows[0]));
+  const privately = await put(me.token, `/api/me/imports/${staged.body.id}`, { placement: 'private' });
+  assert.match(privately.body.rows[0].reason, /visibility/, 'the review says it stops being shared');
+  assert.equal((await commit(me.token, staged.body.id, { placement: 'private', ...expected(privately.body) })).status, 200);
+  const stored = () => app.ctx.db.prepare('SELECT visibility, evidence_links FROM activities WHERE id = ?').get(entry.id) as { visibility: string; evidence_links: string };
+  assert.equal(stored().visibility, 'private');
+  assert.match(stored().evidence_links, /t\/10/);
+  const undone = await post(me.token, `/api/me/imports/${staged.body.id}/undo`);
+  assert.equal(undone.status, 200, JSON.stringify(undone.body).slice(0, 300));
+  assert.deepEqual(undone.body.results.undone, { removed: 0, restored: 1, kept: 0 });
+  assert.equal(stored().visibility, 'unit');
+  assert.equal(JSON.parse(stored().evidence_links)[0].url, 'https://example.mil/t/9');
+
+  // Preferences a file fills go back on undo.
+  const prefs = () => String((app.ctx.db.prepare('SELECT prefs FROM users WHERE id = ?').get(me.id) as { prefs: string | null }).prefs ?? '');
+  const was = prefs();
+  const file = await upload(me.token, JSON.stringify({ format: 'vantage-personal/1', profile: { id: me.id, username: 'reyes', prefs: { theme: 'dark', density: 'compact' } }, records: {} }), 'prefs.json', 'application/json');
+  assert.ok(file.body.profile.changes.some((c: { field: string }) => c.field === 'prefs'), JSON.stringify(file.body.profile));
+  assert.equal((await commit(me.token, file.body.id, expected(file.body))).status, 200);
+  assert.match(prefs(), /"theme":"dark"/);
+  assert.equal((await post(me.token, `/api/me/imports/${file.body.id}/undo`)).status, 200);
+  assert.equal(prefs(), was);
+
+  // A typed goal keeps how it measures progress through a spreadsheet.
+  const goal = await post(me.token, '/api/records/goals', { title: 'Fewer open discrepancies', status: 'active', visibility: 'private', period_start: '2026-01-01', period_end: '2026-12-31', metric_id: 'quantity:discrepancy', direction: 'decrease', baseline_value: 40, target_value: 10, aggregation: 'latest', filters: { category: 'Audit' }, unit_label: 'discrepancies' });
+  assert.equal(goal.status, 201, JSON.stringify(goal.body));
+  const sheet = await get(me.token, '/api/me/export?format=csv&sections=goals');
+  assert.equal(sheet.status, 200);
+  const goals = await upload(other.token, sheet.text, 'vantage-reyes-goals-2026-10-28.csv', 'text/csv');
+  assert.equal(goals.body.counts.problem, 0, JSON.stringify(goals.body.rows.filter((r: { outcome: string }) => r.outcome === 'problem')));
+  assert.equal((await commit(other.token, goals.body.id, expected(goals.body))).status, 200);
+  const copy = rows(other.id, 'goals').find((g) => g.title === 'Fewer open discrepancies')!;
+  assert.deepEqual([copy.metric_id, copy.direction, copy.baseline_value, copy.aggregation, JSON.parse(copy.filters).category], ['quantity:discrepancy', 'decrease', 40, 'latest', 'Audit']);
+
+  // A JSON restore first, its ZIP after: the files go onto the records the JSON brought in, not into new ones.
+  const award = (await post(me.token, '/api/records/awards', { name: 'Certificate of Appreciation', type: 'certificate', status: 'presented', date: '2026-04-04' })).body;
+  const attached = await app.call('POST', `/api/records/awards/${award.id}/attachments`, { token: me.token, raw: Buffer.from('%PDF-1.4\n% the certificate\n%%EOF\n'), headers: { 'content-type': 'application/pdf', 'x-vantage-filename': 'certificate.pdf' } });
+  assert.equal(attached.status, 201, JSON.stringify(attached.body));
+  const json = await get(me.token, '/api/me/export?format=json&sections=awards');
+  const zip = await app.call('GET', '/api/me/export?format=zip&sections=awards,attachments', { token: me.token, binary: true });
+  const first = await upload(other.token, JSON.stringify(json.body), 'reyes.json', 'application/json');
+  assert.equal((await commit(other.token, first.body.id, expected(first.body))).status, 200);
+  const restored = rows(other.id, 'awards').find((a) => a.name === 'Certificate of Appreciation')!;
+  const then = await upload(other.token, zip.buffer!, 'reyes.zip', 'application/zip');
+  assert.equal(then.body.counts.new, 0, 'nothing comes in twice');
+  assert.equal(then.body.attachments.included, 1, JSON.stringify(then.body.attachments));
+  assert.equal((await commit(other.token, then.body.id, expected(then.body))).status, 200);
+  const files = app.ctx.db.prepare("SELECT original_name FROM attachments WHERE record_table = 'awards' AND record_id = ? AND deleted_at IS NULL").all(restored.id) as Array<{ original_name: string }>;
+  assert.deepEqual(files.map((f) => f.original_name), ['certificate.pdf']);
+});
+
 test('a unit configuration carries its duty scoring versions, with their dates and withdrawals, into a Unit Instance that has none', async () => {
   assert.equal((await post(op.token, '/api/orgs/G8/duty-types/standard')).status, 200);
   const types = (await get(op.token, '/api/orgs/G8/configuration')).body.dutyTypes as Array<{ id: string; code: string; active: number | boolean }>;
