@@ -109,9 +109,9 @@ are under `tests/browser`.
 
 | Section | Status | Evidence | Gaps |
 |---|---|---|---|
-| V2.1 Validation and business logic documentation | Partly | zod schemas in `shared/schemas.ts`, `shared/recordSchemas.ts`, `shared/caseSchemas.ts`; limits written into ADR-0011, ADR-0012 and ADR-0013 | No single document lists every validation rule and business limit. |
+| V2.1 Validation and business logic documentation | Partly | zod schemas in `shared/schemas.ts`, `shared/recordSchemas.ts`, `shared/caseSchemas.ts`; limits written into ADR-0011, ADR-0012 and ADR-0013; record timeframe rules in `shared/timeframe.ts` and ADR-0018 | No single document lists every validation rule and business limit. |
 | V2.2 Input validation | Met | `parse()` with zod on every route that takes input; server-side checks repeat any the client makes | — |
-| V2.3 Business logic security | Partly | Steps in order: work stages, scoring versions in order, approvals before credential changes; optimistic concurrency (409 `version_conflict`); single-use codes, links and approvals; tests `cases`, `dutyScoring`, `credentialApprovals`, `invariants` | A second person approves only a support credential change on an account that holds authority. Maintenance, backups, instance restores and Vantage access a Unit Instance chose to be told of need no second person (V2.3.5, L3; ADR-0013, Consequences). |
+| V2.3 Business logic security | Partly | Steps in order: work stages, scoring versions in order, approvals before credential changes; no record ending before it starts, held by database triggers for every writer (tests `recordTimeframes`); optimistic concurrency (409 `version_conflict`); single-use codes, links and approvals; tests `cases`, `dutyScoring`, `credentialApprovals`, `invariants` | A second person approves only a support credential change on an account that holds authority. Maintenance, backups, instance restores and Vantage access a Unit Instance chose to be told of need no second person (V2.3.5, L3; ADR-0013, Consequences). |
 | V2.4 Anti-automation | Partly | Rate limits per IP and per account on sign-in, registration, reset, MFA and mutations; per-person console read limit; mail caps per account; tests `auth`, `securityHardening`, `leastPrivilege` | No minimum human timing on business flows (V2.4.2, L3). |
 
 ### V3 Web Frontend Security

@@ -36,9 +36,13 @@ export interface LegalHold {
   org_id: string | null;
 }
 
-/** The date column that starts the retention clock for each kind of record. */
+/**
+ * The date that starts the retention clock for each kind of record. An activity or course is kept from the day it
+ * ended, and one still going on is never due (ADR-0018); an award from its award date, the end of what it recognizes.
+ */
+const ENDED = '(CASE WHEN ongoing = 1 THEN NULL ELSE COALESCE(end_date, date) END)';
 const CLOCK: Record<string, string> = {
-  activities: 'date', trainings: 'date', awards: 'date', counselings: 'date',
+  activities: ENDED, trainings: ENDED, awards: 'date', counselings: 'date',
   goals: 'period_end', tasks: 'updated_at', projects: 'updated_at',
 };
 

@@ -401,6 +401,17 @@ test('what the personnel feed sets, a leader cannot change either, and the feedâ
     assert.deepEqual([kept().supervisor_id, kept().checked_in_on], [owner.id, '2026-05-28']);
     const restored = fresh.ctx.db.prepare("SELECT * FROM personnel_events WHERE user_id = ? AND field = 'supervisor' ORDER BY id DESC").get(marine.id) as Record<string, any>;
     assert.equal(restored.to_value, owner.id); assert.equal(restored.source, 'feed');
+
+    // A separation kept before 026 with dates out of order (ADR-0018): the extract still restores the membership, undated,
+    // rather than being refused whole.
+    assert.equal((await extract('Separated')).status, 200);
+    const keptRow = "SELECT removed_units FROM personnel_roster WHERE org_id = 'G8' AND edipi = '9876543210'";
+    const removed = JSON.parse((fresh.ctx.db.prepare(keptRow).get() as { removed_units: string }).removed_units) as Array<Record<string, unknown>>;
+    removed[0].assignment_end = '2026-01-01';
+    fresh.ctx.db.prepare("UPDATE personnel_roster SET removed_units = ? WHERE org_id = 'G8' AND edipi = '9876543210'").run(JSON.stringify(removed));
+    const again = await extract('Active');
+    assert.equal(again.status, 200, JSON.stringify(again.body));
+    assert.deepEqual([membership()?.billet_id, membership()?.assignment_start, membership()?.assignment_end], [billet.body.id, null, null]);
   } finally { await fresh.close(); }
 });
 

@@ -24,7 +24,10 @@ export interface BaseRecord {
   frozen_at: string | null; deleted_at: string | null; created_at: string; updated_at: string;
 }
 
-export interface Activity extends BaseRecord {
+/** When a record ran (ADR-0018): `date` is its first day; times are HH:MM wall clock; ongoing is 1 while it has no end yet. */
+export interface Timeframed { date: string | null; end_date?: string | null; start_time?: string | null; end_time?: string | null; ongoing?: number }
+
+export interface Activity extends BaseRecord, Timeframed {
   date: string | null; title: string; category: string | null; eval_area: string | null; quantity: number | null;
   unit_label: string | null; dollar_amount: number | null; dollar_type: string | null; result: string | null;
   organization: string | null; system: string | null; project_id: string | null; status: string | null;
@@ -62,12 +65,14 @@ export interface GoalProgress extends ProgressResult {
   unit: string | null;
 }
 
-export interface Training extends BaseRecord {
+export interface Training extends BaseRecord, Timeframed {
   date: string | null; title: string; type: string | null; hours: number | null; provider: string | null;
   status: string; notes: string | null;
 }
 
 export interface Award extends BaseRecord {
+  /** The first day of the period it recognizes; `date` is the last, the award date (ADR-0018). */
+  period_start?: string | null;
   date: string | null; name: string; type: string; status: string; recommending_official: string | null;
   approving_authority: string | null; citation: string | null; notes: string | null;
   submitted_at: string | null; approved_at: string | null; presented_at: string | null;

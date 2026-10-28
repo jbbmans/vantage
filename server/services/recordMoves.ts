@@ -4,7 +4,7 @@ import { RECORD_SCHEMAS, type RecordTable } from '../../shared/schemas.ts';
 import { MOVABLE_LABELS, MOVABLE_TABLES, isDrawnFromWork, isMovableTable, kindText, movedFields, recordKindOf, type KindReading, type MovableTable } from '../../shared/recordKinds.ts';
 import { orgOfUnit, scopeFor } from '../authz/scope.ts';
 import { assertFileableProject, canPlace, recordedByOther, type RecordRow } from '../authz/records.ts';
-import { TABLES, activityFingerprint, getRecord, readableRecord } from './records.ts';
+import { TABLES, activityFingerprint, checkTimeframe, getRecord, readableRecord } from './records.ts';
 import { holdState, type HoldState } from './holds.ts';
 import { audit } from './audit.ts';
 import { parse } from '../lib/http.ts';
@@ -127,6 +127,7 @@ export function moveRecord(ctx: AppContext, user: SessionUser, table: RecordTabl
   const corrections = Object.fromEntries(Object.entries(input.fields || {})
     .filter(([k, v]) => spec.fields.includes(k) && !NOT_CORRECTED.has(k) && !(required.has(k) && (v === null || v === ''))));
   const data = parse(RECORD_SCHEMAS[to] as never, { ...movedFields(from, row, to), ...corrections }) as Record<string, unknown>;
+  checkTimeframe(to, data);
   const at = now();
   const toId = newId();
   const created: Record<string, unknown> = { id: toId, user_id: row.user_id, unit_id: row.unit_id, visibility: row.visibility, created_at: row.created_at, updated_at: at };

@@ -8,7 +8,7 @@ import { loadRuntime } from '../runtime.ts';
 import { appendRestore, chainPoint } from './restoreLog.ts';
 import { dataExportProblem } from '../../shared/dataTransfer.ts';
 import { writeLineage } from './recovery.ts';
-import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers, dropInstanceBoundaryTriggers, dropMembershipHistoryTriggers, dropPersonnelHistoryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, membershipHistoryTriggers, metaSet, openMissingMembershipPeriods, personnelHistoryTriggers, stampAttachmentUnits, backfillAwardRecorders, linkBilletsByTitle } from '../db/index.ts';
+import { auditAppendOnlyTriggers, dropAuditAppendOnlyTriggers, dropInstanceBoundaryTriggers, dropMembershipHistoryTriggers, dropPersonnelHistoryTriggers, foundOrganizations, instanceBoundaryTriggers, instanceBoundaryViolations, membershipHistoryTriggers, metaSet, openMissingMembershipPeriods, personnelHistoryTriggers, stampAttachmentUnits, backfillAwardRecorders, linkBilletsByTitle, dropTimeframeTriggers, timeframeTriggers, timeframeViolations } from '../db/index.ts';
 import { sealBacklog } from './caseSeal.ts';
 import { loadChainKey, resealStoredSecrets, secretsOf } from '../lib/keys.ts';
 
@@ -99,6 +99,7 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   // An archive from before 024 links no membership to its billet; the titles do, as the migration reads them.
   const unlinked = (archive.tables.unit_members || []).some((m) => !('billet_id' in m));
   let crossings: Record<string, number> = {};
+  let outOfOrder: Record<string, number> = {};
   ctx.db.pragma('foreign_keys = OFF');
   try {
     ctx.db.transaction(() => {
@@ -107,6 +108,8 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       dropInstanceBoundaryTriggers(ctx.db);
       dropMembershipHistoryTriggers(ctx.db);
       dropPersonnelHistoryTriggers(ctx.db);
+      // Dates out of order are refused as they are written (ADR-0018); an archive's are counted once it is all in.
+      dropTimeframeTriggers(ctx.db);
       // The audit log is append-only (ADR-0013). Only here, loading a fresh instance, is it emptied: the archive brings
       // its own chain in place of this host's first-run entries. Its triggers are back before this commits.
       dropAuditAppendOnlyTriggers(ctx.db);
@@ -115,14 +118,18 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       for (const table of EXPORT_TABLES) {
         const rows = archive.tables![table] || [];
         if (!rows.length) { counts[table] = 0; continue; }
-        const columns = (ctx.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string }>).map((c) => c.name);
+        const info = ctx.db.prepare(`PRAGMA table_info(${table})`).all() as Array<{ name: string; dflt_value: string | null }>;
+        const columns = info.map((c) => c.name);
+        // A column the archive's rows do not have, one a later migration added, takes its default, as that migration gave
+        // it to the rows a live database already held: an archive from before 026 brings activities that are not ongoing.
+        const defaults = new Map(info.filter((c) => c.dflt_value != null).map((c) => [c.name, (ctx.db.prepare(`SELECT ${c.dflt_value} AS v`).get() as { v: unknown }).v]));
         const insert = ctx.db.prepare(`INSERT INTO ${table} (${columns.join(',')}) VALUES (${columns.map(() => '?').join(',')})`);
         for (const row of rows) {
           insert.run(...columns.map((c) => {
             const v = row[c];
             if (v && typeof v === 'object' && '$bytes' in (v as object)) return Buffer.from(String((v as { $bytes: string }).$bytes), 'base64');
             if (legacy && c === 'org_id' && v == null && ORG_OWNED.has(table)) return firstRoot;
-            return v === undefined ? null : v;
+            return v === undefined ? (defaults.get(c) ?? null) : v;
           }));
         }
         counts[table] = rows.length;
@@ -143,6 +150,11 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
       if (Object.keys(crossings).length) metaSet(ctx.db, 'instance_boundary_violations', JSON.stringify({ at: now(), found: crossings }));
       else ctx.db.prepare("DELETE FROM meta WHERE key = 'instance_boundary_violations'").run();
       instanceBoundaryTriggers(ctx.db);
+      // Dates the archive brings out of order are kept and counted, as migration 026 counts a live database's.
+      outOfOrder = timeframeViolations(ctx.db);
+      if (Object.keys(outOfOrder).length) metaSet(ctx.db, 'timeframe_violations', JSON.stringify({ at: now(), found: outOfOrder }));
+      else ctx.db.prepare("DELETE FROM meta WHERE key = 'timeframe_violations'").run();
+      timeframeTriggers(ctx.db);
       auditAppendOnlyTriggers(ctx.db);
       const violations = ctx.db.pragma('foreign_key_check') as unknown[];
       if (violations.length) throw new Error(`Archive has ${violations.length} foreign key violation(s): ${JSON.stringify(violations.slice(0, 3))}`);
@@ -159,11 +171,12 @@ export function importInstance(ctx: AppContext, archive: { format?: string; key_
   sealBacklog(ctx);
   metaSet(ctx.db, 'case_seals_backfilled', now());
   const crossed = Object.keys(crossings).length ? `; joined across Unit Instances: ${JSON.stringify(crossings)}` : '';
+  const misdated = Object.keys(outOfOrder).length ? `; ending before they start: ${JSON.stringify(outOfOrder)}` : '';
   // The importer is the actor when the archive holds their account. When it does not, the entry names them instead, so
   // the restore is still attributed to a person and not to an id nothing in the chain resolves.
   const kept = Boolean(ctx.db.prepare('SELECT 1 FROM users WHERE id = ?').get(actorId));
   const by = `by ${importer?.username ?? 'an account no longer here'} (${actorId})${kept ? '' : ', whose account the archive does not hold'}`;
-  audit(ctx, { actor_id: kept ? actorId : null, action: 'instance_import', entity: 'instance', detail: `${by}${crossed}; ${JSON.stringify(counts)}`.slice(0, 900) });
+  audit(ctx, { actor_id: kept ? actorId : null, action: 'instance_import', entity: 'instance', detail: `${by}${crossed}${misdated}; ${JSON.stringify(counts)}`.slice(0, 900) });
   // Loading an archive is a restore (ADR-0014): it is in the restore history, audited above, and the lineage beside the
   // database is noted afresh, so the next start does not take the archive's chain for a database replaced behind its back.
   appendRestore(ctx.db, {

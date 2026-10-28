@@ -4,6 +4,7 @@ import {
 } from 'date-fns';
 import { FISCAL_YEAR_START_MONTH, DEFAULT_METRICS, isSummable, type MetricsConfig } from './constants.ts';
 import type { DateRange } from './types.ts';
+import { inPeriod as covers } from './timeframe.ts';
 
 export function toDate(value: unknown): Date | null {
   if (!value) return null;
@@ -109,9 +110,11 @@ export function inPeriod(value: unknown, range: DateRange | null | undefined): b
   return d >= range.start && d <= range.end;
 }
 
-export function activitiesInRange<T extends { date?: string | null }>(list: T[] = [], range?: DateRange | null): T[] {
+/** The entries with any day in the range: one begun before it and still going counts (ADR-0018). */
+export function activitiesInRange<T extends { date?: string | null; end_date?: string | null; ongoing?: number | boolean | null }>(list: T[] = [], range?: DateRange | null): T[] {
   if (!range) return list;
-  return list.filter((a) => inPeriod(a.date, range));
+  const from = dayKey(range.start), to = dayKey(range.end);
+  return list.filter((a) => covers('activities', a, from, to));
 }
 
 export interface Bucket { count: number; dollars: number; quantity: number }

@@ -4,6 +4,7 @@ import {
   TRAINING_TYPES, TRAINING_STATUS, AWARD_TYPES, AWARD_STATUS, COUNSELING_TYPES, VISIBILITIES, DEGREES, PME_STATUS, MCMAP_BELTS, RIFLE_QUALS, ACCENTS,
 } from './constants.ts';
 import { passwordProblem } from './password.ts';
+import { parseTime, TIME_HINT } from './timeframe.ts';
 
 const ISO_DATE = /^\d{4}-\d{2}-\d{2}$/;
 const NUL = '\u0000';
@@ -28,6 +29,18 @@ const optNumber = (lo: number, hi: number, integer = false) =>
     if (n > hi) { ctx.addIssue({ code: 'custom', message: `Must be at most ${hi}.` }); return z.NEVER; }
     return n;
   });
+/** A time of day as Marines write it, "0800" or "08:00" (24-hour), kept as HH:MM (ADR-0018). */
+export const optTime = z.string().max(8).nullish().or(z.literal('')).transform((v, ctx) => {
+  if (v === undefined) return undefined;
+  if (!v || !v.trim()) return null;
+  const time = parseTime(v);
+  if (!time) { ctx.addIssue({ code: 'custom', message: TIME_HINT }); return z.NEVER; }
+  return time;
+});
+/** Yes or no, kept as 1 or 0. */
+const optFlag = z.union([z.boolean(), z.literal(0), z.literal(1), z.null()]).optional().transform((v) => (v === undefined ? undefined : v ? 1 : 0));
+/** A start and end date, with a time at each end and "ongoing": what an activity and a course take (ADR-0018). */
+const timeframeFields = { end_date: optDate, start_time: optTime, end_time: optTime, ongoing: optFlag };
 const optEnum = <T extends readonly [string, ...string[]]>(values: T) =>
   z.enum(values).nullish().or(z.literal('')).transform((v) => (v === undefined ? undefined : v ? v : null));
 
@@ -47,6 +60,7 @@ export const unitIdField = z.string().max(64).nullish();
 export const activitySchema = z.object({
   title: text(300).trim().min(1, 'Required.'),
   date: optDate,
+  ...timeframeFields,
   category: optText(80),
   eval_area: z.string().max(80).nullish().or(z.literal('')).transform((v) => (v === undefined ? undefined : v && EVAL_AREAS.includes(v) ? v : v ? 'Unassigned' : null)),
   quantity: optNumber(0, 1_000_000_000),
@@ -122,6 +136,7 @@ export const goalSchema = z.object({
 export const trainingSchema = z.object({
   title: text(300).trim().min(1, 'Required.'),
   date: optDate,
+  ...timeframeFields,
   type: optEnum(TRAINING_TYPES),
   hours: optNumber(0, 10_000),
   provider: optText(200),
@@ -135,6 +150,8 @@ export const trainingSchema = z.object({
 export const awardSchema = z.object({
   name: text(200).trim().min(1, 'Required.'),
   user_id: optText(64),
+  /** The first day of the period the award recognizes; `date` is its last, or the award date (ADR-0018). */
+  period_start: optDate,
   date: optDate,
   type: optEnum(AWARD_TYPES),
   status: optEnum(AWARD_STATUS),

@@ -390,3 +390,45 @@ test('025 records the dates a membership starts with, and keeps a billet from be
     db.close();
   } finally { cleanup(); }
 });
+
+test('026 gives activities and training an end, times and ongoing, keeps what was out of order and counts it, and refuses more', () => {
+  const at = '2026-10-01T00:00:00.000Z';
+  const { path, cleanup } = atVersion(25, (db) => {
+    // The tables as they were before 026.
+    for (const table of ['activities', 'trainings']) for (const column of ['end_date', 'start_time', 'end_time', 'ongoing']) db.exec(`ALTER TABLE ${table} DROP COLUMN ${column}`);
+    db.exec('ALTER TABLE awards DROP COLUMN period_start');
+    db.prepare("INSERT INTO users (id, username, password_hash, first_name, last_name, created_at, updated_at) VALUES ('u1', 'u1', 'x', 'Sam', 'Marine', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO activities (id, user_id, title, date, created_at, updated_at) VALUES ('a1', 'u1', 'Reconciled ULOs', '2026-05-01', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO trainings (id, user_id, title, date, created_at, updated_at) VALUES ('t1', 'u1', 'Corporals Course', '2026-03-13', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO awards (id, user_id, name, date, created_at, updated_at) VALUES ('w1', 'u1', 'NAM', '2026-06-30', ?, ?)").run(at, at);
+    // A goal whose deadline was typed before its start, and a project in order.
+    db.prepare("INSERT INTO goals (id, user_id, title, period_start, period_end, created_at, updated_at) VALUES ('g1', 'u1', 'PFT 270', '2026-09-01', '2026-06-30', ?, ?)").run(at, at);
+    db.prepare("INSERT INTO projects (id, user_id, name, start_date, target_date, created_at, updated_at) VALUES ('p1', 'u1', 'Q4 UMT', '2026-10-01', '2026-12-31', ?, ?)").run(at, at);
+  });
+  try {
+    const db = openDatabase(path);
+    assert.ok(migrationHistory(db).some((m) => m.id === 26 && m.name === '026_record_timeframes'));
+    const columns = (table: string) => (db.prepare(`SELECT name FROM pragma_table_info('${table}')`).all() as Array<{ name: string }>).map((c) => c.name);
+    for (const table of ['activities', 'trainings']) for (const column of ['end_date', 'start_time', 'end_time', 'ongoing']) assert.ok(columns(table).includes(column), `${table}.${column}`);
+    assert.ok(columns('awards').includes('period_start'));
+    // Every entry already written is the single day it was, not going on, an award its date alone.
+    assert.deepEqual({ ...(db.prepare("SELECT date, end_date, start_time, end_time, ongoing FROM activities WHERE id = 'a1'").get() as object) }, { date: '2026-05-01', end_date: null, start_time: null, end_time: null, ongoing: 0 });
+    assert.deepEqual({ ...(db.prepare("SELECT date, ongoing FROM trainings WHERE id = 't1'").get() as object) }, { date: '2026-03-13', ongoing: 0 });
+    assert.deepEqual({ ...(db.prepare("SELECT period_start, date FROM awards WHERE id = 'w1'").get() as object) }, { period_start: null, date: '2026-06-30' });
+    // The goal out of order is kept as it was, and counted.
+    assert.deepEqual({ ...(db.prepare("SELECT period_start, period_end FROM goals WHERE id = 'g1'").get() as object) }, { period_start: '2026-09-01', period_end: '2026-06-30' });
+    const counted = JSON.parse((db.prepare("SELECT value FROM meta WHERE key = 'timeframe_violations'").get() as { value: string }).value);
+    assert.deepEqual(counted.found, { goals: 1 });
+    // From here, nothing is written out of order, on any record type; a change that leaves the dates alone still is.
+    const triggers = (db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND name LIKE '%_timeframe_%'").all() as Array<{ name: string }>).map((t) => t.name);
+    assert.equal(triggers.length, 14, triggers.join(', '));
+    db.prepare("UPDATE goals SET title = 'PFT 275' WHERE id = 'g1'").run();
+    assert.throws(() => db.prepare("UPDATE goals SET period_end = '2026-07-31' WHERE id = 'g1'").run(), /timeframe: a record in goals/);
+    db.prepare("UPDATE goals SET period_end = '2026-12-31' WHERE id = 'g1'").run();
+    assert.throws(() => db.prepare("UPDATE projects SET target_date = '2026-09-30' WHERE id = 'p1'").run(), /timeframe:/);
+    assert.throws(() => db.prepare("UPDATE activities SET end_date = '2026-04-30' WHERE id = 'a1'").run(), /timeframe:/);
+    assert.throws(() => db.prepare("UPDATE trainings SET start_time = '7:30' WHERE id = 't1'").run(), /CHECK constraint/, 'a time is kept as HH:MM');
+    db.prepare("UPDATE trainings SET start_time = '07:30', end_date = '2026-03-14' WHERE id = 't1'").run();
+    db.close();
+  } finally { cleanup(); }
+});

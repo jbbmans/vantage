@@ -131,6 +131,13 @@ Vantage holds the official copy (ADR-0015). Vantage's copy is the person's worki
   subject's. The official copy of an award is in iAPS and MOL.
 - **Counseling** (`counselings`): one a counselor recorded is theirs to correct until it is
   acknowledged, never its subject's. The person's own notes are theirs.
+- **Timeframe** (ADR-0018): when a record happened. Activities and training have a start (`date`), an end
+  (`end_date`, none for a single day), optional times (`start_time`, `end_time`, wall-clock HH:MM) and
+  `ongoing` (begun, no end yet). An award has its date (the day it was given, and the end of the period it
+  recognizes) and an optional `period_start`. Goals, projects, assignments and responsibilities have the two
+  days they already had. Counselings and tasks have one date. `TIMEFRAMES` in `shared/timeframe.ts` describes
+  each; no record ends before it starts, refused by the forms, the server and database triggers alike. A
+  record is in a period when any day of it is (an award by its date), counted once per report.
 - **Duty**: no store yet; duty records are Task 17's. **Financial error snapshot**: no store yet; Task 15.
 - **A move** between activities, awards and training is its owner's alone. One transaction gives the
   entry a new id in its new table, carries its files and comments, removes it from the old one and

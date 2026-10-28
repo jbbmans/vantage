@@ -4,6 +4,7 @@ import { isSummable } from '../../shared/constants.ts';
 import { strength } from '../../shared/bullets.ts';
 import { withTypedProgress } from './goals.ts';
 import { zonedDay } from '../lib/clock.ts';
+import { periodClause } from './timeframes.ts';
 
 const weekKey = (dateStr: string) => {
   const d = new Date(`${dateStr}T00:00:00Z`);
@@ -17,7 +18,8 @@ export function unitDashboard(ctx: AppContext, unitId: string, from: string, to:
   const unitIds = subtreeIds(ctx, unitId);
   const units = JSON.stringify(unitIds);
   const members = membersAcross(ctx, unitIds);
-  const activities = db.prepare(`SELECT user_id, unit_id, date, category, eval_area, quantity, unit_label, dollar_amount, dollar_type, result FROM activities WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL AND date >= ? AND date <= ?`).all(units, from, to) as Array<{ user_id: string; unit_id: string; date: string; category: string | null; eval_area: string | null; quantity: number | null; unit_label: string | null; dollar_amount: number | null; dollar_type: string | null; result: string | null }>;
+  const period = periodClause('activities', 'activities', from, to);
+  const activities = db.prepare(`SELECT user_id, unit_id, date, category, eval_area, quantity, unit_label, dollar_amount, dollar_type, result FROM activities WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL AND ${period.sql}`).all(units, ...period.params) as Array<{ user_id: string; unit_id: string; date: string; category: string | null; eval_area: string | null; quantity: number | null; unit_label: string | null; dollar_amount: number | null; dollar_type: string | null; result: string | null }>;
 
   const byMember = new Map<string, { entries: number; dollars: number; quantity: number; complete: number; lastDate: string | null }>();
   const byCategory: Record<string, { entries: number; dollars: number }> = {};
@@ -43,7 +45,8 @@ export function unitDashboard(ctx: AppContext, unitId: string, from: string, to:
     const team = byTeam.get(a.unit_id) || { entries: 0, dollars: 0, contributors: new Set<string>() };
     team.entries += 1; team.dollars += summable ? amount : 0; team.contributors.add(a.user_id);
     byTeam.set(a.unit_id, team);
-    const wk = weekKey(a.date);
+    // Counted once, in the window's first week for an entry begun before it (ADR-0018).
+    const wk = weekKey(a.date < from ? from : a.date);
     const w = byWeek.get(wk) || { entries: 0, dollars: 0 };
     w.entries += 1; w.dollars += summable ? amount : 0;
     byWeek.set(wk, w);
@@ -119,8 +122,9 @@ export function unitOverview(ctx: AppContext, unitId: string, opts: { from: stri
   const unit = db.prepare('SELECT id, name, short_name, parent_id FROM units WHERE id = ?').get(unitId) as { id: string; name: string; short_name: string | null; parent_id: string | null };
   const parent = unit.parent_id ? db.prepare('SELECT id, name, short_name FROM units WHERE id = ?').get(unit.parent_id) as { id: string; name: string; short_name: string | null } | undefined : undefined;
   const members = membersAcross(ctx, unitIds);
-  const rows = db.prepare(`SELECT user_id, unit_id, dollar_amount, dollar_type FROM activities WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL AND date >= ? AND date <= ?`)
-    .all(units, opts.from, opts.to) as Array<{ user_id: string; unit_id: string; dollar_amount: number | null; dollar_type: string | null }>;
+  const period = periodClause('activities', 'activities', opts.from, opts.to);
+  const rows = db.prepare(`SELECT user_id, unit_id, dollar_amount, dollar_type FROM activities WHERE unit_id IN (SELECT value FROM json_each(?)) AND visibility = 'unit' AND deleted_at IS NULL AND ${period.sql}`)
+    .all(units, ...period.params) as Array<{ user_id: string; unit_id: string; dollar_amount: number | null; dollar_type: string | null }>;
 
   const people = (list: typeof rows) => new Set(list.map((r) => r.user_id)).size;
   const withheld = { entries: null, contributors: null, dollars: null, withheld: true } as const;

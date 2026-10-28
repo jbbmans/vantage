@@ -6,6 +6,7 @@ import { fileURLToPath } from 'node:url';
 import { RANKS } from './ranks.ts';
 import { compareCounts, recordUpgrade, rowCounts, upgradeStatus, type UpgradeRecord } from './upgrades.ts';
 import { VERSION } from '../version.ts';
+import { TIMEFRAMES, timeframeColumns, type TimeframedTable, type TimeframeSpec } from '../../shared/timeframe.ts';
 
 export type Db = Database.Database;
 
@@ -320,6 +321,28 @@ const MIGRATIONS: Migration[] = [
     run: (db) => {
       personnelHistoryTriggers(db);
       billetHolderTriggers(db);
+    },
+  },
+  {
+    id: 26,
+    name: '026_record_timeframes',
+    // Records take a timeframe (ADR-0018). Activities and training gain an end date, a time of day at each end and
+    // "ongoing"; their date stays the first day, so every entry already written reads as the single day it was. An award
+    // gains the start of the period it recognizes; its date stays the period's end. Triggers refuse a timeframe that ends
+    // before it starts on every record type that has one. No row is removed or reshaped: a row already out of order (a
+    // goal whose deadline was entered before its start) is kept, counted for the Vantage Administrator console, and asked
+    // to be put in order only when its dates are next changed.
+    run: (db) => {
+      for (const table of ['activities', 'trainings'] as const) {
+        const have = columnsOf(db, table);
+        if (!have.has('end_date')) db.exec(`ALTER TABLE ${table} ADD COLUMN end_date TEXT`);
+        for (const column of ['start_time', 'end_time']) if (!have.has(column)) db.exec(`ALTER TABLE ${table} ADD COLUMN ${column} TEXT CHECK (${timeOfDayCheck(column)})`);
+        if (!have.has('ongoing')) db.exec(`ALTER TABLE ${table} ADD COLUMN ongoing INTEGER NOT NULL DEFAULT 0 CHECK (ongoing IN (0, 1))`);
+      }
+      if (!columnsOf(db, 'awards').has('period_start')) db.exec('ALTER TABLE awards ADD COLUMN period_start TEXT');
+      timeframeTriggers(db);
+      const found = timeframeViolations(db);
+      if (Object.keys(found).length) metaSet(db, 'timeframe_violations', JSON.stringify({ at: new Date().toISOString(), found }));
     },
   },
 ];
@@ -748,6 +771,67 @@ export function billetHolderTriggers(db: Db) {
 /** Lifted while an instance archive loads, which brings its own personnel history, and put back before it commits. */
 export function dropPersonnelHistoryTriggers(db: Db) {
   for (const name of PERSONNEL_TRIGGERS) db.exec(`DROP TRIGGER IF EXISTS ${name}`);
+}
+
+/** A time of day as the columns hold it, HH:MM on a 24-hour clock; schema.sql says the same. */
+const timeOfDayCheck = (column: string) => `${column} IS NULL OR ${column} GLOB '[01][0-9]:[0-5][0-9]' OR ${column} GLOB '2[0-3]:[0-5][0-9]'`;
+
+/** The record types whose timeframe columns this database has: all of them once 026 has run. */
+const timeframedTables = (db: Db) => (Object.keys(TIMEFRAMES) as TimeframedTable[]).filter((table) => {
+  const have = columnsOf(db, table);
+  return timeframeColumns(table).every((column) => have.has(column));
+});
+
+/**
+ * Whether `row` (NEW in a trigger, a table alias in a count) breaks its timeframe: the same rules as timeframeProblems in
+ * shared/timeframe.ts, which the server and the forms apply first with words for each field. The days compare as
+ * calendar days, as there.
+ */
+function timeframeBreach(table: TimeframedTable, row: string): string {
+  const spec: TimeframeSpec = TIMEFRAMES[table];
+  const start = `${row}.${spec.start}`, end = `${row}.${spec.end}`;
+  const startDay = `substr(${start}, 1, 10)`, endDay = `substr(${end}, 1, 10)`;
+  const breaches = [`(${start} IS NOT NULL AND ${end} IS NOT NULL AND ${endDay} < ${startDay})`];
+  if (!spec.open) breaches.push(`(${end} IS NOT NULL AND ${start} IS NULL)`);
+  if (spec.ongoing) breaches.push(`(${row}.ongoing = 1 AND (${start} IS NULL OR ${end} IS NOT NULL${spec.times ? ` OR ${row}.end_time IS NOT NULL` : ''}))`);
+  if (spec.times) {
+    breaches.push(`((${row}.start_time IS NOT NULL OR ${row}.end_time IS NOT NULL) AND ${start} IS NULL)`);
+    breaches.push(`(${row}.start_time IS NOT NULL AND ${row}.end_time IS NOT NULL AND ${start} IS NOT NULL AND (${end} IS NULL OR ${endDay} = ${startDay})${spec.ongoing ? ` AND ${row}.ongoing = 0` : ''} AND ${row}.end_time < ${row}.start_time)`);
+  }
+  return `(${breaches.join(' OR ')})`;
+}
+
+/**
+ * A record does not end before it starts (ADR-0018), whoever writes it: a route, an import, the personnel feed, a script.
+ * The server refuses it first with words for each field (shared/timeframe.ts); these refuse any other writer, each
+ * refusal beginning `timeframe:`, which the API answers as a refusal of the request rather than a server error. A change
+ * that leaves the dates alone is not checked, so a row already out of order before 026 can still be edited in its other
+ * fields; changing its dates asks for them in order.
+ */
+export function timeframeTriggers(db: Db) {
+  for (const table of timeframedTables(db)) {
+    const columns = timeframeColumns(table);
+    const refuse = `BEGIN SELECT RAISE(ABORT, 'timeframe: a record in ${table} cannot end before it starts'); END`;
+    db.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_timeframe_written BEFORE INSERT ON ${table} FOR EACH ROW
+      WHEN ${timeframeBreach(table, 'NEW')} ${refuse}`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS ${table}_timeframe_changed BEFORE UPDATE OF ${columns.join(', ')} ON ${table} FOR EACH ROW
+      WHEN (${columns.map((c) => `NEW.${c} IS NOT OLD.${c}`).join(' OR ')}) AND ${timeframeBreach(table, 'NEW')} ${refuse}`);
+  }
+}
+
+/** Lifted while an instance archive loads, which is counted whole once it is in, and put back before it commits. */
+export function dropTimeframeTriggers(db: Db) {
+  for (const table of Object.keys(TIMEFRAMES)) for (const when of ['written', 'changed']) db.exec(`DROP TRIGGER IF EXISTS ${table}_timeframe_${when}`);
+}
+
+/** Rows whose timeframe is out of order, by record type, leaving out the types with none. */
+export function timeframeViolations(db: Db): Record<string, number> {
+  const found: Record<string, number> = {};
+  for (const table of timeframedTables(db)) {
+    const { n } = db.prepare(`SELECT COUNT(*) AS n FROM ${table} x WHERE ${timeframeBreach(table, 'x')}`).get() as { n: number };
+    if (n) found[table] = n;
+  }
+  return found;
 }
 
 /**

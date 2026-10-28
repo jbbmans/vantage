@@ -7,6 +7,7 @@ import { formatDollars } from '../../shared/metrics.ts';
 import { isSummable } from '../../shared/constants.ts';
 import { now } from '../lib/ids.ts';
 import { zoneOf } from '../lib/zone.ts';
+import { periodClause } from './timeframes.ts';
 
 interface DigestUser { id: string; email: string | null; first_name: string; last_name: string; prefs: string; digest_last_sent_at: string | null; timezone?: string | null }
 
@@ -29,7 +30,9 @@ export function composeDigest(ctx: AppContext, user: DigestUser, at = new Date()
   const since = zonedDay(zone, -7, at);
   const todayIso = zonedDay(zone, 0, at);
   const soon = zonedDay(zone, 14, at);
-  const acts = db.prepare(`SELECT title, dollar_amount, dollar_type, result FROM activities WHERE user_id = ? AND deleted_at IS NULL AND date >= ? ORDER BY date DESC`).all(user.id, since) as Array<{ title: string; dollar_amount: number | null; dollar_type: string | null; result: string | null }>;
+  // The week's work: any entry with a day in it, one still going included (ADR-0018).
+  const week = periodClause('activities', 'activities', since, null);
+  const acts = db.prepare(`SELECT title, dollar_amount, dollar_type, result FROM activities WHERE user_id = ? AND deleted_at IS NULL AND ${week.sql} ORDER BY date DESC`).all(user.id, ...week.params) as Array<{ title: string; dollar_amount: number | null; dollar_type: string | null; result: string | null }>;
   const dollars = acts.reduce((n, a) => n + (isSummable(a.dollar_type, ctx.runtime.metrics) ? Number(a.dollar_amount) || 0 : 0), 0);
   const noOutcome = acts.filter((a) => !a.result).length;
   const openTasks = `FROM tasks WHERE (user_id = ? OR assignee_id = ?) AND status <> 'completed' AND deleted_at IS NULL`;

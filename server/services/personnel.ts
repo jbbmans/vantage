@@ -9,6 +9,7 @@ import { invalidateUserSessions } from '../auth/sessions.ts';
 import { RECORD_TABLE_NAMES } from './records.ts';
 import { seatedOrgRole } from '../authz/scope.ts';
 import { ORG_ROLES, type OrgRole } from '../../shared/permissions.ts';
+import { timeframeProblems } from '../../shared/timeframe.ts';
 
 export const SOURCED_FIELDS = ['first_name', 'last_name', 'middle_initial', 'rank_id', 'mos', 'eas'] as const;
 export type SourcedField = (typeof SOURCED_FIELDS)[number];
@@ -413,8 +414,11 @@ export function applySync(ctx: AppContext, plan: SyncPlan, actorId: string | nul
         addMember(ctx, userId, m.unit_id, { primary: Boolean(m.is_primary), billet: m.billet, reason: 'roster_restored' });
         // The billet from the list, while the unit still staffs it, and the assignment dates come back with the membership.
         const billetId = m.billet_id && db.prepare('SELECT 1 FROM unit_billets WHERE id = ? AND org_id = ? AND active = 1 AND (unit_id IS NULL OR unit_id = ?)').get(m.billet_id, plan.orgId, m.unit_id) ? m.billet_id : null;
-        if (billetId || m.assignment_start || m.assignment_end) {
-          db.prepare('UPDATE unit_members SET billet_id = ?, assignment_start = ?, assignment_end = ? WHERE user_id = ? AND unit_id = ?').run(billetId, m.assignment_start ?? null, m.assignment_end ?? null, userId, m.unit_id);
+        // Dates kept out of order before 026 are not given back, which the database would refuse for the whole extract
+        // (ADR-0018): the membership returns undated, for a leader to date.
+        const dated = timeframeProblems('unit_members', m) ? { assignment_start: null, assignment_end: null } : m;
+        if (billetId || dated.assignment_start || dated.assignment_end) {
+          db.prepare('UPDATE unit_members SET billet_id = ?, assignment_start = ?, assignment_end = ? WHERE user_id = ? AND unit_id = ?').run(billetId, dated.assignment_start ?? null, dated.assignment_end ?? null, userId, m.unit_id);
         }
         // The primary unit this organization's own extract moved away goes back with the rest, even when it went to another
         // Unit Instance meanwhile: giving back what the same feed took is not taking from another instance (ADR-0008).

@@ -10,15 +10,16 @@ import { MOVABLE_LABELS, recordKindOf, kindText, movedFields } from '../../share
 import { useCreateRecord, useProjects, useTrack, useMetrics } from '@/lib/queries';
 import { errorText } from '@/lib/api';
 import { onText } from '@/components/common';
+import { TimeframeFields, timeframeDraft, type TimeframeDraft } from '@/components/Timeframe';
 import { humanize, todayIso } from '@/lib/utils';
 import { placeName } from '@/config/nav';
 
-export interface ActivityDraft { id?: string; version?: number; title: string; date: string; category: string | null; eval_area: string | null; quantity: number | string | null; unit_label: string; dollar_amount: number | string | null; dollar_type: string | null; result: string; organization: string; system: string; project_id: string | null; status: string; notes: string; evidence_links: Array<{ label?: string | null; url?: string | null }>; visibility: 'private' | 'unit'; unit_id: string | null; kind_confirmed?: boolean }
+export interface ActivityDraft extends TimeframeDraft { id?: string; version?: number; title: string; date: string; category: string | null; eval_area: string | null; quantity: number | string | null; unit_label: string; dollar_amount: number | string | null; dollar_type: string | null; result: string; organization: string; system: string; project_id: string | null; status: string; notes: string; evidence_links: Array<{ label?: string | null; url?: string | null }>; visibility: 'private' | 'unit'; unit_id: string | null; kind_confirmed?: boolean }
 
 export const emptyActivity = (defaults: Partial<ActivityDraft> = {}): ActivityDraft => ({
-  title: '', date: todayIso(), category: null, eval_area: 'Unassigned', quantity: '', unit_label: '', dollar_amount: '', dollar_type: null, result: '', organization: '', system: '', project_id: null, status: 'completed', notes: '', evidence_links: [], visibility: 'private', unit_id: null, ...defaults,
+  title: '', date: todayIso(), end_date: '', start_time: '', end_time: '', ongoing: false, category: null, eval_area: 'Unassigned', quantity: '', unit_label: '', dollar_amount: '', dollar_type: null, result: '', organization: '', system: '', project_id: null, status: 'completed', notes: '', evidence_links: [], visibility: 'private', unit_id: null, ...defaults,
 });
-export const toActivityDraft = (a: Record<string, any>): ActivityDraft => ({ ...emptyActivity(), ...a, quantity: a.quantity ?? '', dollar_amount: a.dollar_amount ?? '', unit_label: a.unit_label || '', result: a.result || '', organization: a.organization || '', system: a.system || '', notes: a.notes || '', evidence_links: a.evidence_links || [] });
+export const toActivityDraft = (a: Record<string, any>): ActivityDraft => ({ ...emptyActivity(), ...a, ...timeframeDraft(a), quantity: a.quantity ?? '', dollar_amount: a.dollar_amount ?? '', unit_label: a.unit_label || '', result: a.result || '', organization: a.organization || '', system: a.system || '', notes: a.notes || '', evidence_links: a.evidence_links || [] });
 
 /**
  * The fields of an activity. Given onSavedAs, a new entry that reads like an award or training can be saved as one
@@ -65,9 +66,9 @@ export function ActivityFields({ draft, set, errors, onSavedAs }: { draft: Activ
           </KindNote>
         )}
       </div>
+      <TimeframeFields table="activities" d={draft} set={set} errors={errors}
+        extra={<Field label="Status"><Select value={draft.status} onValueChange={(v) => set('status', v)} options={ACTIVITY_STATUS.map((s) => ({ value: s, label: humanize(s) }))} /></Field>} />
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-        <Field label="Date" error={errors.date}><Input type="date" value={draft.date || ''} onChange={onText(set, 'date')} /></Field>
-        <Field label="Status"><Select value={draft.status} onValueChange={(v) => set('status', v)} options={ACTIVITY_STATUS.map((s) => ({ value: s, label: humanize(s) }))} /></Field>
         <Field label="Category"><Select value={draft.category} onValueChange={(v) => set('category', v)} options={categoryNames(cfg).map((c) => ({ value: c, label: c }))} placeholder="Pick a category" /></Field>
         <Field label={trackMeta(track).areaLabel}><Select value={mapAreaToTrack(draft.eval_area, track)} onValueChange={(v) => set('eval_area', v)} options={areaOptions(track)} /></Field>
         <Field label="Action amount" hint="how many" error={errors.quantity}><NumberInput value={draft.quantity ?? ''} onChange={onText(set, 'quantity')} placeholder="30" /></Field>

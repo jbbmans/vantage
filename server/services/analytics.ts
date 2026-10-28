@@ -4,6 +4,7 @@ import { areasFor, trackForGrade, type Track } from '../../shared/evaluation.ts'
 import { previousRange, formatDTG } from '../../shared/metrics.ts';
 import { hydrate, withGoalProgress } from './records.ts';
 import { periodBounds } from './reports.ts';
+import { periodClause } from './timeframes.ts';
 import { isoDay, zonedNow } from '../lib/clock.ts';
 
 
@@ -21,9 +22,12 @@ export function buildAnalysisReport(ctx: AppContext, opts: { userId: string; uni
   const track: Track = opts.track || trackForGrade(person?.rank_grade);
   const where = opts.unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
   const params = opts.unitId ? [opts.userId, opts.unitId] : [opts.userId];
-  const activities = (ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL AND date >= ? AND date <= ? ORDER BY date DESC`).all(...params, prior.from, bounds.to) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
-  const awards = ctx.db.prepare(`SELECT name, date, status, type FROM awards WHERE ${where} AND deleted_at IS NULL AND date >= ? AND date <= ?`).all(...params, prior.from, bounds.to) as Array<{ name: string; date: string | null; status: string; type: string | null }>;
-  const trainings = ctx.db.prepare(`SELECT title, date, hours, type, status FROM trainings WHERE ${where} AND deleted_at IS NULL AND date >= ? AND date <= ?`).all(...params, prior.from, bounds.to) as Array<{ title: string; date: string | null; hours: number | null; type: string | null; status: string | null }>;
+  // Both periods at once; anything with a day in either (ADR-0018). buildAnalysis sorts each into its period.
+  const window = (table: 'activities' | 'awards' | 'trainings') => periodClause(table, table, prior.from, bounds.to);
+  const [a, w, t] = [window('activities'), window('awards'), window('trainings')];
+  const activities = (ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL AND ${a.sql} ORDER BY date DESC`).all(...params, ...a.params) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
+  const awards = ctx.db.prepare(`SELECT name, period_start, date, status, type FROM awards WHERE ${where} AND deleted_at IS NULL AND ${w.sql}`).all(...params, ...w.params) as Array<{ name: string; period_start: string | null; date: string | null; status: string; type: string | null }>;
+  const trainings = ctx.db.prepare(`SELECT title, date, end_date, ongoing, hours, type, status FROM trainings WHERE ${where} AND deleted_at IS NULL AND ${t.sql}`).all(...params, ...t.params) as Array<{ title: string; date: string | null; end_date: string | null; ongoing: number; hours: number | null; type: string | null; status: string | null }>;
   const counselings = ctx.db.prepare(`SELECT date, type, acknowledged_at FROM counselings WHERE ${where} AND deleted_at IS NULL AND date >= ? AND date <= ?`).all(...params, prior.from, bounds.to) as Array<{ date: string | null; type: string | null; acknowledged_at: string | null }>;
   const goalWhere = opts.unitId ? `(user_id = ? OR assignee_id = ?) AND unit_id = ? AND visibility = 'unit'` : '(user_id = ? OR assignee_id = ?)';
   const goalParams = opts.unitId ? [opts.userId, opts.userId, opts.unitId] : [opts.userId, opts.userId];

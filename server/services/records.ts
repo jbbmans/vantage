@@ -7,6 +7,8 @@ import { readableClause, canEdit, canPlace, canRead, type RecordRow, isAssignee,
 import { HttpError, badRequest, forbidden, notFound, conflict } from '../lib/errors.ts';
 import { REDACTED, valueType } from '../../shared/constants.ts';
 import { isDrawnFromWork, isMovableTable, kindText, recordKindOf, type MovableTable } from '../../shared/recordKinds.ts';
+import { isTimeframed, timeframeColumns, timeframeProblems } from '../../shared/timeframe.ts';
+import { periodClause } from './timeframes.ts';
 
 /** A goal that measures a whole unit reads its members' shared entries, so setting one takes the right to view them. */
 function unitMeasureAllowed(scope: Scope, unitId: string | null | undefined) {
@@ -22,6 +24,23 @@ function checkValueType(ctx: AppContext, table: string, data: Record<string, unk
   if (table !== 'activities' || !data.dollar_type) return;
   if (!valueType(String(data.dollar_type), ctx.runtime.metrics)) throw badRequest(`Unknown value type “${String(data.dollar_type)}”. Pick one of: ${ctx.runtime.metrics.value_types.map((t) => t.key).join(', ')}.`, { fieldErrors: { dollar_type: 'Not one of this instance’s value types.' } });
 }
+
+/**
+ * A record does not end before it starts (ADR-0018): refused here with words for each field, before the database's
+ * triggers would refuse it. `row` is the record as it would be saved: for an edit, the stored row with the change over it.
+ */
+export function checkTimeframe(table: string, row: Record<string, unknown>, prefix = '') {
+  if (!isTimeframed(table)) return;
+  const problem = timeframeProblems(table, row);
+  if (problem) throw badRequest(`${prefix}${problem.message}`, { fieldErrors: problem.fieldErrors });
+}
+
+/**
+ * Whether an edit changes the record's timeframe (or, for training, its status, which says whether it can still be
+ * going on). An edit that leaves them as they are is not asked to put in order dates that were out of order before 026.
+ */
+const changesTimeframe = (table: RecordTable, row: Record<string, unknown>, data: Record<string, unknown>) =>
+  isTimeframed(table) && [...timeframeColumns(table), ...(table === 'trainings' ? ['status'] : [])].some((c) => data[c] !== undefined && data[c] !== row[c]);
 import { parse } from '../lib/http.ts';
 import { newId, now } from '../lib/ids.ts';
 import { record } from './telemetry.ts';
@@ -34,7 +53,7 @@ interface TableSpec { fields: string[]; json: string[]; shareFlag: number; perso
 
 export const TABLES: Record<RecordTable, TableSpec> = {
   activities: {
-    fields: ['date', 'title', 'category', 'eval_area', 'quantity', 'unit_label', 'dollar_amount', 'dollar_type', 'result', 'organization', 'system', 'project_id', 'status', 'notes', 'evidence_links'],
+    fields: ['date', 'end_date', 'start_time', 'end_time', 'ongoing', 'title', 'category', 'eval_area', 'quantity', 'unit_label', 'dollar_amount', 'dollar_type', 'result', 'organization', 'system', 'project_id', 'status', 'notes', 'evidence_links'],
     json: ['evidence_links'], shareFlag: PERMISSIONS.CREATE_SHARED_WORK, personal: true, orderBy: 't.date DESC, t.created_at DESC',
   },
   projects: { fields: ['name', 'description', 'status', 'priority', 'progress', 'start_date', 'target_date', 'organization'], json: [], shareFlag: PERMISSIONS.CREATE_SHARED_WORK, memberReadable: true, orderBy: 't.updated_at DESC' },
@@ -44,8 +63,8 @@ export const TABLES: Record<RecordTable, TableSpec> = {
       'metric_id', 'direction', 'baseline_value', 'aggregation', 'filters', 'measure_scope', 'completed_at'],
     json: ['filters'], shareFlag: PERMISSIONS.CREATE_SHARED_GOALS, memberReadable: true, assignee: true, orderBy: 't.period_end IS NULL, t.period_end, t.created_at DESC',
   },
-  trainings: { fields: ['date', 'title', 'type', 'hours', 'provider', 'status', 'notes'], json: [], shareFlag: PERMISSIONS.CREATE_SHARED_WORK, personal: true, orderBy: 't.date DESC, t.created_at DESC' },
-  awards: { fields: ['date', 'name', 'type', 'status', 'recommending_official', 'approving_authority', 'citation', 'notes', 'submitted_at', 'approved_at', 'presented_at'], json: [], shareFlag: PERMISSIONS.COUNSEL, personal: true, orderBy: 't.date DESC, t.created_at DESC' },
+  trainings: { fields: ['date', 'end_date', 'start_time', 'end_time', 'ongoing', 'title', 'type', 'hours', 'provider', 'status', 'notes'], json: [], shareFlag: PERMISSIONS.CREATE_SHARED_WORK, personal: true, orderBy: 't.date DESC, t.created_at DESC' },
+  awards: { fields: ['period_start', 'date', 'name', 'type', 'status', 'recommending_official', 'approving_authority', 'citation', 'notes', 'submitted_at', 'approved_at', 'presented_at'], json: [], shareFlag: PERMISSIONS.COUNSEL, personal: true, orderBy: 't.date DESC, t.created_at DESC' },
   counselings: { fields: ['date', 'type', 'counselor_name', 'summary', 'strengths', 'improvements', 'goals_set', 'follow_up_date'], json: [], shareFlag: PERMISSIONS.COUNSEL, personal: true, counselor: true, orderBy: 't.date DESC, t.created_at DESC' },
 };
 
@@ -62,8 +81,12 @@ export function hydrate<T extends Record<string, unknown>>(row: T | undefined, t
   return row;
 }
 
-export function activityFingerprint(userId: string, row: { date?: string | null; title?: string | null; quantity?: number | null; dollar_amount?: number | null }): string {
-  return createHash('sha256').update([userId, row.date || '', String(row.title || '').trim().toLowerCase().replace(/\s+/g, ' '), row.quantity ?? '', row.dollar_amount ?? ''].join('|')).digest('hex');
+export function activityFingerprint(userId: string, row: { date?: string | null; start_time?: string | null; title?: string | null; quantity?: number | null; dollar_amount?: number | null }): string {
+  const parts = [userId, row.date || '', String(row.title || '').trim().toLowerCase().replace(/\s+/g, ' '), row.quantity ?? '', row.dollar_amount ?? ''];
+  // Its start time tells apart two of the same title on one day, a day watch and a night watch (ADR-0018). An entry with
+  // no time keeps the fingerprint it always had, so nothing written before 026 changes.
+  if (row.start_time) parts.push(row.start_time);
+  return createHash('sha256').update(parts.join('|')).digest('hex');
 }
 
 /** An edited entry's new fingerprint, except that one drawn from a financial case or a draft keeps saying so (ADR-0015). */
@@ -77,9 +100,15 @@ export function listRecords(ctx: AppContext, user: SessionUser, table: RecordTab
   const where = opts.deleted ? ['t.deleted_at IS NOT NULL', 't.user_id = ?'] : [`t.deleted_at IS NULL`, clause];
   if (opts.deleted) params.splice(0, params.length, user.id);
   if (opts.unitId) { where.push('t.unit_id = ?'); params.push(opts.unitId); }
-  const dateCol = table === 'tasks' ? 'due_date' : table === 'goals' ? 'period_end' : 'date';
-  if (opts.from) { where.push(`t.${dateCol} >= ?`); params.push(opts.from); }
-  if (opts.to) { where.push(`t.${dateCol} <= ?`); params.push(opts.to); }
+  // A record with a timeframe is in the period when any day of it is (ADR-0018); a task by its due date, a counseling by its date.
+  if (isTimeframed(table)) {
+    const period = periodClause(table, 't', opts.from, opts.to);
+    where.push(period.sql); params.push(...period.params);
+  } else {
+    const dateCol = table === 'tasks' ? 'due_date' : 'date';
+    if (opts.from) { where.push(`t.${dateCol} >= ?`); params.push(opts.from); }
+    if (opts.to) { where.push(`t.${dateCol} <= ?`); params.push(opts.to); }
+  }
   const cap = ctx.config.limits.maxRecordsPerUser;
   const limit = Math.min(Math.max(Number(opts.limit) || cap, 1), cap);
   const offset = Math.max(Number(opts.offset) || 0, 0);
@@ -256,6 +285,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   const spec = TABLES[table];
   const data = parse(RECORD_SCHEMAS[table] as never, body) as Record<string, unknown>;
   checkValueType(ctx, table, data);
+  checkTimeframe(table, data);
   const capacity = capacityProblem(ctx, user.id);
   if (capacity) throw new HttpError(507, capacity, 'record_quota');
   const scope = scopeFor(ctx, user, reqKey);
@@ -347,6 +377,7 @@ export function updateRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     if (blocked.length) throw forbidden(`As the assignee you may update ${(ASSIGNEE_FIELDS[table] || []).join(' and ')}, not ${blocked.join(', ')}.`, 'assignee_fields_only');
   }
   checkValueType(ctx, table, data);
+  if (changesTimeframe(table, row as Record<string, unknown>, data)) checkTimeframe(table, { ...row, ...data });
 
   const finalVisibility = (data.visibility as string | undefined) ?? row.visibility;
   const finalUnit = data.unit_id === undefined ? row.unit_id : ((data.unit_id as string | null) || null);
@@ -454,6 +485,9 @@ export function importActivities(ctx: AppContext, user: SessionUser, rows: unkno
     const data = result.data as Record<string, unknown>;
     if (data.dollar_type && !valueType(String(data.dollar_type), ctx.runtime.metrics)) throw badRequest(`Row ${i + 1}: unknown value type “${String(data.dollar_type)}”. This instance uses: ${ctx.runtime.metrics.value_types.map((t) => t.key).join(', ')}.`, { row: i });
     const existing = typeof id === 'string' && id ? (ctx.db.prepare('SELECT * FROM activities WHERE id = ? AND user_id = ? AND deleted_at IS NULL').get(id, user.id) as (RecordRow & { project_id: string | null }) | undefined) : undefined;
+    // A row that updates an entry is judged with the entry's other dates; one that adds an entry, on its own.
+    const updates = existing && !existing.frozen_at;
+    if (!updates || changesTimeframe('activities', existing as unknown as Record<string, unknown>, data)) checkTimeframe('activities', updates ? { ...existing, ...data } : data, `Row ${i + 1}: `);
     const visibility = (data.visibility as string | undefined) ?? existing?.visibility ?? 'private';
     const unitId = data.unit_id !== undefined ? ((data.unit_id as string | null) || null) : existing ? existing.unit_id : (scope.homeUnitId ?? null);
     if (visibility === 'unit' && !unitId) throw badRequest(`Row ${i + 1}: shared activities need a unit.`, { row: i });

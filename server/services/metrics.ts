@@ -3,6 +3,7 @@ import type { Scope } from '../authz/scope.ts';
 import { readableClause } from '../authz/records.ts';
 import { subtreeIds } from '../authz/scope.ts';
 import { zonedDay } from '../lib/clock.ts';
+import { periodClause } from './timeframes.ts';
 import {
   measuresOfAll, totals, headline, series, catalog, selectMeasures, canonicalMetricId,
   type Measure, type MetricTotal, type Bucket, type Aggregation, type AggregateOptions,
@@ -21,20 +22,26 @@ export interface MetricScopeOptions {
 }
 
 interface SourceRow {
-  id: string; user_id: string; unit_id: string | null; date: string; title: string;
+  id: string; user_id: string; unit_id: string | null; date: string; end_date: string | null; ongoing: number; title: string;
   category: string | null; eval_area: string | null; quantity: number | null; unit_label: string | null;
   dollar_amount: number | null; dollar_type: string | null; organization: string | null; system: string | null;
   result: string | null; hours: number | null;
 }
 
-const ACTIVITY_COLUMNS = `t.id, t.user_id, t.unit_id, t.date, t.title, t.category, t.eval_area, t.quantity, t.unit_label,
+const ACTIVITY_COLUMNS = `t.id, t.user_id, t.unit_id, t.date, t.end_date, t.ongoing, t.title, t.category, t.eval_area, t.quantity, t.unit_label,
   t.dollar_amount, t.dollar_type, t.organization, t.system, t.result, NULL AS hours`;
 
-const TRAINING_COLUMNS = `t.id, t.user_id, t.unit_id, t.date, t.title, NULL AS category, NULL AS eval_area,
+const TRAINING_COLUMNS = `t.id, t.user_id, t.unit_id, t.date, t.end_date, t.ongoing, t.title, NULL AS category, NULL AS eval_area,
   NULL AS quantity, NULL AS unit_label, NULL AS dollar_amount, NULL AS dollar_type, NULL AS organization,
   NULL AS system, NULL AS result, t.hours`;
 
 type RowLoader = (table: 'activities' | 'trainings', columns: string) => SourceRow[];
+
+/**
+ * An entry is in the window when any day of it is (ADR-0018), and counted on its first day there: once in a total, in
+ * one bucket of a series, however long it ran. The rows keep their own dates for anyone reading them.
+ */
+const counted = (rows: SourceRow[], from: string): SourceRow[] => rows.map((r) => (r.date < from ? { ...r, date: from } : r));
 
 function collectRows(load: RowLoader): SourceRow[] {
   return [
@@ -46,8 +53,9 @@ function collectRows(load: RowLoader): SourceRow[] {
 function sourceRows(ctx: AppContext, user: SessionUser, scope: Scope, opts: MetricScopeOptions): SourceRow[] {
   return collectRows((table, columns) => {
     const { clause, params } = readableClause(ctx, scope, user.id, 't');
-    const where = ['t.deleted_at IS NULL', clause, 't.date >= ?', 't.date <= ?'];
-    params.push(opts.from, opts.to);
+    const period = periodClause(table, 't', opts.from, opts.to);
+    const where = ['t.deleted_at IS NULL', clause, period.sql];
+    params.push(...period.params);
     if (opts.unitId) { where.push("t.unit_id IN (SELECT value FROM json_each(?)) AND t.visibility = 'unit'"); params.push(JSON.stringify(subtreeIds(ctx, opts.unitId))); }
     if (opts.subjectId) { where.push('t.user_id = ?'); params.push(opts.subjectId); }
     if (opts.mineOnly) { where.push('t.user_id = ?'); params.push(user.id); }
@@ -57,23 +65,27 @@ function sourceRows(ctx: AppContext, user: SessionUser, scope: Scope, opts: Metr
 
 export function subjectMeasures(ctx: AppContext, subjectId: string, opts: { from: string; to: string; unitId?: string | null; sharedOnly?: boolean }): Measure[] {
   const rows = collectRows((table, columns) => {
-    const where = ['t.deleted_at IS NULL', 't.user_id = ?', 't.date >= ?', 't.date <= ?'];
-    const params: unknown[] = [subjectId, opts.from, opts.to];
+    const period = periodClause(table, 't', opts.from, opts.to);
+    const where = ['t.deleted_at IS NULL', 't.user_id = ?', period.sql];
+    const params: unknown[] = [subjectId, ...period.params];
     if (opts.sharedOnly && opts.unitId) { where.push("t.visibility = 'unit' AND t.unit_id IN (SELECT value FROM json_each(?))"); params.push(JSON.stringify(subtreeIds(ctx, opts.unitId))); }
     return ctx.db.prepare(`SELECT ${columns} FROM ${table} t WHERE ${where.join(' AND ')}`).all(...params) as SourceRow[];
   });
-  return measuresOfAll(rows as never, ctx.runtime.metrics);
+  return measuresOfAll(counted(rows, opts.from) as never, ctx.runtime.metrics);
 }
 
 export function unitMeasures(ctx: AppContext, unitId: string, opts: { from: string; to: string }): Measure[] {
-  const rows = collectRows((table, columns) => ctx.db.prepare(
-    `SELECT ${columns} FROM ${table} t WHERE t.deleted_at IS NULL AND t.visibility = 'unit' AND t.unit_id IN (SELECT value FROM json_each(?)) AND t.date >= ? AND t.date <= ?`
-  ).all(JSON.stringify(subtreeIds(ctx, unitId)), opts.from, opts.to) as SourceRow[]);
-  return measuresOfAll(rows as never, ctx.runtime.metrics);
+  const rows = collectRows((table, columns) => {
+    const period = periodClause(table, 't', opts.from, opts.to);
+    return ctx.db.prepare(
+      `SELECT ${columns} FROM ${table} t WHERE t.deleted_at IS NULL AND t.visibility = 'unit' AND t.unit_id IN (SELECT value FROM json_each(?)) AND ${period.sql}`
+    ).all(JSON.stringify(subtreeIds(ctx, unitId)), ...period.params) as SourceRow[];
+  });
+  return measuresOfAll(counted(rows, opts.from) as never, ctx.runtime.metrics);
 }
 
 export function measuresFor(ctx: AppContext, user: SessionUser, scope: Scope, opts: MetricScopeOptions): Measure[] {
-  return measuresOfAll(sourceRows(ctx, user, scope, opts) as never, ctx.runtime.metrics);
+  return measuresOfAll(counted(sourceRows(ctx, user, scope, opts), opts.from) as never, ctx.runtime.metrics);
 }
 
 export function monthlyBuckets(from: string, to: string): Bucket[] {
@@ -158,19 +170,19 @@ export function metricsReport(ctx: AppContext, user: SessionUser, scope: Scope, 
 }
 
 export interface Contributor {
-  id: string; table: 'activities' | 'trainings'; date: string; title: string;
+  id: string; table: 'activities' | 'trainings'; date: string; end_date: string | null; ongoing: boolean; title: string;
   user_id: string; unit_id: string | null; value: number; unit: string;
 }
 
 export function metricContributors(ctx: AppContext, user: SessionUser, scope: Scope, opts: MetricScopeOptions & { metricId: string }): Contributor[] {
   const rows = sourceRows(ctx, user, scope, opts);
   const byId = new Map(rows.map((r) => [r.id, r]));
-  const measures = measuresOfAll(rows as never, ctx.runtime.metrics);
+  const measures = measuresOfAll(counted(rows, opts.from) as never, ctx.runtime.metrics);
   const selected = selectMeasures(measures, { aggregation: opts.aggregation, filters: opts.filters }).filter((m) => m.metricId === canonicalMetricId(opts.metricId));
   return selected.map((m) => {
     const row = byId.get(m.outcomeId)!;
     const [table, id] = m.outcomeId.split(':') as ['activities' | 'trainings', string];
-    return { id, table, date: row.date, title: row.title, user_id: row.user_id, unit_id: row.unit_id, value: m.value, unit: m.unit };
+    return { id, table, date: row.date, end_date: row.end_date, ongoing: row.ongoing === 1, title: row.title, user_id: row.user_id, unit_id: row.unit_id, value: m.value, unit: m.unit };
   }).sort((a, b) => b.date.localeCompare(a.date) || Math.abs(b.value) - Math.abs(a.value));
 }
 

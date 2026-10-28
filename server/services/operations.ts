@@ -1,7 +1,7 @@
 import { statfsSync } from 'node:fs';
 import { dirname } from 'node:path';
 import type { AppContext } from '../context.ts';
-import { AUDITED_FROM, metaGet, metaSet, migrationHistory, MIGRATION_CATALOG, NEW_DATABASE, SCHEMA_VERSION } from '../db/index.ts';
+import { AUDITED_FROM, metaGet, metaSet, migrationHistory, MIGRATION_CATALOG, NEW_DATABASE, SCHEMA_VERSION, timeframeViolations } from '../db/index.ts';
 import { VERSION } from '../version.ts';
 import { now } from '../lib/ids.ts';
 import { audit, verifyAuditChain } from './audit.ts';
@@ -79,6 +79,12 @@ export function migrationStatus(ctx: AppContext) {
   if (boundary?.found && Object.keys(boundary.found).length) {
     const total = Object.values(boundary.found).reduce((n, v) => n + Number(v || 0), 0);
     notes.push(`${total} rows were already joined across a Unit Instance boundary when isolation began (${Object.keys(boundary.found).join(', ')}). They were kept; only new crossings are refused.`);
+  }
+  // Counted as they stand, so the note goes once each is put in order (ADR-0018).
+  const outOfOrder = timeframeViolations(ctx.db);
+  if (Object.keys(outOfOrder).length) {
+    const total = Object.values(outOfOrder).reduce((n, v) => n + v, 0);
+    notes.push(`${total} record${total === 1 ? ' ends' : 's end'} before ${total === 1 ? 'it starts' : 'they start'} (${Object.entries(outOfOrder).map(([t, n]) => `${t} ${n}`).join(', ')}), entered before Vantage refused dates out of order. ${total === 1 ? 'It was' : 'They were'} kept; whoever next changes the dates is asked to put them in order.`);
   }
   return {
     code: SCHEMA_VERSION,

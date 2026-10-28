@@ -10,12 +10,14 @@ import CsvImportDialog from '@/components/CsvImportDialog';
 import MoveRecordDialog from '@/components/MoveRecordDialog';
 import { ActivityFields, emptyActivity, toActivityDraft, activityPayload, type ActivityDraft } from '@/components/ActivityForm';
 import { PeriodSelect, DateText, CategoryDot, useParam, Table, PageShell } from '@/components/common';
+import { TimeframeText, timeframeCheck } from '@/components/Timeframe';
 import { can, useActivities, useRecords, useDeleteRecord, useIdentity, usePrefs, useRestoreRecord, useSavePrefs, useTrack, unitName, useOrg, useMetrics, useMoveCandidates, useKeepAsActivity } from '@/lib/queries';
 import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
 import { categoryNames } from '../../shared/constants';
 import { areaOptions, mapAreaToTrack, trackMeta } from '../../shared/evaluation';
 import { DEFAULT_PERIOD, activitiesInRange, rangeForPeriod, formatDollars, formatNumber, aggregateMetrics } from '../../shared/metrics';
+import { inPeriod } from '../../shared/timeframe';
 import { findDuplicates } from '../../shared/duplicates';
 import { strength } from '../../shared/bullets';
 import { MOVABLE_LABELS, type MovableTable, type MoveCandidate } from '../../shared/recordKinds';
@@ -78,7 +80,8 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
   const dupIds = useMemo(() => new Set(findDuplicates(rows || []).flatMap((g) => g.records.map((r) => r.id!))), [rows]);
   const filtered = useMemo(() => {
     let list: any[] = rows || [];
-    if (from && to) list = list.filter((a) => a.date >= from && a.date <= to);
+    // Any entry with a day in the range, one begun before it and still going included (ADR-0018).
+    if (from && to) list = list.filter((a) => inPeriod('activities', a, from, to));
     else if (period !== 'all') list = activitiesInRange(list, rangeForPeriod(period));
     if (owner === 'mine') list = list.filter((a) => a.user_id === identity?.user.id);
     if (owner === 'unit') list = list.filter((a) => a.user_id !== identity?.user.id);
@@ -178,7 +181,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
               const s = strength(a);
               return (
                 <tr key={a.id} className={cn(dupIds.has(a.id) && quality === 'duplicates' && 'bg-bad/5')}>
-                  <td className="whitespace-nowrap text-xs text-ink-2"><DateText value={a.date} /></td>
+                  <td className="whitespace-nowrap text-xs text-ink-2"><TimeframeText table="activities" row={a} /></td>
                   <td className="min-w-0">
                     <Link to={`/records/${a.id}`} className="flex items-start gap-2"><CategoryDot category={a.category} /><span className="min-w-0"><span className="block font-medium text-ink hover:underline">{a.title}</span>{a.result ? <span className="block truncate text-xs text-ink-3">{a.result}</span> : <span className="block text-xs text-warn">No outcome recorded</span>}</span></Link>
                     {a.user_id !== identity?.user.id && a.owner_name && <span className="mt-0.5 block text-2xs text-ink-3">{a.owner_name}</span>}
@@ -197,7 +200,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
         <div className="grid grid-cols-1 gap-3 sm:grid-cols-2 xl:grid-cols-3">
           {filtered.map((a) => (
             <article key={a.id} className="card card-hover flex flex-col p-4">
-              <div className="flex items-start justify-between gap-2"><span className="flex items-center gap-1.5 text-xs text-ink-3"><CategoryDot category={a.category} />{a.category || 'Uncategorized'}</span><span className="text-xs text-ink-3"><DateText value={a.date} /></span></div>
+              <div className="flex items-start justify-between gap-2"><span className="flex items-center gap-1.5 text-xs text-ink-3"><CategoryDot category={a.category} />{a.category || 'Uncategorized'}</span><span className="text-right text-xs text-ink-3"><TimeframeText table="activities" row={a} /></span></div>
               <Link to={`/records/${a.id}`} className="mt-2 block text-base font-medium leading-snug text-ink hover:underline">{a.title}</Link>
               <p className={cn('mt-1 line-clamp-2 text-sm', a.result ? 'text-ink-2' : 'text-warn')}>{a.result || 'No outcome recorded'}</p>
               <div className="mt-3 flex flex-wrap items-center gap-2 text-xs">
@@ -213,7 +216,7 @@ export default function Records({ embedded }: { embedded?: boolean } = {}) {
       )}
 
       <RecordDialog<ActivityDraft> store="activities" open={Boolean(editing)} onOpenChange={(o) => { if (!o) setEditing(null); }} initial={editing ? { ...editing } : null} title={editing?.id ? 'Edit activity' : 'New activity'} noun="Activity" size="lg"
-        fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} onSavedAs={() => setEditing(null)} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : null)} onSaved={() => undefined} />
+        fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} onSavedAs={() => setEditing(null)} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : timeframeCheck('activities', d))} onSaved={() => undefined} />
       <ConfirmDialog open={Boolean(confirm)} onOpenChange={(o) => { if (!o) setConfirm(null); }} title="Delete this entry?" body={<>“{confirm?.title}” moves to the recycle bin for 30 days. You can undo right away.</>} onConfirm={() => del(confirm)} />
       <CsvImportDialog open={importOpen === '1'} onOpenChange={(o) => setImportOpen(o ? '1' : '')} />
       <MoveRecordDialog store="activities" row={moving?.row ?? null} suggested={moving?.to} open={Boolean(moving)} onOpenChange={(o) => { if (!o) setMoving(null); }} />

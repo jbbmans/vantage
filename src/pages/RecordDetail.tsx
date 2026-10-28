@@ -8,7 +8,8 @@ import { useToast } from '@/components/ui/toast';
 import RecordDialog from '@/components/RecordDialog';
 import { ActivityFields, toActivityDraft, type ActivityDraft } from '@/components/ActivityForm';
 import { AiAction, AiResult } from '@/components/AiPanel';
-import { DescriptionList, DateText, StatusBadge, CategoryDot } from '@/components/common';
+import { DescriptionList, StatusBadge, CategoryDot } from '@/components/common';
+import { TimeframeText, timeframeCheck } from '@/components/Timeframe';
 import { Comments } from '@/components/Comments';
 import MoveRecordDialog, { entryHref, type MovedEntry } from '@/components/MoveRecordDialog';
 import RecordLineage from '@/components/RecordLineage';
@@ -87,7 +88,7 @@ export default function RecordDetail() {
       <RecordLineage store="activities" id={id} onUndone={goTo} className="mb-4" />
       <div className="mb-5 flex flex-wrap items-start justify-between gap-3">
         <div className="min-w-0">
-          <p className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-ink-3"><span className="flex items-center gap-1.5"><CategoryDot category={a.category} />{a.category || 'Uncategorized'}</span><span>·</span><DateText value={a.date} /><span>·</span><span className="flex items-center gap-1">{a.visibility === 'unit' ? <Users className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}{a.visibility === 'unit' ? `Shared with ${unitName(identity, a.unit_id, org)}` : 'Only you'}</span>{!mine && a.owner_name && <><span>·</span><span>{a.owner_name}</span></>}</p>
+          <p className="mb-1.5 flex flex-wrap items-center gap-2 text-xs text-ink-3"><span className="flex items-center gap-1.5"><CategoryDot category={a.category} />{a.category || 'Uncategorized'}</span><span>·</span><TimeframeText table="activities" row={a} /><span>·</span><span className="flex items-center gap-1">{a.visibility === 'unit' ? <Users className="h-3.5 w-3.5" /> : <Lock className="h-3.5 w-3.5" />}{a.visibility === 'unit' ? `Shared with ${unitName(identity, a.unit_id, org)}` : 'Only you'}</span>{!mine && a.owner_name && <><span>·</span><span>{a.owner_name}</span></>}</p>
           <h1 className="page-title text-xl sm:text-2xl">{a.title}</h1>
         </div>
         <div className="flex flex-wrap gap-2">
@@ -156,7 +157,7 @@ export default function RecordDetail() {
 
       <Comments table="activities" id={id} canModerate={can(identity, PERMISSIONS.MANAGE_RECORDS, a.unit_id)} />
 
-      <RecordDialog<ActivityDraft> store="activities" open={Boolean(editing)} onOpenChange={(o) => { if (!o) setEditing(null); }} initial={editing} title="Edit activity" noun="Activity" size="lg" fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : null)} onSaved={() => qc.invalidateQueries({ queryKey: keys.record('activities', id) })} />
+      <RecordDialog<ActivityDraft> store="activities" open={Boolean(editing)} onOpenChange={(o) => { if (!o) setEditing(null); }} initial={editing} title="Edit activity" noun="Activity" size="lg" fields={(draft, set, errors) => <ActivityFields draft={draft} set={set} errors={errors} />} validate={(d) => (!d.title.trim() ? 'A title is required.' : timeframeCheck('activities', d))} onSaved={() => qc.invalidateQueries({ queryKey: keys.record('activities', id) })} />
       <MoveRecordDialog store="activities" row={canMove ? a : null} open={moving} onOpenChange={setMoving} onMoved={goTo} onUndone={goTo} />
       <ConfirmDialog open={confirm} onOpenChange={setConfirm} title="Delete this entry?" body="It moves to the recycle bin for 30 days and can be restored from this page." onConfirm={async () => { try { await remove.mutateAsync(id); toast.success('Entry deleted.', { label: 'Undo', onClick: () => restore.mutateAsync(id).then(() => { toast.success('Entry restored.'); navigate(`/records/${id}`); }).catch((e) => toast.error(api.errorText(e))) }); navigate('/records'); } catch (e) { toast.error(api.errorText(e)); } }} />
     </div>

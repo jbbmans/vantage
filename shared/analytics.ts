@@ -3,14 +3,15 @@ import { movement, type Movement } from './delta.ts';
 import { strength } from './bullets.ts';
 import { DEFAULT_METRICS, isSummable, categoryNames, valueType, type MetricsConfig } from './constants.ts';
 import { recordHealth, type HealthIssue } from './health.ts';
+import { anchorDay, inPeriod } from './timeframe.ts';
 
 export interface AnalysisActivity extends MetricSource {
-  id?: string; title?: string | null; date?: string | null; system?: string | null; organization?: string | null; status?: string | null;
+  id?: string; title?: string | null; date?: string | null; end_date?: string | null; ongoing?: number | boolean | null; system?: string | null; organization?: string | null; status?: string | null;
   evidence_links?: Array<{ url?: string }> | null; notes?: string | null; created_at?: string;
 }
 export interface AnalysisGoal { title: string; status: string; current_value?: number | null; target_value?: number | null; unit_label?: string | null; period_end?: string | null; metric?: string | null; updated_at?: string; created_at?: string }
-export interface AnalysisTraining { title: string; date?: string | null; hours?: number | null; type?: string | null; status?: string | null }
-export interface AnalysisAward { name: string; date?: string | null; status: string; type?: string | null }
+export interface AnalysisTraining { title: string; date?: string | null; end_date?: string | null; ongoing?: number | boolean | null; hours?: number | null; type?: string | null; status?: string | null }
+export interface AnalysisAward { name: string; period_start?: string | null; date?: string | null; status: string; type?: string | null }
 export interface AnalysisCounseling { date?: string | null; type?: string | null; acknowledged_at?: string | null }
 
 export interface Kpi { key: string; label: string; value: number; prior: number; format: 'number' | 'money' | 'percent' | 'hours'; movement: Movement; note?: string }
@@ -46,6 +47,9 @@ const DAY = 86_400_000;
 const r2 = (n: number) => Math.round(n * 100) / 100;
 const pct = (num: number, den: number) => (den ? Math.round((num / den) * 1000) / 10 : 0);
 const inRange = (d: string | null | undefined, from: string, to: string) => Boolean(d) && d! >= from && d! <= to;
+// Activities and training are in a period when any day of them is; an award by its date (ADR-0018). Each is counted once
+// in a period, on its first day there, so a monthly or weekly series puts it in one bucket.
+const activityIn = (a: AnalysisActivity, from: string, to: string) => inPeriod('activities', a, from, to);
 const monthKey = (d: string) => d.slice(0, 7);
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
 const monthLabel = (key: string) => { const [y, m] = key.split('-').map(Number); return `${MONTHS[m - 1]} ${String(y).slice(-2)}`; };
@@ -92,13 +96,14 @@ export function buildAnalysis(input: AnalysisInput): Analysis {
   const cfg = input.metrics || DEFAULT_METRICS;
   const { period, prior, areas } = input;
   const all = input.activities.filter((a) => a.status !== 'planned');
-  const current = all.filter((a) => inRange(a.date, period.from, period.to)).sort((a, b) => String(b.date).localeCompare(String(a.date)));
-  const previous = all.filter((a) => inRange(a.date, prior.from, prior.to));
-  const planned = input.activities.filter((a) => a.status === 'planned' && inRange(a.date, period.from, period.to)).length;
+  const current = all.filter((a) => activityIn(a, period.from, period.to)).sort((a, b) => String(b.date).localeCompare(String(a.date)));
+  const previous = all.filter((a) => activityIn(a, prior.from, prior.to));
+  const planned = input.activities.filter((a) => a.status === 'planned' && activityIn(a, period.from, period.to)).length;
+  const counted = (a: AnalysisActivity) => anchorDay('activities', a, period.from);
   const m = aggregateMetrics(current, cfg);
   const pm = aggregateMetrics(previous, cfg);
-  const trainings = (input.trainings || []).filter((t) => inRange(t.date, period.from, period.to));
-  const priorTrainingHours = (input.trainings || []).filter((t) => inRange(t.date, prior.from, prior.to)).reduce((n, t) => n + (Number(t.hours) || 0), 0);
+  const trainings = (input.trainings || []).filter((t) => inPeriod('trainings', t, period.from, period.to));
+  const priorTrainingHours = (input.trainings || []).filter((t) => inPeriod('trainings', t, prior.from, prior.to)).reduce((n, t) => n + (Number(t.hours) || 0), 0);
   const trainingHours = trainings.reduce((n, t) => n + (Number(t.hours) || 0), 0);
   const awards = (input.awards || []).filter((a) => inRange(a.date, period.from, period.to));
   const priorAwards = (input.awards || []).filter((a) => inRange(a.date, prior.from, prior.to)).length;
@@ -131,7 +136,7 @@ export function buildAnalysis(input: AnalysisInput): Analysis {
 
   // Monthly series
   const monthly = monthsBetween(period.from, period.to).map((month) => {
-    const rows = current.filter((a) => a.date && monthKey(a.date) === month);
+    const rows = current.filter((a) => monthKey(counted(a) ?? '') === month);
     return { month, label: monthLabel(month), entries: rows.length, value: r2(rows.reduce((n, a) => n + (isSummable(a.dollar_type, cfg) ? Number(a.dollar_amount) || 0 : 0), 0)), quantity: rows.reduce((n, a) => n + (Number(a.quantity) || 0), 0), withOutcome: rows.filter((a) => a.result && String(a.result).trim()).length };
   });
 
@@ -157,13 +162,13 @@ export function buildAnalysis(input: AnalysisInput): Analysis {
   };
 
   // Consistency
-  const days = [...new Set(current.map((a) => a.date).filter((d): d is string => Boolean(d)))].sort();
+  const days = [...new Set(current.map(counted).filter((d): d is string => Boolean(d)))].sort();
   let longestGap = 0;
   const gapStart = toDate(period.from)!.getTime(); const gapEnd = Math.min(toDate(period.to)!.getTime(), todayT);
   const points = [gapStart, ...days.map((d) => toDate(d)!.getTime()), gapEnd];
   for (let i = 1; i < points.length; i++) longestGap = Math.max(longestGap, Math.round((points[i] - points[i - 1]) / DAY));
   const perWeek = new Map<string, number>();
-  for (const a of current) if (a.date) { const k = weekKey(a.date); perWeek.set(k, (perWeek.get(k) || 0) + 1); }
+  for (const a of current) { const d = counted(a); if (d) { const k = weekKey(d); perWeek.set(k, (perWeek.get(k) || 0) + 1); } }
   const weekCount = Math.max(1, Math.ceil(Math.min(spanDays, Math.max(1, Math.round((gapEnd - gapStart) / DAY) + 1)) / 7));
   const counts = [...perWeek.values()];
   const meanPerWeek = current.length / weekCount;

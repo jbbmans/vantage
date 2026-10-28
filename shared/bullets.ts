@@ -8,6 +8,7 @@ export interface BulletSource {
   id?: string; title?: string | null; category?: string | null; eval_area?: string | null; quantity?: number | string | null;
   unit_label?: string | null; dollar_amount?: number | string | null; dollar_type?: string | null; system?: string | null;
   organization?: string | null; result?: string | null; date?: string | null; evidence_links?: unknown[] | null;
+  end_date?: string | null; start_time?: string | null; end_time?: string | null; ongoing?: number | boolean | null;
 }
 
 const VERB_BY_DOLLAR_TYPE: Record<string, string> = { reconciled: 'Reconciled', obligated: 'Obligated', saved: 'Recovered', reviewed: 'Reviewed', impact: 'Processed' };
@@ -53,6 +54,7 @@ import { sentenceFor } from './writer/realize.ts';
 
 const SINGLE = { names: { mission: 'MOS / Mission Accomplishment', leadership: 'Leadership', character: 'Individual Character', intellect: 'Individual Character' }, areas: JEPES_CORE };
 import { unitFor } from './writer/units.ts';
+import { formatTimeframe } from './timeframe.ts';
 
 const capitalize = (s = '') => (s ? s.charAt(0).toUpperCase() + s.slice(1) : s);
 
@@ -106,7 +108,8 @@ export function composeBullet(a: BulletSource = {}, opts: { style?: BulletStyle;
   const { style = 'jepes', includeDate = false } = opts;
   if (style !== 'resume') {
     const text = sentenceFor(readEntry(a as EntryInput, SINGLE), 'full', 0, 'bullets');
-    return includeDate && a.date ? `${text.replace(/\.$/, '')} (${formatDTG(a.date)}).` : text;
+    // The days it ran, as a DTG writes them: "12 MAY 25", "12 MAY 25 – 16 MAY 25", "3 MAR 25 – present" (ADR-0018).
+    return includeDate && a.date ? `${text.replace(/\.$/, '')} (${formatTimeframe('activities', a, { upper: true }) || formatDTG(a.date)}).` : text;
   }
   const title = String(a.title || '').trim().replace(/\.$/, '');
   const titleLower = title.toLowerCase();

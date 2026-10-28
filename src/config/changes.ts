@@ -7,6 +7,16 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-10-24',
+    title: 'Start and end dates',
+    items: [
+      'Activities and training now take an end date when they ran longer than a day, a start and end time if you want them (type 0800 or 08:00), and Ongoing for work you have begun and not finished.',
+      'An award can name when the period it recognizes began, beside the award date.',
+      'Vantage refuses anything that ends before it starts, and says which date to fix.',
+      'Reports, analysis, the dashboard and your record lists include an entry in every period it overlaps, once each, with its dates shown beside it. A spreadsheet import and export carry End Date, Start Time, End Time and Ongoing.',
+    ],
+  },
+  {
     date: '2026-10-22',
     title: 'Personnel records',
     items: [

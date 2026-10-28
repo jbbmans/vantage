@@ -53,8 +53,8 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     authority: 'Voluntarily recorded by the person about their own work.',
     access: 'The person. Shared entries are visible to their unit only when the person marks them shared.',
     columns: {
-      id: 'technical', user_id: 'identifier', unit_id: 'employment', date: 'performance', title: 'performance',
-      category: 'performance', eval_area: 'performance', quantity: 'performance', unit_label: 'performance',
+      id: 'technical', user_id: 'identifier', unit_id: 'employment', date: 'performance', end_date: 'performance', start_time: 'performance',
+      end_time: 'performance', ongoing: 'performance', title: 'performance', category: 'performance', eval_area: 'performance', quantity: 'performance', unit_label: 'performance',
       dollar_amount: 'performance', dollar_type: 'performance', result: 'performance', organization: 'employment',
       system: 'none', project_id: 'technical', status: 'performance', notes: 'performance', evidence_links: 'performance',
       visibility: 'none', fingerprint: 'technical', kind_confirmed_at: 'technical', frozen_at: 'technical', deleted_at: 'technical',
@@ -394,7 +394,8 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     authority: 'Voluntarily recorded by the person about their own training.',
     access: 'The person; the unit when marked shared.',
     columns: {
-      id: 'technical', user_id: 'identifier', unit_id: 'employment', visibility: 'none', date: 'employment', title: 'employment', type: 'employment',
+      id: 'technical', user_id: 'identifier', unit_id: 'employment', visibility: 'none', date: 'employment', end_date: 'employment', start_time: 'employment',
+      end_time: 'employment', ongoing: 'employment', title: 'employment', type: 'employment',
       hours: 'employment', provider: 'employment', status: 'employment', notes: 'employment', version: 'technical', frozen_at: 'technical',
       deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',
     },
@@ -404,7 +405,7 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     authority: 'Recorded under the awards program the unit operates by.',
     access: 'The person; the unit when marked shared.',
     columns: {
-      id: 'technical', user_id: 'identifier', unit_id: 'employment', visibility: 'none', date: 'performance', name: 'performance', type: 'performance',
+      id: 'technical', user_id: 'identifier', unit_id: 'employment', visibility: 'none', period_start: 'performance', date: 'performance', name: 'performance', type: 'performance',
       status: 'performance', recommending_official: 'identifier', approving_authority: 'identifier', citation: 'performance', notes: 'performance',
       submitted_at: 'performance', approved_at: 'performance', presented_at: 'performance', recorded_by: 'identifier', version: 'technical', frozen_at: 'technical',
       deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',

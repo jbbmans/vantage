@@ -4,6 +4,7 @@ import { buildPackage, type BulletStyle } from '../../shared/bullets.ts';
 import { aggregateMetrics, rangeForPeriod, formatDTG, type PeriodKey } from '../../shared/metrics.ts';
 import { narrativeConfig, areasFor, areaAmong, trackForGrade, type Track } from '../../shared/evaluation.ts';
 import { hydrate } from './records.ts';
+import { periodClause } from './timeframes.ts';
 import { isoDay, zonedDay, zonedNow } from '../lib/clock.ts';
 import { caseworkFor } from './record.ts';
 import type { Density, Format } from '../../shared/writer/realize.ts';
@@ -26,9 +27,12 @@ export function buildReport(ctx: AppContext, opts: { userId: string; unitId?: st
   const track: Track = opts.track || trackForGrade(person?.rank_grade);
   const where = opts.unitId ? `user_id = ? AND unit_id = ? AND visibility = 'unit'` : 'user_id = ?';
   const params = opts.unitId ? [opts.userId, opts.unitId] : [opts.userId];
-  const activities = (ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL AND date >= ? AND date <= ? ORDER BY date DESC`).all(...params, from, to) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
-  const awards = ctx.db.prepare(`SELECT name, date, status FROM awards WHERE ${where} AND deleted_at IS NULL AND date >= ? AND date <= ? ORDER BY date DESC`).all(...params, from, to) as Array<{ name: string; date: string | null; status: string }>;
-  const trainings = ctx.db.prepare(`SELECT title, date, hours, status FROM trainings WHERE ${where} AND deleted_at IS NULL AND date >= ? AND date <= ? ORDER BY date DESC`).all(...params, from, to) as Array<{ title: string; date: string | null; hours: number | null; status: string | null }>;
+  // What ran in the period: anything with a day in it, so work begun before the period and still going counts (ADR-0018).
+  const inPeriod = (table: 'activities' | 'awards' | 'trainings') => periodClause(table, table, from, to);
+  const [a, w, t] = [inPeriod('activities'), inPeriod('awards'), inPeriod('trainings')];
+  const activities = (ctx.db.prepare(`SELECT * FROM activities WHERE ${where} AND deleted_at IS NULL AND ${a.sql} ORDER BY date DESC`).all(...params, ...a.params) as Array<Record<string, unknown>>).map((r) => hydrate(r, 'activities')!);
+  const awards = ctx.db.prepare(`SELECT name, period_start, date, status FROM awards WHERE ${where} AND deleted_at IS NULL AND ${w.sql} ORDER BY date DESC`).all(...params, ...w.params) as Array<{ name: string; period_start: string | null; date: string | null; status: string }>;
+  const trainings = ctx.db.prepare(`SELECT title, date, end_date, start_time, end_time, ongoing, hours, status FROM trainings WHERE ${where} AND deleted_at IS NULL AND ${t.sql} ORDER BY date DESC`).all(...params, ...t.params) as Array<{ title: string; date: string | null; end_date: string | null; start_time: string | null; end_time: string | null; ongoing: number; hours: number | null; status: string | null }>;
   const cfg = narrativeConfig(track);
   const metricsConfig = ctx.runtime.metrics;
   // The narrative reads areas by name as the package does (groupByAreas): a Sgt's JEPES-named entries are FITREP ones.
