@@ -72,7 +72,12 @@ export default function RecordImportDialog({ open, onOpenChange }: { open: boole
     catch (e) { if (asked === latest.current) toast.error(api.errorText(e)); }
     finally { if (asked === latest.current) setBusy(null); }
   };
-  const choose = (ref: string, choice: NonNullable<ImportPlanBody['rows']>[string]) => replan({ ...plan, rows: { ...plan.rows, [ref]: { ...plan.rows?.[ref], ...choice } } });
+  const choose = (ref: string, choice: NonNullable<ImportPlanBody['rows']>[string]) => {
+    const was = plan.rows?.[ref];
+    // Each correction adds to the ones before it: fixing the field a fix revealed keeps the field fixed first.
+    const fix = choice.fix ? { ...was?.fix, ...choice.fix } : was?.fix;
+    return replan({ ...plan, rows: { ...plan.rows, [ref]: { ...was, ...choice, ...(fix ? { fix } : {}) } } });
+  };
   const commit = async () => {
     if (!review) return;
     setBusy('commit');

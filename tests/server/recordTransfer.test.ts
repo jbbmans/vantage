@@ -5,6 +5,7 @@ import { writeWorkbook, readWorkbook } from '../../server/lib/workbook.ts';
 import { listZip, readZip } from '../../server/lib/zip.ts';
 import { pruneStagedImports } from '../../server/services/recordImport.ts';
 import { forgetImportSnapshots } from '../../server/services/records.ts';
+import { removeMember } from '../../server/services/org.ts';
 
 /**
  * Task 13 (ADR-0019): a person's records go out and come back by what they are. An award stays an award, a course a
@@ -503,6 +504,62 @@ test('an undo never takes back across an instance what others added since, two r
   }
   assert.equal(rows(other.id, 'activities').find((a) => a.title === 'Undated reference note')?.date, null);
   assert.equal(rows(other.id, 'goals').find((g) => g.title === 'Read the FMR chapter 3')?.filters, '{}');
+});
+
+test('a refused row never hides a valid twin, an export’s own name says its category, a read-in type never overwrites, an edit after the review stops the import, and a frozen record keeps its files', async () => {
+  const me = await app.register('castillo');
+  await enroll(app, op.token, 'G8', me.id);
+  me.token = await login('castillo');
+
+  // Two rows for one award: the first refused (its citation is too long), the second goes in.
+  const twins = await upload(me.token, `Name,Date,Citation\nGood Conduct Medal,2026-02-02,${'x'.repeat(6001)}\nGood Conduct Medal,2026-02-02,For good conduct.\n`, 'awards.csv', 'text/csv');
+  assert.deepEqual(twins.body.rows.map((r: { outcome: string }) => r.outcome), ['problem', 'new'], JSON.stringify(twins.body.rows.map((r: { outcome: string; reason: string }) => [r.outcome, r.reason])));
+  await app.call('DELETE', `/api/me/imports/${twins.body.id}`, { token: me.token });
+
+  // An export's own name is read for its category before the username in it ("awards" holding tasks).
+  const tasks = await upload(me.token, 'Title,Due Date\nTurn in the GTCC log,2026-11-15\n', 'vantage-awards-tasks-2026-10-28.csv', 'text/csv');
+  assert.equal(tasks.body.rows[0].as, 'tasks', JSON.stringify(tasks.body.sheets));
+  await app.call('DELETE', `/api/me/imports/${tasks.body.id}`, { token: me.token });
+
+  // A file without a Type column updates a certification's hours and leaves it a certification.
+  const cert = (await post(me.token, '/api/records/trainings', { title: 'Network+', type: 'certification', date: '2026-01-15', hours: 1 })).body;
+  const hours = await upload(me.token, `Vantage ID,Title,Hours\n${cert.id},Network+,40\n`, 'hours.csv', 'text/csv');
+  assert.match(hours.body.rows[0].reason, /hours/);
+  assert.doesNotMatch(hours.body.rows[0].reason, /type/);
+  assert.equal((await commit(me.token, hours.body.id, expected(hours.body))).status, 200);
+  assert.deepEqual({ ...app.ctx.db.prepare('SELECT type, hours FROM trainings WHERE id = ?').get(cert.id) as object }, { type: 'certification', hours: 40 });
+
+  // A record edited after the review stops the import: nothing written over what was saved since.
+  const task = (await post(me.token, '/api/records/tasks', { title: 'Draft the SOP' })).body;
+  const retitle = await upload(me.token, `Vantage ID,Title\n${task.id},Draft the fiscal SOP\n`, 'vantage-castillo-tasks-2026-10-28.csv', 'text/csv');
+  assert.equal(retitle.body.rows[0].outcome, 'update', JSON.stringify(retitle.body.rows[0]));
+  assert.equal((await put(me.token, `/api/records/tasks/${task.id}`, { title: 'Draft the G8 SOP' })).status, 200);
+  const refused = await commit(me.token, retitle.body.id, expected(retitle.body));
+  assert.equal(refused.status, 409, JSON.stringify(refused.body));
+  assert.equal(refused.body.code, 'import_changed');
+  assert.equal((app.ctx.db.prepare('SELECT title FROM tasks WHERE id = ?').get(task.id) as { title: string }).title, 'Draft the G8 SOP');
+  assert.equal(status(retitle.body.id), 'staged', 'it waits to be reviewed again');
+  await app.call('DELETE', `/api/me/imports/${retitle.body.id}`, { token: me.token });
+
+  // A shared entry with its file, imported; its owner then leaves the unit and it is frozen: the undo leaves the file on it.
+  const vance = await app.register('vance');
+  await enroll(app, op.token, 'G8', vance.id);
+  vance.token = await login('vance');
+  const range = (await post(vance.token, '/api/records/activities', { title: 'Range card qualification', date: '2026-07-07', visibility: 'unit', unit_id: 'G8' })).body;
+  assert.equal((await app.call('POST', `/api/records/activities/${range.id}/attachments`, { token: vance.token, raw: Buffer.from('%PDF-1.4\n% the range card\n%%EOF\n'), headers: { 'content-type': 'application/pdf', 'x-vantage-filename': 'range-card.pdf' } })).status, 201);
+  const zip = await app.call('GET', '/api/me/export?format=zip&sections=activities,attachments', { token: vance.token, binary: true });
+  const staged = await upload(me.token, zip.buffer!, 'vance.zip', 'application/zip');
+  assert.equal(staged.body.attachments.included, 1, JSON.stringify(staged.body.attachments));
+  assert.equal((await commit(me.token, staged.body.id, expected(staged.body))).status, 200);
+  const copy = rows(me.id, 'activities').find((a) => a.title === 'Range card qualification')!;
+  assert.deepEqual([copy.visibility, copy.unit_id], ['unit', 'G8']);
+  removeMember(app.ctx, me.id, 'G8');
+  assert.ok((app.ctx.db.prepare('SELECT frozen_at FROM activities WHERE id = ?').get(copy.id) as { frozen_at: string | null }).frozen_at, 'frozen when its owner left');
+  const undone = await post(me.token, `/api/me/imports/${staged.body.id}/undo`);
+  assert.equal(undone.status, 200, JSON.stringify(undone.body).slice(0, 300));
+  assert.deepEqual(undone.body.results.undone, { removed: 0, restored: 0, kept: 2 });
+  const files = app.ctx.db.prepare("SELECT original_name FROM attachments WHERE record_table = 'activities' AND record_id = ? AND deleted_at IS NULL").all(copy.id) as Array<{ original_name: string }>;
+  assert.deepEqual(files.map((f) => f.original_name), ['range-card.pdf']);
 });
 
 test('a unit configuration carries its duty scoring versions, with their dates and withdrawals, into a Unit Instance that has none', async () => {

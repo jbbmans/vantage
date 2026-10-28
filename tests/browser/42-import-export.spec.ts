@@ -30,7 +30,7 @@ const list = async (page: Page, table: string) => {
 
 const workbook = () => writeWorkbook([
   { name: 'Awards', rows: [['Name', 'Type', 'Status', 'Date'], ['Navy and Marine Corps Achievement Medal', 'Personal', 'presented', '2026-05-01']] },
-  { name: 'Training', rows: [['Title', 'Date', 'Hours'], ['MarineNet Fiscal Law', '03/32/2026', 8]] },
+  { name: 'Training', rows: [['Title', 'Date', 'Hours'], [`MarineNet Fiscal Law ${'x'.repeat(300)}`, '03/32/2026', 8]] },
   { name: 'Duty', rows: [['Date', 'Duty', 'Hours'], ['2026-03-01', 'Officer of the Day', 24]] },
   { name: 'Log', rows: [['Title', 'Date'], ['Received the Navy Achievement Medal at formation', '2026-06-02'], ['Reconciled 40 ULOs', '2026-06-01']] },
 ]);
@@ -49,11 +49,15 @@ test('a workbook comes in through its review: each record keeps its type, a fix 
   await expect(dialog.getByText(/never turned into Activities/).first()).toBeVisible();
   expect(await axe(page), 'the review').toEqual([]);
 
-  // The course's date cannot be read: fixed on the review, and it goes in.
+  // The course's date cannot be read: fixed on the review. That shows its title is too long; fixing that keeps the date.
   const course = dialog.getByRole('listitem').filter({ hasText: 'MarineNet Fiscal Law' });
   await expect(course.getByText('Needs a fix')).toBeVisible();
   await course.getByRole('button', { name: 'Fix' }).click();
   await course.getByLabel('Date', { exact: true }).fill('2026-03-31');
+  await course.getByRole('button', { name: 'Apply' }).click();
+  await expect(course.getByText(/title:/i)).toBeVisible();
+  await course.getByRole('button', { name: 'Fix' }).click();
+  await course.getByLabel('Title', { exact: true }).fill('MarineNet Fiscal Law');
   await course.getByRole('button', { name: 'Apply' }).click();
   await expect(course.getByText('New', { exact: true })).toBeVisible();
 

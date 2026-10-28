@@ -93,6 +93,8 @@ interface Candidate {
   author: string | null;
   fingerprint: string | null;
   sourceProject: string | null;
+  /** Fields the reader filled in that the file did not say (a course's type from its title): never written over a record. */
+  inferred?: string[];
 }
 
 interface AttachmentIn { ref: string; path: string; name: string; mime: string; table: string; sourceRecordId: string; data: Buffer | null }
@@ -282,7 +284,15 @@ function routeSheet(name: string, headers: string[], plan: ImportPlan, byFile: b
 
 /** A file name's words, for a file named like an export ("vantage-boletz-awards-2026-10-28.csv"). */
 function fileRoute(filename: string): RouteTarget | null {
-  const words = filename.replace(/\.[a-z]+$/i, '').split(/[-_. ]+/).filter((w) => w && !/^\d+$/.test(w) && w.toLowerCase() !== 'vantage');
+  const stem = filename.replace(/\.[a-z]+$/i, '');
+  // A name the export made ends in its category and the day: that is read first, since the username before it may be a
+  // word for a record type too ("vantage-awards-tasks-2026-10-28.csv" holds tasks).
+  const made = /^vantage-(.+)-\d{4}-\d{2}-\d{2}$/i.exec(stem)?.[1].split('-');
+  if (made && made.length > 1) {
+    const named = (made.length > 2 ? routeFor(made.slice(-2).join(' ')) : null) ?? routeFor(made[made.length - 1]);
+    if (named) return named;
+  }
+  const words = stem.split(/[-_. ]+/).filter((w) => w && !/^\d+$/.test(w) && w.toLowerCase() !== 'vantage');
   for (let i = 0; i < words.length; i += 1) {
     const two = i + 1 < words.length ? routeFor(`${words[i]} ${words[i + 1]}`) : null;
     if (two) return two;
@@ -372,7 +382,9 @@ function fromSpreadsheet(content: Buffer, kind: 'csv' | 'xlsx', filename: string
       // A sheet's preset fills what the row does not say: the type on an Education sheet, the category on a Volunteer one.
       if (target.preset) for (const [k, v] of Object.entries(target.preset)) if (!mappingFor(t)[k] || read.record[k] == null || read.record[k] === '') read.record[k] = v;
       const sourceId = read.record.id ? String(read.record.id) : null;
-      candidates.push({ ...blank(ref, where, t, read.record, read.problem, read.fieldErrors), sourceId, deleted: Boolean(deletedHeader && String(row[deletedHeader] ?? '').trim()) });
+      const preset = target.preset ?? {};
+      const inferred = (read.inferred ?? []).filter((k) => !(k in preset));
+      candidates.push({ ...blank(ref, where, t, read.record, read.problem, read.fieldErrors), sourceId, inferred, deleted: Boolean(deletedHeader && String(row[deletedHeader] ?? '').trim()) });
     });
   });
   if (total >= IMPORT_MAX_ROWS) notes.push(`Imports read at most ${IMPORT_MAX_ROWS} rows; split a larger file.`);
@@ -471,7 +483,9 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
       if (mine.deleted_at) { push('present', { reason: 'It is in your recycle bin here. Restore it from there.', include: false, toggle: false, duplicateOf: ref }); continue; }
       if (c.vantage) { push('present', { reason: 'Already in Vantage. An import never overwrites a record that is here.', include: false, toggle: false, duplicateOf: ref }); continue; }
       if (choice.include === false) { push('excluded', { reason: 'You left it out.', duplicateOf: ref }); continue; }
-      const outcome = updateOne(ctx, user, scope, as, mine, record, placementMode, reqKey, ip, state, c);
+      // What the reader filled in for a new record (a course's type from its title) never overwrites what this one holds.
+      const said = as === c.from && c.inferred?.length ? Object.fromEntries(Object.entries(record).filter(([k]) => !c.inferred!.includes(k))) : record;
+      const outcome = updateOne(ctx, user, scope, as, mine, said, placementMode, reqKey, ip, state, c);
       push(outcome.outcome, outcome.extra);
       continue;
     }
@@ -493,14 +507,14 @@ function runImport(ctx: AppContext, user: SessionUser, importId: string, source:
         continue;
       }
     }
-    seenKeys.set(`${as}:${key}`, c.source);
-
     // Where it goes: where the file put it, if its owner may place it there now; else private.
     const placed = place(ctx, scope, as, record, placementMode);
     const body: Row = { ...record, visibility: placed.visibility, unit_id: placed.unitId };
     if (as === 'goals' && placed.visibility === 'private' && body.measure_scope === 'unit') body.measure_scope = 'subject';
     try {
       const id = savepoint(ctx, () => insertOne(ctx, user, as, body, reqKey, ip, importId, fingerprint, review));
+      // Only a row that went in holds its place: one the server refused never keeps a later, valid twin out.
+      seenKeys.set(`${as}:${key}`, c.source);
       state.created.set(c.ref, { table: as, id });
       if (as === 'projects' && c.sourceId) projectIds.set(c.sourceId, id);
       const notes: string[] = [];
@@ -671,7 +685,8 @@ function updateOne(ctx: AppContext, user: SessionUser, scope: Scope, table: Impo
       state.results.updated[table] = (state.results.updated[table] ?? 0) + 1;
       state.origins.push({ table, id: String(current.id), action: 'updated', sourceId: c.sourceId, ref: c.source, author: null, before, versionAfter: Number(saved.version) });
     }
-    return { outcome: 'update', extra: { reason: `Updates your ${TABLE_LABELS[table].one}: ${Object.keys(changes).join(', ')}.`, duplicateOf: ref } };
+    // The version it updates: the commit goes ahead only on the version the person reviewed.
+    return { outcome: 'update', extra: { reason: `Updates your ${TABLE_LABELS[table].one}: ${Object.keys(changes).join(', ')}.`, duplicateOf: { ...ref, version: Number(was.version) } } };
   } catch (e) {
     if (!isRefusal(e)) throw e;
     return { outcome: 'problem', extra: { reason: (e as Error).message, fieldErrors: (e as HttpError).extra?.fieldErrors as Record<string, string> | undefined, include: false, toggle: false, duplicateOf: ref } };
@@ -937,6 +952,10 @@ export function commitImport(ctx: AppContext, user: SessionUser, id: string, bod
     if (expected && (expected.new !== made.new || expected.update !== made.update)) {
       throw conflict(`Nothing was imported: the import would now add ${made.new} and update ${made.update}, not the ${expected.new} and ${expected.update} you reviewed. Review it again.`, 'import_changed');
     }
+    // Nor if a record it updates was edited after the review: the update would write over what was saved since.
+    const reviewed = new Map(((row.review ? JSON.parse(row.review) as ImportReview : null)?.rows ?? []).filter((r) => r.outcome === 'update').map((r) => [r.ref, r.duplicateOf?.version]));
+    const edited = state.rows.find((r) => r.outcome === 'update' && reviewed.get(r.ref) !== r.duplicateOf?.version);
+    if (edited) throw conflict(`Nothing was imported: “${edited.title}” changed after you reviewed the import. Review it again.`, 'import_changed');
     const at = now();
     const origin = ctx.db.prepare('INSERT INTO record_import_origins (id, import_id, user_id, record_table, record_id, action, source_id, source_ref, author, before, version_after, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     for (const o of state.origins) origin.run(newId(), row.id, user.id, o.table, o.id, o.action, o.sourceId?.slice(0, 200) ?? null, o.ref?.slice(0, 200) ?? null, o.author?.slice(0, 160) ?? null, o.before ? JSON.stringify(o.before) : null, o.versionAfter, at);
@@ -968,7 +987,12 @@ export function undoImport(ctx: AppContext, user: SessionUser, id: string, ip?: 
     for (const o of origins) {
       const before = o.before ? JSON.parse(o.before) as Row : null;
       if (o.action === 'attached') {
-        removed += ctx.db.prepare('UPDATE attachments SET deleted_at = ? WHERE id = ? AND uploaded_by = ? AND deleted_at IS NULL').run(at, o.record_id, user.id).changes;
+        // A file comes off only where its owner could take it off now: a record frozen since they left its unit keeps it.
+        const file = ctx.db.prepare('SELECT record_table, record_id FROM attachments WHERE id = ? AND uploaded_by = ? AND deleted_at IS NULL').get(o.record_id, user.id) as { record_table: string; record_id: string } | undefined;
+        if (!file) continue;
+        const host = ATTACHABLE.has(file.record_table) ? getRecord(ctx, file.record_table as RecordTable, file.record_id) : undefined;
+        if (!host || !canEdit(scope, user.id, host)) { kept += 1; continue; }
+        removed += ctx.db.prepare('UPDATE attachments SET deleted_at = ? WHERE id = ? AND deleted_at IS NULL').run(at, o.record_id).changes;
         continue;
       }
       if (o.action === 'profile') {

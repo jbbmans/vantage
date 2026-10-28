@@ -91,7 +91,8 @@ The export still holds only the exporter's own data: their records, and the name
    review.
 7. **Import** (`POST …/commit`). The run again, kept, in one transaction; each row in its own savepoint, so a row the
    server refuses is reported and the rest go in. The commit carries the counts the person saw: if the account changed
-   in between, nothing is written (409 `import_changed`). The record limit is checked once for all it adds (507).
+   in between, or a record it updates was edited since the review, nothing is written (409 `import_changed`). The
+   record limit is checked once for all it adds (507).
 8. **Results** per record type, files and profile fields, kept on the import.
 9. **Audit.** `record_import_staged`, `…_committed`, `…_undone`, `…_cancelled`; each record created carries `import <id>`
    in its own trail. Each record an import wrote is listed in `record_import_origins`, so its page says "imported …
@@ -100,7 +101,7 @@ The export still holds only the exporter's own data: their records, and the name
     attached come off, profile fields it set go back. Only where nothing changed since; a record edited after the
     import is kept as it is and counted. A record goes back where it was only where an edit could put it now (its
     placement, assignee, and nothing others added since crossing an instance's edge), else it is kept. Two rows of one
-    file that update one record are one change to undo.
+    file that update one record are one change to undo. A file comes off only a record its owner may still edit.
 
 **Records keep their type.** An award comes back an award, a course training, a counseling a counseling. A row in
 Activities that only reads like an award or a course is offered to its owner as that type and goes in as one only when

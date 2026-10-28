@@ -359,7 +359,8 @@ export function enumValue(column: TransferColumn, raw: string): { value: string 
   return column.fallback ? { value: column.fallback, unknown: false } : { value: null, unknown: true };
 }
 
-export interface ReadRow { record: Record<string, unknown>; problem: string | null; fieldErrors: Record<string, string> }
+/** `inferred`: fields the reader filled in that the row did not say, for a new record only. */
+export interface ReadRow { record: Record<string, unknown>; problem: string | null; fieldErrors: Record<string, string>; inferred?: string[] }
 
 /**
  * One spreadsheet row as the fields of its record type, from the columns mapped to them. A field whose column the file does
@@ -400,17 +401,18 @@ export function readRow(table: ImportTable, row: Record<string, string>, mapping
   }
   if (mapping.ongoing) record.ongoing = record.ongoing ? 1 : 0;
   else if (record.end_date && table === 'trainings') record.ongoing = 0;
-  if (table === 'trainings' && !record.type && record.title) record.type = trainingType(String(record.title));
+  const inferred: string[] = [];
+  if (table === 'trainings' && !record.type && record.title) { record.type = trainingType(String(record.title)); inferred.push('type'); }
   if (table === 'trainings' && record.ongoing && record.status === 'completed') record.status = 'in_progress';
   const required = table === 'awards' || table === 'projects' ? 'name' : table === 'counselings' ? 'summary' : 'title';
   if (!String(record[required] ?? '').trim()) fieldErrors[required] = 'Required.';
   if (isTimeframed(table) && !Object.keys(fieldErrors).length) {
     const tf = timeframeProblems(table, record);
     if (tf) Object.assign(fieldErrors, tf.fieldErrors);
-    if (tf) return { record, problem: tf.message, fieldErrors };
+    if (tf) return { record, problem: tf.message, fieldErrors, inferred };
   }
   const first = Object.entries(fieldErrors)[0];
-  return { record, problem: first ? `${columns.find((c) => c.key === first[0])?.header ?? first[0]}: ${first[1]}` : null, fieldErrors };
+  return { record, problem: first ? `${columns.find((c) => c.key === first[0])?.header ?? first[0]}: ${first[1]}` : null, fieldErrors, inferred };
 }
 
 const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
@@ -481,7 +483,8 @@ export interface ImportReviewRow {
   suggestion: { to: ImportTable; why: string } | null;
   /** Where it goes: as the file placed it, or private because the person cannot place it there here. */
   placement: 'kept' | 'private' | null;
-  duplicateOf?: { table: ImportTable; id: string; title: string } | null;
+  /** The record here it matches; for an update, the version it was reviewed at. */
+  duplicateOf?: { table: ImportTable; id: string; title: string; version?: number } | null;
   /** Who the file says wrote it, when that is not the person. */
   author?: string | null;
   /** The record as read, for a correction. */
