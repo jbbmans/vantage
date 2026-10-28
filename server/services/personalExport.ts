@@ -26,7 +26,8 @@ function personLabel(ctx: AppContext, id: unknown): string | null {
  * file by this path, written beside the attachment in vantage-export.json as `file`.
  */
 export const attachmentPath = (a: Record<string, unknown>) =>
-  `attachments/${safeName(String(a.record_table))}-${String(a.id).slice(0, 8)}-${safeName(String(a.original_name))}`;
+  // Never two dots together, which a ZIP reader takes for a way out of the archive ("proof..pdf" is "proof.pdf").
+  `attachments/${safeName(String(a.record_table))}-${String(a.id).slice(0, 8)}-${safeName(String(a.original_name)).replace(/\.{2,}/g, '.')}`;
 
 /**
  * Everything one person keeps, as vantage-personal/1 (ADR-0019). `sections` chooses categories of it (shared/recordTransfer.ts):
@@ -211,7 +212,7 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string, { sectio
   }
   for (const [table, rows] of Object.entries(archive.records)) {
     // The import's own columns; a bare "Unit" is an import alias for the action unit, so the unit is "Unit ID".
-    entries.push({ name: `${table}.csv`, data: `\uFEFF${rowsToCsv(rows.map((r) => ({ ...sheetRow(table as ImportTable, r), ...extraColumns(table, r) })), [...sheetHeaders(table as ImportTable), ...extraHeaders(table)])}` });
+    entries.push({ name: `${table}.csv`, data: `\uFEFF${rowsToCsv(ownRows(rows, userId).map((r) => ({ ...sheetRow(table as ImportTable, r), ...extraColumns(table, r) })), [...sheetHeaders(table as ImportTable), ...extraHeaders(table)])}` });
   }
   if (archive.career) entries.push({ name: 'career-steps.csv', data: `\uFEFF${rowsToCsv(archive.career.steps.map((r) => sheetRow('career_steps', r)), sheetHeaders('career_steps'))}` });
   entries.push({ name: 'attachments.csv', data: rowsToCsv(archive.attachments.map(flat)) });
@@ -229,9 +230,16 @@ export function buildPersonalExportZip(ctx: AppContext, userId: string, { sectio
   return { buffer: buildZip(entries), filename: `vantage-${safeName(owner)}-${stamp}${'sections' in archive ? '-selected' : ''}.zip`, counts: archive.counts };
 }
 
-/** What a record type's spreadsheet carries beyond the import's columns: who else wrote it, and whom it is about. */
-const extraHeaders = (table: string) => (table === 'counselings' ? ['Recorded By', 'About'] : table === 'awards' ? ['Recorded By'] : []);
-const extraColumns = (table: string, r: Row): Row => (table === 'counselings' ? { 'Recorded By': r.counselor_label ?? '', About: r.subject_label ?? '' } : table === 'awards' ? { 'Recorded By': r.recorder_label ?? '' } : {});
+/** What a record type's spreadsheet carries beyond the import's columns: who else wrote it. */
+const extraHeaders = (table: string) => (table === 'counselings' || table === 'awards' ? ['Recorded By'] : []);
+const extraColumns = (table: string, r: Row): Row => (table === 'counselings' ? { 'Recorded By': r.counselor_label ?? '' } : table === 'awards' ? { 'Recorded By': r.recorder_label ?? '' } : {});
+
+/**
+ * A record type's rows for a spreadsheet, which an import reads back as its reader's own: only the exporter's. What they
+ * wrote about another Marine, and what someone else set them, stay in the JSON, where an import knows them for what they
+ * are (ADR-0019).
+ */
+const ownRows = (rows: Row[], userId: string) => rows.filter((r) => !r.user_id || String(r.user_id) === userId);
 
 /** The export as one workbook: a sheet per record type under the import's columns, the profile, and an About sheet. */
 export function buildPersonalExportWorkbook(ctx: AppContext, userId: string, { sections = null as readonly string[] | null } = {}): { buffer: Buffer; filename: string; counts: Record<string, number> } {
@@ -242,9 +250,12 @@ export function buildPersonalExportWorkbook(ctx: AppContext, userId: string, { s
   const sheets: SheetOut[] = [];
   const grid = (headers: string[], rows: Row[]): SheetOut['rows'] => [headers, ...rows.map((r) => headers.map((h) => cellValue(r[h])))];
   if (archive.profile) { const row = profileRow(archive); sheets.push({ name: 'Profile', rows: grid(Object.keys(row), [row]) }); }
+  let others = 0;
   for (const [table, rows] of Object.entries(archive.records)) {
     const t = table as ImportTable;
-    sheets.push({ name: TABLE_LABELS[t].many, rows: grid([...sheetHeaders(t), ...extraHeaders(t)], rows.map((r) => ({ ...sheetRow(t, r), ...extraColumns(t, r) }))) });
+    const own = ownRows(rows, userId);
+    others += rows.length - own.length;
+    sheets.push({ name: TABLE_LABELS[t].many, rows: grid([...sheetHeaders(t), ...extraHeaders(t)], own.map((r) => ({ ...sheetRow(t, r), ...extraColumns(t, r) }))) });
   }
   if (archive.career) sheets.push({ name: TABLE_LABELS.career_steps.many, rows: grid(sheetHeaders('career_steps'), archive.career.steps.map((r) => sheetRow('career_steps', r))) });
   if (archive.personnel) sheets.push({ name: 'Personnel history', rows: grid(['at', 'org_id', 'unit_id', 'field', 'from_value', 'to_value', 'source', 'reason', 'actor'], archive.personnel.history as Row[]) });
@@ -252,6 +263,7 @@ export function buildPersonalExportWorkbook(ctx: AppContext, userId: string, { s
     ['Vantage personal export'], ['Exported', archive.exported_at], ['For', owner], ['Format', `${PERSONAL_FORMAT} as a workbook`],
     ['Holds', ('sections' in archive ? (archive as unknown as { sections: string[] }).sections : ['everything']).map((k) => categoryOf(k)?.label ?? k).join(', ')],
     ['Files', 'Attachments are not in a workbook. Export a ZIP to keep them.'],
+    ...(others ? [['Not here', `${others} records that are other Marines' (counselings you recorded about them, tasks and goals they set you). Export JSON or a ZIP to keep them.`]] : []),
     ['Import', 'Import records (Settings, Your data) reads this workbook back: each sheet goes into its own record type.'],
   ] });
   return { buffer: writeWorkbook(sheets), filename: `vantage-${safeName(owner)}-${stamp}.xlsx`, counts: archive.counts };
@@ -269,7 +281,7 @@ export function buildPersonalExportCsv(ctx: AppContext, userId: string, key: str
   const owner = String((archive as unknown as { owner: Row }).owner?.username ?? 'export');
   if (key === 'profile') return { text: `\uFEFF${rowsToCsv([profileRow(archive)])}`, filename: `vantage-${safeName(owner)}-profile-${stamp}.csv`, counts: { profile: 1 } };
   const t = category.table!;
-  const rows = t === 'career_steps' ? archive.career?.steps ?? [] : archive.records[t] ?? [];
+  const rows = t === 'career_steps' ? archive.career?.steps ?? [] : ownRows(archive.records[t] ?? [], userId);
   return {
     text: `\uFEFF${rowsToCsv(rows.map((r) => ({ ...sheetRow(t, r), ...extraColumns(t, r) })), [...sheetHeaders(t), ...extraHeaders(t)])}`,
     filename: `vantage-${safeName(owner)}-${CSV_NAMES[key] ?? key}-${stamp}.csv`, counts: { [key]: rows.length },

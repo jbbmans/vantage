@@ -501,7 +501,8 @@ export interface ImportReview {
   sheets: Array<{ name: string; table: ImportTable | 'duty' | 'profile' | 'skip' | 'record_type'; routedBy: 'sheet' | 'file' | 'record_type' | 'headers' | 'chosen' | 'none'; headers: string[]; mapping: Record<string, string>; rows: number }>;
   rows: ImportReviewRow[];
   counts: Record<RowOutcome, number>;
-  profile: { mode: 'skip' | 'fill' | 'replace'; changes: Array<{ field: string; label: string; current: string | null; incoming: string; action: 'fill' | 'replace' | 'same' | 'kept' | 'refused'; reason?: string }> } | null;
+  /** `seen`: a digest of the profile as the review read it; the commit stops if it changed since. */
+  profile: { mode: 'skip' | 'fill' | 'replace'; changes: Array<{ field: string; label: string; current: string | null; incoming: string; action: 'fill' | 'replace' | 'same' | 'kept' | 'refused'; reason?: string }>; seen?: string } | null;
   attachments: { total: number; included: number; problems: Array<{ name: string; reason: string }>; enabled: boolean };
   notImported: Array<{ key: string; label: string; count: number; reason: string }>;
   placement: 'keep' | 'private';

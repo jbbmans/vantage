@@ -91,7 +91,8 @@ export function readZip(buf: Buffer, limits: ZipLimits = {}): Map<string, Buffer
     // budget below is charged with what each part really expands to, so a file that understates its sizes
     // cannot expand past the limit.
     if (uncompressed > maxEntryBytes) throw new ZipError(`One part of this workbook expands to ${uncompressed} bytes, past the limit we will read.`);
-    if (name.includes('..') || name.startsWith('/')) throw new ZipError(`This workbook contains an unsafe part name: ${name}`);
+    // A way out is a ".." segment or a rooted path; two dots inside a name ("proof..pdf") are only a name.
+    if (name.split(/[\\/]/).includes('..') || /^[\\/]/.test(name)) throw new ZipError(`This workbook contains an unsafe part name: ${name}`);
 
     if (localOffset + 30 > buf.length || buf.readUInt32LE(localOffset) !== 0x04034b50) throw new ZipError('This workbook is damaged. A part header is missing.');
     const localNameLen = buf.readUInt16LE(localOffset + 26);

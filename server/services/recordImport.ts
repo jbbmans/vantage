@@ -820,7 +820,11 @@ function profileChanges(ctx: AppContext, user: SessionUser, source: Source, plan
     state.results.profile = [...Object.keys(userSet), ...Object.keys(readinessSet), ...Object.keys(careerSet), ...(prefsSet ? ['prefs'] : [])];
     if (state.results.profile.length) audit(ctx, { actor_id: user.id, action: 'edit_profile', entity: 'user', entity_id: user.id, subject_id: user.id, detail: `import: ${state.results.profile.join(', ')}` });
   }
-  return { mode, changes };
+  // The profile as this run read it, so the commit can tell it was edited after the review.
+  const { updated_at: _readinessSaved, ...readinessNow } = readiness;
+  void _readinessSaved;
+  const seen = createHash('sha256').update(JSON.stringify([current, readinessNow, career])).digest('hex').slice(0, 16);
+  return { mode, changes, seen };
 }
 
 // ——— The import's life: upload, review, change, commit, undo, cancel ———
@@ -953,9 +957,14 @@ export function commitImport(ctx: AppContext, user: SessionUser, id: string, bod
       throw conflict(`Nothing was imported: the import would now add ${made.new} and update ${made.update}, not the ${expected.new} and ${expected.update} you reviewed. Review it again.`, 'import_changed');
     }
     // Nor if a record it updates was edited after the review: the update would write over what was saved since.
-    const reviewed = new Map(((row.review ? JSON.parse(row.review) as ImportReview : null)?.rows ?? []).filter((r) => r.outcome === 'update').map((r) => [r.ref, r.duplicateOf?.version]));
+    const stored = row.review ? JSON.parse(row.review) as ImportReview : null;
+    const reviewed = new Map((stored?.rows ?? []).filter((r) => r.outcome === 'update').map((r) => [r.ref, r.duplicateOf?.version]));
     const edited = state.rows.find((r) => r.outcome === 'update' && reviewed.get(r.ref) !== r.duplicateOf?.version);
     if (edited) throw conflict(`Nothing was imported: “${edited.title}” changed after you reviewed the import. Review it again.`, 'import_changed');
+    // Nor if the profile it fills or replaces was edited after the review.
+    if (state.profile?.changes.some((c) => c.action === 'fill' || c.action === 'replace') && stored?.profile?.seen !== state.profile.seen) {
+      throw conflict('Nothing was imported: your profile changed after you reviewed the import. Review it again.', 'import_changed');
+    }
     const at = now();
     const origin = ctx.db.prepare('INSERT INTO record_import_origins (id, import_id, user_id, record_table, record_id, action, source_id, source_ref, author, before, version_after, created_at) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)');
     for (const o of state.origins) origin.run(newId(), row.id, user.id, o.table, o.id, o.action, o.sourceId?.slice(0, 200) ?? null, o.ref?.slice(0, 200) ?? null, o.author?.slice(0, 160) ?? null, o.before ? JSON.stringify(o.before) : null, o.versionAfter, at);
@@ -1000,7 +1009,9 @@ export function undoImport(ctx: AppContext, user: SessionUser, id: string, ip?: 
         const table = o.record_table === 'users' ? 'users' : o.record_table === 'readiness' ? 'readiness' : 'career_profiles';
         const key = table === 'users' ? 'id' : 'user_id';
         const present = ctx.db.prepare(`SELECT * FROM ${table} WHERE ${key} = ?`).get(user.id) as Row | undefined;
-        const back = Object.keys(set).filter((k) => present && str(present[k]) === str(set[k]));
+        // A field the personnel feed keeps now is the feed's (ADR-0017): the undo leaves it, as a profile edit would.
+        const sourced = new Set<string>(table === 'users' ? sourcedFieldsFor(ctx, user.id) : []);
+        const back = Object.keys(set).filter((k) => !sourced.has(k) && present && str(present[k]) === str(set[k]));
         kept += Object.keys(set).length - back.length;
         if (back.length) {
           const run = () => ctx.db.prepare(`UPDATE ${table} SET ${back.map((k) => `${k} = ?`).join(', ')}, updated_at = ? WHERE ${key} = ?`).run(...back.map((k) => was[k] ?? null), at, user.id);

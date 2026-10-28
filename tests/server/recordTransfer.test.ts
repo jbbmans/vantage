@@ -562,6 +562,61 @@ test('a refused row never hides a valid twin, an export’s own name says its ca
   assert.deepEqual(files.map((f) => f.original_name), ['range-card.pdf']);
 });
 
+test('a profile edited after the review stops the import, the feed’s fields stay on undo, a counselor’s spreadsheets hold only their own records, and a file named with two dots restores', async () => {
+  const me = await app.register('navarro');
+  await enroll(app, op.token, 'G8', me.id);
+  me.token = await login('navarro');
+  const mos = () => (app.ctx.db.prepare('SELECT mos FROM users WHERE id = ?').get(me.id) as { mos: string | null }).mos;
+  const file = (value: string) => JSON.stringify({ format: 'vantage-personal/1', profile: { username: 'navarro', mos: value }, records: {} });
+
+  // Replace: the MOS is edited after the review; the commit writes nothing over it.
+  assert.equal((await put(me.token, '/api/me/profile', { mos: '0111' })).status, 200);
+  const staged = await upload(me.token, file('3451'), 'profile.json', 'application/json');
+  const replacing = await put(me.token, `/api/me/imports/${staged.body.id}`, { profile: 'replace' });
+  assert.equal(replacing.body.profile.changes.find((c: { field: string }) => c.field === 'mos')?.action, 'replace', JSON.stringify(replacing.body.profile));
+  assert.equal((await put(me.token, '/api/me/profile', { mos: '9999' })).status, 200);
+  const refused = await commit(me.token, staged.body.id, { profile: 'replace', ...expected(replacing.body) });
+  assert.equal(refused.status, 409, JSON.stringify(refused.body));
+  assert.equal(refused.body.code, 'import_changed');
+  assert.equal(mos(), '9999');
+
+  // Reviewed again, it goes in; then the personnel feed takes the MOS, and the undo leaves it to the feed.
+  const again = await put(me.token, `/api/me/imports/${staged.body.id}`, { profile: 'replace' });
+  assert.equal((await commit(me.token, staged.body.id, { profile: 'replace', ...expected(again.body) })).status, 200);
+  assert.equal(mos(), '3451');
+  const org = (app.ctx.db.prepare("SELECT org_id FROM units WHERE id = 'G8'").get() as { org_id: string }).org_id;
+  const at = new Date().toISOString();
+  app.ctx.db.prepare("UPDATE users SET identity_source = 'roster', edipi = '1234509876' WHERE id = ?").run(me.id);
+  app.ctx.db.prepare(`INSERT INTO personnel_roster (org_id, edipi, last_name, first_name, mos, status, source, row_hash, synced_at, created_at, updated_at)
+    VALUES (?, '1234509876', 'Navarro', 'Ana', '3451', 'active', 'test', 'h', ?, ?, ?)`).run(org, at, at, at);
+  const undone = await post(me.token, `/api/me/imports/${staged.body.id}/undo`);
+  assert.equal(undone.status, 200, JSON.stringify(undone.body).slice(0, 300));
+  assert.deepEqual(undone.body.results.undone, { removed: 0, restored: 0, kept: 1 });
+  assert.equal(mos(), '3451', 'the feed keeps it');
+
+  // A leader's counseling of another Marine is in their JSON, and never in their spreadsheets, where it would come back as theirs.
+  const counseled = await post(op.token, '/api/records/counselings', { user_id: me.id, date: '2026-09-09', type: 'quarterly', summary: 'Quarterly counseling for Navarro.' });
+  assert.equal(counseled.status, 201, JSON.stringify(counseled.body));
+  const json = await get(op.token, '/api/me/export?format=json&sections=counselings');
+  assert.ok(json.body.records.counselings.some((c: { summary: string }) => c.summary === 'Quarterly counseling for Navarro.'));
+  const csv = await get(op.token, '/api/me/export?format=csv&sections=counselings');
+  assert.equal(csv.status, 200);
+  assert.doesNotMatch(csv.text, /Quarterly counseling for Navarro/);
+  const book = await app.call('GET', '/api/me/export?format=xlsx&sections=counselings', { token: op.token, binary: true });
+  const sheets = readWorkbook(book.buffer!, {}).sheets;
+  assert.doesNotMatch(JSON.stringify(sheets.find((s) => s.name === 'Counselings')?.rows ?? []), /Quarterly counseling for Navarro/);
+  assert.match(JSON.stringify(sheets.find((s) => s.name === 'About')?.rows ?? []), /other Marines/);
+
+  // A file named "proof..pdf" goes out in a ZIP and the ZIP comes back in whole.
+  const entry = (await post(me.token, '/api/records/activities', { title: 'Inspection prep', date: '2026-09-10' })).body;
+  assert.equal((await app.call('POST', `/api/records/activities/${entry.id}/attachments`, { token: me.token, raw: Buffer.from('%PDF-1.4\n% proof\n%%EOF\n'), headers: { 'content-type': 'application/pdf', 'x-vantage-filename': 'proof..pdf' } })).status, 201);
+  const zip = await app.call('GET', '/api/me/export?format=zip&sections=activities,attachments', { token: me.token, binary: true });
+  const restored = await upload(other.token, zip.buffer!, 'navarro.zip', 'application/zip');
+  assert.equal(restored.status, 201, JSON.stringify(restored.body).slice(0, 300));
+  assert.equal(restored.body.attachments.included, 1, JSON.stringify(restored.body.attachments));
+  await app.call('DELETE', `/api/me/imports/${restored.body.id}`, { token: other.token });
+});
+
 test('a unit configuration carries its duty scoring versions, with their dates and withdrawals, into a Unit Instance that has none', async () => {
   assert.equal((await post(op.token, '/api/orgs/G8/duty-types/standard')).status, 200);
   const types = (await get(op.token, '/api/orgs/G8/configuration')).body.dutyTypes as Array<{ id: string; code: string; active: number | boolean }>;
