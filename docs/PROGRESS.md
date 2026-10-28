@@ -30,8 +30,9 @@ the person imports ([ADR-0019](engineering/ADR/0019-import-export-restore.md)).
   its period, a leader's recommendation and counseling) exported and imported into a clean Vantage comes back the same,
   types, dates, approval states and links intact, and a second import adds nothing. Duty scoring versions round-trip
   through the unit configuration file. Workbook routing, volunteer service and duty rows are tested on their own.
-- **Open:** the decision card on counselings and recommendations others wrote ("Marine's own copies" is built). Duty
-  records are Task 17's.
+- **Decided:** counselings and award recommendations others wrote come in as the Marine's own copies, labelled with
+  their author. John chose "Marine's own copies" on the decision card (2026-10-28), over read-only copies or leaving
+  them out. Duty records are Task 17's.
 
 ## What changed (2026-10-24: record timeframes)
 

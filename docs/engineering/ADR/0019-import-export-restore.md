@@ -116,8 +116,9 @@ they say so (ADR-0015, John's "Marine confirms", 2026-10-17). Duty rows are list
   importer's own copy, with a note.
 - **Records others wrote.** Counselings and award recommendations someone else recorded about the importer come in as
   the importer's own copies, labelled as imported with the author's name from the file. Records the importer wrote
-  about other Marines, and tasks or goals others set them, stay in the file. A decision card on this ("How should an
-  import bring in counselings and award recommendations others wrote?") is open; the recommended option is built.
+  about other Marines, and tasks or goals others set them, stay in the file. **Decided by John, 2026-10-28 05:38 UTC,
+  on the Task 13 thread's decision card: "Marine's own copies"**, the recommended option, over "Read-only copies" and
+  "Leave them out".
 - **Profile.** Field by field against the profile, readiness and career schemas: fill what is empty (default), replace,
   or leave it. Fields the personnel feed keeps (ADR-0017) are refused. Changes go through the same personnel note and
   are audited as `edit_profile`.
@@ -142,7 +143,8 @@ wrote). Both are in the infrastructure backup and the privacy inventory. Nothing
 
 - A Marine can take their record to another Vantage and bring it back without retyping or flattening it, and see
   before anything is written what will happen to each row.
-- The review costs one rolled-back run per change. Files are bounded (50 MB, 5,000 rows, 10,000 ZIP entries).
+- The review costs one rolled-back run per change. Files are bounded (50 MB, 5,000 spreadsheet rows, 20,000 records of a Vantage
+  file, 10,000 ZIP entries).
 - Undo is once, and partial where the person changed things after.
 - Duty rows wait for Task 17; then the registry's `duty` category becomes a table and imports.
 - The activity CSV import and work intake are unchanged.
