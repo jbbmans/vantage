@@ -456,6 +456,55 @@ test('an undo puts back an assignment a private update let go, keeps what dispos
   assert.equal(rows(op.id, 'trainings').find((t) => t.title === 'Network+')?.type, 'certification');
 });
 
+test('an undo never takes back across an instance what others added since, two rows of one record undo as one, and undated entries and goals without filters round-trip', async () => {
+  // A Marine in both Unit Instances moves a shared entry from G8 into G1 by spreadsheet; a G1 leader comments on it there.
+  // The undo would carry that comment back into G8, so the entry stays where it is.
+  const dual = await app.register('ibarra');
+  await enroll(app, op.token, 'G8', dual.id);
+  await enroll(app, g1lead.token, 'G1', dual.id);
+  dual.token = await login('ibarra');
+  const entry = (await post(dual.token, '/api/records/activities', { title: 'Inventory reconciliation', date: '2026-08-01', visibility: 'unit', unit_id: 'G8' })).body;
+  assert.ok(entry.id, JSON.stringify(entry));
+  const moved = await upload(dual.token, `Vantage ID,Title,Date,Visibility,Unit ID\n${entry.id},Inventory reconciliation,2026-08-01,unit,G1\n`, 'move.csv', 'text/csv');
+  assert.equal(moved.body.rows[0].outcome, 'update', JSON.stringify(moved.body.rows[0]));
+  assert.equal((await commit(dual.token, moved.body.id, expected(moved.body))).status, 200);
+  const placement = () => ({ ...app.ctx.db.prepare('SELECT visibility, unit_id FROM activities WHERE id = ?').get(entry.id) as object });
+  assert.deepEqual(placement(), { visibility: 'unit', unit_id: 'G1' });
+  const note = await post(g1lead.token, `/api/records/activities/${entry.id}/comments`, { body: 'G1 note on the reconciliation.' });
+  assert.equal(note.status, 201, JSON.stringify(note.body));
+  const kept = await post(dual.token, `/api/me/imports/${moved.body.id}/undo`);
+  assert.equal(kept.status, 200, JSON.stringify(kept.body).slice(0, 300));
+  assert.deepEqual(kept.body.results.undone, { removed: 0, restored: 0, kept: 1 });
+  assert.deepEqual(placement(), { visibility: 'unit', unit_id: 'G1' }, 'the G1 comment never reaches G8');
+
+  // Two rows of one file name the same record: the undo goes back to what it said before the first.
+  const course = (await post(dual.token, '/api/records/trainings', { title: 'Title A', date: '2026-08-02', hours: 1 })).body;
+  const twice = await upload(dual.token, `Vantage ID,Title,Date,Hours\n${course.id},Title B,2026-08-02,2\n${course.id},Title C,2026-08-02,2\n`, 'twice.csv', 'text/csv');
+  assert.deepEqual(twice.body.rows.map((r: { outcome: string }) => r.outcome), ['update', 'update'], JSON.stringify(twice.body.rows));
+  const done = await commit(dual.token, twice.body.id, expected(twice.body));
+  assert.equal(done.status, 200);
+  assert.deepEqual(done.body.results.updated, { trainings: 1 }, 'one record updated');
+  assert.equal((app.ctx.db.prepare('SELECT title FROM trainings WHERE id = ?').get(course.id) as { title: string }).title, 'Title C');
+  const back = await post(dual.token, `/api/me/imports/${twice.body.id}/undo`);
+  assert.deepEqual(back.body.results.undone, { removed: 0, restored: 1, kept: 0 });
+  assert.deepEqual({ ...app.ctx.db.prepare('SELECT title, hours FROM trainings WHERE id = ?').get(course.id) as object }, { title: 'Title A', hours: 1 });
+
+  // An undated entry and a goal without filters go out in a spreadsheet and come back in another account.
+  const undated = await post(dual.token, '/api/records/activities', { title: 'Undated reference note' });
+  assert.equal(undated.status, 201, JSON.stringify(undated.body));
+  const plain = await post(dual.token, '/api/records/goals', { title: 'Read the FMR chapter 3', status: 'active', visibility: 'private', period_end: '2026-12-31' });
+  assert.equal(plain.status, 201, JSON.stringify(plain.body));
+  for (const section of ['activities', 'goals']) {
+    const sheet = await get(dual.token, `/api/me/export?format=csv&sections=${section}`);
+    assert.equal(sheet.status, 200);
+    const staged = await upload(other.token, sheet.text, `vantage-ibarra-${section}-2026-10-28.csv`, 'text/csv');
+    assert.equal(staged.body.counts.problem, 0, JSON.stringify(staged.body.rows.filter((r: { outcome: string }) => r.outcome === 'problem')));
+    assert.equal((await commit(other.token, staged.body.id, expected(staged.body))).status, 200);
+  }
+  assert.equal(rows(other.id, 'activities').find((a) => a.title === 'Undated reference note')?.date, null);
+  assert.equal(rows(other.id, 'goals').find((g) => g.title === 'Read the FMR chapter 3')?.filters, '{}');
+});
+
 test('a unit configuration carries its duty scoring versions, with their dates and withdrawals, into a Unit Instance that has none', async () => {
   assert.equal((await post(op.token, '/api/orgs/G8/duty-types/standard')).status, 200);
   const types = (await get(op.token, '/api/orgs/G8/configuration')).body.dutyTypes as Array<{ id: string; code: string; active: number | boolean }>;

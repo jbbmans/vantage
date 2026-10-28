@@ -98,7 +98,9 @@ The export still holds only the exporter's own data: their records, and the name
    from <file>".
 10. **Undo** (`POST …/undo`, once): what it created goes to the recycle bin, what it updated is put back, files it
     attached come off, profile fields it set go back. Only where nothing changed since; a record edited after the
-    import is kept as it is and counted.
+    import is kept as it is and counted. A record goes back where it was only where an edit could put it now (its
+    placement, assignee, and nothing others added since crossing an instance's edge), else it is kept. Two rows of one
+    file that update one record are one change to undo.
 
 **Records keep their type.** An award comes back an award, a course training, a counseling a counseling. A row in
 Activities that only reads like an award or a course is offered to its owner as that type and goes in as one only when

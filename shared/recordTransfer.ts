@@ -367,8 +367,9 @@ export interface ReadRow { record: Record<string, unknown>; problem: string | nu
  */
 export function readRow(table: ImportTable, row: Record<string, string>, mapping: Record<string, string>): ReadRow {
   if (table === 'activities') {
-    const { records, problems } = applyMapping([row], mapping);
+    const { records, problems } = applyMapping([row], mapping, { undated: true });
     const record = (records[0] ?? {}) as unknown as Record<string, unknown>;
+    if (records.length && !record.date) record.date = null;
     if (!mapping.status) delete record.status;
     if (!mapping.visibility || !record.visibility) delete record.visibility;
     for (const key of ['category', 'eval_area', 'quantity', 'unit_label', 'dollar_amount', 'dollar_type', 'result', 'organization', 'system', 'notes', 'evidence_links']) if (!mapping[key]) delete record[key];
@@ -416,7 +417,8 @@ const capitalize = (s: string) => s.charAt(0).toUpperCase() + s.slice(1);
 const cell = (row: Record<string, string>, header: string) => unprotectCell(String(row[header] ?? '').trim());
 
 export function readCell(column: TransferColumn, raw: string): { value: unknown; error?: string } {
-  if (!raw) return { value: column.kind === 'flag' ? 0 : null };
+  // An empty set of pairs is none (a goal's filters are never null).
+  if (!raw) return { value: column.kind === 'flag' ? 0 : column.kind === 'json' ? {} : null };
   switch (column.kind) {
     case 'date': { const d = toISODate(raw); return d ? { value: d } : { value: null, error: 'Not a date this reads (use YYYY-MM-DD or MM/DD/YYYY).' }; }
     case 'time': { const t = toTime(raw); return t ? { value: t } : { value: null, error: 'Not a time (use 0800 or 08:00).' }; }

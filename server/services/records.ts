@@ -258,6 +258,29 @@ function assertCarriesNothingAcross(ctx: AppContext, table: RecordTable, row: Re
 }
 
 /**
+ * Whether its owner may put a record back where it was, its assignee with it (an import's undo, ADR-0019): the checks an
+ * edit that re-places it takes, so an undo never carries what others added in one Unit Instance into another, nor puts a
+ * record where its owner may not place it now. Throws the refusal the edit would.
+ */
+export function assertRestorable(ctx: AppContext, scope: Scope, user: SessionUser, table: RecordTable, row: RecordRow & Record<string, unknown>, back: { visibility: string; unitId: string | null; assigneeId: string | null; measureScope: unknown }) {
+  const spec = TABLES[table];
+  const moved = back.unitId !== row.unit_id || back.visibility !== row.visibility;
+  if (moved) {
+    if (mayLeaveInstance(ctx, row.unit_id, back.unitId)) assertCarriesNothingAcross(ctx, table, row, back.unitId);
+    if (back.visibility === 'unit' && !back.unitId) throw badRequest('Choose a unit before sharing this record.');
+    if (back.unitId && back.unitId !== row.unit_id && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(back.unitId)) throw badRequest('No such unit.');
+    if (!canPlace(scope, back.visibility, back.unitId, spec.shareFlag, Boolean(spec.personal))) throw forbidden('You cannot place a record in that unit.');
+    const project = (row.project_id as string | null | undefined) ?? null;
+    checkProjectLink(ctx, scope, user.id, table, project, project, back.unitId, true);
+  }
+  if (table === 'goals' && back.measureScope === 'unit' && (moved || row.measure_scope !== 'unit')) unitMeasureAllowed(scope, back.unitId);
+  if (spec.assignee && (moved || back.assigneeId !== (row.assignee_id ?? null))) {
+    const problem = assigneeProblem(ctx, scope, user.id, back.assigneeId, back.unitId);
+    if (problem) throw badRequest(problem);
+  }
+}
+
+/**
  * The trail of an edit: where the record now sits, and when it crossed from one Unit Instance into another, where it
  * left as well. Each instance's trail says what crossed its edge without naming the other side (ADR-0008). A
  * counseling's edit is an amendment (ADR-0013): counseling_amended, naming the fields that changed (their names, never

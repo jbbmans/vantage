@@ -155,7 +155,8 @@ export interface ImportedActivity {
   evidence_links?: Array<{ label?: string; url?: string }>;
 }
 
-export function applyMapping(rows: Array<Record<string, string>>, mapping: Record<string, string>) {
+/** `undated`: an empty Date cell is an undated entry, as the record allows (the import, ADR-0019); one that says something unreadable is still refused. */
+export function applyMapping(rows: Array<Record<string, string>>, mapping: Record<string, string>, opts: { undated?: boolean } = {}) {
   const records: ImportedActivity[] = [];
   const problems: Array<{ row: number; issue: string }> = [];
   rows.forEach((row, i) => {
@@ -206,7 +207,7 @@ export function applyMapping(rows: Array<Record<string, string>>, mapping: Recor
     else if (out.end_date) out.ongoing = false;
     const timeframe = out.date ? timeframeProblems('activities', out) : null;
     if (!out.title) problems.push({ row: i + 2, issue: 'missing title' });
-    else if (!out.date) problems.push({ row: i + 2, issue: 'unreadable date' });
+    else if (!out.date && !(opts.undated && mapped('date') && !said('date'))) problems.push({ row: i + 2, issue: 'unreadable date' });
     else if (unreadable) problems.push({ row: i + 2, issue: unreadable });
     else if (timeframe) problems.push({ row: i + 2, issue: timeframe.message });
     else records.push(out);

@@ -8,7 +8,7 @@ import { readZip, ZipError } from '../lib/zip.ts';
 import { readWorkbook, WorkbookError } from '../lib/workbook.ts';
 import { scopeFor, type Scope } from '../authz/scope.ts';
 import { canEdit, canPlace, type RecordRow } from '../authz/records.ts';
-import { TABLES, activityFingerprint, capacityProblem, createRecord, getRecord, updateRecord } from './records.ts';
+import { TABLES, activityFingerprint, assertRestorable, capacityProblem, createRecord, getRecord, updateRecord } from './records.ts';
 import { saveCareerStep } from './record.ts';
 import { inspectAttachment } from './attachments.ts';
 import { scanUpload } from './scanner.ts';
@@ -662,8 +662,15 @@ function updateOne(ctx: AppContext, user: SessionUser, scope: Scope, table: Impo
     const after = stored();
     const before: Row = {};
     for (const [k, v] of Object.entries(was)) if (k !== 'version' && k !== 'updated_at' && after[k] !== v) before[k] = v;
-    state.results.updated[table] = (state.results.updated[table] ?? 0) + 1;
-    state.origins.push({ table, id: String(current.id), action: 'updated', sourceId: c.sourceId, ref: c.source, author: null, before, versionAfter: Number(saved.version) });
+    // Two rows of one file updating one record are one change to undo: what it said before the first, as of the last.
+    const earlier = state.origins.find((o) => o.action === 'updated' && o.table === table && o.id === String(current.id));
+    if (earlier) {
+      earlier.before = { ...before, ...earlier.before };
+      earlier.versionAfter = Number(saved.version);
+    } else {
+      state.results.updated[table] = (state.results.updated[table] ?? 0) + 1;
+      state.origins.push({ table, id: String(current.id), action: 'updated', sourceId: c.sourceId, ref: c.source, author: null, before, versionAfter: Number(saved.version) });
+    }
     return { outcome: 'update', extra: { reason: `Updates your ${TABLE_LABELS[table].one}: ${Object.keys(changes).join(', ')}.`, duplicateOf: ref } };
   } catch (e) {
     if (!isRefusal(e)) throw e;
@@ -993,6 +1000,11 @@ export function undoImport(ctx: AppContext, user: SessionUser, id: string, ip?: 
         const fields = Object.keys(before);
         if (!fields.length) continue;
         try {
+          // Back where it was only where an edit could put it now: nothing others added since crosses an instance's edge.
+          if (o.record_table !== 'career_steps') {
+            const was = (k: string) => (k in before ? before[k] : current[k]) ?? null;
+            assertRestorable(ctx, scope, user, o.record_table as RecordTable, current as unknown as RecordRow & Row, { visibility: String(was('visibility')), unitId: was('unit_id') as string | null, assigneeId: was('assignee_id') as string | null, measureScope: was('measure_scope') });
+          }
           savepoint(ctx, () => ctx.db.prepare(`UPDATE ${o.record_table} SET ${fields.map((k) => `${k} = ?`).join(', ')}, version = version + 1, updated_at = ? WHERE id = ?`).run(...fields.map((k) => before[k] ?? null), at, o.record_id));
           restored += 1;
         } catch (e) { if (!isRefusal(e)) throw e; kept += 1; }
