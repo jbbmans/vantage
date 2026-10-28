@@ -32,6 +32,8 @@ export const EXPORT_TABLES = [
   'record_drafts', 'career_steps', 'career_profiles',
   // Where an entry was moved from, and what it said (ADR-0015): an undo still works on the host it moves to.
   'record_lineage',
+  // What each person imported, and what each import wrote (ADR-0019): an undo still works on the host it moves to.
+  'record_imports', 'record_import_origins',
   // Report Studio: a draft and every revision it has been saved as.
   'report_drafts', 'report_revisions',
   'contacts', 'connectors', 'threads', 'thread_messages', 'thread_links',

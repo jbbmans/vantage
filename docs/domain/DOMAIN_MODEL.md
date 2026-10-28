@@ -138,6 +138,12 @@ Vantage holds the official copy (ADR-0015). Vantage's copy is the person's worki
   days they already had. Counselings and tasks have one date. `TIMEFRAMES` in `shared/timeframe.ts` describes
   each; no record ends before it starts, refused by the forms, the server and database triggers alike. A
   record is in a period when any day of it is (an award by its date), counted once per report.
+- **Import and export** (ADR-0019): every category of a person's record goes out and comes back as what it
+  is (`TRANSFER_CATEGORIES` and `RECORD_COLUMNS` in `shared/recordTransfer.ts`). An **import**
+  (`record_imports`) is staged, reviewed by a rolled-back run of the same writes a form makes, then written
+  once; each record it wrote is listed in `record_import_origins` (created, updated with what it said before,
+  a file attached, a profile field set), which is what a record's page shows and what the one undo reads. A
+  file's ids never name a record here, and duty rows are listed and never made Activities.
 - **Duty**: no store yet; duty records are Task 17's. **Financial error snapshot**: no store yet; Task 15.
 - **A move** between activities, awards and training is its owner's alone. One transaction gives the
   entry a new id in its new table, carries its files and comments, removes it from the old one and

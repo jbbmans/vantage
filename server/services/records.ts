@@ -177,7 +177,7 @@ export function getRecord(ctx: AppContext, table: RecordTable, id: string, { inc
   return hydrate(row, table);
 }
 
-function capacityProblem(ctx: AppContext, userId: string, additional = 1): string | null {
+export function capacityProblem(ctx: AppContext, userId: string, additional = 1): string | null {
   const total = RECORD_TABLE_NAMES.reduce((sum, t) => sum + (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE user_id = ?`).get(userId) as { n: number }).n, 0);
   if (total + additional > ctx.config.limits.maxRecordsPerUser) return `This account has reached its ${ctx.config.limits.maxRecordsPerUser.toLocaleString()}-record limit. Contact Vantage support if you need more.`;
   try {
@@ -281,12 +281,20 @@ function changedFields(spec: TableSpec, row: Record<string, unknown>, data: Reco
   return fields;
 }
 
-export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTable, body: unknown, reqKey: object, ip?: string) {
+/**
+ * How an import creates a record (ADR-0019): `importId` names it in the trail and leaves the record out of entry-quality
+ * telemetry, which measures what people type, and out of the per-record capacity count, which the import makes once for
+ * all it adds; `fingerprint` keeps an activity drawn from a financial case marked as one; `review` is the import's dry
+ * run, rolled back, which writes no trail.
+ */
+export interface CreateOptions { importId?: string; fingerprint?: string; review?: boolean }
+
+export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTable, body: unknown, reqKey: object, ip?: string, opts: CreateOptions = {}) {
   const spec = TABLES[table];
   const data = parse(RECORD_SCHEMAS[table] as never, body) as Record<string, unknown>;
   checkValueType(ctx, table, data);
   checkTimeframe(table, data);
-  const capacity = capacityProblem(ctx, user.id);
+  const capacity = opts.importId ? null : capacityProblem(ctx, user.id);
   if (capacity) throw new HttpError(507, capacity, 'record_quota');
   const scope = scopeFor(ctx, user, reqKey);
 
@@ -324,7 +332,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (table === 'counselings') { cols.push('counselor_id'); vals.push(counselorId); }
   // An award keeps who entered it: its owner, or the leader recommending them (ADR-0015).
   if (table === 'awards') { cols.push('recorded_by'); vals.push(user.id); }
-  if (table === 'activities') { cols.push('fingerprint'); vals.push(activityFingerprint(ownerId, data as never)); }
+  if (table === 'activities') { cols.push('fingerprint'); vals.push(opts.fingerprint && isDrawnFromWork(opts.fingerprint) ? opts.fingerprint : activityFingerprint(ownerId, data as never)); }
   if (table === 'activities' && data.kind_confirmed) { cols.push('kind_confirmed_at'); vals.push(now()); }
   for (const f of spec.fields) {
     if (data[f] === undefined) continue;
@@ -337,7 +345,8 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     if (table === 'activities' && String((error as Error).message).includes('UNIQUE')) throw conflict('An identical activity already exists for that date.', 'duplicate');
     throw error;
   }
-  audit(ctx, { actor_id: user.id, action: 'create', entity: table, entity_id: id, subject_id: ownerId !== user.id ? ownerId : null, unit_id: unitId, ip });
+  if (!opts.review) audit(ctx, { actor_id: user.id, action: 'create', entity: table, entity_id: id, subject_id: ownerId !== user.id ? ownerId : null, unit_id: unitId, detail: opts.importId ? `import ${opts.importId}` : undefined, ip });
+  if (opts.importId) return readBack(ctx, table, id);
   if (table === 'goals') {
     record(ctx, 'goal.created', {
       typed: Boolean(data.metric_id),

@@ -111,6 +111,25 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
       deleted_at: 'technical', created_at: 'technical', updated_at: 'technical',
     },
   },
+  record_imports: {
+    purpose: 'A person’s import of their own records: the file while they review it, what they chose, and what it did, so it can be undone.',
+    authority: 'Voluntarily provided by the person about their own record.',
+    access: 'The person only. The file’s bytes go when it is imported, cancelled or a day old.',
+    columns: {
+      id: 'technical', user_id: 'identifier', status: 'technical', source_kind: 'technical', filename: 'none', size_bytes: 'technical', sha256: 'technical',
+      content: 'performance', plan: 'performance', review: 'performance', results: 'technical',
+      created_at: 'technical', updated_at: 'technical', committed_at: 'technical', undone_at: 'technical',
+    },
+  },
+  record_import_origins: {
+    purpose: 'Which records, files and profile fields an import wrote, from where in the file, and what an updated one said before, for the record’s page and the undo.',
+    authority: 'Voluntarily provided by the person about their own record; kept with the records it describes.',
+    access: 'Readers of a record see that it was imported. What it said before is its owner’s only.',
+    columns: {
+      id: 'technical', import_id: 'technical', user_id: 'identifier', record_table: 'technical', record_id: 'technical', action: 'technical',
+      source_id: 'technical', source_ref: 'none', author: 'identifier', before: 'performance', version_after: 'technical', created_at: 'technical',
+    },
+  },
   career_profiles: {
     purpose: 'A person’s stated military goal and civilian interests, to organise their own next steps.',
     authority: 'Voluntarily recorded by the person.',

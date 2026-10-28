@@ -57,6 +57,7 @@ export const DOWNLOAD_PATH = /\/(?:export|backup)(?:[/.]|$)|[/.](?:csv|pdf|zip)$
 export const NOT_BULK: ReadonlyArray<{ method: 'GET'; path: string; why: string }> = [
   { method: 'GET', path: '/api/demo/sample.csv', why: 'A fixed sample file for the import dialog. It holds no one’s records.' },
   { method: 'GET', path: '/api/studio/reports/:id/revisions/:revision/export.txt', why: 'One revision of one report its reader may already open. Audited as export_report_revision.' },
+  { method: 'GET', path: '/api/records/:table/:id/export', why: 'One record its reader may already open, with its files. Audited as export_record.' },
 ];
 
 const write = (action: string): AuditWrite => ({ action, category: auditCategoryOf(action) });
@@ -192,7 +193,7 @@ export const PRIVILEGED_ROUTES: readonly PrivilegedRoute[] = [
   unit('GET', '/units/:unitId/export', ['EXPORT_DATA'], writes('export'), 'The unit’s shared work, beneath it as well. Never private entries.'),
 
   // ——— Bulk downloads elsewhere: one’s own data, or another Marine’s through a unit permission ———
-  { method: 'GET', path: '/api/me/export', kind: 'bulk', permission: ['self'], stepUp: true, audit: writes('export_personal'), note: 'Everything one keeps, as JSON or a ZIP with attachments.' },
+  { method: 'GET', path: '/api/me/export', kind: 'bulk', permission: ['self'], stepUp: true, audit: writes('export_personal'), note: 'Everything one keeps, or the categories one chooses: JSON, a ZIP with attachments, a workbook, or one category as CSV.' },
   { method: 'GET', path: '/api/reports/csv', kind: 'bulk', permission: ['self', 'EXPORT_DATA'], stepUp: false, audit: writes('export_csv', 'build_report'), note: 'Another Marine’s activities take EXPORT_DATA in the unit as well as opening their record.' },
   { method: 'GET', path: '/api/reports/pdf', kind: 'bulk', permission: ['self', 'VIEW_MEMBER_DETAIL'], stepUp: false, audit: writes('export_pdf', 'build_report') },
   { method: 'GET', path: '/api/reports/analysis.pdf', kind: 'bulk', permission: ['self', 'VIEW_MEMBER_DETAIL'], stepUp: false, audit: writes('export_pdf', 'build_report') },

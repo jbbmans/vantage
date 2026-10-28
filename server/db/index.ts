@@ -345,6 +345,13 @@ const MIGRATIONS: Migration[] = [
       if (Object.keys(found).length) metaSet(db, 'timeframe_violations', JSON.stringify({ at: new Date().toISOString(), found }));
     },
   },
+  {
+    id: 27,
+    name: '027_record_imports',
+    // A person imports their own records back, each into its own record type, staged first and undoable (ADR-0019). The
+    // two tables come from schema.sql, which is safe to replay. Nothing already written is read, moved or reshaped.
+    run: () => {},
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */

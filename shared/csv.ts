@@ -109,13 +109,13 @@ export function parseCsvText(text: string, delimiter: ',' | '\t' = ','): { colum
   return { columns, rows };
 }
 
-const toNumber = (v: unknown): number | null => {
+export const toNumber = (v: unknown): number | null => {
   if (v == null || v === '') return null;
   const n = parseFloat(String(v).replace(/[$,\s]/g, ''));
   return Number.isNaN(n) ? null : n;
 };
 
-const toISODate = (v: unknown): string | null => {
+export const toISODate = (v: unknown): string | null => {
   if (!v) return null;
   const s = String(v).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
@@ -133,7 +133,7 @@ const toISODate = (v: unknown): string | null => {
 };
 
 /** A time of day as a spreadsheet may hold it ("0800", "800", "08:00", "8:00:00 AM"), as HH:MM; null when it is none. */
-const toTime = (v: unknown): string | null => {
+export const toTime = (v: unknown): string | null => {
   const s = String(v ?? '').trim().toUpperCase();
   const m = s.match(/^(\d{1,2}):?(\d{2})(?::\d{2})?\s*(AM|PM)?$/);
   if (!m) return null;
@@ -142,8 +142,8 @@ const toTime = (v: unknown): string | null => {
   if (hour > 23 || Number(m[2]) > 59) return null;
   return `${String(hour).padStart(2, '0')}:${m[2]}`;
 };
-const STILL_GOING = /^(present|ongoing|current|now)$/i;
-const YES = /^(y|yes|true|1|x|ongoing|present)$/i;
+export const STILL_GOING = /^(present|ongoing|current|now)$/i;
+export const YES = /^(y|yes|true|1|x|ongoing|present)$/i;
 
 export interface ImportedActivity {
   id?: string; title: string; date: string;

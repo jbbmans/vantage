@@ -1,6 +1,37 @@
 # Progress
 
-_Updated 2026-10-24_
+_Updated 2026-10-28_
+
+## What changed (2026-10-28: import, export, download and restore)
+
+**Partial.** Not merged; HawkScan not run (no key); CI disregarded on John's word.
+
+Every category of a person's record goes out and comes back as what it is, through a review that writes nothing until
+the person imports ([ADR-0019](engineering/ADR/0019-import-export-restore.md)).
+
+- **Export.** Your data exports everything (ZIP, JSON, now Excel) or the categories chosen (Excel with a sheet each,
+  JSON, ZIP, or one category as CSV). Training, Awards and Counseling export their own. A record downloads from its page
+  as JSON, a CSV row that imports back, or a ZIP with its files, under the same read rule as the page, audited.
+- **Import** (`/api/me/imports`, migration 027). A Vantage export (JSON or ZIP, personal or one record), an Excel
+  workbook or a CSV. Each sheet is routed by its name, a CSV by its file name, else a Record Type column, else its
+  headers; the person can change the type and each column. The review is the import run through the form's own writes
+  and rolled back: each row shows what it is, where it goes, duplicates and problems. Corrections, "import as", rows
+  left out, who sees them, the profile (fill, replace, leave) and files are the person's. The import is one
+  transaction, stopped if the counts changed since the review; results are kept; undo once.
+- **Never flattened.** Awards stay awards, courses training, counselings counselings. A log entry that reads like an
+  award is offered as one, never moved for its owner. Duty rows are listed and never become Activities.
+- **Boundaries.** Only the importer's account is written; ids in a file never name a record here; a record the
+  importer may not place in a unit comes in private; a Vantage export already here is never overwritten; another
+  person's import is 404; backups and other Vantage files are refused. Files are scanned one by one.
+- **Restore.** A person restores by importing their own export, here or in another Vantage. The unit configuration
+  file now carries duty scoring versions, loaded only into a Unit Instance without its own.
+- **Proven.** A representative account (readiness, career plan and steps, every record type, a ranged FM work activity
+  with its file, evidence link and project, PME with its dates, an ongoing certification, an award in submission with
+  its period, a leader's recommendation and counseling) exported and imported into a clean Vantage comes back the same,
+  types, dates, approval states and links intact, and a second import adds nothing. Duty scoring versions round-trip
+  through the unit configuration file. Workbook routing, volunteer service and duty rows are tested on their own.
+- **Open:** the decision card on counselings and recommendations others wrote ("Marine's own copies" is built). Duty
+  records are Task 17's.
 
 ## What changed (2026-10-24: record timeframes)
 

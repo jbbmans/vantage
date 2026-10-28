@@ -1096,6 +1096,53 @@ CREATE TABLE IF NOT EXISTS career_profiles (
   updated_at         TEXT NOT NULL
 );
 
+-- A person's import of their own records (ADR-0019, migration 027): the file they uploaded, held until they import it or
+-- cancel (a day at most), what they chose on the way, and what it did. The file's bytes go when it is imported, cancelled
+-- or left; the row stays as the record of the import, and is the undo's.
+CREATE TABLE IF NOT EXISTS record_imports (
+  id           TEXT PRIMARY KEY,
+  user_id      TEXT NOT NULL REFERENCES users(id),
+  status       TEXT NOT NULL CHECK (status IN ('staged', 'imported', 'undone', 'cancelled', 'expired')),
+  source_kind  TEXT NOT NULL CHECK (source_kind IN ('vantage_json', 'vantage_zip', 'csv', 'xlsx')),
+  filename     TEXT,
+  size_bytes   INTEGER NOT NULL,
+  sha256       TEXT NOT NULL,
+  content      BLOB,
+  -- What the person chose: each sheet's record type and columns, each row in or out, corrections, placement, profile.
+  plan         TEXT NOT NULL DEFAULT '{}',
+  -- What the import would do as last reviewed, and what it did.
+  review       TEXT,
+  results      TEXT,
+  created_at   TEXT NOT NULL,
+  updated_at   TEXT NOT NULL,
+  committed_at TEXT,
+  undone_at    TEXT
+);
+CREATE INDEX IF NOT EXISTS idx_record_imports_user ON record_imports(user_id, created_at);
+CREATE INDEX IF NOT EXISTS idx_record_imports_staged ON record_imports(status, created_at);
+
+-- Each thing an import wrote: a record it created, or updated (with what it said before), a file it attached, a profile
+-- field it set. A record's page says it was imported, and from what; the undo removes or puts back only what is unchanged.
+CREATE TABLE IF NOT EXISTS record_import_origins (
+  id            TEXT PRIMARY KEY,
+  import_id     TEXT NOT NULL REFERENCES record_imports(id),
+  user_id       TEXT NOT NULL REFERENCES users(id),
+  record_table  TEXT NOT NULL,
+  record_id     TEXT NOT NULL,
+  action        TEXT NOT NULL CHECK (action IN ('created', 'updated', 'attached', 'profile')),
+  -- The record's id in the file it came from, and where in the file: never trusted to name a record here.
+  source_id     TEXT,
+  source_ref    TEXT,
+  -- Who the file says wrote it, when not the person: a counselor, a leader who recommended an award. A name, never an id.
+  author        TEXT,
+  before        TEXT,
+  version_after INTEGER,
+  created_at    TEXT NOT NULL
+);
+CREATE INDEX IF NOT EXISTS idx_record_import_origins_record ON record_import_origins(record_table, record_id);
+CREATE INDEX IF NOT EXISTS idx_record_import_origins_source ON record_import_origins(user_id, record_table, source_id);
+CREATE INDEX IF NOT EXISTS idx_record_import_origins_import ON record_import_origins(import_id);
+
 -- Organizations: the tenants of the central service (ADR-0006). Each owns a tree of units rooted at root_unit_id.
 CREATE TABLE IF NOT EXISTS organizations (
   id               TEXT PRIMARY KEY,

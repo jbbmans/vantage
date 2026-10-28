@@ -8,14 +8,16 @@ import { Dialog, ConfirmDialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
 import { withSudo } from '@/components/SudoDialog';
 import CsvImportDialog from '@/components/CsvImportDialog';
+import RecordImportDialog from '@/components/RecordImportDialog';
 import { Table, useParam } from '@/components/common';
-import { keys, useIdentity, useOrg, usePrefs, useSavePrefs, signOutEverywhere } from '@/lib/queries';
+import { keys, invalidateDomains, useIdentity, useOrg, usePrefs, useSavePrefs, signOutEverywhere } from '@/lib/queries';
 import * as api from '@/lib/api';
 import { ACCENTS, DEFAULT_ACCENT, VISIBILITIES } from '../../shared/constants';
 import { passwordProblem, passwordStrength } from '../../shared/password';
 import { copyToClipboard, downloadText, formatStamp, timeAgo, humanize, cn } from '@/lib/utils';
 import { resolveTheme, type ThemeMode } from '@/lib/theme';
 import { DEFAULT_PERIOD } from '../../shared/metrics';
+import { TRANSFER_CATEGORIES, categoryOf, type ImportSummary } from '../../shared/recordTransfer';
 
 export default function Settings() {
   const { data: identity } = useIdentity();
@@ -236,25 +238,76 @@ function Digest() {
 }
 
 function DataTab() {
-  const toast = useToast(); const [importOpen, setImportOpen] = useState(false); const [exporting, setExporting] = useState<'zip' | 'json' | null>(null);
-  const exportAll = async (format: 'zip' | 'json') => {
-    setExporting(format);
-    try { const n = await withSudo(() => api.downloadFile(api.myExportUrl(format), `vantage-export.${format}`)); toast.success(`Downloaded ${n}.`); }
+  const toast = useToast(); const qc = useQueryClient();
+  const [importOpen, setImportOpen] = useState(false); const [exporting, setExporting] = useState<string | null>(null);
+  // ?import=1 opens the import, from the help page and the palette.
+  const [importParam, setImportParam] = useParam('import');
+  const [recordsOpen, setRecordsOpen] = useState(false);
+  useEffect(() => { if (importParam === '1') setRecordsOpen(true); }, [importParam]);
+  const [sections, setSections] = useState<string[]>([]);
+  const [format, setFormat] = useState<'json' | 'xlsx' | 'zip' | 'csv'>('xlsx');
+  const [undoing, setUndoing] = useState<ImportSummary | null>(null);
+  const { data: imports } = useQuery({ queryKey: ['record-imports'], queryFn: api.recordImports });
+  const download = async (key: string, url: string, fallback: string) => {
+    setExporting(key);
+    try { const n = await withSudo(() => api.downloadFile(url, fallback)); toast.success(`Downloaded ${n}.`); }
     catch (e) { toast.error(api.errorText(e)); }
     finally { setExporting(null); }
   };
+  const exportAll = (f: 'zip' | 'json' | 'xlsx') => download(f, api.myExportUrl(f), `vantage-export.${f}`);
   const exportCsv = async () => { try { const n = await api.downloadFile(api.reportCsvUrl({ period: 'all' }), 'vantage-activities.csv'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } };
   const exportPdf = async () => { try { const n = await api.downloadFile(api.reportPdfUrl({ period: DEFAULT_PERIOD, limit: 12 }), 'vantage-report.pdf'); toast.success(`Downloaded ${n}.`); } catch (e) { toast.error(api.errorText(e)); } };
+  // A CSV is one table: it takes one category at a time.
+  const csvOk = sections.length === 1 && (Boolean(categoryOf(sections[0])?.table) || sections[0] === 'profile');
+  const chosenFormat = format === 'csv' && !csvOk ? 'xlsx' : format;
+  const undo = async (i: ImportSummary) => {
+    try { await api.undoRecordImport(i.id); invalidateDomains(qc, 'activity', 'training', 'award', 'counseling', 'goal', 'task', 'project', 'career'); qc.invalidateQueries({ queryKey: keys.me }); qc.invalidateQueries({ queryKey: ['record-imports'] }); toast.success('Import undone.'); }
+    catch (e) { toast.error(api.errorText(e)); }
+  };
+  const recent = (imports?.imports ?? []).filter((i) => i.status === 'imported' || i.status === 'undone').slice(0, 8);
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Export everything" subtitle="Your record belongs to you" className="lg:col-span-2">
-        <div className="flex flex-wrap gap-2"><Button variant="primary" onClick={() => exportAll('zip')} loading={exporting === 'zip'}><Download className="h-4 w-4" />Everything (ZIP)</Button><Button onClick={() => exportAll('json')} loading={exporting === 'json'}><Download className="h-4 w-4" />Everything (JSON)</Button><Button onClick={exportCsv}><Download className="h-4 w-4" />Activities (CSV)</Button><Button onClick={exportPdf}><Printer className="h-4 w-4" />This FY as PDF</Button></div>
+        <div className="flex flex-wrap gap-2"><Button variant="primary" onClick={() => exportAll('zip')} loading={exporting === 'zip'}><Download className="h-4 w-4" />Everything (ZIP)</Button><Button onClick={() => exportAll('json')} loading={exporting === 'json'}><Download className="h-4 w-4" />Everything (JSON)</Button><Button onClick={() => exportAll('xlsx')} loading={exporting === 'xlsx'}><Download className="h-4 w-4" />Everything (Excel)</Button><Button onClick={exportCsv}><Download className="h-4 w-4" />Activities (CSV)</Button><Button onClick={exportPdf}><Printer className="h-4 w-4" />This FY as PDF</Button></div>
         <p className="mt-3 text-xs leading-relaxed text-ink-3">The ZIP holds every piece of data tied to your account: profile, rank, MOS and EAS, units, memberships and roles, every activity, task, project, goal, training, award and counseling (recycle bin included), readiness figures, attachments as files, notifications, preferences, the audit trail of your record, AI usage, and email history. It arrives as one JSON file plus a CSV per dataset. Secrets never leave: no password, authenticator, or passkey material.</p>
-        <p className="mt-2 text-xs leading-relaxed text-ink-3">The activities CSV includes a Vantage ID column. Edit it in a spreadsheet and import it back: rows with an ID update the original, rows without become new entries.</p>
+        <p className="mt-2 text-xs leading-relaxed text-ink-3">Each record keeps its type: awards come out as awards, training as training, counselings as counselings, and the Excel workbook has a sheet for each. Import any of them back with Import records, here or in another Vantage, and each comes back as what it was. Rows with a Vantage ID update the original instead of duplicating it.</p>
+      </Panel>
+      <Panel title="Choose what to export" subtitle="One category, or several" className="lg:col-span-2">
+        <fieldset>
+          <legend className="sr-only">Categories to export</legend>
+          <div className="grid grid-cols-1 gap-x-4 gap-y-1.5 sm:grid-cols-2 lg:grid-cols-3">
+            {TRANSFER_CATEGORIES.map((c) => (
+              <label key={c.key} className="flex items-start gap-2 text-sm">
+                <input type="checkbox" className="mt-1" checked={sections.includes(c.key)} onChange={(e) => setSections((s) => (e.target.checked ? [...s, c.key] : s.filter((k) => k !== c.key)))} />
+                <span className="min-w-0"><span className="block text-ink">{c.label}</span><span className="block text-2xs leading-relaxed text-ink-3">{c.hint}</span></span>
+              </label>
+            ))}
+          </div>
+        </fieldset>
+        <div className="mt-3 flex flex-wrap items-end gap-2">
+          <Field label="Format" className="w-56"><Select value={chosenFormat} onValueChange={(v) => setFormat(v as typeof format)} options={[{ value: 'xlsx', label: 'Excel workbook, a sheet each' }, { value: 'json', label: 'Vantage file (JSON)' }, { value: 'zip', label: 'ZIP, with the files' }, { value: 'csv', label: 'CSV, one category', disabled: !csvOk }]} /></Field>
+          <Button variant="primary" disabled={!sections.length} loading={exporting === 'selected'} onClick={() => download('selected', api.myExportUrl(chosenFormat, sections), `vantage-export.${chosenFormat}`)}><Download className="h-4 w-4" />Export {sections.length ? `${sections.length} ${sections.length === 1 ? 'category' : 'categories'}` : 'selected'}</Button>
+        </div>
       </Panel>
       <Panel title="Import" subtitle="From a Vantage export or any spreadsheet">
-        <Button variant="primary" onClick={() => setImportOpen(true)}><Upload className="h-4 w-4" />Import CSV</Button>
-        <p className="mt-3 text-xs leading-relaxed text-ink-3">Up to 1000 rows per file. Likely duplicates are screened before anything is written.</p>
+        <div className="flex flex-wrap gap-2"><Button variant="primary" onClick={() => setRecordsOpen(true)}><Upload className="h-4 w-4" />Import records</Button><Button onClick={() => setImportOpen(true)}><Upload className="h-4 w-4" />Activities from a CSV</Button></div>
+        <p className="mt-3 text-xs leading-relaxed text-ink-3">Import records reads a Vantage export (JSON or ZIP), a CSV, or an Excel workbook, and shows what each row is, where it goes and what looks like something you already have. Nothing is written until you import, and an import can be undone.</p>
+      </Panel>
+      <Panel title="Recent imports" subtitle="What each one did">
+        {!imports ? <Skeleton className="h-16" /> : !recent.length ? <p className="text-sm text-ink-3">No imports yet.</p> : (
+          <ul className="divide-y divide-line text-sm">
+            {recent.map((i) => {
+              const made = Object.values(i.results?.created ?? {}).reduce((n, v) => n + v, 0);
+              const changed = Object.values(i.results?.updated ?? {}).reduce((n, v) => n + v, 0);
+              return (
+                <li key={i.id} className="flex flex-wrap items-center gap-2 py-2">
+                  <span className="min-w-0 flex-1"><span className="block truncate text-ink">{i.filename || 'File'}</span><span className="block text-2xs text-ink-3">{formatStamp(i.committed_at || i.created_at)} · {made} added{changed ? `, ${changed} updated` : ''}{i.results?.attachments ? `, ${i.results.attachments} files` : ''}</span></span>
+                  {i.status === 'undone' ? <Badge>Undone</Badge> : <Button size="xs" variant="ghost" onClick={() => setUndoing(i)}>Undo</Button>}
+                </li>
+              );
+            })}
+          </ul>
+        )}
       </Panel>
       <Panel title="Changing teams, PCS or EAS" subtitle="What happens to your record when you move on" className="lg:col-span-2">
         <ol className="stagger grid grid-cols-1 gap-3 md:grid-cols-3">
@@ -273,6 +326,8 @@ function DataTab() {
       </Panel>
       <Panel title="Sign out everywhere" className="lg:col-span-2"><div className="flex flex-wrap items-center justify-between gap-3"><p className="text-sm text-ink-2">Ends this session and every other one, on every device.</p><Button variant="danger" onClick={() => signOutEverywhere()}><LogOut className="h-4 w-4" />Sign out</Button></div></Panel>
       <CsvImportDialog open={importOpen} onOpenChange={setImportOpen} />
+      <RecordImportDialog open={recordsOpen} onOpenChange={(o) => { setRecordsOpen(o); if (!o && importParam) setImportParam(''); }} />
+      <ConfirmDialog open={Boolean(undoing)} onOpenChange={(o) => { if (!o) setUndoing(null); }} title="Undo this import?" body="What it added goes to the recycle bin, and what it changed is put back, except anything you have changed since. It can be undone once." confirmLabel="Undo import" onConfirm={() => undo(undoing!)} />
     </div>
   );
 }

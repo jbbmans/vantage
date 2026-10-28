@@ -7,6 +7,16 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-10-28',
+    title: 'Import and export that keep each record what it is',
+    items: [
+      'Import records, in Settings → Your data, reads a Vantage export, an Excel workbook or a CSV. Before anything is saved it shows what each row is, where it goes, what looks like something you already have, and what needs a fix. Awards come in as awards, training as training, counselings as counselings.',
+      'Fix a date, leave a row out, or say what a row really is, right on the review. An entry that reads like an award stays an activity unless you choose to import it as one. Duty rows are listed and left out.',
+      'An import can be undone once, from its results or from Recent imports.',
+      'Export everything, or only the categories you choose, as an Excel workbook with a sheet each, a Vantage file, a ZIP with your files, or one category as a CSV. Training, Awards and Counseling export their own, and any record downloads from its own page.',
+    ],
+  },
+  {
     date: '2026-10-24',
     title: 'Start and end dates',
     items: [

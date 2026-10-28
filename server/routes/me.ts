@@ -1,4 +1,4 @@
-import { Router } from 'express';
+import express, { Router } from 'express';
 import { z } from 'zod';
 import QRCode from 'qrcode';
 import { wrap, parse, clientIp } from '../lib/http.ts';
@@ -24,7 +24,9 @@ import { PERMISSION_LIST } from '../../shared/permissions.ts';
 import type { OrgResponse, Rank, Role, Unit } from '../../shared/types.ts';
 import { composeDigest, sendDigest } from '../services/digest.ts';
 import { unitSettingsOf } from '../services/unitConfig.ts';
-import { buildPersonalExport, buildPersonalExportZip } from '../services/personalExport.ts';
+import { buildPersonalExport, buildPersonalExportCsv, buildPersonalExportWorkbook, buildPersonalExportZip } from '../services/personalExport.ts';
+import { cancelImport, commitImport, getImport, listImports, planImport, stageImport, undoImport } from '../services/recordImport.ts';
+import { CATEGORY_KEYS } from '../../shared/recordTransfer.ts';
 import { demoStatus } from '../services/demo.ts';
 
 export const meRouter = Router();
@@ -143,24 +145,60 @@ meRouter.post('/password', wrap(async (req, res) => {
   res.json({ ok: true, otherSessionsRevoked: revoked });
 }));
 
+/** The categories a selective export names (`?sections=awards,trainings`), or null for everything. */
+function exportSections(req: express.Request): string[] | null {
+  const raw = typeof req.query.sections === 'string' ? req.query.sections.trim() : '';
+  if (!raw) return null;
+  const keys = [...new Set(raw.split(',').map((k) => k.trim()).filter(Boolean))];
+  const unknown = keys.filter((k) => !CATEGORY_KEYS.includes(k));
+  if (unknown.length || !keys.length) throw badRequest(`Not a category Vantage exports: ${unknown.join(', ').slice(0, 120) || 'none'}.`, { code: 'unknown_section' });
+  return keys;
+}
+
 meRouter.get('/export', requireSudo, wrap((req, res) => {
   const ctx = req.ctx;
-  const format = req.query.format === 'json' ? 'json' : 'zip';
+  const format = ['json', 'xlsx', 'csv'].includes(String(req.query.format)) ? String(req.query.format) as 'json' | 'xlsx' | 'csv' : 'zip';
+  const sections = exportSections(req);
+  const what = sections ? `sections ${sections.join(',')}; ` : '';
+  const send = (body: Buffer | string, filename: string, type: string, counts: unknown) => {
+    audit(ctx, { actor_id: req.user.id, action: 'export_personal', entity: 'user', entity_id: req.user.id, detail: `${format}; ${what}${JSON.stringify(counts)}`.slice(0, 900), ip: clientIp(req) });
+    res.setHeader('Content-Type', type);
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    res.send(body);
+  };
   if (format === 'json') {
-    const { _files, ...archive } = buildPersonalExport(ctx, req.user.id, { attachments: false });
+    const { _files, ...archive } = buildPersonalExport(ctx, req.user.id, { attachments: false, sections });
     void _files;
-    audit(ctx, { actor_id: req.user.id, action: 'export_personal', entity: 'user', entity_id: req.user.id, detail: `json; ${JSON.stringify(archive.counts)}`.slice(0, 900), ip: clientIp(req) });
-    res.setHeader('Content-Type', 'application/json; charset=utf-8');
-    res.setHeader('Content-Disposition', `attachment; filename="vantage-${req.user.username}-${archive.exported_at.slice(0, 10)}.json"`);
-    res.send(JSON.stringify(archive, null, 2));
+    send(JSON.stringify(archive, null, 2), `vantage-${req.user.username}-${archive.exported_at.slice(0, 10)}${sections ? '-selected' : ''}.json`, 'application/json; charset=utf-8', archive.counts);
     return;
   }
-  const { buffer, filename, counts } = buildPersonalExportZip(ctx, req.user.id);
-  audit(ctx, { actor_id: req.user.id, action: 'export_personal', entity: 'user', entity_id: req.user.id, detail: `zip; ${JSON.stringify(counts)}`.slice(0, 900), ip: clientIp(req) });
-  res.setHeader('Content-Type', 'application/zip');
-  res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
-  res.send(buffer);
+  if (format === 'csv') {
+    // A CSV holds one record type: one category, or the profile.
+    if (sections?.length !== 1) throw badRequest('A CSV holds one record type. Choose one category, or download a ZIP or a workbook.', { code: 'csv_one_category' });
+    const { text, filename, counts } = buildPersonalExportCsv(ctx, req.user.id, sections[0]);
+    send(text, filename, 'text/csv; charset=utf-8', counts);
+    return;
+  }
+  const { buffer, filename, counts } = format === 'xlsx' ? buildPersonalExportWorkbook(ctx, req.user.id, { sections }) : buildPersonalExportZip(ctx, req.user.id, { sections });
+  send(buffer, filename, format === 'xlsx' ? 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet' : 'application/zip', counts);
 }));
+
+// ——— Importing their own records (ADR-0019): upload, review, correct, import, undo ———
+
+const importBody: express.RequestHandler = (req, res, next) =>
+  express.raw({ type: () => true, limit: req.ctx.config.recordImports.maxBytes })(req, res, next);
+
+meRouter.post('/imports', importBody, wrap(async (req, res) => {
+  const buffer = Buffer.isBuffer(req.body) ? req.body : Buffer.alloc(0);
+  const filename = String(req.get('x-filename') || 'import').slice(0, 255);
+  res.status(201).json(await stageImport(req.ctx, req.user, { buffer, filename }, req, clientIp(req)));
+}));
+meRouter.get('/imports', wrap((req, res) => res.json({ imports: listImports(req.ctx, req.user) })));
+meRouter.get('/imports/:id', wrap((req, res) => res.json(getImport(req.ctx, req.user, String(req.params.id), req))));
+meRouter.put('/imports/:id', wrap((req, res) => res.json(planImport(req.ctx, req.user, String(req.params.id), req.body, req))));
+meRouter.post('/imports/:id/commit', wrap((req, res) => res.json(commitImport(req.ctx, req.user, String(req.params.id), req.body, req, clientIp(req)))));
+meRouter.post('/imports/:id/undo', wrap((req, res) => res.json(undoImport(req.ctx, req.user, String(req.params.id), clientIp(req)))));
+meRouter.delete('/imports/:id', wrap((req, res) => res.json(cancelImport(req.ctx, req.user, String(req.params.id), clientIp(req)))));
 
 meRouter.get('/sessions', wrap((req, res) => res.json({ sessions: listSessions(req.ctx, req.user.id, req.sessionId) })));
 meRouter.post('/sessions/revoke-others', wrap((req, res) => {
