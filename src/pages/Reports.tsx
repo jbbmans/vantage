@@ -65,7 +65,7 @@ export default function Reports({ embedded }: { embedded?: boolean } = {}) {
         ? `MRO worksheet input built from ${subject ? 'their shared' : 'your'} logged entries: the Section C draft, and the PME and Other blocks beside it. Copy each block, or export a PDF for the reporting senior.`
         : `Billet accomplishments and a bullet package built from ${subject ? 'their shared' : 'your'} logged entries. Copy them, or export a PDF to hand to the reporting senior.`}
       actions={<>
-        <Button asChild><Link to={`/reports/library?${new URLSearchParams({ type: 'individual', period, ...(subjectId ? { subject: 'member', user_id: subjectId } : { subject: 'self' }) })}`}><Printer className="h-4 w-4" aria-hidden />Print or file</Link></Button>
+        <Button asChild><Link to={`/reports/library?${new URLSearchParams({ type: 'individual', period, ...(track ? { track } : {}), ...(subjectId ? { subject: 'member', user_id: subjectId, ...(unitParam ? { unit_id: unitParam } : {}) } : { subject: 'self' }) })}`}><Printer className="h-4 w-4" aria-hidden />Print or file</Link></Button>
         <Button onClick={() => download('csv')}><Download className="h-4 w-4" />Export activities</Button>
         <Button onClick={() => download('analysis')}><FileDown className="h-4 w-4" />Export analysis PDF</Button>
         <Button variant="primary" onClick={() => download('pdf')}><FileDown className="h-4 w-4" />Export {meta.inputName} PDF</Button>

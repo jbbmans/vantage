@@ -67,7 +67,8 @@ never say different things.
   report stands on, due soon within 60 days of it, met otherwise. No completed course is "No record", since only what a
   Marine shared is read for anyone but themselves. A requirement for a unit applies to that unit and the units beneath
   it. The Unit Manager console's training requirements now say the report checks them.
-- **Financial cases.** A case is in a period when it was open on any day of it. Open now, the amount open, overdue,
+- **Financial cases.** A case is in a period when it was open on any day of it. It closes when it is resolved or found
+  not to apply (that closure records no resolution time, so its stage change dates it). Open now, the amount open, overdue,
   unassigned and age are as of today; opened, resolved, the resolution rate and days to resolve are for the period.
   The error report lists each case by its error type (its procedure), reference, stage, amount, holder, due date and
   age, open by default, with state, procedure and overdue filters. Amounts are added as each case records them; a
@@ -75,7 +76,8 @@ never say different things.
 - **Duty** shows the duty types and how duty is scored on a given day, every version with its status. Duty records
   begin with Task 17, and the report says so rather than showing zeros.
 - **Custom** reads activities, training, awards, counselings, goals, tasks, or (for a unit) its financial cases, with
-  the columns, grouping (by a column or by month, with totals of its measures) and order chosen. A counseling is listed
+  the columns, grouping (by a column or by month, with totals of its measures) and order chosen. Its value totals add
+  only the value types that count toward a total, as the activity report does; each row keeps its own. A counseling is listed
   by its date, type, counselor and follow-up, **never its words**.
 
 ### 3. Who may see what (server side, every format)
@@ -119,7 +121,7 @@ draws a file:
   generated line; a filters box; the summary grid; bars with their labels and figures; tables whose cells wrap, never
   cut, with the header again after each page break and "(continued)"; the handling line at the top and foot of every
   page; "Page n of m". Landscape when a table is wider than eight columns (`LANDSCAPE_COLUMNS`). A cell over 600
-  characters is shortened in print, and the PDF says so.
+  characters, or taller than half a page, is shortened in print so a row never splits, and the PDF says so.
 - **CSV:** the report's main table, raw values (amounts as numbers, a flag as Yes or No), formula-like cells written as
   text (`shared/csv.ts`), with a byte-order mark for Excel.
 - **XLSX:** an About sheet (title, handling line, about, unit, period, generated, filters, summary, notes) and a sheet

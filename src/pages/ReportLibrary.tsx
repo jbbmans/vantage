@@ -36,7 +36,8 @@ const humanize = (v: string) => v.replace(/_/g, ' ').replace(/^./, (c) => c.toUp
 function cleanParams(form: Params, spec: ReportSpec): Params {
   const out: Params = { type: spec.key, subject: form.subject };
   if (form.subject === 'member' && form.user_id) out.user_id = form.user_id;
-  if (form.subject === 'unit' && form.unit_id) out.unit_id = form.unit_id;
+  // A unit's report names its unit; a Marine's keeps the unit it was asked about, whose shared records it reads.
+  if ((form.subject === 'unit' || form.subject === 'member') && form.unit_id) out.unit_id = form.unit_id;
   const keys = spec.filters.flatMap((f) => (f === 'sort' ? ['sort', 'direction'] : [f]));
   for (const k of keys) if (form[k]) out[k] = form[k];
   return out;
@@ -76,8 +77,9 @@ export default function ReportLibrary() {
 
   const run = useQuery({
     queryKey: ['report-center', 'run', ran], queryFn: () => api.runReport(ran!), enabled: Boolean(ran),
-    // Reading a Marine's or a unit's report is audited, so it is read when asked for, not again on every focus.
-    staleTime: Infinity, refetchOnWindowFocus: false, retry: false,
+    // Reading a Marine's or a unit's report is audited, so it is read when asked for, not again on every focus. Nothing
+    // is kept once another is run, so running one again, or opening a saved one, reads it afresh.
+    staleTime: Infinity, gcTime: 0, refetchOnWindowFocus: false, retry: false,
   });
   const definitions = useQuery({ queryKey: ['report-center', 'definitions'], queryFn: api.reportDefinitions });
 
@@ -130,10 +132,10 @@ export default function ReportLibrary() {
               {subjects.length > 1 ? (
                 <div className="sm:col-span-2 xl:col-span-3">
                   <p className="mb-1.5 text-base font-medium text-ink">About</p>
-                  <Segmented label="Whom the report is about" value={f.subject as ReportSubject} onChange={(v) => set('subject', v)} options={subjects.map((s) => ({ value: s, label: SUBJECT_LABEL[s] }))} />
+                  <Segmented label="Whom the report is about" value={f.subject as ReportSubject} onChange={(v) => setForm((p) => ({ ...p, subject: v, ...(v === 'member' ? { unit_id: '' } : {}) }))} options={subjects.map((s) => ({ value: s, label: SUBJECT_LABEL[s] }))} />
                 </div>
               ) : null}
-              {f.subject === 'member' ? <Field label="Marine"><Select value={f.user_id} onValueChange={(v) => set('user_id', v)} options={marines} placeholder="Choose a Marine" /></Field> : null}
+              {f.subject === 'member' ? <Field label="Marine"><Select value={f.user_id} onValueChange={(v) => setForm((p) => ({ ...p, user_id: v, unit_id: '' }))} options={marines} placeholder="Choose a Marine" /></Field> : null}
               {f.subject === 'unit' ? <Field label="Unit" hint="With the units beneath it"><Select value={f.unit_id} onValueChange={(v) => set('unit_id', v)} options={units.map((u) => ({ value: u.id, label: `${' '.repeat(Math.min(u.depth, 4))}${u.short_name || u.name}` }))} placeholder="Choose a unit" /></Field> : null}
               {spec.filters.includes('period') ? <Field label="Period"><PeriodSelect value={f.period} onChange={(v) => set('period', v)} /></Field> : null}
               {spec.filters.includes('track') ? <Field label="Evaluation"><Select value={f.track || 'auto'} onValueChange={(v) => set('track', v === 'auto' ? '' : v)} options={[{ value: 'auto', label: 'By rank' }, { value: 'jepes', label: 'JEPES' }, { value: 'fitrep', label: 'FITREP' }]} /></Field> : null}
@@ -206,7 +208,7 @@ function withDefaults(form: Params, spec: ReportSpec, firstUnit: string | null):
   const subject = spec.subjects.includes(form.subject as ReportSubject) ? form.subject : form.user_id && spec.subjects.includes('member') ? 'member' : spec.subjects.includes('self') ? 'self' : 'unit';
   return {
     ...form, subject,
-    user_id: form.user_id || '', unit_id: form.unit_id || firstUnit || '',
+    user_id: form.user_id || '', unit_id: form.unit_id || (subject === 'unit' ? firstUnit || '' : ''),
     period: form.period || spec.period || '', dataset: form.dataset || (spec.key === 'custom' ? 'activities' : ''),
   };
 }

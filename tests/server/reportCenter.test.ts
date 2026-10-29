@@ -353,6 +353,13 @@ test('a long table prints over pages with its header again on each, and nothing 
   // A cell longer than a page could hold is shortened in print, and the print says so.
   const long = await renderReportDocumentPdf({ ...doc, sections: [{ ...doc.sections[0], tables: [{ ...doc.sections[0].tables[0], rows: [{ date: '2026-10-01', title: 'x'.repeat(5000), value: 1 }], total: 1 }] }] });
   assert.ok(long.length > 1000);
+  assert.ok(pdfDraws(long, 'shortened here'), 'and says so');
+  // So is one of few characters on more lines than a page holds: the row stays whole on one page, its columns side by side.
+  const tall = await renderReportDocumentPdf({ ...doc, sections: [{ ...doc.sections[0], tables: [{ ...doc.sections[0].tables[0], rows: [{ date: '2026-10-01', title: Array(120).fill('a line').join('\n'), value: 1 }, { date: '2026-10-02', title: 'The row after', value: 2 }], total: 2 }] }] });
+  const tallPages = Number(/\/Type \/Pages[\s\S]*?\/Count (\d+)/.exec(tall.toString('latin1'))?.[1]);
+  assert.ok(tallPages <= 2, `a tall cell is fitted to a page, not run over ${tallPages} of them`);
+  assert.ok(pdfDraws(tall, 'shortened here'));
+  assert.ok(pdfDraws(tall, 'The row after'));
 });
 
 test('saved reports keep the choices, never the data; shared, they name no Marine', async () => {
@@ -378,4 +385,57 @@ test('saved reports keep the choices, never the data; shared, they name no Marin
   assert.deepEqual(auditSince(seq).map((e) => e.action), ['report_definition_deleted']);
   // Running a saved report decides again who may see it: the marine named in it is still refused to an NCO.
   assert.equal((await run(nco.token, { type: 'individual', ...mine.body.params })).status, 403);
+});
+
+test('a custom report adds up only the value types that count, as the activity report does', async () => {
+  const valuer = await app.register('valuer'); valuer.token = await login('valuer');
+  const day = today();
+  for (const [title, amount, type] of [['Recovered a duplicate payment', 100, 'saved'], ['Reviewed the quarterly obligations', 1000, 'reviewed']] as const) {
+    assert.equal((await post(valuer.token, '/api/records/activities', { title, date: dayAfter(day, -2), category: 'Fiscal & Financial', dollar_amount: amount, dollar_type: type })).status, 201);
+  }
+  const activity = (await run(valuer.token, { type: 'activity' })).body as ReportDocument;
+  const custom = (await run(valuer.token, { type: 'custom', dataset: 'activities', group: 'category' })).body as ReportDocument;
+  const value = (doc: ReportDocument, label: string) => doc.summary.find((f) => f.label === label)?.value;
+  assert.equal(value(activity, 'Dollars'), 100);
+  assert.equal(value(custom, 'Value, total'), 100, 'reviewed dollars are listed, never added');
+  assert.equal(tableOf(custom, 'groups')!.rows[0].dollar_amount, 100);
+  assert.deepEqual(tableOf(custom, 'rows')!.rows.map((r) => r.dollar_amount).sort(), [100, 1000], 'each row keeps its own amount');
+  assert.ok(tableOf(custom, 'rows')!.columns.every((c) => !c.key.startsWith('__')));
+});
+
+test('a large custom report groups its records in one pass', async () => {
+  const bulk = await app.register('bulk'); bulk.token = await login('bulk');
+  const at = new Date().toISOString();
+  const add = app.ctx.db.prepare("INSERT INTO activities (id, user_id, visibility, title, date, category, quantity, created_at, updated_at) VALUES (?, ?, 'private', ?, ?, 'Fiscal & Financial', 1, ?, ?)");
+  app.ctx.db.transaction(() => { for (let i = 0; i < 30_000; i++) add.run(`bulk-${i}`, bulk.id, `Entry ${i}`, today(), at, at); })();
+  const started = Date.now();
+  const res = await run(bulk.token, { type: 'custom', dataset: 'activities', group: 'category', period: 'all' });
+  const took = Date.now() - started;
+  assert.equal(res.status, 200);
+  assert.equal(tableOf(res.body as ReportDocument, 'groups')!.rows[0].count, 30_000);
+  // Linear, it takes a fraction of a second; copying each group as it grows took several.
+  assert.ok(took < 2_000, `30,000 records in one group took ${took} ms`);
+  app.ctx.db.prepare('DELETE FROM activities WHERE user_id = ?').run(bulk.id);
+});
+
+test('a case found not to apply is closed from the day it was, in every period after', async () => {
+  const at = new Date().toISOString();
+  const ago = (n: number) => new Date(Date.now() - n * 86_400_000).toISOString();
+  const created = await post(op.token, '/api/work/items', { title: 'ULO 4004', reference: 'ULO-4004', unit_id: 'FISCAL', visibility: 'unit' });
+  assert.equal(created.status, 201);
+  const id = created.body.id as string;
+  // Closed as not applicable twenty days ago: a closure that records no resolved_at.
+  app.ctx.db.prepare("UPDATE work_items SET stage = 'not_applicable', state = 'not_applicable', resolved_at = NULL, created_at = ?, updated_at = ? WHERE id = ?").run(ago(30), at, id);
+  app.ctx.db.prepare("INSERT INTO work_events (id, work_item_id, unit_id, actor_id, kind, body, occurred_at, created_at) VALUES ('na-event', ?, 'FISCAL', ?, 'stage_changed', ?, ?, ?)")
+    .run(id, op.id, JSON.stringify({ from: 'researching', to: 'not_applicable', reason: 'Paid in full before review' }), ago(20), ago(20));
+  const day = today();
+  const cases = async (from: string) => {
+    const doc = (await run(nco.token, { type: 'custom', dataset: 'work', subject: 'unit', unit_id: 'FISCAL', from, to: day, columns: 'reference,age_days' })).body as ReportDocument;
+    return tableOf(doc, 'rows')!.rows.find((r) => r.reference === 'ULO-4004');
+  };
+  assert.equal(await cases(dayAfter(day, -10)), undefined, 'closed before the period began');
+  const during = await cases(dayAfter(day, -25));
+  assert.ok(during, 'open on some day of the period');
+  assert.equal(during!.age_days, 10, 'its age runs to the day it closed');
+  app.ctx.db.prepare('UPDATE work_items SET deleted_at = ? WHERE id = ?').run(at, id);
 });

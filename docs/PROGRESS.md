@@ -4,7 +4,8 @@ _Updated 2026-10-29_
 
 ## What changed (2026-10-29: reports and printable output)
 
-**Partial.** Not merged; HawkScan not run (no key); CI disregarded on John's word.
+**Partial.** Merged in #62, with the fixes from its review in a second PR; HawkScan not run (no key); CI disregarded
+on John's word.
 
 Eleven reports, each one document drawn the same way on screen, on paper and in every file
 ([ADR-0020](engineering/ADR/0020-reports-printable-output.md)).
@@ -31,6 +32,9 @@ Eleven reports, each one document drawn the same way on screen, on paper and in 
   unit, and a shared one names no Marine). The unit dashboard, workload, roster and Analysis link to their report.
 - **Handling line.** Vantage Administrators set it in the console's Identity panel; it defaults to "Working paper".
   The wording MCEN requires is MCEN's to give.
+- **Fixed after review.** A report run again reads afresh; a Marine's report keeps the unit it was opened for; custom
+  totals count only value types that count toward a total; a case found not to apply is closed from that day; a very
+  tall PDF cell is shortened rather than split over pages; grouping a large report is linear.
 - **Left to other Tasks:** duty records (17) and scoring (18) fill the Duty report; financial error snapshots (15);
   one set of analytics components (21).
 

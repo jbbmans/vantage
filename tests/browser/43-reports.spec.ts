@@ -1,6 +1,6 @@
-import { test, expect, type Page } from '@playwright/test';
+import { test, expect, type Browser, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { ensureSetup, confirmSudoIfAsked, loginAs, registerAs, unique, OPERATOR } from './fixtures';
+import { ensureSetup, confirmSudoIfAsked, joinUnit, loginAs, registerAs, unique, OPERATOR, PASSWORD } from './fixtures';
 
 /**
  * Reports and printable output (Task 14, ADR-0020). A leader chooses a report, whom it is about and its filters, sees
@@ -128,14 +128,48 @@ test('a Marine reports on themselves, and is told why a unit’s report is not t
   const doc = page.locator('article.report-doc');
   await expect(doc.getByRole('table', { name: 'Activities' })).toContainText('Briefed the GTCC program');
   await page.getByRole('button', { name: 'Download' }).click();
-  for (const format of ['PDF', 'Spreadsheet (CSV)', 'Excel workbook', 'Vantage file (JSON)']) await expect(page.getByRole('menuitem', { name: new RegExp(format.replace(/[()]/g, '\\$&')) })).toBeVisible();
+  for (const format of ['PDF', 'Spreadsheet (CSV)', 'Excel workbook', 'Vantage file (JSON)']) await expect(page.getByRole('menuitem').filter({ hasText: format })).toBeVisible();
   await page.keyboard.press('Escape');
 
-  await page.getByRole('navigation', { name: 'Reports' }).getByRole('button', { name: /^Unit performance/ }).click();
+  // Run again after another report, it reads the record afresh: what was added since is in it.
+  const reports = page.getByRole('navigation', { name: 'Reports' });
+  await reports.getByRole('button', { name: /^Training/ }).click();
+  await page.getByRole('button', { name: 'Run report' }).click();
+  await expect(doc.getByRole('heading', { level: 2, name: 'Training' })).toBeVisible();
+  const added = await page.request.post('/api/records/activities', { headers: H, data: { title: 'Balanced the travel ledger', date: day(1), category: 'Fiscal & Financial', visibility: 'private' } });
+  expect(added.ok(), await added.text()).toBeTruthy();
+  await reports.getByRole('button', { name: /^Activity/ }).click();
+  await page.getByRole('button', { name: 'Run report' }).click();
+  await expect(doc.getByRole('table', { name: 'Activities' })).toContainText('Balanced the travel ledger');
+
+  await reports.getByRole('button', { name: /^Unit performance/ }).click();
   await expect(page.getByRole('note')).toContainText('you have none whose shared records you may view');
   await expect(page.getByRole('button', { name: 'Run report' })).toBeDisabled();
 
   // Asked for directly, the server refuses, and the print page says so.
   await page.goto(`/reports/print?${new URLSearchParams({ type: 'unit', unit_id: 'G8' })}`);
   await expect(page.getByText('Could not prepare the report')).toBeVisible();
+});
+
+/** A Marine registered on their own, who joined G8 with a join code from the leader signed in on `page`. */
+async function enrolledMarine(page: Page, browser: Browser) {
+  const username = unique('rpt');
+  const other = await browser.newContext();
+  const res = await other.request.post('/api/auth/register', { headers: H, data: { username, password: PASSWORD, first_name: 'Sam', last_name: `Reyes${unique('')}`, rank_id: 'LCpl' } });
+  expect(res.ok(), await res.text()).toBeTruthy();
+  const me = await (await other.request.get('/api/me')).json();
+  await joinUnit(page.request, other.request);
+  await other.close();
+  return me.user.id as string;
+}
+
+test('a Marine’s report from their analysis keeps the unit it was opened for', async ({ page, browser }) => {
+  await loginAs(page, OPERATOR.username);
+  const id = await enrolledMarine(page, browser);
+  await page.goto(`/reports/analysis?${new URLSearchParams({ user: id, unit: 'G8' })}`);
+  const running = page.waitForRequest((r) => r.url().includes('/api/report-center/run'));
+  await page.getByRole('link', { name: 'Print or file' }).click();
+  const asked = new URL((await running).url()).searchParams;
+  expect(Object.fromEntries(['type', 'subject', 'user_id', 'unit_id'].map((k) => [k, asked.get(k)]))).toEqual({ type: 'individual', subject: 'member', user_id: id, unit_id: 'G8' });
+  await expect(page.locator('article.report-doc').getByRole('heading', { level: 2, name: 'Individual performance' })).toBeVisible();
 });
