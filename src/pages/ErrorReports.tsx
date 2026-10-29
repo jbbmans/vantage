@@ -111,7 +111,7 @@ function Overview({ data, onOpen, onFile }: { data: ErrorReportsOverview; onOpen
     <Panel title={`${data.unit.name} and the units beneath it`} subtitle="Each kind of report a unit files is a series. Open one to compare its reports." padded={false}>
       <Table minWidth={760} head={<>
         <th scope="col">Report</th><th scope="col">Unit</th><th scope="col" className="text-right">Filed</th><th scope="col">Latest</th>
-        <th scope="col" className="text-right">Open</th><th scope="col" className="text-right">Value open</th><th scope="col" className="text-right">Since the one before</th><th scope="col"><span className="sr-only">Open</span></th>
+        <th scope="col" className="text-right">Open</th><th scope="col" className="text-right">Value open</th><th scope="col" className="text-right">Since the one before</th><th scope="col" className="relative"><span className="sr-only">Actions</span></th>
       </>}>
         {data.series.map((s) => {
           const change = s.latest && s.previous ? s.latest.open_count - s.previous.open_count : null;
@@ -264,7 +264,7 @@ function Series({ unitId, typeId, overview, onBack, onFile, search, setQuery, ca
       <Panel title="Every report filed" subtitle="Newest first. A withdrawn report is kept, with why, and is in no comparison." padded={false}>
         <Table minWidth={820} head={<>
           <th scope="col">Stands on</th><th scope="col">File</th><th scope="col" className="text-right">Rows</th><th scope="col" className="text-right">Open</th><th scope="col" className="text-right">Value open</th>
-          <th scope="col" className="text-right">Refused</th><th scope="col">Filed</th><th scope="col"><span className="sr-only">Actions</span></th>
+          <th scope="col" className="text-right">Refused</th><th scope="col">Filed</th><th scope="col" className="relative"><span className="sr-only">Actions</span></th>
         </>}>
           {r.reports.map((s) => (
             <tr key={s.id} className={cn(s.withdrawn && 'text-ink-3')}>
@@ -308,7 +308,7 @@ function figureText(f: ErrorFigure): string {
 /** A figure, which opens the rows behind it. */
 function FigureCard({ figure: f, disabled, onOpen }: { figure: ErrorFigure; disabled: boolean; onOpen: () => void }) {
   const text = figureText(f);
-  const sub = f.kind === 'rate' ? 'a week' : f.cents != null ? formatCents(f.cents, { signed: f.id === 'amount_changed' }) : null;
+  const sub = f.cents != null ? formatCents(f.cents, { signed: f.id === 'amount_changed' }) : null;
   return (
     <button type="button" disabled={disabled} onClick={onOpen} aria-label={`${f.label}: ${text}${sub ? `, ${sub}` : ''}.${disabled ? '' : ' Show the rows'}`}
       className={cn('card flex h-full min-w-0 flex-col justify-between p-4 text-left', !disabled && 'card-hover', disabled && 'cursor-default')}>

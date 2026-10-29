@@ -66,7 +66,7 @@ test('the sidebar is the specification’s structure: each group lists its pages
   await expect(page.getByRole('heading', { name: 'Goals', level: 1 })).toBeVisible();
 
   await rail.getByRole('button', { name: 'Show the Work pages' }).click();
-  await listed(rail.getByRole('list', { name: 'Work pages' })).toEqual(['Queue', 'Tasks', 'Projects', 'Correspondence', 'Reference']);
+  await listed(rail.getByRole('list', { name: 'Work pages' })).toEqual(['Queue', 'Tasks', 'Projects', 'Error reports', 'Correspondence', 'Reference']);
 
   // A unit leader's people, figures and administration are three groups, not one list of eight.
   await page.goto('/team/roster');
@@ -118,7 +118,7 @@ test('every page in the sidebar opens without an error boundary, headed as the m
   const pages: Array<[string, string | null, string | RegExp]> = [
     ['/', null, 'Today'],
     ['/work/queue', 'Work', 'Queue'], ['/work/tasks', 'Work', 'Tasks'], ['/work/projects', 'Work', 'Projects'],
-    ['/work/correspondence', 'Work', 'Correspondence'], ['/reference', 'Work', 'Reference'],
+    ['/work/error-reports', 'Work', 'Error reports'], ['/work/correspondence', 'Work', 'Correspondence'], ['/reference', 'Work', 'Reference'],
     ['/record', 'Records', 'Your record'], ['/record/timeline', 'Records', 'Timeline'], ['/record/activities', 'Records', 'Activities'],
     ['/career/awards', 'Records', 'Awards'], ['/career/counseling', 'Records', 'Counseling'], ['/record/drafts', 'Records', 'Drafts'],
     ['/record/contributions', 'Records', 'Contributions'],

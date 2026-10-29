@@ -357,10 +357,13 @@ export function withdrawSnapshot(ctx: AppContext, user: SessionUser, scope: Scop
   if (row.withdrawn_at) throw conflict('This report is already withdrawn.', 'already_withdrawn');
   const why = reason.trim();
   if (why.length < 5) throw badRequest('Say why the report is withdrawn, so the series explains itself.', { fieldErrors: { reason: 'At least a few words.' } });
-  const at = now();
-  ctx.db.prepare('UPDATE error_snapshots SET withdrawn_at = ?, withdrawn_by = ?, withdrawn_reason = ? WHERE id = ? AND withdrawn_at IS NULL').run(at, user.id, why.slice(0, 500), id);
   const type = typeOf(ctx, row.org_id, row.type_id);
-  audit(ctx, { actor_id: user.id, action: 'error_snapshot_withdrawn', entity: 'error_snapshots', entity_id: id, unit_id: row.unit_id, detail: `${type.code} as of ${row.as_of}: ${why.slice(0, 300)}`, ip });
+  ctx.db.transaction(() => {
+    const done = ctx.db.prepare('UPDATE error_snapshots SET withdrawn_at = ?, withdrawn_by = ?, withdrawn_reason = ? WHERE id = ? AND withdrawn_at IS NULL').run(now(), user.id, why.slice(0, 500), id);
+    // Withdrawn by someone else a moment ago: theirs stands, and nothing is written for this one.
+    if (!done.changes) throw conflict('This report is already withdrawn.', 'already_withdrawn');
+    audit(ctx, { actor_id: user.id, action: 'error_snapshot_withdrawn', entity: 'error_snapshots', entity_id: id, unit_id: row.unit_id, detail: `${type.code} as of ${row.as_of}: ${why.slice(0, 300)}`, ip });
+  })();
   const after = ctx.db.prepare('SELECT * FROM error_snapshots WHERE id = ?').get(id) as SnapshotRecord;
   return summaryOf(after, namesOf(ctx, [after.filed_by, after.withdrawn_by]));
 }
