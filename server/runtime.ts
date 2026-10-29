@@ -4,13 +4,14 @@ import type { RuntimeSettings } from './context.ts';
 import { metaGet } from './db/index.ts';
 import { DEFAULT_METRICS, normalizeMetrics } from '../shared/constants.ts';
 import { setCurrencySymbol } from '../shared/metrics.ts';
+import { DEFAULT_REPORT_MARKING } from '../shared/reportCatalog.ts';
 
 export function loadRuntime(db: Db, config: AppConfig): RuntimeSettings {
   const defaults: RuntimeSettings = {
     displayName: 'Vantage', organizationName: 'Marine Corps', announcement: '', selfRegistration: config.selfRegistration,
     aiEnabled: config.ai.enabled, aiModels: [...config.ai.models], aiDefaultModel: config.ai.defaultModel,
     attachmentsEnabled: config.attachments.enabled, maradminsEnabled: config.maradmins.enabled, maintenance: false, maintenanceWindow: null, metrics: DEFAULT_METRICS,
-    selfServiceUnits: true, selfServiceUnitLimit: 5,
+    selfServiceUnits: true, selfServiceUnitLimit: 5, reportMarking: DEFAULT_REPORT_MARKING,
   };
   let runtime = defaults;
   try {

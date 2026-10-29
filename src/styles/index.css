@@ -362,6 +362,87 @@ button:active:not(:disabled), a[role='button']:active { transform: scale(.98); }
   .activity-bar { display: none; }
   .tabbar { animation: none; }
 }
+/* ——— Reports (ADR-0020): one document on screen and on paper ——— */
+.report-doc { color: rgb(var(--ink)); }
+.report-screen { border: 1px solid rgb(var(--line)); border-radius: 12px; background: rgb(var(--surface)); padding: 1.25rem; }
+@media (max-width: 640px) { .report-screen { padding: 0.875rem; } }
+.report-marking { margin: 0 0 0.75rem; text-align: center; font-size: 0.7rem; font-weight: 700; letter-spacing: 0.12em; text-transform: uppercase; color: rgb(var(--ink-2)); }
+.report-marking-foot { margin: 1rem 0 0; }
+.report-cover { border-bottom: 1px solid rgb(var(--line)); padding-bottom: 0.875rem; margin-bottom: 0.875rem; }
+.report-title { margin: 0.25rem 0 0; font-size: 1.5rem; font-weight: 700; line-height: 1.2; }
+.report-about { margin: 0.125rem 0 0; font-size: 0.95rem; color: rgb(var(--ink-2)); }
+.report-facts { display: flex; flex-wrap: wrap; gap: 0.25rem 1.25rem; margin: 0.5rem 0 0; font-size: 0.8rem; color: rgb(var(--ink-2)); }
+.report-facts > div, .report-filters dl > div { display: flex; gap: 0.35rem; min-width: 0; }
+.report-facts dt, .report-filters dt { color: rgb(var(--ink-3)); }
+.report-facts dt::after, .report-filters dt::after { content: ':'; }
+.report-filters { margin-top: 0.75rem; border-radius: 8px; background: rgb(var(--surface-2)); padding: 0.5rem 0.75rem; }
+.report-filters-head { margin: 0 0 0.25rem; font-size: 0.65rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgb(var(--ink-2)); }
+.report-filters dl { display: grid; grid-template-columns: repeat(auto-fill, minmax(14rem, 1fr)); gap: 0.15rem 1rem; margin: 0; font-size: 0.8rem; }
+.report-filters dd { margin: 0; font-weight: 600; overflow-wrap: anywhere; }
+.report-figures { display: grid; grid-template-columns: repeat(auto-fill, minmax(9.5rem, 1fr)); gap: 0.75rem 1rem; margin: 0 0 1rem; }
+.report-figures dt { font-size: 0.75rem; color: rgb(var(--ink-3)); }
+.report-figures dd { margin: 0.1rem 0 0; font-size: 1.15rem; font-weight: 700; }
+.report-figures dd.report-hint { font-size: 0.7rem; font-weight: 400; color: rgb(var(--ink-3)); }
+.report-section { margin-top: 1.25rem; }
+.report-heading { margin: 0 0 0.5rem; font-size: 1.05rem; font-weight: 700; break-after: avoid; }
+.report-lede { margin: -0.25rem 0 0.5rem; font-size: 0.85rem; color: rgb(var(--ink-2)); }
+.report-chart { margin: 0 0 0.875rem; break-inside: avoid; }
+.report-chart-title, .report-table-title { margin: 0 0 0.35rem; font-size: 0.85rem; font-weight: 600; }
+.report-chart ul { margin: 0; padding: 0; list-style: none; }
+.report-chart li { display: grid; grid-template-columns: minmax(6rem, 32%) 1fr minmax(4.5rem, auto); align-items: center; gap: 0.5rem; font-size: 0.78rem; padding: 0.1rem 0; }
+.report-bar-label { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; color: rgb(var(--ink-2)); }
+.report-bar-track { height: 0.6rem; border-radius: 3px; background: rgb(var(--surface-3)); overflow: hidden; }
+.report-bar { display: block; height: 100%; background: rgb(var(--accent)); -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+.report-bar-value { text-align: right; }
+.report-table { margin: 0 0 0.875rem; }
+.report-table-scroll { overflow-x: auto; }
+.report-table table { width: 100%; border-collapse: collapse; font-size: 0.78rem; line-height: 1.3; }
+.report-table caption { caption-side: top; text-align: left; margin: 0 0 0.35rem; font-size: 0.85rem; font-weight: 600; }
+.report-table th { border-bottom: 1px solid rgb(var(--line-strong)); background: rgb(var(--surface-2)); padding: 0.35rem 0.5rem; text-align: left; font-weight: 600; white-space: nowrap; }
+.report-table td { border-bottom: 1px solid rgb(var(--line)); padding: 0.3rem 0.5rem; vertical-align: top; overflow-wrap: break-word; }
+.report-table .num { text-align: right; white-space: nowrap; }
+.report-table .date { white-space: nowrap; }
+.report-table td.long { overflow-wrap: anywhere; }
+.report-table-note, .report-empty { margin: 0.25rem 0 0; font-size: 0.75rem; font-style: italic; color: rgb(var(--ink-3)); }
+.report-notes { margin: 0.25rem 0 0; padding-left: 1.1rem; list-style: disc; font-size: 0.8rem; color: rgb(var(--ink-2)); }
+.report-notes li + li { margin-top: 0.2rem; }
+/* The print page: a sheet on screen, the page itself on paper. */
+.report-print-page { min-height: 100dvh; background: rgb(var(--canvas)); }
+.report-print-bar { position: sticky; top: 0; z-index: 10; display: flex; align-items: center; gap: 0.75rem; border-bottom: 1px solid rgb(var(--line)); background: rgb(var(--surface)); padding: 0.5rem 1rem; }
+.report-print-sheet { margin: 1rem auto; max-width: 11in; background: rgb(var(--surface)); padding: 0.5in; box-shadow: 0 1px 3px rgb(var(--shadow-rgb) / 0.12); }
+@media (max-width: 640px) { .report-print-sheet { margin: 0; padding: 1rem; box-shadow: none; } }
+/* Fixed, so the frame is the page's width and a wide table scrolls inside it rather than widening it. */
+.report-frame { width: 100%; table-layout: fixed; border-collapse: collapse; }
+.report-frame > thead > tr > td, .report-frame > tfoot > tr > td, .report-frame > tbody > tr > td { padding: 0; }
+.report-running { display: flex; flex-wrap: wrap; justify-content: space-between; gap: 0 1rem; overflow-wrap: anywhere; margin: 0 0 0.75rem; font-size: 0.65rem; color: rgb(var(--ink-3)); }
+.report-running > span:first-child { font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: rgb(var(--ink-2)); }
+.report-running-foot { margin: 0.75rem 0 0; border-top: 1px solid rgb(var(--line)); padding-top: 0.35rem; }
+@media print {
+  /* Letter, the margins the PDF keeps; a wide table is printed landscape from the print dialog. */
+  @page { size: letter; margin: 12mm 12mm 14mm; }
+  @page wide { size: letter landscape; }
+  .report-wide { page: wide; }
+  html, body { background: #fff !important; }
+  .report-print-page { min-height: 0; background: #fff; }
+  .report-print-sheet { margin: 0; max-width: none; padding: 0; box-shadow: none; }
+  .report-doc { font-size: 9.5pt; }
+  .report-title { font-size: 18pt; }
+  .report-frame > thead { display: table-header-group; }
+  .report-frame > tfoot { display: table-footer-group; }
+  .report-table-scroll { overflow: visible; }
+  .report-table table { font-size: 8pt; }
+  /* The header of a table repeats on every page it reaches; a row is never split between two. */
+  .report-table thead { display: table-header-group; }
+  .report-table tr, .report-figures > div, .report-chart li { break-inside: avoid; }
+  .report-table caption, .report-table-title, .report-chart-title { break-after: avoid; }
+  /* A table's title and header go to the next page with its first row rather than end a page on their own. */
+  .report-table thead tr { break-after: avoid; }
+  .report-table tbody tr:first-child { break-before: avoid; }
+  .report-table th { background: #eef1f5 !important; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+  .report-table th { white-space: normal; }
+  .report-cover, .report-figures { break-inside: avoid; }
+  .report-section { break-inside: auto; }
+}
 @media print {
   :root { --canvas: 255 255 255; --surface: 255 255 255; --surface-2: 255 255 255; --surface-3: 255 255 255; --line: 190 190 190; --line-strong: 140 140 140; --ink: 0 0 0; --ink-2: 40 40 40; --ink-3: 90 90 90; }
   .no-print { display: none !important; }

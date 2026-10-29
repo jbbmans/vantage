@@ -1,7 +1,7 @@
 import { lazy, Suspense, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQuery, useQueryClient } from '@tanstack/react-query';
-import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine, Ticket, ListChecks } from 'lucide-react';
+import { Users, UserPlus, UserMinus, Link2, Mail, Shield, Building2, Download, Search, Sparkles, ClipboardList, Copy, ArrowRightLeft, Send, PenLine, Ticket, ListChecks, Printer } from 'lucide-react';
 import { PageHeader, Button, Field, Input, Select, Textarea, EmptyState, Badge, RoleBadge, Panel, Stat, Skeleton, Switch, Segmented } from '@/components/ui/primitives';
 import { AssignmentDialog, ACCOUNT_STATUS, type AssignmentTarget } from '@/components/PersonnelRecord';
 import PersonnelBulkDialog from '@/components/PersonnelBulk';
@@ -23,6 +23,7 @@ import { UnitOverviewPanel } from '@/components/UnitOverview';
 import { markTeamSeen } from '@/components/GettingStarted';
 import type { PersonnelRosterRow, TeamPerson, TeamResponse, Unit } from '../../shared/types';
 import { groupFor } from '@/config/nav';
+import type { ReportType } from '../../shared/reportCatalog';
 
 const TeamWorkload = lazy(() => import('./TeamWorkload'));
 
@@ -35,6 +36,8 @@ const SECTION_LEDES: Partial<Record<TeamSection, string>> = {
   units: 'The teams in this command and how they nest.',
   audit: 'Every time someone opened another Marine’s record here: who, whose, and when.',
 };
+// The report each page prints as, laid out for paper and filed from the report library (ADR-0020).
+const SECTION_REPORTS: Partial<Record<TeamSection, ReportType>> = { dashboard: 'unit', workload: 'workload', roster: 'personnel' };
 
 const SECTION_LABELS: Record<TeamSection, string> = {
   overview: 'Overview', workload: 'Workload', roster: 'Roster', dashboard: 'Unit dashboard', invites: 'Invitations', roles: 'Roles', units: 'Units', audit: 'Access log',
@@ -85,6 +88,7 @@ export default function Team({ section }: { section: TeamSection }) {
     <div className="page">
       <PageHeader eyebrow={section === 'overview' ? `${group}${view && subtree.length > 1 ? ' · whole command' : ''}` : `${group} · ${where}${view && subtree.length > 1 ? ', whole command' : ''}`} title={section === 'overview' ? where || 'Personnel' : SECTION_LABELS[section]} lede={missing ? undefined : SECTION_LEDES[shown] ?? (full ? 'The work and people of this view. Private entries, drafts and career plans never appear here, and every open of a member’s record is logged.' : 'Who is in this view, how its teams are doing, and the goals it is working toward. Figures built from fewer than three people are not shown.')}>
         {leads.includes(unit) && <Button onClick={() => setMessaging(true)}><Send className="h-4 w-4" />Email the team</Button>}
+        {!missing && unit && SECTION_REPORTS[shown] && <Button asChild><Link to={`/reports/library?${new URLSearchParams({ type: SECTION_REPORTS[shown]!, subject: 'unit', unit_id: unit })}`}><Printer className="h-4 w-4" aria-hidden />Print or file</Link></Button>}
         {views.length > 1 && <Select aria-label="View" className="w-64" value={unit} onValueChange={setView} options={views.map((v) => ({ value: v.id, label: `${'\u2003'.repeat(v.depth)}${v.short_name || v.name}${v.teams ? ' (whole command)' : ''}` }))} />}
       </PageHeader>
       {isPending ? <Skeleton className="h-64" /> : missing ? (

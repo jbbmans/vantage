@@ -4,6 +4,10 @@ import type { MemberDetailResponse, OrgResponse, PersonnelBulkResponse, Personne
 import type { UnitManagerRole } from '../../shared/permissions';
 import type { LineageResponse, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
 import type { ImportPlanBody, ImportReview, ImportSummary } from '../../shared/recordTransfer';
+import type { ReportDocument, ReportFileFormat } from '../../shared/reportCatalog';
+
+/** A saved report as the library lists it: its name and choices, whose it is, and where it is shared. */
+export interface ReportDefinitionRow { id: string; user_id: string; name: string; type: string; params: Record<string, string>; visibility: 'private' | 'unit'; unit_id: string | null; owner_name: string | null; mine: boolean; created_at: string; updated_at: string }
 
 let sessionState: 'none' | 'unknown' | 'active' = (() => {
   try { return document.cookie.includes('vantage_signed_in=') ? 'unknown' : 'none'; } catch { return 'unknown'; }
@@ -260,6 +264,14 @@ export const undoRecordImport = (id: string) => api.post<ImportReview>(`/me/impo
 export const cancelRecordImport = (id: string) => request('DELETE', `/me/imports/${encodeURIComponent(id)}`);
 export const recordExportUrl = (table: string, id: string, format: 'json' | 'csv' | 'zip') => `/api/records/${encodeURIComponent(table)}/${encodeURIComponent(id)}/export?format=${format}`;
 export const reportCsvUrl = (params: Record<string, string | number | undefined | null>) => `/api/reports/csv?${qs(params)}`;
+// The report center (ADR-0020): one document for the screen, the print page and every file; saved choices, never data.
+export const runReport = (params: Record<string, string | undefined>, purpose: 'view' | 'print' = 'view') =>
+  api.get<ReportDocument & { files: ReportFileFormat[] }>(`/report-center/run?${qs({ ...params, purpose })}`);
+export const reportFileUrl = (params: Record<string, string | undefined>, format: ReportFileFormat) => `/api/report-center/export?${qs({ ...params, format })}`;
+export const reportDefinitions = () => api.get<ReportDefinitionRow[]>('/report-center/definitions');
+export const saveReportDefinition = (body: { name: string; type: string; params: Record<string, string>; visibility?: 'private' | 'unit'; unit_id?: string | null }, id?: string) =>
+  id ? api.put<ReportDefinitionRow>(`/report-center/definitions/${encodeURIComponent(id)}`, body) : api.post<ReportDefinitionRow>('/report-center/definitions', body);
+export const deleteReportDefinition = (id: string) => api.del(`/report-center/definitions/${encodeURIComponent(id)}`);
 export const aiStatus = () => api.get('/ai/status');
 export const aiAssist = (workflow: string, input: unknown, model?: string) => api.post('/ai/assist', { workflow, input, model });
 export const maradmins = (wait = false) => api.get(`/maradmins${wait ? '?wait=1' : ''}`);

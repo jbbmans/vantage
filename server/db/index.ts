@@ -352,6 +352,13 @@ const MIGRATIONS: Migration[] = [
     // two tables come from schema.sql, which is safe to replay. Nothing already written is read, moved or reshaped.
     run: () => {},
   },
+  {
+    id: 28,
+    name: '028_report_definitions',
+    // Saved reports (ADR-0020): a report's choices kept under a name, never its data. The table comes from schema.sql,
+    // which is safe to replay. Nothing already written is read, moved or reshaped.
+    run: () => {},
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */

@@ -33,6 +33,8 @@ const Career = lazy(() => import('@/pages/Career'));
 const Maradmins = lazy(() => import('@/pages/Maradmins'));
 const ReportStudio = lazy(() => import('@/pages/ReportStudio'));
 const Reports = lazy(() => import('@/pages/Reports'));
+const ReportLibrary = lazy(() => import('@/pages/ReportLibrary'));
+const PrintReport = lazy(() => import('@/pages/PrintReport'));
 const Team = lazy(() => import('@/pages/Team'));
 const MemberDetail = lazy(() => import('@/pages/MemberDetail'));
 const Settings = lazy(() => import('@/pages/Settings'));
@@ -220,6 +222,8 @@ function AppRoutes() {
 
   return (
     <Routes>
+      {/* A report laid out for paper prints without the app around it (ADR-0020). */}
+      <Route path="reports/print" element={<Screen><PrintReport /></Screen>} />
       <Route element={<AppShell />}>
         <Route index element={<Dashboard />} />
         <Route path="work" element={<Here />} />
@@ -243,6 +247,7 @@ function AppRoutes() {
         <Route path="career/readiness" element={<D><Readiness /></D>} />
         <Route path="reports" element={<Here><D><ReportStudio /></D></Here>} />
         <Route path="reports/analysis" element={<D><Reports /></D>} />
+        <Route path="reports/library" element={<D><ReportLibrary /></D>} />
         <Route path="reference" element={<D><Reference /></D>} />
         <Route path="maradmins" element={<D><Maradmins /></D>} />
         <Route path="team" element={<Here><D><Team section="overview" /></D></Here>} />

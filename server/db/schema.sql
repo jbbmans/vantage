@@ -1143,6 +1143,24 @@ CREATE INDEX IF NOT EXISTS idx_record_import_origins_record ON record_import_ori
 CREATE INDEX IF NOT EXISTS idx_record_import_origins_source ON record_import_origins(user_id, record_table, source_id);
 CREATE INDEX IF NOT EXISTS idx_record_import_origins_import ON record_import_origins(import_id);
 
+-- A saved report (ADR-0020, migration 028): the report and the choices it runs with, kept under a name, never its data.
+-- Private to its owner, or shared with a unit they belong to; shared, it names no Marine. Running it decides again who
+-- may see what, as running it fresh would.
+CREATE TABLE IF NOT EXISTS report_definitions (
+  id          TEXT PRIMARY KEY,
+  user_id     TEXT NOT NULL REFERENCES users(id),
+  unit_id     TEXT REFERENCES units(id),
+  visibility  TEXT NOT NULL DEFAULT 'private' CHECK (visibility IN ('private', 'unit')),
+  name        TEXT NOT NULL,
+  type        TEXT NOT NULL,
+  params      TEXT NOT NULL DEFAULT '{}',
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL,
+  CHECK (visibility = 'private' OR unit_id IS NOT NULL)
+);
+CREATE INDEX IF NOT EXISTS idx_report_definitions_user ON report_definitions(user_id, name);
+CREATE INDEX IF NOT EXISTS idx_report_definitions_unit ON report_definitions(unit_id, visibility);
+
 -- Organizations: the tenants of the central service (ADR-0006). Each owns a tree of units rooted at root_unit_id.
 CREATE TABLE IF NOT EXISTS organizations (
   id               TEXT PRIMARY KEY,

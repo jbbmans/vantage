@@ -36,6 +36,8 @@ export const EXPORT_TABLES = [
   'record_imports', 'record_import_origins',
   // Report Studio: a draft and every revision it has been saved as.
   'report_drafts', 'report_revisions',
+  // Saved reports' choices (ADR-0020): a moved instance keeps the reports its people run.
+  'report_definitions',
   'contacts', 'connectors', 'threads', 'thread_messages', 'thread_links',
   'attachments', 'comments', 'unit_invites', 'unit_invite_uses', 'support_tickets', 'support_messages',
   'personnel_roster', 'personnel_sync_runs',

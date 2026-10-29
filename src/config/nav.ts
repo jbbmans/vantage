@@ -103,6 +103,7 @@ export const GROUPS: NavGroup[] = [
     id: 'reports', label: 'Reports & Analytics', icon: FileText, key: 'p', hint: 'Evaluation input, and what the records show', pages: [
       { to: '/reports', end: true, label: 'Packages', icon: ClipboardList, hint: 'Write a JEPES or FITREP report against the records it cites' },
       { to: '/reports/analysis', label: 'Analysis', icon: BarChart3, hint: 'What your record shows, by period' },
+      { to: '/reports/library', label: 'Report library', icon: Library, hint: 'Print or file any report: yours, a Marine’s, a unit’s' },
       { to: '/team/dashboard', label: 'Unit dashboard', icon: BarChart3, hint: 'The unit’s shared work, in figures', when: { team: 'dashboard' } },
     ],
   },
@@ -173,7 +174,7 @@ const TABS: Record<string, Record<string, string>> = {
   '/work': { '': '/work/queue', queue: '/work/queue', tasks: '/work/tasks', projects: '/work/projects', mail: '/work/correspondence' },
   '/record': { overview: '/record', entries: '/record/activities', drafts: '/record/drafts', contributions: '/record/contributions' },
   '/career': { plan: '/career', training: '/career/training', awards: '/career/awards', counseling: '/career/counseling', readiness: '/career/readiness', messages: '/maradmins' },
-  '/reports': { packages: '/reports', analysis: '/reports/analysis' },
+  '/reports': { packages: '/reports', analysis: '/reports/analysis', library: '/reports/library' },
   '/team': { overview: '/team', workload: '/team/workload', roster: '/team/roster', dashboard: '/team/dashboard', invites: '/team/invitations', roles: '/team/roles', units: '/team/units', audit: '/team/access-log' },
 };
 

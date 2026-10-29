@@ -48,6 +48,7 @@ export const PRIVILEGED_ROUTERS = [
   { file: 'server/routes/org.ts', router: 'orgRouter', mount: '/api/org', changes: true },
   { file: 'server/routes/me.ts', router: 'meRouter', mount: '/api/me', changes: false },
   { file: 'server/routes/misc.ts', router: 'miscRouter', mount: '/api', changes: false },
+  { file: 'server/routes/reportCenter.ts', router: 'reportCenterRouter', mount: '/api/report-center', changes: false },
 ] as const;
 
 /** A GET whose path reads as a download: an export, a backup, or a file by its extension. Each is listed below or excused here. */
@@ -197,4 +198,8 @@ export const PRIVILEGED_ROUTES: readonly PrivilegedRoute[] = [
   { method: 'GET', path: '/api/reports/csv', kind: 'bulk', permission: ['self', 'EXPORT_DATA'], stepUp: false, audit: writes('export_csv', 'build_report'), note: 'Another Marine’s activities take EXPORT_DATA in the unit as well as opening their record.' },
   { method: 'GET', path: '/api/reports/pdf', kind: 'bulk', permission: ['self', 'VIEW_MEMBER_DETAIL'], stepUp: false, audit: writes('export_pdf', 'build_report') },
   { method: 'GET', path: '/api/reports/analysis.pdf', kind: 'bulk', permission: ['self', 'VIEW_MEMBER_DETAIL'], stepUp: false, audit: writes('export_pdf', 'build_report') },
+  {
+    method: 'GET', path: '/api/report-center/export', kind: 'bulk', permission: ['self', 'VIEW_MEMBER_DETAIL', 'EXPORT_DATA'], stepUp: false, audit: writes('export_report', 'view_team_workload'),
+    note: 'Any report as a PDF, CSV, workbook or JSON (ADR-0020). One’s own in every format; another Marine’s as a PDF by opening their record, otherwise with EXPORT_DATA as well; a unit’s only with EXPORT_DATA there. The workload report writes view_team_workload when it shows Marines.',
+  },
 ];

@@ -697,7 +697,7 @@ export function Training({ org }: { org: OrgSummary }) {
   return (
     <div className="space-y-3">
       <div className="flex flex-wrap items-center gap-2">
-        <p className="max-w-2xl text-sm text-ink-2">The training this Unit Instance requires, in one unit and the units beneath it or in every unit. Vantage does not check anyone’s training against it yet.</p>
+        <p className="max-w-2xl text-sm text-ink-2">The training this Unit Instance requires, in one unit and the units beneath it or in every unit. The Training report checks each Marine’s shared training against it, by its title or its course code.</p>
         {can('org.config') && <Button className="ml-auto" size="sm" variant="primary" onClick={() => setEditing({ title: '', type: 'training', course_code: '', interval_months: '12', unit_id: '', description: '' })}><Plus className="h-4 w-4" />New requirement</Button>}
       </div>
       <div className="card" style={{ overflow: 'hidden' }}>
