@@ -34,8 +34,8 @@ export const AUDIT_ACTION_FAMILIES = {
   ],
   /** server/services/organizations.ts setOrgStatus: `organization_${status}`, with active written as restored. */
   organization_status: ['organization_restored', 'organization_suspended', 'organization_archived'],
-  /** server/services/unitConfig.ts record: `${kind}_${lifecycle}` for billets, duty types and training requirements. */
-  unit_configuration: (['billet', 'duty_type', 'training_requirement'] as const).flatMap((kind) =>
+  /** server/services/unitConfig.ts record: `${kind}_${lifecycle}` for billets, duty types, training requirements and error report types. */
+  unit_configuration: (['billet', 'duty_type', 'training_requirement', 'error_report_type'] as const).flatMap((kind) =>
     (['created', 'updated', 'retired', 'restored'] as const).map((step) => `${kind}_${step}`)),
 } as const satisfies Record<string, readonly string[]>;
 
@@ -64,6 +64,8 @@ const USER = [
   // Work, cases and correspondence.
   'work_created', 'work_action', 'work_handed_off', 'work_closed', 'work_reopened', 'work_claim_expired',
   'work_claim_released_on_departure', 'procedure_applied', 'procedure_migrated', 'upload_source', 'run_import',
+  // Financial error reports (ADR-0021): a report filed or withdrawn, and every read of a unit's comparison or its rows.
+  'error_snapshot_filed', 'error_snapshot_withdrawn', 'view_error_report',
   'create_connector', 'start_connector_authorization', 'authorize_connector', 'disconnect_connector', 'sync_mailbox',
   'create_thread', 'thread_state', 'link_thread', 'import_email',
   // Asking for help, and answering one's own request.
@@ -85,7 +87,7 @@ const UNIT = [
   'org_role_granted', 'org_role_revoked', 'org_role_ended', 'org_role_expired', 'org_role_restored', 'organization_updated',
   'removed_from_organization', 'shared_account_notice', 'vantage_access_approved', 'vantage_access_denied', 'vantage_access_revoked',
   // Configuration: billets, duty types and scoring, training, the structure as a file.
-  ...AUDIT_ACTION_FAMILIES.unit_configuration, 'duty_types_standard_added', 'unit_settings_updated', 'unit_configuration_imported',
+  ...AUDIT_ACTION_FAMILIES.unit_configuration, 'duty_types_standard_added', 'error_report_types_standard_added', 'unit_settings_updated', 'unit_configuration_imported',
   'unit_configuration_exported', 'duty_scoring_policy_published', 'duty_scoring_policy_withdrawn',
   // The personnel feed.
   'personnel_sync_planned', 'personnel_sync', 'personnel_sync_update', 'personnel_provisioned', 'personnel_profile_updated',

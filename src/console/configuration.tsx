@@ -1,7 +1,7 @@
 import { useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useQueryClient } from '@tanstack/react-query';
-import { Archive, Building2, CalendarClock, ClipboardList, Download, FileUp, GraduationCap, Plus, RotateCcw, Save, Shield, ShieldAlert, UserPlus, Users } from 'lucide-react';
+import { Archive, Building2, CalendarClock, ClipboardList, Download, FileUp, FileWarning, GraduationCap, Plus, RotateCcw, Save, Shield, ShieldAlert, UserPlus, Users } from 'lucide-react';
 import { Badge, Button, EmptyState, Field, Input, NumberInput, Panel, Segmented, Select, Skeleton, Textarea } from '@/components/ui/primitives';
 import { ConfirmDialog, Dialog } from '@/components/ui/Dialog';
 import { useToast } from '@/components/ui/toast';
@@ -15,6 +15,7 @@ import { ECHELONS } from '../../shared/constants';
 import { PERMISSIONS, PERMISSION_LIST, RECORD_READING_BITS, ROLE_TEMPLATE, listPermissions } from '../../shared/permissions';
 import { TEAM_ECHELONS, type Billet, type DutyType, type TrainingRequirement, type UnitSettings } from '../../shared/unitConfig';
 import { formatDate, type PeriodKey } from '../../shared/metrics';
+import type { ErrorReportType } from '../../shared/errorReports';
 import {
   SCORING_COMBINE, SCORING_CONDITIONS, SCORING_LIMITS, SCORING_METHODS, calculatePoints, describeRule, scoringPolicyProblems,
   type ScoringCombine, type ScoringCondition, type ScoringMethod, type ScoringPolicy, type ScoringPolicyContent, type ScoringPolicyStatus,
@@ -37,10 +38,13 @@ export interface EnterpriseControls {
   features: { ai: boolean; email: boolean; maradmins: boolean };
 }
 export interface Configuration {
-  billets: Billet[]; dutyTypes: DutyType[]; trainingRequirements: TrainingRequirement[];
+  billets: Billet[]; dutyTypes: DutyType[]; trainingRequirements: TrainingRequirement[]; errorReportTypes: ErrorReportType[];
   settings: UnitSettings;
   limits: { claimExpiryHours: { min: number; max: number; default: number } };
-  catalog: { trainingTypes: string[]; periods: Array<{ value: PeriodKey; label: string }>; standardDutyTypes: Array<{ code: string; name: string }> };
+  catalog: {
+    trainingTypes: string[]; periods: Array<{ value: PeriodKey; label: string }>; standardDutyTypes: Array<{ code: string; name: string }>;
+    standardErrorReportTypes: Array<{ code: string; name: string; description: string }>;
+  };
   scoring: { today: string; current: string | null; policies: Array<ScoringPolicy & { status: ScoringPolicyStatus }> };
   enterprise: EnterpriseControls;
 }
@@ -443,6 +447,71 @@ export function Duty({ org }: { org: OrgSummary }) {
           <div className="space-y-3">
             <div className="grid grid-cols-[1fr_8rem] gap-3">
               <Field label="Name" required><Input autoFocus maxLength={60} value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Barracks Duty" /></Field>
+              <Field label="Code" hint="from the name if empty"><Input maxLength={20} className="mono uppercase" value={editing.code} onChange={(e) => setEditing({ ...editing, code: e.target.value })} /></Field>
+            </div>
+            <Field label="Description" hint="optional"><Textarea rows={2} maxLength={300} value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></Field>
+          </div>
+        )}
+      </Dialog>
+    </div>
+  );
+}
+
+// ——— Financial error reports (ADR-0021) ———
+
+/**
+ * The kinds of financial error report the Unit Instance's units file and compare: the standard five and any of its own.
+ * A retired type keeps its filed reports, still readable; no new report is filed under it until it is restored.
+ */
+export function ErrorReportTypes({ org }: { org: OrgSummary }) {
+  const can = (p: string) => org.permissions.includes(p);
+  const qc = useQueryClient();
+  const act = useAct();
+  const { data, isPending, error, refetch } = useConfiguration(org.id);
+  const [editing, setEditing] = useState<DutyDraft | null>(null);
+  const refresh = () => qc.invalidateQueries({ queryKey: ['org', org.id] });
+  if (isPending) return <Skeleton className="h-64" />;
+  if (error || !data) return <Failed error={error} retry={() => refetch()} />;
+  const save = async () => {
+    if (!editing) return;
+    const r = await act(editing.id ? 'Error report type saved.' : 'Error report type added.', () => api.orgSaveErrorReportType(org.id, { code: editing.code || editing.name, name: editing.name, description: editing.description || null }, editing.id), refresh);
+    if (r) setEditing(null);
+  };
+  const missing = data.catalog.standardErrorReportTypes.filter((s) => !data.errorReportTypes.some((t) => t.code === s.code));
+  return (
+    <div className="space-y-3">
+      <div className="flex flex-wrap items-center gap-2">
+        <p className="max-w-2xl text-sm text-ink-2">Each unit files these reports under Work → Error reports, and compares each one with the report before it. Retiring a type keeps every report filed under it.</p>
+        {can('org.config') && <span className="ml-auto flex flex-wrap gap-2">
+          {missing.length > 0 && <Button size="sm" onClick={() => act(`Added ${missing.length} error report types.`, () => api.orgAddStandardErrorReportTypes(org.id), refresh)}>Add the standard list</Button>}
+          <Button size="sm" variant="primary" onClick={() => setEditing({ code: '', name: '', description: '' })}><Plus className="h-4 w-4" />New error report type</Button>
+        </span>}
+      </div>
+      <div className="card" style={{ overflow: 'hidden' }}>
+        {!data.errorReportTypes.length ? <EmptyState icon={FileWarning} title="No error report types yet" description={`Start from the standard list (${data.catalog.standardErrorReportTypes.map((t) => t.code).join(', ')}) or add your own.`} /> : (
+          <Table minWidth={600} head={<><th className="w-36">Code</th><th>Name</th><th className="w-24">Status</th><th className="relative w-40"><span className="sr-only">Actions</span></th></>}>
+            {data.errorReportTypes.map((t) => (
+              <tr key={t.id}>
+                <td className="mono text-xs text-ink">{t.code}</td>
+                <td><span className="block text-sm text-ink">{t.name}</span>{t.description && <span className="block text-xs text-ink-3">{t.description}</span>}</td>
+                <td><StatusBadge active={t.active} /></td>
+                <td className="text-right">{can('org.config') && <span className="flex justify-end gap-1">
+                  {t.active ? <Button size="xs" variant="ghost" aria-label={`Edit ${t.name}`} onClick={() => setEditing({ id: t.id, code: t.code, name: t.name, description: t.description || '' })}>Edit</Button> : null}
+                  {t.active
+                    ? <Button size="xs" variant="ghost" aria-label={`Retire ${t.name}`} onClick={() => act('Error report type retired.', () => api.orgSaveErrorReportType(org.id, { active: false }, t.id), refresh)}>Retire</Button>
+                    : <Button size="xs" variant="ghost" aria-label={`Restore ${t.name}`} onClick={() => act('Error report type restored.', () => api.orgSaveErrorReportType(org.id, { active: true }, t.id), refresh)}><RotateCcw className="h-3 w-3" />Restore</Button>}
+                </span>}</td>
+              </tr>
+            ))}
+          </Table>
+        )}
+      </div>
+      <Dialog open={Boolean(editing)} onOpenChange={(o) => { if (!o) setEditing(null); }} size="sm" title={editing?.id ? `Edit ${editing.name}` : 'New error report type'}
+        footer={<><Button variant="ghost" onClick={() => setEditing(null)}>Cancel</Button><Button variant="primary" disabled={!editing?.name.trim()} onClick={save}><Save className="h-4 w-4" />Save</Button></>}>
+        {editing && (
+          <div className="space-y-3">
+            <div className="grid grid-cols-[1fr_8rem] gap-3">
+              <Field label="Name" required><Input autoFocus maxLength={80} value={editing.name} onChange={(e) => setEditing({ ...editing, name: e.target.value })} placeholder="Unliquidated obligations" /></Field>
               <Field label="Code" hint="from the name if empty"><Input maxLength={20} className="mono uppercase" value={editing.code} onChange={(e) => setEditing({ ...editing, code: e.target.value })} /></Field>
             </div>
             <Field label="Description" hint="optional"><Textarea rows={2} maxLength={300} value={editing.description} onChange={(e) => setEditing({ ...editing, description: e.target.value })} /></Field>

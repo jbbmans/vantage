@@ -26,6 +26,7 @@ const WorkDetail = lazy(() => import('@/pages/WorkDetail'));
 const Workbench = lazy(() => import('@/pages/Workbench'));
 const Work = lazy(() => import('@/pages/Work'));
 const Correspondence = lazy(() => import('@/pages/Correspondence'));
+const ErrorReports = lazy(() => import('@/pages/ErrorReports'));
 const Records = lazy(() => import('@/pages/Records'));
 const Readiness = lazy(() => import('@/pages/Readiness'));
 const Goals = lazy(() => import('@/pages/Goals'));
@@ -231,6 +232,7 @@ function AppRoutes() {
         <Route path="work/tasks" element={<D><Work section="tasks" /></D>} />
         <Route path="work/projects" element={<D><Work section="projects" /></D>} />
         <Route path="work/correspondence" element={<D><Correspondence /></D>} />
+        <Route path="work/error-reports" element={<D><ErrorReports /></D>} />
         <Route path="work/items/:id" element={<D><WorkItemPage /></D>} />
         <Route path="record" element={<Here><D><RecordHub section="overview" /></D></Here>} />
         <Route path="record/activities" element={<D><Records /></D>} />

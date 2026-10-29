@@ -15,6 +15,7 @@ import { personnelRoster } from './personnelRecords.ts';
 import { listDutyTypes, listTrainingRequirements } from './unitConfig.ts';
 import { listScoringPolicies } from './dutyScoring.ts';
 import { stageOf } from './cases.ts';
+import { comparisonWithChanges, overviewOf } from './errorReports.ts';
 import { withGoalProgress } from './records.ts';
 import { renderReportDocumentPdf } from '../lib/pdfReport.ts';
 import { writeWorkbook, type SheetOut } from '../lib/workbook.ts';
@@ -23,6 +24,7 @@ import { isSummable, valueType } from '../../shared/constants.ts';
 import { formatDTG } from '../../shared/metrics.ts';
 import { PROCEDURES } from '../../shared/procedures.ts';
 import { STAGE_LABEL, type Stage } from '../../shared/caseModel.ts';
+import { AGE_BASIS_LABELS, FLAG_LABELS, NO_OWNER, STANDING_LABELS, type ErrorFigure, type GroupLine } from '../../shared/errorReports.ts';
 import { SCORING_COMBINE, SCORING_CONDITIONS, SCORING_METHODS, policyOn, policyStatus } from '../../shared/dutyScoring.ts';
 import {
   CASE_STATES, CUSTOM_DATASETS, DEFAULT_REPORT_MARKING, DUE_SOON_DAYS, PERSONNEL_STATUSES, REPORT_FILE_FORMATS, REPORT_FORMAT, REPORT_PARAM_KEYS,
@@ -141,7 +143,8 @@ export function resolveTarget(ctx: AppContext, user: SessionUser, scope: Scope, 
   const reads = can(scope, PERMISSIONS.VIEW_RECORDS, q.unit_id) || (q.type === 'personnel' && can(scope, PERMISSIONS.MANAGE_MEMBERS, q.unit_id));
   if (!reads) throw forbidden(`You cannot run the ${spec.title} report for that unit.`);
   return {
-    type: q.type, subject, userId: null, unitId: q.unit_id, unitIds: subtreeIds(ctx, q.unit_id),
+    // A comparison is of one unit's series; every other unit report reads the units beneath it too.
+    type: q.type, subject, userId: null, unitId: q.unit_id, unitIds: q.type === 'comparison' ? [q.unit_id] : subtreeIds(ctx, q.unit_id),
     detail: can(scope, PERMISSIONS.VIEW_MEMBER_DETAIL, q.unit_id), files: can(scope, PERMISSIONS.EXPORT_DATA, q.unit_id) ? all : [],
   };
 }
@@ -893,6 +896,121 @@ function buildErrors(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Rep
   };
 }
 
+// ——— Error report comparison: two filed reports of a series (ADR-0021) ———
+
+const dollars = (cents: number | null | undefined) => (cents == null ? null : cents / 100);
+
+/** A figure of the comparison as the document prints it: a count with the dollars behind it, or a value of its own. */
+function errorFigures(list: readonly ErrorFigure[]): ReportFigure[] {
+  return list.flatMap((f): ReportFigure[] => {
+    if (f.kind === 'count') {
+      const count: ReportFigure = { label: f.label, value: f.value, kind: 'number', ...(f.hint ? { hint: f.hint } : {}) };
+      return f.cents == null || f.value == null ? [count] : [count, { label: f.id === 'amount_changed' ? `${f.label}, net` : `${f.label}, value`, value: dollars(f.cents), kind: 'money' }];
+    }
+    return [{ label: f.label, value: f.kind === 'money' ? dollars(f.value) : f.value, kind: f.kind === 'money' ? 'money' : f.kind === 'percent' ? 'percent' : 'number', ...(f.hint ? { hint: f.hint } : {}) }];
+  });
+}
+
+function groupTable(id: string, title: string, label: string, lines: readonly GroupLine[], compared: boolean): ReportTable {
+  return table(id, title, [
+    { key: 'label', label, width: 18 }, { key: 'open', label: 'Open', kind: 'number', width: 7 }, { key: 'value', label: 'Open value', kind: 'money', width: 11 },
+    ...(compared ? [
+      { key: 'new', label: 'New', kind: 'number' as const, width: 6 }, { key: 'reopened', label: 'Reopened', kind: 'number' as const, width: 7 },
+      { key: 'still_open', label: 'Still open', kind: 'number' as const, width: 7 }, { key: 'resolved', label: 'Resolved', kind: 'number' as const, width: 7 },
+      { key: 'resolved_value', label: 'Value resolved', kind: 'money' as const, width: 11 },
+    ] : []),
+  ], lines.map((l) => ({ label: l.label, open: l.open, value: dollars(l.open_cents), new: l.new, reopened: l.reopened, still_open: l.still_open, resolved: l.resolved, resolved_value: dollars(l.resolved_cents) })), 'Nothing open on either report.');
+}
+
+function buildComparisonReport(ctx: AppContext, scope: Scope, t: ReportTarget, q: ReportQuery): Built {
+  // Without a type it is the unit's series, each with its latest report: what there is to compare.
+  if (!q.error_type) {
+    const overview = overviewOf(ctx, scope, t.unitId!);
+    const own = overview.series.filter((s) => s.unit_id === t.unitId);
+    const rows = own.map((s) => ({
+      type: `${s.code} ${s.name}`, reports: s.reports, latest: s.latest?.as_of ?? null, open: s.latest?.open_count ?? null, value: dollars(s.latest?.open_cents),
+      previous: s.previous?.as_of ?? null, previous_open: s.previous?.open_count ?? null, previous_value: dollars(s.previous?.open_cents),
+    }));
+    return {
+      summary: [
+        { label: 'Series', value: own.length, kind: 'number' }, { label: 'Open on the latest reports', value: own.reduce((n, s) => n + (s.latest?.open_count ?? 0), 0), kind: 'number' },
+        { label: 'Their value', value: dollars(own.reduce((n, s) => n + (s.latest?.open_cents ?? 0), 0)), kind: 'money' },
+      ],
+      sections: [{
+        id: 'series', heading: 'Error reports filed',
+        tables: [table('series', 'Series', [
+          { key: 'type', label: 'Report', width: 18 }, { key: 'reports', label: 'Reports', kind: 'number', width: 7 }, { key: 'latest', label: 'Latest', kind: 'date', width: 9 },
+          { key: 'open', label: 'Open', kind: 'number', width: 7 }, { key: 'value', label: 'Open value', kind: 'money', width: 11 }, { key: 'previous', label: 'Before it', kind: 'date', width: 9 },
+          { key: 'previous_open', label: 'Open then', kind: 'number', width: 7 }, { key: 'previous_value', label: 'Value then', kind: 'money', width: 11 },
+        ], rows, 'No error report is filed for this unit yet. File one under Work, Error reports.')],
+      }],
+      primary: 'series',
+      notes: [sourceNote(ctx, t).replace(/ Private entries are never included\.$/, ''), 'Choose an error report type to compare two of its reports.'],
+    };
+  }
+  const c = comparisonWithChanges(ctx, scope, { unit_id: t.unitId!, type_id: q.error_type, snapshot: q.snapshot, against: q.against });
+  const compared = Boolean(c.before);
+  const STAND: Record<string, string> = Object.fromEntries(Object.entries(STANDING_LABELS).map(([k, v]) => [k, v.label]));
+  const changes = c.changes.map((r) => ({
+    identifier: r.identifier, reference: r.reference, description: r.description, category: r.category, unit: r.unit,
+    owner: t.detail ? r.marine ?? r.owner : r.owner, status: r.status, standing: r.standing ? STAND[r.standing] : 'Closed on both',
+    changed: r.flags.map((f) => FLAG_LABELS[f].label).join(', ') || null, before: dollars(r.before_cents), after: dollars(r.after_cents), age: r.age_days,
+  }));
+  const groups = [
+    groupTable('by_category', 'By error type', 'Error type', c.groups.category, compared),
+    groupTable('by_unit', 'By unit or office', 'Unit or office', c.groups.unit, compared),
+    ...(c.groups.owner ? [groupTable('by_marine', 'By Marine', 'Held by', c.groups.owner, compared)] : []),
+  ];
+  return {
+    summary: errorFigures(c.summary.figures),
+    sections: [
+      {
+        id: 'changes', heading: compared ? `What changed since ${c.before!.as_of}` : 'What this report holds',
+        lede: `${c.type.code} ${c.type.name} as of ${c.after.as_of}, from ${c.after.filename}${compared ? `, against the report as of ${c.before!.as_of}, from ${c.before!.filename}` : ''}.`,
+        tables: [table('changes', compared ? 'Changes' : 'Open', [
+          { key: 'standing', label: 'Standing', width: 9 }, { key: 'identifier', label: 'Identifier', width: 14 }, { key: 'reference', label: 'Reference', width: 11 },
+          { key: 'description', label: 'Description', width: 20 }, { key: 'category', label: 'Error type', width: 11 }, { key: 'unit', label: 'Unit or office', width: 10 },
+          { key: 'owner', label: 'Owner', width: 12 }, { key: 'status', label: 'Status', width: 9 }, { key: 'changed', label: 'Changed', width: 12 },
+          ...(compared ? [{ key: 'before', label: 'Amount before', kind: 'money' as const, width: 10 }] : []),
+          { key: 'after', label: compared ? 'Amount now' : 'Amount', kind: 'money', width: 10 }, { key: 'age', label: 'Age (days)', kind: 'number', width: 7 },
+        ], changes, compared ? 'Nothing is open on either report.' : 'Nothing is open on this report.')],
+      },
+      {
+        id: 'groups', heading: 'By error type, unit and Marine',
+        chart: { title: 'Open by error type', kind: 'number', bars: c.groups.category.filter((l) => l.open).slice(0, 12).map((l) => ({ label: l.label, value: l.open })), table: 'by_category' },
+        tables: groups,
+      },
+      {
+        id: 'oldest', heading: 'The oldest open',
+        tables: [table('oldest', 'Oldest open', [
+          { key: 'identifier', label: 'Identifier', width: 14 }, { key: 'reference', label: 'Reference', width: 11 }, { key: 'description', label: 'Description', width: 22 },
+          { key: 'category', label: 'Error type', width: 12 }, { key: 'owner', label: 'Owner', width: 12 }, { key: 'amount', label: 'Amount', kind: 'money', width: 10 },
+          { key: 'days', label: 'Age (days)', kind: 'number', width: 7 }, { key: 'basis', label: 'Age from', width: 12 },
+        ], c.oldest.map((o) => ({ identifier: o.identifier, reference: o.reference, description: o.description, category: o.category, owner: o.owner ?? NO_OWNER, amount: dollars(o.amount_cents), days: o.days, basis: AGE_BASIS_LABELS[o.basis] })), 'Nothing is open on this report.')],
+      },
+      {
+        id: 'trend', heading: 'The series, report by report',
+        chart: { title: 'Open on each report', kind: 'number', bars: c.trend.map((p) => ({ label: p.as_of, value: p.open_count })), table: 'trend' },
+        tables: [
+          table('trend', 'Trend', [{ key: 'as_of', label: 'As of', kind: 'date', width: 10 }, { key: 'open', label: 'Open', kind: 'number', width: 8 }, { key: 'value', label: 'Open value', kind: 'money', width: 12 }],
+            c.trend.map((p) => ({ as_of: p.as_of, open: p.open_count, value: dollars(p.open_cents) })), 'No report is filed.'),
+          table('reports', 'Every report filed', [
+            { key: 'as_of', label: 'As of', kind: 'date', width: 9 }, { key: 'file', label: 'File', width: 20 }, { key: 'rows', label: 'Rows', kind: 'number', width: 6 },
+            { key: 'open', label: 'Open', kind: 'number', width: 6 }, { key: 'refused', label: 'Rows refused', kind: 'number', width: 7 }, { key: 'filed_by', label: 'Filed by', width: 13 },
+            { key: 'withdrawn', label: 'Withdrawn', width: 18 },
+          ], c.reports.map((r) => ({ as_of: r.as_of, file: r.filename, rows: r.row_count, open: r.open_count, refused: r.rejected_rows, filed_by: r.filed_by, withdrawn: r.withdrawn ? `${r.withdrawn.at.slice(0, 10)}: ${r.withdrawn.reason}` : null })), 'No report is filed.'),
+        ],
+      },
+    ],
+    primary: 'changes',
+    notes: [`Drawn from the ${c.type.code} reports filed for ${c.unit.name}. A withdrawn report is listed, and in no comparison.`, ...c.notes],
+    filters: [
+      { label: 'Report', value: `${c.type.code} ${c.type.name}` }, { label: 'As of', value: c.after.as_of },
+      { label: 'Compared with', value: c.before ? c.before.as_of : 'Nothing: the first report of its series' },
+    ],
+  };
+}
+
 // ——— Custom: a dataset, its columns, its grouping and its order ———
 
 const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
@@ -1047,6 +1165,7 @@ export function buildReportDocument(ctx: AppContext, user: SessionUser, scope: S
       case 'duty': return buildDuty(ctx, user, t, q);
       case 'financial': return buildFinancial(ctx, user, t, q, dated());
       case 'errors': return buildErrors(ctx, user, t, q);
+      case 'comparison': return buildComparisonReport(ctx, scope, t, q);
       case 'custom': return buildCustom(ctx, t, q, period);
     }
   })();

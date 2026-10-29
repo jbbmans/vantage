@@ -12,10 +12,12 @@ import {
   REPORT_PERIODS, STANDARD_DUTY_TYPES, UNIT_CONFIG_FORMAT, UNIT_SETTING_LIMITS, normalizeUnitSettings,
   type Billet, type DutyType, type TrainingRequirement, type TrainingRequirementType, type UnitSettings,
 } from '../../shared/unitConfig.ts';
+import { STANDARD_ERROR_REPORT_TYPES, errorTypeCode, type ErrorReportType } from '../../shared/errorReports.ts';
 
 /**
  * A Unit Instance's own configuration (VANTAGE_CLAUDE_MASTER §19, ADR-0012): the billets it staffs, the duty it stands,
- * the training it requires, how long a claim on its work holds, and the period its reports open on. Unit Managers keep
+ * the training it requires, the financial error reports it files (ADR-0021), how long a claim on its work holds, and the
+ * period its reports open on. Unit Managers keep
  * it in the Unit Manager console. None of it is a Marine's record, and none of it reaches a sign-in, security or audit
  * setting: those are the enterprise's, and the console shows them read-only (enterpriseControls).
  *
@@ -24,9 +26,11 @@ import {
  * database refuses any other (instanceBoundaryTriggers), and this service says so first, without saying where it is.
  */
 
-type Kind = 'billet' | 'duty_type' | 'training_requirement';
-const TABLE: Record<Kind, 'unit_billets' | 'duty_types' | 'training_requirements'> = { billet: 'unit_billets', duty_type: 'duty_types', training_requirement: 'training_requirements' };
-const LABEL: Record<Kind, string> = { billet: 'billet', duty_type: 'duty type', training_requirement: 'training requirement' };
+type Kind = 'billet' | 'duty_type' | 'training_requirement' | 'error_report_type';
+const TABLE: Record<Kind, 'unit_billets' | 'duty_types' | 'training_requirements' | 'error_report_types'> = {
+  billet: 'unit_billets', duty_type: 'duty_types', training_requirement: 'training_requirements', error_report_type: 'error_report_types',
+};
+const LABEL: Record<Kind, string> = { billet: 'billet', duty_type: 'duty type', training_requirement: 'training requirement', error_report_type: 'error report type' };
 
 const isUnique = (e: unknown) => ['SQLITE_CONSTRAINT_UNIQUE', 'SQLITE_CONSTRAINT_PRIMARYKEY'].includes((e as { code?: string } | null)?.code ?? '');
 const text = (v: string | null | undefined) => (v == null ? null : v.trim() || null);
@@ -168,6 +172,72 @@ export function addStandardDutyTypes(ctx: AppContext, actor: Pick<SessionUser, '
   return { added };
 }
 
+// ——— Financial error report types (ADR-0021) ———
+
+export interface ErrorReportTypeInput { code?: string; name?: string; description?: string | null; active?: boolean }
+
+export function listErrorReportTypes(ctx: AppContext, orgId: string): ErrorReportType[] {
+  return ctx.db.prepare('SELECT * FROM error_report_types WHERE org_id = ? ORDER BY active DESC, code').all(orgId) as ErrorReportType[];
+}
+
+export function saveErrorReportType(ctx: AppContext, actor: Pick<SessionUser, 'id'>, orgId: string, input: ErrorReportTypeInput, id?: string, ip?: string): ErrorReportType {
+  const before = id ? rowOf<ErrorReportType>(ctx, 'error_report_type', orgId, id) : null;
+  const name = input.name === undefined ? before?.name : input.name.trim();
+  if (!name) throw badRequest('An error report type needs a name.', { fieldErrors: { name: 'Required.' } });
+  const code = input.code === undefined ? before?.code ?? errorTypeCode(name) : errorTypeCode(input.code);
+  if (!code) throw badRequest('An error report type needs a code of letters or digits.', { fieldErrors: { code: 'Letters, digits and hyphens.' } });
+  const next = {
+    code, name,
+    description: input.description === undefined ? before?.description ?? null : text(input.description),
+    active: input.active === undefined ? before?.active ?? 1 : input.active ? 1 : 0,
+  };
+  const at = now();
+  const rowId = id ?? newId();
+  try {
+    if (before) ctx.db.prepare('UPDATE error_report_types SET code = ?, name = ?, description = ?, active = ?, updated_at = ? WHERE id = ?').run(next.code, next.name, next.description, next.active, at, rowId);
+    else ctx.db.prepare('INSERT INTO error_report_types (id, org_id, code, name, description, active, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)').run(rowId, orgId, next.code, next.name, next.description, actor.id, at, at);
+  } catch (e) {
+    if (isUnique(e)) throw conflict(`This Unit Instance already has an error report type with the code ${next.code}. Restore or rename that one.`, 'duplicate');
+    throw e;
+  }
+  const row = rowOf<ErrorReportType>(ctx, 'error_report_type', orgId, rowId);
+  record(ctx, actor, orgId, 'error_report_type', lifecycle(before, row), row, before ? changes(before, next) || 'no change' : `${row.code} ${row.name}`, ip);
+  return row;
+}
+
+/**
+ * The specification's reports (Task 15) a Unit Instance does not have yet, by code or by name, retired ones included. A
+ * Unit Manager adds them from the console; a Unit Instance that has none at all is given them the first time its error
+ * reports are opened (errorReportTypesOf), with no one named as having added them.
+ */
+export function addStandardErrorReportTypes(ctx: AppContext, actor: Pick<SessionUser, 'id'> | null, orgId: string, ip?: string): { added: string[] } {
+  const rows = ctx.db.prepare('SELECT code, name FROM error_report_types WHERE org_id = ?').all(orgId) as Array<{ code: string; name: string }>;
+  const have = new Set(rows.flatMap((r) => [r.code, `name:${r.name.trim().toLowerCase()}`]));
+  const added: string[] = [];
+  const at = now();
+  ctx.db.transaction(() => {
+    for (const t of STANDARD_ERROR_REPORT_TYPES) {
+      if (have.has(t.code) || have.has(`name:${t.name.toLowerCase()}`)) continue;
+      ctx.db.prepare('INSERT INTO error_report_types (id, org_id, code, name, description, active, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)')
+        .run(newId(), orgId, t.code, t.name, t.description, actor?.id ?? null, at, at);
+      added.push(t.code);
+    }
+    if (added.length) {
+      audit(ctx, {
+        actor_id: actor?.id ?? null, action: 'error_report_types_standard_added', entity: 'error_report_types', org_id: orgId,
+        detail: `${added.join(', ')}${actor ? '' : ': the standard list, given the first time this Unit Instance’s error reports were opened'}`, ip,
+      });
+    }
+  })();
+  return { added };
+}
+
+/** The Unit Instance's error report types, the standard ones given first if it has never had any. */
+export function errorReportTypesOf(ctx: AppContext, orgId: string): ErrorReportType[] {
+  if (!ctx.db.prepare('SELECT 1 FROM error_report_types WHERE org_id = ? LIMIT 1').get(orgId)) addStandardErrorReportTypes(ctx, null, orgId);
+  return listErrorReportTypes(ctx, orgId);
+}
+
 // ——— Training requirements ———
 
 export interface TrainingRequirementInput {
@@ -260,9 +330,10 @@ export function unitConfiguration(ctx: AppContext, orgId: string) {
     billets: listBillets(ctx, orgId),
     dutyTypes: listDutyTypes(ctx, orgId),
     trainingRequirements: listTrainingRequirements(ctx, orgId),
+    errorReportTypes: errorReportTypesOf(ctx, orgId),
     settings: unitSettingsOf(ctx, orgId),
     limits: UNIT_SETTING_LIMITS,
-    catalog: { trainingTypes: TRAINING_TYPES, periods: PERIOD_OPTIONS, standardDutyTypes: STANDARD_DUTY_TYPES },
+    catalog: { trainingTypes: TRAINING_TYPES, periods: PERIOD_OPTIONS, standardDutyTypes: STANDARD_DUTY_TYPES, standardErrorReportTypes: STANDARD_ERROR_REPORT_TYPES },
     scoring: scoringOverview(ctx, orgId),
     enterprise: enterpriseControls(ctx),
   };
@@ -298,6 +369,8 @@ export interface UnitConfigurationFile {
   billets: Array<Pick<Billet, 'unit_id' | 'title' | 'code' | 'description'>>;
   dutyTypes: Array<Pick<DutyType, 'code' | 'name' | 'description'>>;
   trainingRequirements: Array<Pick<TrainingRequirement, 'unit_id' | 'title' | 'type' | 'course_code' | 'interval_months' | 'description'>>;
+  /** The financial error reports it files (ADR-0021); a file from before them has none. */
+  errorReportTypes?: Array<Pick<ErrorReportType, 'code' | 'name' | 'description'>>;
   settings?: Partial<{ work: Partial<UnitSettings['work']>; reports: Partial<UnitSettings['reports']> }>;
   /** Every duty scoring version, withdrawn ones too, its rules naming duty types by code: ids are an instance's own. */
   scoringPolicies?: ScoringVersionFile[];
@@ -320,6 +393,7 @@ export function exportUnitConfiguration(ctx: AppContext, orgId: string): UnitCon
     billets: listBillets(ctx, orgId).filter((b) => b.active).map(({ unit_id, title, code, description }) => ({ unit_id, title, code, description })),
     dutyTypes: listDutyTypes(ctx, orgId).filter((d) => d.active).map(({ code, name, description }) => ({ code, name, description })),
     trainingRequirements: listTrainingRequirements(ctx, orgId).filter((t) => t.active).map(({ unit_id, title, type, course_code, interval_months, description }) => ({ unit_id, title, type, course_code, interval_months, description })),
+    errorReportTypes: listErrorReportTypes(ctx, orgId).filter((t) => t.active).map(({ code, name, description }) => ({ code, name, description })),
     settings: unitSettingsOf(ctx, orgId),
     scoringPolicies: exportScoringVersions(ctx, orgId),
   };
@@ -398,6 +472,15 @@ export function planConfigurationImport(ctx: AppContext, orgId: string, file: Un
     else { training.add(titleKey(t.unit_id, t.title)); lines.push({ kind: 'training_requirement', label, outcome: 'add' }); }
   }
 
+  const reports = new Map(listErrorReportTypes(ctx, orgId).map((t) => [t.code, t.active]));
+  for (const t of file.errorReportTypes ?? []) {
+    const code = errorTypeCode(t.code || t.name);
+    const label = `${code} ${t.name}`;
+    if (!code) lines.push({ kind: 'error_report_type', label: t.name, outcome: 'skip', reason: 'has no code' });
+    else if (reports.get(code)) lines.push({ kind: 'error_report_type', label, outcome: 'exists' });
+    else { lines.push({ kind: 'error_report_type', label, outcome: reports.has(code) ? 'restore' : 'add' }); reports.set(code, 1); }
+  }
+
   // A setting the file carries is taken within the enterprise limits, the same as one typed into the console.
   const current = unitSettingsOf(ctx, orgId);
   const wanted = normalizeUnitSettings(file.settings);
@@ -444,6 +527,13 @@ export function applyConfigurationImport(ctx: AppContext, actor: Pick<SessionUse
       const have = ctx.db.prepare('SELECT id, active FROM duty_types WHERE org_id = ? AND code = ?').get(orgId, code) as { id: string; active: number } | undefined;
       if (have && !have.active) ctx.db.prepare('UPDATE duty_types SET active = 1, updated_at = ? WHERE id = ?').run(at, have.id);
       else if (!have) ctx.db.prepare('INSERT INTO duty_types (id, org_id, code, name, description, active, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)').run(newId(), orgId, code, d.name.trim(), text(d.description), actor.id, at, at);
+    }
+    for (const t of file.errorReportTypes ?? []) {
+      const code = errorTypeCode(t.code || t.name);
+      if (!code) continue;
+      const have = ctx.db.prepare('SELECT id, active FROM error_report_types WHERE org_id = ? AND code = ?').get(orgId, code) as { id: string; active: number } | undefined;
+      if (have && !have.active) ctx.db.prepare('UPDATE error_report_types SET active = 1, updated_at = ? WHERE id = ?').run(at, have.id);
+      else if (!have) ctx.db.prepare('INSERT INTO error_report_types (id, org_id, code, name, description, active, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, ?, 1, ?, ?, ?)').run(newId(), orgId, code, t.name.trim(), text(t.description), actor.id, at, at);
     }
     const requirement = ctx.db.prepare(`INSERT INTO training_requirements (id, org_id, unit_id, title, type, course_code, interval_months, description, active, created_by, created_at, updated_at)
       SELECT ?, ?, ?, ?, ?, ?, ?, ?, 1, ?, ?, ? WHERE NOT EXISTS (SELECT 1 FROM training_requirements WHERE org_id = ? AND COALESCE(unit_id, '') = COALESCE(?, '') AND lower(title) = lower(?) AND active = 1)`);

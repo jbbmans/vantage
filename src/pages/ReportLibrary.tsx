@@ -82,6 +82,11 @@ export default function ReportLibrary() {
     staleTime: Infinity, gcTime: 0, refetchOnWindowFocus: false, retry: false,
   });
   const definitions = useQuery({ queryKey: ['report-center', 'definitions'], queryFn: api.reportDefinitions });
+  // The comparison is run on a kind of error report and two of its reports: names and days only, read for the unit chosen.
+  const comparing = spec.filters.includes('error_type') && f.subject === 'unit' && Boolean(f.unit_id);
+  const choices = useQuery({ queryKey: ['error-reports', 'choices', f.unit_id], queryFn: () => api.errorReportChoices(f.unit_id), enabled: comparing, staleTime: 60_000, retry: false });
+  const errorType = choices.data?.types.find((t) => t.id === f.error_type);
+  const laterAt = errorType && f.snapshot ? errorType.reports.findIndex((r) => r.id === f.snapshot) : 0;
 
   const go = (params: Params) => {
     setSearch(params, { replace: true });
@@ -136,7 +141,7 @@ export default function ReportLibrary() {
                 </div>
               ) : null}
               {f.subject === 'member' ? <Field label="Marine"><Select value={f.user_id} onValueChange={(v) => setForm((p) => ({ ...p, user_id: v, unit_id: '' }))} options={marines} placeholder="Choose a Marine" /></Field> : null}
-              {f.subject === 'unit' ? <Field label="Unit" hint="With the units beneath it"><Select value={f.unit_id} onValueChange={(v) => set('unit_id', v)} options={units.map((u) => ({ value: u.id, label: `${' '.repeat(Math.min(u.depth, 4))}${u.short_name || u.name}` }))} placeholder="Choose a unit" /></Field> : null}
+              {f.subject === 'unit' ? <Field label="Unit" hint="With the units beneath it"><Select value={f.unit_id} onValueChange={(v) => setForm((p) => ({ ...p, unit_id: v, error_type: '', snapshot: '', against: '' }))} options={units.map((u) => ({ value: u.id, label: `${' '.repeat(Math.min(u.depth, 4))}${u.short_name || u.name}` }))} placeholder="Choose a unit" /></Field> : null}
               {spec.filters.includes('period') ? <Field label="Period"><PeriodSelect value={f.period} onChange={(v) => set('period', v)} /></Field> : null}
               {spec.filters.includes('track') ? <Field label="Evaluation"><Select value={f.track || 'auto'} onValueChange={(v) => set('track', v === 'auto' ? '' : v)} options={[{ value: 'auto', label: 'By rank' }, { value: 'jepes', label: 'JEPES' }, { value: 'fitrep', label: 'FITREP' }]} /></Field> : null}
               {spec.filters.includes('category') ? <Field label="Category"><Select value={f.category} onValueChange={(v) => set('category', v)} options={[{ value: '', label: 'Every category' }, ...metrics.categories.map((c) => ({ value: c.name, label: c.name }))]} /></Field> : null}
@@ -147,6 +152,20 @@ export default function ReportLibrary() {
               {spec.filters.includes('procedure') ? <Field label="Procedure"><Select value={f.procedure} onValueChange={(v) => set('procedure', v)} options={[{ value: '', label: 'Every procedure' }, ...PROCEDURE_LIST.map((p) => ({ value: p.key, label: p.short })), { value: 'none', label: 'No procedure' }]} /></Field> : null}
               {spec.filters.includes('state') ? <Field label="Cases"><Select value={f.state || 'open'} onValueChange={(v) => set('state', v)} options={[...CASE_STATES]} /></Field> : null}
               {spec.filters.includes('overdue') ? <div className="self-end"><Switch checked={f.overdue === '1'} onChange={(v) => set('overdue', v ? '1' : '')} label="Only overdue cases" /></div> : null}
+              {comparing ? (
+                <>
+                  <Field label="Error report" hint={choices.data && !choices.data.types.length ? 'This unit has filed no error report yet.' : undefined}>
+                    <Select value={f.error_type} onValueChange={(v) => setForm((p) => ({ ...p, error_type: v, snapshot: '', against: '' }))} placeholder="Every series, in brief"
+                      options={[{ value: '', label: 'Every series, in brief' }, ...(choices.data?.types || []).map((t) => ({ value: t.id, label: `${t.code} · ${t.name}` }))]} />
+                  </Field>
+                  {errorType ? (
+                    <>
+                      <Field label="Report"><Select value={f.snapshot} onValueChange={(v) => setForm((p) => ({ ...p, snapshot: v, against: '' }))} options={[{ value: '', label: 'The latest' }, ...errorType.reports.map((r) => ({ value: r.id, label: r.as_of }))]} /></Field>
+                      <Field label="Compared with"><Select value={f.against} onValueChange={(v) => set('against', v)} options={[{ value: '', label: 'The one before' }, ...errorType.reports.slice(Math.max(0, laterAt) + 1).map((r) => ({ value: r.id, label: r.as_of }))]} /></Field>
+                    </>
+                  ) : null}
+                </>
+              ) : null}
               {spec.filters.includes('dataset') ? (
                 <Field label="Records">
                   <Select value={dataset.key} onValueChange={(v) => setForm((p) => ({ ...p, dataset: v, columns: '', group: '', sort: '' }))}
