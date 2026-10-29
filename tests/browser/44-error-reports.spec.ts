@@ -1,6 +1,6 @@
 import { test, expect, type Page } from '@playwright/test';
 import AxeBuilder from '@axe-core/playwright';
-import { ensureSetup, confirmSudoIfAsked, loginAs, registerAs, unique, OPERATOR } from './fixtures';
+import { ensureSetup, confirmSudoIfAsked, joinUnit, loginAs, registerAs, unique, OPERATOR } from './fixtures';
 
 /**
  * Financial error reports (Task 15, ADR-0021). A leader files a ULO report from a CSV, says which column identifies an
@@ -163,6 +163,65 @@ test('a leader files two weeks of a ULO report, reads what changed, and opens th
   await expect(page.getByRole('heading', { level: 2, name: `The report of ${shown(day(7))}` })).toBeVisible();
   await noSidewaysScroll(page, 'a comparison at 390px');
   expect(errors).toEqual([]);
+});
+
+test('an NCO of G8 files for a team beneath it, which they do not belong to, and a series withdrawn in full still reads', async ({ page, browser }) => {
+  test.setTimeout(120_000);
+  const H = { 'x-vantage-client': '1' };
+  await loginAs(page, OPERATOR.username);
+  const short = unique('ER').toUpperCase();
+  const made = await page.request.post('/api/org/units', { headers: H, data: { name: `Error Team ${short}`, short_name: short, parent_id: 'G8' } });
+  expect(made.ok(), await made.text()).toBeTruthy();
+  const team = (await made.json()) as { id: string };
+  // An NCO of G8: their authority there reaches the team, and they are not one of its members.
+  const name = unique('ernco');
+  const context = await browser.newContext({ reducedMotion: 'reduce' });
+  const nco = await context.newPage();
+  await registerAs(nco, name, { first_name: 'Erin', last_name: 'Noncom' });
+  const ncoMe = await (await nco.request.get('/api/me')).json();
+  await joinUnit(page.request, nco.request);
+  const granted = await page.request.post(`/api/org/team/${ncoMe.user.id}/roles`, { headers: H, data: { role_id: 'G8:nco', unit_id: 'G8' } });
+  expect(granted.ok(), await granted.text()).toBeTruthy();
+  await loginAs(nco, name);
+  await nco.goto(`/work/error-reports?unit=${encodeURIComponent(team.id)}`);
+  await expect(nco.getByText(`No error report is filed for Error Team ${short} yet`)).toBeVisible();
+
+  await nco.getByRole('button', { name: 'File the first report' }).click();
+  const dialog = nco.getByRole('dialog', { name: 'File an error report' });
+  await expect(dialog.getByRole('combobox', { name: 'Unit' })).toHaveText(new RegExp(short));
+  const report = dialog.getByRole('combobox', { name: 'Report' });
+  if (!/^ULO/.test((await report.textContent()) || '')) {
+    await report.click();
+    await nco.getByRole('option', { name: /^ULO/ }).click();
+  }
+  await dialog.getByLabel('Stands on').fill(day(1));
+  await dialog.getByLabel('Error report to file').setInputFiles({ name: `ULO ${short}.csv`, mimeType: 'text/csv', buffer: Buffer.from(LAST_WEEK) });
+
+  // The headings are chosen from the rows shown, so a heading row past them is not offered.
+  const sheet = nco.getByRole('dialog', { name: 'Which sheet, and where do the headings sit?' });
+  await expect(sheet).toBeVisible();
+  await sheet.getByLabel('Heading row').fill('25');
+  await expect(sheet.getByLabel('Heading row')).toHaveValue('20');
+  await sheet.getByLabel('Heading row').fill('1');
+  await sheet.getByRole('button', { name: 'Next' }).click();
+  await nco.getByRole('dialog', { name: 'What does each column hold?' }).getByRole('button', { name: 'Preview' }).click();
+  await nco.getByRole('dialog', { name: 'Here is what will be filed' }).getByRole('button', { name: 'File 3 rows' }).click();
+  const done = nco.getByRole('dialog', { name: 'Filed' });
+  await expect(done).toContainText(`Filed the ULO report of ${shown(day(1))}`);
+  await done.getByRole('button', { name: 'Open the comparison' }).click();
+  await expect(nco.getByRole('heading', { level: 2, name: `The report of ${shown(day(1))}` })).toBeVisible();
+
+  // Its only report withdrawn, the series still lists it, with why.
+  await nco.getByRole('button', { name: `Withdraw the report of ${shown(day(1))}` }).click();
+  const withdraw = nco.getByRole('dialog', { name: `Withdraw the report of ${shown(day(1))}?` });
+  await withdraw.getByRole('textbox', { name: 'Why' }).fill('Filed for the wrong team');
+  await withdraw.getByRole('button', { name: 'Withdraw it' }).click();
+  await toast(nco, `Withdrew the ULO report of ${shown(day(1))}.`);
+  await expect(nco.getByText('Every ULO report filed for this unit was withdrawn, so nothing is compared. Each is kept, with why.')).toBeVisible();
+  await expect(nco.getByText('Filed for the wrong team')).toBeVisible();
+  await expect(nco.getByRole('button', { name: 'File a report' })).toBeVisible();
+  expect(await axe(nco), 'a series withdrawn in full').toEqual([]);
+  await context.close();
 });
 
 test('a Unit Manager keeps the Unit Instance’s kinds of error report in the console', async ({ page }) => {

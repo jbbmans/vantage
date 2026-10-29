@@ -7,7 +7,7 @@ import { PERMISSIONS } from '../../shared/permissions.ts';
 import { primaryTable, type ReportDocument } from '../../shared/reportCatalog.ts';
 import {
   STANDARD_ERROR_REPORT_TYPES, ageOf, compareRows, daysToResolve, groupLines, groupValue, inDrill, summarize,
-  type ComparisonResult, type DrillResult, type ErrorReportPreview, type ErrorReportsOverview, type SnapshotRow,
+  type ComparisonResult, type DrillResult, type ErrorReportPreview, type ErrorReportsOverview, type SeriesHistory, type SnapshotRow,
 } from '../../shared/errorReports.ts';
 
 /**
@@ -340,6 +340,18 @@ test('every figure opens exactly the rows it counts, each with its file, row and
   app.ctx.db.prepare("UPDATE work_items SET natural_key = 'D1' WHERE id = ?").run(item.body.id);
   const linked = (await drill(op.token, { drill: 'persistent' })).body as DrillResult;
   assert.deepEqual(linked.rows.map((r) => [r.identifier, r.case_id]), [['D1', item.body.id]]);
+  // A case brought in from this report links; one another report keys the same way does not, as the import decides.
+  const caseOf = async (key: string, data: Record<string, string>) => {
+    const made = await post(op.token, '/api/work/items', { title: `Case ${key}`, reference: key, unit_id: 'G8', visibility: 'unit' });
+    assert.equal(made.status, 201, JSON.stringify(made.body));
+    app.ctx.db.prepare('UPDATE work_items SET natural_key = ?, data = ? WHERE id = ?').run(key, JSON.stringify(data), made.body.id);
+    return made.body.id as string;
+  };
+  app.ctx.db.prepare('UPDATE work_items SET data = ? WHERE id = ?').run(JSON.stringify({ Document: 'D1', Line: '1', Description: 'Obligation not liquidated', Error: 'Unmatched', Amount: '900', Owner: 'Ftl Marine', Status: 'Open', Office: 'FISCAL' }), item.body.id);
+  await caseOf('D5', { PIIN: 'D5', Vendor: 'Acme', 'Amount Due': '40.00', 'Days Unmatched': '12' });
+  const d2 = await caseOf('D2', { Document: 'D2', Line: '1', Description: 'Duplicate invoice', Error: 'Duplicate', Amount: '250.50', Status: 'Open' });
+  const cased = (await drill(op.token, { drill: 'open' })).body as DrillResult;
+  assert.deepEqual(cased.rows.map((r) => [r.identifier, r.case_id]), [['D1', item.body.id], ['D2', d2], ['D5', null]], 'D5 is another report’s case, so it is not offered');
 });
 
 test('a report filed in error is withdrawn with a reason, kept, and left out of every comparison', async () => {
@@ -362,6 +374,22 @@ test('a report filed in error is withdrawn with a reason, kept, and left out of 
   const refiled = await fileReport(nco.token, 'ULO wrong day.csv', R2.replace('40.00', '41.00'), { as_of: dayAfter(D, -2) });
   assert.ok(refiled.id, 'its file may be filed again, for the right day');
   assert.equal((await post(nco.token, `/api/error-reports/snapshots/${refiled.id}/withdraw`, { reason: 'Only proving it could be filed again' })).status, 200);
+
+  // A series whose every report was withdrawn still reads, as its history: nothing to compare, and each kept with why.
+  const ocmt = ((await get(op.token, '/api/error-reports?unit_id=G8')).body as ErrorReportsOverview).types.find((t) => t.code === 'OCMT')!;
+  const only = await fileReport(nco.token, 'OCMT.csv', R1, { type_id: ocmt.id, as_of: R1_DAY });
+  assert.equal((await post(nco.token, `/api/error-reports/snapshots/${only.id}/withdraw`, { reason: 'Filed as OCMT, but it was the ULO' })).status, 200);
+  const seq2 = lastSeq();
+  const history = await get(op.token, `/api/error-reports/series?${qs({ unit_id: 'G8', type_id: ocmt.id })}`);
+  assert.equal(history.status, 200, JSON.stringify(history.body));
+  const h = history.body as SeriesHistory;
+  assert.equal(h.after, null);
+  assert.deepEqual(h.reports.map((r) => [r.id, r.withdrawn?.reason]), [[only.id, 'Filed as OCMT, but it was the ULO']]);
+  assert.match(h.notes[0], /withdrawn/);
+  assert.match(auditSince(seq2).find((e) => e.action === 'view_error_report')!.detail, /^OCMT: every report withdrawn \(1\)$/);
+  const none = await drill(op.token, { type_id: ocmt.id, drill: 'open' });
+  assert.equal(none.status, 404, 'and no figure to open');
+  assert.match(none.body.error, /withdrawn/);
 });
 
 test('a filed report is never changed or deleted, in the database itself', async () => {
@@ -403,6 +431,14 @@ test('reading needs the unit’s shared records, filing posting its work, and fi
 
   const asNco = await series(nco.token);
   assert.equal(asNco.groups.owner, null, 'figures by Marine need opening member records');
+  assert.ok(!('oldest' in asNco.summary), 'the oldest go out without the rows they were read from');
+  for (const id of [nco.id, ftl.id]) assert.ok(!JSON.stringify(asNco).includes(id), 'nothing in the comparison says which Marine an owner names');
+  const samplePlan = await plan(nco.token, 'ULO sample.csv', R2, { as_of: dayAfter(D, -1) });
+  const sampleAsNco = (await post(nco.token, '/api/error-reports/preview', samplePlan)).body as ErrorReportPreview;
+  assert.ok(sampleAsNco.sample.length && sampleAsNco.sample.every((r) => r.owner_user_id === null), 'nor does the preview, to a filer who may not open member records');
+  assert.equal(sampleAsNco.owners.matched, 2, 'only how many were matched');
+  const sampleAsFtl = (await post(ftl.token, '/api/error-reports/preview', samplePlan)).body as ErrorReportPreview;
+  assert.equal(sampleAsFtl.sample.find((r) => r.key === 'D1')!.owner_user_id, ftl.id, 'one who may sees the Marine');
   assert.equal((await drill(nco.token, { drill: 'open', group: 'owner', value: `user:${ftl.id}` })).status, 403);
   const rows = (await drill(nco.token, { drill: 'open' })).body as DrillResult;
   assert.ok(rows.rows.every((r) => r.marine === null), 'nor does a row name the Marine it was matched to');
@@ -425,6 +461,28 @@ test('reading needs the unit’s shared records, filing posting its work, and fi
   assert.equal(g1file.status, 201, JSON.stringify(g1file.body));
   assert.equal((await post(g1lead.token, '/api/error-reports/preview', { ...p, source_file_id: g1file.body.id })).status, 403, 'not a reader of G8');
   assert.equal((await post(op.token, '/api/error-reports/preview', { ...p, source_file_id: g1file.body.id })).status, 403, 'nor is another Unit Instance’s upload readable here');
+});
+
+test('a leader files for a unit beneath theirs from their own upload, and a role held only in G8 reads no series beneath it', async () => {
+  // The intake shares a file only with a unit its uploader belongs to, so the page uploads it as the filer's own.
+  assert.equal((await upload(nco.token, 'FISCAL ULO.csv', R2, 'FISCAL')).status, 403, 'the NCO is not a member of FISCAL');
+  const own = await app.call('POST', '/api/work/sources', { token: nco.token, raw: Buffer.from(R2), headers: { 'content-type': CSV, 'x-filename': 'FISCAL ULO.csv', 'x-visibility': 'private' } });
+  assert.equal(own.status, 201, JSON.stringify(own.body));
+  assert.equal(((await get(nco.token, '/api/error-reports?unit_id=FISCAL')).body as ErrorReportsOverview).can.file, true, 'authority in G8 reaches FISCAL');
+  const filed = await post(nco.token, '/api/error-reports/snapshots', {
+    unit_id: 'FISCAL', type_id: ulo, as_of: D, source_file_id: own.body.id, sheet_name: 'FISCAL ULO.csv', header_row: 1, key_columns: ['Document'], columns: COLUMNS, closed_statuses: ['closed'],
+  });
+  assert.equal(filed.status, 201, JSON.stringify(filed.body));
+  assert.ok(((await get(op.token, '/api/error-reports?unit_id=G8')).body as ErrorReportsOverview).series.some((s) => s.unit_id === 'FISCAL'), 'G8’s overview lists it');
+
+  // A role with no authority (position 0) views G8's shared records and nothing beneath: so does the overview.
+  app.ctx.db.prepare("INSERT INTO roles (id, unit_id, key, name, permissions, position, created_at) VALUES ('G8:viewer', 'G8', 'viewer', 'Viewer', ?, 0, ?)")
+    .run(PERMISSIONS.VIEW_UNIT | PERMISSIONS.VIEW_RECORDS, new Date().toISOString());
+  const viewer = await app.register('viewer'); await enroll(app, op.token, 'G8', viewer.id, 'viewer'); viewer.token = await login('viewer');
+  assert.equal((await get(viewer.token, '/api/error-reports?unit_id=FISCAL')).status, 403);
+  const g8 = (await get(viewer.token, '/api/error-reports?unit_id=G8')).body as ErrorReportsOverview;
+  assert.ok(g8.series.length >= 1, 'G8’s own series');
+  assert.ok(g8.series.every((s) => s.unit_id === 'G8'), 'and none of FISCAL’s');
 });
 
 test('every read is in the audit trail, with what was read', async () => {

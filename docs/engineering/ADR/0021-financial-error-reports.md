@@ -39,12 +39,14 @@ categories.
 ### 2. A report is filed from an upload, as it stood on its day
 
 The file goes through the intake's own upload (`/api/work/sources`), scan, reader and identifier rules, so every limit
-and refusal there applies. The uploader chooses:
+and refusal there applies. It is shared with the unit when the filer belongs to it. A leader filing for a unit beneath
+theirs uploads it as their own, since the intake shares a file only with a unit its uploader belongs to. The report
+keeps every row either way. The uploader chooses:
 
 | Choice | Notes |
 | --- | --- |
 | Unit, report type, the day it stands on | A day that has not come yet, or a retired type, is refused |
-| Sheet and heading row | As for an import |
+| Sheet and heading row | As for an import: the heading row is one of the first 20 rows, the ones the upload's inspection shows |
 | One or two identifying columns | Taken exactly as written. A row without one, or repeating one, is refused and listed |
 | A role for each other column | Reference, description, error type, amount, owner, status, unit or office, opened date, age in days, kept, or left out |
 | Statuses that mean closed | The first report of a series starts with the usual words ticked; later ones start from the last report's choice |
@@ -67,7 +69,8 @@ Database triggers refuse any change to a filed report or its rows and any deleti
 A report filed in error (the wrong file, day or unit) is **withdrawn**, with a reason of at least five characters. It
 is kept with its rows, listed as withdrawn with who, when and why, and left out of every comparison. A withdrawal is
 final; a trigger and a CHECK hold it. Its file may then be filed again, for the right day. The unique indexes count only
-reports that stand.
+reports that stand. A series whose every report is withdrawn still opens, as its history: every report listed, with
+why, and nothing compared.
 
 ### 4. Two reports of a series compare
 
@@ -110,7 +113,9 @@ each count to its drill's row count and value. A line of a group opens its own r
 - every column it carried;
 - its standing and flags, and its amount then and now;
 - its age and how the age was found;
-- the case in the unit's queue with the same identifier, when the unit imported it there.
+- the case in the unit's queue with the same identifier, when the unit imported it there from the same report. Two
+  reports can key their rows by the same document number. A case whose columns are another report's is not offered,
+  by the import's own test (`sameReport`).
 
 A resolved row is shown as the earlier report had it.
 
@@ -133,7 +138,10 @@ A resolved row is shown as the earlier report had it.
 | Take the comparison as a file | `EXPORT_DATA`, as every unit report |
 | Keep the kinds of report | `org.config` in the Unit Instance (Unit Managers) |
 
-A unit reads the series filed for it and the units beneath it, never those above. A report, its type and its file are
+A unit reads the series filed for it and for each unit beneath whose shared records the reader may view, never those
+above. A role with no authority (position 0) reaches no lower than its own unit, so neither does the overview. Which
+Marine an owner names travels only to a reader with `VIEW_MEMBER_DETAIL`: the figures carry no rows, and the preview's
+sample names no Marine otherwise. A report, its type and its file are
 one Unit Instance's. The service checks it, and migration 029's boundary triggers refuse it in the database. Another
 instance's type, report or upload answers 404 or 403 without saying whether it exists.
 

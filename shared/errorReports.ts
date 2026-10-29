@@ -407,10 +407,21 @@ export interface ComparisonResult {
   reports: SnapshotSummary[];
   after: SnapshotSummary;
   before: SnapshotSummary | null;
-  summary: ComparisonSummary;
+  /** Without its rows: the oldest open are `oldest`, which never says which Marine an owner was matched to. */
+  summary: Omit<ComparisonSummary, 'oldest'>;
   oldest: OldestLine[];
   groups: { category: GroupLine[]; unit: GroupLine[]; owner: GroupLine[] | null };
   trend: Array<{ id: string; as_of: string; open_count: number; open_cents: number }>;
+  can: ErrorReportRights;
+  notes: string[];
+}
+
+/** A series every report of which was withdrawn: nothing to compare, and every report still listed, with why. */
+export interface SeriesHistory {
+  unit: { id: string; name: string };
+  type: { id: string; code: string; name: string; description: string | null; active: number };
+  reports: SnapshotSummary[];
+  after: null;
   can: ErrorReportRights;
   notes: string[];
 }

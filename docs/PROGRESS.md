@@ -28,6 +28,10 @@ and compares them report to report ([ADR-0021](engineering/ADR/0021-financial-er
 - **Who may do what.** Reading needs the unit's shared records; filing and withdrawing also need posting its work, and
   stop where Vantage has withheld intake from the Unit Instance; figures by Marine need member detail; files need the
   export permission. Every read, filing and withdrawal is audited. Filing never creates or changes a case.
+- **From the review.** A leader can file for a team beneath theirs that they do not belong to. The overview lists only
+  the units beneath whose records the reader may see. A row links only to a case from the same report. No response
+  names the Marine an owner matched to a reader who may not see it. A series whose every report was withdrawn still
+  shows its history. The heading row is chosen from the rows shown.
 
 ## What changed (2026-10-29: reports and printable output)
 

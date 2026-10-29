@@ -253,7 +253,10 @@ print page and every file are drawn from.
   Reading a unit's error reports needs `VIEW_RECORDS` there. Filing or withdrawing one also needs
   `CREATE_SHARED_WORK`, and is refused where Vantage has withheld spreadsheet intake from the Unit Instance (told only
   to someone who could file there). Figures and rows by Marine need `VIEW_MEMBER_DETAIL`; without it a row shows the
-  owner as the report wrote it and names no Marine. A unit reads the series filed for it and beneath it, never above.
+  owner as the report wrote it and names no Marine, and no response (figures, the oldest, the preview's sample) carries
+the matched Marine's id. A unit reads the series filed for it and for each unit beneath whose shared records the reader
+may view (a role at position 0 reaches no lower), never above. A row links to a case in the queue only when the case
+came from the same report (`sameReport`, as the import decides).
 - **One Unit Instance.** A report, its kind and the upload it was read from are one instance's: the service refuses an
   upload or kind from another (`assertSameInstance`, 404 for a kind), and migration 029's boundary triggers refuse the
   row in the database. `instanceBoundaryViolations` counts any that exist.

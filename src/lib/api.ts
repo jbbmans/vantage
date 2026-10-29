@@ -6,7 +6,7 @@ import type { LineageResponse, MovableTable, MoveCandidatesResponse, TimelineRes
 import type { ImportPlanBody, ImportReview, ImportSummary } from '../../shared/recordTransfer';
 import type { ReportDocument, ReportFileFormat } from '../../shared/reportCatalog';
 import type {
-  ColumnRole, ComparisonResult, Drill, DrillGroup, DrillResult, ErrorReportChoices, ErrorReportLayout, ErrorReportPreview, ErrorReportsOverview, SnapshotSummary,
+  ColumnRole, ComparisonResult, Drill, DrillGroup, DrillResult, ErrorReportChoices, ErrorReportLayout, ErrorReportPreview, ErrorReportsOverview, SeriesHistory, SnapshotSummary,
 } from '../../shared/errorReports';
 
 /** A saved report as the library lists it: its name and choices, whose it is, and where it is shared. */
@@ -287,7 +287,7 @@ export const errorReportLayout = (unitId: string, typeId: string) => api.get<{ l
 export const previewErrorReport = (plan: ErrorFilingPlan) => api.post<ErrorReportPreview>('/error-reports/preview', plan);
 export const fileErrorReport = (plan: ErrorFilingPlan) => api.post<SnapshotSummary & { unit_id: string; type_id: string }>('/error-reports/snapshots', plan);
 export const withdrawErrorReport = (id: string, reason: string) => api.post<SnapshotSummary>(`/error-reports/snapshots/${encodeURIComponent(id)}/withdraw`, { reason });
-export const errorComparison = (q: ErrorComparisonQuery) => api.get<ComparisonResult>(`/error-reports/series?${qs({ ...q })}`);
+export const errorComparison = (q: ErrorComparisonQuery) => api.get<ComparisonResult | SeriesHistory>(`/error-reports/series?${qs({ ...q })}`);
 export const errorDrill = (q: ErrorComparisonQuery & { drill: Drill; group?: DrillGroup; value?: string }) => api.get<DrillResult>(`/error-reports/rows?${qs({ ...q })}`);
 export const aiStatus = () => api.get('/ai/status');
 export const aiAssist = (workflow: string, input: unknown, model?: string) => api.post('/ai/assist', { workflow, input, model });

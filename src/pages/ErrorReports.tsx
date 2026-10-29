@@ -168,6 +168,19 @@ function Series({ unitId, typeId, overview, onBack, onFile, search, setQuery, ca
       </div>
     );
   }
+  if (result.data.after === null) {
+    // Every report of the series was withdrawn: nothing to compare, and each is still listed, with why.
+    const h = result.data;
+    return (
+      <div className="space-y-4">
+        {back}
+        <Panel title={<span>{h.type.code} · {h.type.name}</span>} subtitle={`${h.unit.name}${h.type.description ? ` · ${h.type.description}` : ''}`}>
+          <p className="text-sm text-ink-2">{h.notes[0]}</p>
+        </Panel>
+        <ReportsFiled reports={h.reports} />
+      </div>
+    );
+  }
   const r = result.data;
   const live = r.reports.filter((s) => !s.withdrawn);
   const at = live.findIndex((s) => s.id === r.after.id);
@@ -261,30 +274,8 @@ function Series({ unitId, typeId, overview, onBack, onFile, search, setQuery, ca
         </Panel>
       ) : null}
 
-      <Panel title="Every report filed" subtitle="Newest first. A withdrawn report is kept, with why, and is in no comparison." padded={false}>
-        <Table minWidth={820} head={<>
-          <th scope="col">Stands on</th><th scope="col">File</th><th scope="col" className="text-right">Rows</th><th scope="col" className="text-right">Open</th><th scope="col" className="text-right">Value open</th>
-          <th scope="col" className="text-right">Refused</th><th scope="col">Filed</th><th scope="col" className="relative"><span className="sr-only">Actions</span></th>
-        </>}>
-          {r.reports.map((s) => (
-            <tr key={s.id} className={cn(s.withdrawn && 'text-ink-3')}>
-              <td className="fig">{day(s.as_of)}{s.id === r.after.id ? <Badge tone="accent" className="ml-2">This report</Badge> : s.id === r.before?.id ? <Badge tone="neutral" className="ml-2">Compared with</Badge> : null}</td>
-              <td className="max-w-[16rem] truncate">{s.filename}{s.note ? <span className="block truncate text-xs text-ink-3">{s.note}</span> : null}</td>
-              <td className="fig text-right">{formatNumber(s.row_count)}</td>
-              <td className="fig text-right">{formatNumber(s.open_count)}</td>
-              <td className="fig text-right">{formatCents(s.open_cents)}</td>
-              <td className="fig text-right">{s.rejected_rows ? formatNumber(s.rejected_rows) : '—'}</td>
-              <td className="text-xs">{s.filed_by}<span className="block text-ink-3">{formatStamp(s.filed_at)}</span>
-                {s.withdrawn ? <span className="mt-1 block"><Badge tone="warn">Withdrawn</Badge> <span className="text-ink-2">{s.withdrawn.by}, {formatStamp(s.withdrawn.at)}: {s.withdrawn.reason}</span></span> : null}
-              </td>
-              <td className="whitespace-nowrap text-right">
-                {!s.withdrawn && s.id !== r.after.id ? <Button size="xs" variant="ghost" onClick={() => setQuery({ report: s.id, against: '' })} aria-label={`Compare the report of ${day(s.as_of)}`}>Compare</Button> : null}
-                {!s.withdrawn && r.can.file ? <Button size="xs" variant="ghost" onClick={() => setWithdrawing(s)} aria-label={`Withdraw the report of ${day(s.as_of)}`}>Withdraw</Button> : null}
-              </td>
-            </tr>
-          ))}
-        </Table>
-      </Panel>
+      <ReportsFiled reports={r.reports} afterId={r.after.id} beforeId={r.before?.id}
+        onCompare={(s) => setQuery({ report: s.id, against: '' })} onWithdraw={r.can.file ? setWithdrawing : undefined} />
 
       <ul className="space-y-1 text-xs text-ink-3">{r.notes.map((n) => <li key={n}>{n}</li>)}</ul>
 
@@ -294,6 +285,39 @@ function Series({ unitId, typeId, overview, onBack, onFile, search, setQuery, ca
           onDone={() => { const cleared = withdrawing.id === r.after.id || withdrawing.id === r.before?.id; setWithdrawing(null); if (cleared) setQuery({ report: '', against: '' }); }} />
       ) : null}
     </div>
+  );
+}
+
+/** Every report of a series, newest first: a withdrawn one is kept, with who withdrew it and why. */
+function ReportsFiled({ reports, afterId, beforeId, onCompare, onWithdraw }: {
+  reports: SnapshotSummary[]; afterId?: string; beforeId?: string;
+  onCompare?: (s: SnapshotSummary) => void; onWithdraw?: (s: SnapshotSummary) => void;
+}) {
+  return (
+    <Panel title="Every report filed" subtitle="Newest first. A withdrawn report is kept, with why, and is in no comparison." padded={false}>
+      <Table minWidth={820} head={<>
+        <th scope="col">Stands on</th><th scope="col">File</th><th scope="col" className="text-right">Rows</th><th scope="col" className="text-right">Open</th><th scope="col" className="text-right">Value open</th>
+        <th scope="col" className="text-right">Refused</th><th scope="col">Filed</th><th scope="col" className="relative"><span className="sr-only">Actions</span></th>
+      </>}>
+        {reports.map((s) => (
+          <tr key={s.id} className={cn(s.withdrawn && 'text-ink-3')}>
+            <td className="fig">{day(s.as_of)}{s.id === afterId ? <Badge tone="accent" className="ml-2">This report</Badge> : s.id === beforeId ? <Badge tone="neutral" className="ml-2">Compared with</Badge> : null}</td>
+            <td className="max-w-[16rem] truncate">{s.filename}{s.note ? <span className="block truncate text-xs text-ink-3">{s.note}</span> : null}</td>
+            <td className="fig text-right">{formatNumber(s.row_count)}</td>
+            <td className="fig text-right">{formatNumber(s.open_count)}</td>
+            <td className="fig text-right">{formatCents(s.open_cents)}</td>
+            <td className="fig text-right">{s.rejected_rows ? formatNumber(s.rejected_rows) : '—'}</td>
+            <td className="text-xs">{s.filed_by}<span className="block text-ink-3">{formatStamp(s.filed_at)}</span>
+              {s.withdrawn ? <span className="mt-1 block"><Badge tone="warn">Withdrawn</Badge> <span className="text-ink-2">{s.withdrawn.by}, {formatStamp(s.withdrawn.at)}: {s.withdrawn.reason}</span></span> : null}
+            </td>
+            <td className="whitespace-nowrap text-right">
+              {!s.withdrawn && onCompare && s.id !== afterId ? <Button size="xs" variant="ghost" onClick={() => onCompare(s)} aria-label={`Compare the report of ${day(s.as_of)}`}>Compare</Button> : null}
+              {!s.withdrawn && onWithdraw ? <Button size="xs" variant="ghost" onClick={() => onWithdraw(s)} aria-label={`Withdraw the report of ${day(s.as_of)}`}>Withdraw</Button> : null}
+            </td>
+          </tr>
+        ))}
+      </Table>
+    </Panel>
   );
 }
 
@@ -404,6 +428,9 @@ function WithdrawDialog({ report, code, onClose, onDone }: { report: SnapshotSum
 type Step = 'file' | 'sheet' | 'columns' | 'preview' | 'done';
 type Filed = SnapshotSummary & { unit_id: string; type_id: string };
 
+/** The headings are chosen from the rows the upload's inspection shows, as the Import wizard's are. */
+const HEADING_ROWS = 20;
+
 /** The column most likely to identify a row on a report filed the first time. The uploader decides. */
 const guessKey = (headers: string[]) => headers.find((h) => /\b(document|doc|reference|ref|number|no|id|key|invoice|piin|sdn)\b/i.test(h)) ?? headers[0] ?? '';
 
@@ -413,6 +440,7 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
 }) {
   const toast = useToast();
   const qc = useQueryClient();
+  const { data: identity } = useIdentity();
   const fileInput = useRef<HTMLInputElement>(null);
   const [step, setStep] = useState<Step>('file');
   const [busy, setBusy] = useState(false);
@@ -440,11 +468,14 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
   const pick = async (file: File) => {
     setBusy(true);
     try {
-      const uploaded: ImportSource = await api.uploadSource(file, { unitId, visibility: 'unit' });
+      // Shared with the unit when the filer belongs to it. Filed for a unit beneath theirs, it stays the filer's own
+      // upload, since the intake shares a file only with a unit its uploader belongs to; the report keeps every row either way.
+      const member = Boolean(identity?.memberships.some((m) => m.unit_id === unitId));
+      const uploaded: ImportSource = await api.uploadSource(file, member ? { unitId, visibility: 'unit' } : { unitId: null, visibility: 'private' });
       const [detail, last] = await Promise.all([api.inspectSource(uploaded.id) as Promise<Inspection>, api.errorReportLayout(unitId, typeId)]);
       setSource(uploaded); setInspection(detail); setLayout(last.layout);
       setSheetName(last.layout && detail.sheets.some((s) => s.name === last.layout!.sheet_name) ? last.layout.sheet_name : detail.sheets[0]?.name || '');
-      setHeaderRow(last.layout?.header_row ?? 1);
+      setHeaderRow(Math.min(last.layout?.header_row ?? 1, HEADING_ROWS));
       setStep('sheet');
     } catch (e) { toast.error(api.errorText(e)); }
     finally { setBusy(false); }
@@ -549,7 +580,7 @@ function FileDialog({ types, units, initial, onClose, onFiled }: {
           )}
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
             <Field label="Sheet"><Select value={sheet?.name || ''} onValueChange={setSheetName} options={inspection.sheets.map((s) => ({ value: s.name, label: `${s.name} (${formatNumber(s.rows)} rows)` }))} /></Field>
-            <Field label="Heading row" hint="The row that names the columns."><NumberInput value={String(headerRow)} min={1} max={100} onChange={(e) => setHeaderRow(Math.max(1, Math.min(100, Number(e.target.value) || 1)))} /></Field>
+            <Field label="Heading row" hint={`The row that names the columns, one of the first ${HEADING_ROWS}.`}><NumberInput value={String(headerRow)} min={1} max={HEADING_ROWS} onChange={(e) => setHeaderRow(Math.max(1, Math.min(HEADING_ROWS, Number(e.target.value) || 1)))} /></Field>
           </div>
           {sheet?.truncated && <p className="text-xs text-warn">This sheet is larger than Vantage reads in one pass. Only the first rows are filed.</p>}
           <SamplePreview sheet={sheet} headerRow={headerRow} />
