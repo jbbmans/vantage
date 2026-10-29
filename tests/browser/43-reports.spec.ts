@@ -128,7 +128,7 @@ test('a Marine reports on themselves, and is told why a unit’s report is not t
   const doc = page.locator('article.report-doc');
   await expect(doc.getByRole('table', { name: 'Activities' })).toContainText('Briefed the GTCC program');
   await page.getByRole('button', { name: 'Download' }).click();
-  for (const format of ['PDF', 'Spreadsheet (CSV)', 'Excel workbook', 'Vantage file (JSON)']) await expect(page.getByRole('menuitem', { name: new RegExp(format.replace(/[()]/g, '\\$&')) })).toBeVisible();
+  for (const format of ['PDF', 'Spreadsheet (CSV)', 'Excel workbook', 'Vantage file (JSON)']) await expect(page.getByRole('menuitem').filter({ hasText: format })).toBeVisible();
   await page.keyboard.press('Escape');
 
   await page.getByRole('navigation', { name: 'Reports' }).getByRole('button', { name: /^Unit performance/ }).click();
