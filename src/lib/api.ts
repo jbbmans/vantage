@@ -3,6 +3,7 @@ import type { AssignedItem, WorkItemDetail, WorkloadResponse } from '../../share
 import type { MemberDetailResponse, OrgResponse, PersonnelBulkResponse, PersonnelPersonRef, PersonnelRecordResponse, PersonnelRosterResponse, RecordRows, RolesResponse, TeamResponse } from '../../shared/types';
 import type { UnitManagerRole } from '../../shared/permissions';
 import type { LineageResponse, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
+import type { ImportPlanBody, ImportReview, ImportSummary } from '../../shared/recordTransfer';
 
 let sessionState: 'none' | 'unknown' | 'active' = (() => {
   try { return document.cookie.includes('vantage_signed_in=') ? 'unknown' : 'none'; } catch { return 'unknown'; }
@@ -247,7 +248,17 @@ export const reportAnalysis = (params: Record<string, string | number | undefine
 export const analysisPdfUrl = (params: Record<string, string | number | undefined | null>) => `/api/reports/analysis.pdf?${qs(params)}`;
 export const reportDelta = (params: Record<string, string | number | undefined | null>) => api.get(`/reports/delta?${qs(params)}`);
 export const reportPdfUrl = (params: Record<string, string | number | undefined | null>) => `/api/reports/pdf?${qs(params)}`;
-export const myExportUrl = (format: 'zip' | 'json') => `/api/me/export?format=${format}`;
+export const myExportUrl = (format: 'zip' | 'json' | 'xlsx' | 'csv', sections?: string[]) => `/api/me/export?format=${format}${sections?.length ? `&sections=${sections.map(encodeURIComponent).join(',')}` : ''}`;
+// Importing records (ADR-0019): staged, reviewed and corrected, then written in one go, and undone once.
+export const stageRecordImport = (file: File) =>
+  request<ImportReview>('POST', '/me/imports', file, { headers: { 'content-type': file.type || 'application/octet-stream', 'x-filename': file.name.replace(/[^\x20-\x7e]/g, '_').slice(0, 255) } });
+export const recordImports = () => api.get<{ imports: ImportSummary[] }>('/me/imports');
+export const recordImport = (id: string) => api.get<ImportReview>(`/me/imports/${encodeURIComponent(id)}`);
+export const planRecordImport = (id: string, plan: ImportPlanBody) => api.put<ImportReview>(`/me/imports/${encodeURIComponent(id)}`, plan);
+export const commitRecordImport = (id: string, plan: ImportPlanBody & { expected?: { new: number; update: number } }) => api.post<ImportReview>(`/me/imports/${encodeURIComponent(id)}/commit`, plan);
+export const undoRecordImport = (id: string) => api.post<ImportReview>(`/me/imports/${encodeURIComponent(id)}/undo`);
+export const cancelRecordImport = (id: string) => request('DELETE', `/me/imports/${encodeURIComponent(id)}`);
+export const recordExportUrl = (table: string, id: string, format: 'json' | 'csv' | 'zip') => `/api/records/${encodeURIComponent(table)}/${encodeURIComponent(id)}/export?format=${format}`;
 export const reportCsvUrl = (params: Record<string, string | number | undefined | null>) => `/api/reports/csv?${qs(params)}`;
 export const aiStatus = () => api.get('/ai/status');
 export const aiAssist = (workflow: string, input: unknown, model?: string) => api.post('/ai/assist', { workflow, input, model });

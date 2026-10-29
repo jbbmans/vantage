@@ -2,7 +2,8 @@ import type { AppContext, SessionUser } from '../context.ts';
 import { badRequest, conflict, notFound } from '../lib/errors.ts';
 import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
-import { scoringOverview } from './dutyScoring.ts';
+import { listScoringPolicies, scoringOverview } from './dutyScoring.ts';
+import { scoringPolicyProblems, type ScoringBand, type ScoringCombine, type ScoringMethod, type ScoringMultiplier } from '../../shared/dutyScoring.ts';
 import { getOrg, orgSettings } from './organizations.ts';
 import { VERSION } from '../version.ts';
 import { PERIOD_OPTIONS, type PeriodKey } from '../../shared/metrics.ts';
@@ -298,6 +299,14 @@ export interface UnitConfigurationFile {
   dutyTypes: Array<Pick<DutyType, 'code' | 'name' | 'description'>>;
   trainingRequirements: Array<Pick<TrainingRequirement, 'unit_id' | 'title' | 'type' | 'course_code' | 'interval_months' | 'description'>>;
   settings?: Partial<{ work: Partial<UnitSettings['work']>; reports: Partial<UnitSettings['reports']> }>;
+  /** Every duty scoring version, withdrawn ones too, its rules naming duty types by code: ids are an instance's own. */
+  scoringPolicies?: ScoringVersionFile[];
+}
+
+export interface ScoringVersionFile {
+  version: number; effective_from: string; note: string; withdrawn_at: string | null;
+  rules: Array<{ duty_code: string; duty_name: string; method: ScoringMethod; points: number | null; bands: ScoringBand[] | null }>;
+  multipliers: ScoringMultiplier[]; combine: ScoringCombine;
 }
 
 /** The Unit Instance's configuration as one file: what is in use now, not what was retired. */
@@ -312,11 +321,43 @@ export function exportUnitConfiguration(ctx: AppContext, orgId: string): UnitCon
     dutyTypes: listDutyTypes(ctx, orgId).filter((d) => d.active).map(({ code, name, description }) => ({ code, name, description })),
     trainingRequirements: listTrainingRequirements(ctx, orgId).filter((t) => t.active).map(({ unit_id, title, type, course_code, interval_months, description }) => ({ unit_id, title, type, course_code, interval_months, description })),
     settings: unitSettingsOf(ctx, orgId),
+    scoringPolicies: exportScoringVersions(ctx, orgId),
   };
 }
 
+/** The scoring versions as they were published, oldest first, with each rule's duty type by code and name. */
+function exportScoringVersions(ctx: AppContext, orgId: string): ScoringVersionFile[] {
+  const types = new Map(listDutyTypes(ctx, orgId).map((d) => [d.id, d]));
+  return listScoringPolicies(ctx, orgId).sort((a, b) => a.version - b.version).map((p) => ({
+    version: p.version, effective_from: p.effective_from, note: p.note, withdrawn_at: p.withdrawn_at,
+    rules: p.rules.map((r) => ({ duty_code: types.get(r.duty_type_id)?.code ?? '', duty_name: types.get(r.duty_type_id)?.name ?? 'Duty', method: r.method, points: r.points, bands: r.bands })),
+    multipliers: p.multipliers, combine: p.combine,
+  }));
+}
+
+/**
+ * Why a file's scoring versions cannot be loaded as they stand: each as publishing checks one, and those not withdrawn
+ * taking effect in the order they were published, as the database holds them (duty_scoring_policies_order).
+ */
+function scoringVersionsProblem(versions: readonly ScoringVersionFile[]): string | null {
+  const seen = new Set<number>();
+  let last = '';
+  for (const p of [...versions].sort((a, b) => a.version - b.version)) {
+    if (seen.has(p.version)) return `version ${p.version} appears twice`;
+    seen.add(p.version);
+    const names = new Map(p.rules.map((r) => [dutyCode(r.duty_code || r.duty_name), r.duty_name]));
+    if ([...names.keys()].some((code) => !code)) return `version ${p.version} names a duty type without a code`;
+    const problems = scoringPolicyProblems({ rules: p.rules.map((r) => ({ duty_type_id: dutyCode(r.duty_code || r.duty_name), method: r.method, points: r.points, bands: r.bands })), multipliers: p.multipliers, combine: p.combine }, names);
+    if (problems.length) return `version ${p.version}: ${problems[0]}`;
+    if (p.withdrawn_at) continue;
+    if (last && p.effective_from <= last) return `version ${p.version} takes effect before an earlier version`;
+    last = p.effective_from;
+  }
+  return null;
+}
+
 export type ImportOutcome = 'add' | 'restore' | 'exists' | 'skip';
-export interface ImportLine { kind: Kind | 'setting'; label: string; outcome: ImportOutcome; reason?: string }
+export interface ImportLine { kind: Kind | 'setting' | 'scoring_policy'; label: string; outcome: ImportOutcome; reason?: string }
 export interface ImportPlan { lines: ImportLine[]; counts: Record<ImportOutcome, number>; settings: UnitSettingsPatch }
 
 const titleKey = (unitId: string | null | undefined, title: string) => `${unitId ?? ''}\u0000${title.trim().toLowerCase()}`;
@@ -370,6 +411,15 @@ export function planConfigurationImport(ctx: AppContext, orgId: string, file: Un
     lines.push({ kind: 'setting', label: `Report period ${current.reports.defaultPeriod} → ${wanted.reports.defaultPeriod}`, outcome: 'add' });
   }
 
+  // Duty scoring versions come with their dates and withdrawals, into an instance that has none: one that has published
+  // its own keeps its history, which is never rewritten (ADR-0012).
+  const scoring = [...(file.scoringPolicies ?? [])].sort((a, b) => a.version - b.version);
+  if (scoring.length) {
+    const own = (ctx.db.prepare('SELECT COUNT(*) AS n FROM duty_scoring_policies WHERE org_id = ?').get(orgId) as { n: number }).n;
+    const problem = own ? 'this Unit Instance keeps its own scoring versions' : scoringVersionsProblem(scoring);
+    for (const p of scoring) lines.push({ kind: 'scoring_policy', label: `Duty scoring version ${p.version} from ${p.effective_from}${p.withdrawn_at ? ' (withdrawn)' : ''}`, outcome: problem ? 'skip' : 'add', ...(problem ? { reason: problem } : {}) });
+  }
+
   const counts: Record<ImportOutcome, number> = { add: 0, restore: 0, exists: 0, skip: 0 };
   for (const l of lines) counts[l.outcome] += 1;
   return { lines, counts, settings };
@@ -400,6 +450,23 @@ export function applyConfigurationImport(ctx: AppContext, actor: Pick<SessionUse
     for (const t of file.trainingRequirements) {
       if (!unitOk(t.unit_id)) continue;
       requirement.run(newId(), orgId, t.unit_id || null, t.title.trim(), t.type, text(t.course_code), t.interval_months ?? null, text(t.description), actor.id, at, at, orgId, t.unit_id || null, t.title.trim());
+    }
+    if (plan.lines.some((l) => l.kind === 'scoring_policy' && l.outcome === 'add')) {
+      // A rule's duty type is the instance's by code; one the instance has never had comes in retired, as history.
+      const codes = new Map((ctx.db.prepare('SELECT id, code FROM duty_types WHERE org_id = ?').all(orgId) as Array<{ id: string; code: string }>).map((d) => [d.code, d.id]));
+      const typeFor = (code: string, name: string) => {
+        if (!codes.has(code)) {
+          const id = newId();
+          ctx.db.prepare('INSERT INTO duty_types (id, org_id, code, name, description, active, created_by, created_at, updated_at) VALUES (?, ?, ?, ?, NULL, 0, ?, ?, ?)').run(id, orgId, code, name.trim().slice(0, 60) || code, actor.id, at, at);
+          codes.set(code, id);
+        }
+        return codes.get(code)!;
+      };
+      const version = ctx.db.prepare('INSERT INTO duty_scoring_policies (id, org_id, version, effective_from, policy, note, created_by, created_at, withdrawn_at, withdrawn_by) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, NULL)');
+      for (const p of [...(file.scoringPolicies ?? [])].sort((a, b) => a.version - b.version)) {
+        const rules = p.rules.map((r) => { const code = dutyCode(r.duty_code || r.duty_name); return { duty_type_id: typeFor(code, r.duty_name), method: r.method, points: r.points, bands: r.bands }; });
+        version.run(newId(), orgId, p.version, p.effective_from, JSON.stringify({ rules, multipliers: p.multipliers, combine: p.combine }), p.note.trim() || 'Loaded from a configuration file.', actor.id, at, p.withdrawn_at);
+      }
     }
     if (plan.settings.work || plan.settings.reports) updateUnitSettings(ctx, actor, orgId, plan.settings, ip);
     const { add, restore, exists, skip } = plan.counts;

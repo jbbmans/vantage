@@ -26,6 +26,7 @@ import { assertDatabaseMatchesMode, purgeExpired } from './services/demo.ts';
 import { record } from './services/telemetry.ts';
 import { pruneEvents } from './services/usage.ts';
 import { pruneSources, reconcileInterruptedJobs } from './services/intake.ts';
+import { pruneStagedImports } from './services/recordImport.ts';
 import { orgRouter } from './routes/org.ts';
 import { miscRouter } from './routes/misc.ts';
 import { platformRouter } from './routes/platform.ts';
@@ -352,7 +353,7 @@ export function createApp(ctx: AppContext) {
   });
 
   const json = express.json({ limit: '4mb' });
-  const RAW_BODY_PATHS = /^\/api\/(admin\/import|work\/sources$|correspondence\/messages\/import$)/;
+  const RAW_BODY_PATHS = /^\/api\/(admin\/import|work\/sources$|correspondence\/messages\/import$|me\/imports$)/;
   app.use((req, res, next) => (RAW_BODY_PATHS.test(req.path) ? next() : json(req, res, next)));
   app.use(cookieParser());
 
@@ -553,6 +554,7 @@ export function startSchedulers(ctx: AppContext) {
   every('lineage', 'Database lineage', 60_000, () => { writeLineage(ctx); });
   every('event_prune', 'Event prune', 24 * 60 * 60_000, () => { const removed = pruneEvents(ctx); if (removed) console.log(`${now()} pruned ${removed} product events past the retention window`); });
   every('source_prune', 'Source prune', 24 * 60 * 60_000, () => { const released = pruneSources(ctx); if (released) console.log(`${now()} released the bytes of ${released} source files past the retention window`); });
+  every('record_import_prune', 'Import prune', 60 * 60_000, () => { const expired = pruneStagedImports(ctx); if (expired) console.log(`${now()} released the files of ${expired} imports left waiting past ${ctx.config.recordImports.stagedHours} hours`); });
   if (ctx.config.accessMode === 'demo') every('demo_purge', 'Demo purge', 10 * 60_000, () => { const n = purgeExpired(ctx); if (n) console.log(`${now()} removed ${n} expired demo workspaces`); });
   if (!ctx.config.test) {
     const run = every('maradmins', 'MARADMIN refresh', 5 * 60_000, () => syncMaradmins(ctx));

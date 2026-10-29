@@ -57,6 +57,8 @@ export interface AppConfig {
   limits: { mutationsPer15Minutes: number; registrationsPer15Minutes: number; consoleReadsPer15Minutes: number; maxRecordsPerUser: number; maxDatabaseBytes: number };
   attachments: { enabled: boolean; maxBytes: number; maxPerRecord: number; allowedTypes: string[] };
   intake: { enabled: boolean; maxBytes: number; maxBytesPerUser: number; maxRows: number; maxColumns: number; retainDays: number; scannerCommand: string | null; clamd: string | null; scanRequired: boolean };
+  /** A person's import of their own records (ADR-0019): the largest file, and how long one waits unreviewed before its bytes go. */
+  recordImports: { maxBytes: number; stagedHours: number };
   ai: {
     enabled: boolean; apiKey: string; baseUrl: string; models: string[]; defaultModel: string; maxOutputTokens: number; timeoutMs: number;
     requestsPerMinute: number; perUserRequestsPerMinute: number; dailyTokenBudget: number; perUserDailyTokens: number;
@@ -459,6 +461,10 @@ export function loadConfig(env = process.env): AppConfig {
       clamd: (env.VANTAGE_CLAMD || '').trim() || null,
       // Accredited hosts: refuse a file that could not be scanned rather than keep it marked as not scanned.
       scanRequired: envBool(env, 'VANTAGE_SCAN_REQUIRED', false),
+    },
+    recordImports: {
+      maxBytes: envNumber(env, 'VANTAGE_RECORD_IMPORT_MAX_BYTES', 50 * 1024 * 1024),
+      stagedHours: envNumber(env, 'VANTAGE_RECORD_IMPORT_STAGED_HOURS', 24),
     },
     ai: {
       enabled: envBool(env, 'VANTAGE_AI_ENABLED', false),

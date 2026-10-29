@@ -32,7 +32,7 @@ export interface DataTransfer {
 
 export const SERVICE_ARCHIVE_FORMAT = 'vantage-instance/1';
 /** The formats of Vantage's data exports: one Unit Instance's, one unit's, one person's. */
-export const DATA_EXPORT_FORMATS = ['vantage-organization/1', 'vantage-unit-configuration/1', 'vantage-personal/1'] as const;
+export const DATA_EXPORT_FORMATS = ['vantage-organization/1', 'vantage-unit-configuration/1', 'vantage-personal/1', 'vantage-record/1'] as const;
 
 export const DATA_TRANSFERS: readonly DataTransfer[] = [
   {
@@ -85,8 +85,20 @@ export const DATA_TRANSFERS: readonly DataTransfer[] = [
     who: 'Members whose unit role allows exporting.', routes: ['GET /api/org/units/:unitId/export'], restores: 'Not imported.',
   },
   {
-    id: 'personal_export', kind: 'data', label: 'Personal export', format: 'vantage-personal/1 JSON, or a ZIP with attachments', holds: 'Everything one person keeps.',
-    who: 'The person, for themselves.', routes: ['GET /api/me/export'], restores: 'Not imported.',
+    id: 'personal_export', kind: 'data', label: 'Personal export', format: 'vantage-personal/1 JSON, a ZIP with a CSV per record type and the attachments, a workbook (.xlsx), or one category as CSV',
+    holds: 'Everything one person keeps, or the categories they choose.',
+    who: 'The person, for themselves.', routes: ['GET /api/me/export'], restores: 'Imported by the person into their own account (Import records), reviewed first.',
+  },
+  {
+    id: 'record_download', kind: 'data', label: 'Record download', format: 'vantage-record/1 JSON, a one-row CSV, or a ZIP with its files', holds: 'One record and its attachments.',
+    who: 'Whoever may read the record.', routes: ['GET /api/records/:table/:id/export'], restores: 'Imported by a person into their own account, as their own record.',
+  },
+  {
+    id: 'personal_import', kind: 'data', label: 'Your records', format: 'A Vantage personal export (ZIP or JSON), a record download, a workbook (.xlsx) or a CSV',
+    holds: 'One person’s records by type: profile, activities, awards, training, counselings, goals, projects, tasks, career plan and attachments.',
+    who: 'The person, into their own account.',
+    routes: ['POST /api/me/imports', 'GET /api/me/imports', 'GET /api/me/imports/:id', 'PUT /api/me/imports/:id', 'DELETE /api/me/imports/:id', 'POST /api/me/imports/:id/commit', 'POST /api/me/imports/:id/undo'],
+    restores: 'Adds and updates the person’s own records, reviewed first, in one transaction; it can be undone.',
   },
   {
     id: 'reports', kind: 'data', label: 'Reports', format: 'CSV, PDF or text', holds: 'A report one can already read in Vantage, or a saved revision of one.',

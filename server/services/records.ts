@@ -177,7 +177,7 @@ export function getRecord(ctx: AppContext, table: RecordTable, id: string, { inc
   return hydrate(row, table);
 }
 
-function capacityProblem(ctx: AppContext, userId: string, additional = 1): string | null {
+export function capacityProblem(ctx: AppContext, userId: string, additional = 1): string | null {
   const total = RECORD_TABLE_NAMES.reduce((sum, t) => sum + (ctx.db.prepare(`SELECT COUNT(*) AS n FROM ${t} WHERE user_id = ?`).get(userId) as { n: number }).n, 0);
   if (total + additional > ctx.config.limits.maxRecordsPerUser) return `This account has reached its ${ctx.config.limits.maxRecordsPerUser.toLocaleString()}-record limit. Contact Vantage support if you need more.`;
   try {
@@ -258,6 +258,29 @@ function assertCarriesNothingAcross(ctx: AppContext, table: RecordTable, row: Re
 }
 
 /**
+ * Whether its owner may put a record back where it was, its assignee with it (an import's undo, ADR-0019): the checks an
+ * edit that re-places it takes, so an undo never carries what others added in one Unit Instance into another, nor puts a
+ * record where its owner may not place it now. Throws the refusal the edit would.
+ */
+export function assertRestorable(ctx: AppContext, scope: Scope, user: SessionUser, table: RecordTable, row: RecordRow & Record<string, unknown>, back: { visibility: string; unitId: string | null; assigneeId: string | null; measureScope: unknown }) {
+  const spec = TABLES[table];
+  const moved = back.unitId !== row.unit_id || back.visibility !== row.visibility;
+  if (moved) {
+    if (mayLeaveInstance(ctx, row.unit_id, back.unitId)) assertCarriesNothingAcross(ctx, table, row, back.unitId);
+    if (back.visibility === 'unit' && !back.unitId) throw badRequest('Choose a unit before sharing this record.');
+    if (back.unitId && back.unitId !== row.unit_id && !ctx.db.prepare('SELECT 1 FROM units WHERE id = ? AND active = 1').get(back.unitId)) throw badRequest('No such unit.');
+    if (!canPlace(scope, back.visibility, back.unitId, spec.shareFlag, Boolean(spec.personal))) throw forbidden('You cannot place a record in that unit.');
+    const project = (row.project_id as string | null | undefined) ?? null;
+    checkProjectLink(ctx, scope, user.id, table, project, project, back.unitId, true);
+  }
+  if (table === 'goals' && back.measureScope === 'unit' && (moved || row.measure_scope !== 'unit')) unitMeasureAllowed(scope, back.unitId);
+  if (spec.assignee && (moved || back.assigneeId !== (row.assignee_id ?? null))) {
+    const problem = assigneeProblem(ctx, scope, user.id, back.assigneeId, back.unitId);
+    if (problem) throw badRequest(problem);
+  }
+}
+
+/**
  * The trail of an edit: where the record now sits, and when it crossed from one Unit Instance into another, where it
  * left as well. Each instance's trail says what crossed its edge without naming the other side (ADR-0008). A
  * counseling's edit is an amendment (ADR-0013): counseling_amended, naming the fields that changed (their names, never
@@ -281,12 +304,20 @@ function changedFields(spec: TableSpec, row: Record<string, unknown>, data: Reco
   return fields;
 }
 
-export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTable, body: unknown, reqKey: object, ip?: string) {
+/**
+ * How an import creates a record (ADR-0019): `importId` names it in the trail and leaves the record out of entry-quality
+ * telemetry, which measures what people type, and out of the per-record capacity count, which the import makes once for
+ * all it adds; `fingerprint` keeps an activity drawn from a financial case marked as one; `review` is the import's dry
+ * run, rolled back, which writes no trail.
+ */
+export interface CreateOptions { importId?: string; fingerprint?: string; review?: boolean }
+
+export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTable, body: unknown, reqKey: object, ip?: string, opts: CreateOptions = {}) {
   const spec = TABLES[table];
   const data = parse(RECORD_SCHEMAS[table] as never, body) as Record<string, unknown>;
   checkValueType(ctx, table, data);
   checkTimeframe(table, data);
-  const capacity = capacityProblem(ctx, user.id);
+  const capacity = opts.importId ? null : capacityProblem(ctx, user.id);
   if (capacity) throw new HttpError(507, capacity, 'record_quota');
   const scope = scopeFor(ctx, user, reqKey);
 
@@ -324,7 +355,7 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
   if (table === 'counselings') { cols.push('counselor_id'); vals.push(counselorId); }
   // An award keeps who entered it: its owner, or the leader recommending them (ADR-0015).
   if (table === 'awards') { cols.push('recorded_by'); vals.push(user.id); }
-  if (table === 'activities') { cols.push('fingerprint'); vals.push(activityFingerprint(ownerId, data as never)); }
+  if (table === 'activities') { cols.push('fingerprint'); vals.push(opts.fingerprint && isDrawnFromWork(opts.fingerprint) ? opts.fingerprint : activityFingerprint(ownerId, data as never)); }
   if (table === 'activities' && data.kind_confirmed) { cols.push('kind_confirmed_at'); vals.push(now()); }
   for (const f of spec.fields) {
     if (data[f] === undefined) continue;
@@ -337,7 +368,8 @@ export function createRecord(ctx: AppContext, user: SessionUser, table: RecordTa
     if (table === 'activities' && String((error as Error).message).includes('UNIQUE')) throw conflict('An identical activity already exists for that date.', 'duplicate');
     throw error;
   }
-  audit(ctx, { actor_id: user.id, action: 'create', entity: table, entity_id: id, subject_id: ownerId !== user.id ? ownerId : null, unit_id: unitId, ip });
+  if (!opts.review) audit(ctx, { actor_id: user.id, action: 'create', entity: table, entity_id: id, subject_id: ownerId !== user.id ? ownerId : null, unit_id: unitId, detail: opts.importId ? `import ${opts.importId}` : undefined, ip });
+  if (opts.importId) return readBack(ctx, table, id);
   if (table === 'goals') {
     record(ctx, 'goal.created', {
       typed: Boolean(data.metric_id),
@@ -551,6 +583,7 @@ export function destroyRecords(ctx: AppContext, table: RecordTable, ids: string[
   const list = JSON.stringify(ids);
   const each = 'IN (SELECT value FROM json_each(?))';
   destroyLineage(ctx, table, ids, holds);
+  forgetImportSnapshots(ctx, table, ids);
   const attachments = ctx.db.prepare(`DELETE FROM attachments WHERE record_table = ? AND record_id ${each}`).run(table, list).changes;
   const comments = ctx.db.prepare(`DELETE FROM comments WHERE record_table = ? AND record_id ${each}`).run(table, list).changes;
   if (table === 'activities') {
@@ -610,6 +643,15 @@ export function destroyLineage(ctx: AppContext, table: string, ids: string[], ho
     for (const l of chain) removed += remove.run(l.id).changes;
   }
   return removed;
+}
+
+/**
+ * What an import's undo would write back over a record (ADR-0019) goes when the record is destroyed or anonymized, as its
+ * lineage does: nothing restores what disposition took, and the undo keeps such a record as it is.
+ */
+export function forgetImportSnapshots(ctx: AppContext, table: string, ids: string[]): number {
+  if (!ids.length) return 0;
+  return ctx.db.prepare("UPDATE record_import_origins SET before = NULL WHERE record_table = ? AND action = 'updated' AND record_id IN (SELECT value FROM json_each(?))").run(table, JSON.stringify(ids)).changes;
 }
 
 // The field anonymizing writes over first in each movable type (server/services/retention.ts).

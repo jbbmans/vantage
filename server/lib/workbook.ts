@@ -1,4 +1,4 @@
-import { readZip, ZipError } from './zip.ts';
+import { readZip, buildZip, ZipError, type ZipEntry } from './zip.ts';
 
 export { ZipError };
 
@@ -248,4 +248,61 @@ export function sniffDelimiter(text: string): string {
   const counts = [',', '\t', ';', '|'].map((d) => [d, firstLine.split(d).length - 1] as const);
   const best = counts.reduce((a, b) => (b[1] > a[1] ? b : a));
   return best[1] > 0 ? best[0] : ',';
+}
+
+// ——— Writing ———
+
+export interface SheetOut { name: string; rows: Array<Array<string | number | null | undefined>> }
+
+/** Characters XML 1.0 cannot carry at all: control characters other than tab, newline and carriage return. */
+// eslint-disable-next-line no-control-regex
+const XML_INVALID = /[\u0000-\u0008\u000B\u000C\u000E-\u001F￾￿]/g;
+const escapeXml = (s: string) => s.replace(XML_INVALID, '').replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;');
+
+/** A zero-based column index as its letters: 0 is A, 26 is AA. */
+export function columnLetters(index: number): string {
+  let n = index + 1;
+  let out = '';
+  while (n > 0) { const r = (n - 1) % 26; out = String.fromCharCode(65 + r) + out; n = Math.floor((n - 1) / 26); }
+  return out;
+}
+
+/** A sheet name Excel accepts: at most 31 characters, none of []:*?/\, and not repeated in the workbook. */
+function sheetName(name: string, taken: Set<string>): string {
+  const base = (name.replace(/[[\]:*?/\\]/g, ' ').trim() || 'Sheet').slice(0, 31);
+  let candidate = base;
+  for (let i = 2; taken.has(candidate.toLowerCase()); i += 1) candidate = `${base.slice(0, 31 - String(i).length - 1)} ${i}`;
+  taken.add(candidate.toLowerCase());
+  return candidate;
+}
+
+/**
+ * A plain .xlsx workbook: one sheet per entry, every value as written. Text goes in as inline strings, so a cell that
+ * starts with "=" is text in Excel and is never run as a formula; numbers go in as numbers. No styles, macros, links or
+ * shared strings: readWorkbook reads it back cell for cell.
+ */
+export function writeWorkbook(sheets: SheetOut[]): Buffer {
+  const taken = new Set<string>();
+  const named = (sheets.length ? sheets : [{ name: 'Sheet1', rows: [] }]).map((s) => ({ ...s, name: sheetName(s.name, taken) }));
+  const sheetXml = (rows: SheetOut['rows']) => {
+    const body = rows.map((cells, r) => {
+      const xml = cells.map((value, c) => {
+        if (value == null || value === '') return '';
+        const ref = `${columnLetters(c)}${r + 1}`;
+        if (typeof value === 'number' && Number.isFinite(value)) return `<c r="${ref}"><v>${value}</v></c>`;
+        return `<c r="${ref}" t="inlineStr"><is><t xml:space="preserve">${escapeXml(String(value))}</t></is></c>`;
+      }).join('');
+      return `<row r="${r + 1}">${xml}</row>`;
+    }).join('');
+    return `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<worksheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><sheetData>${body}</sheetData></worksheet>`;
+  };
+  const entries: ZipEntry[] = [
+    { name: '[Content_Types].xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Types xmlns="http://schemas.openxmlformats.org/package/2006/content-types"><Default Extension="rels" ContentType="application/vnd.openxmlformats-package.relationships+xml"/><Default Extension="xml" ContentType="application/xml"/><Override PartName="/xl/workbook.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet.main+xml"/><Override PartName="/xl/styles.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.styles+xml"/>${named.map((_, i) => `<Override PartName="/xl/worksheets/sheet${i + 1}.xml" ContentType="application/vnd.openxmlformats-officedocument.spreadsheetml.worksheet+xml"/>`).join('')}</Types>` },
+    { name: '_rels/.rels', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships"><Relationship Id="rId1" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/officeDocument" Target="xl/workbook.xml"/></Relationships>' },
+    { name: 'xl/workbook.xml', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<workbook xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships"><sheets>${named.map((s, i) => `<sheet name="${escapeXml(s.name)}" sheetId="${i + 1}" r:id="rId${i + 1}"/>`).join('')}</sheets></workbook>` },
+    { name: 'xl/_rels/workbook.xml.rels', data: `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">${named.map((_, i) => `<Relationship Id="rId${i + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/worksheet" Target="worksheets/sheet${i + 1}.xml"/>`).join('')}<Relationship Id="rId${named.length + 1}" Type="http://schemas.openxmlformats.org/officeDocument/2006/relationships/styles" Target="styles.xml"/></Relationships>` },
+    { name: 'xl/styles.xml', data: '<?xml version="1.0" encoding="UTF-8" standalone="yes"?>\n<styleSheet xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main"><fonts count="1"><font><sz val="11"/><name val="Calibri"/></font></fonts><fills count="2"><fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill></fills><borders count="1"><border><left/><right/><top/><bottom/><diagonal/></border></borders><cellStyleXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0"/></cellStyleXfs><cellXfs count="1"><xf numFmtId="0" fontId="0" fillId="0" borderId="0" xfId="0"/></cellXfs></styleSheet>' },
+    ...named.map((s, i) => ({ name: `xl/worksheets/sheet${i + 1}.xml`, data: sheetXml(s.rows) })),
+  ];
+  return buildZip(entries);
 }

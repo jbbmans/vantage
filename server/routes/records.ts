@@ -15,6 +15,8 @@ import { goalContributors } from '../services/goals.ts';
 import { listComments, addComment, editComment, deleteComment } from '../services/comments.ts';
 import { moveRecord, undoMove, recordLineage, keepAsActivity } from '../services/recordMoves.ts';
 import { newId, now } from '../lib/ids.ts';
+import { buildRecordExport } from '../services/personalExport.ts';
+import { importedFrom } from '../services/recordImport.ts';
 import { statSync } from 'node:fs';
 
 export const recordsRouter = Router();
@@ -68,7 +70,22 @@ recordsRouter.get('/:table/:id', wrap((req, res) => {
   const raw = readableRecord(req.ctx, req.user, table, String(req.params.id), req);
   const row = table === 'goals' ? withGoalProgress(req.ctx, [raw])[0] : table === 'awards' ? withRecorderNames(req.ctx, req.user.id, [raw])[0] as typeof raw : raw;
   if (row.user_id !== req.user.id) audit(req.ctx, { actor_id: req.user.id, action: 'view_record', entity: table, entity_id: row.id, subject_id: row.user_id, unit_id: row.unit_id, ip: clientIp(req) });
-  res.json(row);
+  // A record an import brought in says so, and by whose word (ADR-0019).
+  const imported = importedFrom(req.ctx, table, row.id, req.user.id);
+  res.json(imported ? { ...row, imported } : row);
+}));
+
+/** One record to keep: as JSON, a one-row CSV, or a ZIP with its files. Whoever may read the record may download it. */
+recordsRouter.get('/:table/:id/export', wrap((req, res) => {
+  const table = tableParam(req);
+  const row = readableRecord(req.ctx, req.user, table, String(req.params.id), req);
+  const format = req.query.format === 'csv' ? 'csv' : req.query.format === 'zip' ? 'zip' : 'json';
+  const out = buildRecordExport(req.ctx, table, row as Record<string, unknown>, format, { files: ATTACHABLE.has(table) });
+  audit(req.ctx, { actor_id: req.user.id, action: 'export_record', entity: table, entity_id: row.id, subject_id: row.user_id !== req.user.id ? row.user_id : null, unit_id: row.unit_id, detail: `${format}${out.attachments ? `; ${out.attachments} files` : ''}`, ip: clientIp(req) });
+  res.setHeader('Content-Type', out.contentType);
+  res.setHeader('Content-Disposition', `attachment; filename="${out.filename}"`);
+  res.setHeader('X-Content-Type-Options', 'nosniff');
+  res.send(out.body);
 }));
 
 recordsRouter.post('/:table', wrap((req, res) => {

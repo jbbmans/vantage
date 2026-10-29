@@ -13,6 +13,7 @@ import { TimeframeText, timeframeCheck } from '@/components/Timeframe';
 import { Comments } from '@/components/Comments';
 import MoveRecordDialog, { entryHref, type MovedEntry } from '@/components/MoveRecordDialog';
 import RecordLineage from '@/components/RecordLineage';
+import DownloadMenu, { recordDownloads } from '@/components/DownloadMenu';
 import { can, keys, useDeleteRecord, useIdentity, useRestoreRecord, useTrack, unitName, useOrg, useMetrics } from '@/lib/queries';
 import { PERMISSIONS } from '../../shared/permissions';
 import * as api from '@/lib/api';
@@ -96,6 +97,7 @@ export default function RecordDetail() {
           {canMove && <Button onClick={() => setMoving(true)} title="Move it to Awards or Training if that is what it really is"><ArrowRightLeft className="h-4 w-4" />Move to…</Button>}
           {canEdit && !a.deleted_at && <Button onClick={() => setEditing(toActivityDraft(a))}><Pencil className="h-4 w-4" />Edit</Button>}
           {canEdit && !a.deleted_at && <Button variant="danger" onClick={() => setConfirm(true)}><Trash2 className="h-4 w-4" />Delete</Button>}
+          <DownloadMenu choices={recordDownloads('activities', id, Boolean(files?.attachments?.length))} />
         </div>
       </div>
 
@@ -126,7 +128,7 @@ export default function RecordDetail() {
               ['Notes', a.notes ? <span className="whitespace-pre-wrap">{a.notes}</span> : null],
             ]} />
             {(a.evidence_links || []).length > 0 && <div className="mt-4"><p className="eyebrow mb-1.5">Evidence</p><ul className="space-y-1">{a.evidence_links.map((l: any, i: any) => <li key={i} className="text-sm">{l.url ? <a href={l.url} target="_blank" rel="noopener noreferrer" className="link inline-flex items-center gap-1">{l.label || l.url}<ExternalLink className="h-3 w-3" /></a> : <span className="text-ink-2">{l.label}</span>}</li>)}</ul></div>}
-            <p className="mt-4 text-2xs text-ink-3">Created {formatStamp(a.created_at)} · updated {formatStamp(a.updated_at)} · version {a.version}</p>
+            <p className="mt-4 text-2xs text-ink-3">Created {formatStamp(a.created_at)} · updated {formatStamp(a.updated_at)} · version {a.version}{a.imported ? ` · imported ${formatStamp(a.imported.at)}${a.imported.filename ? ` from ${a.imported.filename}` : ''}${a.imported.author ? `, written by ${a.imported.author}` : ''}` : ''}</p>
           </Panel>
 
           {identity?.instance.aiEnabled && mine && (

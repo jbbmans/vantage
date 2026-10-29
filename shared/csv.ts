@@ -109,13 +109,13 @@ export function parseCsvText(text: string, delimiter: ',' | '\t' = ','): { colum
   return { columns, rows };
 }
 
-const toNumber = (v: unknown): number | null => {
+export const toNumber = (v: unknown): number | null => {
   if (v == null || v === '') return null;
   const n = parseFloat(String(v).replace(/[$,\s]/g, ''));
   return Number.isNaN(n) ? null : n;
 };
 
-const toISODate = (v: unknown): string | null => {
+export const toISODate = (v: unknown): string | null => {
   if (!v) return null;
   const s = String(v).trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(s)) return s;
@@ -133,7 +133,7 @@ const toISODate = (v: unknown): string | null => {
 };
 
 /** A time of day as a spreadsheet may hold it ("0800", "800", "08:00", "8:00:00 AM"), as HH:MM; null when it is none. */
-const toTime = (v: unknown): string | null => {
+export const toTime = (v: unknown): string | null => {
   const s = String(v ?? '').trim().toUpperCase();
   const m = s.match(/^(\d{1,2}):?(\d{2})(?::\d{2})?\s*(AM|PM)?$/);
   if (!m) return null;
@@ -142,8 +142,8 @@ const toTime = (v: unknown): string | null => {
   if (hour > 23 || Number(m[2]) > 59) return null;
   return `${String(hour).padStart(2, '0')}:${m[2]}`;
 };
-const STILL_GOING = /^(present|ongoing|current|now)$/i;
-const YES = /^(y|yes|true|1|x|ongoing|present)$/i;
+export const STILL_GOING = /^(present|ongoing|current|now)$/i;
+export const YES = /^(y|yes|true|1|x|ongoing|present)$/i;
 
 export interface ImportedActivity {
   id?: string; title: string; date: string;
@@ -155,7 +155,8 @@ export interface ImportedActivity {
   evidence_links?: Array<{ label?: string; url?: string }>;
 }
 
-export function applyMapping(rows: Array<Record<string, string>>, mapping: Record<string, string>) {
+/** `undated`: an empty Date cell is an undated entry, as the record allows (the import, ADR-0019); one that says something unreadable is still refused. */
+export function applyMapping(rows: Array<Record<string, string>>, mapping: Record<string, string>, opts: { undated?: boolean } = {}) {
   const records: ImportedActivity[] = [];
   const problems: Array<{ row: number; issue: string }> = [];
   rows.forEach((row, i) => {
@@ -206,7 +207,7 @@ export function applyMapping(rows: Array<Record<string, string>>, mapping: Recor
     else if (out.end_date) out.ongoing = false;
     const timeframe = out.date ? timeframeProblems('activities', out) : null;
     if (!out.title) problems.push({ row: i + 2, issue: 'missing title' });
-    else if (!out.date) problems.push({ row: i + 2, issue: 'unreadable date' });
+    else if (!out.date && !(opts.undated && mapped('date') && !said('date'))) problems.push({ row: i + 2, issue: 'unreadable date' });
     else if (unreadable) problems.push({ row: i + 2, issue: unreadable });
     else if (timeframe) problems.push({ row: i + 2, issue: timeframe.message });
     else records.push(out);

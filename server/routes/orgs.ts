@@ -532,7 +532,7 @@ orgsRouter.post('/:orgId/duty-scoring/:id/withdraw', inOrg('org.config'), wrap((
 orgsRouter.get('/:orgId/configuration/export', inOrg('org.export'), wrap((req, res) => {
   const org = orgOf(req);
   const out = exportUnitConfiguration(req.ctx, org.id);
-  audit(req.ctx, { actor_id: req.user.id, action: 'unit_configuration_exported', entity: 'organization', entity_id: org.id, org_id: org.id, detail: `${out.billets.length} billets, ${out.dutyTypes.length} duty types, ${out.trainingRequirements.length} training requirements`, ip: ip(req) });
+  audit(req.ctx, { actor_id: req.user.id, action: 'unit_configuration_exported', entity: 'organization', entity_id: org.id, org_id: org.id, detail: `${out.billets.length} billets, ${out.dutyTypes.length} duty types, ${out.trainingRequirements.length} training requirements, ${out.scoringPolicies?.length ?? 0} duty scoring versions`, ip: ip(req) });
   res.setHeader('Content-Disposition', `attachment; filename="vantage-${org.slug.toLowerCase()}-configuration-${now().slice(0, 10)}.json"`);
   res.json(out);
 }));
@@ -552,6 +552,20 @@ const configurationFile = z.object({
     work: z.object({ claimExpiryHours: z.number() }).partial().optional(),
     reports: z.object({ defaultPeriod: z.enum(periods) }).partial().optional(),
   }).optional(),
+  scoringPolicies: z.array(z.object({
+    version: z.number().int().min(1).max(100_000),
+    effective_from: auditDay,
+    note: z.string().max(SCORING_LIMITS.note).default(''),
+    withdrawn_at: z.string().max(40).nullish().transform((v) => v ?? null),
+    rules: z.array(z.object({
+      duty_code: text(20).default(''), duty_name: text(60).trim().min(1),
+      method: z.enum(keysOf(SCORING_METHODS)),
+      points: z.number().nullish().transform((v) => v ?? null),
+      bands: z.array(z.object({ from_hours: z.number(), points: z.number() })).max(SCORING_LIMITS.bands).nullish().transform((v) => v ?? null),
+    })).max(SCORING_LIMITS.rules),
+    multipliers: z.array(z.object({ condition: z.enum(keysOf(SCORING_CONDITIONS)), factor: z.number() })).max(SCORING_CONDITIONS.length),
+    combine: z.enum(keysOf(SCORING_COMBINE)),
+  })).max(500).default([]),
 });
 
 orgsRouter.post('/:orgId/configuration/import', inOrg('org.config'), wrap((req, res) => {

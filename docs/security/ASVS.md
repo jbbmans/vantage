@@ -109,7 +109,7 @@ are under `tests/browser`.
 
 | Section | Status | Evidence | Gaps |
 |---|---|---|---|
-| V2.1 Validation and business logic documentation | Partly | zod schemas in `shared/schemas.ts`, `shared/recordSchemas.ts`, `shared/caseSchemas.ts`; limits written into ADR-0011, ADR-0012 and ADR-0013; record timeframe rules in `shared/timeframe.ts` and ADR-0018 | No single document lists every validation rule and business limit. |
+| V2.1 Validation and business logic documentation | Partly | zod schemas in `shared/schemas.ts`, `shared/recordSchemas.ts`, `shared/caseSchemas.ts`; limits written into ADR-0011, ADR-0012 and ADR-0013; record timeframe rules in `shared/timeframe.ts` and ADR-0018; import and export columns and categories in `shared/recordTransfer.ts` and ADR-0019 | No single document lists every validation rule and business limit. |
 | V2.2 Input validation | Met | `parse()` with zod on every route that takes input; server-side checks repeat any the client makes | — |
 | V2.3 Business logic security | Partly | Steps in order: work stages, scoring versions in order, approvals before credential changes; no record ending before it starts, held by database triggers for every writer (tests `recordTimeframes`); optimistic concurrency (409 `version_conflict`); single-use codes, links and approvals; tests `cases`, `dutyScoring`, `credentialApprovals`, `invariants` | A second person approves only a support credential change on an account that holds authority. Maintenance, backups, instance restores and Vantage access a Unit Instance chose to be told of need no second person (V2.3.5, L3; ADR-0013, Consequences). |
 | V2.4 Anti-automation | Partly | Rate limits per IP and per account on sign-in, registration, reset, MFA and mutations; per-person console read limit; mail caps per account; tests `auth`, `securityHardening`, `leastPrivilege` | No minimum human timing on business flows (V2.4.2, L3). |
@@ -140,9 +140,9 @@ are under `tests/browser`.
 | Section | Status | Evidence | Gaps |
 |---|---|---|---|
 | V5.1 File handling documentation | Partly | `docs/security.md` (attachments, scanning, workbook limits) | Permitted types and sizes are in code and the security model, not in one file-handling document. |
-| V5.2 File upload and content | Partly | Types sniffed (PDF, PNG, JPEG, text, CSV), size limits, real expanded size charged, clamd scanning with an option to refuse unscanned files; a cap on attachments per record and a refusal near the database's size threshold (`server/routes/records.ts`); tests `stigControls`, `workbook` | No quota of files or bytes per person (V5.2.4, L3). An image's pixel dimensions are not checked, only its bytes (V5.2.6, L3). |
+| V5.2 File upload and content | Partly | Types sniffed (PDF, PNG, JPEG, text, CSV), size limits, real expanded size charged, clamd scanning with an option to refuse unscanned files; a cap on attachments per record and a refusal near the database's size threshold (`server/routes/records.ts`); a record import scans its file and each file in a Vantage ZIP, bounds ZIP entries and expanded bytes, and holds one file per person for a day (ADR-0019); tests `stigControls`, `workbook`, `recordTransfer` | No quota of files or bytes per person (V5.2.4, L3). An image's pixel dimensions are not checked, only its bytes (V5.2.6, L3). |
 | V5.3 File storage | Met | Files stored in the database, never on a path a user names; served only through authorization checks | — |
-| V5.4 File download | Met | `Content-Disposition: attachment`, record and unit authorization on every download; tests `unitIsolation` ("file downloads enforce record and unit authorization") | — |
+| V5.4 File download | Met | `Content-Disposition: attachment`, record and unit authorization on every download; a record's download reads it under the same rule as its page and is audited (`export_record`, ADR-0019); tests `unitIsolation` ("file downloads enforce record and unit authorization"), `recordTransfer` | — |
 
 ### V6 Authentication
 
