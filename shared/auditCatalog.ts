@@ -59,6 +59,8 @@ const USER = [
   'record_import_staged', 'record_import_committed', 'record_import_undone', 'record_import_cancelled', 'export_record',
   // Reports and the writing assistant.
   'build_report', 'create_report', 'save_report_revision', 'export_report_revision', 'ai_assist', 'ai_assist_failed',
+  // The report center (ADR-0020): another's report or a unit's read, any report printed or filed, and saved reports.
+  'view_report', 'print_report', 'export_report', 'report_definition_saved', 'report_definition_deleted',
   // Work, cases and correspondence.
   'work_created', 'work_action', 'work_handed_off', 'work_closed', 'work_reopened', 'work_claim_expired',
   'work_claim_released_on_departure', 'procedure_applied', 'procedure_migrated', 'upload_source', 'run_import',

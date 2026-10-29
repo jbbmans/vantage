@@ -42,7 +42,7 @@ export interface Identity {
   /** stepUp: how this person can confirm it is them; empty means only signing in again does. */
   session: { id: string; method: string; sudoUntil: string | null; stepUp?: Array<'password' | 'cac'> };
   demo: null | { mode: 'demo'; ttl_hours: number; workspace: { expires_at: string; persona: 'marine' | 'leader' | null } | null; personas: Record<string, { label: string; description: string }>; flagship: { reference: string; note: string; values: Array<{ field: string; label: string; display: string; reference?: string }>; scenario: string } };
-  instance: { accessMode?: 'accounts' | 'demo'; displayName: string; organizationName: string; announcement: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean; metrics: MetricsConfig; timezone?: string };
+  instance: { accessMode?: 'accounts' | 'demo'; displayName: string; organizationName: string; announcement: string; reportMarking?: string; emailEnabled: boolean; attachmentsEnabled: boolean; aiEnabled: boolean; maradminsEnabled: boolean; metrics: MetricsConfig; timezone?: string };
 }
 
 export interface MetricSeriesPoint { key: string; label: string; value: number; outcomes: number; contributors: string[] }

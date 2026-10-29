@@ -24,7 +24,7 @@ test('the menu is the specification’s top-level structure, with Help and Setti
   assert.deepEqual(pages('records'), ['Overview', 'Timeline', 'Activities', 'Awards', 'Counseling', 'Drafts', 'Contributions']);
   assert.deepEqual(pages('development'), ['Training', 'Career plan', 'Goals', 'Readiness', 'MARADMINs']);
   assert.deepEqual(pages('personnel'), ['Overview', 'Roster', 'Workload']);
-  assert.deepEqual(pages('reports'), ['Packages', 'Analysis', 'Unit dashboard']);
+  assert.deepEqual(pages('reports'), ['Packages', 'Analysis', 'Report library', 'Unit dashboard']);
   assert.deepEqual(pages('admin'), ['Invitations', 'Roles', 'Units', 'Access log', 'Unit Manager console', 'Vantage Administrator console', 'Unit Manager console']);
 });
 

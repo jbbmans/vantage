@@ -540,6 +540,15 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     access: 'The person; the unit when shared.',
     columns: { id: 'technical', user_id: 'identifier', unit_id: 'employment', name: 'none', shared: 'none', config: 'none', created_at: 'technical', updated_at: 'technical' },
   },
+  report_definitions: {
+    purpose: 'A saved report: which report, and the filters it runs with, which may name the Marine it is about. Never its figures.',
+    authority: 'Necessary to operate the product.',
+    access: 'The person; the unit when shared, which never names a Marine. Running it checks the reader’s authority again.',
+    columns: {
+      id: 'technical', user_id: 'identifier', unit_id: 'employment', visibility: 'none', name: 'none', type: 'none', params: 'identifier',
+      created_at: 'technical', updated_at: 'technical',
+    },
+  },
   report_drafts: {
     purpose: 'Evaluation input (JEPES, FITREP) being assembled about a named person, with its revisions.',
     authority: 'Prepared under the evaluation program. About a named person and treated as sensitive.',

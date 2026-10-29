@@ -221,6 +221,30 @@ owner move an entry between activities, awards and training with lineage and und
 - **Nothing moved on upgrade.** Migration 023 moves no row; each Marine moves what they choose (John, 2026-10-17,
   "Marine confirms").
 
+## Reports and printable output (ADR-0020)
+
+[ADR-0020](engineering/ADR/0020-reports-printable-output.md) builds every report as one document that the screen, the
+print page and every file are drawn from.
+
+- **Whom a report may be about is decided before anything is read** (`resolveTarget`): the reader, always; a Marine
+  only where the reader may open their records (`VIEW_MEMBER_DETAIL` and a higher position), from what they shared
+  with that unit; a unit only with `VIEW_RECORDS` there (Personnel also `MANAGE_MEMBERS`), from what is shared with it
+  and the units beneath it. A Marine named in another Unit Instance is refused (`cross_instance`). Figures by Marine
+  in a unit's report need `VIEW_MEMBER_DETAIL`, and are left out, with a note, without it.
+- **Taking a file is its own permission.** A CSV, workbook or JSON of anyone else's records, and any file of a unit's
+  report, needs `EXPORT_DATA` in that unit; a Marine's PDF needs only opening their record. Viewing and printing need
+  no export permission. The answer says which files the reader may take.
+- **Audited.** `view_report` for a report about anyone else, `print_report` for every print, `export_report` for
+  every file, each with the report, format, period, rows and the Marine or unit. The export route is a bulk route in
+  the privileged-route sweep.
+- **Never a counseling's words.** Counselings are listed by date, type, counselor and follow-up only.
+- **Files cannot carry formulas.** CSV cells that start like a formula are written as text; the workbook writes
+  inline strings.
+- **The handling line** on every page and file is a Vantage Administrator setting (`reportMarking`, default "Working
+  paper"). The marking MCEN requires is MCEN's to give.
+- **A saved report keeps choices, never data,** is checked as a run is, is shared only with a unit the person reads,
+  names no Marine when shared, and is run with the reader's own authority. Only its owner changes it.
+
 ## Logs
 
 Every log Vantage keeps, where it goes and who reads it. Nothing else is written.

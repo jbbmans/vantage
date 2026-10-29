@@ -72,7 +72,7 @@ test('the sidebar is the specification’s structure: each group lists its pages
   await page.goto('/team/roster');
   await listed(rail.getByRole('list', { name: 'Personnel pages' })).toEqual(['Overview', 'Roster', 'Workload']);
   await page.goto('/team/dashboard');
-  await listed(rail.getByRole('list', { name: 'Reports & Analytics pages' })).toEqual(['Packages', 'Analysis', 'Unit dashboard']);
+  await listed(rail.getByRole('list', { name: 'Reports & Analytics pages' })).toEqual(['Packages', 'Analysis', 'Report library', 'Unit dashboard']);
   await page.goto('/team/roles');
   const admin = rail.getByRole('list', { name: 'Administration pages' });
   await listed(admin).toEqual(['Invitations', 'Roles', 'Units', 'Access log', 'Unit Manager console', 'Vantage Administrator console']);

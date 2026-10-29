@@ -101,8 +101,8 @@ export const DATA_TRANSFERS: readonly DataTransfer[] = [
     restores: 'Adds and updates the person’s own records, reviewed first, in one transaction; it can be undone.',
   },
   {
-    id: 'reports', kind: 'data', label: 'Reports', format: 'CSV, PDF or text', holds: 'A report one can already read in Vantage, or a saved revision of one.',
-    who: 'The person, and leaders whose unit role allows it.', routes: ['GET /api/reports/csv', 'GET /api/reports/pdf', 'GET /api/reports/analysis.pdf', 'GET /api/studio/reports/:id/revisions/:revision/export.txt'], restores: 'Not imported.',
+    id: 'reports', kind: 'data', label: 'Reports', format: 'PDF, CSV, a workbook (.xlsx), vantage-report/1 JSON, or text', holds: 'A report one can already read in Vantage, or a saved revision of one.',
+    who: 'The person, and leaders whose unit role allows it.', routes: ['GET /api/reports/csv', 'GET /api/reports/pdf', 'GET /api/reports/analysis.pdf', 'GET /api/studio/reports/:id/revisions/:revision/export.txt', 'GET /api/report-center/export'], restores: 'Not imported.',
   },
   {
     id: 'activities_import', kind: 'data', label: 'Activities', format: 'Rows from a spreadsheet', holds: 'One person’s activities.',

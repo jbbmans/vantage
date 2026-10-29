@@ -19,6 +19,7 @@ export { PersonnelConsole, RetentionConsole, PrivacyConsole };
 import { formatStamp, humanize, timeAgo } from '@/lib/utils';
 import { DEFAULT_METRICS, CATEGORY_PALETTE, type MetricsConfig } from '../../shared/constants';
 import { DATA_TRANSFERS } from '../../shared/dataTransfer';
+import { DEFAULT_REPORT_MARKING } from '../../shared/reportCatalog';
 
 /** Platform data, behind a recent password confirmation like everything in the Vantage Administrator console. */
 export function useAdmin<T = any>(key: string, fn: () => Promise<T>) { return useQuery<T>({ queryKey: ['admin', key], queryFn: () => withSudo(fn), retry: false }); }
@@ -135,16 +136,17 @@ function CaseHistories() {
 export function RuntimeSettings() {
   const { data, isPending, refetch } = useAdmin('overview', api.platformOverview);
   const toast = useToast(); const qc = useQueryClient();
-  const [form, setForm] = useState<{ displayName: string; announcement: string } | null>(null); const [busy, setBusy] = useState(false);
-  useEffect(() => { if (data?.runtime && !form) setForm({ displayName: data.runtime.displayName, announcement: data.runtime.announcement }); }, [data, form]);
+  const [form, setForm] = useState<{ displayName: string; announcement: string; reportMarking: string } | null>(null); const [busy, setBusy] = useState(false);
+  useEffect(() => { if (data?.runtime && !form) setForm({ displayName: data.runtime.displayName, announcement: data.runtime.announcement, reportMarking: data.runtime.reportMarking || DEFAULT_REPORT_MARKING }); }, [data, form]);
   if (isPending || !form) return <Skeleton className="h-64" />;
-  const save = async () => { setBusy(true); try { await withSudo(() => api.platformRuntime({ displayName: form.displayName, announcement: form.announcement })); qc.invalidateQueries({ queryKey: keys.me }); refetch(); toast.success('Settings saved.'); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
+  const save = async () => { setBusy(true); try { await withSudo(() => api.platformRuntime({ displayName: form.displayName, announcement: form.announcement, reportMarking: form.reportMarking })); qc.invalidateQueries({ queryKey: keys.me }); refetch(); toast.success('Settings saved.'); } catch (e) { toast.error(api.errorText(e)); } finally { setBusy(false); } };
   return (
     <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
       <Panel title="Identity" action={<Button size="sm" variant="primary" onClick={save} loading={busy}><Save className="h-4 w-4" />Save</Button>}>
         <div className="space-y-3">
           <Field label="Display name" hint="shown on the sign-in page and in authenticator apps"><Input value={form.displayName} onChange={(e) => setForm({ ...form, displayName: e.target.value })} /></Field>
           <Field label="Announcement" hint="a banner for everyone, in every Unit Instance; blank hides it"><Textarea rows={2} value={form.announcement} onChange={(e) => setForm({ ...form, announcement: e.target.value })} maxLength={240} /></Field>
+          <Field label="Report handling line" hint="printed at the top and foot of every report page and on every report file; use the wording your command approves"><Input value={form.reportMarking} onChange={(e) => setForm({ ...form, reportMarking: e.target.value })} maxLength={120} /></Field>
         </div>
       </Panel>
       <Panel title="Switches and maintenance">

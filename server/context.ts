@@ -32,6 +32,11 @@ export interface RuntimeSettings {
   selfServiceUnits: boolean;
   selfServiceUnitLimit: number;
   metrics: MetricsConfig;
+  /**
+   * The handling line printed at the top and foot of every report page, and on every report file (ADR-0020). Vantage
+   * Administrators set it to what the enterprise approves; Vantage never decides a marking itself.
+   */
+  reportMarking: string;
 }
 
 export interface MaintenanceWindow {

@@ -144,6 +144,13 @@ Vantage holds the official copy (ADR-0015). Vantage's copy is the person's worki
   once; each record it wrote is listed in `record_import_origins` (created, updated with what it said before,
   a file attached, a profile field set), which is what a record's page shows and what the one undo reads. A
   file's ids never name a record here, and duty rows are listed and never made Activities.
+- **Report** (ADR-0020): one document (`vantage-report/1` in `shared/reportCatalog.ts`) about the reader, a Marine
+  they lead, or a unit and the units beneath it: title, whom it is about, unit, period, generated on and by, the
+  filters in force, the handling line, figures, sections of charts and tables, and notes. It is built when asked
+  for and never stored; the screen, the print page and every file are drawn from it. A **saved report**
+  (`report_definitions`) keeps a report's type and filters under a name, private or shared with one unit, never its
+  figures, and a shared one names no Marine. **Training standing** is worked out on request: each training
+  requirement a Marine falls under (by unit) is met, due again within 60 days, past due, or has no record shared.
 - **Duty**: no store yet; duty records are Task 17's. **Financial error snapshot**: no store yet; Task 15.
 - **A move** between activities, awards and training is its owner's alone. One transaction gives the
   entry a new id in its new table, carries its files and comments, removes it from the old one and

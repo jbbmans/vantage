@@ -7,6 +7,17 @@ export interface Change { date: string; title: string; items: string[] }
 
 export const CHANGES: Change[] = [
   {
+    date: '2026-10-29',
+    title: 'Reports you can print and file',
+    items: [
+      'Reports & Analytics → Report library holds every report: Individual performance, Unit performance, Personnel, Duty, Training, Financial KPI, Error report, Workload, Activity, Leadership, and Custom, where you choose the records, columns, grouping and order.',
+      'Choose whom a report is about, yourself, a Marine you lead or a unit, and its filters; see it; print it on a page laid out for paper, with nothing of the app around it; or take it as a PDF, a CSV, an Excel workbook or JSON.',
+      'Every report says what it is, whom it is about, the period, the filters and when it was made, on screen, on paper and in every file. A table’s header repeats on each printed page.',
+      'The Training report checks each Marine’s shared training against the unit’s training requirements: met, due again within 60 days, past due, or no record.',
+      'Save a report’s choices to run it again, or share them with a unit. The records are read fresh each time, with the authority of whoever runs it.',
+    ],
+  },
+  {
     date: '2026-10-28',
     title: 'Import and export that keep each record what it is',
     items: [

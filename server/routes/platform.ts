@@ -192,6 +192,8 @@ const runtimeSchema = z.object({
   maradminsEnabled: z.boolean().optional(),
   selfServiceUnits: z.boolean().optional(),
   selfServiceUnitLimit: z.coerce.number().int().min(0).max(100).optional(),
+  // The handling line on every report page and file (ADR-0020): one line, never blank, so no report goes out unmarked.
+  reportMarking: z.string().trim().min(1, 'Every report carries a handling line.').max(120).regex(/^[^\r\n]*$/, 'One line.').optional(),
   metrics: z.object({
     currency_label: z.string().trim().min(1).max(30),
     currency_symbol: z.string().trim().max(4),

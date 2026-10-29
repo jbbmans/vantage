@@ -1,6 +1,38 @@
 # Progress
 
-_Updated 2026-10-28_
+_Updated 2026-10-29_
+
+## What changed (2026-10-29: reports and printable output)
+
+**Partial.** Not merged; HawkScan not run (no key); CI disregarded on John's word.
+
+Eleven reports, each one document drawn the same way on screen, on paper and in every file
+([ADR-0020](engineering/ADR/0020-reports-printable-output.md)).
+
+- **The reports.** Individual performance, Activity, Training, Unit performance, Leadership, Personnel, Workload, Duty,
+  Financial KPI, Error report and Custom, each built from the code that already computes its figures. Training now
+  reads the unit's training requirements: met, due soon, past due or no record, from shared records only. Financial
+  KPI and the error report read the unit's shared cases. Duty shows the duty types and the scoring version in force,
+  and says duty records begin with Task 17. Custom picks a dataset, its columns, grouping and order; a counseling is
+  listed by its date, type and counselor, never its words.
+- **The document.** Every report carries its title, whom it is about, the unit, the period, when and by whom it was
+  generated, every filter in force and the handling line. A rolling period shows it ending today.
+- **Who sees what.** Yourself always; a Marine where you may open their records, only what they shared, never across
+  Unit Instances; a unit with its shared-records role there. Figures by Marine need member detail, and any file of
+  someone else's report needs the export permission. Every report about someone else is audited when it is viewed,
+  printed or filed.
+- **Formats.** PDF by PDFKit (the handling line on every page, table headers again after each break, cells that wrap
+  and are never cut, landscape past eight columns), CSV, an Excel workbook with an About sheet, and the JSON document.
+- **Printing.** `/reports/print` prints the report without the app around it: Letter paper, the handling line and
+  report name on every page, table headers repeated, rows never split, landscape for a wide table, the buttons never
+  printed.
+- **Report library** (Reports & Analytics). Choose a report, whom it is about and its filters; print it, take the files
+  you may, and save the choices (migration 028, `report_definitions`: choices, never data; private or shared with a
+  unit, and a shared one names no Marine). The unit dashboard, workload, roster and Analysis link to their report.
+- **Handling line.** Vantage Administrators set it in the console's Identity panel; it defaults to "Working paper".
+  The wording MCEN requires is MCEN's to give.
+- **Left to other Tasks:** duty records (17) and scoring (18) fill the Duty report; financial error snapshots (15);
+  one set of analytics components (21).
 
 ## What changed (2026-10-28: import, export, download and restore)
 
