@@ -21,8 +21,9 @@ export function useNav(): { groups: NavGroup[]; footer: NavPage[]; visibleNav: N
     if (when.staff && !identity?.platform?.roles.length) return false;
     if (when.maradmins && !identity?.instance.maradminsEnabled) return false;
     if (when.team && !teams.has(when.team)) return false;
+    if (when.unitRecords && view?.level !== 'full') return false;
     return true;
-  }, [identity, teams]);
+  }, [identity, teams, view]);
   const groups = useMemo(() => GROUPS.filter((g) => allowed(g.when)).map((g) => ({ ...g, pages: g.pages.filter((p) => allowed(p.when)) })).filter((g) => g.pages.length), [allowed]);
   const footer = useMemo(() => FOOTER.filter((p) => allowed(p.when)), [allowed]);
   /** Every page offered, titled with its group where the label alone is ambiguous ("Overview"). */

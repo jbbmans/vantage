@@ -245,6 +245,31 @@ print page and every file are drawn from.
 - **A saved report keeps choices, never data,** is checked as a run is, is shared only with a unit the person reads,
   names no Marine when shared, and is run with the reader's own authority. Only its owner changes it.
 
+## Financial error reports (ADR-0021)
+
+[ADR-0021](engineering/ADR/0021-financial-error-reports.md) files the error reports a unit is sent and compares them.
+
+- **Decided on the server before anything is read** (`readerOf`, `filerOf` in `server/services/errorReports.ts`).
+  Reading a unit's error reports needs `VIEW_RECORDS` there. Filing or withdrawing one also needs
+  `CREATE_SHARED_WORK`, and is refused where Vantage has withheld spreadsheet intake from the Unit Instance (told only
+  to someone who could file there). Figures and rows by Marine need `VIEW_MEMBER_DETAIL`; without it a row shows the
+  owner as the report wrote it and names no Marine, and no response (figures, the oldest, the preview's sample) carries
+the matched Marine's id. A unit reads the series filed for it and for each unit beneath whose shared records the reader
+may view (a role at position 0 reaches no lower), never above. A row links to a case in the queue only when the case
+came from the same report (`sameReport`, as the import decides).
+- **One Unit Instance.** A report, its kind and the upload it was read from are one instance's: the service refuses an
+  upload or kind from another (`assertSameInstance`, 404 for a kind), and migration 029's boundary triggers refuse the
+  row in the database. `instanceBoundaryViolations` counts any that exist.
+- **The upload is the intake's.** Size, quota, magic bytes, malware scan, quarantine and rejection, sheet limits and
+  identifier rules all apply; formulas are read as saved values and macros never run.
+- **Never overwritten.** A filed report and its rows are append-only (triggers refuse UPDATE and DELETE outside the
+  demo database). A withdrawal needs a reason (CHECK) and is final (trigger). The same file twice in a series, or a
+  second report for one day while the first stands, is refused.
+- **Audited.** `error_snapshot_filed`, `error_snapshot_withdrawn` with the reason, `view_error_report` for every
+  overview, comparison and drill read with what was read, and the unit-configuration family for kinds of report. Taking
+  the comparison as a file is the report center's (`export_report`, `EXPORT_DATA`), a bulk route in the
+  privileged-route manifest, as are the console's routes for kinds of report.
+
 ## Logs
 
 Every log Vantage keeps, where it goes and who reads it. Nothing else is written.

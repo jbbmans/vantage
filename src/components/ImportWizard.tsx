@@ -37,10 +37,11 @@ const PROCEDURE_OPTIONS = [
 
 type Step = 'file' | 'sheet' | 'mapping' | 'preview' | 'done';
 
-// What the server sends at each step (server/services/intake.ts), as far as this wizard reads it.
-interface ImportSheet { name: string; rows: number; columns: number; sample: string[][]; truncated: boolean }
-interface ImportSource { id: string; scan_status: string; scanner?: string | null; scan_detail?: string | null }
-interface Inspection { source: ImportSource; sheets: ImportSheet[]; notes: string[] }
+// What the server sends at each step (server/services/intake.ts), as far as this wizard reads it. Filing an error
+// report (ADR-0021) uploads and inspects the same way, so it reads these too.
+export interface ImportSheet { name: string; rows: number; columns: number; sample: string[][]; truncated: boolean }
+export interface ImportSource { id: string; scan_status: string; scanner?: string | null; scan_detail?: string | null }
+export interface Inspection { source: ImportSource; sheets: ImportSheet[]; notes: string[] }
 interface ImportRejection { source_row: number; reason: string; value?: string }
 interface ImportPreview {
   total_rows: number; unchanged: number; rejections: ImportRejection[]; procedures?: Record<string, number>;
@@ -380,7 +381,7 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
   );
 }
 
-function ScanNotice({ source }: { source: ImportSource | null }) {
+export function ScanNotice({ source }: { source: ImportSource | null }) {
   if (!source) return null;
   if (source.scan_status === 'clean') {
     return <p className="flex items-center gap-2 rounded-md border border-good/40 bg-good/5 px-3 py-2 text-xs text-ink"><ShieldCheck className="h-4 w-4 text-good" />Scanned clean by {source.scanner}.</p>;
@@ -391,7 +392,7 @@ function ScanNotice({ source }: { source: ImportSource | null }) {
   return <p className="flex items-center gap-2 rounded-md border border-bad/40 bg-bad/5 px-3 py-2 text-xs text-ink"><ShieldAlert className="h-4 w-4 text-bad" />{source.scan_detail}</p>;
 }
 
-function SamplePreview({ sheet, headerRow }: { sheet: ImportSheet | undefined; headerRow: number }) {
+export function SamplePreview({ sheet, headerRow }: { sheet: ImportSheet | undefined; headerRow: number }) {
   if (!sheet?.sample?.length) return null;
   const width = sheet.sample.reduce((n, r) => Math.max(n, r.length), 0);
   return (

@@ -2,6 +2,37 @@
 
 _Updated 2026-10-29_
 
+## What changed (2026-10-29: financial error reports)
+
+**Partial.** In review; HawkScan not run (no key); CI disregarded on John's word.
+
+A unit files the ULO, OCMT, UMT, invoices-on-hold and sync-error reports it is sent, each kept as it stood on its day,
+and compares them report to report ([ADR-0021](engineering/ADR/0021-financial-error-reports.md), migration 029).
+
+- **Kinds of report.** Each Unit Instance keeps its own in the Unit Manager console (Error reports): the standard five
+  are given the first time, and Unit Managers add, retire and restore their own. They travel in the configuration file.
+- **Filing** (Work → Error reports → File a report). Upload a CSV or workbook through the intake's own checks, choose
+  the sheet, the column that identifies an error (or two), what each other column holds, and which statuses mean
+  closed. A preview shows what will be filed and what changed since the report before; nothing is written until it is
+  filed. The next report of the kind starts set up as the last one was. The same file twice, or two reports for one
+  day, is refused.
+- **Kept as filed.** A filed report and its rows never change and are never deleted, in the database itself. One filed
+  in error is withdrawn with a reason: kept, shown as withdrawn, and in no comparison.
+- **The comparison.** Any two reports of a series: new, still open, reopened, resolved; amount, owner and status
+  changed; open count and value, resolution rate, value resolved, resolved a week, days to resolve, average age,
+  oldest, recurring and persistent; by error type, by unit or office, and by Marine; and the trend of the series.
+- **Every figure opens its rows**, and so does every line of a group: the file and row each came from, every column it
+  carried, its amount then and now, its age and how it was found, and its case in the queue when there is one.
+- **Printing and files.** The report library's Error report comparison (Financial work) prints it and takes it as
+  PDF, CSV, workbook or JSON, under Task 14's rules.
+- **Who may do what.** Reading needs the unit's shared records; filing and withdrawing also need posting its work, and
+  stop where Vantage has withheld intake from the Unit Instance; figures by Marine need member detail; files need the
+  export permission. Every read, filing and withdrawal is audited. Filing never creates or changes a case.
+- **From the review.** A leader can file for a team beneath theirs that they do not belong to. The overview lists only
+  the units beneath whose records the reader may see. A row links only to a case from the same report. No response
+  names the Marine an owner matched to a reader who may not see it. A series whose every report was withdrawn still
+  shows its history. The heading row is chosen from the rows shown.
+
 ## What changed (2026-10-29: reports and printable output)
 
 **Partial.** Merged in #62, with the fixes from its review in a second PR; HawkScan not run (no key); CI disregarded

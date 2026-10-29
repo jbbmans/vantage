@@ -27,8 +27,8 @@ import { authorityBeyond, tellOtherInstances } from '../services/identity.ts';
 import { membershipHistory } from '../services/membership.ts';
 import { AUDIT_CSV_COLUMNS, AUDIT_EXPORT_MAX, auditActions, auditDay, auditFilterLabel, auditQuery, auditRows, type AuditTrail } from '../services/auditQuery.ts';
 import {
-  addStandardDutyTypes, applyConfigurationImport, exportUnitConfiguration, planConfigurationImport, saveBillet, saveDutyType, saveTrainingRequirement,
-  unitConfiguration, updateUnitSettings, type UnitConfigurationFile,
+  addStandardDutyTypes, addStandardErrorReportTypes, applyConfigurationImport, exportUnitConfiguration, planConfigurationImport, saveBillet, saveDutyType,
+  saveErrorReportType, saveTrainingRequirement, unitConfiguration, updateUnitSettings, type UnitConfigurationFile,
 } from '../services/unitConfig.ts';
 import { rowsToCsv } from '../../shared/csv.ts';
 import { REPORT_PERIODS, UNIT_CONFIG_FORMAT } from '../../shared/unitConfig.ts';
@@ -464,13 +464,14 @@ orgsRouter.get('/:orgId/unit-roles', inOrg('org.roles', 'org.members', 'org.owne
   });
 }));
 
-// ——— Unit configuration (ADR-0012): billets, duty types, training requirements, work and report settings ———
+// ——— Unit configuration (ADR-0012): billets, duty types, training requirements, error report types, work and report settings ———
 
 orgsRouter.get('/:orgId/configuration', inOrg('org.view'), wrap((req, res) => res.json(unitConfiguration(req.ctx, orgOf(req).id))));
 
 const text = (max: number) => z.string().max(max);
 const billetBody = z.object({ unit_id: z.string().max(64).nullish(), title: text(80).optional(), code: text(20).nullish(), description: text(300).nullish(), active: z.boolean().optional() });
 const dutyTypeBody = z.object({ code: text(20).optional(), name: text(60).optional(), description: text(300).nullish(), active: z.boolean().optional() });
+const errorTypeBody = z.object({ code: text(20).optional(), name: text(80).optional(), description: text(300).nullish(), active: z.boolean().optional() });
 const trainingTypes = TRAINING_TYPES as unknown as [(typeof TRAINING_TYPES)[number], ...Array<(typeof TRAINING_TYPES)[number]>];
 const requirementBody = z.object({
   unit_id: z.string().max(64).nullish(), title: text(120).optional(), type: z.enum(trainingTypes).optional(), course_code: text(40).nullish(),
@@ -490,6 +491,15 @@ orgsRouter.post('/:orgId/duty-types', inOrg('org.config'), wrap((req, res) => {
 orgsRouter.post('/:orgId/duty-types/standard', inOrg('org.config'), wrap((req, res) => res.json(addStandardDutyTypes(req.ctx, req.user, orgOf(req).id, ip(req)))));
 orgsRouter.patch('/:orgId/duty-types/:id', inOrg('org.config'), wrap((req, res) => {
   res.json(saveDutyType(req.ctx, req.user, orgOf(req).id, parse(dutyTypeBody, req.body), String(req.params.id), ip(req)));
+}));
+
+/** The financial error reports the Unit Instance files (ADR-0021). */
+orgsRouter.post('/:orgId/error-report-types', inOrg('org.config'), wrap((req, res) => {
+  res.status(201).json(saveErrorReportType(req.ctx, req.user, orgOf(req).id, parse(errorTypeBody.required({ name: true }), req.body), undefined, ip(req)));
+}));
+orgsRouter.post('/:orgId/error-report-types/standard', inOrg('org.config'), wrap((req, res) => res.json(addStandardErrorReportTypes(req.ctx, req.user, orgOf(req).id, ip(req)))));
+orgsRouter.patch('/:orgId/error-report-types/:id', inOrg('org.config'), wrap((req, res) => {
+  res.json(saveErrorReportType(req.ctx, req.user, orgOf(req).id, parse(errorTypeBody, req.body), String(req.params.id), ip(req)));
 }));
 
 orgsRouter.post('/:orgId/training-requirements', inOrg('org.config'), wrap((req, res) => {
@@ -532,7 +542,7 @@ orgsRouter.post('/:orgId/duty-scoring/:id/withdraw', inOrg('org.config'), wrap((
 orgsRouter.get('/:orgId/configuration/export', inOrg('org.export'), wrap((req, res) => {
   const org = orgOf(req);
   const out = exportUnitConfiguration(req.ctx, org.id);
-  audit(req.ctx, { actor_id: req.user.id, action: 'unit_configuration_exported', entity: 'organization', entity_id: org.id, org_id: org.id, detail: `${out.billets.length} billets, ${out.dutyTypes.length} duty types, ${out.trainingRequirements.length} training requirements, ${out.scoringPolicies?.length ?? 0} duty scoring versions`, ip: ip(req) });
+  audit(req.ctx, { actor_id: req.user.id, action: 'unit_configuration_exported', entity: 'organization', entity_id: org.id, org_id: org.id, detail: `${out.billets.length} billets, ${out.dutyTypes.length} duty types, ${out.trainingRequirements.length} training requirements, ${out.errorReportTypes?.length ?? 0} error report types, ${out.scoringPolicies?.length ?? 0} duty scoring versions`, ip: ip(req) });
   res.setHeader('Content-Disposition', `attachment; filename="vantage-${org.slug.toLowerCase()}-configuration-${now().slice(0, 10)}.json"`);
   res.json(out);
 }));
@@ -548,6 +558,7 @@ const configurationFile = z.object({
     unit_id: z.string().max(64).nullish(), title: text(120).trim().min(1), type: z.enum(trainingTypes), course_code: text(40).nullish(),
     interval_months: z.number().int().min(1).max(120).nullish(), description: text(300).nullish(),
   })).max(2000).default([]),
+  errorReportTypes: z.array(z.object({ code: text(20).default(''), name: text(80).trim().min(1), description: text(300).nullish() })).max(500).default([]),
   settings: z.object({
     work: z.object({ claimExpiryHours: z.number() }).partial().optional(),
     reports: z.object({ defaultPeriod: z.enum(periods) }).partial().optional(),

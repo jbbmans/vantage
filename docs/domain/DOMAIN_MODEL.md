@@ -151,7 +151,14 @@ Vantage holds the official copy (ADR-0015). Vantage's copy is the person's worki
   (`report_definitions`) keeps a report's type and filters under a name, private or shared with one unit, never its
   figures, and a shared one names no Marine. **Training standing** is worked out on request: each training
   requirement a Marine falls under (by unit) is met, due again within 60 days, past due, or has no record shared.
-- **Duty**: no store yet; duty records are Task 17's. **Financial error snapshot**: no store yet; Task 15.
+- **Financial error snapshot** (ADR-0021): one filed error report of one kind (`error_report_types`, the Unit
+  Instance's own, the standard five given), for one unit, standing on one day (`error_snapshots`), with a row per
+  identifier (`error_snapshot_rows`): the fields its columns were given roles for, every column it kept, and the Marine
+  its owner names when it names exactly one. A unit and a kind make a **series**; any two of its reports compare (new,
+  still open, reopened, resolved; amount, owner and status changed), worked out on request and never stored. A filed
+  report and its rows never change and are never deleted; one filed in error is **withdrawn** with a reason, kept, and
+  in no comparison. Filing never creates or changes a case in the queue.
+- **Duty**: no store yet; duty records are Task 17's.
 - **A move** between activities, awards and training is its owner's alone. One transaction gives the
   entry a new id in its new table, carries its files and comments, removes it from the old one and
   writes **record lineage** (`record_lineage`): from, to, the whole row as it stood, who, when and why.

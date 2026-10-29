@@ -359,6 +359,14 @@ const MIGRATIONS: Migration[] = [
     // which is safe to replay. Nothing already written is read, moved or reshaped.
     run: () => {},
   },
+  {
+    id: 29,
+    name: '029_error_report_snapshots',
+    // Financial error reports filed and compared (ADR-0021). The tables, and the triggers that keep a filed report as it
+    // was filed, come from schema.sql, which is safe to replay; the boundary keeps a report, its type and its file in one
+    // Unit Instance. Nothing already written is read, moved or reshaped: the queue's cases stay as they are.
+    run: (db) => instanceBoundaryTriggers(db),
+  },
 ];
 export const SCHEMA_VERSION = MIGRATIONS.at(-1)!.id;
 /** The migrations this build carries, for the Vantage Administrator console's migration status. */
@@ -592,6 +600,20 @@ export function instanceBoundaryTriggers(db: Db) {
       WHEN NEW.org_id IS NOT OLD.org_id AND EXISTS (SELECT 1 FROM unit_members m WHERE m.billet_id = NEW.id AND ${orgOf('m.unit_id')} <> NEW.org_id)
       ${refuse('this billet is filled in another Unit Instance')}`);
   }
+  // A filed error report, its type and the file it was read from are all one Unit Instance's (ADR-0021). A filed report
+  // never changes (schema.sql), and a type or file it names never moves out from under it.
+  if (columnsOf(db, 'error_snapshots').has('type_id')) {
+    db.exec(`CREATE TRIGGER IF NOT EXISTS error_snapshots_same_org BEFORE INSERT ON error_snapshots FOR EACH ROW
+      WHEN ${orgOf('NEW.unit_id')} <> NEW.org_id OR ${typeOrg('NEW.type_id')} <> NEW.org_id
+        OR ${orgOf(`(SELECT unit_id FROM source_files WHERE id = NEW.source_file_id)`)} <> NEW.org_id
+      ${refuse('an error report, its type and its file belong to one Unit Instance')}`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS error_report_types_snapshots_same_org BEFORE UPDATE OF org_id ON error_report_types FOR EACH ROW
+      WHEN NEW.org_id IS NOT OLD.org_id AND EXISTS (SELECT 1 FROM error_snapshots s WHERE s.type_id = NEW.id)
+      ${refuse('error reports are filed under this type')}`);
+    db.exec(`CREATE TRIGGER IF NOT EXISTS source_files_snapshots_same_org BEFORE UPDATE OF unit_id ON source_files FOR EACH ROW
+      WHEN NEW.unit_id IS NOT OLD.unit_id AND EXISTS (SELECT 1 FROM error_snapshots s WHERE s.source_file_id = NEW.id AND ${orgOf('NEW.unit_id')} <> s.org_id)
+      ${refuse('an error report in another Unit Instance was read from this file')}`);
+  }
   // A supervisor serves in the Unit Instance they supervise in. Leaving it clears them as anyone's supervisor there first
   // (server/services/personnelRecords.ts), so only a new pairing is checked.
   if (columnsOf(db, 'personnel_records').has('supervisor_id')) {
@@ -611,6 +633,7 @@ export function instanceBoundaryTriggers(db: Db) {
  */
 const orgUnitTables = (db: Db) => (['unit_billets', 'training_requirements', 'personnel_responsibilities'] as const).filter((t) => columnsOf(db, t).has('unit_id') && columnsOf(db, t).has('org_id'));
 const billetOrg = (id: string) => `(SELECT org_id FROM unit_billets WHERE id = ${id})`;
+const typeOrg = (id: string) => `(SELECT org_id FROM error_report_types WHERE id = ${id})`;
 
 /**
  * Rows already joined across the boundary, by kind, leaving out the kinds with none. Migration 016 records what it found
@@ -623,6 +646,10 @@ export function instanceBoundaryViolations(db: Db): Record<string, number> {
     thread_links: `SELECT COUNT(*) AS n FROM thread_links l JOIN threads t ON t.id = l.thread_id JOIN work_items w ON w.id = l.work_item_id WHERE ${across('t.unit_id', 'w.unit_id')}`,
     ...Object.fromEntries(orgUnitTables(db).map((t) => [`${t}_unit`, `SELECT COUNT(*) AS n FROM ${t} x WHERE x.unit_id IS NOT NULL AND ${orgOf('x.unit_id')} <> x.org_id`])),
     ...(columnsOf(db, 'unit_members').has('billet_id') ? { unit_members_billet: `SELECT COUNT(*) AS n FROM unit_members m JOIN unit_billets b ON b.id = m.billet_id WHERE b.org_id <> ${orgOf('m.unit_id')}` } : {}),
+    ...(columnsOf(db, 'error_snapshots').has('type_id') ? {
+      error_snapshots: `SELECT COUNT(*) AS n FROM error_snapshots s LEFT JOIN source_files f ON f.id = s.source_file_id
+        WHERE ${orgOf('s.unit_id')} <> s.org_id OR ${typeOrg('s.type_id')} <> s.org_id OR ${orgOf('f.unit_id')} <> s.org_id`,
+    } : {}),
     ...(columnsOf(db, 'personnel_records').has('supervisor_id') ? {
       personnel_records_supervisor: `SELECT COUNT(*) AS n FROM personnel_records r WHERE r.supervisor_id IS NOT NULL
         AND NOT EXISTS (SELECT 1 FROM unit_members sm JOIN units su ON su.id = sm.unit_id WHERE sm.user_id = r.supervisor_id AND su.org_id = r.org_id)`,

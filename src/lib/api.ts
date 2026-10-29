@@ -5,6 +5,9 @@ import type { UnitManagerRole } from '../../shared/permissions';
 import type { LineageResponse, MovableTable, MoveCandidatesResponse, TimelineResponse } from '../../shared/recordKinds';
 import type { ImportPlanBody, ImportReview, ImportSummary } from '../../shared/recordTransfer';
 import type { ReportDocument, ReportFileFormat } from '../../shared/reportCatalog';
+import type {
+  ColumnRole, ComparisonResult, Drill, DrillGroup, DrillResult, ErrorReportChoices, ErrorReportLayout, ErrorReportPreview, ErrorReportsOverview, SeriesHistory, SnapshotSummary,
+} from '../../shared/errorReports';
 
 /** A saved report as the library lists it: its name and choices, whose it is, and where it is shared. */
 export interface ReportDefinitionRow { id: string; user_id: string; name: string; type: string; params: Record<string, string>; visibility: 'private' | 'unit'; unit_id: string | null; owner_name: string | null; mine: boolean; created_at: string; updated_at: string }
@@ -272,6 +275,20 @@ export const reportDefinitions = () => api.get<ReportDefinitionRow[]>('/report-c
 export const saveReportDefinition = (body: { name: string; type: string; params: Record<string, string>; visibility?: 'private' | 'unit'; unit_id?: string | null }, id?: string) =>
   id ? api.put<ReportDefinitionRow>(`/report-center/definitions/${encodeURIComponent(id)}`, body) : api.post<ReportDefinitionRow>('/report-center/definitions', body);
 export const deleteReportDefinition = (id: string) => api.del(`/report-center/definitions/${encodeURIComponent(id)}`);
+// Financial error reports (ADR-0021): filed from an uploaded report, kept as filed, compared report to report.
+export interface ErrorFilingPlan {
+  unit_id: string; type_id: string; as_of: string; source_file_id: string; sheet_name: string; header_row: number;
+  key_columns: string[]; columns: Record<string, ColumnRole>; closed_statuses: string[]; note?: string | null;
+}
+export interface ErrorComparisonQuery { unit_id: string; type_id: string; snapshot?: string; against?: string }
+export const errorReports = (unitId: string) => api.get<ErrorReportsOverview>(`/error-reports?${qs({ unit_id: unitId })}`);
+export const errorReportChoices = (unitId: string) => api.get<ErrorReportChoices>(`/error-reports/choices?${qs({ unit_id: unitId })}`);
+export const errorReportLayout = (unitId: string, typeId: string) => api.get<{ layout: ErrorReportLayout | null }>(`/error-reports/layout?${qs({ unit_id: unitId, type_id: typeId })}`);
+export const previewErrorReport = (plan: ErrorFilingPlan) => api.post<ErrorReportPreview>('/error-reports/preview', plan);
+export const fileErrorReport = (plan: ErrorFilingPlan) => api.post<SnapshotSummary & { unit_id: string; type_id: string }>('/error-reports/snapshots', plan);
+export const withdrawErrorReport = (id: string, reason: string) => api.post<SnapshotSummary>(`/error-reports/snapshots/${encodeURIComponent(id)}/withdraw`, { reason });
+export const errorComparison = (q: ErrorComparisonQuery) => api.get<ComparisonResult | SeriesHistory>(`/error-reports/series?${qs({ ...q })}`);
+export const errorDrill = (q: ErrorComparisonQuery & { drill: Drill; group?: DrillGroup; value?: string }) => api.get<DrillResult>(`/error-reports/rows?${qs({ ...q })}`);
 export const aiStatus = () => api.get('/ai/status');
 export const aiAssist = (workflow: string, input: unknown, model?: string) => api.post('/ai/assist', { workflow, input, model });
 export const maradmins = (wait = false) => api.get(`/maradmins${wait ? '?wait=1' : ''}`);
@@ -392,6 +409,8 @@ export const orgConfiguration = (orgId: string) => api.get(orgPath(orgId, '/conf
 export const orgSaveBillet = (orgId: string, body: unknown, id?: string) => (id ? api.patch(orgPath(orgId, `/billets/${enc(id)}`), body) : api.post(orgPath(orgId, '/billets'), body));
 export const orgSaveDutyType = (orgId: string, body: unknown, id?: string) => (id ? api.patch(orgPath(orgId, `/duty-types/${enc(id)}`), body) : api.post(orgPath(orgId, '/duty-types'), body));
 export const orgAddStandardDutyTypes = (orgId: string) => api.post(orgPath(orgId, '/duty-types/standard'));
+export const orgSaveErrorReportType = (orgId: string, body: unknown, id?: string) => (id ? api.patch(orgPath(orgId, `/error-report-types/${enc(id)}`), body) : api.post(orgPath(orgId, '/error-report-types'), body));
+export const orgAddStandardErrorReportTypes = (orgId: string) => api.post(orgPath(orgId, '/error-report-types/standard'));
 export const orgSaveTrainingRequirement = (orgId: string, body: unknown, id?: string) => (id ? api.patch(orgPath(orgId, `/training-requirements/${enc(id)}`), body) : api.post(orgPath(orgId, '/training-requirements'), body));
 export const orgSaveUnitSettings = (orgId: string, body: unknown) => api.patch(orgPath(orgId, '/configuration/settings'), body);
 export const orgConfigurationExportUrl = (orgId: string) => `/api${orgPath(orgId, '/configuration/export')}`;
