@@ -68,6 +68,8 @@ export interface ReportTarget {
 type Purpose = 'view' | 'print';
 
 const r2 = (n: number) => Math.round(n * 100) / 100;
+/** Adds an item to its group in place, so grouping stays linear however many records a report reads. */
+const addTo = <K, V>(groups: Map<K, V[]>, key: K, item: V) => { const list = groups.get(key); if (list) list.push(item); else groups.set(key, [item]); };
 const ACRONYMS: Record<string, string> = { pme: 'PME', loa: 'LOA', mos: 'MOS', umt: 'UMT', nulo: 'NULO', ulo: 'ULO' };
 /** A stored key as words: personal_award is "Personal award", pme is "PME". */
 const words = (key: string | null | undefined): string | null => {
@@ -411,7 +413,7 @@ function buildTraining(ctx: AppContext, user: SessionUser, t: ReportTarget, q: R
   // Every completed course the report may read, whenever it was: a requirement met two years ago is met.
   const history = ctx.db.prepare(`SELECT t.user_id, t.title, t.status, t.date, t.end_date FROM trainings t WHERE ${own.sql} AND t.deleted_at IS NULL LIMIT ${SCAN_LIMIT}`).all(...own.params) as TrainingRow[];
   const byPerson = new Map<string, TrainingRow[]>();
-  for (const h of history) byPerson.set(h.user_id, [...(byPerson.get(h.user_id) || []), h]);
+  for (const h of history) addTo(byPerson, h.user_id, h);
   const applies = (r: Requirement, p: Person) => { const set = reach.get(r.id); return !set || p.units.some((u) => set.has(u)); };
   const status = q.status && TRAINING_STATUSES.some((s) => s.value === q.status) ? q.status : 'all';
 
@@ -741,23 +743,36 @@ function buildDuty(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Repor
 interface CaseRow {
   id: string; unit_id: string; title: string; reference: string | null; due_date: string | null; amount: number | null; state: string; stage: string | null;
   procedure_key: string | null; claimed_by: string | null; waiting_category: string | null; created_at: string; resolved_at: string | null;
+  /** When it closed, resolved or not applicable; null while it is open. */
+  closed_at: string | null;
 }
 
 const CASE_COLUMNS = 't.id, t.unit_id, t.title, t.reference, t.due_date, t.amount, t.state, t.stage, t.procedure_key, t.claimed_by, t.waiting_category, t.created_at, t.resolved_at';
+/**
+ * When a closed case closed. Only a resolution sets resolved_at; a case found not to apply is closed by its last stage
+ * change into a closed stage, and failing that by its last change.
+ */
+const CLOSED_AT = `CASE WHEN t.resolved_at IS NOT NULL THEN t.resolved_at
+  WHEN t.state IN ('resolved', 'not_applicable') OR t.stage IN ('resolved', 'not_applicable') THEN COALESCE((
+    SELECT MAX(e.occurred_at) FROM work_events e WHERE e.work_item_id = t.id AND e.kind = 'stage_changed'
+      AND CASE WHEN json_valid(e.body) THEN json_extract(e.body, '$.to') END IN ('resolved', 'not_applicable')), t.updated_at)
+  END`;
 
 function casesOf(ctx: AppContext, t: ReportTarget, q: ReportQuery, period?: Period | null): CaseRow[] {
   const where = [`t.unit_id IN (SELECT value FROM json_each(?))`, `t.visibility = 'unit'`, 't.deleted_at IS NULL'];
   const params: unknown[] = [JSON.stringify(t.unitIds)];
   if (q.procedure) { if (q.procedure === 'none') where.push('t.procedure_key IS NULL'); else { where.push('t.procedure_key = ?'); params.push(q.procedure); } }
-  // Open on any day of the period: opened by its end and not closed before its start.
+  // Open on any day of the period: opened by its end and not closed, resolved or found not to apply, before its start.
   if (period?.to) { where.push('substr(t.created_at, 1, 10) <= ?'); params.push(period.to); }
-  if (period?.from) { where.push('(t.resolved_at IS NULL OR substr(t.resolved_at, 1, 10) >= ?)'); params.push(period.from); }
-  return ctx.db.prepare(`SELECT ${CASE_COLUMNS} FROM work_items t WHERE ${where.join(' AND ')} ORDER BY t.due_date IS NULL, t.due_date, t.created_at LIMIT ${SCAN_LIMIT}`).all(...params) as CaseRow[];
+  const closedBefore = period?.from ? ' WHERE c.closed_at IS NULL OR substr(c.closed_at, 1, 10) >= ?' : '';
+  if (period?.from) params.push(period.from);
+  return ctx.db.prepare(`SELECT * FROM (SELECT ${CASE_COLUMNS}, ${CLOSED_AT} AS closed_at FROM work_items t WHERE ${where.join(' AND ')}) c${closedBefore}
+    ORDER BY c.due_date IS NULL, c.due_date, c.created_at LIMIT ${SCAN_LIMIT}`).all(...params) as CaseRow[];
 }
 const isClosed = (c: CaseRow) => ['resolved', 'not_applicable'].includes(stageOf(c as never));
 const procedureOfCase = (c: CaseRow) => (c.procedure_key ? PROCEDURES[c.procedure_key] : null);
 const procedureLabel = (c: CaseRow) => procedureOfCase(c)?.short || (c.procedure_key ? c.procedure_key : 'No procedure');
-const ageOf = (c: CaseRow, at: number) => Math.max(0, Math.floor(((c.resolved_at ? Date.parse(c.resolved_at) : at) - Date.parse(c.created_at)) / DAY_MS));
+const ageOf = (c: CaseRow, at: number) => Math.max(0, Math.floor(((c.closed_at ? Date.parse(c.closed_at) : at) - Date.parse(c.created_at)) / DAY_MS));
 const procedureFilter = (q: ReportQuery) => (q.procedure ? [{ label: 'Procedure', value: q.procedure === 'none' ? 'No procedure' : PROCEDURES[q.procedure]?.short || q.procedure }] : []);
 const amountOf = (list: Array<{ amount: number | null }>) => r2(list.reduce((n, c) => n + (Number(c.amount) || 0), 0));
 
@@ -780,7 +795,7 @@ function buildFinancial(ctx: AppContext, user: SessionUser, t: ReportTarget, q: 
   const every = new Map<string, CaseRow>();
   for (const c of [...live, ...open]) if (!every.has(c.id)) every.set(c.id, c);
   const groups = new Map<string, CaseRow[]>();
-  for (const c of every.values()) groups.set(procedureLabel(c), [...(groups.get(procedureLabel(c)) || []), c]);
+  for (const c of every.values()) addTo(groups, procedureLabel(c), c);
   const byProcedure = [...groups.entries()].map(([name, list]) => {
     const o = list.filter((c) => openIds.has(c.id));
     const r = list.filter((c) => resolvedIds.has(c.id));
@@ -839,7 +854,7 @@ function buildErrors(ctx: AppContext, user: SessionUser, t: ReportTarget, q: Rep
     waiting: words(c.waiting_category), overdue: !isClosed(c) && c.due_date && c.due_date < today ? 1 : 0,
   }));
   const groups = new Map<string, typeof rows>();
-  for (const r of rows) groups.set(r.procedure, [...(groups.get(r.procedure) || []), r]);
+  for (const r of rows) addTo(groups, r.procedure, r);
   const byType = [...groups.entries()].map(([procedure, list]) => ({
     procedure, cases: list.length, amount: amountOf(list), overdue: list.filter((r) => r.overdue).length,
     unassigned: list.filter((r) => r.holder === 'Unassigned').length, oldest: Math.max(...list.map((r) => r.age)),
@@ -884,6 +899,11 @@ const MONTH_NAMES = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Se
 const monthOf = (d: Cell) => (typeof d === 'string' && /^\d{4}-\d{2}/.test(d) ? `${MONTH_NAMES[Number(d.slice(5, 7)) - 1]} ${d.slice(0, 4)}` : 'Undated');
 const monthOrder = (g: string) => { if (g === 'Undated') return '0'; const [m, y] = g.split(' '); return `${y}-${String(MONTH_NAMES.indexOf(m) + 1).padStart(2, '0')}`; };
 
+/** The key a row's own flag sits under when its value is of a type that is listed but never added up. */
+const COUNTS = '__counts';
+/** A row's measure as a total adds it: a value of a type that is not added up adds nothing. */
+const measureOf = (r: Record<string, Cell>, m: string) => (m === 'dollar_amount' && r[COUNTS] === 0 ? 0 : Number(r[m]) || 0);
+
 function customRows(ctx: AppContext, t: ReportTarget, dataset: string, q: ReportQuery, period: Period | null): { rows: Array<Record<string, Cell>>; read: number } {
   const cfg = ctx.runtime.metrics;
   if (dataset === 'work') {
@@ -922,6 +942,8 @@ function customRows(ctx: AppContext, t: ReportTarget, dataset: string, q: Report
       date: day(r.date as string), end_date: day(r.end_date as string), owner: owner(r), title: s(r.title), category: s(r.category), eval_area: s(r.eval_area),
       quantity: n(r.quantity), unit_label: s(r.unit_label), dollar_amount: n(r.dollar_amount), dollar_type: r.dollar_type ? valueType(r.dollar_type as string, cfg)?.label || s(r.dollar_type) : null,
       result: s(r.result), organization: s(r.organization), system: s(r.system), status: words(s(r.status)), visibility: r.visibility === 'unit' ? 'Unit' : 'Private',
+      // Whether its value counts toward a total, as the activity report counts it; never a column of its own.
+      [COUNTS]: isSummable(r.dollar_type as string | null, cfg) ? 1 : 0,
     }),
     trainings: (r) => ({ date: day(r.date as string), end_date: day(r.end_date as string), owner: owner(r), title: s(r.title), type: words(s(r.type)), hours: n(r.hours), provider: s(r.provider), status: words(s(r.status)) }),
     awards: (r) => ({ date: day(r.date as string), period_start: day(r.period_start as string), owner: owner(r), name: s(r.name), type: words(s(r.type)), status: words(s(r.status)), recommending_official: s(r.recommending_official), approving_authority: s(r.approving_authority) }),
@@ -959,10 +981,10 @@ function buildCustom(ctx: AppContext, t: ReportTarget, q: ReportQuery, period: P
     const dateCol = ds.columns.find((c) => c.kind === 'date')?.key;
     for (const r of rows) {
       const g = group === 'month' ? monthOf(dateCol ? r[dateCol] : null) : r[group] == null || r[group] === '' ? 'None' : String(r[group]);
-      by.set(g, [...(by.get(g) || []), r]);
+      addTo(by, g, r);
     }
     const groups: Array<Record<string, Cell>> = [...by.entries()].map(([g, list]) => ({
-      group: g, count: list.length, ...Object.fromEntries(ds.measures.map((m) => [m, r2(list.reduce((sum, r) => sum + (Number(r[m]) || 0), 0))])),
+      group: g, count: list.length, ...Object.fromEntries(ds.measures.map((m) => [m, r2(list.reduce((sum, r) => sum + measureOf(r, m), 0))])),
     }));
     if (group === 'month') groups.sort((a, b) => monthOrder(String(b.group)).localeCompare(monthOrder(String(a.group))));
     else groups.sort((a, b) => Number(b.count) - Number(a.count));
@@ -977,7 +999,7 @@ function buildCustom(ctx: AppContext, t: ReportTarget, q: ReportQuery, period: P
   sections.push({ id: 'rows', heading: ds.label, tables: [table('rows', ds.label, columns, rows.map((r) => Object.fromEntries(picked.map((c) => [c, r[c] ?? null]))), 'Nothing matches these choices.', { total: rows.length })] });
   const totals: ReportFigure[] = ds.measures.filter((m) => picked.includes(m)).map((m) => {
     const c = ds.columns.find((x) => x.key === m)!;
-    return { label: `${c.label}, total`, value: r2(rows.reduce((sum, r) => sum + (Number(r[m]) || 0), 0)), kind: c.kind };
+    return { label: `${c.label}, total`, value: r2(rows.reduce((sum, r) => sum + measureOf(r, m), 0)), kind: c.kind, ...(key === 'activities' && m === 'dollar_amount' ? { hint: 'Value types that count toward the total' } : {}) };
   });
   return {
     summary: [{ label: ds.label, value: rows.length, kind: 'number' }, ...totals],

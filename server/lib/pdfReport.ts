@@ -17,7 +17,10 @@ export const pdfText = (text: string) => text.replace(/[\r\t]/g, ' ').replace(/[
 
 /** A table wider than this many columns turns the document to landscape, so no column is too narrow to read. */
 const PAD = 3.5;
-/** A cell longer than this is shortened in print so a row always fits a page; the CSV and the workbook hold it whole. */
+/**
+ * A cell longer than this, or taller than half a page, is shortened in print so a row always fits a page; the CSV and
+ * the workbook hold it whole.
+ */
 const MAX_CELL = 600;
 
 export function renderReportDocumentPdf(report: ReportDocument): Promise<Buffer> {
@@ -125,6 +128,15 @@ export function renderReportDocumentPdf(report: ReportDocument): Promise<Buffer>
       const total = t.columns.reduce((n, c) => n + (c.width || 10), 0);
       const cols = t.columns.map((c) => ({ ...c, w: ((c.width || 10) / total) * width }));
       const cellHeight = (value: string, w: number, bold = false) => doc.font(bold ? 'Helvetica-Bold' : 'Helvetica').fontSize(size).heightOfString(value, { width: w - PAD * 2, lineGap: 0.8 });
+      // A row is drawn in one piece, so no cell may be taller than half a page: the longest start of it that fits is kept.
+      const tallest = (doc.page.height - doc.page.margins.top - doc.page.margins.bottom) / 2;
+      const fit = (value: string, w: number) => {
+        if (cellHeight(value, w) <= tallest) return value;
+        shortened = true;
+        let lo = 0; let hi = value.length;
+        while (lo < hi) { const mid = Math.ceil((lo + hi) / 2); if (cellHeight(`${value.slice(0, mid).trimEnd()}…`, w) <= tallest) lo = mid; else hi = mid - 1; }
+        return `${value.slice(0, lo).trimEnd()}…`;
+      };
       const header = (continued: boolean) => {
         if (continued) { text(`${t.title} (continued)`, 'Helvetica-Oblique', 7.5, MUTED); doc.moveDown(0.1); }
         const labels = cols.map((c) => pdfText(c.label.toUpperCase()));
@@ -141,7 +153,7 @@ export function renderReportDocumentPdf(report: ReportDocument): Promise<Buffer>
       ensure(40);
       header(false);
       t.rows.forEach((row, n) => {
-        const cells = cols.map((c) => pdfText(cellText(formatCell(row[c.key], c.kind, report.currency))));
+        const cells = cols.map((c) => fit(pdfText(cellText(formatCell(row[c.key], c.kind, report.currency))), c.w));
         const h = Math.max(...cols.map((c, i) => cellHeight(cells[i], c.w))) + PAD * 2;
         if (doc.y + h > bottom()) { doc.addPage(); header(true); }
         const y = doc.y;
@@ -175,7 +187,7 @@ export function renderReportDocumentPdf(report: ReportDocument): Promise<Buffer>
       for (const t of section.tables) table(t);
       for (const note of section.notes || []) text(`•  ${note}`, 'Helvetica', 8, INK2);
     }
-    const notes = [...report.notes, ...(shortened ? [`A cell longer than ${MAX_CELL} characters is shortened here; the CSV and the workbook hold it whole.`] : [])];
+    const notes = [...report.notes, ...(shortened ? [`A cell longer than ${MAX_CELL} characters, or taller than half a page, is shortened here; the CSV and the workbook hold it whole.`] : [])];
     if (notes.length) {
       ensure(60);
       doc.moveDown(0.6);
