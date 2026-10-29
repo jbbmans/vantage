@@ -1,5 +1,6 @@
 import { test, before, after } from 'node:test';
 import assert from 'node:assert/strict';
+import { inflateSync } from 'node:zlib';
 import { startApp, enroll, today, PASSWORD, type TestApp } from './helpers.ts';
 import { orgOfUnit } from '../../server/authz/scope.ts';
 import { addMonths, standing } from '../../server/services/reportCenter.ts';
@@ -29,6 +30,17 @@ const post = (token: string, path: string, body: unknown = {}) => app.call('POST
 const login = async (username: string) => (await app.login(username)).body.token as string;
 const run = (token: string, params: Record<string, string>) => get(token, `/api/report-center/run?${new URLSearchParams(params)}`);
 const exportUrl = (params: Record<string, string>) => `/api/report-center/export?${new URLSearchParams(params)}`;
+/** Whether a PDF's pages draw this text: PDFKit writes a line as hex in its compressed content streams, split where it kerns. */
+const pdfDraws = (pdf: Buffer, text: string) => {
+  const hex = Buffer.from(text, 'latin1').toString('hex');
+  const raw = pdf.toString('latin1');
+  for (let at = raw.indexOf('stream\n'); at !== -1; at = raw.indexOf('stream\n', at)) {
+    const end = raw.indexOf('endstream', at);
+    try { if (inflateSync(pdf.subarray(at + 7, end)).toString('latin1').replace(/>\s*-?[\d.]+\s*</g, '').toLowerCase().includes(hex)) return true; } catch { /* not a compressed stream */ }
+    at = end + 9;
+  }
+  return false;
+};
 const dayAfter = (d: string, n: number) => new Date(Date.parse(`${d}T00:00:00Z`) + n * 86_400_000).toISOString().slice(0, 10);
 const tableOf = (doc: ReportDocument, id: string) => doc.sections.flatMap((s) => s.tables).find((t) => t.id === id);
 const auditSince = (seq: number) => app.ctx.db.prepare('SELECT action, actor_id, subject_id, unit_id, entity_id, detail FROM audit_log WHERE seq > ? ORDER BY seq').all(seq) as Array<{ action: string; actor_id: string; subject_id: string | null; unit_id: string | null; entity_id: string | null; detail: string }>;
@@ -315,6 +327,13 @@ test('the handling line is the enterprise’s, on every page and file', async ()
   assert.equal(doc.marking, 'CUI//PRVCY');
   const json = await app.call('GET', exportUrl({ type: 'activity', format: 'json' }), { token: marine.token });
   assert.equal(json.body.marking, 'CUI//PRVCY');
+  const pdf = await app.call('GET', exportUrl({ type: 'activity', format: 'pdf' }), { token: marine.token, binary: true });
+  assert.ok(pdfDraws(pdf.buffer!, 'CUI//PRVCY'), 'on the report’s PDF');
+  assert.ok(!pdfDraws(pdf.buffer!, 'Working paper'));
+  // The analysis PDF, which has always printed a handling line, prints this one too.
+  const analysis = await app.call('GET', '/api/reports/analysis.pdf', { token: marine.token, binary: true });
+  assert.equal(analysis.status, 200);
+  assert.ok(pdfDraws(analysis.buffer!, 'CUI//PRVCY'), 'on the analysis PDF');
   assert.equal((await app.call('GET', '/api/me', { token: marine.token })).body.instance.reportMarking, 'CUI//PRVCY');
   app.ctx.runtime.reportMarking = 'Working paper';
 });

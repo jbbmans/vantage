@@ -222,7 +222,8 @@ miscRouter.get('/reports/analysis.pdf', wrap(async (req, res) => {
   const { q, userId, unitId } = reportTarget(req);
   const report = buildAnalysisReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, track: q.track });
   const base = buildReport(req.ctx, { userId, unitId, period: q.period, from: q.from, to: q.to, style: q.style, limit: q.limit ?? 12, track: q.track, narrative: narrativeChoices(q) });
-  const pdf = await renderAnalysisPdf({ report, narrative: withEdits(base.narrative, q.narrative), pkg: base.pkg });
+  // Its handling line is the one every report carries (ADR-0020).
+  const pdf = await renderAnalysisPdf({ report, narrative: withEdits(base.narrative, q.narrative), pkg: base.pkg, classification: req.ctx.runtime.reportMarking });
   audit(req.ctx, { actor_id: req.user.id, action: 'export_pdf', entity: 'user', entity_id: userId, subject_id: userId !== req.user.id ? userId : null, unit_id: unitId, detail: `analysis; ${report.label}`, ip: clientIp(req) });
   const file = `vantage-analysis-${report.label.replace(/[^a-z0-9]+/gi, '-').toLowerCase()}.pdf`;
   res.setHeader('Content-Type', 'application/pdf');

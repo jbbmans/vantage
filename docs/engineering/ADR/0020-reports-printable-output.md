@@ -131,8 +131,9 @@ draws a file:
 
 A Vantage Administrator sets one line printed on every report, on screen, at the top and foot of every printed and PDF
 page, and in every file (runtime `reportMarking`, Identity panel of the Vantage Administrator console, one line, never
-blank). It defaults to "Working paper", what the analysis PDF already said. **The wording MCEN requires for these
-reports (for example a CUI marking) is MCEN's to give;** Vantage only prints what is set.
+blank). It defaults to "Working paper", what the analysis PDF already said, and the analysis PDF now prints the line
+set. The JEPES and FITREP input PDF prints no handling line, as before. **The wording MCEN requires for these reports
+(for example a CUI marking) is MCEN's to give;** Vantage only prints what is set.
 
 ### 7. Printing
 
