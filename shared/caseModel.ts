@@ -34,6 +34,13 @@ export const STATE_TO_STAGE: Record<string, Stage> = {
 
 export const CLOSED_STAGES = new Set<Stage>(['resolved', 'not_applicable']);
 
+/**
+ * What chose the procedure an import put a case under (kept on its `procedure_applied` entry): the person running the
+ * import, the row's lifecycle figures, or only the words on the row. A person's own choice carries none, and a person
+ * confirming an import's pick is a later entry with `confirms: true`.
+ */
+export type ProcedurePick = 'plan' | 'figures' | 'words';
+
 export const WAITING_CATEGORIES = ['approval', 'posting', 'invoice', 'documentation', 'internal_action', 'external_response'] as const;
 export type WaitingCategory = (typeof WAITING_CATEGORIES)[number];
 export const WAITING_LABEL: Record<WaitingCategory, string> = {
@@ -104,7 +111,7 @@ export function describeEvent(kind: string, body: Record<string, unknown>): stri
     case 'waiting_ended': return `Stopped waiting on ${String(b.category || '').replace(/_/g, ' ')}`;
     case 'stage_changed': return `Moved to ${STAGE_LABEL[b.to as Stage] || b.to}`;
     case 'source_revised': return `The source changed: ${Array.isArray(b.changes) ? b.changes.map((c: { field: string }) => humanKey(c.field).toLowerCase()).join(', ') : 'values'}`;
-    case 'procedure_applied': return b.from_version ? `Moved to procedure version ${b.version} from ${b.from_version}` : `Procedure ${b.procedure} v${b.version} applied`;
+    case 'procedure_applied': return b.confirms ? `Procedure ${b.procedure} v${b.version} confirmed` : b.from_version ? `Moved to procedure version ${b.version} from ${b.from_version}` : `Procedure ${b.procedure} v${b.version} applied`;
     default: return b.text ? String(b.text) : EVENT_LABEL[kind as EventKind] || kind;
   }
 }

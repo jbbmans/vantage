@@ -390,10 +390,12 @@ export default function Workbench({ embedded }: { embedded?: boolean } = {}) {
                             <input type="checkbox" checked={isSelected} onChange={() => toggleSelected(row.id)} aria-label={`Select ${row.reference || row.natural_key}`} />
                           </td>
                           <td className="fig w-36 truncate px-3 text-xs font-semibold text-ink-2">{row.reference || row.natural_key}</td>
-                          <td className="px-3 text-ink" title={row.title}>
+                          <td className="px-3 text-ink" title={row.diagnosis ? `${row.title}\n${row.diagnosis.headline}` : row.title}>
                             {/* Two lines, not one: rows of the same report differ at the end of the title, which a single line cut off. */}
                             <span className="line-clamp-2 text-[13px] leading-snug">
                               {row.procedure_key && PROCEDURES[row.procedure_key] && <Badge tone="accent" className="mr-2">{PROCEDURES[row.procedure_key].short}</Badge>}
+                              {/* The case diagnoser's reading of a case no procedure is applied to yet (ADR-0022): a lead, not a label. */}
+                              {!row.procedure_key && row.diagnosis?.issue && <Badge className="mr-2" title={row.diagnosis.headline}>Reads as {row.diagnosis.issue}</Badge>}
                               {row.title}
                               {row.source_changed_at && <Badge tone="warn" className="ml-2">Source changed</Badge>}
                             </span>

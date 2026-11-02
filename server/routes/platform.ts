@@ -47,6 +47,8 @@ import { assertRuntimePatchAllowed, deploymentPosture } from '../services/deploy
 import { backupStatus, healthReport, jobStatus, migrationStatus, versionStatus } from '../services/operations.ts';
 import { endMaintenance, maintenanceState, runMaintenanceTask, startMaintenance } from '../services/maintenance.ts';
 import { featureFlags } from '../services/featureFlags.ts';
+import { addEnterpriseGuidance, enterpriseGuidance, retireEnterpriseGuidance } from '../services/caseGuidance.ts';
+import { guidanceInputSchema, retireSchema, type GuidanceInput } from '../../shared/caseGuidance.ts';
 import { instanceFlagStatus, isInstanceFlag, setInstanceFlag } from '../services/instanceFlags.ts';
 import { instanceOperations, operationsSummary } from '../services/instanceOperations.ts';
 import { restoreStatus, reviewUpgrade } from '../services/recovery.ts';
@@ -166,6 +168,16 @@ platformRouter.post('/sign-in-health/oidc-check', requirePlatform('platform.sett
   try { result = { ok: true, ...(await probeProvider(ctx)) }; } catch (error) { result = { ok: false, error: String((error as Error).message).slice(0, 300) }; }
   audit(ctx, { actor_id: req.user.id, action: 'oidc_checked', entity: 'platform', detail: result.ok ? `reached; ${result.keys} signing keys` : `failed: ${result.error}`, ip: ip(req) });
   res.json({ ...result, checkedAt: now() });
+}));
+
+// Official policy and official system guidance the case diagnoser cites for every Unit Instance (ADR-0022). Each entry is
+// cited, never edited, and retired with a reason; a Unit Instance's own SOPs are its Unit Managers' to keep.
+platformRouter.get('/case-guidance', requirePlatform('platform.view'), wrap((req, res) => res.json({ entries: enterpriseGuidance(req.ctx) })));
+platformRouter.post('/case-guidance', requirePlatform('platform.settings'), wrap((req, res) => {
+  res.status(201).json(addEnterpriseGuidance(req.ctx, req.user, parse(guidanceInputSchema, req.body) as GuidanceInput, ip(req)));
+}));
+platformRouter.post('/case-guidance/:id/retire', requirePlatform('platform.settings'), wrap((req, res) => {
+  res.json(retireEnterpriseGuidance(req.ctx, req.user, String(req.params.id), parse(retireSchema, req.body).reason, ip(req)));
 }));
 
 platformRouter.get('/flags', requirePlatform('platform.view'), wrap((req, res) => res.json({ ...featureFlags(req.ctx), instances: instanceFlagStatus(req.ctx) })));

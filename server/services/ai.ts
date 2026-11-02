@@ -11,6 +11,8 @@ import { AI_GUARDRAILS, ANSWER_FORMAT, diagnose, type MethodKey } from '../../sh
 import { readableItem } from './work.ts';
 import { eventsFor, caseEventsOf, procedureOf, stageOf } from './cases.ts';
 import { standing } from '../../shared/procedures.ts';
+import { diagnosisFor } from './caseDiagnosis.ts';
+import { diagnosisForBrief } from '../../shared/caseDiagnosis.ts';
 import { periodClause } from './timeframes.ts';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
@@ -179,6 +181,9 @@ function buildPayload(ctx: AppContext, user: SessionUser, workflow: string, inpu
         actions: events.filter((e) => e.kind === 'action_submitted' || e.kind === 'action_prepared' || e.kind === 'external_event').map((e) => ({ kind: e.kind, step: e.body.step || null, event: e.body.event || null })),
         verifications: events.filter((e) => e.kind === 'verification').map((e) => ({ check: e.body.check, result: e.body.result, reference: e.body.reference || null })),
         reference_reading: reading && reading.ok ? { meaning: reading.meaning, findings: reading.findings.map((f) => ({ condition: f.abbr, pattern: f.pattern, open_cents: f.residualCents })), anomalies: reading.anomalies.map((a) => a.title), causes: reading.causes.map((c) => ({ condition: c.condition, cause: c.label, distinguish_by: c.research })), limits: reading.limits } : null,
+        // The rule diagnosis the reader already sees on the case (ADR-0022), with each statement's label and source. The AI
+        // explains it; it never outranks it.
+        rule_diagnosis: diagnosisForBrief(diagnosisFor(ctx, user, scope, item)),
         answer_format: ANSWER_FORMAT.map((a) => a.label),
       };
     }
@@ -209,7 +214,7 @@ const INSTRUCTIONS: Record<string, string> = {
   report_narrative: 'Return JSON with keys narrative, bullets (array), facts_used (array), omitted_facts (array), and cautions (array). Write the Marine\'s accomplishments input, not an evaluation. For track jepes, group bullets under the three command input lines of MCO 1616.1 (Individual Character; MOS and/or Mission Accomplishment; Leadership); for track fitrep, write a Section C billet accomplishments draft as one list of dash bullets with no headings, ordered Mission Accomplishment, Individual Character, Leadership, Intellect and Wisdom, then Fulfillment of Evaluation Responsibilities, and leave PME completions and community involvement out of it (the MRO worksheet has its own blocks for them). Each bullet starts with a dash and a past-tense verb, has no pronouns, states the number and the result, and spells an acronym out on first use. Be objective: no superlatives, no personal qualities, no predicted or potential impact, no rankings, and no promotion or assignment recommendations. Leave out required annual training. Stay inside character_limit, use only supplied activity facts, and never fabricate impact.',
   maradmin_summary: 'Return JSON with keys plain_language, who_is_affected (array), required_actions (array), deadlines (array), key_points (array), and cautions (array). State when the cached excerpt is insufficient and direct the reader to the official message.',
   command_brief: 'Return JSON with keys executive_summary, highlights (array), watch_items (array), recommended_questions (array), and caveats (array). Analyze only aggregate exact-unit values. Do not infer individual performance, readiness, causes, classification, or identities.',
-  case_brief: 'Return JSON with keys observed_condition, financial_meaning, possible_causes (array), required_research (array), responsible_role, next_action, wait_and_verification, references_and_limits (array), and missing_inputs (array). Use only the supplied case entries and reference_reading. Treat every cause as a possibility to research, never a finding. A figure marked not_shown is unknown, not zero. Do not state that anything is resolved unless a verification with a reference says so.',
+  case_brief: 'Return JSON with keys observed_condition, financial_meaning, possible_causes (array), required_research (array), responsible_role, next_action, wait_and_verification, references_and_limits (array), and missing_inputs (array). Use only the supplied case entries, reference_reading and rule_diagnosis. rule_diagnosis is the rule engine’s reading: keep each statement’s label (Known fact, Derived value, Recommendation, Unknown, Human decision required) and its source, never present a recommendation as stronger than its source, and never present a training reference, a past case or an inference as policy. Anything you add that rule_diagnosis does not say is your inference and must be called that. Treat every cause as a possibility to research, never a finding. A figure marked not_shown is unknown, not zero. Do not state that anything is resolved unless a verification with a reference says so.',
 };
 
 const FINANCIAL_RULES = `When the evidence concerns funds, balances, obligations, invoices, UMTs or other financial conditions: ${AI_GUARDRAILS}`;

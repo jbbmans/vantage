@@ -1,6 +1,6 @@
 export type Authority =
   | 'official_policy' | 'official_system_guidance' | 'approved_local_sop' | 'training_reference'
-  | 'validated_sme_workflow' | 'sme_walkthrough' | 'historical_case' | 'ai_inference';
+  | 'validated_sme_workflow' | 'sme_walkthrough' | 'historical_case' | 'vantage_inference' | 'ai_inference';
 
 
 export const AUTHORITY_LABEL: Record<Authority, string> = {
@@ -11,8 +11,42 @@ export const AUTHORITY_LABEL: Record<Authority, string> = {
   validated_sme_workflow: 'Validated SME workflow',
   sme_walkthrough: 'SME walkthrough, not yet validated',
   historical_case: 'Historical case',
+  vantage_inference: 'Inference by Vantage from the words on the case, not a source',
   ai_inference: 'AI inference, not approved',
 };
+
+/**
+ * The order sources are weighed in when they speak to the same question (VANTAGE_CLAUDE_MASTER Task 16, ADR-0022):
+ * official policy, official system guidance, an approved command SOP, a validated SME workflow, a validated historical
+ * case, then inference. Two authorities Vantage already carried sit between those six without a number of their own: the
+ * FMRAC training reference ranks below a validated SME workflow, since it is not verified against current policy, and an
+ * SME walkthrough nobody has validated ranks below a validated case. Inference, whether Vantage's own reading of the words
+ * or an AI draft, is always last and is never shown as policy.
+ */
+export interface ProvenanceTier {
+  authority: Authority;
+  /** 1 is weighed first. */
+  rank: number;
+  /** The specification's tier, 1 to 6, or null for the two that sit between tiers. */
+  tier: 1 | 2 | 3 | 4 | 5 | 6 | null;
+  label: string;
+  /** What a reader should keep in mind about this kind of source. */
+  caution: string | null;
+}
+
+export const PROVENANCE: readonly ProvenanceTier[] = [
+  { authority: 'official_policy', rank: 1, tier: 1, label: 'Official policy', caution: null },
+  { authority: 'official_system_guidance', rank: 2, tier: 2, label: 'Official system guidance', caution: null },
+  { authority: 'approved_local_sop', rank: 3, tier: 3, label: 'Approved command SOP', caution: 'Binds this command only.' },
+  { authority: 'validated_sme_workflow', rank: 4, tier: 4, label: 'Validated SME workflow', caution: null },
+  { authority: 'training_reference', rank: 5, tier: null, label: 'Training reference (FMRAC)', caution: 'A training reference, not verified against current policy. Its thresholds and routing are the book’s printed values.' },
+  { authority: 'historical_case', rank: 6, tier: 5, label: 'Validated historical case', caution: 'One case. It shows what was true then, not a rule.' },
+  { authority: 'sme_walkthrough', rank: 7, tier: null, label: 'SME walkthrough, not yet validated', caution: 'Validated against one synthetic case only.' },
+  { authority: 'vantage_inference', rank: 8, tier: 6, label: 'Inference', caution: 'Vantage read the words on the case. It is a lead to check, never policy.' },
+  { authority: 'ai_inference', rank: 9, tier: 6, label: 'Inference (AI draft)', caution: 'An AI draft. It is a lead to check, never policy.' },
+];
+
+export const provenanceOf = (authority: Authority): ProvenanceTier => PROVENANCE.find((p) => p.authority === authority) ?? PROVENANCE[PROVENANCE.length - 1];
 
 export interface StepHelp {
   /** Why this step exists. */

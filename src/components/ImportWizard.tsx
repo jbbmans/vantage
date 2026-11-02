@@ -45,6 +45,7 @@ export interface Inspection { source: ImportSource; sheets: ImportSheet[]; notes
 interface ImportRejection { source_row: number; reason: string; value?: string }
 interface ImportPreview {
   total_rows: number; unchanged: number; rejections: ImportRejection[]; procedures?: Record<string, number>;
+  readings?: Array<{ issue: string | null; short: string | null; how: 'procedure' | 'error_label' | 'figures' | 'words' | null; rows: number }>;
   will_insert: Array<{ natural_key: string }>;
   will_update: Array<{ existing_id: string; natural_key: string; claimed_by: string | null; changes: string[] }>;
 }
@@ -322,6 +323,20 @@ export default function ImportWizard({ onClose, onImported }: { onClose: () => v
                   <li key={key} className="chip">{key === 'none' ? 'No procedure fits' : PROCEDURES[key]?.short || key} · {formatNumber(n)}</li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {preview.readings && preview.readings.some((r) => r.issue) && (
+            <div className="rounded-xl px-3.5 py-2.5 ring-1 ring-inset ring-line">
+              <p className="eyebrow">What the case diagnoser reads in the new rows</p>
+              <ul aria-label="What the case diagnoser reads in the new rows" className="mt-1.5 flex flex-wrap gap-1.5">
+                {preview.readings.map((r) => (
+                  <li key={`${r.issue}-${r.how}`} className="chip" title={r.how === 'words' ? 'Read from the words on the row only: a lead to check, never a reading of the figures.' : r.how === 'figures' ? 'Read from the commitment, obligation, delivered and paid figures.' : r.how === 'error_label' ? 'Read from an error label the reference names.' : undefined}>
+                    {r.short ? `${r.short}${r.how === 'words' ? ' (words only)' : ''}` : 'Not identified'} · {formatNumber(r.rows)}
+                  </li>
+                ))}
+              </ul>
+              <p className="mt-1.5 text-2xs text-ink-3">Each case opens with its full diagnosis. A reading from words alone ranks as inference until somebody applies a procedure.</p>
             </div>
           )}
 

@@ -1,4 +1,4 @@
-import { Activity, Archive, BarChart3, Building2, Database, Fingerprint, Gauge, HeartPulse, KeyRound, Layers, Mail, Scale, ScrollText, Settings2, ShieldCheck, Sparkles, ToggleRight, UserCog, Users, Wrench } from 'lucide-react';
+import { Activity, Archive, BarChart3, BookCheck, Building2, Database, Fingerprint, Gauge, HeartPulse, KeyRound, Layers, Mail, Scale, ScrollText, Settings2, ShieldCheck, Sparkles, ToggleRight, UserCog, Users, Wrench } from 'lucide-react';
 import { ConsoleFrame, ConsoleLayout, type ConsoleSection } from '@/components/ConsoleFrame';
 import { PrivacyConsole } from '@/components/GovernanceConsole';
 import { LINKS } from '@/lib/links';
@@ -8,6 +8,7 @@ import * as Sections from './sections';
 import { Access, Accounts, Organizations, PlatformHolds, Staff } from './people';
 import { FeatureFlags, InstanceOperationsPage, Maintenance, MaintenanceBanner, Operations, SignInHealth } from './operations';
 import { SeparationOfDuties } from './separation';
+import { OfficialGuidance } from './guidance';
 
 /**
  * The Vantage Administrator console (ADR-0006, ADR-0010): the service, for Vantage staff. Unit Instances appear here as
@@ -29,6 +30,7 @@ function sectionsFor(permissions: string[]): ConsoleSection[] {
     { path: 'flags', label: 'Feature flags', icon: ToggleRight, title: 'Feature flags', lede: 'The service’s switches: the ones changed here, and the ones set when it is deployed.', render: () => <FeatureFlags />, hidden: !can('platform.view') },
     { path: 'settings', label: 'Settings', icon: Settings2, title: 'Platform settings', lede: 'What everyone sees: the service name and the announcement.', render: () => <Sections.RuntimeSettings />, hidden: !can('platform.settings') },
     { path: 'metrics', label: 'Metrics', icon: BarChart3, title: 'Metrics', lede: 'The value types and categories every record is counted in.', render: () => <Sections.MetricsSettings />, hidden: !can('platform.settings') },
+    { path: 'guidance', label: 'Official guidance', icon: BookCheck, title: 'Official guidance', lede: 'Official policy and official system guidance the case diagnoser cites in every Unit Instance, ranked above a command’s SOP and the training reference.', render: () => <OfficialGuidance canEdit={can('platform.settings')} />, hidden: !can('platform.view') },
     { path: 'ai', label: 'AI', icon: Sparkles, title: 'AI assistance', lede: 'GenAI.mil models, budgets, and whether AI is offered at all.', render: () => <Sections.AiSettings />, hidden: !can('platform.ai') },
     { path: 'email', label: 'Email', icon: Mail, title: 'Email', lede: 'How Vantage sends mail, and what it has sent.', render: () => <Sections.EmailConsole />, hidden: !can('platform.email') },
     { path: 'usage', label: 'Usage', icon: Activity, title: 'Usage and reliability', lede: 'How Vantage is used and where it fails, without anyone’s content.', render: () => <Sections.UsageConsole />, hidden: !can('platform.usage') },
