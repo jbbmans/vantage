@@ -4,7 +4,7 @@ import {
   DIAGNOSIS_ENGINE, SECTIONS, STATEMENT_LABELS, diagnoseCase, diagnosisForBrief, issueReading, orderStatements, summarize,
   type CaseDiagnosis, type DiagnosisInput, type GuidanceEntry, type Statement,
 } from '../../shared/caseDiagnosis.ts';
-import { PROCEDURES } from '../../shared/procedures.ts';
+import { FORMULAS, PROCEDURES } from '../../shared/procedures.ts';
 import { PROVENANCE, provenanceOf } from '../../shared/procedureTypes.ts';
 
 /**
@@ -304,4 +304,50 @@ test('the funds check reads as Vantage enforces it: a warning goes ahead only wi
   assert.equal(ack.label, 'known_fact');
   assert.match(ack.text, /closed line/);
   assert.deepEqual(ack.evidence, [submitted.id]);
+});
+
+test('a correction to the imported error text replaces the sheet’s words, which are not read again', () => {
+  const umt = PROCEDURES.umt_four_stage;
+  const input: DiagnosisInput = {
+    item: item({ title: 'Unmatched transaction', reference: 'UMT-9', filename: 'umt.csv', source_row: 4 }),
+    sheet: [{ field: 'error_text', column: 'Error', value: 'No matching record' }],
+    events: [ev('procedure_applied', { procedure: umt.key, version: umt.version, authority: umt.authority })], procedure: umt, today: '2026-11-02',
+  };
+  const fromSheet = diagnoseCase(input);
+  assert.match(texts(section(fromSheet, 'issue_type')), /No matching record/i, 'the sheet’s error text is read while it stands');
+
+  const corrected = diagnoseCase({ ...input, events: [...input.events, ev('observation', { field: 'error_text', value_text: 'PO line is closed; referred to support', step: 'identify' })] });
+  assert.doesNotMatch(texts(section(corrected, 'issue_type')), /matches “No matching record/i, 'the corrected words replace the sheet’s');
+  assert.ok(!all(corrected).some((s) => s.label === 'derived_value' && /No matching record/i.test(s.text)), 'nothing is derived from the superseded text');
+});
+
+test('a recorded zero or downward result still asks for review until a person makes the next call, unless the cause skips the step', () => {
+  const p = PROCEDURES.umt_2way_po_qty;
+  const base = [
+    ev('procedure_applied', { procedure: p.key, version: p.version, authority: p.authority }),
+    ev('observation', { field: 'current_award', amount_cents: 20000, step: 'record_award' }),
+    ev('observation', { field: 'invoice_amount', amount_cents: 10000, reference: 'INV-1', step: 'record_invoices' }),
+    ev('observation', { field: 'umt_amount', amount_cents: 10000, step: 'identify' }),
+  ];
+  const input: DiagnosisInput = { item: item({ title: '2-Way UMT', reference: 'UMT-2W' }), events: base, procedure: p, today: '2026-11-02' };
+  const review = 'Review the zero or downward result before anything changes.';
+  const live = diagnoseCase(input);
+  assert.ok(all(live).some((s) => s.text === review), 'the live $0 adjustment asks for review');
+
+  const result = FORMULAS.umt2way_award_adjustment.compute(base);
+  assert.ok(result.ok && result.requires_review);
+  const recorded = ev('calculation', { ...result, formula: 'umt2way_award_adjustment', step: 'calculate' });
+  const after = diagnoseCase({ ...input, events: [...base, recorded] });
+  const ask = all(after).find((s) => s.text === review)!;
+  assert.ok(ask, 'recording the result does not clear the review');
+  assert.equal(ask.label, 'decision_required');
+  assert.deepEqual(ask.evidence, [recorded.id]);
+  assert.equal(after.counts.decision_required, live.counts.decision_required, 'and the pending-decision count does not drop');
+
+  const decided = diagnoseCase({ ...input, events: [...base, recorded, ev('decision', { decision: 'funding_decision', choice: 'funding_sufficient', step: 'funding_decision' })] });
+  assert.ok(!all(decided).some((s) => s.text === review), 'the next call, made after it, is the review');
+  const referred = diagnoseCase({ ...input, events: [...base, recorded, ev('decision', { decision: 'funding_decision', choice: 'refer_for_review', step: 'funding_decision' })] });
+  assert.ok(all(referred).some((s) => s.text === review), 'referring it on is not reviewing it');
+  const closed = diagnoseCase({ ...input, item: { ...input.item, stage: 'resolved' }, events: [...base, recorded] });
+  assert.ok(!all(closed).some((s) => s.text === review), 'a closed case is not asked');
 });

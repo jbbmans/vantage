@@ -354,7 +354,7 @@ function read(input: DiagnosisInput): Reading {
   const appliedIssue = issueForProcedure(applied?.key);
   const label = matchLabel(input, events, appliedIssue, feeder);
   const figureIssue = balance?.procedure ? issueForProcedure(balance.procedure) : null;
-  const leadHit = suggestProcedure(input.item.title, ...['error_text', 'hold_reason_text', 'reject_text'].map((f) => latestObservation(events, f)?.body.value_text as string | undefined), sheet.get('error_text')?.value, ...(input.item.cells || []));
+  const leadHit = suggestProcedure(input.item.title, ...['error_text', 'hold_reason_text', 'reject_text'].map((f) => latestObservation(events, f)?.body.value_text as string | undefined), latestObservation(events, 'error_text') ? undefined : sheet.get('error_text')?.value, ...(input.item.cells || []));
   const lead = leadHit && issueForProcedure(leadHit.key) ? { issue: issueForProcedure(leadHit.key)!, why: leadHit.why } : null;
 
   // An import that chose the procedure from the words on the row alone made an inference, not a reading. It stands as a
@@ -389,7 +389,8 @@ function matchLabel(input: DiagnosisInput, events: CaseEvent[], appliedIssue: Is
     const e = latestObservation(events, field);
     if (e?.body.value_text) texts.push({ text: String(e.body.value_text), from: fromOf(input, e) });
   }
-  const cell = input.sheet?.find((s) => s.field === 'error_text');
+  // The sheet's error text is read only while nobody has recorded the error text on the case: a correction replaces it.
+  const cell = latestObservation(events, 'error_text') ? null : input.sheet?.find((s) => s.field === 'error_text');
   if (cell?.value.trim()) texts.push({ text: cell.value, from: `${importedFrom(input)}, column “${cell.column}”` });
   texts.push({ text: input.item.title, from: importedFrom(input) });
 
@@ -911,6 +912,12 @@ function calculationsSection(r: Reading, out: Statement[], plan: Procedure | nul
         out.push(fact(`${formula?.title || step.title}: ${recorded.body.display}.`, fromOf(input, recorded), { evidence: [recorded.id], detail: excluded ? 'Recorded before the cause was decided. The cause decided since skips this step.' : null }));
         const state = calculationState(recorded, input.events);
         if (state.stale && !excluded) out.push(rec(`Calculate again: ${state.reasons.join('; ')}.`, procBasis(step)));
+        // A zero or downward result still needs a person's review once it is recorded. It stands until a person records
+        // the next decision or check after it, never on a step the cause skips, a stale result or a closed case.
+        else if (recorded.body.requires_review && !excluded && !isClosed(input)) {
+          const after = r.events.some((e) => (e.seq ?? 0) > (recorded.seq ?? 0) && (e.kind === 'decision' || e.kind === 'verification') && e.body.choice !== 'refer_for_review');
+          if (!after) out.push(decide('Review the zero or downward result before anything changes.', 'The arithmetic is a candidate, never a permission. This stands until a person records the next decision or check after it.', { evidence: [recorded.id] }));
+        }
         continue;
       }
       if (excluded) continue;
