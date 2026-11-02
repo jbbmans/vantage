@@ -580,7 +580,7 @@ export function diagnoseCase(input: DiagnosisInput): CaseDiagnosis {
       if (step.kind === 'action' && step.waitsOn === 'approval' && !step.prepareOnly) {
         const approved = [...r.events].reverse().find((e) => e.kind === 'external_event' && (e.body.step === step.key || observesStep(plan, e.body.step, step.key)) && ['approved', 'effective', 'posted'].includes(String(e.body.event)));
         if (approved) approvals.push(fact(`${step.title}: ${approved.body.event}.`, fromOf(input, approved), { evidence: [approved.id] }));
-        else approvals.push(decide(`Approval of “${lower(step.title)}”.`, `An approver decides once it is submitted. Submitted is not approved, and approved is not posted.${stepRoles(step).length ? ` Prepared by someone holding ${listText(stepRoles(step))}.` : ''}`));
+        else approvals.push(decide(`Approval of “${lower(step.title)}”.`, `An approver decides once it is submitted: submitting it does not approve it, and approval does not post it.${stepRoles(step).length ? ` Prepared by someone holding ${listText(stepRoles(step))}.` : ''}`));
       }
       if (step.kind === 'control') {
         const check = latestFundsCheck(r.events);
