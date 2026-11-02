@@ -604,9 +604,19 @@ export function diagnoseCase(input: DiagnosisInput): CaseDiagnosis {
         else approvals.push(decide(`Approval of “${lower(step.title)}”.`, `An approver decides once it is submitted: submitting it does not approve it, and approval does not post it.${stepRoles(step).length ? ` Prepared by someone holding ${listText(stepRoles(step))}.` : ''}`));
       }
       if (step.kind === 'control') {
+        // The control as Vantage enforces it (recordEntry, action_submitted): PASSED lets the submission go; WARNING lets
+        // it go only with an acknowledgement saying what the warning was and why submission is still right; no check, or
+        // FAILED, NOT_RUN or UNKNOWN, refuses it.
         const check = latestFundsCheck(r.events);
-        if (check) approvals.push(fact(`Funds check: ${check.body.result}.`, fromOf(input, check), { evidence: [check.id] }));
-        if (!check || check.body.result !== 'PASSED') approvals.push(rec(`${step.title}: ${step.help.what}`, procBasis(step), { detail: 'Vantage refuses the submission until a PASSED check is on the record.' }));
+        const result = check ? String(check.body.result) : null;
+        if (check) approvals.push(fact(`Funds check: ${result}.`, fromOf(input, check), { evidence: [check.id] }));
+        if (result === 'WARNING') {
+          const relied = [...r.events].reverse().find((e) => e.kind === 'action_submitted' && e.body.funds_check_id === check!.id && e.body.control_acknowledgement);
+          if (relied) approvals.push(fact(`The warning was acknowledged at submission: “${String(relied.body.control_acknowledgement)}”`, fromOf(input, relied), { evidence: [relied.id] }));
+          else approvals.push(decide('Whether to submit against the funds check’s warning.', 'Vantage accepts the submission against a warning only with an acknowledgement: what the warning was and why submission is still right. Or resolve it and record a new check.', { evidence: [check!.id] }));
+        } else if (result !== 'PASSED') {
+          approvals.push(rec(`${step.title}: ${step.help.what}`, procBasis(step), { detail: check ? `Vantage refuses the submission while the latest check is ${result}. Resolve it and record a new check.` : 'Vantage refuses the submission until a check is on the record.' }));
+        }
       }
     }
     const offered = new Set(r.options.map((o) => o.key));

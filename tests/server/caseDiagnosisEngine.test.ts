@@ -276,3 +276,32 @@ test('a calculation the decided cause rules out is neither worked out nor asked 
   assert.match(kept.detail || '', /cause decided since skips this step/);
   assert.ok(!section(later, 'calculations').some((s) => s.text.startsWith('Calculate again')));
 });
+
+test('the funds check reads as Vantage enforces it: a warning goes ahead only with an acknowledgement, and one given at submission is a fact', () => {
+  const p = PROCEDURES.umt_2way_po_qty;
+  const applied = ev('procedure_applied', { procedure: p.key, version: p.version, authority: p.authority });
+  const input: DiagnosisInput = { item: item({ title: '2-Way UMT', reference: 'UMT-2W' }), events: [applied], procedure: p, today: '2026-11-02' };
+  const approvals = (events: ReturnType<typeof ev>[]) => section(diagnoseCase({ ...input, events: [applied, ...events] }), 'approvals');
+
+  const none = approvals([]);
+  assert.match(none.find((s) => s.text.startsWith('Record the funds check'))!.detail || '', /until a check is on the record/);
+  const failed = approvals([ev('funds_check', { result: 'FAILED', system: 'DAI' })]);
+  assert.match(failed.find((s) => s.text.startsWith('Record the funds check'))!.detail || '', /while the latest check is FAILED/);
+  const passed = approvals([ev('funds_check', { result: 'PASSED', system: 'DAI' })]);
+  assert.ok(!passed.some((s) => s.text.startsWith('Record the funds check')), 'a passed check asks for nothing more');
+
+  const warning = ev('funds_check', { result: 'WARNING', system: 'DAI' });
+  const pending = approvals([warning]);
+  assert.ok(!pending.some((s) => /until a PASSED|refuses/.test(`${s.text} ${s.detail || ''}`) && s.label === 'recommendation'), 'a warning is not told it needs a PASSED check');
+  const ask = pending.find((s) => s.text === 'Whether to submit against the funds check’s warning.')!;
+  assert.equal(ask.label, 'decision_required');
+  assert.match(ask.detail || '', /only with an acknowledgement/);
+
+  const submitted = ev('action_submitted', { step: 'submit_modification', reference: 'P00001', funds_check_id: warning.id, funds_check_result: 'WARNING', control_acknowledgement: 'Warning concerned a closed line; confirmed with the budget officer.' });
+  const done = approvals([warning, submitted]);
+  assert.ok(!done.some((s) => s.text === 'Whether to submit against the funds check’s warning.'), 'an acknowledged warning is not asked again');
+  const ack = done.find((s) => s.text.startsWith('The warning was acknowledged at submission'))!;
+  assert.equal(ack.label, 'known_fact');
+  assert.match(ack.text, /closed line/);
+  assert.deepEqual(ack.evidence, [submitted.id]);
+});
