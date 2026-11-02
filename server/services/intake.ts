@@ -9,7 +9,7 @@ import { newId, now } from '../lib/ids.ts';
 import { readWorkbook, readDelimited, sniffDelimiter, WorkbookError } from '../lib/workbook.ts';
 import { ZipError } from '../lib/zip.ts';
 import { appendEvent, applyProcedure, caseEventsOf, eventsFor, procedureOf, seedBody, type Seed } from './cases.ts';
-import { STATE_TO_STAGE } from '../../shared/caseModel.ts';
+import { CLOSED_STAGES, STATE_TO_STAGE, type ProcedurePick } from '../../shared/caseModel.ts';
 import { PROCEDURES, fieldsOf, standing, suggestProcedure } from '../../shared/procedures.ts';
 import { diagnose } from '../../shared/fmra/diagnose.ts';
 import { parseMoney } from '../../shared/money.ts';
@@ -475,7 +475,7 @@ export function previewImport(ctx: AppContext, user: SessionUser, scope: Scope, 
   }
 
   const procedures: Record<string, number> = {};
-  if (plan.procedure) for (const row of willInsert) { const key = procedureForRow(row, plan) || 'none'; procedures[key] = (procedures[key] || 0) + 1; }
+  if (plan.procedure) for (const row of willInsert) { const key = (!comesInClosed(row) && procedureForRow(row, plan)) || 'none'; procedures[key] = (procedures[key] || 0) + 1; }
   const readings = readRows(willInsert, plan, source.filename, zonedDay(zoneOf(ctx, user)));
 
   return {
@@ -545,8 +545,9 @@ export function runImport(
           row.title, row.reference, row.due_date, row.amount, row.amount_type, row.quantity, row.unit_label, row.state, JSON.stringify(row.data), at, at);
         setStage.run(STATE_TO_STAGE[row.state] || 'not_started', itemId);
         appendEvent(ctx, { item: { id: itemId, unit_id: plan.unit_id }, actorId: user.id, kind: 'created', body: { origin: 'import', import_job_id: jobId, source_row: row.source_row } });
-        const key = plan.procedure ? procedureForRow(row, plan) : null;
-        if (key) { applyProcedure(ctx, user, scope, itemId, key, seedsForRow(row, plan), { audit: false }); applied += 1; }
+        // A row that comes in closed takes no procedure: it would have to be reopened first, and refusing it would refuse the import.
+        const pick = plan.procedure && !comesInClosed(row) ? procedurePickForRow(row, plan) : null;
+        if (pick) { applyProcedure(ctx, user, scope, itemId, pick.key, seedsForRow(row, plan), { audit: false, picked: pick.picked }); applied += 1; }
       }
       for (const row of preview.will_update) {
         const changed = update.run(row.row_hash, row.source_row, row.title, row.reference, row.due_date, row.amount, row.amount_type,
@@ -611,15 +612,27 @@ function readRows(rows: NormalizedRow[], plan: ImportPlan, filename: string, tod
   return [...counts.values()].sort((a, b) => b.rows - a.rows);
 }
 
+const comesInClosed = (row: NormalizedRow) => CLOSED_STAGES.has(STATE_TO_STAGE[row.state] || 'not_started');
+
 export function procedureForRow(row: NormalizedRow, plan: ImportPlan): string | null {
+  return procedurePickForRow(row, plan)?.key ?? null;
+}
+
+/**
+ * The procedure an import puts a new row under, and what chose it: the person running the import (`plan`), the row's
+ * lifecycle figures (`figures`), or only the words on the row (`words`). A pick from words is a lead, not a reading: the
+ * case diagnoser builds nothing on it until a person confirms it or applies the procedure that fits (ADR-0022).
+ */
+export function procedurePickForRow(row: NormalizedRow, plan: ImportPlan): { key: string; picked: ProcedurePick } | null {
   if (!plan.procedure) return null;
-  if (plan.procedure !== 'auto') return PROCEDURES[plan.procedure] ? plan.procedure : null;
+  if (plan.procedure !== 'auto') return PROCEDURES[plan.procedure] ? { key: plan.procedure, picked: 'plan' } : null;
   const figures = (['commitment', 'obligation', 'delivered', 'paid'] as const).map((t) => centsOrNull(valueFor(row, plan, t)));
   if (figures.some((v) => v != null)) {
     const d = diagnose({ method: methodKey(valueFor(row, plan, 'purchase_method')), commitment: figures[0], obligation: figures[1], delivered: figures[2], paid: figures[3] });
-    if (d.ok && d.procedure) return d.procedure;
+    if (d.ok && d.procedure) return { key: d.procedure, picked: 'figures' };
   }
-  return suggestProcedure(row.title, valueFor(row, plan, 'error_text'))?.key || null;
+  const hit = suggestProcedure(row.title, valueFor(row, plan, 'error_text'))?.key;
+  return hit ? { key: hit, picked: 'words' } : null;
 }
 
 export function seedsForRow(row: NormalizedRow, plan: ImportPlan): Seed[] {

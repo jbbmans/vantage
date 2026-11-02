@@ -90,6 +90,13 @@ function insert(ctx: AppContext, actor: SessionUser, orgId: string | null, input
       const old = ctx.db.prepare('SELECT * FROM case_guidance WHERE id = ?').get(input.supersedes_id) as GuidanceRow | undefined;
       if (!old || old.org_id !== orgId || old.authority === 'historical_case') throw notFound('No such guidance on file here.');
       if (old.retired_at) throw conflict('That entry is already retired. Put the new wording on file on its own.', 'retired');
+      // A new wording retires the old one the moment it is put on file. Taking effect any later than the old one would
+      // have would leave neither given to a case in between, so it may not.
+      const today = zonedDay(zoneOf(ctx, actor));
+      const latest = old.effective_on && old.effective_on > today ? old.effective_on : today;
+      if (input.effective_on && input.effective_on > latest) {
+        throw badRequest(`A new wording replaces the old one at once, so it must take effect by ${latest === today ? 'today' : latest}. To schedule a later change, put the new entry on file on its own with its effective day, and retire the old one on that day.`, { fieldErrors: { effective_on: `Not after ${latest}.` } });
+      }
       ctx.db.prepare('UPDATE case_guidance SET retired_at = ?, retired_by = ?, retired_reason = ? WHERE id = ?').run(at, actor.id, 'Replaced by a new wording.', old.id);
     }
     ctx.db.prepare(

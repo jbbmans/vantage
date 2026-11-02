@@ -245,3 +245,37 @@ test('a leader who did not resolve a verified case validates it as an example, t
   await page.goto(`/work/items/${next}`);
   await expect(page.locator('#diagnosis')).not.toContainText(lesson);
 });
+
+test('a procedure an import chose from the words alone is a lead until a person confirms it on the case', async ({ page }) => {
+  test.setTimeout(90_000);
+  await loginAs(page, OPERATOR.username);
+  const tag = unique('WP').toUpperCase();
+  const name = `${tag}.csv`;
+  const src = await ok(await page.request.post('/api/work/sources', {
+    headers: { ...H, 'content-type': 'text/csv', 'x-filename': name, 'x-unit-id': 'G8', 'x-visibility': 'unit' },
+    data: ['Document,Description', `${tag}-1,Outstanding travel order`].join('\n'),
+  }));
+  const job = await ok(await page.request.post('/api/work/imports', { headers: H, data: {
+    source_file_id: src.id, sheet_name: name, header_row: 1, key_columns: ['Document'], unit_id: 'G8', visibility: 'unit', procedure: 'auto',
+    mapping: { Document: 'reference', Description: 'title' },
+  } }));
+  expect(job.procedures_applied).toBe(1);
+  const found = await ok(await page.request.get(`/api/work/items?q=${tag}-1`, { headers: H }));
+  const id = found.items[0].id as string;
+  await ok(await page.request.post(`/api/work/items/${id}/claim`, { headers: H, data: {} }));
+
+  await page.goto(`/work/items/${id}`);
+  const confirm = page.getByRole('region', { name: 'Confirm the issue type' });
+  await expect(confirm).toContainText('The import chose this procedure from the words on the row alone');
+  const panel = page.locator('#diagnosis');
+  await expect(panel).toContainText('(a lead, not confirmed)');
+  expect(await axe(page), 'the case with an unconfirmed pick').toEqual([]);
+
+  await confirm.getByRole('button', { name: 'Confirm' }).click();
+  await toast(page, 'Confirmed. The diagnosis now builds on this procedure.');
+  await expect(confirm).toHaveCount(0);
+  await expect(panel).not.toContainText('(a lead, not confirmed)');
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await noSidewaysScroll(page, 'the confirmed case');
+});

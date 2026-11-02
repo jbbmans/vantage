@@ -185,6 +185,11 @@ export type IssueHow = 'procedure' | 'error_label' | 'figures' | 'words';
 export interface CaseDiagnosis {
   engine: typeof DIAGNOSIS_ENGINE;
   as_of: string;
+  /**
+   * What the case reads as, and how. `applied`: the case follows a procedure. `confirmed`: the diagnosis builds on that
+   * procedure, because a person chose or confirmed it or the case's own evidence agrees. Applied but not confirmed is an
+   * import's pick from the words on the row alone, which a person confirms by applying it again or replaces.
+   */
   issue: { key: IssueKey | null; label: string; short: string | null; how: IssueHow | null; procedure: string | null; applied: boolean; confirmed: boolean };
   headline: string;
   sections: DiagnosisSection[];
@@ -268,6 +273,12 @@ interface Reading {
   input: DiagnosisInput;
   events: CaseEvent[];
   applied: Procedure | null;
+  /** The latest entry that put the case under its procedure, or confirmed it. */
+  appliedEvent: CaseEvent | null;
+  /** An import chose the case's procedure from the words on the row alone, and no person has confirmed it since. */
+  wordPick: boolean;
+  /** The case's own procedure, when the diagnosis may build on it: a person chose or confirmed it, or the case's evidence agrees. */
+  trusted: Procedure | null;
   /** The procedure the diagnosis follows: the case's own, or the one its issue type calls for when that was read from the report or the figures. */
   plan: Procedure | null;
   steps: Map<string, StepProgress> | null;
@@ -298,6 +309,8 @@ function fromOf(input: DiagnosisInput, e: CaseEvent): string {
   const ref = e.body.reference ? `, reference ${e.body.reference}` : '';
   return `Recorded by ${who} on ${day(e.occurred_at)}${where}${ref}`;
 }
+
+const isClosed = (input: DiagnosisInput) => input.item.stage === 'resolved' || input.item.stage === 'not_applicable';
 
 const importedFrom = (input: DiagnosisInput) => (input.item.filename ? `Imported from ${input.item.filename}${input.item.source_row ? `, row ${input.item.source_row}` : ''}` : 'Entered with the case');
 
@@ -344,22 +357,30 @@ function read(input: DiagnosisInput): Reading {
   const leadHit = suggestProcedure(input.item.title, ...['error_text', 'hold_reason_text', 'reject_text'].map((f) => latestObservation(events, f)?.body.value_text as string | undefined), sheet.get('error_text')?.value, ...(input.item.cells || []));
   const lead = leadHit && issueForProcedure(leadHit.key) ? { issue: issueForProcedure(leadHit.key)!, why: leadHit.why } : null;
 
+  // An import that chose the procedure from the words on the row alone made an inference, not a reading. It stands as a
+  // lead until a person confirms it (or applies another), unless the error text or the figures name the same issue.
+  const appliedEvent = applied ? [...events].reverse().find((e) => e.kind === 'procedure_applied') || null : null;
+  const wordPick = Boolean(applied && appliedEvent?.body.picked === 'words');
+  const agrees = Boolean(appliedIssue && ((label && family(label.issue) === family(appliedIssue)) || (isNormal(appliedIssue) && balance?.findings.some((f) => f.condition === appliedIssue))));
+  const trusted = applied && (!wordPick || agrees) ? applied : null;
+
   let issue: IssueKey | null = null;
   let how: IssueHow | null = null;
-  if (appliedIssue) { issue = appliedIssue; how = 'procedure'; }
+  if (trusted) { issue = appliedIssue; how = 'procedure'; }
   else if (label) { issue = label.issue; how = 'error_label'; }
   else if (figureIssue) { issue = figureIssue; how = 'figures'; }
+  else if (wordPick && appliedIssue) { issue = appliedIssue; how = 'words'; }
   else if (lead) { issue = lead.issue; how = 'words'; }
 
-  const plan = applied || (how === 'error_label' || how === 'figures' ? PROCEDURES[issueType(issue)!.procedure] || null : null);
-  const steps = applied ? new Map(progress(applied, input.events, { reference: input.item.reference, stage: input.item.stage }).steps.map((s) => [s.key, s])) : null;
+  const plan = trusted || (how === 'error_label' || how === 'figures' ? PROCEDURES[issueType(issue)!.procedure] || null : null);
+  const steps = trusted ? new Map(progress(trusted, input.events, { reference: input.item.reference, stage: input.item.stage }).steps.map((s) => [s.key, s])) : null;
   const causeStep = plan?.steps.find((s) => s.kind === 'decision' && s.key === 'cause' && s.decision) || null;
   const cause = causeStep ? decisionOf(events, causeStep.decision!.key) : null;
   const options = plan && causeStep && issue ? causeOptions(issue, causeStep, balance, method?.key ?? null, feeder, plan.authority) : [];
 
   const guidance = (input.guidance || []).filter((g) => (g.issue === 'any' || (how !== 'words' && g.issue === issue)) && (!g.effective_on || g.effective_on.slice(0, 10) <= input.today));
 
-  return { input, events, applied, plan, steps, figures, method, balance, label, lead, issue, how, feeder, causeStep, cause, options, guidance };
+  return { input, events, applied, appliedEvent, wordPick, trusted, plan, steps, figures, method, balance, label, lead, issue, how, feeder, causeStep, cause, options, guidance };
 }
 
 function matchLabel(input: DiagnosisInput, events: CaseEvent[], appliedIssue: IssueKey | null, feeder: 'dts' | 'gcss' | null): LabelMatch | null {
@@ -649,13 +670,19 @@ export function diagnoseCase(input: DiagnosisInput): CaseDiagnosis {
       if (checkStep && applies(checkStep) === false) continue;
       const v = latestVerification(r.events, check.check);
       if (v?.body.result === 'verified') resolution.push(fact(`Met: ${lower(check.label)}.`, fromOf(input, v), { evidence: [v.id] }));
-      else if (!met) resolution.push(rec(`Resolve when: ${lower(check.label)}.`, procBasis(), { detail: r.applied ? 'Vantage refuses to resolve the case before one of these is verified.' : null }));
+      else if (!met) resolution.push(rec(`Resolve when: ${lower(check.label)}.`, procBasis(), { detail: r.trusted ? 'Vantage refuses to resolve the case before one of these is verified.' : null }));
     }
     if (r.issue === 'umt' || r.issue === 'umt_2way') resolution.push(rec(`Done means: ${UMT_COMPLETION.join(' ')}`, fmrac(citeText(UMT.cite)), { detail: 'Editorial completion criteria drawn from the reference.' }));
   }
   const resolved = input.item.stage === 'resolved' ? [...r.events].reverse().find((e) => e.kind === 'resolved') : null;
   if (resolved) resolution.push(fact('The case is resolved.', fromOf(input, resolved), { evidence: [resolved.id] }));
-  else if (input.item.stage !== 'not_applicable') resolution.push(decide('Resolve the case.', 'A person resolves it, on the evidence. Vantage does not resolve a case on its own.'));
+  else if (input.item.stage === 'resolved') {
+    // Closed without Vantage's resolution step: it came in closed, or was closed some other way. It is not asked to be
+    // resolved again, and it is never shown as a verified resolution.
+    const closedBy = [...r.events].reverse().find((e) => e.kind === 'stage_changed' && e.body.to === 'resolved');
+    resolution.push(fact('The case is marked resolved.', closedBy ? fromOf(input, closedBy) : `${importedFrom(input)}, which marked it resolved`, { evidence: closedBy ? [closedBy.id] : [] }));
+    resolution.push(unknown('Whether its resolution was verified.', 'No resolution is recorded in Vantage, so nothing here shows what closed it or how it was checked. Confirm it in the system of record before relying on it.'));
+  } else if (input.item.stage !== 'not_applicable') resolution.push(decide('Resolve the case.', 'A person resolves it, on the evidence. Vantage does not resolve a case on its own.'));
   addGuidance(r, 'resolution_criteria', resolution);
 
   const sections = SECTIONS.map((x) => ({ key: x.key, title: x.title, statements: orderStatements(s[x.key]) }));
@@ -670,7 +697,7 @@ export function diagnoseCase(input: DiagnosisInput): CaseDiagnosis {
   const limits = [
     'Vantage’s rules read this case; they do not decide it. A recommendation is only as strong as the source shown beside it.',
     ...(r.guidance.some((g) => g.authority === 'official_policy' || g.authority === 'official_system_guidance') ? [] : ['No official policy or system guidance is on file for this issue. The FMRAC is a training reference, not current policy.']),
-    ...(r.how === 'words' ? ['The issue type is a lead from the words on the case. Nothing else here is built on it until a person confirms it by applying a procedure.'] : []),
+    ...(r.how === 'words' ? ['The issue type is a lead from the words on the case. Nothing else here is built on it until a person confirms it or applies the procedure that fits.'] : []),
     ...(plan ? plan.limitations : []),
     'No AI wrote this diagnosis.',
   ];
@@ -681,7 +708,7 @@ export function diagnoseCase(input: DiagnosisInput): CaseDiagnosis {
   return {
     engine: DIAGNOSIS_ENGINE,
     as_of: input.today,
-    issue: { key: r.issue, label: info?.label || 'Not known yet', short: info?.short || null, how: r.how, procedure: info?.procedure || null, applied: Boolean(r.applied), confirmed: Boolean(r.applied && appliedBy(r)) },
+    issue: { key: r.issue, label: info?.label || 'Not known yet', short: info?.short || null, how: r.how, procedure: info?.procedure || null, applied: Boolean(r.applied), confirmed: Boolean(r.trusted) },
     headline, sections, counts, sources, limits: unique(limits), ai: false,
   };
 }
@@ -716,12 +743,6 @@ function observesStep(plan: Procedure, externalStep: unknown, actionStep: string
   return Boolean(ext?.observes && (ext.observes.step === actionStep || ext.observes.steps?.includes(actionStep)));
 }
 
-/** The person who applied the case's procedure, or null when the import did. */
-function appliedBy(r: Reading): string | null {
-  const e = [...r.events].reverse().find((x) => x.kind === 'procedure_applied');
-  return e?.actor_id ?? null;
-}
-
 function addGuidance(r: Reading, section: GuidanceSection, out: Statement[]) {
   for (const g of r.guidance) {
     if (g.section !== section) continue;
@@ -737,6 +758,8 @@ function addGuidance(r: Reading, section: GuidanceSection, out: Statement[]) {
 
 function issueSection(r: Reading, out: Statement[]) {
   const { input } = r;
+  // A closed case takes no procedure until it is reopened, so it is not asked for one.
+  const closed = isClosed(input);
   out.push(fact(`The case reads “${input.item.title}”${input.item.reference ? `, reference ${input.item.reference}` : ''}.`, importedFrom(input)));
   for (const rep of input.reports || []) {
     if (!rep.listed_as_of) continue;
@@ -744,10 +767,16 @@ function issueSection(r: Reading, out: Statement[]) {
     out.push(fact(`Listed on the ${reportName(rep.report)} as of ${rep.listed_as_of}${bits.length ? `: ${bits.join(', ')}` : ''}.`, `The ${reportName(rep.report)} filed for this unit${rep.source_row ? `, row ${rep.source_row}` : ''}`));
   }
 
-  const appliedEvent = [...r.events].reverse().find((e) => e.kind === 'procedure_applied');
+  const appliedEvent = r.appliedEvent;
   if (r.applied) {
     const who = appliedEvent?.actor_id ? input.people?.[appliedEvent.actor_id] || 'A former member' : null;
-    out.push(fact(`The case follows “${r.applied.title}” v${r.applied.version}.`, appliedEvent ? (who ? `Applied by ${who} on ${day(appliedEvent.occurred_at)}` : `Applied by the import on ${day(appliedEvent.occurred_at)}`) : null, { evidence: appliedEvent ? [appliedEvent.id] : [] }));
+    const when = appliedEvent ? day(appliedEvent.occurred_at) : '';
+    const picked = appliedEvent?.body.picked as string | undefined;
+    const from = !appliedEvent ? null
+      : appliedEvent.body.confirms ? `Confirmed by ${who || 'Vantage'} on ${when}`
+        : picked ? `Applied by the import${who ? ` ${who} ran` : ''} on ${when}, ${picked === 'words' ? 'from the words on the row alone' : picked === 'figures' ? 'from the row’s figures' : 'as the import was told to'}`
+          : who ? `Applied by ${who} on ${when}` : `Applied by the import on ${when}`;
+    out.push(fact(`The case follows “${r.applied.title}” v${r.applied.version}.`, from, { evidence: appliedEvent ? [appliedEvent.id] : [] }));
   }
   if (r.label) {
     const text = r.label.issue === 'umt_2way'
@@ -768,18 +797,19 @@ function issueSection(r: Reading, out: Statement[]) {
     if (r.label && family(r.label.issue) !== family(appliedIssue)) conflicts.push(`the report’s error text names a ${issueType(r.label.issue)!.short} error`);
     if (isNormal(appliedIssue) && r.balance && !r.balance.findings.some((f) => f.condition === appliedIssue)) conflicts.push(r.balance.complete ? 'the figures show nothing open' : `the figures show ${listText(r.balance.findings.map((f) => f.abbr).concat(r.balance.anomalies.map((a) => lower(a.title))))}`);
     if (conflicts.length) out.push(decide('Confirm the issue type.', `The case follows the ${issueType(appliedIssue)!.short} procedure, but ${listText(conflicts)}.`));
-    else if (!appliedEvent?.actor_id && !r.label && !(isNormal(appliedIssue) && r.balance)) {
-      out.push(decide('Confirm the issue type.', 'The import chose this procedure from the words on the row. Nothing else on the case confirms it yet.'));
+    else if (r.wordPick && !r.trusted) {
+      if (r.lead?.issue === appliedIssue) out.push(rec(`It may be this: ${lower(issueType(appliedIssue)!.label)}. ${r.lead.why}`, basisOf('vantage_inference', null), { detail: 'Read from the words on the case only. Confirm it against the report before relying on it.' }));
+      if (!closed) out.push(decide('Confirm the issue type.', 'The import chose this procedure from the words on the row alone. Nothing else on the case confirms it yet: confirm it, or apply the procedure that fits.'));
     }
   } else if (r.issue) {
     if (r.how === 'words' && r.lead) {
       out.push(rec(`It may be this: ${lower(issueType(r.lead.issue)!.label)}. ${r.lead.why}`, basisOf('vantage_inference', null), { detail: 'Read from the words on the case only. Confirm it against the report before relying on it.' }));
     }
     const info = issueType(r.issue)!;
-    out.push(decide(`Apply a procedure: “${PROCEDURES[info.procedure]?.title || info.label}”, or the one that fits.`, 'Applying it confirms the issue type and lets Vantage track each step.'));
+    if (!closed) out.push(decide(`Apply a procedure: “${PROCEDURES[info.procedure]?.title || info.label}”, or the one that fits.`, 'Applying it confirms the issue type and lets Vantage track each step.'));
   } else {
     out.push(unknown('The issue type.', 'Nothing on the case names an error the reference knows, and no lifecycle figures are recorded.'));
-    out.push(decide('Decide what kind of issue this is, and apply the procedure that fits.'));
+    if (!closed) out.push(decide('Decide what kind of issue this is, and apply the procedure that fits.'));
   }
 }
 
@@ -864,13 +894,16 @@ function calculationsSection(r: Reading, out: Statement[], plan: Procedure | nul
     for (const step of plan.steps) {
       if (step.kind !== 'calculation' || !step.formula) continue;
       const formula = FORMULAS[step.formula];
+      // A step the decided cause rules out is skipped by the procedure, so its arithmetic is not offered or asked for.
+      const excluded = stepApplies(step, r.events) === false;
       const recorded = [...r.events].reverse().find((e) => e.kind === 'calculation' && e.body.formula === step.formula);
       if (recorded) {
-        out.push(fact(`${formula?.title || step.title}: ${recorded.body.display}.`, fromOf(input, recorded), { evidence: [recorded.id] }));
+        out.push(fact(`${formula?.title || step.title}: ${recorded.body.display}.`, fromOf(input, recorded), { evidence: [recorded.id], detail: excluded ? 'Recorded before the cause was decided. The cause decided since skips this step.' : null }));
         const state = calculationState(recorded, input.events);
-        if (state.stale) out.push(rec(`Calculate again: ${state.reasons.join('; ')}.`, procBasis(step)));
+        if (state.stale && !excluded) out.push(rec(`Calculate again: ${state.reasons.join('; ')}.`, procBasis(step)));
         continue;
       }
+      if (excluded) continue;
       if (step.formula === 'lifecycle_residual') {
         if (!r.balance) out.push(unknown(`${step.title}: needs the four lifecycle figures.`));
         continue;
@@ -880,7 +913,7 @@ function calculationsSection(r: Reading, out: Statement[], plan: Procedure | nul
       if (live.ok) {
         out.push(derived(`${formula?.title || step.title}: ${live.display}.`, formula?.text || step.help.what, procBasis(step), { detail: formula?.applicability || null, evidence: live.inputs.map((i) => i.event_id) }));
         if (live.requires_review) out.push(decide('Review the zero or downward result before anything changes.', 'The arithmetic is a candidate, never a permission.'));
-      } else if (stepApplies(step, r.events) !== false) {
+      } else {
         out.push(unknown(`${formula?.title || step.title}: needs ${listText(live.missing)}.`));
       }
     }

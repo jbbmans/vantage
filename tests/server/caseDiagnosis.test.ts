@@ -272,3 +272,89 @@ test('what the unit’s error reports say about a case is given to readers of it
   const unread = (await diagnosis(plain.token, ids['OB-1'])).diagnosis;
   assert.ok(!statements(unread).some((s) => /Unliquidated obligations report/.test(s.text)), 'a member who may not read the unit’s records is not told what its reports say');
 });
+
+test('an import’s pick from the words alone waits for a person to confirm it; a row imported closed is not asked to be resolved', async () => {
+  const csv = [
+    'Document,Condition,Method,Commitment,Obligation,Delivered,Paid,Error,Status',
+    'TO-1,Outstanding travel order,,,,,,,Open',
+    'TO-2,Undelivered order,GCSS-MC,100.00,100.00,50.00,50.00,,Open',
+    'TO-3,Staff a birthday card,,,,,,,Closed',
+    'TO-4,Undelivered order,GCSS-MC,100.00,100.00,50.00,50.00,,Closed',
+  ].join('\n');
+  const src = await upload(op.token, 'travel.csv', csv);
+  assert.equal(src.status, 201, JSON.stringify(src.body));
+  const plan = { source_file_id: src.body.id, sheet_name: 'travel.csv', header_row: 1, key_columns: ['Document'], unit_id: 'G8', visibility: 'unit', procedure: 'auto', mapping: { ...MAPPING, Status: 'state' } };
+  const job = await post(op.token, '/api/work/imports', plan);
+  assert.equal(job.status, 201, JSON.stringify(job.body));
+  const list = (await get(nco.token, '/api/work/items?q=TO-')).body.items as Array<{ id: string; reference: string }>;
+  const id = (ref: string) => list.find((r) => r.reference === ref)!.id;
+  const pickOf = (itemId: string) => (app.ctx.db.prepare(`SELECT body FROM work_events WHERE work_item_id = ? AND kind = 'procedure_applied' ORDER BY rowid DESC LIMIT 1`).get(itemId) as { body: string } | undefined);
+
+  // TO-1: chosen from the words. The import says so, and the diagnosis treats it as a lead.
+  assert.equal(JSON.parse(pickOf(id('TO-1'))!.body).picked, 'words');
+  const lead = await diagnosis(nco.token, id('TO-1'));
+  assert.equal(lead.diagnosis.issue.applied, true);
+  assert.equal(lead.diagnosis.issue.confirmed, false);
+  assert.equal(lead.diagnosis.issue.how, 'words');
+  assert.ok(has(lead.diagnosis, 'Confirm the issue type.'));
+
+  // A person who may act on it confirms it by applying the same procedure again: one entry, audited, nothing reseeded.
+  assert.equal((await post(nco.token, `/api/work/items/${id('TO-1')}/procedure`, { key: 'oto_research' })).status, 403, 'not before they hold it');
+  assert.equal((await post(nco.token, `/api/work/items/${id('TO-1')}/claim`)).status, 200);
+  const before = (app.ctx.db.prepare('SELECT COUNT(*) AS n FROM work_events WHERE work_item_id = ?').get(id('TO-1')) as { n: number }).n;
+  assert.equal((await post(plain.token, `/api/work/items/${id('TO-1')}/procedure`, { key: 'oto_research' })).status, 403, 'a member who may not act on the unit’s work confirms nothing');
+  const seq = lastSeq();
+  const confirmed = await post(nco.token, `/api/work/items/${id('TO-1')}/procedure`, { key: 'oto_research' });
+  assert.equal(confirmed.status, 200, JSON.stringify(confirmed.body));
+  assert.equal((app.ctx.db.prepare('SELECT COUNT(*) AS n FROM work_events WHERE work_item_id = ?').get(id('TO-1')) as { n: number }).n, before + 1);
+  const entry = JSON.parse(pickOf(id('TO-1'))!.body);
+  assert.equal(entry.confirms, true);
+  assert.equal(entry.picked, undefined);
+  assert.ok(auditSince(seq).some((a) => a.action === 'procedure_applied' && a.actor_id === nco.id && /confirmed/.test(a.detail)));
+  const now = await diagnosis(nco.token, id('TO-1'));
+  assert.equal(now.diagnosis.issue.confirmed, true);
+  assert.equal(now.diagnosis.issue.how, 'procedure');
+  assert.ok(!has(now.diagnosis, 'Confirm the issue type.'));
+  assert.equal((await post(nco.token, `/api/work/items/${id('TO-1')}/procedure`, { key: 'oto_research' })).status, 400, 'confirmed once, it is not confirmed again');
+
+  // TO-2: chosen from the figures, which is a reading, not a lead. Applying it again is refused as before.
+  assert.equal(JSON.parse(pickOf(id('TO-2'))!.body).picked, 'figures');
+  assert.equal((await diagnosis(nco.token, id('TO-2'))).diagnosis.issue.confirmed, true);
+  assert.equal((await post(nco.token, `/api/work/items/${id('TO-2')}/claim`)).status, 200);
+  assert.equal((await post(nco.token, `/api/work/items/${id('TO-2')}/procedure`, { key: 'udou_research' })).status, 400);
+
+  // TO-3: came in closed with no procedure. It is marked resolved; nothing says it was verified, and nothing asks to resolve it.
+  const closed = await diagnosis(nco.token, id('TO-3'));
+  assert.ok(has(closed.diagnosis, 'The case is marked resolved.'));
+  assert.ok(has(closed.diagnosis, 'Whether its resolution was verified.'));
+  assert.ok(!has(closed.diagnosis, 'Resolve the case.'));
+  assert.equal(closed.diagnosis.counts.decision_required, 0, 'a closed case with nothing to decide counts no decisions');
+  // TO-4: came in closed with figures that would pick a procedure. It takes none (it would have to be reopened first), and
+  // the import is not refused for it.
+  assert.equal(pickOf(id('TO-4')), undefined);
+  assert.equal(job.body.procedures_applied, 2);
+});
+
+test('a new wording takes effect no later than the one it replaces would, so no day goes without either', async () => {
+  const shift = (days: number) => { const d = new Date(`${today()}T12:00:00Z`); d.setUTCDate(d.getUTCDate() + days); return d.toISOString().slice(0, 10); };
+  const current = await post(op.token, '/api/orgs/G8/case-guidance', { ...SOP, text: 'The current SOP step.' });
+  assert.equal(current.status, 201, JSON.stringify(current.body));
+  const later = await post(op.token, '/api/orgs/G8/case-guidance', { ...SOP, text: 'Next month’s SOP step.', supersedes_id: current.body.id, effective_on: shift(30) });
+  assert.equal(later.status, 400, 'a replacement dated later would leave the current SOP retired and the new one not yet in effect');
+  assert.match(later.body.error?.message || JSON.stringify(later.body), /take effect by today/);
+  assert.equal((app.ctx.db.prepare('SELECT retired_at FROM case_guidance WHERE id = ?').get(current.body.id) as { retired_at: string | null }).retired_at, null, 'and the refusal leaves the current one standing');
+  assert.equal((await post(op.token, '/api/orgs/G8/case-guidance', { ...SOP, text: 'Reworded today.', supersedes_id: current.body.id, effective_on: today() })).status, 201);
+
+  // An entry not yet in effect may be reworded up to its own day, not past it.
+  const scheduled = await post(op.token, '/api/orgs/G8/case-guidance', { ...SOP, text: 'The 2027 SOP step.', effective_on: shift(10) });
+  assert.equal(scheduled.status, 201);
+  assert.equal((await post(op.token, '/api/orgs/G8/case-guidance', { ...SOP, text: 'The 2027 SOP step, reworded.', supersedes_id: scheduled.body.id, effective_on: shift(11) })).status, 400);
+  assert.equal((await post(op.token, '/api/orgs/G8/case-guidance', { ...SOP, text: 'The 2027 SOP step, reworded.', supersedes_id: scheduled.body.id, effective_on: shift(10) })).status, 201);
+
+  // The service’s own guidance follows the same rule.
+  const body = { authority: 'official_policy', issue: 'udou', section: 'research', text: 'Review each obligation.', citation: 'DoD 7000.14-R Vol 3 Ch 8' };
+  const policy = await post(op.token, '/api/platform/case-guidance', body);
+  assert.equal(policy.status, 201, JSON.stringify(policy.body));
+  assert.equal((await post(op.token, '/api/platform/case-guidance', { ...body, text: 'Reissued.', supersedes_id: policy.body.id, effective_on: shift(5) })).status, 400);
+  for (const id of [policy.body.id]) await post(op.token, `/api/platform/case-guidance/${id}/retire`, { reason: 'Test cleanup.' });
+});

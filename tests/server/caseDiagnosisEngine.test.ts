@@ -187,3 +187,92 @@ test('the same case, guidance and day give the same diagnosis; the summary, the 
   assert.ok(statements.every((s) => typeof s.label === 'string' && s.label.length > 0), 'with its label');
   assert.ok(statements.some((s) => /Official policy/.test(String(s.source))), 'and its source');
 });
+
+test('a procedure an import chose from the words alone stays a lead until a person confirms it, unless the case’s evidence names the same issue', () => {
+  const words: DiagnosisInput = { item: item({ title: 'Outstanding travel order', reference: 'TO-9', filename: 'travel.csv', source_row: 2 }), events: [], procedure: null, today: '2026-11-02' };
+  const lead = diagnoseCase(words);
+  assert.equal(lead.issue.key, 'oto');
+  assert.equal(lead.issue.how, 'words');
+
+  // The import ran by u1 put it under the OTO procedure from the words alone: still a lead, nothing built on it.
+  const picked = ev('procedure_applied', { procedure: 'oto_research', version: PROCEDURES.oto_research.version, authority: PROCEDURES.oto_research.authority, picked: 'words' });
+  const d = diagnoseCase({ ...words, procedure: PROCEDURES.oto_research, events: [picked], people: { u1: 'Sgt Importer' } });
+  assert.equal(d.issue.how, 'words', 'an import’s word pick is inference, not a procedure a person applied');
+  assert.equal(d.issue.applied, true);
+  assert.equal(d.issue.confirmed, false);
+  assert.match(d.headline, /a lead, not confirmed/);
+  assert.match(texts(section(d, 'issue_type')), /The case follows .* v/);
+  const follows = section(d, 'issue_type').find((s) => s.text.startsWith('The case follows'))!;
+  assert.match(follows.from || '', /Applied by the import Sgt Importer ran on 2026-11-01, from the words on the row alone/);
+  assert.ok(section(d, 'issue_type').some((s) => s.label === 'decision_required' && s.text === 'Confirm the issue type.'));
+  assert.ok(section(d, 'issue_type').some((s) => s.basis?.authority === 'vantage_inference'), 'the lead is labelled inference');
+  assert.ok(section(d, 'probable_cause').every((s) => s.label !== 'recommendation'), 'no causes are offered on a lead');
+  assert.equal(section(d, 'corrective_action').filter((s) => s.label === 'recommendation').length, 0, 'no corrective action is built on a lead');
+  assert.ok(d.limits.some((l) => l.includes('until a person confirms it or applies the procedure that fits')));
+  const issueGuidance = diagnoseCase({ ...words, procedure: PROCEDURES.oto_research, events: [picked], guidance: [sop({ issue: 'oto' })] });
+  assert.ok(!all(issueGuidance).some((s) => s.basis?.guidance_id === 'g-sop'), 'guidance for the issue waits for confirmation');
+
+  // A person confirms it: the diagnosis builds on the procedure, and says who confirmed it.
+  const confirmed = diagnoseCase({ ...words, procedure: PROCEDURES.oto_research, events: [picked, ev('procedure_applied', { procedure: 'oto_research', version: PROCEDURES.oto_research.version, confirms: true }, 'u2')], people: { u1: 'Sgt Importer', u2: 'SSgt Lead' } });
+  assert.equal(confirmed.issue.how, 'procedure');
+  assert.equal(confirmed.issue.confirmed, true);
+  assert.doesNotMatch(confirmed.headline, /a lead/);
+  assert.match(section(confirmed, 'issue_type').find((s) => s.text.startsWith('The case follows'))!.from || '', /Confirmed by SSgt Lead/);
+  assert.ok(!section(confirmed, 'issue_type').some((s) => s.text === 'Confirm the issue type.'));
+  assert.ok(section(confirmed, 'probable_cause').some((s) => s.label === 'recommendation'), 'causes are offered once it is confirmed');
+
+  // Figures that show the same condition confirm it without a person; figures or a pick by the plan are never a lead.
+  const withFigures: DiagnosisInput = { ...udouSheet, procedure: PROCEDURES.udou_research, events: [ev('procedure_applied', { procedure: 'udou_research', version: PROCEDURES.udou_research.version, picked: 'words' })] };
+  assert.equal(diagnoseCase(withFigures).issue.confirmed, true, 'the figures agree with the pick');
+  assert.equal(diagnoseCase(withFigures).issue.how, 'procedure');
+  for (const how of ['figures', 'plan']) {
+    const other = diagnoseCase({ ...words, procedure: PROCEDURES.oto_research, events: [ev('procedure_applied', { procedure: 'oto_research', version: PROCEDURES.oto_research.version, picked: how })] });
+    assert.equal(other.issue.confirmed, true, `a pick by the ${how} is not a lead`);
+  }
+});
+
+test('a case marked resolved without a resolution in Vantage is not asked to be resolved, and its resolution is never shown as verified', () => {
+  const closed: DiagnosisInput = { ...udouSheet, item: { ...udouSheet.item, stage: 'resolved' } };
+  const d = diagnoseCase(closed);
+  const resolution = section(d, 'resolution_criteria');
+  assert.ok(!resolution.some((s) => s.text === 'Resolve the case.'), 'a closed case is not asked to be resolved again');
+  const marked = resolution.find((s) => s.text === 'The case is marked resolved.')!;
+  assert.equal(marked.label, 'known_fact');
+  assert.match(marked.from || '', /Imported from balances\.csv, row 3, which marked it resolved/);
+  assert.ok(resolution.some((s) => s.label === 'unknown' && s.text === 'Whether its resolution was verified.'));
+  assert.ok(!resolution.some((s) => s.text === 'The case is resolved.'), 'only a recorded resolution reads as resolved');
+  assert.ok(!all(d).some((s) => s.label === 'decision_required' && /^Apply a procedure/.test(s.text)), 'a closed case is not asked to take a procedure it cannot');
+  // Closed by a stage change rather than the import: who closed it is the source.
+  const moved = diagnoseCase({ ...closed, events: [ev('stage_changed', { from: 'researching', to: 'resolved' }, 'u2')], people: { u2: 'SSgt Lead' } });
+  assert.match(section(moved, 'resolution_criteria').find((s) => s.text === 'The case is marked resolved.')!.from || '', /Recorded by SSgt Lead/);
+  // An open case is still asked.
+  assert.ok(section(diagnoseCase(udouSheet), 'resolution_criteria').some((s) => s.text === 'Resolve the case.'));
+});
+
+test('a calculation the decided cause rules out is neither worked out nor asked to be reviewed', () => {
+  const umt = PROCEDURES.umt_four_stage;
+  const base = [
+    ev('procedure_applied', { procedure: umt.key, version: umt.version, authority: umt.authority }),
+    ev('observation', { field: 'po_line_amount', amount_cents: 10000, step: 'research' }),
+    ev('observation', { field: 'billed_amount', amount_cents: 10000, step: 'research' }),
+  ];
+  const input: DiagnosisInput = { item: item({ title: 'Unmatched transaction', reference: 'UMT-4' }), events: base, procedure: umt, today: '2026-11-02' };
+  const undecided = section(diagnoseCase(input), 'calculations');
+  assert.ok(undecided.some((s) => /Award shortfall/.test(s.text)), 'before a cause is decided the shortfall is shown');
+
+  const approval = diagnoseCase({ ...input, events: [...base, ev('decision', { decision: 'umt_cause', choice: 'award_not_approved', step: 'cause' })] });
+  const calc = section(approval, 'calculations');
+  assert.ok(!calc.some((s) => /Award shortfall/.test(s.text)), 'an approval-only correction gets no shortfall');
+  assert.ok(!all(approval).some((s) => s.text === 'Review the zero or downward result before anything changes.'), 'and no review of it');
+
+  const billed = diagnoseCase({ ...input, events: [...base, ev('decision', { decision: 'umt_cause', choice: 'billed_exceeds_po_line', step: 'cause' })] });
+  assert.ok(section(billed, 'calculations').some((s) => /Award shortfall/.test(s.text)), 'the cause that calls for it still gets it');
+
+  // A shortfall recorded before the cause ruled it out stays on the record as a fact, without a call to calculate again.
+  const recorded = ev('calculation', { formula: 'umt_award_shortfall', display: '$0.00', inputs: [], step: 'shortfall' });
+  const later = diagnoseCase({ ...input, events: [...base, recorded, ev('observation', { field: 'billed_amount', amount_cents: 12000, step: 'research' }), ev('decision', { decision: 'umt_cause', choice: 'award_not_approved', step: 'cause' })] });
+  const kept = section(later, 'calculations').find((s) => s.evidence?.includes(recorded.id))!;
+  assert.equal(kept.label, 'known_fact');
+  assert.match(kept.detail || '', /cause decided since skips this step/);
+  assert.ok(!section(later, 'calculations').some((s) => s.text.startsWith('Calculate again')));
+});

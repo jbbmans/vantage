@@ -15,6 +15,7 @@ export const CHANGES: Change[] = [
       'Unit Managers put the command’s approved SOPs and validated SME workflows on file in the console (Case guidance). They rank above the training reference in every diagnosis they speak to.',
       'A unit leader can hold up a resolved, verified case as an example for the next one like it, if they did not resolve it themselves.',
       'The queue and the import preview say what each case reads as.',
+      'When an import picked a case’s procedure from the words on the row alone, the case asks you to confirm it, or to choose the one that fits, before the diagnosis builds on it.',
     ],
   },
   {

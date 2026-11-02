@@ -114,6 +114,9 @@ Derived value, Recommendation, Unknown or Human decision required, every recomme
   workflow (one Unit Instance, naming who approved it), or a **validated example** (a resolved, verified case of one
   unit, with the cause decided on it). Never edited or deleted: a new wording retires the old, and every retirement
   carries who, when and why.
+- **An import's pick**: the `procedure_applied` entry an import writes carries `picked` (`plan`, `figures` or `words`).
+  A pick from the words alone is a lead until a person confirms it (a later `procedure_applied` entry with
+  `confirms: true`) or applies another procedure.
 
 ## The Record
 

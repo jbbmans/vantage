@@ -173,6 +173,7 @@ export default function WorkItemPage() {
           )}
 
           {!procedure && !c.procedure_unavailable && !closed && c.permissions.apply_procedure && <ApplyProcedure itemId={id} onDone={refresh} />}
+          {procedure && !closed && c.permissions.apply_procedure && c.diagnosis?.issue.applied && !c.diagnosis.issue.confirmed && <ApplyProcedure itemId={id} current={procedure.key} onDone={refresh} />}
 
           {procedure?.newer_version && !closed && c.permissions.apply_procedure && (
             <div className="flex flex-wrap items-center gap-3 rounded-2xl bg-surface-2/70 px-4 py-2.5 text-xs text-ink-2 ring-1 ring-inset ring-line">
@@ -286,32 +287,39 @@ function IntegrityBadge({ integrity }: { integrity: { status: string; count: num
   );
 }
 
-function ApplyProcedure({ itemId, onDone }: { itemId: string; onDone: () => void }) {
+/**
+ * Put a case under a procedure. With `current`, the case already follows one that an import chose from the words on the
+ * row alone: applying the same one again confirms it, and choosing another replaces it (ADR-0022).
+ */
+function ApplyProcedure({ itemId, current, onDone }: { itemId: string; current?: string; onDone: () => void }) {
   const toast = useToast();
-  const suggestion = useQuery<{ key: string; why: string } | null>({ queryKey: ['procedure-suggestion', itemId], queryFn: () => api.procedureSuggestion(itemId), staleTime: 60_000 });
+  const suggestion = useQuery<{ key: string; why: string } | null>({ queryKey: ['procedure-suggestion', itemId], queryFn: () => api.procedureSuggestion(itemId), staleTime: 60_000, enabled: !current });
   const [choice, setChoice] = useState('');
   const [busy, setBusy] = useState(false);
-  const key = choice || suggestion.data?.key || '';
+  const key = choice || current || suggestion.data?.key || '';
+  const confirming = Boolean(current && key === current);
   const apply = async () => {
     if (!key) return;
     setBusy(true);
-    try { await api.applyProcedure(itemId, key); toast.success('The case now follows its procedure.'); onDone(); }
+    try { await api.applyProcedure(itemId, key); toast.success(confirming ? 'Confirmed. The diagnosis now builds on this procedure.' : 'The case now follows its procedure.'); onDone(); }
     catch (e) { toast.error(api.errorText(e)); }
     finally { setBusy(false); }
   };
-  const suggested = suggestion.data ? PROCEDURES[suggestion.data.key] : null;
+  const suggested = !current && suggestion.data ? PROCEDURES[suggestion.data.key] : null;
   return (
-    <section className="card overflow-hidden" aria-label="Put this under a procedure">
+    <section className="card overflow-hidden" aria-label={current ? 'Confirm the issue type' : 'Put this under a procedure'}>
       <div className="flex flex-wrap items-start gap-4 p-5">
         <span className="flex h-10 w-10 shrink-0 items-center justify-center rounded-xl bg-gradient-to-b from-deep-2 to-deep text-white"><Wand2 className="h-4 w-4" /></span>
         <div className="min-w-0 flex-1">
-          <h2 className="text-md font-semibold text-ink">Work this under a procedure</h2>
-          <p className="mt-0.5 text-sm text-ink-3">A procedure keeps the order and the evidence honest: its steps, its controls, and what counts as resolved. You still decide every step.</p>
+          <h2 className="text-md font-semibold text-ink">{current ? 'Confirm the issue type' : 'Work this under a procedure'}</h2>
+          <p className="mt-0.5 text-sm text-ink-3">{current
+            ? 'The import chose this procedure from the words on the row alone, so the diagnosis treats it as a lead. Confirm it, or choose the one that fits.'
+            : 'A procedure keeps the order and the evidence honest: its steps, its controls, and what counts as resolved. You still decide every step.'}</p>
           {suggested && <p className="mt-2 flex items-center gap-1.5 text-xs text-accent"><Sparkles className="h-3.5 w-3.5" aria-hidden />Suggested: {suggested.title}. {suggestion.data!.why}</p>}
           <div className="mt-3 flex flex-wrap items-center gap-2">
             <Select className="w-full sm:w-96" value={key} onValueChange={setChoice} placeholder="Choose a procedure"
               options={PROCEDURE_LIST.map((p) => ({ value: p.key, label: `${p.short} — ${p.title}` }))} />
-            <Button variant="primary" loading={busy} disabled={!key} onClick={apply}>Apply</Button>
+            <Button variant="primary" loading={busy} disabled={!key} onClick={apply}>{confirming ? 'Confirm' : 'Apply'}</Button>
           </div>
           {key && <p className="mt-2 text-2xs text-ink-3">{AUTHORITY_LABEL[PROCEDURES[key].authority]} · v{PROCEDURES[key].version}. The case is pinned to this version.</p>}
         </div>
@@ -1012,7 +1020,7 @@ function historySentence(e: CaseEventView, procedure: Procedure | null): string 
     case 'reopened': return 'reopened this';
     case 'created': return 'brought this in';
     case 'source_revised': return `saw the source sheet change${Array.isArray(b.changes) ? ` (${b.changes.length} value${b.changes.length === 1 ? '' : 's'})` : ''}`;
-    case 'procedure_applied': return b.from_version ? `moved this to procedure v${b.version} from v${b.from_version}` : `put this under ${procedure?.title || b.procedure} v${b.version}`;
+    case 'procedure_applied': return b.confirms ? `confirmed ${procedure?.title || b.procedure} v${b.version}, which the import chose from the words on the row` : b.from_version ? `moved this to procedure v${b.version} from v${b.from_version}` : `put this under ${procedure?.title || b.procedure} v${b.version}`;
     default: return lowerFirst(describeEvent(e.kind, b));
   }
 }

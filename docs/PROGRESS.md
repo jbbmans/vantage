@@ -30,6 +30,12 @@ Every financial case is diagnosed by rules, with no AI, the moment it is importe
   readers of those reports.
 - **AI stays optional.** The case brief is given the rule diagnosis and told to keep every label and source and to call
   anything it adds inference; the page says the brief ranks last.
+- **Review fixes.** A procedure an import chose from the words on a row alone is a lead until a person confirms it on the
+  case (Confirm the issue type) or applies another. A case marked resolved without a resolution in Vantage is not asked
+  to be resolved again, and nothing shows its resolution as verified. A calculation the decided cause rules out is not
+  offered. A new wording of guidance takes effect no later than the one it replaces would. An import with a procedure
+  no longer fails on a row that comes in closed: that row takes no procedure.
+- **Decided by John (2026-11-02):** Vantage Administrators put official policy and system guidance on file, service-wide.
 
 ## What changed (2026-10-29: financial error reports)
 

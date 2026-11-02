@@ -120,7 +120,7 @@ export function GuidanceDialog({ draft, setDraft, authorities, onSave }: {
                 <Input maxLength={200} value={draft.approved_by} onChange={(e) => setDraft({ ...draft, approved_by: e.target.value })} />
               </Field>
             )}
-            <Field label="Effective" hint="Optional. Before this day it is not given to any case.">
+            <Field label="Effective" hint={draft.supersedes_id ? 'Optional. A new wording replaces the old one at once, so it takes effect no later than the old one would.' : 'Optional. Before this day it is not given to any case.'}>
               <Input type="date" value={draft.effective_on} onChange={(e) => setDraft({ ...draft, effective_on: e.target.value })} />
             </Field>
           </div>

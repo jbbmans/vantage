@@ -6,7 +6,7 @@ import { newId, now } from '../lib/ids.ts';
 import { audit } from './audit.ts';
 import { notify } from './notifications.ts';
 import { sealEvent, caseIntegrity } from './caseSeal.ts';
-import { STAGE_TO_STATE, STATE_TO_STAGE, CLOSED_STAGES, RESEARCH_KINDS, type Stage, type WaitingCategory } from '../../shared/caseModel.ts';
+import { STAGE_TO_STATE, STATE_TO_STAGE, CLOSED_STAGES, RESEARCH_KINDS, type ProcedurePick, type Stage, type WaitingCategory } from '../../shared/caseModel.ts';
 import { entrySchema, stageChangeSchema, handoffSchema, type EntryInput } from '../../shared/caseSchemas.ts';
 import {
   pinnedProcedure, procedureFor, progress, latestFundsCheck, observationCents, stepApplies, isVerified, resolutionMet, resolutionChecks,
@@ -433,7 +433,12 @@ export function calculate(ctx: AppContext, user: SessionUser, scope: Scope, id: 
 
 export interface Seed { field: string; amount?: string | number | null; value_text?: string | null; not_shown?: boolean }
 
-export function applyProcedure(ctx: AppContext, user: SessionUser | null, scope: Scope | null, id: string, key: string, seeds: Seed[] = [], opts: { audit?: boolean } = {}) {
+/**
+ * Put a case under a procedure, move it to a newer version, or (applied again at the same version) confirm the procedure
+ * an import picked from the words on the row alone, which the case diagnoser treats as a lead until a person does
+ * (ADR-0022). `picked` is only for an import: what chose the procedure.
+ */
+export function applyProcedure(ctx: AppContext, user: SessionUser | null, scope: Scope | null, id: string, key: string, seeds: Seed[] = [], opts: { audit?: boolean; picked?: ProcedurePick } = {}) {
   const procedure = procedureFor(key);
   if (!procedure) throw badRequest('No such procedure.');
   return ctx.db.transaction(() => {
@@ -442,7 +447,15 @@ export function applyProcedure(ctx: AppContext, user: SessionUser | null, scope:
     if (user && scope && !(mayAct(scope, user, row) || can(scope, PERMISSIONS.EDIT_WORK, row.unit_id))) throw forbidden('Applying a procedure to this work is not yours to do.');
     if (CLOSED_STAGES.has(stageOf(row))) throw conflict('This work is closed. Reopen it before changing its procedure.', 'closed');
     const migrating = row.procedure_key === procedure.key;
-    if (migrating && row.procedure_version === procedure.version) throw badRequest(`This work already follows ${procedure.title} v${procedure.version}.`);
+    if (migrating && row.procedure_version === procedure.version) {
+      if (!user || lastPick(ctx, id) !== 'words') throw badRequest(`This work already follows ${procedure.title} v${procedure.version}.`);
+      ctx.db.prepare('UPDATE work_items SET version = version + 1, updated_at = ? WHERE id = ?').run(now(), id);
+      appendEvent(ctx, { item: row, actorId: user.id, kind: 'procedure_applied', body: { procedure: procedure.key, version: procedure.version, authority: procedure.authority, confirms: true } });
+      if (opts.audit !== false) audit(ctx, { actor_id: user.id, action: 'procedure_applied', entity: 'work_items', entity_id: id, unit_id: row.unit_id, detail: `${procedure.key} ${procedure.version} confirmed (the import chose it from the words on the row)` });
+      return getItem(ctx, id)!;
+    }
+    // Moving to a newer version does not confirm what an import picked: the pick goes with the case.
+    const carried = migrating ? lastPick(ctx, id) : null;
     ctx.db.prepare('UPDATE work_items SET procedure_key = ?, procedure_version = ?, version = version + 1, updated_at = ? WHERE id = ?').run(procedure.key, procedure.version, now(), id);
     appendEvent(ctx, {
       item: row, actorId: user?.id ?? null, kind: 'procedure_applied',
@@ -450,6 +463,7 @@ export function applyProcedure(ctx: AppContext, user: SessionUser | null, scope:
         procedure: procedure.key, version: procedure.version, authority: procedure.authority,
         ...(migrating ? { from_version: row.procedure_version } : {}),
         ...(row.procedure_key && !migrating ? { replaces: { procedure: row.procedure_key, version: row.procedure_version } } : {}),
+        ...(opts.picked && !migrating ? { picked: opts.picked } : carried ? { picked: carried } : {}),
       },
     });
     if (user && opts.audit !== false) {
@@ -461,6 +475,12 @@ export function applyProcedure(ctx: AppContext, user: SessionUser | null, scope:
     if (!migrating) seedFromSource(ctx, row, procedure, seeds);
     return getItem(ctx, id)!;
   })();
+}
+
+/** What chose the procedure the case follows now, when an import did: the latest `procedure_applied` entry says. */
+function lastPick(ctx: AppContext, id: string): ProcedurePick | null {
+  const row = ctx.db.prepare(`SELECT body FROM work_events WHERE work_item_id = ? AND kind = 'procedure_applied' ORDER BY created_at DESC, rowid DESC LIMIT 1`).get(id) as { body: string } | undefined;
+  return row ? ((JSON.parse(row.body || '{}') as { picked?: ProcedurePick }).picked ?? null) : null;
 }
 
 function seedFromSource(ctx: AppContext, row: CaseRow, procedure: Procedure, seeds: Seed[]) {

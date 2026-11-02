@@ -93,7 +93,25 @@ In order of strength:
 
 A reading from words alone is a lead, labelled inference (rank 8). Nothing else in the diagnosis is built on it: no
 causes, research or corrective action, and no guidance for that issue, until a person applies a procedure. A case
-with no reading says so. The cause a person decided, and the verification that closed it, are known facts. The
+with no reading says so.
+
+**An import's pick.** An import told to choose each row's procedure (`auto`) chooses from the row's figures, else from
+its words. Its `procedure_applied` entry keeps what chose it (`picked`: `plan`, `figures` or `words`). A pick from the
+words alone is still a lead: the diagnosis reads it as `words`, builds nothing on it, and asks a person to confirm the
+issue type, unless the error text or the figures name the same issue. A person who may act on the case confirms it by
+applying the same procedure again (a `procedure_applied` entry with `confirms: true`, audited, nothing re-seeded), or
+applies another. Moving the case to a newer version of the procedure carries the pick over; it confirms nothing. Cases
+imported before this tag existed carry none, and read as a person's choice, as they did before.
+
+**A closed case.** A case marked resolved without Vantage's resolution step (it came in closed, or was closed some other
+way) is not asked to be resolved again. The diagnosis says it is marked resolved, and who or what marked it, and lists
+whether its resolution was verified as unknown: nothing in Vantage shows it was. A closed case is not asked to take a
+procedure, which it could not take until reopened. An import no longer puts a row that comes in closed under a
+procedure (before, one such row refused the whole import).
+
+**A step the cause rules out.** A calculation step that the decided cause skips (`onlyWhen`) is not worked out, asked
+for or flagged for review. A calculation recorded before the cause was decided stays a known fact, noting that the
+cause decided since skips the step. The cause a person decided, and the verification that closed it, are known facts. The
 possible causes are recommendations of their source until then, never findings.
 
 ### 4. Guidance on file (`case_guidance`, migration 030)
@@ -107,8 +125,11 @@ given to no case.
 | Approved command SOP, validated SME workflow (each names who approved or validated it) | A Unit Manager with `org.config` (Unit Manager console → Case guidance) | Its own Unit Instance |
 | Validated historical case | A unit leader, from a resolved case (§4.1) | Readers of that case, in its Unit Instance |
 
-An entry is **never edited or deleted.** A new wording is a new entry that retires the old one with it. Retiring needs
-a reason. Database triggers refuse any change to an entry's words and any deletion (outside the demo database). A
+An entry is **never edited or deleted.** A new wording is a new entry that retires the old one with it. Because the
+old one is retired at once, the new wording must take effect no later than the old one would (today, or the old one's
+own effective day if that is still to come); otherwise no wording would be given to a case in between, and the request
+is refused. A later change is scheduled as a new entry with its own effective day, the old one retired on that day.
+Retiring needs a reason. Database triggers refuse any change to an entry's words and any deletion (outside the demo database). A
 retired entry is kept with who retired it, when and why, so a past diagnosis can be rebuilt. Each Unit Instance's
 console shows the official guidance, read-only.
 
@@ -183,10 +204,10 @@ unit-configuration family. `official_guidance_added` and `official_guidance_reti
 console and platform routes are in the privileged-route manifest. `case_guidance` is in the instance archive, the
 privacy inventory (every column classified) and `RECORD_KINDS`.
 
-## Defaults John can change
+## Decided, and defaults John can change
 
-- **Who records official policy and system guidance:** Vantage Administrators, service-wide (asked on the Task 16
-  thread; built as recommended until answered).
+- **Who records official policy and system guidance:** Vantage Administrators, service-wide. John chose this on the
+  Task 16 thread on 2026-11-02, over Unit Managers with a citation and only in a Vantage release.
 - The FMRAC training reference ranks above a single validated past case and below a validated SME workflow.
 - A leader is someone who reassigns the unit's work or manages its records; the person who resolved a case does not
   validate it.
