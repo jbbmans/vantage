@@ -488,7 +488,12 @@ export function diagnoseCase(input: DiagnosisInput): CaseDiagnosis {
           missing.push(unknown(`${field.label}: not shown on the report.`, `A dash or a blank is not a zero. Read it in ${step.help.system || 'the system of record'} and record it.`, { evidence: e ? [e.id] : [] }));
           continue;
         }
-        if (e || fromSheet) continue;
+        // A mapped text column the import brought in (the error text, the purchase method) is on the case already,
+        // until someone records the field, which replaces it.
+        const cell = e || figure ? null
+          : field.key === 'purchase_method' ? r.method
+            : input.sheet?.find((c) => c.field === field.key && c.value.trim() && !/^[-–—]$/.test(c.value.trim()));
+        if (e || fromSheet || cell) continue;
         if (field.optional) { optional.push(field.label); continue; }
         missing.push(unknown(`${field.label}: not recorded.`, `${step.title}${step.help.system ? ` · ${step.help.system}` : ''}.`));
       }

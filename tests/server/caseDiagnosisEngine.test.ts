@@ -351,3 +351,17 @@ test('a recorded zero or downward result still asks for review until a person ma
   const closed = diagnoseCase({ ...input, item: { ...input.item, stage: 'resolved' }, events: [...base, recorded] });
   assert.ok(!all(closed).some((s) => s.text === review), 'a closed case is not asked');
 });
+
+test('error text the import brought in is on the case, not missing, until someone records the field', () => {
+  const input: DiagnosisInput = {
+    item: item({ title: 'Unmatched transaction', reference: 'UMT-11', filename: 'umt.csv', source_row: 6 }),
+    sheet: [{ field: 'error_text', column: 'Error', value: 'No matching record' }],
+    events: [], procedure: null, today: '2026-11-02',
+  };
+  const d = diagnoseCase(input);
+  assert.equal(d.issue.how, 'error_label', 'the diagnosis reads the issue from the mapped error text');
+  assert.ok(!section(d, 'missing_information').some((s) => /^Exact error description from the report/.test(s.text)), 'so it does not ask for that text again');
+
+  const dash = diagnoseCase({ ...input, sheet: [{ field: 'error_text', column: 'Error', value: '—' }], item: { ...input.item, title: 'Unmatched transaction: no matching record' } });
+  assert.ok(section(dash, 'missing_information').some((s) => /^Exact error description from the report: not recorded/.test(s.text)), 'a dash is not the error text');
+});
