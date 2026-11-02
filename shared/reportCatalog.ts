@@ -9,7 +9,7 @@ import { PERIOD_OPTIONS, formatDollarsExact, formatNumber, type PeriodKey } from
 
 export const REPORT_FORMAT = 'vantage-report/1';
 
-export const REPORT_TYPES = ['individual', 'unit', 'personnel', 'duty', 'training', 'financial', 'errors', 'workload', 'activity', 'leadership', 'custom'] as const;
+export const REPORT_TYPES = ['individual', 'unit', 'personnel', 'duty', 'training', 'financial', 'errors', 'comparison', 'workload', 'activity', 'leadership', 'custom'] as const;
 export type ReportType = (typeof REPORT_TYPES)[number];
 export const isReportType = (v: unknown): v is ReportType => (REPORT_TYPES as readonly unknown[]).includes(v);
 
@@ -20,7 +20,9 @@ export type ReportSubject = (typeof REPORT_SUBJECTS)[number];
 export const REPORT_FILE_FORMATS = ['pdf', 'csv', 'xlsx', 'json'] as const;
 export type ReportFileFormat = (typeof REPORT_FILE_FORMATS)[number];
 
-export type ReportFilterKey = 'period' | 'track' | 'status' | 'kind' | 'category' | 'area' | 'procedure' | 'state' | 'overdue' | 'as_of' | 'dataset' | 'columns' | 'group' | 'sort';
+export type ReportFilterKey =
+  | 'period' | 'track' | 'status' | 'kind' | 'category' | 'area' | 'procedure' | 'state' | 'overdue' | 'as_of' | 'dataset' | 'columns' | 'group' | 'sort'
+  | 'error_type' | 'snapshot' | 'against';
 
 export interface ReportSpec {
   key: ReportType;
@@ -87,6 +89,11 @@ export const REPORT_SPECS: Record<ReportType, ReportSpec> = {
     key: 'errors', title: 'Error report', group: 'Financial work', subjects: ['unit'], filters: ['procedure', 'state', 'overdue'], period: null,
     question: 'Each financial case by error type: reference, amount, age, stage, who holds it and when it is due.',
     needs: 'Viewing the unit’s shared records.',
+  },
+  comparison: {
+    key: 'comparison', title: 'Error report comparison', group: 'Financial work', subjects: ['unit'], filters: ['error_type', 'snapshot', 'against'], period: null,
+    question: 'Two filed error reports of one kind compared: new, still open, reopened and resolved, what changed, and the figures by type, unit and Marine.',
+    needs: 'Viewing the unit’s shared records. Figures by Marine need opening member records.',
   },
   custom: {
     key: 'custom', title: 'Custom', group: 'Build your own', subjects: ['self', 'member', 'unit'], filters: ['dataset', 'columns', 'period', 'group', 'sort'], period: 'last90',
@@ -249,6 +256,8 @@ export const reportQuerySchema = z.object({
   group: z.string().trim().max(40).optional(),
   sort: z.string().trim().max(40).optional(),
   direction: z.enum(['asc', 'desc']).optional(),
+  // Error report comparison (ADR-0021): the kind of report, the report it is about, and the one it is compared with.
+  error_type: id.optional(), snapshot: id.optional(), against: id.optional(),
 });
 export type ReportQuery = z.infer<typeof reportQuerySchema>;
 

@@ -1393,3 +1393,94 @@ CREATE TABLE IF NOT EXISTS personnel_events (
 );
 CREATE INDEX IF NOT EXISTS idx_personnel_events_user ON personnel_events(user_id, at);
 CREATE INDEX IF NOT EXISTS idx_personnel_events_org ON personnel_events(org_id, at);
+
+-- The kinds of financial error report a Unit Instance files (ADR-0021): unliquidated obligations, open commitments,
+-- unmatched transactions, invoices on hold, sync errors, and its own. Kept by its Unit Managers beside its duty types;
+-- retired rather than deleted, so a report filed under one still names it.
+CREATE TABLE IF NOT EXISTS error_report_types (
+  id          TEXT PRIMARY KEY,
+  org_id      TEXT NOT NULL REFERENCES organizations(id),
+  code        TEXT NOT NULL,
+  name        TEXT NOT NULL,
+  description TEXT,
+  active      INTEGER NOT NULL DEFAULT 1 CHECK (active IN (0, 1)),
+  created_by  TEXT REFERENCES users(id),
+  created_at  TEXT NOT NULL,
+  updated_at  TEXT NOT NULL,
+  UNIQUE (org_id, code)
+);
+
+-- One filed error report (ADR-0021, migration 029): what a report of one type said for one unit on the day it stands on
+-- (as_of), read from an uploaded file. A series is a unit and a type; two of its reports compare. Filed once and never
+-- changed: a report filed in error is withdrawn with a reason, kept, and left out of every comparison. The file's name
+-- and hash are kept here, so the report still says where it came from after the file's bytes are released.
+CREATE TABLE IF NOT EXISTS error_snapshots (
+  id               TEXT PRIMARY KEY,
+  org_id           TEXT NOT NULL REFERENCES organizations(id),
+  unit_id          TEXT NOT NULL REFERENCES units(id),
+  type_id          TEXT NOT NULL REFERENCES error_report_types(id),
+  source_file_id   TEXT NOT NULL REFERENCES source_files(id),
+  filename         TEXT NOT NULL,
+  sha256           TEXT NOT NULL,
+  as_of            TEXT NOT NULL,
+  sheet_name       TEXT NOT NULL,
+  header_row       INTEGER NOT NULL,
+  -- JSON: the one or two columns that identify a row, and each column's role (shared/errorReports.ts COLUMN_ROLES).
+  key_columns      TEXT NOT NULL,
+  columns          TEXT NOT NULL,
+  -- JSON: the statuses, as compared, that close a row.
+  closed_statuses  TEXT NOT NULL DEFAULT '[]',
+  row_count        INTEGER NOT NULL,
+  open_count       INTEGER NOT NULL,
+  open_cents       INTEGER NOT NULL,
+  rejected_rows    INTEGER NOT NULL DEFAULT 0,
+  rejections       TEXT NOT NULL DEFAULT '[]',
+  note             TEXT,
+  filed_by         TEXT NOT NULL REFERENCES users(id),
+  filed_at         TEXT NOT NULL,
+  withdrawn_at     TEXT,
+  withdrawn_by     TEXT REFERENCES users(id),
+  withdrawn_reason TEXT,
+  CHECK (withdrawn_at IS NULL OR (withdrawn_by IS NOT NULL AND withdrawn_reason IS NOT NULL))
+);
+CREATE INDEX IF NOT EXISTS idx_error_snapshots_series ON error_snapshots(unit_id, type_id, as_of);
+CREATE INDEX IF NOT EXISTS idx_error_snapshots_org ON error_snapshots(org_id, filed_at);
+-- One report a day in a series, and one filing of a file, among those not withdrawn.
+CREATE UNIQUE INDEX IF NOT EXISTS idx_error_snapshots_day ON error_snapshots(unit_id, type_id, as_of) WHERE withdrawn_at IS NULL;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_error_snapshots_file ON error_snapshots(unit_id, type_id, sha256) WHERE withdrawn_at IS NULL;
+CREATE TRIGGER IF NOT EXISTS error_snapshots_filed BEFORE UPDATE OF id, org_id, unit_id, type_id, source_file_id, filename, sha256, as_of, sheet_name, header_row, key_columns, columns, closed_statuses, row_count, open_count, open_cents, rejected_rows, rejections, note, filed_by, filed_at ON error_snapshots FOR EACH ROW
+BEGIN SELECT RAISE(ABORT, 'a filed error report is never changed: file the corrected report, and withdraw this one'); END;
+CREATE TRIGGER IF NOT EXISTS error_snapshots_withdrawn BEFORE UPDATE OF withdrawn_at, withdrawn_by, withdrawn_reason ON error_snapshots FOR EACH ROW WHEN OLD.withdrawn_at IS NOT NULL
+BEGIN SELECT RAISE(ABORT, 'a withdrawn error report stays withdrawn'); END;
+CREATE TRIGGER IF NOT EXISTS error_snapshots_append_only_delete BEFORE DELETE ON error_snapshots
+FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1'
+BEGIN SELECT RAISE(ABORT, 'a filed error report is never removed: withdraw it'); END;
+
+-- The rows of a filed error report, one per identifier, as the report gave them: the fields its columns were given
+-- roles for, read once when it was filed, and every column it kept (data, JSON, header to cell). Never changed or removed.
+-- owner_user_id is the Marine the owner names, when it named exactly one in the unit on the day it was filed.
+CREATE TABLE IF NOT EXISTS error_snapshot_rows (
+  snapshot_id   TEXT NOT NULL REFERENCES error_snapshots(id),
+  natural_key   TEXT NOT NULL,
+  source_row    INTEGER NOT NULL,
+  reference     TEXT,
+  description   TEXT,
+  category      TEXT,
+  unit_text     TEXT,
+  owner         TEXT,
+  owner_user_id TEXT REFERENCES users(id),
+  status        TEXT,
+  closed        INTEGER NOT NULL CHECK (closed IN (0, 1)),
+  amount_cents  INTEGER,
+  opened_on     TEXT,
+  age_days      INTEGER,
+  data          TEXT NOT NULL DEFAULT '{}',
+  PRIMARY KEY (snapshot_id, natural_key)
+);
+CREATE INDEX IF NOT EXISTS idx_error_snapshot_rows_key ON error_snapshot_rows(natural_key);
+CREATE INDEX IF NOT EXISTS idx_error_snapshot_rows_owner ON error_snapshot_rows(owner_user_id) WHERE owner_user_id IS NOT NULL;
+CREATE TRIGGER IF NOT EXISTS error_snapshot_rows_append_only_update BEFORE UPDATE ON error_snapshot_rows
+BEGIN SELECT RAISE(ABORT, 'the rows of a filed error report are never changed'); END;
+CREATE TRIGGER IF NOT EXISTS error_snapshot_rows_append_only_delete BEFORE DELETE ON error_snapshot_rows
+FOR EACH ROW WHEN COALESCE((SELECT value FROM meta WHERE key = 'demo_database'), '0') <> '1'
+BEGIN SELECT RAISE(ABORT, 'the rows of a filed error report are never removed'); END;

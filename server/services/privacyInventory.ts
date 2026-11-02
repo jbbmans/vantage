@@ -540,6 +540,33 @@ export const DECLARATIONS: Record<string, TableDeclaration> = {
     access: 'The person; the unit when shared.',
     columns: { id: 'technical', user_id: 'identifier', unit_id: 'employment', name: 'none', shared: 'none', config: 'none', created_at: 'technical', updated_at: 'technical' },
   },
+  error_report_types: {
+    purpose: 'The kinds of financial error report a Unit Instance files: ULO, OCMT, UMT, invoices on hold, sync errors and its own.',
+    authority: 'Unit administration; kept by the Unit Instance’s Unit Managers, every change audited (ADR-0021).',
+    access: 'Everyone who may read the Unit Instance’s error reports; changed by its Unit Managers. Not about a person.',
+    columns: { id: 'technical', org_id: 'technical', code: 'none', name: 'none', description: 'none', active: 'none', created_by: 'identifier', created_at: 'technical', updated_at: 'technical' },
+  },
+  error_snapshots: {
+    purpose: 'One financial error report as a unit filed it: the day it stands on, the file it was read from, how its columns were read, its counts, and who filed or withdrew it.',
+    authority: 'Operational financial management records of the unit; filed once and never changed, withdrawn with a reason rather than deleted (ADR-0021).',
+    access: 'Those who may view the unit’s shared records; filed and withdrawn by those who may post its work.',
+    columns: {
+      id: 'technical', org_id: 'technical', unit_id: 'employment', type_id: 'technical', source_file_id: 'technical', filename: 'performance', sha256: 'technical',
+      as_of: 'technical', sheet_name: 'none', header_row: 'none', key_columns: 'none', columns: 'none', closed_statuses: 'none', row_count: 'none',
+      open_count: 'none', open_cents: 'none', rejected_rows: 'none', rejections: 'performance', note: 'performance', filed_by: 'identifier', filed_at: 'technical',
+      withdrawn_at: 'technical', withdrawn_by: 'identifier', withdrawn_reason: 'performance',
+    },
+  },
+  error_snapshot_rows: {
+    purpose: 'The rows of a filed error report, as the report gave them: each error, its amount, status and owner, and every column it kept.',
+    authority: 'As error_snapshots. The owner is the name the report gives; a Marine of the unit is linked only when it names exactly one.',
+    access: 'Those who may view the unit’s shared records. Figures by Marine need opening member records there.',
+    columns: {
+      snapshot_id: 'technical', natural_key: 'performance', source_row: 'technical', reference: 'performance', description: 'performance', category: 'performance',
+      unit_text: 'employment', owner: 'identifier', owner_user_id: 'identifier', status: 'performance', closed: 'performance', amount_cents: 'performance',
+      opened_on: 'performance', age_days: 'performance', data: 'performance',
+    },
+  },
   report_definitions: {
     purpose: 'A saved report: which report, and the filters it runs with, which may name the Marine it is about. Never its figures.',
     authority: 'Necessary to operate the product.',

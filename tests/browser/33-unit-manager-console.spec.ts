@@ -15,7 +15,7 @@ const H = { 'x-vantage-client': '1' };
 const serious = (violations: Array<{ impact?: string | null; id: string; nodes: unknown[] }>) => violations.filter((v) => v.impact === 'serious' || v.impact === 'critical').map((v) => `${v.id} (${v.nodes.length})`);
 const PAGES: Array<[string, string]> = [
   ['units', 'Units and teams'], ['billets', 'Billets'], ['unit-roles', 'Unit roles'], ['duty', 'Duty'], ['training', 'Training'],
-  ['work', 'Work and reports'], ['data', 'Imports and exports'], ['audit', 'Audit trail'], ['settings', 'Settings'],
+  ['error-reports', 'Error reports'], ['work', 'Work and reports'], ['data', 'Imports and exports'], ['audit', 'Audit trail'], ['settings', 'Settings'],
 ];
 
 async function openConsole(page: Page, path: string, heading: string) {

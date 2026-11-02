@@ -1,6 +1,6 @@
 import { useEffect } from 'react';
 import { Navigate, useLocation, useNavigate } from 'react-router-dom';
-import { Archive, ArrowLeftRight, Building2, ClipboardList, Gauge, GraduationCap, HeartPulse, IdCard, KeyRound, ScrollText, Settings2, Shield, ShieldAlert, ShieldCheck, SlidersHorizontal, Users } from 'lucide-react';
+import { Archive, ArrowLeftRight, Building2, ClipboardList, FileWarning, Gauge, GraduationCap, HeartPulse, IdCard, KeyRound, ScrollText, Settings2, Shield, ShieldAlert, ShieldCheck, SlidersHorizontal, Users } from 'lucide-react';
 import { ConsoleFrame, ConsoleLayout, type ConsoleSection } from '@/components/ConsoleFrame';
 import { PersonnelConsole, PrivacyConsole, RetentionConsole } from '@/components/GovernanceConsole';
 import { Select } from '@/components/ui/primitives';
@@ -30,6 +30,7 @@ function sectionsFor(org: OrgSummary): ConsoleSection[] {
     { path: 'unit-roles', label: 'Unit roles', icon: Shield, title: 'Unit roles', lede: 'The roles in each unit, what they allow there, and who holds them.', render: () => <Config.UnitRoles org={org} />, hidden: !(can('org.roles') || can('org.members') || can('org.owners')) },
     { path: 'duty', label: 'Duty', icon: ShieldAlert, title: 'Duty', lede: 'The kinds of duty your Unit Instance stands, and the points each earns.', render: () => <Config.Duty org={org} /> },
     { path: 'training', label: 'Training', icon: GraduationCap, title: 'Training', lede: 'The training your Unit Instance requires of its Marines.', render: () => <Config.Training org={org} /> },
+    { path: 'error-reports', label: 'Error reports', icon: FileWarning, title: 'Error reports', lede: 'The kinds of financial error report your units file and compare report to report.', render: () => <Config.ErrorReportTypes org={org} /> },
     { path: 'work', label: 'Work and reports', icon: SlidersHorizontal, title: 'Work and reports', lede: 'How long a claim on queued work holds, and where reports open.', render: () => <Config.WorkAndReports org={org} /> },
     { path: 'data', label: 'Imports and exports', icon: ArrowLeftRight, title: 'Imports and exports', lede: 'Bring accounts and configuration in, and take structure, rosters, configuration and the audit trail out.', render: () => <Config.ImportsExports org={org} />, hidden: !['org.export', 'org.audit', 'org.members', 'org.personnel', 'org.config'].some(can) },
     { path: 'personnel', label: 'Personnel feed', icon: IdCard, title: 'Personnel feed', lede: 'The roster extract that keeps names, ranks and EAS dates current, and separates people who left.', render: () => <PersonnelConsole orgId={id} />, hidden: !can('org.personnel') },
@@ -42,7 +43,7 @@ function sectionsFor(org: OrgSummary): ConsoleSection[] {
   ];
 }
 
-const SECTION_PATHS = new Set(['people', 'units', 'billets', 'unit-roles', 'duty', 'training', 'work', 'data', 'personnel', 'retention', 'access', 'privacy', 'audit', 'operations', 'settings']);
+const SECTION_PATHS = new Set(['people', 'units', 'billets', 'unit-roles', 'duty', 'training', 'error-reports', 'work', 'data', 'personnel', 'retention', 'access', 'privacy', 'audit', 'operations', 'settings']);
 const STORE = 'vantage.console.org';
 
 function OrgConsole({ identity }: { identity: Identity }) {

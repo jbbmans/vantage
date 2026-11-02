@@ -103,7 +103,7 @@ export function pruneSources(ctx: AppContext): number {
 }
 
 /** Vantage can turn spreadsheet intake off for one Unit Instance (ADR-0014): uploads and imports into it are refused. */
-function assertIntakeOn(ctx: AppContext, unitId: string | null, userId: string) {
+export function assertIntakeOn(ctx: AppContext, unitId: string | null, userId: string) {
   if (isWithheld(ctx, governingInstance(ctx, unitId, userId), 'intake')) throw forbidden('Vantage has turned spreadsheet intake off for this Unit Instance.', 'feature_withheld');
 }
 
@@ -206,7 +206,8 @@ export function inspectSource(ctx: AppContext, row: SourceFileRow): { sheets: Sh
   }
 }
 
-function sheetRows(ctx: AppContext, row: SourceFileRow, sheetName: string): string[][] {
+/** The rows of one sheet of an upload, as the reader gives them. The error reports read a filed report through it (ADR-0021). */
+export function sheetRows(ctx: AppContext, row: SourceFileRow, sheetName: string): string[][] {
   const buffer = sourceBytes(ctx, row.id);
   const limits = { maxRows: ctx.config.intake.maxRows, maxColumns: ctx.config.intake.maxColumns };
   if (row.kind === 'xlsx') {
@@ -296,7 +297,7 @@ function realCalendarDay(iso: string): boolean {
   return at.getUTCFullYear() === y && at.getUTCMonth() + 1 === m && at.getUTCDate() === d && y >= 1940 && y <= 2100;
 }
 
-function parseDate(value: string): string | null {
+export function parseDate(value: string): string | null {
   const text = value.trim();
   if (/^\d{4}-\d{2}-\d{2}$/.test(text)) return realCalendarDay(text) ? text : null;
   const slash = /^(\d{1,2})[/-](\d{1,2})[/-](\d{2,4})$/.exec(text);

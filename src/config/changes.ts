@@ -8,6 +8,16 @@ export interface Change { date: string; title: string; items: string[] }
 export const CHANGES: Change[] = [
   {
     date: '2026-10-29',
+    title: 'Error reports, compared report to report',
+    items: [
+      'Work → Error reports files the ULO, OCMT, UMT, invoices-on-hold and sync-error reports your unit is sent, from a CSV or an Excel workbook. Say which column identifies an error and which statuses mean closed; the next report of the kind is set up the same way.',
+      'Each report is kept exactly as it stood on its day. One filed in error is withdrawn with a reason and stays listed.',
+      'Any two reports of a kind compare: what is new, still open, reopened or resolved, what changed amount, owner or status, with the resolution rate, value resolved, ages, and the errors that keep coming back or never leave, by error type, unit and Marine.',
+      'Every figure opens the rows behind it, with the file and row each came from. The Report library prints the comparison or takes it as a file.',
+    ],
+  },
+  {
+    date: '2026-10-29',
     title: 'Reports you can print and file',
     items: [
       'Reports & Analytics → Report library holds every report: Individual performance, Unit performance, Personnel, Duty, Training, Financial KPI, Error report, Workload, Activity, Leadership, and Custom, where you choose the records, columns, grouping and order.',

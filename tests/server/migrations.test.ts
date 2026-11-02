@@ -432,3 +432,29 @@ test('026 gives activities and training an end, times and ongoing, keeps what wa
     db.close();
   } finally { cleanup(); }
 });
+
+test('029 adds error reports, empty, and keeps a report, its type and its file in one Unit Instance from the start', () => {
+  const { path, cleanup } = atVersion(28, (db) => {
+    // The database as it was before 029: no error report tables.
+    for (const table of ['error_snapshot_rows', 'error_snapshots', 'error_report_types']) db.exec(`DROP TABLE ${table}`);
+  });
+  try {
+    let db = openDatabase(path);
+    const trail = () => (db.prepare("SELECT name FROM sqlite_master WHERE type = 'trigger' AND (tbl_name LIKE 'error_%' OR name LIKE '%snapshots%') ORDER BY name").all() as Array<{ name: string }>).map((t) => t.name);
+    assert.ok(migrationHistory(db).some((m) => m.id === 29 && m.name === '029_error_report_snapshots'));
+    for (const table of ['error_report_types', 'error_snapshots', 'error_snapshot_rows']) {
+      assert.equal((db.prepare(`SELECT COUNT(*) AS n FROM ${table}`).get() as { n: number }).n, 0, `${table} starts empty: the standard types are given when a Unit Instance first opens its error reports`);
+    }
+    const triggers = trail();
+    for (const name of ['error_snapshots_same_org', 'error_report_types_snapshots_same_org', 'source_files_snapshots_same_org', 'error_snapshots_filed', 'error_snapshots_withdrawn', 'error_snapshots_append_only_delete']) {
+      assert.ok(triggers.includes(name), name);
+    }
+    assert.deepEqual(instanceBoundaryViolations(db), {});
+    db.close();
+    // A second boot changes nothing.
+    db = openDatabase(path);
+    assert.deepEqual(trail(), triggers);
+    assert.equal(Number((db.prepare("SELECT value FROM meta WHERE key = 'schema_version'").get() as { value: string }).value), SCHEMA_VERSION);
+    db.close();
+  } finally { cleanup(); }
+});

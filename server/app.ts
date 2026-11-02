@@ -30,6 +30,7 @@ import { pruneStagedImports } from './services/recordImport.ts';
 import { orgRouter } from './routes/org.ts';
 import { miscRouter } from './routes/misc.ts';
 import { reportCenterRouter } from './routes/reportCenter.ts';
+import { errorReportsRouter } from './routes/errorReports.ts';
 import { platformRouter } from './routes/platform.ts';
 import { sweepExpiries, warnEndingAccess } from './services/access.ts';
 import { orgsRouter } from './routes/orgs.ts';
@@ -372,6 +373,7 @@ export function createApp(ctx: AppContext) {
   app.use('/api/support', supportRouter);
   app.use('/api/public-support', publicSupportRouter);
   app.use('/api/report-center', reportCenterRouter);
+  app.use('/api/error-reports', errorReportsRouter);
   app.use('/api', miscRouter);
   app.use('/api/platform', platformRouter);
   app.use('/api/orgs', orgsRouter);

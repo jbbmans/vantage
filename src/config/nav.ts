@@ -1,5 +1,5 @@
 import {
-  Award, BarChart3, BookOpen, BookOpenCheck, Briefcase, Building2, CalendarRange, ClipboardList, Compass, FileClock, FilePen, FileText, FolderKanban,
+  Award, BarChart3, BookOpen, BookOpenCheck, Briefcase, Building2, CalendarRange, ClipboardList, Compass, FileClock, FilePen, FileText, FileWarning, FolderKanban,
   Gauge, GraduationCap, HeartPulse, History, Inbox, KeyRound, LayoutDashboard, Library, LifeBuoy, ListChecks, Mail, MessagesSquare,
   NotebookPen, ScrollText, Settings2, ShieldCheck, Target, UserPlus, Users, UsersRound, Workflow,
   type LucideIcon,
@@ -21,6 +21,8 @@ export interface Requirement {
   demo?: boolean;
   /** One of the Team sections, which depend on the view and on the permissions held in it. */
   team?: TeamSection;
+  /** Reads the shared records of the unit in view (its full view): the unit's error reports, say. */
+  unitRecords?: boolean;
 }
 
 export type Count = 'tasks' | 'mail' | 'drafts';
@@ -68,6 +70,7 @@ export const GROUPS: NavGroup[] = [
       { to: '/work/queue', label: 'Queue', icon: Inbox, hint: 'Work to claim, and the work you hold' },
       { to: '/work/tasks', label: 'Tasks', icon: ListChecks, hint: 'Your to-dos and the ones assigned to you', count: 'tasks' },
       { to: '/work/projects', label: 'Projects', icon: FolderKanban, hint: 'Taskers and projects with their tasks' },
+      { to: '/work/error-reports', label: 'Error reports', icon: FileWarning, hint: 'ULO, OCMT, UMT and other error reports, compared report to report', when: { unitRecords: true } },
       { to: '/work/correspondence', label: 'Correspondence', icon: Mail, hint: 'Threads, replies owed and contacts', count: 'mail' },
       { to: '/reference', label: 'Reference', icon: Library, key: 'f', hint: 'The FMRA desk reference and balance diagnoser' },
     ],
